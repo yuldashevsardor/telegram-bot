@@ -1,4 +1,4 @@
-import { Planner, plannerInstance } from "../planner/Planner";
+import { Planner, planner } from "../planner/Planner";
 import * as config from "../../config";
 import { Message } from "./Message";
 import { BrokerAlreadyCreatedError } from "./Errors";
@@ -15,7 +15,7 @@ export class Broker {
 
     private readonly settings: BrokerSettings;
 
-    private isRun = false;
+    private _isRun = false;
 
     private constructor(settings: BrokerSettings, planner: Planner) {
         this.planner = planner;
@@ -27,13 +27,17 @@ export class Broker {
             throw new Error("Broker already is run.");
         }
 
-        this.isRun = true;
+        this._isRun = true;
 
         setTimeout(this.handleMessages.bind(this), 0);
     }
 
     public stop(): void {
-        this.isRun = false;
+        this._isRun = false;
+    }
+
+    public get isRun(): boolean {
+        return this._isRun;
     }
 
     private async handleMessages(): Promise<void> {
@@ -65,17 +69,17 @@ export class Broker {
         console.log(error);
 
         if (Broker.isManyRequestError(error)) {
-            const duration = parseInt(error.response.parameters.retry_after) || 0;
+            const duration = parseInt(error.parameters.retry_after) || 0;
             this.planner.ban(duration * 1000);
         }
     }
 
     private static isManyRequestError(error: any): boolean {
-        if (!error || !error.response || !error.response.error_code) {
+        if (!error || !error.error_code) {
             return false;
         }
 
-        return error.response.error_code === TELEGRAM_ERROR_CODES.TO_MANY_REQUESTS;
+        return error.error_code === TELEGRAM_ERROR_CODES.TO_MANY_REQUESTS;
     }
 
     public static create(planner: Planner): Broker {
@@ -96,4 +100,4 @@ export class Broker {
     }
 }
 
-export const brokerInstance = Broker.create(plannerInstance);
+export const broker = Broker.create(planner);

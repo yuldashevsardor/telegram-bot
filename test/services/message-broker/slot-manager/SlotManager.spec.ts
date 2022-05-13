@@ -1,4 +1,4 @@
-import { GroupSlotManager } from "../../../../src/modules/broker/slot-manager/GroupSlotManager";
+import { GroupSlotManager } from "../../../../src/modules/slot-manager/GroupSlotManager";
 import { expect } from "chai";
 
 const limitNumber = 10;

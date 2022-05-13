@@ -1,4 +1,4 @@
-import * as config from "../../../config";
+import * as config from "../../config";
 import { SlotManager } from "./SlotManager";
 
 export class GroupSlotManager extends SlotManager {

@@ -1,8 +1,8 @@
-import { CommonSlotManager } from "../broker/slot-manager/CommonSlotManager";
-import { GroupSlotManager } from "../broker/slot-manager/GroupSlotManager";
-import { UserSlotManager } from "../broker/slot-manager/UserSlotManager";
-import { DEFAULT_PRIORITY, Message, PRIORITY } from "../broker/Message";
-import { SlotManager } from "../broker/slot-manager/SlotManager";
+import { CommonSlotManager } from "../slot-manager/CommonSlotManager";
+import { GroupSlotManager } from "../slot-manager/GroupSlotManager";
+import { PrivateSlotManager } from "../slot-manager/PrivateSlotManager";
+import { Message, PRIORITY } from "../broker/Message";
+import { SlotManager } from "../slot-manager/SlotManager";
 import { PlannerAlreadyCreatedError } from "./Errors";
 
 type PlannerMessages = {
@@ -18,6 +18,8 @@ export class Planner {
 
     private readonly managers: Map<number, SlotManager>;
 
+    private banExpirationTime: number | null;
+
     private constructor() {
         this.messages = {
             [PRIORITY.HIGH]: [],
@@ -28,9 +30,10 @@ export class Planner {
         this.commonManager = CommonSlotManager.build();
         this.managers = new Map<number, SlotManager>();
         this.logMessageCount();
+        this.logBanExpires();
     }
 
-    public push(message: Message, priority: PRIORITY = DEFAULT_PRIORITY): void {
+    public push(message: Message, priority: PRIORITY): void {
         switch (priority) {
             case PRIORITY.HIGH:
                 this.messages.HIGH.push(message);
@@ -44,6 +47,10 @@ export class Planner {
     }
 
     public pull(): Message | null {
+        if (this.isBanned()) {
+            return null;
+        }
+
         if (this.isEmpty()) {
             return null;
         }
@@ -72,7 +79,17 @@ export class Planner {
     }
 
     public ban(duration: number): void {
-        this.commonManager.ban(Date.now() + duration);
+        const expirationTime = duration + Date.now();
+
+        if (expirationTime < Date.now()) {
+            return;
+        }
+
+        this.banExpirationTime = expirationTime;
+    }
+
+    private isBanned(): boolean {
+        return this.banExpirationTime !== null && this.banExpirationTime >= Date.now();
     }
 
     private pullByPriority(priority: PRIORITY): {
@@ -107,7 +124,7 @@ export class Planner {
         let manager = this.managers.get(message.chatId);
 
         if (!manager) {
-            manager = message.isGroup ? GroupSlotManager.build() : UserSlotManager.build();
+            manager = message.isGroup ? GroupSlotManager.build() : PrivateSlotManager.build();
 
             this.managers.set(message.chatId, manager);
         }
@@ -131,6 +148,15 @@ export class Planner {
         }, 10000).unref();
     }
 
+    private logBanExpires(): void {
+        setInterval(() => {
+            if (this.isBanned()) {
+                const banExpires = Math.floor((this.banExpirationTime - Date.now()) / 1000);
+                console.log(`Ban expires in ${banExpires} second.`);
+            }
+        }, 10000).unref();
+    }
+
     public static create(): Planner {
         if (alreadyCreated) {
             throw new PlannerAlreadyCreatedError();
@@ -143,4 +169,4 @@ export class Planner {
     }
 }
 
-export const plannerInstance = Planner.create();
+export const planner = Planner.create();

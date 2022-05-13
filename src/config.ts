@@ -1,5 +1,5 @@
 import * as dotenv from "dotenv";
-import { Limit } from "./modules/broker/slot-manager/SlotManager";
+import { Limit } from "./modules/slot-manager/SlotManager";
 
 dotenv.config();
 
@@ -18,7 +18,7 @@ export const environment: Environment = (env.ENVIRONMENT as Environment) || "dev
 
 export type Limits = {
     common: Limit;
-    user: Limit;
+    private: Limit;
     group: Limit;
 };
 export const managerLimits: Limits = {
@@ -26,9 +26,9 @@ export const managerLimits: Limits = {
         number: convertToInteger(process.env.LIMIT_COMMON_NUMBER) || 30,
         interval: convertToInteger(process.env.LIMIT_COMMON_INTERVAL) || 1000, // 1 секунда
     },
-    user: {
-        number: convertToInteger(process.env.LIMIT_USER_NUMBER) || 1,
-        interval: convertToInteger(process.env.LIMIT_USER_INTERVAL) || 1000, // 1 секунда
+    private: {
+        number: convertToInteger(process.env.LIMIT_PRIVATE_NUMBER) || 1,
+        interval: convertToInteger(process.env.LIMIT_PRIVATE_INTERVAL) || 1000, // 1 секунда
     },
     group: {
         number: convertToInteger(process.env.LIMIT_GROUP_NUMBER) || 20,

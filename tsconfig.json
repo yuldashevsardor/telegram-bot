@@ -12,6 +12,7 @@
         "esModuleInterop": true,
         "declarationMap": true,
         "inlineSourceMap": true,
+        "skipLibCheck": true,
         "lib": [
             "es2019"
         ],
