@@ -43,3 +43,7 @@ export const broker = {
 export const bot = {
     token: process.env.BOT_TOKEN || "",
 };
+
+export const tempDir = process.env.TEMP_DIR || "/tmp";
+
+export const pythonPath = process.env.PYTHON_PATH;
