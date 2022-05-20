@@ -1,5 +1,6 @@
 import * as dotenv from "dotenv";
 import { Limit } from "./modules/slot-manager/SlotManager";
+import path from "path";
 
 dotenv.config();
 
@@ -15,6 +16,8 @@ const env = process.env;
 
 export type Environment = "production" | "development" | "testing";
 export const environment: Environment = (env.ENVIRONMENT as Environment) || "development";
+
+console.log(process.cwd());
 
 export type Limits = {
     common: Limit;
@@ -44,6 +47,8 @@ export const bot = {
     token: process.env.BOT_TOKEN || "",
 };
 
-export const tempDir = process.env.TEMP_DIR || "/tmp";
+export const root = process.cwd();
 
-export const pythonPath = process.env.PYTHON_PATH;
+export const tempDir = process.env.TEMP_DIR || path.join(root, "temp");
+
+export const pythonPath = process.env.PYTHON_PATH || "python";

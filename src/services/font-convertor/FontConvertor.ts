@@ -1,58 +1,72 @@
-import { ConvertParams, Format } from "./Types";
-import * as fs from "fs/promises";
-import * as fsSync from "fs";
-import { InvalidFormat, PermissionDenied } from "./Errors";
-import { tempDir } from "../../config";
+import { ConvertParams, Extension, FontConvertorParams } from "./Types";
+import path from "path";
+import { FileHelper } from "../../utils/file/FileHelper";
+import { InvalidPath, PermissionDenied } from "../../utils/file/Errors";
+import { StringHelper } from "../../utils/StringHelper";
+import { FontConvertorError } from "./Errors";
+import { pythonPath, tempDir } from "../../config";
+import { ConvertorFactory } from "./convertor/ConvertorFactory";
 
 export class FontConvertor {
-    private readonly allowedFormats = Object.values(Format);
+    private readonly tempDir: string;
+    private readonly pythonPath: string;
+    private isPrepared = false;
 
-    private readonly commandLayout: string = `{PYTHON} -c "
-        from fontTools.ttLib import TTFont; 
-        f = TTFont('{SRC}');
-        f.flavor='{FORMAT}';
-        f.save('{DIST}')"
-        `;
-
-    public async prepare(): Promise<void> {
-        await FontConvertor.checkReadAccess(tempDir);
-        await FontConvertor.checkWriteAccess(tempDir);
+    public constructor(params: FontConvertorParams) {
+        this.tempDir = params.tempDir;
+        this.pythonPath = params.pythonPath;
     }
 
-    private static async checkReadAccess(path: string): Promise<void> {
-        try {
-            await fs.access(path, fsSync.constants.R_OK);
-        } catch (error) {
-            PermissionDenied.read(path);
+    private async prepare(): Promise<void> {
+        if (this.isPrepared) {
+            return;
         }
-    }
 
-    private static async checkWriteAccess(path: string): Promise<void> {
-        try {
-            await fs.access(path, fsSync.constants.W_OK);
-        } catch (error) {
-            PermissionDenied.write(path);
+        if (!(await FileHelper.isExist(this.tempDir))) {
+            throw InvalidPath.isNotExist(this.tempDir);
         }
+
+        if (!(await FileHelper.isReadable(this.tempDir))) {
+            throw PermissionDenied.read(this.tempDir);
+        }
+
+        if (!(await FileHelper.isWritable(this.tempDir))) {
+            throw PermissionDenied.write(this.tempDir);
+        }
+
+        if (!(await FileHelper.isDirectory(this.tempDir))) {
+            throw InvalidPath.isNotDirectory(this.tempDir);
+        }
+
+        this.isPrepared = true;
     }
 
     public async convert(params: ConvertParams): Promise<string> {
-        await FontConvertor.checkReadAccess(params.path);
-        await FontConvertor.checkWriteAccess(params.path);
+        await this.prepare();
 
-        const srcFormat = params.path.split(".").pop();
+        const originExtension = await FileHelper.getFileExtension(params.originPath);
 
-        if (!this.allowedFormats.includes(srcFormat as Format)) {
-            InvalidFormat.byFilePath(params.path);
+        if (originExtension === params.extension) {
+            throw new FontConvertorError("New and old font extension cannot be equal.");
         }
 
-        if (srcFormat === params.format) {
-            throw new InvalidFormat("Font new format must be different");
+        const newFontFilename = StringHelper.generateRandomString(15) + "." + params.extension;
+        const directory = await FileHelper.createDirectoriesByData(this.tempDir);
+        const newFontPath = path.join(directory, newFontFilename).toLowerCase();
+        const convertorFactory = new ConvertorFactory(originExtension as Extension, params.extension);
+
+        try {
+            const convertor = convertorFactory.get();
+            await convertor.convert(params.originPath, newFontPath);
+        } catch (error) {
+            throw new FontConvertorError(error.message);
         }
 
-        return "";
-    }
-
-    public composeConvertCommand(params: string): string {
-        return "";
+        return newFontPath;
     }
 }
+
+export const fontConvertor = new FontConvertor({
+    tempDir: tempDir,
+    pythonPath: pythonPath,
+});

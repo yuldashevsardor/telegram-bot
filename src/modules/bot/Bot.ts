@@ -31,7 +31,7 @@ export class Bot {
         try {
             await this.broker.run();
             await this.configure();
-            await this.bot.start().catch(this.handleError);
+            await this.bot.start().catch(this.handleError.bind(this));
             this.isRun = true;
         } catch (error) {
             if (this.broker.isRun) {
