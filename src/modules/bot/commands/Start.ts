@@ -10,24 +10,20 @@ export const command = "start";
 export const handler: CommandHandler = async (ctx) => {
     for (let i = 0; i < 100; i++) {
         try {
-            let start = dayjs();
-            const woffPath = path.join(root, "temp", "test-font.woff");
-            const woff2Path = await fontConvertor.convert({
-                originPath: woffPath,
-                extension: Extension.WOFF2,
-            });
-            let diff = dayjs().diff(start, "millisecond");
-            console.log(`convert woff to woff2 time: ${diff}ms`);
-            await ctx.reply(`woff2Path: ${woff2Path}`);
-
-            start = dayjs();
-            const newWoffPath = await fontConvertor.convert({
-                originPath: woff2Path,
+            const start = dayjs();
+            const ttfPath = path.join(root, "temp", "test-font.woffl");
+            const woffPath = await fontConvertor.convert({
+                originPath: ttfPath,
                 extension: Extension.WOFF,
             });
-            diff = dayjs().diff(start, "millisecond");
-            console.log(`convert woff2 to woff time: ${diff}ms`);
-            await ctx.reply(`woffPath: ${newWoffPath}`);
+
+            const woff2Path = await fontConvertor.convert({
+                originPath: ttfPath,
+                extension: Extension.WOFF2,
+            });
+
+            const diff = dayjs().diff(start, "millisecond");
+            console.log(`convert woff to woff2 time: ${diff}ms`);
         } catch (error) {
             console.error(error);
         }

@@ -3,6 +3,10 @@ import { Convertor } from "./Convertor";
 import { ConvertorNotFound } from "../Errors";
 import { WoffToWoff2 } from "./woff/WoffToWoff2";
 import { Woff2ToWoff } from "./woff2/Woff2ToWoff";
+import { TtfToWoff } from "./ttf/TtfToWoff";
+import { TtfToWoff2 } from "./ttf/TtfToWoff2";
+import { WoffToTtf } from "./woff/WoffToTtf";
+import { Woff2ToTtf } from "./woff2/Woff2ToTtf";
 
 export class ConvertorFactory {
     public constructor(private readonly fromExtension: Extension, private readonly toExtension: Extension) {}
@@ -36,6 +40,10 @@ export class ConvertorFactory {
             return new WoffToWoff2();
         }
 
+        if (this.toExtension === Extension.TTF) {
+            return new WoffToTtf();
+        }
+
         throw ConvertorNotFound.byExtensions(Extension.WOFF, this.toExtension);
     }
 
@@ -44,10 +52,22 @@ export class ConvertorFactory {
             return new Woff2ToWoff();
         }
 
+        if (this.toExtension === Extension.TTF) {
+            return new Woff2ToTtf();
+        }
+
         throw ConvertorNotFound.byExtensions(Extension.WOFF2, this.toExtension);
     }
 
     private getTTFConvertor(): Convertor {
+        if (this.toExtension === Extension.WOFF) {
+            return new TtfToWoff();
+        }
+
+        if (this.toExtension === Extension.WOFF2) {
+            return new TtfToWoff2();
+        }
+
         throw ConvertorNotFound.byExtensions(Extension.TTF, this.toExtension);
     }
 

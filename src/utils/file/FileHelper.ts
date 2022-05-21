@@ -87,12 +87,7 @@ export class FileHelper {
             await fs.mkdir(pathWithDay);
         }
 
-        const pathWithHour = path.join(pathWithDay, hour.toString());
-        if (!(await FileHelper.isExist(pathWithHour))) {
-            await fs.mkdir(pathWithHour);
-        }
-
-        return pathWithHour;
+        return pathWithDay;
     }
 
     // public static async getMimeType(path: string): Promise<string> {
