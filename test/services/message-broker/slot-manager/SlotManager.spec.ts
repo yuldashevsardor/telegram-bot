@@ -1,5 +1,5 @@
-import { GroupSlotManager } from "../../../../src/modules/slot-manager/GroupSlotManager";
 import { expect } from "chai";
+import { SlotManager } from "App/Modules/SlotManager/SlotManager";
 
 const limitNumber = 10;
 const limitInterval = 1000;
@@ -7,19 +7,6 @@ const slotTimeout = limitInterval / limitNumber;
 
 describe("SlotManager", function () {
     this.timeout(limitInterval * 3);
-    it("slot-manager is empty", function () {
-        const manager = build();
-
-        expect(manager.isEmpty()).to.be.true;
-    });
-
-    it("manager is not empty after reserve", function () {
-        const manager = build();
-
-        manager.reserve();
-
-        expect(manager.isEmpty()).to.be.false;
-    });
 
     it("manager is free", function () {
         const manager = build();
@@ -53,8 +40,8 @@ describe("SlotManager", function () {
     });
 });
 
-function build(): GroupSlotManager {
-    return new GroupSlotManager({
+function build(): SlotManager {
+    return new SlotManager({
         interval: limitInterval,
         number: limitNumber,
     });

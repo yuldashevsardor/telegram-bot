@@ -4,29 +4,36 @@
         "declaration": true,
         "module": "commonjs",
         "moduleResolution": "node",
-        "target": "es2016",
+        "target": "es2022",
         "declarationDir": "./typings",
         "experimentalDecorators": true,
         "emitDecoratorMetadata": true,
         "importHelpers": true,
         "esModuleInterop": true,
         "declarationMap": true,
-        "inlineSourceMap": true,
+        //        "inlineSourceMap": true,
         "skipLibCheck": true,
+        "strictNullChecks": true,
+        "strictPropertyInitialization": true,
+        "skipDefaultLibCheck": true,
+        "sourceMap": true,
         "lib": [
-            "es2019"
+            "ES2019",
+            "DOM"
         ],
         "types": [
             "node",
             "mocha",
-            "chai"
+            "chai",
+            "reflect-metadata"
         ],
-        "outDir": "./build"
-    },
-    "paths": {
-        "*": [
-            "types/*"
-        ]
+        "outDir": "./build",
+        "baseUrl": ".",
+        "paths": {
+            "App/*": [
+                "./src/*"
+            ]
+        }
     },
     "include": [
         "src/**/*.ts",

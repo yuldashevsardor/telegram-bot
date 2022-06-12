@@ -1,0 +1,21 @@
+version: '3.8'
+services:
+    pgsql:
+        image: postgres:14.1-alpine
+        restart: always
+        env_file:
+            - .env
+        environment:
+            - POSTGRES_USER=${POSTGRES_SUPERUSER_NAME}
+            - POSTGRES_PASSWORD=${POSTGRES_SUPERUSER_PASSWORD}
+            - TZ=${POSTGRES_TIMEZONE}
+            - PGTZ=${POSTGRES_TIMEZONE}
+            - PGDATESTYLE=${POSTGRES_DATE_STYLE}
+        ports:
+            - ${POSTGRES_PORT}:5432
+        volumes:
+            - ./tmp/pgsql:/var/lib/postgresql/data
+            - ./docker/pgsql/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+volumes:
+    pgsql:
+        driver: local
