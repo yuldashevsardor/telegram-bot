@@ -1,9 +1,25 @@
-import { Bot } from "./modules/bot/Bot";
+import { container } from "App/Config/Dependency/Container";
+import { Bot } from "App/Modules/Bot/Bot";
+import { Modules } from "App/Config/Dependency/Symbols/Modules";
 
-const bot = new Bot();
+let bot: Bot | null = null;
 
-bot.run();
+async function bootstrap(): Promise<void> {
+    await container.load();
+    bot = container.get<Bot>(Modules.Bot.Bot);
+    await bot.run();
+}
+
+async function stop(): Promise<void> {
+    if (bot) {
+        await bot.stop();
+    }
+
+    await container.close();
+}
 
 // Enable graceful stop
-process.once("SIGINT", () => bot.stop());
-process.once("SIGTERM", () => bot.stop());
+process.once("SIGINT", stop);
+process.once("SIGTERM", stop);
+
+bootstrap().catch(console.error);
