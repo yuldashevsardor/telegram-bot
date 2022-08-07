@@ -26,7 +26,7 @@ export class StartCommand extends Command {
         super();
     }
 
-    protected async handler(ctx: Context): Promise<void> {
+    protected async handle(ctx: Context): Promise<void> {
         const promises: any[] = [];
         const chats = [2815426, 5067823410, 858262157];
         for (let i = 0; i < 1000; i++) {
