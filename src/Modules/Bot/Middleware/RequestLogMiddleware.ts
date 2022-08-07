@@ -6,16 +6,14 @@ import { NextFunction } from "grammy";
 import { Middleware } from "App/Modules/Bot/Middleware/Middleware";
 
 @injectable()
-export class ResponseTimeMiddleware extends Middleware {
+export class RequestLogMiddleware extends Middleware {
     public constructor(@inject<Logger>(Infrastructure.Logger) private readonly logger: Logger) {
         super();
     }
 
     public async handle(context: Context, next: NextFunction): Promise<void> {
-        const start = Date.now();
-        await next();
-        const end = Date.now();
+        this.logger.debug("Request", context.update);
 
-        this.logger.info(`Response time: ${end - start} ms`);
+        return next();
     }
 }

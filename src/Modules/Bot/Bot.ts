@@ -82,7 +82,11 @@ export class Bot {
 
     private configureMiddlewares(): void {
         const composer = new Composer<Context>();
-        const middlewares = [container.get<Middleware>(Modules.Bot.Middleware.ResponseTime)];
+        const middlewares = [
+            container.get<Middleware>(Modules.Bot.Middleware.AsyncLocalStorage),
+            container.get<Middleware>(Modules.Bot.Middleware.ResponseTime),
+            container.get<Middleware>(Modules.Bot.Middleware.RequestLog),
+        ];
 
         for (const middleware of middlewares) {
             middleware.initialize(composer);

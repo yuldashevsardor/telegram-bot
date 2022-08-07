@@ -15,6 +15,11 @@ import { FontGeneratorCommand } from "App/Modules/Bot/Command/FontGeneratorComma
 import { ConsoleLogger } from "App/Services/Logger/ConsoleLogger";
 import { Logger } from "App/Services/Logger/Logger";
 import { ResponseTimeMiddleware } from "App/Modules/Bot/Middleware/ResponseTimeMiddleware";
+import { AbstractLogger } from "App/Services/Logger/AbstractLogger";
+import { RequestLogMiddleware } from "App/Modules/Bot/Middleware/RequestLogMiddleware";
+import { PinoLogger } from "App/Services/Logger/PinoLogger";
+import { asyncLocalStorage } from "App/Config/AsyncLocalStorage";
+import { AsyncLocalStorageMiddleware } from "App/Modules/Bot/Middleware/AsyncLocalStorageMiddleware";
 
 class Container extends InversifyContainer {
     private isLoaded = false;
@@ -59,20 +64,43 @@ class Container extends InversifyContainer {
 
     private async loadInfrastructureLogger(): Promise<void> {
         this.bind<ConsoleLogger>(Infrastructure.ConsoleLogger).to(ConsoleLogger).inSingletonScope();
+        this.bind<PinoLogger>(Infrastructure.PinoLogger).to(PinoLogger).inSingletonScope();
 
         const config = this.get<Config>(Infrastructure.Config);
         const consoleLogger = this.get<ConsoleLogger>(Infrastructure.ConsoleLogger);
+        const pinoLogger = this.get<PinoLogger>(Infrastructure.PinoLogger);
 
         consoleLogger.setLevels(config.logger.levels);
+        pinoLogger.setLevels(config.logger.levels);
 
-        this.bind<Logger>(Infrastructure.Logger).toConstantValue(consoleLogger);
+        this.rebind<Logger>(Infrastructure.ConsoleLogger).toConstantValue(consoleLogger);
+        this.rebind<Logger>(Infrastructure.PinoLogger).toConstantValue(
+            new Proxy(pinoLogger, {
+                get(target, property, receiver): unknown {
+                    target = asyncLocalStorage.getStore()?.get("logger") || target;
+                    target.setLevels(config.logger.levels);
+
+                    return Reflect.get(target, property, receiver);
+                },
+            }),
+        );
+
+        const defaultLogger = this.get<Logger>(config.logger.default);
+
+        if (defaultLogger instanceof AbstractLogger) {
+            defaultLogger.setLevels(config.logger.levels);
+        }
+
+        this.bind<Logger>(Infrastructure.Logger).toConstantValue(defaultLogger);
     }
 
     private async loadBot(): Promise<void> {
         this.bind<Bot>(Modules.Bot.Bot).to(Bot).inSingletonScope();
 
         // Middlewares
+        this.bind<AsyncLocalStorageMiddleware>(Modules.Bot.Middleware.AsyncLocalStorage).to(AsyncLocalStorageMiddleware).inSingletonScope();
         this.bind<ResponseTimeMiddleware>(Modules.Bot.Middleware.ResponseTime).to(ResponseTimeMiddleware).inSingletonScope();
+        this.bind<RequestLogMiddleware>(Modules.Bot.Middleware.RequestLog).to(RequestLogMiddleware).inSingletonScope();
 
         // Commands
         this.bind<BulkMessagesCommand>(Modules.Bot.Command.BulkMessages).to(BulkMessagesCommand).inSingletonScope();

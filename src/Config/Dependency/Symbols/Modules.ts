@@ -12,7 +12,9 @@ export const Modules = {
             FontGenerator: Symbol.for("FontGenerator"),
         },
         Middleware: {
+            AsyncLocalStorage: Symbol.for("AsyncLocalStorage"),
             ResponseTime: Symbol.for("ResponseTime"),
+            RequestLog: Symbol.for("RequestLog"),
         },
     },
 };

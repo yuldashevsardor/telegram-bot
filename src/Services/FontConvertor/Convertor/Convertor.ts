@@ -30,13 +30,25 @@ export abstract class Convertor {
         const extension = (await FileHelper.getFileExtension(fromPath)).toLowerCase();
 
         if (extension !== this.fromExtension) {
-            throw new InvalidFile(`File ${fromPath} extension is invalid. Got: ${extension}. Allowed: ${this.fromExtension}`);
+            throw new InvalidFile({
+                message: "Invalid file extension",
+                payload: {
+                    filePath: fromPath,
+                    extension: extension,
+                    allowed: this.fromExtension,
+                },
+            });
         }
 
         const mimeTypeByExtension = mime.lookup(extension);
 
         if (!mimeTypeByExtension) {
-            throw new InvalidFile(`Invalid file: ${fromPath}. Cannot get mime type`);
+            throw new InvalidFile({
+                message: "Invalid file. Cannot get mime type",
+                payload: {
+                    path: fromPath,
+                },
+            });
         }
 
         if (!this.allowedMimeTypes.includes(mimeTypeByExtension)) {
@@ -71,7 +83,14 @@ export abstract class Convertor {
         const extension = (await FileHelper.getFileExtension(toPath)).toLowerCase();
 
         if (extension !== this.toExtension) {
-            throw new InvalidPath(`New file path ${toPath} extension is invalid. Got: ${extension}. Allowed: ${this.toExtension}`);
+            throw new InvalidFile({
+                message: "New file extension is invalid",
+                payload: {
+                    filePath: toPath,
+                    extension: extension,
+                    allowed: this.toExtension,
+                },
+            });
         }
     }
 

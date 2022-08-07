@@ -18,35 +18,13 @@ export abstract class AbstractLogger implements Logger {
         this.levels = levels;
     }
 
-    critical(message: string, payload?: AnyObject): void {
-        this.innerLog(Level.CRITICAL, message, payload);
-    }
+    public abstract critical(message: string, payload?: AnyObject): void;
 
-    error(message: string, payload?: AnyObject): void {
-        this.innerLog(Level.ERROR, message, payload);
-    }
+    public abstract error(message: string, payload?: AnyObject): void;
 
-    warning(message: string, payload?: AnyObject): void {
-        this.innerLog(Level.WARNING, message, payload);
-    }
+    public abstract warning(message: string, payload?: AnyObject): void;
 
-    info(message: string, payload?: AnyObject): void {
-        this.innerLog(Level.INFO, message, payload);
-    }
+    public abstract info(message: string, payload?: AnyObject): void;
 
-    notice(message: string, payload?: AnyObject): void {
-        this.innerLog(Level.NOTICE, message, payload);
-    }
-
-    debug(message: string, payload?: AnyObject): void {
-        return this.innerLog(Level.DEBUG, message, payload);
-    }
-
-    private innerLog(level: Level, message: string, payload?: AnyObject): void {
-        if (this.levels.includes(level)) {
-            this.log(level, message, payload);
-        }
-    }
-
-    protected abstract log(level: Level, message: string, payload?: AnyObject): void;
+    public abstract debug(message: string, payload?: AnyObject): void;
 }

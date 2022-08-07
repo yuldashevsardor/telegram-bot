@@ -9,7 +9,5 @@ export interface Logger {
 
     info(message: string, payload?: AnyObject): void;
 
-    notice(message: string, payload?: AnyObject): void;
-
     debug(message: string, payload?: AnyObject): void;
 }

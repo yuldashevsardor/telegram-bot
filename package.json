@@ -46,8 +46,10 @@
         "inversify": "^6.0.1",
         "mime-types": "^2.1.35",
         "mmmagic": "^0.5.3",
+        "pino": "^8.4.0",
         "reflect-metadata": "^0.1.13",
-        "tslib": "^2.3.1"
+        "tslib": "^2.3.1",
+        "uuid": "^8.3.2"
     },
     "devDependencies": {
         "@types/chai": "^4.3.0",

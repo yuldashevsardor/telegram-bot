@@ -3,6 +3,8 @@ import path from "path";
 import { Limit } from "App/Modules/SlotManager/SlotManager";
 import { injectable } from "inversify";
 import { Level, Levels } from "App/Services/Logger/Types";
+import { InvalidConfigError } from "App/Common/Errors";
+import { Infrastructure } from "App/Config/Dependency/Symbols/Infrastructure";
 
 dotenv.config();
 
@@ -10,6 +12,8 @@ export type Environment = "production" | "development" | "testing";
 
 @injectable()
 export class Config {
+    private readonly allowedLoggerTypes = ["ConsoleLogger", "PinoLogger"];
+
     public readonly environment: Environment;
     public readonly isProduction: boolean;
 
@@ -33,6 +37,7 @@ export class Config {
     };
 
     public readonly logger: {
+        default: symbol;
         levels: Array<Level>;
     };
 
@@ -68,11 +73,23 @@ export class Config {
             token: Config.getEnvAsString("BOT_TOKEN"),
         };
 
+        const defaultLoggerKey = Config.getEnvAsString("LOGGER_DEFAULT", "") || (this.isProduction ? "PinoLogger" : "ConsoleLogger");
+        const logLevels = Config.getEnvAsArray("LOGGER_LEVELS", []).map((level) => level.toUpperCase());
+
+        if (!this.allowedLoggerTypes.includes(defaultLoggerKey)) {
+            throw new InvalidConfigError({
+                message: "Invalid default logger",
+                payload: {
+                    got: defaultLoggerKey,
+                    allowed: this.allowedLoggerTypes,
+                },
+            });
+        }
+
         this.logger = {
+            default: Infrastructure[defaultLoggerKey],
             levels: [],
         };
-
-        const logLevels = Config.getEnvAsArray("LOG_LEVELS", []).map((level) => level.toUpperCase());
 
         if (!logLevels.length) {
             if (this.isProduction) {
