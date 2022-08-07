@@ -3,8 +3,8 @@ import fsSync from "fs";
 import path from "path";
 import dayjs from "dayjs";
 import { InvalidPath, PermissionDenied } from "App/Helpers/FileHelper/Errors";
-
-// import { Magic, MAGIC_MIME } from "mmmagic";
+import { promisify } from "util";
+import { exec as execOrigin } from "child_process";
 
 export class FileHelper {
     public static async isExist(path: string): Promise<boolean> {
@@ -91,20 +91,19 @@ export class FileHelper {
         return pathWithDay;
     }
 
-    // public static async getMimeType(path: string): Promise<string> {
-    //     if (!(await FileHelper.isReadable(path))) {
-    //         throw PermissionDenied.write(path);
-    //     }
-    //
-    //     if (!(await FileHelper.isFile(path))) {
-    //         throw InvalidPath.isNotFile(path);
-    //     }
-    //
-    //     const magic = new Magic(MAGIC_MIME);
-    //     const detectFile = promisify(magic.detectFile);
-    //
-    //     const mimeType = detectFile(path);
-    //
-    //     return Array.isArray(mimeType) && mimeType.length ? mimeType[0] : mimeType;
-    // }
+    public static async getMimeType(path: string): Promise<string> {
+        if (!(await FileHelper.isReadable(path))) {
+            throw PermissionDenied.write(path);
+        }
+
+        if (!(await FileHelper.isFile(path))) {
+            throw InvalidPath.isNotFile(path);
+        }
+
+        const exec = promisify(execOrigin);
+        const command = `file --mime-type -b "${path}"`;
+        const commandResult = await exec(command);
+
+        return commandResult.stdout.trim();
+    }
 }

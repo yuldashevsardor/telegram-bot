@@ -1,3 +1,3 @@
 export type AnyObject = {
-    [key: string]: any;
+    [key: string | symbol]: any;
 };

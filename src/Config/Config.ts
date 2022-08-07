@@ -2,6 +2,9 @@ import * as dotenv from "dotenv";
 import path from "path";
 import { Limit } from "App/Modules/SlotManager/SlotManager";
 import { injectable } from "inversify";
+import { Level, Levels } from "App/Services/Logger/Types";
+import { InvalidConfigError } from "App/Common/Errors";
+import { Infrastructure } from "App/Config/Dependency/Symbols/Infrastructure";
 
 dotenv.config();
 
@@ -9,6 +12,8 @@ export type Environment = "production" | "development" | "testing";
 
 @injectable()
 export class Config {
+    private readonly allowedLoggerTypes = ["ConsoleLogger", "PinoLogger"];
+
     public readonly environment: Environment;
     public readonly isProduction: boolean;
 
@@ -29,6 +34,11 @@ export class Config {
 
     public readonly bot: {
         token: string;
+    };
+
+    public readonly logger: {
+        default: symbol;
+        levels: Array<Level>;
     };
 
     public constructor() {
@@ -62,6 +72,36 @@ export class Config {
         this.bot = {
             token: Config.getEnvAsString("BOT_TOKEN"),
         };
+
+        const defaultLoggerKey = Config.getEnvAsString("LOGGER_DEFAULT", "") || (this.isProduction ? "PinoLogger" : "ConsoleLogger");
+        const logLevels = Config.getEnvAsArray("LOGGER_LEVELS", []).map((level) => level.toUpperCase());
+
+        if (!this.allowedLoggerTypes.includes(defaultLoggerKey)) {
+            throw new InvalidConfigError({
+                message: "Invalid default logger",
+                payload: {
+                    got: defaultLoggerKey,
+                    allowed: this.allowedLoggerTypes,
+                },
+            });
+        }
+
+        this.logger = {
+            default: Infrastructure[defaultLoggerKey],
+            levels: [],
+        };
+
+        if (!logLevels.length) {
+            if (this.isProduction) {
+                this.logger.levels = [Level.WARNING, Level.ERROR, Level.CRITICAL];
+            } else {
+                this.logger.levels = Levels;
+            }
+        } else if (logLevels.includes("*") || logLevels.includes("ALL")) {
+            this.logger.levels = Levels;
+        } else {
+            this.logger.levels = logLevels as Array<Level>;
+        }
     }
 
     private static getEnvAsString(name: string, defaultValue = ""): string {
@@ -104,5 +144,18 @@ export class Config {
         }
 
         return !!parseInt(value);
+    }
+
+    private static getEnvAsArray(name: string, defaultValue: Array<string>): Array<string> {
+        const value = Config.getEnvAsString(name, "");
+
+        if (value === "") {
+            return defaultValue;
+        }
+
+        return value
+            .split(",")
+            .map((item) => item.trim())
+            .filter((item) => item !== "");
     }
 }

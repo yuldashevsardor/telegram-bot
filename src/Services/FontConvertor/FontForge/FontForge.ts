@@ -43,7 +43,7 @@ export class FontForge {
         try {
             await exec(command);
         } catch (error) {
-            throw new ExecuteError(`Error on execute fontforge convert command. Error message: ${error.message}`);
+            throw ExecuteError.byError(error);
         }
     }
 }

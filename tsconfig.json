@@ -11,14 +11,15 @@
         "importHelpers": true,
         "esModuleInterop": true,
         "declarationMap": true,
-        "inlineSourceMap": true,
+        //        "inlineSourceMap": true,
         "skipLibCheck": true,
         "strictNullChecks": true,
         "strictPropertyInitialization": true,
+        "skipDefaultLibCheck": true,
+        "sourceMap": true,
         "lib": [
-            "es2019",
-            "es6",
-            "dom"
+            "ES2019",
+            "DOM"
         ],
         "types": [
             "node",

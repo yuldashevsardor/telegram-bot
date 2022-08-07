@@ -1,11 +1,14 @@
-export class ExtensionNotSupport extends Error {
-    public constructor(message: string) {
-        super(message);
-    }
+import { RuntimeError } from "App/Common/Errors";
 
+export class ExtensionNotSupport extends RuntimeError {
     public static byExtension(extension: string): ExtensionNotSupport {
-        return new ExtensionNotSupport(`Fontforge not support ${extension} extension.`);
+        return new ExtensionNotSupport({
+            message: `Fontforge not support ${extension} extension.`,
+            payload: {
+                extension: extension,
+            },
+        });
     }
 }
 
-export class ExecuteError extends Error {}
+export class ExecuteError extends RuntimeError {}

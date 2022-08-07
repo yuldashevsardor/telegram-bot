@@ -1,13 +1,16 @@
 import { Extension } from "App/Services/FontConvertor/Types";
+import { RuntimeError } from "App/Common/Errors";
 
-export class ConvertorNotFound extends Error {
-    public constructor(message: string) {
-        super(message);
-    }
-
+export class ConvertorNotFound extends RuntimeError {
     public static byExtensions(from: Extension, to: Extension): ConvertorNotFound {
-        return new ConvertorNotFound(`Convertor for ${from} to ${to} not found.`);
+        return new ConvertorNotFound({
+            message: `Convertor for ${from} to ${to} not found.`,
+            payload: {
+                from: from,
+                to: to,
+            },
+        });
     }
 }
 
-export class FontConvertorError extends Error {}
+export class FontConvertorError extends RuntimeError {}

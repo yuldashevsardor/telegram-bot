@@ -6,9 +6,9 @@ import { injectable } from "inversify";
 export abstract class Command {
     protected abstract readonly command: string;
 
-    protected abstract handler(ctx: Context): Promise<void>;
+    protected abstract handle(ctx: Context): Promise<void>;
 
-    public async initialize(composer: Composer<Context>): Promise<void> {
-        composer.command(this.command, this.handler.bind(this));
+    public initialize(composer: Composer<Context>): void {
+        composer.command(this.command, this.handle.bind(this));
     }
 }

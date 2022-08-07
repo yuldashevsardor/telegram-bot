@@ -3,6 +3,7 @@ import { SlotManager } from "App/Modules/SlotManager/SlotManager";
 import { inject, injectable } from "inversify";
 import { Config } from "App/Config/Config";
 import { Infrastructure } from "App/Config/Dependency/Symbols/Infrastructure";
+import { Logger } from "App/Services/Logger/Logger";
 
 type PlannerMessages = {
     [key in PRIORITY]: Message[];
@@ -18,7 +19,10 @@ export class Planner {
 
     private banExpirationTime: number | null = null;
 
-    public constructor(@inject<Config>(Infrastructure.Config) private readonly config: Config) {
+    public constructor(
+        @inject<Config>(Infrastructure.Config) private readonly config: Config,
+        @inject<Logger>(Infrastructure.Logger) private readonly logger: Logger,
+    ) {
         this.messages = {
             [PRIORITY.HIGH]: [],
             [PRIORITY.MEDIUM]: [],
@@ -144,7 +148,7 @@ export class Planner {
 
     private logMessageCount(): void {
         setInterval(() => {
-            console.log(`Number of messages in the queue: ${this.getMessagesCount()}`);
+            this.logger.info(`Number of messages in the queue: ${this.getMessagesCount()}`);
         }, 10000).unref();
     }
 

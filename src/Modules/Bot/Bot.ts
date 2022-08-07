@@ -9,6 +9,7 @@ import { Context } from "App/Modules/Bot/Context";
 import { sleep } from "App/Helpers/Utils";
 import { container } from "App/Config/Dependency/Container";
 import { Command } from "App/Modules/Bot/Command/Command";
+import { Middleware } from "App/Modules/Bot/Middleware/Middleware";
 
 @injectable()
 export class Bot {
@@ -59,12 +60,13 @@ export class Bot {
             return;
         }
 
-        await this.configureCommands();
+        this.configureMiddlewares();
+        this.configureCommands();
 
         this.isConfigured = true;
     }
 
-    private async configureCommands(): Promise<void> {
+    private configureCommands(): void {
         const commands = Object.values(Modules.Bot.Command).map((symbol) => {
             return container.get<Command>(symbol);
         });
@@ -72,7 +74,22 @@ export class Bot {
         const composer = new Composer<Context>();
 
         for (const command of commands) {
-            await command.initialize(composer);
+            command.initialize(composer);
+        }
+
+        this.bot.use(composer);
+    }
+
+    private configureMiddlewares(): void {
+        const composer = new Composer<Context>();
+        const middlewares = [
+            container.get<Middleware>(Modules.Bot.Middleware.AsyncLocalStorage),
+            container.get<Middleware>(Modules.Bot.Middleware.ResponseTime),
+            container.get<Middleware>(Modules.Bot.Middleware.RequestLog),
+        ];
+
+        for (const middleware of middlewares) {
+            middleware.initialize(composer);
         }
 
         this.bot.use(composer);
