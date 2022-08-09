@@ -11,7 +11,8 @@
         "start": "node build/bot.js",
         "start:prod": "NODE_ENV=production node build/bot.js",
         "prepare": "husky install && chmod +x .husky/pre-commit",
-        "test": "mocha --colors --require ts-node/register --file  test/bootstrap.ts test/**/*.spec.ts"
+        "test": "mocha --colors --require ts-node/register --file  test/bootstrap.ts test/**/*.spec.ts",
+        "migrate": "node node_modules/.bin/node-pg-migrate -d DATABASE_URL -m migrations -t migrations -j ts --envPath .env"
     },
     "lint-staged": {
         "*.{ts,tsx}": [
@@ -41,11 +42,14 @@
     "dependencies": {
         "dayjs": "^1.11.0",
         "dotenv": "^6.2.0",
+        "dotenv-expand": "^8.0.3",
         "eslint-plugin-import": "^2.26.0",
         "grammy": "^1.10",
         "inversify": "^6.0.1",
         "mime-types": "^2.1.35",
         "mmmagic": "^0.5.3",
+        "node-pg-migrate": "^6.2.2",
+        "pg": "^8.7.3",
         "pino": "^8.4.0",
         "reflect-metadata": "^0.1.13",
         "tslib": "^2.3.1",

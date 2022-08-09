@@ -6,13 +6,13 @@ services:
         env_file:
             - .env
         environment:
-            - POSTGRES_USER=${POSTGRES_SUPERUSER_NAME}
-            - POSTGRES_PASSWORD=${POSTGRES_SUPERUSER_PASSWORD}
-            - TZ=${POSTGRES_TIMEZONE}
-            - PGTZ=${POSTGRES_TIMEZONE}
-            - PGDATESTYLE=${POSTGRES_DATE_STYLE}
+            - POSTGRES_USER=${DATABASE_SUPERUSER_NAME}
+            - POSTGRES_PASSWORD=${DATABASE_SUPERUSER_PASSWORD}
+            - TZ=${DATABASE_TIMEZONE}
+            - PGTZ=${DATABASE_TIMEZONE}
+            - PGDATESTYLE=${DATABASE_DATE_STYLE}
         ports:
-            - ${POSTGRES_PORT}:5432
+            - ${DATABASE_PORT}:5432
         volumes:
             - ./tmp/pgsql:/var/lib/postgresql/data
             - ./docker/pgsql/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d

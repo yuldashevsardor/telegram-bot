@@ -1,4 +1,5 @@
 import * as dotenv from "dotenv";
+import * as dotenvExpand from "dotenv-expand";
 import path from "path";
 import { Limit } from "App/Modules/SlotManager/SlotManager";
 import { injectable } from "inversify";
@@ -6,7 +7,7 @@ import { Level, Levels } from "App/Services/Logger/Types";
 import { InvalidConfigError } from "App/Common/Errors";
 import { Infrastructure } from "App/Config/Dependency/Symbols/Infrastructure";
 
-dotenv.config();
+dotenvExpand.expand(dotenv.config());
 
 export type Environment = "production" | "development" | "testing";
 
