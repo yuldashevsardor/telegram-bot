@@ -2,17 +2,17 @@
     "name": "telegram-bot",
     "version": "1.0.0",
     "description": "Telegram bot starter kit",
-    "main": "./build/src/index.js",
     "keywords": [],
     "author": "",
     "license": "ISC",
+    "main": "./build/src/index.js",
     "scripts": {
         "build": "del-cli -rf build && tsc && tsc-alias",
         "start": "node build/bot.js",
         "start:prod": "NODE_ENV=production node build/bot.js",
         "prepare": "husky install && chmod +x .husky/pre-commit",
         "test": "mocha --colors --require ts-node/register --file  test/bootstrap.ts test/**/*.spec.ts",
-        "migrate": "node node_modules/.bin/node-pg-migrate -d DATABASE_URL -m migrations -t migrations -j ts --envPath .env"
+        "migrate": "node node_modules/.bin/node-pg-migrate -f ./migrate.json"
     },
     "lint-staged": {
         "*.{ts,tsx}": [

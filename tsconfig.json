@@ -2,9 +2,9 @@
     "compilerOptions": {
         "alwaysStrict": true,
         "declaration": true,
+        "target": "esnext",
         "module": "commonjs",
         "moduleResolution": "node",
-        "target": "es2022",
         "declarationDir": "./typings",
         "experimentalDecorators": true,
         "emitDecoratorMetadata": true,
@@ -18,7 +18,7 @@
         "skipDefaultLibCheck": true,
         "sourceMap": true,
         "lib": [
-            "ES2019",
+            "ESNext",
             "DOM"
         ],
         "types": [
