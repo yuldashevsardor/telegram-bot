@@ -4,7 +4,7 @@ import { exec as execOrigin } from "child_process";
 import { injectable } from "inversify";
 import { ExecuteError, ExtensionNotSupport } from "App/Domain/FontConvertor/FontForge/Errors";
 import { Extension } from "App/Domain/FontConvertor/Types";
-import { ConfigValue } from "App/Infrastructure/Decortors/ConfigValue";
+import { ConfigValue } from "App/Infrastructure/Decorators/ConfigValue";
 
 @injectable()
 export class FontForge {

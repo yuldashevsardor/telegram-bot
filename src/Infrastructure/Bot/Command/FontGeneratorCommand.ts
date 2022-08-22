@@ -6,7 +6,7 @@ import path from "path";
 import { FontConvertor } from "App/Domain/FontConvertor/FontConvertor";
 import { Services } from "App/Infrastructure/Config/Dependency/Symbols/Services";
 import { Extension } from "App/Domain/FontConvertor/Types";
-import { ConfigValue } from "App/Infrastructure/Decortors/ConfigValue";
+import { ConfigValue } from "App/Infrastructure/Decorators/ConfigValue";
 
 @injectable()
 export class FontGeneratorCommand extends Command {

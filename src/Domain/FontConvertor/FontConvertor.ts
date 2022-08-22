@@ -7,7 +7,7 @@ import { FontConvertorError } from "App/Domain/FontConvertor/Errors";
 import { StringHelper } from "App/Infrastructure/Helpers/StringHelper";
 import { ConvertorFactory } from "App/Domain/FontConvertor/Convertor/ConvertorFactory";
 import { Services } from "App/Infrastructure/Config/Dependency/Symbols/Services";
-import { ConfigValue } from "App/Infrastructure/Decortors/ConfigValue";
+import { ConfigValue } from "App/Infrastructure/Decorators/ConfigValue";
 
 @injectable()
 export class FontConvertor {

@@ -8,7 +8,7 @@ import { sleep } from "App/Infrastructure/Helpers/Utils";
 import { container } from "App/Infrastructure/Config/Dependency/Container";
 import { Command } from "App/Infrastructure/Bot/Command/Command";
 import { Middleware } from "App/Infrastructure/Bot/Middleware/Middleware";
-import { ConfigValue } from "App/Infrastructure/Decortors/ConfigValue";
+import { ConfigValue } from "App/Infrastructure/Decorators/ConfigValue";
 import { BotSettings } from "App/Infrastructure/Bot/Types";
 
 @injectable()

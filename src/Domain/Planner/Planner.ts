@@ -4,7 +4,7 @@ import { inject, injectable } from "inversify";
 import { Infrastructure } from "App/Infrastructure/Config/Dependency/Symbols/Infrastructure";
 import { Logger } from "App/Domain/Logger/Logger";
 import { Limits } from "App/Domain/Planner/Types";
-import { ConfigValue } from "App/Infrastructure/Decortors/ConfigValue";
+import { ConfigValue } from "App/Infrastructure/Decorators/ConfigValue";
 
 type PlannerMessages = {
     [key in PRIORITY]: Message[];

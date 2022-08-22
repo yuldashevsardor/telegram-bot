@@ -3,7 +3,7 @@ import { inject, injectable } from "inversify";
 import { Planner } from "App/Domain/Planner/Planner";
 import { Modules } from "App/Infrastructure/Config/Dependency/Symbols/Modules";
 import { BrokerSettings, TELEGRAM_ERROR_CODES } from "App/Domain/Broker/Types";
-import { ConfigValue } from "App/Infrastructure/Decortors/ConfigValue";
+import { ConfigValue } from "App/Infrastructure/Decorators/ConfigValue";
 
 @injectable()
 export class Broker {
