@@ -1,6 +1,6 @@
-import { container } from "App/Config/Dependency/Container";
-import { Bot } from "App/Modules/Bot/Bot";
-import { Modules } from "App/Config/Dependency/Symbols/Modules";
+import { container } from "App/Infrastructure/Config/Dependency/Container";
+import { Bot } from "App/Infrastructure/Bot/Bot";
+import { Modules } from "App/Infrastructure/Config/Dependency/Symbols/Modules";
 
 let bot: Bot | null = null;
 

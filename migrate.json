@@ -1,9 +1,9 @@
 {
     "migrations-table": "migrations",
-    "migrations-dir": "./src/Migrations",
+    "migrations-dir": "./src/Infrastructure/Database/Migrations",
     "migration-file-language": "ts",
     "tsconfig": "./tsconfig.json",
     "envPath": ".env",
     "ignore-pattern": "^Utils.ts$",
-    "template-file-name": "./src/Migrations/Common/Template.ts"
+    "template-file-name": "./src/Infrastructure/Database/Migrations/Common/Template.ts"
 }

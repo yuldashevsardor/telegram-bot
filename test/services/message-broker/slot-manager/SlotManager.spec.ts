@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { SlotManager } from "App/Modules/SlotManager/SlotManager";
+import { SlotManager } from "App/Domain/SlotManager/SlotManager";
 
 const limitNumber = 10;
 const limitInterval = 1000;

@@ -51,6 +51,7 @@
         "node-pg-migrate": "^6.2.2",
         "pg": "^8.7.3",
         "pino": "^8.4.0",
+        "postgres": "^3.2.4",
         "reflect-metadata": "^0.1.13",
         "tslib": "^2.3.1",
         "uuid": "^8.3.2"
