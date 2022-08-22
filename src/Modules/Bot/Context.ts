@@ -5,6 +5,7 @@ import { Planner } from "App/Modules/Planner/Planner";
 import { Broker } from "App/Modules/Broker/Broker";
 import { Modules } from "App/Config/Dependency/Symbols/Modules";
 import { PRIORITY } from "App/Modules/Broker/Message";
+import { User } from "App/Services/User/User";
 
 const TELEGRAM_NO_GROUP_RATE_LIMIT_SET = new Set<string>([
     "getChat",
@@ -25,6 +26,8 @@ const WEBHOOK_REPLY_METHOD_ALLOW_SET = new Set<string>([
 export class Context extends OriginalContext {
     private readonly planner: Planner;
     private readonly broker: Broker;
+
+    public user!: User;
 
     constructor(update: Update, api: Api, me: UserFromGetMe) {
         super(update, api, me);

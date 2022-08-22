@@ -15,6 +15,8 @@ export const Modules = {
             AsyncLocalStorage: Symbol.for("AsyncLocalStorage"),
             ResponseTime: Symbol.for("ResponseTime"),
             RequestLog: Symbol.for("RequestLog"),
+            OnlyPrivateChat: Symbol.for("OnlyPrivateChat"),
+            FillUserToContext: Symbol.for("FillUserToContext"),
         },
     },
 };

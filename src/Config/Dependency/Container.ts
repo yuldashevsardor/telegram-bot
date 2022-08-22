@@ -20,6 +20,8 @@ import { RequestLogMiddleware } from "App/Modules/Bot/Middleware/RequestLogMiddl
 import { PinoLogger } from "App/Services/Logger/PinoLogger";
 import { asyncLocalStorage } from "App/Config/AsyncLocalStorage";
 import { AsyncLocalStorageMiddleware } from "App/Modules/Bot/Middleware/AsyncLocalStorageMiddleware";
+import { OnlyPrivateChatMiddleware } from "App/Modules/Bot/Middleware/OnlyPrivateChatMiddleware";
+import { FillUserToContextMiddleware } from "App/Modules/Bot/Middleware/FillUserToContextMiddleware";
 
 class Container extends InversifyContainer {
     private isLoaded = false;
@@ -101,6 +103,8 @@ class Container extends InversifyContainer {
         this.bind<AsyncLocalStorageMiddleware>(Modules.Bot.Middleware.AsyncLocalStorage).to(AsyncLocalStorageMiddleware).inSingletonScope();
         this.bind<ResponseTimeMiddleware>(Modules.Bot.Middleware.ResponseTime).to(ResponseTimeMiddleware).inSingletonScope();
         this.bind<RequestLogMiddleware>(Modules.Bot.Middleware.RequestLog).to(RequestLogMiddleware).inSingletonScope();
+        this.bind<OnlyPrivateChatMiddleware>(Modules.Bot.Middleware.OnlyPrivateChat).to(OnlyPrivateChatMiddleware).inSingletonScope();
+        this.bind<FillUserToContextMiddleware>(Modules.Bot.Middleware.FillUserToContext).to(FillUserToContextMiddleware).inSingletonScope();
 
         // Commands
         this.bind<BulkMessagesCommand>(Modules.Bot.Command.BulkMessages).to(BulkMessagesCommand).inSingletonScope();

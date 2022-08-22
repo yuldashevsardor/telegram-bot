@@ -86,6 +86,8 @@ export class Bot {
             container.get<Middleware>(Modules.Bot.Middleware.AsyncLocalStorage),
             container.get<Middleware>(Modules.Bot.Middleware.ResponseTime),
             container.get<Middleware>(Modules.Bot.Middleware.RequestLog),
+            container.get<Middleware>(Modules.Bot.Middleware.OnlyPrivateChat),
+            container.get<Middleware>(Modules.Bot.Middleware.GetUserFromDb),
         ];
 
         for (const middleware of middlewares) {
