@@ -19,3 +19,7 @@ export type HearsContext<C extends Context> = Filter<
 export type CommandHandler = Middleware<CommandContext<Context>>;
 
 export type HearHandler = Middleware<HearsContext<Context>>;
+
+export type BotSettings = {
+    token: string;
+};

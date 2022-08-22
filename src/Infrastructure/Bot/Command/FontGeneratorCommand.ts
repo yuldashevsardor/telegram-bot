@@ -5,18 +5,16 @@ import dayjs from "dayjs";
 import path from "path";
 import { FontConvertor } from "App/Domain/FontConvertor/FontConvertor";
 import { Services } from "App/Infrastructure/Config/Dependency/Symbols/Services";
-import { Config } from "App/Infrastructure/Config/Config";
-import { Infrastructure } from "App/Infrastructure/Config/Dependency/Symbols/Infrastructure";
 import { Extension } from "App/Domain/FontConvertor/Types";
+import { ConfigValue } from "App/Infrastructure/Decortors/ConfigValue";
 
 @injectable()
 export class FontGeneratorCommand extends Command {
+    @ConfigValue<string>("root")
+    private readonly rootDir!: string;
     protected readonly command: string = "font_generator";
 
-    public constructor(
-        @inject<Config>(Infrastructure.Config) private readonly config: Config,
-        @inject<FontConvertor>(Services.FontConvertor.FontConvertor) private readonly convertor: FontConvertor,
-    ) {
+    public constructor(@inject<FontConvertor>(Services.FontConvertor.FontConvertor) private readonly convertor: FontConvertor) {
         super();
     }
 
@@ -38,7 +36,7 @@ export class FontGeneratorCommand extends Command {
     private async generateRandomFonts(ctx: Context): Promise<void> {
         try {
             const start = dayjs();
-            const woffPath = path.join(this.config.root, "temp", "test-font.woff");
+            const woffPath = path.join(this.rootDir, "temp", "test-font.woff");
 
             const eotPath = await this.convertor.convert({
                 originPath: woffPath,

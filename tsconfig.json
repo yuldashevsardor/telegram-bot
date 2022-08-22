@@ -8,6 +8,8 @@
         "declarationDir": "./typings",
         "experimentalDecorators": true,
         "emitDecoratorMetadata": true,
+        // Почему-то с этим не работает декораторы
+        "useDefineForClassFields": false,
         "importHelpers": true,
         "esModuleInterop": true,
         "declarationMap": true,

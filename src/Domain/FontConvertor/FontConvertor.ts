@@ -1,26 +1,23 @@
 import path from "path";
 import { InvalidPath, PermissionDenied } from "App/Infrastructure/Helpers/FileHelper/Errors";
 import { inject, injectable } from "inversify";
-import { Infrastructure } from "App/Infrastructure/Config/Dependency/Symbols/Infrastructure";
-import { Config } from "App/Infrastructure/Config/Config";
 import { FileHelper } from "App/Infrastructure/Helpers/FileHelper/FileHelper";
 import { ConvertParams, Extension } from "App/Domain/FontConvertor/Types";
 import { FontConvertorError } from "App/Domain/FontConvertor/Errors";
 import { StringHelper } from "App/Infrastructure/Helpers/StringHelper";
 import { ConvertorFactory } from "App/Domain/FontConvertor/Convertor/ConvertorFactory";
 import { Services } from "App/Infrastructure/Config/Dependency/Symbols/Services";
+import { ConfigValue } from "App/Infrastructure/Decortors/ConfigValue";
 
 @injectable()
 export class FontConvertor {
-    private readonly tempDir: string;
+    @ConfigValue<string>("tempDir")
+    private readonly tempDir!: string;
     private isPrepared = false;
 
     public constructor(
-        @inject<Config>(Infrastructure.Config) private readonly config: Config,
         @inject<ConvertorFactory>(Services.FontConvertor.ConvertorFactory) private readonly convertorFactory: ConvertorFactory,
-    ) {
-        this.tempDir = this.config.tempDir;
-    }
+    ) {}
 
     private async prepare(): Promise<void> {
         if (this.isPrepared) {

@@ -13,7 +13,7 @@ export class OnlyPrivateChatMiddleware extends Middleware {
 
     protected async handle(ctx: Context, next: NextFunction): Promise<void> {
         if (ctx.chat?.type !== "private") {
-            this.logger.warning("Is not private chat...");
+            this.logger.warning("It is not private chat, skip...");
 
             return;
         }

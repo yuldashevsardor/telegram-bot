@@ -3,8 +3,6 @@ import { Context } from "App/Infrastructure/Bot/Context";
 import { inject, injectable } from "inversify";
 import { FontConvertor } from "App/Domain/FontConvertor/FontConvertor";
 import { Services } from "App/Infrastructure/Config/Dependency/Symbols/Services";
-import { Config } from "App/Infrastructure/Config/Config";
-import { Infrastructure } from "App/Infrastructure/Config/Dependency/Symbols/Infrastructure";
 import { StringHelper } from "App/Infrastructure/Helpers/StringHelper";
 import { container } from "App/Infrastructure/Config/Dependency/Container";
 import { Modules } from "App/Infrastructure/Config/Dependency/Symbols/Modules";
@@ -16,10 +14,7 @@ import { PRIORITY } from "App/Domain/Broker/Message";
 export class BulkMessagesCommand extends Command {
     protected readonly command: string = "bulk_messages";
 
-    public constructor(
-        @inject<Config>(Infrastructure.Config) private readonly config: Config,
-        @inject<FontConvertor>(Services.FontConvertor.FontConvertor) private readonly convertor: FontConvertor,
-    ) {
+    public constructor(@inject<FontConvertor>(Services.FontConvertor.FontConvertor) private readonly convertor: FontConvertor) {
         super();
     }
 

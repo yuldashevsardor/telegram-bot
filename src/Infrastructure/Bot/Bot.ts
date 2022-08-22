@@ -1,7 +1,5 @@
 import { Bot as TelegramBot, Composer } from "grammy";
 import { inject, injectable } from "inversify";
-import { Config } from "App/Infrastructure/Config/Config";
-import { Infrastructure } from "App/Infrastructure/Config/Dependency/Symbols/Infrastructure";
 import { Modules } from "App/Infrastructure/Config/Dependency/Symbols/Modules";
 import { Planner } from "App/Domain/Planner/Planner";
 import { Broker } from "App/Domain/Broker/Broker";
@@ -10,25 +8,28 @@ import { sleep } from "App/Infrastructure/Helpers/Utils";
 import { container } from "App/Infrastructure/Config/Dependency/Container";
 import { Command } from "App/Infrastructure/Bot/Command/Command";
 import { Middleware } from "App/Infrastructure/Bot/Middleware/Middleware";
+import { ConfigValue } from "App/Infrastructure/Decortors/ConfigValue";
+import { BotSettings } from "App/Infrastructure/Bot/Types";
 
 @injectable()
 export class Bot {
     public readonly bot: TelegramBot;
 
+    @ConfigValue<BotSettings>("bot")
+    private readonly settings!: BotSettings;
+
     private isRun = false;
     private isConfigured = false;
 
     public constructor(
-        @inject<Config>(Infrastructure.Config) private readonly config: Config,
         @inject<Planner>(Modules.Planner.Planner) private readonly planner: Planner,
         @inject<Broker>(Modules.Broker.Broker) private readonly broker: Broker,
     ) {
-        const botToken = this.config.bot.token;
-        if (!botToken) {
+        if (!this.settings.token) {
             throw new Error("Bot token cannot be empty!");
         }
 
-        this.bot = new TelegramBot<Context>(botToken, {
+        this.bot = new TelegramBot<Context>(this.settings.token, {
             ContextConstructor: Context,
         });
     }
@@ -87,7 +88,7 @@ export class Bot {
             container.get<Middleware>(Modules.Bot.Middleware.ResponseTime),
             container.get<Middleware>(Modules.Bot.Middleware.RequestLog),
             container.get<Middleware>(Modules.Bot.Middleware.OnlyPrivateChat),
-            container.get<Middleware>(Modules.Bot.Middleware.GetUserFromDb),
+            // container.get<Middleware>(Modules.Bot.Middleware.FillUserToContext),
         ];
 
         for (const middleware of middlewares) {

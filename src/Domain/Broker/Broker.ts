@@ -1,25 +1,18 @@
 import { Message } from "App/Domain/Broker/Message";
 import { inject, injectable } from "inversify";
-import { Config } from "App/Infrastructure/Config/Config";
-import { Infrastructure } from "App/Infrastructure/Config/Dependency/Symbols/Infrastructure";
 import { Planner } from "App/Domain/Planner/Planner";
 import { Modules } from "App/Infrastructure/Config/Dependency/Symbols/Modules";
 import { BrokerSettings, TELEGRAM_ERROR_CODES } from "App/Domain/Broker/Types";
+import { ConfigValue } from "App/Infrastructure/Decortors/ConfigValue";
 
 @injectable()
 export class Broker {
-    private readonly settings: BrokerSettings;
+    @ConfigValue<BrokerSettings>("broker")
+    private readonly settings!: BrokerSettings;
 
     private _isRun = false;
 
-    public constructor(
-        @inject<Config>(Infrastructure.Config) private readonly config: Config,
-        @inject<Planner>(Modules.Planner.Planner) private readonly planner: Planner,
-    ) {
-        this.settings = {
-            sleepInterval: this.config.broker.sleepInterval,
-        };
-    }
+    public constructor(@inject<Planner>(Modules.Planner.Planner) private readonly planner: Planner) {}
 
     public run(): void {
         if (this.isRun) {

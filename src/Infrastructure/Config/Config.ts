@@ -1,11 +1,11 @@
 import * as dotenv from "dotenv";
 import * as dotenvExpand from "dotenv-expand";
 import path from "path";
-import { Limit } from "App/Domain/SlotManager/SlotManager";
 import { injectable } from "inversify";
 import { Level, Levels } from "App/Domain/Logger/Types";
 import { InvalidConfigError } from "App/Common/Errors";
 import { Infrastructure } from "App/Infrastructure/Config/Dependency/Symbols/Infrastructure";
+import { Limits } from "App/Domain/Planner/Types";
 
 dotenvExpand.expand(dotenv.config());
 
@@ -23,11 +23,7 @@ export class Config {
     public readonly pythonPath: string;
     public readonly fontForgePath: string;
 
-    public readonly managerLimits: {
-        common: Limit;
-        private: Limit;
-        group: Limit;
-    };
+    public readonly managerLimits: Limits;
 
     public readonly broker: {
         sleepInterval: number;

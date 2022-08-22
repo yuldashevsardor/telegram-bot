@@ -1,9 +1,10 @@
 import { Message, PRIORITY } from "App/Domain/Broker/Message";
 import { SlotManager } from "App/Domain/SlotManager/SlotManager";
 import { inject, injectable } from "inversify";
-import { Config } from "App/Infrastructure/Config/Config";
 import { Infrastructure } from "App/Infrastructure/Config/Dependency/Symbols/Infrastructure";
 import { Logger } from "App/Domain/Logger/Logger";
+import { Limits } from "App/Domain/Planner/Types";
+import { ConfigValue } from "App/Infrastructure/Decortors/ConfigValue";
 
 type PlannerMessages = {
     [key in PRIORITY]: Message[];
@@ -11,6 +12,9 @@ type PlannerMessages = {
 
 @injectable()
 export class Planner {
+    @ConfigValue<Limits>("managerLimits")
+    private readonly limits!: Limits;
+
     private readonly messages: PlannerMessages;
 
     private readonly commonManager: SlotManager;
@@ -19,17 +23,14 @@ export class Planner {
 
     private banExpirationTime: number | null = null;
 
-    public constructor(
-        @inject<Config>(Infrastructure.Config) private readonly config: Config,
-        @inject<Logger>(Infrastructure.Logger) private readonly logger: Logger,
-    ) {
+    public constructor(@inject<Logger>(Infrastructure.Logger) private readonly logger: Logger) {
         this.messages = {
             [PRIORITY.HIGH]: [],
             [PRIORITY.MEDIUM]: [],
             [PRIORITY.LOW]: [],
         };
 
-        this.commonManager = new SlotManager(config.managerLimits.common);
+        this.commonManager = new SlotManager(this.limits.common);
         this.managers = new Map<number, SlotManager>();
         this.logMessageCount();
         this.logBanExpires();
@@ -129,7 +130,7 @@ export class Planner {
         let manager = this.managers.get(message.chatId);
 
         if (!manager) {
-            manager = new SlotManager(message.isGroup ? this.config.managerLimits.group : this.config.managerLimits.private);
+            manager = new SlotManager(message.isGroup ? this.limits.group : this.limits.private);
             this.managers.set(message.chatId, manager);
         }
 
