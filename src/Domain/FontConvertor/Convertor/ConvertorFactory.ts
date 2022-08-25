@@ -8,7 +8,7 @@ import { WoffToWoff2 } from "App/Domain/FontConvertor/Convertor/Woff/WoffToWoff2
 import { Woff2ToEot } from "App/Domain/FontConvertor/Convertor/Woff2/Woff2ToEot";
 import { inject, injectable } from "inversify";
 import { FontForge } from "App/Domain/FontConvertor/FontForge/FontForge";
-import { Services } from "App/Infrastructure/Config/Dependency/Symbols/Services";
+import { Services } from "App/Infrastructure/Container/Symbols/Services";
 import { EotToWoff2 } from "App/Domain/FontConvertor/Convertor/Eot/EotToWoff2";
 import { EotToWoff } from "App/Domain/FontConvertor/Convertor/Eot/EotToWoff";
 import { EotToTtf } from "App/Domain/FontConvertor/Convertor/Eot/EotToTtf";

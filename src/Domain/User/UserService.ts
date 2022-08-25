@@ -1,6 +1,6 @@
 import { inject, injectable } from "inversify";
 import { UserRepository } from "App/Domain/User/UserRepository";
-import { Services } from "App/Infrastructure/Config/Dependency/Symbols/Services";
+import { Services } from "App/Infrastructure/Container/Symbols/Services";
 import { CreateUserDto, EditUserDto } from "App/Domain/User/Types";
 import { User } from "App/Domain/User/User";
 import dayjs from "dayjs";

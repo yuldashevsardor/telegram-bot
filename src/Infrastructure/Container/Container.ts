@@ -1,13 +1,13 @@
 import "reflect-metadata";
 import { Container as InversifyContainer } from "inversify";
-import { Infrastructure } from "App/Infrastructure/Config/Dependency/Symbols/Infrastructure";
+import { Infrastructure } from "App/Infrastructure/Container/Symbols/Infrastructure";
 import { Config } from "App/Infrastructure/Config/Config";
 import { FontForge } from "App/Domain/FontConvertor/FontForge/FontForge";
-import { Services } from "App/Infrastructure/Config/Dependency/Symbols/Services";
+import { Services } from "App/Infrastructure/Container/Symbols/Services";
 import { ConvertorFactory } from "App/Domain/FontConvertor/Convertor/ConvertorFactory";
 import { FontConvertor } from "App/Domain/FontConvertor/FontConvertor";
 import { Planner } from "App/Domain/Planner/Planner";
-import { Modules } from "App/Infrastructure/Config/Dependency/Symbols/Modules";
+import { Modules } from "App/Infrastructure/Container/Symbols/Modules";
 import { Broker } from "App/Domain/Broker/Broker";
 import { Bot } from "App/Infrastructure/Bot/Bot";
 import { BulkMessagesCommand } from "App/Infrastructure/Bot/Command/BulkMessagesCommand";
@@ -18,7 +18,7 @@ import { ResponseTimeMiddleware } from "App/Infrastructure/Bot/Middleware/Respon
 import { AbstractLogger } from "App/Infrastructure/Logger/AbstractLogger";
 import { RequestLogMiddleware } from "App/Infrastructure/Bot/Middleware/RequestLogMiddleware";
 import { PinoLogger } from "App/Infrastructure/Logger/PinoLogger";
-import { asyncLocalStorage } from "App/Infrastructure/Config/AsyncLocalStorage";
+import { asyncLocalStorage } from "App/Infrastructure/AsyncLocalStorage";
 import { AsyncLocalStorageMiddleware } from "App/Infrastructure/Bot/Middleware/AsyncLocalStorageMiddleware";
 import { OnlyPrivateChatMiddleware } from "App/Infrastructure/Bot/Middleware/OnlyPrivateChatMiddleware";
 import { FillUserToContextMiddleware } from "App/Infrastructure/Bot/Middleware/FillUserToContextMiddleware";

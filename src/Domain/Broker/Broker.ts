@@ -1,9 +1,9 @@
 import { Message } from "App/Domain/Broker/Message";
 import { inject, injectable } from "inversify";
 import { Planner } from "App/Domain/Planner/Planner";
-import { Modules } from "App/Infrastructure/Config/Dependency/Symbols/Modules";
+import { Modules } from "App/Infrastructure/Container/Symbols/Modules";
 import { BrokerSettings, TELEGRAM_ERROR_CODES } from "App/Domain/Broker/Types";
-import { ConfigValue } from "App/Infrastructure/Decorators/ConfigValue";
+import { ConfigValue } from "App/Infrastructure/Config/ConfigValue";
 
 @injectable()
 export class Broker {

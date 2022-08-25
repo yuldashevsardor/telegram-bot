@@ -1,7 +1,7 @@
 import "reflect-metadata";
-import { container } from "App/Infrastructure/Config/Dependency/Container";
+import { container } from "App/Infrastructure/Container/Container";
 import { Bot } from "App/Infrastructure/Bot/Bot";
-import { Modules } from "App/Infrastructure/Config/Dependency/Symbols/Modules";
+import { Modules } from "App/Infrastructure/Container/Symbols/Modules";
 
 let bot: Bot | null = null;
 

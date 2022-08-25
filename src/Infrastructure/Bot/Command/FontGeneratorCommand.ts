@@ -4,9 +4,9 @@ import { inject, injectable } from "inversify";
 import dayjs from "dayjs";
 import path from "path";
 import { FontConvertor } from "App/Domain/FontConvertor/FontConvertor";
-import { Services } from "App/Infrastructure/Config/Dependency/Symbols/Services";
+import { Services } from "App/Infrastructure/Container/Symbols/Services";
 import { Extension } from "App/Domain/FontConvertor/Types";
-import { ConfigValue } from "App/Infrastructure/Decorators/ConfigValue";
+import { ConfigValue } from "App/Infrastructure/Config/ConfigValue";
 
 @injectable()
 export class FontGeneratorCommand extends Command {

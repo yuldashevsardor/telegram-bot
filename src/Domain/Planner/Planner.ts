@@ -1,10 +1,10 @@
 import { Message, PRIORITY } from "App/Domain/Broker/Message";
 import { SlotManager } from "App/Domain/SlotManager/SlotManager";
 import { inject, injectable } from "inversify";
-import { Infrastructure } from "App/Infrastructure/Config/Dependency/Symbols/Infrastructure";
+import { Infrastructure } from "App/Infrastructure/Container/Symbols/Infrastructure";
 import { Logger } from "App/Domain/Logger/Logger";
 import { Limits } from "App/Domain/Planner/Types";
-import { ConfigValue } from "App/Infrastructure/Decorators/ConfigValue";
+import { ConfigValue } from "App/Infrastructure/Config/ConfigValue";
 
 type PlannerMessages = {
     [key in PRIORITY]: Message[];

@@ -2,10 +2,10 @@ import { Command } from "App/Infrastructure/Bot/Command/Command";
 import { Context } from "App/Infrastructure/Bot/Context";
 import { inject, injectable } from "inversify";
 import { FontConvertor } from "App/Domain/FontConvertor/FontConvertor";
-import { Services } from "App/Infrastructure/Config/Dependency/Symbols/Services";
-import { StringHelper } from "App/Infrastructure/Helpers/StringHelper";
-import { container } from "App/Infrastructure/Config/Dependency/Container";
-import { Modules } from "App/Infrastructure/Config/Dependency/Symbols/Modules";
+import { Services } from "App/Infrastructure/Container/Symbols/Services";
+import { StringHelper } from "App/Helper/StringHelper";
+import { container } from "App/Infrastructure/Container/Container";
+import { Modules } from "App/Infrastructure/Container/Symbols/Modules";
 import { Bot } from "App/Infrastructure/Bot/Bot";
 import { Planner } from "App/Domain/Planner/Planner";
 import { PRIORITY } from "App/Domain/Broker/Message";
@@ -41,7 +41,7 @@ export class BulkMessagesCommand extends Command {
         const bot = container.get<Bot>(Modules.Bot.Bot);
 
         const handler = async (): Promise<void> => {
-            await bot.bot.api.sendMessage(chatId, randomText);
+            await bot.grammy.api.sendMessage(chatId, randomText);
         };
 
         const planner = container.get<Planner>(Modules.Planner.Planner);

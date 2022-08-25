@@ -1,9 +1,9 @@
 import { Api, Context as OriginalContext, RawApi } from "grammy";
 import { Update, UserFromGetMe } from "@grammyjs/types";
-import { container } from "App/Infrastructure/Config/Dependency/Container";
+import { container } from "App/Infrastructure/Container/Container";
 import { Planner } from "App/Domain/Planner/Planner";
 import { Broker } from "App/Domain/Broker/Broker";
-import { Modules } from "App/Infrastructure/Config/Dependency/Symbols/Modules";
+import { Modules } from "App/Infrastructure/Container/Symbols/Modules";
 import { PRIORITY } from "App/Domain/Broker/Message";
 import { User } from "App/Domain/User/User";
 

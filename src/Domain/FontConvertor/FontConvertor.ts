@@ -1,13 +1,13 @@
 import path from "path";
-import { InvalidPath, PermissionDenied } from "App/Infrastructure/Helpers/FileHelper/Errors";
+import { InvalidPath, PermissionDenied } from "App/Helper/FileHelper/Errors";
 import { inject, injectable } from "inversify";
-import { FileHelper } from "App/Infrastructure/Helpers/FileHelper/FileHelper";
+import { FileHelper } from "App/Helper/FileHelper/FileHelper";
 import { ConvertParams, Extension } from "App/Domain/FontConvertor/Types";
 import { FontConvertorError } from "App/Domain/FontConvertor/Errors";
-import { StringHelper } from "App/Infrastructure/Helpers/StringHelper";
+import { StringHelper } from "App/Helper/StringHelper";
 import { ConvertorFactory } from "App/Domain/FontConvertor/Convertor/ConvertorFactory";
-import { Services } from "App/Infrastructure/Config/Dependency/Symbols/Services";
-import { ConfigValue } from "App/Infrastructure/Decorators/ConfigValue";
+import { Services } from "App/Infrastructure/Container/Symbols/Services";
+import { ConfigValue } from "App/Infrastructure/Config/ConfigValue";
 
 @injectable()
 export class FontConvertor {

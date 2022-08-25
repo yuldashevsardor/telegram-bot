@@ -1,19 +1,19 @@
 import { Bot as TelegramBot, Composer } from "grammy";
 import { inject, injectable } from "inversify";
-import { Modules } from "App/Infrastructure/Config/Dependency/Symbols/Modules";
+import { Modules } from "App/Infrastructure/Container/Symbols/Modules";
 import { Planner } from "App/Domain/Planner/Planner";
 import { Broker } from "App/Domain/Broker/Broker";
 import { Context } from "App/Infrastructure/Bot/Context";
-import { sleep } from "App/Infrastructure/Helpers/Utils";
-import { container } from "App/Infrastructure/Config/Dependency/Container";
+import { sleep } from "App/Helper/Utils";
+import { container } from "App/Infrastructure/Container/Container";
 import { Command } from "App/Infrastructure/Bot/Command/Command";
 import { Middleware } from "App/Infrastructure/Bot/Middleware/Middleware";
-import { ConfigValue } from "App/Infrastructure/Decorators/ConfigValue";
+import { ConfigValue } from "App/Infrastructure/Config/ConfigValue";
 import { BotSettings } from "App/Infrastructure/Bot/Types";
 
 @injectable()
 export class Bot {
-    public readonly bot: TelegramBot;
+    public readonly grammy: TelegramBot;
 
     @ConfigValue<BotSettings>("bot")
     private readonly settings!: BotSettings;
@@ -29,7 +29,7 @@ export class Bot {
             throw new Error("Bot token cannot be empty!");
         }
 
-        this.bot = new TelegramBot<Context>(this.settings.token, {
+        this.grammy = new TelegramBot<Context>(this.settings.token, {
             ContextConstructor: Context,
         });
     }
@@ -39,7 +39,7 @@ export class Bot {
             await this.broker.run();
             await this.configure();
 
-            this.bot.start().catch(this.handleError.bind(this));
+            this.grammy.start().catch(this.handleError.bind(this));
             this.isRun = true;
         } catch (error) {
             if (this.broker.isRun) {
@@ -51,7 +51,7 @@ export class Bot {
     }
 
     public async stop(): Promise<void> {
-        await this.bot.stop();
+        await this.grammy.stop();
         await this.waitPlannerToEmpty();
         this.broker.stop();
     }
@@ -78,7 +78,7 @@ export class Bot {
             command.initialize(composer);
         }
 
-        this.bot.use(composer);
+        this.grammy.use(composer);
     }
 
     private configureMiddlewares(): void {
@@ -95,7 +95,7 @@ export class Bot {
             middleware.initialize(composer);
         }
 
-        this.bot.use(composer);
+        this.grammy.use(composer);
     }
 
     private async waitPlannerToEmpty(): Promise<void> {

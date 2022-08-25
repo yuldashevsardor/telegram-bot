@@ -4,7 +4,7 @@ import path from "path";
 import { injectable } from "inversify";
 import { Level, Levels } from "App/Domain/Logger/Types";
 import { InvalidConfigError } from "App/Common/Errors";
-import { Infrastructure } from "App/Infrastructure/Config/Dependency/Symbols/Infrastructure";
+import { Infrastructure } from "App/Infrastructure/Container/Symbols/Infrastructure";
 import { Limits } from "App/Domain/Planner/Types";
 
 dotenvExpand.expand(dotenv.config());

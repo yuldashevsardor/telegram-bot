@@ -1,8 +1,8 @@
-import { InvalidFile, InvalidPath, PermissionDenied } from "App/Infrastructure/Helpers/FileHelper/Errors";
+import { InvalidFile, InvalidPath, PermissionDenied } from "App/Helper/FileHelper/Errors";
 import path from "path";
 import * as mime from "mime-types";
 import { Extension } from "App/Domain/FontConvertor/Types";
-import { FileHelper } from "App/Infrastructure/Helpers/FileHelper/FileHelper";
+import { FileHelper } from "App/Helper/FileHelper/FileHelper";
 
 export abstract class Convertor {
     protected abstract fromExtension: Extension;

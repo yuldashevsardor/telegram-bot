@@ -1,6 +1,6 @@
-import { container } from "App/Infrastructure/Config/Dependency/Container";
+import { container } from "App/Infrastructure/Container/Container";
 import { Config } from "App/Infrastructure/Config/Config";
-import { Infrastructure } from "App/Infrastructure/Config/Dependency/Symbols/Infrastructure";
+import { Infrastructure } from "App/Infrastructure/Container/Symbols/Infrastructure";
 import { RuntimeError } from "App/Common/Errors";
 
 function getConfigValue<T>(key: string, defaultValue?: T): T {
@@ -35,16 +35,12 @@ function getConfigValue<T>(key: string, defaultValue?: T): T {
 
 export function ConfigValue<T>(key: string, defaultValue?: T): (target: any, propertyKey: string) => void {
     return (target: any, propertyKey: string) => {
-        let alreadyFoundValue: T;
+        let value: T;
 
         const getter = (): T => {
-            if (alreadyFoundValue !== undefined) {
-                return alreadyFoundValue;
+            if (value === undefined) {
+                value = getConfigValue<T>(key, defaultValue);
             }
-
-            const value = getConfigValue<T>(key, defaultValue);
-
-            alreadyFoundValue = value;
 
             return value;
         };

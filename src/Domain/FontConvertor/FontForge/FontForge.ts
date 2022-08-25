@@ -1,10 +1,10 @@
-import { FileHelper } from "App/Infrastructure/Helpers/FileHelper/FileHelper";
+import { FileHelper } from "App/Helper/FileHelper/FileHelper";
 import { promisify } from "util";
 import { exec as execOrigin } from "child_process";
 import { injectable } from "inversify";
 import { ExecuteError, ExtensionNotSupport } from "App/Domain/FontConvertor/FontForge/Errors";
 import { Extension } from "App/Domain/FontConvertor/Types";
-import { ConfigValue } from "App/Infrastructure/Decorators/ConfigValue";
+import { ConfigValue } from "App/Infrastructure/Config/ConfigValue";
 
 @injectable()
 export class FontForge {

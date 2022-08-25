@@ -4,13 +4,13 @@ import { inject, injectable } from "inversify";
 import dayjs from "dayjs";
 import path from "path";
 import { FontConvertor } from "App/Domain/FontConvertor/FontConvertor";
-import { Services } from "App/Infrastructure/Config/Dependency/Symbols/Services";
+import { Services } from "App/Infrastructure/Container/Symbols/Services";
 import { Config } from "App/Infrastructure/Config/Config";
-import { Infrastructure } from "App/Infrastructure/Config/Dependency/Symbols/Infrastructure";
+import { Infrastructure } from "App/Infrastructure/Container/Symbols/Infrastructure";
 import { Extension } from "App/Domain/FontConvertor/Types";
-import { StringHelper } from "App/Infrastructure/Helpers/StringHelper";
-import { container } from "App/Infrastructure/Config/Dependency/Container";
-import { Modules } from "App/Infrastructure/Config/Dependency/Symbols/Modules";
+import { StringHelper } from "App/Helper/StringHelper";
+import { container } from "App/Infrastructure/Container/Container";
+import { Modules } from "App/Infrastructure/Container/Symbols/Modules";
 import { Bot } from "App/Infrastructure/Bot/Bot";
 import { Planner } from "App/Domain/Planner/Planner";
 import { PRIORITY } from "App/Domain/Broker/Message";
@@ -84,7 +84,7 @@ export class StartCommand extends Command {
         const bot = container.get<Bot>(Modules.Bot.Bot);
 
         const handler = async (): Promise<void> => {
-            await bot.bot.api.sendMessage(chatId, randomText);
+            await bot.grammy.api.sendMessage(chatId, randomText);
         };
 
         const planner = container.get<Planner>(Modules.Planner.Planner);

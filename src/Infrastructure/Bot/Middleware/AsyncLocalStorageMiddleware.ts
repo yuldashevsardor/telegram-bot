@@ -2,12 +2,12 @@ import { injectable } from "inversify";
 import { Context } from "App/Infrastructure/Bot/Context";
 import { NextFunction } from "grammy";
 import { Middleware } from "App/Infrastructure/Bot/Middleware/Middleware";
-import { container } from "App/Infrastructure/Config/Dependency/Container";
+import { container } from "App/Infrastructure/Container/Container";
 import { Logger } from "App/Domain/Logger/Logger";
-import { Infrastructure } from "App/Infrastructure/Config/Dependency/Symbols/Infrastructure";
+import { Infrastructure } from "App/Infrastructure/Container/Symbols/Infrastructure";
 import { v4 as uuid } from "uuid";
 import { PinoLogger } from "App/Infrastructure/Logger/PinoLogger";
-import { asyncLocalStorage } from "App/Infrastructure/Config/AsyncLocalStorage";
+import { asyncLocalStorage } from "App/Infrastructure/AsyncLocalStorage";
 
 @injectable()
 export class AsyncLocalStorageMiddleware extends Middleware {

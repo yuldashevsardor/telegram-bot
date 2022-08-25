@@ -2,7 +2,7 @@ import fs from "fs/promises";
 import fsSync from "fs";
 import path from "path";
 import dayjs from "dayjs";
-import { InvalidPath, PermissionDenied } from "App/Infrastructure/Helpers/FileHelper/Errors";
+import { InvalidPath, PermissionDenied } from "App/Helper/FileHelper/Errors";
 import { promisify } from "util";
 import { exec as execOrigin } from "child_process";
 

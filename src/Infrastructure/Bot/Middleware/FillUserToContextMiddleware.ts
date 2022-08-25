@@ -3,9 +3,9 @@ import { Context } from "App/Infrastructure/Bot/Context";
 import { NextFunction } from "grammy";
 import { inject, injectable } from "inversify";
 import { UserService } from "App/Domain/User/UserService";
-import { Services } from "App/Infrastructure/Config/Dependency/Symbols/Services";
+import { Services } from "App/Infrastructure/Container/Symbols/Services";
 import { Logger } from "App/Domain/Logger/Logger";
-import { Infrastructure } from "App/Infrastructure/Config/Dependency/Symbols/Infrastructure";
+import { Infrastructure } from "App/Infrastructure/Container/Symbols/Infrastructure";
 import { UserRepository } from "App/Domain/User/UserRepository";
 import dayjs from "dayjs";
 

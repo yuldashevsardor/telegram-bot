@@ -1,4 +1,4 @@
-import { NumberHelper } from "App/Infrastructure/Helpers/NumberHelper";
+import { NumberHelper } from "App/Helper/NumberHelper";
 
 export class StringHelper {
     public static readonly LATIN_CHARACTERS_UPPER_CASE = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
