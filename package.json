@@ -8,8 +8,8 @@
     "main": "./build/src/index.js",
     "scripts": {
         "build": "del-cli -rf build && tsc && tsc-alias",
-        "start": "node build/bot.js",
-        "start:prod": "NODE_ENV=production node build/bot.js",
+        "start": "node build/app.js",
+        "start:prod": "NODE_ENV=production node build/app.js",
         "prepare": "husky install && chmod +x .husky/pre-commit",
         "test": "mocha --colors --require ts-node/register --file  test/bootstrap.ts test/**/*.spec.ts",
         "migrate": "node node_modules/.bin/node-pg-migrate -f ./migrate.json"
@@ -40,6 +40,7 @@
         "all": true
     },
     "dependencies": {
+        "@grammyjs/runner": "^1.0.4",
         "dayjs": "^1.11.0",
         "dotenv": "^6.2.0",
         "dotenv-expand": "^8.0.3",
@@ -54,6 +55,7 @@
         "postgres": "^3.2.4",
         "puppeteer": "^16.2.0",
         "reflect-metadata": "^0.1.13",
+        "serialize-error": "^8.0.0",
         "tslib": "^2.3.1",
         "uuid": "^8.3.2"
     },

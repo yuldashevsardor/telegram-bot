@@ -3,6 +3,7 @@ import { AnyObject } from "App/Common/Types";
 import { Logger, LoggerOptions, pino } from "pino";
 import { Level } from "App/Domain/Logger/Types";
 import { injectable } from "inversify";
+import { serializeError } from "serialize-error";
 
 const pinoLevels: Record<string, number> = {
     [Level.DEBUG.toLowerCase()]: 0,
@@ -57,7 +58,7 @@ export class PinoLogger extends AbstractLogger {
         if (this.levels.includes(level)) {
             this.pino[level.toLowerCase()]({
                 message: message,
-                payload: payload,
+                payload: serializeError(payload),
             });
         }
     }

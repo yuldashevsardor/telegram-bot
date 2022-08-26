@@ -12,7 +12,8 @@ import { PRIORITY } from "App/Domain/Broker/Message";
 
 @injectable()
 export class BulkMessagesCommand extends Command {
-    protected readonly command: string = "bulk_messages";
+    public readonly command: string = "bulk_messages";
+    public readonly description: string = "Рассылка / Bulk messages";
 
     public constructor(@inject<FontConvertor>(Services.FontConvertor.FontConvertor) private readonly convertor: FontConvertor) {
         super();

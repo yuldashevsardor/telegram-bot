@@ -4,7 +4,8 @@ import { injectable } from "inversify";
 
 @injectable()
 export abstract class Command {
-    protected abstract readonly command: string;
+    public abstract readonly command: string;
+    public abstract readonly description: string;
 
     protected abstract handle(ctx: Context): Promise<void>;
 

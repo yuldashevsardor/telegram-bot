@@ -14,10 +14,13 @@ import { Modules } from "App/Infrastructure/Container/Symbols/Modules";
 import { Bot } from "App/Infrastructure/Bot/Bot";
 import { Planner } from "App/Domain/Planner/Planner";
 import { PRIORITY } from "App/Domain/Broker/Message";
+import { sleep } from "App/Helper/Utils";
 
 @injectable()
 export class StartCommand extends Command {
-    protected readonly command: string = "start";
+    public readonly command: string = "start";
+
+    public readonly description: string = "Главное меню / Main menu";
 
     public constructor(
         @inject<Config>(Infrastructure.Config) private readonly config: Config,
@@ -27,22 +30,13 @@ export class StartCommand extends Command {
     }
 
     protected async handle(ctx: Context): Promise<void> {
-        const promises: any[] = [];
-        const chats = [2815426, 5067823410, 858262157];
-        for (let i = 0; i < 1000; i++) {
-            for (const chatId of chats) {
-                // promises.push(new Promise(this.generateRandomFonts.bind(this, ctx)));
-                promises.push(new Promise(this.sendRandomText.bind(this, chatId)));
-            }
-        }
+        const message = await ctx.reply(`Hello ${ctx.from?.username}`);
+        await sleep(10000);
+        await ctx.api.editMessageText(message.chat.id, message.message_id, `Bye ${ctx.from?.username}`);
 
-        Promise.all(promises)
-            .then((value) => {
-                console.log(value);
-            })
-            .catch((error) => {
-                console.log(error);
-            });
+        // setTimeout(() => {
+        //     ctx.api.editMessageText(message.chat.id, message.message_id, `By ${ctx.from?.username}`);
+        // }, 10000);
     }
 
     private async generateRandomFonts(ctx: Context): Promise<void> {

@@ -8,6 +8,7 @@ export const Modules = {
     Bot: {
         Bot: Symbol.for("Bot"),
         Command: {
+            Start: Symbol.for("Start"),
             BulkMessages: Symbol.for("BulkMessages"),
             FontGenerator: Symbol.for("FontGenerator"),
         },

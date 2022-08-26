@@ -43,7 +43,7 @@ export class Config {
         this.isProduction = this.environment === "production";
 
         this.root = process.cwd();
-        this.tempDir = Config.getEnvAsString("TEMP_DIR", path.join(this.root, "temp"));
+        this.tempDir = Config.getEnvAsString("TEMP_DIR", path.join(this.root, "tmp"));
         this.pythonPath = Config.getEnvAsString("PYTHON_PATH", "python");
         this.fontForgePath = Config.getEnvAsString("FONT_FORGE_PATH", "fontforge");
 

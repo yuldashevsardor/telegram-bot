@@ -10,33 +10,29 @@ import { ConfigValue } from "App/Infrastructure/Config/ConfigValue";
 
 @injectable()
 export class FontGeneratorCommand extends Command {
-    @ConfigValue<string>("root")
-    private readonly rootDir!: string;
-    protected readonly command: string = "font_generator";
+    @ConfigValue<string>("tempDir")
+    private readonly tempDir!: string;
+
+    public readonly command: string = "font_generator";
+    public readonly description: string = "Генерация случайных шрифтов / Generate random fonts";
 
     public constructor(@inject<FontConvertor>(Services.FontConvertor.FontConvertor) private readonly convertor: FontConvertor) {
         super();
     }
 
     protected async handle(ctx: Context): Promise<void> {
-        const promises: any[] = [];
+        const promises: Promise<unknown>[] = [];
         for (let i = 0; i < 1; i++) {
-            promises.push(new Promise(this.generateRandomFonts.bind(this, ctx)));
+            promises.push(this.generateRandomFonts.bind(this, ctx));
         }
 
-        Promise.all(promises)
-            .then((value) => {
-                console.log(value);
-            })
-            .catch((error) => {
-                console.log(error);
-            });
+        await Promise.all(promises);
     }
 
     private async generateRandomFonts(ctx: Context): Promise<void> {
         try {
             const start = dayjs();
-            const woffPath = path.join(this.rootDir, "temp", "test-font.woff");
+            const woffPath = path.join(this.tempDir, "app", "test-fonts", "test-font.woff");
 
             const eotPath = await this.convertor.convert({
                 originPath: woffPath,

@@ -10,10 +10,12 @@ import { Command } from "App/Infrastructure/Bot/Command/Command";
 import { Middleware } from "App/Infrastructure/Bot/Middleware/Middleware";
 import { ConfigValue } from "App/Infrastructure/Config/ConfigValue";
 import { BotSettings } from "App/Infrastructure/Bot/Types";
+import { Logger } from "App/Domain/Logger/Logger";
+import { Infrastructure } from "App/Infrastructure/Container/Symbols/Infrastructure";
 
 @injectable()
 export class Bot {
-    public readonly grammy: TelegramBot;
+    public readonly grammy: TelegramBot<Context>;
 
     @ConfigValue<BotSettings>("bot")
     private readonly settings!: BotSettings;
@@ -23,6 +25,7 @@ export class Bot {
 
     public constructor(
         @inject<Planner>(Modules.Planner.Planner) private readonly planner: Planner,
+        @inject<Logger>(Infrastructure.Logger) private readonly logger: Logger,
         @inject<Broker>(Modules.Broker.Broker) private readonly broker: Broker,
     ) {
         if (!this.settings.token) {
@@ -39,8 +42,14 @@ export class Bot {
             await this.broker.run();
             await this.configure();
 
-            this.grammy.start().catch(this.handleError.bind(this));
+            this.grammy.catch(this.handleError.bind(this));
+            await this.grammy.start({
+                limit: 100,
+                timeout: 1,
+            });
             this.isRun = true;
+
+            this.logger.info("Bot is successfully started.");
         } catch (error) {
             if (this.broker.isRun) {
                 this.broker.stop();
@@ -51,9 +60,13 @@ export class Bot {
     }
 
     public async stop(): Promise<void> {
+        this.logger.info("Stop bot...");
+
         await this.grammy.stop();
         await this.waitPlannerToEmpty();
         this.broker.stop();
+
+        this.logger.info("Bot is successfully stopped.");
     }
 
     private async configure(): Promise<void> {
@@ -61,13 +74,15 @@ export class Bot {
             return;
         }
 
-        this.configureMiddlewares();
-        this.configureCommands();
+        // await this.configureMiddlewares();
+        await this.configureCommands();
 
         this.isConfigured = true;
     }
 
-    private configureCommands(): void {
+    private async configureCommands(): Promise<void> {
+        this.logger.debug("Configure commands...");
+
         const commands = Object.values(Modules.Bot.Command).map((symbol) => {
             return container.get<Command>(symbol);
         });
@@ -78,10 +93,16 @@ export class Bot {
             command.initialize(composer);
         }
 
+        await this.grammy.api.setMyCommands(commands);
+
         this.grammy.use(composer);
+
+        this.logger.debug("Commands successfully configured.");
     }
 
-    private configureMiddlewares(): void {
+    private async configureMiddlewares(): Promise<void> {
+        this.logger.debug("Configure middlewares...");
+
         const composer = new Composer<Context>();
         const middlewares = [
             container.get<Middleware>(Modules.Bot.Middleware.AsyncLocalStorage),
@@ -96,6 +117,8 @@ export class Bot {
         }
 
         this.grammy.use(composer);
+
+        this.logger.debug("Middlewares successfully configured.");
     }
 
     private async waitPlannerToEmpty(): Promise<void> {
@@ -111,6 +134,6 @@ export class Bot {
     }
 
     private async handleError(error): Promise<void> {
-        console.error(error);
+        this.logger.critical("Unhandled error on bot", error);
     }
 }

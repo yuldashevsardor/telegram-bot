@@ -7,7 +7,7 @@ import { Modules } from "App/Infrastructure/Container/Symbols/Modules";
 import { PRIORITY } from "App/Domain/Broker/Message";
 import { User } from "App/Domain/User/User";
 
-const TELEGRAM_NO_GROUP_RATE_LIMIT_SET = new Set<string>([
+const TELEGRAM_NO_GROUP_RATE_LIMIT_SET = new Set<string | symbol>([
     "getChat",
     "getChatAdministrators",
     "getChatMembersCount",
@@ -15,7 +15,7 @@ const TELEGRAM_NO_GROUP_RATE_LIMIT_SET = new Set<string>([
     "sendChatAction",
 ]);
 
-const WEBHOOK_REPLY_METHOD_ALLOW_SET = new Set<string>([
+const WEBHOOK_REPLY_METHOD_ALLOW_SET = new Set<string | symbol>([
     "answerCallbackQuery",
     "answerInlineQuery",
     "deleteMessage",
@@ -47,12 +47,12 @@ export class Context extends OriginalContext {
         // Готовим ProxyHandler, который будет добавлять запросы в ТГ в Брокера
         const proxyHandler: ProxyHandler<RawApi> = {
             get: (target, method) => {
-                return callApi.bind(api, method);
+                return method === "toJSON" ? "__internal" : callApi.bind(api, method);
             },
         };
 
-        async function callApi(method, payload, signal): Promise<void> {
-            if (!("chat_id" in payload)) {
+        async function callApi(method, payload, signal): Promise<unknown> {
+            if (payload.constructor.name !== "Object" || !("chat_id" in payload)) {
                 return originRaw[method](payload, signal);
             }
 
@@ -63,8 +63,26 @@ export class Context extends OriginalContext {
                 return originRaw[method](payload, signal);
             }
 
-            const callback = (): Promise<unknown> => {
-                return originRaw[method](payload, signal);
+            // Это хак, который нужен для того что бы получить результат отправки сообщения через очереди
+            // Создаем переменные для резолва и режекта промиса
+            // Они будут вызваны после того как сообщения отправится успешно или ошибочно
+            let messageResolve;
+            let messageReject;
+
+            // Создаем сам промис, который и будем отдавать в ответе этой функции
+            const promise = new Promise((resolve, reject) => {
+                messageResolve = resolve;
+                messageReject = reject;
+            });
+
+            const callback = async (): Promise<void> => {
+                try {
+                    // Если метод был успешно выполнен - резовлим промис который вернули в ответе
+                    messageResolve(originRaw[method](payload, signal));
+                } catch (e) {
+                    // Если была ошибка - соответственно режектим
+                    messageReject(e);
+                }
             };
 
             planner.push(
@@ -74,8 +92,11 @@ export class Context extends OriginalContext {
                     priorityOnError: PRIORITY.HIGH,
                     callback: callback,
                 },
-                PRIORITY.HIGH,
+                PRIORITY.MEDIUM,
             );
+
+            // Возвращаем промис, у которого resolve или reject будут вызваны в методе callback
+            return promise;
         }
 
         // Подменяем RawApi через Proxy на его замену с Брокером

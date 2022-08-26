@@ -22,6 +22,7 @@ import { asyncLocalStorage } from "App/Infrastructure/AsyncLocalStorage";
 import { AsyncLocalStorageMiddleware } from "App/Infrastructure/Bot/Middleware/AsyncLocalStorageMiddleware";
 import { OnlyPrivateChatMiddleware } from "App/Infrastructure/Bot/Middleware/OnlyPrivateChatMiddleware";
 import { FillUserToContextMiddleware } from "App/Infrastructure/Bot/Middleware/FillUserToContextMiddleware";
+import { StartCommand } from "App/Infrastructure/Bot/Command/StartCommand";
 
 class Container extends InversifyContainer {
     private isLoaded = false;
@@ -107,6 +108,7 @@ class Container extends InversifyContainer {
         this.bind<FillUserToContextMiddleware>(Modules.Bot.Middleware.FillUserToContext).to(FillUserToContextMiddleware).inSingletonScope();
 
         // Commands
+        this.bind<StartCommand>(Modules.Bot.Command.Start).to(StartCommand).inSingletonScope();
         this.bind<BulkMessagesCommand>(Modules.Bot.Command.BulkMessages).to(BulkMessagesCommand).inSingletonScope();
         this.bind<FontGeneratorCommand>(Modules.Bot.Command.FontGenerator).to(FontGeneratorCommand).inSingletonScope();
     }
