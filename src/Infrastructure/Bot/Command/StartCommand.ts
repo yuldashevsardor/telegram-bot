@@ -31,12 +31,8 @@ export class StartCommand extends Command {
 
     protected async handle(ctx: Context): Promise<void> {
         const message = await ctx.reply(`Hello ${ctx.from?.username}`);
-        await sleep(10000);
+        await sleep(1000);
         await ctx.api.editMessageText(message.chat.id, message.message_id, `Bye ${ctx.from?.username}`);
-
-        // setTimeout(() => {
-        //     ctx.api.editMessageText(message.chat.id, message.message_id, `By ${ctx.from?.username}`);
-        // }, 10000);
     }
 
     private async generateRandomFonts(ctx: Context): Promise<void> {

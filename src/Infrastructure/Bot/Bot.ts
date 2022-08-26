@@ -1,4 +1,4 @@
-import { Bot as TelegramBot, Composer } from "grammy";
+import { Bot as TelegramBot, Composer, session } from "grammy";
 import { inject, injectable } from "inversify";
 import { Modules } from "App/Infrastructure/Container/Symbols/Modules";
 import { Planner } from "App/Domain/Planner/Planner";
@@ -12,6 +12,8 @@ import { ConfigValue } from "App/Infrastructure/Config/ConfigValue";
 import { BotSettings } from "App/Infrastructure/Bot/Types";
 import { Logger } from "App/Domain/Logger/Logger";
 import { Infrastructure } from "App/Infrastructure/Container/Symbols/Infrastructure";
+import { run, RunnerHandle, sequentialize } from "@grammyjs/runner";
+import { getSessionKey, initialPayload } from "App/Infrastructure/Bot/Session/Helper";
 
 @injectable()
 export class Bot {
@@ -20,6 +22,7 @@ export class Bot {
     @ConfigValue<BotSettings>("bot")
     private readonly settings!: BotSettings;
 
+    private runner?: RunnerHandle;
     private isRun = false;
     private isConfigured = false;
 
@@ -43,17 +46,12 @@ export class Bot {
             await this.configure();
 
             this.grammy.catch(this.handleError.bind(this));
-            await this.grammy.start({
-                limit: 100,
-                timeout: 1,
-            });
+            this.runner = run(this.grammy);
             this.isRun = true;
 
             this.logger.info("Bot is successfully started.");
         } catch (error) {
-            if (this.broker.isRun) {
-                this.broker.stop();
-            }
+            this.broker.stop();
 
             await this.handleError(error);
         }
@@ -62,9 +60,22 @@ export class Bot {
     public async stop(): Promise<void> {
         this.logger.info("Stop bot...");
 
-        await this.grammy.stop();
+        if (!this.isRun) {
+            this.logger.info("Bot is not running!");
+            return;
+        }
+
+        if (!this.runner || !this.runner.isRunning) {
+            this.logger.info("Bot runner is empty or is not running");
+            this.isRun = false;
+            return;
+        }
+
+        await this.runner.stop();
         await this.waitPlannerToEmpty();
-        this.broker.stop();
+        await this.broker.stop();
+
+        this.isRun = false;
 
         this.logger.info("Bot is successfully stopped.");
     }
@@ -74,7 +85,9 @@ export class Bot {
             return;
         }
 
-        // await this.configureMiddlewares();
+        await this.configureSession();
+        await this.configureSequential();
+        await this.configureMiddlewares();
         await this.configureCommands();
 
         this.isConfigured = true;
@@ -119,6 +132,33 @@ export class Bot {
         this.grammy.use(composer);
 
         this.logger.debug("Middlewares successfully configured.");
+    }
+
+    private async configureSession(): Promise<void> {
+        this.grammy.use(
+            session<unknown, Context>({
+                initial: initialPayload,
+                getSessionKey: getSessionKey,
+            }),
+        );
+    }
+
+    private async configureSequential(): Promise<void> {
+        this.grammy.use(
+            sequentialize((ctx): string[] => {
+                const result: string[] = [];
+
+                if (ctx.chat) {
+                    result.push(ctx.chat.id.toString());
+                }
+
+                if (ctx.from) {
+                    result.push(ctx.from.id.toString());
+                }
+
+                return result;
+            }),
+        );
     }
 
     private async waitPlannerToEmpty(): Promise<void> {

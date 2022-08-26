@@ -6,6 +6,7 @@ import { Broker } from "App/Domain/Broker/Broker";
 import { Modules } from "App/Infrastructure/Container/Symbols/Modules";
 import { PRIORITY } from "App/Domain/Broker/Message";
 import { User } from "App/Domain/User/User";
+import { SessionPayload } from "App/Infrastructure/Bot/Session/Types";
 
 const TELEGRAM_NO_GROUP_RATE_LIMIT_SET = new Set<string | symbol>([
     "getChat",
@@ -28,6 +29,7 @@ export class Context extends OriginalContext {
     private readonly broker: Broker;
 
     public user!: User;
+    public session!: SessionPayload;
 
     constructor(update: Update, api: Api, me: UserFromGetMe) {
         super(update, api, me);
