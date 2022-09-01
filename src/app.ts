@@ -6,7 +6,7 @@ import { Modules } from "App/Infrastructure/Container/Symbols/Modules";
 let bot: Bot | null = null;
 
 async function bootstrap(): Promise<void> {
-    await container.load();
+    await container.setup();
     bot = container.get<Bot>(Modules.Bot.Bot);
     await bot.run();
 }

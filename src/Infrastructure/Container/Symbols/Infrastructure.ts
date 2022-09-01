@@ -3,4 +3,5 @@ export const Infrastructure = {
     Logger: Symbol.for("Logger"),
     ConsoleLogger: Symbol.for("ConsoleLogger"),
     PinoLogger: Symbol.for("PinoLogger"),
+    Database: Symbol.for("Database"),
 };

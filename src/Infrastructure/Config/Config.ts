@@ -6,14 +6,20 @@ import { Level, Levels } from "App/Domain/Logger/Types";
 import { InvalidConfigError } from "App/Common/Errors";
 import { Infrastructure } from "App/Infrastructure/Container/Symbols/Infrastructure";
 import { Limits } from "App/Domain/Planner/Types";
+import { DatabaseSettings } from "App/Infrastructure/Database/Types";
 
 dotenvExpand.expand(dotenv.config());
+
+type Logger = {
+    default: symbol;
+    levels: Array<Level>;
+};
 
 export type Environment = "production" | "development" | "testing";
 
 @injectable()
 export class Config {
-    private readonly allowedLoggerTypes = ["ConsoleLogger", "PinoLogger"];
+    private static readonly allowedLoggerTypes = ["ConsoleLogger", "PinoLogger"];
 
     public readonly environment: Environment;
     public readonly isProduction: boolean;
@@ -33,10 +39,9 @@ export class Config {
         token: string;
     };
 
-    public readonly logger: {
-        default: symbol;
-        levels: Array<Level>;
-    };
+    public readonly logger!: Logger;
+
+    public readonly database!: DatabaseSettings;
 
     public constructor() {
         this.environment = Config.getEnvAsString("ENVIRONMENT", "development") as Environment;
@@ -70,35 +75,8 @@ export class Config {
             token: Config.getEnvAsString("BOT_TOKEN"),
         };
 
-        const defaultLoggerKey = Config.getEnvAsString("LOGGER_DEFAULT", "") || (this.isProduction ? "PinoLogger" : "ConsoleLogger");
-        const logLevels = Config.getEnvAsArray("LOGGER_LEVELS", []).map((level) => level.toUpperCase());
-
-        if (!this.allowedLoggerTypes.includes(defaultLoggerKey)) {
-            throw new InvalidConfigError({
-                message: "Invalid default logger",
-                payload: {
-                    got: defaultLoggerKey,
-                    allowed: this.allowedLoggerTypes,
-                },
-            });
-        }
-
-        this.logger = {
-            default: Infrastructure[defaultLoggerKey],
-            levels: [],
-        };
-
-        if (!logLevels.length) {
-            if (this.isProduction) {
-                this.logger.levels = [Level.WARNING, Level.ERROR, Level.CRITICAL];
-            } else {
-                this.logger.levels = Levels;
-            }
-        } else if (logLevels.includes("*") || logLevels.includes("ALL")) {
-            this.logger.levels = Levels;
-        } else {
-            this.logger.levels = logLevels as Array<Level>;
-        }
+        this.logger = Config.getLogger(this.isProduction);
+        this.database = Config.getDatabase();
     }
 
     private static getEnvAsString(name: string, defaultValue = ""): string {
@@ -154,5 +132,54 @@ export class Config {
             .split(",")
             .map((item) => item.trim())
             .filter((item) => item !== "");
+    }
+
+    private static getLogger(isProduction: boolean): Logger {
+        const defaultLoggerKey = Config.getEnvAsString("LOGGER_DEFAULT", "") || (isProduction ? "PinoLogger" : "ConsoleLogger");
+        const logLevels = Config.getEnvAsArray("LOGGER_LEVELS", []).map((level) => level.toUpperCase());
+
+        if (!Config.allowedLoggerTypes.includes(defaultLoggerKey)) {
+            throw new InvalidConfigError({
+                message: "Invalid default logger",
+                payload: {
+                    got: defaultLoggerKey,
+                    allowed: this.allowedLoggerTypes,
+                },
+            });
+        }
+
+        const logger: Logger = {
+            default: Infrastructure[defaultLoggerKey],
+            levels: [],
+        };
+
+        if (!logLevels.length) {
+            if (isProduction) {
+                logger.levels = [Level.WARNING, Level.ERROR, Level.CRITICAL];
+            } else {
+                logger.levels = Levels;
+            }
+        } else if (logLevels.includes("*") || logLevels.includes("ALL")) {
+            logger.levels = Levels;
+        } else {
+            logger.levels = logLevels as Array<Level>;
+        }
+
+        return logger;
+    }
+
+    private static getDatabase(): DatabaseSettings {
+        return {
+            host: Config.getEnvAsString("DATABASE_HOST", "localhost"),
+            port: Config.getEnvAsInteger("DATABASE_PORT", 5432),
+            database: Config.getEnvAsString("DATABASE_NAME", "postgres"),
+            username: Config.getEnvAsString("DATABASE_USER_NAME", "docker"),
+            password: Config.getEnvAsString("DATABASE_USER_PASSWORD", ""),
+            connection: {
+                max: Config.getEnvAsInteger("DATABASE_CONNECTION_LIMIT", 10),
+                idleTimeout: Config.getEnvAsInteger("DATABASE_CONNECTION_IDLE_TIMEOUT", 10),
+                maxLifetime: Config.getEnvAsInteger("DATABASE_CONNECTION_MAX_LIFETIME", 60 * 10),
+            },
+        };
     }
 }

@@ -23,49 +23,54 @@ import { AsyncLocalStorageMiddleware } from "App/Infrastructure/Bot/Middleware/A
 import { OnlyPrivateChatMiddleware } from "App/Infrastructure/Bot/Middleware/OnlyPrivateChatMiddleware";
 import { FillUserToContextMiddleware } from "App/Infrastructure/Bot/Middleware/FillUserToContextMiddleware";
 import { StartCommand } from "App/Infrastructure/Bot/Command/StartCommand";
+import { StorageAdapter } from "grammy";
+import { SessionPayload } from "App/Infrastructure/Bot/Session/Types";
+import { PgSqlSessionRepository } from "App/Infrastructure/Bot/Session/PgSqlSessionRepository";
+import { Database } from "App/Infrastructure/Database/Database";
 
-class Container extends InversifyContainer {
-    private isLoaded = false;
+export class Container extends InversifyContainer {
+    private alreadySetup = false;
 
-    public async load(): Promise<void> {
-        if (this.isLoaded) {
+    public async setup(): Promise<void> {
+        if (this.alreadySetup) {
             return;
         }
 
-        await this.loadModules();
-        await this.loadServices();
-        await this.loadInfrastructure();
+        await this.setupModules();
+        await this.setupServices();
+        await this.setupInfrastructure();
 
-        this.isLoaded = true;
+        this.alreadySetup = true;
     }
 
     public async close(): Promise<void> {
-        if (!this.isLoaded) {
+        if (!this.alreadySetup) {
             return;
         }
     }
 
-    private async loadModules(): Promise<void> {
+    private async setupModules(): Promise<void> {
         this.bind<Planner>(Modules.Planner.Planner).to(Planner).inSingletonScope();
         this.bind<Broker>(Modules.Broker.Broker).to(Broker).inSingletonScope();
 
-        await this.loadBot();
+        await this.setupBot();
     }
 
-    private async loadServices(): Promise<void> {
+    private async setupServices(): Promise<void> {
         // FontConvertor
         this.bind<ConvertorFactory>(Services.FontConvertor.ConvertorFactory).to(ConvertorFactory).inSingletonScope();
         this.bind<FontForge>(Services.FontConvertor.FontForge).to(FontForge).inSingletonScope();
         this.bind<FontConvertor>(Services.FontConvertor.FontConvertor).to(FontConvertor).inSingletonScope();
     }
 
-    private async loadInfrastructure(): Promise<void> {
+    private async setupInfrastructure(): Promise<void> {
         this.bind<Config>(Infrastructure.Config).to(Config).inSingletonScope();
+        this.bind<Database>(Infrastructure.Database).to(Database).inSingletonScope();
 
-        await this.loadInfrastructureLogger();
+        await this.setupInfrastructureLogger();
     }
 
-    private async loadInfrastructureLogger(): Promise<void> {
+    private async setupInfrastructureLogger(): Promise<void> {
         this.bind<ConsoleLogger>(Infrastructure.ConsoleLogger).to(ConsoleLogger).inSingletonScope();
         this.bind<PinoLogger>(Infrastructure.PinoLogger).to(PinoLogger).inSingletonScope();
 
@@ -97,7 +102,7 @@ class Container extends InversifyContainer {
         this.bind<Logger>(Infrastructure.Logger).toConstantValue(defaultLogger);
     }
 
-    private async loadBot(): Promise<void> {
+    private async setupBot(): Promise<void> {
         this.bind<Bot>(Modules.Bot.Bot).to(Bot).inSingletonScope();
 
         // Middlewares
@@ -111,6 +116,9 @@ class Container extends InversifyContainer {
         this.bind<StartCommand>(Modules.Bot.Command.Start).to(StartCommand).inSingletonScope();
         this.bind<BulkMessagesCommand>(Modules.Bot.Command.BulkMessages).to(BulkMessagesCommand).inSingletonScope();
         this.bind<FontGeneratorCommand>(Modules.Bot.Command.FontGenerator).to(FontGeneratorCommand).inSingletonScope();
+
+        // Session
+        this.bind<StorageAdapter<SessionPayload>>(Modules.Bot.Session.Repository).to(PgSqlSessionRepository).inSingletonScope();
     }
 }
 

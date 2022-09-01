@@ -1,4 +1,4 @@
-import { Bot as TelegramBot, Composer, session } from "grammy";
+import { Bot as TelegramBot, Composer, session, StorageAdapter } from "grammy";
 import { inject, injectable } from "inversify";
 import { Modules } from "App/Infrastructure/Container/Symbols/Modules";
 import { Planner } from "App/Domain/Planner/Planner";
@@ -14,6 +14,7 @@ import { Logger } from "App/Domain/Logger/Logger";
 import { Infrastructure } from "App/Infrastructure/Container/Symbols/Infrastructure";
 import { run, RunnerHandle, sequentialize } from "@grammyjs/runner";
 import { getSessionKey, initialPayload } from "App/Infrastructure/Bot/Session/Helper";
+import { SessionPayload } from "App/Infrastructure/Bot/Session/Types";
 
 @injectable()
 export class Bot {
@@ -30,6 +31,8 @@ export class Bot {
         @inject<Planner>(Modules.Planner.Planner) private readonly planner: Planner,
         @inject<Logger>(Infrastructure.Logger) private readonly logger: Logger,
         @inject<Broker>(Modules.Broker.Broker) private readonly broker: Broker,
+        @inject<StorageAdapter<SessionPayload>>(Modules.Bot.Session.Repository)
+        private readonly sessionStorage: StorageAdapter<SessionPayload>,
     ) {
         if (!this.settings.token) {
             throw new Error("Bot token cannot be empty!");
@@ -43,7 +46,7 @@ export class Bot {
     public async run(): Promise<void> {
         try {
             await this.broker.run();
-            await this.configure();
+            await this.setup();
 
             this.grammy.catch(this.handleError.bind(this));
             this.runner = run(this.grammy);
@@ -80,20 +83,20 @@ export class Bot {
         this.logger.info("Bot is successfully stopped.");
     }
 
-    private async configure(): Promise<void> {
+    private async setup(): Promise<void> {
         if (this.isConfigured) {
             return;
         }
 
-        await this.configureSession();
-        await this.configureSequential();
-        await this.configureMiddlewares();
-        await this.configureCommands();
+        await this.setupSession();
+        await this.setupSequential();
+        await this.setupMiddlewares();
+        await this.setupCommands();
 
         this.isConfigured = true;
     }
 
-    private async configureCommands(): Promise<void> {
+    private async setupCommands(): Promise<void> {
         this.logger.debug("Configure commands...");
 
         const commands = Object.values(Modules.Bot.Command).map((symbol) => {
@@ -113,7 +116,7 @@ export class Bot {
         this.logger.debug("Commands successfully configured.");
     }
 
-    private async configureMiddlewares(): Promise<void> {
+    private async setupMiddlewares(): Promise<void> {
         this.logger.debug("Configure middlewares...");
 
         const composer = new Composer<Context>();
@@ -134,16 +137,17 @@ export class Bot {
         this.logger.debug("Middlewares successfully configured.");
     }
 
-    private async configureSession(): Promise<void> {
+    private async setupSession(): Promise<void> {
         this.grammy.use(
             session<unknown, Context>({
                 initial: initialPayload,
                 getSessionKey: getSessionKey,
+                storage: this.sessionStorage,
             }),
         );
     }
 
-    private async configureSequential(): Promise<void> {
+    private async setupSequential(): Promise<void> {
         this.grammy.use(
             sequentialize((ctx): string[] => {
                 const result: string[] = [];

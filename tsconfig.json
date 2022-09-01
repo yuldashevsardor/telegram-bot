@@ -21,6 +21,7 @@
         "sourceMap": true,
         "lib": [
             "ESNext",
+            "ES6",
             "DOM"
         ],
         "types": [

@@ -19,5 +19,8 @@ export const Modules = {
             OnlyPrivateChat: Symbol.for("OnlyPrivateChat"),
             FillUserToContext: Symbol.for("FillUserToContext"),
         },
+        Session: {
+            Repository: Symbol.for("SessionRepository"),
+        },
     },
 };
