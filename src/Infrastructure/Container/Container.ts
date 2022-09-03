@@ -27,6 +27,9 @@ import { StorageAdapter } from "grammy";
 import { SessionPayload } from "App/Infrastructure/Bot/Session/Types";
 import { PgSqlStorage } from "App/Infrastructure/Bot/Session/PgSqlStorage";
 import { Database } from "App/Infrastructure/Database/Database";
+import { UserRepository } from "App/Domain/User/UserRepository";
+import { PgSqlUserRepository } from "App/Infrastructure/Repository/PgSqlUserRepository";
+import { UserService } from "App/Domain/User/UserService";
 
 export class Container extends InversifyContainer {
     private alreadySetup = false;
@@ -61,6 +64,10 @@ export class Container extends InversifyContainer {
         this.bind<ConvertorFactory>(Services.FontConvertor.ConvertorFactory).to(ConvertorFactory).inSingletonScope();
         this.bind<FontForge>(Services.FontConvertor.FontForge).to(FontForge).inSingletonScope();
         this.bind<FontConvertor>(Services.FontConvertor.FontConvertor).to(FontConvertor).inSingletonScope();
+
+        // User
+        this.bind<UserRepository>(Services.User.UserRepository).to(PgSqlUserRepository).inSingletonScope();
+        this.bind<UserService>(Services.User.UserService).to(UserService).inSingletonScope();
     }
 
     private async setupInfrastructure(): Promise<void> {

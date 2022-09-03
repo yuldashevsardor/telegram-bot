@@ -37,7 +37,7 @@ export class PgSqlStorage implements StorageAdapter<SessionPayload> {
             values (${key},
                     ${this.sql.json(value)}) on conflict (key) do
             update set
-                value = ${this.sql.json(value)},
+                value = EXCLUDED.value,
                 updated_time = now()
         `;
     }

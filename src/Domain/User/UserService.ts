@@ -4,7 +4,7 @@ import { Services } from "App/Infrastructure/Container/Symbols/Services";
 import { CreateUserDto, EditUserDto } from "App/Domain/User/Types";
 import { User } from "App/Domain/User/User";
 import dayjs from "dayjs";
-import { UserCreateError } from "App/Domain/User/Errors";
+import { UserCreateError, UserEditError } from "App/Domain/User/Errors";
 
 @injectable()
 export class UserService {
@@ -23,10 +23,10 @@ export class UserService {
         });
 
         try {
-            await this.repository.create(user);
+            await this.repository.save(user);
         } catch (error) {
             throw new UserCreateError({
-                message: "Error in create use",
+                message: "Error in create user",
                 payload: {
                     dto: dto,
                     error: error,
@@ -60,7 +60,17 @@ export class UserService {
             user.lastActiveTime = dto.lastActiveTime;
         }
 
-        await this.repository.update(user);
+        try {
+            await this.repository.save(user);
+        } catch (error) {
+            throw new UserEditError({
+                message: "Error in edit user",
+                payload: {
+                    dto: dto,
+                    error: error,
+                },
+            });
+        }
 
         return user;
     }

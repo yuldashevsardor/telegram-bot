@@ -24,3 +24,5 @@ export class UserAlreadyExists extends RuntimeError {
 }
 
 export class UserCreateError extends RuntimeError {}
+
+export class UserEditError extends RuntimeError {}

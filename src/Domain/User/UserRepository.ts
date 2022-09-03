@@ -5,9 +5,7 @@ export interface UserRepository {
 
     existsById(id: number): Promise<boolean>;
 
-    create(user: User): Promise<void>;
-
-    update(user: User): Promise<void>;
+    save(user: User): Promise<void>;
 
     delete(id: number): Promise<void>;
 }

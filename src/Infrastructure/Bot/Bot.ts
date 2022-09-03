@@ -68,13 +68,10 @@ export class Bot {
             return;
         }
 
-        if (!this.runner || !this.runner.isRunning) {
-            this.logger.info("Bot runner is empty or is not running");
-            this.isRun = false;
-            return;
+        if (this.runner?.isRunning) {
+            await this.runner.stop();
         }
 
-        await this.runner.stop();
         await this.waitPlannerToEmpty();
         await this.broker.stop();
 
@@ -125,7 +122,7 @@ export class Bot {
             container.get<Middleware>(Modules.Bot.Middleware.ResponseTime),
             container.get<Middleware>(Modules.Bot.Middleware.RequestLog),
             container.get<Middleware>(Modules.Bot.Middleware.OnlyPrivateChat),
-            // container.get<Middleware>(Modules.Bot.Middleware.FillUserToContext),
+            container.get<Middleware>(Modules.Bot.Middleware.FillUserToContext),
         ];
 
         for (const middleware of middlewares) {

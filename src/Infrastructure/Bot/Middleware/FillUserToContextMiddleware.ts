@@ -31,7 +31,7 @@ export class FillUserToContextMiddleware extends Middleware {
                 firstname: ctx.from.first_name,
                 lastname: ctx.from.last_name || "",
                 username: ctx.from.username || "",
-                isBot: ctx.from?.is_bot,
+                isBot: ctx.from.is_bot,
                 lastActiveTime: dayjs(),
             });
         } else {
