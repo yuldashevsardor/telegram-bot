@@ -20,7 +20,7 @@ export const Modules = {
             FillUserToContext: Symbol.for("FillUserToContext"),
         },
         Session: {
-            Repository: Symbol.for("SessionRepository"),
+            Storage: Symbol.for("SessionStorage"),
         },
     },
 };

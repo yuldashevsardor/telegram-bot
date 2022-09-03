@@ -25,7 +25,7 @@ import { FillUserToContextMiddleware } from "App/Infrastructure/Bot/Middleware/F
 import { StartCommand } from "App/Infrastructure/Bot/Command/StartCommand";
 import { StorageAdapter } from "grammy";
 import { SessionPayload } from "App/Infrastructure/Bot/Session/Types";
-import { PgSqlSessionRepository } from "App/Infrastructure/Bot/Session/PgSqlSessionRepository";
+import { PgSqlStorage } from "App/Infrastructure/Bot/Session/PgSqlStorage";
 import { Database } from "App/Infrastructure/Database/Database";
 
 export class Container extends InversifyContainer {
@@ -118,7 +118,7 @@ export class Container extends InversifyContainer {
         this.bind<FontGeneratorCommand>(Modules.Bot.Command.FontGenerator).to(FontGeneratorCommand).inSingletonScope();
 
         // Session
-        this.bind<StorageAdapter<SessionPayload>>(Modules.Bot.Session.Repository).to(PgSqlSessionRepository).inSingletonScope();
+        this.bind<StorageAdapter<SessionPayload>>(Modules.Bot.Session.Storage).to(PgSqlStorage).inSingletonScope();
     }
 }
 

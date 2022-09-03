@@ -31,7 +31,7 @@ export class Bot {
         @inject<Planner>(Modules.Planner.Planner) private readonly planner: Planner,
         @inject<Logger>(Infrastructure.Logger) private readonly logger: Logger,
         @inject<Broker>(Modules.Broker.Broker) private readonly broker: Broker,
-        @inject<StorageAdapter<SessionPayload>>(Modules.Bot.Session.Repository)
+        @inject<StorageAdapter<SessionPayload>>(Modules.Bot.Session.Storage)
         private readonly sessionStorage: StorageAdapter<SessionPayload>,
     ) {
         if (!this.settings.token) {
