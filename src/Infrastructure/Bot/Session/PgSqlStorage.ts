@@ -34,8 +34,7 @@ export class PgSqlStorage implements StorageAdapter<SessionPayload> {
     public async write(key: string, value: SessionPayload): Promise<void> {
         await this.sql`
             insert into sessions
-            values (${key},
-                    ${this.sql.json(value)}) on conflict (key) do
+            values (${key}, ${this.sql.json(value)}) on conflict (key) do
             update set
                 value = EXCLUDED.value,
                 updated_time = now()

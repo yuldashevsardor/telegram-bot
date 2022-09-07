@@ -13,23 +13,29 @@ export class PgSqlUserRepository implements UserRepository {
     private readonly sql!: Sql;
 
     public async delete(id: number): Promise<void> {
-        await this.sql`delete
-                       from users
-                       where id = ${id}`;
+        await this.sql`
+            delete
+            from users
+            where id = ${id}
+        `;
     }
 
     public async existsById(id: number): Promise<boolean> {
-        const rows = await this.sql`select id
-                                    from users
-                                    where id = ${id}`;
+        const rows = await this.sql`
+            select id
+            from users
+            where id = ${id}
+        `;
 
         return rows.length !== 0;
     }
 
     public async getById(id: number): Promise<User> {
-        const rows = await this.sql<UserRow[]>`select *
-                                               from users
-                                               where id = ${id} limit 1`;
+        const rows = await this.sql<UserRow[]>`
+            select *
+            from users
+            where id = ${id} limit 1
+        `;
 
         if (!rows.length) {
             throw UserNotFound.byId(id);
