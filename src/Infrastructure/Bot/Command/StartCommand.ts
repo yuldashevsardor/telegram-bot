@@ -1,5 +1,4 @@
 import { Command } from "App/Infrastructure/Bot/Command/Command";
-import { Context } from "App/Infrastructure/Bot/Context";
 import { inject, injectable } from "inversify";
 import dayjs from "dayjs";
 import path from "path";
@@ -14,7 +13,8 @@ import { Modules } from "App/Infrastructure/Container/Symbols/Modules";
 import { Bot } from "App/Infrastructure/Bot/Bot";
 import { Planner } from "App/Domain/Planner/Planner";
 import { PRIORITY } from "App/Domain/Broker/Message";
-import { sleep } from "App/Helper/Utils";
+import { Context } from "App/Infrastructure/Bot/Types";
+import { StartConversationHandler } from "App/Infrastructure/Bot/Conversation/StartConversationHandler";
 
 @injectable()
 export class StartCommand extends Command {
@@ -25,14 +25,13 @@ export class StartCommand extends Command {
     public constructor(
         @inject<Config>(Infrastructure.Config) private readonly config: Config,
         @inject<FontConvertor>(Services.FontConvertor.FontConvertor) private readonly convertor: FontConvertor,
+        @inject<StartConversationHandler>(Modules.Bot.Conversations.Start) private readonly startConversation: StartConversationHandler,
     ) {
         super();
     }
 
     protected async handle(ctx: Context): Promise<void> {
-        const message = await ctx.reply(`Hello ${ctx.from?.username}`);
-        await sleep(1000);
-        await ctx.api.editMessageText(message.chat.id, message.message_id, `Bye ${ctx.from?.username}`);
+        return this.startConversation.enter(ctx);
     }
 
     private async generateRandomFonts(ctx: Context): Promise<void> {

@@ -30,6 +30,8 @@ import { Database } from "App/Infrastructure/Database/Database";
 import { UserRepository } from "App/Domain/User/UserRepository";
 import { PgSqlUserRepository } from "App/Infrastructure/Repository/PgSqlUserRepository";
 import { UserService } from "App/Domain/User/UserService";
+import { ChangeTelegramCallApiMiddleware } from "App/Infrastructure/Bot/Middleware/ChangeTelegramCallApiMiddleware";
+import { StartConversationHandler } from "App/Infrastructure/Bot/Conversation/StartConversationHandler";
 
 export class Container extends InversifyContainer {
     private alreadySetup = false;
@@ -113,6 +115,9 @@ export class Container extends InversifyContainer {
         this.bind<Bot>(Modules.Bot.Bot).to(Bot).inSingletonScope();
 
         // Middlewares
+        this.bind<ChangeTelegramCallApiMiddleware>(Modules.Bot.Middleware.ChangeTelegramCallApi)
+            .to(ChangeTelegramCallApiMiddleware)
+            .inSingletonScope();
         this.bind<AsyncLocalStorageMiddleware>(Modules.Bot.Middleware.AsyncLocalStorage).to(AsyncLocalStorageMiddleware).inSingletonScope();
         this.bind<ResponseTimeMiddleware>(Modules.Bot.Middleware.ResponseTime).to(ResponseTimeMiddleware).inSingletonScope();
         this.bind<RequestLogMiddleware>(Modules.Bot.Middleware.RequestLog).to(RequestLogMiddleware).inSingletonScope();
@@ -126,6 +131,9 @@ export class Container extends InversifyContainer {
 
         // Session
         this.bind<StorageAdapter<SessionPayload>>(Modules.Bot.Session.Storage).to(PgSqlStorage).inSingletonScope();
+
+        // Conversations
+        this.bind<StartConversationHandler>(Modules.Bot.Conversations.Start).to(StartConversationHandler);
     }
 }
 

@@ -3,6 +3,7 @@ import { AnyObject } from "App/Common/Types";
 import { Level } from "App/Domain/Logger/Types";
 import { injectable } from "inversify";
 import dayjs from "dayjs";
+import { serializeError } from "serialize-error";
 
 @injectable()
 export class ConsoleLogger extends AbstractLogger {
@@ -60,6 +61,10 @@ export class ConsoleLogger extends AbstractLogger {
         const messages = [`[${dayjs().format("YYYY-MM-DD HH:mm:ss.SSS")}]`, `[${level}]`, message];
 
         if (payload) {
+            if (payload instanceof Error) {
+                payload = serializeError<Error>(payload);
+            }
+
             messages.push(JSON.stringify(payload, null, 4));
         }
 

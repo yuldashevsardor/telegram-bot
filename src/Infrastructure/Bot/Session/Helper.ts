@@ -1,5 +1,5 @@
 import { SessionPayload } from "App/Infrastructure/Bot/Session/Types";
-import { Context } from "App/Infrastructure/Bot/Context";
+import { Context } from "App/Infrastructure/Bot/Types";
 
 export function initialPayload(): SessionPayload {
     return {

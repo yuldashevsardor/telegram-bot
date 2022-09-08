@@ -3,18 +3,19 @@ import { inject, injectable } from "inversify";
 import { Modules } from "App/Infrastructure/Container/Symbols/Modules";
 import { Planner } from "App/Domain/Planner/Planner";
 import { Broker } from "App/Domain/Broker/Broker";
-import { Context } from "App/Infrastructure/Bot/Context";
 import { sleep } from "App/Helper/Utils";
 import { container } from "App/Infrastructure/Container/Container";
 import { Command } from "App/Infrastructure/Bot/Command/Command";
 import { Middleware } from "App/Infrastructure/Bot/Middleware/Middleware";
 import { ConfigValue } from "App/Infrastructure/Config/ConfigValue";
-import { BotSettings } from "App/Infrastructure/Bot/Types";
+import { BotSettings, Context } from "App/Infrastructure/Bot/Types";
 import { Logger } from "App/Domain/Logger/Logger";
 import { Infrastructure } from "App/Infrastructure/Container/Symbols/Infrastructure";
 import { run, RunnerHandle, sequentialize } from "@grammyjs/runner";
 import { getSessionKey, initialPayload } from "App/Infrastructure/Bot/Session/Helper";
 import { SessionPayload } from "App/Infrastructure/Bot/Session/Types";
+import { ConversationHandler } from "App/Infrastructure/Bot/Conversation/ConversationHandler";
+import { conversations, createConversation } from "@grammyjs/conversations";
 
 @injectable()
 export class Bot {
@@ -38,9 +39,7 @@ export class Bot {
             throw new Error("Bot token cannot be empty!");
         }
 
-        this.grammy = new TelegramBot<Context>(this.settings.token, {
-            ContextConstructor: Context,
-        });
+        this.grammy = new TelegramBot<Context>(this.settings.token);
     }
 
     public async run(): Promise<void> {
@@ -88,6 +87,7 @@ export class Bot {
         await this.setupSession();
         await this.setupSequential();
         await this.setupMiddlewares();
+        await this.setupConversations();
         await this.setupCommands();
 
         this.isConfigured = true;
@@ -103,7 +103,7 @@ export class Bot {
         const composer = new Composer<Context>();
 
         for (const command of commands) {
-            command.initialize(composer);
+            command.setup(composer);
         }
 
         await this.grammy.api.setMyCommands(commands);
@@ -118,6 +118,7 @@ export class Bot {
 
         const composer = new Composer<Context>();
         const middlewares = [
+            container.get<Middleware>(Modules.Bot.Middleware.ChangeTelegramCallApi),
             container.get<Middleware>(Modules.Bot.Middleware.AsyncLocalStorage),
             container.get<Middleware>(Modules.Bot.Middleware.ResponseTime),
             container.get<Middleware>(Modules.Bot.Middleware.RequestLog),
@@ -126,7 +127,7 @@ export class Bot {
         ];
 
         for (const middleware of middlewares) {
-            middleware.initialize(composer);
+            middleware.setup(composer);
         }
 
         this.grammy.use(composer);
@@ -160,6 +161,18 @@ export class Bot {
                 return result;
             }),
         );
+    }
+
+    private async setupConversations(): Promise<void> {
+        const conversationHandlers: ConversationHandler[] = Object.values(Modules.Bot.Conversations).map((symbol) => {
+            return container.get<ConversationHandler>(symbol);
+        });
+
+        this.grammy.use(conversations());
+
+        for (const handler of conversationHandlers) {
+            this.grammy.use(createConversation(handler.handle.bind(handler), handler.name));
+        }
     }
 
     private async waitPlannerToEmpty(): Promise<void> {

@@ -40,6 +40,7 @@
         "all": true
     },
     "dependencies": {
+        "@grammyjs/conversations": "github:grammyjs/conversations",
         "@grammyjs/runner": "^1.0.4",
         "dayjs": "^1.11.0",
         "dotenv": "^6.2.0",

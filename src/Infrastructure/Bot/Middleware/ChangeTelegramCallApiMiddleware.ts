@@ -1,12 +1,10 @@
-import { Api, Context as OriginalContext, RawApi } from "grammy";
-import { Update, UserFromGetMe } from "@grammyjs/types";
-import { container } from "App/Infrastructure/Container/Container";
+import { Middleware } from "App/Infrastructure/Bot/Middleware/Middleware";
+import { Api, NextFunction, RawApi } from "grammy";
 import { Planner } from "App/Domain/Planner/Planner";
-import { Broker } from "App/Domain/Broker/Broker";
-import { Modules } from "App/Infrastructure/Container/Symbols/Modules";
 import { PRIORITY } from "App/Domain/Broker/Message";
-import { User } from "App/Domain/User/User";
-import { SessionPayload } from "App/Infrastructure/Bot/Session/Types";
+import { inject, injectable } from "inversify";
+import { Modules } from "App/Infrastructure/Container/Symbols/Modules";
+import { Context } from "App/Infrastructure/Bot/Types";
 
 const TELEGRAM_NO_GROUP_RATE_LIMIT_SET = new Set<string | symbol>([
     "getChat",
@@ -24,27 +22,22 @@ const WEBHOOK_REPLY_METHOD_ALLOW_SET = new Set<string | symbol>([
     "sendChatAction",
 ]);
 
-export class Context extends OriginalContext {
-    private readonly planner: Planner;
-    private readonly broker: Broker;
-
-    public user!: User;
-    public session!: SessionPayload;
-
-    constructor(update: Update, api: Api, me: UserFromGetMe) {
-        super(update, api, me);
-        this.planner = container.get<Planner>(Modules.Planner.Planner);
-        this.broker = container.get<Broker>(Modules.Broker.Broker);
-
-        Context.changeTelegramCallApi(api, this.planner);
+@injectable()
+export class ChangeTelegramCallApiMiddleware extends Middleware {
+    public constructor(@inject<Planner>(Modules.Planner.Planner) private readonly planner: Planner) {
+        super();
     }
 
-    /**
-     * Хак для подмены RawApi.callApi, который вызывается для всех методов ТГ через Proxy
-     */
-    private static changeTelegramCallApi(api: Api, planner: Planner): void {
+    protected handle(ctx: Context, next: NextFunction): Promise<void> {
+        this.changeTelegramCallApi(ctx.api);
+
+        return next();
+    }
+
+    private changeTelegramCallApi(api: Api): void {
         // Сохраняем старый raw, что бы вызывать в брокере реально отправку
         const originRaw = api.raw;
+        const planner = this.planner;
 
         // Готовим ProxyHandler, который будет добавлять запросы в ТГ в Брокера
         const proxyHandler: ProxyHandler<RawApi> = {
@@ -65,13 +58,13 @@ export class Context extends OriginalContext {
                 return originRaw[method](payload, signal);
             }
 
-            // Это хак, который нужен для того что бы получить результат отправки сообщения через очереди
-            // Создаем переменные для резолва и режекта промиса
+            // Это хак, который нужен для того что бы получить результат отправки сообщения через очереди.
+            // Создаем переменные для резолва и режекта promise
             // Они будут вызваны после того как сообщения отправится успешно или ошибочно
             let messageResolve;
             let messageReject;
 
-            // Создаем сам промис, который и будем отдавать в ответе этой функции
+            // Создаем сам promise, который и будем отдавать в ответе этой функции
             const promise = new Promise((resolve, reject) => {
                 messageResolve = resolve;
                 messageReject = reject;
@@ -79,7 +72,7 @@ export class Context extends OriginalContext {
 
             const callback = async (): Promise<void> => {
                 try {
-                    // Если метод был успешно выполнен - резовлим промис который вернули в ответе
+                    // Если метод был успешно выполнен - резовлим promise который вернули в ответе
                     messageResolve(originRaw[method](payload, signal));
                 } catch (e) {
                     // Если была ошибка - соответственно режектим
@@ -97,7 +90,7 @@ export class Context extends OriginalContext {
                 PRIORITY.MEDIUM,
             );
 
-            // Возвращаем промис, у которого resolve или reject будут вызваны в методе callback
+            // Возвращаем promise, у которого resolve или reject будут вызваны в методе callback
             return promise;
         }
 

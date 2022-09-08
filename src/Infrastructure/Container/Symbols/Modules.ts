@@ -13,11 +13,15 @@ export const Modules = {
             FontGenerator: Symbol.for("FontGenerator"),
         },
         Middleware: {
+            ChangeTelegramCallApi: Symbol.for("ChangeTelegramCallApiMiddleware"),
             AsyncLocalStorage: Symbol.for("AsyncLocalStorage"),
             ResponseTime: Symbol.for("ResponseTime"),
             RequestLog: Symbol.for("RequestLog"),
             OnlyPrivateChat: Symbol.for("OnlyPrivateChat"),
             FillUserToContext: Symbol.for("FillUserToContext"),
+        },
+        Conversations: {
+            Start: Symbol.for("StartConversation"),
         },
         Session: {
             Storage: Symbol.for("SessionStorage"),

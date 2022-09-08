@@ -1,5 +1,4 @@
 import { Command } from "App/Infrastructure/Bot/Command/Command";
-import { Context } from "App/Infrastructure/Bot/Context";
 import { inject, injectable } from "inversify";
 import { FontConvertor } from "App/Domain/FontConvertor/FontConvertor";
 import { Services } from "App/Infrastructure/Container/Symbols/Services";
@@ -9,6 +8,7 @@ import { Modules } from "App/Infrastructure/Container/Symbols/Modules";
 import { Bot } from "App/Infrastructure/Bot/Bot";
 import { Planner } from "App/Domain/Planner/Planner";
 import { PRIORITY } from "App/Domain/Broker/Message";
+import { Context } from "App/Infrastructure/Bot/Types";
 
 @injectable()
 export class BulkMessagesCommand extends Command {
