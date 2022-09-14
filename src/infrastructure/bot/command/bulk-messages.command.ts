@@ -9,6 +9,7 @@ import { Bot } from "app/infrastructure/bot/bot";
 import { Planner } from "app/domain/planner/planner";
 import { Context } from "app/infrastructure/bot/bot.types";
 import { PRIORITY } from "app/domain/broker/broker.types";
+import { FileHelper } from "app/helper/file-helper/file-helper";
 
 @injectable()
 export class BulkMessagesCommand extends Command {
@@ -20,26 +21,22 @@ export class BulkMessagesCommand extends Command {
     }
 
     protected async handle(ctx: Context): Promise<void> {
-        const promises: any[] = [];
+        const promises: Promise<unknown>[] = [];
         const chats = [2815426, 5067823410, 858262157];
-        for (let i = 0; i < 100; i++) {
+        for (let i = 0; i < 100000; i++) {
             for (const chatId of chats) {
-                promises.push(new Promise(this.sendRandomText.bind(this, chatId)));
+                promises.push(this.sendRandomText(chatId));
             }
         }
 
-        Promise.all(promises)
-            .then((value) => {
-                console.log(value);
-            })
-            .catch((error) => {
-                console.log(error);
-            });
+        await Promise.all(promises);
+        console.log("done");
     }
 
     private async sendRandomText(chatId: number): Promise<void> {
-        const randomText = StringHelper.generateRandomString(100);
+        const randomText = StringHelper.generateRandomString(1000);
         const bot = container.get<Bot>(Modules.Bot.Bot);
+        await FileHelper.createDirectoriesByDate("/home/sardor/applications/telegram-bot/tmp");
 
         const handler = async (): Promise<void> => {
             await bot.grammy.api.sendMessage(chatId, randomText);

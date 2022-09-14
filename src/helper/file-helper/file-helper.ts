@@ -7,13 +7,14 @@ import { promisify } from "util";
 import { exec as execOrigin } from "child_process";
 
 export class FileHelper {
-    public static async isExist(path: string): Promise<boolean> {
+    public static isExist(path: string): Promise<boolean> {
         return FileHelper.isReadable(path);
     }
 
     public static async isReadable(path: string): Promise<boolean> {
         try {
             await fs.access(path, fsSync.constants.R_OK);
+
             return true;
         } catch (error) {
             return false;
@@ -67,25 +68,37 @@ export class FileHelper {
         }
 
         const dateTime = dayjs();
-        const year = dateTime.year();
         //  Т.к. начинается с 0
         const month = dateTime.month() + 1;
-        const day = dateTime.date();
-        const hour = dateTime.hour();
 
-        const pathWithYear = path.join(basePath, year.toString());
+        const pathWithYear = path.join(basePath, dateTime.year().toString());
         if (!(await FileHelper.isExist(pathWithYear))) {
-            await fs.mkdir(pathWithYear);
+            fsSync.mkdirSync(pathWithYear);
         }
 
         const pathWithMonth = path.join(pathWithYear, month.toString());
-        if (!(await FileHelper.isExist(pathWithMonth))) {
-            await fs.mkdir(pathWithMonth);
+        if (!fsSync.existsSync(pathWithMonth)) {
+            fsSync.mkdirSync(pathWithMonth);
         }
 
-        const pathWithDay = path.join(pathWithMonth, day.toString());
-        if (!(await FileHelper.isExist(pathWithDay))) {
-            await fs.mkdir(pathWithDay);
+        const pathWithDay = path.join(pathWithMonth, dateTime.day().toString());
+        if (!fsSync.existsSync(pathWithDay)) {
+            fsSync.mkdirSync(pathWithDay);
+        }
+
+        const pathWithHour = path.join(pathWithDay, dateTime.hour().toString());
+        if (!fsSync.existsSync(pathWithHour)) {
+            fsSync.mkdirSync(pathWithHour);
+        }
+
+        const pathWithMinute = path.join(pathWithHour, dateTime.minute().toString());
+        if (!fsSync.existsSync(pathWithMinute)) {
+            fsSync.mkdirSync(pathWithMinute);
+        }
+
+        const pathWithSecond = path.join(pathWithMinute, dateTime.second().toString());
+        if (!fsSync.existsSync(pathWithSecond)) {
+            fsSync.mkdirSync(pathWithSecond);
         }
 
         return pathWithDay;
