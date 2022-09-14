@@ -1,7 +1,7 @@
 module.exports = {
     parser: "@typescript-eslint/parser",
     plugins: ["@typescript-eslint", "prettier", "eslint-plugin-import"],
-    extends: ["plugin:@typescript-eslint/recommended", "prettier"],
+    extends: ["eslint:recommended", "prettier", "plugin:@typescript-eslint/recommended"],
     rules: {
         // Overwrite rules specified from the extended configs e.g.
         "@typescript-eslint/explicit-function-return-type": "warn",
