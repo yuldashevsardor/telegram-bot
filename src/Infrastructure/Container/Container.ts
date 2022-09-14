@@ -20,7 +20,7 @@ import { RequestLogMiddleware } from "App/Infrastructure/Bot/Middleware/RequestL
 import { PinoLogger } from "App/Infrastructure/Logger/PinoLogger";
 import { asyncLocalStorage } from "App/Infrastructure/AsyncLocalStorage";
 import { AsyncLocalStorageMiddleware } from "App/Infrastructure/Bot/Middleware/AsyncLocalStorageMiddleware";
-import { OnlyPrivateChatMiddleware } from "App/Infrastructure/Bot/Middleware/OnlyPrivateChatMiddleware";
+import { IsPrivateChatFilter } from "App/Infrastructure/Bot/Filter/IsPrivateChatFilter";
 import { FillUserToContextMiddleware } from "App/Infrastructure/Bot/Middleware/FillUserToContextMiddleware";
 import { StartCommand } from "App/Infrastructure/Bot/Command/StartCommand";
 import { StorageAdapter } from "grammy";
@@ -30,7 +30,7 @@ import { Database } from "App/Infrastructure/Database/Database";
 import { UserRepository } from "App/Domain/User/UserRepository";
 import { PgSqlUserRepository } from "App/Infrastructure/Repository/PgSqlUserRepository";
 import { UserService } from "App/Domain/User/UserService";
-import { ChangeTelegramCallApiMiddleware } from "App/Infrastructure/Bot/Middleware/ChangeTelegramCallApiMiddleware";
+import { TelegramCallApiMutation } from "App/Infrastructure/Bot/Middleware/Mutation/TelegramCallApiMutation";
 import { StartConversationHandler } from "App/Infrastructure/Bot/Conversation/StartConversationHandler";
 
 export class Container extends InversifyContainer {
@@ -114,14 +114,15 @@ export class Container extends InversifyContainer {
     private async setupBot(): Promise<void> {
         this.bind<Bot>(Modules.Bot.Bot).to(Bot).inSingletonScope();
 
+        // Filters
+        this.bind<IsPrivateChatFilter>(Modules.Bot.Filter.IsPrivateChat).to(IsPrivateChatFilter).inSingletonScope();
+
         // Middlewares
-        this.bind<ChangeTelegramCallApiMiddleware>(Modules.Bot.Middleware.ChangeTelegramCallApi)
-            .to(ChangeTelegramCallApiMiddleware)
-            .inSingletonScope();
+        this.bind<TelegramCallApiMutation>(Modules.Bot.Middleware.Mutation.TelegramCallApi).to(TelegramCallApiMutation).inSingletonScope();
+
         this.bind<AsyncLocalStorageMiddleware>(Modules.Bot.Middleware.AsyncLocalStorage).to(AsyncLocalStorageMiddleware).inSingletonScope();
         this.bind<ResponseTimeMiddleware>(Modules.Bot.Middleware.ResponseTime).to(ResponseTimeMiddleware).inSingletonScope();
         this.bind<RequestLogMiddleware>(Modules.Bot.Middleware.RequestLog).to(RequestLogMiddleware).inSingletonScope();
-        this.bind<OnlyPrivateChatMiddleware>(Modules.Bot.Middleware.OnlyPrivateChat).to(OnlyPrivateChatMiddleware).inSingletonScope();
         this.bind<FillUserToContextMiddleware>(Modules.Bot.Middleware.FillUserToContext).to(FillUserToContextMiddleware).inSingletonScope();
 
         // Commands

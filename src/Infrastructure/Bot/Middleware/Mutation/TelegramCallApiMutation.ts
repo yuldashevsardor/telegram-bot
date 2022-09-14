@@ -23,7 +23,7 @@ const WEBHOOK_REPLY_METHOD_ALLOW_SET = new Set<string | symbol>([
 ]);
 
 @injectable()
-export class ChangeTelegramCallApiMiddleware extends Middleware {
+export class TelegramCallApiMutation extends Middleware {
     public constructor(@inject<Planner>(Modules.Planner.Planner) private readonly planner: Planner) {
         super();
     }

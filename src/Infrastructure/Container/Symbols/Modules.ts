@@ -12,12 +12,16 @@ export const Modules = {
             BulkMessages: Symbol.for("BulkMessages"),
             FontGenerator: Symbol.for("FontGenerator"),
         },
+        Filter: {
+            IsPrivateChat: Symbol.for("IsPrivateChat"),
+        },
         Middleware: {
-            ChangeTelegramCallApi: Symbol.for("ChangeTelegramCallApiMiddleware"),
+            Mutation: {
+                TelegramCallApi: Symbol.for("TelegramCallApi"),
+            },
             AsyncLocalStorage: Symbol.for("AsyncLocalStorage"),
             ResponseTime: Symbol.for("ResponseTime"),
             RequestLog: Symbol.for("RequestLog"),
-            OnlyPrivateChat: Symbol.for("OnlyPrivateChat"),
             FillUserToContext: Symbol.for("FillUserToContext"),
         },
         Conversations: {

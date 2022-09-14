@@ -16,6 +16,7 @@ import { getSessionKey, initialPayload } from "App/Infrastructure/Bot/Session/He
 import { SessionPayload } from "App/Infrastructure/Bot/Session/Types";
 import { ConversationHandler } from "App/Infrastructure/Bot/Conversation/ConversationHandler";
 import { conversations, createConversation } from "@grammyjs/conversations";
+import { Filter } from "App/Infrastructure/Bot/Filter/Filter";
 
 @injectable()
 export class Bot {
@@ -26,7 +27,7 @@ export class Bot {
 
     private runner?: RunnerHandle;
     private isRun = false;
-    private isConfigured = false;
+    private isSetup = false;
 
     public constructor(
         @inject<Planner>(Modules.Planner.Planner) private readonly planner: Planner,
@@ -80,21 +81,22 @@ export class Bot {
     }
 
     private async setup(): Promise<void> {
-        if (this.isConfigured) {
+        if (this.isSetup) {
             return;
         }
 
         await this.setupSession();
         await this.setupSequential();
         await this.setupMiddlewares();
+        await this.setupFilters();
         await this.setupConversations();
         await this.setupCommands();
 
-        this.isConfigured = true;
+        this.isSetup = true;
     }
 
     private async setupCommands(): Promise<void> {
-        this.logger.debug("Configure commands...");
+        this.logger.debug("Setup commands...");
 
         const commands = Object.values(Modules.Bot.Command).map((symbol) => {
             return container.get<Command>(symbol);
@@ -110,19 +112,33 @@ export class Bot {
 
         this.grammy.use(composer);
 
-        this.logger.debug("Commands successfully configured.");
+        this.logger.debug("Commands successfully setup.");
+    }
+
+    private async setupFilters(): Promise<void> {
+        this.logger.debug("Setup filters...");
+
+        const composer = new Composer<Context>();
+        const filters = [container.get<Filter>(Modules.Bot.Filter.IsPrivateChat)];
+
+        for (const filter of filters) {
+            filter.setup(composer);
+        }
+
+        this.grammy.use(composer);
+
+        this.logger.debug("Filters successfully setup.");
     }
 
     private async setupMiddlewares(): Promise<void> {
-        this.logger.debug("Configure middlewares...");
+        this.logger.debug("Setup middlewares...");
 
         const composer = new Composer<Context>();
         const middlewares = [
-            container.get<Middleware>(Modules.Bot.Middleware.ChangeTelegramCallApi),
+            container.get<Middleware>(Modules.Bot.Middleware.Mutation.TelegramCallApi),
             container.get<Middleware>(Modules.Bot.Middleware.AsyncLocalStorage),
             container.get<Middleware>(Modules.Bot.Middleware.ResponseTime),
             container.get<Middleware>(Modules.Bot.Middleware.RequestLog),
-            container.get<Middleware>(Modules.Bot.Middleware.OnlyPrivateChat),
             container.get<Middleware>(Modules.Bot.Middleware.FillUserToContext),
         ];
 
@@ -132,7 +148,7 @@ export class Bot {
 
         this.grammy.use(composer);
 
-        this.logger.debug("Middlewares successfully configured.");
+        this.logger.debug("Middlewares successfully setup.");
     }
 
     private async setupSession(): Promise<void> {
@@ -164,6 +180,8 @@ export class Bot {
     }
 
     private async setupConversations(): Promise<void> {
+        this.logger.debug("Setup conversations...");
+
         const conversationHandlers: ConversationHandler[] = Object.values(Modules.Bot.Conversations).map((symbol) => {
             return container.get<ConversationHandler>(symbol);
         });
@@ -173,6 +191,8 @@ export class Bot {
         for (const handler of conversationHandlers) {
             this.grammy.use(createConversation(handler.handle.bind(handler), handler.name));
         }
+
+        this.logger.debug("Conversations successfully setup.");
     }
 
     private async waitPlannerToEmpty(): Promise<void> {
