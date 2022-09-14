@@ -33,7 +33,7 @@
         "outDir": "./build",
         "baseUrl": ".",
         "paths": {
-            "App/*": [
+            "app/*": [
                 "./src/*"
             ]
         }
