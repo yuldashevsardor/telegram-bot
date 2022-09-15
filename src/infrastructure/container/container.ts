@@ -10,8 +10,8 @@ import { Planner } from "app/domain/planner/planner";
 import { Modules } from "app/infrastructure/container/symbols/modules";
 import { Broker } from "app/domain/broker/broker";
 import { Bot } from "app/infrastructure/bot/bot";
-import { BulkMessagesCommand } from "app/infrastructure/bot/command/bulk-messages.command";
-import { FontGeneratorCommand } from "app/infrastructure/bot/command/font-generator.command";
+import { BulkMessagesCommand } from "app/infrastructure/bot/command/bulk-messages/bulk-messages.command";
+import { FontGeneratorCommand } from "app/infrastructure/bot/command/font-generator/font-generator.command";
 import { ConsoleLogger } from "app/infrastructure/logger/console.logger";
 import { Logger } from "app/domain/logger/logger";
 import { ResponseTimeMiddleware } from "app/infrastructure/bot/middleware/response-time.middleware";
@@ -22,7 +22,7 @@ import { asyncLocalStorage } from "app/infrastructure/async-local-storage";
 import { AsyncLocalStorageMiddleware } from "app/infrastructure/bot/middleware/async-local-storage.middleware";
 import { IsPrivateChatFilter } from "app/infrastructure/bot/filter/is-private-chat.filter";
 import { FillUserToContextMiddleware } from "app/infrastructure/bot/middleware/fill-user-to-context.middleware";
-import { StartCommand } from "app/infrastructure/bot/command/start.command";
+import { StartCommand } from "app/infrastructure/bot/command/start/start.command";
 import { StorageAdapter } from "grammy";
 import { SessionPayload } from "app/infrastructure/bot/session/session.types";
 import { PgsqlStorage } from "app/infrastructure/bot/session/pgsql.storage";
@@ -31,7 +31,7 @@ import { UserRepository } from "app/domain/user/user.repository";
 import { PgSqlUserRepository } from "app/infrastructure/repository/pgsql.user.repository";
 import { UserService } from "app/domain/user/user.service";
 import { TelegramCallApiMiddleware } from "app/infrastructure/bot/middleware/mutation/telegram-call-api.middleware";
-import { StartConversation } from "app/infrastructure/bot/conversation/start.conversation";
+import { StartConversation } from "app/infrastructure/bot/conversation/start/start.conversation";
 
 export class Container extends InversifyContainer {
     private alreadySetup = false;

@@ -24,7 +24,7 @@ export class Config {
     public readonly environment: Environment;
     public readonly isProduction: boolean;
 
-    public readonly root: string;
+    public readonly rootDir: string;
     public readonly tempDir: string;
     public readonly pythonPath: string;
     public readonly fontForgePath: string;
@@ -47,8 +47,8 @@ export class Config {
         this.environment = Config.getEnvAsString("ENVIRONMENT", "development") as Environment;
         this.isProduction = this.environment === "production";
 
-        this.root = process.cwd();
-        this.tempDir = Config.getEnvAsString("TEMP_DIR", path.join(this.root, "tmp"));
+        this.rootDir = process.cwd();
+        this.tempDir = Config.getEnvAsString("TEMP_DIR", path.join(this.rootDir, "tmp"));
         this.pythonPath = Config.getEnvAsString("PYTHON_PATH", "python");
         this.fontForgePath = Config.getEnvAsString("FONT_FORGE_PATH", "fontforge");
 

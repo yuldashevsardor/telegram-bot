@@ -5,6 +5,8 @@ import dayjs from "dayjs";
 import { InvalidPath, PermissionDenied } from "app/helper/file-helper/file-helper.errors";
 import { promisify } from "util";
 import { exec as execOrigin } from "child_process";
+import { RuntimeError } from "app/common/errors";
+import glob = require("tiny-glob");
 
 export class FileHelper {
     public static isExist(path: string): Promise<boolean> {
@@ -86,21 +88,6 @@ export class FileHelper {
             fsSync.mkdirSync(pathWithDay);
         }
 
-        const pathWithHour = path.join(pathWithDay, dateTime.hour().toString());
-        if (!fsSync.existsSync(pathWithHour)) {
-            fsSync.mkdirSync(pathWithHour);
-        }
-
-        const pathWithMinute = path.join(pathWithHour, dateTime.minute().toString());
-        if (!fsSync.existsSync(pathWithMinute)) {
-            fsSync.mkdirSync(pathWithMinute);
-        }
-
-        const pathWithSecond = path.join(pathWithMinute, dateTime.second().toString());
-        if (!fsSync.existsSync(pathWithSecond)) {
-            fsSync.mkdirSync(pathWithSecond);
-        }
-
         return pathWithDay;
     }
 
@@ -118,5 +105,34 @@ export class FileHelper {
         const commandResult = await exec(command);
 
         return commandResult.stdout.trim();
+    }
+
+    public static async findFilesByExtensions(basePath: string, extensions: string[]): Promise<Array<string>> {
+        const filteredExtensions = extensions
+            .map((extension) => {
+                extension = extension.trim();
+
+                if (extension.startsWith(".")) {
+                    extension = extension.substring(1);
+                }
+
+                return extension;
+            })
+            .filter((extension) => extension !== "");
+
+        if (!filteredExtensions.length) {
+            throw new RuntimeError({
+                message: "Extensions cannot be empty.",
+            });
+        }
+
+        const searchPattern = `**/*.{${filteredExtensions.join(",")}}`;
+
+        return await glob(searchPattern, {
+            cwd: basePath,
+            filesOnly: true,
+            dot: false,
+            absolute: true,
+        });
     }
 }

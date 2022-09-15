@@ -13,7 +13,7 @@ import { Modules } from "app/infrastructure/container/symbols/modules";
 import { Bot } from "app/infrastructure/bot/bot";
 import { Planner } from "app/domain/planner/planner";
 import { Context } from "app/infrastructure/bot/bot.types";
-import { StartConversation } from "app/infrastructure/bot/conversation/start.conversation";
+import { StartConversation } from "app/infrastructure/bot/conversation/start/start.conversation";
 import { PRIORITY } from "app/domain/broker/broker.types";
 
 @injectable()
@@ -37,7 +37,7 @@ export class StartCommand extends Command {
     private async generateRandomFonts(ctx: Context): Promise<void> {
         try {
             const start = dayjs();
-            const woffPath = path.join(this.config.root, "temp", "test-font.woff");
+            const woffPath = path.join(this.config.rootDir, "temp", "test-font.woff");
 
             const eotPath = await this.convertor.convert({
                 originPath: woffPath,

@@ -17,6 +17,10 @@ import { SessionPayload } from "app/infrastructure/bot/session/session.types";
 import { ConversationHandler } from "app/infrastructure/bot/conversation/conversation-handler";
 import { conversations, createConversation } from "@grammyjs/conversations";
 import { Filter } from "app/infrastructure/bot/filter/filter";
+import { FileHelper } from "app/helper/file-helper/file-helper";
+import { Fluent } from "@moebius/fluent";
+import { useFluent } from "@grammyjs/fluent";
+import path from "path";
 
 @injectable()
 export class Bot {
@@ -24,6 +28,9 @@ export class Bot {
 
     @ConfigValue<BotSettings>("bot")
     private readonly settings!: BotSettings;
+
+    @ConfigValue<string>("rootDir")
+    private readonly rootDir!: string;
 
     private runner?: RunnerHandle;
     private isRun = false;
@@ -88,67 +95,12 @@ export class Bot {
         await this.setupSession();
         await this.setupSequential();
         await this.setupMiddlewares();
+        await this.setupFlavor();
         await this.setupFilters();
         await this.setupConversations();
         await this.setupCommands();
 
         this.isSetup = true;
-    }
-
-    private async setupCommands(): Promise<void> {
-        this.logger.debug("Setup commands...");
-
-        const commands = Object.values(Modules.Bot.Command).map((symbol) => {
-            return container.get<Command>(symbol);
-        });
-
-        const composer = new Composer<Context>();
-
-        for (const command of commands) {
-            command.setup(composer);
-        }
-
-        await this.grammy.api.setMyCommands(commands);
-
-        this.grammy.use(composer);
-
-        this.logger.debug("Commands successfully setup.");
-    }
-
-    private async setupFilters(): Promise<void> {
-        this.logger.debug("Setup filters...");
-
-        const composer = new Composer<Context>();
-        const filters = [container.get<Filter>(Modules.Bot.Filter.IsPrivateChat)];
-
-        for (const filter of filters) {
-            filter.setup(composer);
-        }
-
-        this.grammy.use(composer);
-
-        this.logger.debug("Filters successfully setup.");
-    }
-
-    private async setupMiddlewares(): Promise<void> {
-        this.logger.debug("Setup middlewares...");
-
-        const composer = new Composer<Context>();
-        const middlewares = [
-            container.get<Middleware>(Modules.Bot.Middleware.Mutation.TelegramCallApi),
-            container.get<Middleware>(Modules.Bot.Middleware.AsyncLocalStorage),
-            container.get<Middleware>(Modules.Bot.Middleware.ResponseTime),
-            container.get<Middleware>(Modules.Bot.Middleware.RequestLog),
-            container.get<Middleware>(Modules.Bot.Middleware.FillUserToContext),
-        ];
-
-        for (const middleware of middlewares) {
-            middleware.setup(composer);
-        }
-
-        this.grammy.use(composer);
-
-        this.logger.debug("Middlewares successfully setup.");
     }
 
     private async setupSession(): Promise<void> {
@@ -179,6 +131,84 @@ export class Bot {
         );
     }
 
+    private async setupMiddlewares(): Promise<void> {
+        this.logger.debug("Setup middlewares...");
+
+        const composer = new Composer<Context>();
+        const middlewares = [
+            container.get<Middleware>(Modules.Bot.Middleware.Mutation.TelegramCallApi),
+            container.get<Middleware>(Modules.Bot.Middleware.AsyncLocalStorage),
+            container.get<Middleware>(Modules.Bot.Middleware.ResponseTime),
+            container.get<Middleware>(Modules.Bot.Middleware.RequestLog),
+            container.get<Middleware>(Modules.Bot.Middleware.FillUserToContext),
+        ];
+
+        for (const middleware of middlewares) {
+            middleware.setup(composer);
+        }
+
+        this.grammy.use(composer);
+
+        this.logger.debug("Middlewares successfully setup.");
+    }
+
+    private async setupFlavor(): Promise<void> {
+        const files = await FileHelper.findFilesByExtensions(path.join(this.rootDir, "src", "infrastructure", "bot"), [".ftl"]);
+        const filesByLocale = files.reduce<{ [key: string]: string[] }>((acc, filePath) => {
+            const fileParts = filePath.split(".");
+            const locale = fileParts.at(fileParts.length - 2);
+
+            if (!locale) {
+                return acc;
+            }
+
+            if (!acc[locale]) {
+                acc[locale] = [];
+            }
+
+            acc[locale].push(filePath);
+
+            return acc;
+        }, {});
+        const locales = Object.keys(filesByLocale);
+        const fluent = new Fluent();
+
+        for (const locale of locales) {
+            const files = filesByLocale[locale];
+
+            await fluent.addTranslation({
+                locales: locale,
+                filePath: files,
+                isDefault: true,
+            });
+        }
+
+        this.grammy.use(
+            useFluent({
+                fluent: fluent,
+                defaultLocale: "ru",
+                localeNegotiator: (ctx: Context) => {
+                    return "ru";
+                },
+            }),
+        );
+    }
+
+    private async setupFilters(): Promise<void> {
+        this.logger.debug("Setup filters...");
+
+        const composer = new Composer<Context>();
+        const filters = [container.get<Filter>(Modules.Bot.Filter.IsPrivateChat)];
+
+        for (const filter of filters) {
+            filter.setup(composer);
+        }
+
+        this.grammy.use(composer);
+
+        this.logger.debug("Filters successfully setup.");
+    }
+
     private async setupConversations(): Promise<void> {
         this.logger.debug("Setup conversations...");
 
@@ -193,6 +223,26 @@ export class Bot {
         }
 
         this.logger.debug("Conversations successfully setup.");
+    }
+
+    private async setupCommands(): Promise<void> {
+        this.logger.debug("Setup commands...");
+
+        const commands = Object.values(Modules.Bot.Command).map((symbol) => {
+            return container.get<Command>(symbol);
+        });
+
+        const composer = new Composer<Context>();
+
+        for (const command of commands) {
+            command.setup(composer);
+        }
+
+        await this.grammy.api.setMyCommands(commands);
+
+        this.grammy.use(composer);
+
+        this.logger.debug("Commands successfully setup.");
     }
 
     private async waitPlannerToEmpty(): Promise<void> {

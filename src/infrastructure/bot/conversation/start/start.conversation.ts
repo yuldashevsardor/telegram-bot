@@ -6,7 +6,10 @@ export class StartConversation extends ConversationHandler {
     public readonly name: string = "start";
 
     public async run(): Promise<void> {
-        await this.ctx.reply(`Добро пожаловать ${this.ctx.from?.username}. Напиши что нибудь и я повторю за тобой...`);
+        const text = this.ctx.t("welcome", {
+            formats: "woff, woff2, otf, ttf",
+        });
+        await this.ctx.reply(text);
         const nextMessage = await this.conversation.wait();
 
         await nextMessage.reply(nextMessage.message?.text || "Чет не получилось...");
