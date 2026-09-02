@@ -1,0 +1,16 @@
+.git
+.idea
+node_modules
+build
+typings
+coverage
+.nyc_output
+tmp
+docs
+.env
+.env.test
+*.log
+Dockerfile
+.dockerignore
+docker-compose.yml
+docker-compose.override.yml

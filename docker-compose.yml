@@ -1,21 +1,67 @@
-version: '3.8'
+name: telegram-bot
+
 services:
     pgsql:
-        image: postgres:14.1-alpine
-        restart: always
+        image: postgres:18-alpine
+        restart: unless-stopped
         env_file:
             - .env
         environment:
-            - POSTGRES_USER=${DATABASE_SUPERUSER_NAME}
-            - POSTGRES_PASSWORD=${DATABASE_SUPERUSER_PASSWORD}
-            - TZ=${DATABASE_TIMEZONE}
-            - PGTZ=${DATABASE_TIMEZONE}
-            - PGDATESTYLE=${DATABASE_DATE_STYLE}
+            POSTGRES_USER: ${DATABASE_SUPERUSER_NAME}
+            POSTGRES_PASSWORD: ${DATABASE_SUPERUSER_PASSWORD}
+            TZ: ${DATABASE_TIMEZONE}
+            PGTZ: ${DATABASE_TIMEZONE}
+            PGDATESTYLE: ${DATABASE_DATE_STYLE}
         ports:
             - ${DATABASE_PORT}:5432
         volumes:
-            - ./tmp/pgsql:/var/lib/postgresql/data
-            - ./docker/pgsql/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+            # postgres:18 хранит кластер в $PGDATA=/var/lib/postgresql/18/docker,
+            # а томом объявлен родительский /var/lib/postgresql — монтируем именно его.
+            - pgsql-data:/var/lib/postgresql
+            - ./docker/pgsql/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d:ro
+        healthcheck:
+            test: ["CMD-SHELL", "psql -U \"$$POSTGRES_USER\" -d \"$$DATABASE_NAME\" -c 'SELECT 1' > /dev/null 2>&1"]
+            interval: 5s
+            timeout: 5s
+            retries: 12
+            start_period: 30s
+
+    migrate:
+        build:
+            context: .
+            target: development
+        # Одноразовый прогон: node-pg-migrate выполняет .ts-миграции через ts-node,
+        # поэтому нужен образ с devDependencies и исходниками, а не production.
+        command: npm run migrate -- up
+        restart: "no"
+        env_file:
+            - .env
+        environment: &app-environment
+            DATABASE_HOST: pgsql
+            DATABASE_PORT: 5432
+            DATABASE_URL: postgres://${DATABASE_USER_NAME}:${DATABASE_USER_PASSWORD}@pgsql:5432/${DATABASE_NAME}
+        depends_on:
+            pgsql:
+                condition: service_healthy
+
+    app:
+        build:
+            context: .
+            target: production
+        restart: unless-stopped
+        env_file:
+            - .env
+        environment:
+            <<: *app-environment
+            ENVIRONMENT: production
+        volumes:
+            - app-tmp:/app/tmp
+        depends_on:
+            pgsql:
+                condition: service_healthy
+            migrate:
+                condition: service_completed_successfully
+
 volumes:
-    pgsql:
-        driver: local
+    pgsql-data:
+    app-tmp:

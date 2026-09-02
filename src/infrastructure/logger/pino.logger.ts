@@ -2,7 +2,7 @@ import { AbstractLogger } from "app/infrastructure/logger/abstract.logger";
 import { AnyObject } from "app/common/types";
 import { Logger, LoggerOptions, pino } from "pino";
 import { Level } from "app/domain/logger/logger.types";
-import { injectable } from "inversify";
+import { injectable, unmanaged } from "inversify";
 import { serializeError } from "serialize-error";
 
 const pinoLevels: Record<string, number> = {
@@ -28,7 +28,7 @@ export class PinoLogger extends AbstractLogger {
 
     private readonly pino: Logger;
 
-    public constructor(pinoLogger: Logger | null = null) {
+    public constructor(@unmanaged() pinoLogger: Logger | null = null) {
         super();
 
         this.pino = pinoLogger || pino(this.pinoDefaultOptions);

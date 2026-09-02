@@ -12,10 +12,11 @@
     "scripts": {
         "build": "del-cli -rf build && tsc && tsc-alias",
         "start": "node build/app.js",
+        "dev": "node --watch --require ts-node/register --require tsconfig-paths/register src/app.ts",
         "start:prod": "NODE_ENV=production node build/app.js",
         "prepare": "husky install && chmod +x .husky/pre-commit",
-        "test": "mocha --colors --require ts-node/register --file  test/bootstrap.ts test/**/*.spec.ts",
-        "migrate": "node node_modules/.bin/node-pg-migrate -f ./migrate.json"
+        "test": "mocha --colors --require ts-node/register --require tsconfig-paths/register --file test/bootstrap.ts test/**/*.spec.ts",
+        "migrate": "node -r tsconfig-paths/register node_modules/.bin/node-pg-migrate -f ./migrate.json"
     },
     "lint-staged": {
         "*.{ts,tsx}": [
@@ -84,6 +85,7 @@
         "prettier": "^2.8.8",
         "prettier-eslint": "^13.0.0",
         "ts-node": "^10.9.2",
+        "tsconfig-paths": "^4.2.0",
         "tsc-alias": "^1.9.3",
         "typescript": "^4.9.5"
     }
