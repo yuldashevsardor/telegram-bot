@@ -18,7 +18,7 @@ Telegram-бот (grammY + DI на inversify + PostgreSQL). Полная архи
 - Установить зависимости, затем `docker-compose up -d` для локального Postgres (контейнеризован только Postgres — приложение работает на хосте).
 - `npm run migrate` — применить миграции (`node-pg-migrate`, конфигурация в `migrate.json`). Запускать до первого `npm start`.
 - `npm run build` — `tsc` + `tsc-alias` (переписывает алиас `app/*` в относительные пути для `build/`).
-- `npm start` / `npm run start:prod` — запускает `build/app.js` (обратите внимание: **не** `build/src/index.js`, несмотря на `package.json#main`).
+- `npm start` / `npm run start:prod` — запускает `build/app.js`, тот же файл, на который указывает `package.json#main`.
 - `npm test` — mocha по `test/**/*.spec.ts`. **Во всём репозитории фактически один настоящий тест** (`test/services/message-broker/slot-manager/slot-manager.spec.ts`, проверяющий `SlotManager` в изоляции), а `test/bootstrap.ts` (загружаемый тестовым скриптом) пуст. Не считайте зелёный `npm test` осмысленным покрытием того, что вы изменили, — проверяйте вручную.
 
 ## Конвенции архитектуры (кратко — полностью в `docs/architecture.md`)
