@@ -1,34 +1,39 @@
-# Architecture
+# Архитектура
 
-This document describes the system **as it currently exists in the code**, including rough edges, dead code, and unfinished features. It is not a description of an idealized target design. Where something is ambiguous or couldn't be confirmed from the code alone, it's called out explicitly in [Open questions](#18-open-questions--uncertainties) rather than guessed at.
+Этот документ описывает систему **в том виде, в каком она существует в коде прямо сейчас**, включая шероховатости, мёртвый код и незавершённые фичи. Это не описание идеализированного целевого дизайна. Там, где что-то неоднозначно или не подтверждается одним лишь кодом, это явно вынесено в раздел [Открытые вопросы](#18-открытые-вопросы--неясности), а не додумано.
 
-No `README.md` content exists to cross-check against (it currently contains only a title), so everything here is derived from source, git history, and config files as of commit `ca8b1c2`.
+Сверяться с `README.md` не с чем (там сейчас только заголовок), поэтому всё изложенное выведено из исходников, истории git и конфигурационных файлов по состоянию на коммит `ca8b1c2`.
 
-**Revision note:** this document has been through a second, deeper verification pass focused on runtime behavior (exact Promise semantics, exact grammY framework internals at the locked version `1.10.1`, exact middleware execution order and failure modes). That pass is written up in full, flow-by-flow, in [`docs/flows.md`](./flows.md) — read it for the precise trigger → sequence → branching → state-change → error-handling trace of every major flow. This document has been updated in place wherever that deeper pass found the original (structural) description to be incomplete or wrong; those corrections are marked **(corrected)** inline below.
+**Примечание о ревизии:** документ прошёл второй, более глубокий проход верификации, сфокусированный на рантайм-поведении (точная семантика Promise, точные внутренности grammY на зафиксированной версии `1.10.1`, точный порядок выполнения middleware и режимы отказов). Этот проход целиком, поток за потоком, описан в [`docs/flows.md`](./flows.md) — читайте его ради точной трассировки «триггер → последовательность → ветвления → изменения состояния → обработка ошибок» для каждого значимого потока. Настоящий документ обновлён по месту везде, где тот проход показал, что исходное (структурное) описание было неполным или неверным; такие исправления помечены ниже пометкой **(исправлено)**.
 
-## 1. Overview
+**Правила репозитория (действуют для всей документации и всех изменений):**
 
-**The core purpose of this system is font-format conservation** — converting and preserving font files across as many formats as possible (`src/domain/font-convertor/`, §7). Telegram is a delivery frontend for that capability, not the point of the project; `User`, `BulkMessagesCommand`, and the Postgres migrations exist because a Telegram frontend needs them, not as independent features. Read the rest of this document with that priority in mind — the font-conversion domain is the part worth investing in; the bot/DI/logging/config scaffolding around it is infrastructure in service of getting fonts in and out via Telegram.
+- **Документация ведётся на русском языке.** Этот документ, `docs/flows.md`, `CLAUDE.md` и любые новые документы пишутся по-русски. Идентификаторы кода — имена файлов, путей, классов, методов, переменных окружения, команд — остаются в оригинальном виде: переводится текст, а не код.
+- **Любые изменения вносятся только через отдельную ветку и Pull Request.** Прямые коммиты и пуши в `main`/`master` не делаются никогда — ни для кода, ни для документации, ни для мелких правок. Ветка создаётся от актуального `main` (`feat/…`, `fix/…`, `chore/…`, `docs/…`), одна ветка/PR — одна логически цельная задача.
 
-Built on **grammY**, wired together with **inversify** dependency injection, backed by **PostgreSQL**. `/start` is the entry conversation; `/font_generator` exercises the font-conversion domain (currently non-functional as wired — see §7/§17); `/bulk_messages` is a manual load-testing tool for exercising the Telegram-rate-limiting pipeline by hand, not a user-facing feature (see [§17](#17-known-issues--fragile-areas)).
+## 1. Обзор
 
-Stack:
-- **grammY** (`grammy`) — Telegram Bot API framework, run via `@grammyjs/runner` (long-polling, concurrent update processing) with `@grammyjs/conversations` for multi-step flows.
-- **inversify** — DI container, manually wired (no decorator auto-discovery).
-- **PostgreSQL** — via the `postgres` (porsager) client at runtime, and `node-pg-migrate` (which pulls in `pg`) for schema migrations.
-- **pino** / plain `console` — two logger backends behind a domain `Logger` interface.
-- **FontForge** (external CLI, shelled out to) — font format conversion.
-- **Fluent** (`@moebius/fluent` + `@grammyjs/fluent`) — i18n, Russian only in practice today.
+**Основное назначение системы — сохранение форматов шрифтов (font-format conservation)**: конвертация и сохранение файлов шрифтов между максимально возможным числом форматов (`src/domain/font-convertor/`, §7). Telegram — это фронтенд доставки для этой возможности, а не смысл проекта; `User`, `BulkMessagesCommand` и миграции Postgres существуют потому, что они нужны Telegram-фронтенду, а не как самостоятельные фичи. Читайте остальную часть документа с учётом этого приоритета: домен конвертации шрифтов — та часть, в которую стоит вкладываться; обвязка из бота/DI/логирования/конфига вокруг него — инфраструктура, обслуживающая приём и выдачу шрифтов через Telegram.
 
-The code is organized in a loose hexagonal/clean-architecture style: `domain/` holds business logic and ports (interfaces), `infrastructure/` holds adapters (Postgres, grammY, loggers, config), and `common/` holds cross-cutting types/errors. This layering is fairly consistently applied for `user` and `logger`, less so elsewhere (e.g. `broker`/`planner`/`slot-manager` are pure domain logic with no separate port, since they have no external system to abstract away).
+Построено на **grammY**, связано через DI-контейнер **inversify**, хранилище — **PostgreSQL**. `/start` — входная conversation; `/font_generator` задействует домен конвертации шрифтов (в текущей сборке неработоспособен — см. §7/§17); `/bulk_messages` — ручной инструмент нагрузочного тестирования пайплайна ограничения скорости Telegram, а не пользовательская фича (см. [§17](#17-известные-проблемы--хрупкие-места)).
 
-## 2. Entry point & bootstrap
+Стек:
+- **grammY** (`grammy`) — фреймворк Telegram Bot API, запускается через `@grammyjs/runner` (long-polling, конкурентная обработка апдейтов) с `@grammyjs/conversations` для многошаговых сценариев.
+- **inversify** — DI-контейнер, связывается вручную (без автообнаружения по декораторам).
+- **PostgreSQL** — через клиент `postgres` (porsager) в рантайме и `node-pg-migrate` (тянет за собой `pg`) для миграций схемы.
+- **pino** / обычный `console` — два бэкенда логирования за доменным интерфейсом `Logger`.
+- **FontForge** (внешний CLI, вызывается через shell) — конвертация форматов шрифтов.
+- **Fluent** (`@moebius/fluent` + `@grammyjs/fluent`) — i18n, на практике сегодня только русский.
 
-`src/app.ts` is the sole entry point:
+Код организован в свободном стиле гексагональной/чистой архитектуры: `domain/` содержит бизнес-логику и порты (интерфейсы), `infrastructure/` — адаптеры (Postgres, grammY, логгеры, конфиг), `common/` — сквозные типы и ошибки. Это разделение довольно последовательно применено для `user` и `logger` и куда менее последовательно в остальных местах (например, `broker`/`planner`/`slot-manager` — чистая доменная логика без отдельного порта, поскольку абстрагировать там нечего: внешней системы нет).
+
+## 2. Точка входа и bootstrap
+
+`src/app.ts` — единственная точка входа:
 
 ```
-import "reflect-metadata"        // required for inversify's decorator metadata
-await container.setup()          // wires all DI bindings (see §4)
+import "reflect-metadata"        // нужен inversify для метаданных декораторов
+await container.setup()          // связывает все DI-биндинги (см. §4)
 bot = container.get<Bot>(...)
 await bot.run()
 process.once("SIGINT", stop)
@@ -36,391 +41,391 @@ process.once("SIGTERM", stop)
 bootstrap().catch(console.error)
 ```
 
-`stop()` calls `bot.stop()` (see §5 for what that entails) then `container.close()`.
+`stop()` вызывает `bot.stop()` (что это влечёт — см. §5), затем `container.close()`.
 
-Notable gaps:
-- `bootstrap().catch(console.error)` only logs a failed bootstrap — it never calls `process.exit(1)`, so a bootstrap failure (e.g. bad `BOT_TOKEN`, DB unreachable) can leave a Node process alive but doing nothing.
-- `Container.close()` (`src/infrastructure/container/container.ts`) is a stub — it only flips its internal `alreadySetup` flag if already set up and does nothing else. The Postgres connection pool (`Database.sql`) is never explicitly closed on shutdown.
-- `package.json#main` points at `./build/src/index.js`, but the actual compiled entry used by `npm start` is `build/app.js` — these are inconsistent (there is no `src/index.ts`).
+Заметные пробелы:
+- `bootstrap().catch(console.error)` только логирует неудачный bootstrap — `process.exit(1)` не вызывается, поэтому сбой старта (например, неверный `BOT_TOKEN`, недоступная БД) может оставить процесс Node живым, но бездействующим.
+- `Container.close()` (`src/infrastructure/container/container.ts`) — заглушка: он лишь сбрасывает внутренний флаг `alreadySetup`, если тот выставлен, и больше ничего не делает. Пул соединений с Postgres (`Database.sql`) при остановке явно не закрывается.
+- `package.json#main` указывает на `./build/src/index.js`, но реально `npm start` запускает `build/app.js` — они не согласованы (файла `src/index.ts` не существует).
 
-## 3. Directory map
+## 3. Карта директорий
 
 ```
 src/
-  app.ts                    entry point
-  common/                   cross-cutting types & base error class
-  domain/                   business logic + ports (framework-agnostic)
-    broker/                 outbound message dispatch worker (§6)
-    planner/                priority queue + rate-limit gate (§6)
-    slot-manager/           single-slot cooldown primitive (§6)
-    font-convertor/         font format conversion (§7)
-    user/                   user entity/repository-interface/service (§8)
-    logger/                 Logger interface + Level enum (§9)
-  helper/                   generic utilities (string/number/file/sleep)
-  infrastructure/           adapters (concrete implementations)
-    bot/                    grammY wiring: commands, conversations, middleware, filters, session (§5)
-    config/                 env loading (§12)
-    container/              inversify DI wiring (§4)
-    database/               Postgres connection + migrations (§11)
-    logger/                 Console/Pino logger implementations (§9)
-    repository/             Postgres repository implementations (§11)
-    async-local-storage.ts  shared AsyncLocalStorage instance (§9)
-docker/pgsql/                docker-entrypoint init script for local Postgres
-test/                        the (mostly empty) test suite (§14)
+  app.ts                    точка входа
+  common/                   сквозные типы и базовый класс ошибки
+  domain/                   бизнес-логика + порты (не зависят от фреймворков)
+    broker/                 воркер отправки исходящих сообщений (§6)
+    planner/                приоритетная очередь + шлюз ограничения скорости (§6)
+    slot-manager/           примитив одиночного слота с задержкой (§6)
+    font-convertor/         конвертация форматов шрифтов (§7)
+    user/                   сущность/интерфейс репозитория/сервис пользователя (§8)
+    logger/                 интерфейс Logger + enum Level (§9)
+  helper/                   общие утилиты (string/number/file/sleep)
+  infrastructure/           адаптеры (конкретные реализации)
+    bot/                    обвязка grammY: команды, conversations, middleware, фильтры, сессия (§5)
+    config/                 загрузка env (§12)
+    container/              связывание DI через inversify (§4)
+    database/               подключение к Postgres + миграции (§11)
+    logger/                 реализации Console/Pino логгеров (§9)
+    repository/             реализации репозиториев на Postgres (§11)
+    async-local-storage.ts  общий экземпляр AsyncLocalStorage (§9)
+docker/pgsql/                init-скрипт docker-entrypoint для локального Postgres
+test/                        (почти пустой) набор тестов (§14)
 ```
 
-All internal imports use the `app/*` path alias (mapped to `./src/*` in `tsconfig.json`, resolved at build time via `tsc-alias`), never relative paths — ESLint's `no-restricted-imports` rule bans relative import patterns entirely, so `app/...` is the only way code is allowed to reference other modules. Migration files locally disable that rule since `node-pg-migrate` needs conventional imports.
+Все внутренние импорты используют алиас путей `app/*` (маппится на `./src/*` в `tsconfig.json`, разрешается на этапе сборки через `tsc-alias`), относительные пути не применяются никогда — правило ESLint `no-restricted-imports` полностью запрещает относительные импорты, так что `app/...` — единственный разрешённый способ ссылаться на другие модули. В файлах миграций это правило локально отключено, поскольку `node-pg-migrate` требует обычных импортов.
 
-## 4. Dependency injection
+## 4. Внедрение зависимостей (DI)
 
-`src/infrastructure/container/container.ts` defines `Container extends InversifyContainer` with an idempotent `setup()`:
+`src/infrastructure/container/container.ts` определяет `Container extends InversifyContainer` с идемпотентным `setup()`:
 
 ```
 setup()
  └─ setupModules()        Planner, Broker (singleton) → setupBot()
-     └─ setupBot()        Bot, filters, middlewares, commands, session storage, conversations
- └─ setupServices()       font-convertor stack, user stack (all singleton)
+     └─ setupBot()        Bot, фильтры, middleware, команды, хранилище сессий, conversations
+ └─ setupServices()       стек font-convertor, стек user (всё singleton)
  └─ setupInfrastructure() Config, Database (singleton) → setupInfrastructureLogger()
 ```
 
-Bindings use `Symbol.for(...)`-based symbols grouped into `Infrastructure` / `Modules` / `Services` namespaces (`src/infrastructure/container/symbols/`) — a manually maintained registry, not decorator-based auto-discovery. **Adding a new command, middleware, or service requires manually registering it in `container.ts`** — there's nothing that will fail loudly if you forget.
+Биндинги используют символы на базе `Symbol.for(...)`, сгруппированные в пространства имён `Infrastructure` / `Modules` / `Services` (`src/infrastructure/container/symbols/`), — это вручную поддерживаемый реестр, а не автообнаружение по декораторам. **Добавление новой команды, middleware или сервиса требует ручной регистрации в `container.ts`** — ничего не упадёт с ошибкой, если вы про это забудете.
 
-The one non-obvious piece of wiring is `setupInfrastructureLogger()`:
-1. Binds `ConsoleLogger` and `PinoLogger` as concrete singletons, both configured with `config.logger.levels`.
-2. **Rebinds** `PinoLogger`'s symbol to a `Proxy`: every property access first checks `asyncLocalStorage.getStore()?.get("logger")` and uses that instead if present, falling back to the singleton otherwise. This is how per-request child loggers (tagged with a `requestId`, see §9) get transparently substituted without any consumer code knowing about it.
-3. Resolves `config.logger.default` (env `LOGGER_DEFAULT`, `ConsoleLogger` or `PinoLogger`) and binds *that* resolved instance as the single generic `Infrastructure.Logger` — this is the only symbol actually injected via `@inject<Logger>(Infrastructure.Logger)` everywhere else in the codebase.
+Единственная неочевидная часть связывания — `setupInfrastructureLogger()`:
+1. Биндит `ConsoleLogger` и `PinoLogger` как конкретные синглтоны, оба сконфигурированы через `config.logger.levels`.
+2. **Перебиндивает** символ `PinoLogger` на `Proxy`: каждый доступ к свойству сначала проверяет `asyncLocalStorage.getStore()?.get("logger")` и использует его, если тот есть, иначе откатывается на синглтон. Именно так дочерние логгеры на запрос (помеченные `requestId`, см. §9) прозрачно подменяются, причём код-потребитель об этом ничего не знает.
+3. Разрешает `config.logger.default` (env `LOGGER_DEFAULT`, `ConsoleLogger` или `PinoLogger`) и биндит *полученный* экземпляр как единый обобщённый `Infrastructure.Logger` — это единственный символ, который реально внедряется через `@inject<Logger>(Infrastructure.Logger)` во всей остальной кодовой базе.
 
-Separately from constructor injection, two lazy property decorators pull values straight from the module-level `container` singleton at first property access, bypassing constructor injection (a service-locator pattern):
-- `@ConfigValue<T>(key, defaultValue?)` (`src/infrastructure/config/config-value.decorator.ts`) — dotted-path lookup into `Config` (e.g. `"bot.token"`), throws if unresolved with no default. Used by `Bot`, `Database`, `Broker`, `Planner`, `FontGeneratorCommand`, etc.
-- `@PgSql()` (`src/infrastructure/database/pgsql.decorator.ts`) — pulls `Database.sql` the same way. Used by `PgSqlUserRepository`, `PgsqlStorage`.
+Помимо внедрения через конструктор, два ленивых декоратора свойств тянут значения напрямую из модульного синглтона `container` при первом обращении к свойству, минуя конструктор (паттерн service locator):
+- `@ConfigValue<T>(key, defaultValue?)` (`src/infrastructure/config/config-value.decorator.ts`) — поиск по «точечному» пути в `Config` (например, `"bot.token"`), бросает исключение, если значение не найдено и дефолта нет. Используется в `Bot`, `Database`, `Broker`, `Planner`, `FontGeneratorCommand` и др.
+- `@PgSql()` (`src/infrastructure/database/pgsql.decorator.ts`) — тем же способом достаёт `Database.sql`. Используется в `PgSqlUserRepository`, `PgsqlStorage`.
 
-## 5. Bot layer
+## 5. Слой бота
 
-`src/infrastructure/bot/bot.ts` — `Bot` wraps a grammY `TelegramBot<Context>`. The `Context` type (`bot.types.ts`) composes `GrammyContext & SessionFlavor<SessionPayload> & ConversationFlavor & FluentContextFlavor & { user: User }`.
+`src/infrastructure/bot/bot.ts` — `Bot` оборачивает grammY-объект `TelegramBot<Context>`. Тип `Context` (`bot.types.ts`) складывается из `GrammyContext & SessionFlavor<SessionPayload> & ConversationFlavor & FluentContextFlavor & { user: User }`.
 
-`Bot.run()`: `broker.run()` (starts the outbound queue worker, §6) → `setup()` → `grammy.catch(handleError)` → `run(this.grammy)` from `@grammyjs/runner` (a long-polling runner that processes updates concurrently, **not** grammY's built-in `bot.start()`).
+`Bot.run()`: `broker.run()` (запускает воркер исходящей очереди, §6) → `setup()` → `grammy.catch(handleError)` → `run(this.grammy)` из `@grammyjs/runner` (long-polling runner, обрабатывающий апдейты конкурентно, а **не** встроенный `bot.start()` из grammY).
 
-`setup()` wires the pipeline in this exact order — this order matters and is the closest thing this repo has to a request-handling architecture diagram:
+`setup()` собирает пайплайн ровно в таком порядке — порядок важен, и это самое близкое к диаграмме архитектуры обработки запроса, что есть в репозитории:
 
-1. **`setupSession()`** — grammY `session()` middleware. Session key is `` `${ctx.from.id}:${ctx.chat.id}` `` (per user+chat pair). Storage backend is `PgsqlStorage` (Postgres-backed, §11). Payload (`SessionPayload`) is currently just `{ requestCount: number }`.
-2. **`setupSequential()`** — `sequentialize()` from `@grammyjs/runner`, keyed by `[chat.id, from.id]`. Required because the runner processes updates concurrently; this serializes updates that touch the same chat/user to avoid race conditions on session state.
-3. **`setupMiddlewares()`** — a `Composer` chaining, in order: `TelegramCallApiMiddleware` → `AsyncLocalStorageMiddleware` → `ResponseTimeMiddleware` → `RequestLogMiddleware` → `FillUserToContextMiddleware`.
-4. **`setupFlavor()`** — Fluent i18n (see §10).
-5. **`setupFilters()`** — `IsPrivateChatFilter` restricts everything registered after this point to private chats (`ctx.chat?.type === "private"`).
-6. **`setupConversations()`** — `grammy.use(conversations())`, then registers every bound `Modules.Bot.Conversations` symbol (currently just `StartConversation`) via `createConversation(...)`.
-7. **`setupCommands()`** — resolves every bound `Modules.Bot.Command` symbol (`StartCommand`, `BulkMessagesCommand`, `FontGeneratorCommand`), calls `command.setup(composer)` on each (registers `bot.command(name, handler)`), then calls `grammy.api.setMyCommands(commands)` — **a live network call to Telegram on every process startup** — before finally mounting the composer.
+1. **`setupSession()`** — middleware `session()` из grammY. Ключ сессии — `` `${ctx.from.id}:${ctx.chat.id}` `` (на пару пользователь+чат). Бэкенд хранилища — `PgsqlStorage` (на Postgres, §11). Полезная нагрузка (`SessionPayload`) сейчас — просто `{ requestCount: number }`.
+2. **`setupSequential()`** — `sequentialize()` из `@grammyjs/runner`, ключ `[chat.id, from.id]`. Необходим, потому что runner обрабатывает апдейты конкурентно; это сериализует апдейты, затрагивающие один и тот же чат/пользователя, чтобы избежать гонок по состоянию сессии.
+3. **`setupMiddlewares()`** — `Composer`, выстраивающий цепочку в порядке: `TelegramCallApiMiddleware` → `AsyncLocalStorageMiddleware` → `ResponseTimeMiddleware` → `RequestLogMiddleware` → `FillUserToContextMiddleware`.
+4. **`setupFlavor()`** — i18n на Fluent (см. §10).
+5. **`setupFilters()`** — `IsPrivateChatFilter` ограничивает всё, зарегистрированное после этой точки, приватными чатами (`ctx.chat?.type === "private"`).
+6. **`setupConversations()`** — `grammy.use(conversations())`, затем регистрация каждого связанного символа `Modules.Bot.Conversations` (сейчас это только `StartConversation`) через `createConversation(...)`.
+7. **`setupCommands()`** — разрешает каждый связанный символ `Modules.Bot.Command` (`StartCommand`, `BulkMessagesCommand`, `FontGeneratorCommand`), вызывает у каждого `command.setup(composer)` (регистрирует `bot.command(name, handler)`), затем вызывает `grammy.api.setMyCommands(commands)` — **живой сетевой вызов к Telegram при каждом старте процесса** — и лишь после этого монтирует composer.
 
-`Command`/`Filter`/`Middleware`/`ConversationHandler` are all thin abstract base classes following the same template-method shape: an abstract `handle`/`run` plus a `setup(composer)` that wires the instance into grammY.
+`Command`/`Filter`/`Middleware`/`ConversationHandler` — тонкие абстрактные базовые классы одинаковой формы «шаблонный метод»: абстрактный `handle`/`run` плюс `setup(composer)`, встраивающий экземпляр в grammY.
 
-`Bot.stop()`: stops the runner, then calls `waitPlannerToEmpty()` — an unbounded `while(true)` loop polling `planner.isEmpty()` every 3 seconds with **no timeout** — before stopping the broker. If the outbound queue never drains (e.g. an active Telegram rate-limit ban), shutdown can hang indefinitely.
+`Bot.stop()`: останавливает runner, затем вызывает `waitPlannerToEmpty()` — неограниченный цикл `while(true)`, опрашивающий `planner.isEmpty()` каждые 3 секунды **без таймаута**, — и лишь потом останавливает broker. Если исходящая очередь так и не опустеет (например, при активном бане по рейт-лимиту Telegram), остановка может зависнуть навсегда.
 
 ### `TelegramCallApiMiddleware`
 
-The most unusual middleware (`src/infrastructure/bot/middleware/mutation/telegram-call-api.middleware.ts`): it monkey-patches `ctx.api.raw` with a JS `Proxy`. Every outgoing Telegram API call carrying a `chat_id` — except a small whitelist of group-safe methods (`TELEGRAM_NO_GROUP_RATE_LIMIT_SET`, e.g. `getChat`, `sendChatAction`) applied **only to group chats** (private-chat calls are never exempt, even for these same read-only methods) — is intercepted, wrapped in a manually-resolved `Promise`, and pushed onto the `Planner` queue instead of being sent immediately. This is the entry point into the rate-limiting pipeline described in §6.
+Самый необычный middleware (`src/infrastructure/bot/middleware/mutation/telegram-call-api.middleware.ts`): он подменяет `ctx.api.raw` JS-объектом `Proxy`. Каждый исходящий вызов Telegram API, несущий `chat_id`, — кроме небольшого белого списка безопасных для групп методов (`TELEGRAM_NO_GROUP_RATE_LIMIT_SET`, например `getChat`, `sendChatAction`), применяемого **только к групповым чатам** (для приватных чатов исключений нет никогда, даже для этих же read-only методов), — перехватывается, оборачивается в вручную разрешаемый `Promise` и кладётся в очередь `Planner` вместо немедленной отправки. Это и есть вход в пайплайн ограничения скорости, описанный в §6.
 
-**(corrected)** This only wraps `ctx.api` — and, per grammY's own source (verified at the locked version `1.10.1`), **every incoming update gets a brand-new `Api` instance** (`ctx.api` is never the same object as `bot.grammy.api`, and no two updates share one). So this wrapping never accumulates across updates, but it also means it has zero effect on any code that calls through `bot.grammy.api` directly instead of `ctx.api` — `BulkMessagesCommand` and dead code in `StartCommand` do exactly that, and have to manually replicate the `planner.push(...)` call themselves as a result (see `docs/flows.md` Flow 4 for the full trace). A non-plain-object payload (e.g. a multipart file-upload payload) also bypasses the queue entirely, since the interception only recognizes plain `Object`-typed, `chat_id`-bearing payloads — not exercised by any live path today, but a real coverage gap. There's also an unused, dead constant in this file, `WEBHOOK_REPLY_METHOD_ALLOW_SET`, declared but never referenced anywhere.
+**(исправлено)** Оборачивается только `ctx.api` — и, согласно исходникам самого grammY (проверено на зафиксированной версии `1.10.1`), **на каждый входящий апдейт создаётся новый экземпляр `Api`** (`ctx.api` никогда не является тем же объектом, что `bot.grammy.api`, и два разных апдейта не делят один объект). То есть обёртка не накапливается между апдейтами, но это же означает, что она никак не влияет на код, который вызывает Telegram напрямую через `bot.grammy.api`, а не через `ctx.api`: ровно так делают `BulkMessagesCommand` и мёртвый код в `StartCommand`, и как следствие им приходится вручную дублировать вызов `planner.push(...)` (полная трассировка — `docs/flows.md`, Поток 4). Полезная нагрузка, не являющаяся простым объектом (например, multipart-загрузка файла), тоже полностью минует очередь, поскольку перехват распознаёт только payload типа простого `Object` с полем `chat_id`. Сегодня ни один живой путь этого не задействует, но это реальная дыра в покрытии. Ещё в этом файле есть неиспользуемая мёртвая константа `WEBHOOK_REPLY_METHOD_ALLOW_SET` — объявлена и нигде не используется.
 
-### Session storage
+### Хранилище сессий
 
-`src/infrastructure/bot/session/pgsql.storage.ts` — `PgsqlStorage implements StorageAdapter<SessionPayload>`, backed by Postgres via `@PgSql()`. Reads/writes the `sessions` table directly (no repository abstraction, unlike `users` — see §11).
+`src/infrastructure/bot/session/pgsql.storage.ts` — `PgsqlStorage implements StorageAdapter<SessionPayload>`, работает поверх Postgres через `@PgSql()`. Читает и пишет таблицу `sessions` напрямую (без абстракции репозитория, в отличие от `users` — см. §11).
 
-## 6. Outbound rate-limiting pipeline (Broker / Planner / SlotManager)
+## 6. Пайплайн ограничения скорости исходящих (Broker / Planner / SlotManager)
 
-This is the most architecturally distinctive part of the codebase. Despite the name, `Broker` is **not** a general pub-sub message broker — the whole subsystem exists to throttle *outgoing* Telegram API calls so the bot doesn't get rate-limited or banned by Telegram.
+Самая архитектурно своеобразная часть кодовой базы. Несмотря на название, `Broker` — это **не** обобщённый pub-sub брокер сообщений: вся подсистема существует ради троттлинга *исходящих* вызовов Telegram API, чтобы бота не ограничил и не забанил Telegram.
 
-**Flow:**
+**Поток:**
 
 ```
-ctx.api.* call with chat_id
-   │  (TelegramCallApiMiddleware Proxy on ctx.api.raw)
+вызов ctx.api.* с chat_id
+   │  (Proxy из TelegramCallApiMiddleware на ctx.api.raw)
    ▼
-Planner.push(message, priority)     3 FIFO buckets: HIGH / MEDIUM / LOW
+Planner.push(message, priority)     3 FIFO-корзины: HIGH / MEDIUM / LOW
    │
-   ▼  (Broker's setTimeout-driven poll loop calls Planner.pull())
+   ▼  (цикл опроса Broker'а на setTimeout вызывает Planner.pull())
 Planner.pull()
-   │  1. null if globally banned or all queues empty
-   │  2. null if the shared "common" SlotManager isn't free
-   │  3. scan HIGH → MEDIUM → LOW; within a bucket, scan front-to-back
-   │     for the first message whose per-chat SlotManager is free
-   │  4. reserve both the common slot and the per-chat slot, return it
+   │  1. null, если глобальный бан или все очереди пусты
+   │  2. null, если общий («common») SlotManager не свободен
+   │  3. проход HIGH → MEDIUM → LOW; внутри корзины — с начала к концу,
+   │     ищется первое сообщение, у которого свободен SlotManager его чата
+   │  4. резервирует и общий слот, и слот чата, возвращает сообщение
    ▼
-Broker executes message.callback() (the original, un-proxied API call)
+Broker выполняет message.callback() (исходный, не проксированный вызов API)
    │
-   ├─ success → resolves the caller's original Promise
-   └─ failure → planner.push(message, priorityOnError) to requeue;
-                if HTTP 429, planner.ban(retry_after) (global ban)
+   ├─ успех → резолвит исходный Promise вызывающей стороны
+   └─ ошибка → planner.push(message, priorityOnError) для повторной постановки;
+                при HTTP 429 — planner.ban(retry_after) (глобальный бан)
 ```
 
-- **`Planner`** (`src/domain/planner/planner.ts`) holds the three priority buckets and, per chat, a lazily-created `SlotManager` keyed by `chatId` (`limits.group` or `limits.private` depending on `message.isGroup`), plus one shared `commonManager` (`limits.common`). Because it scans for the first *eligible* message rather than strictly the head of the queue, delivery order isn't strict FIFO — a rate-limited chat's message can be skipped over in favor of a later message to a different chat. **`Planner.managers` is a `Map` that is never evicted from** — every distinct chat ID the bot has ever talked to leaves a `SlotManager` instance in memory for the life of the process (unbounded growth for a long-running bot with many users).
-- **`SlotManager`** (`src/domain/slot-manager/slot-manager.ts`) is a minimal single-slot cooldown gate, not a token bucket: `reserveDuration = interval / number` (evenly spaced), `isFree()` checks whether that cooldown has elapsed, `reserve()` throws if called while not free. It's plain-constructed (`new SlotManager(limit)`), not DI-managed.
-- **`Broker`** (`src/domain/broker/broker.ts`) self-schedules via `setTimeout` (not a real consumer/subscriber): pulls a message from `Planner`, sleeps `settings.sleepInterval` if none available, otherwise executes it. `Broker.run()`/`.stop()` are declared synchronous (`void`-returning) but are called with `await` in `Bot` — harmless but misleading. Idle poll interval (`BROKER_SLEEP_INTERVAL`) defaults to 1000ms in code but is overridden to **10ms** in the committed `.env.dist`.
+- **`Planner`** (`src/domain/planner/planner.ts`) держит три приоритетные корзины и, на каждый чат, лениво создаваемый `SlotManager` по ключу `chatId` (`limits.group` или `limits.private` в зависимости от `message.isGroup`), плюс один общий `commonManager` (`limits.common`). Поскольку он ищет первое *подходящее* сообщение, а не строго голову очереди, порядок доставки не является строгим FIFO — сообщение зажатого рейт-лимитом чата может быть пропущено в пользу более позднего сообщения в другой чат. **`Planner.managers` — это `Map`, из которой никогда ничего не удаляется**: каждый уникальный chat ID, с которым бот когда-либо общался, оставляет экземпляр `SlotManager` в памяти на всё время жизни процесса (неограниченный рост для долгоживущего бота с большим числом пользователей).
+- **`SlotManager`** (`src/domain/slot-manager/slot-manager.ts`) — минимальный шлюз с одним слотом и остыванием, а не token bucket: `reserveDuration = interval / number` (равномерный интервал), `isFree()` проверяет, истекло ли остывание, `reserve()` бросает исключение при вызове, когда слот не свободен. Создаётся обычным `new SlotManager(limit)`, вне DI.
+- **`Broker`** (`src/domain/broker/broker.ts`) сам себя планирует через `setTimeout` (это не настоящий consumer/subscriber): забирает сообщение из `Planner`, спит `settings.sleepInterval`, если ничего нет, иначе выполняет. `Broker.run()`/`.stop()` объявлены синхронными (возвращают `void`), но вызываются с `await` в `Bot` — безвредно, но вводит в заблуждение. Интервал опроса при простое (`BROKER_SLEEP_INTERVAL`) в коде по умолчанию 1000 мс, но в закоммиченном `.env.dist` переопределён на **10 мс**.
 
-Configured limits (`.env.dist`, deliberately mirroring Telegram's official Bot API rate-limit guidance):
+Настроенные лимиты (`.env.dist`, намеренно повторяют официальные рекомендации Telegram по рейт-лимитам Bot API):
 
-| Scope   | Number | Interval  |
-|---------|--------|-----------|
-| common  | 30     | 1000 ms   |
-| private | 3      | 1000 ms   |
-| group   | 20     | 60000 ms  |
+| Область | Количество | Интервал  |
+|---------|------------|-----------|
+| common  | 30         | 1000 мс   |
+| private | 3          | 1000 мс   |
+| group   | 20         | 60000 мс  |
 
-`broker.errors.ts` and `planner.errors.ts` both exist but are empty — every sibling domain module defines its own `RuntimeError` subclasses, these two don't, suggesting unfinished error handling here.
+`broker.errors.ts` и `planner.errors.ts` существуют, но пусты — все соседние доменные модули определяют свои подклассы `RuntimeError`, а эти два нет, что намекает на незавершённую обработку ошибок здесь.
 
-**(corrected — significant) The retry-on-failure and ban-on-429 logic is very likely dead code at runtime.** Tracing the exact Promise chain (full detail in `docs/flows.md` Flow 4): the `callback` closure built in `TelegramCallApiMiddleware` calls the real, un-proxied `originRaw[method](payload, signal)` **without awaiting it** — it just hands the resulting (pending) Promise to `messageResolve(...)`. Because Promise-resolving-with-a-Promise adopts the inner Promise's *eventual* state, the original caller (e.g. whatever awaited `ctx.reply(...)`) does correctly see a rejection if the real Telegram call fails — but `callback()` itself, having no `await` in its body, resolves immediately regardless of what the real call does later. `Broker.handleMessage`'s `try { await message.callback(); } catch (error) { ...requeue, ban-on-429... }` therefore essentially never observes a failure — its `catch` block would only fire on a *synchronous* throw from invoking `originRaw[method]`, which normal Telegram API failures (429s included) don't produce (they're async rejections). **Net effect: a message that fails is not requeued, and `Planner.ban()` on HTTP 429 is not actually reached in practice** — the code visibly implements backoff/retry, but the mechanism connecting it to real failures is broken. This was not visible from a structural read of the code; it required tracing exact `async`/`Promise.resolve(thenable)` semantics. Also not caught structurally: `Broker.handleMessages()`'s recursive branch (when a message *is* available) does not wait for the real network call to finish before immediately pulling the next one, for the same underlying reason — this happens to give reasonable throughput, but is a side effect of the same bug, not a deliberate design.
+**(исправлено — существенно) Логика повтора при ошибке и бана по 429 с высокой вероятностью является мёртвым кодом в рантайме.** Если проследить точную цепочку Promise (подробности — `docs/flows.md`, Поток 4): замыкание `callback`, собираемое в `TelegramCallApiMiddleware`, вызывает настоящий, не проксированный `originRaw[method](payload, signal)` **без await** — оно просто передаёт получившийся (ещё висящий) Promise в `messageResolve(...)`. Поскольку резолв Promise'а другим Promise'ом перенимает *итоговое* состояние внутреннего Promise'а, исходный вызывающий код (например, тот, кто ждал `ctx.reply(...)`) корректно увидит отказ, если реальный вызов Telegram упадёт, — но сам `callback()`, не имея в теле ни одного `await`, резолвится немедленно, независимо от того, чем позже закончится настоящий вызов. Поэтому `try { await message.callback(); } catch (error) { ...повтор, бан по 429... }` в `Broker.handleMessage` практически никогда не видит ошибку: его блок `catch` сработал бы только на *синхронный* throw при вызове `originRaw[method]`, а обычные сбои Telegram API (включая 429) такого не дают — это асинхронные reject'ы. **Итог: упавшее сообщение не ставится в очередь повторно, а `Planner.ban()` по HTTP 429 на практике не достигается** — код внешне реализует backoff/retry, но механизм, связывающий его с реальными ошибками, сломан. Структурное чтение кода этого не показывает; потребовалось проследить точную семантику `async`/`Promise.resolve(thenable)`. Структурно также не ловится и другое: рекурсивная ветка `Broker.handleMessages()` (когда сообщение *есть*) не дожидается завершения реального сетевого вызова, прежде чем сразу забрать следующее, — по той же причине. Так получается приемлемая пропускная способность, но это побочный эффект той же ошибки, а не намеренный дизайн.
 
-## 7. Font conversion
+## 7. Конвертация шрифтов
 
-`src/domain/font-convertor/` converts font files between formats (WOFF, WOFF2, OTF, TTF, EOT) for the `/font_generator` command.
+`src/domain/font-convertor/` конвертирует файлы шрифтов между форматами (WOFF, WOFF2, OTF, TTF, EOT) для команды `/font_generator`.
 
 ```
 FontConvertor.convert(params)
-  → derives origin extension, throws if source === target extension
-  → generates a random filename in a date-bucketed temp dir
+  → выводит расширение исходника, бросает ошибку, если исходное === целевому
+  → генерирует случайное имя файла во временной директории с разбиением по дате
     (FileHelper.createDirectoriesByDate: tempDir/YYYY/M/D)
-  → ConvertorFactory.get(from, to)   — dispatch table over ~20 concrete
-                                        pair classes (WoffToEot, EotToOtf, ...),
-                                        one file per pair under convertor/{ext}/
-  → concrete Convertor.validate()    — extension + MIME-type allow-list
-                                        (MIME derived from extension via the
-                                        `mime-types` package, not content sniffing)
-  → FontForge.convert(src, dist)     — shells out to the `fontforge` CLI:
+  → ConvertorFactory.get(from, to)   — таблица диспетчеризации примерно по 20
+                                        конкретным классам пар (WoffToEot, EotToOtf, ...),
+                                        по файлу на пару в convertor/{ext}/
+  → конкретный Convertor.validate()  — белый список расширений и MIME-типов
+                                        (MIME выводится из расширения пакетом
+                                        `mime-types`, а не по содержимому файла)
+  → FontForge.convert(src, dist)     — вызов CLI `fontforge` через shell:
       fontforge -c 'import fontforge; font = fontforge.open("{SRC}");
                      font.generate("{DIST}")'
 ```
 
-The `fontforge` command string is built with naive `.replace()` templating — there's **no shell-escaping** of the paths. Current risk is low because paths are internally generated random strings, but this would be a command-injection vector if a path ever became user-influenced.
+Строка команды `fontforge` собирается наивным шаблонизированием через `.replace()` — **экранирования путей для shell нет**. Сейчас риск невелик, поскольку пути — сгенерированные внутри случайные строки, но это стало бы вектором инъекции команд, если бы путь когда-нибудь начал зависеть от пользователя.
 
-`SVG` is declared as a supported extension (`FontForge.supportedExtensions`) but has **no conversion pairs registered** in `ConvertorFactory` — any SVG conversion throws `ConvertorNotFound`. `convertor.ts` (lines ~58–61) has a commented-out block for content-based MIME sniffing via `FileHelper.getMimeType()` (which shells out to `file --mime-type -b`) — this is the dead link to what `mmmagic` was presumably meant to provide; `mmmagic` itself has zero usage anywhere in `src/` (see §13).
+`SVG` объявлен поддерживаемым расширением (`FontForge.supportedExtensions`), но **ни одной пары конвертации для него не зарегистрировано** в `ConvertorFactory` — любая конвертация SVG бросит `ConvertorNotFound`. В `convertor.ts` (строки ~58–61) есть закомментированный блок определения MIME по содержимому через `FileHelper.getMimeType()` (который вызывает `file --mime-type -b`) — это мёртвая связь с тем, что, судя по всему, должен был давать `mmmagic`; сам `mmmagic` нигде в `src/` не используется (см. §13).
 
-**(corrected)** The date-bucketed temp directory (`FileHelper.createDirectoriesByDate`, `src/helper/file-helper/file-helper.ts`) builds its path as `tempDir/<year>/<month 1-12>/<X>`, where `<X>` comes from `dayjs().day()` — **that's day-of-week (0–6, Sunday=0), not day-of-month** (`.date()` would be the correct call for that). So the deepest directory only ever takes 7 distinct values and cycles weekly rather than giving each calendar day its own bucket, despite the `YYYY/M/D`-shaped structure implying otherwise.
+**(исправлено)** Временная директория с разбиением по дате (`FileHelper.createDirectoriesByDate`, `src/helper/file-helper/file-helper.ts`) строит путь как `tempDir/<год>/<месяц 1-12>/<X>`, где `<X>` берётся из `dayjs().day()` — **это день недели (0–6, воскресенье = 0), а не день месяца** (для дня месяца правильным вызовом был бы `.date()`). Так что самая глубокая директория принимает всего 7 различных значений и циклится еженедельно, вместо того чтобы давать каждому календарному дню собственную корзину, — хотя структура вида `YYYY/M/D` намекает на обратное.
 
-**(corrected)** The generated font file is **never actually sent to the user.** `FontConvertor.convert(...)` returns a local server-side filesystem path, and both places that call it (`FontGeneratorCommand.generateRandomFonts`, and the identical dead-code pattern in `StartCommand.generateRandomFonts`) do `await ctx.reply(eotPath)` — replying with the **path string as text**, not uploading the file. Additionally, `FontGeneratorCommand.handle()`'s bug (see §17: `promises.push(this.generateRandomFonts.bind(this, ctx))` pushes a bound function reference rather than calling it) means `/font_generator` currently does **nothing observable at all** when invoked — no reply, no conversion, no error, just silence. Full trace in `docs/flows.md` Flow 6.
+**(исправлено)** Сгенерированный файл шрифта **никогда фактически не отправляется пользователю.** `FontConvertor.convert(...)` возвращает локальный серверный путь в файловой системе, и оба места, которые её вызывают (`FontGeneratorCommand.generateRandomFonts` и идентичный мёртвый код в `StartCommand.generateRandomFonts`), делают `await ctx.reply(eotPath)` — отвечают **строкой пути как текстом**, а не загружают файл. Вдобавок ошибка в `FontGeneratorCommand.handle()` (см. §17: `promises.push(this.generateRandomFonts.bind(this, ctx))` кладёт ссылку на привязанную функцию, а не вызывает её) означает, что `/font_generator` сейчас **вообще не делает ничего наблюдаемого** при вызове — ни ответа, ни конвертации, ни ошибки, просто тишина. Полная трассировка — `docs/flows.md`, Поток 6.
 
-## 8. User domain
+## 8. Домен User
 
-`src/domain/user/` follows a small DDD-lite pattern: entity + DTOs + repository interface (port) + application service, implemented against Postgres in the infrastructure layer.
+`src/domain/user/` следует небольшому «DDD-lite» паттерну: сущность + DTO + интерфейс репозитория (порт) + сервис приложения, реализованный поверх Postgres в инфраструктурном слое.
 
-- **`User`** (`user.ts`) — entity with true JS-private `#fields` (id, firstname, lastname, username, isBot, lastActiveTime, createdTime, updatedTime). Every setter calls a private `toggleUpdatedTime()`, auto-stamping `updatedTime` — an invariant enforced at the entity level.
-- **`UserRepository`** (`user.repository.ts`) — pure interface: `getById`, `existsById`, `save` (upsert), `delete`.
-- **`UserService`** (`user.service.ts`) — `create(dto)` and `edit(id, dto)` (partial update, only applies defined fields), wraps failures as `UserCreateError`/`UserEditError`. `create()` doesn't itself guard against duplicates — it relies on the caller having already checked `existsById` *and* on the repository's `save()` being an upsert, splitting one invariant across two layers.
-- **`PgSqlUserRepository`** (`src/infrastructure/repository/pgsql.user.repository.ts`) implements the port: `insert ... on conflict (id) do update set ...` via the `postgres` tagged-template client. Private `rowToEntity`/`entityToRow` mappers convert between the domain shape and the snake_case DB row.
+- **`User`** (`user.ts`) — сущность с настоящими приватными полями JS `#fields` (id, firstname, lastname, username, isBot, lastActiveTime, createdTime, updatedTime). Каждый сеттер вызывает приватный `toggleUpdatedTime()`, автоматически проставляя `updatedTime`, — инвариант, обеспечиваемый на уровне сущности.
+- **`UserRepository`** (`user.repository.ts`) — чистый интерфейс: `getById`, `existsById`, `save` (upsert), `delete`.
+- **`UserService`** (`user.service.ts`) — `create(dto)` и `edit(id, dto)` (частичное обновление, применяются только определённые поля), оборачивает сбои в `UserCreateError`/`UserEditError`. `create()` сам по себе не защищает от дублей — он полагается на то, что вызывающая сторона уже проверила `existsById`, *и* на то, что `save()` в репозитории работает как upsert, размазывая один инвариант по двум слоям.
+- **`PgSqlUserRepository`** (`src/infrastructure/repository/pgsql.user.repository.ts`) реализует порт: `insert ... on conflict (id) do update set ...` через клиент `postgres` с tagged-template-запросами. Приватные мапперы `rowToEntity`/`entityToRow` переводят между доменной формой и snake_case-строкой БД.
 
-Driven by **`FillUserToContextMiddleware`** on every incoming update: checks `existsById`, then `create` or `edit`, stamping `lastActiveTime = dayjs()` (this is the "last active" tracking mechanism). If `ctx.from` is missing (e.g. channel posts), it logs an error and returns **without calling `next()`**.
+Всё это приводится в движение **`FillUserToContextMiddleware`** на каждом входящем апдейте: он проверяет `existsById`, затем `create` или `edit`, проставляя `lastActiveTime = dayjs()` (это и есть механизм отслеживания «последней активности»). Если `ctx.from` отсутствует (например, посты в канале), он логирует ошибку и выходит **не вызывая `next()`**.
 
-**(corrected)** That guard is actually **unreachable dead code** in practice. It runs *after* `RequestLogMiddleware` in the pipeline (§5), and `RequestLogMiddleware`'s first statement, `context.session.requestCount++`, throws synchronously for exactly the same class of update — any update missing `ctx.from` also fails grammY's session-key resolution (`getSessionKey` requires `ctx.from`), and accessing `ctx.session` when the key resolution failed throws (verified against grammY `1.10.1` source). So the pipeline crashes at `RequestLogMiddleware`, one middleware before `FillUserToContextMiddleware`'s own explicit check would ever run, for every real case that check was written to handle. The actual "drop mechanism" for such updates is this unhandled exception surfacing as a `critical` log via `Bot.handleError`, not the explicit guard. Full trace in `docs/flows.md` Flow 3.
+**(исправлено)** Эта защита на практике — **недостижимый мёртвый код**. Она выполняется *после* `RequestLogMiddleware` в пайплайне (§5), а первая же инструкция `RequestLogMiddleware`, `context.session.requestCount++`, синхронно бросает исключение ровно для того же класса апдейтов: любой апдейт без `ctx.from` заодно проваливает разрешение ключа сессии в grammY (`getSessionKey` требует `ctx.from`), а обращение к `ctx.session`, когда ключ не разрешился, бросает исключение (проверено по исходникам grammY `1.10.1`). Так что пайплайн падает на `RequestLogMiddleware`, на один middleware раньше, чем сработала бы явная проверка внутри `FillUserToContextMiddleware`, — и так для каждого реального случая, ради которого эта проверка писалась. Настоящий «механизм отбрасывания» таких апдейтов — это необработанное исключение, всплывающее как лог уровня `critical` через `Bot.handleError`, а не явная проверка. Полная трассировка — `docs/flows.md`, Поток 3.
 
-Also newly noted: **`RequestLogMiddleware`** (`src/infrastructure/bot/middleware/request-log.middleware.ts`) increments `context.session.requestCount` and logs the **entire raw `ctx.update` object** (including message text and sender info) at `debug` level on every update that reaches it — this is the only place `SessionPayload.requestCount` is read or written anywhere in the codebase (tracked but never surfaced), and the full-payload debug logging is worth knowing about if debug-level logs are ever shipped somewhere less trusted than local disk.
+Также отмечено дополнительно: **`RequestLogMiddleware`** (`src/infrastructure/bot/middleware/request-log.middleware.ts`) инкрементирует `context.session.requestCount` и логирует **весь сырой объект `ctx.update`** (включая текст сообщения и данные отправителя) на уровне `debug` для каждого дошедшего до него апдейта. Это единственное место во всей кодовой базе, где `SessionPayload.requestCount` читается или пишется (считается, но нигде не используется), а про логирование полного payload'а стоит знать, если debug-логи когда-нибудь начнут уезжать куда-то менее доверенное, чем локальный диск.
 
-`UserAlreadyExists` (`user.errors.ts`) is defined but never thrown anywhere — dead, since `save()` upserts instead of erroring on conflict.
+`UserAlreadyExists` (`user.errors.ts`) определён, но нигде не бросается — мёртвый, поскольку `save()` делает upsert, а не падает на конфликте.
 
-## 9. Logging
+## 9. Логирование
 
-Clean port/adapter split:
-- **`src/domain/logger/logger.ts`** — the `Logger` interface (`critical/error/warning/info/debug(message, payload?)`), the port domain code depends on. `logger.types.ts` defines the `Level` enum (`CRITICAL/ERROR/WARNING/INFO/DEBUG`).
-- **`src/infrastructure/logger/`** — adapters: `AbstractLogger` (shared level-filtering via `setLevels`), `ConsoleLogger` (formats `[timestamp] [LEVEL] message payload`, serializes `Error` payloads via `serialize-error`), `PinoLogger` (wraps `pino` with custom numeric levels matching the domain `Level` enum, `useOnlyCustomLevels: true`, has a `child(context)` method).
+Чистое разделение порт/адаптер:
+- **`src/domain/logger/logger.ts`** — интерфейс `Logger` (`critical/error/warning/info/debug(message, payload?)`), порт, от которого зависит доменный код. `logger.types.ts` определяет enum `Level` (`CRITICAL/ERROR/WARNING/INFO/DEBUG`).
+- **`src/infrastructure/logger/`** — адаптеры: `AbstractLogger` (общая фильтрация по уровням через `setLevels`), `ConsoleLogger` (формат `[timestamp] [LEVEL] message payload`, сериализует payload-ошибки через `serialize-error`), `PinoLogger` (обёртка над `pino` с кастомными числовыми уровнями, совпадающими с доменным enum `Level`, `useOnlyCustomLevels: true`, есть метод `child(context)`).
 
-Which concrete adapter is actually injected as `Infrastructure.Logger` is resolved once in `Container.setupInfrastructureLogger()` (§4) based on `config.logger.default` (env `LOGGER_DEFAULT`; defaults to `PinoLogger` in production, `ConsoleLogger` otherwise).
+Какой конкретный адаптер реально внедряется как `Infrastructure.Logger`, решается один раз в `Container.setupInfrastructureLogger()` (§4) на основе `config.logger.default` (env `LOGGER_DEFAULT`; по умолчанию `PinoLogger` в production и `ConsoleLogger` в остальных случаях).
 
-**Request correlation:** `src/infrastructure/async-local-storage.ts` exports one shared `AsyncLocalStorage<Map<string, any>>`. `AsyncLocalStorageMiddleware` (first in the middleware chain after the API-proxy middleware) runs `asyncLocalStorage.run(new Map([["logger", childLogger]]), next)` per update, where `childLogger` is a `PinoLogger.child()` tagged with a `requestId` (uuid v4). Because `PinoLogger`'s DI binding is a `Proxy` that reads `asyncLocalStorage.getStore()?.get("logger")` on every property access (§4), any code injecting `Infrastructure.Logger` automatically gets this request-scoped, correlated logger for free — *but only when `PinoLogger` is the active default*. The middleware itself is guarded by `if (!(logger instanceof PinoLogger)) return next();`, so **in development (where `ConsoleLogger` is the default), this middleware effectively no-ops and there is no request correlation**.
+**Корреляция запросов:** `src/infrastructure/async-local-storage.ts` экспортирует один общий `AsyncLocalStorage<Map<string, any>>`. `AsyncLocalStorageMiddleware` (первый в цепочке middleware после middleware с прокси API) выполняет на каждый апдейт `asyncLocalStorage.run(new Map([["logger", childLogger]]), next)`, где `childLogger` — это `PinoLogger.child()`, помеченный `requestId` (uuid v4). Поскольку DI-биндинг `PinoLogger` — это `Proxy`, читающий `asyncLocalStorage.getStore()?.get("logger")` при каждом доступе к свойству (§4), любой код, внедряющий `Infrastructure.Logger`, автоматически получает этот скоупленный на запрос коррелированный логгер — *но только когда активен `PinoLogger`*. Сам middleware защищён условием `if (!(logger instanceof PinoLogger)) return next();`, поэтому **в разработке (где по умолчанию `ConsoleLogger`) этот middleware фактически ничего не делает и корреляции запросов нет**.
 
-One naming collision worth knowing about: `src/infrastructure/config/config.ts` locally declares its own `type Logger = { default: symbol; levels: Level[] }` — same name as the domain `Logger` interface, unrelated shape (it's the *configuration for choosing* a logger, not the logger contract). File-scoped, so harmless, but confusing to grep for.
+Об одном совпадении имён стоит знать: `src/infrastructure/config/config.ts` локально объявляет собственный `type Logger = { default: symbol; levels: Level[] }` — то же имя, что у доменного интерфейса `Logger`, но совершенно другая суть (это *конфигурация выбора* логгера, а не контракт логгера). Тип ограничен файлом, так что вреда нет, но grep путает.
 
 ## 10. i18n (Fluent)
 
-`Bot.setupFlavor()` (`bot.ts`) recursively globs all `.ftl` files under `src/infrastructure/bot` (`FileHelper.findFilesByExtensions`), derives each file's locale from its filename by convention — `*.locale.<lang>.ftl` (e.g. `start.conversation.locale.ru.ftl` → `ru`), not from directory structure — groups files by locale, and registers each group with a `@moebius/fluent` `Fluent()` instance. Wired into grammY via `@grammyjs/fluent`'s `useFluent()`.
+`Bot.setupFlavor()` (`bot.ts`) рекурсивно собирает все файлы `.ftl` внутри `src/infrastructure/bot` (`FileHelper.findFilesByExtensions`), выводит локаль каждого файла из его имени по соглашению — `*.locale.<lang>.ftl` (например, `start.conversation.locale.ru.ftl` → `ru`), а не из структуры директорий, группирует файлы по локали и регистрирует каждую группу в экземпляре `Fluent()` из `@moebius/fluent`. Подключается к grammY через `useFluent()` из `@grammyjs/fluent`.
 
-Only **one** `.ftl` file exists in the whole repo (Russian, one key: `welcome`). **`localeNegotiator` is hardcoded to always return `"ru"`** — so despite the file-based multi-locale-capable plumbing, the bot can only actually serve Russian today, regardless of a user's Telegram client language. `StartConversation.run()` also has a hardcoded Russian fallback string ("Чет не получилось...") on the line after its `ctx.t("welcome", ...)` call, bypassing Fluent entirely for that path — inconsistent use of the i18n system even within its one consumer.
+Во всём репозитории существует **один-единственный** файл `.ftl` (русский, один ключ: `welcome`). **`localeNegotiator` захардкожен и всегда возвращает `"ru"`** — так что, несмотря на файловую обвязку, способную обслуживать несколько локалей, сегодня бот реально может отдавать только русский, независимо от языка Telegram-клиента пользователя. В `StartConversation.run()` строкой ниже вызова `ctx.t("welcome", ...)` есть ещё и захардкоженная русская запасная строка («Чет не получилось...»), полностью минующая Fluent на этом пути, — непоследовательное использование системы i18n даже внутри её единственного потребителя.
 
-This is genuinely new/in-progress: the most recent commit, `ca8b1c2` ("Implement support i18n (Flover)"), added the Fluent dependencies, the one `.ftl` file, the `setupFlavor()` logic, and reorganized command/conversation files into per-command subdirectories so each conversation's locale files sit next to its handler.
+Это действительно новая и незавершённая часть: самый свежий коммит `ca8b1c2` («Implement support i18n (Flover)») добавил зависимости Fluent, единственный файл `.ftl`, логику `setupFlavor()` и реорганизовал файлы команд/conversation'ов в подкаталоги по командам, чтобы файлы локалей лежали рядом со своим обработчиком.
 
-## 11. Data storage
+## 11. Хранение данных
 
-**Runtime client:** `Database` (`src/infrastructure/database/database.ts`) wraps the **`postgres`** npm package (porsager, tagged-template SQL, no ORM), constructed with settings from `@ConfigValue`. The connection pool opens at construction time; `debug: !isProduction` means query logging is on by default outside production.
+**Клиент в рантайме:** `Database` (`src/infrastructure/database/database.ts`) оборачивает npm-пакет **`postgres`** (porsager, SQL через tagged-template, без ORM) и конструируется с настройками из `@ConfigValue`. Пул соединений открывается в момент конструирования; `debug: !isProduction` означает, что вне production логирование запросов включено по умолчанию.
 
-**Migrations:** a **separate** library, `node-pg-migrate` (which itself depends on `pg`), run via `npm run migrate` → reads `migrate.json`. This means the repo has two Postgres client libraries in its dependencies — `postgres` for app runtime queries, `pg` transitively for migration tooling only (confirmed: nothing in `src/` imports from `"pg"` directly). Intentional-looking (schema tooling vs. app runtime), but worth knowing so it doesn't read as an accident.
+**Миграции:** **отдельная** библиотека, `node-pg-migrate` (которая сама зависит от `pg`), запускается через `npm run migrate` → читает `migrate.json`. Это значит, что в зависимостях репозитория две клиентские библиотеки Postgres: `postgres` — для запросов приложения в рантайме, `pg` — транзитивно и только для инструментов миграций (подтверждено: ничто в `src/` не импортирует `"pg"` напрямую). Выглядит намеренно (инструменты схемы против рантайма приложения), но об этом стоит знать, чтобы не принять за случайность.
 
-Three migrations exist (`src/infrastructure/database/migrations/`), in order:
-1. `..._users-table.ts` — creates `users` (`id` int PK "User ID in telegram", `first_name`, `last_name`, `username`, `is_bot` boolean, `last_active_time`/`created_time`/`updated_time` timestamptz).
-2. `..._create-sessions-table.ts` — creates `sessions` (`key` unique string, `value` jsonb, timestamps) — backs the grammY session storage adapter (§5).
-3. `..._change-id-column-type-on-users-table.ts` — widens `users.id` from `integer` to `bigint` (a bug-fix migration: Telegram user IDs can exceed the 32-bit signed int range).
+Существуют три миграции (`src/infrastructure/database/migrations/`), по порядку:
+1. `..._users-table.ts` — создаёт `users` (`id` int PK «User ID in telegram», `first_name`, `last_name`, `username`, `is_bot` boolean, `last_active_time`/`created_time`/`updated_time` timestamptz).
+2. `..._create-sessions-table.ts` — создаёт `sessions` (`key` уникальная строка, `value` jsonb, таймстемпы) — под адаптер хранилища сессий grammY (§5).
+3. `..._change-id-column-type-on-users-table.ts` — расширяет `users.id` с `integer` до `bigint` (миграция-исправление: ID пользователей Telegram могут выходить за диапазон 32-битного знакового int).
 
-`migrations/common/utils.ts`/`common/template.ts` hold shared column shorthands and the scaffold template used by `node-pg-migrate` when generating new migration files.
+`migrations/common/utils.ts`/`common/template.ts` содержат общие сокращения для колонок и шаблон-скаффолд, используемый `node-pg-migrate` при генерации новых файлов миграций.
 
-**Repository coverage:** only `users` has a repository (`PgSqlUserRepository`, §8); `sessions` is read/written directly by `PgsqlStorage` with no repository layer — an inconsistency in how the two tables are accessed.
+**Покрытие репозиториями:** репозиторий есть только у `users` (`PgSqlUserRepository`, §8); `sessions` читается и пишется напрямую из `PgsqlStorage` без слоя репозитория — непоследовательность в том, как обращаются к этим двум таблицам.
 
-## 12. Configuration & environment
+## 12. Конфигурация и окружение
 
-`Config` (`src/infrastructure/config/config.ts`) loads `.env` via `dotenv` + `dotenv-expand` **at module import time** (so values can reference other vars, e.g. the — unused, see below — `DATABASE_URL` interpolation in `.env.dist`).
+`Config` (`src/infrastructure/config/config.ts`) загружает `.env` через `dotenv` + `dotenv-expand` **в момент импорта модуля** (поэтому значения могут ссылаться на другие переменные — например, неиспользуемая, см. ниже, интерполяция `DATABASE_URL` в `.env.dist`).
 
-Env vars actually consumed by `Config`:
+Переменные окружения, которые реально потребляет `Config`:
 
-| Var | Purpose |
+| Переменная | Назначение |
 |---|---|
-| `ENVIRONMENT` | `development`/`production`, drives `isProduction` |
-| `TEMP_DIR` | base dir for font-convertor temp files |
-| `PYTHON_PATH`, `FONT_FORGE_PATH` | external tool paths |
-| `LIMIT_COMMON_NUMBER`/`_INTERVAL`, `LIMIT_PRIVATE_NUMBER`/`_INTERVAL`, `LIMIT_GROUP_NUMBER`/`_INTERVAL` | rate-limit config for `Planner`/`SlotManager` (§6) |
-| `BROKER_SLEEP_INTERVAL` | `Broker` poll interval |
-| `BOT_TOKEN` | required — `Bot`'s constructor throws if empty |
-| `LOGGER_DEFAULT`, `LOGGER_LEVELS` | which logger backend + which levels are active |
-| `DATABASE_HOST`, `_PORT`, `_NAME`, `_USER_NAME`, `_USER_PASSWORD`, `_CONNECTION_LIMIT`, `_CONNECTION_IDLE_TIMEOUT`, `_CONNECTION_MAX_LIFETIME` | Postgres connection |
+| `ENVIRONMENT` | `development`/`production`, определяет `isProduction` |
+| `TEMP_DIR` | базовая директория для временных файлов font-convertor |
+| `PYTHON_PATH`, `FONT_FORGE_PATH` | пути к внешним инструментам |
+| `LIMIT_COMMON_NUMBER`/`_INTERVAL`, `LIMIT_PRIVATE_NUMBER`/`_INTERVAL`, `LIMIT_GROUP_NUMBER`/`_INTERVAL` | конфигурация рейт-лимитов для `Planner`/`SlotManager` (§6) |
+| `BROKER_SLEEP_INTERVAL` | интервал опроса в `Broker` |
+| `BOT_TOKEN` | обязательна — конструктор `Bot` бросает исключение, если пусто |
+| `LOGGER_DEFAULT`, `LOGGER_LEVELS` | какой бэкенд логирования и какие уровни активны |
+| `DATABASE_HOST`, `_PORT`, `_NAME`, `_USER_NAME`, `_USER_PASSWORD`, `_CONNECTION_LIMIT`, `_CONNECTION_IDLE_TIMEOUT`, `_CONNECTION_MAX_LIFETIME` | подключение к Postgres |
 
-Vars present in `.env.dist` but **not read anywhere in `src/`**: `DATABASE_SUPERUSER_NAME`/`_PASSWORD` and `DATABASE_TIMEZONE`/`DATABASE_DATE_STYLE` (consumed only by `docker-compose.yml`/the init script, not the app), and notably **`DATABASE_URL`** — built via string interpolation but never actually read by `Database`/`Config`, which always assembles the connection from discrete host/port/user/pass fields. Treat `DATABASE_URL` as vestigial unless some external tooling outside this repo depends on it.
+Переменные, присутствующие в `.env.dist`, но **нигде в `src/` не читаемые**: `DATABASE_SUPERUSER_NAME`/`_PASSWORD` и `DATABASE_TIMEZONE`/`DATABASE_DATE_STYLE` (используются только `docker-compose.yml`/init-скриптом, не приложением), и, что примечательно, **`DATABASE_URL`** — она собирается интерполяцией строк, но никогда не читается ни `Database`, ни `Config`, которые всегда собирают подключение из отдельных полей host/port/user/pass. Считайте `DATABASE_URL` рудиментом, если только от неё не зависит какая-то внешняя обвязка вне этого репозитория.
 
-`.env.dist` also commits a real-looking plaintext `BOT_TOKEN` example value — worth a quick sanity check that it's genuinely inert before assuming it's harmless to have in git history.
+В `.env.dist` также закоммичено похожее на настоящее значение `BOT_TOKEN` открытым текстом — стоит быстро убедиться, что оно действительно нерабочее, прежде чем считать безвредным его наличие в истории git.
 
-## 13. External integrations & dependencies
+## 13. Внешние интеграции и зависимости
 
-- **Telegram Bot API** — via grammY + `@grammyjs/runner` (long polling; no webhook mode configured anywhere).
-- **FontForge** — external CLI, invoked via `child_process`-style shell-out (§7). Expected on `$PATH` unless `FONT_FORGE_PATH` overrides it.
-- **PostgreSQL** — the only external data store (§11).
+- **Telegram Bot API** — через grammY + `@grammyjs/runner` (long polling; режим webhook нигде не настроен).
+- **FontForge** — внешний CLI, вызывается через shell в стиле `child_process` (§7). Ожидается в `$PATH`, если не переопределён через `FONT_FORGE_PATH`.
+- **PostgreSQL** — единственное внешнее хранилище данных (§11).
 
-**Dead dependencies** — declared in `package.json` but with zero usage anywhere in `src/`:
-- **`mmmagic`** (+ `@types/mmmagic`) — intended purpose (content-based MIME sniffing) is visible only as commented-out dead code in `font-convertor/convertor/convertor.ts`; the actual `FileHelper.getMimeType()` shells out to the OS `file` command instead, and even that is only reachable from that same dead code block.
-- **`puppeteer`** — no usage found anywhere; no rendering/screenshot logic exists in the codebase at all.
+**Мёртвые зависимости** — объявлены в `package.json`, но нигде в `src/` не используются:
+- **`mmmagic`** (+ `@types/mmmagic`) — предполагаемое назначение (определение MIME по содержимому) видно только как закомментированный мёртвый код в `font-convertor/convertor/convertor.ts`; фактический `FileHelper.getMimeType()` вместо этого вызывает системную команду `file`, да и та достижима только из того же мёртвого блока.
+- **`puppeteer`** — использования не найдено нигде; никакой логики рендеринга/скриншотов в кодовой базе вообще нет.
 
-## 14. Testing
+## 14. Тестирование
 
-- **`test/bootstrap.ts`** is completely empty (0 bytes), despite being loaded via `--file test/bootstrap.ts` in the `test` npm script — presumably meant to hold global test setup (e.g. `reflect-metadata`) but currently does nothing.
-- **`test/services/message-broker/slot-manager/slot-manager.spec.ts`** is the **only** spec file in the entire repository. It instantiates `SlotManager` directly (no mocks) and checks: fresh manager is free → not free after `reserve()` → free again after the interval elapses → double-`reserve()` throws. The "free again after timeout" assertion is wrapped in a bare `setTimeout` callback with no `done()`/await — Mocha has already returned by the time it runs, so a failing assertion there would **not** actually fail the test run.
-- The test's directory path (`test/services/message-broker/...`) predates the source reorg — no `services/message-broker` concept exists in current `src/` (the module is `src/domain/slot-manager/`, called from `src/domain/broker/`) — a leftover from before the "Global refactor" commits.
-- `package.json`'s `nyc` config extends `@istanbuljs/nyc-config-typescript`, which is **not installed** (not in `devDependencies`), and no npm script invokes `nyc` at all — the coverage tooling is configured but entirely inert.
-- **Net effect:** essentially zero real test coverage. None of the domain services (`Broker`, `Planner`, `FontConvertor`, `UserService`), infrastructure (`Bot`, middlewares, `Config`, the DI container), or helpers have any tests.
+- **`test/bootstrap.ts`** полностью пуст (0 байт), хотя и загружается через `--file test/bootstrap.ts` в npm-скрипте `test`. Предполагалось, видимо, что там будет глобальная подготовка тестов (например, `reflect-metadata`), но сейчас он не делает ничего.
+- **`test/services/message-broker/slot-manager/slot-manager.spec.ts`** — **единственный** spec-файл во всём репозитории. Он напрямую создаёт `SlotManager` (без моков) и проверяет: свежий менеджер свободен → не свободен после `reserve()` → снова свободен после истечения интервала → повторный `reserve()` бросает исключение. Проверка «снова свободен после таймаута» завёрнута в голый колбэк `setTimeout` без `done()`/await — к моменту его выполнения Mocha уже вернула управление, поэтому проваленная там ассерция **не** уронит прогон тестов.
+- Путь директории теста (`test/services/message-broker/...`) остался с времён до реорганизации исходников — понятия `services/message-broker` в текущем `src/` не существует (модуль — `src/domain/slot-manager/`, вызывается из `src/domain/broker/`), это наследие коммитов «Global refactor».
+- Конфигурация `nyc` в `package.json` расширяет `@istanbuljs/nyc-config-typescript`, который **не установлен** (его нет в `devDependencies`), и ни один npm-скрипт вообще не вызывает `nyc` — инструменты покрытия настроены, но полностью бездействуют.
+- **Итог:** реального тестового покрытия практически ноль. Ни у доменных сервисов (`Broker`, `Planner`, `FontConvertor`, `UserService`), ни у инфраструктуры (`Bot`, middleware, `Config`, DI-контейнер), ни у хелперов тестов нет.
 
-## 15. Build & dev workflow
+## 15. Сборка и рабочий процесс разработки
 
-- `npm run build` — `del-cli -rf build && tsc && tsc-alias` (compiles, then rewrites the `app/*` alias to relative paths for the compiled output).
-- `npm start` / `npm run start:prod` — `node build/app.js` (the latter sets `NODE_ENV=production`).
-- `npm run migrate` — runs `node-pg-migrate` against `migrate.json`.
-- `npm test` — `mocha` over `test/**/*.spec.ts` (see §14).
-- **Docker** — `docker-compose.yml` runs **only Postgres** (`postgres:14.1-alpine`), env-driven from `.env`, with `docker/pgsql/docker-entrypoint-initdb.d/init-user-db.sh` creating the app's non-superuser DB role/database on first init. **The bot application itself is not containerized** — it's expected to run on the host via `npm start`. No Dockerfile for the app was found (see [Open questions](#18-open-questions--uncertainties)).
-- **Linting/formatting** — ESLint (TypeScript + Prettier + import-order rules, and the relative-import ban noted in §3) + Prettier (4-space indent, 140-char lines, double quotes) + Husky `pre-commit` hook running `lint-staged` (`eslint --fix` then `prettier --write` on staged `.ts` files).
-- `.nvmrc` is a floating `lts/` alias rather than a pinned Node version — a minor reproducibility gap for onboarding.
+- `npm run build` — `del-cli -rf build && tsc && tsc-alias` (компиляция, затем переписывание алиаса `app/*` в относительные пути для скомпилированного вывода).
+- `npm start` / `npm run start:prod` — `node build/app.js` (второй выставляет `NODE_ENV=production`).
+- `npm run migrate` — запускает `node-pg-migrate` с `migrate.json`.
+- `npm test` — `mocha` по `test/**/*.spec.ts` (см. §14).
+- **Docker** — `docker-compose.yml` поднимает **только Postgres** (`postgres:14.1-alpine`), конфигурируемый из `.env`, а `docker/pgsql/docker-entrypoint-initdb.d/init-user-db.sh` при первой инициализации создаёт роль и базу приложения (не суперпользователя). **Само приложение бота не контейнеризовано** — предполагается, что оно запускается на хосте через `npm start`. Dockerfile для приложения не найден (см. [Открытые вопросы](#18-открытые-вопросы--неясности)).
+- **Линтинг/форматирование** — ESLint (TypeScript + Prettier + правила порядка импортов и запрет относительных импортов, отмеченный в §3) + Prettier (отступ 4 пробела, строки до 140 символов, двойные кавычки) + хук Husky `pre-commit`, запускающий `lint-staged` (`eslint --fix`, затем `prettier --write` по staged-файлам `.ts`).
+- `.nvmrc` содержит «плавающий» алиас `lts/`, а не зафиксированную версию Node — небольшой пробел в воспроизводимости при онбординге.
 
-## 16. End-to-end flows
+## 16. Сквозные потоки
 
-This section is a quick summary only. **For the precise trigger → component sequence → branching → state changes → data-store interactions → external calls → error handling → side effects of every major flow, see [`docs/flows.md`](./flows.md)** — it supersedes the brief descriptions below wherever they conflict, since it was produced by a deeper, runtime-behavior-focused verification pass.
+Этот раздел — только краткая сводка. **Точная последовательность «триггер → компоненты → ветвления → изменения состояния → обращения к хранилищу → внешние вызовы → обработка ошибок → побочные эффекты» по каждому значимому потоку описана в [`docs/flows.md`](./flows.md)** — там, где эти описания расходятся, приоритет у него, поскольку он получен более глубоким проходом верификации, сфокусированным на рантайм-поведении.
 
-**Incoming update:**
-session load (Postgres, keyed by user+chat) → `sequentialize()` (serializes same chat/user updates) → `TelegramCallApiMiddleware` (patches `ctx.api.raw` for outbound calls) → `AsyncLocalStorageMiddleware` (tags request-scoped logger) → `ResponseTimeMiddleware` / `RequestLogMiddleware` (timing + logging; **this is where the pipeline actually crashes for updates missing `ctx.from`, not at `FillUserToContextMiddleware` — see §8 and `docs/flows.md` Flow 3**) → `FillUserToContextMiddleware` (upserts the `users` row, stamps `lastActiveTime`) → Fluent locale flavor attached → `IsPrivateChatFilter` (drops non-private-chat updates) → conversation/command dispatch (`/start`, `/font_generator`, `/bulk_messages`).
+**Входящий апдейт:**
+загрузка сессии (Postgres, ключ по пользователю+чату) → `sequentialize()` (сериализует апдейты одного чата/пользователя) → `TelegramCallApiMiddleware` (патчит `ctx.api.raw` для исходящих вызовов) → `AsyncLocalStorageMiddleware` (помечает логгер, скоупленный на запрос) → `ResponseTimeMiddleware` / `RequestLogMiddleware` (замер времени + логирование; **именно здесь пайплайн реально падает на апдейтах без `ctx.from`, а не в `FillUserToContextMiddleware` — см. §8 и `docs/flows.md`, Поток 3**) → `FillUserToContextMiddleware` (upsert строки `users`, проставление `lastActiveTime`) → подключение локали Fluent → `IsPrivateChatFilter` (отбрасывает апдейты не из приватных чатов) → диспетчеризация conversation/команд (`/start`, `/font_generator`, `/bulk_messages`).
 
-**Outgoing message (rate-limiting):**
-see the diagram in §6 — `TelegramCallApiMiddleware` intercept → `Planner` priority queue, gated by `SlotManager`(s) → `Broker`'s poll loop executes it → **structurally** 429 triggers a global ban and requeue, but per §6's correction this path is very likely never actually reached at runtime.
+**Исходящее сообщение (ограничение скорости):**
+см. схему в §6 — перехват в `TelegramCallApiMiddleware` → приоритетная очередь `Planner`, ограничиваемая `SlotManager`'ами → цикл опроса `Broker`'а выполняет вызов → **структурно** 429 приводит к глобальному бану и повторной постановке в очередь, но, согласно исправлению в §6, этот путь в рантайме почти наверняка никогда не достигается.
 
 **`/font_generator`:**
-command handler → *(bug: never actually invokes the conversion — see §7 and §17)* → had it been reachable: `FontConvertor.convert()` → `ConvertorFactory` dispatch to a concrete pair convertor → validation (extension + MIME allow-list) → `FontForge` shells out to the `fontforge` CLI → **the resulting file path is sent back as text, not the file itself** (§7). No explicit temp-file cleanup step was found in this path — generated files under `TEMP_DIR/<year>/<month>/<weekday>/` appear to accumulate rather than being deleted after use (unconfirmed whether cleanup happens elsewhere, e.g. an external cron — see [Open questions](#18-open-questions--uncertainties)).
+обработчик команды → *(баг: конвертация фактически никогда не запускается — см. §7 и §17)* → если бы путь был достижим: `FontConvertor.convert()` → диспетчеризация через `ConvertorFactory` к конкретному конвертору пары → валидация (белый список расширений + MIME) → `FontForge` вызывает CLI `fontforge` → **получившийся путь к файлу отправляется обратно текстом, а не сам файл** (§7). Явного шага очистки временных файлов на этом пути не найдено — сгенерированные файлы в `TEMP_DIR/<год>/<месяц>/<день недели>/`, судя по всему, накапливаются, а не удаляются после использования (не подтверждено, происходит ли очистка где-то ещё, например внешним cron — см. [Открытые вопросы](#18-открытые-вопросы--неясности)).
 
-## 17. Known issues / fragile areas
+## 17. Известные проблемы / хрупкие места
 
-A flat list of everything flagged above, for quick scanning. Items marked **(deep-dive)** were only found by the second, runtime-behavior-focused pass (full detail in `docs/flows.md`) and are the highest-value corrections to the first pass's structural read:
+Плоский список всего, что отмечено выше, для быстрого просмотра. Пункты с пометкой **(глубокий разбор)** найдены только вторым проходом, сфокусированным на рантайм-поведении (подробности — в `docs/flows.md`), и являются наиболее ценными исправлениями структурного чтения из первого прохода:
 
-- **(deep-dive, high severity)** `Broker`'s retry-on-failure and ban-on-HTTP-429 logic is very likely dead code at runtime — tracing the exact Promise chain through `TelegramCallApiMiddleware`'s `callback` closure shows `Broker.handleMessage`'s catch block can only fire on a synchronous throw, which real Telegram API failures don't produce (they're async rejections). The bot has no working automatic backoff on rate-limit responses despite the code appearing to implement one (§6, `docs/flows.md` Flow 4).
-- **(deep-dive, high severity)** `FillUserToContextMiddleware`'s `if (!ctx.from)` guard is unreachable — `RequestLogMiddleware`, one step earlier in the pipeline, already throws synchronously on `context.session.requestCount++` for any update lacking `ctx.from`, because grammY's session-key resolution requires it. The pipeline silently drops such updates one middleware earlier than the code's own explicit handling for that case (§8, `docs/flows.md` Flow 3).
-- **(deep-dive)** `/font_generator` currently does nothing observable when invoked — combined with the `Promise.all`/`.bind` bug below, the command handler produces no reply, no conversion, and no error (`docs/flows.md` Flow 6).
-- **(deep-dive)** Neither `/font_generator` nor `/start`'s dead-code twin ever actually sends the converted font file — both reply with the server's local filesystem path as text (§7, `docs/flows.md` Flow 6).
-- **(deep-dive)** `FileHelper.createDirectoriesByDate` buckets by day-of-**week** (dayjs `.day()`, 0–6) instead of day-of-month (`.date()`), so the `YYYY/M/D`-shaped temp directory structure actually cycles weekly rather than giving each calendar day its own folder (§7).
-- **(deep-dive, elevated severity)** `BulkMessagesCommand` is not just forgotten debug scaffolding — as a live, unauthenticated `/bulk_messages` command reachable by any user who can open a private chat with the bot, it is a genuine abuse vector: invoking it attempts to queue up to 300,000 messages to three hardcoded chat IDs. Its practical blast radius on hosts other than the original developer's machine is limited by an unrelated bug (a hardcoded personal-machine path causing most of the 300,000 calls to fail before reaching `Planner.push`), but that's an accident, not a safeguard (`docs/flows.md` Flow 7).
-- **(deep-dive)** `RuntimeError.byError(error)` (`src/common/errors.ts`) always throws a plain `RuntimeError` from inside itself rather than returning one — so `throw FontConvertorError.byError(error)` / `throw ExecuteError.byError(error)` actually throw a base `RuntimeError`, not the named subclass, despite being called via the subclass. No `instanceof FontConvertorError`/`instanceof ExecuteError` check exists anywhere today, so this is currently dormant, but would silently break any future error-type-specific handling.
-- **(deep-dive)** `Broker`'s idle-poll interval defaults to 1000ms in code but is overridden to 10ms by the committed `.env.dist` — a much more aggressive default than reading `config.ts` alone would suggest (§6).
-- **(deep-dive)** The `TELEGRAM_NO_GROUP_RATE_LIMIT_SET` whitelist in `TelegramCallApiMiddleware` only exempts group-chat calls; the same methods are still queued for private chats. A second constant in the same file, `WEBHOOK_REPLY_METHOD_ALLOW_SET`, is declared but never used anywhere (§5).
-- **(deep-dive)** The rate-limiting Proxy only wraps `ctx.api` (a fresh instance per update, per grammY's own source — verified at the locked version `1.10.1`); code calling through `bot.grammy.api` directly bypasses it entirely and must manually replicate the queueing, as `BulkMessagesCommand` does (§5, `docs/flows.md` Flow 4).
-- Bootstrap failures are only `console.error`'d, never `process.exit`'d (§2). **(deep-dive)** More precisely, `Bot.run()`'s own internal `try/catch` swallows most startup failures (logs critical, resolves normally) before this outer swallow would ever apply — see `docs/flows.md` Flow 1.
-- `Container.close()` is a no-op stub; the Postgres pool is never explicitly closed on shutdown (§2).
-- `package.json#main` (`build/src/index.js`) doesn't match the real entry point (`build/app.js`) (§2).
-- `Bot.stop()`'s `waitPlannerToEmpty()` loop has no timeout — can hang shutdown indefinitely if the outbound queue never drains (§5).
-- `Planner.managers` (a `Map<chatId, SlotManager>`) is never evicted — unbounded memory growth over a long-running process (§6).
-- `Planner`'s dequeue scan means delivery isn't strictly FIFO within a priority bucket (§6).
-- `broker.errors.ts` and `planner.errors.ts` are empty files, unlike every sibling domain module (§6).
-- `Broker.run()`/`.stop()` are synchronous but called with `await` (§6).
-- `FontForge`'s shell command is built with unescaped string `.replace()` — currently low-risk since paths are internally generated, but fragile if that ever changes (§7).
-- SVG is declared as a supported font extension but has no reachable conversion pairs (§7).
-- `mmmagic`-based content sniffing is dead/commented-out code; `mmmagic` and `puppeteer` are both unused dependencies (§7, §13).
-- `UserAlreadyExists` error class is defined but never thrown (§8) — dead code.
-- `FillUserToContextMiddleware` has an explicit `if (!ctx.from)` guard that returns without calling `next()` — but per the deep-dive entry above, this code is unreachable; the pipeline actually crashes one middleware earlier for the same case (§8).
-- `PinoLogger`'s request-correlation Proxy effectively no-ops in development, where `ConsoleLogger` is the default (§9).
-- `Logger` is used as both the domain interface and, unrelatedly, a local config-shape type name inside `config.ts` (§9).
-- i18n's `localeNegotiator` is hardcoded to `"ru"`; one hardcoded Russian string bypasses Fluent entirely in `StartConversation` (§10).
-- `DATABASE_URL` in `.env.dist` is built but never consumed by the app (§12).
-- `.env.dist` commits a plaintext, real-looking `BOT_TOKEN` value (§12).
-- `sessions` table has no repository layer, unlike `users` — an inconsistent data-access pattern (§11).
-- `test/bootstrap.ts` is empty; the one existing test has a non-verifying async assertion; `nyc` coverage config references an uninstalled package with no script to invoke it (§14).
-- `BulkMessagesCommand` (`src/infrastructure/bot/command/bulk-messages/`) is registered as a live `/bulk_messages` bot command but contains hardcoded developer chat IDs, a hardcoded personal-machine absolute path, and a `100_000`-iteration loop that would queue 300,000 outbound messages — reads as forgotten load-test/debug scaffolding, but see the elevated-severity deep-dive entry above: unlike `FontGeneratorCommand`'s equivalent bug, this one is actually reachable and user-triggerable, not inert.
-- `FontGeneratorCommand.handle()` has a `for (let i = 0; i < 1; i++)` loop that pushes an **unbound function reference** (not its invocation result) into a `promises` array before `Promise.all(promises)` — the pushed value isn't a `Promise`, so `generateRandomFonts` is very likely never actually invoked here (confirmed by the deep-dive pass: `/font_generator` currently does nothing at all when invoked). Looks like leftover debug/stress-test scaffolding, similar in spirit to `BulkMessagesCommand`.
-- `is-private-chat.filter.ts` has a typo in a type predicate (`char` instead of `chat`) — currently harmless since only the boolean result is used, but worth fixing if that type gets relied on elsewhere.
-- A handful of infrastructure files use dot-case naming (`pgsql.decorator.ts`, `pgsql.storage.ts`, `pgsql.user.repository.ts`, `abstract.logger.ts`, `console.logger.ts`, `pino.logger.ts`) while most of the codebase uses kebab-case — likely leftovers from before the "Global refactor" (kebab-case) commit.
-- **Logger abstraction is disproportionate to what this app actually needs.** A domain `Logger` interface, two concrete backends (`Console`/`Pino`), a container-level `Proxy` rebind for request correlation, and an `AsyncLocalStorage`-based child-logger substitution mechanism (§9, §19) together add up to significantly more indirection than a single-process bot with one active logger at a time requires. Worth evaluating whether a plain constructor-injected logger (still swappable via DI, just without the `Proxy`/service-locator layer) would serve the same needs with far less machinery to reason about.
-- **Config abstraction is similarly heavier than needed.** `@ConfigValue` resolves dotted-path string keys (e.g. `"bot.token"`) at runtime via a lazy property decorator that reaches into the global container singleton — none of that path is checked against `Config`'s actual shape at the call site, so a typo'd key only fails at first access, not at compile time. A plain constructor-injected settings object (or even direct `Config` injection with typed getters) would give the same runtime behavior with real type safety and no service-locator indirection.
+- **(глубокий разбор, высокая критичность)** Логика повтора при ошибке и бана по HTTP 429 в `Broker` с высокой вероятностью мертва в рантайме: трассировка точной цепочки Promise через замыкание `callback` в `TelegramCallApiMiddleware` показывает, что блок catch в `Broker.handleMessage` может сработать только на синхронный throw, которого реальные сбои Telegram API не дают (это асинхронные reject'ы). У бота нет работающего автоматического backoff при ответах с рейт-лимитом, хотя код и выглядит так, будто он его реализует (§6, `docs/flows.md`, Поток 4).
+- **(глубокий разбор, высокая критичность)** Защита `if (!ctx.from)` в `FillUserToContextMiddleware` недостижима: `RequestLogMiddleware`, на шаг раньше в пайплайне, уже синхронно падает на `context.session.requestCount++` для любого апдейта без `ctx.from`, поскольку разрешение ключа сессии в grammY этого поля требует. Пайплайн тихо отбрасывает такие апдейты на один middleware раньше, чем сработала бы собственная явная обработка этого случая (§8, `docs/flows.md`, Поток 3).
+- **(глубокий разбор)** `/font_generator` сейчас при вызове не делает ничего наблюдаемого — вместе с багом `Promise.all`/`.bind` ниже обработчик команды не выдаёт ни ответа, ни конвертации, ни ошибки (`docs/flows.md`, Поток 6).
+- **(глубокий разбор)** Ни `/font_generator`, ни его близнец из мёртвого кода в `/start` никогда фактически не отправляют сконвертированный файл шрифта — оба отвечают локальным путём файловой системы сервера в виде текста (§7, `docs/flows.md`, Поток 6).
+- **(глубокий разбор)** `FileHelper.createDirectoriesByDate` разбивает по дню **недели** (dayjs `.day()`, 0–6), а не по дню месяца (`.date()`), поэтому структура временных директорий вида `YYYY/M/D` на самом деле циклится еженедельно, а не выделяет каждому календарному дню свою папку (§7).
+- **(глубокий разбор, повышенная критичность)** `BulkMessagesCommand` — это не просто забытые отладочные леса: как живая команда `/bulk_messages` без какой-либо аутентификации, доступная любому пользователю, который может открыть приватный чат с ботом, она представляет собой настоящий вектор злоупотребления: её вызов пытается поставить в очередь до 300 000 сообщений на три захардкоженных chat ID. Практический радиус поражения на машинах, отличных от машины исходного разработчика, ограничен посторонним багом (захардкоженный путь с личной машины приводит к тому, что большинство из 300 000 вызовов падает, не дойдя до `Planner.push`), но это случайность, а не защита (`docs/flows.md`, Поток 7).
+- **(глубокий разбор)** `RuntimeError.byError(error)` (`src/common/errors.ts`) всегда бросает изнутри себя обычный `RuntimeError`, вместо того чтобы его вернуть, — поэтому `throw FontConvertorError.byError(error)` / `throw ExecuteError.byError(error)` на самом деле бросают базовый `RuntimeError`, а не именованный подкласс, хотя и вызываются через подкласс. Проверок `instanceof FontConvertorError`/`instanceof ExecuteError` сегодня нигде нет, так что баг дремлет, но он тихо сломает любую будущую обработку, зависящую от типа ошибки.
+- **(глубокий разбор)** Интервал опроса `Broker`'а при простое по умолчанию в коде 1000 мс, но закоммиченный `.env.dist` переопределяет его на 10 мс — куда агрессивнее, чем можно решить по одному лишь `config.ts` (§6).
+- **(глубокий разбор)** Белый список `TELEGRAM_NO_GROUP_RATE_LIMIT_SET` в `TelegramCallApiMiddleware` освобождает от очереди только вызовы в групповых чатах; те же методы для приватных чатов по-прежнему ставятся в очередь. Вторая константа в том же файле, `WEBHOOK_REPLY_METHOD_ALLOW_SET`, объявлена, но нигде не используется (§5).
+- **(глубокий разбор)** Прокси ограничения скорости оборачивает только `ctx.api` (новый экземпляр на каждый апдейт, согласно исходникам самого grammY — проверено на зафиксированной версии `1.10.1`); код, вызывающий напрямую `bot.grammy.api`, полностью его минует и обязан вручную повторять постановку в очередь, как это делает `BulkMessagesCommand` (§5, `docs/flows.md`, Поток 4).
+- Сбои bootstrap только выводятся через `console.error`, `process.exit` не вызывается (§2). **(глубокий разбор)** Точнее, внутренний `try/catch` в самом `Bot.run()` проглатывает большинство стартовых сбоев (логирует critical, завершается нормально) ещё до того, как сработал бы этот внешний перехват — см. `docs/flows.md`, Поток 1.
+- `Container.close()` — заглушка-пустышка; пул Postgres при остановке явно не закрывается (§2).
+- `package.json#main` (`build/src/index.js`) не соответствует реальной точке входа (`build/app.js`) (§2).
+- У цикла `waitPlannerToEmpty()` в `Bot.stop()` нет таймаута — остановка может зависнуть навсегда, если исходящая очередь не опустеет (§5).
+- Из `Planner.managers` (`Map<chatId, SlotManager>`) никогда ничего не удаляется — неограниченный рост памяти у долгоживущего процесса (§6).
+- Из-за сканирующего извлечения в `Planner` доставка внутри приоритетной корзины не является строго FIFO (§6).
+- `broker.errors.ts` и `planner.errors.ts` — пустые файлы, в отличие от всех соседних доменных модулей (§6).
+- `Broker.run()`/`.stop()` синхронны, но вызываются с `await` (§6).
+- Shell-команда `FontForge` собирается через `.replace()` без экранирования — сейчас риск невелик, поскольку пути генерируются внутри, но конструкция хрупкая, если это когда-нибудь изменится (§7).
+- SVG объявлен поддерживаемым расширением шрифта, но достижимых пар конвертации для него нет (§7).
+- Определение типа по содержимому через `mmmagic` — мёртвый закомментированный код; `mmmagic` и `puppeteer` — обе зависимости не используются (§7, §13).
+- Класс ошибки `UserAlreadyExists` определён, но нигде не бросается (§8) — мёртвый код.
+- В `FillUserToContextMiddleware` есть явная защита `if (!ctx.from)`, выходящая без вызова `next()`, — но, согласно пункту глубокого разбора выше, этот код недостижим: пайплайн реально падает на один middleware раньше в том же случае (§8).
+- Прокси корреляции запросов у `PinoLogger` фактически бездействует в разработке, где по умолчанию используется `ConsoleLogger` (§9).
+- Имя `Logger` используется и как доменный интерфейс, и, без всякой связи, как локальное имя типа формы конфига внутри `config.ts` (§9).
+- `localeNegotiator` в i18n захардкожен на `"ru"`; одна захардкоженная русская строка в `StartConversation` полностью минует Fluent (§10).
+- `DATABASE_URL` в `.env.dist` собирается, но приложением не потребляется (§12).
+- В `.env.dist` закоммичено похожее на настоящее значение `BOT_TOKEN` открытым текстом (§12).
+- У таблицы `sessions` нет слоя репозитория, в отличие от `users`, — непоследовательный паттерн доступа к данным (§11).
+- `test/bootstrap.ts` пуст; у единственного существующего теста есть асинхронная ассерция, которая ничего не проверяет; конфигурация покрытия `nyc` ссылается на неустановленный пакет, и ни один скрипт её не вызывает (§14).
+- `BulkMessagesCommand` (`src/infrastructure/bot/command/bulk-messages/`) зарегистрирована как живая команда бота `/bulk_messages`, но содержит захардкоженные chat ID разработчика, захардкоженный абсолютный путь с личной машины и цикл на `100_000` итераций, который поставил бы в очередь 300 000 исходящих сообщений. Читается как забытые леса для нагрузочного теста/отладки, но см. пункт глубокого разбора с повышенной критичностью выше: в отличие от аналогичного бага в `FontGeneratorCommand`, этот действительно достижим и запускается пользователем, а не инертен.
+- В `FontGeneratorCommand.handle()` есть цикл `for (let i = 0; i < 1; i++)`, который кладёт в массив `promises` **ссылку на привязанную функцию** (а не результат её вызова) перед `Promise.all(promises)` — положенное значение не является `Promise`, так что `generateRandomFonts` здесь, весьма вероятно, никогда не вызывается (подтверждено глубоким разбором: `/font_generator` сейчас при вызове вообще ничего не делает). Похоже на оставшиеся отладочные/стресс-тестовые леса, по духу схожие с `BulkMessagesCommand`.
+- В `is-private-chat.filter.ts` опечатка в предикате типа (`char` вместо `chat`) — сейчас безвредно, поскольку используется только булев результат, но стоит починить, если на этот тип начнут где-то полагаться.
+- Горстка инфраструктурных файлов использует dot-case в именах (`pgsql.decorator.ts`, `pgsql.storage.ts`, `pgsql.user.repository.ts`, `abstract.logger.ts`, `console.logger.ts`, `pino.logger.ts`), тогда как большая часть кодовой базы — kebab-case; скорее всего, это наследие до коммита «Global refactor» (kebab-case).
+- **Абстракция логгера непропорциональна реальным потребностям приложения.** Доменный интерфейс `Logger`, два конкретных бэкенда (`Console`/`Pino`), перебиндивание через `Proxy` на уровне контейнера ради корреляции запросов и механизм подмены дочернего логгера на базе `AsyncLocalStorage` (§9, §19) вместе дают существенно больше косвенности, чем требуется однопроцессному боту с одним активным логгером за раз. Стоит оценить, не решил бы те же задачи обычный внедряемый через конструктор логгер (по-прежнему заменяемый через DI, просто без слоя `Proxy`/service locator) — с куда меньшим объёмом механики, которую нужно держать в голове.
+- **Абстракция конфига аналогично тяжелее необходимого.** `@ConfigValue` разрешает строковые «точечные» ключи (например, `"bot.token"`) в рантайме через ленивый декоратор свойства, лезущий в глобальный синглтон контейнера, — и ничто на месте вызова не сверяет этот путь с реальной формой `Config`, так что опечатка в ключе падает только при первом обращении, а не на этапе компиляции. Обычный внедряемый через конструктор объект настроек (или даже прямое внедрение `Config` с типизированными геттерами) дал бы то же рантайм-поведение с настоящей типобезопасностью и без косвенности service locator.
 
-## 18. Open questions / uncertainties
+## 18. Открытые вопросы / неясности
 
-Called out explicitly rather than guessed at:
+Вынесено явно, вместо того чтобы догадываться:
 
-- **Is `BulkMessagesCommand` intentional?** It could be a deliberate (if crude) internal ops tool for broadcasting, or simply forgotten debug/load-test code that happens to still be registered as a live command. The code itself (hardcoded personal machine path, hardcoded chat IDs) reads much more like the latter — but regardless of original intent, the deep-dive pass confirms it is a live, unauthenticated command any user can trigger today (§17, `docs/flows.md` Flow 7), which raises the practical stakes of answering this question.
-- **Is the SVG font-conversion gap and the commented-out `mmmagic` sniffing code paused work or abandoned?** No TODO/comment explains the intent either way.
-- **How does this actually get deployed to production?** No Dockerfile for the app itself was found, and `docker-compose.yml` only provisions Postgres. It's unclear whether production runs via plain `npm run start:prod` on a host/VM, some process manager (pm2, systemd) not represented in the repo, or an external deploy pipeline this repo doesn't show.
-- **Is `DATABASE_URL` (in `.env.dist`) actually used by something outside this repo** (an external script, a hosting platform's auto-detection, etc.), or is it purely vestigial? The app itself never reads it.
-- **Is there any cleanup for generated font-conversion temp files** under `TEMP_DIR/YYYY/M/D/`? None was found in the code path itself; it may happen via an external cron/ops process not visible here, or may simply not happen.
+- **Намеренна ли `BulkMessagesCommand`?** Это может быть сознательный (пусть и грубый) внутренний инструмент рассылки — или попросту забытый отладочный/нагрузочный код, который до сих пор зарегистрирован как живая команда. Сам код (захардкоженный путь с личной машины, захардкоженные chat ID) читается куда больше как второе, но независимо от исходного намерения глубокий разбор подтверждает: сегодня это живая команда без аутентификации, которую может запустить любой пользователь (§17, `docs/flows.md`, Поток 7), — что повышает практическую цену ответа на этот вопрос.
+- **Пробел с конвертацией SVG и закомментированное определение типа через `mmmagic` — это приостановленная работа или заброшенная?** Ни TODO, ни комментарии намерение не поясняют.
+- **Как это на самом деле разворачивается в production?** Dockerfile для самого приложения не найден, а `docker-compose.yml` поднимает только Postgres. Неясно, работает ли production через обычный `npm run start:prod` на хосте/ВМ, через какой-то менеджер процессов (pm2, systemd), не представленный в репозитории, или через внешний деплой-пайплайн, которого этот репозиторий не показывает.
+- **Используется ли `DATABASE_URL` (в `.env.dist`) чем-то за пределами этого репозитория** (внешним скриптом, автоопределением хостинг-платформы и т. п.) — или это чистый рудимент? Само приложение её никогда не читает.
+- **Есть ли какая-либо очистка временных файлов конвертации шрифтов** в `TEMP_DIR/YYYY/M/D/`? В самом пути кода её нет; она может происходить через внешний cron/ops-процесс, невидимый отсюда, а может не происходить вовсе.
 
-## 19. Invariants and gotchas
+## 19. Инварианты и подводные камни
 
-A third analysis pass, specifically hunting for implicit rules a new contributor could break without any name, type, or file structure warning them. Several of these are new findings not covered by §17 or `docs/flows.md`; a few cross-reference those docs where the full mechanics are already written up. Each is stated with its confidence level — items marked **(uncertain — flagging, not concluding)** are genuinely ambiguous from the code alone and shouldn't be treated as settled.
+Третий проход анализа, специально нацеленный на неявные правила, которые новый контрибьютор может нарушить, не получив предупреждения ни от имени, ни от типа, ни от структуры файлов. Некоторые из находок новые и не покрыты ни §17, ни `docs/flows.md`; часть ссылается на эти документы, где механика уже расписана. У каждого пункта указан уровень уверенности — помеченные **(не установлено — фиксируем, а не заключаем)** действительно неоднозначны по одному лишь коду, и считать их решёнными не стоит.
 
-### Mandatory execution order
+### Обязательный порядок выполнения
 
-- **`sequentialize()` must keep including `from.id` in its key, or a real check-then-act race opens up.** `FillUserToContextMiddleware` does `existsById(id)` then, based on the boolean, either `create()` or `edit()` — with no transaction or row lock tying the check to the act. This is only safe today because `sequentialize()` (registered in `Bot.setupSequential()`, *before* the middleware composer) serializes all updates sharing the same `from.id`, so two concurrent updates from the same brand-new user can never both observe `existsById() === false` at once. **This is a real, load-bearing dependency between two files that look unrelated** (`session.helper.ts`'s neighbor `sequentialize()` call in `bot.ts`, and `fill-user-to-context.middleware.ts`) — removing `from.id` from the `sequentialize()` key function, or reordering it after the user-fill middleware, would reopen the race. (Postgres's `ON CONFLICT DO UPDATE` upsert in `PgSqlUserRepository.save()` means the race can't corrupt data or throw — worst case is a harmless last-write-wins overwrite between two near-identical writes — but the *intended* create-vs-edit branch selection would become unreliable.)
-- **Eager `container.get(...)` calls inside `Container.setup()` must only target classes whose transitive constructor-injected (`@inject`) dependencies are already bound by that point in the phase sequence.** `setupInfrastructureLogger()` (part of `setupInfrastructure()`, the *last* of the three `setup()` phases) calls `this.get()` synchronously for `Config`, `ConsoleLogger`, and `PinoLogger` — forcing real instantiation, not lazy resolution. This works today only because none of those three classes constructor-inject anything bound in an earlier phase. Everything else in the app (`Bot`, `Planner`, `Broker`, etc.) avoids this hazard by using the lazy `@ConfigValue`/`@PgSql` property decorators instead of eager `.get()` — which is very likely *why* those decorators exist, rather than just constructor `@inject`, given `Bot`'s binding happens in phase 1 while `Config`'s happens in phase 3. If you ever add a new eager `.get()` inside `setup()`, check it doesn't reach for something bound later in the sequence, or it will throw at boot with an unhelpful "no matching bindings found."
-- **Migrations are strictly append-only and order-dependent** (already noted in §17) — `node-pg-migrate` tracks applied migrations by filename/timestamp; editing an already-applied migration file has no effect on already-migrated databases and only diverges fresh ones from existing ones.
+- **`sequentialize()` обязан продолжать включать `from.id` в свой ключ, иначе открывается настоящая гонка типа check-then-act.** `FillUserToContextMiddleware` делает `existsById(id)`, а затем, по булеву результату, либо `create()`, либо `edit()` — без транзакции или блокировки строки, связывающей проверку с действием. Сегодня это безопасно только потому, что `sequentialize()` (регистрируется в `Bot.setupSequential()`, *до* composer'а с middleware) сериализует все апдейты с одинаковым `from.id`, так что два конкурентных апдейта от одного совсем нового пользователя не могут одновременно увидеть `existsById() === false`. **Это реальная несущая зависимость между двумя файлами, которые выглядят несвязанными** (вызов `sequentialize()` в `bot.ts` по соседству с `session.helper.ts` и `fill-user-to-context.middleware.ts`): удаление `from.id` из ключевой функции `sequentialize()` или перенос её после middleware заполнения пользователя вновь откроет гонку. (Upsert `ON CONFLICT DO UPDATE` в `PgSqlUserRepository.save()` означает, что гонка не может испортить данные или уронить код — в худшем случае безобидная перезапись «последний выиграл» между двумя почти одинаковыми записями, — но *задуманный* выбор ветки create/edit станет ненадёжным.)
+- **Ранние вызовы `container.get(...)` внутри `Container.setup()` должны затрагивать только классы, все транзитивные зависимости которых, внедряемые через конструктор (`@inject`), уже связаны к этому моменту последовательности фаз.** `setupInfrastructureLogger()` (часть `setupInfrastructure()`, *последней* из трёх фаз `setup()`) синхронно вызывает `this.get()` для `Config`, `ConsoleLogger` и `PinoLogger`, форсируя реальное создание экземпляров, а не ленивое разрешение. Сегодня это работает лишь потому, что ни один из этих трёх классов не внедряет через конструктор ничего, связанного в более ранней фазе. Всё остальное в приложении (`Bot`, `Planner`, `Broker` и т. д.) обходит эту опасность, используя ленивые декораторы свойств `@ConfigValue`/`@PgSql` вместо раннего `.get()` — и весьма вероятно, что именно *поэтому* эти декораторы и существуют, а не просто конструкторный `@inject`: биндинг `Bot` происходит в фазе 1, а `Config` — в фазе 3. Если вы когда-нибудь добавите новый ранний `.get()` внутрь `setup()`, проверьте, что он не тянется к чему-то, связанному позже, иначе он упадёт на старте с бесполезным «no matching bindings found».
+- **Миграции строго append-only и зависят от порядка** (уже отмечено в §17) — `node-pg-migrate` отслеживает применённые миграции по имени файла/таймстемпу; правка уже применённого файла миграции никак не влияет на уже мигрировавшие базы и лишь разводит свежие базы с существующими.
 
-### Assumptions about system state
+### Предположения о состоянии системы
 
-- **A successfully logged `"Bot is successfully started."` does not mean Postgres is reachable.** `Database`'s constructor calls `postgres({...})` (the `porsager/postgres` client), which — like most modern Postgres clients — establishes the actual TCP connection lazily, on first query, not at construction. Since nothing in the boot sequence issues a query before the bot starts polling, a completely unreachable database will not surface until the *first* real update tries to read/write a session or user row (i.e., potentially well after "successfully started" has been logged, and only when an actual user messages the bot).
-- **`ctx.user` is populated exactly once per update, by `FillUserToContextMiddleware`, and nothing before it in the pipeline can rely on it being set.** Anything that reorders middleware ahead of it, or that runs outside the normal update pipeline (e.g. a future background job), must not assume `ctx.user` exists.
-- **The rate limiter assumes `LIMIT_*_NUMBER` env vars are always positive integers.** If any of `LIMIT_COMMON_NUMBER`/`LIMIT_PRIVATE_NUMBER`/`LIMIT_GROUP_NUMBER` is ever set to `0` (misconfiguration, not a code path anything guards against), `SlotManager`'s `reserveDuration = interval / number` becomes `Infinity`, so `reserveTimeout = Date.now() + Infinity`, and that scope's slot **never frees again for the life of the process** — a single reservation permanently locks out all further messages in that scope. Not observed in practice (the shipped `.env.dist` values are all sane), but nothing validates this at config-load time.
+- **Успешно залогированное `"Bot is successfully started."` не означает, что Postgres доступен.** Конструктор `Database` вызывает `postgres({...})` (клиент `porsager/postgres`), который — как и большинство современных клиентов Postgres — устанавливает реальное TCP-соединение лениво, при первом запросе, а не при конструировании. Поскольку в последовательности старта до начала опроса апдейтов ни один запрос не выполняется, полностью недоступная база проявится только тогда, когда *первый* реальный апдейт попытается прочитать/записать строку сессии или пользователя (то есть потенциально сильно позже записи «successfully started» и только когда боту напишет настоящий пользователь).
+- **`ctx.user` заполняется ровно один раз на апдейт, в `FillUserToContextMiddleware`, и ничто до него в пайплайне не может рассчитывать, что поле уже установлено.** Всё, что переставляет middleware выше него или работает вне обычного пайплайна апдейтов (например, будущая фоновая задача), не должно предполагать, что `ctx.user` существует.
+- **Ограничитель скорости предполагает, что переменные `LIMIT_*_NUMBER` всегда положительные целые.** Если любая из `LIMIT_COMMON_NUMBER`/`LIMIT_PRIVATE_NUMBER`/`LIMIT_GROUP_NUMBER` окажется равна `0` (ошибка конфигурации, от которой ничто не защищает), `reserveDuration = interval / number` в `SlotManager` станет `Infinity`, тогда `reserveTimeout = Date.now() + Infinity`, и слот этой области **больше никогда не освободится за всё время жизни процесса** — одна резервация навсегда заблокирует все дальнейшие сообщения в этой области. На практике не наблюдалось (значения в поставляемом `.env.dist` вменяемые), но при загрузке конфигурации это никак не валидируется.
 
-### Retry mechanisms
+### Механизмы повторов
 
-- Covered in full in `docs/flows.md` Flow 4 and `docs/architecture.md` §6/§17: `Broker`'s catch-and-retry / ban-on-429 is very likely dead code at runtime, due to an unawaited Promise inside `TelegramCallApiMiddleware`'s `callback` closure. Cross-referenced here because it's exactly the kind of "looks like it works, structurally reads correctly, silently doesn't" trap this section is meant to warn about. If you ever fix the underlying Promise-chain bug, be aware the ban/retry path has **never been exercised in production as far as this analysis can tell** — treat it as unverified, not "restored."
-- There is no retry anywhere for the initial Postgres connection, nor for `setMyCommands` at boot (§5) — both are one-shot; a transient failure at startup is fatal to that subsystem for the process's lifetime (or, per §17, silently swallowed by `Bot.run()`'s own catch, leaving the process alive but non-functional).
+- Полностью описано в `docs/flows.md`, Поток 4, и в `docs/architecture.md` §6/§17: перехват-и-повтор и бан по 429 в `Broker` с высокой вероятностью мертвы в рантайме из-за неожидаемого (`await`-less) Promise внутри замыкания `callback` в `TelegramCallApiMiddleware`. Здесь дана перекрёстная ссылка, потому что это ровно та ловушка «выглядит рабочим, структурно читается верно, тихо не работает», о которой призван предупреждать этот раздел. Если вы когда-нибудь почините лежащий в основе баг цепочки Promise, учтите: путь бана/повтора, насколько можно судить по этому анализу, **никогда не проверялся в production** — относитесь к нему как к непроверенному, а не «восстановленному».
+- Нигде нет повторов ни для первичного подключения к Postgres, ни для `setMyCommands` при старте (§5) — оба выполняются однократно; временный сбой на старте фатален для этой подсистемы на всё время жизни процесса (или, согласно §17, тихо проглатывается собственным catch'ем в `Bot.run()`, оставляя процесс живым, но неработоспособным).
 
-### Idempotency
+### Идемпотентность
 
-- `PgSqlUserRepository.save()` and `PgsqlStorage.write()` are both true upserts (`ON CONFLICT ... DO UPDATE`), so repeated calls with the same data are safe — this is the idempotency property the check-then-act race above quietly relies on.
-- `UserService.create()` is **not** "create if not exists, else fail" despite the name — it always upserts. Calling it on an existing user silently overwrites `first_name`/`last_name`/`username`/`is_bot`/`last_active_time`/`updated_time` with whatever's in the `CreateUserDto` (though `created_time` is correctly preserved, since it's excluded from the `DO UPDATE SET` column list). This is relied upon (see above) rather than guarded against.
-- `Convertor.validateToPath()` requires the destination path **not** already exist (throws `InvalidPath.isAlreadyExists` otherwise) — font conversion is therefore no relation to overwrite-safe/idempotent; calling it twice with the same generated random filename would fail on the second call. In practice this never collides because filenames are freshly randomized per call, but it means the operation is deliberately non-idempotent by path.
+- `PgSqlUserRepository.save()` и `PgsqlStorage.write()` — оба настоящие upsert'ы (`ON CONFLICT ... DO UPDATE`), поэтому повторные вызовы с теми же данными безопасны; именно на это свойство идемпотентности молча опирается описанная выше гонка check-then-act.
+- `UserService.create()`, вопреки названию, **не** работает как «создать, если нет, иначе упасть» — он всегда делает upsert. Вызов для существующего пользователя молча перезаписывает `first_name`/`last_name`/`username`/`is_bot`/`last_active_time`/`updated_time` тем, что лежит в `CreateUserDto` (при этом `created_time` корректно сохраняется, так как исключён из списка колонок в `DO UPDATE SET`). На это полагаются (см. выше), а не защищаются от этого.
+- `Convertor.validateToPath()` требует, чтобы путь назначения **не** существовал (иначе бросает `InvalidPath.isAlreadyExists`) — то есть конвертация шрифта не является безопасной к перезаписи/идемпотентной операцией; повторный вызов с тем же сгенерированным случайным именем упал бы на второй попытке. На практике коллизий не бывает, поскольку имена файлов заново рандомизируются на каждый вызов, но операция намеренно неидемпотентна по пути.
 
-### Special and boundary cases
+### Особые и граничные случаи
 
-- `Planner.ban(duration)`: a `duration` of exactly `0` computes `expirationTime = Date.now()`, and the guard `if (expirationTime < Date.now()) return;` will, in practice, almost always evaluate true by the time it runs (even a sub-millisecond gap makes `Date.now()` tick forward) — so a zero-length ban silently does nothing. **(uncertain — flagging, not concluding)** this reads as probably-intentional ("a 0ms ban is a no-op ban," which is reasonable), but it's not obviously deliberate from the code either.
-- `TelegramCallApiMiddleware`'s `isGroup = chatId < 0` treats `chatId === 0` as neither a group nor exempted from the private-chat queue path — Telegram never actually issues `chat_id: 0`, so this has no observed effect, but there's no explicit handling either way if that assumption is ever wrong.
-- A non-plain-object outbound payload (e.g. a multipart/file-upload body) bypasses the rate-limit queue entirely (`payload.constructor.name !== "Object"` branch in `TelegramCallApiMiddleware`) — already noted in `docs/flows.md` Flow 4, repeated here because it's an easy-to-miss edge case if a future feature ever adds real file uploads: those sends would not be rate-limited by the existing mechanism at all.
+- `Planner.ban(duration)`: `duration`, равный ровно `0`, даёт `expirationTime = Date.now()`, и проверка `if (expirationTime < Date.now()) return;` на практике почти всегда окажется истинной к моменту выполнения (даже субмиллисекундного зазора хватает, чтобы `Date.now()` сдвинулся вперёд) — то есть бан нулевой длительности молча ничего не делает. **(не установлено — фиксируем, а не заключаем)**: читается как, вероятно, намеренное («бан на 0 мс — это отсутствие бана», что разумно), но и очевидно преднамеренным из кода не выглядит.
+- В `TelegramCallApiMiddleware` условие `isGroup = chatId < 0` трактует `chatId === 0` и не как группу, и не как исключение из очереди для приватных чатов — Telegram никогда не присылает `chat_id: 0`, так что наблюдаемого эффекта нет, но и явной обработки на случай, если это предположение когда-нибудь окажется неверным, тоже нет.
+- Исходящий payload, не являющийся простым объектом (например, тело multipart/загрузки файла), полностью минует очередь ограничения скорости (ветка `payload.constructor.name !== "Object"` в `TelegramCallApiMiddleware`) — уже отмечено в `docs/flows.md`, Поток 4, повторено здесь, потому что это легко упустить, если будущая фича добавит настоящие загрузки файлов: такие отправки существующим механизмом не будут ограничиваться вовсе.
 
-### Implicit coupling between modules
+### Неявная связность между модулями
 
-- **`domain/logger/logger.types.ts`'s `Level` enum and `infrastructure/logger/pino.logger.ts`'s `pinoLevels` numeric-mapping object are two independently hand-maintained sources of truth**, kept in sync only by convention (both list the same five level names) — nothing in the type system enforces this. Adding a new `Level` without adding a matching entry (with a numeric value strictly between the neighboring levels, since pino requires ascending values) to `pinoLevels` would compile fine and fail at runtime the first time that level is logged through `PinoLogger`.
-- **Adding a new trackable field from Telegram's `ctx.from` (e.g. `language_code`) requires four files to change in lockstep, with no compiler check tying them together beyond the DTO's own shape:** `user.types.ts` (`UserDto`/`UserRow`/`CreateUserDto`/`EditUserDto`), `user.ts` (entity field + getter/setter), the relevant migration (new column) — and, separately, `pgsql.user.repository.ts`'s `rowToEntity`/`entityToRow` mappers, and `fill-user-to-context.middleware.ts`'s manual field-by-field mapping from `ctx.from`. TypeScript will happily compile if you forget the migration (the mismatch only surfaces as a runtime SQL error, "column does not exist," on the next upsert).
-- **`config.logger.default` (env `LOGGER_DEFAULT`) doesn't just pick a logger — it silently determines whether request-correlated logging (`AsyncLocalStorageMiddleware`) does anything at all**, since that middleware's `instanceof PinoLogger` check is the only thing gating it. Switching the default logger to `ConsoleLogger` (the development default) doesn't just change formatting, it removes request correlation entirely — non-obvious from either file in isolation (`config.ts` and `async-local-storage.middleware.ts` don't reference each other directly; the connection only exists via the container wiring in `setupInfrastructureLogger()`).
-- **Migration column order and `PgsqlStorage.write()`'s positional `INSERT ... VALUES (key, value)` (no explicit column list) are implicitly coupled** — already detailed in `docs/architecture.md` §11/§16; repeated here as a "changing one silently breaks the other" example: reordering columns in the `sessions` migration (or adding a new required column before `created_time`) would silently misassign values or break the insert, with nothing in `pgsql.storage.ts` itself hinting at this dependency.
+- **Enum `Level` в `domain/logger/logger.types.ts` и объект числового маппинга `pinoLevels` в `infrastructure/logger/pino.logger.ts` — два независимо поддерживаемых вручную источника истины**, синхронизируемых лишь по договорённости (оба перечисляют те же пять имён уровней); система типов это никак не обеспечивает. Добавление нового `Level` без соответствующей записи в `pinoLevels` (с числовым значением строго между соседними уровнями, поскольку pino требует возрастающих значений) прекрасно скомпилируется и упадёт в рантайме при первом же логировании этого уровня через `PinoLogger`.
+- **Добавление нового отслеживаемого поля из `ctx.from` в Telegram (например, `language_code`) требует синхронного изменения четырёх файлов, и компилятор их между собой не связывает ничем, кроме формы самого DTO:** `user.types.ts` (`UserDto`/`UserRow`/`CreateUserDto`/`EditUserDto`), `user.ts` (поле сущности + геттер/сеттер), соответствующая миграция (новая колонка) — и, отдельно, мапперы `rowToEntity`/`entityToRow` в `pgsql.user.repository.ts`, а также ручной маппинг поле-за-полем из `ctx.from` в `fill-user-to-context.middleware.ts`. TypeScript спокойно скомпилирует код, если вы забудете миграцию (несоответствие проявится только рантайм-ошибкой SQL «column does not exist» при следующем upsert'е).
+- **`config.logger.default` (env `LOGGER_DEFAULT`) не просто выбирает логгер — он молча определяет, работает ли вообще коррелированное по запросам логирование (`AsyncLocalStorageMiddleware`)**, поскольку единственное, что его включает, — проверка `instanceof PinoLogger` в этом middleware. Переключение логгера по умолчанию на `ConsoleLogger` (дефолт для разработки) меняет не только форматирование, но и полностью убирает корреляцию запросов — неочевидно из любого файла по отдельности (`config.ts` и `async-local-storage.middleware.ts` не ссылаются друг на друга; связь существует только через связывание в контейнере в `setupInfrastructureLogger()`).
+- **Порядок колонок в миграции и позиционный `INSERT ... VALUES (key, value)` (без явного списка колонок) в `PgsqlStorage.write()` неявно связаны** — подробно описано в `docs/architecture.md` §11/§16; повторено здесь как пример «меняешь одно — тихо ломается другое»: перестановка колонок в миграции `sessions` (или добавление новой обязательной колонки перед `created_time`) молча перепутает значения или сломает вставку, причём в самом `pgsql.storage.ts` ничто на эту зависимость не намекает.
 
-### Unusual validation
+### Необычная валидация
 
-- Font-file MIME validation (`Convertor.validateFromPath`) derives the "MIME type" from the file's **extension** via the `mime-types` package (`mime.lookup(extension)`), not from file content — despite reading as content-type validation, it's really just "does this extension look plausible for this scheme." A corrupt or malicious file with a correct extension passes. The commented-out content-sniffing block (§7) shows this was apparently meant to be stronger at some point.
-- `getMimeType()` in `FileHelper` throws `PermissionDenied.write(path)` when a file is *not readable* — the error type/message says "write" for what is actually a *read* permission check. **(uncertain — flagging, not concluding)** this looks like a copy-paste mistake (there's an identical, correctly-labeled `PermissionDenied.read` used elsewhere in the same file), but since `getMimeType()` itself is only reachable from the commented-out dead code in `convertor.ts`, it has no live effect either way.
+- Валидация MIME для файлов шрифтов (`Convertor.validateFromPath`) выводит «MIME-тип» из **расширения** файла через пакет `mime-types` (`mime.lookup(extension)`), а не из содержимого — то есть, хотя читается как проверка content-type, на деле это лишь «выглядит ли это расширение правдоподобным для данной схемы». Повреждённый или вредоносный файл с правильным расширением проходит. Закомментированный блок анализа содержимого (§7) показывает, что когда-то это, видимо, задумывалось строже.
+- `getMimeType()` в `FileHelper` бросает `PermissionDenied.write(path)`, когда файл *недоступен для чтения*, — тип и сообщение ошибки говорят «write» там, где на деле проверяются права на *чтение*. **(не установлено — фиксируем, а не заключаем)**: похоже на ошибку копипасты (в том же файле есть идентичный, корректно помеченный `PermissionDenied.read`), но, поскольку сам `getMimeType()` достижим только из закомментированного мёртвого кода в `convertor.ts`, живого эффекта это не имеет.
 
-### Concurrency assumptions
+### Предположения о конкурентности
 
-- `sequentialize()`'s key function returns `[chat.id, from.id]` as two independent keys (not one combined key) — for a **private** chat, Telegram's convention makes `chat.id === from.id` numerically, so both entries are the same string; harmless (redundant lock on one key), but worth knowing so it isn't mistaken for a bug. For **group** chats (not currently reachable past `IsPrivateChatFilter`, but the rate-limit config for groups exists — see §6/§18), the two would differ, and a user's updates across two different chats would still be serialized against each other via the shared `from.id` key, not just updates within one chat. This is required for the `existsById`/`create`/`edit` race-freedom above, not an accidental side effect.
-- The DI container itself is a single **global** module-level singleton (`export const container = new Container()` in `container.ts`), and `@ConfigValue`/`@PgSql` decorators reach into it directly (`import { container } from "app/infrastructure/container/container"`) rather than through constructor injection. **This means any class using these decorators cannot be isolated for unit testing via a separate `Container` instance** — it will always read from the one global container, regardless of what test setup constructs. Not a live bug (nothing in the (near-nonexistent) test suite currently attempts this), but a real constraint on how testable these classes are without refactoring away from the decorator pattern.
-- Property decorators (`ConfigValue`, `PgSql`) close over a single `value`/`sql` variable defined **once, at class-definition time**, and `Object.defineProperty` the getter onto the **class prototype** (a property decorator's `target` is the prototype, not a per-instance object) — so the cached value is **shared across every instance of that class**, not cached per-instance. Today this is harmless because every class using these decorators is bound `.inSingletonScope()` in `container.ts` (verified — `StartConversation` is the only non-singleton binding in the whole container, and it uses neither decorator). **(uncertain — flagging as a landmine, not a live bug):** if a future non-singleton class is given a `@ConfigValue`/`@PgSql` property, all instances would silently share one cached resolution rather than each resolving independently — surprising, since nothing about the decorator's name suggests prototype-level sharing.
+- Ключевая функция `sequentialize()` возвращает `[chat.id, from.id]` как два независимых ключа (а не один составной) — для **приватного** чата соглашение Telegram делает `chat.id === from.id` численно, так что обе записи дают одну и ту же строку; безвредно (избыточная блокировка по одному ключу), но об этом стоит знать, чтобы не принять за баг. Для **групповых** чатов (сейчас недостижимых за `IsPrivateChatFilter`, хотя конфигурация рейт-лимитов для групп существует — см. §6/§18) значения различались бы, и апдейты пользователя из двух разных чатов всё равно сериализовались бы друг относительно друга по общему ключу `from.id`, а не только внутри одного чата. Это необходимо для описанной выше свободы от гонки `existsById`/`create`/`edit`, а не случайный побочный эффект.
+- Сам DI-контейнер — единственный **глобальный** синглтон на уровне модуля (`export const container = new Container()` в `container.ts`), и декораторы `@ConfigValue`/`@PgSql` лезут в него напрямую (`import { container } from "app/infrastructure/container/container"`), а не через конструкторное внедрение. **Это означает, что любой класс, использующий эти декораторы, невозможно изолировать для юнит-теста через отдельный экземпляр `Container`** — он всегда будет читать из единственного глобального контейнера, что бы ни собрал тестовый сетап. Это не живой баг (в (почти отсутствующем) наборе тестов такого никто не пробует), но реальное ограничение тестируемости этих классов без отказа от паттерна декораторов.
+- Декораторы свойств (`ConfigValue`, `PgSql`) замыкаются на единственную переменную `value`/`sql`, определяемую **один раз, в момент определения класса**, и через `Object.defineProperty` вешают геттер на **прототип класса** (`target` у декоратора свойства — это прототип, а не объект экземпляра), так что закэшированное значение **разделяется всеми экземплярами класса**, а не кэшируется на каждый экземпляр. Сегодня это безвредно, поскольку каждый класс, использующий эти декораторы, связан как `.inSingletonScope()` в `container.ts` (проверено — `StartConversation` является единственным несинглтонным биндингом во всём контейнере и не использует ни один из декораторов). **(не установлено — фиксируем как мину, а не как живой баг)**: если будущему несинглтонному классу дадут свойство `@ConfigValue`/`@PgSql`, все экземпляры молча разделят одно закэшированное разрешение вместо того, чтобы разрешать его независимо, — что неожиданно, ведь ничто в названии декоратора не намекает на разделение на уровне прототипа.
 
-### Backward compatibility
+### Обратная совместимость
 
-- `User.id` and `Message.chatId` are represented as plain JS `number` throughout the domain and infrastructure layers, while the underlying `users.id` column is `bigint` (widened from `integer` specifically because Telegram IDs exceeded 32-bit range — §11). JS `number` is only safely precise up to `2^53 - 1`; current Telegram IDs are comfortably within that range, but the type choice itself doesn't protect against a future ID scheme that isn't. Not an active problem, but worth knowing before assuming `bigint` in Postgres implies full precision safety end-to-end.
+- `User.id` и `Message.chatId` представлены обычным JS-типом `number` во всех доменных и инфраструктурных слоях, тогда как лежащая под ними колонка `users.id` имеет тип `bigint` (расширена с `integer` именно потому, что ID Telegram вышли за 32-битный диапазон — §11). JS `number` точен только до `2^53 - 1`; текущие ID Telegram с запасом укладываются в этот диапазон, но сам выбор типа не защищает от будущей схемы ID, которая туда не уложится. Это не активная проблема, но об этом стоит знать, прежде чем считать, что `bigint` в Postgres означает полную точность на всём пути.
 
-### Magic constants
+### Магические константы
 
-A non-exhaustive catalogue of hardcoded values with no named-constant treatment, collected here since they're easy to trip over when refactoring nearby code: `Bot.waitPlannerToEmpty`'s poll interval (`3000` ms, hardcoded, not configurable via env); `Planner.logMessageCount`/`logBanExpires`'s reporting interval (`10000` ms each, two separate `setInterval` calls with the same hardcoded value, not sharing a constant); `StringHelper.generateRandomString(15)` for font temp filenames; the pino custom level numbers (`debug=0, info=100, warning=200, error=300, critical=400` in `pino.logger.ts`) — see the "implicit coupling" entry above; and the three hardcoded chat IDs plus `100_000`/`1` loop bounds in `BulkMessagesCommand`/`FontGeneratorCommand` (already covered in §17 as debug leftovers, not "real" magic constants in the configuration sense, but worth remembering they're hardcoded literals rather than config).
+Неполный каталог захардкоженных значений, не оформленных именованными константами; собран здесь, поскольку об них легко споткнуться при рефакторинге соседнего кода: интервал опроса в `Bot.waitPlannerToEmpty` (`3000` мс, захардкожен, не настраивается через env); интервал отчётов `Planner.logMessageCount`/`logBanExpires` (по `10000` мс, два отдельных вызова `setInterval` с одним и тем же захардкоженным значением, без общей константы); `StringHelper.generateRandomString(15)` для временных имён файлов шрифтов; числа кастомных уровней pino (`debug=0, info=100, warning=200, error=300, critical=400` в `pino.logger.ts`) — см. пункт про неявную связность выше; и три захардкоженных chat ID плюс границы циклов `100_000`/`1` в `BulkMessagesCommand`/`FontGeneratorCommand` (уже описаны в §17 как отладочные остатки, а не «настоящие» магические константы в конфигурационном смысле, но помнить, что это захардкоженные литералы, а не конфиг, стоит).
 
-### Logic that looks strange but is likely intentional
+### Логика, которая выглядит странно, но, вероятно, намеренна
 
-- `Planner.pullByPriority`'s O(n) scan-and-skip (rather than strict FIFO) within each priority bucket — deliberately avoids head-of-line blocking when the front message's chat happens to be rate-limited. Confirmed as sound design, not a bug, despite breaking the naive expectation that a queue delivers in insertion order.
-- The extensive Russian-language comments scattered through the trickiest code (`TelegramCallApiMiddleware`'s Proxy hack in particular) are, in effect, the closest thing this codebase has to design rationale for its least-obvious mechanism — worth reading even if you don't otherwise need Russian, since they explain *why* the hack exists, not just what it does.
-- `RequestLogMiddleware` incrementing `session.requestCount` on every update, with the resulting counter never read or displayed anywhere in the codebase. **(uncertain — flagging, not concluding):** this could be scaffolding for a future per-user analytics or abuse-detection feature, or simply dead instrumentation left over from earlier development — nothing in the code indicates which.
+- Скан-с-пропуском за O(n) в `Planner.pullByPriority` (вместо строгого FIFO) внутри каждой приоритетной корзины — намеренно избегает блокировки головы очереди, когда чат первого сообщения зажат рейт-лимитом. Подтверждено как здравый дизайн, а не баг, несмотря на нарушение наивного ожидания, что очередь отдаёт в порядке вставки.
+- Обширные русскоязычные комментарии, разбросанные по самым хитрым местам кода (в первую очередь у Proxy-хака в `TelegramCallApiMiddleware`), фактически являются самым близким к обоснованию дизайна, что есть в этой кодовой базе для её наименее очевидного механизма, — их стоит прочитать, даже если русский вам иначе не нужен, поскольку они объясняют, *почему* хак существует, а не только что он делает.
+- `RequestLogMiddleware` инкрементирует `session.requestCount` на каждом апдейте, а получившийся счётчик нигде в кодовой базе не читается и не отображается. **(не установлено — фиксируем, а не заключаем)**: это могут быть заготовки под будущую пользовательскую аналитику или обнаружение злоупотреблений — а может быть мёртвая инструментация, оставшаяся с прежних этапов разработки; код не даёт понять, что именно.
