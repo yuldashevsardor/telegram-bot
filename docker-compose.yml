@@ -36,13 +36,15 @@ services:
         env_file:
             - .env
         environment:
-            # Внутри compose-сети адрес БД всегда pgsql:5432; DATABASE_PORT в .env — это порт,
+            # Внутри compose-сети адрес БД — pgsql:5432; DATABASE_PORT в .env это порт,
             # проброшенный на хост, он нужен только для подключения снаружи контейнеров.
-            DATABASE_HOST: pgsql
-            DATABASE_PORT: 5432
+            # APP_DATABASE_* переопределяются только в worktree: там поднимается один
+            # сервис app, а база берётся общая, из основного рабочего дерева.
+            DATABASE_HOST: ${APP_DATABASE_HOST:-pgsql}
+            DATABASE_PORT: ${APP_DATABASE_PORT:-5432}
             # Единственный потребитель — node-pg-migrate; приложение собирает подключение
             # из отдельных полей host/port/user/password.
-            DATABASE_URL: postgres://${DATABASE_USER_NAME}:${DATABASE_USER_PASSWORD}@pgsql:5432/${DATABASE_NAME}
+            DATABASE_URL: postgres://${DATABASE_USER_NAME}:${DATABASE_USER_PASSWORD}@${APP_DATABASE_HOST:-pgsql}:${APP_DATABASE_PORT:-5432}/${DATABASE_NAME}
         volumes:
             - ./src:/app/src
             - ./test:/app/test

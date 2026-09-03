@@ -35,6 +35,52 @@ Production-конфигурации в репозитории нет — как 
 Остановить всё: `docker compose down`. Данные БД лежат в `./tmp/pgsql` (каталог `tmp/`
 целиком в `.gitignore`); чтобы начать с чистой базы — `docker compose down && rm -rf tmp/pgsql`.
 
+## Параллельная работа в нескольких worktree
+
+Каждая задача ведётся в своём рабочем дереве, но полный стек поднимается только из основного:
+имя compose-проекта зашито в `docker-compose.yml`, а данные БД лежат в `./tmp/pgsql`. Дерево
+задачи поднимает один сервис `app` и ходит в общую базу основного дерева.
+
+Токенов у проекта несколько — по одному на одновременно запущенного бота: два процесса на
+long polling с одним токеном получают от Telegram 409 Conflict и растаскивают апдейты друг
+у друга. Пул лежит вне репозитория, по одному токену на строку:
+
+```bash
+mkdir -p ~/.config/telegram-bot
+$EDITOR ~/.config/telegram-bot/tokens   # по токену от @BotFather на строку
+chmod 600 ~/.config/telegram-bot/tokens
+```
+
+Дальше в рабочем дереве задачи:
+
+```bash
+cp /путь/к/основному/дереву/.env .env
+scripts/bot-token.sh acquire            # занять слот и записать BOT_TOKEN в .env
+
+cat >> .env <<'EOF'
+COMPOSE_PROJECT_NAME=tg-моя-ветка
+APP_DATABASE_HOST=host.docker.internal
+APP_DATABASE_PORT=54320
+EOF
+
+docker compose up --build --no-deps app
+```
+
+`APP_DATABASE_PORT` — это `DATABASE_PORT`, проброшенный на хост основным деревом; `--no-deps`
+не даёт поднять второй `pgsql`.
+
+Аренда токена закреплена за путём рабочего дерева и протухает через `BOT_TOKEN_TTL`
+(по умолчанию 2 часа):
+
+```bash
+scripts/bot-token.sh renew     # продлить перед запуском бота и перед долгой работой
+scripts/bot-token.sh status    # какие слоты кем заняты
+scripts/bot-token.sh release   # освободить слот, закончив работу
+```
+
+Удалённое или брошенное дерево освобождает слот само — по исчезнувшему пути или по TTL,
+отдельная уборка не нужна.
+
 ## Полезные команды
 
 Всё выполняется внутри контейнера — на хосте ни Node, ни зависимостей нет.
