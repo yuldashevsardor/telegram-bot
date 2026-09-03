@@ -71,7 +71,9 @@ src/
     async-local-storage.ts  общий экземпляр AsyncLocalStorage (§9)
 docker/pgsql/                init-скрипт docker-entrypoint для локального Postgres
 Dockerfile                   образ приложения: Node + FontForge + зависимости (§15)
-docker-compose.yml           pgsql + app, дев-среда (§15)
+docker-compose.db.yml        pgsql, один экземпляр на машину (§15)
+docker-compose.app.yml       app, свой в каждом рабочем дереве (§15)
+scripts/                     worktree-init.sh и bot-token.sh, обслуживание деревьев (§15)
 test/                        (почти пустой) набор тестов (§14)
 ```
 
@@ -270,9 +272,9 @@ FontConvertor.convert(params)
 | `LOGGER_DEFAULT`, `LOGGER_LEVELS` | какой бэкенд логирования и какие уровни активны |
 | `DATABASE_HOST`, `_PORT`, `_NAME`, `_USER_NAME`, `_USER_PASSWORD`, `_CONNECTION_LIMIT`, `_CONNECTION_IDLE_TIMEOUT`, `_CONNECTION_MAX_LIFETIME` | подключение к Postgres |
 
-Переменные, присутствующие в `.env.dist`, но **нигде в `src/` не читаемые**: `DATABASE_SUPERUSER_NAME`/`_PASSWORD` и `DATABASE_TIMEZONE`/`DATABASE_DATE_STYLE` — они нужны только `docker-compose.yml` и init-скрипту, не приложению.
+Переменные, присутствующие в `.env.dist`, но **нигде в `src/` не читаемые**: `DATABASE_SUPERUSER_NAME`/`_PASSWORD` и `DATABASE_TIMEZONE`/`DATABASE_DATE_STYLE` — они нужны только `docker-compose.db.yml` и init-скрипту, не приложению.
 
-**`DATABASE_URL`** в `.env.dist` отсутствует намеренно: её никогда не читают ни `Database`, ни `Config` (они всегда собирают подключение из отдельных полей host/port/user/pass), единственный потребитель — `node-pg-migrate`, и собирается она в `docker-compose.yml`, где подстановка `${...}` действительно работает.
+**`DATABASE_URL`** в `.env.dist` отсутствует намеренно: её никогда не читают ни `Database`, ни `Config` (они всегда собирают подключение из отдельных полей host/port/user/pass), единственный потребитель — `node-pg-migrate`, и собирается она в `docker-compose.app.yml`, где подстановка `${...}` действительно работает.
 
 `DATABASE_HOST`/`DATABASE_PORT` в `.env` описывают подключение к БД **снаружи** контейнеров (`DATABASE_PORT` — порт, проброшенный на хост через `ports: ${DATABASE_PORT}:5432`); внутри compose-сети приложение всегда ходит на `pgsql:5432`, что задано в блоке `environment` сервиса `app` и приоритетнее `env_file`.
 
@@ -306,7 +308,9 @@ FontConvertor.convert(params)
 - `npm test` — `mocha` по `test/**/*.spec.ts` (см. §14).
 - **Docker** — вся среда контейнеризована; на хосте достаточно одного Docker. Подробности запуска — в `README.md`. **Среда только для разработки**: production-конфигурации в репозитории нет.
     - `Dockerfile` одностадийный: `node:24.20.0-bookworm-slim` + `fontforge-nox`, `npm ci` со всеми зависимостями, исходники, `USER node` (каталог `/app` принадлежит `node`, иначе `tsc` не может создать `build/` и `typings/`). Версия Node продублирована в `ARG NODE_VERSION` и в `package.json#engines` — связи между ними нет, синхронизировать вручную.
-    - `docker-compose.yml` описывает два сервиса: `pgsql` (`postgres:18-alpine` с healthcheck; данные — bind-mount `./tmp/pgsql`, смонтированный на `/var/lib/postgresql`, потому что в `postgres:18` кластер лежит в `$PGDATA=/var/lib/postgresql/18/docker`, а не в `.../data`, как было в `postgres:14`) и `app` (`./src` смонтирован с хоста, `npm run dev`). Порядок гарантирован через `depends_on: service_healthy`.
+    - Окружение разнесено на два compose-файла, потому что база одна на машину, а приложений столько, сколько рабочих деревьев. `docker-compose.db.yml` — только `pgsql` (`postgres:18-alpine` с healthcheck; данные — bind-mount `./tmp/pgsql`, смонтированный на `/var/lib/postgresql`, потому что в `postgres:18` кластер лежит в `$PGDATA=/var/lib/postgresql/18/docker`, а не в `.../data`, как было в `postgres:14`), под фиксированным именем проекта `telegram-bot-db`. `docker-compose.app.yml` — только `app` (`./src` смонтирован с хоста, `npm run dev`), без фиксированного имени проекта: Compose берёт его из имени каталога, поэтому у каждого дерева свои контейнер и образ, а `down` в дереве задачи не гасит базу.
+    - Приложение находит базу по имени сервиса `pgsql` во внешней сети `telegram-bot-db_default`, то есть базу нужно поднять первой. `depends_on: service_healthy` при этом недоступен — сервисы в разных проектах, — поэтому старт до готовности базы обрабатывается через `restart: on-failure:5`: миграции падают, контейнер поднимается заново.
+    - В рабочем дереве задачи `tmp/pgsql` — симлинк на основное дерево (его ставит `scripts/worktree-init.sh`), поэтому `docker-compose.db.yml`, поднятый из любого дерева, попадает в тот же кластер, а не создаёт второй. `BOT_TOKEN` каждое дерево берёт из пула `tmp/bot/tokens` через `scripts/bot-token.sh`: два процесса на long polling с одним токеном получают от Telegram 409 Conflict.
     - Миграции накатываются **тем же контейнером приложения** перед стартом бота (`command: sh -c "npm run migrate -- up && exec npm run dev"`); отдельного сервиса для них нет, потому что образ и так содержит `ts-node` и исходники.
     - `docker/pgsql/docker-entrypoint-initdb.d/init-user-db.sh` при первой инициализации по-прежнему создаёт роль и базу приложения (не суперпользователя).
     - **`npm start` после `npm run build` в этом образе не заработает**: `tsc` не копирует `.ftl` в `build/`, а `Bot.setupFlavor` ищет их по `<cwd>/src/infrastructure/bot` — см. §18 и issue #19.

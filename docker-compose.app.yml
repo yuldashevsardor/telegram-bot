@@ -1,0 +1,41 @@
+# Приложение: свой экземпляр в каждом рабочем дереве.
+# Имя проекта намеренно не задано — Compose берёт его из имени каталога, поэтому каждое
+# дерево получает собственные контейнер, образ и тома, а `docker compose down` здесь гасит
+# только это приложение и не трогает общую базу: она живёт отдельным проектом.
+services:
+    app:
+        build:
+            context: .
+        restart: on-failure:5
+        # Миграции накатываются в том же контейнере перед стартом бота: node-pg-migrate
+        # исполняет .ts-миграции через ts-node, а он здесь и так есть.
+        # База поднимается отдельно, поэтому дождаться её healthcheck нельзя: если контейнер
+        # стартовал раньше базы, миграции упадут и его поднимет restart: on-failure.
+        command: sh -c "npm run migrate -- up && exec npm run dev"
+        env_file:
+            - .env
+        environment:
+            # Адрес базы — её имя сервиса в общей сети; DATABASE_PORT в .env это порт,
+            # проброшенный на хост, он нужен только для подключения снаружи контейнеров.
+            DATABASE_HOST: pgsql
+            DATABASE_PORT: 5432
+            # Единственный потребитель — node-pg-migrate; приложение собирает подключение
+            # из отдельных полей host/port/user/password.
+            DATABASE_URL: postgres://${DATABASE_USER_NAME}:${DATABASE_USER_PASSWORD}@pgsql:5432/${DATABASE_NAME}
+        volumes:
+            - ./src:/app/src
+            - ./test:/app/test
+            - ./tsconfig.json:/app/tsconfig.json
+            - ./migrate.json:/app/migrate.json
+            - app-tmp:/app/tmp
+        networks:
+            - db
+
+networks:
+    # Сеть проекта из docker-compose.db.yml; поднимать базу нужно до приложения.
+    db:
+        name: telegram-bot-db_default
+        external: true
+
+volumes:
+    app-tmp:
