@@ -126,4 +126,7 @@ dcapp exec app npm run migrate -- create my-migration-name
 host/port/user/password.
 
 `BOT_TOKEN` в рабочем дереве задачи проставляет `scripts/bot-token.sh` — вручную его
-там менять не нужно.
+там менять не нужно. В отслеживаемом `.env.dist` он всегда пустой: живые значения
+хранятся только в `.env` и в пуле `tmp/bot/tokens`, оба под gitignore. Push с настоящим
+токеном отклонит secret scanning на стороне GitHub, но локально ничто не помешает такой
+коммит сделать — следите за этим сами.
