@@ -26,7 +26,7 @@ TTL="${BOT_TOKEN_TTL:-7200}"
 
 usage() {
     cat >&2 <<'USAGE'
-Использование: scripts/bot-token.sh <acquire|renew|release|status>
+Использование: scripts/bot-token.sh <acquire|renew|release|status|add>
 
   acquire   занять свободный слот за текущим рабочим деревом и записать
             BOT_TOKEN в его .env; повторный вызов из того же дерева возвращает
@@ -35,6 +35,8 @@ usage() {
             вообще перед долгими действиями); без аренды делает acquire
   release   освободить слот текущего дерева
   status    показать занятость слотов
+  add       дописать новый токен в конец пула и напечатать номер его слота
+            (сам токен в вывод не попадает)
 
 Пул: tmp/bot/tokens основного рабочего дерева, по токену на строку.
 Переменные: BOT_TOKEN_POOL_DIR (переопределяет расположение пула),
@@ -173,6 +175,35 @@ cmd_release() {
     printf 'слот %s освобождён\n' "$mine"
 }
 
+# Пул append-only: слот — это номер строки, поэтому токен всегда дописывается в конец.
+# Вставка в середину или удаление строки сдвинет нумерацию, и живые аренды начнут
+# указывать на чужие токены.
+cmd_add() {
+    token="${1:-}"
+    [ -n "$token" ] || die "укажите токен: scripts/bot-token.sh add <токен от @BotFather>"
+    case "$token" in
+        *[[:space:]]*) die "в токене есть пробельные символы — он должен быть один и целиком" ;;
+        \#*) die "токен не может начинаться с # — такая строка считается комментарием" ;;
+    esac
+
+    lock
+    [ -f "$POOL_FILE" ] || : > "$POOL_FILE"
+    chmod 600 "$POOL_FILE"
+    if awk -v t="$token" '$0 == t { found = 1 } END { exit !found }' "$POOL_FILE"; then
+        unlock
+        die "такой токен в пуле уже есть — два процесса на один токен получают от Telegram 409 Conflict"
+    fi
+    # Без завершающего перевода строки дописанный токен склеился бы с последней строкой.
+    if [ -s "$POOL_FILE" ] && [ "$(tail -c 1 "$POOL_FILE" | wc -l)" -eq 0 ]; then
+        printf '\n' >> "$POOL_FILE"
+    fi
+    printf '%s\n' "$token" >> "$POOL_FILE"
+    slot=$(awk 'END { print NR }' "$POOL_FILE")
+    unlock
+
+    printf 'токен добавлен в слот %s (%s)\n' "$slot" "$POOL_FILE"
+}
+
 cmd_status() {
     for slot in $(slots); do
         file="$LEASE_DIR/$slot"
@@ -193,5 +224,9 @@ case "${1:-}" in
     renew) cmd_renew ;;
     release) cmd_release ;;
     status) cmd_status ;;
+    add)
+        shift
+        cmd_add "${1:-}"
+        ;;
     *) usage ;;
 esac
