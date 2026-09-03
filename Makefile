@@ -92,9 +92,11 @@ token-release: ## Освободить слот этого дерева
 token-status: ## Показать занятость слотов пула
 	$(BOT_TOKEN_SH) status
 
-token-add: ## Дописать токен в конец пула: make token-add token=<токен от @BotFather>
-	@[ -n "$(token)" ] || { printf 'укажите токен: make token-add token=<токен от @BotFather>\n' >&2; exit 1; }
-	@$(BOT_TOKEN_SH) add '$(token)'
+# Токен не принимается через token=… намеренно: аргументы make и скрипта видны в ps
+# любому пользователю машины, а вызов оседает в истории шелла. Скрипт спрашивает токен сам.
+token-add: ## Дописать токен в конец пула (спросит токен, ввод не отображается)
+	@[ -z "$(token)" ] || { printf 'токен не передаётся через token=… — он виден в ps; запустите просто make token-add\n' >&2; exit 1; }
+	@$(BOT_TOKEN_SH) add
 
 help: ## Показать этот список
 	@awk 'BEGIN { FS = ":.*## " } \
