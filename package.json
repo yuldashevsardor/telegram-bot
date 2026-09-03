@@ -1,10 +1,33 @@
 {
     "name": "telegram-bot",
     "version": "1.0.0",
-    "description": "Telegram bot starter kit",
-    "keywords": [],
-    "author": "",
-    "license": "ISC",
+    "private": true,
+    "description": "Telegram-бот для конвертации файлов шрифтов между форматами (ttf, otf, woff, woff2, eot, svg)",
+    "keywords": [
+        "telegram",
+        "bot",
+        "grammy",
+        "font",
+        "font-converter",
+        "fontforge",
+        "ttf",
+        "otf",
+        "woff",
+        "woff2",
+        "eot",
+        "svg"
+    ],
+    "homepage": "https://github.com/yuldashevsardor/telegram-bot#readme",
+    "bugs": {
+        "url": "https://github.com/yuldashevsardor/telegram-bot/issues"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/yuldashevsardor/telegram-bot.git"
+    },
+    "author": "Yuldashev Sardor <yuldashev.sardor1028@gmail.com>",
+    "license": "MIT",
+    "type": "commonjs",
     "engines": {
         "node": ">=24.20.0 <25"
     },
