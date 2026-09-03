@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # Аренда BOT_TOKEN из общего пула: один токен на рабочее дерево.
 #
-# Пул лежит в tmp/bot-tokens основного рабочего дерева — один на репозиторий,
+# Пул лежит в tmp/bot основного рабочего дерева — один на репозиторий,
 # независимо от того, из какого дерева вызван скрипт. Всё внутри tmp/ под
 # gitignore, а сам токен нигде не печатается: в вывод идёт только номер слота.
 set -eu
@@ -18,7 +18,7 @@ main_tree() {
     dirname "$common"
 }
 
-POOL_DIR="${BOT_TOKEN_POOL_DIR:-$(main_tree)/tmp/bot-tokens}"
+POOL_DIR="${BOT_TOKEN_POOL_DIR:-$(main_tree)/tmp/bot}"
 POOL_FILE="$POOL_DIR/tokens"
 LEASE_DIR="$POOL_DIR/leases"
 LOCK_DIR="$POOL_DIR/.lock"
@@ -36,7 +36,7 @@ usage() {
   release   освободить слот текущего дерева
   status    показать занятость слотов
 
-Пул: tmp/bot-tokens/tokens основного рабочего дерева, по токену на строку.
+Пул: tmp/bot/tokens основного рабочего дерева, по токену на строку.
 Переменные: BOT_TOKEN_POOL_DIR (переопределяет расположение пула),
             BOT_TOKEN_TTL в секундах (по умолчанию 7200).
 USAGE

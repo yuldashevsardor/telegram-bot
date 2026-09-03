@@ -53,8 +53,8 @@ long polling с одним токеном получают от Telegram 409 Con
 у друга. Пул лежит в основном дереве, по токену на строку (каталог `tmp/` под `.gitignore`):
 
 ```bash
-mkdir -p tmp/bot-tokens
-$EDITOR tmp/bot-tokens/tokens   # по токену от @BotFather на строку
+mkdir -p tmp/bot
+$EDITOR tmp/bot/tokens   # по токену от @BotFather на строку
 ```
 
 Номер слота — это номер строки в файле, поэтому **новые токены дописываются в конец**, а
