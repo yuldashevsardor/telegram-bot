@@ -50,16 +50,8 @@ restart: ## Перезапустить приложение этого дере�
 	@$(RENEW_TOKEN)
 	$(DC_APP) restart app
 
-db-reset: ## Погасить базу и стереть её данные (tmp/pgsql — общий для всех деревьев)
-	$(DC_DB) down
-	@data=$$(cd tmp/pgsql 2>/dev/null && pwd -P || true); \
-	if [ -n "$$data" ]; then \
-		rm -rf "$$data"; \
-		mkdir -p "$$data"; \
-		printf 'данные базы удалены: %s\n' "$$data"; \
-	else \
-		printf 'каталога tmp/pgsql нет, удалять нечего\n'; \
-	fi
+db-reset: ## Погасить базу и стереть её данные (общие для всех деревьев; спросит подтверждение)
+	@scripts/db-reset.sh
 
 ## Внутри контейнеров
 
