@@ -15,7 +15,7 @@
         "dev": "node --watch --require ts-node/register --require tsconfig-paths/register src/app.ts",
         "start:prod": "NODE_ENV=production node build/app.js",
         "prepare": "husky install && chmod +x .husky/pre-commit",
-        "test": "mocha --colors --require ts-node/register --require tsconfig-paths/register --file test/bootstrap.ts test/**/*.spec.ts",
+        "test": "mocha",
         "migrate": "node -r tsconfig-paths/register node_modules/.bin/node-pg-migrate -f ./migrate.json"
     },
     "lint-staged": {

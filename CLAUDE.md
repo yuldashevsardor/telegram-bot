@@ -34,7 +34,7 @@ Single-context: `CONTEXT.md` и `docs/adr/` в корне, создаются л
 - `npm run build` — `tsc` + `tsc-alias` (переписывает алиас `app/*` в относительные пути для `build/`).
 - `npm run dev` — запуск без сборки: `node --watch` + `ts-node` + `tsconfig-paths` по `src/app.ts`.
 - `npm start` / `npm run start:prod` — запускает `build/app.js`, тот же файл, на который указывает `package.json#main`. **Сейчас этот путь нерабочий:** `tsc` не копирует `.ftl`-локали в `build/`, поэтому запуск из `build/` падает с `ENOENT` (issue #19).
-- `npm test` — mocha по `test/**/*.spec.ts`. **Во всём репозитории фактически один настоящий тест** (`test/services/message-broker/slot-manager/slot-manager.spec.ts`, проверяющий `SlotManager` в изоляции), а `test/bootstrap.ts` (загружаемый тестовым скриптом) пуст. **Сейчас прогон красный из-за багов в самом spec-файле, а не в `SlotManager`** (подробности в `docs/architecture.md` §14) — это известное состояние, не считайте его регрессией своих изменений. И в любом случае не считайте `npm test` осмысленным покрытием того, что вы изменили, — проверяйте вручную.
+- `npm test` — mocha; все флаги прогона (`ts-node/register`, `tsconfig-paths/register`, маска `test/**/*.spec.ts`) вынесены в `.mocharc.json`, поэтому сам скрипт — просто `mocha`. **Во всём репозитории фактически один настоящий тест** (`test/services/message-broker/slot-manager/slot-manager.spec.ts`, проверяющий `SlotManager` в изоляции). Прогон зелёный — 4 passing, — но одного этого spec'а недостаточно: не считайте `npm test` осмысленным покрытием того, что вы изменили, и проверяйте вручную.
 
 ## Конвенции архитектуры (кратко — полностью в `docs/architecture.md`)
 

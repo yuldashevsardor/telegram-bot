@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { SlotManager } from "src/domain/slot-manager/slot-manager";
+import { SlotManager } from "app/domain/slot-manager/slot-manager";
 
 const limitNumber = 10;
 const limitInterval = 1000;
@@ -22,21 +22,20 @@ describe("SlotManager", function () {
         expect(manager.isFree()).to.be.false;
     });
 
-    it("manager is free after timeout reserve", function () {
+    it("manager is free after timeout reserve", async function () {
         const manager = build();
 
         manager.reserve();
+        await delay(slotTimeout + 10);
 
-        setTimeout(() => {
-            expect(manager.isFree()).to.be.true;
-        }, slotTimeout);
+        expect(manager.isFree()).to.be.true;
     });
 
     it("catch an error when calling a reserve while they are not free", function () {
         const manager = build();
 
         manager.reserve();
-        expect(manager.reserve.call(manager)).to.throw(Error, "Can't reserve a slot until they're free");
+        expect(() => manager.reserve()).to.throw(Error, "Can't reserve a slot until they're free");
     });
 });
 
@@ -45,4 +44,8 @@ function build(): SlotManager {
         interval: limitInterval,
         number: limitNumber,
     });
+}
+
+function delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
 }
