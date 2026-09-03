@@ -13,4 +13,3 @@ docs
 Dockerfile
 .dockerignore
 docker-compose.yml
-docker-compose.override.yml

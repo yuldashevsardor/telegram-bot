@@ -7,7 +7,7 @@ Telegram-бот для конвертации файлов шрифтов меж
 
 ## Быстрый старт
 
-Из требований на машине нужен только Docker (с плагином Compose v2). Node, Python и FontForge
+Из требований на машине нужен только Docker (с плагином Compose v2). Node и FontForge
 устанавливать не нужно — они входят в образ приложения.
 
 ```bash
@@ -16,79 +16,58 @@ cp .env.dist .env
 docker compose up --build
 ```
 
-Эта команда поднимает три сервиса:
+Поднимаются два сервиса:
 
-| Сервис    | Что делает                                                                              |
-| --------- | --------------------------------------------------------------------------------------- |
-| `pgsql`   | PostgreSQL 18; при первой инициализации создаёт роль и базу приложения                    |
-| `migrate` | одноразовый прогон `node-pg-migrate up`; стартует, только когда `pgsql` прошёл healthcheck |
-| `app`     | сам бот; стартует, только когда `migrate` завершился успешно                               |
+| Сервис  | Что делает                                                                                  |
+| ------- | ------------------------------------------------------------------------------------------- |
+| `pgsql` | PostgreSQL 18; при первой инициализации создаёт роль и базу приложения                        |
+| `app`   | накатывает миграции, затем запускает бота; стартует, только когда `pgsql` прошёл healthcheck   |
 
-Остановить всё: `docker compose down`. Удалить и данные БД: `docker compose down -v`.
-
-## Режимы запуска
-
-`docker-compose.override.yml` подхватывается автоматически, поэтому обычный `docker compose up`
-даёт **dev-режим**: собирается стадия `development`, `./src` смонтирован с хоста, приложение
-запускается через `npm run dev` (`node --watch` + `ts-node`) и перезапускается на изменения.
+Среда только для разработки: `./src` смонтирован с хоста, приложение работает через
+`npm run dev` (`node --watch` + `ts-node`) и перезапускается на правку исходников.
+Production-конфигурации в репозитории нет — как сервис разворачивается на сервере,
+здесь не описано.
 
 `node --watch` следит за конкретными файлами по inode, поэтому операции, подменяющие файл целиком
 (`git checkout`, атомарное сохранение в некоторых редакторах), могут «отвязать» наблюдателя от
 файла. Если перезапуски перестали происходить — `docker compose restart app`.
 
-**Production-режим** — запуск без override-файла:
-
-```bash
-docker compose -f docker-compose.yml up --build -d
-```
-
-Здесь собирается стадия `production`: слим-образ с прод-зависимостями, скомпилированным `build/`
-и `ENVIRONMENT=production` (то есть `PinoLogger` вместо `ConsoleLogger`).
+Остановить всё: `docker compose down`. Данные БД лежат в `./tmp/pgsql` (каталог `tmp/`
+целиком в `.gitignore`); чтобы начать с чистой базы — `docker compose down && rm -rf tmp/pgsql`.
 
 ## Полезные команды
 
+Всё выполняется внутри контейнера — на хосте ни Node, ни зависимостей нет.
+
 ```bash
-docker compose logs -f app                  # логи бота
-docker compose run --rm migrate             # применить миграции повторно
-docker compose exec app sh                  # шелл внутри контейнера приложения
+docker compose logs -f app                          # логи бота
+docker compose exec app npm run migrate -- up       # накатить миграции повторно
+docker compose exec app npm run build               # проверка типов и сборка
+docker compose exec app npm test
+docker compose exec app sh                          # шелл внутри контейнера приложения
 docker compose exec pgsql psql -U root -d docker_db
 ```
 
-Создать новую миграцию (нужен dev-образ, поэтому через сервис `migrate`):
+Создать новую миграцию:
 
 ```bash
-docker compose run --rm --entrypoint sh migrate -c 'npm run migrate -- create my-migration-name'
+docker compose exec app npm run migrate -- create my-migration-name
 ```
 
-Файл появится в `src/infrastructure/database/migrations/` — при работе через `docker compose up`
-каталог `src` смонтирован с хоста, так что новый файл сразу окажется в репозитории.
+Файл появится в `src/infrastructure/database/migrations/` — каталог `src` смонтирован с хоста,
+так что новая миграция сразу окажется в репозитории.
 
 ## Переменные окружения
 
 Все переменные живут в `.env` (шаблон — `.env.dist`) и передаются в контейнеры через `env_file`.
 Обязательно задать только `BOT_TOKEN`.
 
-Три переменные различаются между запуском в контейнере и запуском на хосте, поэтому для
-контейнеров они жёстко заданы в `docker-compose.yml` (блок `environment` имеет приоритет над
-`env_file`), а в `.env` остаются host-значения:
+Адрес БД внутри compose-сети — всегда `pgsql:5432`, он задан в `docker-compose.yml`
+(блок `environment` приоритетнее `env_file`). Значения `DATABASE_HOST`/`DATABASE_PORT`
+из `.env` описывают подключение **снаружи** контейнеров: `DATABASE_PORT` — это порт,
+на который Postgres пробрасывается на хост (`ports: ${DATABASE_PORT}:5432`), им же
+пользуются `psql`, DBeaver и прочие клиенты на хосте.
 
-| Переменная      | В контейнере                              | На хосте                       |
-| --------------- | ----------------------------------------- | ------------------------------ |
-| `DATABASE_HOST` | `pgsql` (имя compose-сервиса)              | `localhost`                    |
-| `DATABASE_PORT` | `5432` (внутри compose-сети)               | `54320` (проброшенный порт)     |
-| `DATABASE_URL`  | собирается из двух предыдущих               | из `.env`                      |
-
-`DATABASE_URL` читает только `node-pg-migrate`; само приложение собирает подключение из
-отдельных полей host/port/user/password.
-
-## Запуск на хосте (без Docker)
-
-Поддерживается, но требует ручной подготовки: Node из `.nvmrc`, установленный FontForge
-(`fontforge` в `PATH`) и запущенный Postgres. Тогда:
-
-```bash
-npm ci
-docker compose up -d pgsql   # если базу всё же держать в контейнере
-npm run migrate -- up
-npm run build && npm start   # либо npm run dev
-```
+`DATABASE_URL` читает только `node-pg-migrate`; она собирается в `docker-compose.yml`
+и в `.env` не хранится. Само приложение собирает подключение из отдельных полей
+host/port/user/password.

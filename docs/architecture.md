@@ -70,9 +70,8 @@ src/
     repository/             реализации репозиториев на Postgres (§11)
     async-local-storage.ts  общий экземпляр AsyncLocalStorage (§9)
 docker/pgsql/                init-скрипт docker-entrypoint для локального Postgres
-Dockerfile                   многостадийная сборка образа приложения (§15)
-docker-compose.yml           pgsql + migrate + app, production-вариант (§15)
-docker-compose.override.yml  dev-вариант: смонтированные исходники и watch-режим (§15)
+Dockerfile                   образ приложения: Node + FontForge + зависимости (§15)
+docker-compose.yml           pgsql + app, дев-среда (§15)
 test/                        (почти пустой) набор тестов (§14)
 ```
 
@@ -256,7 +255,7 @@ FontConvertor.convert(params)
 
 ## 12. Конфигурация и окружение
 
-`Config` (`src/infrastructure/config/config.ts`) загружает `.env` через `dotenv` + `dotenv-expand` **в момент импорта модуля** (поэтому значения могут ссылаться на другие переменные — например, неиспользуемая, см. ниже, интерполяция `DATABASE_URL` в `.env.dist`).
+`Config` (`src/infrastructure/config/config.ts`) загружает `.env` через `dotenv` + `dotenv-expand` **в момент импорта модуля** (поэтому значения в `.env` могут ссылаться на другие переменные; обратите внимание, что Compose при передаче `.env` через `env_file` подстановку `${...}` не делает — значение уходит в контейнер как есть).
 
 Переменные окружения, которые реально потребляет `Config`:
 
@@ -264,14 +263,18 @@ FontConvertor.convert(params)
 |---|---|
 | `ENVIRONMENT` | `development`/`production`, определяет `isProduction` |
 | `TEMP_DIR` | базовая директория для временных файлов font-convertor |
-| `PYTHON_PATH`, `FONT_FORGE_PATH` | пути к внешним инструментам |
+| `FONT_FORGE_PATH` | путь к бинарнику FontForge |
 | `LIMIT_COMMON_NUMBER`/`_INTERVAL`, `LIMIT_PRIVATE_NUMBER`/`_INTERVAL`, `LIMIT_GROUP_NUMBER`/`_INTERVAL` | конфигурация рейт-лимитов для `Planner`/`SlotManager` (§6) |
 | `BROKER_SLEEP_INTERVAL` | интервал опроса в `Broker` |
 | `BOT_TOKEN` | обязательна — конструктор `Bot` бросает исключение, если пусто |
 | `LOGGER_DEFAULT`, `LOGGER_LEVELS` | какой бэкенд логирования и какие уровни активны |
 | `DATABASE_HOST`, `_PORT`, `_NAME`, `_USER_NAME`, `_USER_PASSWORD`, `_CONNECTION_LIMIT`, `_CONNECTION_IDLE_TIMEOUT`, `_CONNECTION_MAX_LIFETIME` | подключение к Postgres |
 
-Переменные, присутствующие в `.env.dist`, но **нигде в `src/` не читаемые**: `DATABASE_SUPERUSER_NAME`/`_PASSWORD` и `DATABASE_TIMEZONE`/`DATABASE_DATE_STYLE` (используются только `docker-compose.yml`/init-скриптом, не приложением), и **`DATABASE_URL`** — она собирается интерполяцией строк, но никогда не читается ни `Database`, ни `Config`, которые всегда собирают подключение из отдельных полей host/port/user/pass. Её единственный потребитель — `node-pg-migrate`, для которого она и нужна.
+Переменные, присутствующие в `.env.dist`, но **нигде в `src/` не читаемые**: `DATABASE_SUPERUSER_NAME`/`_PASSWORD` и `DATABASE_TIMEZONE`/`DATABASE_DATE_STYLE` — они нужны только `docker-compose.yml` и init-скрипту, не приложению.
+
+**`DATABASE_URL`** в `.env.dist` отсутствует намеренно: её никогда не читают ни `Database`, ни `Config` (они всегда собирают подключение из отдельных полей host/port/user/pass), единственный потребитель — `node-pg-migrate`, и собирается она в `docker-compose.yml`, где подстановка `${...}` действительно работает.
+
+`DATABASE_HOST`/`DATABASE_PORT` в `.env` описывают подключение к БД **снаружи** контейнеров (`DATABASE_PORT` — порт, проброшенный на хост через `ports: ${DATABASE_PORT}:5432`); внутри compose-сети приложение всегда ходит на `pgsql:5432`, что задано в блоке `environment` сервиса `app` и приоритетнее `env_file`.
 
 Ранее в `.env.dist` было закоммичено похожее на настоящее значение `BOT_TOKEN` открытым текстом; сейчас переменная пуста, но старое значение остаётся в истории git — считайте его скомпрометированным.
 
@@ -301,15 +304,14 @@ FontConvertor.convert(params)
 - `npm run dev` — `node --watch` + `ts-node` + `tsconfig-paths` по `src/app.ts`, без сборки; используется dev-вариантом compose.
 - `npm run migrate` — запускает `node-pg-migrate` с `migrate.json` (действие передаётся аргументом: `npm run migrate -- up`). Скрипт предварительно подключает `tsconfig-paths/register`: файлы миграций импортируют `src/infrastructure/database/migrations/common/utils` относительно `baseUrl`, а `ts-node` сам такие пути не разрешает.
 - `npm test` — `mocha` по `test/**/*.spec.ts` (см. §14).
-- **Docker** — вся среда контейнеризована; на хосте достаточно одного Docker. Подробности запуска — в `README.md`.
-    - `Dockerfile` многостадийный: `base` (Node из `.nvmrc` на `bookworm-slim` + `fontforge-nox` + `python3`) → `deps`/`prod-deps` (`npm ci`) → `build` (`npm run build`) → `development` (devDependencies и исходники) и `production` (слим-рантайм: `build/`, прод-зависимости, пользователь `node`).
-    - `Bot.setupFlavor` ищет `.ftl` по пути `<cwd>/src/infrastructure/bot`, а `tsc` их в `build/` не копирует, поэтому стадия `build` отдельно собирает локали, и в `production`-образ попадают только они — исходников там нет.
-    - `docker-compose.yml` описывает три сервиса: `pgsql` (`postgres:18-alpine` с healthcheck и именованным томом), одноразовый `migrate` (собирается из стадии `development`, потому что `node-pg-migrate` исполняет `.ts`-миграции через `ts-node`) и `app` (стадия `production`). Порядок гарантирован через `depends_on`: `service_healthy` для БД и `service_completed_successfully` для миграций.
-    - `docker-compose.override.yml` подхватывается автоматически и переводит `app` в dev-режим (стадия `development`, `./src` смонтирован с хоста, `npm run dev`); production-вариант запускается явным `-f docker-compose.yml`.
-    - `DATABASE_HOST`/`DATABASE_PORT`/`DATABASE_URL` заданы в compose-блоке `environment` (он приоритетнее `env_file`), поэтому в `.env` остаются host-значения и оба способа запуска работают из одного файла.
+- **Docker** — вся среда контейнеризована; на хосте достаточно одного Docker. Подробности запуска — в `README.md`. **Среда только для разработки**: production-конфигурации в репозитории нет.
+    - `Dockerfile` одностадийный: `node:24.20.0-bookworm-slim` + `fontforge-nox`, `npm ci` со всеми зависимостями, исходники, `USER node`. Версия Node продублирована в `ARG NODE_VERSION` и в `package.json#engines` — связи между ними нет, синхронизировать вручную.
+    - `docker-compose.yml` описывает два сервиса: `pgsql` (`postgres:18-alpine` с healthcheck; данные — bind-mount `./tmp/pgsql`, смонтированный на `/var/lib/postgresql`, потому что в `postgres:18` кластер лежит в `$PGDATA=/var/lib/postgresql/18/docker`, а не в `.../data`, как было в `postgres:14`) и `app` (`./src` смонтирован с хоста, `npm run dev`). Порядок гарантирован через `depends_on: service_healthy`.
+    - Миграции накатываются **тем же контейнером приложения** перед стартом бота (`command: sh -c "npm run migrate -- up && exec npm run dev"`); отдельного сервиса для них нет, потому что образ и так содержит `ts-node` и исходники.
     - `docker/pgsql/docker-entrypoint-initdb.d/init-user-db.sh` при первой инициализации по-прежнему создаёт роль и базу приложения (не суперпользователя).
+    - **`npm start` после `npm run build` в этом образе не заработает**: `tsc` не копирует `.ftl` в `build/`, а `Bot.setupFlavor` ищет их по `<cwd>/src/infrastructure/bot` — см. §18.
 - **Линтинг/форматирование** — ESLint (TypeScript + Prettier + правила порядка импортов и запрет относительных импортов, отмеченный в §3) + Prettier (отступ 4 пробела, строки до 140 символов, двойные кавычки) + хук Husky `pre-commit`, запускающий `lint-staged` (`eslint --fix`, затем `prettier --write` по staged-файлам `.ts`).
-- `.nvmrc` фиксирует точную версию Node (`24.20.0`), согласованную с `package.json#engines` и с `ARG NODE_VERSION` в `Dockerfile`.
+- Версия Node фиксируется в двух местах — `ARG NODE_VERSION` в `Dockerfile` и `package.json#engines`; `.nvmrc` в репозитории нет, потому что Node на хосте не нужен.
 
 ## 16. Сквозные потоки
 
@@ -370,7 +372,8 @@ FontConvertor.convert(params)
 
 - **Намеренна ли `BulkMessagesCommand`?** Это может быть сознательный (пусть и грубый) внутренний инструмент рассылки — или попросту забытый отладочный/нагрузочный код, который до сих пор зарегистрирован как живая команда. Сам код (захардкоженный путь с личной машины, захардкоженные chat ID) читается куда больше как второе, но независимо от исходного намерения глубокий разбор подтверждает: сегодня это живая команда без аутентификации, которую может запустить любой пользователь (§17, `docs/flows.md`, Поток 7), — что повышает практическую цену ответа на этот вопрос.
 - **Пробел с конвертацией SVG и закомментированное определение типа через `mmmagic` — это приостановленная работа или заброшенная?** Ни TODO, ни комментарии намерение не поясняют.
-- **Как это на самом деле разворачивается в production?** Репозиторий теперь описывает production-вариант compose (стадия `production`, §15), но чем он запускается на реальном сервере — вручную, через systemd, через внешний деплой-пайплайн — из репозитория по-прежнему не видно. Оркестрации, секрет-менеджмента и стратегии рестарта за пределами `restart: unless-stopped` здесь нет.
+- **Production в репозитории намеренно не описан.** Docker-среда здесь — только для разработки; как сервис разворачивается на сервере (и разворачивается ли), из репозитория не видно, и это сознательно отложено, а не пропущено.
+- **Сборка `npm run build` даёт неработоспособный `build/`**: `tsc` не копирует `.ftl`-локали, а `Bot.setupFlavor` ищет их по `<cwd>/src/infrastructure/bot`, поэтому `npm start` падает с `ENOENT: scandir '.../src/infrastructure/bot'`. В дев-среде это не проявляется (там `ts-node` и `src/` на месте), но любой сценарий запуска из `build/` сломан.
 - **Используется ли `DATABASE_URL` (в `.env.dist`) чем-то за пределами этого репозитория** (внешним скриптом, автоопределением хостинг-платформы и т. п.) — или это чистый рудимент? Само приложение её никогда не читает.
 - **Есть ли какая-либо очистка временных файлов конвертации шрифтов** в `TEMP_DIR/YYYY/M/D/`? В самом пути кода её нет; она может происходить через внешний cron/ops-процесс, невидимый отсюда, а может не происходить вовсе.
 

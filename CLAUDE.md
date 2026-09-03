@@ -15,12 +15,12 @@ Telegram-бот (grammY + DI на inversify + PostgreSQL). Полная архи
 
 ## Команды
 
-- **Основной способ запуска — Docker; на хосте ничего, кроме Docker, не требуется.** `docker compose up --build` поднимает `pgsql` → `migrate` (одноразовый) → `app`; порядок гарантирован через `depends_on` с `service_healthy`/`service_completed_successfully`. `docker-compose.override.yml` подхватывается автоматически и даёт dev-режим (исходники смонтированы, `npm run dev` с `node --watch`); production-вариант — `docker compose -f docker-compose.yml up --build -d`. Подробности в `README.md` и `docs/architecture.md` §15.
+- **Единственный способ запуска — Docker; на хосте ничего, кроме Docker, не требуется.** `docker compose up --build` поднимает `pgsql`, затем `app`, который накатывает миграции и стартует бота в watch-режиме с примонтированным `./src`. Среда только для разработки — production-конфигурации в репозитории нет. Подробности в `README.md` и `docs/architecture.md` §15.
 - `npm run migrate -- up` — применить миграции (`node-pg-migrate`, конфигурация в `migrate.json`). Действие (`up`/`down`/`create`) обязательно передаётся аргументом — голый `npm run migrate` печатает usage и выходит с кодом 1.
 - `npm run build` — `tsc` + `tsc-alias` (переписывает алиас `app/*` в относительные пути для `build/`).
 - `npm run dev` — запуск без сборки: `node --watch` + `ts-node` + `tsconfig-paths` по `src/app.ts`.
-- `npm start` / `npm run start:prod` — запускает `build/app.js`, тот же файл, на который указывает `package.json#main`.
-- `npm test` — mocha по `test/**/*.spec.ts`. **Во всём репозитории фактически один настоящий тест** (`test/services/message-broker/slot-manager/slot-manager.spec.ts`, проверяющий `SlotManager` в изоляции), а `test/bootstrap.ts` (загружаемый тестовым скриптом) пуст. Не считайте зелёный `npm test` осмысленным покрытием того, что вы изменили, — проверяйте вручную.
+- `npm start` / `npm run start:prod` — запускает `build/app.js`, тот же файл, на который указывает `package.json#main`. **Сейчас этот путь нерабочий:** `tsc` не копирует `.ftl`-локали в `build/`, поэтому запуск из `build/` падает с `ENOENT` (`docs/architecture.md` §18).
+- `npm test` — mocha по `test/**/*.spec.ts`. **Во всём репозитории фактически один настоящий тест** (`test/services/message-broker/slot-manager/slot-manager.spec.ts`, проверяющий `SlotManager` в изоляции), а `test/bootstrap.ts` (загружаемый тестовым скриптом) пуст. **Сейчас прогон красный из-за багов в самом spec-файле, а не в `SlotManager`** (подробности в `docs/architecture.md` §14) — это известное состояние, не считайте его регрессией своих изменений. И в любом случае не считайте `npm test` осмысленным покрытием того, что вы изменили, — проверяйте вручную.
 
 ## Конвенции архитектуры (кратко — полностью в `docs/architecture.md`)
 

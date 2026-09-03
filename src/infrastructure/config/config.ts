@@ -26,7 +26,6 @@ export class Config {
 
     public readonly rootDir: string;
     public readonly tempDir: string;
-    public readonly pythonPath: string;
     public readonly fontForgePath: string;
 
     public readonly managerLimits: Limits;
@@ -49,7 +48,6 @@ export class Config {
 
         this.rootDir = process.cwd();
         this.tempDir = Config.getEnvAsString("TEMP_DIR", path.join(this.rootDir, "tmp"));
-        this.pythonPath = Config.getEnvAsString("PYTHON_PATH", "python");
         this.fontForgePath = Config.getEnvAsString("FONT_FORGE_PATH", "fontforge");
 
         this.managerLimits = {
