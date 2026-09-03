@@ -1,21 +1,57 @@
-version: '3.8'
+name: telegram-bot
+
 services:
     pgsql:
-        image: postgres:14.1-alpine
-        restart: always
+        image: postgres:18-alpine
+        restart: unless-stopped
         env_file:
             - .env
         environment:
-            - POSTGRES_USER=${DATABASE_SUPERUSER_NAME}
-            - POSTGRES_PASSWORD=${DATABASE_SUPERUSER_PASSWORD}
-            - TZ=${DATABASE_TIMEZONE}
-            - PGTZ=${DATABASE_TIMEZONE}
-            - PGDATESTYLE=${DATABASE_DATE_STYLE}
+            POSTGRES_USER: ${DATABASE_SUPERUSER_NAME}
+            POSTGRES_PASSWORD: ${DATABASE_SUPERUSER_PASSWORD}
+            TZ: ${DATABASE_TIMEZONE}
+            PGTZ: ${DATABASE_TIMEZONE}
+            PGDATESTYLE: ${DATABASE_DATE_STYLE}
         ports:
             - ${DATABASE_PORT}:5432
         volumes:
-            - ./tmp/pgsql:/var/lib/postgresql/data
-            - ./docker/pgsql/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+            # postgres:18 хранит кластер в $PGDATA=/var/lib/postgresql/18/docker, а не в
+            # /var/lib/postgresql/data, как postgres:14, — монтируется родительский каталог.
+            - ./tmp/pgsql:/var/lib/postgresql
+            - ./docker/pgsql/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d:ro
+        healthcheck:
+            test: ["CMD-SHELL", "psql -U \"$$POSTGRES_USER\" -d \"$$DATABASE_NAME\" -c 'SELECT 1' > /dev/null 2>&1"]
+            interval: 5s
+            timeout: 5s
+            retries: 12
+            start_period: 30s
+
+    app:
+        build:
+            context: .
+        restart: on-failure:5
+        # Миграции накатываются в том же контейнере перед стартом бота: node-pg-migrate
+        # исполняет .ts-миграции через ts-node, а он здесь и так есть.
+        command: sh -c "npm run migrate -- up && exec npm run dev"
+        env_file:
+            - .env
+        environment:
+            # Внутри compose-сети адрес БД всегда pgsql:5432; DATABASE_PORT в .env — это порт,
+            # проброшенный на хост, он нужен только для подключения снаружи контейнеров.
+            DATABASE_HOST: pgsql
+            DATABASE_PORT: 5432
+            # Единственный потребитель — node-pg-migrate; приложение собирает подключение
+            # из отдельных полей host/port/user/password.
+            DATABASE_URL: postgres://${DATABASE_USER_NAME}:${DATABASE_USER_PASSWORD}@pgsql:5432/${DATABASE_NAME}
+        volumes:
+            - ./src:/app/src
+            - ./test:/app/test
+            - ./tsconfig.json:/app/tsconfig.json
+            - ./migrate.json:/app/migrate.json
+            - app-tmp:/app/tmp
+        depends_on:
+            pgsql:
+                condition: service_healthy
+
 volumes:
-    pgsql:
-        driver: local
+    app-tmp:

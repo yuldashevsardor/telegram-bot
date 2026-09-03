@@ -26,12 +26,12 @@ export class PinoLogger extends AbstractLogger {
         },
     };
 
-    private readonly pino: Logger;
+    private pino: Logger;
 
-    public constructor(pinoLogger: Logger | null = null) {
+    public constructor() {
         super();
 
-        this.pino = pinoLogger || pino(this.pinoDefaultOptions);
+        this.pino = pino(this.pinoDefaultOptions);
     }
 
     critical(message: string, payload?: AnyObject): void {
@@ -63,9 +63,14 @@ export class PinoLogger extends AbstractLogger {
         }
     }
 
+    // Дочерний pino подставляется после конструирования, а не аргументом конструктора:
+    // inversify резолвит каждый параметр конструктора @injectable-класса, а pino.Logger —
+    // интерфейс, для которого design:paramtypes даёт Object, и контейнер падает
+    // на "No matching bindings found for serviceIdentifier: Object".
     child(context: AnyObject): PinoLogger {
-        const pinoChild = this.pino.child(context);
+        const child = new PinoLogger();
+        child.pino = this.pino.child(context);
 
-        return new PinoLogger(pinoChild);
+        return child;
     }
 }
