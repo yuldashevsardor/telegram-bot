@@ -32,7 +32,9 @@ usage() {
             BOT_TOKEN в его .env; повторный вызов из того же дерева возвращает
             тот же слот
   renew     продлить аренду текущего дерева (вызывать перед запуском бота и
-            вообще перед долгими действиями); без аренды делает acquire
+            вообще перед долгими действиями); без аренды делает acquire, но
+            только если BOT_TOKEN в .env пуст или взят из пула — вписанный
+            руками чужой токен остаётся нетронутым
   release   освободить слот текущего дерева
   status    показать занятость слотов
   add       дописать новый токен в конец пула и напечатать номер его слота;
@@ -106,6 +108,17 @@ write_lease() {
     printf 'tree=%s\nts=%s\npid=%s\n' "$2" "$(now)" "$$" > "$LEASE_DIR/$1"
 }
 
+env_token() {
+    env_file="$1/.env"
+    [ -f "$env_file" ] || return 0
+    field "$env_file" BOT_TOKEN | tail -n 1
+}
+
+in_pool() {
+    [ -f "$POOL_FILE" ] || return 1
+    awk -v t="$1" '$0 == t { found = 1 } END { exit !found }' "$POOL_FILE"
+}
+
 write_env() {
     env_file="$1/.env"
     [ -f "$env_file" ] || die "нет $env_file — скопируйте его из основного рабочего дерева"
@@ -156,11 +169,20 @@ cmd_renew() {
     mine=$(find_mine "$root")
     [ -n "$mine" ] && write_lease "$mine" "$root"
     unlock
-    if [ -z "$mine" ]; then
-        cmd_acquire
+    if [ -n "$mine" ]; then
+        printf 'слот %s продлён ещё на %s с\n' "$mine" "$TTL"
         return
     fi
-    printf 'слот %s продлён ещё на %s с\n' "$mine" "$TTL"
+    # Аренды нет — либо она протухла, либо дерево с пулом никогда и не работало. Занять
+    # слот и переписать .env можно, только когда BOT_TOKEN пуст или сам из пула: токен,
+    # вписанный руками, принадлежит человеку, а не пулу, и молча подменять его на токен
+    # свободного слота нельзя.
+    token=$(env_token "$root")
+    if [ -n "$token" ] && ! in_pool "$token"; then
+        printf 'за %s слот не закреплён; BOT_TOKEN в .env не из пула и оставлен как есть\n' "$root"
+        return
+    fi
+    cmd_acquire
 }
 
 cmd_release() {
