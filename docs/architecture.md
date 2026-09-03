@@ -301,11 +301,11 @@ FontConvertor.convert(params)
 
 - `npm run build` — `del-cli -rf build && tsc && tsc-alias` (компиляция, затем переписывание алиаса `app/*` в относительные пути для скомпилированного вывода).
 - `npm start` / `npm run start:prod` — `node build/app.js` (второй выставляет `NODE_ENV=production`).
-- `npm run dev` — `node --watch` + `ts-node` + `tsconfig-paths` по `src/app.ts`, без сборки; используется dev-вариантом compose.
+- `npm run dev` — `node --watch` + `ts-node` + `tsconfig-paths` по `src/app.ts`, без сборки; этим и запускается контейнер приложения.
 - `npm run migrate` — запускает `node-pg-migrate` с `migrate.json` (действие передаётся аргументом: `npm run migrate -- up`). Скрипт предварительно подключает `tsconfig-paths/register`: файлы миграций импортируют `src/infrastructure/database/migrations/common/utils` относительно `baseUrl`, а `ts-node` сам такие пути не разрешает.
 - `npm test` — `mocha` по `test/**/*.spec.ts` (см. §14).
 - **Docker** — вся среда контейнеризована; на хосте достаточно одного Docker. Подробности запуска — в `README.md`. **Среда только для разработки**: production-конфигурации в репозитории нет.
-    - `Dockerfile` одностадийный: `node:24.20.0-bookworm-slim` + `fontforge-nox`, `npm ci` со всеми зависимостями, исходники, `USER node`. Версия Node продублирована в `ARG NODE_VERSION` и в `package.json#engines` — связи между ними нет, синхронизировать вручную.
+    - `Dockerfile` одностадийный: `node:24.20.0-bookworm-slim` + `fontforge-nox`, `npm ci` со всеми зависимостями, исходники, `USER node` (каталог `/app` принадлежит `node`, иначе `tsc` не может создать `build/` и `typings/`). Версия Node продублирована в `ARG NODE_VERSION` и в `package.json#engines` — связи между ними нет, синхронизировать вручную.
     - `docker-compose.yml` описывает два сервиса: `pgsql` (`postgres:18-alpine` с healthcheck; данные — bind-mount `./tmp/pgsql`, смонтированный на `/var/lib/postgresql`, потому что в `postgres:18` кластер лежит в `$PGDATA=/var/lib/postgresql/18/docker`, а не в `.../data`, как было в `postgres:14`) и `app` (`./src` смонтирован с хоста, `npm run dev`). Порядок гарантирован через `depends_on: service_healthy`.
     - Миграции накатываются **тем же контейнером приложения** перед стартом бота (`command: sh -c "npm run migrate -- up && exec npm run dev"`); отдельного сервиса для них нет, потому что образ и так содержит `ts-node` и исходники.
     - `docker/pgsql/docker-entrypoint-initdb.d/init-user-db.sh` при первой инициализации по-прежнему создаёт роль и базу приложения (не суперпользователя).
