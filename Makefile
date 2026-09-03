@@ -9,6 +9,11 @@
 
 DC_DB := docker compose -f docker-compose.db.yml
 DC_APP := docker compose -f docker-compose.app.yml
+# Разовые команды идут не в работающий контейнер, а в одноразовый из того же образа: так они
+# не требуют поднятого бота, а образ Compose при необходимости соберёт сам. Сеть базы объявлена
+# в docker-compose.app.yml как внешняя, поэтому контейнер всё равно не стартует, пока не поднята
+# база (make db-up) — но ошибка будет про сеть или подключение, а не про незапущенный сервис.
+DC_APP_RUN := $(DC_APP) run --rm app
 BOT_TOKEN_SH := scripts/bot-token.sh
 
 # Аренда токена протухает по TTL, поэтому перед стартом бота её продлеваем. Пула может
@@ -59,19 +64,20 @@ db-reset: ## Погасить базу и стереть её данные (tmp/
 ## Внутри контейнеров
 
 migrate: ## Накатить миграции
-	$(DC_APP) exec app npm run migrate -- up
+	$(DC_APP_RUN) npm run migrate -- up
 
 migrate-create: ## Создать файл миграции: make migrate-create name=add-something
 	@[ -n "$(name)" ] || { printf 'укажите имя: make migrate-create name=add-something\n' >&2; exit 1; }
-	$(DC_APP) exec app npm run migrate -- create $(name)
+	$(DC_APP_RUN) npm run migrate -- create $(name)
 
 build: ## Проверка типов и сборка
-	$(DC_APP) exec app npm run build
+	$(DC_APP_RUN) npm run build
 
 test: ## Прогнать тесты
-	$(DC_APP) exec app npm test
+	$(DC_APP_RUN) npm test
 
-shell: ## Шелл в контейнере приложения
+# Здесь exec намеренно: смысл цели — попасть внутрь работающего контейнера, а не поднять новый.
+shell: ## Шелл в работающем контейнере приложения
 	$(DC_APP) exec app sh
 
 psql: ## psql в контейнере базы
