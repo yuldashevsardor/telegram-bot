@@ -1,20 +1,28 @@
 #!/usr/bin/env sh
 # Аренда BOT_TOKEN из общего пула: один токен на рабочее дерево.
 #
-# Пул и аренды лежат вне репозитория, чтобы токены не попали ни в диф, ни в
-# транскрипт сессии: сам токен нигде не печатается, только номер слота.
+# Пул лежит в tmp/bot-tokens основного рабочего дерева — один на репозиторий,
+# независимо от того, из какого дерева вызван скрипт. Всё внутри tmp/ под
+# gitignore, а сам токен нигде не печатается: в вывод идёт только номер слота.
 set -eu
-
-POOL_DIR="${BOT_TOKEN_POOL_DIR:-$HOME/.config/telegram-bot}"
-POOL_FILE="$POOL_DIR/tokens"
-LEASE_DIR="$POOL_DIR/leases"
-LOCK_DIR="$POOL_DIR/.lock"
-TTL="${BOT_TOKEN_TTL:-7200}"
 
 die() {
     printf '%s\n' "$*" >&2
     exit 1
 }
+
+# Общий каталог .git у всех деревьев один и лежит в основном; из worktree путь
+# к нему и есть единственный надёжный способ найти основное дерево.
+main_tree() {
+    common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || die "не git-репозиторий: $PWD"
+    dirname "$common"
+}
+
+POOL_DIR="${BOT_TOKEN_POOL_DIR:-$(main_tree)/tmp/bot-tokens}"
+POOL_FILE="$POOL_DIR/tokens"
+LEASE_DIR="$POOL_DIR/leases"
+LOCK_DIR="$POOL_DIR/.lock"
+TTL="${BOT_TOKEN_TTL:-7200}"
 
 usage() {
     cat >&2 <<'USAGE'
@@ -28,7 +36,8 @@ usage() {
   release   освободить слот текущего дерева
   status    показать занятость слотов
 
-Переменные: BOT_TOKEN_POOL_DIR (по умолчанию ~/.config/telegram-bot),
+Пул: tmp/bot-tokens/tokens основного рабочего дерева, по токену на строку.
+Переменные: BOT_TOKEN_POOL_DIR (переопределяет расположение пула),
             BOT_TOKEN_TTL в секундах (по умолчанию 7200).
 USAGE
     exit 1
@@ -76,7 +85,7 @@ lease_alive() {
 }
 
 slots() {
-    [ -f "$POOL_FILE" ] || die "нет файла пула $POOL_FILE — положите в него по одному токену на строку и сделайте chmod 600"
+    [ -f "$POOL_FILE" ] || die "нет файла пула $POOL_FILE — положите в него по одному токену от @BotFather на строку"
     awk 'NF && $0 !~ /^[[:space:]]*#/ { print NR }' "$POOL_FILE"
 }
 

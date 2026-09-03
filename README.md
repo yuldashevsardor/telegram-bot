@@ -13,15 +13,23 @@ Telegram-бот для конвертации файлов шрифтов меж
 ```bash
 cp .env.dist .env
 # впишите в .env токен от @BotFather
-docker compose up --build
+docker compose -f docker-compose.db.yml up -d      # база, один раз на машину
+docker compose -f docker-compose.app.yml up --build # приложение этого рабочего дерева
 ```
 
-Поднимаются два сервиса:
+Окружение разнесено на два compose-файла, потому что база одна на машину, а приложений
+столько, сколько рабочих деревьев:
 
-| Сервис  | Что делает                                                                                  |
-| ------- | ------------------------------------------------------------------------------------------- |
-| `pgsql` | PostgreSQL 18; при первой инициализации создаёт роль и базу приложения                        |
-| `app`   | накатывает миграции, затем запускает бота; стартует, только когда `pgsql` прошёл healthcheck   |
+| Файл                     | Проект            | Что поднимает                                                          |
+| ------------------------ | ----------------- | ---------------------------------------------------------------------- |
+| `docker-compose.db.yml`  | `telegram-bot-db` | PostgreSQL 18; при первой инициализации создаёт роль и базу приложения   |
+| `docker-compose.app.yml` | имя каталога      | накатывает миграции, затем запускает бота                                |
+
+Имя проекта у приложения не зафиксировано, поэтому каждое рабочее дерево получает свои
+контейнер и образ, а `docker compose -f docker-compose.app.yml down` гасит только это
+приложение — база живёт отдельным проектом и не выключается вместе с ним. Приложение
+находит базу по имени сервиса `pgsql` во внешней сети `telegram-bot-db_default`, так что
+базу нужно поднять первой.
 
 Среда только для разработки: `./src` смонтирован с хоста, приложение работает через
 `npm run dev` (`node --watch` + `ts-node`) и перезапускается на правку исходников.
@@ -30,44 +38,35 @@ Production-конфигурации в репозитории нет — как 
 
 `node --watch` следит за конкретными файлами по inode, поэтому операции, подменяющие файл целиком
 (`git checkout`, атомарное сохранение в некоторых редакторах), могут «отвязать» наблюдателя от
-файла. Если перезапуски перестали происходить — `docker compose restart app`.
+файла. Если перезапуски перестали происходить — `docker compose -f docker-compose.app.yml restart app`.
 
-Остановить всё: `docker compose down`. Данные БД лежат в `./tmp/pgsql` (каталог `tmp/`
-целиком в `.gitignore`); чтобы начать с чистой базы — `docker compose down && rm -rf tmp/pgsql`.
+Данные БД лежат в `./tmp/pgsql` (всё внутри `tmp/`, кроме тестовых шрифтов, в `.gitignore`);
+чтобы начать с чистой базы — `docker compose -f docker-compose.db.yml down && rm -rf tmp/pgsql`.
 
 ## Параллельная работа в нескольких worktree
 
-Каждая задача ведётся в своём рабочем дереве, но полный стек поднимается только из основного:
-имя compose-проекта зашито в `docker-compose.yml`, а данные БД лежат в `./tmp/pgsql`. Дерево
-задачи поднимает один сервис `app` и ходит в общую базу основного дерева.
+Каждая задача ведётся в своём рабочем дереве (`git worktree`). Общего между деревьями два:
+база данных и пул токенов — оба живут в основном дереве.
 
-Токенов у проекта несколько — по одному на одновременно запущенного бота: два процесса на
+Токенов у проекта несколько, по одному на одновременно запущенного бота: два процесса на
 long polling с одним токеном получают от Telegram 409 Conflict и растаскивают апдейты друг
-у друга. Пул лежит вне репозитория, по одному токену на строку:
+у друга. Пул лежит в основном дереве, по токену на строку (каталог `tmp/` под `.gitignore`):
 
 ```bash
-mkdir -p ~/.config/telegram-bot
-$EDITOR ~/.config/telegram-bot/tokens   # по токену от @BotFather на строку
-chmod 600 ~/.config/telegram-bot/tokens
+mkdir -p tmp/bot-tokens
+$EDITOR tmp/bot-tokens/tokens   # по токену от @BotFather на строку
 ```
 
-Дальше в рабочем дереве задачи:
+Дальше — в рабочем дереве задачи, один раз после его создания:
 
 ```bash
-cp /путь/к/основному/дереву/.env .env
-scripts/bot-token.sh acquire            # занять слот и записать BOT_TOKEN в .env
-
-cat >> .env <<'EOF'
-COMPOSE_PROJECT_NAME=tg-моя-ветка
-APP_DATABASE_HOST=host.docker.internal
-APP_DATABASE_PORT=54320
-EOF
-
-docker compose up --build --no-deps app
+scripts/worktree-init.sh
+docker compose -f docker-compose.app.yml up --build
 ```
 
-`APP_DATABASE_PORT` — это `DATABASE_PORT`, проброшенный на хост основным деревом; `--no-deps`
-не даёт поднять второй `pgsql`.
+`worktree-init.sh` делает `tmp/pgsql` симлинком на основное дерево (чтобы база осталась одна,
+из какого бы дерева её ни подняли), копирует `.env` из основного дерева и занимает свободный
+`BOT_TOKEN`. Базу поднимать отдельно не нужно, если она уже работает — она одна на машину.
 
 Аренда токена закреплена за путём рабочего дерева и протухает через `BOT_TOKEN_TTL`
 (по умолчанию 2 часа):
@@ -86,18 +85,21 @@ scripts/bot-token.sh release   # освободить слот, закончив
 Всё выполняется внутри контейнера — на хосте ни Node, ни зависимостей нет.
 
 ```bash
-docker compose logs -f app                          # логи бота
-docker compose exec app npm run migrate -- up       # накатить миграции повторно
-docker compose exec app npm run build               # проверка типов и сборка
-docker compose exec app npm test
-docker compose exec app sh                          # шелл внутри контейнера приложения
-docker compose exec pgsql psql -U root -d docker_db
+alias dcapp='docker compose -f docker-compose.app.yml'
+alias dcdb='docker compose -f docker-compose.db.yml'
+
+dcapp logs -f app                          # логи бота
+dcapp exec app npm run migrate -- up       # накатить миграции повторно
+dcapp exec app npm run build               # проверка типов и сборка
+dcapp exec app npm test
+dcapp exec app sh                          # шелл внутри контейнера приложения
+dcdb exec pgsql psql -U root -d docker_db
 ```
 
 Создать новую миграцию:
 
 ```bash
-docker compose exec app npm run migrate -- create my-migration-name
+dcapp exec app npm run migrate -- create my-migration-name
 ```
 
 Файл появится в `src/infrastructure/database/migrations/` — каталог `src` смонтирован с хоста,
@@ -108,12 +110,15 @@ docker compose exec app npm run migrate -- create my-migration-name
 Все переменные живут в `.env` (шаблон — `.env.dist`) и передаются в контейнеры через `env_file`.
 Обязательно задать только `BOT_TOKEN`.
 
-Адрес БД внутри compose-сети — всегда `pgsql:5432`, он задан в `docker-compose.yml`
+Адрес БД внутри общей сети — всегда `pgsql:5432`, он задан в `docker-compose.app.yml`
 (блок `environment` приоритетнее `env_file`). Значения `DATABASE_HOST`/`DATABASE_PORT`
 из `.env` описывают подключение **снаружи** контейнеров: `DATABASE_PORT` — это порт,
 на который Postgres пробрасывается на хост (`ports: ${DATABASE_PORT}:5432`), им же
 пользуются `psql`, DBeaver и прочие клиенты на хосте.
 
-`DATABASE_URL` читает только `node-pg-migrate`; она собирается в `docker-compose.yml`
+`DATABASE_URL` читает только `node-pg-migrate`; она собирается в `docker-compose.app.yml`
 и в `.env` не хранится. Само приложение собирает подключение из отдельных полей
 host/port/user/password.
+
+`BOT_TOKEN` в рабочем дереве задачи проставляет `scripts/bot-token.sh` — вручную его
+там менять не нужно.
