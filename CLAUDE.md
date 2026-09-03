@@ -19,8 +19,8 @@ Telegram-бот (grammY + DI на inversify + PostgreSQL). Полная архи
 - `npm run migrate -- up` — применить миграции (`node-pg-migrate`, конфигурация в `migrate.json`). Действие (`up`/`down`/`create`) обязательно передаётся аргументом — голый `npm run migrate` печатает usage и выходит с кодом 1.
 - `npm run build` — `tsc` + `tsc-alias` (переписывает алиас `app/*` в относительные пути для `build/`).
 - `npm run dev` — запуск без сборки: `node --watch` + `ts-node` + `tsconfig-paths` по `src/app.ts`.
-- `npm start` / `npm run start:prod` — запускает `build/app.js` (обратите внимание: **не** `build/src/index.js`, несмотря на `package.json#main`).
-- `npm test` — mocha по `test/**/*.spec.ts`. **Во всём репозитории фактически один настоящий тест** (`test/services/message-broker/slot-manager/slot-manager.spec.ts`, проверяющий `SlotManager` в изоляции), а `test/bootstrap.ts` (загружаемый тестовым скриптом) пуст. **Сейчас прогон красный из-за багов в самом spec-файле, а не в `SlotManager`** (подробности в `docs/architecture.md` §14) — это известное состояние, не считайте его регрессией своих изменений. И в любом случае не считайте `npm test` осмысленным покрытием того, что вы изменили, — проверяйте вручную.
+- `npm start` / `npm run start:prod` — запускает `build/app.js`, тот же файл, на который указывает `package.json#main`.
+- `npm test` — mocha по `test/**/*.spec.ts`. **Во всём репозитории фактически один настоящий тест** (`test/services/message-broker/slot-manager/slot-manager.spec.ts`, проверяющий `SlotManager` в изоляции), а `test/bootstrap.ts` (загружаемый тестовым скриптом) пуст. Не считайте зелёный `npm test` осмысленным покрытием того, что вы изменили, — проверяйте вручную.
 
 ## Конвенции архитектуры (кратко — полностью в `docs/architecture.md`)
 
