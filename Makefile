@@ -69,13 +69,30 @@ migrate-create: ## Создать файл миграции: make migrate-create
 build: ## Проверка типов и сборка
 	$(DC_APP_RUN) npm run build
 
+typecheck: ## Проверить типы без сборки
+	$(DC_APP_RUN) npm run typecheck
+
 test: ## Прогнать тесты
 	$(DC_APP_RUN) npm test
 
-# Проверки без правок — для ревью и CI; правки при коммите делает lint-staged. По умолчанию
-# берут весь код, но принимают список файлов: make lint files="src/app.ts". У prettier свой
-# список по умолчанию — только .ts: .prettierrc.js жёстко задаёт parser: "typescript",
-# на .ftl и .md он падает разбором, а .prettierignore пуст.
+# src и test смонтированы с хоста, поэтому mocha в контейнере видит правки в редакторе.
+test-watch: ## Тесты в режиме watch (выход — Ctrl-C)
+	$(DC_APP_RUN) npm run test:watch
+
+# Каталог создаём на хосте заранее: несуществующий путь Docker создал бы сам, но от root,
+# а в контейнере работает пользователь node — писать в такой каталог он бы не смог.
+coverage: ## Тесты с покрытием; таблица в терминал, lcov — в ./coverage
+	@mkdir -p coverage
+	$(DC_APP_RUN) npm run test:coverage
+
+# Набор файлов и флаги описаны один раз — в npm-скриптах (package.json), цели ниже только
+# запускают их в контейнере. Проверки без правок нужны для ревью и CI; правки при коммите
+# по-прежнему делает lint-staged, а lint-fix и format — это разовый проход по всему коду.
+#
+# Сужение до списка файлов идёт мимо скрипта, через npx: `npm run lint -- src/app.ts`
+# дописал бы файл к аргументам скрипта, а не заменил их, и проверился бы всё равно весь
+# код. У prettier свой список по умолчанию — только .ts: .prettierrc.js жёстко задаёт
+# parser: "typescript", на .ftl и .md он падает разбором, а .prettierignore пуст.
 #
 # Список обычно приходит из git или gh и содержит переносы строк, а рецепт — построчный:
 # без схлопывания make принял бы второй файл за отдельную команду.
@@ -86,13 +103,23 @@ endef
 FILES = $(strip $(subst $(NEWLINE), ,$(files)))
 
 lint: ## Проверить eslint без правок: make lint [files="src/app.ts"]
-	$(DC_APP_RUN) npx eslint $(if $(FILES),$(FILES),src test)
+	$(DC_APP_RUN) $(if $(FILES),npx eslint $(FILES),npm run lint)
+
+lint-fix: ## Исправить, что умеет eslint: make lint-fix [files="src/app.ts"]
+	$(DC_APP_RUN) $(if $(FILES),npx eslint --fix $(FILES),npm run lint:fix)
 
 format-check: ## Проверить prettier без правок: make format-check [files="src/app.ts"]
-	$(DC_APP_RUN) npx prettier --check $(if $(FILES),$(FILES),"src/**/*.ts" "test/**/*.ts")
+	$(DC_APP_RUN) $(if $(FILES),npx prettier --check $(FILES),npm run format:check)
+
+format: ## Переформатировать prettier: make format [files="src/app.ts"]
+	$(DC_APP_RUN) $(if $(FILES),npx prettier --write $(FILES),npm run format)
+
+# То же, что прогоняет ревью и что стоит прогнать перед PR: типы, eslint, prettier, тесты.
+check: ## Все проверки подряд одной командой
+	$(DC_APP_RUN) npm run check
 
 # Одноразовый контейнер берёт готовый образ и сам пересобирает его только когда образа нет.
-# Томами монтируются лишь src, test, tsconfig.json и migrate.json, всё остальное попало
+# Томами монтируются лишь src, test, tsconfig.json, migrate.json и coverage, всё остальное попало
 # в образ на сборке — поэтому после изменения package.json, package-lock.json, .eslintrc.js
 # или .prettierrc.js образ устаревает молча, и его нужно пересобрать этой целью.
 rebuild: ## Пересобрать образ приложения этого дерева
@@ -143,5 +170,6 @@ help: ## Показать этот список
 	@echo
 
 .PHONY: up db-up app-up app-down db-down logs restart db-reset \
-	migrate migrate-create build test lint format-check rebuild shell psql \
+	migrate migrate-create build typecheck test test-watch coverage \
+	lint lint-fix format-check format check rebuild shell psql \
 	worktree-init token-acquire token-renew token-release token-status token-add help
