@@ -183,7 +183,7 @@ cmd_release() {
 # Токен читается только со stdin: аргументом он был бы виден в таблице процессов любому
 # пользователю машины и осел бы в истории шелла.
 cmd_add() {
-    [ "$#" -eq 0 ] || die "токен не передаётся аргументом — он виден в ps; запустите scripts/bot-token.sh add и введите токен в ответ на приглашение"
+    [ "$#" -eq 0 ] || die "токен не передаётся аргументом — он уже попал в argv и виден в ps, а вызов остался в истории шелла; считайте этот токен скомпрометированным, отзовите его у @BotFather и добавьте новый: scripts/bot-token.sh add введёт токен с приглашения"
 
     # read возвращает ненулевой код и на строке без завершающего перевода строки, поэтому
     # её результат оставляем как есть, а не затираем.
@@ -191,11 +191,15 @@ cmd_add() {
     if [ -t 0 ]; then
         printf 'токен от @BotFather (ввод не отображается): ' >&2
         stty_state=$(stty -g)
-        trap 'stty "$stty_state" 2>/dev/null || true; exit 130' INT TERM
+        # Без восстановления эха на любом выходе терминал остаётся без эха, и пользователю
+        # приходится вслепую набирать stty sane. Ловим и EXIT: die внутри блока не сигнал.
+        trap 'stty "$stty_state" 2>/dev/null || true' EXIT
+        trap 'stty "$stty_state" 2>/dev/null || true; exit 130' HUP INT QUIT TERM
         stty -echo
         IFS= read -r token || true
         stty "$stty_state"
-        trap - INT TERM
+        # Снимаем до lock(): дальше свой обработчик EXIT ставит он.
+        trap - EXIT HUP INT QUIT TERM
         printf '\n' >&2
     else
         IFS= read -r token || true
@@ -221,33 +225,44 @@ cmd_add() {
     [ -f "$POOL_FILE" ] || : > "$POOL_FILE"
     chmod 600 "$POOL_FILE"
     # Закомментированная строка — тоже занятый токен: её раскомментируют, чтобы вернуть
-    # токен в оборот, и тогда два слота с одним токеном дадут 409 Conflict. Сам токен
-    # уходит в awk через окружение, а не аргументом: argv видно в ps.
+    # токен в оборот, и тогда два слота с одним токеном дадут 409 Conflict. За `#` обычно
+    # пишут ещё и причину вывода из оборота, поэтому токеном там считается только первое
+    # поле. В активной строке токен — вся строка целиком: ровно её пишет в .env write_env.
+    # Сам токен уходит в awk через окружение, а не аргументом: argv видно в ps.
     dup=$(BOT_TOKEN_CANDIDATE="$token" awk '
         BEGIN { candidate = ENVIRON["BOT_TOKEN_CANDIDATE"] }
         {
-            line = $0
+            raw = $0
+            line = raw
             sub(/^[[:space:]]+/, "", line)
             commented = 0
             if (line ~ /^#/) {
                 commented = 1
                 sub(/^#+[[:space:]]*/, "", line)
+                sub(/[[:space:]].*$/, "", line)
+            } else {
+                sub(/[[:space:]]+$/, "", line)
             }
-            sub(/[[:space:]]+$/, "", line)
-            if (line == candidate) {
-                print NR, (commented ? "commented" : "active")
+            if (line != "" && line == candidate) {
+                print NR, (commented ? "commented" : "active"), \
+                    (!commented && raw != candidate ? "padded" : "clean")
                 exit
             }
         }
     ' "$POOL_FILE")
     if [ -n "$dup" ]; then
         unlock
-        case "$dup" in
-            *commented)
-                die "этот токен уже лежит в пуле закомментированным, строка ${dup%% *} — раскомментируйте её, чтобы вернуть токен в оборот; второй слот с тем же токеном даст 409 Conflict"
+        line_no=${dup%% *}
+        rest=${dup#* }
+        case "$rest" in
+            commented*)
+                die "этот токен уже лежит в пуле закомментированным, строка $line_no — раскомментируйте её, чтобы вернуть токен в оборот; второй слот с тем же токеном даст 409 Conflict"
+                ;;
+            *padded)
+                die "такой токен в пуле уже есть, слот $line_no — два процесса на один токен получают от Telegram 409 Conflict; заодно поправьте строку $line_no: краевые пробелы вокруг токена acquire запишет в .env как есть"
                 ;;
             *)
-                die "такой токен в пуле уже есть, слот ${dup%% *} — два процесса на один токен получают от Telegram 409 Conflict"
+                die "такой токен в пуле уже есть, слот $line_no — два процесса на один токен получают от Telegram 409 Conflict"
                 ;;
         esac
     fi
