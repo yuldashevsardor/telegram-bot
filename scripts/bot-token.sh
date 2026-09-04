@@ -183,7 +183,7 @@ cmd_release() {
 # Токен читается только со stdin: аргументом он был бы виден в таблице процессов любому
 # пользователю машины и осел бы в истории шелла.
 cmd_add() {
-    [ "$#" -eq 0 ] || die "токен не передаётся аргументом — он уже попал в argv и виден в ps, а вызов остался в истории шелла; считайте этот токен скомпрометированным, отзовите его у @BotFather и добавьте новый: scripts/bot-token.sh add введёт токен с приглашения"
+    [ "$#" -eq 0 ] || die "токен не передаётся аргументом — он уже попал в argv и виден в ps, а вызов остался в истории шелла; считайте этот токен скомпрометированным, отзовите его у @BotFather и добавьте новый: scripts/bot-token.sh add спросит токен с приглашения"
 
     # read возвращает ненулевой код и на строке без завершающего перевода строки, поэтому
     # её результат оставляем как есть, а не затираем.
@@ -243,11 +243,21 @@ cmd_add() {
             } else {
                 sub(/[[:space:]]+$/, "", line)
             }
-            if (line != "" && line == candidate) {
-                print NR, (commented ? "commented" : "active"), \
-                    (!commented && raw != candidate ? "padded" : "clean")
+            if (line == "" || line != candidate) next
+            # Пул с активной и закомментированной копией одного токена сам add не создаст,
+            # но правкой файла руками — запросто, и тогда совет «раскомментируйте» дал бы
+            # второй живой слот. Поэтому активное совпадение важнее, в каком бы порядке
+            # строки ни лежали.
+            if (!commented) {
+                active = NR
+                active_raw = raw
                 exit
             }
+            if (!commented_at) commented_at = NR
+        }
+        END {
+            if (active) print active, "active", (active_raw == candidate ? "clean" : "padded")
+            else if (commented_at) print commented_at, "commented", "clean"
         }
     ' "$POOL_FILE")
     if [ -n "$dup" ]; then
