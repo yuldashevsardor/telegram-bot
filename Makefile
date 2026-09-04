@@ -72,6 +72,32 @@ build: ## Проверка типов и сборка
 test: ## Прогнать тесты
 	$(DC_APP_RUN) npm test
 
+# Проверки без правок — для ревью и CI; правки при коммите делает lint-staged. По умолчанию
+# берут весь код, но принимают список файлов: make lint files="src/app.ts". У prettier свой
+# список по умолчанию — только .ts: .prettierrc.js жёстко задаёт parser: "typescript",
+# на .ftl и .md он падает разбором, а .prettierignore пуст.
+#
+# Список обычно приходит из git или gh и содержит переносы строк, а рецепт — построчный:
+# без схлопывания make принял бы второй файл за отдельную команду.
+define NEWLINE
+
+
+endef
+FILES = $(strip $(subst $(NEWLINE), ,$(files)))
+
+lint: ## Проверить eslint без правок: make lint [files="src/app.ts"]
+	$(DC_APP_RUN) npx eslint $(if $(FILES),$(FILES),src test)
+
+format-check: ## Проверить prettier без правок: make format-check [files="src/app.ts"]
+	$(DC_APP_RUN) npx prettier --check $(if $(FILES),$(FILES),"src/**/*.ts" "test/**/*.ts")
+
+# Одноразовый контейнер берёт готовый образ и сам пересобирает его только когда образа нет.
+# Томами монтируются лишь src, test, tsconfig.json и migrate.json, всё остальное попало
+# в образ на сборке — поэтому после изменения package.json, package-lock.json, .eslintrc.js
+# или .prettierrc.js образ устаревает молча, и его нужно пересобрать этой целью.
+rebuild: ## Пересобрать образ приложения этого дерева
+	$(DC_APP) build app
+
 # Здесь exec намеренно: смысл цели — попасть внутрь работающего контейнера, а не поднять новый.
 shell: ## Шелл в работающем контейнере приложения
 	$(DC_APP) exec app sh
@@ -117,5 +143,5 @@ help: ## Показать этот список
 	@echo
 
 .PHONY: up db-up app-up app-down db-down logs restart db-reset \
-	migrate migrate-create build test shell psql \
+	migrate migrate-create build test lint format-check rebuild shell psql \
 	worktree-init token-acquire token-renew token-release token-status token-add help
