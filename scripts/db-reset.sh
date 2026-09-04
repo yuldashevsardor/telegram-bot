@@ -40,13 +40,24 @@ app_containers() {
         --format "{{.Label \"com.docker.compose.project\"}}$TAB{{.Label \"com.docker.compose.project.working_dir\"}}$TAB{{.Names}}") ||
         die "не удалось опросить docker: нельзя убедиться, что другие деревья не работают"
 
-    printf '%s\n' "$listing" | while IFS="$TAB" read -r project dir name; do
+    # Поля режутся вручную, а не через IFS="$TAB" read: табуляция для read — пробельный
+    # разделитель, подряд идущие схлопываются, и строка с пустым label съезжает влево.
+    printf '%s\n' "$listing" | while IFS= read -r line; do
+        project=${line%%"$TAB"*}
+        rest=${line#*"$TAB"}
+        dir=${rest%%"$TAB"*}
+        name=${rest#*"$TAB"}
+
         [ -n "$project" ] && [ "$project" != "$DB_PROJECT" ] || continue
 
         # Дерево удаляют через git worktree remove, а контейнер он не гасит, поэтому
         # контейнер без каталога на диске — не работающая сессия, а мусор: блокировать
-        # им цель нельзя, иначе она остаётся заблокированной насовсем.
-        if [ ! -d "$dir" ]; then
+        # им цель нельзя, иначе она остаётся заблокированной насовсем. Дерево, о котором
+        # ничего не известно, наоборот считается чужим: единственная защита от необратимой
+        # потери данных должна ошибаться в сторону отказа.
+        if [ -z "$dir" ]; then
+            printf 'чужое%s%s%s%s\n' "$TAB" "$name" "$TAB" "дерево не указано"
+        elif [ ! -d "$dir" ]; then
             printf 'брошен%s%s%s%s\n' "$TAB" "$name" "$TAB" "$dir"
         elif [ "$(real_path "$dir")" = "$root" ]; then
             printf 'своё%s%s%s%s\n' "$TAB" "$name" "$TAB" "$dir"
@@ -97,7 +108,9 @@ check_containers verbose
 
 if [ "${CONFIRM:-}" != "1" ]; then
     [ -t 0 ] || die "неинтерактивный запуск: повторите как CONFIRM=1 make db-reset"
-    printf 'Стереть данные базы в %s? Она общая для всех рабочих деревьев. [y/N] ' "$data"
+    # Вопрос идёт в stderr, а не в stdout: tty проверяется у stdin, и при make db-reset
+    # > out.txt вопрос ушёл бы в файл, а терминал выглядел бы зависшим.
+    printf 'Стереть данные базы в %s? Она общая для всех рабочих деревьев. [y/N] ' "$data" >&2
     # Ctrl-D — такая же осознанная отмена, как и «нет», и завершаться она должна так же.
     read -r answer || answer=""
     case "$answer" in
