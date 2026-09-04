@@ -4,6 +4,7 @@
         "declaration": true,
         "target": "ES2024",
         "module": "node20",
+        "rootDir": "./src",
         "declarationDir": "./typings",
         "experimentalDecorators": true,
         "emitDecoratorMetadata": true,
@@ -14,6 +15,10 @@
         "declarationMap": true,
         //        "inlineSourceMap": true,
         "skipLibCheck": true,
+        // TS 6 включает strict по умолчанию. Проект всегда набирал строгость
+        // поштучно (три флага ниже); полный strict даёт 26 ошибок и требует
+        // типизации, не связанной со сменой резолвинга, — это отдельная задача.
+        "strict": false,
         "strictNullChecks": true,
         "strictPropertyInitialization": true,
         "skipDefaultLibCheck": true,
@@ -30,6 +35,9 @@
             "reflect-metadata"
         ],
         "outDir": "./build",
+        // baseUrl объявлен устаревшим в TS 6 и удалён в TS 7, но tsconfig-paths
+        // без него не резолвит app/* в рантайме (dev, mocha, migrate).
+        "ignoreDeprecations": "6.0",
         "baseUrl": ".",
         "paths": {
             "app/*": [
