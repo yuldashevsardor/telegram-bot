@@ -74,7 +74,7 @@ Makefile                     единственная точка входа дл
 Dockerfile                   образ приложения: Node + FontForge + зависимости (§15)
 docker-compose.db.yml        pgsql, один экземпляр на машину (§15)
 docker-compose.app.yml       app, свой в каждом рабочем дереве (§15)
-scripts/                     worktree-init.sh и bot-token.sh, обслуживание деревьев (§15)
+scripts/                     обслуживание деревьев: worktree-init.sh, bot-token.sh, claude-worktree-guard.sh (§15)
 test/                        (почти пустой) набор тестов (§14)
 ```
 
@@ -329,6 +329,8 @@ FontConvertor.convert(params)
     - **`npm start` после `npm run build` в этом образе не заработает**: `tsc` не копирует `.ftl` в `build/`, а `Bot.setupFlavor` ищет их по `<cwd>/src/infrastructure/bot` — см. issue [#19](https://github.com/yuldashevsardor/telegram-bot/issues/19).
 - **Линтинг/форматирование** — ESLint (TypeScript + Prettier + правила порядка импортов и запрет относительных импортов, отмеченный в §3) + Prettier (отступ 4 пробела, строки до 140 символов, двойные кавычки) + хук Husky `pre-commit`, запускающий `lint-staged` (`eslint --fix`, затем `prettier --write` по staged-файлам `.ts`).
 - Версия Node фиксируется в двух местах — `ARG NODE_VERSION` в `Dockerfile` и `package.json#engines`; `.nvmrc` в репозитории нет, потому что Node на хосте не нужен.
+
+- **Правило «дерево на задачу» подкреплено хуками Claude Code.** `.claude/settings.json` вешает `scripts/claude-worktree-guard.sh` на `SessionStart` (напоминание, если сессия стартовала в основном дереве) и на `PreToolUse` для `Edit|Write|NotebookEdit` (отказ править файл, лежащий в основном дереве). Дерево опознаётся сравнением `git rev-parse --show-toplevel` с каталогом от `--git-common-dir`; оба пути приводятся к физическому виду через `pwd -P`, как в `db-reset.sh`, иначе дерево по пути через симлинк не совпало бы само с собой. Границу стоит держать в голове: хук получает только `tool_input.file_path`, поэтому правки через shell (`sed`, heredoc, скрипты) в основном дереве он не видит.
 
 ## 16. Сквозные потоки
 
