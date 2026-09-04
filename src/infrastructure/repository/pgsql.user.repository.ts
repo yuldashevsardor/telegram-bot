@@ -37,11 +37,13 @@ export class PgSqlUserRepository implements UserRepository {
             where id = ${id} limit 1
         `;
 
-        if (!rows.length) {
+        const row = rows[0];
+
+        if (row === undefined) {
             throw UserNotFound.byId(id);
         }
 
-        return PgSqlUserRepository.rowToEntity(rows[0]);
+        return PgSqlUserRepository.rowToEntity(row);
     }
 
     public async save(user: User): Promise<void> {

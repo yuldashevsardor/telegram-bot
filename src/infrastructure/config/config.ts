@@ -15,11 +15,13 @@ type Logger = {
     levels: Array<Level>;
 };
 
+type LoggerType = "ConsoleLogger" | "PinoLogger";
+
 export type Environment = "production" | "development" | "testing";
 
 @injectable()
 export class Config {
-    private static readonly allowedLoggerTypes = ["ConsoleLogger", "PinoLogger"];
+    private static readonly allowedLoggerTypes: ReadonlyArray<LoggerType> = ["ConsoleLogger", "PinoLogger"];
 
     public readonly environment: Environment;
     public readonly isProduction: boolean;
@@ -101,24 +103,6 @@ export class Config {
         return parseInt(value);
     }
 
-    private static getEnvAsBoolean(name: string, defaultValue: boolean): boolean {
-        const value = Config.getEnvAsString(name, "");
-
-        if (value === "") {
-            return defaultValue;
-        }
-
-        if (/^true$/i.test(value)) {
-            return true;
-        }
-
-        if (/^false$/i.test(value)) {
-            return false;
-        }
-
-        return !!parseInt(value);
-    }
-
     private static getEnvAsArray(name: string, defaultValue: Array<string>): Array<string> {
         const value = Config.getEnvAsString(name, "");
 
@@ -132,11 +116,15 @@ export class Config {
             .filter((item) => item !== "");
     }
 
+    private static isAllowedLoggerType(value: string): value is LoggerType {
+        return (Config.allowedLoggerTypes as ReadonlyArray<string>).includes(value);
+    }
+
     private static getLogger(isProduction: boolean): Logger {
         const defaultLoggerKey = Config.getEnvAsString("LOGGER_DEFAULT", "") || (isProduction ? "PinoLogger" : "ConsoleLogger");
         const logLevels = Config.getEnvAsArray("LOGGER_LEVELS", []).map((level) => level.toUpperCase());
 
-        if (!Config.allowedLoggerTypes.includes(defaultLoggerKey)) {
+        if (!Config.isAllowedLoggerType(defaultLoggerKey)) {
             throw new InvalidConfigError({
                 message: "Invalid default logger",
                 payload: {

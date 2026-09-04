@@ -24,11 +24,13 @@ export class PgsqlStorage implements StorageAdapter<SessionPayload> {
             where key = ${key}
         `;
 
-        if (!rows.length) {
+        const row = rows[0];
+
+        if (row === undefined) {
             return undefined;
         }
 
-        return rows[0].value;
+        return row.value;
     }
 
     public async write(key: string, value: SessionPayload): Promise<void> {

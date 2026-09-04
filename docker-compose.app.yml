@@ -26,6 +26,7 @@ services:
             - ./src:/app/src
             - ./test:/app/test
             - ./tsconfig.json:/app/tsconfig.json
+            - ./tsconfig.check.json:/app/tsconfig.check.json
             - ./migrate.json:/app/migrate.json
             - app-tmp:/app/tmp
         networks:

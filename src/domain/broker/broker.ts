@@ -1,7 +1,7 @@
 import { inject, injectable } from "inversify";
 import { Planner } from "app/domain/planner/planner";
 import { Modules } from "app/infrastructure/container/symbols/modules";
-import { BrokerSettings, Message, TELEGRAM_ERROR_CODES } from "app/domain/broker/broker.types";
+import { BrokerSettings, Message, TelegramApiError, TELEGRAM_ERROR_CODES } from "app/domain/broker/broker.types";
 import { ConfigValue } from "app/infrastructure/config/config-value.decorator";
 
 @injectable()
@@ -56,17 +56,17 @@ export class Broker {
         }
     }
 
-    private handleError(error: any): void {
+    private handleError(error: unknown): void {
         console.log("broker error", error);
 
         if (Broker.isManyRequestError(error)) {
-            const duration = parseInt(error.parameters.retry_after) || 0;
+            const duration = Number(error.parameters?.retry_after) || 0;
             this.planner.ban(duration * 1000);
         }
     }
 
-    private static isManyRequestError(error: any): boolean {
-        if (!error || !error.error_code) {
+    private static isManyRequestError(error: unknown): error is TelegramApiError {
+        if (typeof error !== "object" || error === null || !("error_code" in error)) {
             return false;
         }
 

@@ -11,7 +11,7 @@ import { Context } from "app/infrastructure/bot/bot.types";
 
 @injectable()
 export class AsyncLocalStorageMiddleware extends Middleware {
-    public async handle(context: Context, next: NextFunction): Promise<void> {
+    public async handle(_context: Context, next: NextFunction): Promise<void> {
         const logger = container.get<Logger>(Infrastructure.Logger);
 
         if (!(logger instanceof PinoLogger)) {
@@ -22,7 +22,7 @@ export class AsyncLocalStorageMiddleware extends Middleware {
             requestId: uuid(),
         });
 
-        const store = new Map();
+        const store = new Map<string, PinoLogger>();
         store.set("logger", child);
 
         return asyncLocalStorage.run(store, next);

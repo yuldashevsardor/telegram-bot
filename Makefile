@@ -92,9 +92,10 @@ format-check: ## Проверить prettier без правок: make format-ch
 	$(DC_APP_RUN) npx prettier --check $(if $(FILES),$(FILES),"src/**/*.ts" "test/**/*.ts")
 
 # Одноразовый контейнер берёт готовый образ и сам пересобирает его только когда образа нет.
-# Томами монтируются лишь src, test, tsconfig.json и migrate.json, всё остальное попало
-# в образ на сборке — поэтому после изменения package.json, package-lock.json, .eslintrc.js
-# или .prettierrc.js образ устаревает молча, и его нужно пересобрать этой целью.
+# Томами монтируются лишь src, test, tsconfig.json, tsconfig.check.json и migrate.json, всё
+# остальное попало в образ на сборке — поэтому после изменения package.json, package-lock.json,
+# .mocharc.json, .eslintrc.js или .prettierrc.js образ устаревает молча, и его нужно пересобрать
+# этой целью.
 rebuild: ## Пересобрать образ приложения этого дерева
 	$(DC_APP) build app
 

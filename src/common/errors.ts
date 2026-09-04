@@ -1,11 +1,11 @@
 import { AnyObject } from "app/common/types";
 
 export class RuntimeError extends Error {
-    public readonly message: string;
-    public readonly code?: number;
-    public readonly payload?: AnyObject;
+    public override readonly message: string;
+    public readonly code?: number | undefined;
+    public readonly payload?: AnyObject | undefined;
 
-    public constructor(params: { message: string; code?: number; payload?: AnyObject }) {
+    public constructor(params: { message: string; code?: number | undefined; payload?: AnyObject | undefined }) {
         super(params.message);
 
         this.message = params.message;
@@ -13,10 +13,12 @@ export class RuntimeError extends Error {
         this.payload = params.payload;
     }
 
-    static byError(error: Error): RuntimeError {
+    static byError(error: unknown): RuntimeError {
+        const normalized = error instanceof Error ? error : new Error(String(error));
+
         throw new RuntimeError({
-            message: error.message,
-            payload: error,
+            message: normalized.message,
+            payload: { error: normalized },
         });
     }
 }

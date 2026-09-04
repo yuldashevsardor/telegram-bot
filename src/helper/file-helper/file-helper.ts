@@ -18,7 +18,7 @@ export class FileHelper {
             await fs.access(path, fsSync.constants.R_OK);
 
             return true;
-        } catch (error) {
+        } catch {
             return false;
         }
     }
@@ -27,7 +27,7 @@ export class FileHelper {
         try {
             await fs.access(path, fsSync.constants.W_OK);
             return true;
-        } catch (error) {
+        } catch {
             return false;
         }
     }

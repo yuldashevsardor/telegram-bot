@@ -105,7 +105,7 @@ export class Bot {
 
     private async setupSession(): Promise<void> {
         this.grammy.use(
-            session<unknown, Context>({
+            session<SessionPayload, Context>({
                 initial: initialPayload,
                 getSessionKey: getSessionKey,
                 storage: this.sessionStorage,
@@ -170,15 +170,12 @@ export class Bot {
 
             return acc;
         }, {});
-        const locales = Object.keys(filesByLocale);
         const fluent = new Fluent();
 
-        for (const locale of locales) {
-            const files = filesByLocale[locale];
-
+        for (const [locale, localeFiles] of Object.entries(filesByLocale)) {
             await fluent.addTranslation({
                 locales: locale,
-                filePath: files,
+                filePath: localeFiles,
                 isDefault: true,
             });
         }
@@ -187,7 +184,7 @@ export class Bot {
             useFluent({
                 fluent: fluent,
                 defaultLocale: "ru",
-                localeNegotiator: (ctx: Context) => {
+                localeNegotiator: () => {
                     return "ru";
                 },
             }),
@@ -258,7 +255,7 @@ export class Bot {
         }
     }
 
-    private async handleError(error): Promise<void> {
-        this.logger.critical("Unhandled error on bot", error);
+    private async handleError(error: unknown): Promise<void> {
+        this.logger.critical("Unhandled error on bot", { error: error });
     }
 }
