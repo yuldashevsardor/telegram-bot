@@ -6,7 +6,7 @@ import { InvalidPath, PermissionDenied } from "app/helper/file-helper/file-helpe
 import { promisify } from "util";
 import { exec as execOrigin } from "child_process";
 import { RuntimeError } from "app/common/errors";
-import glob = require("tiny-glob");
+import glob from "tiny-glob";
 
 export class FileHelper {
     public static isExist(path: string): Promise<boolean> {
