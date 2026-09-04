@@ -29,4 +29,13 @@ module.exports = {
         "import/exports-last": "error",
         "import/newline-after-import": "error",
     },
+    overrides: [
+        {
+            // Ассерты chai — выражения без вызова: `expect(x).to.be.true`.
+            files: ["test/**/*.ts"],
+            rules: {
+                "@typescript-eslint/no-unused-expressions": "off",
+            },
+        },
+    ],
 };
