@@ -13,41 +13,73 @@ set -eu
 COMPOSE_FILE="docker-compose.db.yml"
 DB_PROJECT="telegram-bot-db"
 DB_NETWORK="telegram-bot-db_default"
+TAB=$(printf '\t')
 
 die() {
     printf '%s\n' "$*" >&2
     exit 1
 }
 
+# Приводит путь к физическому виду: compose пишет в label логический $PWD, а
+# git rev-parse --show-toplevel отдаёт путь с разрешёнными симлинками. Без этого
+# дерево, лежащее по пути через симлинк, увидело бы собственный контейнер чужим.
+real_path() {
+    (cd "$1" 2>/dev/null && pwd -P) || printf '%s' "$1"
+}
+
 # Ищем по сети базы: в ней сидят приложения всех деревьев — и поднятые боты, и
-# одноразовые контейнеры разовых целей (make migrate/build/test), — а working_dir
-# у контейнера это путь к его дереву. Проверка best-effort: контейнер, исчерпавший
-# restart: on-failure, в docker ps уже не виден, хотя сессия в том дереве работает.
-others_at_work() {
+# одноразовые контейнеры разовых целей (make migrate/build/test). Печатаем по строке
+# на контейнер: <состояние> <TAB> <имя> <TAB> <дерево>. Проверка best-effort —
+# контейнер, исчерпавший restart: on-failure, в docker ps уже не виден, хотя сессия
+# в том дереве работает.
+app_containers() {
     # Единственная защита от необратимой потери данных не должна принимать сбой docker
-    # за «чужих деревьев нет»: код выхода конвейера — это код sort, поэтому статус
-    # docker ps проверяется отдельно.
+    # за «чужих деревьев нет»: код выхода конвейера — это код последней команды, поэтому
+    # статус docker ps проверяется отдельно.
     listing=$(docker ps --filter "network=$DB_NETWORK" \
-        --format '{{.Label "com.docker.compose.project"}}	{{.Label "com.docker.compose.project.working_dir"}}') ||
+        --format "{{.Label \"com.docker.compose.project\"}}$TAB{{.Label \"com.docker.compose.project.working_dir\"}}$TAB{{.Names}}") ||
         die "не удалось опросить docker: нельзя убедиться, что другие деревья не работают"
 
-    printf '%s\n' "$listing" |
-        awk -F '\t' -v db="$DB_PROJECT" -v own="$root" '$1 != "" && $1 != db && $2 != own { print "  " $2 }' |
-        sort -u
+    printf '%s\n' "$listing" | while IFS="$TAB" read -r project dir name; do
+        [ -n "$project" ] && [ "$project" != "$DB_PROJECT" ] || continue
+
+        # Дерево удаляют через git worktree remove, а контейнер он не гасит, поэтому
+        # контейнер без каталога на диске — не работающая сессия, а мусор: блокировать
+        # им цель нельзя, иначе она остаётся заблокированной насовсем.
+        if [ ! -d "$dir" ]; then
+            printf 'брошен%s%s%s%s\n' "$TAB" "$name" "$TAB" "$dir"
+        elif [ "$(real_path "$dir")" = "$root" ]; then
+            printf 'своё%s%s%s%s\n' "$TAB" "$name" "$TAB" "$dir"
+        else
+            printf 'чужое%s%s%s%s\n' "$TAB" "$name" "$TAB" "$dir"
+        fi
+    done
 }
 
 # Postgres один на машину, и эта же цель его гасит, поэтому чужая сессия теряет базу
 # прямо посреди работы: её контейнер уходит в перезапуск на упавших миграциях, а данные
-# уже не вернуть. Поэтому отказ, а не предупреждение.
-refuse_if_others_at_work() {
-    others=$(others_at_work) || exit 1
-    [ -n "$others" ] || return 0
+# уже не вернуть. Поэтому по чужим деревьям — отказ, а не предупреждение.
+check_containers() {
+    rows=$(app_containers) || exit 1
+    alien=$(printf '%s\n' "$rows" | awk -F "$TAB" '$1 == "чужое" { print "  " $3 "  (контейнер " $2 ")" }')
 
-    printf 'работают контейнеры приложения других рабочих деревьев:\n%s\n' "$others" >&2
-    die "погасите их (make app-down в этих деревьях) или дождитесь конца разовой команды и повторите"
+    if [ "$1" = "verbose" ]; then
+        stale=$(printf '%s\n' "$rows" | awk -F "$TAB" '$1 == "брошен" { print "  " $2 "  (дерева " $3 " нет на диске)" }')
+        [ -z "$stale" ] ||
+            printf 'контейнеры удалённых деревьев — цель их не учитывает, уберите их docker rm -f <имя>:\n%s\n' "$stale" >&2
+
+        mine=$(printf '%s\n' "$rows" | awk -F "$TAB" '$1 == "своё" { print "  " $2 }')
+        [ -z "$mine" ] ||
+            printf 'в этом дереве работает контейнер приложения — после сброса он потеряет базу и умрёт на упавших миграциях:\n%s\n' "$mine" >&2
+    fi
+
+    [ -n "$alien" ] || return 0
+    printf 'работают контейнеры приложения других рабочих деревьев:\n%s\n' "$alien" >&2
+    die "погасите их (make app-down в этих деревьях либо docker rm -f <имя>) или дождитесь конца разовой команды и повторите"
 }
 
 root=$(git rev-parse --show-toplevel 2>/dev/null) || die "не git-репозиторий: $PWD"
+root=$(real_path "$root")
 cd "$root"
 
 data=$(cd tmp/pgsql 2>/dev/null && pwd -P || true)
@@ -61,12 +93,13 @@ fi
 # после down он пересоздаётся с этим путём, так что следующий старт будет из него.
 [ "$(basename "$data")" = "pgsql" ] || die "tmp/pgsql ведёт в неожиданное место: $data"
 
-refuse_if_others_at_work
+check_containers verbose
 
 if [ "${CONFIRM:-}" != "1" ]; then
     [ -t 0 ] || die "неинтерактивный запуск: повторите как CONFIRM=1 make db-reset"
     printf 'Стереть данные базы в %s? Она общая для всех рабочих деревьев. [y/N] ' "$data"
-    read -r answer
+    # Ctrl-D — такая же осознанная отмена, как и «нет», и завершаться она должна так же.
+    read -r answer || answer=""
     case "$answer" in
         y | Y | yes | Yes | да | Да) ;;
         *)
@@ -76,7 +109,7 @@ if [ "${CONFIRM:-}" != "1" ]; then
     esac
     # Пауза у вопроса ничем не ограничена, и за это время в соседнем дереве могли
     # поднять бота или запустить разовую цель, поэтому проверка повторяется.
-    refuse_if_others_at_work
+    check_containers quiet
 fi
 
 docker compose -f "$COMPOSE_FILE" down
