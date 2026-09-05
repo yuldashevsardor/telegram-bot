@@ -1,8 +1,16 @@
 import { inject, injectable } from "inversify";
 import { Planner } from "app/domain/planner/planner";
 import { Modules } from "app/infrastructure/container/symbols/modules";
-import { BrokerSettings, Message, TelegramApiError, TELEGRAM_ERROR_CODES } from "app/domain/broker/broker.types";
+import {
+    BrokerSettings,
+    DEFAULT_RETRY_AFTER_SECONDS,
+    Message,
+    TelegramApiError,
+    TELEGRAM_ERROR_CODES,
+} from "app/domain/broker/broker.types";
 import { ConfigValue } from "app/infrastructure/config/config-value.decorator";
+import { Logger } from "app/domain/logger/logger";
+import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
 
 @injectable()
 export class Broker {
@@ -11,7 +19,10 @@ export class Broker {
 
     private _isRun = false;
 
-    public constructor(@inject<Planner>(Modules.Planner.Planner) private readonly planner: Planner) {}
+    public constructor(
+        @inject<Planner>(Modules.Planner.Planner) private readonly planner: Planner,
+        @inject<Logger>(Infrastructure.Logger) private readonly logger: Logger,
+    ) {}
 
     public run(): void {
         if (this.isRun) {
@@ -31,7 +42,7 @@ export class Broker {
         return this._isRun;
     }
 
-    private async handleMessages(): Promise<void> {
+    private handleMessages(): void {
         if (!this.isRun) {
             return;
         }
@@ -43,8 +54,11 @@ export class Broker {
             return;
         }
 
-        await this.handleMessage(message);
-        return this.handleMessages();
+        // Завершения вызова цикл намеренно не ждёт: темп выдачи задают слоты Planner,
+        // а не сетевая задержка Telegram. Ошибку разбирает сам handleMessage.
+        void this.handleMessage(message);
+
+        setTimeout(this.handleMessages.bind(this), 0);
     }
 
     private async handleMessage(message: Message): Promise<void> {
@@ -52,17 +66,33 @@ export class Broker {
             await message.callback();
         } catch (error) {
             this.handleError(error);
-            this.planner.push(message, message.priorityOnError);
+            this.retryMessage(message);
         }
     }
 
-    private handleError(error: unknown): void {
-        console.log("broker error", error);
+    private retryMessage(message: Message): void {
+        const retryCount = (message.retryCount ?? 0) + 1;
 
-        if (Broker.isManyRequestError(error)) {
-            const duration = Number(error.parameters?.retry_after) || 0;
-            this.planner.ban(duration * 1000);
+        if (retryCount > this.settings.maxRetries) {
+            this.logger.error("Message is dropped: retry limit is reached.", {
+                chatId: message.chatId,
+                maxRetries: this.settings.maxRetries,
+            });
+
+            return;
         }
+
+        this.planner.push({ ...message, retryCount: retryCount }, message.priorityOnError);
+    }
+
+    private handleError(error: unknown): void {
+        this.logger.error("Telegram API call is failed.", { error: error });
+
+        if (!Broker.isManyRequestError(error)) {
+            return;
+        }
+
+        this.planner.ban(Broker.getRetryAfterSeconds(error) * 1000);
     }
 
     private static isManyRequestError(error: unknown): error is TelegramApiError {
@@ -71,5 +101,25 @@ export class Broker {
         }
 
         return error.error_code === TELEGRAM_ERROR_CODES.TO_MANY_REQUESTS;
+    }
+
+    private static getRetryAfterSeconds(error: unknown): number {
+        if (typeof error !== "object" || error === null || !("parameters" in error)) {
+            return DEFAULT_RETRY_AFTER_SECONDS;
+        }
+
+        const parameters = error.parameters;
+
+        if (typeof parameters !== "object" || parameters === null || !("retry_after" in parameters)) {
+            return DEFAULT_RETRY_AFTER_SECONDS;
+        }
+
+        const retryAfter = Number(parameters.retry_after);
+
+        if (!Number.isFinite(retryAfter) || retryAfter <= 0) {
+            return DEFAULT_RETRY_AFTER_SECONDS;
+        }
+
+        return retryAfter;
     }
 }

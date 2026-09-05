@@ -6,6 +6,7 @@ import { Level, Levels } from "app/domain/logger/logger.types";
 import { InvalidConfigError } from "app/common/errors";
 import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
 import { Limits } from "app/domain/planner/planner.types";
+import { BrokerSettings } from "app/domain/broker/broker.types";
 import { DatabaseSettings } from "app/infrastructure/database/database.types";
 
 dotenvExpand.expand(dotenv.config());
@@ -32,9 +33,7 @@ export class Config {
 
     public readonly managerLimits: Limits;
 
-    public readonly broker: {
-        sleepInterval: number;
-    };
+    public readonly broker: BrokerSettings;
 
     public readonly bot: {
         token: string;
@@ -70,6 +69,7 @@ export class Config {
 
         this.broker = {
             sleepInterval: Config.getEnvAsInteger("BROKER_SLEEP_INTERVAL", 1000),
+            maxRetries: Config.getEnvAsInteger("BROKER_MAX_RETRIES", 3),
         };
 
         this.bot = {
