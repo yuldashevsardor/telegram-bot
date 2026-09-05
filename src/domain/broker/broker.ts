@@ -95,6 +95,9 @@ export class Broker {
         this.planner.ban(Broker.getRetryAfterSeconds(error) * 1000);
     }
 
+    // Проверяется только error_code: счесть 429 с нечитаемым parameters «не тем» типом
+    // значило бы оставить настоящий 429 без бана. Форма parameters поэтому не гарантирована —
+    // getRetryAfterSeconds разбирает её, не полагаясь на тип.
     private static isManyRequestError(error: unknown): error is TelegramApiError {
         if (typeof error !== "object" || error === null || !("error_code" in error)) {
             return false;
