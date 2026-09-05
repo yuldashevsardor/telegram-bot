@@ -138,6 +138,11 @@ psql: ## psql в контейнере базы
 worktree-init: ## Подготовить это дерево задачи: общий tmp/pgsql, свой .env и BOT_TOKEN
 	scripts/worktree-init.sh
 
+# Инструмент, а не автоматика: решение «PR влит, пора убирать» принимает тот, кто вызывает
+# цель, — она лишь проверяет, что убирать уже безопасно, и делает все шаги разом.
+worktree-cleanup: ## Убрать это дерево задачи после влития PR: приложение, дерево, ветка локально и на origin
+	scripts/worktree-cleanup.sh
+
 token-acquire: ## Занять свободный слот пула за этим деревом
 	$(BOT_TOKEN_SH) acquire
 
@@ -167,10 +172,10 @@ token-add: ## Дописать токен в конец пула (спросит
 help: ## Показать этот список
 	@awk 'BEGIN { FS = ":.*## " } \
 		/^## / { printf "\n%s\n", substr($$0, 4); next } \
-		/^[a-z][a-zA-Z0-9_-]*:.*## / { printf "  %-16s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+		/^[a-z][a-zA-Z0-9_-]*:.*## / { printf "  %-17s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 	@echo
 
 .PHONY: up db-up app-up app-down db-down logs restart db-reset \
 	migrate migrate-create build typecheck test test-watch coverage \
 	lint lint-fix format-check format check rebuild shell psql \
-	worktree-init token-acquire token-renew token-release token-status token-add help
+	worktree-init worktree-cleanup token-acquire token-renew token-release token-status token-add help
