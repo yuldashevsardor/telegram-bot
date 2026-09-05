@@ -64,6 +64,8 @@ export class Bot {
             this.broker.stop();
 
             await this.handleError(error);
+
+            throw error;
         }
     }
 

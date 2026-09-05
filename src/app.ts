@@ -19,8 +19,26 @@ async function stop(): Promise<void> {
     await container.close();
 }
 
-// Enable graceful stop
-process.once("SIGINT", stop);
-process.once("SIGTERM", stop);
+function fail(error: unknown): never {
+    console.error(error);
+    process.exit(1);
+}
 
-bootstrap().catch(console.error);
+async function gracefulStop(): Promise<void> {
+    try {
+        await stop();
+    } catch (error) {
+        fail(error);
+    }
+
+    process.exit(0);
+}
+
+// Enable graceful stop
+process.once("SIGINT", () => void gracefulStop());
+process.once("SIGTERM", () => void gracefulStop());
+
+process.on("unhandledRejection", fail);
+process.on("uncaughtException", fail);
+
+bootstrap().catch(fail);
