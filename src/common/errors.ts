@@ -2,14 +2,12 @@ import { UnknownObject } from "app/common/types";
 
 export class RuntimeError extends Error {
     public override readonly message: string;
-    public readonly code?: number | undefined;
     public readonly payload?: UnknownObject | undefined;
 
-    public constructor(params: { message: string; code?: number | undefined; payload?: UnknownObject | undefined }) {
+    public constructor(params: { message: string; payload?: UnknownObject | undefined }) {
         super(params.message);
 
         this.message = params.message;
-        this.code = params.code;
         this.payload = params.payload;
     }
 
