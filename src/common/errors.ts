@@ -13,15 +13,15 @@ export class RuntimeError extends Error {
         this.payload = params.payload;
     }
 
-    static byError(error: unknown): RuntimeError {
+    static byError<T extends RuntimeError>(this: new (params: ConstructorParameters<typeof RuntimeError>[0]) => T, error: unknown): T {
         if (!(error instanceof Error)) {
-            throw new RuntimeError({
-                message: "RuntimeError.byError got a value that is not an Error",
+            return new this({
+                message: "byError got a value that is not an Error",
                 payload: { error: error },
             });
         }
 
-        throw new RuntimeError({
+        return new this({
             message: error.message,
             payload: { error: error },
         });
