@@ -36,15 +36,19 @@ import "reflect-metadata"        // нужен inversify для метаданн
 await container.setup()          // связывает все DI-биндинги (см. §4)
 bot = container.get<Bot>(...)
 await bot.run()
-process.once("SIGINT", stop)
-process.once("SIGTERM", stop)
-bootstrap().catch(console.error)
+process.once("SIGINT", () => void gracefulStop())
+process.once("SIGTERM", () => void gracefulStop())
+process.on("unhandledRejection", fail)
+process.on("uncaughtException", fail)
+bootstrap().catch(fail)
 ```
 
-`stop()` вызывает `bot.stop()` (что это влечёт — см. §5), затем `container.close()`.
+`stop()` вызывает `bot.stop()` (что это влечёт — см. §5), затем `container.close()`. `gracefulStop()` оборачивает `stop()`: успех — `process.exit(0)`, ошибка — `fail`. `fail(error)` печатает ошибку в `console.error` и завершает процесс с кодом 1.
+
+Сбой старта фатален: `Bot.run()` пробрасывает ошибку дальше после логирования, `bootstrap().catch(fail)` завершает процесс с кодом 1, поэтому супервизор (Docker `restart: on-failure`, systemd, Kubernetes) видит ненулевой код.
 
 Заметные пробелы:
-- `bootstrap().catch(console.error)` только логирует неудачный bootstrap — `process.exit(1)` не вызывается, поэтому сбой старта (например, неверный `BOT_TOKEN`, недоступная БД) может оставить процесс Node живым, но бездействующим.
+- Ошибки старта и падения из `unhandledRejection`/`uncaughtException` уходят в `console.error`, а не в структурированный `Logger`: на момент сбоя логгер может быть ещё не собран.
 - `Container.close()` (`src/infrastructure/container/container.ts`) — заглушка: он лишь сбрасывает внутренний флаг `alreadySetup`, если тот выставлен, и больше ничего не делает. Пул соединений с Postgres (`Database.sql`) при остановке явно не закрывается.
 
 ## 3. Карта директорий
