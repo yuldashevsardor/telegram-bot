@@ -5,20 +5,27 @@ import { Level } from "app/domain/logger/logger.types";
 import { injectable } from "inversify";
 import { serializeError } from "serialize-error";
 
-// Уровни объявлены через customLevels, поэтому в типе pino.Logger соответствующих методов нет.
-type PinoCustomLevelLogger = Record<Lowercase<Level>, (payload: AnyObject) => void>;
+type PinoLevel = Lowercase<Level>;
 
-const pinoLevels: Record<string, number> = {
-    [Level.DEBUG.toLowerCase()]: 0,
-    [Level.INFO.toLowerCase()]: 100,
-    [Level.WARNING.toLowerCase()]: 200,
-    [Level.ERROR.toLowerCase()]: 300,
-    [Level.CRITICAL.toLowerCase()]: 400,
+const pinoLevels: Record<PinoLevel, number> = {
+    debug: 0,
+    info: 100,
+    warning: 200,
+    error: 300,
+    critical: 400,
+};
+
+const pinoLevelByLevel: Record<Level, PinoLevel> = {
+    [Level.DEBUG]: "debug",
+    [Level.INFO]: "info",
+    [Level.WARNING]: "warning",
+    [Level.ERROR]: "error",
+    [Level.CRITICAL]: "critical",
 };
 
 @injectable()
 export class PinoLogger extends AbstractLogger {
-    private readonly pinoDefaultOptions: LoggerOptions = {
+    private readonly pinoDefaultOptions: LoggerOptions<PinoLevel> = {
         customLevels: pinoLevels,
         useOnlyCustomLevels: true,
         level: "debug",
@@ -29,12 +36,12 @@ export class PinoLogger extends AbstractLogger {
         },
     };
 
-    private pino: Logger;
+    private pino: Logger<PinoLevel>;
 
     public constructor() {
         super();
 
-        this.pino = pino(this.pinoDefaultOptions);
+        this.pino = pino<PinoLevel>(this.pinoDefaultOptions);
     }
 
     critical(message: string, payload?: AnyObject): void {
@@ -59,9 +66,7 @@ export class PinoLogger extends AbstractLogger {
 
     private log(level: Level, message: string, payload?: AnyObject): void {
         if (this.levels.includes(level)) {
-            const pinoLevel = level.toLowerCase() as Lowercase<Level>;
-
-            (this.pino as unknown as PinoCustomLevelLogger)[pinoLevel]({
+            this.pino[pinoLevelByLevel[level]]({
                 message: message,
                 payload: serializeError(payload),
             });

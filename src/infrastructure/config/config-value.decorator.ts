@@ -2,7 +2,7 @@ import { container } from "app/infrastructure/container/container";
 import { Config } from "app/infrastructure/config/config";
 import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
 import { RuntimeError } from "app/common/errors";
-import { AnyObject } from "app/common/types";
+import { UnknownObject } from "app/common/types";
 
 function getConfigValue<T>(key: string, defaultValue?: T): T {
     const config = container.get<Config>(Infrastructure.Config);
@@ -10,14 +10,14 @@ function getConfigValue<T>(key: string, defaultValue?: T): T {
     let value: unknown;
 
     if (keys.length < 1) {
-        value = (config as unknown as AnyObject)[key];
+        value = (config as unknown as UnknownObject)[key];
     } else {
         value = keys.reduce<unknown>((previousValue, key) => {
             if (previousValue === undefined) {
                 return undefined;
             }
 
-            return (previousValue as AnyObject)[key];
+            return (previousValue as UnknownObject)[key];
         }, config);
     }
 

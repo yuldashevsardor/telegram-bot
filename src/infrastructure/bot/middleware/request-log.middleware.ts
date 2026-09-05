@@ -13,7 +13,7 @@ export class RequestLogMiddleware extends Middleware {
 
     public async handle(context: Context, next: NextFunction): Promise<void> {
         context.session.requestCount++;
-        this.logger.debug("Request", { update: context.update });
+        this.logger.debug("Request", context.update);
 
         return next();
     }

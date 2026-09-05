@@ -6,7 +6,7 @@ import { Logger } from "app/domain/logger/logger";
 import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
 import { v4 as uuid } from "uuid";
 import { PinoLogger } from "app/infrastructure/logger/pino.logger";
-import { asyncLocalStorage } from "app/infrastructure/async-local-storage";
+import { asyncLocalStorage, RequestStore } from "app/infrastructure/async-local-storage";
 import { Context } from "app/infrastructure/bot/bot.types";
 
 @injectable()
@@ -22,7 +22,7 @@ export class AsyncLocalStorageMiddleware extends Middleware {
             requestId: uuid(),
         });
 
-        const store = new Map<string, PinoLogger>();
+        const store: RequestStore = new Map();
         store.set("logger", child);
 
         return asyncLocalStorage.run(store, next);

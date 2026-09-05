@@ -94,7 +94,9 @@ export class Container extends InversifyContainer {
         this.rebind<Logger>(Infrastructure.PinoLogger).toConstantValue(
             new Proxy(pinoLogger, {
                 get(target, property, receiver): unknown {
-                    target = asyncLocalStorage.getStore()?.get("logger") || target;
+                    const scopedLogger = asyncLocalStorage.getStore()?.get("logger");
+
+                    target = scopedLogger instanceof PinoLogger ? scopedLogger : target;
                     target.setLevels(config.logger.levels);
 
                     return Reflect.get(target, property, receiver);

@@ -14,11 +14,16 @@ export class RuntimeError extends Error {
     }
 
     static byError(error: unknown): RuntimeError {
-        const normalized = error instanceof Error ? error : new Error(String(error));
+        if (!(error instanceof Error)) {
+            throw new RuntimeError({
+                message: "RuntimeError.byError got a value that is not an Error",
+                payload: { error: error },
+            });
+        }
 
         throw new RuntimeError({
-            message: normalized.message,
-            payload: { error: normalized },
+            message: error.message,
+            payload: error,
         });
     }
 }
