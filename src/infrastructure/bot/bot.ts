@@ -249,14 +249,22 @@ export class Bot {
 
     private async waitPlannerToEmpty(): Promise<void> {
         const interval = 3000;
+        const deadline = Date.now() + this.settings.shutdownTimeout;
 
-        // eslint-disable-next-line no-constant-condition
-        while (true) {
-            if (this.planner.isEmpty()) {
+        while (!this.planner.isEmpty()) {
+            const timeLeft = deadline - Date.now();
+
+            if (timeLeft <= 0) {
+                this.logger.warning("Shutdown timeout is over, remaining messages will not be sent.", {
+                    messagesLeft: this.planner.getMessagesCount(),
+                    shutdownTimeout: this.settings.shutdownTimeout,
+                });
                 return;
             }
 
-            await sleep(interval);
+            this.logger.info(`Waiting for the outgoing queue to empty: ${this.planner.getMessagesCount()} messages left.`);
+
+            await sleep(Math.min(interval, timeLeft));
         }
     }
 
