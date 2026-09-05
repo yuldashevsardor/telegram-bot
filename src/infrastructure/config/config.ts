@@ -1,5 +1,4 @@
 import * as dotenv from "dotenv";
-import * as dotenvExpand from "dotenv-expand";
 import path from "path";
 import { injectable } from "inversify";
 import { Level, Levels } from "app/domain/logger/logger.types";
@@ -9,7 +8,9 @@ import { Limits } from "app/domain/planner/planner.types";
 import { BrokerSettings } from "app/domain/broker/broker.types";
 import { DatabaseSettings } from "app/infrastructure/database/database.types";
 
-dotenvExpand.expand(dotenv.config());
+// quiet: dotenv с 17.0 по умолчанию печатает в stdout строку о загрузке .env — в проде
+// туда же идёт JSON-лог pino, и эта строка ломала бы его разбор.
+dotenv.config({ quiet: true });
 
 type Logger = {
     default: symbol;
