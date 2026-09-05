@@ -14,6 +14,10 @@ export enum TELEGRAM_ERROR_CODES {
     TO_MANY_REQUESTS = 429,
 }
 
+// Bot API всегда присылает retry_after вместе с 429, но если поле отсутствует или
+// нечитаемо, бан всё равно должен быть ненулевым: ban(0) истекает в момент установки.
+export const DEFAULT_RETRY_AFTER_SECONDS = 1;
+
 export enum PRIORITY {
     HIGH = "HIGH",
     MEDIUM = "MEDIUM",
@@ -22,6 +26,7 @@ export enum PRIORITY {
 
 export type BrokerSettings = {
     sleepInterval: number;
+    maxRetries: number;
 };
 
 export type TelegramApiError = {
@@ -36,4 +41,5 @@ export type Message = {
     isGroup: boolean;
     priorityOnError: PRIORITY;
     callback: () => Promise<unknown>;
+    retryCount?: number;
 };

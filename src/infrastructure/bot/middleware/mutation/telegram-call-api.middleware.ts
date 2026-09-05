@@ -75,11 +75,14 @@ export class TelegramCallApiMiddleware extends Middleware {
 
             const callback = async (): Promise<void> => {
                 try {
-                    // Если метод был успешно выполнен - резовлим promise который вернули в ответе
-                    messageResolve(callRawApi(method, payload, signal));
-                } catch (e) {
-                    // Если была ошибка - соответственно режектим
-                    messageReject(e);
+                    // Ждём фактический вызов: без await наружу ушёл бы ещё не завершённый promise,
+                    // и брокер не увидел бы отказа Telegram.
+                    messageResolve(await callRawApi(method, payload, signal));
+                } catch (error) {
+                    // Вызывающая сторона получает отказ сразу, брокер — ту же ошибку для бана и повтора.
+                    messageReject(error);
+
+                    throw error;
                 }
             };
 
