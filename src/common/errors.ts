@@ -1,11 +1,11 @@
-import { AnyObject } from "app/common/types";
+import { UnknownObject } from "app/common/types";
 
 export class RuntimeError extends Error {
     public override readonly message: string;
     public readonly code?: number | undefined;
-    public readonly payload?: AnyObject | undefined;
+    public readonly payload?: UnknownObject | undefined;
 
-    public constructor(params: { message: string; code?: number | undefined; payload?: AnyObject | undefined }) {
+    public constructor(params: { message: string; code?: number | undefined; payload?: UnknownObject | undefined }) {
         super(params.message);
 
         this.message = params.message;
@@ -23,7 +23,7 @@ export class RuntimeError extends Error {
 
         throw new RuntimeError({
             message: error.message,
-            payload: error,
+            payload: { error: error },
         });
     }
 }

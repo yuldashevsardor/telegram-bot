@@ -1,5 +1,5 @@
 import { AbstractLogger } from "app/infrastructure/logger/abstract.logger";
-import { AnyObject } from "app/common/types";
+import { UnknownObject } from "app/common/types";
 import { Logger, LoggerOptions, pino } from "pino";
 import { Level } from "app/domain/logger/logger.types";
 import { injectable } from "inversify";
@@ -15,7 +15,7 @@ const pinoLevels: Record<PinoLevel, number> = {
     critical: 400,
 };
 
-const pinoLevelByLevel: Record<Level, PinoLevel> = {
+const pinoLevelNames: Record<Level, PinoLevel> = {
     [Level.DEBUG]: "debug",
     [Level.INFO]: "info",
     [Level.WARNING]: "warning",
@@ -44,29 +44,29 @@ export class PinoLogger extends AbstractLogger {
         this.pino = pino<PinoLevel>(this.pinoDefaultOptions);
     }
 
-    critical(message: string, payload?: AnyObject): void {
+    critical(message: string, payload?: UnknownObject): void {
         this.log(Level.CRITICAL, message, payload);
     }
 
-    error(message: string, payload?: AnyObject): void {
+    error(message: string, payload?: UnknownObject): void {
         this.log(Level.ERROR, message, payload);
     }
 
-    warning(message: string, payload?: AnyObject): void {
+    warning(message: string, payload?: UnknownObject): void {
         this.log(Level.WARNING, message, payload);
     }
 
-    info(message: string, payload?: AnyObject): void {
+    info(message: string, payload?: UnknownObject): void {
         this.log(Level.INFO, message, payload);
     }
 
-    debug(message: string, payload?: AnyObject): void {
+    debug(message: string, payload?: UnknownObject): void {
         this.log(Level.DEBUG, message, payload);
     }
 
-    private log(level: Level, message: string, payload?: AnyObject): void {
+    private log(level: Level, message: string, payload?: UnknownObject): void {
         if (this.levels.includes(level)) {
-            this.pino[pinoLevelByLevel[level]]({
+            this.pino[pinoLevelNames[level]]({
                 message: message,
                 payload: serializeError(payload),
             });
@@ -77,7 +77,7 @@ export class PinoLogger extends AbstractLogger {
     // inversify резолвит каждый параметр конструктора @injectable-класса, а pino.Logger —
     // интерфейс, для которого design:paramtypes даёт Object, и контейнер падает
     // на "No matching bindings found for serviceIdentifier: Object".
-    child(context: AnyObject): PinoLogger {
+    child(context: UnknownObject): PinoLogger {
         const child = new PinoLogger();
         child.pino = this.pino.child(context);
 

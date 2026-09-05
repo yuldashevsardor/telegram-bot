@@ -1,11 +1,3 @@
-export type AnyObject = {
-    // Осознанный any: сюда кладут произвольные объекты сторонних библиотек (Error,
-    // grammY Update). unknown в индексной сигнатуре ломает присваивание интерфейсов,
-    // поэтому для чтения по вычисляемому ключу есть отдельный UnknownObject.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    [key: string | symbol]: any;
-};
-
 export type UnknownObject = {
     [key: string | symbol]: unknown;
 };

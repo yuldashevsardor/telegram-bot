@@ -103,26 +103,6 @@ export class Config {
         return parseInt(value);
     }
 
-    // public, а не private: helper пока никем не вызывается, а noUnusedLocals считает
-    // неиспользуемый private мёртвым кодом.
-    public static getEnvAsBoolean(name: string, defaultValue: boolean): boolean {
-        const value = Config.getEnvAsString(name, "");
-
-        if (value === "") {
-            return defaultValue;
-        }
-
-        if (/^true$/i.test(value)) {
-            return true;
-        }
-
-        if (/^false$/i.test(value)) {
-            return false;
-        }
-
-        return !!parseInt(value);
-    }
-
     private static getEnvAsArray(name: string, defaultValue: Array<string>): Array<string> {
         const value = Config.getEnvAsString(name, "");
 
