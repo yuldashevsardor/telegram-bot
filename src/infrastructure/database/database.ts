@@ -3,6 +3,8 @@ import { injectable } from "inversify";
 import { DatabaseSettings } from "app/infrastructure/database/database.types";
 import { ConfigValue } from "app/infrastructure/config/config-value.decorator";
 
+const CLOSE_TIMEOUT_SECONDS = 5;
+
 export type Sql = ReturnType<typeof postgres>;
 
 @injectable()
@@ -27,5 +29,9 @@ export class Database {
             idle_timeout: this.settings.connection.idleTimeout,
             max_lifetime: this.settings.connection.maxLifetime,
         });
+    }
+
+    public async close(): Promise<void> {
+        await this.sql.end({ timeout: CLOSE_TIMEOUT_SECONDS });
     }
 }

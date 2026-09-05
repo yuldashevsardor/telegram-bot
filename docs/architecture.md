@@ -49,7 +49,7 @@ bootstrap().catch(fail)
 
 Заметные пробелы:
 - Ошибки старта и падения из `unhandledRejection`/`uncaughtException` уходят в `console.error`, а не в структурированный `Logger`: на момент сбоя логгер может быть ещё не собран.
-- `Container.close()` (`src/infrastructure/container/container.ts`) — заглушка: он лишь сбрасывает внутренний флаг `alreadySetup`, если тот выставлен, и больше ничего не делает. Пул соединений с Postgres (`Database.sql`) при остановке явно не закрывается.
+- `Container.close()` (`src/infrastructure/container/container.ts`) закрывает пул Postgres (`Database.close()` → `sql.end({ timeout: 5 })`) и сбрасывает `alreadySetup`, но биндинги не снимает: повторный `setup()` в том же процессе упал бы на дублирующих `bind`.
 
 ## 3. Карта директорий
 
