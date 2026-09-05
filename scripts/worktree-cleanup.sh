@@ -53,11 +53,13 @@ cd "$main"
 git worktree remove "$root"
 git branch -d "$branch"
 
+# Ветки на origin может уже не быть: GitHub умеет удалять её сам при влитии PR.
 if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
     git push origin --delete "$branch"
+    where="локально и на origin"
 else
-    printf 'ветки %s на origin нет — удалять нечего\n' "$branch"
+    where="локально; на origin её уже не было"
 fi
 
-printf 'убрано: дерево %s, ветка %s локально и на origin\n' "$root" "$branch"
+printf 'убрано: дерево %s, ветка %s %s\n' "$root" "$branch" "$where"
 printf 'текущий каталог сессии удалён — перейдите в основное дерево: cd %s\n' "$main"
