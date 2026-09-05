@@ -103,18 +103,8 @@ export class Broker {
         return error.error_code === TELEGRAM_ERROR_CODES.TO_MANY_REQUESTS;
     }
 
-    private static getRetryAfterSeconds(error: unknown): number {
-        if (typeof error !== "object" || error === null || !("parameters" in error)) {
-            return DEFAULT_RETRY_AFTER_SECONDS;
-        }
-
-        const parameters = error.parameters;
-
-        if (typeof parameters !== "object" || parameters === null || !("retry_after" in parameters)) {
-            return DEFAULT_RETRY_AFTER_SECONDS;
-        }
-
-        const retryAfter = Number(parameters.retry_after);
+    private static getRetryAfterSeconds(error: TelegramApiError): number {
+        const retryAfter = Number(error.parameters?.retry_after);
 
         if (!Number.isFinite(retryAfter) || retryAfter <= 0) {
             return DEFAULT_RETRY_AFTER_SECONDS;

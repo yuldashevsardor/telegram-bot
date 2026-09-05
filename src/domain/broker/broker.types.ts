@@ -31,6 +31,9 @@ export type BrokerSettings = {
 
 export type TelegramApiError = {
     error_code: number;
+    parameters?: {
+        retry_after?: number;
+    };
 };
 
 export type Message = {
