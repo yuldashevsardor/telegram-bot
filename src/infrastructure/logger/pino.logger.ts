@@ -80,6 +80,7 @@ export class PinoLogger extends AbstractLogger {
     child(context: UnknownObject): PinoLogger {
         const child = new PinoLogger();
         child.pino = this.pino.child(context);
+        child.setLevels(this.levels);
 
         return child;
     }
