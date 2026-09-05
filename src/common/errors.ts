@@ -1,11 +1,11 @@
-import { AnyObject } from "app/common/types";
+import { UnknownObject } from "app/common/types";
 
 export class RuntimeError extends Error {
-    public readonly message: string;
-    public readonly code?: number;
-    public readonly payload?: AnyObject;
+    public override readonly message: string;
+    public readonly code?: number | undefined;
+    public readonly payload?: UnknownObject | undefined;
 
-    public constructor(params: { message: string; code?: number; payload?: AnyObject }) {
+    public constructor(params: { message: string; code?: number | undefined; payload?: UnknownObject | undefined }) {
         super(params.message);
 
         this.message = params.message;
@@ -13,10 +13,17 @@ export class RuntimeError extends Error {
         this.payload = params.payload;
     }
 
-    static byError(error: Error): RuntimeError {
+    static byError(error: unknown): RuntimeError {
+        if (!(error instanceof Error)) {
+            throw new RuntimeError({
+                message: "RuntimeError.byError got a value that is not an Error",
+                payload: { error: error },
+            });
+        }
+
         throw new RuntimeError({
             message: error.message,
-            payload: error,
+            payload: { error: error },
         });
     }
 }

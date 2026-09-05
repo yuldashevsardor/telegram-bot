@@ -2,21 +2,22 @@ import { container } from "app/infrastructure/container/container";
 import { Config } from "app/infrastructure/config/config";
 import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
 import { RuntimeError } from "app/common/errors";
+import { UnknownObject } from "app/common/types";
 
 function getConfigValue<T>(key: string, defaultValue?: T): T {
     const config = container.get<Config>(Infrastructure.Config);
     const keys = key.split(".").filter((key) => key.trim() !== "");
-    let value;
+    let value: unknown;
 
     if (keys.length < 1) {
-        value = config[key];
+        value = (config as unknown as UnknownObject)[key];
     } else {
-        value = keys.reduce((previousValue: any, key: string) => {
+        value = keys.reduce<unknown>((previousValue, key) => {
             if (previousValue === undefined) {
                 return undefined;
             }
 
-            return previousValue[key];
+            return (previousValue as UnknownObject)[key];
         }, config);
     }
 
@@ -30,11 +31,11 @@ function getConfigValue<T>(key: string, defaultValue?: T): T {
         });
     }
 
-    return value;
+    return value as T;
 }
 
-export function ConfigValue<T>(key: string, defaultValue?: T): (target: any, propertyKey: string) => void {
-    return (target: any, propertyKey: string) => {
+export function ConfigValue<T>(key: string, defaultValue?: T): (target: object, propertyKey: string) => void {
+    return (target: object, propertyKey: string) => {
         let value: T;
 
         const getter = (): T => {

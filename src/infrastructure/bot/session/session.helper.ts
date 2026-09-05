@@ -7,7 +7,7 @@ export function initialPayload(): SessionPayload {
     };
 }
 
-export function getSessionKey(ctx: Context): string | undefined {
+export function getSessionKey(ctx: Omit<Context, "session">): string | undefined {
     if (ctx.from === undefined || ctx.chat === undefined) {
         return undefined;
     }

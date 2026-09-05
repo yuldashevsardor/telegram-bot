@@ -1,7 +1,5 @@
 import { Command } from "app/infrastructure/bot/command/command";
-import { inject, injectable } from "inversify";
-import { FontConvertor } from "app/domain/font-convertor/font-convertor";
-import { Services } from "app/infrastructure/container/symbols/services";
+import { injectable } from "inversify";
 import { StringHelper } from "app/helper/string-helper";
 import { container } from "app/infrastructure/container/container";
 import { Modules } from "app/infrastructure/container/symbols/modules";
@@ -16,11 +14,7 @@ export class BulkMessagesCommand extends Command {
     public readonly command: string = "bulk_messages";
     public readonly description: string = "Рассылка / Bulk messages";
 
-    public constructor(@inject<FontConvertor>(Services.FontConvertor.FontConvertor) private readonly convertor: FontConvertor) {
-        super();
-    }
-
-    protected async handle(ctx: Context): Promise<void> {
+    protected async handle(_ctx: Context): Promise<void> {
         const promises: Promise<unknown>[] = [];
         const chats = [2815426, 5067823410, 858262157];
         for (let i = 0; i < 100000; i++) {

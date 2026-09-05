@@ -1,6 +1,6 @@
 import { Logger } from "app/domain/logger/logger";
 import { Level, Levels } from "app/domain/logger/logger.types";
-import { AnyObject } from "app/common/types";
+import { UnknownObject } from "app/common/types";
 import { InvalidLogLevel } from "app/domain/logger/logger.errors";
 import { injectable } from "inversify";
 
@@ -18,13 +18,13 @@ export abstract class AbstractLogger implements Logger {
         this.levels = levels;
     }
 
-    public abstract critical(message: string, payload?: AnyObject): void;
+    public abstract critical(message: string, payload?: UnknownObject): void;
 
-    public abstract error(message: string, payload?: AnyObject): void;
+    public abstract error(message: string, payload?: UnknownObject): void;
 
-    public abstract warning(message: string, payload?: AnyObject): void;
+    public abstract warning(message: string, payload?: UnknownObject): void;
 
-    public abstract info(message: string, payload?: AnyObject): void;
+    public abstract info(message: string, payload?: UnknownObject): void;
 
-    public abstract debug(message: string, payload?: AnyObject): void;
+    public abstract debug(message: string, payload?: UnknownObject): void;
 }

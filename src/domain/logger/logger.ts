@@ -1,13 +1,13 @@
-import { AnyObject } from "app/common/types";
+import { UnknownObject } from "app/common/types";
 
 export interface Logger {
-    critical(message: string, payload?: AnyObject): void;
+    critical(message: string, payload?: UnknownObject): void;
 
-    error(message: string, payload?: AnyObject): void;
+    error(message: string, payload?: UnknownObject): void;
 
-    warning(message: string, payload?: AnyObject): void;
+    warning(message: string, payload?: UnknownObject): void;
 
-    info(message: string, payload?: AnyObject): void;
+    info(message: string, payload?: UnknownObject): void;
 
-    debug(message: string, payload?: AnyObject): void;
+    debug(message: string, payload?: UnknownObject): void;
 }

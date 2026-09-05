@@ -24,6 +24,13 @@ export type BrokerSettings = {
     sleepInterval: number;
 };
 
+export type TelegramApiError = {
+    error_code: number;
+    parameters?: {
+        retry_after?: number;
+    };
+};
+
 export type Message = {
     chatId: number;
     isGroup: boolean;

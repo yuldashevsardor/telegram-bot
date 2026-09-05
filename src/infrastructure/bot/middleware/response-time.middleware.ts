@@ -11,7 +11,7 @@ export class ResponseTimeMiddleware extends Middleware {
         super();
     }
 
-    public async handle(context: Context, next: NextFunction): Promise<void> {
+    public async handle(_context: Context, next: NextFunction): Promise<void> {
         const start = Date.now();
         await next();
         const end = Date.now();

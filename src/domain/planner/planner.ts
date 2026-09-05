@@ -105,8 +105,7 @@ export class Planner {
             manager: SlotManager;
         } | null = null;
 
-        while (index < this.messages[priority].length) {
-            const message = this.messages[priority][index];
+        for (const message of this.messages[priority]) {
             const manager = this.getManagerByMessage(message);
 
             if (manager.isFree()) {

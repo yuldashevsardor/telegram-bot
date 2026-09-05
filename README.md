@@ -186,9 +186,9 @@ make token-release   # освободить слот, закончив рабо�
 выводу: `nyc` берёт настройки из `@istanbuljs/nyc-config-typescript`.
 
 Одноразовый контейнер берёт **готовый** образ и пересобирает его сам только когда образа нет
-вовсе. Томами монтируются лишь `src`, `test`, `tsconfig.json`, `migrate.json` и `coverage`,
-поэтому после изменения `package.json`, `package-lock.json` или конфигов линтеров образ
-устаревает молча — пересоберите его `make rebuild`.
+вовсе. Томами монтируются лишь `src`, `test`, `tsconfig.json`, `tsconfig.check.json`,
+`migrate.json` и `coverage`, поэтому после изменения `package.json`, `package-lock.json`,
+`.mocharc.json` или конфигов линтеров образ устаревает молча — пересоберите его `make rebuild`.
 
 Цели `up`, `app-up` и `restart` перед стартом сами продлевают аренду `BOT_TOKEN`, чтобы она не
 протухла во время долгой сессии. Работу без пула это не ломает: в основном дереве с вписанным

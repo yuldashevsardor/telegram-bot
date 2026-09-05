@@ -1,6 +1,5 @@
 import { Command } from "app/infrastructure/bot/command/command";
 import { inject, injectable } from "inversify";
-import dayjs from "dayjs";
 import path from "path";
 import { FontConvertor } from "app/domain/font-convertor/font-convertor";
 import { Services } from "app/infrastructure/container/symbols/services";
@@ -23,7 +22,7 @@ export class FontGeneratorCommand extends Command {
     protected async handle(ctx: Context): Promise<void> {
         const promises: Promise<unknown>[] = [];
         for (let i = 0; i < 1; i++) {
-            promises.push(this.generateRandomFonts.bind(this, ctx));
+            promises.push(this.generateRandomFonts(ctx));
         }
 
         await Promise.all(promises);
@@ -31,7 +30,6 @@ export class FontGeneratorCommand extends Command {
 
     private async generateRandomFonts(ctx: Context): Promise<void> {
         try {
-            const start = dayjs();
             const woffPath = path.join(this.tempDir, "app", "test-fonts", "test-font.woff");
 
             const eotPath = await this.convertor.convert({
@@ -57,7 +55,6 @@ export class FontGeneratorCommand extends Command {
                 extension: Extension.WOFF2,
             });
             await ctx.reply(woff2Path);
-            const diff = dayjs().diff(start, "millisecond");
         } catch (error) {
             console.log(error);
         }

@@ -26,6 +26,7 @@ services:
             - ./src:/app/src
             - ./test:/app/test
             - ./tsconfig.json:/app/tsconfig.json
+            - ./tsconfig.check.json:/app/tsconfig.check.json
             - ./migrate.json:/app/migrate.json
             # Отчёт nyc должен пережить одноразовый контейнер: без монтирования lcov
             # остаётся внутри и пропадает вместе с ним. Каталог создаёт make coverage.

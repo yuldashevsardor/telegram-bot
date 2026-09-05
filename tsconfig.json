@@ -1,6 +1,5 @@
 {
     "compilerOptions": {
-        "alwaysStrict": true,
         "declaration": true,
         "target": "ES2024",
         "module": "node20",
@@ -14,14 +13,21 @@
         "esModuleInterop": true,
         "declarationMap": true,
         //        "inlineSourceMap": true,
+        // Оставлены включёнными вынужденно: @types/node зафиксированы на 17.x, и без
+        // пропуска проверки .d.ts сборка падает на несовместимости их Buffer с lib
+        // ESNext, а также на untyped node-fetch внутри grammy. Снимать вместе с
+        // обновлением @types/node.
         "skipLibCheck": true,
-        // TS 6 включает strict по умолчанию. Проект всегда набирал строгость
-        // поштучно (три флага ниже); полный strict даёт 26 ошибок и требует
-        // типизации, не связанной со сменой резолвинга, — это отдельная задача.
-        "strict": false,
-        "strictNullChecks": true,
-        "strictPropertyInitialization": true,
         "skipDefaultLibCheck": true,
+        "strict": true,
+        "noImplicitOverride": true,
+        "noPropertyAccessFromIndexSignature": true,
+        "noUncheckedIndexedAccess": true,
+        "exactOptionalPropertyTypes": true,
+        "noUnusedLocals": true,
+        "noUnusedParameters": true,
+        "noImplicitReturns": true,
+        "noFallthroughCasesInSwitch": true,
         "sourceMap": true,
         "lib": [
             "ESNext",
@@ -52,6 +58,9 @@
     "exclude": [
         "node_modules",
         "coverage",
-        "**/*.spec.ts"
+        // Не код, а заготовка, из которой node-pg-migrate делает файл миграции:
+        // pgm там объявлен, но ещё не используется, а импорт utils разрешается
+        // только после копирования в каталог миграций.
+        "src/infrastructure/database/migrations/common/template.ts"
     ]
 }

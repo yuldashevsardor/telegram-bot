@@ -6,19 +6,14 @@ import { Modules } from "app/infrastructure/container/symbols/modules";
 import { Context } from "app/infrastructure/bot/bot.types";
 import { PRIORITY } from "app/domain/broker/broker.types";
 
+type RawApiMethod = keyof RawApi;
+type RawApiPayload = Record<string, unknown>;
+
 const TELEGRAM_NO_GROUP_RATE_LIMIT_SET = new Set<string | symbol>([
     "getChat",
     "getChatAdministrators",
     "getChatMembersCount",
     "getChatMember",
-    "sendChatAction",
-]);
-
-const WEBHOOK_REPLY_METHOD_ALLOW_SET = new Set<string | symbol>([
-    "answerCallbackQuery",
-    "answerInlineQuery",
-    "deleteMessage",
-    "leaveChat",
     "sendChatAction",
 ]);
 
@@ -41,31 +36,39 @@ export class TelegramCallApiMiddleware extends Middleware {
 
         // Готовим ProxyHandler, который будет добавлять запросы в ТГ в Брокера
         const proxyHandler: ProxyHandler<RawApi> = {
-            get: (target, method) => {
-                return method === "toJSON" ? "__internal" : callApi.bind(api, method);
+            get: (_target, method) => {
+                return method === "toJSON" ? "__internal" : callApi.bind(api, method as RawApiMethod);
             },
         };
 
-        async function callApi(method, payload, signal): Promise<unknown> {
+        // Методы RawApi различаются типом payload, поэтому обращение по вычисляемому имени
+        // не типизируется без приведения: конкретный метод известен только в рантайме.
+        function callRawApi(method: RawApiMethod, payload: RawApiPayload, signal: AbortSignal | undefined): Promise<unknown> {
+            const call = originRaw[method] as (payload: RawApiPayload, signal?: AbortSignal) => Promise<unknown>;
+
+            return call(payload, signal);
+        }
+
+        async function callApi(method: RawApiMethod, payload: RawApiPayload, signal: AbortSignal | undefined): Promise<unknown> {
             if (payload.constructor.name !== "Object" || !("chat_id" in payload)) {
-                return originRaw[method](payload, signal);
+                return callRawApi(method, payload, signal);
             }
 
-            const chatId = Number(payload.chat_id);
+            const chatId = Number(payload["chat_id"]);
             const isAllowedGroupMethod = TELEGRAM_NO_GROUP_RATE_LIMIT_SET.has(method);
             const isGroup = chatId < 0;
             if (isNaN(chatId) || (isGroup && isAllowedGroupMethod)) {
-                return originRaw[method](payload, signal);
+                return callRawApi(method, payload, signal);
             }
 
             // Это хак, который нужен для того что бы получить результат отправки сообщения через очереди.
             // Создаем переменные для резолва и режекта promise
             // Они будут вызваны после того как сообщения отправится успешно или ошибочно
-            let messageResolve;
-            let messageReject;
+            let messageResolve!: (value: unknown) => void;
+            let messageReject!: (reason: unknown) => void;
 
             // Создаем сам promise, который и будем отдавать в ответе этой функции
-            const promise = new Promise((resolve, reject) => {
+            const promise = new Promise<unknown>((resolve, reject) => {
                 messageResolve = resolve;
                 messageReject = reject;
             });
@@ -73,7 +76,7 @@ export class TelegramCallApiMiddleware extends Middleware {
             const callback = async (): Promise<void> => {
                 try {
                     // Если метод был успешно выполнен - резовлим promise который вернули в ответе
-                    messageResolve(originRaw[method](payload, signal));
+                    messageResolve(callRawApi(method, payload, signal));
                 } catch (e) {
                     // Если была ошибка - соответственно режектим
                     messageReject(e);
@@ -95,6 +98,6 @@ export class TelegramCallApiMiddleware extends Middleware {
         }
 
         // Подменяем RawApi через Proxy на его замену с Брокером
-        (api as any).raw = new Proxy(originRaw, proxyHandler);
+        (api as unknown as { raw: RawApi }).raw = new Proxy(originRaw, proxyHandler);
     }
 }

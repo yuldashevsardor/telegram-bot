@@ -1,0 +1,23 @@
+{
+    // Проверка типов по всему репозиторию: сборочный tsconfig.json ограничен src,
+    // потому что из него эмитится build, а тесты и spec-файлы тоже должны
+    // проверяться. Эмита здесь нет, поэтому rootDir можно расширить до корня.
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "noEmit": true,
+        "declarationDir": null,
+        "declaration": false,
+        "declarationMap": false,
+        "rootDir": "."
+    },
+    "include": [
+        "src/**/*.ts",
+        "src/**/*.js",
+        "test/**/*.ts"
+    ],
+    "exclude": [
+        "node_modules",
+        "coverage",
+        "src/infrastructure/database/migrations/common/template.ts"
+    ]
+}

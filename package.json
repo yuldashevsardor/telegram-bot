@@ -34,7 +34,7 @@
     "main": "./build/app.js",
     "scripts": {
         "build": "del-cli -rf build && tsc && tsc-alias",
-        "typecheck": "tsc --noEmit",
+        "typecheck": "tsc -p tsconfig.check.json",
         "start": "node build/app.js",
         "dev": "node --watch --require ts-node/register --require tsconfig-paths/register src/app.ts",
         "start:prod": "NODE_ENV=production node build/app.js",
@@ -98,10 +98,11 @@
     "devDependencies": {
         "@istanbuljs/nyc-config-typescript": "^1.0.2",
         "@types/chai": "^4.3.20",
-        "@types/dotenv": "^8.2.3",
+        "@types/dotenv": "^6.1.1",
         "@types/mime-types": "^2.1.4",
         "@types/mocha": "^9.1.1",
         "@types/node": "^17.0.45",
+        "@types/uuid": "^8.3.4",
         "@typescript-eslint/eslint-plugin": "^8.69.0",
         "@typescript-eslint/parser": "^8.69.0",
         "chai": "^4.5.0",

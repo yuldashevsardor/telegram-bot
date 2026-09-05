@@ -8,8 +8,8 @@ function getSql(): Sql {
     return database.sql;
 }
 
-export function PgSql(): (target: any, propertyKey: string) => void {
-    return (target: any, propertyKey: string) => {
+export function PgSql(): (target: object, propertyKey: string) => void {
+    return (target: object, propertyKey: string) => {
         let sql: Sql;
 
         const getter = (): Sql => {

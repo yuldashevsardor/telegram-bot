@@ -1,10 +1,10 @@
-export type AnyObject = {
-    [key: string | symbol]: any;
+export type UnknownObject = {
+    [key: string | symbol]: unknown;
 };
 
 export type IsOptional<T> = Extract<T, undefined> extends never ? false : true;
 
-export type Func = (...args: any[]) => any;
+export type Func = (...args: never[]) => unknown;
 
 export type IsFunction<T> = T extends Func ? true : false;
 
