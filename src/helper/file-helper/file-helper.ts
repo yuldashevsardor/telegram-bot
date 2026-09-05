@@ -83,7 +83,7 @@ export class FileHelper {
             fsSync.mkdirSync(pathWithMonth);
         }
 
-        const pathWithDay = path.join(pathWithMonth, dateTime.day().toString());
+        const pathWithDay = path.join(pathWithMonth, dateTime.date().toString());
         if (!fsSync.existsSync(pathWithDay)) {
             fsSync.mkdirSync(pathWithDay);
         }

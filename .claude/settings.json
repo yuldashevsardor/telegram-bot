@@ -1,0 +1,26 @@
+{
+    "hooks": {
+        "SessionStart": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/claude-worktree-guard.sh session-start"
+                    }
+                ]
+            }
+        ],
+        "PreToolUse": [
+            {
+                "matcher": "Edit|Write|NotebookEdit",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/claude-worktree-guard.sh pre-edit",
+                        "statusMessage": "Проверка рабочего дерева"
+                    }
+                ]
+            }
+        ]
+    }
+}

@@ -38,6 +38,7 @@ export class Config {
 
     public readonly bot: {
         token: string;
+        shutdownTimeout: number;
     };
 
     public readonly logger!: Logger;
@@ -73,6 +74,7 @@ export class Config {
 
         this.bot = {
             token: Config.getEnvAsString("BOT_TOKEN"),
+            shutdownTimeout: Config.getEnvAsInteger("BOT_SHUTDOWN_TIMEOUT", 5000),
         };
 
         this.logger = Config.getLogger(this.isProduction);

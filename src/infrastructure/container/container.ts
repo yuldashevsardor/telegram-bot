@@ -52,6 +52,10 @@ export class Container extends InversifyContainer {
         if (!this.alreadySetup) {
             return;
         }
+
+        await this.get<Database>(Infrastructure.Database).close();
+
+        this.alreadySetup = false;
     }
 
     private async setupModules(): Promise<void> {

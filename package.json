@@ -33,13 +33,20 @@
     },
     "main": "./build/app.js",
     "scripts": {
+        "build": "del-cli -rf build && tsc && tsc-alias",
         "typecheck": "tsc -p tsconfig.check.json",
-        "build": "npm run typecheck && del-cli -rf build && tsc && tsc-alias",
         "start": "node build/app.js",
         "dev": "node --watch --require ts-node/register --require tsconfig-paths/register src/app.ts",
         "start:prod": "NODE_ENV=production node build/app.js",
         "prepare": "husky install && chmod +x .husky/pre-commit",
+        "lint": "eslint src test",
+        "lint:fix": "eslint --fix src test",
+        "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+        "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
         "test": "mocha",
+        "test:watch": "mocha --watch",
+        "test:coverage": "nyc mocha",
+        "check": "npm run typecheck && npm run lint && npm run format:check && npm test",
         "migrate": "node -r tsconfig-paths/register node_modules/.bin/node-pg-migrate -f ./migrate.json"
     },
     "lint-staged": {
@@ -89,6 +96,7 @@
         "uuid": "^8.3.2"
     },
     "devDependencies": {
+        "@istanbuljs/nyc-config-typescript": "^1.0.2",
         "@types/chai": "^4.3.20",
         "@types/dotenv": "^6.1.1",
         "@types/mime-types": "^2.1.4",
