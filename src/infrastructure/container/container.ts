@@ -1,7 +1,8 @@
 import "reflect-metadata";
 import { Container as InversifyContainer } from "inversify";
 import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
-import { Config } from "app/infrastructure/config/config";
+import { ConfigContainer } from "app/infrastructure/config/config-container";
+import { ConfigEnvStorage } from "app/infrastructure/config/config-env-storage";
 import { FontForge } from "app/domain/font-convertor/font-forge/font-forge";
 import { Services } from "app/infrastructure/container/symbols/services";
 import { ConvertorFactory } from "app/domain/font-convertor/convertor/convertor-factory";
@@ -77,7 +78,7 @@ export class Container extends InversifyContainer {
     }
 
     private async setupInfrastructure(): Promise<void> {
-        this.bind<Config>(Infrastructure.Config).to(Config).inSingletonScope();
+        this.bind<ConfigContainer>(Infrastructure.ConfigContainer).toConstantValue(new ConfigContainer(new ConfigEnvStorage()));
         this.bind<Database>(Infrastructure.Database).to(Database).inSingletonScope();
 
         await this.setupInfrastructureLogger();
@@ -87,7 +88,7 @@ export class Container extends InversifyContainer {
         this.bind<ConsoleLogger>(Infrastructure.ConsoleLogger).to(ConsoleLogger).inSingletonScope();
         this.bind<PinoLogger>(Infrastructure.PinoLogger).to(PinoLogger).inSingletonScope();
 
-        const config = this.get<Config>(Infrastructure.Config);
+        const config = this.get<ConfigContainer>(Infrastructure.ConfigContainer);
         const consoleLogger = this.get<ConsoleLogger>(Infrastructure.ConsoleLogger);
         const pinoLogger = this.get<PinoLogger>(Infrastructure.PinoLogger);
 
@@ -107,7 +108,7 @@ export class Container extends InversifyContainer {
             }),
         );
 
-        const defaultLogger = this.get<Logger>(config.logger.default);
+        const defaultLogger = this.get<Logger>(Infrastructure[config.logger.default]);
 
         if (defaultLogger instanceof AbstractLogger) {
             defaultLogger.setLevel(config.logger.level);
