@@ -14,7 +14,7 @@ dotenv.config({ quiet: true });
 
 type Logger = {
     default: symbol;
-    levels: Array<Level>;
+    level: Level;
 };
 
 type LoggerType = "ConsoleLogger" | "PinoLogger";
@@ -114,26 +114,16 @@ export class Config {
         return parseInt(value);
     }
 
-    private static getEnvAsArray(name: string, defaultValue: Array<string>): Array<string> {
-        const value = Config.getEnvAsString(name, "");
-
-        if (value === "") {
-            return defaultValue;
-        }
-
-        return value
-            .split(",")
-            .map((item) => item.trim())
-            .filter((item) => item !== "");
-    }
-
     private static isAllowedLoggerType(value: string): value is LoggerType {
         return Config.allowedLoggerTypes.some((allowed) => allowed === value);
     }
 
+    private static isLevel(value: string): value is Level {
+        return Levels.some((level) => level === value);
+    }
+
     private static getLogger(isProduction: boolean): Logger {
         const defaultLoggerKey = Config.getEnvAsString("LOGGER_DEFAULT", "") || (isProduction ? "PinoLogger" : "ConsoleLogger");
-        const logLevels = Config.getEnvAsArray("LOGGER_LEVELS", []).map((level) => level.toUpperCase());
 
         if (!Config.isAllowedLoggerType(defaultLoggerKey)) {
             throw new InvalidConfigError({
@@ -145,24 +135,22 @@ export class Config {
             });
         }
 
-        const logger: Logger = {
-            default: Infrastructure[defaultLoggerKey],
-            levels: [],
-        };
+        const level = Config.getEnvAsString("LOGGER_LEVEL", "").toUpperCase() || (isProduction ? Level.WARNING : Level.DEBUG);
 
-        if (!logLevels.length) {
-            if (isProduction) {
-                logger.levels = [Level.WARNING, Level.ERROR, Level.CRITICAL];
-            } else {
-                logger.levels = Levels;
-            }
-        } else if (logLevels.includes("*") || logLevels.includes("ALL")) {
-            logger.levels = Levels;
-        } else {
-            logger.levels = logLevels as Array<Level>;
+        if (!Config.isLevel(level)) {
+            throw new InvalidConfigError({
+                message: "Invalid logger level",
+                payload: {
+                    got: level,
+                    allowed: Levels,
+                },
+            });
         }
 
-        return logger;
+        return {
+            default: Infrastructure[defaultLoggerKey],
+            level: level,
+        };
     }
 
     private static getDatabase(): DatabaseSettings {

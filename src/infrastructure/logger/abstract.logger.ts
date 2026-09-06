@@ -1,21 +1,23 @@
 import { Logger } from "app/domain/logger/logger";
-import { Level, Levels } from "app/domain/logger/logger.types";
+import { Level, Levels, LevelSeverity } from "app/domain/logger/logger.types";
 import { UnknownObject } from "app/common/types";
 import { InvalidLogLevel } from "app/domain/logger/logger.errors";
 import { injectable } from "inversify";
 
 @injectable()
 export abstract class AbstractLogger implements Logger {
-    protected levels: Array<Level> = [];
+    protected level: Level = Level.DEBUG;
 
-    public setLevels(levels: Array<Level>): void {
-        for (const level of levels) {
-            if (!Levels.includes(level)) {
-                throw InvalidLogLevel.byLevel(level);
-            }
+    public setLevel(level: Level): void {
+        if (!Levels.includes(level)) {
+            throw InvalidLogLevel.byLevel(level);
         }
 
-        this.levels = levels;
+        this.level = level;
+    }
+
+    protected isEnabled(level: Level): boolean {
+        return LevelSeverity[level] >= LevelSeverity[this.level];
     }
 
     public abstract critical(message: string, payload?: UnknownObject): void;
