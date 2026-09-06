@@ -127,17 +127,6 @@ export class Config {
             });
         }
 
-        // LOGGER_LEVELS перечислял уровни, LOGGER_LEVEL задаёт порог: оставленное в окружении
-        // старое имя иначе молча игнорировалось бы, подменяя настроенные уровни умолчанием.
-        if (Config.getEnvAsString("LOGGER_LEVELS", "") !== "") {
-            throw new InvalidConfigError({
-                message: "LOGGER_LEVELS is replaced by LOGGER_LEVEL with a single minimum level",
-                payload: {
-                    allowed: Levels,
-                },
-            });
-        }
-
         const level = Config.getEnvAsString("LOGGER_LEVEL", "").toUpperCase() || (isProduction ? Level.WARNING : Level.DEBUG);
 
         if (!Config.isLevel(level)) {
