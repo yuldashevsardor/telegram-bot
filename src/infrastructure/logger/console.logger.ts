@@ -61,11 +61,9 @@ export class ConsoleLogger extends AbstractLogger {
         const messages = [`[${dayjs().format("YYYY-MM-DD HH:mm:ss.SSS")}]`, `[${level}]`, message];
 
         if (payload) {
-            if (payload instanceof Error) {
-                payload = serializeError(payload);
-            }
-
-            messages.push(JSON.stringify(payload, null, 4));
+            // Без serializeError вложенные ошибки печатались бы как {}: свойства name,
+            // message и stack у Error неперечислимы, и JSON.stringify их не видит.
+            messages.push(JSON.stringify(serializeError(payload), null, 4));
         }
 
         return messages.join(" ");
