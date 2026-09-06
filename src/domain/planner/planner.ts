@@ -55,6 +55,7 @@ export class Planner {
         }
 
         if (this.isEmpty()) {
+            this.removeFreeManagers();
             return null;
         }
 
@@ -136,6 +137,17 @@ export class Planner {
         return manager;
     }
 
+    // Менеджер без резервации неотличим от только что созданного, поэтому удаление свободных
+    // менеджеров ничего не меняет для лимитов. Занятые остаются: их резервация — и есть лимит
+    // чата, и следующая уборка заберёт их, когда резервация истечёт.
+    private removeFreeManagers(): void {
+        for (const [chatId, manager] of this.managers) {
+            if (manager.isFree()) {
+                this.managers.delete(chatId);
+            }
+        }
+    }
+
     public getMessagesCount(): number {
         let count = 0;
 
@@ -148,7 +160,9 @@ export class Planner {
 
     private logMessageCount(): void {
         setInterval(() => {
-            this.logger.info(`Number of messages in the queue: ${this.getMessagesCount()}`);
+            this.logger.info(
+                `Number of messages in the queue: ${this.getMessagesCount()}. Number of chat slot managers: ${this.managers.size}`,
+            );
         }, 10000).unref();
     }
 
