@@ -91,8 +91,8 @@ export class Container extends InversifyContainer {
         const consoleLogger = this.get<ConsoleLogger>(Infrastructure.ConsoleLogger);
         const pinoLogger = this.get<PinoLogger>(Infrastructure.PinoLogger);
 
-        consoleLogger.setLevels(config.logger.levels);
-        pinoLogger.setLevels(config.logger.levels);
+        consoleLogger.setLevel(config.logger.level);
+        pinoLogger.setLevel(config.logger.level);
 
         this.rebind<Logger>(Infrastructure.ConsoleLogger).toConstantValue(consoleLogger);
         this.rebind<Logger>(Infrastructure.PinoLogger).toConstantValue(
@@ -110,7 +110,7 @@ export class Container extends InversifyContainer {
         const defaultLogger = this.get<Logger>(config.logger.default);
 
         if (defaultLogger instanceof AbstractLogger) {
-            defaultLogger.setLevels(config.logger.levels);
+            defaultLogger.setLevel(config.logger.level);
         }
 
         this.bind<Logger>(Infrastructure.Logger).toConstantValue(defaultLogger);

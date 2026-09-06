@@ -10,7 +10,7 @@ export class ConsoleLogger extends AbstractLogger {
     public critical(message: string, payload?: UnknownObject): void {
         const level = Level.CRITICAL;
 
-        if (!this.levels.includes(level)) {
+        if (!this.isEnabled(level)) {
             return;
         }
 
@@ -20,7 +20,7 @@ export class ConsoleLogger extends AbstractLogger {
     public error(message: string, payload?: UnknownObject): void {
         const level = Level.ERROR;
 
-        if (!this.levels.includes(level)) {
+        if (!this.isEnabled(level)) {
             return;
         }
 
@@ -30,7 +30,7 @@ export class ConsoleLogger extends AbstractLogger {
     public warning(message: string, payload?: UnknownObject): void {
         const level = Level.WARNING;
 
-        if (!this.levels.includes(level)) {
+        if (!this.isEnabled(level)) {
             return;
         }
 
@@ -40,7 +40,7 @@ export class ConsoleLogger extends AbstractLogger {
     public info(message: string, payload?: UnknownObject): void {
         const level = Level.INFO;
 
-        if (!this.levels.includes(level)) {
+        if (!this.isEnabled(level)) {
             return;
         }
 
@@ -50,7 +50,7 @@ export class ConsoleLogger extends AbstractLogger {
     public debug(message: string, payload?: UnknownObject): void {
         const level = Level.DEBUG;
 
-        if (!this.levels.includes(level)) {
+        if (!this.isEnabled(level)) {
             return;
         }
 

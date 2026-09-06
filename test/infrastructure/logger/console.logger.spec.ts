@@ -4,21 +4,27 @@ import { ConsoleLogger } from "app/infrastructure/logger/console.logger";
 import { Level } from "app/domain/logger/logger.types";
 import { UnknownObject } from "app/common/types";
 
-function logAndParsePayload(payload: UnknownObject): unknown {
-    const logger = new ConsoleLogger();
-    logger.setLevels([Level.ERROR]);
-
-    const original = console.error;
+function capture(method: "error" | "info", write: (logger: ConsoleLogger) => void): string {
+    const original = console[method];
     let captured = "";
-    console.error = (message: string): void => {
+    console[method] = (message: string): void => {
         captured = message;
     };
 
+    const logger = new ConsoleLogger();
+    logger.setLevel(Level.ERROR);
+
     try {
-        logger.error("failed", payload);
+        write(logger);
     } finally {
-        console.error = original;
+        console[method] = original;
     }
+
+    return captured;
+}
+
+function logAndParsePayload(payload: UnknownObject): unknown {
+    const captured = capture("error", (logger) => logger.error("failed", payload));
 
     return JSON.parse(captured.slice(captured.indexOf("{")));
 }
@@ -35,5 +41,13 @@ describe("ConsoleLogger", function () {
         const payload = logAndParsePayload({ userId: 42, formats: ["ttf", "woff2"] });
 
         expect(payload).to.deep.equal({ userId: 42, formats: ["ttf", "woff2"] });
+    });
+
+    it("skips a level below the configured one", function () {
+        expect(capture("info", (logger) => logger.info("skipped"))).to.equal("");
+    });
+
+    it("prints a level above the configured one", function () {
+        expect(capture("error", (logger) => logger.critical("printed"))).to.contain("[CRITICAL] printed");
     });
 });
