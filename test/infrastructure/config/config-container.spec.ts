@@ -27,7 +27,8 @@ describe("ConfigContainer", () => {
 
         expect(result.environment).to.equal("development");
         expect(result.isProduction).to.equal(false);
-        expect(result.bot.shutdownTimeout).to.equal(5000);
+        expect(result.gracefulShutdown.timeout).to.equal(5000);
+        expect(result.gracefulShutdown.pollInterval).to.equal(3000);
         expect(result.broker.sleepInterval).to.equal(1000);
         expect(result.database.host).to.equal("localhost");
         expect(result.database.port).to.equal(5432);
@@ -44,18 +45,14 @@ describe("ConfigContainer", () => {
         expect(config({ BOT_TOKEN: "  token  " }).bot.token).to.equal("token");
     });
 
-    it("picks the development logger defaults", () => {
-        const result = config();
-
-        expect(result.logger.default).to.equal("ConsoleLogger");
-        expect(result.logger.level).to.equal(Level.DEBUG);
+    it("picks the development logger level", () => {
+        expect(config().logger.level).to.equal(Level.DEBUG);
     });
 
-    it("picks the production logger defaults", () => {
-        const result = config({ ENVIRONMENT: "production" });
+    it("picks the production logger level", () => {
+        const result = config({ NODE_ENV: "production" });
 
         expect(result.isProduction).to.equal(true);
-        expect(result.logger.default).to.equal("PinoLogger");
         expect(result.logger.level).to.equal(Level.WARNING);
     });
 
@@ -67,7 +64,8 @@ describe("ConfigContainer", () => {
         expect(() => config({ LOGGER_LEVEL: "verbose" })).to.throw(InvalidConfigError);
     });
 
-    it("rejects an unknown default logger", () => {
-        expect(() => config({ LOGGER_DEFAULT: "SyslogLogger" })).to.throw(InvalidConfigError);
+    it("rejects a value that is not an integer", () => {
+        expect(() => config({ GRACEFUL_SHUTDOWN_TIMEOUT: "10s" })).to.throw(InvalidConfigError);
+        expect(() => config({ DATABASE_PORT: "abc" })).to.throw(InvalidConfigError);
     });
 });

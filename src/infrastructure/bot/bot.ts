@@ -15,6 +15,7 @@ import { ConversationHandler } from "app/infrastructure/bot/conversation/convers
 import { conversations, createConversation } from "@grammyjs/conversations";
 import { Filter } from "app/infrastructure/bot/filter/filter";
 import { FileHelper } from "app/helper/file-helper/file-helper";
+import { InvalidConfigError, RuntimeError } from "app/common/errors";
 import { Fluent } from "@moebius/fluent";
 import { useFluent } from "@grammyjs/fluent";
 import path from "path";
@@ -39,7 +40,7 @@ export class Bot {
         private readonly sessionStorage: StorageAdapter<SessionPayload>,
     ) {
         if (!this.settings.token) {
-            throw new Error("Bot token cannot be empty!");
+            throw new InvalidConfigError({ message: "Bot token cannot be empty!" });
         }
 
         this.grammy = new TelegramBot<Context>(this.settings.token);
@@ -47,7 +48,7 @@ export class Bot {
 
     public async run(): Promise<void> {
         if (!this.isSetup) {
-            throw new Error("Bot is not set up!");
+            throw new RuntimeError({ message: "Bot is not set up!" });
         }
 
         this.grammy.catch(this.handleError.bind(this));

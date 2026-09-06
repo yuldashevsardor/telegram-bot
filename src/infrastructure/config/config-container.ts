@@ -1,5 +1,5 @@
 import path from "path";
-import { Level, Levels } from "app/domain/logger/logger.types";
+import { isLevel, Level, Levels } from "app/domain/logger/logger.types";
 import { InvalidConfigError } from "app/common/errors";
 import { Limits } from "app/domain/planner/planner.types";
 import { BrokerSettings } from "app/domain/broker/broker.types";
@@ -7,17 +7,12 @@ import { DatabaseSettings } from "app/infrastructure/database/database.types";
 import { ConfigStorage } from "app/infrastructure/config/config-storage";
 
 type LoggerConfig = {
-    default: LoggerType;
     level: Level;
 };
-
-export type LoggerType = "ConsoleLogger" | "PinoLogger";
 
 export type Environment = "production" | "development" | "testing";
 
 export class ConfigContainer {
-    private static readonly allowedLoggerTypes: ReadonlyArray<LoggerType> = ["ConsoleLogger", "PinoLogger"];
-
     public readonly environment: Environment;
     public readonly isProduction: boolean;
 
@@ -31,7 +26,11 @@ export class ConfigContainer {
 
     public readonly bot: {
         token: string;
-        shutdownTimeout: number;
+    };
+
+    public readonly gracefulShutdown: {
+        timeout: number;
+        pollInterval: number;
     };
 
     public readonly logger: LoggerConfig;
@@ -39,7 +38,7 @@ export class ConfigContainer {
     public readonly database: DatabaseSettings;
 
     public constructor(private readonly storage: ConfigStorage) {
-        this.environment = this.getString("ENVIRONMENT", "development") as Environment;
+        this.environment = this.getString("NODE_ENV", "development") as Environment;
         this.isProduction = this.environment === "production";
 
         this.rootDir = process.cwd();
@@ -68,7 +67,11 @@ export class ConfigContainer {
 
         this.bot = {
             token: this.getString("BOT_TOKEN"),
-            shutdownTimeout: this.getInteger("BOT_SHUTDOWN_TIMEOUT", 5000),
+        };
+
+        this.gracefulShutdown = {
+            timeout: this.getInteger("GRACEFUL_SHUTDOWN_TIMEOUT", 5000),
+            pollInterval: this.getInteger("GRACEFUL_SHUTDOWN_POLL_INTERVAL", 3000),
         };
 
         this.logger = this.getLogger();
@@ -76,13 +79,9 @@ export class ConfigContainer {
     }
 
     private getString(name: string, defaultValue = ""): string {
-        let value = this.storage.get(name);
+        const value = this.storage.get(name)?.trim();
 
-        if (value !== undefined) {
-            value = value.trim();
-        }
-
-        if (value === null || value === undefined || value === "") {
+        if (value === undefined || value === "") {
             return defaultValue;
         }
 
@@ -96,33 +95,26 @@ export class ConfigContainer {
             return defaultValue;
         }
 
-        return parseInt(value);
-    }
+        const parsed = Number(value);
 
-    private static isAllowedLoggerType(value: string): value is LoggerType {
-        return ConfigContainer.allowedLoggerTypes.some((allowed) => allowed === value);
-    }
-
-    private static isLevel(value: string): value is Level {
-        return Levels.some((level) => level === value);
-    }
-
-    private getLogger(): LoggerConfig {
-        const defaultLoggerKey = this.getString("LOGGER_DEFAULT", "") || (this.isProduction ? "PinoLogger" : "ConsoleLogger");
-
-        if (!ConfigContainer.isAllowedLoggerType(defaultLoggerKey)) {
+        // Number, а не parseInt: тот молча съедает хвост ("10s" → 10) и на "abc" отдаёт NaN,
+        // так что нечисловое значение уехало бы в конфиг незамеченным.
+        if (!Number.isInteger(parsed)) {
             throw new InvalidConfigError({
-                message: "Invalid default logger",
+                message: `Config value "${name}" must be an integer`,
                 payload: {
-                    got: defaultLoggerKey,
-                    allowed: ConfigContainer.allowedLoggerTypes,
+                    got: value,
                 },
             });
         }
 
+        return parsed;
+    }
+
+    private getLogger(): LoggerConfig {
         const level = this.getString("LOGGER_LEVEL", "").toUpperCase() || (this.isProduction ? Level.WARNING : Level.DEBUG);
 
-        if (!ConfigContainer.isLevel(level)) {
+        if (!isLevel(level)) {
             throw new InvalidConfigError({
                 message: "Invalid logger level",
                 payload: {
@@ -133,7 +125,6 @@ export class ConfigContainer {
         }
 
         return {
-            default: defaultLoggerKey,
             level: level,
         };
     }

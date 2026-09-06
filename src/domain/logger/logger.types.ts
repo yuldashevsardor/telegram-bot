@@ -17,3 +17,7 @@ export const LevelSeverity: Record<Level, number> = {
 };
 
 export const Levels = Object.keys(LevelSeverity) as Array<Level>;
+
+export function isLevel(value: string): value is Level {
+    return Levels.some((level) => level === value);
+}

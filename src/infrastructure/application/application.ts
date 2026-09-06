@@ -1,4 +1,4 @@
-import { container, Loggers } from "app/infrastructure/container/container";
+import { container } from "app/infrastructure/container/container";
 import { ConfigContainer } from "app/infrastructure/config/config-container";
 import { ConfigEnvStorage } from "app/infrastructure/config/config-env-storage";
 import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
@@ -12,11 +12,10 @@ import { Broker } from "app/domain/broker/broker";
 import { Planner } from "app/domain/planner/planner";
 import { Bot } from "app/infrastructure/bot/bot";
 import { sleep } from "app/helper/utils";
-
-const PLANNER_POLL_INTERVAL = 3000;
+import { RuntimeError } from "app/common/errors";
 
 export class Application {
-    private config!: ConfigContainer;
+    private cc!: ConfigContainer;
     private logger!: Logger;
     private planner!: Planner;
     private broker!: Broker;
@@ -30,21 +29,19 @@ export class Application {
             return;
         }
 
-        this.config = new ConfigContainer(new ConfigEnvStorage());
+        this.cc = new ConfigContainer(new ConfigEnvStorage());
+        this.logger = Application.createLogger(this.cc);
 
-        const loggers = Application.createLoggers(this.config);
-        this.logger = loggers.default;
+        this.logger.info("Setup container...");
 
-        this.logger.debug("Setup container...");
+        await container.setup(this.cc, this.logger);
 
-        await container.setup(this.config, loggers);
-
-        this.logger.debug("Container successfully setup.");
-        this.logger.debug("Check database connection...");
+        this.logger.info("Container successfully setup.");
+        this.logger.info("Check database connection...");
 
         await container.get<Database>(Infrastructure.Database).check();
 
-        this.logger.debug("Database connection is alive.");
+        this.logger.info("Database connection is alive.");
 
         this.planner = container.get<Planner>(Modules.Planner.Planner);
         this.broker = container.get<Broker>(Modules.Broker.Broker);
@@ -57,7 +54,7 @@ export class Application {
 
     public async run(): Promise<void> {
         if (!this.isSetup) {
-            throw new Error("Application is not set up!");
+            throw new RuntimeError({ message: "Application is not set up!" });
         }
 
         try {
@@ -96,16 +93,21 @@ export class Application {
         this.logger.info("Application is successfully stopped.");
     }
 
-    // Дочерний логгер запроса подменяет синглтон прозрачно для потребителя: тот работает
-    // с одним объектом, а пишет через логгер своего запроса, если он есть в AsyncLocalStorage.
-    private static createLoggers(config: ConfigContainer): Loggers {
-        const consoleLogger = new ConsoleLogger();
+    private static createLogger(cc: ConfigContainer): Logger {
+        if (!cc.isProduction) {
+            const consoleLogger = new ConsoleLogger();
+            consoleLogger.setLevel(cc.logger.level);
+
+            return consoleLogger;
+        }
+
         const pinoLogger = new PinoLogger();
+        pinoLogger.setLevel(cc.logger.level);
 
-        consoleLogger.setLevel(config.logger.level);
-        pinoLogger.setLevel(config.logger.level);
-
-        const scopedPinoLogger = new Proxy(pinoLogger, {
+        // Дочерний логгер запроса подменяет синглтон прозрачно для потребителя: тот работает
+        // с одним объектом, а пишет через логгер своего запроса, если он есть в AsyncLocalStorage.
+        // От самой обёртки предстоит избавиться — issue #40.
+        return new Proxy(pinoLogger, {
             get(target, property, receiver): unknown {
                 const scopedLogger = asyncLocalStorage.getStore()?.get("logger");
 
@@ -114,16 +116,11 @@ export class Application {
                 return Reflect.get(target, property, receiver);
             },
         });
-
-        return {
-            console: consoleLogger,
-            pino: scopedPinoLogger,
-            default: config.logger.default === "PinoLogger" ? scopedPinoLogger : consoleLogger,
-        };
     }
 
     private async waitPlannerToEmpty(): Promise<void> {
-        const deadline = Date.now() + this.config.bot.shutdownTimeout;
+        const { timeout, pollInterval } = this.cc.gracefulShutdown;
+        const deadline = Date.now() + timeout;
 
         while (!this.planner.isEmpty()) {
             const timeLeft = deadline - Date.now();
@@ -131,14 +128,14 @@ export class Application {
             if (timeLeft <= 0) {
                 this.logger.warning("Shutdown timeout is over, remaining messages will not be sent.", {
                     messagesLeft: this.planner.getMessagesCount(),
-                    shutdownTimeout: this.config.bot.shutdownTimeout,
+                    shutdownTimeout: timeout,
                 });
                 return;
             }
 
             this.logger.info(`Waiting for the outgoing queue to empty: ${this.planner.getMessagesCount()} messages left.`);
 
-            await sleep(Math.min(PLANNER_POLL_INTERVAL, timeLeft));
+            await sleep(Math.min(pollInterval, timeLeft));
         }
     }
 }

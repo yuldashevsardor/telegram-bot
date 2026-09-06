@@ -29,26 +29,18 @@ import { UserService } from "app/domain/user/user.service";
 import { TelegramCallApiMiddleware } from "app/infrastructure/bot/middleware/mutation/telegram-call-api.middleware";
 import { StartConversation } from "app/infrastructure/bot/conversation/start/start.conversation";
 
-export type Loggers = {
-    console: Logger;
-    pino: Logger;
-    default: Logger;
-};
-
 export class Container extends InversifyContainer {
     private alreadySetup = false;
 
-    // Конфиг и логгеры приходят готовыми: их собирает Application до контейнера, поэтому
+    // Конфиг и логгер приходят готовыми: их собирает Application до контейнера, поэтому
     // всё, что связывается ниже, уже может на них рассчитывать.
-    public async setup(config: ConfigContainer, loggers: Loggers): Promise<void> {
+    public async setup(config: ConfigContainer, logger: Logger): Promise<void> {
         if (this.alreadySetup) {
             return;
         }
 
         this.bind<ConfigContainer>(Infrastructure.ConfigContainer).toConstantValue(config);
-        this.bind<Logger>(Infrastructure.ConsoleLogger).toConstantValue(loggers.console);
-        this.bind<Logger>(Infrastructure.PinoLogger).toConstantValue(loggers.pino);
-        this.bind<Logger>(Infrastructure.Logger).toConstantValue(loggers.default);
+        this.bind<Logger>(Infrastructure.Logger).toConstantValue(logger);
 
         await this.setupModules();
         await this.setupServices();

@@ -90,7 +90,7 @@ test/                        (почти пустой) набор тестов (
 `src/infrastructure/container/container.ts` определяет `Container extends InversifyContainer` с идемпотентным `setup(config, loggers)`. Конфиг и логгеры приходят готовыми — их собирает `Application` (§5) — и связываются первыми, поэтому всё остальное уже может на них рассчитывать:
 
 ```
-setup(config, loggers)   ConfigContainer, ConsoleLogger, PinoLogger, Logger (toConstantValue)
+setup(config, logger)    ConfigContainer, Logger (toConstantValue)
  └─ setupModules()        Planner, Broker (singleton) → setupBot()
      └─ setupBot()        Bot, фильтры, middleware, команды, хранилище сессий, conversations
  └─ setupServices()       стек font-convertor, стек user (всё singleton)
@@ -99,7 +99,7 @@ setup(config, loggers)   ConfigContainer, ConsoleLogger, PinoLogger, Logger (toC
 
 Биндинги используют символы на базе `Symbol.for(...)`, сгруппированные в пространства имён `Infrastructure` / `Modules` / `Services` (`src/infrastructure/container/symbols/`), — это вручную поддерживаемый реестр, а не автообнаружение по декораторам. **Добавление новой команды, middleware или сервиса требует ручной регистрации в `container.ts`** — ничего не упадёт с ошибкой, если вы про это забудете.
 
-Сами логгеры контейнер не собирает — он получает их готовыми в `loggers` и связывает как константы (`Application.createLoggers()`, §5 и §9). `Infrastructure.Logger` — единственный из четырёх символов, который реально внедряется через `@inject<Logger>(Infrastructure.Logger)` во всей остальной кодовой базе.
+Логгер контейнер не собирает — он получает готовый экземпляр и связывает его константой (`Application.createLogger()`, §5 и §9). Символ `Infrastructure.Logger` один: конкретные `ConsoleLogger`/`PinoLogger` в контейнере больше не значатся, и вся кодовая база внедряет логгер через `@inject<Logger>(Infrastructure.Logger)`.
 
 Помимо внедрения через конструктор, два ленивых декоратора свойств тянут значения напрямую из модульного синглтона `container` при первом обращении к свойству, минуя конструктор (паттерн service locator):
 - `@ConfigValue<T>(key, defaultValue?)` (`src/infrastructure/config/config-value.decorator.ts`) — поиск по «точечному» пути в `ConfigContainer` (например, `"bot.token"`), бросает исключение, если значение не найдено и дефолта нет. Используется в `Bot`, `Database`, `Broker`, `Planner`, `FontGeneratorCommand` и др. (замена на внедрение через конструктор — issue [#41](https://github.com/yuldashevsardor/telegram-bot/issues/41)).
@@ -112,8 +112,8 @@ setup(config, loggers)   ConfigContainer, ConsoleLogger, PinoLogger, Logger (toC
 `Application.setup()` — только сборка, ничего не запускает:
 
 1. `new ConfigContainer(new ConfigEnvStorage())` — чтение и валидация всей конфигурации (§12).
-2. `createLoggers(config)` — `ConsoleLogger` и `PinoLogger` с уровнем из конфига, `Proxy` над `PinoLogger` для per-request логгера, выбор дефолтного по `config.logger.default` (§9).
-3. `container.setup(config, loggers)` — конфиг и логгеры связываются константами, за ними все остальные биндинги (§4).
+2. `createLogger(cc)` — один логгер: в production `PinoLogger` (обёрнутый в `Proxy` для per-request логгера), иначе `ConsoleLogger`; уровень берётся из конфига (§9).
+3. `container.setup(cc, logger)` — конфиг и логгер связываются константами, за ними все остальные биндинги (§4).
 4. `Database.check()` — пробный `select 1`: недоступная база валит старт, а не проявляется молчанием бота на первом апдейте.
 5. `Bot.setup()` — сборка пайплайна grammY (ниже).
 
@@ -121,7 +121,7 @@ setup(config, loggers)   ConfigContainer, ConsoleLogger, PinoLogger, Logger (toC
 
 `Application.run()` — только запуск: `broker.run()` (воркер исходящей очереди, §6) → `Bot.run()`. Если что-то падает, broker останавливается, ошибка пишется как `critical` и пробрасывается дальше (§2).
 
-`Application.stop()` — обратный порядок: `Bot.stop()` → `waitPlannerToEmpty()` → `broker.stop()` → `container.close()` (пул Postgres). `waitPlannerToEmpty()` опрашивает `planner.isEmpty()` каждые 3 секунды, но не дольше `BOT_SHUTDOWN_TIMEOUT` (по умолчанию 5000 мс); каждая итерация пишет в лог остаток очереди, по истечении срока пишется `warning` с числом неотправленных сообщений, и остановка продолжается без разгрузки. Дефолт выбран меньше stop grace period контейнера (у Compose это 10 секунд), иначе таймаут не успел бы сработать до `SIGKILL`. До появления таймаута (issue [#33](https://github.com/yuldashevsardor/telegram-bot/issues/33)) очередь, переставшая разгружаться — бан по рейт-лимиту, невыдаваемый слот `SlotManager`, просто длинная очередь, — вешала остановку навсегда. Остановка до конца `setup()` не делает ничего.
+`Application.stop()` — обратный порядок: `Bot.stop()` → `waitPlannerToEmpty()` → `broker.stop()` → `container.close()` (пул Postgres). `waitPlannerToEmpty()` опрашивает `planner.isEmpty()` каждые `GRACEFUL_SHUTDOWN_POLL_INTERVAL` (по умолчанию 3000 мс), но не дольше `GRACEFUL_SHUTDOWN_TIMEOUT` (по умолчанию 5000 мс); каждая итерация пишет в лог остаток очереди, по истечении срока пишется `warning` с числом неотправленных сообщений, и остановка продолжается без разгрузки. Дефолт выбран меньше stop grace period контейнера (у Compose это 10 секунд), иначе таймаут не успел бы сработать до `SIGKILL`. До появления таймаута (issue [#33](https://github.com/yuldashevsardor/telegram-bot/issues/33)) очередь, переставшая разгружаться — бан по рейт-лимиту, невыдаваемый слот `SlotManager`, просто длинная очередь, — вешала остановку навсегда. Остановка до конца `setup()` не делает ничего.
 
 `src/infrastructure/bot/bot.ts` — `Bot` оборачивает grammY-объект `TelegramBot<Context>` и отвечает только за Telegram-слой: ни брокера, ни планировщика он не знает. Тип `Context` (`bot.types.ts`) складывается из `GrammyContext & SessionFlavor<SessionPayload> & ConversationFlavor & FluentContextFlavor & { user: User }`.
 
@@ -251,7 +251,7 @@ FontConvertor.convert(params)
 - **`src/domain/logger/logger.ts`** — интерфейс `Logger` (`critical/error/warning/info/debug(message, payload?)`), порт, от которого зависит доменный код. `logger.types.ts` определяет enum `Level` (`CRITICAL/ERROR/WARNING/INFO/DEBUG`) и карту весов `LevelSeverity`, задающую порядок уровней по серьёзности.
 - **`src/infrastructure/logger/`** — адаптеры: `AbstractLogger` (хранит один минимальный уровень, заданный через `setLevel`, и предоставляет наследникам `isEnabled(level)` — сравнение весов `LevelSeverity`), `ConsoleLogger` (формат `[timestamp] [LEVEL] message payload`, сериализует payload-ошибки через `serialize-error`), `PinoLogger` (обёртка над `pino` с кастомными числовыми уровнями, взятыми из `LevelSeverity`, `useOnlyCustomLevels: true`; сам записи не фильтрует, а переносит порог в штатный `pino.level`; есть метод `child(context)`).
 
-Какой конкретный адаптер реально внедряется как `Infrastructure.Logger`, решается один раз в `Application.createLoggers()` (§5) на основе `config.logger.default` (env `LOGGER_DEFAULT`; по умолчанию `PinoLogger` в production и `ConsoleLogger` в остальных случаях).
+Какой конкретный адаптер реально внедряется как `Infrastructure.Logger`, решается один раз в `Application.createLogger()` (§5) по режиму работы: `PinoLogger` в production, `ConsoleLogger` в остальных случаях. Создаётся ровно один экземпляр — выбирать бэкенд отдельной переменной окружения больше нельзя.
 
 **Уровень задаётся порогом:** `config.logger.level` (env `LOGGER_LEVEL`) — один минимальный уровень, пишется он и всё, что серьёзнее (`LOGGER_LEVEL=info` — это `INFO/WARNING/ERROR/CRITICAL`). По умолчанию `WARNING` в production и `DEBUG` в остальных случаях. Неизвестное значение — `InvalidConfigError` при сборке конфига. Прежняя переменная `LOGGER_LEVELS` (перечисление уровней) не читается вовсе.
 
@@ -288,15 +288,16 @@ FontConvertor.convert(params)
 
 | Переменная | Назначение |
 |---|---|
-| `ENVIRONMENT` | `development`/`production`, определяет `isProduction` |
+| `NODE_ENV` | `development`/`production`, определяет `isProduction` и выбор логгера |
 | `TEMP_DIR` | базовая директория для временных файлов font-convertor |
 | `FONT_FORGE_PATH` | путь к бинарнику FontForge |
 | `LIMIT_COMMON_NUMBER`/`_INTERVAL`, `LIMIT_PRIVATE_NUMBER`/`_INTERVAL`, `LIMIT_GROUP_NUMBER`/`_INTERVAL` | конфигурация рейт-лимитов для `Planner`/`SlotManager` (§6) |
 | `BROKER_SLEEP_INTERVAL` | интервал опроса в `Broker` |
 | `BROKER_MAX_RETRIES` | сколько раз сообщение возвращается в очередь после ошибки Telegram, прежде чем будет отброшено (§6); по умолчанию 3 |
-| `BOT_TOKEN` | обязательна — конструктор `Bot` бросает исключение, если пусто |
-| `BOT_SHUTDOWN_TIMEOUT` | сколько миллисекунд остановка ждёт разгрузки очереди `Planner` (§5); по умолчанию 5000 |
-| `LOGGER_DEFAULT`, `LOGGER_LEVEL` | какой бэкенд логирования и с какого минимального уровня пишутся записи |
+| `BOT_TOKEN` | обязательна — конструктор `Bot` бросает `InvalidConfigError`, если пусто |
+| `GRACEFUL_SHUTDOWN_TIMEOUT` | сколько миллисекунд остановка ждёт разгрузки очереди `Planner` (§5); по умолчанию 5000 |
+| `GRACEFUL_SHUTDOWN_POLL_INTERVAL` | как часто в это время проверять очередь; по умолчанию 3000 |
+| `LOGGER_LEVEL` | с какого минимального уровня пишутся записи |
 | `DATABASE_HOST`, `_PORT`, `_NAME`, `_USER_NAME`, `_USER_PASSWORD`, `_CONNECTION_LIMIT`, `_CONNECTION_IDLE_TIMEOUT`, `_CONNECTION_MAX_LIFETIME` | подключение к Postgres |
 
 Переменные, присутствующие в `.env.dist`, но **нигде в `src/` не читаемые**: `DATABASE_SUPERUSER_NAME`/`_PASSWORD` и `DATABASE_TIMEZONE`/`DATABASE_DATE_STYLE` — они нужны только `docker-compose.db.yml` и init-скрипту, не приложению.
@@ -421,7 +422,7 @@ FontConvertor.convert(params)
 
 - **Имена уровней перечислены вручную в трёх местах:** enum `Level` и карта весов `LevelSeverity` в `domain/logger/logger.types.ts`, а также `pinoLevels`/`pinoLevelNames` в `infrastructure/logger/pino.logger.ts`. Веса при этом единственные: `pinoLevels` собирается из `LevelSeverity`, так что числа разъехаться не могут. Полноту наборов система типов обеспечивает лишь частично: `LevelSeverity` и `pinoLevelNames` объявлены как `Record<Level, …>` и потребуют записи для нового уровня, а вот `pinoLevels` — это `Record<PinoLevel, number>` по строчному имени, и забытая там запись прекрасно скомпилируется и упадёт в рантайме при первом же логировании этого уровня через `PinoLogger`. Вес нового уровня должен лежать строго между соседними: pino требует возрастающих значений.
 - **Добавление нового отслеживаемого поля из `ctx.from` в Telegram (например, `language_code`) требует синхронного изменения четырёх файлов, и компилятор их между собой не связывает ничем, кроме формы самого DTO:** `user.types.ts` (`UserDto`/`UserRow`/`CreateUserDto`/`EditUserDto`), `user.ts` (поле сущности + геттер/сеттер), соответствующая миграция (новая колонка) — и, отдельно, мапперы `rowToEntity`/`entityToRow` в `pgsql.user.repository.ts`, а также ручной маппинг поле-за-полем из `ctx.from` в `fill-user-to-context.middleware.ts`. TypeScript спокойно скомпилирует код, если вы забудете миграцию (несоответствие проявится только рантайм-ошибкой SQL «column does not exist» при следующем upsert'е).
-- **`config.logger.default` (env `LOGGER_DEFAULT`) не просто выбирает логгер — он молча определяет, работает ли вообще коррелированное по запросам логирование (`AsyncLocalStorageMiddleware`)**, поскольку единственное, что его включает, — проверка `instanceof PinoLogger` в этом middleware. Переключение логгера по умолчанию на `ConsoleLogger` (дефолт для разработки) меняет не только форматирование, но и полностью убирает корреляцию запросов — неочевидно из любого файла по отдельности (`config-container.ts` и `async-local-storage.middleware.ts` не ссылаются друг на друга; связь существует только через сборку логгеров в `Application.createLoggers()`).
+- **`NODE_ENV` не просто выбирает логгер — он молча определяет, работает ли вообще коррелированное по запросам логирование (`AsyncLocalStorageMiddleware`)**, поскольку единственное, что его включает, — проверка `instanceof PinoLogger` в этом middleware. Вне production создаётся `ConsoleLogger`, и корреляция запросов пропадает целиком — неочевидно из любого файла по отдельности (`config-container.ts` и `async-local-storage.middleware.ts` не ссылаются друг на друга; связь существует только через `Application.createLogger()`).
 - **Порядок колонок в миграции и позиционный `INSERT ... VALUES (key, value)` (без явного списка колонок) в `PgsqlStorage.write()` неявно связаны** — подробно описано в `docs/architecture.md` §11/§16; повторено здесь как пример «меняешь одно — тихо ломается другое»: перестановка колонок в миграции `sessions` (или добавление новой обязательной колонки перед `created_time`) молча перепутает значения или сломает вставку, причём в самом `pgsql.storage.ts` ничто на эту зависимость не намекает.
 
 ### Необычная валидация
@@ -441,7 +442,7 @@ FontConvertor.convert(params)
 
 ### Магические константы
 
-Неполный каталог захардкоженных значений, не оформленных именованными константами; собран здесь, поскольку об них легко споткнуться при рефакторинге соседнего кода: интервал опроса в `Application.waitPlannerToEmpty` (константа `PLANNER_POLL_INTERVAL`, `3000` мс, не настраивается через env — в отличие от предельного срока ожидания, который берётся из `BOT_SHUTDOWN_TIMEOUT`); интервал отчётов `Planner.logMessageCount`/`logBanExpires` (по `10000` мс, два отдельных вызова `setInterval` с одним и тем же захардкоженным значением, без общей константы); `StringHelper.generateRandomString(15)` для временных имён файлов шрифтов; числа кастомных уровней pino (`debug=0, info=100, warning=200, error=300, critical=400` в `pino.logger.ts`) — см. пункт про неявную связность выше; и три захардкоженных chat ID плюс границы циклов `100_000`/`1` в `BulkMessagesCommand`/`FontGeneratorCommand` (описаны в §5/§7 как отладочные остатки, а не «настоящие» магические константы в конфигурационном смысле, но помнить, что это захардкоженные литералы, а не конфиг, стоит).
+Неполный каталог захардкоженных значений, не оформленных именованными константами; собран здесь, поскольку об них легко споткнуться при рефакторинге соседнего кода: интервал отчётов `Planner.logMessageCount`/`logBanExpires` (по `10000` мс, два отдельных вызова `setInterval` с одним и тем же захардкоженным значением, без общей константы); `StringHelper.generateRandomString(15)` для временных имён файлов шрифтов; числа кастомных уровней pino (`debug=0, info=100, warning=200, error=300, critical=400` в `pino.logger.ts`) — см. пункт про неявную связность выше; и три захардкоженных chat ID плюс границы циклов `100_000`/`1` в `BulkMessagesCommand`/`FontGeneratorCommand` (описаны в §5/§7 как отладочные остатки, а не «настоящие» магические константы в конфигурационном смысле, но помнить, что это захардкоженные литералы, а не конфиг, стоит).
 
 ### Логика, которая выглядит странно, но, вероятно, намеренна
 
