@@ -3,7 +3,7 @@ import { injectable } from "inversify";
 import { StringHelper } from "app/helper/string-helper";
 import { container } from "app/infrastructure/container/container";
 import { Modules } from "app/infrastructure/container/symbols/modules";
-import { Bot } from "app/infrastructure/application/application";
+import { Application } from "app/infrastructure/application/application";
 import { Planner } from "app/domain/planner/planner";
 import { Context } from "app/infrastructure/bot/bot.types";
 import { PRIORITY } from "app/domain/broker/broker.types";
@@ -29,11 +29,11 @@ export class BulkMessagesCommand extends Command {
 
     private async sendRandomText(chatId: number): Promise<void> {
         const randomText = StringHelper.generateRandomString(1000);
-        const bot = container.get<Bot>(Modules.Bot.Bot);
+        const application = container.get<Application>(Modules.Application);
         await FileHelper.createDirectoriesByDate("/home/sardor/applications/telegram-bot/tmp");
 
         const handler = async (): Promise<void> => {
-            await bot.grammy.api.sendMessage(chatId, randomText);
+            await application.grammy.api.sendMessage(chatId, randomText);
         };
 
         const planner = container.get<Planner>(Modules.Planner.Planner);

@@ -34,8 +34,8 @@
 ```
 import "reflect-metadata"        // нужен inversify для метаданных декораторов
 await container.setup()          // связывает все DI-биндинги (см. §4)
-bot = container.get<Bot>(...)
-await bot.run()
+application = container.get<Application>(...)
+await application.run()
 process.once("SIGINT", () => void gracefulStop())
 process.once("SIGTERM", () => void gracefulStop())
 process.on("unhandledRejection", fail)
@@ -43,9 +43,9 @@ process.on("uncaughtException", fail)
 bootstrap().catch(fail)
 ```
 
-`stop()` вызывает `bot.stop()` (что это влечёт — см. §5), затем `container.close()`. `gracefulStop()` оборачивает `stop()`: успех — `process.exit(0)`, ошибка — `fail`. `fail(error)` печатает ошибку в `console.error` и завершает процесс с кодом 1.
+`stop()` вызывает `application.stop()` (что это влечёт — см. §5), затем `container.close()`. `gracefulStop()` оборачивает `stop()`: успех — `process.exit(0)`, ошибка — `fail`. `fail(error)` печатает ошибку в `console.error` и завершает процесс с кодом 1.
 
-Сбой старта фатален: `Bot.run()` пробрасывает ошибку дальше после логирования, `bootstrap().catch(fail)` завершает процесс с кодом 1, поэтому супервизор (Docker `restart: on-failure`, systemd, Kubernetes) видит ненулевой код.
+Сбой старта фатален: `Application.run()` пробрасывает ошибку дальше после логирования, `bootstrap().catch(fail)` завершает процесс с кодом 1, поэтому супервизор (Docker `restart: on-failure`, systemd, Kubernetes) видит ненулевой код.
 
 Заметные пробелы:
 - Ошибки старта и падения из `unhandledRejection`/`uncaughtException` уходят в `console.error`, а не в структурированный `Logger`: на момент сбоя логгер может быть ещё не собран.
@@ -66,6 +66,7 @@ src/
     logger/                 интерфейс Logger + enum Level (§9)
   helper/                   общие утилиты (string/number/file/sleep)
   infrastructure/           адаптеры (конкретные реализации)
+    application/            класс Application: жизненный цикл процесса (§5)
     bot/                    обвязка grammY: команды, conversations, middleware, фильтры, сессия (§5)
     config/                 загрузка env (§12)
     container/              связывание DI через inversify (§4)
@@ -90,8 +91,8 @@ test/                        (почти пустой) набор тестов (
 
 ```
 setup()
- └─ setupModules()        Planner, Broker (singleton) → setupBot()
-     └─ setupBot()        Bot, фильтры, middleware, команды, хранилище сессий, conversations
+ └─ setupModules()        Application, Planner, Broker (singleton) → setupBot()
+     └─ setupBot()        фильтры, middleware, команды, хранилище сессий, conversations
  └─ setupServices()       стек font-convertor, стек user (всё singleton)
  └─ setupInfrastructure() Config, Database (singleton) → setupInfrastructureLogger()
 ```
@@ -104,14 +105,14 @@ setup()
 3. Разрешает `config.logger.default` (env `LOGGER_DEFAULT`, `ConsoleLogger` или `PinoLogger`) и биндит *полученный* экземпляр как единый обобщённый `Infrastructure.Logger` — это единственный символ, который реально внедряется через `@inject<Logger>(Infrastructure.Logger)` во всей остальной кодовой базе.
 
 Помимо внедрения через конструктор, два ленивых декоратора свойств тянут значения напрямую из модульного синглтона `container` при первом обращении к свойству, минуя конструктор (паттерн service locator):
-- `@ConfigValue<T>(key, defaultValue?)` (`src/infrastructure/config/config-value.decorator.ts`) — поиск по «точечному» пути в `Config` (например, `"bot.token"`), бросает исключение, если значение не найдено и дефолта нет. Используется в `Bot`, `Database`, `Broker`, `Planner`, `FontGeneratorCommand` и др.
+- `@ConfigValue<T>(key, defaultValue?)` (`src/infrastructure/config/config-value.decorator.ts`) — поиск по «точечному» пути в `Config` (например, `"bot.token"`), бросает исключение, если значение не найдено и дефолта нет. Используется в `Application`, `Database`, `Broker`, `Planner`, `FontGeneratorCommand` и др.
 - `@PgSql()` (`src/infrastructure/database/pgsql.decorator.ts`) — тем же способом достаёт `Database.sql`. Используется в `PgSqlUserRepository`, `PgsqlStorage`.
 
-## 5. Слой бота
+## 5. Приложение и слой бота
 
-`src/infrastructure/bot/bot.ts` — `Bot` оборачивает grammY-объект `TelegramBot<Context>`. Тип `Context` (`bot.types.ts`) складывается из `GrammyContext & SessionFlavor<SessionPayload> & ConversationFlavor & FluentContextFlavor & { user: User }`.
+`src/infrastructure/application/application.ts` — `Application` оборачивает grammY-объект `TelegramBot<Context>`. Тип `Context` (`src/infrastructure/bot/bot.types.ts`) складывается из `GrammyContext & SessionFlavor<SessionPayload> & ConversationFlavor & FluentContextFlavor & { user: User }`.
 
-`Bot.run()`: `broker.run()` (запускает воркер исходящей очереди, §6) → `setup()` → `grammy.catch(handleError)` → `run(this.grammy)` из `@grammyjs/runner` (long-polling runner, обрабатывающий апдейты конкурентно, а **не** встроенный `bot.start()` из grammY).
+`Application.run()`: `broker.run()` (запускает воркер исходящей очереди, §6) → `setup()` → `grammy.catch(handleError)` → `run(this.grammy)` из `@grammyjs/runner` (long-polling runner, обрабатывающий апдейты конкурентно, а **не** встроенный `bot.start()` из grammY).
 
 `setup()` собирает пайплайн ровно в таком порядке — порядок важен, и это самое близкое к диаграмме архитектуры обработки запроса, что есть в репозитории:
 
@@ -125,7 +126,7 @@ setup()
 
 `Command`/`Filter`/`Middleware`/`ConversationHandler` — тонкие абстрактные базовые классы одинаковой формы «шаблонный метод»: абстрактный `handle`/`run` плюс `setup(composer)`, встраивающий экземпляр в grammY.
 
-`Bot.stop()`: останавливает runner, затем вызывает `waitPlannerToEmpty()` — цикл, опрашивающий `planner.isEmpty()` каждые 3 секунды, но не дольше `BOT_SHUTDOWN_TIMEOUT` (по умолчанию 5000 мс), — и лишь потом останавливает broker. Каждая итерация пишет в лог остаток очереди; по истечении срока пишется `warning` с числом неотправленных сообщений, и остановка продолжается без разгрузки. Дефолт выбран меньше stop grace period контейнера (у Compose это 10 секунд), иначе таймаут не успел бы сработать до `SIGKILL`. До появления таймаута (issue [#33](https://github.com/yuldashevsardor/telegram-bot/issues/33)) очередь, переставшая разгружаться — бан по рейт-лимиту, невыдаваемый слот `SlotManager`, просто длинная очередь, — вешала остановку навсегда.
+`Application.stop()`: останавливает runner, затем вызывает `waitPlannerToEmpty()` — цикл, опрашивающий `planner.isEmpty()` каждые 3 секунды, но не дольше `BOT_SHUTDOWN_TIMEOUT` (по умолчанию 5000 мс), — и лишь потом останавливает broker. Каждая итерация пишет в лог остаток очереди; по истечении срока пишется `warning` с числом неотправленных сообщений, и остановка продолжается без разгрузки. Дефолт выбран меньше stop grace period контейнера (у Compose это 10 секунд), иначе таймаут не успел бы сработать до `SIGKILL`. До появления таймаута (issue [#33](https://github.com/yuldashevsardor/telegram-bot/issues/33)) очередь, переставшая разгружаться — бан по рейт-лимиту, невыдаваемый слот `SlotManager`, просто длинная очередь, — вешала остановку навсегда.
 
 ### `TelegramCallApiMiddleware`
 
@@ -167,7 +168,7 @@ Broker выполняет message.callback() (исходный, не прокс�
 
 - **`Planner`** (`src/domain/planner/planner.ts`) держит три приоритетные корзины и, на каждый чат, лениво создаваемый `SlotManager` по ключу `chatId` (`limits.group` или `limits.private` в зависимости от `message.isGroup`), плюс один общий `commonManager` (`limits.common`). Поскольку он ищет первое *подходящее* сообщение, а не строго голову очереди, порядок доставки не является строгим FIFO — сообщение зажатого рейт-лимитом чата может быть пропущено в пользу более позднего сообщения в другой чат. **`Planner.managers` — это `Map`, из которой никогда ничего не удаляется**: каждый уникальный chat ID, с которым бот когда-либо общался, оставляет экземпляр `SlotManager` в памяти на всё время жизни процесса (неограниченный рост для долгоживущего бота с большим числом пользователей).
 - **`SlotManager`** (`src/domain/slot-manager/slot-manager.ts`) — минимальный шлюз с одним слотом и остыванием, а не token bucket: `reserveDuration = interval / number` (равномерный интервал), `isFree()` проверяет, истекло ли остывание, `reserve()` бросает исключение при вызове, когда слот не свободен. Создаётся обычным `new SlotManager(limit)`, вне DI.
-- **`Broker`** (`src/domain/broker/broker.ts`) сам себя планирует через `setTimeout` (это не настоящий consumer/subscriber): забирает сообщение из `Planner`, спит `settings.sleepInterval`, если ничего нет, иначе выполняет и сразу планирует следующую итерацию через `setTimeout(..., 0)`. Завершения вызова цикл намеренно не ждёт: темп выдачи задают слоты `SlotManager`, а не сетевая задержка Telegram, и ошибку разбирает сам `handleMessage()`. `Broker.run()`/`.stop()` объявлены синхронными (возвращают `void`), но вызываются с `await` в `Bot` — безвредно, но вводит в заблуждение. Интервал опроса при простое (`BROKER_SLEEP_INTERVAL`) в коде по умолчанию 1000 мс, но в закоммиченном `.env.dist` переопределён на **10 мс**.
+- **`Broker`** (`src/domain/broker/broker.ts`) сам себя планирует через `setTimeout` (это не настоящий consumer/subscriber): забирает сообщение из `Planner`, спит `settings.sleepInterval`, если ничего нет, иначе выполняет и сразу планирует следующую итерацию через `setTimeout(..., 0)`. Завершения вызова цикл намеренно не ждёт: темп выдачи задают слоты `SlotManager`, а не сетевая задержка Telegram, и ошибку разбирает сам `handleMessage()`. `Broker.run()`/`.stop()` объявлены синхронными (возвращают `void`), но вызываются с `await` в `Application` — безвредно, но вводит в заблуждение. Интервал опроса при простое (`BROKER_SLEEP_INTERVAL`) в коде по умолчанию 1000 мс, но в закоммиченном `.env.dist` переопределён на **10 мс**.
 
 Настроенные лимиты (`.env.dist`, намеренно повторяют официальные рекомендации Telegram по рейт-лимитам Bot API):
 
@@ -227,7 +228,7 @@ FontConvertor.convert(params)
 
 Всё это приводится в движение **`FillUserToContextMiddleware`** на каждом входящем апдейте: он проверяет `existsById`, затем `create` или `edit`, проставляя `lastActiveTime = dayjs()` (это и есть механизм отслеживания «последней активности»). Если `ctx.from` отсутствует (например, посты в канале), он логирует ошибку и выходит **не вызывая `next()`**.
 
-**(исправлено)** Эта защита на практике — **недостижимый мёртвый код**. Она выполняется *после* `RequestLogMiddleware` в пайплайне (§5), а первая же инструкция `RequestLogMiddleware`, `context.session.requestCount++`, синхронно бросает исключение ровно для того же класса апдейтов: любой апдейт без `ctx.from` заодно проваливает разрешение ключа сессии в grammY (`getSessionKey` требует `ctx.from`), а обращение к `ctx.session`, когда ключ не разрешился, бросает исключение (проверено по исходникам grammY `1.10.1`). Так что пайплайн падает на `RequestLogMiddleware`, на один middleware раньше, чем сработала бы явная проверка внутри `FillUserToContextMiddleware`, — и так для каждого реального случая, ради которого эта проверка писалась. Настоящий «механизм отбрасывания» таких апдейтов — это необработанное исключение, всплывающее как лог уровня `critical` через `Bot.handleError`, а не явная проверка. Полная трассировка — `docs/flows.md`, Поток 3.
+**(исправлено)** Эта защита на практике — **недостижимый мёртвый код**. Она выполняется *после* `RequestLogMiddleware` в пайплайне (§5), а первая же инструкция `RequestLogMiddleware`, `context.session.requestCount++`, синхронно бросает исключение ровно для того же класса апдейтов: любой апдейт без `ctx.from` заодно проваливает разрешение ключа сессии в grammY (`getSessionKey` требует `ctx.from`), а обращение к `ctx.session`, когда ключ не разрешился, бросает исключение (проверено по исходникам grammY `1.10.1`). Так что пайплайн падает на `RequestLogMiddleware`, на один middleware раньше, чем сработала бы явная проверка внутри `FillUserToContextMiddleware`, — и так для каждого реального случая, ради которого эта проверка писалась. Настоящий «механизм отбрасывания» таких апдейтов — это необработанное исключение, всплывающее как лог уровня `critical` через `Application.handleError`, а не явная проверка. Полная трассировка — `docs/flows.md`, Поток 3.
 
 Также отмечено дополнительно: **`RequestLogMiddleware`** (`src/infrastructure/bot/middleware/request-log.middleware.ts`) инкрементирует `context.session.requestCount` и логирует **весь сырой объект `ctx.update`** (включая текст сообщения и данные отправителя) на уровне `debug` для каждого дошедшего до него апдейта. Это единственное место во всей кодовой базе, где `SessionPayload.requestCount` читается или пишется (считается, но нигде не используется), а про логирование полного payload'а стоит знать, если debug-логи когда-нибудь начнут уезжать куда-то менее доверенное, чем локальный диск.
 
@@ -249,7 +250,7 @@ FontConvertor.convert(params)
 
 ## 10. i18n (Fluent)
 
-`Bot.setupFlavor()` (`bot.ts`) рекурсивно собирает все файлы `.ftl` внутри `src/infrastructure/bot` (`FileHelper.findFilesByExtensions`), выводит локаль каждого файла из его имени по соглашению — `*.locale.<lang>.ftl` (например, `start.conversation.locale.ru.ftl` → `ru`), а не из структуры директорий, группирует файлы по локали и регистрирует каждую группу в экземпляре `Fluent()` из `@moebius/fluent`. Подключается к grammY через `useFluent()` из `@grammyjs/fluent`.
+`Application.setupFlavor()` (`application.ts`) рекурсивно собирает все файлы `.ftl` внутри `src/infrastructure/bot` (`FileHelper.findFilesByExtensions`), выводит локаль каждого файла из его имени по соглашению — `*.locale.<lang>.ftl` (например, `start.conversation.locale.ru.ftl` → `ru`), а не из структуры директорий, группирует файлы по локали и регистрирует каждую группу в экземпляре `Fluent()` из `@moebius/fluent`. Подключается к grammY через `useFluent()` из `@grammyjs/fluent`.
 
 Во всём репозитории существует **один-единственный** файл `.ftl` (русский, один ключ: `welcome`). **`localeNegotiator` захардкожен и всегда возвращает `"ru"`** — так что, несмотря на файловую обвязку, способную обслуживать несколько локалей, сегодня бот реально может отдавать только русский, независимо от языка Telegram-клиента пользователя. В `StartConversation.run()` строкой ниже вызова `ctx.t("welcome", ...)` есть ещё и захардкоженная русская запасная строка («Чет не получилось...»), полностью минующая Fluent на этом пути, — непоследовательное использование системы i18n даже внутри её единственного потребителя.
 
@@ -284,7 +285,7 @@ FontConvertor.convert(params)
 | `LIMIT_COMMON_NUMBER`/`_INTERVAL`, `LIMIT_PRIVATE_NUMBER`/`_INTERVAL`, `LIMIT_GROUP_NUMBER`/`_INTERVAL` | конфигурация рейт-лимитов для `Planner`/`SlotManager` (§6) |
 | `BROKER_SLEEP_INTERVAL` | интервал опроса в `Broker` |
 | `BROKER_MAX_RETRIES` | сколько раз сообщение возвращается в очередь после ошибки Telegram, прежде чем будет отброшено (§6); по умолчанию 3 |
-| `BOT_TOKEN` | обязательна — конструктор `Bot` бросает исключение, если пусто |
+| `BOT_TOKEN` | обязательна — конструктор `Application` бросает исключение, если пусто |
 | `BOT_SHUTDOWN_TIMEOUT` | сколько миллисекунд остановка ждёт разгрузки очереди `Planner` (§5); по умолчанию 5000 |
 | `LOGGER_DEFAULT`, `LOGGER_LEVEL` | какой бэкенд логирования и с какого минимального уровня пишутся записи |
 | `DATABASE_HOST`, `_PORT`, `_NAME`, `_USER_NAME`, `_USER_PASSWORD`, `_CONNECTION_LIMIT`, `_CONNECTION_IDLE_TIMEOUT`, `_CONNECTION_MAX_LIFETIME` | подключение к Postgres |
@@ -319,7 +320,7 @@ FontConvertor.convert(params)
 - **`npm test` зелёный: 4 passing.** До этого прогон был сломан трижды подряд, и историю стоит помнить, потому что все три поломки типовые: spec импортировал `src/domain/slot-manager/slot-manager` вместо алиаса `app/*`; в скрипте не был подключён `tsconfig-paths/register` (добавлен вместе с контейнеризацией, §15), из-за чего mocha падала на загрузке файла; проверка исключения была написана как `expect(manager.reserve.call(manager)).to.throw(...)` — вызов происходил внутри `expect`, и исключение улетало мимо ассерции, — а отложенная ассерция из `setTimeout` срабатывала уже после завершения прогона и роняла процесс необработанной `AssertionError`.
 - Путь директории теста (`test/services/message-broker/...`) остался с времён до реорганизации исходников — понятия `services/message-broker` в текущем `src/` не существует (модуль — `src/domain/slot-manager/`, вызывается из `src/domain/broker/`), это наследие коммитов «Global refactor».
 - **Покрытие — `nyc`, скрипт `test:coverage` (цель `make coverage`).** Конфигурация `nyc` живёт в `package.json` и расширяет `@istanbuljs/nyc-config-typescript`; долгое время этот пакет не был установлен, и конфигурация ничего не значила — теперь он в `devDependencies`. Отчёт считается по TypeScript-исходникам, а не по скомпилированному выводу: `nyc` инструментирует то, что отдаёт `ts-node`, и разворачивает покрытие обратно по source maps (`sourceMap: true` в `tsconfig.json`). Каталог `coverage` смонтирован с хоста в `docker-compose.app.yml`, иначе `lcov` оставался бы внутри одноразового контейнера и пропадал вместе с ним; `make coverage` создаёт этот каталог на хосте заранее, потому что созданный Docker'ом достался бы `root`, а процесс в контейнере работает от `node`.
-- **Итог:** реального тестового покрытия практически ноль. Ни у доменных сервисов (`Broker`, `Planner`, `FontConvertor`, `UserService`), ни у инфраструктуры (`Bot`, middleware, `Config`, DI-контейнер), ни у хелперов тестов нет.
+- **Итог:** реального тестового покрытия практически ноль. Ни у доменных сервисов (`Broker`, `Planner`, `FontConvertor`, `UserService`), ни у инфраструктуры (`Application`, middleware, `Config`, DI-контейнер), ни у хелперов тестов нет.
 
 ## 15. Сборка и рабочий процесс разработки
 
@@ -347,7 +348,7 @@ FontConvertor.convert(params)
     - В рабочем дереве задачи `tmp/pgsql` — симлинк на основное дерево (его ставит `scripts/worktree-init.sh`, цель `make worktree-init`), поэтому `docker-compose.db.yml`, поднятый из любого дерева, попадает в тот же кластер, а не создаёт второй. `BOT_TOKEN` каждое дерево берёт из пула `tmp/bot/tokens` через `scripts/bot-token.sh` (цели `make token-acquire` / `token-renew` / `token-release` / `token-status` / `token-add`): два процесса на long polling с одним токеном получают от Telegram 409 Conflict.
     - Миграции накатываются **тем же контейнером приложения** перед стартом бота (`command: sh -c "npm run migrate -- up && exec npm run dev"`); отдельного сервиса для них нет, потому что образ и так содержит `node-pg-migrate` со своим загрузчиком TS и исходники.
     - `docker/pgsql/docker-entrypoint-initdb.d/init-user-db.sh` при первой инициализации по-прежнему создаёт роль и базу приложения (не суперпользователя).
-    - **`npm start` после `npm run build` в этом образе не заработает**: `tsc` не копирует `.ftl` в `build/`, а `Bot.setupFlavor` ищет их по `<cwd>/src/infrastructure/bot` — см. issue [#19](https://github.com/yuldashevsardor/telegram-bot/issues/19).
+    - **`npm start` после `npm run build` в этом образе не заработает**: `tsc` не копирует `.ftl` в `build/`, а `Application.setupFlavor` ищет их по `<cwd>/src/infrastructure/bot` — см. issue [#19](https://github.com/yuldashevsardor/telegram-bot/issues/19).
 - **Линтинг/форматирование** — ESLint (TypeScript + Prettier + правила порядка импортов и запрет относительных импортов, отмеченный в §3) + Prettier (отступ 4 пробела, строки до 140 символов, двойные кавычки) + хук Husky `pre-commit`, запускающий `lint-staged` (`eslint --fix`, затем `prettier --write` по staged-файлам `.ts`).
 - Версия Node фиксируется в двух местах — `ARG NODE_VERSION` в `Dockerfile` и `package.json#engines`; `.nvmrc` в репозитории нет, потому что Node на хосте не нужен.
 
@@ -380,8 +381,8 @@ FontConvertor.convert(params)
 
 ### Обязательный порядок выполнения
 
-- **`sequentialize()` обязан продолжать включать `from.id` в свой ключ, иначе открывается настоящая гонка типа check-then-act.** `FillUserToContextMiddleware` делает `existsById(id)`, а затем, по булеву результату, либо `create()`, либо `edit()` — без транзакции или блокировки строки, связывающей проверку с действием. Сегодня это безопасно только потому, что `sequentialize()` (регистрируется в `Bot.setupSequential()`, *до* composer'а с middleware) сериализует все апдейты с одинаковым `from.id`, так что два конкурентных апдейта от одного совсем нового пользователя не могут одновременно увидеть `existsById() === false`. **Это реальная несущая зависимость между двумя файлами, которые выглядят несвязанными** (вызов `sequentialize()` в `bot.ts` по соседству с `session.helper.ts` и `fill-user-to-context.middleware.ts`): удаление `from.id` из ключевой функции `sequentialize()` или перенос её после middleware заполнения пользователя вновь откроет гонку. (Upsert `ON CONFLICT DO UPDATE` в `PgSqlUserRepository.save()` означает, что гонка не может испортить данные или уронить код — в худшем случае безобидная перезапись «последний выиграл» между двумя почти одинаковыми записями, — но *задуманный* выбор ветки create/edit станет ненадёжным.)
-- **Ранние вызовы `container.get(...)` внутри `Container.setup()` должны затрагивать только классы, все транзитивные зависимости которых, внедряемые через конструктор (`@inject`), уже связаны к этому моменту последовательности фаз.** `setupInfrastructureLogger()` (часть `setupInfrastructure()`, *последней* из трёх фаз `setup()`) синхронно вызывает `this.get()` для `Config`, `ConsoleLogger` и `PinoLogger`, форсируя реальное создание экземпляров, а не ленивое разрешение. Сегодня это работает лишь потому, что ни один из этих трёх классов не внедряет через конструктор ничего, связанного в более ранней фазе. Всё остальное в приложении (`Bot`, `Planner`, `Broker` и т. д.) обходит эту опасность, используя ленивые декораторы свойств `@ConfigValue`/`@PgSql` вместо раннего `.get()` — и весьма вероятно, что именно *поэтому* эти декораторы и существуют, а не просто конструкторный `@inject`: биндинг `Bot` происходит в фазе 1, а `Config` — в фазе 3. Если вы когда-нибудь добавите новый ранний `.get()` внутрь `setup()`, проверьте, что он не тянется к чему-то, связанному позже, иначе он упадёт на старте с бесполезным «no matching bindings found».
+- **`sequentialize()` обязан продолжать включать `from.id` в свой ключ, иначе открывается настоящая гонка типа check-then-act.** `FillUserToContextMiddleware` делает `existsById(id)`, а затем, по булеву результату, либо `create()`, либо `edit()` — без транзакции или блокировки строки, связывающей проверку с действием. Сегодня это безопасно только потому, что `sequentialize()` (регистрируется в `Application.setupSequential()`, *до* composer'а с middleware) сериализует все апдейты с одинаковым `from.id`, так что два конкурентных апдейта от одного совсем нового пользователя не могут одновременно увидеть `existsById() === false`. **Это реальная несущая зависимость между двумя файлами, которые выглядят несвязанными** (вызов `sequentialize()` в `application.ts` по соседству с `session.helper.ts` и `fill-user-to-context.middleware.ts`): удаление `from.id` из ключевой функции `sequentialize()` или перенос её после middleware заполнения пользователя вновь откроет гонку. (Upsert `ON CONFLICT DO UPDATE` в `PgSqlUserRepository.save()` означает, что гонка не может испортить данные или уронить код — в худшем случае безобидная перезапись «последний выиграл» между двумя почти одинаковыми записями, — но *задуманный* выбор ветки create/edit станет ненадёжным.)
+- **Ранние вызовы `container.get(...)` внутри `Container.setup()` должны затрагивать только классы, все транзитивные зависимости которых, внедряемые через конструктор (`@inject`), уже связаны к этому моменту последовательности фаз.** `setupInfrastructureLogger()` (часть `setupInfrastructure()`, *последней* из трёх фаз `setup()`) синхронно вызывает `this.get()` для `Config`, `ConsoleLogger` и `PinoLogger`, форсируя реальное создание экземпляров, а не ленивое разрешение. Сегодня это работает лишь потому, что ни один из этих трёх классов не внедряет через конструктор ничего, связанного в более ранней фазе. Всё остальное в приложении (`Application`, `Planner`, `Broker` и т. д.) обходит эту опасность, используя ленивые декораторы свойств `@ConfigValue`/`@PgSql` вместо раннего `.get()` — и весьма вероятно, что именно *поэтому* эти декораторы и существуют, а не просто конструкторный `@inject`: биндинг `Application` происходит в фазе 1, а `Config` — в фазе 3. Если вы когда-нибудь добавите новый ранний `.get()` внутрь `setup()`, проверьте, что он не тянется к чему-то, связанному позже, иначе он упадёт на старте с бесполезным «no matching bindings found».
 - **Миграции строго append-only и зависят от порядка** — `node-pg-migrate` отслеживает применённые миграции по имени файла/таймстемпу; правка уже применённого файла миграции никак не влияет на уже мигрировавшие базы и лишь разводит свежие базы с существующими.
 
 ### Предположения о состоянии системы
@@ -393,7 +394,7 @@ FontConvertor.convert(params)
 ### Механизмы повторов
 
 - Единственный механизм повторов в проекте — возврат упавшего сообщения в очередь `Planner` из `Broker` (§6, `docs/flows.md`, Поток 4). Он ограничен `BROKER_MAX_RETRIES` и не разводит попытки во времени: интервал между ними задают только слоты `SlotManager` и глобальный бан по 429. До исправления issue [#28](https://github.com/yuldashevsardor/telegram-bot/issues/28) и повтор, и бан были мёртвым кодом — ошибка не доходила до `catch` из-за неожидаемого (`await`-less) Promise внутри замыкания `callback` в `TelegramCallApiMiddleware`. Ловушку «выглядит рабочим, структурно читается верно, тихо не работает» стоит помнить именно на этом примере; сам путь бана/повтора **в production не проверялся ни разу** — считайте его непроверенным, а не «восстановленным».
-- Нигде нет повторов ни для первичного подключения к Postgres, ни для `setMyCommands` при старте (§5) — оба выполняются однократно; временный сбой на старте фатален для этой подсистемы на всё время жизни процесса (или, согласно issue [#13](https://github.com/yuldashevsardor/telegram-bot/issues/13), тихо проглатывается собственным catch'ем в `Bot.run()`, оставляя процесс живым, но неработоспособным).
+- Нигде нет повторов ни для первичного подключения к Postgres, ни для `setMyCommands` при старте (§5) — оба выполняются однократно; временный сбой на старте фатален для этой подсистемы на всё время жизни процесса (или, согласно issue [#13](https://github.com/yuldashevsardor/telegram-bot/issues/13), тихо проглатывается собственным catch'ем в `Application.run()`, оставляя процесс живым, но неработоспособным).
 
 ### Идемпотентность
 
@@ -431,7 +432,7 @@ FontConvertor.convert(params)
 
 ### Магические константы
 
-Неполный каталог захардкоженных значений, не оформленных именованными константами; собран здесь, поскольку об них легко споткнуться при рефакторинге соседнего кода: интервал опроса в `Bot.waitPlannerToEmpty` (`3000` мс, захардкожен, не настраивается через env — в отличие от предельного срока ожидания, который берётся из `BOT_SHUTDOWN_TIMEOUT`); интервал отчётов `Planner.logMessageCount`/`logBanExpires` (по `10000` мс, два отдельных вызова `setInterval` с одним и тем же захардкоженным значением, без общей константы); `StringHelper.generateRandomString(15)` для временных имён файлов шрифтов; числа кастомных уровней pino (`debug=0, info=100, warning=200, error=300, critical=400` в `pino.logger.ts`) — см. пункт про неявную связность выше; и три захардкоженных chat ID плюс границы циклов `100_000`/`1` в `BulkMessagesCommand`/`FontGeneratorCommand` (описаны в §5/§7 как отладочные остатки, а не «настоящие» магические константы в конфигурационном смысле, но помнить, что это захардкоженные литералы, а не конфиг, стоит).
+Неполный каталог захардкоженных значений, не оформленных именованными константами; собран здесь, поскольку об них легко споткнуться при рефакторинге соседнего кода: интервал опроса в `Application.waitPlannerToEmpty` (`3000` мс, захардкожен, не настраивается через env — в отличие от предельного срока ожидания, который берётся из `BOT_SHUTDOWN_TIMEOUT`); интервал отчётов `Planner.logMessageCount`/`logBanExpires` (по `10000` мс, два отдельных вызова `setInterval` с одним и тем же захардкоженным значением, без общей константы); `StringHelper.generateRandomString(15)` для временных имён файлов шрифтов; числа кастомных уровней pino (`debug=0, info=100, warning=200, error=300, critical=400` в `pino.logger.ts`) — см. пункт про неявную связность выше; и три захардкоженных chat ID плюс границы циклов `100_000`/`1` в `BulkMessagesCommand`/`FontGeneratorCommand` (описаны в §5/§7 как отладочные остатки, а не «настоящие» магические константы в конфигурационном смысле, но помнить, что это захардкоженные литералы, а не конфиг, стоит).
 
 ### Логика, которая выглядит странно, но, вероятно, намеренна
 

@@ -1,4 +1,5 @@
 export const Modules = {
+    Application: Symbol.for("Application"),
     Broker: {
         Broker: Symbol.for("Broker"),
     },
@@ -6,7 +7,6 @@ export const Modules = {
         Planner: Symbol.for("Planner"),
     },
     Bot: {
-        Bot: Symbol.for("Bot"),
         Command: {
             Start: Symbol.for("Start"),
             BulkMessages: Symbol.for("BulkMessages"),

@@ -9,7 +9,7 @@ import { FontConvertor } from "app/domain/font-convertor/font-convertor";
 import { Planner } from "app/domain/planner/planner";
 import { Modules } from "app/infrastructure/container/symbols/modules";
 import { Broker } from "app/domain/broker/broker";
-import { Bot } from "app/infrastructure/application/application";
+import { Application } from "app/infrastructure/application/application";
 import { BulkMessagesCommand } from "app/infrastructure/bot/command/bulk-messages/bulk-messages.command";
 import { FontGeneratorCommand } from "app/infrastructure/bot/command/font-generator/font-generator.command";
 import { ConsoleLogger } from "app/infrastructure/logger/console.logger";
@@ -59,6 +59,7 @@ export class Container extends InversifyContainer {
     }
 
     private async setupModules(): Promise<void> {
+        this.bind<Application>(Modules.Application).to(Application).inSingletonScope();
         this.bind<Planner>(Modules.Planner.Planner).to(Planner).inSingletonScope();
         this.bind<Broker>(Modules.Broker.Broker).to(Broker).inSingletonScope();
 
@@ -117,8 +118,6 @@ export class Container extends InversifyContainer {
     }
 
     private async setupBot(): Promise<void> {
-        this.bind<Bot>(Modules.Bot.Bot).to(Bot).inSingletonScope();
-
         // Filters
         this.bind<IsPrivateChatFilter>(Modules.Bot.Filter.IsPrivateChat).to(IsPrivateChatFilter).inSingletonScope();
 

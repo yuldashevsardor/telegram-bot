@@ -1,19 +1,19 @@
 import "reflect-metadata";
 import { container } from "app/infrastructure/container/container";
-import { Bot } from "app/infrastructure/application/application";
+import { Application } from "app/infrastructure/application/application";
 import { Modules } from "app/infrastructure/container/symbols/modules";
 
-let bot: Bot | null = null;
+let application: Application | null = null;
 
 async function bootstrap(): Promise<void> {
     await container.setup();
-    bot = container.get<Bot>(Modules.Bot.Bot);
-    await bot.run();
+    application = container.get<Application>(Modules.Application);
+    await application.run();
 }
 
 async function stop(): Promise<void> {
-    if (bot) {
-        await bot.stop();
+    if (application) {
+        await application.stop();
     }
 
     await container.close();

@@ -23,7 +23,7 @@ import { useFluent } from "@grammyjs/fluent";
 import path from "path";
 
 @injectable()
-export class Bot {
+export class Application {
     public readonly grammy: TelegramBot<Context>;
 
     @ConfigValue<BotSettings>("bot")
