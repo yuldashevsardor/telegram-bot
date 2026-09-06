@@ -12,6 +12,10 @@ type PlannerMessages = {
 
 @injectable()
 export class Planner {
+    // Потолок на один pull(): после всплеска трафика накопленные менеджеры снимаются за
+    // несколько вызовов, а не одним проходом, чтобы уборка не занимала событийный цикл.
+    private static readonly REMOVED_MANAGERS_PER_PULL = 100;
+
     @ConfigValue<Limits>("managerLimits")
     private readonly limits!: Limits;
 
@@ -50,12 +54,13 @@ export class Planner {
     }
 
     public pull(): Message | null {
+        this.removeIdleManagers();
+
         if (this.isBanned()) {
             return null;
         }
 
         if (this.isEmpty()) {
-            this.removeFreeManagers();
             return null;
         }
 
@@ -127,24 +132,38 @@ export class Planner {
     }
 
     private getManagerByMessage(message: Message): SlotManager {
-        let manager = this.managers.get(message.chatId);
+        const manager = this.managers.get(message.chatId);
 
         if (!manager) {
-            manager = new SlotManager(message.isGroup ? this.limits.group : this.limits.private);
-            this.managers.set(message.chatId, manager);
+            const created = new SlotManager(message.isGroup ? this.limits.group : this.limits.private);
+            this.managers.set(message.chatId, created);
+
+            return created;
         }
+
+        // Перестановка в конец делает порядок Map порядком последнего обращения: это и есть
+        // индекс для removeIdleManagers, которому иначе пришлось бы обходить все менеджеры.
+        this.managers.delete(message.chatId);
+        this.managers.set(message.chatId, manager);
 
         return manager;
     }
 
-    // Менеджер без резервации неотличим от только что созданного, поэтому удаление свободных
-    // менеджеров ничего не меняет для лимитов. Занятые остаются: их резервация — и есть лимит
-    // чата, и следующая уборка заберёт их, когда резервация истечёт.
-    private removeFreeManagers(): void {
+    // Менеджер без резервации неотличим от только что созданного: всё его состояние — остывание
+    // слота, поэтому удалять свободный безопасно, а занятый удалять нельзя — его резервация и
+    // есть текущий лимит чата. Обход идёт с головы Map, где лежат менеджеры, к которым дольше
+    // всего не обращались, и обрывается на первом занятом: работа пропорциональна числу снятых
+    // менеджеров, а не размеру Map. Занятая голова блокирует уборку не дольше своего остывания.
+    private removeIdleManagers(): void {
+        let removed = 0;
+
         for (const [chatId, manager] of this.managers) {
-            if (manager.isFree()) {
-                this.managers.delete(chatId);
+            if (removed >= Planner.REMOVED_MANAGERS_PER_PULL || !manager.isFree()) {
+                break;
             }
+
+            this.managers.delete(chatId);
+            removed++;
         }
     }
 
