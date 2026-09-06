@@ -28,7 +28,7 @@ describe("ConfigContainer", () => {
         expect(result.environment).to.equal("development");
         expect(result.isProduction).to.equal(false);
         expect(result.gracefulShutdown.timeout).to.equal(5000);
-        expect(result.gracefulShutdown.pollInterval).to.equal(3000);
+        expect(result.gracefulShutdown.plannerInterval).to.equal(3000);
         expect(result.broker.sleepInterval).to.equal(1000);
         expect(result.database.host).to.equal("localhost");
         expect(result.database.port).to.equal(5432);

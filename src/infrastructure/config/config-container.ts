@@ -30,7 +30,7 @@ export class ConfigContainer {
 
     public readonly gracefulShutdown: {
         timeout: number;
-        pollInterval: number;
+        plannerInterval: number;
     };
 
     public readonly logger: LoggerConfig;
@@ -71,7 +71,7 @@ export class ConfigContainer {
 
         this.gracefulShutdown = {
             timeout: this.getInteger("GRACEFUL_SHUTDOWN_TIMEOUT", 5000),
-            pollInterval: this.getInteger("GRACEFUL_SHUTDOWN_POLL_INTERVAL", 3000),
+            plannerInterval: this.getInteger("PLANNER_GRACEFUL_SHUTDOWN_INTERVAL", 3000),
         };
 
         this.logger = this.getLogger();

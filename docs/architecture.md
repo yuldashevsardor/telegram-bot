@@ -121,7 +121,7 @@ setup(config, logger)    ConfigContainer, Logger (toConstantValue)
 
 `Application.run()` — только запуск: `broker.run()` (воркер исходящей очереди, §6) → `Bot.run()`. Если что-то падает, broker останавливается, ошибка пишется как `critical` и пробрасывается дальше (§2).
 
-`Application.stop()` — обратный порядок: `Bot.stop()` → `waitPlannerToEmpty()` → `broker.stop()` → `container.close()` (пул Postgres). `waitPlannerToEmpty()` опрашивает `planner.isEmpty()` каждые `GRACEFUL_SHUTDOWN_POLL_INTERVAL` (по умолчанию 3000 мс), но не дольше `GRACEFUL_SHUTDOWN_TIMEOUT` (по умолчанию 5000 мс); каждая итерация пишет в лог остаток очереди, по истечении срока пишется `warning` с числом неотправленных сообщений, и остановка продолжается без разгрузки. Дефолт выбран меньше stop grace period контейнера (у Compose это 10 секунд), иначе таймаут не успел бы сработать до `SIGKILL`. До появления таймаута (issue [#33](https://github.com/yuldashevsardor/telegram-bot/issues/33)) очередь, переставшая разгружаться — бан по рейт-лимиту, невыдаваемый слот `SlotManager`, просто длинная очередь, — вешала остановку навсегда. Остановка до конца `setup()` не делает ничего.
+`Application.stop()` — обратный порядок: `Bot.stop()` → `waitPlannerToEmpty()` → `broker.stop()` → `container.close()` (пул Postgres). Вся эта цепочка целиком ограничена `GRACEFUL_SHUTDOWN_TIMEOUT` (по умолчанию 5000 мс): не уложившийся шаг остаётся выполняться, но процесс уже не ждёт — пишется `warning`, и следом идёт `process.exit(0)` из `app.ts`. Внутри этого же срока `waitPlannerToEmpty()` опрашивает `planner.isEmpty()` каждые `PLANNER_GRACEFUL_SHUTDOWN_INTERVAL` (по умолчанию 3000 мс), пишет в лог остаток очереди на каждой итерации и по исчерпании срока — `warning` с числом неотправленных сообщений. Дефолт выбран меньше stop grace period контейнера (у Compose это 10 секунд), иначе таймаут не успел бы сработать до `SIGKILL`. До появления таймаута (issue [#33](https://github.com/yuldashevsardor/telegram-bot/issues/33)) очередь, переставшая разгружаться — бан по рейт-лимиту, невыдаваемый слот `SlotManager`, просто длинная очередь, — вешала остановку навсегда. Остановка до конца `setup()` не делает ничего.
 
 `src/infrastructure/bot/bot.ts` — `Bot` оборачивает grammY-объект `TelegramBot<Context>` и отвечает только за Telegram-слой: ни брокера, ни планировщика он не знает. Тип `Context` (`bot.types.ts`) складывается из `GrammyContext & SessionFlavor<SessionPayload> & ConversationFlavor & FluentContextFlavor & { user: User }`.
 
@@ -295,8 +295,8 @@ FontConvertor.convert(params)
 | `BROKER_SLEEP_INTERVAL` | интервал опроса в `Broker` |
 | `BROKER_MAX_RETRIES` | сколько раз сообщение возвращается в очередь после ошибки Telegram, прежде чем будет отброшено (§6); по умолчанию 3 |
 | `BOT_TOKEN` | обязательна — конструктор `Bot` бросает `InvalidConfigError`, если пусто |
-| `GRACEFUL_SHUTDOWN_TIMEOUT` | сколько миллисекунд остановка ждёт разгрузки очереди `Planner` (§5); по умолчанию 5000 |
-| `GRACEFUL_SHUTDOWN_POLL_INTERVAL` | как часто в это время проверять очередь; по умолчанию 3000 |
+| `GRACEFUL_SHUTDOWN_TIMEOUT` | сколько миллисекунд отведено остановке целиком: бот, разгрузка очереди, брокер, пул Postgres (§5); по умолчанию 5000 |
+| `PLANNER_GRACEFUL_SHUTDOWN_INTERVAL` | как часто в это время проверять очередь `Planner`; по умолчанию 3000 |
 | `LOGGER_LEVEL` | с какого минимального уровня пишутся записи |
 | `DATABASE_HOST`, `_PORT`, `_NAME`, `_USER_NAME`, `_USER_PASSWORD`, `_CONNECTION_LIMIT`, `_CONNECTION_IDLE_TIMEOUT`, `_CONNECTION_MAX_LIFETIME` | подключение к Postgres |
 
