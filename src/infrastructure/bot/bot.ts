@@ -1,9 +1,6 @@
 import { Bot as TelegramBot, Composer, session, StorageAdapter } from "grammy";
 import { inject, injectable } from "inversify";
 import { Modules } from "app/infrastructure/container/symbols/modules";
-import { Planner } from "app/domain/planner/planner";
-import { Broker } from "app/domain/broker/broker";
-import { sleep } from "app/helper/utils";
 import { container } from "app/infrastructure/container/container";
 import { Command } from "app/infrastructure/bot/command/command";
 import { Middleware } from "app/infrastructure/bot/middleware/middleware";
@@ -37,9 +34,7 @@ export class Bot {
     private isSetup = false;
 
     public constructor(
-        @inject<Planner>(Modules.Planner.Planner) private readonly planner: Planner,
         @inject<Logger>(Infrastructure.Logger) private readonly logger: Logger,
-        @inject<Broker>(Modules.Broker.Broker) private readonly broker: Broker,
         @inject<StorageAdapter<SessionPayload>>(Modules.Bot.Session.Storage)
         private readonly sessionStorage: StorageAdapter<SessionPayload>,
     ) {
@@ -51,22 +46,15 @@ export class Bot {
     }
 
     public async run(): Promise<void> {
-        try {
-            await this.broker.run();
-            await this.setup();
-
-            this.grammy.catch(this.handleError.bind(this));
-            this.runner = run(this.grammy);
-            this.isRun = true;
-
-            this.logger.info("Bot is successfully started.");
-        } catch (error) {
-            this.broker.stop();
-
-            await this.handleError(error);
-
-            throw error;
+        if (!this.isSetup) {
+            throw new Error("Bot is not set up!");
         }
+
+        this.grammy.catch(this.handleError.bind(this));
+        this.runner = run(this.grammy);
+        this.isRun = true;
+
+        this.logger.info("Bot is successfully started.");
     }
 
     public async stop(): Promise<void> {
@@ -81,15 +69,12 @@ export class Bot {
             await this.runner.stop();
         }
 
-        await this.waitPlannerToEmpty();
-        await this.broker.stop();
-
         this.isRun = false;
 
         this.logger.info("Bot is successfully stopped.");
     }
 
-    private async setup(): Promise<void> {
+    public async setup(): Promise<void> {
         if (this.isSetup) {
             return;
         }
@@ -242,27 +227,6 @@ export class Bot {
         this.grammy.use(composer);
 
         this.logger.debug("Commands successfully setup.");
-    }
-
-    private async waitPlannerToEmpty(): Promise<void> {
-        const interval = 3000;
-        const deadline = Date.now() + this.settings.shutdownTimeout;
-
-        while (!this.planner.isEmpty()) {
-            const timeLeft = deadline - Date.now();
-
-            if (timeLeft <= 0) {
-                this.logger.warning("Shutdown timeout is over, remaining messages will not be sent.", {
-                    messagesLeft: this.planner.getMessagesCount(),
-                    shutdownTimeout: this.settings.shutdownTimeout,
-                });
-                return;
-            }
-
-            this.logger.info(`Waiting for the outgoing queue to empty: ${this.planner.getMessagesCount()} messages left.`);
-
-            await sleep(Math.min(interval, timeLeft));
-        }
     }
 
     private async handleError(error: unknown): Promise<void> {
