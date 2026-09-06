@@ -62,7 +62,7 @@ export class ConsoleLogger extends AbstractLogger {
 
         if (payload) {
             if (payload instanceof Error) {
-                payload = serializeError<Error>(payload);
+                payload = serializeError(payload);
             }
 
             messages.push(JSON.stringify(payload, null, 4));

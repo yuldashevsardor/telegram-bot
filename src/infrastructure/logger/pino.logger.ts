@@ -68,7 +68,10 @@ export class PinoLogger extends AbstractLogger {
         if (this.levels.includes(level)) {
             this.pino[pinoLevelNames[level]]({
                 message: message,
-                payload: serializeError(payload),
+                // serialize-error с 13.x заворачивает любое не-Error значение в NonError,
+                // поэтому вызов без payload давал бы «Non-error value: undefined» в каждой
+                // такой записи.
+                payload: payload === undefined ? undefined : serializeError(payload),
             });
         }
     }
