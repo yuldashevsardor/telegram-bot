@@ -1,9 +1,9 @@
 export const Modules = {
-    Broker: {
-        Broker: Symbol.for("Broker"),
+    Dispatcher: {
+        Dispatcher: Symbol.for("Dispatcher"),
     },
-    Planner: {
-        Planner: Symbol.for("Planner"),
+    Runner: {
+        Runner: Symbol.for("Runner"),
     },
     Bot: {
         Bot: Symbol.for("Bot"),

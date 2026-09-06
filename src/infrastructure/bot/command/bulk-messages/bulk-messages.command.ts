@@ -4,10 +4,12 @@ import { StringHelper } from "app/helper/string-helper";
 import { container } from "app/infrastructure/container/container";
 import { Modules } from "app/infrastructure/container/symbols/modules";
 import { Bot } from "app/infrastructure/bot/bot";
-import { Planner } from "app/domain/planner/planner";
+import { Dispatcher } from "app/domain/dispatcher/dispatcher";
 import { Context } from "app/infrastructure/bot/bot.types";
-import { PRIORITY } from "app/domain/broker/broker.types";
+import { PRIORITY } from "app/domain/dispatcher/task";
 import { FileHelper } from "app/helper/file-helper/file-helper";
+import { Config } from "app/infrastructure/config/config";
+import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
 
 @injectable()
 export class BulkMessagesCommand extends Command {
@@ -36,12 +38,13 @@ export class BulkMessagesCommand extends Command {
             await bot.grammy.api.sendMessage(chatId, randomText);
         };
 
-        const planner = container.get<Planner>(Modules.Planner.Planner);
+        const dispatcher = container.get<Dispatcher>(Modules.Dispatcher.Dispatcher);
+        const config = container.get<Config>(Infrastructure.Config);
 
-        planner.push(
+        dispatcher.push(
             {
-                chatId: chatId,
-                isGroup: false,
+                key: chatId,
+                rate: config.rates.private,
                 callback: handler,
                 priorityOnError: PRIORITY.MEDIUM,
             },

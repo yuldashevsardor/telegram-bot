@@ -6,9 +6,9 @@ import { FontForge } from "app/domain/font-convertor/font-forge/font-forge";
 import { Services } from "app/infrastructure/container/symbols/services";
 import { ConvertorFactory } from "app/domain/font-convertor/convertor/convertor-factory";
 import { FontConvertor } from "app/domain/font-convertor/font-convertor";
-import { Planner } from "app/domain/planner/planner";
+import { Dispatcher } from "app/domain/dispatcher/dispatcher";
 import { Modules } from "app/infrastructure/container/symbols/modules";
-import { Broker } from "app/domain/broker/broker";
+import { Runner } from "app/domain/dispatcher/runner";
 import { Bot } from "app/infrastructure/bot/bot";
 import { BulkMessagesCommand } from "app/infrastructure/bot/command/bulk-messages/bulk-messages.command";
 import { FontGeneratorCommand } from "app/infrastructure/bot/command/font-generator/font-generator.command";
@@ -59,8 +59,8 @@ export class Container extends InversifyContainer {
     }
 
     private async setupModules(): Promise<void> {
-        this.bind<Planner>(Modules.Planner.Planner).to(Planner).inSingletonScope();
-        this.bind<Broker>(Modules.Broker.Broker).to(Broker).inSingletonScope();
+        this.bind<Dispatcher>(Modules.Dispatcher.Dispatcher).to(Dispatcher).inSingletonScope();
+        this.bind<Runner>(Modules.Runner.Runner).to(Runner).inSingletonScope();
 
         await this.setupBot();
     }

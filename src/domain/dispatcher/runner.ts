@@ -1,37 +1,33 @@
 import { inject, injectable } from "inversify";
-import { Planner } from "app/domain/planner/planner";
+import { Dispatcher } from "app/domain/dispatcher/dispatcher";
 import { Modules } from "app/infrastructure/container/symbols/modules";
-import {
-    BrokerSettings,
-    DEFAULT_RETRY_AFTER_SECONDS,
-    Message,
-    TelegramApiError,
-    TELEGRAM_ERROR_CODES,
-} from "app/domain/broker/broker.types";
+import { RunnerSettings } from "app/domain/dispatcher/runner.types";
+import { Task } from "app/domain/dispatcher/task";
+import { DEFAULT_RETRY_AFTER_SECONDS, TelegramApiError, TELEGRAM_ERROR_CODES } from "app/domain/dispatcher/telegram-error";
 import { ConfigValue } from "app/infrastructure/config/config-value.decorator";
 import { Logger } from "app/domain/logger/logger";
 import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
 
 @injectable()
-export class Broker {
-    @ConfigValue<BrokerSettings>("broker")
-    private readonly settings!: BrokerSettings;
+export class Runner {
+    @ConfigValue<RunnerSettings>("runner")
+    private readonly settings!: RunnerSettings;
 
     private _isRun = false;
 
     public constructor(
-        @inject<Planner>(Modules.Planner.Planner) private readonly planner: Planner,
+        @inject<Dispatcher>(Modules.Dispatcher.Dispatcher) private readonly dispatcher: Dispatcher,
         @inject<Logger>(Infrastructure.Logger) private readonly logger: Logger,
     ) {}
 
     public run(): void {
         if (this.isRun) {
-            throw new Error("broker already is run.");
+            throw new Error("runner already is run.");
         }
 
         this._isRun = true;
 
-        setTimeout(this.handleMessages.bind(this), 0);
+        setTimeout(this.handleTasks.bind(this), 0);
     }
 
     public stop(): void {
@@ -42,61 +38,61 @@ export class Broker {
         return this._isRun;
     }
 
-    private handleMessages(): void {
+    private handleTasks(): void {
         if (!this.isRun) {
             return;
         }
 
-        const message = this.planner.pull();
+        const task = this.dispatcher.pull();
 
-        if (!message) {
-            setTimeout(this.handleMessages.bind(this), this.settings.sleepInterval);
+        if (!task) {
+            setTimeout(this.handleTasks.bind(this), this.settings.sleepInterval);
             return;
         }
 
-        // Завершения вызова цикл намеренно не ждёт: темп выдачи задают слоты Planner,
-        // а не сетевая задержка Telegram. Ошибку разбирает сам handleMessage.
-        void this.handleMessage(message);
+        // Завершения вызова цикл намеренно не ждёт: темп выдачи задают лимиты Dispatcher,
+        // а не сетевая задержка Telegram. Ошибку разбирает сам handleTask.
+        void this.handleTask(task);
 
-        setTimeout(this.handleMessages.bind(this), 0);
+        setTimeout(this.handleTasks.bind(this), 0);
     }
 
-    private async handleMessage(message: Message): Promise<void> {
+    private async handleTask(task: Task): Promise<void> {
         try {
-            await message.callback();
+            await task.callback();
         } catch (error) {
             this.handleError(error);
-            this.retryMessage(message);
+            this.retryTask(task);
         }
     }
 
-    private retryMessage(message: Message): void {
-        const retryCount = (message.retryCount ?? 0) + 1;
+    private retryTask(task: Task): void {
+        const retryCount = (task.retryCount ?? 0) + 1;
 
         if (retryCount > this.settings.maxRetries) {
-            this.logger.error("Message is dropped: retry limit is reached.", {
-                chatId: message.chatId,
+            this.logger.error("Task is dropped: retry limit is reached.", {
+                key: task.key,
                 maxRetries: this.settings.maxRetries,
             });
 
             return;
         }
 
-        this.planner.push({ ...message, retryCount: retryCount }, message.priorityOnError);
+        this.dispatcher.push({ ...task, retryCount: retryCount }, task.priorityOnError);
     }
 
     private handleError(error: unknown): void {
         this.logger.error("Telegram API call is failed.", { error: error });
 
-        if (!Broker.isManyRequestError(error)) {
+        if (!Runner.isManyRequestError(error)) {
             return;
         }
 
-        this.planner.ban(Broker.getRetryAfterSeconds(error) * 1000);
+        this.dispatcher.ban(Runner.getRetryAfterSeconds(error) * 1000);
     }
 
     // Проверяется только error_code: счесть 429 с нечитаемым parameters «не тем» типом
-    // значило бы оставить настоящий 429 без бана. Форма parameters поэтому не гарантирована —
+    // значило бы оставить настоящий 429 без паузы. Форма parameters поэтому не гарантирована —
     // getRetryAfterSeconds разбирает её, не полагаясь на тип.
     private static isManyRequestError(error: unknown): error is TelegramApiError {
         if (typeof error !== "object" || error === null || !("error_code" in error)) {

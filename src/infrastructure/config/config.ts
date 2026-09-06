@@ -4,8 +4,8 @@ import { injectable } from "inversify";
 import { Level, Levels } from "app/domain/logger/logger.types";
 import { InvalidConfigError } from "app/common/errors";
 import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
-import { Limits } from "app/domain/planner/planner.types";
-import { BrokerSettings } from "app/domain/broker/broker.types";
+import { Rate } from "app/domain/dispatcher/rate-limit";
+import { RunnerSettings } from "app/domain/dispatcher/runner.types";
 import { DatabaseSettings } from "app/infrastructure/database/database.types";
 
 // quiet: dotenv с 17.0 по умолчанию печатает в stdout строку о загрузке .env — в проде
@@ -21,6 +21,14 @@ type LoggerType = "ConsoleLogger" | "PinoLogger";
 
 export type Environment = "production" | "development" | "testing";
 
+// Лимиты по областям: общий на всего бота и по одному на приватный чат и на группу.
+// Какой из них применить к задаче, решает тот, кто её ставит, а не Dispatcher.
+export type Rates = {
+    common: Rate;
+    private: Rate;
+    group: Rate;
+};
+
 @injectable()
 export class Config {
     private static readonly allowedLoggerTypes: ReadonlyArray<LoggerType> = ["ConsoleLogger", "PinoLogger"];
@@ -32,9 +40,9 @@ export class Config {
     public readonly tempDir: string;
     public readonly fontForgePath: string;
 
-    public readonly managerLimits: Limits;
+    public readonly rates: Rates;
 
-    public readonly broker: BrokerSettings;
+    public readonly runner: RunnerSettings;
 
     public readonly bot: {
         token: string;
@@ -53,7 +61,7 @@ export class Config {
         this.tempDir = Config.getEnvAsString("TEMP_DIR", path.join(this.rootDir, "tmp"));
         this.fontForgePath = Config.getEnvAsString("FONT_FORGE_PATH", "fontforge");
 
-        this.managerLimits = {
+        this.rates = {
             common: {
                 number: Config.getEnvAsInteger("LIMIT_COMMON_NUMBER", 30),
                 interval: Config.getEnvAsInteger("LIMIT_COMMON_INTERVAL", 1000), // 1 секунда
@@ -68,9 +76,9 @@ export class Config {
             },
         };
 
-        this.broker = {
-            sleepInterval: Config.getEnvAsInteger("BROKER_SLEEP_INTERVAL", 1000),
-            maxRetries: Config.getEnvAsInteger("BROKER_MAX_RETRIES", 3),
+        this.runner = {
+            sleepInterval: Config.getEnvAsInteger("RUNNER_SLEEP_INTERVAL", 1000),
+            maxRetries: Config.getEnvAsInteger("RUNNER_MAX_RETRIES", 3),
         };
 
         this.bot = {

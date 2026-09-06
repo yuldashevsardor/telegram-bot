@@ -1,10 +1,12 @@
 import { Middleware } from "app/infrastructure/bot/middleware/middleware";
 import { Api, NextFunction, RawApi } from "grammy";
-import { Planner } from "app/domain/planner/planner";
+import { Dispatcher } from "app/domain/dispatcher/dispatcher";
 import { inject, injectable } from "inversify";
 import { Modules } from "app/infrastructure/container/symbols/modules";
 import { Context } from "app/infrastructure/bot/bot.types";
-import { PRIORITY } from "app/domain/broker/broker.types";
+import { PRIORITY } from "app/domain/dispatcher/task";
+import { ConfigValue } from "app/infrastructure/config/config-value.decorator";
+import { Rates } from "app/infrastructure/config/config";
 
 type RawApiMethod = keyof RawApi;
 type RawApiPayload = Record<string, unknown>;
@@ -19,7 +21,12 @@ const TELEGRAM_NO_GROUP_RATE_LIMIT_SET = new Set<string | symbol>([
 
 @injectable()
 export class TelegramCallApiMiddleware extends Middleware {
-    public constructor(@inject<Planner>(Modules.Planner.Planner) private readonly planner: Planner) {
+    // Приватный чат это или группа, знает только эта прослойка: Dispatcher получает уже
+    // выбранный лимит вместе с задачей.
+    @ConfigValue<Rates>("rates")
+    private readonly rates!: Rates;
+
+    public constructor(@inject<Dispatcher>(Modules.Dispatcher.Dispatcher) private readonly dispatcher: Dispatcher) {
         super();
     }
 
@@ -32,9 +39,10 @@ export class TelegramCallApiMiddleware extends Middleware {
     private changeTelegramCallApi(api: Api): void {
         // Сохраняем старый raw, что бы вызывать в брокере реально отправку
         const originRaw = api.raw;
-        const planner = this.planner;
+        const dispatcher = this.dispatcher;
+        const rates = this.rates;
 
-        // Готовим ProxyHandler, который будет добавлять запросы в ТГ в Брокера
+        // Готовим ProxyHandler, который будет ставить запросы в ТГ задачами в очередь
         const proxyHandler: ProxyHandler<RawApi> = {
             get: (_target, method) => {
                 return method === "toJSON" ? "__internal" : callApi.bind(api, method as RawApiMethod);
@@ -86,10 +94,10 @@ export class TelegramCallApiMiddleware extends Middleware {
                 }
             };
 
-            planner.push(
+            dispatcher.push(
                 {
-                    chatId: chatId,
-                    isGroup: isGroup,
+                    key: chatId,
+                    rate: isGroup ? rates.group : rates.private,
                     priorityOnError: PRIORITY.HIGH,
                     callback: callback,
                 },
@@ -100,7 +108,7 @@ export class TelegramCallApiMiddleware extends Middleware {
             return promise;
         }
 
-        // Подменяем RawApi через Proxy на его замену с Брокером
+        // Подменяем RawApi через Proxy на его замену с очередью
         (api as unknown as { raw: RawApi }).raw = new Proxy(originRaw, proxyHandler);
     }
 }
