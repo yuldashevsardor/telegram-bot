@@ -9,7 +9,7 @@ import { FontConvertor } from "app/domain/font-convertor/font-convertor";
 import { Planner } from "app/domain/planner/planner";
 import { Modules } from "app/infrastructure/container/symbols/modules";
 import { Broker } from "app/domain/broker/broker";
-import { Bot } from "app/infrastructure/bot/bot";
+import { Bot } from "app/infrastructure/application/application";
 import { BulkMessagesCommand } from "app/infrastructure/bot/command/bulk-messages/bulk-messages.command";
 import { FontGeneratorCommand } from "app/infrastructure/bot/command/font-generator/font-generator.command";
 import { ConsoleLogger } from "app/infrastructure/logger/console.logger";

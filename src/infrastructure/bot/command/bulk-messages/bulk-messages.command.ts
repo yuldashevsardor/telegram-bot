@@ -3,7 +3,7 @@ import { injectable } from "inversify";
 import { StringHelper } from "app/helper/string-helper";
 import { container } from "app/infrastructure/container/container";
 import { Modules } from "app/infrastructure/container/symbols/modules";
-import { Bot } from "app/infrastructure/bot/bot";
+import { Bot } from "app/infrastructure/application/application";
 import { Planner } from "app/domain/planner/planner";
 import { Context } from "app/infrastructure/bot/bot.types";
 import { PRIORITY } from "app/domain/broker/broker.types";

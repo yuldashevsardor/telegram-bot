@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { container } from "app/infrastructure/container/container";
-import { Bot } from "app/infrastructure/bot/bot";
+import { Bot } from "app/infrastructure/application/application";
 import { Modules } from "app/infrastructure/container/symbols/modules";
 
 let bot: Bot | null = null;
