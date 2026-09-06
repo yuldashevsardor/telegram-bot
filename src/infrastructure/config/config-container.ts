@@ -10,7 +10,9 @@ type LoggerConfig = {
     level: Level;
 };
 
-export type Environment = "production" | "development" | "testing";
+const Environments = ["production", "development", "testing"] as const;
+
+export type Environment = (typeof Environments)[number];
 
 export class ConfigContainer {
     public readonly environment: Environment;
@@ -38,7 +40,7 @@ export class ConfigContainer {
     public readonly database: DatabaseSettings;
 
     public constructor(private readonly storage: ConfigStorage) {
-        this.environment = this.getString("NODE_ENV", "development") as Environment;
+        this.environment = this.getEnvironment();
         this.isProduction = this.environment === "production";
 
         this.rootDir = process.cwd();
@@ -109,6 +111,22 @@ export class ConfigContainer {
         }
 
         return parsed;
+    }
+
+    private getEnvironment(): Environment {
+        const value = this.getString("NODE_ENV", "development");
+
+        if (!Environments.some((environment) => environment === value)) {
+            throw new InvalidConfigError({
+                message: "Invalid environment",
+                payload: {
+                    got: value,
+                    allowed: Environments,
+                },
+            });
+        }
+
+        return value as Environment;
     }
 
     private getLogger(): LoggerConfig {

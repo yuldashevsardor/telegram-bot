@@ -11,7 +11,7 @@ import { Database } from "app/infrastructure/database/database";
 import { Broker } from "app/domain/broker/broker";
 import { Planner } from "app/domain/planner/planner";
 import { Bot } from "app/infrastructure/bot/bot";
-import { sleep } from "app/helper/utils";
+import { sleep, withTimeout } from "app/helper/utils";
 import { RuntimeError } from "app/common/errors";
 
 export class Application {
@@ -81,52 +81,35 @@ export class Application {
         this.logger.info("Stop application...");
 
         const { timeout } = this.cc.gracefulShutdown;
-        const finished = await Application.withDeadline(this.shutdown(Date.now() + timeout), timeout);
+        const deadline = Date.now() + timeout;
+        let onTime = true;
 
-        if (!finished) {
-            this.logger.warning("Graceful shutdown timeout is over, the rest of the shutdown is left unfinished.", {
-                timeout: timeout,
-            });
-        }
-
-        this.logger.info("Application is successfully stopped.");
-    }
-
-    private async shutdown(deadline: number): Promise<void> {
         if (this.isRun) {
-            await this.bot.stop();
-            await this.waitPlannerToEmpty(deadline);
+            onTime = await withTimeout(this.bot.stop(), deadline - Date.now());
+
+            if (onTime) {
+                onTime = await this.waitPlannerToEmpty(deadline);
+            }
+
             await this.broker.stop();
 
             this.isRun = false;
         }
 
+        // Пул Postgres закрываем в любом случае, даже когда срок уже вышел: шаг быстрый, свой
+        // предел у sql.end() есть, а брошенное соединение — ровно то, ради чего закрытие и
+        // переехало сюда из app.ts.
         await container.close();
-    }
 
-    // Срок ограничивает остановку целиком, а не отдельный её шаг: не уложившийся шаг остаётся
-    // выполняться, но процесс уже не ждёт — следом идёт process.exit(0) из app.ts.
-    private static async withDeadline(shutdown: Promise<void>, timeout: number): Promise<boolean> {
-        let timer: NodeJS.Timeout | undefined;
+        if (!onTime) {
+            this.logger.warning("Graceful shutdown timeout is over, the shutdown was cut short.", {
+                timeout: timeout,
+            });
 
-        const expired = new Promise<boolean>((resolve) => {
-            timer = setTimeout(() => resolve(false), timeout);
-        });
-        const finished = shutdown.then(() => true);
-
-        try {
-            const result = await Promise.race([finished, expired]);
-
-            if (!result) {
-                // Без обработчика отказ брошенного шага стал бы unhandledRejection и уронил
-                // процесс с кодом 1 уже после того, как остановка признана завершённой.
-                finished.catch(() => undefined);
-            }
-
-            return result;
-        } finally {
-            clearTimeout(timer);
+            return;
         }
+
+        this.logger.info("Application is successfully stopped.");
     }
 
     private static createLogger(cc: ConfigContainer): Logger {
@@ -154,7 +137,7 @@ export class Application {
         });
     }
 
-    private async waitPlannerToEmpty(deadline: number): Promise<void> {
+    private async waitPlannerToEmpty(deadline: number): Promise<boolean> {
         const { timeout, plannerInterval } = this.cc.gracefulShutdown;
 
         while (!this.planner.isEmpty()) {
@@ -163,14 +146,17 @@ export class Application {
             if (timeLeft <= 0) {
                 this.logger.warning("Shutdown timeout is over, remaining messages will not be sent.", {
                     messagesLeft: this.planner.getMessagesCount(),
-                    shutdownTimeout: timeout,
+                    timeout: timeout,
                 });
-                return;
+
+                return false;
             }
 
             this.logger.info(`Waiting for the outgoing queue to empty: ${this.planner.getMessagesCount()} messages left.`);
 
             await sleep(Math.min(plannerInterval, timeLeft));
         }
+
+        return true;
     }
 }

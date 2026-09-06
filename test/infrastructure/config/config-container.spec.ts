@@ -64,6 +64,10 @@ describe("ConfigContainer", () => {
         expect(() => config({ LOGGER_LEVEL: "verbose" })).to.throw(InvalidConfigError);
     });
 
+    it("rejects an unknown environment", () => {
+        expect(() => config({ NODE_ENV: "prod" })).to.throw(InvalidConfigError);
+    });
+
     it("rejects a value that is not an integer", () => {
         expect(() => config({ GRACEFUL_SHUTDOWN_TIMEOUT: "10s" })).to.throw(InvalidConfigError);
         expect(() => config({ DATABASE_PORT: "abc" })).to.throw(InvalidConfigError);
