@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { Container as InversifyContainer } from "inversify";
 import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
-import { Config } from "app/infrastructure/config/config";
+import { ConfigContainer } from "app/infrastructure/config/config-container";
 import { FontForge } from "app/domain/font-convertor/font-forge/font-forge";
 import { Services } from "app/infrastructure/container/symbols/services";
 import { ConvertorFactory } from "app/domain/font-convertor/convertor/convertor-factory";
@@ -12,13 +12,9 @@ import { Broker } from "app/domain/broker/broker";
 import { Bot } from "app/infrastructure/bot/bot";
 import { BulkMessagesCommand } from "app/infrastructure/bot/command/bulk-messages/bulk-messages.command";
 import { FontGeneratorCommand } from "app/infrastructure/bot/command/font-generator/font-generator.command";
-import { ConsoleLogger } from "app/infrastructure/logger/console.logger";
 import { Logger } from "app/domain/logger/logger";
 import { ResponseTimeMiddleware } from "app/infrastructure/bot/middleware/response-time.middleware";
-import { AbstractLogger } from "app/infrastructure/logger/abstract.logger";
 import { RequestLogMiddleware } from "app/infrastructure/bot/middleware/request-log.middleware";
-import { PinoLogger } from "app/infrastructure/logger/pino.logger";
-import { asyncLocalStorage } from "app/infrastructure/async-local-storage";
 import { AsyncLocalStorageMiddleware } from "app/infrastructure/bot/middleware/async-local-storage.middleware";
 import { IsPrivateChatFilter } from "app/infrastructure/bot/filter/is-private-chat.filter";
 import { FillUserToContextMiddleware } from "app/infrastructure/bot/middleware/fill-user-to-context.middleware";
@@ -36,10 +32,15 @@ import { StartConversation } from "app/infrastructure/bot/conversation/start/sta
 export class Container extends InversifyContainer {
     private alreadySetup = false;
 
-    public async setup(): Promise<void> {
+    // Конфиг и логгер приходят готовыми: их собирает Application до контейнера, поэтому
+    // всё, что связывается ниже, уже может на них рассчитывать.
+    public async setup(config: ConfigContainer, logger: Logger): Promise<void> {
         if (this.alreadySetup) {
             return;
         }
+
+        this.bind<ConfigContainer>(Infrastructure.ConfigContainer).toConstantValue(config);
+        this.bind<Logger>(Infrastructure.Logger).toConstantValue(logger);
 
         await this.setupModules();
         await this.setupServices();
@@ -77,43 +78,7 @@ export class Container extends InversifyContainer {
     }
 
     private async setupInfrastructure(): Promise<void> {
-        this.bind<Config>(Infrastructure.Config).to(Config).inSingletonScope();
         this.bind<Database>(Infrastructure.Database).to(Database).inSingletonScope();
-
-        await this.setupInfrastructureLogger();
-    }
-
-    private async setupInfrastructureLogger(): Promise<void> {
-        this.bind<ConsoleLogger>(Infrastructure.ConsoleLogger).to(ConsoleLogger).inSingletonScope();
-        this.bind<PinoLogger>(Infrastructure.PinoLogger).to(PinoLogger).inSingletonScope();
-
-        const config = this.get<Config>(Infrastructure.Config);
-        const consoleLogger = this.get<ConsoleLogger>(Infrastructure.ConsoleLogger);
-        const pinoLogger = this.get<PinoLogger>(Infrastructure.PinoLogger);
-
-        consoleLogger.setLevel(config.logger.level);
-        pinoLogger.setLevel(config.logger.level);
-
-        this.rebind<Logger>(Infrastructure.ConsoleLogger).toConstantValue(consoleLogger);
-        this.rebind<Logger>(Infrastructure.PinoLogger).toConstantValue(
-            new Proxy(pinoLogger, {
-                get(target, property, receiver): unknown {
-                    const scopedLogger = asyncLocalStorage.getStore()?.get("logger");
-
-                    target = scopedLogger instanceof PinoLogger ? scopedLogger : target;
-
-                    return Reflect.get(target, property, receiver);
-                },
-            }),
-        );
-
-        const defaultLogger = this.get<Logger>(config.logger.default);
-
-        if (defaultLogger instanceof AbstractLogger) {
-            defaultLogger.setLevel(config.logger.level);
-        }
-
-        this.bind<Logger>(Infrastructure.Logger).toConstantValue(defaultLogger);
     }
 
     private async setupBot(): Promise<void> {

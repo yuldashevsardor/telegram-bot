@@ -31,6 +31,10 @@ export class Database {
         });
     }
 
+    public async check(): Promise<void> {
+        await this.sql`select 1`;
+    }
+
     public async close(): Promise<void> {
         await this.sql.end({ timeout: CLOSE_TIMEOUT_SECONDS });
     }
