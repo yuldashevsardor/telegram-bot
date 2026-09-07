@@ -1,4 +1,4 @@
-import { AbstractLogger } from "app/infrastructure/logger/abstract.logger";
+import { AbstractLogger } from "app/infrastructure/logger/abstract-logger";
 import { UnknownObject } from "app/common/types";
 import { Logger, LoggerOptions, pino } from "pino";
 import { Level, LevelSeverity } from "app/domain/logger/logger.types";

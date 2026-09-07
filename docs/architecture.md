@@ -268,7 +268,7 @@ Payload перед записью проходит через `serialize-error`:
 печаталась бы как `{}`, а так в лог попадают её `name`, `message`, `stack` и `cause`.
 
 При добавлении уровня править три места: `Level`, `LevelSeverity` и `pinoLevels` в
-`pino.logger.ts`; последний — `Record<PinoLevel, number>` по строковому имени, забытая
+`pino-logger.ts`; последний — `Record<PinoLevel, number>` по строковому имени, забытая
 запись упадёт в рантайме.
 
 ## 10. i18n
@@ -396,7 +396,7 @@ EOT — issue [#27](https://github.com/yuldashevsardor/telegram-bot/issues/27).
 - **`LIMIT_*_NUMBER > 0`.** Ноль → `reserveDuration = Infinity` → слот занят навсегда,
   партиция никогда не удалится.
 - **Новое поле пользователя из `ctx.from`** требует синхронной правки `user.types.ts`,
-  `user.ts`, миграции, мапперов в `pgsql.user.repository.ts` и
+  `user.ts`, миграции, мапперов в `pgsql-user-repository.ts` и
   `fill-user-to-context.middleware.ts`; компилятор их не связывает, забытая миграция
   проявится SQL-ошибкой в рантайме.
 - **Порядок колонок `sessions`** связан с позиционным `insert` в `PgsqlStorage.write()`.

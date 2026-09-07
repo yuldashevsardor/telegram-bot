@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { expect } from "chai";
-import { ConsoleLogger } from "app/infrastructure/logger/console.logger";
+import { ConsoleLogger } from "app/infrastructure/logger/console-logger";
 import { Level } from "app/domain/logger/logger.types";
 import { UnknownObject } from "app/common/types";
 import { RuntimeError } from "app/common/errors";

@@ -2,7 +2,7 @@ import { UserRepository } from "app/domain/user/user.repository";
 import { User } from "app/domain/user/user";
 import { injectable } from "inversify";
 import { Sql } from "app/infrastructure/database/database";
-import { PgSql } from "app/infrastructure/database/pgsql.decorator";
+import { PgSql } from "app/infrastructure/database/pgsql-decorator";
 import { UserNotFound } from "app/domain/user/user.errors";
 import { UserRow } from "app/domain/user/user.types";
 import dayjs from "dayjs";
