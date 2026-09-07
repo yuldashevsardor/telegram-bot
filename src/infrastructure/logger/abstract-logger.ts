@@ -3,10 +3,16 @@ import { Level, Levels, LevelSeverity } from "app/domain/logger/logger.types";
 import { UnknownObject } from "app/common/types";
 import { InvalidLogLevel } from "app/domain/logger/logger.errors";
 import { injectable } from "inversify";
+import { AsyncLocalStorage } from "async_hooks";
+import { AlsStore } from "app/infrastructure/async-local-storage.types";
 
 @injectable()
 export abstract class AbstractLogger implements Logger {
     protected level: Level = Level.DEBUG;
+
+    // Хранилище приходит зависимостью: логгер всегда знает про него и сам забирает данные
+    // запроса в момент записи, поэтому под запрос не подменяется и не пересобирается.
+    public constructor(protected readonly asyncLocalStorage: AsyncLocalStorage<AlsStore>) {}
 
     public setLevel(level: Level): void {
         if (!Levels.includes(level)) {
@@ -18,6 +24,10 @@ export abstract class AbstractLogger implements Logger {
 
     protected isEnabled(level: Level): boolean {
         return LevelSeverity[level] >= LevelSeverity[this.level];
+    }
+
+    protected getRequestContext(): AlsStore {
+        return this.asyncLocalStorage.getStore() ?? {};
     }
 
     public abstract critical(message: string, payload?: UnknownObject): void;

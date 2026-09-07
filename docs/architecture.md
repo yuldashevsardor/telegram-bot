@@ -63,7 +63,7 @@ src/
     database/               Database (§11)
     logger/                 ConsoleLogger, PinoLogger (§9)
     repository/             PgSqlUserRepository (§8)
-    async-local-storage.ts  хранилище значений запроса и реестр его ключей (§9)
+    async-local-storage.ts  AsyncLocalStorage запроса и ключи его значений (§9)
 test/                       mocha-спеки, зеркалят src/
 migrations/                 миграции, в common/ — общие shorthands и заготовка (§11)
 scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-worktree-guard
@@ -266,15 +266,17 @@ FontConvertor.convert({ originPath, extension })
 `DEBUG` иначе. Неизвестное значение — `InvalidConfigError`.
 
 Корреляция запросов: `AsyncLocalStorageMiddleware` (первый в пайплайне) выполняет
-остаток пайплайна в `runWithAlsStore({ requestId })`, а логгер в момент записи забирает
-`getAlsLogContext()` и подмешивает его в запись — `PinoLogger` полями объекта,
-`ConsoleLogger` чипами `[key=value]`. Логгер при этом не подменяется и не пересобирается,
-поэтому корреляция работает на обоих адаптерах, в том числе в разработке.
+остаток пайплайна в `asyncLocalStorage.run({ requestId })`. `AbstractLogger` принимает
+хранилище зависимостью конструктора и в момент записи забирает его целиком —
+`PinoLogger` кладёт значения полями объекта, `ConsoleLogger` печатает чипами
+`[key=value]`. Логгер при этом не подменяется и не пересобирается, поэтому корреляция
+работает на обоих адаптерах, в том числе в разработке.
 
-Хранилище запроса (`infrastructure/async-local-storage.ts`) общее, а не логгерное: ключи
-перечислены в `AlsKey`, тип значения каждого — в `AlsValues`. В лог попадают только ключи
-из `LOGGABLE_ALS_KEYS`, поэтому новое значение запроса можно положить в хранилище, не
-засоряя им каждую запись.
+Хранилище (`infrastructure/async-local-storage.ts`) общее, а не логгерное: стор —
+`AlsStore` (`Record<string, unknown>`) в `async-local-storage.types.ts`, ключи — в
+`ALS_KEYS`. Логгер пишет **всё**, что лежит в сторе, поэтому туда кладётся только то,
+чему место в каждой записи запроса. Хранилище — кандидат в `ApplicationContext`, issue
+[#109](https://github.com/yuldashevsardor/telegram-bot/issues/109).
 
 Payload перед записью проходит через `serialize-error`: без него вложенная ошибка
 печаталась бы как `{}`, а так в лог попадают её `name`, `message`, `stack` и `cause`.

@@ -6,6 +6,7 @@ import { Modules } from "app/infrastructure/container/symbols/modules";
 import { Logger } from "app/domain/logger/logger";
 import { ConsoleLogger } from "app/infrastructure/logger/console-logger";
 import { PinoLogger } from "app/infrastructure/logger/pino-logger";
+import { asyncLocalStorage } from "app/infrastructure/async-local-storage";
 import { Database } from "app/infrastructure/database/database";
 import { Runner } from "app/domain/task-queue/runner";
 import { TaskQueue } from "app/domain/task-queue/task-queue";
@@ -110,7 +111,7 @@ export class Application {
     // Логгер один на процесс: данные запроса он берёт из AsyncLocalStorage в момент записи,
     // поэтому подменять сам объект под запрос не требуется.
     private static createLogger(cc: ConfigContainer): Logger {
-        const logger = cc.isProduction ? new PinoLogger() : new ConsoleLogger();
+        const logger = cc.isProduction ? new PinoLogger(asyncLocalStorage) : new ConsoleLogger(asyncLocalStorage);
         logger.setLevel(cc.logger.level);
 
         return logger;
