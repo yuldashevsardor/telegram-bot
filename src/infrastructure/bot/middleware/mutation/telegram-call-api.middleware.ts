@@ -5,7 +5,7 @@ import { inject, injectable } from "inversify";
 import { Modules } from "app/infrastructure/container/symbols/modules";
 import { Context } from "app/infrastructure/bot/bot.types";
 import { Priority } from "app/domain/task-queue/task";
-import { isGroupChat } from "app/infrastructure/bot/telegram-limit-resolver";
+import { isGroupChat } from "app/infrastructure/bot/telegram-chat";
 
 type RawApiMethod = keyof RawApi;
 type RawApiPayload = Record<string, unknown>;

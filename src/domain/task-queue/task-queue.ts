@@ -15,6 +15,11 @@ type KeysByPriority = {
 
 @injectable()
 export class TaskQueue {
+    // Потолок на один pull(): партиции копятся не быстрее, чем общий лимит отдаёт задачи, но
+    // уборка не должна зависеть от настроек лимитов — после всплеска накопленное снимается
+    // за несколько вызовов, а не одним проходом по событийному циклу.
+    private static readonly REMOVED_PARTITIONS_PER_PULL = 100;
+
     @ConfigValue<Limit>("limits.common")
     private readonly commonLimitSettings!: Limit;
 
@@ -56,7 +61,7 @@ export class TaskQueue {
         let partition = this.partitions.get(task.key);
 
         if (!partition) {
-            partition = new Partition(this.limitResolver.resolve(task.key));
+            partition = new Partition(this.limitResolver.resolve(task));
             this.partitions.set(task.key, partition);
         }
 
@@ -158,7 +163,13 @@ export class TaskQueue {
     // удалённых, а не размеру Map. Остывающая голова задерживает уборку не дольше собственного
     // остывания — набор хранит ключи в порядке опустошения.
     private removeIdlePartitions(): void {
+        let removed = 0;
+
         for (const key of this.idleKeys) {
+            if (removed >= TaskQueue.REMOVED_PARTITIONS_PER_PULL) {
+                break;
+            }
+
             const partition = this.partitions.get(key);
 
             if (!partition) {
@@ -175,8 +186,20 @@ export class TaskQueue {
                 break;
             }
 
-            this.partitions.delete(key);
-            this.idleKeys.delete(key);
+            this.forgetKey(key);
+            removed++;
+        }
+    }
+
+    // Ключ уходит сразу из всех наборов: индекс приоритетов чистится и по ходу выемки, но так
+    // условие «в keysByPriority нет ключей без партиции» держится в одном месте, а не выводится
+    // из того, что опустевшая корзина всегда успевает выбыть из индекса раньше.
+    private forgetKey(key: PartitionKey): void {
+        this.partitions.delete(key);
+        this.idleKeys.delete(key);
+
+        for (const keys of Object.values(this.keysByPriority)) {
+            keys.delete(key);
         }
     }
 
