@@ -5,7 +5,7 @@ import { container } from "app/infrastructure/container/container";
 import { Logger } from "app/domain/logger/logger";
 import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
 import { v4 as uuid } from "uuid";
-import { PinoLogger } from "app/infrastructure/logger/pino.logger";
+import { PinoLogger } from "app/infrastructure/logger/pino-logger";
 import { asyncLocalStorage, RequestStore } from "app/infrastructure/async-local-storage";
 import { Context } from "app/infrastructure/bot/bot.types";
 

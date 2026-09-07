@@ -23,10 +23,10 @@ import { FillUserToContextMiddleware } from "app/infrastructure/bot/middleware/f
 import { StartCommand } from "app/infrastructure/bot/command/start/start.command";
 import { StorageAdapter } from "grammy";
 import { SessionPayload } from "app/infrastructure/bot/session/session.types";
-import { PgsqlStorage } from "app/infrastructure/bot/session/pgsql.storage";
+import { PgsqlStorage } from "app/infrastructure/bot/session/pgsql-storage";
 import { Database } from "app/infrastructure/database/database";
 import { UserRepository } from "app/domain/user/user.repository";
-import { PgSqlUserRepository } from "app/infrastructure/repository/pgsql.user.repository";
+import { PgSqlUserRepository } from "app/infrastructure/repository/pgsql-user-repository";
 import { UserService } from "app/domain/user/user.service";
 import { TelegramCallApiMiddleware } from "app/infrastructure/bot/middleware/mutation/telegram-call-api.middleware";
 import { StartConversation } from "app/infrastructure/bot/conversation/start/start.conversation";

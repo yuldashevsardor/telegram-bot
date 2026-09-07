@@ -2,7 +2,7 @@ import { StorageAdapter } from "grammy";
 import { SessionPayload, SessionRow } from "app/infrastructure/bot/session/session.types";
 import { Sql } from "app/infrastructure/database/database";
 import { injectable } from "inversify";
-import { PgSql } from "app/infrastructure/database/pgsql.decorator";
+import { PgSql } from "app/infrastructure/database/pgsql-decorator";
 
 @injectable()
 export class PgsqlStorage implements StorageAdapter<SessionPayload> {

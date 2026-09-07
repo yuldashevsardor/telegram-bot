@@ -1,4 +1,4 @@
-import { AbstractLogger } from "app/infrastructure/logger/abstract.logger";
+import { AbstractLogger } from "app/infrastructure/logger/abstract-logger";
 import { UnknownObject } from "app/common/types";
 import { Level } from "app/domain/logger/logger.types";
 import { injectable } from "inversify";
