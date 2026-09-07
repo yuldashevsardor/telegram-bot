@@ -133,7 +133,8 @@ ConversationFlavor & FluentContextFlavor & { user: User }`.
    check-then-act в `FillUserToContextMiddleware` (§8).
 3. `HasSessionKeyFilter` — тем же `getSessionKey` отбрасывает апдейты без `from`
    или `chat` (пост в канале, inline-запрос): сессии у них нет, а всё ниже на неё
-   рассчитывает.
+   рассчитывает. Отброс пишется `warning`-ом: ниже фильтра дампа апдейта уже не будет.
+   Логгер здесь ещё без `requestId` — `AsyncLocalStorageMiddleware` стоит ниже (§9).
 4. Middleware: `TelegramCallApiMiddleware` → `AsyncLocalStorageMiddleware` →
    `ResponseTimeMiddleware` → `RequestLogMiddleware` → `FillUserToContextMiddleware`.
 5. Fluent (§10).

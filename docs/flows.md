@@ -67,9 +67,9 @@
    - Ключа нет: grammY вызывает `next()`, но первое обращение к `ctx.session` бросило бы
      синхронно, поэтому такой апдейт отсеивается шагом 3.
 2. **`sequentialize`** по `[chat.id, from.id]` — апдейты с общим ключом идут по одному.
-3. **`HasSessionKeyFilter`** — `getSessionKey(ctx) === undefined`: цепочка обрывается
-   без ошибки и без единого запроса в базу. Ниже `ctx.from`, `ctx.chat` и `ctx.session`
-   заполнены.
+3. **`HasSessionKeyFilter`** — `getSessionKey(ctx) === undefined`: `warning` с
+   `update_id` и тем, какого поля не хватило, и цепочка обрывается без ошибки и без
+   единого запроса в базу. Ниже `ctx.from`, `ctx.chat` и `ctx.session` заполнены.
 4. **`TelegramCallApiMiddleware`** — подменяет `ctx.api.raw` на `Proxy` (поток 4).
 5. **`AsyncLocalStorageMiddleware`** — при `PinoLogger` создаёт `child({ requestId })`
    и выполняет остаток в `asyncLocalStorage.run()`; при `ConsoleLogger` просто `next()`.
