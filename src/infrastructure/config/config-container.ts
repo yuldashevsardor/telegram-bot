@@ -6,12 +6,17 @@ import { Limits } from "app/domain/planner/planner.types";
 import { BrokerSettings } from "app/domain/broker/broker.types";
 import { DatabaseSettings } from "app/infrastructure/database/database.types";
 import { ConfigStorage } from "app/infrastructure/config/config-storage";
+import { BotSettings } from "app/infrastructure/bot/bot.types";
 
 type LoggerConfig = {
     level: Level;
 };
 
 const Environments = ["production", "development", "testing"] as const;
+
+function isEnvironment(value: string): value is (typeof Environments)[number] {
+    return Environments.some((environment) => environment === value);
+}
 
 export type Environment = (typeof Environments)[number];
 
@@ -27,12 +32,7 @@ export class ConfigContainer {
 
     public readonly broker: BrokerSettings;
 
-    public readonly bot: {
-        token: string;
-        gracefulShutdown: {
-            timeout: number;
-        };
-    };
+    public readonly bot: BotSettings;
 
     public readonly planner: {
         gracefulShutdown: {
@@ -92,7 +92,7 @@ export class ConfigContainer {
         };
 
         this.gracefulShutdown = {
-            timeout: this.getInteger("GRACEFUL_SHUTDOWN_TIMEOUT", 10000),
+            timeout: this.getInteger("GRACEFUL_SHUTDOWN_TIMEOUT", 15000),
         };
 
         this.checkGracefulShutdown();
@@ -135,9 +135,21 @@ export class ConfigContainer {
     }
 
     // Сроки бота и планера расходуются последовательно внутри общего, поэтому общий должен
-    // покрывать их сумму: иначе шаг, до которого дошла очередь, обрывается не своим сроком,
-    // а чужим, и на остановку брокера с закрытием пула не остаётся ничего.
+    // покрывать их сумму. Дальше этого проверка не идёт: приложение не пересчитывает
+    // собственные сроки всех своих зависимостей (у sql.end() внутри Database.close(), скажем,
+    // свои 5 секунд) — общий срок просто берётся с запасом, а не выводится из них.
     private checkGracefulShutdown(): void {
+        const { interval } = this.planner.gracefulShutdown;
+
+        if (interval <= 0) {
+            throw new InvalidConfigError({
+                message: "PLANNER_GRACEFUL_SHUTDOWN_INTERVAL must be greater than zero",
+                payload: {
+                    got: interval,
+                },
+            });
+        }
+
         const parts = this.bot.gracefulShutdown.timeout + this.planner.gracefulShutdown.timeout;
 
         if (this.gracefulShutdown.timeout <= parts) {
@@ -155,7 +167,7 @@ export class ConfigContainer {
     private getEnvironment(): Environment {
         const value = this.getString("NODE_ENV", "development");
 
-        if (!Environments.some((environment) => environment === value)) {
+        if (!isEnvironment(value)) {
             throw new InvalidConfigError({
                 message: "Invalid environment",
                 payload: {
@@ -165,7 +177,7 @@ export class ConfigContainer {
             });
         }
 
-        return value as Environment;
+        return value;
     }
 
     private getLogger(): LoggerConfig {

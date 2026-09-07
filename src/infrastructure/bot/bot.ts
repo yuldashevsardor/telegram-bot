@@ -69,7 +69,7 @@ export class Bot {
 
         const { timeout } = this.settings.gracefulShutdown;
 
-        if (this.runner?.isRunning && !(await withTimeout(this.runner.stop(), timeout))) {
+        if (this.runner?.isRunning() && !(await withTimeout(this.runner.stop(), timeout))) {
             this.logger.warning("Bot shutdown timeout is over, the runner was left stopping.", {
                 timeout: timeout,
             });

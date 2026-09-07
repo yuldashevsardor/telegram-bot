@@ -27,7 +27,7 @@ describe("ConfigContainer", () => {
 
         expect(result.environment).to.equal("development");
         expect(result.isProduction).to.equal(false);
-        expect(result.gracefulShutdown.timeout).to.equal(10000);
+        expect(result.gracefulShutdown.timeout).to.equal(15000);
         expect(result.bot.gracefulShutdown.timeout).to.equal(3000);
         expect(result.planner.gracefulShutdown.timeout).to.equal(5000);
         expect(result.planner.gracefulShutdown.interval).to.equal(500);
@@ -73,6 +73,11 @@ describe("ConfigContainer", () => {
     it("rejects a value that is not an integer", () => {
         expect(() => config({ GRACEFUL_SHUTDOWN_TIMEOUT: "10s" })).to.throw(InvalidConfigError);
         expect(() => config({ DATABASE_PORT: "abc" })).to.throw(InvalidConfigError);
+    });
+
+    it("rejects a non-positive planner poll interval", () => {
+        expect(() => config({ PLANNER_GRACEFUL_SHUTDOWN_INTERVAL: "0" })).to.throw(InvalidConfigError);
+        expect(() => config({ PLANNER_GRACEFUL_SHUTDOWN_INTERVAL: "-100" })).to.throw(InvalidConfigError);
     });
 
     it("rejects a shutdown timeout that does not cover the bot and the planner", () => {
