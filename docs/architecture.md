@@ -58,17 +58,19 @@ src/
     bot/                    grammY: команды, conversations, middleware, фильтры, сессия (§5)
     config/                 ConfigStorage → ConfigContainer (§12)
     container/              inversify-контейнер и символы (§3)
-    database/               Database и миграции (§11)
+    database/               Database (§11)
     logger/                 ConsoleLogger, PinoLogger (§9)
     repository/             PgSqlUserRepository (§8)
     async-local-storage.ts  общий AsyncLocalStorage для per-request логгера (§9)
 test/                       mocha-спеки, зеркалят src/
+migrations/                 миграции, в common/ — общие shorthands и заготовка (§11)
 scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-worktree-guard
 ```
 
 Импорты только через алиас `app/*` (`tsconfig.json` + `tsc-alias`), относительные
-запрещены ESLint-правилом `no-restricted-imports`. Исключение — файлы миграций:
-`node-pg-migrate` требует обычных импортов.
+запрещены ESLint-правилом `no-restricted-imports`. Исключение — каталог `migrations/`:
+он лежит вне `src/`, алиас туда не ведёт, и правило снято на весь каталог через
+`overrides` в `.eslintrc.js`.
 
 ## 3. DI
 
@@ -290,11 +292,26 @@ EOT — issue [#27](https://github.com/yuldashevsardor/telegram-bot/issues/27).
 в конструкторе, соединение открывается лениво, поэтому `Application.setup()` делает
 `check()`. `debug: !isProduction` включает лог запросов вне production.
 
-Миграции — `node-pg-migrate` (`migrate.json`, каталог
-`src/infrastructure/database/migrations/`), накатываются тем же контейнером перед
-стартом бота. Три файла: `users`, `sessions`, расширение `users.id` до `bigint`.
-Миграции append-only. `common/template.ts` — шаблон для `migrate-create`, из проверки
-типов исключён.
+Миграции — `node-pg-migrate` (`migrate.json`, каталог `migrations/` в корне),
+накатываются тем же контейнером перед стартом бота. Три файла: `users`, `sessions`,
+расширение `users.id` до `bigint`. Миграции append-only.
+
+Каталог лежит вне `src/` намеренно: приложение миграции не импортирует, грузит их
+`node-pg-migrate` своим jiti прямо из исходников, и в `build/` они были мёртвым грузом.
+Проверки их всё равно видят — `migrations/**/*.ts` перечислен в `tsconfig.check.json`,
+`npm run lint` и `format:check`.
+
+`common/template.ts` — заготовка, из которой `migrate-create` делает файл миграции.
+Лежит в подкаталоге, и этого достаточно, чтобы `node-pg-migrate` её не видел: каталог
+миграций он читает без рекурсии и подкаталоги пропускает (поэтому и `ignore-pattern` в
+`migrate.json` не нужен). Её импорт `./common/utils` рассчитан не на её собственное
+место, а на каталог, куда её скопируют.
+
+Из проверок она исключена в одном месте — `exclude` в `tsconfig.check.json`: `pgm` в ней
+объявлен, но не используется, и импорт с её места не резолвится. Ту же заглушку для eslint
+несёт первая строка самого файла, и оттуда она копируется в создаваемую миграцию, где
+нужна по той же причине. Расширение `.ts` обязательно: `node-pg-migrate` берёт из имени
+заготовки расширение создаваемого файла.
 
 `sessions` пишется из `PgsqlStorage` напрямую позиционным `insert into sessions values
 (key, value)` — порядок колонок в миграции и этот запрос связаны молча. Репозиторий

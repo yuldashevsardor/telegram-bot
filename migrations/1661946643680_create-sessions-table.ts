@@ -1,7 +1,5 @@
-/* eslint-disable no-restricted-imports,@typescript-eslint/ban-ts-comment */
 import { ColumnDefinitions, MigrationBuilder } from "node-pg-migrate";
-// @ts-ignore
-import { commonShorthands } from "src/infrastructure/database/migrations/common/utils";
+import { commonShorthands } from "./common/utils";
 
 const table = "sessions";
 

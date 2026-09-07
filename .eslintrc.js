@@ -38,5 +38,13 @@ module.exports = {
                 "@typescript-eslint/no-unused-expressions": "off",
             },
         },
+        {
+            // Миграции живут вне src, алиас app/* туда не ведёт, и грузит их не сборка,
+            // а node-pg-migrate — общие shorthands подключаются относительным путём.
+            files: ["migrations/**/*.ts"],
+            rules: {
+                "no-restricted-imports": "off",
+            },
+        },
     ],
 };
