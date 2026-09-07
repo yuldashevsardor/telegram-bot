@@ -25,7 +25,13 @@ describe("RuntimeError", function () {
         const error = new RuntimeError("boom", { userId: 42, cause: cause });
 
         expect(error.cause).to.equal(cause);
-        expect(error.payload).to.deep.equal({ userId: 42, cause: cause });
+        expect(error.payload).to.deep.equal({ userId: 42 });
+    });
+
+    it("leaves payload empty when the object had nothing but cause", function () {
+        const error = new RuntimeError("boom", { cause: new Error("original") });
+
+        expect(error.payload).to.be.undefined;
     });
 
     it("ignores a cause in the payload that is not an Error", function () {
