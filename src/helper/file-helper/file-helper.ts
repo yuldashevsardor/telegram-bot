@@ -3,8 +3,7 @@ import fsSync from "fs";
 import path from "path";
 import dayjs from "dayjs";
 import { InvalidExtensions, InvalidPath, PermissionDenied } from "app/helper/file-helper/file-helper.errors";
-import { promisify } from "util";
-import { exec as execOrigin } from "child_process";
+import { ProcessHelper } from "app/helper/process-helper/process-helper";
 import glob from "tiny-glob";
 
 export class FileHelper {
@@ -99,11 +98,9 @@ export class FileHelper {
             throw InvalidPath.isNotFile(path);
         }
 
-        const exec = promisify(execOrigin);
-        const command = `file --mime-type -b "${path}"`;
-        const commandResult = await exec(command);
+        const result = await ProcessHelper.run("file", ["--mime-type", "-b", path]);
 
-        return commandResult.stdout.trim();
+        return result.stdout.trim();
     }
 
     public static async findFilesByExtensions(basePath: string, extensions: string[]): Promise<Array<string>> {
