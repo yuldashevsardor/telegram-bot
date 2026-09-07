@@ -12,7 +12,7 @@ import { FileHelper } from "app/helper/file-helper/file-helper";
 @injectable()
 export class BulkMessagesCommand extends Command {
     public readonly command: string = "bulk_messages";
-    public readonly description: string = "Рассылка / Bulk messages";
+    public readonly descriptionKey: string = "bulk-messages-command-description";
 
     protected async handle(_ctx: Context): Promise<void> {
         const promises: Promise<unknown>[] = [];

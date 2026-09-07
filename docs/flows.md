@@ -21,7 +21,7 @@
      старт здесь, а не на первом апдейте.
    - `container.get(Bot)` — конструктор бросает `InvalidConfigError`, если `BOT_TOKEN` пуст.
    - `Bot.setup()` — регистрация пайплайна (§5); внутри `setupFlavor()` читает `.ftl`
-     с диска, `setupCommands()` делает сетевой `setMyCommands`.
+     с диска, `setupCommands()` делает сетевой `setMyCommands` — по вызову на локаль.
 3. `application.run()`: `runner.run()` (синхронный; ставит `setTimeout(handleTasks, 0)`)
    → `bot.run()` (`grammy.catch(handleError)`, затем `run(grammy)` — long polling в фоне).
 
@@ -78,7 +78,8 @@
 7. **`FillUserToContextMiddleware`** — `existsById` → `edit` (`getById` + `save`) или
    `create` (`save`) → `ctx.user`. Ошибок не ловит. Своя защита `if (!ctx.from)`
    недостижима из-за шага 6.
-8. **Fluent** — `ctx.t()`, локаль всегда `ru`.
+8. **Fluent** — `ctx.t()`; локаль — язык из `ctx.from.language_code`, незнакомый уводится
+   в дефолтную `ru`.
 9. **`IsPrivateChatFilter`** — не приватный чат: цепочка обрывается без ошибки.
 10. **Conversations** — чат «внутри» conversation получает апдейт в точку `wait()`
     вместо диспетчеризации команд.
@@ -167,11 +168,15 @@ RUNNER_MAX_RETRIES` задача отбрасывается с `error`. Вызы
 
 1. `FileHelper.findFilesByExtensions(<rootDir>/src/infrastructure/bot, [".ftl"])`.
 2. Локаль — предпоследний сегмент имени файла (`start.conversation.locale.ru.ftl` →
-   `ru`), без валидации.
-3. `fluent.addTranslation({ locales, filePath, isDefault: true })` на группу.
-4. `useFluent({ defaultLocale: "ru", localeNegotiator: () => "ru" })`.
+   `ru`); не из `LOCALES` — `UnknownLocale`.
+3. `fluent.addTranslation()` на локаль, `isDefault` — только у `ru`. Локаль без файлов —
+   `MissingLocaleBundle`.
+4. `useFluent({ defaultLocale: "ru", localeNegotiator: resolveLocale(from.language_code) })`.
+5. Готовый `Fluent` возвращается наверх: на нём же `setupCommands()` переводит описания
+   команд (§5 architecture.md).
 
-Ошибка разбора `.ftl` не перехватывается: валит `Bot.setup()` и процесс (поток 1).
+Ошибка разбора `.ftl`, как и ошибки шагов 2-3, не перехватывается: валит `Bot.setup()`
+и процесс (поток 1).
 
 ## 9. Логирование запроса
 

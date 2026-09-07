@@ -5,7 +5,7 @@ import { Context } from "app/infrastructure/bot/bot.types";
 @injectable()
 export abstract class Command {
     public abstract readonly command: string;
-    public abstract readonly description: string;
+    public abstract readonly descriptionKey: string;
 
     protected abstract handle(ctx: Context): Promise<void>;
 

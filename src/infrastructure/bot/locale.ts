@@ -1,0 +1,72 @@
+import path from "path";
+import { Fluent } from "@moebius/fluent";
+import { FileHelper } from "app/helper/file-helper/file-helper";
+import { MissingLocaleBundle, UnknownLocale } from "app/infrastructure/bot/locale.errors";
+
+// Список локалей задан явно, а не выведен из найденных .ftl: локаль берётся из имени
+// файла, и опечатка в нём иначе молча завела бы бандл несуществующего языка, в который
+// никогда никто не попадёт.
+export const LOCALES = ["ru", "en"] as const;
+
+export type Locale = (typeof LOCALES)[number];
+
+export const DEFAULT_LOCALE: Locale = "ru";
+
+export function isLocale(value: string): value is Locale {
+    return (LOCALES as readonly string[]).includes(value);
+}
+
+// Telegram присылает language_code тегом IETF ("ru", "en-US", "pt-br"), а бандлы заведены
+// по языку. Регион отбрасываем, незнакомый язык уводим в дефолтную локаль: иначе Fluent
+// не нашёл бы бандл и пользователь получил бы имена ключей вместо текста.
+export function resolveLocale(languageCode: string | undefined): Locale {
+    const language = languageCode?.split("-")[0]?.toLowerCase();
+
+    return language !== undefined && isLocale(language) ? language : DEFAULT_LOCALE;
+}
+
+// Соглашение об именах — `<что-то>.locale.<lang>.ftl`; локаль здесь единственный
+// источник правды о том, в какой бандл попадёт файл.
+export function localeFromFilePath(filePath: string): Locale {
+    const nameParts = path.basename(filePath).split(".");
+    const locale = nameParts.at(-2) ?? "";
+
+    if (!isLocale(locale)) {
+        throw UnknownLocale.byFilePath(filePath, locale);
+    }
+
+    return locale;
+}
+
+// Собирает бандлы из всех `.ftl` под localeDir. Отдельно от `Bot`, потому что порядок
+// добавления и `isDefault` определяют, что увидит пользователь на нехватающем ключе.
+export async function createFluent(localeDir: string): Promise<Fluent> {
+    const files = await FileHelper.findFilesByExtensions(localeDir, [".ftl"]);
+    const filesByLocale = new Map<Locale, string[]>(LOCALES.map((locale) => [locale, []]));
+
+    for (const filePath of files) {
+        filesByLocale.get(localeFromFilePath(filePath))?.push(filePath);
+    }
+
+    const fluent = new Fluent();
+
+    for (const [locale, localeFiles] of filesByLocale) {
+        // Локаль без файлов Fluent проглотил бы, и её пользователи молча уехали бы в
+        // дефолтную; при сборке в build/ так теряются все `.ftl` разом.
+        if (localeFiles.length === 0) {
+            throw MissingLocaleBundle.byLocale(locale, localeDir);
+        }
+
+        await fluent.addTranslation({
+            locales: locale,
+            filePath: localeFiles,
+            // Дефолтный бандл ровно один: Fluent дописывает его в хвост цепочки поиска, и
+            // на нём ключ, которого нет в локали пользователя, отдаёт текст, а не своё имя.
+            // С `isDefault` на каждом бандле дефолтным становился последний добавленный,
+            // то есть цепочка зависела от порядка обхода каталогов.
+            isDefault: locale === DEFAULT_LOCALE,
+        });
+    }
+
+    return fluent;
+}
