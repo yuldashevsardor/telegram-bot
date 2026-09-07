@@ -25,12 +25,9 @@ export class UserService {
         try {
             await this.repository.save(user);
         } catch (error) {
-            throw new UserCreateError({
-                message: "Error in create user",
-                payload: {
-                    dto: dto,
-                    error: error,
-                },
+            throw new UserCreateError("Error in create user", {
+                dto: dto,
+                cause: error,
             });
         }
 
@@ -63,12 +60,9 @@ export class UserService {
         try {
             await this.repository.save(user);
         } catch (error) {
-            throw new UserEditError({
-                message: "Error in edit user",
-                payload: {
-                    dto: dto,
-                    error: error,
-                },
+            throw new UserEditError("Error in edit user", {
+                dto: dto,
+                cause: error,
             });
         }
 

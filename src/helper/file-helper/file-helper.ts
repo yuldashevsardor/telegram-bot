@@ -2,10 +2,9 @@ import fs from "fs/promises";
 import fsSync from "fs";
 import path from "path";
 import dayjs from "dayjs";
-import { InvalidPath, PermissionDenied } from "app/helper/file-helper/file-helper.errors";
+import { InvalidExtensions, InvalidPath, PermissionDenied } from "app/helper/file-helper/file-helper.errors";
 import { promisify } from "util";
 import { exec as execOrigin } from "child_process";
-import { RuntimeError } from "app/common/errors";
 import glob from "tiny-glob";
 
 export class FileHelper {
@@ -121,9 +120,7 @@ export class FileHelper {
             .filter((extension) => extension !== "");
 
         if (!filteredExtensions.length) {
-            throw new RuntimeError({
-                message: "Extensions cannot be empty.",
-            });
+            throw InvalidExtensions.empty(extensions);
         }
 
         const searchPattern = `**/*.{${filteredExtensions.join(",")}}`;

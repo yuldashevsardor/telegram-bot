@@ -1,7 +1,7 @@
 import { container } from "app/infrastructure/container/container";
 import { ConfigContainer } from "app/infrastructure/config/config-container";
 import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
-import { RuntimeError } from "app/common/errors";
+import { InvalidConfigError } from "app/common/errors";
 import { UnknownObject } from "app/common/types";
 
 function getConfigValue<T>(key: string, defaultValue?: T): T {
@@ -26,8 +26,8 @@ function getConfigValue<T>(key: string, defaultValue?: T): T {
     }
 
     if (value === undefined) {
-        throw new RuntimeError({
-            message: `Invalid config "${key}"`,
+        throw new InvalidConfigError(`Invalid config "${key}"`, {
+            key: key,
         });
     }
 
