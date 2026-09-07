@@ -133,7 +133,8 @@ ConversationFlavor & FluentContextFlavor & { user: User }`.
    check-then-act в `FillUserToContextMiddleware` (§8).
 3. Middleware: `AsyncLocalStorageMiddleware` → `TelegramCallApiMiddleware` →
    `ResponseTimeMiddleware` → `RequestLogMiddleware` → `FillUserToContextMiddleware`.
-   `AsyncLocalStorageMiddleware` первый: всё, что логируется ниже, пишется с `requestId`.
+   `AsyncLocalStorageMiddleware` первый: всё, что логируется внутри цепочки, пишется
+   с `requestId` (§9).
 4. Fluent (§10).
 5. `IsPrivateChatFilter` — всё ниже работает только в приватных чатах.
 6. `conversations()` + `createConversation` для каждого символа `Modules.Bot.Conversations`.
@@ -267,16 +268,21 @@ FontConvertor.convert({ originPath, extension })
 
 Корреляция запросов: `AsyncLocalStorageMiddleware` (первый в пайплайне) выполняет
 остаток пайплайна в `asyncLocalStorage.run({ requestId })`. `AbstractLogger` принимает
-хранилище зависимостью конструктора и в момент записи забирает его целиком —
-`PinoLogger` кладёт значения полями объекта, `ConsoleLogger` печатает чипами
+хранилище зависимостью конструктора и в момент записи забирает из него значения
+`ALS_KEYS` — `PinoLogger` кладёт их полями объекта, `ConsoleLogger` печатает чипами
 `[key=value]`. Логгер при этом не подменяется и не пересобирается, поэтому корреляция
 работает на обоих адаптерах, в том числе в разработке.
 
-Хранилище (`infrastructure/async-local-storage.ts`) общее, а не логгерное: стор —
-`AlsStore` (`Record<string, unknown>`) в `async-local-storage.types.ts`, ключи — в
-`ALS_KEYS`. В запись логгер кладёт только известные ключи, то есть значения из
-`ALS_KEYS`: стор нетипизирован, и без отбора формат лога зависел бы от того, что в него
-положили по дороге. Хранилище — кандидат в `ApplicationContext`, issue
+Область `run()` — это цепочка middleware, и только она: `bot.catch` → `Bot.handleError`
+вызывается из `handleUpdate` уже после того, как промис пайплайна отклонён и область
+свёрнута, поэтому `critical` про упавший апдейт идёт без `requestId`.
+
+Хранилище (`infrastructure/async-local-storage.ts`) общее, а не логгерное: ключи и тип
+стора — в `async-local-storage.types.ts` (`ALS_KEYS` с `as const`, `AlsStore` выведен из
+него, значения `unknown`). В запись логгер кладёт только известные ключи: без отбора
+формат лога зависел бы от того, что в стор положили по дороге, а `as const` делает
+опечатку в ключе ошибкой компиляции, а не молча потерянной корреляцией. Хранилище —
+кандидат в `ApplicationContext`, issue
 [#109](https://github.com/yuldashevsardor/telegram-bot/issues/109).
 
 Payload перед записью проходит через `serialize-error`: без него вложенная ошибка

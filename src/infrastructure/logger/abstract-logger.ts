@@ -4,8 +4,7 @@ import { UnknownObject } from "app/common/types";
 import { InvalidLogLevel } from "app/domain/logger/logger.errors";
 import { injectable } from "inversify";
 import { AsyncLocalStorage } from "async_hooks";
-import { AlsStore } from "app/infrastructure/async-local-storage.types";
-import { ALS_KEYS } from "app/infrastructure/async-local-storage";
+import { ALS_KEYS, AlsStore } from "app/infrastructure/async-local-storage.types";
 
 @injectable()
 export abstract class AbstractLogger implements Logger {
