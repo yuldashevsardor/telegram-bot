@@ -41,10 +41,6 @@
             "reflect-metadata"
         ],
         "outDir": "./build",
-        // baseUrl объявлен устаревшим в TS 6 и удалён в TS 7, но tsconfig-paths
-        // без него не резолвит app/* в рантайме (dev, mocha, migrate).
-        "ignoreDeprecations": "6.0",
-        "baseUrl": ".",
         "paths": {
             "app/*": [
                 "./src/*"

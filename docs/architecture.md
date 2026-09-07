@@ -361,9 +361,11 @@ EOT — issue [#27](https://github.com/yuldashevsardor/telegram-bot/issues/27).
 
 ## 13. Тесты и проверки
 
-- `mocha` через `.mocharc.json` (`ts-node/register` + `tsconfig-paths/register`, без него
-  алиас `app/*` не разрешается). Типы тестов проверяет `npm run typecheck` по
-  `tsconfig.check.json`: сборочный `tsconfig.json` ограничен `src`.
+- `mocha` через `.mocharc.json` (`tsx/cjs`). Тот же `tsx` грузит `src/app.ts` в
+  `npm run dev`: один загрузчик TypeScript на разработку и тесты, алиас `app/*` он
+  разрешает сам по `paths`. Типы `tsx` не проверяет — это делает `npm run typecheck` по
+  `tsconfig.check.json`: сборочный `tsconfig.json` ограничен `src`. Миграции идут мимо
+  него, их грузит своим jiti `node-pg-migrate` (§11).
 - Покрыто: `task-queue` (очередь, партиция, лимит), `ConfigContainer`,
   `ConfigEnvStorage`, `ConsoleLogger`, `FileHelper`, `ProcessHelper`, `utils`, `errors`.
   Не покрыто:
@@ -416,5 +418,9 @@ EOT — issue [#27](https://github.com/yuldashevsardor/telegram-bot/issues/27).
   `exec` и любая сборка команды строкой возвращают `/bin/sh` в цепочку, и подставленный
   путь снова становится кодом; тестами это не ловится, потому что на «нормальных» путях
   разницы нет.
+- **Зависимости внедряются только явными `@inject(...)`.** `tsx` (esbuild) не эмитит
+  `design:paramtypes`, поэтому inversify не выведет зависимость из типа параметра:
+  параметр конструктора `@injectable`-класса без `@inject` уронит резолв в dev и тестах.
+  Сборка `tsc` метаданные эмитит и такую ошибку не покажет.
 - **`Runner.run()`/`stop()` синхронные**, хотя вызываются с `await`; `stop()`
   не ждёт конца текущей итерации цикла.

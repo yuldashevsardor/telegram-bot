@@ -81,9 +81,8 @@ export class PinoLogger extends AbstractLogger {
     }
 
     // Дочерний pino подставляется после конструирования, а не аргументом конструктора:
-    // inversify резолвит каждый параметр конструктора @injectable-класса, а pino.Logger —
-    // интерфейс, для которого design:paramtypes даёт Object, и контейнер падает
-    // на "No matching bindings found for serviceIdentifier: Object".
+    // inversify резолвит каждый параметр конструктора @injectable-класса, а для
+    // pino.Logger биндинга нет и быть не может, поэтому контейнер падал бы на резолве.
     child(context: UnknownObject): PinoLogger {
         const child = new PinoLogger();
         child.pino = this.pino.child(context);
