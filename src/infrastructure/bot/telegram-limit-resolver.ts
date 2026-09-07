@@ -6,13 +6,14 @@ import { Task } from "app/domain/task-queue/task";
 import { TelegramLimits } from "app/infrastructure/config/config";
 import { isGroupChat } from "app/infrastructure/bot/telegram-chat";
 
-// Реализация порта LimitResolver для бота: ключ партиции — это chat ID, и лимит у группы свой.
 @injectable()
 export class TelegramLimitResolver implements LimitResolver {
     @ConfigValue<TelegramLimits>("limits")
     private readonly limits!: TelegramLimits;
 
     public resolve(task: Task): Limit {
-        return typeof task.key === "number" && isGroupChat(task.key) ? this.limits.group : this.limits.private;
+        // Ключ партиции здесь — chat ID; нечисловой ключ до очереди в боте не доходит, но и он
+        // получит приватный лимит, а не исключение: Number("abc") даёт NaN, и сравнение ложно.
+        return isGroupChat(Number(task.key)) ? this.limits.group : this.limits.private;
     }
 }

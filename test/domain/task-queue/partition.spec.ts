@@ -9,11 +9,12 @@ const reserveDuration = limitInterval / limitNumber;
 describe("Partition", function () {
     this.timeout(limitInterval * 3);
 
-    it("takes a task of the higher priority first", function () {
+    it("takes tasks only from the asked priority", function () {
         const partition = build();
         partition.push(task("low"), Priority.LOW);
         partition.push(task("high"), Priority.HIGH);
 
+        expect(partition.take(Priority.MEDIUM)).to.be.null;
         expect(partition.take(Priority.HIGH)?.key).to.equal("high");
     });
 

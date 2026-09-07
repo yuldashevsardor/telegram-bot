@@ -105,6 +105,10 @@ export class TaskQueue {
         return this.taskCount;
     }
 
+    public getPartitionCount(): number {
+        return this.partitions.size;
+    }
+
     public ban(duration: number): void {
         const expirationTime = duration + Date.now();
 
@@ -145,8 +149,14 @@ export class TaskQueue {
             this.commonLimit.reserve();
             this.taskCount--;
 
-            if (!partition.has(priority)) {
-                keys.delete(key);
+            // Ключ уходит в хвост набора (Set хранит порядок вставки), иначе ключи, успевающие
+            // остыть за время обхода, занимают голову бесконечно, и до остальных очередь не
+            // доходит: при общем лимите 30/1000 мс и приватном 3/1000 мс так обслуживались бы
+            // только первые десять ключей.
+            keys.delete(key);
+
+            if (partition.has(priority)) {
+                keys.add(key);
             }
 
             if (partition.isEmpty()) {
@@ -160,8 +170,10 @@ export class TaskQueue {
     }
 
     // Обход обрывается на первой ещё остывающей партиции, поэтому работа пропорциональна числу
-    // удалённых, а не размеру Map. Остывающая голова задерживает уборку не дольше собственного
-    // остывания — набор хранит ключи в порядке опустошения.
+    // снятых ключей, а не размеру набора. Набор общий для всех остываний, поэтому голова с долгим
+    // остыванием (группа — 3 с) задерживает за собой и уже остывшие приватные партиции: их отпустит
+    // тот pull(), на котором остынет она сама. Число таких задержанных ограничено общим лимитом —
+    // при дефолтах это меньше сотни, — а память они занимают ту же, что и до опустошения.
     private removeIdlePartitions(): void {
         let removed = 0;
 
@@ -174,11 +186,13 @@ export class TaskQueue {
 
             if (!partition) {
                 this.idleKeys.delete(key);
+                removed++;
                 continue;
             }
 
             if (!partition.isEmpty()) {
                 this.idleKeys.delete(key);
+                removed++;
                 continue;
             }
 
@@ -205,7 +219,7 @@ export class TaskQueue {
 
     private logTaskCount(): void {
         setInterval(() => {
-            this.logger.info(`Number of tasks in the queue: ${this.taskCount}. Number of partitions: ${this.partitions.size}`);
+            this.logger.info(`Number of tasks in the queue: ${this.taskCount}. Number of partitions: ${this.getPartitionCount()}`);
         }, 10000).unref();
     }
 
