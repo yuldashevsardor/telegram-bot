@@ -5,27 +5,29 @@ export class RuntimeError extends Error {
     public readonly payload?: UnknownObject | undefined;
 
     public constructor(message: string, payloadOrCause?: UnknownObject | Error) {
-        const isCause = payloadOrCause instanceof Error;
-        // Исходная ошибка живёт в стандартном cause, а не в payload: так её видят
-        // и сериализаторы логов, и обычный вывод Error.
-        const cause = isCause ? payloadOrCause : payloadOrCause?.["cause"];
+        let payload: UnknownObject | undefined;
 
-        super(message, cause instanceof Error ? { cause: cause } : undefined);
-
-        const payload = isCause ? undefined : payloadOrCause;
-
-        this.message = message;
-
-        if (payload !== undefined && cause instanceof Error) {
+        if (payloadOrCause instanceof Error) {
+            // Исходная ошибка живёт в стандартном cause, а не в payload: так её видят
+            // и сериализаторы логов, и обычный вывод Error.
+            super(message, { cause: payloadOrCause });
+        } else if (payloadOrCause?.["cause"] instanceof Error) {
             // Исходную ошибку из payload убираем: сериализаторы логов защищаются только
             // от циклов (повтор ищут вдоль текущей ветки обхода), поэтому одну и ту же
             // ошибку по путям payload.cause и cause они развернули бы в запись дважды.
-            const { cause: _cause, ...rest } = payload;
+            const { cause, ...rest } = payloadOrCause;
 
-            this.payload = Object.keys(rest).length > 0 ? rest : undefined;
+            super(message, { cause: cause });
+
+            payload = Object.keys(rest).length > 0 ? rest : undefined;
         } else {
-            this.payload = payload;
+            super(message);
+
+            payload = payloadOrCause;
         }
+
+        this.message = message;
+        this.payload = payload;
     }
 
     static byError<T extends RuntimeError>(this: new (...params: ConstructorParameters<typeof RuntimeError>) => T, error: unknown): T {
