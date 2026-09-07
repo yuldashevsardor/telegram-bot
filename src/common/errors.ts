@@ -1,5 +1,18 @@
 import { UnknownObject } from "app/common/types";
 
+// Исходную ошибку из payload убираем: сериализаторы логов защищаются только от циклов
+// (повтор ищут вдоль текущей ветки обхода), поэтому одну и ту же ошибку по путям
+// payload.cause и cause они развернули бы в запись дважды.
+function collectPayload(payload: UnknownObject | undefined, cause: unknown): UnknownObject | undefined {
+    if (payload === undefined || !(cause instanceof Error)) {
+        return payload;
+    }
+
+    const { cause: _cause, ...rest } = payload;
+
+    return Reflect.ownKeys(rest).length > 0 ? rest : undefined;
+}
+
 export class RuntimeError extends Error {
     public override readonly message: string;
     public readonly payload?: UnknownObject | undefined;
@@ -13,7 +26,7 @@ export class RuntimeError extends Error {
         super(message, cause instanceof Error ? { cause: cause } : undefined);
 
         this.message = message;
-        this.payload = isCause ? undefined : payloadOrCause;
+        this.payload = isCause ? undefined : collectPayload(payloadOrCause, cause);
     }
 
     static byError<T extends RuntimeError>(this: new (...params: ConstructorParameters<typeof RuntimeError>) => T, error: unknown): T {

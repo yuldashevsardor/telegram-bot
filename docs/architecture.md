@@ -30,8 +30,10 @@ Telegram — способ доставки; `User`, сессии и миграц
 `<модуль>.errors.ts` рядом с бросающим кодом — `font-convertor`, `font-forge`, `logger`,
 `user`, `rate-limit`, `runner`, `file-helper`, `string-helper`, плюс `InvalidConfigError`
 в `common/`. Конструктор — `new RuntimeError(message, payloadOrCause)`: `Error` вторым
-аргументом уходит в стандартный `cause`, объект — в `payload` (поле `cause` внутри него
-дополнительно попадает в `cause`). Детали собирают статические фабрики по месту
+аргументом уходит в стандартный `cause`, объект — в `payload`. `Error` в поле `cause`
+такого объекта переезжает в стандартный `cause` и в `payload` не остаётся: иначе
+сериализатор логов развернул бы одну и ту же ошибку дважды — по `payload.cause` и по
+`cause`. Детали собирают статические фабрики по месту
 (`ExtensionNotSupport.byExtension()`). Чужую ошибку без своих деталей оборачивает
 `byError()` — он берёт её message и кладёт её саму в `cause`; если нужен ещё и payload,
 ошибка передаётся полем `cause` внутри него (`UserService.create()`).
