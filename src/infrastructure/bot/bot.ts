@@ -129,8 +129,8 @@ export class Bot {
 
         const composer = new Composer<Context>();
         const middlewares = [
-            container.get<Middleware>(Modules.Bot.Middleware.Mutation.TelegramCallApi),
             container.get<Middleware>(Modules.Bot.Middleware.AsyncLocalStorage),
+            container.get<Middleware>(Modules.Bot.Middleware.Mutation.TelegramCallApi),
             container.get<Middleware>(Modules.Bot.Middleware.ResponseTime),
             container.get<Middleware>(Modules.Bot.Middleware.RequestLog),
             container.get<Middleware>(Modules.Bot.Middleware.FillUserToContext),

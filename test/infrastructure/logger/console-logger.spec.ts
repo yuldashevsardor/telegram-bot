@@ -4,6 +4,7 @@ import { ConsoleLogger } from "app/infrastructure/logger/console-logger";
 import { Level } from "app/domain/logger/logger.types";
 import { UnknownObject } from "app/common/types";
 import { RuntimeError } from "app/common/errors";
+import { AlsKey, runWithAlsStore } from "app/infrastructure/async-local-storage";
 
 function capture(method: "error" | "info", write: (logger: ConsoleLogger) => void): string {
     const original = console[method];
@@ -57,5 +58,15 @@ describe("ConsoleLogger", function () {
 
     it("prints a level above the configured one", function () {
         expect(capture("error", (logger) => logger.critical("printed"))).to.contain("[CRITICAL] printed");
+    });
+
+    it("prints the request id of the surrounding request", function () {
+        const captured = runWithAlsStore({ [AlsKey.RequestId]: "req-1" }, () => capture("error", (logger) => logger.error("failed")));
+
+        expect(captured).to.contain("[requestId=req-1]");
+    });
+
+    it("prints nothing extra outside a request", function () {
+        expect(capture("error", (logger) => logger.error("failed"))).to.not.contain("requestId");
     });
 });

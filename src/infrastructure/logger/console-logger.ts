@@ -4,6 +4,7 @@ import { Level } from "app/domain/logger/logger.types";
 import { injectable } from "inversify";
 import dayjs from "dayjs";
 import { serializeError } from "serialize-error";
+import { getAlsLogContext } from "app/infrastructure/async-local-storage";
 
 @injectable()
 export class ConsoleLogger extends AbstractLogger {
@@ -58,7 +59,13 @@ export class ConsoleLogger extends AbstractLogger {
     }
 
     private static collectFinalMessage(level: Level, message: string, payload?: UnknownObject): string {
-        const messages = [`[${dayjs().format("YYYY-MM-DD HH:mm:ss.SSS")}]`, `[${level}]`, message];
+        const messages = [`[${dayjs().format("YYYY-MM-DD HH:mm:ss.SSS")}]`, `[${level}]`];
+
+        for (const [key, value] of Object.entries(getAlsLogContext() ?? {})) {
+            messages.push(`[${key}=${String(value)}]`);
+        }
+
+        messages.push(message);
 
         if (payload) {
             // Без serializeError вложенные ошибки печатались бы как {}: свойства name,
