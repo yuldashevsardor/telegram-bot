@@ -1,13 +1,9 @@
 import { promisify } from "util";
 import { execFile as execFileOrigin } from "child_process";
 import { ProcessFailed } from "app/helper/process-helper/process-helper.errors";
+import { ProcessResult } from "app/helper/process-helper/process-helper.types";
 
 const execFile = promisify(execFileOrigin);
-
-export type ProcessResult = {
-    stdout: string;
-    stderr: string;
-};
 
 export class ProcessHelper {
     // execFile, а не exec: аргументы уходят процессу массивом, минуя /bin/sh. Кавычки,
