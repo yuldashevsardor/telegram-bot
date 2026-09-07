@@ -7,6 +7,9 @@ services:
         build:
             context: .
         restart: on-failure:5
+        # Больше GRACEFUL_SHUTDOWN_TIMEOUT (.env), иначе SIGKILL прилетит раньше, чем
+        # приложение доведёт остановку до конца, и весь graceful shutdown потеряет смысл.
+        stop_grace_period: 20s
         # Миграции накатываются в том же контейнере перед стартом бота: .ts-миграции
         # node-pg-migrate грузит своим встроенным jiti, отдельного транспайлера не нужно.
         # База поднимается отдельно, поэтому дождаться её healthcheck нельзя: если контейнер

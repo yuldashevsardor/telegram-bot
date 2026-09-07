@@ -3,7 +3,7 @@ import { ConfigValue } from "app/infrastructure/config/config-value.decorator";
 import { LimitResolver } from "app/domain/task-queue/limit-resolver";
 import { Limit } from "app/domain/task-queue/rate-limit.types";
 import { Task } from "app/domain/task-queue/task";
-import { TelegramLimits } from "app/infrastructure/config/config";
+import { TelegramLimits } from "app/infrastructure/config/config-container";
 import { isGroupChat } from "app/infrastructure/bot/telegram-chat";
 
 @injectable()

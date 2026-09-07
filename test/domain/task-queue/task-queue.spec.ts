@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { container } from "app/infrastructure/container/container";
-import { Config } from "app/infrastructure/config/config";
+import { ConfigContainer } from "app/infrastructure/config/config-container";
 import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
 import { Limit } from "app/domain/task-queue/rate-limit.types";
 import { LimitResolver } from "app/domain/task-queue/limit-resolver";
@@ -14,12 +14,12 @@ const commonLimit: Limit = { number: 1000, interval: 1000 };
 const keyLimit: Limit = { number: 100, interval: 1000 };
 const keyCooldown = keyLimit.interval / keyLimit.number;
 
-// Config подменяется целиком: @ConfigValue читает его из контейнера, и подставленный объект
-// избавляет тест от .env и от реальных лимитов бота.
-if (!container.isBound(Infrastructure.Config)) {
-    container.bind<Config>(Infrastructure.Config).toConstantValue({
+// ConfigContainer подменяется целиком: @ConfigValue читает его из DI-контейнера, и подставленный
+// объект избавляет тест от .env и от реальных лимитов бота.
+if (!container.isBound(Infrastructure.ConfigContainer)) {
+    container.bind<ConfigContainer>(Infrastructure.ConfigContainer).toConstantValue({
         limits: { common: commonLimit, private: keyLimit, group: keyLimit },
-    } as unknown as Config);
+    } as unknown as ConfigContainer);
 }
 
 describe("TaskQueue", function () {

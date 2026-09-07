@@ -1,22 +1,11 @@
 import "reflect-metadata";
-import { container } from "app/infrastructure/container/container";
-import { Bot } from "app/infrastructure/bot/bot";
-import { Modules } from "app/infrastructure/container/symbols/modules";
+import { Application } from "app/infrastructure/application/application";
 
-let bot: Bot | null = null;
+const application = new Application();
 
 async function bootstrap(): Promise<void> {
-    await container.setup();
-    bot = container.get<Bot>(Modules.Bot.Bot);
-    await bot.run();
-}
-
-async function stop(): Promise<void> {
-    if (bot) {
-        await bot.stop();
-    }
-
-    await container.close();
+    await application.setup();
+    await application.run();
 }
 
 function fail(error: unknown): never {
@@ -26,7 +15,7 @@ function fail(error: unknown): never {
 
 async function gracefulStop(): Promise<void> {
     try {
-        await stop();
+        await application.stop();
     } catch (error) {
         fail(error);
     }
