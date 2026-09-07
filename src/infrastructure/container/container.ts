@@ -6,9 +6,11 @@ import { FontForge } from "app/domain/font-convertor/font-forge/font-forge";
 import { Services } from "app/infrastructure/container/symbols/services";
 import { ConvertorFactory } from "app/domain/font-convertor/convertor/convertor-factory";
 import { FontConvertor } from "app/domain/font-convertor/font-convertor";
-import { Dispatcher } from "app/domain/dispatcher/dispatcher";
+import { TaskQueue } from "app/domain/task-queue/task-queue";
 import { Modules } from "app/infrastructure/container/symbols/modules";
-import { Runner } from "app/domain/dispatcher/runner";
+import { Runner } from "app/domain/task-queue/runner";
+import { LimitResolver } from "app/domain/task-queue/limit-resolver";
+import { TelegramLimitResolver } from "app/infrastructure/bot/telegram-limit-resolver";
 import { Bot } from "app/infrastructure/bot/bot";
 import { BulkMessagesCommand } from "app/infrastructure/bot/command/bulk-messages/bulk-messages.command";
 import { FontGeneratorCommand } from "app/infrastructure/bot/command/font-generator/font-generator.command";
@@ -59,8 +61,9 @@ export class Container extends InversifyContainer {
     }
 
     private async setupModules(): Promise<void> {
-        this.bind<Dispatcher>(Modules.Dispatcher.Dispatcher).to(Dispatcher).inSingletonScope();
-        this.bind<Runner>(Modules.Runner.Runner).to(Runner).inSingletonScope();
+        this.bind<LimitResolver>(Modules.TaskQueue.LimitResolver).to(TelegramLimitResolver).inSingletonScope();
+        this.bind<TaskQueue>(Modules.TaskQueue.TaskQueue).to(TaskQueue).inSingletonScope();
+        this.bind<Runner>(Modules.TaskQueue.Runner).to(Runner).inSingletonScope();
 
         await this.setupBot();
     }

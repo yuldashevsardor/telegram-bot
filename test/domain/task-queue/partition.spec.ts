@@ -1,57 +1,57 @@
 import { expect } from "chai";
-import { Partition } from "app/domain/dispatcher/partition";
-import { PRIORITY, Task } from "app/domain/dispatcher/task";
+import { Partition } from "app/domain/task-queue/partition";
+import { Priority, Task } from "app/domain/task-queue/task";
 
-const rateNumber = 10;
-const rateInterval = 1000;
-const reserveDuration = rateInterval / rateNumber;
+const limitNumber = 10;
+const limitInterval = 1000;
+const reserveDuration = limitInterval / limitNumber;
 
 describe("Partition", function () {
-    this.timeout(rateInterval * 3);
+    this.timeout(limitInterval * 3);
 
     it("takes a task of the higher priority first", function () {
         const partition = build();
-        partition.push(task("low"), PRIORITY.LOW);
-        partition.push(task("high"), PRIORITY.HIGH);
+        partition.push(task("low"), Priority.LOW);
+        partition.push(task("high"), Priority.HIGH);
 
-        expect(partition.take(PRIORITY.HIGH)?.key).to.equal("high");
+        expect(partition.take(Priority.HIGH)?.key).to.equal("high");
     });
 
     it("takes tasks of one priority in the order they were pushed", async function () {
         const partition = build();
-        partition.push(task("first"), PRIORITY.MEDIUM);
-        partition.push(task("second"), PRIORITY.MEDIUM);
+        partition.push(task("first"), Priority.MEDIUM);
+        partition.push(task("second"), Priority.MEDIUM);
 
-        expect(partition.take(PRIORITY.MEDIUM)?.key).to.equal("first");
+        expect(partition.take(Priority.MEDIUM)?.key).to.equal("first");
         await delay(reserveDuration + 10);
-        expect(partition.take(PRIORITY.MEDIUM)?.key).to.equal("second");
+        expect(partition.take(Priority.MEDIUM)?.key).to.equal("second");
     });
 
     it("reserves its rate limit on take", function () {
         const partition = build();
-        partition.push(task("only"), PRIORITY.MEDIUM);
+        partition.push(task("only"), Priority.MEDIUM);
 
-        partition.take(PRIORITY.MEDIUM);
+        partition.take(Priority.MEDIUM);
 
         expect(partition.isFree()).to.be.false;
     });
 
     it("returns null while the rate limit is not free", function () {
         const partition = build();
-        partition.push(task("first"), PRIORITY.MEDIUM);
-        partition.push(task("second"), PRIORITY.MEDIUM);
+        partition.push(task("first"), Priority.MEDIUM);
+        partition.push(task("second"), Priority.MEDIUM);
 
-        partition.take(PRIORITY.MEDIUM);
+        partition.take(Priority.MEDIUM);
 
-        expect(partition.take(PRIORITY.MEDIUM)).to.be.null;
+        expect(partition.take(Priority.MEDIUM)).to.be.null;
         expect(partition.size).to.equal(1);
     });
 
     it("is empty but not idle while the rate limit is cooling down", function () {
         const partition = build();
-        partition.push(task("only"), PRIORITY.MEDIUM);
+        partition.push(task("only"), Priority.MEDIUM);
 
-        partition.take(PRIORITY.MEDIUM);
+        partition.take(Priority.MEDIUM);
 
         expect(partition.isEmpty()).to.be.true;
         expect(partition.isIdle()).to.be.false;
@@ -59,9 +59,9 @@ describe("Partition", function () {
 
     it("is idle when it is empty and the rate limit has cooled down", async function () {
         const partition = build();
-        partition.push(task("only"), PRIORITY.MEDIUM);
+        partition.push(task("only"), Priority.MEDIUM);
 
-        partition.take(PRIORITY.MEDIUM);
+        partition.take(Priority.MEDIUM);
         await delay(reserveDuration + 10);
 
         expect(partition.isIdle()).to.be.true;
@@ -69,10 +69,10 @@ describe("Partition", function () {
 
     it("is not idle while it still holds tasks", async function () {
         const partition = build();
-        partition.push(task("first"), PRIORITY.MEDIUM);
-        partition.push(task("second"), PRIORITY.MEDIUM);
+        partition.push(task("first"), Priority.MEDIUM);
+        partition.push(task("second"), Priority.MEDIUM);
 
-        partition.take(PRIORITY.MEDIUM);
+        partition.take(Priority.MEDIUM);
         await delay(reserveDuration + 10);
 
         expect(partition.isIdle()).to.be.false;
@@ -81,19 +81,15 @@ describe("Partition", function () {
 
 function build(): Partition {
     return new Partition({
-        interval: rateInterval,
-        number: rateNumber,
+        interval: limitInterval,
+        number: limitNumber,
     });
 }
 
 function task(key: string): Task {
     return {
         key: key,
-        rate: {
-            interval: rateInterval,
-            number: rateNumber,
-        },
-        priorityOnError: PRIORITY.HIGH,
+        priorityOnError: Priority.HIGH,
         callback: () => Promise.resolve(),
     };
 }

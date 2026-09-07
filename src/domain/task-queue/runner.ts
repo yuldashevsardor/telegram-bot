@@ -1,9 +1,10 @@
 import { inject, injectable } from "inversify";
-import { Dispatcher } from "app/domain/dispatcher/dispatcher";
+import { TaskQueue } from "app/domain/task-queue/task-queue";
 import { Modules } from "app/infrastructure/container/symbols/modules";
-import { RunnerSettings } from "app/domain/dispatcher/runner.types";
-import { Task } from "app/domain/dispatcher/task";
-import { DEFAULT_RETRY_AFTER_SECONDS, TelegramApiError, TELEGRAM_ERROR_CODES } from "app/domain/dispatcher/telegram-error";
+import { RunnerAlreadyRun } from "app/domain/task-queue/runner.errors";
+import { RunnerSettings } from "app/domain/task-queue/runner.types";
+import { Task } from "app/domain/task-queue/task";
+import { DEFAULT_RETRY_AFTER_SECONDS, TelegramApiError, TELEGRAM_ERROR_CODES } from "app/domain/task-queue/telegram-error";
 import { ConfigValue } from "app/infrastructure/config/config-value.decorator";
 import { Logger } from "app/domain/logger/logger";
 import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
@@ -16,13 +17,13 @@ export class Runner {
     private _isRun = false;
 
     public constructor(
-        @inject<Dispatcher>(Modules.Dispatcher.Dispatcher) private readonly dispatcher: Dispatcher,
+        @inject<TaskQueue>(Modules.TaskQueue.TaskQueue) private readonly taskQueue: TaskQueue,
         @inject<Logger>(Infrastructure.Logger) private readonly logger: Logger,
     ) {}
 
     public run(): void {
         if (this.isRun) {
-            throw new Error("runner already is run.");
+            throw new RunnerAlreadyRun({ message: "Runner is already run." });
         }
 
         this._isRun = true;
@@ -43,14 +44,14 @@ export class Runner {
             return;
         }
 
-        const task = this.dispatcher.pull();
+        const task = this.taskQueue.pull();
 
         if (!task) {
             setTimeout(this.handleTasks.bind(this), this.settings.sleepInterval);
             return;
         }
 
-        // Завершения вызова цикл намеренно не ждёт: темп выдачи задают лимиты Dispatcher,
+        // Завершения вызова цикл намеренно не ждёт: темп выдачи задают лимиты TaskQueue,
         // а не сетевая задержка Telegram. Ошибку разбирает сам handleTask.
         void this.handleTask(task);
 
@@ -78,7 +79,7 @@ export class Runner {
             return;
         }
 
-        this.dispatcher.push({ ...task, retryCount: retryCount }, task.priorityOnError);
+        this.taskQueue.push({ ...task, retryCount: retryCount }, task.priorityOnError);
     }
 
     private handleError(error: unknown): void {
@@ -88,7 +89,7 @@ export class Runner {
             return;
         }
 
-        this.dispatcher.ban(Runner.getRetryAfterSeconds(error) * 1000);
+        this.taskQueue.ban(Runner.getRetryAfterSeconds(error) * 1000);
     }
 
     // Проверяется только error_code: счесть 429 с нечитаемым parameters «не тем» типом

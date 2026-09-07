@@ -1,12 +1,11 @@
 import { Middleware } from "app/infrastructure/bot/middleware/middleware";
 import { Api, NextFunction, RawApi } from "grammy";
-import { Dispatcher } from "app/domain/dispatcher/dispatcher";
+import { TaskQueue } from "app/domain/task-queue/task-queue";
 import { inject, injectable } from "inversify";
 import { Modules } from "app/infrastructure/container/symbols/modules";
 import { Context } from "app/infrastructure/bot/bot.types";
-import { PRIORITY } from "app/domain/dispatcher/task";
-import { ConfigValue } from "app/infrastructure/config/config-value.decorator";
-import { Rates } from "app/infrastructure/config/config";
+import { Priority } from "app/domain/task-queue/task";
+import { isGroupChat } from "app/infrastructure/bot/telegram-limit-resolver";
 
 type RawApiMethod = keyof RawApi;
 type RawApiPayload = Record<string, unknown>;
@@ -21,12 +20,7 @@ const TELEGRAM_NO_GROUP_RATE_LIMIT_SET = new Set<string | symbol>([
 
 @injectable()
 export class TelegramCallApiMiddleware extends Middleware {
-    // Приватный чат это или группа, знает только эта прослойка: Dispatcher получает уже
-    // выбранный лимит вместе с задачей.
-    @ConfigValue<Rates>("rates")
-    private readonly rates!: Rates;
-
-    public constructor(@inject<Dispatcher>(Modules.Dispatcher.Dispatcher) private readonly dispatcher: Dispatcher) {
+    public constructor(@inject<TaskQueue>(Modules.TaskQueue.TaskQueue) private readonly taskQueue: TaskQueue) {
         super();
     }
 
@@ -39,8 +33,7 @@ export class TelegramCallApiMiddleware extends Middleware {
     private changeTelegramCallApi(api: Api): void {
         // Сохраняем старый raw, что бы вызывать в брокере реально отправку
         const originRaw = api.raw;
-        const dispatcher = this.dispatcher;
-        const rates = this.rates;
+        const taskQueue = this.taskQueue;
 
         // Готовим ProxyHandler, который будет ставить запросы в ТГ задачами в очередь
         const proxyHandler: ProxyHandler<RawApi> = {
@@ -64,7 +57,7 @@ export class TelegramCallApiMiddleware extends Middleware {
 
             const chatId = Number(payload["chat_id"]);
             const isAllowedGroupMethod = TELEGRAM_NO_GROUP_RATE_LIMIT_SET.has(method);
-            const isGroup = chatId < 0;
+            const isGroup = isGroupChat(chatId);
             if (isNaN(chatId) || (isGroup && isAllowedGroupMethod)) {
                 return callRawApi(method, payload, signal);
             }
@@ -94,14 +87,13 @@ export class TelegramCallApiMiddleware extends Middleware {
                 }
             };
 
-            dispatcher.push(
+            taskQueue.push(
                 {
                     key: chatId,
-                    rate: isGroup ? rates.group : rates.private,
-                    priorityOnError: PRIORITY.HIGH,
+                    priorityOnError: Priority.HIGH,
                     callback: callback,
                 },
-                PRIORITY.MEDIUM,
+                Priority.MEDIUM,
             );
 
             // Возвращаем promise, у которого resolve или reject будут вызваны в методе callback

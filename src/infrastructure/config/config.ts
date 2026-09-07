@@ -4,8 +4,8 @@ import { injectable } from "inversify";
 import { Level, Levels } from "app/domain/logger/logger.types";
 import { InvalidConfigError } from "app/common/errors";
 import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
-import { Rate } from "app/domain/dispatcher/rate-limit";
-import { RunnerSettings } from "app/domain/dispatcher/runner.types";
+import { Limit } from "app/domain/task-queue/rate-limit.types";
+import { RunnerSettings } from "app/domain/task-queue/runner.types";
 import { DatabaseSettings } from "app/infrastructure/database/database.types";
 
 // quiet: dotenv с 17.0 по умолчанию печатает в stdout строку о загрузке .env — в проде
@@ -21,12 +21,12 @@ type LoggerType = "ConsoleLogger" | "PinoLogger";
 
 export type Environment = "production" | "development" | "testing";
 
-// Лимиты по областям: общий на всего бота и по одному на приватный чат и на группу.
-// Какой из них применить к задаче, решает тот, кто её ставит, а не Dispatcher.
-export type Rates = {
-    common: Rate;
-    private: Rate;
-    group: Rate;
+// Лимиты бота по областям: общий на весь исходящий трафик и по одному на приватный чат и на
+// группу. Какой из них достанется партиции, решает TelegramLimitResolver, а не сама очередь.
+export type TelegramLimits = {
+    common: Limit;
+    private: Limit;
+    group: Limit;
 };
 
 @injectable()
@@ -40,7 +40,7 @@ export class Config {
     public readonly tempDir: string;
     public readonly fontForgePath: string;
 
-    public readonly rates: Rates;
+    public readonly limits: TelegramLimits;
 
     public readonly runner: RunnerSettings;
 
@@ -61,7 +61,7 @@ export class Config {
         this.tempDir = Config.getEnvAsString("TEMP_DIR", path.join(this.rootDir, "tmp"));
         this.fontForgePath = Config.getEnvAsString("FONT_FORGE_PATH", "fontforge");
 
-        this.rates = {
+        this.limits = {
             common: {
                 number: Config.getEnvAsInteger("LIMIT_COMMON_NUMBER", 30),
                 interval: Config.getEnvAsInteger("LIMIT_COMMON_INTERVAL", 1000), // 1 секунда

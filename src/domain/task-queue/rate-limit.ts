@@ -1,14 +1,12 @@
-export type Rate = {
-    number: number;
-    interval: number;
-};
+import { RateLimitIsBusy } from "app/domain/task-queue/rate-limit.errors";
+import { Limit } from "app/domain/task-queue/rate-limit.types";
 
 export class RateLimit {
     private reserveTimeout: number | null = null;
     private readonly reserveDuration: number;
 
-    public constructor(private readonly rate: Rate) {
-        this.reserveDuration = this.rate.interval / this.rate.number;
+    public constructor(private readonly limit: Limit) {
+        this.reserveDuration = this.limit.interval / this.limit.number;
     }
 
     public isFree(): boolean {
@@ -17,7 +15,7 @@ export class RateLimit {
 
     public reserve(): void {
         if (!this.isFree()) {
-            throw new Error("Can't reserve until the rate limit is free");
+            throw RateLimitIsBusy.byRemainingTime((this.reserveTimeout as number) - Date.now());
         }
 
         this.reserveTimeout = Date.now() + this.reserveDuration;

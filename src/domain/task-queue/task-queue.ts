@@ -2,20 +2,23 @@ import { inject, injectable } from "inversify";
 import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
 import { Logger } from "app/domain/logger/logger";
 import { ConfigValue } from "app/infrastructure/config/config-value.decorator";
-import { Partition } from "app/domain/dispatcher/partition";
-import { Rate, RateLimit } from "app/domain/dispatcher/rate-limit";
-import { PRIORITY, Task, TaskKey } from "app/domain/dispatcher/task";
+import { LimitResolver } from "app/domain/task-queue/limit-resolver";
+import { Modules } from "app/infrastructure/container/symbols/modules";
+import { Partition } from "app/domain/task-queue/partition";
+import { RateLimit } from "app/domain/task-queue/rate-limit";
+import { Limit } from "app/domain/task-queue/rate-limit.types";
+import { PartitionKey, Priority, Task } from "app/domain/task-queue/task";
 
 type KeysByPriority = {
-    [key in PRIORITY]: Set<TaskKey>;
+    [key in Priority]: Set<PartitionKey>;
 };
 
 @injectable()
-export class Dispatcher {
-    @ConfigValue<Rate>("rates.common")
-    private readonly commonRate!: Rate;
+export class TaskQueue {
+    @ConfigValue<Limit>("limits.common")
+    private readonly commonLimitSettings!: Limit;
 
-    private readonly partitions: Map<TaskKey, Partition>;
+    private readonly partitions: Map<PartitionKey, Partition>;
 
     // Индекс «у кого есть задачи этого приоритета»: без него поиск очередной задачи означал бы
     // обход всех партиций. Set хранит ключи в порядке вставки, он же задаёт очерёдность ключей
@@ -24,7 +27,7 @@ export class Dispatcher {
 
     // Партиции, отдавшие последнюю задачу. Удалить их можно не раньше, чем истечёт остывание,
     // а истечение — не событие, поэтому голову набора проверяет pull().
-    private readonly idleKeys: Set<TaskKey>;
+    private readonly idleKeys: Set<PartitionKey>;
 
     private readonly commonLimit: RateLimit;
 
@@ -32,25 +35,28 @@ export class Dispatcher {
 
     private taskCount = 0;
 
-    public constructor(@inject<Logger>(Infrastructure.Logger) private readonly logger: Logger) {
-        this.partitions = new Map<TaskKey, Partition>();
+    public constructor(
+        @inject<Logger>(Infrastructure.Logger) private readonly logger: Logger,
+        @inject<LimitResolver>(Modules.TaskQueue.LimitResolver) private readonly limitResolver: LimitResolver,
+    ) {
+        this.partitions = new Map<PartitionKey, Partition>();
         this.keysByPriority = {
-            [PRIORITY.HIGH]: new Set<TaskKey>(),
-            [PRIORITY.MEDIUM]: new Set<TaskKey>(),
-            [PRIORITY.LOW]: new Set<TaskKey>(),
+            [Priority.HIGH]: new Set<PartitionKey>(),
+            [Priority.MEDIUM]: new Set<PartitionKey>(),
+            [Priority.LOW]: new Set<PartitionKey>(),
         };
-        this.idleKeys = new Set<TaskKey>();
-        this.commonLimit = new RateLimit(this.commonRate);
+        this.idleKeys = new Set<PartitionKey>();
+        this.commonLimit = new RateLimit(this.commonLimitSettings);
 
         this.logTaskCount();
         this.logBanExpires();
     }
 
-    public push(task: Task, priority: PRIORITY): void {
+    public push(task: Task, priority: Priority): void {
         let partition = this.partitions.get(task.key);
 
         if (!partition) {
-            partition = new Partition(task.rate);
+            partition = new Partition(this.limitResolver.resolve(task.key));
             this.partitions.set(task.key, partition);
         }
 
@@ -75,7 +81,7 @@ export class Dispatcher {
             return null;
         }
 
-        for (const priority of Object.values(PRIORITY)) {
+        for (const priority of Object.values(Priority)) {
             const task = this.pullByPriority(priority);
 
             if (task) {
@@ -109,7 +115,7 @@ export class Dispatcher {
     }
 
     // Ключ, у которого лимит ещё не остыл, пропускается: голова очереди не держит остальных.
-    private pullByPriority(priority: PRIORITY): Task | null {
+    private pullByPriority(priority: Priority): Task | null {
         const keys = this.keysByPriority[priority];
 
         for (const key of keys) {
@@ -183,8 +189,7 @@ export class Dispatcher {
     private logBanExpires(): void {
         setInterval(() => {
             if (this.banExpirationTime && this.isBanned()) {
-                const banExpires = Math.floor((this.banExpirationTime - Date.now()) / 1000);
-                console.log(`Ban expires in ${banExpires} second.`);
+                this.logger.info(`Ban expires in ${Math.floor((this.banExpirationTime - Date.now()) / 1000)} second.`);
             }
         }, 10000).unref();
     }

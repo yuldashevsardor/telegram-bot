@@ -1,8 +1,9 @@
-import { Rate, RateLimit } from "app/domain/dispatcher/rate-limit";
-import { PRIORITY, Task } from "app/domain/dispatcher/task";
+import { RateLimit } from "app/domain/task-queue/rate-limit";
+import { Limit } from "app/domain/task-queue/rate-limit.types";
+import { Priority, Task } from "app/domain/task-queue/task";
 
 type PartitionTasks = {
-    [key in PRIORITY]: Task[];
+    [key in Priority]: Task[];
 };
 
 export class Partition {
@@ -12,42 +13,37 @@ export class Partition {
 
     private count = 0;
 
-    public constructor(rate: Rate) {
+    public constructor(limit: Limit) {
         this.tasks = {
-            [PRIORITY.HIGH]: [],
-            [PRIORITY.MEDIUM]: [],
-            [PRIORITY.LOW]: [],
+            [Priority.HIGH]: [],
+            [Priority.MEDIUM]: [],
+            [Priority.LOW]: [],
         };
 
-        this.rateLimit = new RateLimit(rate);
+        this.rateLimit = new RateLimit(limit);
     }
 
-    public push(task: Task, priority: PRIORITY): void {
+    public push(task: Task, priority: Priority): void {
         this.tasks[priority].push(task);
         this.count++;
     }
 
     // Резервацию делает сама партиция: лимит ключа существует только ради выдачи его задач,
     // и развести выемку и резервацию по разным вызовам значило бы позволить забрать задачу,
-    // не заняв слот.
-    public take(priority: PRIORITY): Task | null {
-        if (!this.isFree()) {
-            return null;
-        }
-
-        const task = this.tasks[priority].shift();
-
-        if (!task) {
+    // не заняв слот. Обе проверки идут до выемки, поэтому reserve() здесь не бросает
+    // RateLimitIsBusy: между проверкой и резервацией ничего асинхронного не происходит.
+    public take(priority: Priority): Task | null {
+        if (!this.has(priority) || !this.isFree()) {
             return null;
         }
 
         this.rateLimit.reserve();
         this.count--;
 
-        return task;
+        return this.tasks[priority].shift() as Task;
     }
 
-    public has(priority: PRIORITY): boolean {
+    public has(priority: Priority): boolean {
         return this.tasks[priority].length > 0;
     }
 

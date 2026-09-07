@@ -1,8 +1,7 @@
 export const Modules = {
-    Dispatcher: {
-        Dispatcher: Symbol.for("Dispatcher"),
-    },
-    Runner: {
+    TaskQueue: {
+        TaskQueue: Symbol.for("TaskQueue"),
+        LimitResolver: Symbol.for("LimitResolver"),
         Runner: Symbol.for("Runner"),
     },
     Bot: {

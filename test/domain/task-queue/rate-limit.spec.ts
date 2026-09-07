@@ -1,12 +1,13 @@
 import { expect } from "chai";
-import { RateLimit } from "app/domain/dispatcher/rate-limit";
+import { RateLimit } from "app/domain/task-queue/rate-limit";
+import { RateLimitIsBusy } from "app/domain/task-queue/rate-limit.errors";
 
-const rateNumber = 10;
-const rateInterval = 1000;
-const reserveDuration = rateInterval / rateNumber;
+const limitNumber = 10;
+const limitInterval = 1000;
+const reserveDuration = limitInterval / limitNumber;
 
 describe("RateLimit", function () {
-    this.timeout(rateInterval * 3);
+    this.timeout(limitInterval * 3);
 
     it("limit is free", function () {
         const rateLimit = build();
@@ -35,14 +36,14 @@ describe("RateLimit", function () {
         const rateLimit = build();
 
         rateLimit.reserve();
-        expect(() => rateLimit.reserve()).to.throw(Error, "Can't reserve until the rate limit is free");
+        expect(() => rateLimit.reserve()).to.throw(RateLimitIsBusy, "Can't reserve until the rate limit is free.");
     });
 });
 
 function build(): RateLimit {
     return new RateLimit({
-        interval: rateInterval,
-        number: rateNumber,
+        interval: limitInterval,
+        number: limitNumber,
     });
 }
 

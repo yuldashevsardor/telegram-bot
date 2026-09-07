@@ -1,8 +1,8 @@
 import { Bot as TelegramBot, Composer, session, StorageAdapter } from "grammy";
 import { inject, injectable } from "inversify";
 import { Modules } from "app/infrastructure/container/symbols/modules";
-import { Dispatcher } from "app/domain/dispatcher/dispatcher";
-import { Runner } from "app/domain/dispatcher/runner";
+import { TaskQueue } from "app/domain/task-queue/task-queue";
+import { Runner } from "app/domain/task-queue/runner";
 import { sleep } from "app/helper/utils";
 import { container } from "app/infrastructure/container/container";
 import { Command } from "app/infrastructure/bot/command/command";
@@ -37,9 +37,9 @@ export class Bot {
     private isSetup = false;
 
     public constructor(
-        @inject<Dispatcher>(Modules.Dispatcher.Dispatcher) private readonly dispatcher: Dispatcher,
+        @inject<TaskQueue>(Modules.TaskQueue.TaskQueue) private readonly taskQueue: TaskQueue,
         @inject<Logger>(Infrastructure.Logger) private readonly logger: Logger,
-        @inject<Runner>(Modules.Runner.Runner) private readonly taskRunner: Runner,
+        @inject<Runner>(Modules.TaskQueue.Runner) private readonly taskRunner: Runner,
         @inject<StorageAdapter<SessionPayload>>(Modules.Bot.Session.Storage)
         private readonly sessionStorage: StorageAdapter<SessionPayload>,
     ) {
@@ -81,7 +81,7 @@ export class Bot {
             await this.runner.stop();
         }
 
-        await this.waitDispatcherToEmpty();
+        await this.waitQueueToEmpty();
         await this.taskRunner.stop();
 
         this.isRun = false;
@@ -244,22 +244,22 @@ export class Bot {
         this.logger.debug("Commands successfully setup.");
     }
 
-    private async waitDispatcherToEmpty(): Promise<void> {
+    private async waitQueueToEmpty(): Promise<void> {
         const interval = 3000;
         const deadline = Date.now() + this.settings.shutdownTimeout;
 
-        while (!this.dispatcher.isEmpty()) {
+        while (!this.taskQueue.isEmpty()) {
             const timeLeft = deadline - Date.now();
 
             if (timeLeft <= 0) {
                 this.logger.warning("Shutdown timeout is over, remaining tasks will not be sent.", {
-                    tasksLeft: this.dispatcher.getTaskCount(),
+                    tasksLeft: this.taskQueue.getTaskCount(),
                     shutdownTimeout: this.settings.shutdownTimeout,
                 });
                 return;
             }
 
-            this.logger.info(`Waiting for the outgoing queue to empty: ${this.dispatcher.getTaskCount()} tasks left.`);
+            this.logger.info(`Waiting for the outgoing queue to empty: ${this.taskQueue.getTaskCount()} tasks left.`);
 
             await sleep(Math.min(interval, timeLeft));
         }
