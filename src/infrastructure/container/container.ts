@@ -19,6 +19,7 @@ import { ResponseTimeMiddleware } from "app/infrastructure/bot/middleware/respon
 import { RequestLogMiddleware } from "app/infrastructure/bot/middleware/request-log.middleware";
 import { AsyncLocalStorageMiddleware } from "app/infrastructure/bot/middleware/async-local-storage.middleware";
 import { IsPrivateChatFilter } from "app/infrastructure/bot/filter/is-private-chat.filter";
+import { HasSessionKeyFilter } from "app/infrastructure/bot/filter/has-session-key.filter";
 import { FillUserToContextMiddleware } from "app/infrastructure/bot/middleware/fill-user-to-context.middleware";
 import { StartCommand } from "app/infrastructure/bot/command/start/start.command";
 import { StorageAdapter } from "grammy";
@@ -88,6 +89,7 @@ export class Container extends InversifyContainer {
         this.bind<Bot>(Modules.Bot.Bot).to(Bot).inSingletonScope();
 
         // Filters
+        this.bind<HasSessionKeyFilter>(Modules.Bot.Filter.HasSessionKey).to(HasSessionKeyFilter).inSingletonScope();
         this.bind<IsPrivateChatFilter>(Modules.Bot.Filter.IsPrivateChat).to(IsPrivateChatFilter).inSingletonScope();
 
         // Middlewares

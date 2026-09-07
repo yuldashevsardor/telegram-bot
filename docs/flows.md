@@ -64,25 +64,26 @@
    `from` или `chat` (пост в канале).
    - Ключ есть: сессия грузится лениво при первом `ctx.session` (`PgsqlStorage.read`),
      после цепочки пишется обратно, если менялась (`write`, upsert).
-   - Ключа нет: grammY вызывает `next()`, но первое обращение к `ctx.session` бросает
-     синхронно.
+   - Ключа нет: grammY вызывает `next()`, но первое обращение к `ctx.session` бросило бы
+     синхронно, поэтому такой апдейт отсеивается шагом 3.
 2. **`sequentialize`** по `[chat.id, from.id]` — апдейты с общим ключом идут по одному.
-3. **`TelegramCallApiMiddleware`** — подменяет `ctx.api.raw` на `Proxy` (поток 4).
-4. **`AsyncLocalStorageMiddleware`** — при `PinoLogger` создаёт `child({ requestId })`
+3. **`HasSessionKeyFilter`** — `getSessionKey(ctx) === undefined`: цепочка обрывается
+   без ошибки и без единого запроса в базу. Ниже `ctx.from`, `ctx.chat` и `ctx.session`
+   заполнены.
+4. **`TelegramCallApiMiddleware`** — подменяет `ctx.api.raw` на `Proxy` (поток 4).
+5. **`AsyncLocalStorageMiddleware`** — при `PinoLogger` создаёт `child({ requestId })`
    и выполняет остаток в `asyncLocalStorage.run()`; при `ConsoleLogger` просто `next()`.
-5. **`ResponseTimeMiddleware`** — `await next()`, затем `info` с временем; без try/catch.
-6. **`RequestLogMiddleware`** — `ctx.session.requestCount++`, затем `debug` со всем
-   `ctx.update`. Для апдейта без ключа сессии падает здесь; ошибка всплывает через все
-   middleware (session-middleware её не глотает), grammY заворачивает в `BotError` и
-   отдаёт `Bot.handleError` → `critical`. Обработка апдейта на этом заканчивается.
-7. **`FillUserToContextMiddleware`** — `existsById` → `edit` (`getById` + `save`) или
-   `create` (`save`) → `ctx.user`. Ошибок не ловит. Своя защита `if (!ctx.from)`
-   недостижима из-за шага 6.
-8. **Fluent** — `ctx.t()`, локаль всегда `ru`.
-9. **`IsPrivateChatFilter`** — не приватный чат: цепочка обрывается без ошибки.
-10. **Conversations** — чат «внутри» conversation получает апдейт в точку `wait()`
+6. **`ResponseTimeMiddleware`** — `await next()`, затем `info` с временем; без try/catch.
+7. **`RequestLogMiddleware`** — `ctx.session.requestCount++`, затем `debug` со всем
+   `ctx.update`.
+8. **`FillUserToContextMiddleware`** — `existsById` → `edit` (`getById` + `save`) или
+   `create` (`save`) → `ctx.user`. Ошибок не ловит. `if (!ctx.from)` — ассерт инварианта
+   шага 3, бросает `UpdateWithoutFrom`.
+9. **Fluent** — `ctx.t()`, локаль всегда `ru`.
+10. **`IsPrivateChatFilter`** — не приватный чат: цепочка обрывается без ошибки.
+11. **Conversations** — чат «внутри» conversation получает апдейт в точку `wait()`
     вместо диспетчеризации команд.
-11. **Команды** — `composer.command(name, handler)`.
+12. **Команды** — `composer.command(name, handler)`.
 
 **База на апдейт:** до 1 `select` + 1 upsert по `sessions`; до 2 `select` + 1 upsert по
 `users`.
