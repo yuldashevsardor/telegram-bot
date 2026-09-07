@@ -334,9 +334,12 @@ EOT — issue [#27](https://github.com/yuldashevsardor/telegram-bot/issues/27).
 - `tsconfig.json`: `strict` и все флаги вне его зонтика; `skipLibCheck` вынужденно
   (issue [#5](https://github.com/yuldashevsardor/telegram-bot/issues/5)). ESLint: без
   `any`, неиспользуемые аргументы только с `_`.
-- Husky `pre-commit` → `lint-staged` (`eslint --fix`, `prettier --write`); в docker-first
-  окружении хук не устанавливается (issue
-  [#93](https://github.com/yuldashevsardor/telegram-bot/issues/93)). CI нет.
+- Husky `pre-commit` → `lint-staged` (`eslint --fix`, `prettier --write`) — удобство
+  хостовой разработки, не гейт: хук ставит `package.json#prepare` при `npm install` на
+  хосте. В docker-first окружении его нет намеренно — `npm ci --ignore-scripts` и
+  `HUSKY=0` в `Dockerfile`, а `.git` в контейнер не монтируется; сам хук пропускает себя,
+  если node в hook-окружении недоступен. Обязательный гейт — CI, его пока нет (issue
+  [#116](https://github.com/yuldashevsardor/telegram-bot/issues/116)).
 - `.claude/settings.json` вешает `scripts/claude-worktree-guard.sh` на старт сессии и
   на `Edit|Write`: правка файла в основном дереве отклоняется. Правки через shell хук
   не видит.
