@@ -257,8 +257,6 @@ FontConvertor.convert(params)
 
 Также отмечено дополнительно: **`RequestLogMiddleware`** (`src/infrastructure/bot/middleware/request-log.middleware.ts`) инкрементирует `context.session.requestCount` и логирует **весь сырой объект `ctx.update`** (включая текст сообщения и данные отправителя) на уровне `debug` для каждого дошедшего до него апдейта. Это единственное место во всей кодовой базе, где `SessionPayload.requestCount` читается или пишется (считается, но нигде не используется), а про логирование полного payload'а стоит знать, если debug-логи когда-нибудь начнут уезжать куда-то менее доверенное, чем локальный диск.
 
-**Конвенция ошибок:** голый `Error` в `src/` не бросается — минимум `RuntimeError` из `app/common/errors` (он несёт `payload` и потому читаемо ложится в структурированный лог), а обычно свой подкласс в `<модуль>.errors.ts` рядом с бросающим кодом: `ExtensionNotSupport`/`ExecuteError` у font-convertor, `UserCreateError`/`UserEditError` у user, `RateLimitIsBusy`/`RunnerAlreadyRun` у task-queue. То же правило записано в `CLAUDE.md`.
-
 `UserAlreadyExists` (`user.errors.ts`) определён, но нигде не бросается — мёртвый, поскольку `save()` делает upsert, а не падает на конфликте.
 
 ## 9. Логирование
