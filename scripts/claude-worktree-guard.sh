@@ -46,7 +46,8 @@ case "${1:-}" in
                     "Сессия запущена в основном рабочем дереве \($main) (ветка \($branch)). "
                     + "По правилу CLAUDE.md задача ведётся в своём git worktree, и создать его нужно "
                     + "первым шагом, до любых правок: git worktree add \"\($main)/../telegram-bot-<задача>\" "
-                    + "-b <ветка> origin/main. Правки файлов в основном дереве блокируются хуком."
+                    + "-b <ветка> origin/main, затем в нём make worktree-init. "
+                    + "Правки файлов в основном дереве блокируются хуком."
                 )
             }
         }'
@@ -63,7 +64,8 @@ case "${1:-}" in
                 permissionDecisionReason: (
                     "\($file) лежит в основном рабочем дереве \($main), где соседняя сессия в любой "
                     + "момент переключает ветку. Заведи дерево задачи и работай в нём: "
-                    + "git worktree add \"\($main)/../telegram-bot-<задача>\" -b <ветка> origin/main."
+                    + "git worktree add \"\($main)/../telegram-bot-<задача>\" -b <ветка> origin/main, "
+                    + "затем в нём make worktree-init."
                 )
             }
         }'
