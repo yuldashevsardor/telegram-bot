@@ -1,8 +1,8 @@
 import { AsyncLocalStorage } from "async_hooks";
 import { AlsStore } from "app/infrastructure/async-local-storage.types";
 
-// Ключи значений текущего апдейта. Логгер читает хранилище целиком и пишет всё, что там
-// лежит, поэтому сюда кладётся только то, чему место в каждой записи запроса.
+// Ключи значений текущего апдейта. Логгер пишет в запись только их, поэтому значение под
+// ключом мимо этого списка в лог не попадёт.
 export const ALS_KEYS = {
     REQUEST_ID: "requestId",
 };

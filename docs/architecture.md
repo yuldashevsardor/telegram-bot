@@ -274,8 +274,9 @@ FontConvertor.convert({ originPath, extension })
 
 Хранилище (`infrastructure/async-local-storage.ts`) общее, а не логгерное: стор —
 `AlsStore` (`Record<string, unknown>`) в `async-local-storage.types.ts`, ключи — в
-`ALS_KEYS`. Логгер пишет **всё**, что лежит в сторе, поэтому туда кладётся только то,
-чему место в каждой записи запроса. Хранилище — кандидат в `ApplicationContext`, issue
+`ALS_KEYS`. В запись логгер кладёт только известные ключи, то есть значения из
+`ALS_KEYS`: стор нетипизирован, и без отбора формат лога зависел бы от того, что в него
+положили по дороге. Хранилище — кандидат в `ApplicationContext`, issue
 [#109](https://github.com/yuldashevsardor/telegram-bot/issues/109).
 
 Payload перед записью проходит через `serialize-error`: без него вложенная ошибка

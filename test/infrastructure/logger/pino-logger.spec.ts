@@ -40,6 +40,15 @@ describe("PinoLogger", function () {
         expect(record).to.include({ requestId: "req-1", message: "done" });
     });
 
+    it("writes only the known keys of the store", function () {
+        const [record] = capture((logger, storage) =>
+            storage.run({ [ALS_KEYS.REQUEST_ID]: "req-1", secret: "must not leak" }, () => logger.info("done")),
+        );
+
+        expect(record).to.have.property("requestId", "req-1");
+        expect(record).to.not.have.property("secret");
+    });
+
     it("writes no request data outside a request", function () {
         const [record] = capture((logger) => logger.info("done"));
 

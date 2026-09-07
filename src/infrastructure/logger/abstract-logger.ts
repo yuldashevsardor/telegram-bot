@@ -5,6 +5,7 @@ import { InvalidLogLevel } from "app/domain/logger/logger.errors";
 import { injectable } from "inversify";
 import { AsyncLocalStorage } from "async_hooks";
 import { AlsStore } from "app/infrastructure/async-local-storage.types";
+import { ALS_KEYS } from "app/infrastructure/async-local-storage";
 
 @injectable()
 export abstract class AbstractLogger implements Logger {
@@ -26,8 +27,24 @@ export abstract class AbstractLogger implements Logger {
         return LevelSeverity[level] >= LevelSeverity[this.level];
     }
 
+    // В записи попадают только известные ключи: стор нетипизирован, и без отбора формат
+    // лога зависел бы от того, что в него положили по дороге.
     protected getRequestContext(): AlsStore {
-        return this.asyncLocalStorage.getStore() ?? {};
+        const store = this.asyncLocalStorage.getStore();
+
+        if (!store) {
+            return {};
+        }
+
+        const context: AlsStore = {};
+
+        for (const key of Object.values(ALS_KEYS)) {
+            if (store[key] !== undefined) {
+                context[key] = store[key];
+            }
+        }
+
+        return context;
     }
 
     public abstract critical(message: string, payload?: UnknownObject): void;
