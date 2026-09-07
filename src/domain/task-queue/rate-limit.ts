@@ -1,9 +1,7 @@
-export type Limit = {
-    number: number;
-    interval: number;
-};
+import { RateLimitIsBusy } from "app/domain/task-queue/rate-limit.errors";
+import { Limit } from "app/domain/task-queue/rate-limit.types";
 
-export class SlotManager {
+export class RateLimit {
     private reserveTimeout: number | null = null;
     private readonly reserveDuration: number;
 
@@ -17,7 +15,7 @@ export class SlotManager {
 
     public reserve(): void {
         if (!this.isFree()) {
-            throw new Error("Can't reserve a slot until they're free");
+            throw RateLimitIsBusy.byRemainingTime((this.reserveTimeout as number) - Date.now());
         }
 
         this.reserveTimeout = Date.now() + this.reserveDuration;

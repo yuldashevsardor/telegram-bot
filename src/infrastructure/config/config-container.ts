@@ -2,8 +2,8 @@ import path from "path";
 import { Level, Levels } from "app/domain/logger/logger.types";
 import { isLevel } from "app/domain/logger/logger.helper";
 import { InvalidConfigError } from "app/common/errors";
-import { Limits } from "app/domain/planner/planner.types";
-import { BrokerSettings } from "app/domain/broker/broker.types";
+import { Limit } from "app/domain/task-queue/rate-limit.types";
+import { RunnerSettings } from "app/domain/task-queue/runner.types";
 import { DatabaseSettings } from "app/infrastructure/database/database.types";
 import { ConfigStorage } from "app/infrastructure/config/config-storage";
 import { BotSettings } from "app/infrastructure/bot/bot.types";
@@ -20,6 +20,14 @@ function isEnvironment(value: string): value is (typeof Environments)[number] {
 
 export type Environment = (typeof Environments)[number];
 
+// Лимиты бота по областям: общий на весь исходящий трафик и по одному на приватный чат и на
+// группу. Какой из них достанется партиции, решает TelegramLimitResolver, а не сама очередь.
+export type TelegramLimits = {
+    common: Limit;
+    private: Limit;
+    group: Limit;
+};
+
 export class ConfigContainer {
     public readonly environment: Environment;
     public readonly isProduction: boolean;
@@ -28,13 +36,13 @@ export class ConfigContainer {
     public readonly tempDir: string;
     public readonly fontForgePath: string;
 
-    public readonly managerLimits: Limits;
+    public readonly limits: TelegramLimits;
 
-    public readonly broker: BrokerSettings;
+    public readonly runner: RunnerSettings;
 
     public readonly bot: BotSettings;
 
-    public readonly planner: {
+    public readonly taskQueue: {
         gracefulShutdown: {
             timeout: number;
             interval: number;
@@ -57,7 +65,7 @@ export class ConfigContainer {
         this.tempDir = this.getString("TEMP_DIR", path.join(this.rootDir, "tmp"));
         this.fontForgePath = this.getString("FONT_FORGE_PATH", "fontforge");
 
-        this.managerLimits = {
+        this.limits = {
             common: {
                 number: this.getInteger("LIMIT_COMMON_NUMBER", 30),
                 interval: this.getInteger("LIMIT_COMMON_INTERVAL", 1000), // 1 секунда
@@ -72,9 +80,9 @@ export class ConfigContainer {
             },
         };
 
-        this.broker = {
-            sleepInterval: this.getInteger("BROKER_SLEEP_INTERVAL", 1000),
-            maxRetries: this.getInteger("BROKER_MAX_RETRIES", 3),
+        this.runner = {
+            sleepInterval: this.getInteger("RUNNER_SLEEP_INTERVAL", 1000),
+            maxRetries: this.getInteger("RUNNER_MAX_RETRIES", 3),
         };
 
         this.bot = {
@@ -84,10 +92,10 @@ export class ConfigContainer {
             },
         };
 
-        this.planner = {
+        this.taskQueue = {
             gracefulShutdown: {
-                timeout: this.getInteger("PLANNER_GRACEFUL_SHUTDOWN_TIMEOUT", 5000),
-                interval: this.getInteger("PLANNER_GRACEFUL_SHUTDOWN_INTERVAL", 500),
+                timeout: this.getInteger("TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT", 5000),
+                interval: this.getInteger("TASK_QUEUE_GRACEFUL_SHUTDOWN_INTERVAL", 500),
             },
         };
 
@@ -134,31 +142,31 @@ export class ConfigContainer {
         return parsed;
     }
 
-    // Сроки бота и планера расходуются последовательно внутри общего, поэтому общий должен
+    // Сроки бота и очереди расходуются последовательно внутри общего, поэтому общий должен
     // покрывать их сумму. Дальше этого проверка не идёт: приложение не пересчитывает
     // собственные сроки всех своих зависимостей (у sql.end() внутри Database.close(), скажем,
     // свои 5 секунд) — общий срок просто берётся с запасом, а не выводится из них.
     private checkGracefulShutdown(): void {
-        const { interval } = this.planner.gracefulShutdown;
+        const { interval } = this.taskQueue.gracefulShutdown;
 
         if (interval <= 0) {
             throw new InvalidConfigError({
-                message: "PLANNER_GRACEFUL_SHUTDOWN_INTERVAL must be greater than zero",
+                message: "TASK_QUEUE_GRACEFUL_SHUTDOWN_INTERVAL must be greater than zero",
                 payload: {
                     got: interval,
                 },
             });
         }
 
-        const parts = this.bot.gracefulShutdown.timeout + this.planner.gracefulShutdown.timeout;
+        const parts = this.bot.gracefulShutdown.timeout + this.taskQueue.gracefulShutdown.timeout;
 
         if (this.gracefulShutdown.timeout <= parts) {
             throw new InvalidConfigError({
-                message: "GRACEFUL_SHUTDOWN_TIMEOUT must be greater than the sum of the bot and planner timeouts",
+                message: "GRACEFUL_SHUTDOWN_TIMEOUT must be greater than the sum of the bot and task queue timeouts",
                 payload: {
                     application: this.gracefulShutdown.timeout,
                     bot: this.bot.gracefulShutdown.timeout,
-                    planner: this.planner.gracefulShutdown.timeout,
+                    taskQueue: this.taskQueue.gracefulShutdown.timeout,
                 },
             });
         }

@@ -29,18 +29,18 @@ describe("ConfigContainer", () => {
         expect(result.isProduction).to.equal(false);
         expect(result.gracefulShutdown.timeout).to.equal(15000);
         expect(result.bot.gracefulShutdown.timeout).to.equal(3000);
-        expect(result.planner.gracefulShutdown.timeout).to.equal(5000);
-        expect(result.planner.gracefulShutdown.interval).to.equal(500);
-        expect(result.broker.sleepInterval).to.equal(1000);
+        expect(result.taskQueue.gracefulShutdown.timeout).to.equal(5000);
+        expect(result.taskQueue.gracefulShutdown.interval).to.equal(500);
+        expect(result.runner.sleepInterval).to.equal(1000);
         expect(result.database.host).to.equal("localhost");
         expect(result.database.port).to.equal(5432);
     });
 
     it("treats a blank value as a missing one", () => {
-        const result = config({ DATABASE_HOST: "   ", BROKER_MAX_RETRIES: "" });
+        const result = config({ DATABASE_HOST: "   ", RUNNER_MAX_RETRIES: "" });
 
         expect(result.database.host).to.equal("localhost");
-        expect(result.broker.maxRetries).to.equal(3);
+        expect(result.runner.maxRetries).to.equal(3);
     });
 
     it("trims a value before using it", () => {
@@ -75,26 +75,26 @@ describe("ConfigContainer", () => {
         expect(() => config({ DATABASE_PORT: "abc" })).to.throw(InvalidConfigError);
     });
 
-    it("rejects a non-positive planner poll interval", () => {
-        expect(() => config({ PLANNER_GRACEFUL_SHUTDOWN_INTERVAL: "0" })).to.throw(InvalidConfigError);
-        expect(() => config({ PLANNER_GRACEFUL_SHUTDOWN_INTERVAL: "-100" })).to.throw(InvalidConfigError);
+    it("rejects a non-positive task queue poll interval", () => {
+        expect(() => config({ TASK_QUEUE_GRACEFUL_SHUTDOWN_INTERVAL: "0" })).to.throw(InvalidConfigError);
+        expect(() => config({ TASK_QUEUE_GRACEFUL_SHUTDOWN_INTERVAL: "-100" })).to.throw(InvalidConfigError);
     });
 
-    it("rejects a shutdown timeout that does not cover the bot and the planner", () => {
+    it("rejects a shutdown timeout that does not cover the bot and the task queue", () => {
         expect(() =>
             config({
                 GRACEFUL_SHUTDOWN_TIMEOUT: "8000",
                 BOT_GRACEFUL_SHUTDOWN_TIMEOUT: "3000",
-                PLANNER_GRACEFUL_SHUTDOWN_TIMEOUT: "5000",
+                TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT: "5000",
             }),
         ).to.throw(InvalidConfigError);
     });
 
-    it("accepts a shutdown timeout that covers the bot and the planner", () => {
+    it("accepts a shutdown timeout that covers the bot and the task queue", () => {
         const result = config({
             GRACEFUL_SHUTDOWN_TIMEOUT: "8001",
             BOT_GRACEFUL_SHUTDOWN_TIMEOUT: "3000",
-            PLANNER_GRACEFUL_SHUTDOWN_TIMEOUT: "5000",
+            TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT: "5000",
         });
 
         expect(result.gracefulShutdown.timeout).to.equal(8001);

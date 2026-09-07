@@ -1,3 +1,6 @@
+// Единственное место подсистемы, знающее про Telegram: Runner опознаёт по этим кодам ситуацию
+// «слишком часто» и ставит паузу всей очереди. Когда TaskQueue/Runner понадобятся вне бота,
+// отсюда вырастет стратегия обработки ошибок; заводить её под одного потребителя рано.
 export enum TELEGRAM_ERROR_CODES {
     /**
      *  response: {
@@ -15,31 +18,12 @@ export enum TELEGRAM_ERROR_CODES {
 }
 
 // Bot API всегда присылает retry_after вместе с 429, но если поле отсутствует или
-// нечитаемо, бан всё равно должен быть ненулевым: ban(0) истекает в момент установки.
+// нечитаемо, пауза всё равно должна быть ненулевой: ban(0) истекает в момент установки.
 export const DEFAULT_RETRY_AFTER_SECONDS = 1;
-
-export enum PRIORITY {
-    HIGH = "HIGH",
-    MEDIUM = "MEDIUM",
-    LOW = "LOW",
-}
-
-export type BrokerSettings = {
-    sleepInterval: number;
-    maxRetries: number;
-};
 
 export type TelegramApiError = {
     error_code: number;
     parameters?: {
         retry_after?: number;
     };
-};
-
-export type Message = {
-    chatId: number;
-    isGroup: boolean;
-    priorityOnError: PRIORITY;
-    callback: () => Promise<unknown>;
-    retryCount?: number;
 };

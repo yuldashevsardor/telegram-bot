@@ -1,10 +1,11 @@
 import { Middleware } from "app/infrastructure/bot/middleware/middleware";
 import { Api, NextFunction, RawApi } from "grammy";
-import { Planner } from "app/domain/planner/planner";
+import { TaskQueue } from "app/domain/task-queue/task-queue";
 import { inject, injectable } from "inversify";
 import { Modules } from "app/infrastructure/container/symbols/modules";
 import { Context } from "app/infrastructure/bot/bot.types";
-import { PRIORITY } from "app/domain/broker/broker.types";
+import { Priority } from "app/domain/task-queue/task";
+import { isGroupChat } from "app/infrastructure/bot/telegram-chat";
 
 type RawApiMethod = keyof RawApi;
 type RawApiPayload = Record<string, unknown>;
@@ -19,7 +20,7 @@ const TELEGRAM_NO_GROUP_RATE_LIMIT_SET = new Set<string | symbol>([
 
 @injectable()
 export class TelegramCallApiMiddleware extends Middleware {
-    public constructor(@inject<Planner>(Modules.Planner.Planner) private readonly planner: Planner) {
+    public constructor(@inject<TaskQueue>(Modules.TaskQueue.TaskQueue) private readonly taskQueue: TaskQueue) {
         super();
     }
 
@@ -32,9 +33,9 @@ export class TelegramCallApiMiddleware extends Middleware {
     private changeTelegramCallApi(api: Api): void {
         // Сохраняем старый raw, что бы вызывать в брокере реально отправку
         const originRaw = api.raw;
-        const planner = this.planner;
+        const taskQueue = this.taskQueue;
 
-        // Готовим ProxyHandler, который будет добавлять запросы в ТГ в Брокера
+        // Готовим ProxyHandler, который будет ставить запросы в ТГ задачами в очередь
         const proxyHandler: ProxyHandler<RawApi> = {
             get: (_target, method) => {
                 return method === "toJSON" ? "__internal" : callApi.bind(api, method as RawApiMethod);
@@ -56,7 +57,7 @@ export class TelegramCallApiMiddleware extends Middleware {
 
             const chatId = Number(payload["chat_id"]);
             const isAllowedGroupMethod = TELEGRAM_NO_GROUP_RATE_LIMIT_SET.has(method);
-            const isGroup = chatId < 0;
+            const isGroup = isGroupChat(chatId);
             if (isNaN(chatId) || (isGroup && isAllowedGroupMethod)) {
                 return callRawApi(method, payload, signal);
             }
@@ -86,21 +87,20 @@ export class TelegramCallApiMiddleware extends Middleware {
                 }
             };
 
-            planner.push(
+            taskQueue.push(
                 {
-                    chatId: chatId,
-                    isGroup: isGroup,
-                    priorityOnError: PRIORITY.HIGH,
+                    key: chatId,
+                    priorityOnError: Priority.HIGH,
                     callback: callback,
                 },
-                PRIORITY.MEDIUM,
+                Priority.MEDIUM,
             );
 
             // Возвращаем promise, у которого resolve или reject будут вызваны в методе callback
             return promise;
         }
 
-        // Подменяем RawApi через Proxy на его замену с Брокером
+        // Подменяем RawApi через Proxy на его замену с очередью
         (api as unknown as { raw: RawApi }).raw = new Proxy(originRaw, proxyHandler);
     }
 }

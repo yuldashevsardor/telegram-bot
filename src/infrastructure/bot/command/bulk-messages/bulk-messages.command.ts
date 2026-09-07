@@ -4,9 +4,9 @@ import { StringHelper } from "app/helper/string-helper";
 import { container } from "app/infrastructure/container/container";
 import { Modules } from "app/infrastructure/container/symbols/modules";
 import { Bot } from "app/infrastructure/bot/bot";
-import { Planner } from "app/domain/planner/planner";
+import { TaskQueue } from "app/domain/task-queue/task-queue";
 import { Context } from "app/infrastructure/bot/bot.types";
-import { PRIORITY } from "app/domain/broker/broker.types";
+import { Priority } from "app/domain/task-queue/task";
 import { FileHelper } from "app/helper/file-helper/file-helper";
 
 @injectable()
@@ -36,16 +36,15 @@ export class BulkMessagesCommand extends Command {
             await bot.grammy.api.sendMessage(chatId, randomText);
         };
 
-        const planner = container.get<Planner>(Modules.Planner.Planner);
+        const taskQueue = container.get<TaskQueue>(Modules.TaskQueue.TaskQueue);
 
-        planner.push(
+        taskQueue.push(
             {
-                chatId: chatId,
-                isGroup: false,
+                key: chatId,
                 callback: handler,
-                priorityOnError: PRIORITY.MEDIUM,
+                priorityOnError: Priority.MEDIUM,
             },
-            PRIORITY.LOW,
+            Priority.LOW,
         );
     }
 }

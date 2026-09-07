@@ -8,8 +8,8 @@ import { ConsoleLogger } from "app/infrastructure/logger/console.logger";
 import { PinoLogger } from "app/infrastructure/logger/pino.logger";
 import { asyncLocalStorage } from "app/infrastructure/async-local-storage";
 import { Database } from "app/infrastructure/database/database";
-import { Broker } from "app/domain/broker/broker";
-import { Planner } from "app/domain/planner/planner";
+import { Runner } from "app/domain/task-queue/runner";
+import { TaskQueue } from "app/domain/task-queue/task-queue";
 import { Bot } from "app/infrastructure/bot/bot";
 import { sleep, withTimeout } from "app/helper/utils";
 import { RuntimeError } from "app/common/errors";
@@ -17,8 +17,8 @@ import { RuntimeError } from "app/common/errors";
 export class Application {
     private cc!: ConfigContainer;
     private logger!: Logger;
-    private planner!: Planner;
-    private broker!: Broker;
+    private taskQueue!: TaskQueue;
+    private runner!: Runner;
     private bot!: Bot;
 
     private isSetup = false;
@@ -43,8 +43,8 @@ export class Application {
 
         this.logger.info("Database connection is alive.");
 
-        this.planner = container.get<Planner>(Modules.Planner.Planner);
-        this.broker = container.get<Broker>(Modules.Broker.Broker);
+        this.taskQueue = container.get<TaskQueue>(Modules.TaskQueue.TaskQueue);
+        this.runner = container.get<Runner>(Modules.TaskQueue.Runner);
         this.bot = container.get<Bot>(Modules.Bot.Bot);
 
         await this.bot.setup();
@@ -58,14 +58,14 @@ export class Application {
         }
 
         try {
-            await this.broker.run();
+            await this.runner.run();
             await this.bot.run();
 
             this.isRun = true;
 
             this.logger.info("Application is successfully started.");
         } catch (error) {
-            this.broker.stop();
+            this.runner.stop();
 
             this.logger.critical("Unhandled error on application start", { error: error });
 
@@ -99,8 +99,8 @@ export class Application {
     private async shutdown(): Promise<void> {
         if (this.isRun) {
             await this.bot.stop();
-            await this.waitPlannerToEmpty();
-            await this.broker.stop();
+            await this.waitQueueToEmpty();
+            await this.runner.stop();
 
             this.isRun = false;
         }
@@ -133,23 +133,23 @@ export class Application {
         });
     }
 
-    private async waitPlannerToEmpty(): Promise<void> {
-        const { timeout, interval } = this.cc.planner.gracefulShutdown;
+    private async waitQueueToEmpty(): Promise<void> {
+        const { timeout, interval } = this.cc.taskQueue.gracefulShutdown;
         const deadline = Date.now() + timeout;
 
-        while (!this.planner.isEmpty()) {
+        while (!this.taskQueue.isEmpty()) {
             const timeLeft = deadline - Date.now();
 
             if (timeLeft <= 0) {
-                this.logger.warning("Shutdown timeout is over, remaining messages will not be sent.", {
-                    messagesLeft: this.planner.getMessagesCount(),
+                this.logger.warning("Shutdown timeout is over, remaining tasks will not be done.", {
+                    tasksLeft: this.taskQueue.getTaskCount(),
                     timeout: timeout,
                 });
 
                 return;
             }
 
-            this.logger.info(`Waiting for the outgoing queue to empty: ${this.planner.getMessagesCount()} messages left.`);
+            this.logger.info(`Waiting for the outgoing queue to empty: ${this.taskQueue.getTaskCount()} tasks left.`);
 
             await sleep(Math.min(interval, timeLeft));
         }
