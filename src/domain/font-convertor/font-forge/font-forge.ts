@@ -1,6 +1,5 @@
 import { FileHelper } from "app/helper/file-helper/file-helper";
-import { promisify } from "util";
-import { exec as execOrigin } from "child_process";
+import { ProcessHelper } from "app/helper/process-helper/process-helper";
 import { injectable } from "inversify";
 import { ExecuteError, ExtensionNotSupport } from "app/domain/font-convertor/font-forge/font-forge.errors";
 import { Extension } from "app/domain/font-convertor/font-convertor.types";
@@ -12,12 +11,10 @@ export class FontForge {
     private readonly fontForgePath!: string;
 
     private readonly supportedExtensions = [Extension.EOT, Extension.OTF, Extension.TTF, Extension.WOFF, Extension.SVG, Extension.WOFF2];
-    private readonly commandLayout = `{FONT_FORGE_PATH} -c 'import fontforge; font = fontforge.open("{SRC}"); font.generate("{DIST}")'`;
-    private readonly commandVariableNames = {
-        src: "{SRC}",
-        dist: "{DIST}",
-        fontForge: "{FONT_FORGE_PATH}",
-    };
+    // Пути читаются из sys.argv, а не подставляются в текст скрипта: у fontforge -c
+    // sys.argv — это ["-c", ...аргументы после скрипта], и путь в нём остаётся строкой.
+    // Подстановка сделала бы его питоновским кодом — вторым уровнем интерпретации после shell.
+    private readonly convertScript = "import fontforge, sys; font = fontforge.open(sys.argv[1]); font.generate(sys.argv[2])";
 
     public async convert(srcPath: string, distPath: string): Promise<void> {
         const srcExtension = await FileHelper.getFileExtension(srcPath);
@@ -31,14 +28,8 @@ export class FontForge {
             throw ExtensionNotSupport.byExtension(distExtension);
         }
 
-        const command = this.commandLayout
-            .replace(this.commandVariableNames.fontForge, this.fontForgePath)
-            .replace(this.commandVariableNames.src, srcPath)
-            .replace(this.commandVariableNames.dist, distPath);
-
-        const exec = promisify(execOrigin);
         try {
-            await exec(command);
+            await ProcessHelper.run(this.fontForgePath, ["-c", this.convertScript, srcPath, distPath]);
         } catch (error) {
             throw ExecuteError.byError(error);
         }

@@ -54,7 +54,7 @@ src/
     font-convertor/         конвертация шрифтов (§7)
     user/                   сущность, порт репозитория, сервис (§8)
     logger/                 интерфейс Logger, enum Level (§9)
-  helper/                   string/number/file/utils (sleep, withTimeout)
+  helper/                   string/number/file/process/utils (sleep, withTimeout)
   infrastructure/
     application/            Application: сборка и жизненный цикл (§4)
     bot/                    grammY: команды, conversations, middleware, фильтры, сессия (§5)
@@ -213,15 +213,18 @@ FontConvertor.convert({ originPath, extension })
   → ConvertorFactory.get(from, to): по классу на пару, convertor/<from>/<from>-to-<to>.ts
   → Convertor.validate(): исходник существует и читаем, расширение совпадает, MIME по
     расширению (mime-types) в allowedMimeTypes; путь назначения не существует
-  → FontForge.convert(): fontforge -c 'import fontforge; font = fontforge.open("SRC");
-    font.generate("DIST")' через child_process.exec
+  → FontForge.convert(): fontforge -c '<скрипт>' SRC DIST через ProcessHelper.run
 ```
+
+Движок запускается только через `ProcessHelper.run(file, args)` — обёртку над
+`child_process.execFile`. Аргументы уходят процессу массивом, минуя `/bin/sh`, поэтому
+кавычки и `$(...)` в путях остаются данными. Второй уровень интерпретации, питоновский,
+снят тем же приёмом: пути передаются аргументами и читаются скриптом из `sys.argv`, а не
+подставляются в текст скрипта. Собирать команду строкой и звать `exec` здесь нельзя —
+имя файла придёт от пользователя.
 
 Известное:
 
-- Команда собирается `.replace()` без экранирования (issue
-  [#34](https://github.com/yuldashevsardor/telegram-bot/issues/34)); пути сейчас
-  внутренние случайные.
 - `SVG` объявлен в `FontForge.supportedExtensions`, пар для него нет: `ConvertorNotFound`
   (issue [#35](https://github.com/yuldashevsardor/telegram-bot/issues/35)).
 - MIME проверяется по расширению, содержимое не читается; блок проверки по содержимому
@@ -362,7 +365,8 @@ EOT — issue [#27](https://github.com/yuldashevsardor/telegram-bot/issues/27).
   алиас `app/*` не разрешается). Типы тестов проверяет `npm run typecheck` по
   `tsconfig.check.json`: сборочный `tsconfig.json` ограничен `src`.
 - Покрыто: `task-queue` (очередь, партиция, лимит), `ConfigContainer`,
-  `ConfigEnvStorage`, `ConsoleLogger`, `FileHelper`, `utils`, `errors`. Не покрыто:
+  `ConfigEnvStorage`, `ConsoleLogger`, `FileHelper`, `ProcessHelper`, `utils`, `errors`.
+  Не покрыто:
   `Runner`, `FontConvertor`, `UserService`, `Application`, `Bot`, middleware.
 - `nyc` считает покрытие по TypeScript-исходникам; отчёт в `./coverage`.
 - `tsconfig.json`: `strict` и все флаги вне его зонтика; `skipLibCheck` вынужденно
@@ -408,5 +412,9 @@ EOT — issue [#27](https://github.com/yuldashevsardor/telegram-bot/issues/27).
 - **`.ftl` именуются `*.locale.<lang>.ftl`**; иначе парсер имени выдаст фиктивную локаль.
 - **`Convertor.validateToPath()` требует несуществующий путь**: конвертация не
   идемпотентна по пути, имя генерируется заново на каждый вызов.
+- **Внешние процессы — только через `ProcessHelper.run()`**, с аргументами массивом.
+  `exec` и любая сборка команды строкой возвращают `/bin/sh` в цепочку, и подставленный
+  путь снова становится кодом; тестами это не ловится, потому что на «нормальных» путях
+  разницы нет.
 - **`Runner.run()`/`stop()` синхронные**, хотя вызываются с `await`; `stop()`
   не ждёт конца текущей итерации цикла.
