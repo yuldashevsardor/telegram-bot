@@ -3,7 +3,8 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import { FileHelper } from "app/helper/file-helper/file-helper";
-import { createFluent, DEFAULT_LOCALE, Locale, LOCALES, localeFromFilePath, resolveLocale } from "app/infrastructure/bot/locale";
+import { createFluent, localeFromFilePath, resolveLocale } from "app/infrastructure/bot/locale";
+import { DEFAULT_LOCALE, Locale, LOCALES } from "app/infrastructure/bot/locale.types";
 import { MissingLocaleBundle, UnknownLocale } from "app/infrastructure/bot/locale.errors";
 
 const localeDir = path.join(process.cwd(), "src", "infrastructure", "bot");

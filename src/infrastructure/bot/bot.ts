@@ -19,7 +19,8 @@ import { InvalidConfigError, RuntimeError } from "app/common/errors";
 import { Fluent } from "@moebius/fluent";
 import { useFluent } from "@grammyjs/fluent";
 import { BotCommand } from "grammy/types";
-import { createFluent, DEFAULT_LOCALE, Locale, LOCALES, resolveLocale } from "app/infrastructure/bot/locale";
+import { createFluent, resolveLocale } from "app/infrastructure/bot/locale";
+import { DEFAULT_LOCALE, Locale, LOCALES } from "app/infrastructure/bot/locale.types";
 import path from "path";
 
 @injectable()

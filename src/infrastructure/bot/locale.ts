@@ -1,16 +1,8 @@
 import path from "path";
 import { Fluent } from "@moebius/fluent";
 import { FileHelper } from "app/helper/file-helper/file-helper";
+import { DEFAULT_LOCALE, Locale, LOCALES } from "app/infrastructure/bot/locale.types";
 import { MissingLocaleBundle, UnknownLocale } from "app/infrastructure/bot/locale.errors";
-
-// Список локалей задан явно, а не выведен из найденных .ftl: локаль берётся из имени
-// файла, и опечатка в нём иначе молча завела бы бандл несуществующего языка, в который
-// никогда никто не попадёт.
-export const LOCALES = ["ru", "en"] as const;
-
-export type Locale = (typeof LOCALES)[number];
-
-export const DEFAULT_LOCALE: Locale = "ru";
 
 export function isLocale(value: string): value is Locale {
     return (LOCALES as readonly string[]).includes(value);
