@@ -57,10 +57,6 @@
     ],
     "exclude": [
         "node_modules",
-        "coverage",
-        // Не код, а заготовка, из которой node-pg-migrate делает файл миграции:
-        // pgm там объявлен, но ещё не используется, а импорт utils разрешается
-        // только после копирования в каталог миграций.
-        "src/infrastructure/database/migrations/common/template.ts"
+        "coverage"
     ]
 }

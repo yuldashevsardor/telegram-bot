@@ -1,6 +1,6 @@
 {
     // Проверка типов по всему репозиторию: сборочный tsconfig.json ограничен src,
-    // потому что из него эмитится build, а тесты и spec-файлы тоже должны
+    // потому что из него эмитится build, а тесты, spec-файлы и миграции тоже должны
     // проверяться. Эмита здесь нет, поэтому rootDir можно расширить до корня.
     "extends": "./tsconfig.json",
     "compilerOptions": {
@@ -13,11 +13,15 @@
     "include": [
         "src/**/*.ts",
         "src/**/*.js",
-        "test/**/*.ts"
+        "test/**/*.ts",
+        "migrations/**/*.ts"
     ],
+    // Единственное исключение — заготовка миграции: pgm в ней объявлен, но ещё не
+    // используется, а её импорт ./common/utils рассчитан на каталог, куда её скопирует
+    // migrate-create. Та же заглушка для eslint стоит первой строкой самого файла, оттуда
+    // она копируется в создаваемую миграцию. node_modules и coverage перечислять незачем:
+    // include выше их не захватывает.
     "exclude": [
-        "node_modules",
-        "coverage",
-        "src/infrastructure/database/migrations/common/template.ts"
+        "migrations/common/template.ts"
     ]
 }

@@ -1,6 +1,5 @@
-/* eslint-disable no-restricted-imports,@typescript-eslint/ban-ts-comment,@typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { ColumnDefinitions, MigrationBuilder } from "node-pg-migrate";
-// @ts-ignore
 import { commonShorthands } from "./common/utils";
 
 export const shorthands: ColumnDefinitions = commonShorthands;

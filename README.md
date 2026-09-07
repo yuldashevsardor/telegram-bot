@@ -96,9 +96,9 @@ make worktree-cleanup
   `format`). Для prettier — только `.ts`: конфиг задаёт `parser: "typescript"`.
 - После изменения `package.json`, `package-lock.json`, `.mocharc.json` или конфигов
   линтеров образ устаревает молча — `make rebuild`. Томами смонтированы только `src`,
-  `test`, `tsconfig*.json`, `migrate.json` и `coverage`.
-- `make migrate-create name=add-something` кладёт файл в
-  `src/infrastructure/database/migrations/`.
+  `test`, `migrations`, `tsconfig*.json`, `migrate.json` и `coverage`.
+- `make migrate-create name=add-something` кладёт файл в `migrations/`; делается он из
+  заготовки `migrations/common/template.ts`.
 - `make restart` пересоздаёт контейнер, а не перезапускает: `docker compose restart`
   не перечитывает `env_file`, и сменившийся `BOT_TOKEN` до бота бы не дошёл.
 - `make db-reset` стирает базу всех деревьев сразу. Цель спрашивает подтверждение

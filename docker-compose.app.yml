@@ -31,6 +31,10 @@ services:
             - ./tsconfig.json:/app/tsconfig.json
             - ./tsconfig.check.json:/app/tsconfig.check.json
             - ./migrate.json:/app/migrate.json
+            # Миграции и их заготовка лежат вне src, поэтому монтируются отдельно: иначе
+            # migrate брал бы их версию из образа, а migrate-create писал бы новый файл
+            # внутрь контейнера, и на хосте его бы не было.
+            - ./migrations:/app/migrations
             # Отчёт nyc должен пережить одноразовый контейнер: без монтирования lcov
             # остаётся внутри и пропадает вместе с ним. Каталог создаёт make coverage.
             - ./coverage:/app/coverage
