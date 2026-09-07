@@ -1,5 +1,6 @@
 import path from "path";
-import { isLevel, Level, Levels } from "app/domain/logger/logger.types";
+import { Level, Levels } from "app/domain/logger/logger.types";
+import { isLevel } from "app/domain/logger/logger.helper";
 import { InvalidConfigError } from "app/common/errors";
 import { Limits } from "app/domain/planner/planner.types";
 import { BrokerSettings } from "app/domain/broker/broker.types";
@@ -28,11 +29,20 @@ export class ConfigContainer {
 
     public readonly bot: {
         token: string;
+        gracefulShutdown: {
+            timeout: number;
+        };
+    };
+
+    public readonly planner: {
+        gracefulShutdown: {
+            timeout: number;
+            interval: number;
+        };
     };
 
     public readonly gracefulShutdown: {
         timeout: number;
-        plannerInterval: number;
     };
 
     public readonly logger: LoggerConfig;
@@ -69,12 +79,23 @@ export class ConfigContainer {
 
         this.bot = {
             token: this.getString("BOT_TOKEN"),
+            gracefulShutdown: {
+                timeout: this.getInteger("BOT_GRACEFUL_SHUTDOWN_TIMEOUT", 3000),
+            },
+        };
+
+        this.planner = {
+            gracefulShutdown: {
+                timeout: this.getInteger("PLANNER_GRACEFUL_SHUTDOWN_TIMEOUT", 5000),
+                interval: this.getInteger("PLANNER_GRACEFUL_SHUTDOWN_INTERVAL", 500),
+            },
         };
 
         this.gracefulShutdown = {
-            timeout: this.getInteger("GRACEFUL_SHUTDOWN_TIMEOUT", 5000),
-            plannerInterval: this.getInteger("PLANNER_GRACEFUL_SHUTDOWN_INTERVAL", 3000),
+            timeout: this.getInteger("GRACEFUL_SHUTDOWN_TIMEOUT", 10000),
         };
+
+        this.checkGracefulShutdown();
 
         this.logger = this.getLogger();
         this.database = this.getDatabase();
@@ -111,6 +132,24 @@ export class ConfigContainer {
         }
 
         return parsed;
+    }
+
+    // Сроки бота и планера расходуются последовательно внутри общего, поэтому общий должен
+    // покрывать их сумму: иначе шаг, до которого дошла очередь, обрывается не своим сроком,
+    // а чужим, и на остановку брокера с закрытием пула не остаётся ничего.
+    private checkGracefulShutdown(): void {
+        const parts = this.bot.gracefulShutdown.timeout + this.planner.gracefulShutdown.timeout;
+
+        if (this.gracefulShutdown.timeout <= parts) {
+            throw new InvalidConfigError({
+                message: "GRACEFUL_SHUTDOWN_TIMEOUT must be greater than the sum of the bot and planner timeouts",
+                payload: {
+                    application: this.gracefulShutdown.timeout,
+                    bot: this.bot.gracefulShutdown.timeout,
+                    planner: this.planner.gracefulShutdown.timeout,
+                },
+            });
+        }
     }
 
     private getEnvironment(): Environment {

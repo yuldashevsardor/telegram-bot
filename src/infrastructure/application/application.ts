@@ -81,27 +81,8 @@ export class Application {
         this.logger.info("Stop application...");
 
         const { timeout } = this.cc.gracefulShutdown;
-        const deadline = Date.now() + timeout;
-        let onTime = true;
 
-        if (this.isRun) {
-            onTime = await withTimeout(this.bot.stop(), deadline - Date.now());
-
-            if (onTime) {
-                onTime = await this.waitPlannerToEmpty(deadline);
-            }
-
-            await this.broker.stop();
-
-            this.isRun = false;
-        }
-
-        // Пул Postgres закрываем в любом случае, даже когда срок уже вышел: шаг быстрый, свой
-        // предел у sql.end() есть, а брошенное соединение — ровно то, ради чего закрытие и
-        // переехало сюда из app.ts.
-        await container.close();
-
-        if (!onTime) {
+        if (!(await withTimeout(this.shutdown(), timeout))) {
             this.logger.warning("Graceful shutdown timeout is over, the shutdown was cut short.", {
                 timeout: timeout,
             });
@@ -110,6 +91,21 @@ export class Application {
         }
 
         this.logger.info("Application is successfully stopped.");
+    }
+
+    // Свой срок есть у каждого шага, а общий — у остановки целиком: он больше их суммы
+    // (проверяется при сборке конфига), поэтому на остановку брокера и закрытие пула время
+    // остаётся даже тогда, когда бот и очередь выбрали своё до конца.
+    private async shutdown(): Promise<void> {
+        if (this.isRun) {
+            await this.bot.stop();
+            await this.waitPlannerToEmpty();
+            await this.broker.stop();
+
+            this.isRun = false;
+        }
+
+        await container.close();
     }
 
     private static createLogger(cc: ConfigContainer): Logger {
@@ -137,8 +133,9 @@ export class Application {
         });
     }
 
-    private async waitPlannerToEmpty(deadline: number): Promise<boolean> {
-        const { timeout, plannerInterval } = this.cc.gracefulShutdown;
+    private async waitPlannerToEmpty(): Promise<void> {
+        const { timeout, interval } = this.cc.planner.gracefulShutdown;
+        const deadline = Date.now() + timeout;
 
         while (!this.planner.isEmpty()) {
             const timeLeft = deadline - Date.now();
@@ -149,14 +146,12 @@ export class Application {
                     timeout: timeout,
                 });
 
-                return false;
+                return;
             }
 
             this.logger.info(`Waiting for the outgoing queue to empty: ${this.planner.getMessagesCount()} messages left.`);
 
-            await sleep(Math.min(plannerInterval, timeLeft));
+            await sleep(Math.min(interval, timeLeft));
         }
-
-        return true;
     }
 }

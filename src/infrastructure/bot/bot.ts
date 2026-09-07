@@ -15,6 +15,7 @@ import { ConversationHandler } from "app/infrastructure/bot/conversation/convers
 import { conversations, createConversation } from "@grammyjs/conversations";
 import { Filter } from "app/infrastructure/bot/filter/filter";
 import { FileHelper } from "app/helper/file-helper/file-helper";
+import { withTimeout } from "app/helper/utils";
 import { InvalidConfigError, RuntimeError } from "app/common/errors";
 import { Fluent } from "@moebius/fluent";
 import { useFluent } from "@grammyjs/fluent";
@@ -66,8 +67,12 @@ export class Bot {
             return;
         }
 
-        if (this.runner?.isRunning) {
-            await this.runner.stop();
+        const { timeout } = this.settings.gracefulShutdown;
+
+        if (this.runner?.isRunning && !(await withTimeout(this.runner.stop(), timeout))) {
+            this.logger.warning("Bot shutdown timeout is over, the runner was left stopping.", {
+                timeout: timeout,
+            });
         }
 
         this.isRun = false;

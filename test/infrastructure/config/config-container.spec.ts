@@ -27,8 +27,10 @@ describe("ConfigContainer", () => {
 
         expect(result.environment).to.equal("development");
         expect(result.isProduction).to.equal(false);
-        expect(result.gracefulShutdown.timeout).to.equal(5000);
-        expect(result.gracefulShutdown.plannerInterval).to.equal(3000);
+        expect(result.gracefulShutdown.timeout).to.equal(10000);
+        expect(result.bot.gracefulShutdown.timeout).to.equal(3000);
+        expect(result.planner.gracefulShutdown.timeout).to.equal(5000);
+        expect(result.planner.gracefulShutdown.interval).to.equal(500);
         expect(result.broker.sleepInterval).to.equal(1000);
         expect(result.database.host).to.equal("localhost");
         expect(result.database.port).to.equal(5432);
@@ -71,5 +73,25 @@ describe("ConfigContainer", () => {
     it("rejects a value that is not an integer", () => {
         expect(() => config({ GRACEFUL_SHUTDOWN_TIMEOUT: "10s" })).to.throw(InvalidConfigError);
         expect(() => config({ DATABASE_PORT: "abc" })).to.throw(InvalidConfigError);
+    });
+
+    it("rejects a shutdown timeout that does not cover the bot and the planner", () => {
+        expect(() =>
+            config({
+                GRACEFUL_SHUTDOWN_TIMEOUT: "8000",
+                BOT_GRACEFUL_SHUTDOWN_TIMEOUT: "3000",
+                PLANNER_GRACEFUL_SHUTDOWN_TIMEOUT: "5000",
+            }),
+        ).to.throw(InvalidConfigError);
+    });
+
+    it("accepts a shutdown timeout that covers the bot and the planner", () => {
+        const result = config({
+            GRACEFUL_SHUTDOWN_TIMEOUT: "8001",
+            BOT_GRACEFUL_SHUTDOWN_TIMEOUT: "3000",
+            PLANNER_GRACEFUL_SHUTDOWN_TIMEOUT: "5000",
+        });
+
+        expect(result.gracefulShutdown.timeout).to.equal(8001);
     });
 });

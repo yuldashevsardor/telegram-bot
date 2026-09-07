@@ -11,4 +11,7 @@ export type Conversation = GrammyConversation<Context>;
 
 export type BotSettings = {
     token: string;
+    gracefulShutdown: {
+        timeout: number;
+    };
 };

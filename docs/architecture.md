@@ -121,7 +121,7 @@ setup(config, logger)    ConfigContainer, Logger (toConstantValue)
 
 `Application.run()` — только запуск: `broker.run()` (воркер исходящей очереди, §6) → `Bot.run()`. Если что-то падает, broker останавливается, ошибка пишется как `critical` и пробрасывается дальше (§2).
 
-`Application.stop()` — обратный порядок: `Bot.stop()` → `waitPlannerToEmpty()` → `broker.stop()` → `container.close()` (пул Postgres). `GRACEFUL_SHUTDOWN_TIMEOUT` (по умолчанию 5000 мс) отмеряет **общий срок на ожидание**: его делят между собой гашение бота и разгрузка очереди, и как только он исчерпан, ожидание прекращается — не уложившийся шаг остаётся выполняться, но процесс его больше не ждёт. Внутри этого срока `waitPlannerToEmpty()` опрашивает `planner.isEmpty()` каждые `PLANNER_GRACEFUL_SHUTDOWN_INTERVAL` (по умолчанию 3000 мс) и пишет в лог остаток очереди на каждой итерации. Остановка брокера и `container.close()` выполняются **всегда**, даже когда срок уже вышел: оба шага быстрые (у `sql.end()` есть свой предел в 5 секунд), а брошенный пул Postgres — ровно то, ради чего закрытие переехало под `Application`. Если ожидание было оборвано, вместо `"Application is successfully stopped."` пишется `warning`. Дефолт выбран меньше stop grace period контейнера (у Compose это 10 секунд), иначе таймаут не успел бы сработать до `SIGKILL`. До появления таймаута (issue [#33](https://github.com/yuldashevsardor/telegram-bot/issues/33)) очередь, переставшая разгружаться — бан по рейт-лимиту, невыдаваемый слот `SlotManager`, просто длинная очередь, — вешала остановку навсегда. Остановка до конца `setup()` не делает ничего.
+`Application.stop()` — обратный порядок: `Bot.stop()` → `waitPlannerToEmpty()` → `broker.stop()` → `container.close()` (пул Postgres). Сроков три, и каждый уровень отвечает за свой: `BOT_GRACEFUL_SHUTDOWN_TIMEOUT` (3000 мс) ограничивает остановку runner'а внутри `Bot.stop()`, `PLANNER_GRACEFUL_SHUTDOWN_TIMEOUT` (5000 мс) — разгрузку очереди, а `GRACEFUL_SHUTDOWN_TIMEOUT` (10000 мс) накрывает остановку целиком. Общий обязан быть больше суммы частных — эти сроки расходуются последовательно, — и `ConfigContainer` это проверяет при сборке (`InvalidConfigError`, приложение не стартует). Когда общий срок исчерпан, `stop()` перестаёт ждать: недоделанный шаг остаётся выполняться, вместо `"Application is successfully stopped."` пишется `warning`, и следом идёт `process.exit(0)` из `app.ts`. `waitPlannerToEmpty()` опрашивает `planner.isEmpty()` каждые `PLANNER_GRACEFUL_SHUTDOWN_INTERVAL` (по умолчанию 500 мс) и пишет в лог остаток очереди на каждой итерации. Запас между общим сроком и суммой частных — это то время, что остаётся остановке брокера и `container.close()` (у `sql.end()` есть ещё и свой предел в 5 секунд). Срок приложения должен быть меньше stop grace period контейнера, иначе до него дело не дойдёт: в `docker-compose.app.yml` для этого стоит `stop_grace_period: 20s`. Дефолт выбран меньше stop grace period контейнера (у Compose это 10 секунд), иначе таймаут не успел бы сработать до `SIGKILL`. До появления таймаута (issue [#33](https://github.com/yuldashevsardor/telegram-bot/issues/33)) очередь, переставшая разгружаться — бан по рейт-лимиту, невыдаваемый слот `SlotManager`, просто длинная очередь, — вешала остановку навсегда. Остановка до конца `setup()` не делает ничего.
 
 `src/infrastructure/bot/bot.ts` — `Bot` оборачивает grammY-объект `TelegramBot<Context>` и отвечает только за Telegram-слой: ни брокера, ни планировщика он не знает. Тип `Context` (`bot.types.ts`) складывается из `GrammyContext & SessionFlavor<SessionPayload> & ConversationFlavor & FluentContextFlavor & { user: User }`.
 
@@ -137,7 +137,7 @@ setup(config, logger)    ConfigContainer, Logger (toConstantValue)
 
 `Command`/`Filter`/`Middleware`/`ConversationHandler` — тонкие абстрактные базовые классы одинаковой формы «шаблонный метод»: абстрактный `handle`/`run` плюс `setup(composer)`, встраивающий экземпляр в grammY.
 
-`Bot.run()`: `grammy.catch(handleError)` → `run(this.grammy)` из `@grammyjs/runner` (long-polling runner, обрабатывающий апдейты конкурентно, а **не** встроенный `bot.start()` из grammY). Вызов до `setup()` — исключение, а не тихо не работающий бот. `Bot.stop()` останавливает runner и на этом заканчивается: очередь и broker — забота `Application`.
+`Bot.run()`: `grammy.catch(handleError)` → `run(this.grammy)` из `@grammyjs/runner` (long-polling runner, обрабатывающий апдейты конкурентно, а **не** встроенный `bot.start()` из grammY). Вызов до `setup()` — исключение, а не тихо не работающий бот. `Bot.stop()` останавливает runner в пределах собственного `BOT_GRACEFUL_SHUTDOWN_TIMEOUT` (не уложился — `warning`, остановка идёт дальше) и на этом заканчивается: очередь и broker — забота `Application`.
 
 ### `TelegramCallApiMiddleware`
 
@@ -295,8 +295,10 @@ FontConvertor.convert(params)
 | `BROKER_SLEEP_INTERVAL` | интервал опроса в `Broker` |
 | `BROKER_MAX_RETRIES` | сколько раз сообщение возвращается в очередь после ошибки Telegram, прежде чем будет отброшено (§6); по умолчанию 3 |
 | `BOT_TOKEN` | обязательна — конструктор `Bot` бросает `InvalidConfigError`, если пусто |
-| `GRACEFUL_SHUTDOWN_TIMEOUT` | общий срок ожидания при остановке: гашение бота и разгрузка очереди (§5); по умолчанию 5000 |
-| `PLANNER_GRACEFUL_SHUTDOWN_INTERVAL` | как часто в это время проверять очередь `Planner`; по умолчанию 3000 |
+| `GRACEFUL_SHUTDOWN_TIMEOUT` | общий срок на остановку приложения целиком (§5); должен быть больше суммы двух сроков ниже, иначе `InvalidConfigError` при старте; по умолчанию 10000 |
+| `BOT_GRACEFUL_SHUTDOWN_TIMEOUT` | сколько `Bot.stop()` ждёт остановки runner'а; по умолчанию 3000 |
+| `PLANNER_GRACEFUL_SHUTDOWN_TIMEOUT` | сколько остановка ждёт разгрузки очереди `Planner`; по умолчанию 5000 |
+| `PLANNER_GRACEFUL_SHUTDOWN_INTERVAL` | как часто в это время проверять очередь; по умолчанию 500 |
 | `LOGGER_LEVEL` | с какого минимального уровня пишутся записи |
 | `DATABASE_HOST`, `_PORT`, `_NAME`, `_USER_NAME`, `_USER_PASSWORD`, `_CONNECTION_LIMIT`, `_CONNECTION_IDLE_TIMEOUT`, `_CONNECTION_MAX_LIFETIME` | подключение к Postgres |
 
