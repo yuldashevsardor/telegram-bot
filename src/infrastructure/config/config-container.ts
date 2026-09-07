@@ -131,11 +131,8 @@ export class ConfigContainer {
         // Number, а не parseInt: тот молча съедает хвост ("10s" → 10) и на "abc" отдаёт NaN,
         // так что нечисловое значение уехало бы в конфиг незамеченным.
         if (!Number.isInteger(parsed)) {
-            throw new InvalidConfigError({
-                message: `Config value "${name}" must be an integer`,
-                payload: {
-                    got: value,
-                },
+            throw new InvalidConfigError(`Config value "${name}" must be an integer`, {
+                got: value,
             });
         }
 
@@ -150,24 +147,18 @@ export class ConfigContainer {
         const { interval } = this.taskQueue.gracefulShutdown;
 
         if (interval <= 0) {
-            throw new InvalidConfigError({
-                message: "TASK_QUEUE_GRACEFUL_SHUTDOWN_INTERVAL must be greater than zero",
-                payload: {
-                    got: interval,
-                },
+            throw new InvalidConfigError("TASK_QUEUE_GRACEFUL_SHUTDOWN_INTERVAL must be greater than zero", {
+                got: interval,
             });
         }
 
         const parts = this.bot.gracefulShutdown.timeout + this.taskQueue.gracefulShutdown.timeout;
 
         if (this.gracefulShutdown.timeout <= parts) {
-            throw new InvalidConfigError({
-                message: "GRACEFUL_SHUTDOWN_TIMEOUT must be greater than the sum of the bot and task queue timeouts",
-                payload: {
-                    application: this.gracefulShutdown.timeout,
-                    bot: this.bot.gracefulShutdown.timeout,
-                    taskQueue: this.taskQueue.gracefulShutdown.timeout,
-                },
+            throw new InvalidConfigError("GRACEFUL_SHUTDOWN_TIMEOUT must be greater than the sum of the bot and task queue timeouts", {
+                application: this.gracefulShutdown.timeout,
+                bot: this.bot.gracefulShutdown.timeout,
+                taskQueue: this.taskQueue.gracefulShutdown.timeout,
             });
         }
     }
@@ -176,12 +167,9 @@ export class ConfigContainer {
         const value = this.getString("NODE_ENV", "development");
 
         if (!isEnvironment(value)) {
-            throw new InvalidConfigError({
-                message: "Invalid environment",
-                payload: {
-                    got: value,
-                    allowed: Environments,
-                },
+            throw new InvalidConfigError("Invalid environment", {
+                got: value,
+                allowed: Environments,
             });
         }
 
@@ -192,12 +180,9 @@ export class ConfigContainer {
         const level = this.getString("LOGGER_LEVEL", "").toUpperCase() || (this.isProduction ? Level.WARNING : Level.DEBUG);
 
         if (!isLevel(level)) {
-            throw new InvalidConfigError({
-                message: "Invalid logger level",
-                payload: {
-                    got: level,
-                    allowed: Levels,
-                },
+            throw new InvalidConfigError("Invalid logger level", {
+                got: level,
+                allowed: Levels,
             });
         }
 

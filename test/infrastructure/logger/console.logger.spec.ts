@@ -3,6 +3,7 @@ import { expect } from "chai";
 import { ConsoleLogger } from "app/infrastructure/logger/console.logger";
 import { Level } from "app/domain/logger/logger.types";
 import { UnknownObject } from "app/common/types";
+import { RuntimeError } from "app/common/errors";
 
 function capture(method: "error" | "info", write: (logger: ConsoleLogger) => void): string {
     const original = console[method];
@@ -35,6 +36,13 @@ describe("ConsoleLogger", function () {
 
         expect(payload.error).to.include({ name: "Error", message: "boom" });
         expect(payload.error["stack"]).to.be.a("string");
+    });
+
+    it("prints the cause of a nested error", function () {
+        const payload = logAndParsePayload({ error: new RuntimeError("failed", new Error("boom")) }) as { error: UnknownObject };
+        const cause = payload.error["cause"] as UnknownObject;
+
+        expect(cause).to.include({ name: "Error", message: "boom" });
     });
 
     it("keeps a payload without errors as is", function () {

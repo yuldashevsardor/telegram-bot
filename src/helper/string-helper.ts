@@ -1,4 +1,5 @@
 import { NumberHelper } from "app/helper/number-helper";
+import { InvalidRandomStringParams } from "app/helper/string-helper.errors";
 
 export class StringHelper {
     public static readonly LATIN_CHARACTERS_UPPER_CASE = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -46,14 +47,14 @@ export class StringHelper {
 
     public static generateRandomStringByCharacters(length: number, characters: string): string {
         if (length < 1) {
-            throw new Error("Random string length should be greater then 0");
+            throw InvalidRandomStringParams.byLength(length);
         }
 
         const result: string[] = [];
         const charactersLength = characters.length;
 
         if (charactersLength < 1) {
-            throw new Error("Character length for random string should be greater then 0");
+            throw InvalidRandomStringParams.emptyCharacters();
         }
 
         for (let i = 0; i < length; i++) {

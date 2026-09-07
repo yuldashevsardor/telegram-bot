@@ -3,9 +3,6 @@ import { UnknownObject } from "app/common/types";
 
 export class InvalidLogLevel extends RuntimeError {
     static byLevel(level: unknown, payload?: UnknownObject): InvalidLogLevel {
-        return new InvalidLogLevel({
-            message: `Invalid log level. Got: ${level}`,
-            payload: payload,
-        });
+        return new InvalidLogLevel(`Invalid log level. Got: ${level}`, payload);
     }
 }

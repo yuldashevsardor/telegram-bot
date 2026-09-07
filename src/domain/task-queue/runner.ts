@@ -23,7 +23,7 @@ export class Runner {
 
     public run(): void {
         if (this.isRun) {
-            throw new RunnerAlreadyRun({ message: "Runner is already run." });
+            throw new RunnerAlreadyRun("Runner is already run.");
         }
 
         this._isRun = true;

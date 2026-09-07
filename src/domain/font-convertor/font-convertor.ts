@@ -49,9 +49,7 @@ export class FontConvertor {
         const originExtension = await FileHelper.getFileExtension(params.originPath);
 
         if (originExtension === params.extension) {
-            throw new FontConvertorError({
-                message: "New and old font extension cannot be equal.",
-            });
+            throw new FontConvertorError("New and old font extension cannot be equal.");
         }
 
         const newFontFilename = StringHelper.generateRandomString(15) + "." + params.extension;

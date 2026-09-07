@@ -26,6 +26,14 @@ Telegram — способ доставки; `User`, сессии и миграц
 типы и базовая ошибка, `helper/` — утилиты. Разделение последовательно у `user` и
 `logger`; `task-queue` порта почти не имеет, потому что внешней системы за ним нет.
 
+Ошибки: наружу бросается `RuntimeError` (`common/errors.ts`) или его подкласс из
+`<модуль>.errors.ts` рядом с бросающим кодом — `font-convertor`, `font-forge`, `logger`,
+`user`, `rate-limit`, `runner`, `file-helper`, `string-helper`, плюс `InvalidConfigError`
+в `common/`. Конструктор — `new RuntimeError(message, payloadOrCause)`: `Error` вторым
+аргументом уходит в стандартный `cause`, объект — в `payload` (поле `cause` внутри него
+дополнительно попадает в `cause`). Детали собирают статические фабрики по месту
+(`ExtensionNotSupport.byExtension()`), чужую ошибку оборачивает `byError()`.
+
 Команды бота: `/start` — conversation с приветствием; `/font_generator` — отладочная
 конвертация фиксированного файла, путь результата уходит текстом (§7);
 `/bulk_messages` — нагрузочный инструмент, а не фича (issue
@@ -251,6 +259,9 @@ FontConvertor.convert({ originPath, extension })
 выполняет остаток пайплайна в `asyncLocalStorage.run()`, а `Proxy` из
 `Application.createLogger()` подставляет его при каждом обращении к логгеру. Работает
 только с `PinoLogger`, то есть только в production; в разработке корреляции нет.
+
+Payload перед записью проходит через `serialize-error`: без него вложенная ошибка
+печаталась бы как `{}`, а так в лог попадают её `name`, `message`, `stack` и `cause`.
 
 При добавлении уровня править три места: `Level`, `LevelSeverity` и `pinoLevels` в
 `pino.logger.ts`; последний — `Record<PinoLevel, number>` по строковому имени, забытая

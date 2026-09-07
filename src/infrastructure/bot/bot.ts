@@ -41,7 +41,7 @@ export class Bot {
         private readonly sessionStorage: StorageAdapter<SessionPayload>,
     ) {
         if (!this.settings.token) {
-            throw new InvalidConfigError({ message: "Bot token cannot be empty!" });
+            throw new InvalidConfigError("Bot token cannot be empty!");
         }
 
         this.grammy = new TelegramBot<Context>(this.settings.token);
@@ -49,7 +49,7 @@ export class Bot {
 
     public async run(): Promise<void> {
         if (!this.isSetup) {
-            throw new RuntimeError({ message: "Bot is not set up!" });
+            throw new RuntimeError("Bot is not set up!");
         }
 
         this.grammy.catch(this.handleError.bind(this));

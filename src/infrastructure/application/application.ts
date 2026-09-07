@@ -54,7 +54,7 @@ export class Application {
 
     public async run(): Promise<void> {
         if (!this.isSetup) {
-            throw new RuntimeError({ message: "Application is not set up!" });
+            throw new RuntimeError("Application is not set up!");
         }
 
         try {
