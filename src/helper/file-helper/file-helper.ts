@@ -120,7 +120,7 @@ export class FileHelper {
             .filter((extension) => extension !== "");
 
         if (!filteredExtensions.length) {
-            throw InvalidExtensions.empty();
+            throw InvalidExtensions.empty(extensions);
         }
 
         const searchPattern = `**/*.{${filteredExtensions.join(",")}}`;

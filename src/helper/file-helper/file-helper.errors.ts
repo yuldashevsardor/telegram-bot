@@ -63,7 +63,9 @@ export class InvalidFile extends RuntimeError {
 }
 
 export class InvalidExtensions extends RuntimeError {
-    public static empty(): InvalidExtensions {
-        return new InvalidExtensions("Extensions cannot be empty.");
+    public static empty(extensions: string[]): InvalidExtensions {
+        return new InvalidExtensions("Extensions cannot be empty.", {
+            extensions: extensions,
+        });
     }
 }

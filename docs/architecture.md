@@ -32,7 +32,9 @@ Telegram — способ доставки; `User`, сессии и миграц
 в `common/`. Конструктор — `new RuntimeError(message, payloadOrCause)`: `Error` вторым
 аргументом уходит в стандартный `cause`, объект — в `payload` (поле `cause` внутри него
 дополнительно попадает в `cause`). Детали собирают статические фабрики по месту
-(`ExtensionNotSupport.byExtension()`), чужую ошибку оборачивает `byError()`.
+(`ExtensionNotSupport.byExtension()`). Чужую ошибку без своих деталей оборачивает
+`byError()` — он берёт её message и кладёт её саму в `cause`; если нужен ещё и payload,
+ошибка передаётся полем `cause` внутри него (`UserService.create()`).
 
 Команды бота: `/start` — conversation с приветствием; `/font_generator` — отладочная
 конвертация фиксированного файла, путь результата уходит текстом (§7);
