@@ -47,10 +47,17 @@ export class InvalidFile extends RuntimeError {
         });
     }
 
-    public static byPathAndExtension(path: string, extension: string): InvalidFile {
-        return new InvalidFile(`File ${path} extension is invalid. Got: ${extension}.`, {
+    public static byPathAndExtension(path: string, extension: string, allowed: string): InvalidFile {
+        return new InvalidFile(`File ${path} extension is invalid. Got: ${extension}, allowed: ${allowed}.`, {
             path: path,
             extension: extension,
+            allowed: allowed,
+        });
+    }
+
+    public static byUnknownMimeType(path: string): InvalidFile {
+        return new InvalidFile(`Cannot get mime type of file ${path}.`, {
+            path: path,
         });
     }
 
