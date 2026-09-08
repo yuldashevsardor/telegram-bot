@@ -87,7 +87,7 @@
 8. **`RequestLogMiddleware`** — `ctx.session.requestCount++`, затем `debug` со всем
    `ctx.update`.
 9. **`FillUserToContextMiddleware`** — `existsById` → `edit` (`getById` + `save`) или
-   `create` (`save`) → `ctx.user`. Ошибок не ловит. `if (!ctx.from)` — ассерт инварианта
+   `create` (`save`) → `ctx.getUser()`. Ошибок не ловит. `if (!ctx.from)` — ассерт инварианта
    шага 1, бросает `UpdateWithoutFrom`.
 10. **Fluent** — `ctx.t()`; локаль — язык из `ctx.from.language_code`, незнакомый уводится
     в дефолтную `ru`.
