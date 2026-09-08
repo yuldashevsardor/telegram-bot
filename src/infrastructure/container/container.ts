@@ -39,17 +39,17 @@ import { StartConversation } from "app/infrastructure/bot/conversation/start/sta
 export class Container extends InversifyContainer {
     private alreadySetup = false;
 
-    // Контекст приходит готовым: он собирается до контейнера, поэтому всё, что связывается
-    // ниже, уже может рассчитывать на его части. Дальше сам контекст нигде не фигурирует —
-    // потребители берут части из контейнера по отдельности.
-    public async setup(context: ApplicationContext): Promise<void> {
+    // Контекст собран до контейнера, поэтому всё, что связывается ниже, уже может
+    // рассчитывать на его части. Дальше сам контекст нигде не фигурирует — потребители
+    // берут части из контейнера по отдельности.
+    public async setup(): Promise<void> {
         if (this.alreadySetup) {
             return;
         }
 
-        this.bind<ConfigContainer>(Infrastructure.ConfigContainer).toConstantValue(context.config);
-        this.bind<Logger>(Infrastructure.Logger).toConstantValue(context.logger);
-        this.bind<AsyncLocalStorage<AlsStore>>(Infrastructure.Als).toConstantValue(context.asyncLocalStorage);
+        this.bind<ConfigContainer>(Infrastructure.ConfigContainer).toConstantValue(ApplicationContext.getConfigContainer());
+        this.bind<Logger>(Infrastructure.Logger).toConstantValue(ApplicationContext.getLogger());
+        this.bind<AsyncLocalStorage<AlsStore>>(Infrastructure.Als).toConstantValue(ApplicationContext.getAls());
 
         await this.setupModules();
         await this.setupServices();
