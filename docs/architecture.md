@@ -132,8 +132,9 @@ ConversationFlavor & FluentContextFlavor & { user: User }`.
    здесь — редкость. Он пишется `warning`-ом: ниже фильтра дампа апдейта уже не будет.
    Логгер здесь ещё без `requestId` — `AsyncLocalStorageMiddleware` стоит ниже (§9).
 2. `IsPrivateChatFilter` — всё ниже работает только в приватных чатах. Стоит вторым:
-   `ctx.chat` у него нет и у апдейтов без ключа сессии, а отбрасывает он молча, поэтому
-   их должен раньше увидеть `HasSessionKeyFilter`.
+   `ctx.chat` у него нет и у апдейтов без ключа сессии, а своей строки в логе он не
+   пишет — только общую `debug` базы, поэтому их должен раньше увидеть
+   `HasSessionKeyFilter` с его `warning`.
 3. `session()` — ключ `${from.id}:${chat.id}`, хранилище `PgsqlStorage` (таблица
    `sessions`), payload `{ requestCount }`.
 4. `sequentialize()` по ключам `[chat.id, from.id]` — сериализует апдейты одного
@@ -166,6 +167,14 @@ ConversationFlavor & FluentContextFlavor & { user: User }`.
 им composer, и обе ветки его `branch` зовут `next()`. Пока `setup()` полагался на
 `filter()` и выбрасывал этот composer, ни один фильтр репозитория не отсекал ничего
 (тест `test/infrastructure/bot/filter/filter.spec.ts`).
+
+Отброс логирует сам `Filter`: строка `debug` с `constructor.name` фильтра и `update_id`.
+Поэтому `Logger` инжектится в базу, а не в наследников: решение об отбросе принимается в
+базе, и след о нём остаётся там же — иначе каждый новый фильтр отбрасывал бы молча, пока
+автор не заведёт себе логгер. Наследник с зависимостями передаёт логгер в `super()`, без
+зависимостей — не объявляет конструктор вовсе. Своя строка у фильтра остаётся, когда
+нужен другой уровень или детали: `HasSessionKeyFilter` пишет `warning` с тем, какого
+поля не хватило (§5).
 
 ### TelegramCallApiMiddleware
 
