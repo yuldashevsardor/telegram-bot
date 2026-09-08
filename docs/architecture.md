@@ -80,7 +80,7 @@ scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-w
 идемпотентен. Конфиг и логгер приходят готовыми из `Application` и связываются первыми
 константами, затем `setupModules()` (лимит-резолвер, очередь, раннер, всё из
 `setupBot()`), `setupServices()` (font-convertor, user), `setupInfrastructure()`
-(`Database`). Всё singleton, кроме `StartConversation`.
+(`Database`). Всё singleton.
 
 Символы — `Symbol.for(...)` в `container/symbols/` (`Infrastructure`, `Modules`,
 `Services`). Реестр ручной: новая команда, middleware или сервис без биндинга не
