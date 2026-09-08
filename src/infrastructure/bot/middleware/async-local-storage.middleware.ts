@@ -10,7 +10,7 @@ import { Context } from "app/infrastructure/bot/bot.types";
 @injectable()
 export class AsyncLocalStorageMiddleware extends Middleware {
     public constructor(
-        @inject<AsyncLocalStorage<AlsStore>>(Infrastructure.RequestStorage)
+        @inject<AsyncLocalStorage<AlsStore>>(Infrastructure.Als)
         private readonly asyncLocalStorage: AsyncLocalStorage<AlsStore>,
     ) {
         super();

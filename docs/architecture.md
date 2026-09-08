@@ -87,8 +87,8 @@ scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-w
 `Services`). Реестр ручной: новая команда, middleware или сервис без биндинга не
 падает, а просто отсутствует. Строка внутри `Symbol.for` — глобальный ключ: одно и то же
 имя в разных реестрах даёт один и тот же символ, поэтому хранилище запроса связано как
-`RequestStorage` — `AsyncLocalStorage` уже занят middleware, и второй биндинг под тем же
-символом валит резолв «Ambiguous match».
+`Als` — имя `AsyncLocalStorage` уже занято символом middleware, и второй биндинг под тем
+же символом валит резолв «Ambiguous match».
 
 Два декоратора свойств тянут значения из модульного синглтона `container` при первом
 обращении (service locator): `@ConfigValue(key)` — путь в `ConfigContainer`
@@ -115,7 +115,7 @@ scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-w
 Дальше контекст никуда не расходится: он живёт в `Application.setup()`, отдаёт `cc` и
 `logger` полям приложения и уходит в `container.setup(context)`. Потребители получают его
 части из контейнера по отдельности (`@inject(Infrastructure.ConfigContainer)`,
-`Infrastructure.Logger`, `Infrastructure.RequestStorage`) — контекст не инжектится никуда,
+`Infrastructure.Logger`, `Infrastructure.Als`) — контекст не инжектится никуда,
 иначе он стал бы вторым DI. Состав держится коротким по той же причине: `Database` в него не входит, у неё
 свой жизненный цикл на `container.close()` (§3).
 

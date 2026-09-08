@@ -49,7 +49,7 @@ export class Container extends InversifyContainer {
 
         this.bind<ConfigContainer>(Infrastructure.ConfigContainer).toConstantValue(context.config);
         this.bind<Logger>(Infrastructure.Logger).toConstantValue(context.logger);
-        this.bind<AsyncLocalStorage<AlsStore>>(Infrastructure.RequestStorage).toConstantValue(context.asyncLocalStorage);
+        this.bind<AsyncLocalStorage<AlsStore>>(Infrastructure.Als).toConstantValue(context.asyncLocalStorage);
 
         await this.setupModules();
         await this.setupServices();
