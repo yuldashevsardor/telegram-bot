@@ -5,7 +5,7 @@ import { User } from "app/domain/user/user";
 
 import { FluentContextFlavor } from "@grammyjs/fluent";
 
-export type Context = GrammyContext & SessionFlavor<SessionPayload> & ConversationFlavor & FluentContextFlavor & { user: User };
+export type Context = GrammyContext & SessionFlavor<SessionPayload> & ConversationFlavor & FluentContextFlavor & { getUser: () => User };
 
 export type Conversation = GrammyConversation<Context>;
 

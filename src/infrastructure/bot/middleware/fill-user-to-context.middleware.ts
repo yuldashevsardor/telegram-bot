@@ -4,6 +4,7 @@ import { inject, injectable } from "inversify";
 import { UserService } from "app/domain/user/user.service";
 import { Services } from "app/infrastructure/container/symbols/services";
 import { UserRepository } from "app/domain/user/user.repository";
+import { User } from "app/domain/user/user";
 import dayjs from "dayjs";
 import { Context } from "app/infrastructure/bot/bot.types";
 import { UpdateWithoutFrom } from "app/infrastructure/bot/bot.errors";
@@ -24,8 +25,10 @@ export class FillUserToContextMiddleware extends Middleware {
             throw UpdateWithoutFrom.byUpdate(ctx.update);
         }
 
+        let user: User;
+
         if (await this.userRepository.existsById(ctx.from.id)) {
-            ctx.user = await this.userService.edit(ctx.from.id, {
+            user = await this.userService.edit(ctx.from.id, {
                 firstname: ctx.from.first_name,
                 lastname: ctx.from.last_name || "",
                 username: ctx.from.username || "",
@@ -33,7 +36,7 @@ export class FillUserToContextMiddleware extends Middleware {
                 lastActiveTime: dayjs(),
             });
         } else {
-            ctx.user = await this.userService.create({
+            user = await this.userService.create({
                 id: ctx.from.id,
                 firstname: ctx.from.first_name,
                 lastname: ctx.from.last_name || "",
@@ -41,6 +44,13 @@ export class FillUserToContextMiddleware extends Middleware {
                 isBot: ctx.from?.is_bot,
             });
         }
+
+        // Функция, а не поле: перечислимое свойство контекста плагин разговоров клонирует
+        // в op-лог и в sessions (§14 architecture.md), а клон User — пустой объект, у него
+        // всё в приватных полях. Функции плагин не клонирует, а восстанавливает биндом от
+        // живого контекста, поэтому внутри разговора getUser() отдаёт пользователя
+        // текущего апдейта, а не слепок с момента входа в разговор.
+        ctx.getUser = (): User => user;
 
         return next();
     }
