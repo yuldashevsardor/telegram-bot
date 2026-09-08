@@ -1,10 +1,9 @@
 import "reflect-metadata";
 import { Container as InversifyContainer } from "inversify";
-import { AsyncLocalStorage } from "async_hooks";
 import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
 import { ApplicationContext } from "app/infrastructure/application/application-context";
 import { ConfigContainer } from "app/infrastructure/config/config-container";
-import { AlsStore } from "app/infrastructure/async-local-storage.types";
+import { RequestContext } from "app/infrastructure/request-context";
 import { FontForge } from "app/domain/font-convertor/font-forge/font-forge";
 import { FontSignatureMatcher } from "app/domain/font-convertor/font-signature-matcher";
 import { Services } from "app/infrastructure/container/symbols/services";
@@ -49,7 +48,7 @@ export class Container extends InversifyContainer {
 
         this.bind<ConfigContainer>(Infrastructure.ConfigContainer).toConstantValue(ApplicationContext.getConfigContainer());
         this.bind<Logger>(Infrastructure.Logger).toConstantValue(ApplicationContext.getLogger());
-        this.bind<AsyncLocalStorage<AlsStore>>(Infrastructure.Als).toConstantValue(ApplicationContext.getAls());
+        this.bind<RequestContext>(Infrastructure.RequestContext).toConstantValue(ApplicationContext.getRequestContext());
 
         await this.setupModules();
         await this.setupServices();

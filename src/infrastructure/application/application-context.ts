@@ -1,10 +1,9 @@
-import { AsyncLocalStorage } from "async_hooks";
 import { ConfigContainer } from "app/infrastructure/config/config-container";
 import { ConfigEnvStorage } from "app/infrastructure/config/config-env-storage";
 import { Logger } from "app/domain/logger/logger";
 import { ConsoleLogger } from "app/infrastructure/logger/console-logger";
 import { PinoLogger } from "app/infrastructure/logger/pino-logger";
-import { AlsStore } from "app/infrastructure/async-local-storage.types";
+import { RequestContext } from "app/infrastructure/request-context";
 import { ApplicationContextIsNotCreated } from "app/infrastructure/application/application-context.errors";
 
 // Состав того, что приложению нужно всегда: эти объекты существуют до контейнера, потому что
@@ -18,7 +17,7 @@ import { ApplicationContextIsNotCreated } from "app/infrastructure/application/a
 export class ApplicationContext {
     private static config: ConfigContainer | null = null;
     private static logger: Logger | null = null;
-    private static als: AsyncLocalStorage<AlsStore> | null = null;
+    private static requestContext: RequestContext | null = null;
 
     // Контекст один на процесс: второй сломал бы корреляцию молча — у него своё хранилище
     // запроса, и логгер читал бы не тот стор, который открыл middleware. Поэтому повторный
@@ -32,13 +31,13 @@ export class ApplicationContext {
         }
 
         const config = new ConfigContainer(new ConfigEnvStorage());
-        const als = new AsyncLocalStorage<AlsStore>();
-        const logger = ApplicationContext.createLogger(config, als);
+        const requestContext = new RequestContext();
+        const logger = ApplicationContext.createLogger(config, requestContext);
 
         // Поля заполняются после сборки всех частей: упавший конфиг оставляет контекст пустым,
         // и следующий create() начинает с нуля, а не достраивает половину.
         ApplicationContext.config = config;
-        ApplicationContext.als = als;
+        ApplicationContext.requestContext = requestContext;
         ApplicationContext.logger = logger;
     }
 
@@ -58,18 +57,18 @@ export class ApplicationContext {
         return ApplicationContext.logger;
     }
 
-    public static getAls(): AsyncLocalStorage<AlsStore> {
-        if (ApplicationContext.als === null) {
+    public static getRequestContext(): RequestContext {
+        if (ApplicationContext.requestContext === null) {
             throw new ApplicationContextIsNotCreated("ApplicationContext is not created, call create() first.");
         }
 
-        return ApplicationContext.als;
+        return ApplicationContext.requestContext;
     }
 
-    // Логгер один на процесс: данные запроса он берёт из AsyncLocalStorage в момент записи,
+    // Логгер один на процесс: значения запроса он берёт из RequestContext в момент записи,
     // поэтому подменять сам объект под запрос не требуется.
-    private static createLogger(config: ConfigContainer, asyncLocalStorage: AsyncLocalStorage<AlsStore>): Logger {
-        const logger = config.isProduction ? new PinoLogger(asyncLocalStorage) : new ConsoleLogger(asyncLocalStorage);
+    private static createLogger(config: ConfigContainer, requestContext: RequestContext): Logger {
+        const logger = config.isProduction ? new PinoLogger(requestContext) : new ConsoleLogger(requestContext);
         logger.setLevel(config.logger.level);
 
         return logger;

@@ -16,11 +16,11 @@
      - `ConfigEnvStorage` — `dotenv.config()` один раз, явно.
      - `ConfigContainer` — разбор и валидация всей конфигурации. Ошибка здесь —
        `InvalidConfigError` до появления логгера, её печатает `fail()` через `console.error`.
-     - `AsyncLocalStorage` — пустое хранилище значений запроса; область открывает
-       middleware на каждый апдейт (поток 3).
+     - `RequestContext` — обёртка над `AsyncLocalStorage`, пока без открытой области;
+       область открывает middleware на каждый апдейт (поток 3).
      - `createLogger()` — `PinoLogger` (production) или `ConsoleLogger`; обоим отдаётся
-       хранилище, из которого они читают данные запроса при записи (§9).
-   - `container.setup()` — конфиг, логгер и хранилище берутся геттерами контекста и
+       контекст запроса, из которого они читают значения при записи (§9).
+   - `container.setup()` — конфиг, логгер и контекст запроса берутся геттерами контекста и
      связываются константами, дальше только биндинги, классы ещё не инстанцируются.
    - `Database.check()` — первый резолв `Database` и `select 1`: недоступная база валит
      старт здесь, а не на первом апдейте.
@@ -84,9 +84,10 @@
    (`write`, upsert); новая сессия считается изменённой с самого начала. Ниже
    `ctx.session` заполнен.
 5. **`AsyncLocalStorageMiddleware`** — выполняет остаток пайплайна в
-   `asyncLocalStorage.run({ requestId })`; хранилище то же, что у логгера: экземпляр один,
-   логгеру он достался при сборке контекста, а middleware — из контейнера (§4). Первый из
-   middleware: всё, что логируется внутри цепочки, пишется с `requestId`.
+   `requestContext.run(next)`; `requestId` кладёт в стор сам `RequestContext`. Контекст тот
+   же, что у логгера: экземпляр один, логгеру он достался при сборке контекста, а
+   middleware — из контейнера (§4). Первый из middleware: всё, что логируется внутри
+   цепочки, пишется с `requestId`.
 6. **`TelegramCallApiMiddleware`** — подменяет `ctx.api.raw` на `Proxy` (поток 4).
 7. **`ResponseTimeMiddleware`** — `await next()`, затем `info` с временем; без try/catch.
 8. **`RequestLogMiddleware`** — `ctx.session.requestCount++`, затем `debug` со всем
@@ -200,8 +201,8 @@ RUNNER_MAX_RETRIES` задача отбрасывается с `error`. Вызы
 Не поток, а сквозной аспект. Бэкенд выбирается при старте по `NODE_ENV` (§9).
 
 Логгер один на процесс и под запрос не подменяется. `AsyncLocalStorageMiddleware`
-открывает стор апдейта, `AbstractLogger.getRequestContext()` в момент записи берёт из
-него значения `ALS_KEYS` — сейчас один `requestId`:
+открывает область апдейта через `RequestContext.run()`, а адаптеры в момент записи берут
+`RequestContext.getValues()` — сейчас там один `requestId`:
 
 - `PinoLogger`: значения уходят полями объекта рядом с `message` и `payload`.
 - `ConsoleLogger`: значения печатаются чипами `[key=value]` перед сообщением.

@@ -1,14 +1,13 @@
 import "reflect-metadata";
 import { expect } from "chai";
-import { AsyncLocalStorage } from "async_hooks";
 import { PinoLogger } from "app/infrastructure/logger/pino-logger";
 import { Level } from "app/domain/logger/logger.types";
-import { ALS_KEYS, AlsStore } from "app/infrastructure/async-local-storage.types";
+import { RequestContext } from "app/infrastructure/request-context";
 
 // pino пишет в process.stdout, поэтому записи снимаются подменой write — так же, как
 // записи ConsoleLogger снимаются подменой console. Логгер строится уже после подмены:
 // назначение pino выбирает в конструкторе.
-function capture(write: (logger: PinoLogger, storage: AsyncLocalStorage<AlsStore>) => void): Array<Record<string, unknown>> {
+function capture(write: (logger: PinoLogger, requestContext: RequestContext) => void): Array<Record<string, unknown>> {
     const original = process.stdout.write;
     let captured = "";
     process.stdout.write = ((chunk: string): boolean => {
@@ -17,12 +16,12 @@ function capture(write: (logger: PinoLogger, storage: AsyncLocalStorage<AlsStore
         return true;
     }) as typeof process.stdout.write;
 
-    const storage = new AsyncLocalStorage<AlsStore>();
-    const logger = new PinoLogger(storage);
+    const requestContext = new RequestContext();
+    const logger = new PinoLogger(requestContext);
     logger.setLevel(Level.INFO);
 
     try {
-        write(logger, storage);
+        write(logger, requestContext);
     } finally {
         process.stdout.write = original;
     }
@@ -37,19 +36,16 @@ function capture(write: (logger: PinoLogger, storage: AsyncLocalStorage<AlsStore
 }
 
 describe("PinoLogger", function () {
-    it("puts the request store of the surrounding request into the record", function () {
-        const [record] = capture((logger, storage) => storage.run({ [ALS_KEYS.REQUEST_ID]: "req-1" }, () => logger.info("done")));
-
-        expect(record).to.include({ requestId: "req-1", message: "done" });
-    });
-
-    it("writes only the known keys of the store", function () {
-        const [record] = capture((logger, storage) =>
-            storage.run({ [ALS_KEYS.REQUEST_ID]: "req-1", secret: "must not leak" } as AlsStore, () => logger.info("done")),
+    it("puts the request values of the surrounding request into the record", function () {
+        let requestId: string | null = null;
+        const [record] = capture((logger, requestContext) =>
+            requestContext.run(() => {
+                requestId = requestContext.getRequestId();
+                logger.info("done");
+            }),
         );
 
-        expect(record).to.have.property("requestId", "req-1");
-        expect(record).to.not.have.property("secret");
+        expect(record).to.include({ requestId: requestId, message: "done" });
     });
 
     it("writes no request data outside a request", function () {
