@@ -1,5 +1,6 @@
 import { injectable } from "inversify";
-import { Extension, Prefix, Signature } from "app/domain/font-convertor/font-convertor.types";
+import { Extension } from "app/domain/font-convertor/font-convertor.types";
+import { Prefix, Signature } from "app/domain/font-convertor/font-signature-matcher.types";
 
 @injectable()
 export class FontSignatureMatcher {
