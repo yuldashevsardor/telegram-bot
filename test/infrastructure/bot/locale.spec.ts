@@ -16,9 +16,12 @@ const MESSAGE_LINE = /^(-?[a-zA-Z][\w-]*) *=/;
 // Атрибут: с отступом и точкой перед именем. Отступ без точки — продолжение значения.
 const ATTRIBUTE_LINE = /^\s+\.([a-zA-Z][\w-]*) *=/;
 
-// Как ключ попадает в код: ctx.t("key") и descriptionKey команды.
+// Как ключ попадает в код: ctx.t("key") и descriptionKey команды. Разбор грубый, по
+// тексту исходника: ключ, собранный не строковым литералом, сюда не попадёт. Оба
+// выражения держатся одной строки — класс, пропускающий перевод строки, уводит
+// совпадение к первому присваиванию ниже по файлу и подставляет чужую строку как ключ.
 const TRANSLATE_CALL = /\.t\("([^"]+)"/g;
-const DESCRIPTION_KEY = /descriptionKey[^=]*= *"([^"]+)"/g;
+const DESCRIPTION_KEY = /descriptionKey[^=\n]*= *"([^"]+)"/g;
 
 describe("Fluent locales", function () {
     let filesByLocale: Map<Locale, string[]>;
