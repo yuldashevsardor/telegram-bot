@@ -2,7 +2,7 @@ import { InvalidFile, InvalidPath, PermissionDenied } from "app/helper/file-help
 import path from "path";
 import { Extension } from "app/domain/font-convertor/font-convertor.types";
 import { InvalidFontSignature } from "app/domain/font-convertor/font-convertor.errors";
-import { FONT_SIGNATURE_HEAD_LENGTH, FontSignature } from "app/domain/font-convertor/font-signature";
+import { FontSignature } from "app/domain/font-convertor/font-signature";
 import { FileHelper } from "app/helper/file-helper/file-helper";
 
 export abstract class Convertor {
@@ -35,7 +35,7 @@ export abstract class Convertor {
 
         // Расширение задаёт тот, кто прислал файл, поэтому одного его мало: без этой
         // проверки произвольные байты под именем *.ttf ушли бы движку.
-        const head = await FileHelper.readHead(fromPath, FONT_SIGNATURE_HEAD_LENGTH);
+        const head = await FileHelper.readHead(fromPath, FontSignature.headLength);
 
         if (!FontSignature.matches(head, this.fromExtension)) {
             throw InvalidFontSignature.byPathAndExtension(fromPath, this.fromExtension);

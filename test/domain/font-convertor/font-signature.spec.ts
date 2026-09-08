@@ -1,79 +1,91 @@
 import { expect } from "chai";
+import fs from "fs/promises";
+import path from "path";
 import { Extension } from "app/domain/font-convertor/font-convertor.types";
-import { FONT_SIGNATURE_HEAD_LENGTH, FontSignature } from "app/domain/font-convertor/font-signature";
+import { FontSignature } from "app/domain/font-convertor/font-signature";
+
+const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
 describe("FontSignature.matches", function () {
-    const headsByExtension: Record<string, Uint8Array> = {
-        [Extension.TTF]: head([0x00, 0x01, 0x00, 0x00]),
-        [Extension.OTF]: head(ascii("OTTO")),
-        [Extension.WOFF]: head(ascii("wOFF")),
-        [Extension.WOFF2]: head(ascii("wOF2")),
-        [Extension.EOT]: eotHead(),
-    };
+    const heads = new Map<Extension, Uint8Array>();
 
-    for (const [extension, fontHead] of Object.entries(headsByExtension)) {
-        it(`принимает заголовок ${extension}`, function () {
-            expect(FontSignature.matches(fontHead, extension as Extension)).to.be.true;
-        });
-
-        it(`отвергает заголовок ${extension} под чужим расширением`, function () {
-            const others = Object.keys(headsByExtension).filter((other) => other !== extension);
-
-            for (const other of others) {
-                expect(FontSignature.matches(fontHead, other as Extension), `${extension} принят как ${other}`).to.be.false;
-            }
-        });
-    }
-
-    it("принимает старую макинтошевскую сигнатуру TTF и коллекцию", function () {
-        expect(FontSignature.matches(head(ascii("true")), Extension.TTF)).to.be.true;
-        expect(FontSignature.matches(head(ascii("ttcf")), Extension.TTF)).to.be.true;
-    });
-
-    it("отвергает произвольные байты под именем шрифта", function () {
-        // Ровно тот случай, ради которого проверка и заведена: PostScript Type 1,
-        // переименованный в .woff2 (такие файлы лежат в tmp/app/test-fonts).
-        const pfb = head([0x80, 0x01, 0x79, 0x15]);
-
+    before(async function () {
         for (const extension of Object.values(Extension)) {
-            if (extension === Extension.SVG) {
-                continue;
-            }
-
-            expect(FontSignature.matches(pfb, extension), `PFB принят как ${extension}`).to.be.false;
+            heads.set(extension, await readHead(`fixture.${extension}`));
         }
     });
 
-    it("отвергает файл короче сигнатуры", function () {
+    for (const extension of Object.values(Extension)) {
+        it(`accepts a real ${extension} font`, function () {
+            expect(FontSignature.matches(head(extension), extension)).to.be.true;
+        });
+
+        it(`rejects a real ${extension} font under any other extension`, function () {
+            for (const other of Object.values(Extension).filter((value) => value !== extension)) {
+                expect(FontSignature.matches(head(extension), other), `${extension} passed as ${other}`).to.be.false;
+            }
+        });
+    }
+
+    it("accepts the legacy Macintosh and the collection flavours of ttf", function () {
+        expect(FontSignature.matches(ascii("true"), Extension.TTF)).to.be.true;
+        expect(FontSignature.matches(ascii("ttcf"), Extension.TTF)).to.be.true;
+    });
+
+    it("accepts an svg starting with the root tag instead of the xml declaration", function () {
+        expect(FontSignature.matches(ascii("<svg xmlns="), Extension.SVG)).to.be.true;
+    });
+
+    it("rejects arbitrary bytes named as a font", function () {
+        // Ровно тот случай, ради которого проверка и заведена: PostScript Type 1 под
+        // именем шрифта другого формата — так выглядят фикстуры в tmp/app/test-fonts.
+        const type1 = new Uint8Array([0x80, 0x01, 0x79, 0x15, 0x25, 0x21]);
+
+        for (const extension of Object.values(Extension)) {
+            expect(FontSignature.matches(type1, extension), `type 1 passed as ${extension}`).to.be.false;
+        }
+    });
+
+    it("rejects a file shorter than the signature", function () {
         expect(FontSignature.matches(new Uint8Array([0x00, 0x01]), Extension.TTF)).to.be.false;
-        // У EOT маркер лежит по смещению 34: обрезанный заголовок до него не достаёт.
-        expect(FontSignature.matches(eotHead().subarray(0, 20), Extension.EOT)).to.be.false;
+        // У EOT маркер лежит по смещению 34, до него обрезанный заголовок не достаёт.
+        expect(FontSignature.matches(head(Extension.EOT).subarray(0, 20), Extension.EOT)).to.be.false;
     });
 
-    it("пропускает формат без известной сигнатуры", function () {
-        expect(FontSignature.matches(head(ascii("<?xml version")), Extension.SVG)).to.be.true;
+    it("rejects an empty file", function () {
+        for (const extension of Object.values(Extension)) {
+            expect(FontSignature.matches(new Uint8Array(), extension), `empty passed as ${extension}`).to.be.false;
+        }
     });
 
-    function ascii(text: string): Array<number> {
-        return Array.from(text, (char) => char.charCodeAt(0));
-    }
+    function head(extension: Extension): Uint8Array {
+        const bytes = heads.get(extension);
 
-    function head(signature: Array<number>): Uint8Array {
-        const bytes = new Uint8Array(FONT_SIGNATURE_HEAD_LENGTH);
-        bytes.set(signature);
+        if (!bytes) {
+            throw new Error(`No fixture read for ${extension}.`);
+        }
 
         return bytes;
     }
 
-    function eotHead(): Uint8Array {
-        const bytes = new Uint8Array(FONT_SIGNATURE_HEAD_LENGTH);
-        const view = new DataView(bytes.buffer);
-
-        view.setUint32(0, FONT_SIGNATURE_HEAD_LENGTH, true);
-        view.setUint32(4, 0, true);
-        view.setUint32(8, 0x00020002, true);
-        view.setUint16(34, 0x504c, true);
-
-        return bytes;
+    function ascii(text: string): Uint8Array {
+        return Uint8Array.from(Array.from(text, (char) => char.charCodeAt(0)));
     }
 });
+
+describe("FontSignature.headLength", function () {
+    it("covers the signature of every format", async function () {
+        for (const extension of Object.values(Extension)) {
+            const bytes = await readHead(`fixture.${extension}`);
+
+            expect(bytes.length, `${extension} fixture is shorter than headLength`).to.equal(FontSignature.headLength);
+            expect(FontSignature.matches(bytes, extension), `${extension} needs more than headLength bytes`).to.be.true;
+        }
+    });
+});
+
+async function readHead(name: string): Promise<Uint8Array> {
+    const content = await fs.readFile(path.join(fixtureDir, name));
+
+    return Uint8Array.from(content).subarray(0, FontSignature.headLength);
+}

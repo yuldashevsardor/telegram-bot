@@ -258,7 +258,7 @@ FontConvertor.convert({ originPath, extension })
 имя файла придёт от пользователя.
 
 Формат исходника проверяется дважды: расширением имени и сигнатурой — первыми
-`FONT_SIGNATURE_HEAD_LENGTH` байтами файла (`font-signature.ts`). Имя задаёт тот, кто
+`FontSignature.headLength` байтами файла (`font-signature.ts`). Имя задаёт тот, кто
 прислал файл, поэтому одному расширению верить нельзя. Сигнатуры распознаются самим
 кодом, без внешней утилиты: `file --mime-type` для трёх из пяти форматов не даёт
 пригодного ответа (у EOT его нет вовсе, у TTF и OTF он ещё и зависит от версии
@@ -267,9 +267,8 @@ libmagic).
 Известное:
 
 - `SVG` объявлен в `FontForge.supportedExtensions`, пар для него нет: `ConvertorNotFound`
-  (issue [#35](https://github.com/yuldashevsardor/telegram-bot/issues/35)). Сигнатуры у
-  него тоже нет — XML опознаётся только разбором текста, — поэтому проверка по
-  содержимому его пропускает.
+  (issue [#35](https://github.com/yuldashevsardor/telegram-bot/issues/35)). Сигнатура у
+  него слабее прочих: `<?xml` или `<svg` говорят «это XML», а не «это шрифт».
 - Временные файлы не удаляются (issue
   [#37](https://github.com/yuldashevsardor/telegram-bot/issues/37)).
 - `/font_generator` конвертирует фиксированный `tempDir/app/test-fonts/test-font.woff` в
