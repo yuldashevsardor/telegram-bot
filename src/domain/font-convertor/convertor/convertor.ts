@@ -9,6 +9,8 @@ export abstract class Convertor {
     protected abstract fromExtension: Extension;
     protected abstract toExtension: Extension;
 
+    protected constructor(private readonly fontSignature: FontSignature) {}
+
     protected async validate(fromPath: string, toPath: string): Promise<void> {
         await this.validateFromPath(fromPath);
         await this.validateToPath(toPath);
@@ -35,9 +37,9 @@ export abstract class Convertor {
 
         // Расширение задаёт тот, кто прислал файл, поэтому одного его мало: без этой
         // проверки произвольные байты под именем *.ttf ушли бы движку.
-        const head = await FileHelper.readHead(fromPath, FontSignature.headLength);
+        const head = await FileHelper.readHead(fromPath, this.fontSignature.headLength);
 
-        if (!FontSignature.matches(head, this.fromExtension)) {
+        if (!this.fontSignature.matches(head, this.fromExtension)) {
             throw InvalidFontSignature.byPathAndExtension(fromPath, this.fromExtension);
         }
     }
