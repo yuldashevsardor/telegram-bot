@@ -14,6 +14,10 @@ const MESSAGE_LINE = /^(-?[a-zA-Z][\w-]*) *=/;
 // Атрибут: с отступом и точкой перед именем. Отступ без точки — продолжение значения.
 const ATTRIBUTE_LINE = /^\s+\.([a-zA-Z][\w-]*) *=/;
 
+// Как ключ попадает в код: ctx.t("key") и descriptionKey команды.
+const TRANSLATE_CALL = /\.t\("([^"]+)"/g;
+const DESCRIPTION_KEY = /descriptionKey[^=]*= *"([^"]+)"/g;
+
 describe("Fluent locales", function () {
     let filesByLocale: Map<Locale, string[]>;
 
@@ -61,6 +65,38 @@ describe("Fluent locales", function () {
 
             expect([...keys].sort(), `keys of "${locale}"`).to.deep.equal([...expectedKeys].sort());
         }
+    });
+});
+
+// Ключ в коде — обычная строка, компилятор её с бандлом не связывает, а Fluent на
+// ненайденном ключе возвращает "{ключ}" и молча отдаёт его пользователю.
+describe("Fluent keys used in the code", function () {
+    it("declares every key the code asks for", async function () {
+        const sources = await FileHelper.findFilesByExtensions(localeDir, [".ts"]);
+        const usedKeys = new Set<string>();
+
+        for (const filePath of sources) {
+            const source = await fs.readFile(filePath, "utf8");
+
+            for (const match of source.matchAll(TRANSLATE_CALL)) {
+                if (match[1]) {
+                    usedKeys.add(match[1]);
+                }
+            }
+
+            for (const match of source.matchAll(DESCRIPTION_KEY)) {
+                if (match[1]) {
+                    usedKeys.add(match[1]);
+                }
+            }
+        }
+
+        expect(usedKeys).to.not.be.empty;
+
+        const files = await FileHelper.findFilesByExtensions(localeDir, [".ftl"]);
+        const declaredKeys = await readKeys(files.filter((filePath) => localeFromFilePath(filePath) === DEFAULT_LOCALE));
+
+        expect([...usedKeys].filter((key) => !declaredKeys.has(key))).to.be.empty;
     });
 });
 
@@ -138,6 +174,17 @@ describe("createFluent", function () {
 
         expect(fluent.translate("ru", "greeting")).to.equal("Привет");
         expect(fluent.translate("en", "greeting")).to.equal("Hello");
+    });
+
+    // Изоляция подстановок выключена намеренно (см. createFluent), а по умолчанию она
+    // включена — иначе в тексте появились бы невидимые U+2068/U+2069 вокруг значения.
+    it("puts a placeable into the text as is", async function () {
+        await writeLocaleFile("ru", "result = Готово: {$path}");
+        await writeLocaleFile("en", "result = Done: {$path}");
+
+        const fluent = await createFluent(localeDir);
+
+        expect(fluent.translate("ru", "result", { path: "/tmp/font.eot" })).to.equal("Готово: /tmp/font.eot");
     });
 
     // Ради этого дефолтным помечается ровно один бандл: иначе им стал бы последний

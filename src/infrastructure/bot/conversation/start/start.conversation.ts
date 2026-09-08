@@ -12,9 +12,6 @@ export class StartConversation extends ConversationHandler {
         await this.ctx.reply(text);
         const nextMessage = await this.conversation.wait();
 
-        // Переводим через this.ctx: контексты, которые отдаёт conversation.wait(), собраны
-        // плагином разговоров заново и внешние middleware, включая useFluent, на них не
-        // выполнялись — у nextMessage нет t().
-        await nextMessage.reply(nextMessage.message?.text || this.ctx.t("start-conversation-not-text"));
+        await nextMessage.reply(nextMessage.message?.text || nextMessage.t("start-conversation-not-text"));
     }
 }
