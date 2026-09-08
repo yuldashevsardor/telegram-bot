@@ -5,7 +5,7 @@ import { Filter } from "app/infrastructure/bot/filter/filter";
 
 @injectable()
 export class IsPrivateChatFilter extends Filter {
-    protected handle(ctx: Context): ctx is Context & { char: Chat.PrivateChat } {
+    protected handle(ctx: Context): ctx is Context & { chat: Chat.PrivateChat } {
         return ctx.chat?.type === "private";
     }
 }

@@ -57,7 +57,7 @@ export class Application {
         }
 
         try {
-            await this.runner.run();
+            this.runner.run();
             await this.bot.run();
 
             this.isRun = true;
@@ -99,7 +99,7 @@ export class Application {
         if (this.isRun) {
             await this.bot.stop();
             await this.waitQueueToEmpty();
-            await this.runner.stop();
+            this.runner.stop();
 
             this.isRun = false;
         }

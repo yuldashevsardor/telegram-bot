@@ -1,4 +1,7 @@
 export type RunnerSettings = {
-    sleepInterval: number;
+    sleepInterval: {
+        min: number;
+        max: number;
+    };
     maxRetries: number;
 };

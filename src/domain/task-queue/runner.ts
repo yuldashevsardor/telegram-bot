@@ -8,6 +8,7 @@ import { DEFAULT_RETRY_AFTER_SECONDS, TelegramApiError, TELEGRAM_ERROR_CODES } f
 import { ConfigValue } from "app/infrastructure/config/config-value.decorator";
 import { Logger } from "app/domain/logger/logger";
 import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
+import { NumberHelper } from "app/helper/number-helper";
 
 @injectable()
 export class Runner {
@@ -47,7 +48,7 @@ export class Runner {
         const task = this.taskQueue.pull();
 
         if (!task) {
-            setTimeout(this.handleTasks.bind(this), this.settings.sleepInterval);
+            setTimeout(this.handleTasks.bind(this), this.getSleepInterval());
             return;
         }
 
@@ -56,6 +57,15 @@ export class Runner {
         void this.handleTask(task);
 
         setTimeout(this.handleTasks.bind(this), 0);
+    }
+
+    // Сон выбирается случайно из диапазона, а не берётся фиксированным: ровный шаг раз за
+    // разом попадает в одну и ту же точку окна остывания лимитов, и часть пробуждений
+    // систематически приходится на занятый лимит. Случайный разводит их по окну.
+    private getSleepInterval(): number {
+        const { min, max } = this.settings.sleepInterval;
+
+        return NumberHelper.generateNumber(min, max);
     }
 
     private async handleTask(task: Task): Promise<void> {

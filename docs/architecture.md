@@ -234,7 +234,7 @@ pull()               → 0. снять с головы idleKeys партиции
                           TaskQueue резервирует общий лимит
 Runner               → цикл на setTimeout: pull(), выполнить callback, не дожидаясь,
                        следующая итерация через setTimeout(0); при пустом pull — сон
-                       RUNNER_SLEEP_INTERVAL
+                       случайной длины в [RUNNER_SLEEP_INTERVAL_MIN, ..._MAX]
 ```
 
 - **`TaskQueue`**: `Map<key, Partition>`, индекс `keysByPriority` (три `Set`), `idleKeys`,
@@ -258,7 +258,8 @@ Runner               → цикл на setTimeout: pull(), выполнить ca
   бы всю паузу. Путь бана и повтора проверен вручную, автотестов нет.
 
 Лимиты по умолчанию (`.env.dist`, рекомендации Telegram): common 30/1 с, private
-3/1 с, group 20/60 с. `RUNNER_SLEEP_INTERVAL` в коде 1000 мс, в `.env.dist` — 10.
+3/1 с, group 20/60 с. Сон цикла — 10–1000 мс, выбирается случайно на каждой пустой
+итерации: ровный шаг раз за разом попадал бы в одну и ту же точку окна остывания.
 
 ## 7. Конвертация шрифтов
 
@@ -267,7 +268,8 @@ FontConvertor.convert({ originPath, extension })
   → prepare(): tempDir существует, читаем, доступен на запись
   → расширение исходника ≠ целевому, иначе FontConvertorError
   → имя: 15 случайных символов + расширение, каталог tempDir/YYYY/M/D
-  → ConvertorFactory.get(from, to): по классу на пару, convertor/<from>/<from>-to-<to>.ts
+  → ConvertorFactory.get(from, to): по таблице пар, класс на пару,
+    convertor/<from>/<from>-to-<to>.ts
   → Convertor.validate(): исходник существует и читаем, расширение совпадает,
     начало файла совпадает с сигнатурой формата; путь назначения не существует
   → FontForge.convert(): fontforge -c '<скрипт>' SRC DIST через ProcessHelper.run
@@ -291,6 +293,11 @@ libmagic).
 обводок, а не расширение. Обводки любого типа законны под обоими именами, поэтому оба
 расширения принимают весь набор sfnt-сигнатур — проверка подтверждает контейнер, а пару
 конвертации по-прежнему выбирает расширение.
+
+Таблица пар в `ConvertorFactory` — единственный источник того, что домен умеет: из неё
+и выбирается конвертер, и выводится список поддерживаемых форматов
+(`getSupportedExtensions()`), который приветствие обещает пользователю (§10). Формат,
+объявленный в `Extension`, но не встречающийся в таблице, поддерживаемым не считается.
 
 Известное:
 
@@ -328,8 +335,7 @@ libmagic).
 компилятору и бросает `UpdateWithoutFrom` (`bot.errors.ts`), если порядок в
 `Bot.setup()` сломают.
 `RequestLogMiddleware` также логирует весь `ctx.update` на `debug` и инкрементирует
-`session.requestCount`, который нигде не читается. `UserAlreadyExists` не бросается
-(issue [#38](https://github.com/yuldashevsardor/telegram-bot/issues/38)).
+`session.requestCount`, который нигде не читается.
 
 ## 9. Логирование
 
@@ -410,8 +416,10 @@ Payload перед записью проходит через `serialize-error`:
 пользователю чужой язык через откат в дефолтный бандл), и ключ, который код просит, а
 `.ftl` не объявляет (Fluent вернул бы `{ключ}`).
 
-В приветствии потерян EOT — issue
-[#27](https://github.com/yuldashevsardor/telegram-bot/issues/27).
+Список форматов в приветствии (`start-conversation-welcome`) не пишется в `.ftl` и не
+хранится строкой в коде: `StartConversation` подставляет в него
+`ConvertorFactory.getSupportedExtensions()` (§7), поэтому обещание пользователю меняется
+вместе с матрицей пар.
 
 `tsc` не копирует `.ftl` в `build/`, запуск из `build/` падает — issue
 [#19](https://github.com/yuldashevsardor/telegram-bot/issues/19); контейнер работает
@@ -469,7 +477,7 @@ Payload перед записью проходит через `serialize-error`:
 | `TEMP_DIR` | временные файлы конвертации (`<root>/tmp`) |
 | `FONT_FORGE_PATH` | бинарник FontForge (`fontforge`) |
 | `LIMIT_{COMMON,PRIVATE,GROUP}_{NUMBER,INTERVAL}` | лимиты §6 (30/1000, 3/1000, 20/60000) |
-| `RUNNER_SLEEP_INTERVAL` | сон при пустой очереди, мс (1000; в `.env.dist` 10) |
+| `RUNNER_SLEEP_INTERVAL_MIN` / `RUNNER_SLEEP_INTERVAL_MAX` | границы случайного сна при пустой очереди, мс (10 / 1000); минимум больше нуля, максимум не меньше минимума |
 | `RUNNER_MAX_RETRIES` | повторов задачи до отбрасывания (3) |
 | `GRACEFUL_SHUTDOWN_TIMEOUT` | общий срок остановки (15000), больше суммы двух ниже |
 | `BOT_GRACEFUL_SHUTDOWN_TIMEOUT` | остановка runner'а бота (3000) |
@@ -501,10 +509,10 @@ Payload перед записью проходит через `serialize-error`:
   `tsconfig.check.json`. Миграции идут мимо `tsx`, их грузит своим jiti `node-pg-migrate`
   (§11).
 - Покрыто: `task-queue` (очередь, партиция, лимит), `ConfigContainer`,
-  `ConfigEnvStorage`, `ConsoleLogger`, `FileHelper`, `FontSignatureMatcher`,
-  `ProcessHelper`, `utils`, `errors`, отброс в базовом `Filter`, локали (§10). Не
-  покрыто: `Runner`, `FontConvertor`, `Convertor`, `UserService`, `Application`, `Bot`,
-  middleware.
+  `ConfigEnvStorage`, `ConsoleLogger`, `ConvertorFactory`, `FileHelper`,
+  `FontSignatureMatcher`, `ProcessHelper`, `utils`, `errors`, отброс в базовом `Filter`,
+  список форматов в приветствии `StartConversation`, локали (§10). Не покрыто: `Runner`,
+  `FontConvertor`, `Convertor`, `UserService`, `Application`, `Bot`, middleware.
 - Шрифты для тестов — `test/fixtures/fonts`, по файлу на формат; происхождение и способ
   пересборки описаны там же в `README.md`.
 - `nyc` считает покрытие по TypeScript-исходникам; отчёт в `./coverage`.
@@ -589,5 +597,4 @@ Payload перед записью проходит через `serialize-error`:
   уронит резолв в dev и тестах, а сборка `tsc` метаданные эмитит и ошибку не покажет.
   Логгеры под правило не подпадают: их собирает `ApplicationContext` через `new`, а в
   контейнер они попадают готовыми (`toConstantValue`), inversify их не конструирует.
-- **`Runner.run()`/`stop()` синхронные**, хотя вызываются с `await`; `stop()`
-  не ждёт конца текущей итерации цикла.
+- **`Runner.run()`/`stop()` синхронные**; `stop()` не ждёт конца текущей итерации цикла.
