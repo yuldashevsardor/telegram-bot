@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { expect } from "chai";
 import { AsyncLocalStorage } from "async_hooks";
 import { RequestContext } from "app/infrastructure/request-context";
-import { ALS_KEYS, AlsStore } from "app/infrastructure/async-local-storage.types";
+import { REQUEST_KEYS, RequestStore } from "app/infrastructure/request-context.types";
 
 describe("RequestContext", function () {
     it("gives the running function a request id", function () {
@@ -40,7 +40,7 @@ describe("RequestContext", function () {
 
         const values = context.run(() => context.getValues());
 
-        expect(Object.keys(values)).to.deep.equal([ALS_KEYS.REQUEST_ID]);
+        expect(Object.keys(values)).to.deep.equal([REQUEST_KEYS.REQUEST_ID]);
     });
 
     it("has no request data outside a scope", function () {
@@ -55,9 +55,9 @@ describe("RequestContext", function () {
         // Область открывает только run(), и чужой ключ через публичную поверхность в стор
         // не попадёт — отбор в getValues() сторожит будущих писателей стора, поэтому здесь
         // ключ кладётся прямо в хранилище.
-        const als = (context as unknown as { als: AsyncLocalStorage<AlsStore> }).als;
+        const als = (context as unknown as { als: AsyncLocalStorage<RequestStore> }).als;
 
-        const values = als.run({ [ALS_KEYS.REQUEST_ID]: "req-1", secret: "must not leak" } as AlsStore, () => context.getValues());
+        const values = als.run({ [REQUEST_KEYS.REQUEST_ID]: "req-1", secret: "must not leak" } as RequestStore, () => context.getValues());
 
         expect(values).to.deep.equal({ requestId: "req-1" });
     });

@@ -64,7 +64,8 @@ src/
     database/               Database (§11)
     logger/                 ConsoleLogger, PinoLogger (§9)
     repository/             PgSqlUserRepository (§8)
-    async-local-storage.types.ts  ключи и тип значений запроса (§9)
+    request-context.ts      RequestContext: область и значения запроса (§9)
+    request-context.types.ts  ключи и тип значений запроса (§9)
 test/                       mocha-спеки, зеркалят src/
 migrations/                 миграции, в common/ — общие shorthands и заготовка (§11)
 scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-worktree-guard
@@ -121,7 +122,7 @@ scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-w
 Дальше контекст никуда не расходится: `Application.setup()` берёт из него `cc` и `logger`,
 `container.setup()` — три константы для биндингов. Потребители получают части из
 контейнера по отдельности (`@inject(Infrastructure.ConfigContainer)`,
-`Infrastructure.Logger`, `Infrastructure.Als`) — контекст не инжектится никуда,
+`Infrastructure.Logger`, `Infrastructure.RequestContext`) — контекст не инжектится никуда,
 иначе он стал бы вторым DI. Состав держится коротким по той же причине: `Database` в него не входит, у неё
 свой жизненный цикл на `container.close()` (§3).
 
@@ -374,7 +375,7 @@ libmagic).
 Контекст общий, а не логгерный: экземпляр один и создаёт его `ApplicationContext` (§4).
 Логгеру он уходит аргументом конструктора там же, до всякого контейнера; в контейнере
 (`Infrastructure.RequestContext`) лежит ради middleware. Ключи и тип стора — в
-`infrastructure/async-local-storage.types.ts` (`ALS_KEYS` с `as const`, `AlsStore` выведен
+`infrastructure/request-context.types.ts` (`REQUEST_KEYS` с `as const`, `RequestStore` выведен
 из него, значения `unknown`). `getValues()` отдаёт только известные ключи: без отбора
 формат лога зависел бы от того, что в стор положили по дороге, а `as const` делает
 опечатку в ключе ошибкой компиляции, а не молча потерянной корреляцией. Вне области
