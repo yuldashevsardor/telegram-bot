@@ -44,6 +44,11 @@ Telegram — способ доставки; `User`, сессии и миграц
 `/bulk_messages` — нагрузочный инструмент, а не фича (issue
 [#3](https://github.com/yuldashevsardor/telegram-bot/issues/3)).
 
+`/font_generator` — инструмент разработки: в прод команда не идёт и снимается до
+выкладки. Поэтому её привязка к среде разработчика (входной шрифт из тестовой фикстуры)
+рантайм-проблемой не считается и чинить её не нужно (issue
+[#171](https://github.com/yuldashevsardor/telegram-bot/issues/171)).
+
 ## 2. Карта директорий
 
 ```
@@ -318,7 +323,9 @@ libmagic).
   [#37](https://github.com/yuldashevsardor/telegram-bot/issues/37)).
 - `/font_generator` конвертирует фиксированный `test/fixtures/fonts/test-font.woff` в
   EOT/OTF/TTF/WOFF2 и отвечает **путём** к файлу текстом; сам файл не отправляется.
-  Ошибки уходят в `console.log`, мимо `Logger`.
+  Ошибки уходят в `console.log`, мимо `Logger`. Команда отладочная и в прод не идёт (§1),
+  поэтому вход из каталога `test/` остаётся как есть (issue
+  [#171](https://github.com/yuldashevsardor/telegram-bot/issues/171)).
 
 ## 8. User
 
