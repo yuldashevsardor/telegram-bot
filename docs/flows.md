@@ -166,7 +166,9 @@ RUNNER_MAX_RETRIES` задача отбрасывается с `error`. Вызы
 ## 7. `/bulk_messages`
 
 Видна в списке команд и доступна любому пользователю приватного чата (issue
-[#3](https://github.com/yuldashevsardor/telegram-bot/issues/3)).
+[#3](https://github.com/yuldashevsardor/telegram-bot/issues/3)). Поток тестовый: команда
+живёт только в разработке и в прод не выкладывается, поэтому ни отсутствие проверки прав,
+ни захардкоженные значения ниже чинить не нужно (§1 architecture.md).
 
 1. `handle`: 100 000 × 3 захардкоженных chat ID → `sendRandomText(chatId)`,
    `Promise.all`, `console.log("done")`.
