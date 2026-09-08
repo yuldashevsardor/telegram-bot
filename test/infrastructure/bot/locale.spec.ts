@@ -257,14 +257,14 @@ describe("createFluentMiddleware", function () {
     });
 
     // Плагин разговоров пишет в op-лог, а оттуда в сессию, все перечислимые свойства
-    // контекста, кроме интринсивных. `fluent` уехал бы туда целиком и вернулся с пустыми
-    // бандлами; `t`/`translate` он восстанавливает биндом от живого контекста.
-    it("keeps ctx.fluent out of the enumerable properties", async function () {
+    // контекста, кроме интринсивных. Экземпляр Fluent уехал бы туда целиком и вернулся с
+    // пустыми бандлами; функции плагин не клонирует, а восстанавливает биндом от живого
+    // контекста — поэтому он лежит за `getFluent()`, а не полем.
+    it("keeps the Fluent instance behind a function", async function () {
         const ctx = await runMiddleware("ru");
 
-        expect(Object.keys(ctx)).to.not.include("fluent");
-        expect(Object.keys(ctx)).to.include.members(["t", "translate"]);
-        expect(ctx.fluent.instance).to.equal(fluent);
+        expect(ctx.getFluent()).to.equal(fluent);
+        expect(Object.values(ctx).filter((value) => value instanceof Fluent)).to.be.empty;
     });
 
     async function runMiddleware(languageCode: string): Promise<Context> {
