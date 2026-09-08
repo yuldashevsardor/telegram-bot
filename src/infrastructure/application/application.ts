@@ -108,29 +108,13 @@ export class Application {
         await container.close();
     }
 
+    // Логгер один на процесс: данные запроса он берёт из AsyncLocalStorage в момент записи,
+    // поэтому подменять сам объект под запрос не требуется.
     private static createLogger(cc: ConfigContainer): Logger {
-        if (!cc.isProduction) {
-            const consoleLogger = new ConsoleLogger();
-            consoleLogger.setLevel(cc.logger.level);
+        const logger = cc.isProduction ? new PinoLogger(asyncLocalStorage) : new ConsoleLogger(asyncLocalStorage);
+        logger.setLevel(cc.logger.level);
 
-            return consoleLogger;
-        }
-
-        const pinoLogger = new PinoLogger();
-        pinoLogger.setLevel(cc.logger.level);
-
-        // Дочерний логгер запроса подменяет синглтон прозрачно для потребителя: тот работает
-        // с одним объектом, а пишет через логгер своего запроса, если он есть в AsyncLocalStorage.
-        // От самой обёртки предстоит избавиться — issue #40.
-        return new Proxy(pinoLogger, {
-            get(target, property, receiver): unknown {
-                const scopedLogger = asyncLocalStorage.getStore()?.get("logger");
-
-                target = scopedLogger instanceof PinoLogger ? scopedLogger : target;
-
-                return Reflect.get(target, property, receiver);
-            },
-        });
+        return logger;
     }
 
     private async waitQueueToEmpty(): Promise<void> {

@@ -15,7 +15,8 @@
    - `ConfigEnvStorage` — `dotenv.config()` один раз, явно.
    - `ConfigContainer` — разбор и валидация всей конфигурации. Ошибка здесь —
      `InvalidConfigError` до появления логгера, её печатает `fail()` через `console.error`.
-   - `createLogger()` — `PinoLogger` в `Proxy` (production) или `ConsoleLogger`.
+   - `createLogger()` — `PinoLogger` (production) или `ConsoleLogger`; обоим отдаётся
+     `asyncLocalStorage`, из которого они читают данные запроса при записи (§9).
    - `container.setup()` — только биндинги, классы ещё не инстанцируются.
    - `Database.check()` — первый резолв `Database` и `select 1`: недоступная база валит
      старт здесь, а не на первом апдейте.
@@ -70,9 +71,10 @@
 3. **`HasSessionKeyFilter`** — `getSessionKey(ctx) === undefined`: `warning` с
    `update_id` и тем, какого поля не хватило, и цепочка обрывается без ошибки и без
    единого запроса в базу. Ниже `ctx.from`, `ctx.chat` и `ctx.session` заполнены.
-4. **`TelegramCallApiMiddleware`** — подменяет `ctx.api.raw` на `Proxy` (поток 4).
-5. **`AsyncLocalStorageMiddleware`** — при `PinoLogger` создаёт `child({ requestId })`
-   и выполняет остаток в `asyncLocalStorage.run()`; при `ConsoleLogger` просто `next()`.
+4. **`AsyncLocalStorageMiddleware`** — выполняет остаток пайплайна в
+   `asyncLocalStorage.run({ requestId })`. Первый из middleware: всё, что логируется
+   внутри цепочки, пишется с `requestId`.
+5. **`TelegramCallApiMiddleware`** — подменяет `ctx.api.raw` на `Proxy` (поток 4).
 6. **`ResponseTimeMiddleware`** — `await next()`, затем `info` с временем; без try/catch.
 7. **`RequestLogMiddleware`** — `ctx.session.requestCount++`, затем `debug` со всем
    `ctx.update`.
@@ -178,8 +180,16 @@ RUNNER_MAX_RETRIES` задача отбрасывается с `error`. Вызы
 
 Не поток, а сквозной аспект. Бэкенд выбирается при старте по `NODE_ENV` (§9).
 
-- `PinoLogger`: `Proxy` из `Application.createLogger()` на каждый доступ к свойству
-  проверяет `asyncLocalStorage.getStore()?.get("logger")` и подставляет дочерний логгер с
-  `requestId`, созданный в `AsyncLocalStorageMiddleware`. Порог дочерний берёт у родителя.
-- `ConsoleLogger`: middleware пропускает настройку, все строки от параллельных апдейтов
-  неразличимы.
+Логгер один на процесс и под запрос не подменяется. `AsyncLocalStorageMiddleware`
+открывает стор апдейта, `AbstractLogger.getRequestContext()` в момент записи берёт из
+него значения `ALS_KEYS` — сейчас один `requestId`:
+
+- `PinoLogger`: значения уходят полями объекта рядом с `message` и `payload`.
+- `ConsoleLogger`: значения печатаются чипами `[key=value]` перед сообщением.
+
+Механизм один на оба бэкенда, поэтому корреляция есть и в разработке.
+
+Вне области `run()` данных запроса нет, и это заметно на ошибках: `bot.catch` →
+`Bot.handleError` вызывается из `handleUpdate` уже после того, как промис пайплайна
+отклонён и область свёрнута, поэтому `critical` про упавший апдейт уходит без
+`requestId`.
