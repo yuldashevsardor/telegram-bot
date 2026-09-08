@@ -8,7 +8,6 @@ import { WoffToWoff2 } from "app/domain/font-convertor/convertor/woff/woff-to-wo
 import { Woff2ToEot } from "app/domain/font-convertor/convertor/woff2/woff2-to-eot";
 import { inject, injectable } from "inversify";
 import { FontForge } from "app/domain/font-convertor/font-forge/font-forge";
-import { FontSignatureMatcher } from "app/domain/font-convertor/font-signature-matcher";
 import { Services } from "app/infrastructure/container/symbols/services";
 import { EotToWoff2 } from "app/domain/font-convertor/convertor/eot/eot-to-woff2";
 import { EotToWoff } from "app/domain/font-convertor/convertor/eot/eot-to-woff";
@@ -25,9 +24,50 @@ import { TtfToEot } from "app/domain/font-convertor/convertor/ttf/ttf-to-eot";
 import { Woff2ToWoff } from "app/domain/font-convertor/convertor/woff2/woff2-to-woff";
 import { Woff2ToTtf } from "app/domain/font-convertor/convertor/woff2/woff2-to-ttf";
 import { Woff2ToOtf } from "app/domain/font-convertor/convertor/woff2/woff2-to-otf";
+import { FontSignatureMatcher } from "app/domain/font-convertor/font-signature-matcher";
+
+type ConvertorConstructor = new (fontForge: FontForge, fontSignatureMatcher: FontSignatureMatcher) => Convertor;
+
+type ConvertorMatrix = Partial<Record<Extension, Partial<Record<Extension, ConvertorConstructor>>>>;
 
 @injectable()
 export class ConvertorFactory {
+    // Матрица пар — единственное место, где записано, что домен умеет: из неё выбирается
+    // конвертер, и из неё же выводится список поддерживаемых форматов. Формат, объявленный
+    // в Extension, но не встречающийся здесь, поддерживаемым не считается.
+    private readonly convertors: ConvertorMatrix = {
+        [Extension.WOFF]: {
+            [Extension.EOT]: WoffToEot,
+            [Extension.OTF]: WoffToOtf,
+            [Extension.TTF]: WoffToTtf,
+            [Extension.WOFF2]: WoffToWoff2,
+        },
+        [Extension.WOFF2]: {
+            [Extension.EOT]: Woff2ToEot,
+            [Extension.OTF]: Woff2ToOtf,
+            [Extension.TTF]: Woff2ToTtf,
+            [Extension.WOFF]: Woff2ToWoff,
+        },
+        [Extension.TTF]: {
+            [Extension.EOT]: TtfToEot,
+            [Extension.OTF]: TtfToOtf,
+            [Extension.WOFF]: TtfToWoff,
+            [Extension.WOFF2]: TtfToWoff2,
+        },
+        [Extension.OTF]: {
+            [Extension.EOT]: OtfToEot,
+            [Extension.TTF]: OtfToTtf,
+            [Extension.WOFF]: OtfToWoff,
+            [Extension.WOFF2]: OtfToWoff2,
+        },
+        [Extension.EOT]: {
+            [Extension.OTF]: EotToOtf,
+            [Extension.TTF]: EotToTtf,
+            [Extension.WOFF]: EotToWoff,
+            [Extension.WOFF2]: EotToWoff2,
+        },
+    };
+
     public constructor(
         @inject<FontForge>(Services.FontConvertor.FontForge) private readonly fontForge: FontForge,
         @inject<FontSignatureMatcher>(Services.FontConvertor.FontSignatureMatcher)
@@ -35,126 +75,29 @@ export class ConvertorFactory {
     ) {}
 
     public get(fromExtension: Extension, toExtension: Extension): Convertor {
-        if (fromExtension === Extension.WOFF) {
-            return this.getWOFFConvertor(toExtension);
+        const convertor = this.convertors[fromExtension]?.[toExtension];
+
+        if (convertor === undefined) {
+            throw ConvertorNotFound.byExtensions(fromExtension, toExtension);
         }
 
-        if (fromExtension === Extension.WOFF2) {
-            return this.getWOFF2Convertor(toExtension);
-        }
-
-        if (fromExtension === Extension.TTF) {
-            return this.getTTFConvertor(toExtension);
-        }
-
-        if (fromExtension === Extension.OTF) {
-            return this.getOTFConvertor(toExtension);
-        }
-
-        if (fromExtension === Extension.EOT) {
-            return this.getEOTConvertor(toExtension);
-        }
-
-        throw ConvertorNotFound.byExtensions(fromExtension, toExtension);
+        return new convertor(this.fontForge, this.fontSignatureMatcher);
     }
 
-    private getWOFFConvertor(toExtension: Extension): Convertor {
-        if (toExtension === Extension.EOT) {
-            return new WoffToEot(this.fontForge, this.fontSignatureMatcher);
+    /**
+     * Форматы, участвующие хотя бы в одной паре конвертации.
+     */
+    public getSupportedExtensions(): Array<Extension> {
+        const extensions = new Set<Extension>();
+
+        for (const fromExtension of Object.keys(this.convertors) as Array<Extension>) {
+            extensions.add(fromExtension);
+
+            for (const toExtension of Object.keys(this.convertors[fromExtension] ?? {}) as Array<Extension>) {
+                extensions.add(toExtension);
+            }
         }
 
-        if (toExtension === Extension.OTF) {
-            return new WoffToOtf(this.fontForge, this.fontSignatureMatcher);
-        }
-
-        if (toExtension === Extension.TTF) {
-            return new WoffToTtf(this.fontForge, this.fontSignatureMatcher);
-        }
-
-        if (toExtension === Extension.WOFF2) {
-            return new WoffToWoff2(this.fontForge, this.fontSignatureMatcher);
-        }
-
-        throw ConvertorNotFound.byExtensions(Extension.WOFF, toExtension);
-    }
-
-    private getWOFF2Convertor(toExtension: Extension): Convertor {
-        if (toExtension === Extension.EOT) {
-            return new Woff2ToEot(this.fontForge, this.fontSignatureMatcher);
-        }
-
-        if (toExtension === Extension.OTF) {
-            return new Woff2ToOtf(this.fontForge, this.fontSignatureMatcher);
-        }
-
-        if (toExtension === Extension.TTF) {
-            return new Woff2ToTtf(this.fontForge, this.fontSignatureMatcher);
-        }
-
-        if (toExtension === Extension.WOFF) {
-            return new Woff2ToWoff(this.fontForge, this.fontSignatureMatcher);
-        }
-
-        throw ConvertorNotFound.byExtensions(Extension.WOFF2, toExtension);
-    }
-
-    private getTTFConvertor(toExtension: Extension): Convertor {
-        if (toExtension === Extension.EOT) {
-            return new TtfToEot(this.fontForge, this.fontSignatureMatcher);
-        }
-
-        if (toExtension === Extension.OTF) {
-            return new TtfToOtf(this.fontForge, this.fontSignatureMatcher);
-        }
-
-        if (toExtension === Extension.WOFF) {
-            return new TtfToWoff(this.fontForge, this.fontSignatureMatcher);
-        }
-
-        if (toExtension === Extension.WOFF2) {
-            return new TtfToWoff2(this.fontForge, this.fontSignatureMatcher);
-        }
-
-        throw ConvertorNotFound.byExtensions(Extension.TTF, toExtension);
-    }
-
-    private getOTFConvertor(toExtension: Extension): Convertor {
-        if (toExtension === Extension.EOT) {
-            return new OtfToEot(this.fontForge, this.fontSignatureMatcher);
-        }
-
-        if (toExtension === Extension.TTF) {
-            return new OtfToTtf(this.fontForge, this.fontSignatureMatcher);
-        }
-
-        if (toExtension === Extension.WOFF) {
-            return new OtfToWoff(this.fontForge, this.fontSignatureMatcher);
-        }
-
-        if (toExtension === Extension.WOFF2) {
-            return new OtfToWoff2(this.fontForge, this.fontSignatureMatcher);
-        }
-
-        throw ConvertorNotFound.byExtensions(Extension.OTF, toExtension);
-    }
-
-    private getEOTConvertor(toExtension: Extension): Convertor {
-        if (toExtension === Extension.OTF) {
-            return new EotToOtf(this.fontForge, this.fontSignatureMatcher);
-        }
-
-        if (toExtension === Extension.TTF) {
-            return new EotToTtf(this.fontForge, this.fontSignatureMatcher);
-        }
-
-        if (toExtension === Extension.WOFF) {
-            return new EotToWoff(this.fontForge, this.fontSignatureMatcher);
-        }
-
-        if (toExtension === Extension.WOFF2) {
-            return new EotToWoff2(this.fontForge, this.fontSignatureMatcher);
-        }
-
-        throw ConvertorNotFound.byExtensions(Extension.EOT, toExtension);
+        return Array.from(extensions);
     }
 }

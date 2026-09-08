@@ -247,7 +247,8 @@ FontConvertor.convert({ originPath, extension })
   → prepare(): tempDir существует, читаем, доступен на запись
   → расширение исходника ≠ целевому, иначе FontConvertorError
   → имя: 15 случайных символов + расширение, каталог tempDir/YYYY/M/D
-  → ConvertorFactory.get(from, to): по классу на пару, convertor/<from>/<from>-to-<to>.ts
+  → ConvertorFactory.get(from, to): по таблице пар, класс на пару,
+    convertor/<from>/<from>-to-<to>.ts
   → Convertor.validate(): исходник существует и читаем, расширение совпадает,
     начало файла совпадает с сигнатурой формата; путь назначения не существует
   → FontForge.convert(): fontforge -c '<скрипт>' SRC DIST через ProcessHelper.run
@@ -271,6 +272,11 @@ libmagic).
 обводок, а не расширение. Обводки любого типа законны под обоими именами, поэтому оба
 расширения принимают весь набор sfnt-сигнатур — проверка подтверждает контейнер, а пару
 конвертации по-прежнему выбирает расширение.
+
+Таблица пар в `ConvertorFactory` — единственный источник того, что домен умеет: из неё
+и выбирается конвертер, и выводится список поддерживаемых форматов
+(`getSupportedExtensions()`), который приветствие обещает пользователю (§10). Формат,
+объявленный в `Extension`, но не встречающийся в таблице, поддерживаемым не считается.
 
 Известное:
 
@@ -388,8 +394,10 @@ Payload перед записью проходит через `serialize-error`:
 пользователю чужой язык через откат в дефолтный бандл), и ключ, который код просит, а
 `.ftl` не объявляет (Fluent вернул бы `{ключ}`).
 
-В приветствии потерян EOT — issue
-[#27](https://github.com/yuldashevsardor/telegram-bot/issues/27).
+Список форматов в приветствии (`start-conversation-welcome`) не пишется в `.ftl` и не
+хранится строкой в коде: `StartConversation` подставляет в него
+`ConvertorFactory.getSupportedExtensions()` (§7), поэтому обещание пользователю меняется
+вместе с матрицей пар.
 
 `tsc` не копирует `.ftl` в `build/`, запуск из `build/` падает — issue
 [#19](https://github.com/yuldashevsardor/telegram-bot/issues/19); контейнер работает
@@ -479,10 +487,10 @@ Payload перед записью проходит через `serialize-error`:
   `tsconfig.check.json`. Миграции идут мимо `tsx`, их грузит своим jiti `node-pg-migrate`
   (§11).
 - Покрыто: `task-queue` (очередь, партиция, лимит), `ConfigContainer`,
-  `ConfigEnvStorage`, `ConsoleLogger`, `FileHelper`, `FontSignatureMatcher`,
-  `ProcessHelper`, `utils`, `errors`, отброс в базовом `Filter`, локали (§10). Не
-  покрыто: `Runner`, `FontConvertor`, `Convertor`, `UserService`, `Application`, `Bot`,
-  middleware.
+  `ConfigEnvStorage`, `ConsoleLogger`, `ConvertorFactory`, `FileHelper`,
+  `FontSignatureMatcher`, `ProcessHelper`, `utils`, `errors`, отброс в базовом `Filter`,
+  список форматов в приветствии `StartConversation`, локали (§10). Не покрыто: `Runner`,
+  `FontConvertor`, `Convertor`, `UserService`, `Application`, `Bot`, middleware.
 - Шрифты для тестов — `test/fixtures/fonts`, по файлу на формат; происхождение и способ
   пересборки описаны там же в `README.md`.
 - `nyc` считает покрытие по TypeScript-исходникам; отчёт в `./coverage`.
