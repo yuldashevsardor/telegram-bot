@@ -256,15 +256,19 @@ describe("createFluentMiddleware", function () {
         expect(ctx.t("greeting")).to.equal("en");
     });
 
-    // Плагин разговоров пишет в op-лог, а оттуда в сессию, все перечислимые свойства
-    // контекста, кроме интринсивных. `fluent` уехал бы туда целиком и вернулся с пустыми
-    // бандлами; `t`/`translate` он восстанавливает биндом от живого контекста.
-    it("keeps ctx.fluent out of the enumerable properties", async function () {
+    // Проверяется форма свойств, а не только значения. Плагин разговоров пишет в op-лог, а
+    // оттуда в сессию, все собственные перечислимые свойства контекста, кроме интринсивных:
+    // поля `fluent` (у `useFluent()` — обёртка `{ instance, useLocale, renegotiateLocale }`)
+    // в контексте быть не должно, иначе разобранные бандлы снова уедут в `sessions` пустым
+    // каркасом. Функции плагин не клонирует, а восстанавливает биндом от живого контекста,
+    // но запоминает только ключи собственных перечислимых свойств — спрятанный дескриптором
+    // или унесённый на прототип `t` молча перестал бы работать внутри разговора.
+    it("keeps Fluent in the context as own enumerable functions", async function () {
         const ctx = await runMiddleware("ru");
 
+        expect(Object.keys(ctx)).to.include.members(["getFluent", "t"]);
         expect(Object.keys(ctx)).to.not.include("fluent");
-        expect(Object.keys(ctx)).to.include.members(["t", "translate"]);
-        expect(ctx.fluent.instance).to.equal(fluent);
+        expect(ctx.getFluent()).to.equal(fluent);
     });
 
     async function runMiddleware(languageCode: string): Promise<Context> {
