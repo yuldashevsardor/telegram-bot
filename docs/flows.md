@@ -175,7 +175,9 @@ RUNNER_MAX_RETRIES` задача отбрасывается с `error`. Вызы
    `ru`); не из `LOCALES` — `UnknownLocale`.
 3. `fluent.addTranslation()` на локаль, `isDefault` — только у `ru`. Локаль без файлов —
    `MissingLocaleBundle`.
-4. `useFluent({ defaultLocale: "ru", localeNegotiator: resolveLocale(from.language_code) })`.
+4. `createFluentMiddleware(fluent)` — `useFluent({ defaultLocale: "ru", localeNegotiator:
+   resolveLocale(from.language_code) })` плюс сокрытие `ctx.fluent` от перечисления
+   (§10 architecture.md).
 5. Готовый `Fluent` возвращается наверх: на нём же `setupCommands()` переводит описания
    команд (§5 architecture.md).
 

@@ -1,5 +1,8 @@
 import path from "path";
+import { Composer, MiddlewareFn } from "grammy";
 import { Fluent } from "@moebius/fluent";
+import { useFluent } from "@grammyjs/fluent";
+import { Context } from "app/infrastructure/bot/bot.types";
 import { FileHelper } from "app/helper/file-helper/file-helper";
 import { DEFAULT_LOCALE, Locale, LOCALES } from "app/infrastructure/bot/locale.types";
 import { MissingLocaleBundle, UnknownLocale } from "app/infrastructure/bot/locale.errors";
@@ -66,4 +69,32 @@ export async function createFluent(localeDir: string): Promise<Fluent> {
     }
 
     return fluent;
+}
+
+// Подключает Fluent к пайплайну и прячет `ctx.fluent` от перечисления. Плагин разговоров
+// на каждом `wait()` клонирует в op-лог все перечислимые свойства контекста, кроме четырёх
+// интринсивных (`update`, `api`, `me`, `conversation`), а op-лог хранится в сессии. Из
+// `useFluent()` туда уезжает `fluent` — целиком, вместе с разобранными бандлами: в
+// `sessions` пишется бесполезный слепок (`Set`/`Map` схлопываются в `{}` уже при
+// сериализации), а на реплее `ctx.fluent.instance` оказывается пустым. `t`/`translate`
+// прятать не нужно: функции не клонируются, и плагин восстанавливает их биндом от живого
+// контекста. После этого `ctx.fluent` внутри разговора нет вовсе — понадобится, его
+// вернёт `conversation.run()`.
+export function createFluentMiddleware(fluent: Fluent): MiddlewareFn<Context> {
+    const composer = new Composer<Context>();
+
+    composer.use(
+        useFluent<Context>({
+            fluent: fluent,
+            defaultLocale: DEFAULT_LOCALE,
+            localeNegotiator: (ctx) => resolveLocale(ctx.from?.language_code),
+        }),
+        (ctx, next) => {
+            Object.defineProperty(ctx, "fluent", { enumerable: false });
+
+            return next();
+        },
+    );
+
+    return composer.middleware();
 }
