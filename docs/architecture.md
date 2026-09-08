@@ -245,8 +245,8 @@ FontConvertor.convert({ originPath, extension })
   → расширение исходника ≠ целевому, иначе FontConvertorError
   → имя: 15 случайных символов + расширение, каталог tempDir/YYYY/M/D
   → ConvertorFactory.get(from, to): по классу на пару, convertor/<from>/<from>-to-<to>.ts
-  → Convertor.validate(): исходник существует и читаем, расширение совпадает, MIME по
-    расширению (mime-types) в allowedMimeTypes; путь назначения не существует
+  → Convertor.validate(): исходник существует и читаем, расширение совпадает,
+    начало файла совпадает с сигнатурой формата; путь назначения не существует
   → FontForge.convert(): fontforge -c '<скрипт>' SRC DIST через ProcessHelper.run
 ```
 
@@ -257,12 +257,25 @@ FontConvertor.convert({ originPath, extension })
 подставляются в текст скрипта. Собирать команду строкой и звать `exec` здесь нельзя —
 имя файла придёт от пользователя.
 
+Формат исходника проверяется дважды: расширением имени и сигнатурой — первыми
+`headLength` байтами файла (`FontSignatureMatcher`, синглтон в контейнере). Имя задаёт тот, кто
+прислал файл, поэтому одному расширению верить нельзя. Сигнатуры распознаются самим
+кодом, без внешней утилиты: `file --mime-type` для трёх из пяти форматов не даёт
+пригодного ответа (у EOT его нет вовсе, у TTF и OTF он ещё и зависит от версии
+libmagic).
+
+Различает сигнатура не всё: TTF и OTF делят контейнер sfnt, и версия sfnt называет тип
+обводок, а не расширение. Обводки любого типа законны под обоими именами, поэтому оба
+расширения принимают весь набор sfnt-сигнатур — проверка подтверждает контейнер, а пару
+конвертации по-прежнему выбирает расширение.
+
 Известное:
 
 - `SVG` объявлен в `FontForge.supportedExtensions`, пар для него нет: `ConvertorNotFound`
-  (issue [#35](https://github.com/yuldashevsardor/telegram-bot/issues/35)).
-- MIME проверяется по расширению, содержимое не читается; блок проверки по содержимому
-  закомментирован в `convertor.ts`.
+  (issue [#35](https://github.com/yuldashevsardor/telegram-bot/issues/35)). Сигнатура у
+  него слабее прочих: `<?xml` или `<svg` говорят «это XML», а не «это шрифт», и ждут их
+  с нулевого байта — BOM или пустая строка в начале файла проверку не пройдут. Пока пар
+  нет, до неё и не доходит.
 - Временные файлы не удаляются (issue
   [#37](https://github.com/yuldashevsardor/telegram-bot/issues/37)).
 - `/font_generator` конвертирует фиксированный `tempDir/app/test-fonts/test-font.woff` в
@@ -462,9 +475,12 @@ Payload перед записью проходит через `serialize-error`:
   `tsconfig.check.json`. Миграции идут мимо `tsx`, их грузит своим jiti `node-pg-migrate`
   (§11).
 - Покрыто: `task-queue` (очередь, партиция, лимит), `ConfigContainer`,
-  `ConfigEnvStorage`, `ConsoleLogger`, `FileHelper`, `ProcessHelper`, `utils`, `errors`,
-  отброс в базовом `Filter`, локали (§10). Не покрыто:
-  `Runner`, `FontConvertor`, `UserService`, `Application`, `Bot`, middleware.
+  `ConfigEnvStorage`, `ConsoleLogger`, `FileHelper`, `FontSignatureMatcher`,
+  `ProcessHelper`, `utils`, `errors`, отброс в базовом `Filter`, локали (§10). Не
+  покрыто: `Runner`, `FontConvertor`, `Convertor`, `UserService`, `Application`, `Bot`,
+  middleware.
+- Шрифты для тестов — `test/fixtures/fonts`, по файлу на формат; происхождение и способ
+  пересборки описаны там же в `README.md`.
 - `nyc` считает покрытие по TypeScript-исходникам; отчёт в `./coverage`.
 - `tsconfig.json`: `strict` и все флаги вне его зонтика; `skipLibCheck` вынужденно
   (issue [#5](https://github.com/yuldashevsardor/telegram-bot/issues/5)). ESLint: без

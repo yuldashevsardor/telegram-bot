@@ -2,8 +2,7 @@ import fs from "fs/promises";
 import fsSync from "fs";
 import path from "path";
 import dayjs from "dayjs";
-import { InvalidExtensions, InvalidPath, PermissionDenied } from "app/helper/file-helper/file-helper.errors";
-import { ProcessHelper } from "app/helper/process-helper/process-helper";
+import { InvalidExtensions, InvalidPath, PermissionDenied, ReadFailed } from "app/helper/file-helper/file-helper.errors";
 import glob from "tiny-glob";
 
 export class FileHelper {
@@ -89,18 +88,28 @@ export class FileHelper {
         return pathWithDay;
     }
 
-    public static async getMimeType(path: string): Promise<string> {
-        if (!(await FileHelper.isReadable(path))) {
-            throw PermissionDenied.write(path);
+    /**
+     * Первые length байт файла. Файл короче — вернётся то, что есть.
+     */
+    public static async readHead(path: string, length: number): Promise<Uint8Array> {
+        const buffer = new Uint8Array(length);
+        let file;
+
+        try {
+            file = await fs.open(path, "r");
+        } catch (error) {
+            throw ReadFailed.byPath(path, error);
         }
 
-        if (!(await FileHelper.isFile(path))) {
-            throw InvalidPath.isNotFile(path);
+        try {
+            const { bytesRead } = await file.read(buffer, 0, length, 0);
+
+            return buffer.subarray(0, bytesRead);
+        } catch (error) {
+            throw ReadFailed.byPath(path, error);
+        } finally {
+            await file.close();
         }
-
-        const result = await ProcessHelper.run("file", ["--mime-type", "-b", path]);
-
-        return result.stdout.trim();
     }
 
     public static async findFilesByExtensions(basePath: string, extensions: string[]): Promise<Array<string>> {

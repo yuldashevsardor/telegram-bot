@@ -1,13 +1,15 @@
 import { InvalidFile, InvalidPath, PermissionDenied } from "app/helper/file-helper/file-helper.errors";
 import path from "path";
-import * as mime from "mime-types";
 import { Extension } from "app/domain/font-convertor/font-convertor.types";
+import { InvalidFontSignature } from "app/domain/font-convertor/font-convertor.errors";
+import { FontSignatureMatcher } from "app/domain/font-convertor/font-signature-matcher";
 import { FileHelper } from "app/helper/file-helper/file-helper";
 
 export abstract class Convertor {
     protected abstract fromExtension: Extension;
     protected abstract toExtension: Extension;
-    protected abstract allowedMimeTypes: Array<string>;
+
+    protected constructor(private readonly fontSignatureMatcher: FontSignatureMatcher) {}
 
     protected async validate(fromPath: string, toPath: string): Promise<void> {
         await this.validateFromPath(fromPath);
@@ -33,20 +35,13 @@ export abstract class Convertor {
             throw InvalidFile.byPathAndExtension(fromPath, extension, this.fromExtension);
         }
 
-        const mimeTypeByExtension = mime.lookup(extension);
+        // Расширение задаёт тот, кто прислал файл, поэтому одного его мало: без этой
+        // проверки произвольные байты под именем *.ttf ушли бы движку.
+        const head = await FileHelper.readHead(fromPath, this.fontSignatureMatcher.headLength);
 
-        if (!mimeTypeByExtension) {
-            throw InvalidFile.byUnknownMimeType(fromPath);
+        if (!this.fontSignatureMatcher.matches(head, this.fromExtension)) {
+            throw InvalidFontSignature.byPathAndExtension(fromPath, this.fromExtension);
         }
-
-        if (!this.allowedMimeTypes.includes(mimeTypeByExtension)) {
-            throw InvalidFile.byPathAndMimeType(fromPath, mimeTypeByExtension);
-        }
-
-        // const mimeTypeByFile = await FileHelper.getMimeType(fromPath);
-        // if (!mimeTypeByFile || !this.allowedMimeTypes.includes(mimeTypeByFile)) {
-        //     throw InvalidFile.byPathAndMimeType(fromPath, mimeTypeByFile);
-        // }
     }
 
     private async validateToPath(toPath: string): Promise<void> {

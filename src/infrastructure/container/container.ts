@@ -3,6 +3,7 @@ import { Container as InversifyContainer } from "inversify";
 import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
 import { ConfigContainer } from "app/infrastructure/config/config-container";
 import { FontForge } from "app/domain/font-convertor/font-forge/font-forge";
+import { FontSignatureMatcher } from "app/domain/font-convertor/font-signature-matcher";
 import { Services } from "app/infrastructure/container/symbols/services";
 import { ConvertorFactory } from "app/domain/font-convertor/convertor/convertor-factory";
 import { FontConvertor } from "app/domain/font-convertor/font-convertor";
@@ -74,6 +75,7 @@ export class Container extends InversifyContainer {
         // font-convertor
         this.bind<ConvertorFactory>(Services.FontConvertor.ConvertorFactory).to(ConvertorFactory).inSingletonScope();
         this.bind<FontForge>(Services.FontConvertor.FontForge).to(FontForge).inSingletonScope();
+        this.bind<FontSignatureMatcher>(Services.FontConvertor.FontSignatureMatcher).to(FontSignatureMatcher).inSingletonScope();
         this.bind<FontConvertor>(Services.FontConvertor.FontConvertor).to(FontConvertor).inSingletonScope();
 
         // User

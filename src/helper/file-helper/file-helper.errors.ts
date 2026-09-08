@@ -54,17 +54,20 @@ export class InvalidFile extends RuntimeError {
             allowed: allowed,
         });
     }
+}
 
-    public static byUnknownMimeType(path: string): InvalidFile {
-        return new InvalidFile(`Cannot get mime type of file ${path}.`, {
-            path: path,
-        });
-    }
+export class ReadFailed extends RuntimeError {
+    public static byPath(path: string, error: unknown): ReadFailed {
+        if (!(error instanceof Error)) {
+            return new ReadFailed(`Cannot read file ${path}.`, {
+                path: path,
+                error: error,
+            });
+        }
 
-    public static byPathAndMimeType(path: string, mimeType: string): InvalidFile {
-        return new InvalidFile(`File ${path} mimeType is invalid. Got: ${mimeType}.`, {
+        return new ReadFailed(error.message, {
             path: path,
-            mimeType: mimeType,
+            cause: error,
         });
     }
 }

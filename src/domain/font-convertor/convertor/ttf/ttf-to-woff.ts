@@ -1,8 +1,7 @@
 import { FontForgeConvertor } from "app/domain/font-convertor/convertor/font-forge-convertor";
-import { Extension, mimeTypesByExtension } from "app/domain/font-convertor/font-convertor.types";
+import { Extension } from "app/domain/font-convertor/font-convertor.types";
 
 export class TtfToWoff extends FontForgeConvertor {
-    protected allowedMimeTypes: Array<string> = mimeTypesByExtension[Extension.TTF];
     protected fromExtension: Extension = Extension.TTF;
     protected toExtension: Extension = Extension.WOFF;
 
