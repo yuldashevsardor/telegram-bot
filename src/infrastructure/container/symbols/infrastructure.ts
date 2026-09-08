@@ -1,6 +1,6 @@
 export const Infrastructure = {
     ConfigContainer: Symbol.for("ConfigContainer"),
     Logger: Symbol.for("Logger"),
-    Als: Symbol.for("Als"),
+    RequestContext: Symbol.for("RequestContext"),
     Database: Symbol.for("Database"),
 };

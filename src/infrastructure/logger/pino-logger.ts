@@ -4,8 +4,7 @@ import { Logger, LoggerOptions, pino } from "pino";
 import { Level, LevelSeverity } from "app/domain/logger/logger.types";
 import { injectable } from "inversify";
 import { serializeError } from "serialize-error";
-import { AsyncLocalStorage } from "async_hooks";
-import { AlsStore } from "app/infrastructure/async-local-storage.types";
+import { RequestContext } from "app/infrastructure/request-context";
 
 type PinoLevel = Lowercase<Level>;
 
@@ -40,8 +39,8 @@ export class PinoLogger extends AbstractLogger {
 
     private readonly pino: Logger<PinoLevel>;
 
-    public constructor(asyncLocalStorage: AsyncLocalStorage<AlsStore>) {
-        super(asyncLocalStorage);
+    public constructor(requestContext: RequestContext) {
+        super(requestContext);
 
         this.pino = pino<PinoLevel>(this.pinoDefaultOptions);
     }
@@ -74,7 +73,7 @@ export class PinoLogger extends AbstractLogger {
 
     private log(level: Level, message: string, payload?: UnknownObject): void {
         this.pino[pinoLevelNames[level]]({
-            ...this.getRequestContext(),
+            ...this.requestContext.getValues(),
             message: message,
             // serialize-error с 13.x заворачивает любое не-Error значение в NonError,
             // поэтому вызов без payload давал бы «Non-error value: undefined» в каждой

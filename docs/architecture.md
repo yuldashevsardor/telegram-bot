@@ -64,7 +64,8 @@ src/
     database/               Database (§11)
     logger/                 ConsoleLogger, PinoLogger (§9)
     repository/             PgSqlUserRepository (§8)
-    async-local-storage.types.ts  ключи и тип значений запроса (§9)
+    request-context.ts      RequestContext: область и значения запроса (§9)
+    request-context.types.ts  ключи и тип значений запроса (§9)
 test/                       mocha-спеки, зеркалят src/
 migrations/                 миграции, в common/ — общие shorthands и заготовка (§11)
 scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-worktree-guard
@@ -78,7 +79,7 @@ scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-w
 ## 3. DI
 
 `Container extends InversifyContainer` (`container/container.ts`), `setup()`
-идемпотентен. Конфиг, логгер и `AsyncLocalStorage` он берёт готовыми у `ApplicationContext`
+идемпотентен. Конфиг, логгер и `RequestContext` он берёт готовыми у `ApplicationContext`
 (§4) и связывает первыми константами, затем `setupModules()` (лимит-резолвер, очередь, раннер, всё из
 `setupBot()`), `setupServices()` (font-convertor, user), `setupInfrastructure()`
 (`Database`). Всё singleton.
@@ -86,9 +87,9 @@ scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-w
 Символы — `Symbol.for(...)` в `container/symbols/` (`Infrastructure`, `Modules`,
 `Services`). Реестр ручной: новая команда, middleware или сервис без биндинга не
 падает, а просто отсутствует. Строка внутри `Symbol.for` — глобальный ключ: одно и то же
-имя в разных реестрах даёт один и тот же символ, поэтому хранилище запроса связано как
-`Als` — имя `AsyncLocalStorage` уже занято символом middleware, и второй биндинг под тем
-же символом валит резолв «Ambiguous match».
+имя в разных реестрах даёт один и тот же символ: биндинг под уже занятым именем валит
+резолв «Ambiguous match». Поэтому имена в реестрах не пересекаются — `RequestContext`
+(контекст запроса, `Infrastructure`) и `AsyncLocalStorage` (его middleware, `Modules`).
 
 Два декоратора свойств тянут значения из модульного синглтона `container` при первом
 обращении (service locator): `@ConfigValue(key)` — путь в `ConfigContainer`
@@ -102,14 +103,14 @@ scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-w
 ## 4. Application
 
 `ApplicationContext` (`infrastructure/application/application-context.ts`) — состав того,
-что нужно приложению всегда: конфиг, логгер, хранилище запроса. Эти объекты существуют до
+что нужно приложению всегда: конфиг, логгер, контекст запроса. Эти объекты существуют до
 контейнера, потому что собрать его без них нельзя. Контекст собирает себя сам
 (`ApplicationContext.create()`): внутри `ConfigEnvStorage` → `ConfigContainer` →
-`AsyncLocalStorage` → выбор адаптера логгера.
+`RequestContext` → выбор адаптера логгера.
 
 Класс статический целиком: части лежат на нём и выдаются `getConfigContainer()`,
-`getLogger()`, `getAls()`, экземпляра нет вовсе. Так контекст нельзя потерять — ссылку на
-объект восстановить было бы нечем, а собранный логгер и хранилище остались бы в процессе
+`getLogger()`, `getRequestContext()`, экземпляра нет вовсе. Так контекст нельзя потерять —
+ссылку на объект восстановить было бы нечем, а собранный логгер и хранилище остались бы в процессе
 без единого входа к ним. Обращение до `create()` — `ApplicationContextIsNotCreated`.
 
 Контекст один на процесс: у второго было бы своё хранилище запроса, и логгер читал бы не
@@ -121,7 +122,7 @@ scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-w
 Дальше контекст никуда не расходится: `Application.setup()` берёт из него `cc` и `logger`,
 `container.setup()` — три константы для биндингов. Потребители получают части из
 контейнера по отдельности (`@inject(Infrastructure.ConfigContainer)`,
-`Infrastructure.Logger`, `Infrastructure.Als`) — контекст не инжектится никуда,
+`Infrastructure.Logger`, `Infrastructure.RequestContext`) — контекст не инжектится никуда,
 иначе он стал бы вторым DI. Состав держится коротким по той же причине: `Database` в него не входит, у неё
 свой жизненный цикл на `container.close()` (§3).
 
@@ -143,8 +144,8 @@ scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-w
   Собственные сроки зависимостей (`sql.end({ timeout: 5 })`) в проверку не входят.
 
 `ApplicationContext.createLogger()`: в production `PinoLogger`, иначе `ConsoleLogger`;
-порог из конфига. Логгер один на процесс и под запрос не подменяется — данные запроса он
-берёт из `AsyncLocalStorage` в момент записи (§9).
+порог из конфига. Логгер один на процесс и под запрос не подменяется — значения запроса он
+берёт из `RequestContext` в момент записи (§9).
 
 ## 5. Bot
 
@@ -355,9 +356,9 @@ libmagic).
 `DEBUG` иначе. Неизвестное значение — `InvalidConfigError`.
 
 Корреляция запросов: `AsyncLocalStorageMiddleware` (первый в пайплайне) выполняет
-остаток пайплайна в `asyncLocalStorage.run({ requestId })`. `AbstractLogger` принимает
-хранилище зависимостью конструктора и в момент записи забирает из него значения
-`ALS_KEYS` — `PinoLogger` кладёт их полями объекта, `ConsoleLogger` печатает чипами
+остаток пайплайна в `requestContext.run(next)`. `AbstractLogger` принимает
+`RequestContext` зависимостью конструктора и в момент записи забирает у него `getValues()`
+— `PinoLogger` кладёт значения полями объекта, `ConsoleLogger` печатает чипами
 `[key=value]`. Логгер при этом не подменяется и не пересобирается, поэтому корреляция
 работает на обоих адаптерах, в том числе в разработке.
 
@@ -365,14 +366,21 @@ libmagic).
 вызывается из `handleUpdate` уже после того, как промис пайплайна отклонён и область
 свёрнута, поэтому `critical` про упавший апдейт идёт без `requestId`.
 
-Хранилище общее, а не логгерное: экземпляр один и создаёт его `ApplicationContext` (§4).
-Логгеру оно уходит аргументом конструктора там же, до всякого контейнера; в контейнере
-(`Infrastructure.Als`) стор лежит ради middleware. Ключи и тип стора — в
-`infrastructure/async-local-storage.types.ts` (`ALS_KEYS` с `as const`, `AlsStore` выведен
-из него, значения `unknown`). В запись логгер кладёт только известные ключи: без отбора
+`RequestContext` (`infrastructure/request-context.ts`) — единственная работа с
+`AsyncLocalStorage`: сам ALS приватный, наружу уходят `run(fn)` (открывает область и сам
+кладёт в стор `requestId`), `getRequestId()` и `getValues()`. Поэтому ни middleware, ни
+логгер не собирают стор руками и не знают его формы — иначе корреляция зависела бы от
+того, одинаково ли они это делают.
+
+Контекст общий, а не логгерный: экземпляр один и создаёт его `ApplicationContext` (§4).
+Логгеру он уходит аргументом конструктора там же, до всякого контейнера; в контейнере
+(`Infrastructure.RequestContext`) лежит ради middleware. Ключи и тип стора — в
+`infrastructure/request-context.types.ts` (`REQUEST_KEYS` с `as const`, `RequestStore` выведен
+из него, значения `unknown`). `getValues()` отдаёт только известные ключи: без отбора
 формат лога зависел бы от того, что в стор положили по дороге, а `as const` делает
-опечатку в ключе ошибкой компиляции, а не молча потерянной корреляцией. Своего стора нет у
-`Runner`, поэтому логи фоновых задач идут без `requestId`.
+опечатку в ключе ошибкой компиляции, а не молча потерянной корреляцией. Вне области
+`getRequestId()` — `null`, а не ошибка: у `Runner` своей области нет, поэтому логи фоновых
+задач идут без `requestId`.
 
 Payload перед записью проходит через `serialize-error`: без него вложенная ошибка
 печаталась бы как `{}`, а так в лог попадают её `name`, `message`, `stack` и `cause`.
