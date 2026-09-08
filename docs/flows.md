@@ -84,9 +84,9 @@
    (`write`, upsert); новая сессия считается изменённой с самого начала. Ниже
    `ctx.session` заполнен.
 5. **`AsyncLocalStorageMiddleware`** — выполняет остаток пайплайна в
-   `asyncLocalStorage.run({ requestId })`; хранилище то же, что у логгера, — оба получают
-   его из контейнера (§4). Первый из middleware: всё, что логируется внутри цепочки,
-   пишется с `requestId`.
+   `asyncLocalStorage.run({ requestId })`; хранилище то же, что у логгера: экземпляр один,
+   логгеру он достался при сборке контекста, а middleware — из контейнера (§4). Первый из
+   middleware: всё, что логируется внутри цепочки, пишется с `requestId`.
 6. **`TelegramCallApiMiddleware`** — подменяет `ctx.api.raw` на `Proxy` (поток 4).
 7. **`ResponseTimeMiddleware`** — `await next()`, затем `info` с временем; без try/catch.
 8. **`RequestLogMiddleware`** — `ctx.session.requestCount++`, затем `debug` со всем
