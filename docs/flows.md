@@ -61,29 +61,30 @@
 
 Пайплайн в порядке регистрации:
 
-1. **Session.** `getSessionKey` → `${from.id}:${chat.id}` или `undefined`, если нет
-   `from` или `chat` (пост в канале).
-   - Ключ есть: сессия грузится лениво при первом `ctx.session` (`PgsqlStorage.read`),
-     после цепочки пишется обратно, если менялась (`write`, upsert).
-   - Ключа нет: grammY вызывает `next()`, но первое обращение к `ctx.session` бросило бы
-     синхронно, поэтому такой апдейт отсеивается шагом 3.
-2. **`sequentialize`** по `[chat.id, from.id]` — апдейты с общим ключом идут по одному.
-3. **`HasSessionKeyFilter`** — `getSessionKey(ctx) === undefined`: `warning` с
-   `update_id` и тем, какого поля не хватило, и цепочка обрывается без ошибки и без
-   единого запроса в базу. Ниже `ctx.from`, `ctx.chat` и `ctx.session` заполнены.
-4. **`AsyncLocalStorageMiddleware`** — выполняет остаток пайплайна в
+1. **`HasSessionKeyFilter`** — `getSessionKey(ctx) === undefined` (нет `from` или `chat`:
+   пост в канале, inline-запрос): `warning` с `update_id` и тем, какого поля не хватило,
+   и цепочка обрывается без ошибки и без единого запроса в базу. Ниже `ctx.from` и
+   `ctx.chat` заполнены.
+2. **`IsPrivateChatFilter`** — не приватный чат: цепочка обрывается без ошибки и молча.
+   Оба фильтра стоят до сессии: групповому апдейту ключа сессии хватает, и шаг 3
+   завёл бы ему строку в `sessions` ещё до того, как его отбросят.
+3. **Session.** `getSessionKey` → `${from.id}:${chat.id}`. Сессия читается сразу
+   (`PgsqlStorage.read`), а после цепочки пишется обратно, если её читали или меняли
+   (`write`, upsert); новая сессия считается изменённой с самого начала. Ниже
+   `ctx.session` заполнен.
+4. **`sequentialize`** по `[chat.id, from.id]` — апдейты с общим ключом идут по одному.
+5. **`AsyncLocalStorageMiddleware`** — выполняет остаток пайплайна в
    `asyncLocalStorage.run({ requestId })`. Первый из middleware: всё, что логируется
    внутри цепочки, пишется с `requestId`.
-5. **`TelegramCallApiMiddleware`** — подменяет `ctx.api.raw` на `Proxy` (поток 4).
-6. **`ResponseTimeMiddleware`** — `await next()`, затем `info` с временем; без try/catch.
-7. **`RequestLogMiddleware`** — `ctx.session.requestCount++`, затем `debug` со всем
+6. **`TelegramCallApiMiddleware`** — подменяет `ctx.api.raw` на `Proxy` (поток 4).
+7. **`ResponseTimeMiddleware`** — `await next()`, затем `info` с временем; без try/catch.
+8. **`RequestLogMiddleware`** — `ctx.session.requestCount++`, затем `debug` со всем
    `ctx.update`.
-8. **`FillUserToContextMiddleware`** — `existsById` → `edit` (`getById` + `save`) или
+9. **`FillUserToContextMiddleware`** — `existsById` → `edit` (`getById` + `save`) или
    `create` (`save`) → `ctx.user`. Ошибок не ловит. `if (!ctx.from)` — ассерт инварианта
-   шага 3, бросает `UpdateWithoutFrom`.
-9. **Fluent** — `ctx.t()`; локаль — язык из `ctx.from.language_code`, незнакомый уводится
-   в дефолтную `ru`.
-10. **`IsPrivateChatFilter`** — не приватный чат: цепочка обрывается без ошибки.
+   шага 1, бросает `UpdateWithoutFrom`.
+10. **Fluent** — `ctx.t()`; локаль — язык из `ctx.from.language_code`, незнакомый уводится
+    в дефолтную `ru`.
 11. **Conversations** — чат «внутри» conversation получает апдейт в точку `wait()`
     вместо диспетчеризации команд.
 12. **Команды** — `composer.command(name, handler)`.

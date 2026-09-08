@@ -87,16 +87,18 @@ export class Bot {
             return;
         }
 
+        // Фильтры до session(): обоим хватает ctx.from и ctx.chat, зато session() уже на
+        // входе читает строку, а на выходе пишет её обратно — у группового апдейта ключ
+        // сессии есть, и отброшенный ниже он всё равно оставил бы за собой запись в базе.
+        // Порядок внутри списка важен: IsPrivateChat отбрасывает молча и без chat тоже,
+        // поэтому апдейты без ключа сессии должен раньше увидеть HasSessionKey с его warning.
+        await this.setupFilters([Modules.Bot.Filter.HasSessionKey, Modules.Bot.Filter.IsPrivateChat]);
         await this.setupSession();
         await this.setupSequential();
-        // До middleware: RequestLogMiddleware обращается к ctx.session, а без ключа
-        // сессии это бросок; такой апдейт всё равно не дойдёт до команд.
-        await this.setupFilters([Modules.Bot.Filter.HasSessionKey]);
         await this.setupMiddlewares();
         // Fluent нужен и командам: их описания переводятся тем же экземпляром до того, как
         // уйдут в setMyCommands.
         const fluent = await this.setupFlavor();
-        await this.setupFilters([Modules.Bot.Filter.IsPrivateChat]);
         await this.setupConversations();
         await this.setupCommands(fluent);
 
