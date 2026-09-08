@@ -32,6 +32,7 @@ describe("RequestContext", function () {
             return [before, context.getRequestId()];
         });
 
+        expect(inside).to.be.a("string");
         expect(after).to.equal(inside);
     });
 
