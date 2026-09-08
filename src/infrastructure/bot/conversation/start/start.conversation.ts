@@ -1,3 +1,4 @@
+import { Context, Conversation } from "app/infrastructure/bot/bot.types";
 import { ConversationHandler } from "app/infrastructure/bot/conversation/conversation-handler";
 import { injectable } from "inversify";
 
@@ -5,12 +6,12 @@ import { injectable } from "inversify";
 export class StartConversation extends ConversationHandler {
     public readonly name: string = "start";
 
-    public async run(): Promise<void> {
-        const text = this.ctx.t("start-conversation-welcome", {
+    protected async run(conversation: Conversation, ctx: Context): Promise<void> {
+        const text = ctx.t("start-conversation-welcome", {
             formats: "woff, woff2, otf, ttf",
         });
-        await this.ctx.reply(text);
-        const nextMessage = await this.conversation.wait();
+        await ctx.reply(text);
+        const nextMessage = await conversation.wait();
 
         await nextMessage.reply(nextMessage.message?.text || nextMessage.t("start-conversation-not-text"));
     }
