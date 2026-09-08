@@ -1,12 +1,9 @@
 import { container } from "app/infrastructure/container/container";
+import { ApplicationContext } from "app/infrastructure/application/application-context";
 import { ConfigContainer } from "app/infrastructure/config/config-container";
-import { ConfigEnvStorage } from "app/infrastructure/config/config-env-storage";
+import { Logger } from "app/domain/logger/logger";
 import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
 import { Modules } from "app/infrastructure/container/symbols/modules";
-import { Logger } from "app/domain/logger/logger";
-import { ConsoleLogger } from "app/infrastructure/logger/console-logger";
-import { PinoLogger } from "app/infrastructure/logger/pino-logger";
-import { asyncLocalStorage } from "app/infrastructure/async-local-storage";
 import { Database } from "app/infrastructure/database/database";
 import { Runner } from "app/domain/task-queue/runner";
 import { TaskQueue } from "app/domain/task-queue/task-queue";
@@ -29,12 +26,14 @@ export class Application {
             return;
         }
 
-        this.cc = new ConfigContainer(new ConfigEnvStorage());
-        this.logger = Application.createLogger(this.cc);
+        const context = ApplicationContext.create();
+
+        this.cc = context.config;
+        this.logger = context.logger;
 
         this.logger.info("Setup container...");
 
-        await container.setup(this.cc, this.logger);
+        await container.setup(context);
 
         this.logger.info("Container successfully setup.");
         this.logger.info("Check database connection...");
@@ -106,15 +105,6 @@ export class Application {
         }
 
         await container.close();
-    }
-
-    // Логгер один на процесс: данные запроса он берёт из AsyncLocalStorage в момент записи,
-    // поэтому подменять сам объект под запрос не требуется.
-    private static createLogger(cc: ConfigContainer): Logger {
-        const logger = cc.isProduction ? new PinoLogger(asyncLocalStorage) : new ConsoleLogger(asyncLocalStorage);
-        logger.setLevel(cc.logger.level);
-
-        return logger;
     }
 
     private async waitQueueToEmpty(): Promise<void> {

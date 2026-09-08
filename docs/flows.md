@@ -12,12 +12,16 @@
 
 1. `app.ts` импортирует `reflect-metadata` (до любого класса с декораторами inversify).
 2. `application.setup()`:
-   - `ConfigEnvStorage` — `dotenv.config()` один раз, явно.
-   - `ConfigContainer` — разбор и валидация всей конфигурации. Ошибка здесь —
-     `InvalidConfigError` до появления логгера, её печатает `fail()` через `console.error`.
-   - `createLogger()` — `PinoLogger` (production) или `ConsoleLogger`; обоим отдаётся
-     `asyncLocalStorage`, из которого они читают данные запроса при записи (§9).
-   - `container.setup()` — только биндинги, классы ещё не инстанцируются.
+   - `ApplicationContext.create()` — состав «всегда нужного» (§4), по шагам:
+     - `ConfigEnvStorage` — `dotenv.config()` один раз, явно.
+     - `ConfigContainer` — разбор и валидация всей конфигурации. Ошибка здесь —
+       `InvalidConfigError` до появления логгера, её печатает `fail()` через `console.error`.
+     - `AsyncLocalStorage` — пустое хранилище значений запроса; область открывает
+       middleware на каждый апдейт (поток 3).
+     - `createLogger()` — `PinoLogger` (production) или `ConsoleLogger`; обоим отдаётся
+       хранилище, из которого они читают данные запроса при записи (§9).
+   - `container.setup(context)` — конфиг, логгер и хранилище связываются константами,
+     дальше только биндинги, классы ещё не инстанцируются.
    - `Database.check()` — первый резолв `Database` и `select 1`: недоступная база валит
      старт здесь, а не на первом апдейте.
    - `container.get(Bot)` — конструктор бросает `InvalidConfigError`, если `BOT_TOKEN` пуст.
@@ -80,8 +84,9 @@
    (`write`, upsert); новая сессия считается изменённой с самого начала. Ниже
    `ctx.session` заполнен.
 5. **`AsyncLocalStorageMiddleware`** — выполняет остаток пайплайна в
-   `asyncLocalStorage.run({ requestId })`. Первый из middleware: всё, что логируется
-   внутри цепочки, пишется с `requestId`.
+   `asyncLocalStorage.run({ requestId })`; хранилище то же, что у логгера: экземпляр один,
+   логгеру он достался при сборке контекста, а middleware — из контейнера (§4). Первый из
+   middleware: всё, что логируется внутри цепочки, пишется с `requestId`.
 6. **`TelegramCallApiMiddleware`** — подменяет `ctx.api.raw` на `Proxy` (поток 4).
 7. **`ResponseTimeMiddleware`** — `await next()`, затем `info` с временем; без try/catch.
 8. **`RequestLogMiddleware`** — `ctx.session.requestCount++`, затем `debug` со всем

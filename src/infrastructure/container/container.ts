@@ -1,7 +1,10 @@
 import "reflect-metadata";
 import { Container as InversifyContainer } from "inversify";
+import { AsyncLocalStorage } from "async_hooks";
 import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
+import { ApplicationContext } from "app/infrastructure/application/application-context";
 import { ConfigContainer } from "app/infrastructure/config/config-container";
+import { AlsStore } from "app/infrastructure/async-local-storage.types";
 import { FontForge } from "app/domain/font-convertor/font-forge/font-forge";
 import { FontSignatureMatcher } from "app/domain/font-convertor/font-signature-matcher";
 import { Services } from "app/infrastructure/container/symbols/services";
@@ -36,15 +39,17 @@ import { StartConversation } from "app/infrastructure/bot/conversation/start/sta
 export class Container extends InversifyContainer {
     private alreadySetup = false;
 
-    // Конфиг и логгер приходят готовыми: их собирает Application до контейнера, поэтому
-    // всё, что связывается ниже, уже может на них рассчитывать.
-    public async setup(config: ConfigContainer, logger: Logger): Promise<void> {
+    // Контекст приходит готовым: он собирается до контейнера, поэтому всё, что связывается
+    // ниже, уже может рассчитывать на его части. Дальше сам контекст нигде не фигурирует —
+    // потребители берут части из контейнера по отдельности.
+    public async setup(context: ApplicationContext): Promise<void> {
         if (this.alreadySetup) {
             return;
         }
 
-        this.bind<ConfigContainer>(Infrastructure.ConfigContainer).toConstantValue(config);
-        this.bind<Logger>(Infrastructure.Logger).toConstantValue(logger);
+        this.bind<ConfigContainer>(Infrastructure.ConfigContainer).toConstantValue(context.config);
+        this.bind<Logger>(Infrastructure.Logger).toConstantValue(context.logger);
+        this.bind<AsyncLocalStorage<AlsStore>>(Infrastructure.Als).toConstantValue(context.asyncLocalStorage);
 
         await this.setupModules();
         await this.setupServices();
