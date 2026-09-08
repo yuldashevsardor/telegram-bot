@@ -4,6 +4,12 @@ import { ConsoleLogger } from "app/infrastructure/logger/console-logger";
 import { Level } from "app/domain/logger/logger.types";
 import { UnknownObject } from "app/common/types";
 import { RuntimeError } from "app/common/errors";
+import { AsyncLocalStorage } from "async_hooks";
+import { ALS_KEYS, AlsStore } from "app/infrastructure/async-local-storage.types";
+
+// Хранилище своё, а не production-синглтон: спека не зависит от того, открыл ли кто-то
+// область запроса рядом.
+const storage = new AsyncLocalStorage<AlsStore>();
 
 function capture(method: "error" | "info", write: (logger: ConsoleLogger) => void): string {
     const original = console[method];
@@ -12,7 +18,7 @@ function capture(method: "error" | "info", write: (logger: ConsoleLogger) => voi
         captured = message;
     };
 
-    const logger = new ConsoleLogger();
+    const logger = new ConsoleLogger(storage);
     logger.setLevel(Level.ERROR);
 
     try {
@@ -57,5 +63,15 @@ describe("ConsoleLogger", function () {
 
     it("prints a level above the configured one", function () {
         expect(capture("error", (logger) => logger.critical("printed"))).to.contain("[CRITICAL] printed");
+    });
+
+    it("prints the request store of the surrounding request", function () {
+        const captured = storage.run({ [ALS_KEYS.REQUEST_ID]: "req-1" }, () => capture("error", (logger) => logger.error("failed")));
+
+        expect(captured).to.contain("[requestId=req-1]");
+    });
+
+    it("prints nothing extra outside a request", function () {
+        expect(capture("error", (logger) => logger.error("failed"))).to.not.contain("requestId");
     });
 });

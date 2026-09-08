@@ -14,7 +14,7 @@ export class ConsoleLogger extends AbstractLogger {
             return;
         }
 
-        console.error(ConsoleLogger.collectFinalMessage(level, message, payload));
+        console.error(this.collectFinalMessage(level, message, payload));
     }
 
     public error(message: string, payload?: UnknownObject): void {
@@ -24,7 +24,7 @@ export class ConsoleLogger extends AbstractLogger {
             return;
         }
 
-        console.error(ConsoleLogger.collectFinalMessage(level, message, payload));
+        console.error(this.collectFinalMessage(level, message, payload));
     }
 
     public warning(message: string, payload?: UnknownObject): void {
@@ -34,7 +34,7 @@ export class ConsoleLogger extends AbstractLogger {
             return;
         }
 
-        console.warn(ConsoleLogger.collectFinalMessage(level, message, payload));
+        console.warn(this.collectFinalMessage(level, message, payload));
     }
 
     public info(message: string, payload?: UnknownObject): void {
@@ -44,7 +44,7 @@ export class ConsoleLogger extends AbstractLogger {
             return;
         }
 
-        console.info(ConsoleLogger.collectFinalMessage(level, message, payload));
+        console.info(this.collectFinalMessage(level, message, payload));
     }
 
     public debug(message: string, payload?: UnknownObject): void {
@@ -54,11 +54,17 @@ export class ConsoleLogger extends AbstractLogger {
             return;
         }
 
-        console.debug(ConsoleLogger.collectFinalMessage(level, message, payload));
+        console.debug(this.collectFinalMessage(level, message, payload));
     }
 
-    private static collectFinalMessage(level: Level, message: string, payload?: UnknownObject): string {
-        const messages = [`[${dayjs().format("YYYY-MM-DD HH:mm:ss.SSS")}]`, `[${level}]`, message];
+    private collectFinalMessage(level: Level, message: string, payload?: UnknownObject): string {
+        const messages = [`[${dayjs().format("YYYY-MM-DD HH:mm:ss.SSS")}]`, `[${level}]`];
+
+        for (const [key, value] of Object.entries(this.getRequestContext())) {
+            messages.push(`[${key}=${String(value)}]`);
+        }
+
+        messages.push(message);
 
         if (payload) {
             // Без serializeError вложенные ошибки печатались бы как {}: свойства name,

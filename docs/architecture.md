@@ -63,7 +63,7 @@ src/
     database/               Database (§11)
     logger/                 ConsoleLogger, PinoLogger (§9)
     repository/             PgSqlUserRepository (§8)
-    async-local-storage.ts  общий AsyncLocalStorage для per-request логгера (§9)
+    async-local-storage.ts  AsyncLocalStorage запроса и ключи его значений (§9)
 test/                       mocha-спеки, зеркалят src/
 migrations/                 миграции, в common/ — общие shorthands и заготовка (§11)
 scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-worktree-guard
@@ -114,9 +114,9 @@ scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-w
   общего `stop()` перестаёт ждать, пишет `warning`, и `app.ts` делает `process.exit(0)`.
   Собственные сроки зависимостей (`sql.end({ timeout: 5 })`) в проверку не входят.
 
-`createLogger()`: в production `PinoLogger`, обёрнутый в `Proxy`, который на каждый
-доступ к свойству подставляет логгер запроса из `asyncLocalStorage` (§9); иначе
-`ConsoleLogger`. Снять `Proxy` — issue [#40](https://github.com/yuldashevsardor/telegram-bot/issues/40).
+`createLogger()`: в production `PinoLogger`, иначе `ConsoleLogger`; порог из конфига.
+Логгер один на процесс и под запрос не подменяется — данные запроса он берёт из
+`asyncLocalStorage` в момент записи (§9).
 
 ## 5. Bot
 
@@ -131,8 +131,10 @@ ConversationFlavor & FluentContextFlavor & { user: User }`.
 2. `sequentialize()` по ключам `[chat.id, from.id]` — сериализует апдейты одного
    чата/пользователя, иначе конкурентный runner устроил бы гонку по сессии и по
    check-then-act в `FillUserToContextMiddleware` (§8).
-3. Middleware: `TelegramCallApiMiddleware` → `AsyncLocalStorageMiddleware` →
+3. Middleware: `AsyncLocalStorageMiddleware` → `TelegramCallApiMiddleware` →
    `ResponseTimeMiddleware` → `RequestLogMiddleware` → `FillUserToContextMiddleware`.
+   `AsyncLocalStorageMiddleware` первый: всё, что логируется внутри цепочки, пишется
+   с `requestId` (§9).
 4. Fluent (§10).
 5. `IsPrivateChatFilter` — всё ниже работает только в приватных чатах.
 6. `conversations()` + `createConversation` для каждого символа `Modules.Bot.Conversations`.
@@ -259,15 +261,29 @@ FontConvertor.convert({ originPath, extension })
 Порт `domain/logger/logger.ts` (`critical/error/warning/info/debug(message, payload?)`),
 `Level` и веса `LevelSeverity` в `logger.types.ts`. Адаптеры в `infrastructure/logger/`:
 `AbstractLogger` (порог через `setLevel`, `isEnabled`), `ConsoleLogger`, `PinoLogger`
-(кастомные уровни из `LevelSeverity`, `child(context)`).
+(кастомные уровни из `LevelSeverity`).
 
 Порог — `LOGGER_LEVEL`: пишется он и всё серьёзнее; по умолчанию `WARNING` в production,
 `DEBUG` иначе. Неизвестное значение — `InvalidConfigError`.
 
-Корреляция запросов: `AsyncLocalStorageMiddleware` создаёт `child({ requestId })` и
-выполняет остаток пайплайна в `asyncLocalStorage.run()`, а `Proxy` из
-`Application.createLogger()` подставляет его при каждом обращении к логгеру. Работает
-только с `PinoLogger`, то есть только в production; в разработке корреляции нет.
+Корреляция запросов: `AsyncLocalStorageMiddleware` (первый в пайплайне) выполняет
+остаток пайплайна в `asyncLocalStorage.run({ requestId })`. `AbstractLogger` принимает
+хранилище зависимостью конструктора и в момент записи забирает из него значения
+`ALS_KEYS` — `PinoLogger` кладёт их полями объекта, `ConsoleLogger` печатает чипами
+`[key=value]`. Логгер при этом не подменяется и не пересобирается, поэтому корреляция
+работает на обоих адаптерах, в том числе в разработке.
+
+Область `run()` — это цепочка middleware, и только она: `bot.catch` → `Bot.handleError`
+вызывается из `handleUpdate` уже после того, как промис пайплайна отклонён и область
+свёрнута, поэтому `critical` про упавший апдейт идёт без `requestId`.
+
+Хранилище (`infrastructure/async-local-storage.ts`) общее, а не логгерное: ключи и тип
+стора — в `async-local-storage.types.ts` (`ALS_KEYS` с `as const`, `AlsStore` выведен из
+него, значения `unknown`). В запись логгер кладёт только известные ключи: без отбора
+формат лога зависел бы от того, что в стор положили по дороге, а `as const` делает
+опечатку в ключе ошибкой компиляции, а не молча потерянной корреляцией. Хранилище —
+кандидат в `ApplicationContext`, issue
+[#109](https://github.com/yuldashevsardor/telegram-bot/issues/109).
 
 Payload перед записью проходит через `serialize-error`: без него вложенная ошибка
 печаталась бы как `{}`, а так в лог попадают её `name`, `message`, `stack` и `cause`.
@@ -410,7 +426,6 @@ EOT — issue [#27](https://github.com/yuldashevsardor/telegram-bot/issues/27).
   `fill-user-to-context.middleware.ts`; компилятор их не связывает, забытая миграция
   проявится SQL-ошибкой в рантайме.
 - **Порядок колонок `sessions`** связан с позиционным `insert` в `PgsqlStorage.write()`.
-- **`NODE_ENV` решает, есть ли корреляция запросов** (§9), а не только формат логов.
 - **`.ftl` именуются `*.locale.<lang>.ftl`**; иначе парсер имени выдаст фиктивную локаль.
 - **`Convertor.validateToPath()` требует несуществующий путь**: конвертация не
   идемпотентна по пути, имя генерируется заново на каждый вызов.

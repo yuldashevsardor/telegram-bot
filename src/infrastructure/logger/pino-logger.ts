@@ -4,6 +4,8 @@ import { Logger, LoggerOptions, pino } from "pino";
 import { Level, LevelSeverity } from "app/domain/logger/logger.types";
 import { injectable } from "inversify";
 import { serializeError } from "serialize-error";
+import { AsyncLocalStorage } from "async_hooks";
+import { AlsStore } from "app/infrastructure/async-local-storage.types";
 
 type PinoLevel = Lowercase<Level>;
 
@@ -36,10 +38,10 @@ export class PinoLogger extends AbstractLogger {
         },
     };
 
-    private pino: Logger<PinoLevel>;
+    private readonly pino: Logger<PinoLevel>;
 
-    public constructor() {
-        super();
+    public constructor(asyncLocalStorage: AsyncLocalStorage<AlsStore>) {
+        super(asyncLocalStorage);
 
         this.pino = pino<PinoLevel>(this.pinoDefaultOptions);
     }
@@ -72,22 +74,12 @@ export class PinoLogger extends AbstractLogger {
 
     private log(level: Level, message: string, payload?: UnknownObject): void {
         this.pino[pinoLevelNames[level]]({
+            ...this.getRequestContext(),
             message: message,
             // serialize-error с 13.x заворачивает любое не-Error значение в NonError,
             // поэтому вызов без payload давал бы «Non-error value: undefined» в каждой
             // такой записи.
             payload: payload === undefined ? undefined : serializeError(payload),
         });
-    }
-
-    // Дочерний pino подставляется после конструирования, а не аргументом конструктора:
-    // inversify резолвит каждый параметр конструктора @injectable-класса, а для
-    // pino.Logger биндинга нет и быть не может, поэтому контейнер падал бы на резолве.
-    child(context: UnknownObject): PinoLogger {
-        const child = new PinoLogger();
-        child.pino = this.pino.child(context);
-        child.setLevel(this.level);
-
-        return child;
     }
 }
