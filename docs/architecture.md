@@ -131,14 +131,18 @@ ConversationFlavor & FluentContextFlavor & { user: User }`.
 2. `sequentialize()` по ключам `[chat.id, from.id]` — сериализует апдейты одного
    чата/пользователя, иначе конкурентный runner устроил бы гонку по сессии и по
    check-then-act в `FillUserToContextMiddleware` (§8).
-3. Middleware: `AsyncLocalStorageMiddleware` → `TelegramCallApiMiddleware` →
+3. `HasSessionKeyFilter` — тем же `getSessionKey` отбрасывает апдейты без `from`
+   или `chat` (пост в канале, inline-запрос): сессии у них нет, а всё ниже на неё
+   рассчитывает. Отброс пишется `warning`-ом: ниже фильтра дампа апдейта уже не будет.
+   Логгер здесь ещё без `requestId` — `AsyncLocalStorageMiddleware` стоит ниже (§9).
+4. Middleware: `AsyncLocalStorageMiddleware` → `TelegramCallApiMiddleware` →
    `ResponseTimeMiddleware` → `RequestLogMiddleware` → `FillUserToContextMiddleware`.
    `AsyncLocalStorageMiddleware` первый: всё, что логируется внутри цепочки, пишется
    с `requestId` (§9).
-4. Fluent (§10).
-5. `IsPrivateChatFilter` — всё ниже работает только в приватных чатах.
-6. `conversations()` + `createConversation` для каждого символа `Modules.Bot.Conversations`.
-7. Команды из `Modules.Bot.Command`: `command.setup(composer)`, затем
+5. Fluent (§10).
+6. `IsPrivateChatFilter` — всё ниже работает только в приватных чатах.
+7. `conversations()` + `createConversation` для каждого символа `Modules.Bot.Conversations`.
+8. Команды из `Modules.Bot.Command`: `command.setup(composer)`, затем
    `api.setMyCommands(commands)` — сетевой вызов при каждом старте.
 
 `Bot.run()` вешает `grammy.catch(handleError)` (только `critical`-лог, пользователю
@@ -146,7 +150,12 @@ ConversationFlavor & FluentContextFlavor & { user: User }`.
 останавливает runner в пределах своего срока.
 
 `Command`, `Filter`, `Middleware`, `ConversationHandler` — абстрактные базы вида
-«`handle`/`run` + `setup(composer)`».
+«`handle`/`run` + `setup(composer)`». `Filter.setup()` обрывает цепочку сам, вызывая
+`next()` только при истинном `handle()`: `composer.filter()` grammY для этого не годится
+— он не отбрасывает апдейт, а прячет за условием лишь то, что повешено на возвращённый
+им composer, и обе ветки его `branch` зовут `next()`. Пока `setup()` полагался на
+`filter()` и выбрасывал этот composer, ни один фильтр репозитория не отсекал ничего
+(тест `test/infrastructure/bot/filter/filter.spec.ts`).
 
 ### TelegramCallApiMiddleware
 
@@ -249,9 +258,10 @@ FontConvertor.convert({ originPath, extension })
 транзакцией; от гонки защищает только `sequentialize()` по `from.id` (§5).
 `create()` не защищает от дублей сам — полагается на upsert.
 
-Защита `if (!ctx.from)` в этом middleware недостижима: апдейт без `from` падает раньше,
-в `RequestLogMiddleware`, на обращении к `ctx.session` при неразрешённом ключе (issue
-[#29](https://github.com/yuldashevsardor/telegram-bot/issues/29)).
+`ctx.from` здесь заполнен по построению пайплайна: апдейты без ключа сессии отбросил
+`HasSessionKeyFilter` (§5). Проверка `if (!ctx.from)` осталась как ассерт — она нужна
+компилятору и бросает `UpdateWithoutFrom` (`bot.errors.ts`), если порядок в
+`Bot.setup()` сломают.
 `RequestLogMiddleware` также логирует весь `ctx.update` на `debug` и инкрементирует
 `session.requestCount`, который нигде не читается. `UserAlreadyExists` не бросается
 (issue [#38](https://github.com/yuldashevsardor/telegram-bot/issues/38)).
@@ -381,8 +391,8 @@ EOT — issue [#27](https://github.com/yuldashevsardor/telegram-bot/issues/27).
   алиас `app/*` не разрешается). Типы тестов проверяет `npm run typecheck` по
   `tsconfig.check.json`: сборочный `tsconfig.json` ограничен `src`.
 - Покрыто: `task-queue` (очередь, партиция, лимит), `ConfigContainer`,
-  `ConfigEnvStorage`, `ConsoleLogger`, `FileHelper`, `ProcessHelper`, `utils`, `errors`.
-  Не покрыто:
+  `ConfigEnvStorage`, `ConsoleLogger`, `FileHelper`, `ProcessHelper`, `utils`, `errors`,
+  отброс в базовом `Filter`. Не покрыто:
   `Runner`, `FontConvertor`, `UserService`, `Application`, `Bot`, middleware.
 - `nyc` считает покрытие по TypeScript-исходникам; отчёт в `./coverage`.
 - `tsconfig.json`: `strict` и все флаги вне его зонтика; `skipLibCheck` вынужденно
@@ -413,6 +423,10 @@ EOT — issue [#27](https://github.com/yuldashevsardor/telegram-bot/issues/27).
 - **`ctx.api` против `bot.grammy.api`.** Перехват очереди живёт только на `ctx.api`
   текущего апдейта. Прямой вызов `bot.grammy.api` и любой multipart-payload идут мимо
   лимитов.
+- **`HasSessionKeyFilter` регистрируется до middleware.** Ниже него `ctx.session`
+  трогают без проверки ключа (`RequestLogMiddleware`), а `ctx.from` считают заполненным
+  (`FillUserToContextMiddleware`). Переставить фильтр ниже — вернуть `critical` на
+  каждый пост в канале.
 - **`ctx.user` есть только после `FillUserToContextMiddleware`.** Код выше по пайплайну
   или вне его (будущие фоновые задачи) на поле рассчитывать не может.
 - **Сроки остановки**: общий > сумма частных (проверяется), общий <

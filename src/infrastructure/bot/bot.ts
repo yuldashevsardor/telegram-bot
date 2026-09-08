@@ -87,9 +87,12 @@ export class Bot {
 
         await this.setupSession();
         await this.setupSequential();
+        // До middleware: RequestLogMiddleware обращается к ctx.session, а без ключа
+        // сессии это бросок; такой апдейт всё равно не дойдёт до команд.
+        await this.setupFilters([Modules.Bot.Filter.HasSessionKey]);
         await this.setupMiddlewares();
         await this.setupFlavor();
-        await this.setupFilters();
+        await this.setupFilters([Modules.Bot.Filter.IsPrivateChat]);
         await this.setupConversations();
         await this.setupCommands();
 
@@ -184,14 +187,13 @@ export class Bot {
         );
     }
 
-    private async setupFilters(): Promise<void> {
-        this.logger.debug("Setup filters...");
+    private async setupFilters(symbols: symbol[]): Promise<void> {
+        this.logger.debug("Setup filters...", { filters: symbols.map(String) });
 
         const composer = new Composer<Context>();
-        const filters = [container.get<Filter>(Modules.Bot.Filter.IsPrivateChat)];
 
-        for (const filter of filters) {
-            filter.setup(composer);
+        for (const symbol of symbols) {
+            container.get<Filter>(symbol).setup(composer);
         }
 
         this.grammy.use(composer);
