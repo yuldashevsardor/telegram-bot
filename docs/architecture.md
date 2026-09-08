@@ -57,14 +57,14 @@ src/
     logger/                 интерфейс Logger, enum Level (§9)
   helper/                   string/number/file/process/utils (sleep, withTimeout)
   infrastructure/
-    application/            Application: сборка и жизненный цикл (§4)
+    application/            ApplicationContext и Application: сборка и жизненный цикл (§4)
     bot/                    grammY: команды, conversations, middleware, фильтры, сессия (§5)
     config/                 ConfigStorage → ConfigContainer (§12)
     container/              inversify-контейнер и символы (§3)
     database/               Database (§11)
     logger/                 ConsoleLogger, PinoLogger (§9)
     repository/             PgSqlUserRepository (§8)
-    async-local-storage.ts  AsyncLocalStorage запроса и ключи его значений (§9)
+    async-local-storage.types.ts  ключи и тип значений запроса (§9)
 test/                       mocha-спеки, зеркалят src/
 migrations/                 миграции, в common/ — общие shorthands и заготовка (§11)
 scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-worktree-guard
@@ -77,15 +77,18 @@ scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-w
 
 ## 3. DI
 
-`Container extends InversifyContainer` (`container/container.ts`), `setup(config, logger)`
-идемпотентен. Конфиг и логгер приходят готовыми из `Application` и связываются первыми
-константами, затем `setupModules()` (лимит-резолвер, очередь, раннер, всё из
+`Container extends InversifyContainer` (`container/container.ts`), `setup(context)`
+идемпотентен. Конфиг, логгер и `AsyncLocalStorage` приходят готовыми в `ApplicationContext`
+(§4) и связываются первыми константами, затем `setupModules()` (лимит-резолвер, очередь, раннер, всё из
 `setupBot()`), `setupServices()` (font-convertor, user), `setupInfrastructure()`
 (`Database`). Всё singleton.
 
 Символы — `Symbol.for(...)` в `container/symbols/` (`Infrastructure`, `Modules`,
 `Services`). Реестр ручной: новая команда, middleware или сервис без биндинга не
-падает, а просто отсутствует.
+падает, а просто отсутствует. Строка внутри `Symbol.for` — глобальный ключ: одно и то же
+имя в разных реестрах даёт один и тот же символ, поэтому хранилище запроса связано как
+`RequestStorage` — `AsyncLocalStorage` уже занят middleware, и второй биндинг под тем же
+символом валит резолв «Ambiguous match».
 
 Два декоратора свойств тянут значения из модульного синглтона `container` при первом
 обращении (service locator): `@ConfigValue(key)` — путь в `ConfigContainer`
@@ -98,13 +101,26 @@ scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-w
 
 ## 4. Application
 
-`Application` (`infrastructure/application/application.ts`) — единственное место сборки
-и жизненного цикла; создаётся `new` в `app.ts`, в контейнере не значится.
+`ApplicationContext` (`infrastructure/application/application-context.ts`) — состав того,
+что нужно приложению всегда: `config`, `logger`, `asyncLocalStorage`. Эти объекты
+существуют до контейнера, потому что собрать его без них нельзя. Контекст собирает себя
+сам (`ApplicationContext.create()`, конструктор приватный): внутри `ConfigEnvStorage` →
+`ConfigContainer` → `AsyncLocalStorage` → выбор адаптера логгера.
 
-- `setup()`: `ConfigContainer(ConfigEnvStorage)` → `createLogger()` → `container.setup()`
+Контекст фигурирует ровно в двух местах: `Application` держит его полем и
+передаёт в `container.setup(context)`. Потребители получают его части из контейнера по
+отдельности (`@inject(Infrastructure.ConfigContainer)`, `Infrastructure.Logger`,
+`Infrastructure.RequestStorage`) — контекст не инжектится никуда, иначе он стал бы
+вторым DI. Состав держится коротким по той же причине: `Database` в него не входит, у неё
+свой жизненный цикл на `container.close()` (§3).
+
+`Application` (`infrastructure/application/application.ts`) — жизненный цикл; создаётся
+`new` в `app.ts`, в контейнере не значится.
+
+- `setup()`: `ApplicationContext.create()` → `container.setup(context)`
   → `Database.check()` (`select 1`, недоступная база валит старт) → `Bot.setup()`.
-  Конфиг собирается до логгера, поэтому `InvalidConfigError` печатает `fail()` через
-  `console.error`.
+  Конфиг внутри контекста собирается до логгера (из него берётся и адаптер, и порог),
+  поэтому `InvalidConfigError` печатает `fail()` через `console.error`.
 - `run()`: `runner.run()` → `bot.run()`. Ошибка пишется `critical` и пробрасывается;
   `bootstrap().catch(fail)` завершает процесс кодом 1.
 - `stop()`: `bot.stop()` → `waitQueueToEmpty()` → `runner.stop()` → `container.close()`.
@@ -115,9 +131,9 @@ scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-w
   общего `stop()` перестаёт ждать, пишет `warning`, и `app.ts` делает `process.exit(0)`.
   Собственные сроки зависимостей (`sql.end({ timeout: 5 })`) в проверку не входят.
 
-`createLogger()`: в production `PinoLogger`, иначе `ConsoleLogger`; порог из конфига.
-Логгер один на процесс и под запрос не подменяется — данные запроса он берёт из
-`asyncLocalStorage` в момент записи (§9).
+`ApplicationContext.createLogger()`: в production `PinoLogger`, иначе `ConsoleLogger`;
+порог из конфига. Логгер один на процесс и под запрос не подменяется — данные запроса он
+берёт из `AsyncLocalStorage` в момент записи (§9).
 
 ## 5. Bot
 
@@ -331,13 +347,13 @@ libmagic).
 вызывается из `handleUpdate` уже после того, как промис пайплайна отклонён и область
 свёрнута, поэтому `critical` про упавший апдейт идёт без `requestId`.
 
-Хранилище (`infrastructure/async-local-storage.ts`) общее, а не логгерное: ключи и тип
-стора — в `async-local-storage.types.ts` (`ALS_KEYS` с `as const`, `AlsStore` выведен из
-него, значения `unknown`). В запись логгер кладёт только известные ключи: без отбора
+Хранилище общее, а не логгерное: живёт оно в `ApplicationContext` (§4) и приходит логгеру
+и middleware из контейнера, а ключи и тип стора — в
+`infrastructure/async-local-storage.types.ts` (`ALS_KEYS` с `as const`, `AlsStore` выведен
+из него, значения `unknown`). В запись логгер кладёт только известные ключи: без отбора
 формат лога зависел бы от того, что в стор положили по дороге, а `as const` делает
-опечатку в ключе ошибкой компиляции, а не молча потерянной корреляцией. Хранилище —
-кандидат в `ApplicationContext`, issue
-[#109](https://github.com/yuldashevsardor/telegram-bot/issues/109).
+опечатку в ключе ошибкой компиляции, а не молча потерянной корреляцией. Своего стора нет у
+`Runner`, поэтому логи фоновых задач идут без `requestId`.
 
 Payload перед записью проходит через `serialize-error`: без него вложенная ошибка
 печаталась бы как `{}`, а так в лог попадают её `name`, `message`, `stack` и `cause`.
