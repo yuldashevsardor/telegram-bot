@@ -1,5 +1,5 @@
 import { Command } from "app/infrastructure/bot/command/command";
-import { injectable } from "inversify";
+import { inject, injectable } from "inversify";
 import { StringHelper } from "app/helper/string-helper";
 import { container } from "app/infrastructure/container/container";
 import { Modules } from "app/infrastructure/container/symbols/modules";
@@ -8,11 +8,17 @@ import { TaskQueue } from "app/domain/task-queue/task-queue";
 import { Context } from "app/infrastructure/bot/bot.types";
 import { Priority } from "app/domain/task-queue/task";
 import { FileHelper } from "app/helper/file-helper/file-helper";
+import { Logger } from "app/domain/logger/logger";
+import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
 
 @injectable()
 export class BulkMessagesCommand extends Command {
     public readonly command: string = "bulk_messages";
     public readonly descriptionKey: string = "bulk-messages-command-description";
+
+    public constructor(@inject<Logger>(Infrastructure.Logger) private readonly logger: Logger) {
+        super();
+    }
 
     protected async handle(_ctx: Context): Promise<void> {
         const promises: Promise<unknown>[] = [];
@@ -24,7 +30,7 @@ export class BulkMessagesCommand extends Command {
         }
 
         await Promise.all(promises);
-        console.log("done");
+        this.logger.info("Bulk messages are pushed to the queue.");
     }
 
     private async sendRandomText(chatId: number): Promise<void> {

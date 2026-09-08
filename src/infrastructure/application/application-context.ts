@@ -24,7 +24,7 @@ export class ApplicationContext {
     // create() не ошибка, а выход без пересборки: части уже собраны и доступны геттерами.
     //
     // Конфиг раньше логгера: из него берётся и адаптер, и порог. Поэтому ошибка конфигурации
-    // случается до появления логгера, и печатает её fail() через console.error.
+    // случается до появления логгера, и печатает её fail() своим фолбэком через console.error.
     public static create(): void {
         if (ApplicationContext.config !== null) {
             return;

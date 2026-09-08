@@ -13,7 +13,10 @@ module.exports = {
         "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
         "@typescript-eslint/no-empty-function": "off",
 
-        "no-console": "off",
+        // Наружу пишет только Logger: console.* минует уровень, requestId и порог
+        // LOGGER_LEVEL, а на проде — структурный поток pino. Исключения — адаптер
+        // ConsoleLogger (ниже) и фолбэк fail() в app.ts до появления контекста.
+        "no-console": "error",
         "no-restricted-imports": [
             "error",
             {
@@ -36,6 +39,14 @@ module.exports = {
             files: ["test/**/*.ts"],
             rules: {
                 "@typescript-eslint/no-unused-expressions": "off",
+            },
+        },
+        {
+            // Адаптер порта Logger: console.* — его реализация, а не обход. Тест
+            // адаптера снимает записи подменой console по тем же именам методов.
+            files: ["src/infrastructure/logger/console-logger.ts", "test/infrastructure/logger/console-logger.spec.ts"],
+            rules: {
+                "no-console": "off",
             },
         },
         {

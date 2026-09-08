@@ -15,7 +15,8 @@
    - `ApplicationContext.create()` — состав «всегда нужного» (§4), по шагам:
      - `ConfigEnvStorage` — `dotenv.config()` один раз, явно.
      - `ConfigContainer` — разбор и валидация всей конфигурации. Ошибка здесь —
-       `InvalidConfigError` до появления логгера, её печатает `fail()` через `console.error`.
+       `InvalidConfigError` до появления логгера, поэтому `fail()` печатает её своим
+       фолбэком через `console.error` (§9).
      - `RequestContext` — обёртка над `AsyncLocalStorage`, пока без открытой области;
        область открывает middleware на каждый апдейт (поток 3).
      - `createLogger()` — `PinoLogger` (production) или `ConsoleLogger`; обоим отдаётся
@@ -33,8 +34,9 @@
 
 **Ошибки:** любой сбой старта — код выхода 1 через `bootstrap().catch(fail)`. Ошибка из
 `run()` сначала пишется `critical`. `unhandledRejection` и `uncaughtException` тоже ведут
-в `fail`. Повторов нет ни для базы, ни для `setMyCommands`: временный сетевой сбой в этот
-момент фатален.
+в `fail`, а там контекст уже жив, и запись идёт `critical`-ом через `Logger` (§9).
+Повторов нет ни для базы, ни для `setMyCommands`: временный сетевой сбой в этот момент
+фатален.
 
 ## 2. Остановка процесса
 
@@ -158,7 +160,7 @@ RUNNER_MAX_RETRIES` задача отбрасывается с `error`. Вызы
 2. Для каждого из `EOT`, `OTF`, `TTF`, `WOFF2` из фиксированного
    `test/fixtures/fonts/test-font.woff`: `FontConvertor.convert()` (§7) →
    `ctx.reply(<путь к файлу>)` — текстом, сам файл не отправляется.
-3. Всё в `try/catch` с `console.log(error)`, мимо `Logger`.
+3. Всё в `try/catch`; пойманная ошибка пишется `error`-ом через `Logger` (§9).
 
 Пользовательский ввод не читается. Запуск `fontforge` до четырёх раз, файлы остаются на
 диске. Поток отладочный: команда живёт только в разработке и в прод не выкладывается.
@@ -171,7 +173,7 @@ RUNNER_MAX_RETRIES` задача отбрасывается с `error`. Вызы
 ни захардкоженные значения ниже чинить не нужно (§1 architecture.md).
 
 1. `handle`: 100 000 × 3 захардкоженных chat ID → `sendRandomText(chatId)`,
-   `Promise.all`, `console.log("done")`.
+   `Promise.all`, `info`-запись о том, что задачи поставлены в очередь.
 2. `sendRandomText`: случайная строка из 1000 символов →
    `FileHelper.createDirectoriesByDate("/home/sardor/applications/telegram-bot/tmp")`
    (захардкоженный путь; на другой машине бросает `InvalidPath`, и `Promise.all`
