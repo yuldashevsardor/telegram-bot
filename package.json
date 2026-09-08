@@ -36,16 +36,16 @@
         "build": "del-cli -rf build && tsc && tsc-alias",
         "typecheck": "tsc -p tsconfig.check.json",
         "start": "node build/app.js",
-        "dev": "node --watch --require ts-node/register --require tsconfig-paths/register src/app.ts",
+        "dev": "TSX_TSCONFIG_PATH=./tsconfig.check.json node --watch --require tsx/cjs src/app.ts",
         "start:prod": "NODE_ENV=production node build/app.js",
         "prepare": "husky",
         "lint": "eslint src test migrations",
         "lint:fix": "eslint --fix src test migrations",
         "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\" \"migrations/**/*.ts\"",
         "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\" \"migrations/**/*.ts\"",
-        "test": "mocha",
-        "test:watch": "mocha --watch",
-        "test:coverage": "nyc mocha",
+        "test": "TSX_TSCONFIG_PATH=./tsconfig.check.json mocha",
+        "test:watch": "TSX_TSCONFIG_PATH=./tsconfig.check.json mocha --watch",
+        "test:coverage": "TSX_TSCONFIG_PATH=./tsconfig.check.json nyc mocha",
         "check": "npm run typecheck && npm run lint && npm run format:check && npm test",
         "migrate": "node-pg-migrate -f ./migrate.json"
     },
@@ -114,9 +114,8 @@
         "nyc": "^18.0.0",
         "prettier": "^2.8.8",
         "prettier-eslint": "^13.0.0",
-        "ts-node": "^10.9.2",
         "tsc-alias": "^1.9.3",
-        "tsconfig-paths": "^4.2.0",
+        "tsx": "^4.23.13",
         "typescript": "^6.0.3"
     }
 }

@@ -329,6 +329,8 @@ EOT — issue [#27](https://github.com/yuldashevsardor/telegram-bot/issues/27).
 
 Каталог лежит вне `src/` намеренно: приложение миграции не импортирует, грузит их
 `node-pg-migrate` своим jiti прямо из исходников, и в `build/` они были мёртвым грузом.
+Ключ `tsconfig-paths` в `migrate.json` — опция этого jiti, а не одноимённый npm-пакет
+(его в проекте нет).
 Проверки их всё равно видят — `migrations/**/*.ts` перечислен в `tsconfig.check.json`,
 `npm run lint` и `format:check`.
 
@@ -387,9 +389,17 @@ EOT — issue [#27](https://github.com/yuldashevsardor/telegram-bot/issues/27).
 
 ## 13. Тесты и проверки
 
-- `mocha` через `.mocharc.json` (`ts-node/register` + `tsconfig-paths/register`, без него
-  алиас `app/*` не разрешается). Типы тестов проверяет `npm run typecheck` по
-  `tsconfig.check.json`: сборочный `tsconfig.json` ограничен `src`.
+- `mocha` через `.mocharc.json` (`tsx/cjs`). Тот же `tsx` грузит `src/app.ts` в
+  `npm run dev`, алиас `app/*` он разрешает сам по `paths`. Тиконфиг ему задаёт
+  `TSX_TSCONFIG_PATH=./tsconfig.check.json` в npm-скриптах: `compilerOptions` применяются
+  только к файлам из `include` тиконфига, а `test/**` есть лишь в `tsconfig.check.json` —
+  сборочный `tsconfig.json` ограничен `src` и расширить его нельзя, тесты уехали бы в
+  `build/`. Без этого файлы `test/` собирались бы дефолтами esbuild: стандартными
+  декораторами вместо `experimentalDecorators` и `useDefineForClassFields: true` вместо
+  проектного `false` — декоратор в тесте падал бы, а поле класса молча становилось
+  `undefined`. Типы `tsx` не проверяет, это делает `npm run typecheck` по тому же
+  `tsconfig.check.json`. Миграции идут мимо `tsx`, их грузит своим jiti `node-pg-migrate`
+  (§11).
 - Покрыто: `task-queue` (очередь, партиция, лимит), `ConfigContainer`,
   `ConfigEnvStorage`, `ConsoleLogger`, `FileHelper`, `ProcessHelper`, `utils`, `errors`,
   отброс в базовом `Filter`. Не покрыто:
@@ -445,5 +455,11 @@ EOT — issue [#27](https://github.com/yuldashevsardor/telegram-bot/issues/27).
   `exec` и любая сборка команды строкой возвращают `/bin/sh` в цепочку, и подставленный
   путь снова становится кодом; тестами это не ловится, потому что на «нормальных» путях
   разницы нет.
+- **Зависимости внедряются только явными `@inject(...)`.** `tsx` (esbuild) не эмитит
+  `design:paramtypes`, поэтому inversify не выведет зависимость из типа параметра: у класса,
+  который контейнер конструирует сам (`bind().to(...)`), параметр конструктора без `@inject`
+  уронит резолв в dev и тестах, а сборка `tsc` метаданные эмитит и ошибку не покажет.
+  Логгеры под правило не подпадают: их собирает `Application` через `new` и кладёт в
+  контейнер готовыми (`toConstantValue`), inversify их не конструирует.
 - **`Runner.run()`/`stop()` синхронные**, хотя вызываются с `await`; `stop()`
   не ждёт конца текущей итерации цикла.
