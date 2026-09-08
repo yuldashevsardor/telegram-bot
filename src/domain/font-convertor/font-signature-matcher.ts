@@ -1,14 +1,33 @@
 import { injectable } from "inversify";
 import { Extension } from "app/domain/font-convertor/font-convertor.types";
 
+/**
+ * Что домен пропускает перед сигнатурой, прежде чем сверять байты.
+ */
+const enum Prefix {
+    /** Ничего: сигнатура лежит по жёсткому смещению от начала файла. */
+    None = "none",
+    /** UTF-8 BOM, если он есть. */
+    Bom = "bom",
+    /** UTF-8 BOM и ведущие пробельные символы. */
+    Indent = "indent",
+}
+
 type Signature = {
     offset: number;
     bytes: Array<number>;
+    prefix?: Prefix;
 };
 
 // У EOT нет сигнатуры в начале файла: заголовок открывается размерами шрифта, а маркер
 // формата (USHORT 0x504C, little-endian) лежит по фиксированному смещению.
 const EOT_MAGIC_OFFSET = 34;
+
+const UTF8_BOM = [0xef, 0xbb, 0xbf];
+// Пробельные символы XML: пробел, табуляция, перевод строки, возврат каретки.
+const XML_WHITESPACE = [0x20, 0x09, 0x0a, 0x0d];
+// Предел всего префикса, вместе с BOM: без него голова файла росла бы вместе с отступом.
+const MAX_INDENT_LENGTH = 16;
 
 @injectable()
 export class FontSignatureMatcher {
@@ -43,9 +62,14 @@ export class FontSignatureMatcher {
             // она говорит «это XML», а не «это шрифт». Разбирать разметку домен не
             // станет, но и такой проверки хватает, чтобы бинарный мусор под именем
             // *.svg не прошёл.
+            //
+            // Пропускаемый префикс у двух сигнатур разный, и разный он у самого XML:
+            // объявление обязано открывать документ, поэтому перед `<?xml` допустим
+            // только BOM (fontforge файл с отступом перед объявлением не открывает), а
+            // перед корневым тегом документа без объявления пробелы законны.
             [Extension.SVG]: [
-                { offset: 0, bytes: this.ascii("<?xml") },
-                { offset: 0, bytes: this.ascii("<svg") },
+                { offset: 0, bytes: this.ascii("<?xml"), prefix: Prefix.Bom },
+                { offset: 0, bytes: this.ascii("<svg"), prefix: Prefix.Indent },
             ],
         };
 
@@ -57,18 +81,61 @@ export class FontSignatureMatcher {
      */
     public matches(head: Uint8Array, extension: Extension): boolean {
         return this.signaturesByExtension[extension].some((signature) => {
-            if (signature.offset + signature.bytes.length > head.length) {
+            const start = this.prefixLength(head, signature.prefix) + signature.offset;
+
+            if (start + signature.bytes.length > head.length) {
                 return false;
             }
 
-            return signature.bytes.every((byte, index) => head[signature.offset + index] === byte);
+            return signature.bytes.every((byte, index) => head[start + index] === byte);
         });
+    }
+
+    /**
+     * Сколько байт занял префикс этого вида в начале головы файла.
+     */
+    private prefixLength(head: Uint8Array, prefix: Prefix = Prefix.None): number {
+        if (prefix === Prefix.None) {
+            return 0;
+        }
+
+        let length = UTF8_BOM.every((byte, index) => head[index] === byte) ? UTF8_BOM.length : 0;
+
+        if (prefix === Prefix.Bom) {
+            return length;
+        }
+
+        while (length < MAX_INDENT_LENGTH && this.isXmlWhitespace(head[length])) {
+            length += 1;
+        }
+
+        return length;
+    }
+
+    private isXmlWhitespace(byte: number | undefined): boolean {
+        return byte !== undefined && XML_WHITESPACE.includes(byte);
     }
 
     private calculateHeadLength(): number {
         const signatures = Object.values(this.signaturesByExtension).flat();
 
-        return signatures.reduce((length, signature) => Math.max(length, signature.offset + signature.bytes.length), 0);
+        // Пропущенный префикс сокращает полезную часть головы, поэтому к сигнатуре
+        // добавляется предельная длина её префикса.
+        return signatures.reduce(
+            (length, signature) => Math.max(length, this.maxPrefixLength(signature.prefix) + signature.offset + signature.bytes.length),
+            0,
+        );
+    }
+
+    private maxPrefixLength(prefix: Prefix = Prefix.None): number {
+        switch (prefix) {
+            case Prefix.None:
+                return 0;
+            case Prefix.Bom:
+                return UTF8_BOM.length;
+            case Prefix.Indent:
+                return MAX_INDENT_LENGTH;
+        }
     }
 
     private ascii(text: string): Array<number> {
