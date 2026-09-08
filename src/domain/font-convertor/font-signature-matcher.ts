@@ -1,36 +1,18 @@
 import { injectable } from "inversify";
-import { Extension } from "app/domain/font-convertor/font-convertor.types";
-
-/**
- * Что домен пропускает перед сигнатурой, прежде чем сверять байты.
- */
-const enum Prefix {
-    /** Ничего: сигнатура лежит по жёсткому смещению от начала файла. */
-    None = "none",
-    /** UTF-8 BOM, если он есть. */
-    Bom = "bom",
-    /** UTF-8 BOM и ведущие пробельные символы. */
-    Indent = "indent",
-}
-
-type Signature = {
-    offset: number;
-    bytes: Array<number>;
-    prefix?: Prefix;
-};
-
-// У EOT нет сигнатуры в начале файла: заголовок открывается размерами шрифта, а маркер
-// формата (USHORT 0x504C, little-endian) лежит по фиксированному смещению.
-const EOT_MAGIC_OFFSET = 34;
-
-const UTF8_BOM = [0xef, 0xbb, 0xbf];
-// Пробельные символы XML: пробел, табуляция, перевод строки, возврат каретки.
-const XML_WHITESPACE = [0x20, 0x09, 0x0a, 0x0d];
-// Предел всего префикса, вместе с BOM: без него голова файла росла бы вместе с отступом.
-const MAX_INDENT_LENGTH = 16;
+import { Extension, Prefix, Signature } from "app/domain/font-convertor/font-convertor.types";
 
 @injectable()
 export class FontSignatureMatcher {
+    // У EOT нет сигнатуры в начале файла: заголовок открывается размерами шрифта, а
+    // маркер формата (USHORT 0x504C, little-endian) лежит по фиксированному смещению.
+    private static readonly EOT_MAGIC_OFFSET = 34;
+
+    private static readonly UTF8_BOM = [0xef, 0xbb, 0xbf];
+    // Пробельные символы XML: пробел, табуляция, перевод строки, возврат каретки.
+    private static readonly XML_WHITESPACE = [0x20, 0x09, 0x0a, 0x0d];
+    // Предел всего префикса, вместе с BOM: без него голова файла росла бы вместе с отступом.
+    private static readonly MAX_INDENT_LENGTH = 16;
+
     private readonly signaturesByExtension: Record<Extension, Array<Signature>>;
 
     /**
@@ -57,7 +39,7 @@ export class FontSignatureMatcher {
             [Extension.OTF]: sfnt,
             [Extension.WOFF]: [{ offset: 0, bytes: this.ascii("wOFF") }],
             [Extension.WOFF2]: [{ offset: 0, bytes: this.ascii("wOF2") }],
-            [Extension.EOT]: [{ offset: EOT_MAGIC_OFFSET, bytes: [0x4c, 0x50] }],
+            [Extension.EOT]: [{ offset: FontSignatureMatcher.EOT_MAGIC_OFFSET, bytes: [0x4c, 0x50] }],
             // SVG — единственный текстовый формат здесь, и его сигнатура слабее прочих:
             // она говорит «это XML», а не «это шрифт». Разбирать разметку домен не
             // станет, но и такой проверки хватает, чтобы бинарный мусор под именем
@@ -99,13 +81,13 @@ export class FontSignatureMatcher {
             return 0;
         }
 
-        let length = UTF8_BOM.every((byte, index) => head[index] === byte) ? UTF8_BOM.length : 0;
+        let length = FontSignatureMatcher.UTF8_BOM.every((byte, index) => head[index] === byte) ? FontSignatureMatcher.UTF8_BOM.length : 0;
 
         if (prefix === Prefix.Bom) {
             return length;
         }
 
-        while (length < MAX_INDENT_LENGTH && this.isXmlWhitespace(head[length])) {
+        while (length < FontSignatureMatcher.MAX_INDENT_LENGTH && this.isXmlWhitespace(head[length])) {
             length += 1;
         }
 
@@ -113,7 +95,7 @@ export class FontSignatureMatcher {
     }
 
     private isXmlWhitespace(byte: number | undefined): boolean {
-        return byte !== undefined && XML_WHITESPACE.includes(byte);
+        return byte !== undefined && FontSignatureMatcher.XML_WHITESPACE.includes(byte);
     }
 
     private calculateHeadLength(): number {
@@ -132,9 +114,9 @@ export class FontSignatureMatcher {
             case Prefix.None:
                 return 0;
             case Prefix.Bom:
-                return UTF8_BOM.length;
+                return FontSignatureMatcher.UTF8_BOM.length;
             case Prefix.Indent:
-                return MAX_INDENT_LENGTH;
+                return FontSignatureMatcher.MAX_INDENT_LENGTH;
         }
     }
 
