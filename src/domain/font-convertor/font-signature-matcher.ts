@@ -11,7 +11,7 @@ type Signature = {
 const EOT_MAGIC_OFFSET = 34;
 
 @injectable()
-export class FontSignature {
+export class FontSignatureMatcher {
     private readonly signaturesByExtension: Record<Extension, Array<Signature>>;
 
     /**

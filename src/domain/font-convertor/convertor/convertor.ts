@@ -2,14 +2,14 @@ import { InvalidFile, InvalidPath, PermissionDenied } from "app/helper/file-help
 import path from "path";
 import { Extension } from "app/domain/font-convertor/font-convertor.types";
 import { InvalidFontSignature } from "app/domain/font-convertor/font-convertor.errors";
-import { FontSignature } from "app/domain/font-convertor/font-signature";
+import { FontSignatureMatcher } from "app/domain/font-convertor/font-signature-matcher";
 import { FileHelper } from "app/helper/file-helper/file-helper";
 
 export abstract class Convertor {
     protected abstract fromExtension: Extension;
     protected abstract toExtension: Extension;
 
-    protected constructor(private readonly fontSignature: FontSignature) {}
+    protected constructor(private readonly fontSignatureMatcher: FontSignatureMatcher) {}
 
     protected async validate(fromPath: string, toPath: string): Promise<void> {
         await this.validateFromPath(fromPath);
@@ -37,9 +37,9 @@ export abstract class Convertor {
 
         // Расширение задаёт тот, кто прислал файл, поэтому одного его мало: без этой
         // проверки произвольные байты под именем *.ttf ушли бы движку.
-        const head = await FileHelper.readHead(fromPath, this.fontSignature.headLength);
+        const head = await FileHelper.readHead(fromPath, this.fontSignatureMatcher.headLength);
 
-        if (!this.fontSignature.matches(head, this.fromExtension)) {
+        if (!this.fontSignatureMatcher.matches(head, this.fromExtension)) {
             throw InvalidFontSignature.byPathAndExtension(fromPath, this.fromExtension);
         }
     }
