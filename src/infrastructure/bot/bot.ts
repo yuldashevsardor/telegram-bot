@@ -8,7 +8,7 @@ import { ConfigValue } from "app/infrastructure/config/config-value.decorator";
 import { BotSettings, Context } from "app/infrastructure/bot/bot.types";
 import { Logger } from "app/domain/logger/logger";
 import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
-import { run, RunnerHandle, sequentialize } from "@grammyjs/runner";
+import { FetchOptions, run, RunnerHandle, sequentialize } from "@grammyjs/runner";
 import { getSessionKey, initialPayload } from "app/infrastructure/bot/session/session.helper";
 import { SessionPayload } from "app/infrastructure/bot/session/session.types";
 import { ConversationHandler } from "app/infrastructure/bot/conversation/conversation-handler";
@@ -22,6 +22,13 @@ import { BotCommand } from "grammy/types";
 import { createFluent, resolveLocale } from "app/infrastructure/bot/locale";
 import { DEFAULT_LOCALE, Locale, LOCALES } from "app/infrastructure/bot/locale.types";
 import path from "path";
+
+// Умолчание getUpdates — все типы, кроме chat_member и реакций. Бот же обслуживает
+// только команды и ожидание conversation в приватных чатах, то есть один message:
+// остальное дошло бы до фильтров и было отброшено, оплатив сеть, middleware и запись
+// пользователя. Список — не защита: Telegram применяет его на своей стороне, а
+// накопленные апдейты старых типов после смены списка ещё могут прийти.
+const ALLOWED_UPDATES: NonNullable<FetchOptions["allowed_updates"]> = ["message"];
 
 @injectable()
 export class Bot {
@@ -55,7 +62,7 @@ export class Bot {
         }
 
         this.grammy.catch(this.handleError.bind(this));
-        this.runner = run(this.grammy);
+        this.runner = run(this.grammy, { runner: { fetch: { allowed_updates: ALLOWED_UPDATES } } });
         this.isRun = true;
 
         this.logger.info("Bot is successfully started.");
