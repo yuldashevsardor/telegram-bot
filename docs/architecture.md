@@ -148,7 +148,12 @@ ConversationFlavor & FluentContextFlavor & { user: User }`.
 останавливает runner в пределах своего срока.
 
 `Command`, `Filter`, `Middleware`, `ConversationHandler` — абстрактные базы вида
-«`handle`/`run` + `setup(composer)`».
+«`handle`/`run` + `setup(composer)`». `Filter.setup()` обрывает цепочку сам, вызывая
+`next()` только при истинном `handle()`: `composer.filter()` grammY для этого не годится
+— он не отбрасывает апдейт, а прячет за условием лишь то, что повешено на возвращённый
+им composer, и обе ветки его `branch` зовут `next()`. Пока `setup()` полагался на
+`filter()` и выбрасывал этот composer, ни один фильтр репозитория не отсекал ничего
+(тест `test/infrastructure/bot/filter/filter.spec.ts`).
 
 ### TelegramCallApiMiddleware
 
@@ -370,8 +375,8 @@ EOT — issue [#27](https://github.com/yuldashevsardor/telegram-bot/issues/27).
   алиас `app/*` не разрешается). Типы тестов проверяет `npm run typecheck` по
   `tsconfig.check.json`: сборочный `tsconfig.json` ограничен `src`.
 - Покрыто: `task-queue` (очередь, партиция, лимит), `ConfigContainer`,
-  `ConfigEnvStorage`, `ConsoleLogger`, `FileHelper`, `ProcessHelper`, `utils`, `errors`.
-  Не покрыто:
+  `ConfigEnvStorage`, `ConsoleLogger`, `FileHelper`, `ProcessHelper`, `utils`, `errors`,
+  отброс в базовом `Filter`. Не покрыто:
   `Runner`, `FontConvertor`, `UserService`, `Application`, `Bot`, middleware.
 - `nyc` считает покрытие по TypeScript-исходникам; отчёт в `./coverage`.
 - `tsconfig.json`: `strict` и все флаги вне его зонтика; `skipLibCheck` вынужденно
