@@ -12,7 +12,7 @@ describe("FontSignatureMatcher.matches", function () {
 
     before(async function () {
         for (const extension of Object.values(Extension)) {
-            heads.set(extension, await readHead(`fixture.${extension}`));
+            heads.set(extension, await readHead(`test-font.${extension}`));
         }
     });
 
@@ -46,7 +46,7 @@ describe("FontSignatureMatcher.matches", function () {
 
     it("rejects arbitrary bytes named as a font", function () {
         // Ровно тот случай, ради которого проверка и заведена: PostScript Type 1 под
-        // именем шрифта другого формата — так выглядят фикстуры в tmp/app/test-fonts.
+        // именем шрифта другого формата — так fontforge отвечает на просьбу сделать EOT.
         const type1 = new Uint8Array([0x80, 0x01, 0x79, 0x15, 0x25, 0x21]);
 
         for (const extension of Object.values(Extension)) {
@@ -92,7 +92,7 @@ describe("FontSignatureMatcher.matches", function () {
 describe("FontSignatureMatcher.headLength", function () {
     it("covers the signature of every format", async function () {
         for (const extension of Object.values(Extension)) {
-            const bytes = await readHead(`fixture.${extension}`);
+            const bytes = await readHead(`test-font.${extension}`);
 
             expect(bytes.length, `${extension} fixture is shorter than headLength`).to.equal(fontSignatureMatcher.headLength);
             expect(fontSignatureMatcher.matches(bytes, extension), `${extension} needs more than headLength bytes`).to.be.true;
