@@ -3,7 +3,6 @@ import fsSync from "fs";
 import path from "path";
 import dayjs from "dayjs";
 import { InvalidExtensions, InvalidPath, PermissionDenied } from "app/helper/file-helper/file-helper.errors";
-import { ProcessHelper } from "app/helper/process-helper/process-helper";
 import glob from "tiny-glob";
 
 export class FileHelper {
@@ -89,18 +88,20 @@ export class FileHelper {
         return pathWithDay;
     }
 
-    public static async getMimeType(path: string): Promise<string> {
-        if (!(await FileHelper.isReadable(path))) {
-            throw PermissionDenied.write(path);
+    /**
+     * Первые length байт файла. Файл короче — вернётся то, что есть.
+     */
+    public static async readHead(path: string, length: number): Promise<Uint8Array> {
+        const buffer = new Uint8Array(length);
+        const file = await fs.open(path, "r");
+
+        try {
+            const { bytesRead } = await file.read(buffer, 0, length, 0);
+
+            return buffer.subarray(0, bytesRead);
+        } finally {
+            await file.close();
         }
-
-        if (!(await FileHelper.isFile(path))) {
-            throw InvalidPath.isNotFile(path);
-        }
-
-        const result = await ProcessHelper.run("file", ["--mime-type", "-b", path]);
-
-        return result.stdout.trim();
     }
 
     public static async findFilesByExtensions(basePath: string, extensions: string[]): Promise<Array<string>> {

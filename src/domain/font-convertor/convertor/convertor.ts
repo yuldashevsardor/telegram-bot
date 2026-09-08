@@ -1,13 +1,13 @@
 import { InvalidFile, InvalidPath, PermissionDenied } from "app/helper/file-helper/file-helper.errors";
 import path from "path";
-import * as mime from "mime-types";
 import { Extension } from "app/domain/font-convertor/font-convertor.types";
+import { InvalidFontSignature } from "app/domain/font-convertor/font-convertor.errors";
+import { FONT_SIGNATURE_HEAD_LENGTH, FontSignature } from "app/domain/font-convertor/font-signature";
 import { FileHelper } from "app/helper/file-helper/file-helper";
 
 export abstract class Convertor {
     protected abstract fromExtension: Extension;
     protected abstract toExtension: Extension;
-    protected abstract allowedMimeTypes: Array<string>;
 
     protected async validate(fromPath: string, toPath: string): Promise<void> {
         await this.validateFromPath(fromPath);
@@ -33,20 +33,13 @@ export abstract class Convertor {
             throw InvalidFile.byPathAndExtension(fromPath, extension, this.fromExtension);
         }
 
-        const mimeTypeByExtension = mime.lookup(extension);
+        // Расширение задаёт тот, кто прислал файл, поэтому одного его мало: без этой
+        // проверки произвольные байты под именем *.ttf ушли бы движку.
+        const head = await FileHelper.readHead(fromPath, FONT_SIGNATURE_HEAD_LENGTH);
 
-        if (!mimeTypeByExtension) {
-            throw InvalidFile.byUnknownMimeType(fromPath);
+        if (!FontSignature.matches(head, this.fromExtension)) {
+            throw InvalidFontSignature.byPathAndExtension(fromPath, this.fromExtension);
         }
-
-        if (!this.allowedMimeTypes.includes(mimeTypeByExtension)) {
-            throw InvalidFile.byPathAndMimeType(fromPath, mimeTypeByExtension);
-        }
-
-        // const mimeTypeByFile = await FileHelper.getMimeType(fromPath);
-        // if (!mimeTypeByFile || !this.allowedMimeTypes.includes(mimeTypeByFile)) {
-        //     throw InvalidFile.byPathAndMimeType(fromPath, mimeTypeByFile);
-        // }
     }
 
     private async validateToPath(toPath: string): Promise<void> {

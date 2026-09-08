@@ -245,8 +245,8 @@ FontConvertor.convert({ originPath, extension })
   → расширение исходника ≠ целевому, иначе FontConvertorError
   → имя: 15 случайных символов + расширение, каталог tempDir/YYYY/M/D
   → ConvertorFactory.get(from, to): по классу на пару, convertor/<from>/<from>-to-<to>.ts
-  → Convertor.validate(): исходник существует и читаем, расширение совпадает, MIME по
-    расширению (mime-types) в allowedMimeTypes; путь назначения не существует
+  → Convertor.validate(): исходник существует и читаем, расширение совпадает,
+    начало файла совпадает с сигнатурой формата; путь назначения не существует
   → FontForge.convert(): fontforge -c '<скрипт>' SRC DIST через ProcessHelper.run
 ```
 
@@ -257,12 +257,19 @@ FontConvertor.convert({ originPath, extension })
 подставляются в текст скрипта. Собирать команду строкой и звать `exec` здесь нельзя —
 имя файла придёт от пользователя.
 
+Формат исходника проверяется дважды: расширением имени и сигнатурой — первыми
+`FONT_SIGNATURE_HEAD_LENGTH` байтами файла (`font-signature.ts`). Имя задаёт тот, кто
+прислал файл, поэтому одному расширению верить нельзя. Сигнатуры распознаются самим
+кодом, без внешней утилиты: `file --mime-type` для трёх из пяти форматов не даёт
+пригодного ответа (у EOT его нет вовсе, у TTF и OTF он ещё и зависит от версии
+libmagic).
+
 Известное:
 
 - `SVG` объявлен в `FontForge.supportedExtensions`, пар для него нет: `ConvertorNotFound`
-  (issue [#35](https://github.com/yuldashevsardor/telegram-bot/issues/35)).
-- MIME проверяется по расширению, содержимое не читается; блок проверки по содержимому
-  закомментирован в `convertor.ts`.
+  (issue [#35](https://github.com/yuldashevsardor/telegram-bot/issues/35)). Сигнатуры у
+  него тоже нет — XML опознаётся только разбором текста, — поэтому проверка по
+  содержимому его пропускает.
 - Временные файлы не удаляются (issue
   [#37](https://github.com/yuldashevsardor/telegram-bot/issues/37)).
 - `/font_generator` конвертирует фиксированный `tempDir/app/test-fonts/test-font.woff` в
