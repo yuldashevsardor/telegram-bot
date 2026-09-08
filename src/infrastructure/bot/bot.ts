@@ -17,9 +17,8 @@ import { Filter } from "app/infrastructure/bot/filter/filter";
 import { withTimeout } from "app/helper/utils";
 import { InvalidConfigError, RuntimeError } from "app/common/errors";
 import { Fluent } from "@moebius/fluent";
-import { useFluent } from "@grammyjs/fluent";
 import { BotCommand } from "grammy/types";
-import { createFluent, resolveLocale } from "app/infrastructure/bot/locale";
+import { createFluent, createFluentMiddleware } from "app/infrastructure/bot/locale";
 import { DEFAULT_LOCALE, Locale, LOCALES } from "app/infrastructure/bot/locale.types";
 import path from "path";
 
@@ -157,13 +156,7 @@ export class Bot {
     private async setupFlavor(): Promise<Fluent> {
         const fluent = await createFluent(path.join(this.rootDir, "src", "infrastructure", "bot"));
 
-        this.grammy.use(
-            useFluent({
-                fluent: fluent,
-                defaultLocale: DEFAULT_LOCALE,
-                localeNegotiator: (ctx) => resolveLocale(ctx.from?.language_code),
-            }),
-        );
+        this.grammy.use(createFluentMiddleware(fluent));
 
         return fluent;
     }

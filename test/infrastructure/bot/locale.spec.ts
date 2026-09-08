@@ -3,7 +3,9 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import { FileHelper } from "app/helper/file-helper/file-helper";
-import { createFluent, localeFromFilePath, resolveLocale } from "app/infrastructure/bot/locale";
+import { Fluent } from "@moebius/fluent";
+import { Context } from "app/infrastructure/bot/bot.types";
+import { createFluent, createFluentMiddleware, localeFromFilePath, resolveLocale } from "app/infrastructure/bot/locale";
 import { DEFAULT_LOCALE, Locale, LOCALES } from "app/infrastructure/bot/locale.types";
 import { MissingLocaleBundle, UnknownLocale } from "app/infrastructure/bot/locale.errors";
 
@@ -224,5 +226,49 @@ describe("createFluent", function () {
         } catch (error) {
             expect(error).to.be.instanceOf(expected);
         }
+    }
+});
+
+describe("createFluentMiddleware", function () {
+    let localeDir: string;
+    let fluent: Fluent;
+
+    beforeEach(async function () {
+        localeDir = await fs.mkdtemp(path.join(os.tmpdir(), "locale-"));
+
+        for (const locale of LOCALES) {
+            await fs.writeFile(path.join(localeDir, `test.locale.${locale}.ftl`), `greeting = ${locale}\n`);
+        }
+
+        fluent = await createFluent(localeDir);
+    });
+
+    afterEach(async function () {
+        await fs.rm(localeDir, { recursive: true, force: true });
+    });
+
+    it("translates into the locale of the update", async function () {
+        const ctx = await runMiddleware("en");
+
+        expect(ctx.t("greeting")).to.equal("en");
+    });
+
+    // Плагин разговоров пишет в op-лог, а оттуда в сессию, все перечислимые свойства
+    // контекста, кроме интринсивных. `fluent` уехал бы туда целиком и вернулся с пустыми
+    // бандлами; `t`/`translate` он восстанавливает биндом от живого контекста.
+    it("keeps ctx.fluent out of the enumerable properties", async function () {
+        const ctx = await runMiddleware("ru");
+
+        expect(Object.keys(ctx)).to.not.include("fluent");
+        expect(Object.keys(ctx)).to.include.members(["t", "translate"]);
+        expect(ctx.fluent.instance).to.equal(fluent);
+    });
+
+    async function runMiddleware(languageCode: string): Promise<Context> {
+        const ctx = { from: { language_code: languageCode } } as unknown as Context;
+
+        await createFluentMiddleware(fluent)(ctx, () => Promise.resolve());
+
+        return ctx;
     }
 });
