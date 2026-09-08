@@ -20,7 +20,7 @@ Telegram — способ доставки; `User`, сессии и миграц
 - **PostgreSQL** — клиент `postgres` (porsager) в рантайме, `node-pg-migrate` для миграций.
 - **pino** в production, `console` в остальных режимах — за доменным интерфейсом `Logger`.
 - **FontForge** — внешний CLI.
-- **Fluent** (`@moebius/fluent` + `@grammyjs/fluent`) — i18n, фактически только русский.
+- **Fluent** (`@moebius/fluent` + `@grammyjs/fluent`) — i18n, локали `ru` (дефолтная) и `en`.
 
 Слои: `domain/` — логика и порты, `infrastructure/` — адаптеры, `common/` — сквозные
 типы и базовая ошибка, `helper/` — утилиты. Разделение последовательно у `user` и
@@ -143,7 +143,7 @@ ConversationFlavor & FluentContextFlavor & { user: User }`.
 6. `IsPrivateChatFilter` — всё ниже работает только в приватных чатах.
 7. `conversations()` + `createConversation` для каждого символа `Modules.Bot.Conversations`.
 8. Команды из `Modules.Bot.Command`: `command.setup(composer)`, затем
-   `api.setMyCommands(commands)` — сетевой вызов при каждом старте.
+   `api.setMyCommands()` на каждую локаль (§10) — по сетевому вызову при каждом старте.
 
 `Bot.run()` вешает `grammy.catch(handleError)` (только `critical`-лог, пользователю
 ничего не отвечается) и запускает `run(grammy)` из `@grammyjs/runner`. `Bot.stop()`
@@ -304,14 +304,38 @@ Payload перед записью проходит через `serialize-error`:
 
 ## 10. i18n
 
-`Bot.setupFlavor()` собирает все `.ftl` под `src/infrastructure/bot`, локаль берёт из
-имени по соглашению `*.locale.<lang>.ftl` (предпоследний сегмент, без валидации) и
-регистрирует в `Fluent`. `localeNegotiator` всегда возвращает `"ru"`.
+Поддерживаемые локали перечислены в `infrastructure/bot/locale.types.ts`: `LOCALES` и
+`DEFAULT_LOCALE` (`ru`). Список явный, потому что локаль выводится из имени файла, и
+опечатка иначе завела бы бандл языка, в который никто не попадёт. Разбор имени и сборка
+бандлов — в `locale.ts`.
 
-Файл один: `start.conversation.locale.ru.ftl` с ключом `welcome`. `StartConversation`
-рядом использует захардкоженную русскую строку мимо Fluent. Довести i18n — issue
-[#6](https://github.com/yuldashevsardor/telegram-bot/issues/6); в приветствии потерян
-EOT — issue [#27](https://github.com/yuldashevsardor/telegram-bot/issues/27).
+`Bot.setupFlavor()` собирает все `.ftl` под `src/infrastructure/bot`, локаль каждого
+файла берёт `localeFromFilePath()` по соглашению `*.locale.<lang>.ftl` (предпоследний
+сегмент); неизвестная локаль — `UnknownLocale`, локаль без единого файла —
+`MissingLocaleBundle`. `isDefault: true` получает ровно бандл `DEFAULT_LOCALE`: Fluent
+дописывает дефолтный бандл в хвост цепочки поиска, и на нём ключ, которого нет в локали
+пользователя, отдаёт текст, а не своё имя. `useIsolating` выключен: по умолчанию Fluent
+обёртывает каждую подстановку в невидимые U+2068/U+2069, а через подстановки здесь едут
+данные, которые копируют, и локалей с письмом справа налево нет.
+
+Локаль апдейта — `resolveLocale(ctx.from?.language_code)`: регион IETF-тега
+отбрасывается (`en-US` → `en`), незнакомый язык уходит в `DEFAULT_LOCALE`. Хранимой
+настройки языка у пользователя нет.
+
+Описания команд тоже переводятся: `Command.descriptionKey` — ключ, а не текст, и
+`Bot.setupCommands()` зовёт `setMyCommands()` на каждую локаль — сначала без
+`language_code` (запасной набор на `DEFAULT_LOCALE`), затем по разу на каждую
+остальную.
+
+Ключи именуются по модулю-владельцу (`start-command-description`,
+`start-conversation-welcome`): бандл Fluent плоский, ключи всех `.ftl` одной локали
+живут в общем пространстве имён. `test/infrastructure/bot/locale.spec.ts` ловит и
+расхождение наборов ключей между локалями (оно не падает само, а тихо отдаёт
+пользователю чужой язык через откат в дефолтный бандл), и ключ, который код просит, а
+`.ftl` не объявляет (Fluent вернул бы `{ключ}`).
+
+В приветствии потерян EOT — issue
+[#27](https://github.com/yuldashevsardor/telegram-bot/issues/27).
 
 `tsc` не копирует `.ftl` в `build/`, запуск из `build/` падает — issue
 [#19](https://github.com/yuldashevsardor/telegram-bot/issues/19); контейнер работает
@@ -402,7 +426,7 @@ EOT — issue [#27](https://github.com/yuldashevsardor/telegram-bot/issues/27).
   (§11).
 - Покрыто: `task-queue` (очередь, партиция, лимит), `ConfigContainer`,
   `ConfigEnvStorage`, `ConsoleLogger`, `FileHelper`, `ProcessHelper`, `utils`, `errors`,
-  отброс в базовом `Filter`. Не покрыто:
+  отброс в базовом `Filter`, локали (§10). Не покрыто:
   `Runner`, `FontConvertor`, `UserService`, `Application`, `Bot`, middleware.
 - `nyc` считает покрытие по TypeScript-исходникам; отчёт в `./coverage`.
 - `tsconfig.json`: `strict` и все флаги вне его зонтика; `skipLibCheck` вынужденно
@@ -448,7 +472,9 @@ EOT — issue [#27](https://github.com/yuldashevsardor/telegram-bot/issues/27).
   `fill-user-to-context.middleware.ts`; компилятор их не связывает, забытая миграция
   проявится SQL-ошибкой в рантайме.
 - **Порядок колонок `sessions`** связан с позиционным `insert` в `PgsqlStorage.write()`.
-- **`.ftl` именуются `*.locale.<lang>.ftl`**; иначе парсер имени выдаст фиктивную локаль.
+- **`.ftl` именуются `*.locale.<lang>.ftl`, локаль — из `LOCALES`**; и то, и другое
+  проверяется при старте (§10). Ключи одной локали лежат в общем пространстве имён,
+  поэтому в имя ключа входит модуль-владелец.
 - **`Convertor.validateToPath()` требует несуществующий путь**: конвертация не
   идемпотентна по пути, имя генерируется заново на каждый вызов.
 - **Внешние процессы — только через `ProcessHelper.run()`**, с аргументами массивом.

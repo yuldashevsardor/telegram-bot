@@ -8,7 +8,7 @@ import { StartConversation } from "app/infrastructure/bot/conversation/start/sta
 export class StartCommand extends Command {
     public readonly command: string = "start";
 
-    public readonly description: string = "Главное меню / Main menu";
+    public readonly descriptionKey: string = "start-command-description";
 
     public constructor(@inject<StartConversation>(Modules.Bot.Conversations.Start) private readonly startConversation: StartConversation) {
         super();

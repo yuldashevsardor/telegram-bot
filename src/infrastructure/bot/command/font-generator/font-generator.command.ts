@@ -13,7 +13,7 @@ export class FontGeneratorCommand extends Command {
     private readonly tempDir!: string;
 
     public readonly command: string = "font_generator";
-    public readonly description: string = "Генерация случайных шрифтов / Generate random fonts";
+    public readonly descriptionKey: string = "font-generator-command-description";
 
     public constructor(@inject<FontConvertor>(Services.FontConvertor.FontConvertor) private readonly convertor: FontConvertor) {
         super();
@@ -36,25 +36,25 @@ export class FontGeneratorCommand extends Command {
                 originPath: woffPath,
                 extension: Extension.EOT,
             });
-            await ctx.reply(eotPath);
+            await ctx.reply(ctx.t("font-generator-result", { path: eotPath }));
 
             const otfPath = await this.convertor.convert({
                 originPath: woffPath,
                 extension: Extension.OTF,
             });
-            await ctx.reply(otfPath);
+            await ctx.reply(ctx.t("font-generator-result", { path: otfPath }));
 
             const ttfPath = await this.convertor.convert({
                 originPath: woffPath,
                 extension: Extension.TTF,
             });
-            await ctx.reply(ttfPath);
+            await ctx.reply(ctx.t("font-generator-result", { path: ttfPath }));
 
             const woff2Path = await this.convertor.convert({
                 originPath: woffPath,
                 extension: Extension.WOFF2,
             });
-            await ctx.reply(woff2Path);
+            await ctx.reply(ctx.t("font-generator-result", { path: woff2Path }));
         } catch (error) {
             console.log(error);
         }

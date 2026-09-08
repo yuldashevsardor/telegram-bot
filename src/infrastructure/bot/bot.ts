@@ -14,11 +14,13 @@ import { SessionPayload } from "app/infrastructure/bot/session/session.types";
 import { ConversationHandler } from "app/infrastructure/bot/conversation/conversation-handler";
 import { conversations, createConversation } from "@grammyjs/conversations";
 import { Filter } from "app/infrastructure/bot/filter/filter";
-import { FileHelper } from "app/helper/file-helper/file-helper";
 import { withTimeout } from "app/helper/utils";
 import { InvalidConfigError, RuntimeError } from "app/common/errors";
 import { Fluent } from "@moebius/fluent";
 import { useFluent } from "@grammyjs/fluent";
+import { BotCommand } from "grammy/types";
+import { createFluent, resolveLocale } from "app/infrastructure/bot/locale";
+import { DEFAULT_LOCALE, Locale, LOCALES } from "app/infrastructure/bot/locale.types";
 import path from "path";
 
 @injectable()
@@ -91,10 +93,12 @@ export class Bot {
         // сессии это бросок; такой апдейт всё равно не дойдёт до команд.
         await this.setupFilters([Modules.Bot.Filter.HasSessionKey]);
         await this.setupMiddlewares();
-        await this.setupFlavor();
+        // Fluent нужен и командам: их описания переводятся тем же экземпляром до того, как
+        // уйдут в setMyCommands.
+        const fluent = await this.setupFlavor();
         await this.setupFilters([Modules.Bot.Filter.IsPrivateChat]);
         await this.setupConversations();
-        await this.setupCommands();
+        await this.setupCommands(fluent);
 
         this.isSetup = true;
     }
@@ -148,43 +152,18 @@ export class Bot {
         this.logger.debug("Middlewares successfully setup.");
     }
 
-    private async setupFlavor(): Promise<void> {
-        const files = await FileHelper.findFilesByExtensions(path.join(this.rootDir, "src", "infrastructure", "bot"), [".ftl"]);
-        const filesByLocale = files.reduce<{ [key: string]: string[] }>((acc, filePath) => {
-            const fileParts = filePath.split(".");
-            const locale = fileParts.at(fileParts.length - 2);
-
-            if (!locale) {
-                return acc;
-            }
-
-            if (!acc[locale]) {
-                acc[locale] = [];
-            }
-
-            acc[locale].push(filePath);
-
-            return acc;
-        }, {});
-        const fluent = new Fluent();
-
-        for (const [locale, localeFiles] of Object.entries(filesByLocale)) {
-            await fluent.addTranslation({
-                locales: locale,
-                filePath: localeFiles,
-                isDefault: true,
-            });
-        }
+    private async setupFlavor(): Promise<Fluent> {
+        const fluent = await createFluent(path.join(this.rootDir, "src", "infrastructure", "bot"));
 
         this.grammy.use(
             useFluent({
                 fluent: fluent,
-                defaultLocale: "ru",
-                localeNegotiator: () => {
-                    return "ru";
-                },
+                defaultLocale: DEFAULT_LOCALE,
+                localeNegotiator: (ctx) => resolveLocale(ctx.from?.language_code),
             }),
         );
+
+        return fluent;
     }
 
     private async setupFilters(symbols: symbol[]): Promise<void> {
@@ -217,7 +196,7 @@ export class Bot {
         this.logger.debug("Conversations successfully setup.");
     }
 
-    private async setupCommands(): Promise<void> {
+    private async setupCommands(fluent: Fluent): Promise<void> {
         this.logger.debug("Setup commands...");
 
         const commands = Object.values(Modules.Bot.Command).map((symbol) => {
@@ -230,11 +209,32 @@ export class Bot {
             command.setup(composer);
         }
 
-        await this.grammy.api.setMyCommands(commands);
+        // Набор без language_code — запасной: его Telegram показывает всем, чей язык не
+        // совпал ни с одним из заданных ниже, поэтому он идёт на дефолтной локали.
+        await this.grammy.api.setMyCommands(this.describeCommands(commands, fluent, DEFAULT_LOCALE));
+
+        for (const locale of LOCALES) {
+            if (locale === DEFAULT_LOCALE) {
+                continue;
+            }
+
+            await this.grammy.api.setMyCommands(this.describeCommands(commands, fluent, locale), { language_code: locale });
+        }
 
         this.grammy.use(composer);
 
         this.logger.debug("Commands successfully setup.");
+    }
+
+    private describeCommands(commands: Command[], fluent: Fluent, locale: Locale): BotCommand[] {
+        const translate = fluent.withLocale(locale);
+
+        return commands.map((command) => {
+            return {
+                command: command.command,
+                description: translate(command.descriptionKey),
+            };
+        });
     }
 
     private async handleError(error: unknown): Promise<void> {
