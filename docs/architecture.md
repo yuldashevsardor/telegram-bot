@@ -77,9 +77,9 @@ scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-w
 
 ## 3. DI
 
-`Container extends InversifyContainer` (`container/container.ts`), `setup(context)`
-идемпотентен. Конфиг, логгер и `AsyncLocalStorage` приходят готовыми в `ApplicationContext`
-(§4) и связываются первыми константами, затем `setupModules()` (лимит-резолвер, очередь, раннер, всё из
+`Container extends InversifyContainer` (`container/container.ts`), `setup()`
+идемпотентен. Конфиг, логгер и `AsyncLocalStorage` он берёт готовыми у `ApplicationContext`
+(§4) и связывает первыми константами, затем `setupModules()` (лимит-резолвер, очередь, раннер, всё из
 `setupBot()`), `setupServices()` (font-convertor, user), `setupInfrastructure()`
 (`Database`). Всё singleton.
 
@@ -102,19 +102,25 @@ scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-w
 ## 4. Application
 
 `ApplicationContext` (`infrastructure/application/application-context.ts`) — состав того,
-что нужно приложению всегда: `config`, `logger`, `asyncLocalStorage`. Эти объекты
-существуют до контейнера, потому что собрать его без них нельзя. Контекст собирает себя
-сам (`ApplicationContext.create()`, конструктор приватный): внутри `ConfigEnvStorage` →
-`ConfigContainer` → `AsyncLocalStorage` → выбор адаптера логгера.
+что нужно приложению всегда: конфиг, логгер, хранилище запроса. Эти объекты существуют до
+контейнера, потому что собрать его без них нельзя. Контекст собирает себя сам
+(`ApplicationContext.create()`): внутри `ConfigEnvStorage` → `ConfigContainer` →
+`AsyncLocalStorage` → выбор адаптера логгера.
 
-Контекст один на процесс, и это проверяется: конструктор приватный, повторный `create()`
-бросает `ApplicationContextAlreadyCreated` — у второго контекста своё хранилище запроса, и
-логгер читал бы не тот стор, который открыл middleware (§9), то есть корреляция сломалась
-бы молча.
+Класс статический целиком: части лежат на нём и выдаются `getConfigContainer()`,
+`getLogger()`, `getAls()`, экземпляра нет вовсе. Так контекст нельзя потерять — ссылку на
+объект восстановить было бы нечем, а собранный логгер и хранилище остались бы в процессе
+без единого входа к ним. Обращение до `create()` — `ApplicationContextIsNotCreated`.
 
-Дальше контекст никуда не расходится: он живёт в `Application.setup()`, отдаёт `cc` и
-`logger` полям приложения и уходит в `container.setup(context)`. Потребители получают его
-части из контейнера по отдельности (`@inject(Infrastructure.ConfigContainer)`,
+Контекст один на процесс: у второго было бы своё хранилище запроса, и логгер читал бы не
+тот стор, который открыл middleware (§9), то есть корреляция сломалась бы молча. Поэтому
+повторный `create()` не ошибка, а выход без пересборки. Поля заполняются только после
+сборки всех частей: упавший на конфиге `create()` оставляет контекст пустым, и следующий
+начинает с нуля.
+
+Дальше контекст никуда не расходится: `Application.setup()` берёт из него `cc` и `logger`,
+`container.setup()` — три константы для биндингов. Потребители получают части из
+контейнера по отдельности (`@inject(Infrastructure.ConfigContainer)`,
 `Infrastructure.Logger`, `Infrastructure.Als`) — контекст не инжектится никуда,
 иначе он стал бы вторым DI. Состав держится коротким по той же причине: `Database` в него не входит, у неё
 свой жизненный цикл на `container.close()` (§3).
@@ -122,7 +128,7 @@ scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-w
 `Application` (`infrastructure/application/application.ts`) — жизненный цикл; создаётся
 `new` в `app.ts`, в контейнере не значится.
 
-- `setup()`: `ApplicationContext.create()` → `container.setup(context)`
+- `setup()`: `ApplicationContext.create()` → `container.setup()`
   → `Database.check()` (`select 1`, недоступная база валит старт) → `Bot.setup()`.
   Конфиг внутри контекста собирается до логгера (из него берётся и адаптер, и порог),
   поэтому `InvalidConfigError` печатает `fail()` через `console.error`.

@@ -26,14 +26,14 @@ export class Application {
             return;
         }
 
-        const context = ApplicationContext.create();
+        ApplicationContext.create();
 
-        this.cc = context.config;
-        this.logger = context.logger;
+        this.cc = ApplicationContext.getConfigContainer();
+        this.logger = ApplicationContext.getLogger();
 
         this.logger.info("Setup container...");
 
-        await container.setup(context);
+        await container.setup();
 
         this.logger.info("Container successfully setup.");
         this.logger.info("Check database connection...");
