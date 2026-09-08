@@ -111,7 +111,7 @@ export class Container extends InversifyContainer {
         this.bind<StorageAdapter<SessionPayload>>(Modules.Bot.Session.Storage).to(PgsqlStorage).inSingletonScope();
 
         // Conversations
-        this.bind<StartConversation>(Modules.Bot.Conversations.Start).to(StartConversation);
+        this.bind<StartConversation>(Modules.Bot.Conversations.Start).to(StartConversation).inSingletonScope();
     }
 }
 
