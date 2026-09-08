@@ -24,6 +24,16 @@ import { TtfToEot } from "app/domain/font-convertor/convertor/ttf/ttf-to-eot";
 import { Woff2ToWoff } from "app/domain/font-convertor/convertor/woff2/woff2-to-woff";
 import { Woff2ToTtf } from "app/domain/font-convertor/convertor/woff2/woff2-to-ttf";
 import { Woff2ToOtf } from "app/domain/font-convertor/convertor/woff2/woff2-to-otf";
+import { SvgToEot } from "app/domain/font-convertor/convertor/svg/svg-to-eot";
+import { SvgToOtf } from "app/domain/font-convertor/convertor/svg/svg-to-otf";
+import { SvgToTtf } from "app/domain/font-convertor/convertor/svg/svg-to-ttf";
+import { SvgToWoff } from "app/domain/font-convertor/convertor/svg/svg-to-woff";
+import { SvgToWoff2 } from "app/domain/font-convertor/convertor/svg/svg-to-woff2";
+import { WoffToSvg } from "app/domain/font-convertor/convertor/woff/woff-to-svg";
+import { Woff2ToSvg } from "app/domain/font-convertor/convertor/woff2/woff2-to-svg";
+import { TtfToSvg } from "app/domain/font-convertor/convertor/ttf/ttf-to-svg";
+import { OtfToSvg } from "app/domain/font-convertor/convertor/otf/otf-to-svg";
+import { EotToSvg } from "app/domain/font-convertor/convertor/eot/eot-to-svg";
 import { FontSignatureMatcher } from "app/domain/font-convertor/font-signature-matcher";
 
 type ConvertorConstructor = new (fontForge: FontForge, fontSignatureMatcher: FontSignatureMatcher) => Convertor;
@@ -39,32 +49,44 @@ export class ConvertorFactory {
         [Extension.WOFF]: {
             [Extension.EOT]: WoffToEot,
             [Extension.OTF]: WoffToOtf,
+            [Extension.SVG]: WoffToSvg,
             [Extension.TTF]: WoffToTtf,
             [Extension.WOFF2]: WoffToWoff2,
         },
         [Extension.WOFF2]: {
             [Extension.EOT]: Woff2ToEot,
             [Extension.OTF]: Woff2ToOtf,
+            [Extension.SVG]: Woff2ToSvg,
             [Extension.TTF]: Woff2ToTtf,
             [Extension.WOFF]: Woff2ToWoff,
         },
         [Extension.TTF]: {
             [Extension.EOT]: TtfToEot,
             [Extension.OTF]: TtfToOtf,
+            [Extension.SVG]: TtfToSvg,
             [Extension.WOFF]: TtfToWoff,
             [Extension.WOFF2]: TtfToWoff2,
         },
         [Extension.OTF]: {
             [Extension.EOT]: OtfToEot,
+            [Extension.SVG]: OtfToSvg,
             [Extension.TTF]: OtfToTtf,
             [Extension.WOFF]: OtfToWoff,
             [Extension.WOFF2]: OtfToWoff2,
         },
         [Extension.EOT]: {
             [Extension.OTF]: EotToOtf,
+            [Extension.SVG]: EotToSvg,
             [Extension.TTF]: EotToTtf,
             [Extension.WOFF]: EotToWoff,
             [Extension.WOFF2]: EotToWoff2,
+        },
+        [Extension.SVG]: {
+            [Extension.EOT]: SvgToEot,
+            [Extension.OTF]: SvgToOtf,
+            [Extension.TTF]: SvgToTtf,
+            [Extension.WOFF]: SvgToWoff,
+            [Extension.WOFF2]: SvgToWoff2,
         },
     };
 
