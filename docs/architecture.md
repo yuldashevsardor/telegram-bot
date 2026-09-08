@@ -126,21 +126,24 @@ ConversationFlavor & FluentContextFlavor & { user: User }`.
 
 `Bot.setup()` собирает пайплайн строго в этом порядке:
 
-1. `session()` — ключ `${from.id}:${chat.id}`, хранилище `PgsqlStorage` (таблица
+1. `HasSessionKeyFilter` — тем же `getSessionKey`, что и `session()` ниже, отбрасывает
+   апдейты без `from` или `chat` (пост в канале, inline-запрос): сессии у них нет, а всё
+   ниже на неё рассчитывает. Отброс пишется `warning`-ом: ниже фильтра дампа апдейта уже
+   не будет. Логгер здесь ещё без `requestId` — `AsyncLocalStorageMiddleware` стоит ниже
+   (§9).
+2. `IsPrivateChatFilter` — всё ниже работает только в приватных чатах. Стоит вторым:
+   `ctx.chat` у него нет и у апдейтов без ключа сессии, а отбрасывает он молча, поэтому
+   их должен раньше увидеть `HasSessionKeyFilter`.
+3. `session()` — ключ `${from.id}:${chat.id}`, хранилище `PgsqlStorage` (таблица
    `sessions`), payload `{ requestCount }`.
-2. `sequentialize()` по ключам `[chat.id, from.id]` — сериализует апдейты одного
+4. `sequentialize()` по ключам `[chat.id, from.id]` — сериализует апдейты одного
    чата/пользователя, иначе конкурентный runner устроил бы гонку по сессии и по
    check-then-act в `FillUserToContextMiddleware` (§8).
-3. `HasSessionKeyFilter` — тем же `getSessionKey` отбрасывает апдейты без `from`
-   или `chat` (пост в канале, inline-запрос): сессии у них нет, а всё ниже на неё
-   рассчитывает. Отброс пишется `warning`-ом: ниже фильтра дампа апдейта уже не будет.
-   Логгер здесь ещё без `requestId` — `AsyncLocalStorageMiddleware` стоит ниже (§9).
-4. Middleware: `AsyncLocalStorageMiddleware` → `TelegramCallApiMiddleware` →
+5. Middleware: `AsyncLocalStorageMiddleware` → `TelegramCallApiMiddleware` →
    `ResponseTimeMiddleware` → `RequestLogMiddleware` → `FillUserToContextMiddleware`.
    `AsyncLocalStorageMiddleware` первый: всё, что логируется внутри цепочки, пишется
    с `requestId` (§9).
-5. Fluent (§10).
-6. `IsPrivateChatFilter` — всё ниже работает только в приватных чатах.
+6. Fluent (§10).
 7. `conversations()` + `createConversation` для каждого символа `Modules.Bot.Conversations`.
 8. Команды из `Modules.Bot.Command`: `command.setup(composer)`, затем
    `api.setMyCommands()` на каждую локаль (§10) — по сетевому вызову при каждом старте.
@@ -463,10 +466,12 @@ Payload перед записью проходит через `serialize-error`:
 - **`ctx.api` против `bot.grammy.api`.** Перехват очереди живёт только на `ctx.api`
   текущего апдейта. Прямой вызов `bot.grammy.api` и любой multipart-payload идут мимо
   лимитов.
-- **`HasSessionKeyFilter` регистрируется до middleware.** Ниже него `ctx.session`
+- **Фильтры регистрируются до `session()` и до middleware.** Ниже них `ctx.session`
   трогают без проверки ключа (`RequestLogMiddleware`), а `ctx.from` считают заполненным
-  (`FillUserToContextMiddleware`). Переставить фильтр ниже — вернуть `critical` на
-  каждый пост в канале.
+  (`FillUserToContextMiddleware`): переставить `HasSessionKeyFilter` ниже — вернуть
+  `critical` на каждый пост в канале. `session()` же не ленив — строку он читает на входе
+  и пишет на выходе независимо от того, обращались ли к `ctx.session`, поэтому фильтр
+  ниже него отбрасывает апдейт уже после записи в базу.
 - **`ctx.user` есть только после `FillUserToContextMiddleware`.** Код выше по пайплайну
   или вне его (будущие фоновые задачи) на поле рассчитывать не может.
 - **Сроки остановки**: общий > сумма частных (проверяется), общий <
