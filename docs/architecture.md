@@ -135,11 +135,15 @@ ConversationFlavor & FluentContextFlavor & { user: User }`.
    `ctx.chat` у него нет и у апдейтов без ключа сессии, а своей строки в логе он не
    пишет — только общую `debug` базы, поэтому их должен раньше увидеть
    `HasSessionKeyFilter` с его `warning`.
-3. `session()` — ключ `${from.id}:${chat.id}`, хранилище `PgsqlStorage` (таблица
-   `sessions`), payload `{ requestCount }`.
-4. `sequentialize()` по ключам `[chat.id, from.id]` — сериализует апдейты одного
+3. `sequentialize()` по ключам `[chat.id, from.id]` — сериализует апдейты одного
    чата/пользователя, иначе конкурентный runner устроил бы гонку по сессии и по
-   check-then-act в `FillUserToContextMiddleware` (§8).
+   check-then-act в `FillUserToContextMiddleware` (§8). Стоит выше `session()`: тот не
+   ленив и читает строку до `next()`, а пишет после возврата, так что под очередью
+   оказалась бы только середина цепочки, а сами чтение и запись — снаружи (§14).
+   Апдейтов без `chat` и `from`, на которых `sequentialize()` дал бы пустой список
+   ключей, сюда не доходит: их отбросил шаг 1.
+4. `session()` — ключ `${from.id}:${chat.id}`, хранилище `PgsqlStorage` (таблица
+   `sessions`), payload `{ requestCount }`.
 5. Middleware: `AsyncLocalStorageMiddleware` → `TelegramCallApiMiddleware` →
    `ResponseTimeMiddleware` → `RequestLogMiddleware` → `FillUserToContextMiddleware`.
    `AsyncLocalStorageMiddleware` первый: всё, что логируется внутри цепочки, пишется
@@ -474,9 +478,14 @@ Payload перед записью проходит через `serialize-error`:
 Правила, которые не проверяются ни типами, ни тестами; `CLAUDE.md` отсылает сюда перед
 правкой затронутых мест.
 
-- **`sequentialize()` включает `from.id`.** Без этого два первых апдейта нового
-  пользователя оба увидят `existsById() === false`. Данные не испортятся (upsert), но
-  выбор ветки `create`/`edit` станет ненадёжным.
+- **`sequentialize()` включает `from.id` и регистрируется выше `session()`.** Без
+  `from.id` два первых апдейта нового пользователя оба увидят `existsById() === false`:
+  данные не испортятся (upsert), но выбор ветки `create`/`edit` станет ненадёжным. Ниже
+  `session()` очередь бесполезна для самой сессии: `session()` не ленив, читает строку
+  до своего `next()` и пишет после возврата из него, а слот очереди освобождается внутри
+  этого `next()` — оба конца остались бы снаружи сериализованного участка, и второй
+  апдейт того же пользователя записал бы своё состояние поверх первого. Цена — не только
+  `requestCount`: `@grammyjs/conversations` держит шаг разговора в той же сессии.
 - **Миграции append-only.** `node-pg-migrate` отслеживает применённые по имени файла;
   правка старого файла разводит свежие базы с существующими.
 - **Обработчики пайплайна не держат состояние апдейта в полях.** `Command`, `Filter`,
@@ -490,9 +499,9 @@ Payload перед записью проходит через `serialize-error`:
 - **`ctx.api` против `bot.grammy.api`.** Перехват очереди живёт только на `ctx.api`
   текущего апдейта. Прямой вызов `bot.grammy.api` и любой multipart-payload идут мимо
   лимитов.
-- **Фильтры регистрируются до `session()` и до middleware.** Ниже них `ctx.session`
-  трогают без проверки ключа (`RequestLogMiddleware`), а `ctx.from` считают заполненным
-  (`FillUserToContextMiddleware`): переставить `HasSessionKeyFilter` ниже — вернуть
+- **Фильтры регистрируются до `sequentialize()`, `session()` и middleware.** Ниже них
+  `ctx.session` трогают без проверки ключа (`RequestLogMiddleware`), а `ctx.from` считают
+  заполненным (`FillUserToContextMiddleware`): переставить `HasSessionKeyFilter` ниже — вернуть
   `critical` на каждый пост в канале. `session()` же не ленив — строку он читает на входе
   и пишет на выходе независимо от того, обращались ли к `ctx.session`, поэтому фильтр
   ниже него отбрасывает апдейт уже после записи в базу.
