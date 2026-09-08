@@ -1,7 +1,8 @@
 {
-    // tsx грузит TypeScript и сам разрешает алиас app/* по paths из tsconfig.json,
-    // поэтому отдельный резолвер путей не нужен. Типы он не проверяет — это делает
-    // npm run typecheck.
+    // tsx грузит TypeScript и сам разрешает алиас app/* по paths, поэтому отдельный
+    // резолвер путей не нужен. Типы он не проверяет — это делает npm run typecheck.
+    // Тиконфиг ему задаёт TSX_TSCONFIG_PATH в npm-скрипте test: compilerOptions
+    // применяются только к файлам из include, а test/** есть лишь в tsconfig.check.json.
     "require": ["tsx/cjs"],
     "spec": "test/**/*.spec.ts",
     "color": true
