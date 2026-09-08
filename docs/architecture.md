@@ -315,7 +315,7 @@ libmagic).
   [#165](https://github.com/yuldashevsardor/telegram-bot/issues/165)).
 - Временные файлы не удаляются (issue
   [#37](https://github.com/yuldashevsardor/telegram-bot/issues/37)).
-- `/font_generator` конвертирует фиксированный `tempDir/app/test-fonts/test-font.woff` в
+- `/font_generator` конвертирует фиксированный `test/fixtures/fonts/test-font.woff` в
   EOT/OTF/TTF/WOFF2 и отвечает **путём** к файлу текстом; сам файл не отправляется.
   Ошибки уходят в `console.log`, мимо `Logger`.
 

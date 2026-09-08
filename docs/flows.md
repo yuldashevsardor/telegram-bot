@@ -155,7 +155,7 @@ RUNNER_MAX_RETRIES` задача отбрасывается с `error`. Вызы
 
 1. `FontGeneratorCommand.handle` → `generateRandomFonts(ctx)` один раз.
 2. Для каждого из `EOT`, `OTF`, `TTF`, `WOFF2` из фиксированного
-   `tempDir/app/test-fonts/test-font.woff`: `FontConvertor.convert()` (§7) →
+   `test/fixtures/fonts/test-font.woff`: `FontConvertor.convert()` (§7) →
    `ctx.reply(<путь к файлу>)` — текстом, сам файл не отправляется.
 3. Всё в `try/catch` с `console.log(error)`, мимо `Logger`.
 
