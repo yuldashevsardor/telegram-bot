@@ -416,8 +416,9 @@ Payload перед записью проходит через `serialize-error`:
 опечатка иначе завела бы бандл языка, в который никто не попадёт. Разбор имени и сборка
 бандлов — в `locale.ts`.
 
-`Bot.setupFlavor()` собирает все `.ftl` под `src/infrastructure/bot`, локаль каждого
-файла берёт `localeFromFilePath()` по соглашению `*.locale.<lang>.ftl` (предпоследний
+`Bot.setupFlavor()` собирает все `.ftl` под своим каталогом (`__dirname` — это
+`src/infrastructure/bot` в разработке и `build/infrastructure/bot` после сборки), локаль
+каждого файла берёт `localeFromFilePath()` по соглашению `*.locale.<lang>.ftl` (предпоследний
 сегмент); неизвестная локаль — `UnknownLocale`, локаль без единого файла —
 `MissingLocaleBundle`. `isDefault: true` получает ровно бандл `DEFAULT_LOCALE`: Fluent
 дописывает дефолтный бандл в хвост цепочки поиска, и на нём ключ, которого нет в локали
@@ -456,9 +457,11 @@ Payload перед записью проходит через `serialize-error`:
 `ConvertorFactory.getSupportedExtensions()` (§7), поэтому обещание пользователю меняется
 вместе с матрицей пар.
 
-`tsc` не копирует `.ftl` в `build/`, запуск из `build/` падает — issue
-[#19](https://github.com/yuldashevsardor/telegram-bot/issues/19); контейнер работает
-через `npm run dev`.
+`.ftl` в `build/` кладёт отдельный шаг `npm run build` (`cpy "src/**/*.ftl" build`):
+`tsc` переносит только результат компиляции `.ts`. Шаг и путь от `__dirname` работают
+только парой — копирование без него всё равно читало бы локали из `src/`, а путь без
+копирования упирался бы в пустой `build/infrastructure/bot`. Контейнер разработки
+запускается через `npm run dev`, из исходников.
 
 ## 11. Хранение данных
 

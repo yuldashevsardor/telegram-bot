@@ -33,7 +33,7 @@
     },
     "main": "./build/app.js",
     "scripts": {
-        "build": "del-cli -rf build && tsc && tsc-alias",
+        "build": "del-cli -rf build && tsc && tsc-alias && cpy \"src/**/*.ftl\" build",
         "typecheck": "tsc -p tsconfig.check.json",
         "start": "node build/app.js",
         "dev": "TSX_TSCONFIG_PATH=./tsconfig.check.json node --watch --require tsx/cjs src/app.ts",
@@ -100,6 +100,7 @@
         "@typescript-eslint/eslint-plugin": "^8.69.0",
         "@typescript-eslint/parser": "^8.69.0",
         "chai": "^4.5.0",
+        "cpy-cli": "^7.0.0",
         "del-cli": "^4.0.1",
         "eslint": "^8.57.1",
         "eslint-config-prettier": "^8.10.2",

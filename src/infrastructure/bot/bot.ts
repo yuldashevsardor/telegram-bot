@@ -20,7 +20,6 @@ import { Fluent } from "@moebius/fluent";
 import { BotCommand } from "grammy/types";
 import { createFluent, createFluentMiddleware } from "app/infrastructure/bot/locale";
 import { DEFAULT_LOCALE, Locale, LOCALES } from "app/infrastructure/bot/locale.types";
-import path from "path";
 
 // Умолчание getUpdates — все типы, кроме chat_member и реакций. Бот же обслуживает
 // только команды и ожидание conversation в приватных чатах, то есть один message:
@@ -37,9 +36,6 @@ export class Bot {
 
     @ConfigValue<BotSettings>("bot")
     private readonly settings!: BotSettings;
-
-    @ConfigValue<string>("rootDir")
-    private readonly rootDir!: string;
 
     private runner?: RunnerHandle;
     private isRun = false;
@@ -170,7 +166,10 @@ export class Bot {
     }
 
     private async setupFlavor(): Promise<Fluent> {
-        const fluent = await createFluent(path.join(this.rootDir, "src", "infrastructure", "bot"));
+        // Каталог берётся от запущенного кода (__dirname), а не от rootDir: в build/ рядом
+        // с кодом лежат свои копии `.ftl` (шаг сборки в package.json), и путь от cwd увёл бы
+        // собранное приложение читать локали из src/ — которого в развёрнутом виде нет.
+        const fluent = await createFluent(__dirname);
 
         this.grammy.use(createFluentMiddleware(fluent));
 

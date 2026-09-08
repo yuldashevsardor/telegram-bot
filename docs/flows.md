@@ -184,7 +184,9 @@ RUNNER_MAX_RETRIES` задача отбрасывается с `error`. Вызы
 
 Часть `Bot.setup()`, один раз за процесс.
 
-1. `FileHelper.findFilesByExtensions(<rootDir>/src/infrastructure/bot, [".ftl"])`.
+1. `FileHelper.findFilesByExtensions(__dirname, [".ftl"])` — каталог `bot.ts` рядом с
+   запущенным кодом: `src/infrastructure/bot` под `npm run dev`,
+   `build/infrastructure/bot` после сборки (§10 architecture.md).
 2. Локаль — предпоследний сегмент имени файла (`start.conversation.locale.ru.ftl` →
    `ru`); не из `LOCALES` — `UnknownLocale`.
 3. `fluent.addTranslation()` на локаль, `isDefault` — только у `ru`. Локаль без файлов —
