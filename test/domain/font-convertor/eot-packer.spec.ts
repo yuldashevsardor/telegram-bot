@@ -3,7 +3,8 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import { EotPacker } from "app/domain/font-convertor/eot-packer/eot-packer";
-import { InvalidEot, InvalidSfnt, UnsupportedEotFlags } from "app/domain/font-convertor/eot-packer/eot-packer.errors";
+import { InvalidEot, UnsupportedEotFlags } from "app/domain/font-convertor/eot-packer/eot-packer.errors";
+import { InvalidSfnt } from "app/domain/font-convertor/eot-packer/sfnt-reader.errors";
 import { Extension } from "app/domain/font-convertor/font-convertor.types";
 import { FontSignatureMatcher } from "app/domain/font-convertor/font-signature-matcher";
 
