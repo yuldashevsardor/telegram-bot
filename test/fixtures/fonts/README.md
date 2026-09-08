@@ -6,13 +6,21 @@
 `.dockerignore` и вдобавок перекрыт томом `app-tmp`, поэтому файлы оттуда до контейнера не
 доезжали вовсе.
 
-Базовый формат — `test-font.ttf`. Остальное делается из него в образе приложения,
-штатным скриптом конвертации (`FontForge.convertScript`):
+Базовый формат — `test-font.ttf`, остальное сделано из него. `test-font.ttf`,
+`test-font.otf`, `test-font.woff` и `test-font.svg` перенесены сюда из `tmp/app/test-fonts`
+байт в байт, как их сделал fontforge в 2022 году; заново сделаны только
+`test-font.woff2` и `test-font.eot` — те два, что оказались не своего формата.
+
+WOFF2 (и, если понадобится замена, OTF, WOFF, SVG) делается в образе приложения штатным
+скриптом конвертации (`FontForge.convertScript`):
 
 ```sh
 fontforge -c 'import fontforge, sys; font = fontforge.open(sys.argv[1]); font.generate(sys.argv[2])' \
     test-font.ttf test-font.<otf|woff|woff2|svg>
 ```
+
+Повторный прогон даст не те же байты, что лежат здесь: fontforge пишет в заголовки свою
+версию и дату сборки. Сверять замену надо сигнатурой формата, а не хешем.
 
 `test-font.eot` этой командой получить нельзя: расширения `.eot` fontforge не знает и
 молча пишет вместо EOT PostScript Type 1 — именно так в репозитории и появились две
