@@ -83,7 +83,7 @@ export class ConfigContainer {
         this.runner = {
             sleepInterval: {
                 min: this.getInteger("RUNNER_SLEEP_INTERVAL_MIN", 10),
-                max: this.getInteger("RUNNER_SLEEP_INTERVAL_MAX", 100),
+                max: this.getInteger("RUNNER_SLEEP_INTERVAL_MAX", 1000),
             },
             maxRetries: this.getInteger("RUNNER_MAX_RETRIES", 3),
         };

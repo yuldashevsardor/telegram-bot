@@ -31,7 +31,7 @@ describe("ConfigContainer", () => {
         expect(result.bot.gracefulShutdown.timeout).to.equal(3000);
         expect(result.taskQueue.gracefulShutdown.timeout).to.equal(5000);
         expect(result.taskQueue.gracefulShutdown.interval).to.equal(500);
-        expect(result.runner.sleepInterval).to.deep.equal({ min: 10, max: 100 });
+        expect(result.runner.sleepInterval).to.deep.equal({ min: 10, max: 1000 });
         expect(result.database.host).to.equal("localhost");
         expect(result.database.port).to.equal(5432);
     });
