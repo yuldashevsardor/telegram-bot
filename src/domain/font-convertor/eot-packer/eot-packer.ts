@@ -72,7 +72,7 @@ export class EotPacker {
 
         // Конверт мог оказаться складным: заголовок сходится, а внутри не шрифт.
         // Дальше файл уйдёт движку, поэтому проверяем здесь, а не там.
-        new SfntReader(font);
+        SfntReader.validate(font);
 
         await FileHelper.write(sfntPath, font);
     }

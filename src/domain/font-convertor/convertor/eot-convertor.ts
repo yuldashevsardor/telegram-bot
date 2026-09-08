@@ -1,9 +1,12 @@
 import { Convertor } from "app/domain/font-convertor/convertor/convertor";
 import { EotPacker } from "app/domain/font-convertor/eot-packer/eot-packer";
-import { Extension } from "app/domain/font-convertor/font-convertor.types";
 import { FontForge } from "app/domain/font-convertor/font-forge/font-forge";
 import { FontSignatureMatcher } from "app/domain/font-convertor/font-signature-matcher";
 
+/**
+ * Общий конструктор пар с EOT. Порядок параметров задан `ConvertorFactory`, поэтому движок
+ * приходит сюда и к парам, которым он не нужен.
+ */
 export abstract class EotConvertor extends Convertor {
     public constructor(
         protected readonly fontForge: FontForge,
@@ -11,13 +14,5 @@ export abstract class EotConvertor extends Convertor {
         protected readonly eotPacker: EotPacker,
     ) {
         super(fontSignatureMatcher);
-    }
-
-    /**
-     * Путь промежуточного sfnt. Имя результата уникально в пределах каталога, значит
-     * уникально и производное от него.
-     */
-    protected intermediatePath(newPath: string): string {
-        return `${newPath}.${Extension.TTF}`;
     }
 }

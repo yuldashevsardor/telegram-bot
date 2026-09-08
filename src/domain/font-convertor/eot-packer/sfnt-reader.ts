@@ -14,6 +14,13 @@ const TABLE_RECORD_SIZE = 16;
 // в конверт EOT кладётся один шрифт, а какой из коллекции, сказать нечем.
 const SFNT_VERSIONS = [0x00010000, 0x74727565, 0x4f54544f];
 
+// Диапазоны кодировок начинаются там же, где кончается OS/2 версии 0, поэтому число
+// одно и на минимальную длину таблицы, и на смещение внутри неё.
+const OS2_CODE_PAGE_RANGE_OFFSET = 78;
+// fsSelection бит 0 — наклон. head.macStyle его дублирует (бит 1, а не 0: нулевой бит там
+// жирность), но канон для OpenType — OS/2, и наклон из него же берёт ttf2eot.
+const OS2_FS_SELECTION_ITALIC = 0x0001;
+
 const NAME_ID_FAMILY = 1;
 const NAME_ID_STYLE = 2;
 const NAME_ID_FULL = 4;
@@ -62,28 +69,36 @@ export class SfntReader {
         }
     }
 
+    /**
+     * Разбирает каталог таблиц и ничего не возвращает: так проверяют, что перед нами sfnt.
+     */
+    public static validate(bytes: Uint8Array): void {
+        new SfntReader(bytes);
+    }
+
     public readMetadata(): SfntMetadata {
         // Смещения полей внутри таблиц: OS/2 — usWeightClass 4, fsType 8, panose 32,
         // ulUnicodeRange1..4 42, fsSelection 62, ulCodePageRange1..2 78 (с версии 1);
-        // head — checkSumAdjustment 8, macStyle 44.
-        const os2 = this.table("OS/2", 78);
+        // head — checkSumAdjustment 8.
+        const os2 = this.table("OS/2", OS2_CODE_PAGE_RANGE_OFFSET);
         const os2Version = this.view.getUint16(os2);
-        const codePageRangeOffset = 78;
         const hasCodePageRange = os2Version >= 1;
 
         if (hasCodePageRange) {
-            this.table("OS/2", codePageRangeOffset + 8);
+            this.table("OS/2", OS2_CODE_PAGE_RANGE_OFFSET + 8);
         }
 
-        const head = this.table("head", 46);
+        const head = this.table("head", 12);
 
         return {
             panose: this.bytes.slice(os2 + 32, os2 + 42),
-            italic: this.view.getUint16(head + 44) & 0x0001,
+            italic: this.view.getUint16(os2 + 62) & OS2_FS_SELECTION_ITALIC,
             weight: this.view.getUint16(os2 + 4),
             fsType: this.view.getUint16(os2 + 8),
             unicodeRange: [0, 1, 2, 3].map((index) => this.view.getUint32(os2 + 42 + index * 4)),
-            codePageRange: hasCodePageRange ? [0, 1].map((index) => this.view.getUint32(os2 + codePageRangeOffset + index * 4)) : [0, 0],
+            codePageRange: hasCodePageRange
+                ? [0, 1].map((index) => this.view.getUint32(os2 + OS2_CODE_PAGE_RANGE_OFFSET + index * 4))
+                : [0, 0],
             checkSumAdjustment: this.view.getUint32(head + 8),
             familyName: this.readName(NAME_ID_FAMILY),
             styleName: this.readName(NAME_ID_STYLE),
@@ -134,20 +149,18 @@ export class SfntReader {
             }
         }
 
-        throw InvalidSfnt.nameNotFound(nameId);
+        // Имена в конверте информационные, а субсеттеры записи из name режут. Отвергать
+        // из-за них шрифт целиком дороже, чем оставить поле пустым.
+        return "";
     }
 
     private decodeName(bytes: Uint8Array, platformId: number): string {
         if (platformId === PLATFORM_MACINTOSH) {
-            return String.fromCharCode(...bytes);
+            // Однобайтовая кодировка платформы Macintosh — MacRoman, а не Latin-1:
+            // выше 0x7f они расходятся.
+            return new TextDecoder("macintosh").decode(bytes);
         }
 
-        let text = "";
-
-        for (let index = 0; index + 1 < bytes.length; index += 2) {
-            text += String.fromCharCode(((bytes[index] as number) << 8) | (bytes[index + 1] as number));
-        }
-
-        return text;
+        return new TextDecoder("utf-16be").decode(bytes);
     }
 }

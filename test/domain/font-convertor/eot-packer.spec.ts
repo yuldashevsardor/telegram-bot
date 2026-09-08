@@ -44,6 +44,17 @@ describe("EotPacker", function () {
             expect(new FontSignatureMatcher().matches(packed, Extension.EOT)).to.be.true;
         });
 
+        it("carries the italic flag of the font into the envelope", async function () {
+            // Наклон — одно из четырёх полей, ради которых конверт вообще читает шрифт;
+            // байт Italic лежит в заголовке по смещению 27.
+            const os2 = new DataView(ttf.buffer).getUint32(tableRecord(ttf, "OS/2") + 8);
+            const italic = Uint8Array.from(ttf);
+            new DataView(italic.buffer).setUint16(os2 + 62, 0x0001);
+
+            expect((await pack(ttf))[27]).to.equal(0);
+            expect((await pack(italic))[27]).to.equal(1);
+        });
+
         it("leaves the font data untouched", async function () {
             const packed = await pack(ttf);
 
@@ -137,6 +148,23 @@ describe("EotPacker", function () {
 
 function hex(bytes: Uint8Array): string {
     return Buffer.from(bytes).toString("hex");
+}
+
+/**
+ * Смещение записи таблицы в каталоге sfnt: заголовок 12 байт, записи по 16.
+ */
+function tableRecord(bytes: Uint8Array, tag: string): number {
+    const view = new DataView(bytes.buffer);
+
+    for (let index = 0; index < view.getUint16(4); index++) {
+        const record = 12 + index * 16;
+
+        if (String.fromCharCode(...bytes.subarray(record, record + 4)) === tag) {
+            return record;
+        }
+    }
+
+    throw new Error(`Fixture has no ${tag} table.`);
 }
 
 async function readFixture(extension: Extension): Promise<Uint8Array> {

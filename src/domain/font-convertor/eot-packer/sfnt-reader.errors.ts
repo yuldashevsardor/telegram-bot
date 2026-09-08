@@ -24,10 +24,4 @@ export class InvalidSfnt extends RuntimeError {
             tag: tag,
         });
     }
-
-    public static nameNotFound(nameId: number): InvalidSfnt {
-        return new InvalidSfnt(`Sfnt name record ${nameId} not found.`, {
-            nameId: nameId,
-        });
-    }
 }

@@ -13,7 +13,9 @@ const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 const TABLE_DIRECTORY_OFFSET = 12;
 const TABLE_RECORD_SIZE = 16;
 const NAME_RECORD_SIZE = 12;
+const PLATFORM_MACINTOSH = 1;
 const PLATFORM_WINDOWS = 3;
+const NAME_ID_FAMILY = 1;
 
 describe("SfntReader.readMetadata", function () {
     let ttf: Uint8Array;
@@ -49,27 +51,39 @@ describe("SfntReader.readMetadata", function () {
         expect(metadata.checkSumAdjustment).to.equal(0x98583c4c);
     });
 
-    it("takes the italic flag from macStyle", function () {
+    it("takes the italic flag from the os/2 table", function () {
+        const os2 = tableOffset(ttf, "OS/2");
         const head = tableOffset(ttf, "head");
 
-        expect(readMetadata(patch(ttf, (view) => view.setUint16(head + 44, 0x0001))).italic).to.equal(1);
-        // Второй бит macStyle — жирность, наклоном она не считается.
+        expect(readMetadata(patch(ttf, (view) => view.setUint16(os2 + 62, 0x0001))).italic).to.equal(1);
+        // Бит 5 fsSelection — жирность, наклоном она не считается.
+        expect(readMetadata(patch(ttf, (view) => view.setUint16(os2 + 62, 0x0020))).italic).to.equal(0);
+        // head.macStyle наклон дублирует, но читается не он: там наклон в бите 1, а в
+        // бите 0 жирность, и перепутать их — объявить наклонный шрифт прямым.
         expect(readMetadata(patch(ttf, (view) => view.setUint16(head + 44, 0x0002))).italic).to.equal(0);
     });
 
     it("falls back to the macintosh names when the font has no windows ones", function () {
-        // У фикстуры имена продублированы обеими платформами, поэтому спрятать записи
-        // Windows достаточно, чтобы проверить и приоритет платформ, и однобайтовое чтение.
-        const hidden = patch(ttf, (view) => {
-            forEachNameRecord(ttf, (record) => {
-                if (view.getUint16(record) === PLATFORM_WINDOWS) {
-                    view.setUint16(record, 0x0009);
-                }
-            });
+        expect(readMetadata(withoutWindowsNames(ttf)).familyName).to.equal("Signature Fixture");
+        expect(readMetadata(withoutWindowsNames(ttf)).versionName).to.equal("Version 001.000");
+    });
+
+    it("decodes the macintosh names as macroman, not latin-1", function () {
+        // 0x8e — «é» в MacRoman и «Ž» в Latin-1: байт, на котором кодировки расходятся.
+        const renamed = patch(withoutWindowsNames(ttf), (_view, bytes) => {
+            bytes[nameStringOffset(bytes, PLATFORM_MACINTOSH, NAME_ID_FAMILY)] = 0x8e;
         });
 
-        expect(readMetadata(hidden).familyName).to.equal("Signature Fixture");
-        expect(readMetadata(hidden).versionName).to.equal("Version 001.000");
+        expect(readMetadata(renamed).familyName).to.equal("éignature Fixture");
+    });
+
+    it("leaves a name the font does not carry empty instead of rejecting the font", function () {
+        // Записи name режут субсеттеры, а поля конверта информационные: отвергать из-за
+        // них шрифт целиком дороже, чем отдать пустую строку.
+        const nameless = patch(ttf, (view, bytes) => view.setUint16(tableOffset(bytes, "name") + 2, 0));
+        const metadata = readMetadata(nameless);
+
+        expect([metadata.familyName, metadata.styleName, metadata.versionName, metadata.fullName]).to.deep.equal(["", "", "", ""]);
     });
 
     it("reports no code page ranges for an os/2 table older than version 1", function () {
@@ -129,12 +143,6 @@ describe("SfntReader.readMetadata", function () {
         );
     });
 
-    it("rejects a font without the name record the envelope needs", function () {
-        const name = tableOffset(ttf, "name");
-
-        expectThrows(() => readMetadata(patch(ttf, (view) => view.setUint16(name + 2, 0))), InvalidSfnt);
-    });
-
     it("rejects a name string that runs past the end of the font", function () {
         expectThrows(() =>
             readMetadata(
@@ -149,12 +157,43 @@ describe("SfntReader.readMetadata", function () {
         return new SfntReader(bytes).readMetadata();
     }
 
-    function patch(bytes: Uint8Array, mutate: (view: DataView) => void): Uint8Array {
+    function patch(bytes: Uint8Array, mutate: (view: DataView, copy: Uint8Array) => void): Uint8Array {
         const copy = Uint8Array.from(bytes);
 
-        mutate(new DataView(copy.buffer));
+        mutate(new DataView(copy.buffer), copy);
 
         return copy;
+    }
+
+    // У фикстуры имена продублированы обеими платформами, поэтому спрятать записи Windows
+    // достаточно, чтобы дойти до записей Macintosh.
+    function withoutWindowsNames(bytes: Uint8Array): Uint8Array {
+        return patch(bytes, (view, copy) => {
+            forEachNameRecord(copy, (record) => {
+                if (view.getUint16(record) === PLATFORM_WINDOWS) {
+                    view.setUint16(record, 0x0009);
+                }
+            });
+        });
+    }
+
+    function nameStringOffset(bytes: Uint8Array, platformId: number, nameId: number): number {
+        const view = new DataView(bytes.buffer);
+        const name = tableOffset(bytes, "name");
+        const storage = name + view.getUint16(name + 4);
+        let found: number | undefined;
+
+        forEachNameRecord(bytes, (record) => {
+            if (view.getUint16(record) === platformId && view.getUint16(record + 6) === nameId) {
+                found ??= storage + view.getUint16(record + 10);
+            }
+        });
+
+        if (found === undefined) {
+            throw new Error(`Fixture has no name ${nameId} for platform ${platformId}.`);
+        }
+
+        return found;
     }
 
     function tableRecord(bytes: Uint8Array, tag: string): number {

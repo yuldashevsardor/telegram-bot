@@ -300,9 +300,13 @@ eot → {otf,woff,woff2,svg}   EotPacker.unpack(SRC, DIST.ttf) → FontForge.con
 
 `EotPacker` (`eot-packer/`) — единственное место, где домен разбирает содержимое шрифта, а
 не только его первые байты. Заголовок EOT дублирует метаданные вложенного шрифта, и
-`SfntReader` достаёт их из таблиц `OS/2` (насыщенность, PANOSE, диапазоны кодировок),
-`head` (наклон, контрольная сумма) и `name` (четыре имени, в конверте — UTF-16LE); имена
-берутся с платформы Windows, а при её отсутствии — с Macintosh.
+`SfntReader` достаёт их из таблиц `OS/2` (насыщенность, наклон, PANOSE, диапазоны
+кодировок), `head` (контрольная сумма) и `name` (четыре имени, в конверте — UTF-16LE).
+Наклон берётся из `OS/2.fsSelection`, а не из дублирующего его `head.macStyle`: так же
+делает `ttf2eot`, а в `macStyle` наклон лежит в бите 1, где в `fsSelection` не он.
+Имена читаются с платформы Windows, при её отсутствии — с Unicode, потом с Macintosh
+(там однобайтовый MacRoman, а не Latin-1); имя, которого в шрифте нет, остаётся пустым —
+поля конверта информационные, и субсеттеры их режут.
 Раскладка заголовка расписана в самом `eot-packer.ts`. Пишется версия `0x00020001`,
 читаются `0x00010000`, `0x00020001` и `0x00020002`; сжатую (`TTEMBED_TTCOMPRESSED`) и
 зашифрованную (`TTEMBED_XORENCRYPTDATA`) полезную нагрузку кодек отвергает явной ошибкой
@@ -546,7 +550,8 @@ Payload перед записью проходит через `serialize-error`:
   `tsconfig.check.json`. Миграции идут мимо `tsx`, их грузит своим jiti `node-pg-migrate`
   (§11).
 - Покрыто: `task-queue` (очередь, партиция, лимит), `ConfigContainer`,
-  `ConfigEnvStorage`, `ConsoleLogger`, `ConvertorFactory`, `EotPacker`, `FileHelper`,
+  `ConfigEnvStorage`, `ConsoleLogger`, `ConvertorFactory`, `EotPacker`, пары с EOT на
+  подставных движке и кодеке, `FileHelper`,
   `FontSignatureMatcher`, `ProcessHelper`, `SfntReader`, `utils`, `errors`, отброс в базовом `Filter`,
   список форматов в приветствии `StartConversation`, локали (§10). Не покрыто: `Runner`,
   `FontConvertor`, `Convertor`, `UserService`, `Application`, `Bot`, middleware.

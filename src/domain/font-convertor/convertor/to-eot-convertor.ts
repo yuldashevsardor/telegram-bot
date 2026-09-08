@@ -12,7 +12,8 @@ export abstract class ToEotConvertor extends EotConvertor {
     public async convert(originPath: string, newPath: string): Promise<void> {
         await this.validate(originPath, newPath);
 
-        const sfntPath = this.intermediatePath(newPath);
+        // Имя результата уникально в каталоге, значит уникально и производное от него.
+        const sfntPath = `${newPath}.${Extension.TTF}`;
 
         try {
             await this.fontForge.convert(originPath, sfntPath);
