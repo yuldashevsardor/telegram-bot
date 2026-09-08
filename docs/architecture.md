@@ -107,11 +107,16 @@ scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-w
 сам (`ApplicationContext.create()`, конструктор приватный): внутри `ConfigEnvStorage` →
 `ConfigContainer` → `AsyncLocalStorage` → выбор адаптера логгера.
 
-Контекст фигурирует ровно в двух местах: `Application` держит его полем и
-передаёт в `container.setup(context)`. Потребители получают его части из контейнера по
-отдельности (`@inject(Infrastructure.ConfigContainer)`, `Infrastructure.Logger`,
-`Infrastructure.RequestStorage`) — контекст не инжектится никуда, иначе он стал бы
-вторым DI. Состав держится коротким по той же причине: `Database` в него не входит, у неё
+Контекст один на процесс, и это проверяется: конструктор приватный, повторный `create()`
+бросает `ApplicationContextAlreadyCreated` — у второго контекста своё хранилище запроса, и
+логгер читал бы не тот стор, который открыл middleware (§9), то есть корреляция сломалась
+бы молча.
+
+Дальше контекст никуда не расходится: он живёт в `Application.setup()`, отдаёт `cc` и
+`logger` полям приложения и уходит в `container.setup(context)`. Потребители получают его
+части из контейнера по отдельности (`@inject(Infrastructure.ConfigContainer)`,
+`Infrastructure.Logger`, `Infrastructure.RequestStorage`) — контекст не инжектится никуда,
+иначе он стал бы вторым DI. Состав держится коротким по той же причине: `Database` в него не входит, у неё
 свой жизненный цикл на `container.close()` (§3).
 
 `Application` (`infrastructure/application/application.ts`) — жизненный цикл; создаётся

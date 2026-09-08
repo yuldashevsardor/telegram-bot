@@ -1,5 +1,7 @@
 import { container } from "app/infrastructure/container/container";
 import { ApplicationContext } from "app/infrastructure/application/application-context";
+import { ConfigContainer } from "app/infrastructure/config/config-container";
+import { Logger } from "app/domain/logger/logger";
 import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
 import { Modules } from "app/infrastructure/container/symbols/modules";
 import { Database } from "app/infrastructure/database/database";
@@ -10,7 +12,8 @@ import { sleep, withTimeout } from "app/helper/utils";
 import { RuntimeError } from "app/common/errors";
 
 export class Application {
-    private context!: ApplicationContext;
+    private cc!: ConfigContainer;
+    private logger!: Logger;
     private taskQueue!: TaskQueue;
     private runner!: Runner;
     private bot!: Bot;
@@ -23,18 +26,21 @@ export class Application {
             return;
         }
 
-        this.context = ApplicationContext.create();
+        const context = ApplicationContext.create();
 
-        this.context.logger.info("Setup container...");
+        this.cc = context.config;
+        this.logger = context.logger;
 
-        await container.setup(this.context);
+        this.logger.info("Setup container...");
 
-        this.context.logger.info("Container successfully setup.");
-        this.context.logger.info("Check database connection...");
+        await container.setup(context);
+
+        this.logger.info("Container successfully setup.");
+        this.logger.info("Check database connection...");
 
         await container.get<Database>(Infrastructure.Database).check();
 
-        this.context.logger.info("Database connection is alive.");
+        this.logger.info("Database connection is alive.");
 
         this.taskQueue = container.get<TaskQueue>(Modules.TaskQueue.TaskQueue);
         this.runner = container.get<Runner>(Modules.TaskQueue.Runner);
@@ -56,11 +62,11 @@ export class Application {
 
             this.isRun = true;
 
-            this.context.logger.info("Application is successfully started.");
+            this.logger.info("Application is successfully started.");
         } catch (error) {
             this.runner.stop();
 
-            this.context.logger.critical("Unhandled error on application start", { error: error });
+            this.logger.critical("Unhandled error on application start", { error: error });
 
             throw error;
         }
@@ -71,19 +77,19 @@ export class Application {
             return;
         }
 
-        this.context.logger.info("Stop application...");
+        this.logger.info("Stop application...");
 
-        const { timeout } = this.context.config.gracefulShutdown;
+        const { timeout } = this.cc.gracefulShutdown;
 
         if (!(await withTimeout(this.shutdown(), timeout))) {
-            this.context.logger.warning("Graceful shutdown timeout is over, the shutdown was cut short.", {
+            this.logger.warning("Graceful shutdown timeout is over, the shutdown was cut short.", {
                 timeout: timeout,
             });
 
             return;
         }
 
-        this.context.logger.info("Application is successfully stopped.");
+        this.logger.info("Application is successfully stopped.");
     }
 
     // Свой срок есть у каждого шага, а общий — у остановки целиком: он больше их суммы
@@ -102,14 +108,14 @@ export class Application {
     }
 
     private async waitQueueToEmpty(): Promise<void> {
-        const { timeout, interval } = this.context.config.taskQueue.gracefulShutdown;
+        const { timeout, interval } = this.cc.taskQueue.gracefulShutdown;
         const deadline = Date.now() + timeout;
 
         while (!this.taskQueue.isEmpty()) {
             const timeLeft = deadline - Date.now();
 
             if (timeLeft <= 0) {
-                this.context.logger.warning("Shutdown timeout is over, remaining tasks will not be done.", {
+                this.logger.warning("Shutdown timeout is over, remaining tasks will not be done.", {
                     tasksLeft: this.taskQueue.getTaskCount(),
                     timeout: timeout,
                 });
@@ -117,7 +123,7 @@ export class Application {
                 return;
             }
 
-            this.context.logger.info(`Waiting for the outgoing queue to empty: ${this.taskQueue.getTaskCount()} tasks left.`);
+            this.logger.info(`Waiting for the outgoing queue to empty: ${this.taskQueue.getTaskCount()} tasks left.`);
 
             await sleep(Math.min(interval, timeLeft));
         }
