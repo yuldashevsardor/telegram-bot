@@ -12,6 +12,7 @@ export const Modules = {
             FontGenerator: Symbol.for("FontGenerator"),
         },
         Filter: {
+            HasSessionKey: Symbol.for("HasSessionKey"),
             IsPrivateChat: Symbol.for("IsPrivateChat"),
         },
         Middleware: {

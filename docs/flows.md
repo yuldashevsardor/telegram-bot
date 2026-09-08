@@ -15,7 +15,8 @@
    - `ConfigEnvStorage` — `dotenv.config()` один раз, явно.
    - `ConfigContainer` — разбор и валидация всей конфигурации. Ошибка здесь —
      `InvalidConfigError` до появления логгера, её печатает `fail()` через `console.error`.
-   - `createLogger()` — `PinoLogger` в `Proxy` (production) или `ConsoleLogger`.
+   - `createLogger()` — `PinoLogger` (production) или `ConsoleLogger`; обоим отдаётся
+     `asyncLocalStorage`, из которого они читают данные запроса при записи (§9).
    - `container.setup()` — только биндинги, классы ещё не инстанцируются.
    - `Database.check()` — первый резолв `Database` и `select 1`: недоступная база валит
      старт здесь, а не на первом апдейте.
@@ -64,26 +65,28 @@
    `from` или `chat` (пост в канале).
    - Ключ есть: сессия грузится лениво при первом `ctx.session` (`PgsqlStorage.read`),
      после цепочки пишется обратно, если менялась (`write`, upsert).
-   - Ключа нет: grammY вызывает `next()`, но первое обращение к `ctx.session` бросает
-     синхронно.
+   - Ключа нет: grammY вызывает `next()`, но первое обращение к `ctx.session` бросило бы
+     синхронно, поэтому такой апдейт отсеивается шагом 3.
 2. **`sequentialize`** по `[chat.id, from.id]` — апдейты с общим ключом идут по одному.
-3. **`TelegramCallApiMiddleware`** — подменяет `ctx.api.raw` на `Proxy` (поток 4).
-4. **`AsyncLocalStorageMiddleware`** — при `PinoLogger` создаёт `child({ requestId })`
-   и выполняет остаток в `asyncLocalStorage.run()`; при `ConsoleLogger` просто `next()`.
-5. **`ResponseTimeMiddleware`** — `await next()`, затем `info` с временем; без try/catch.
-6. **`RequestLogMiddleware`** — `ctx.session.requestCount++`, затем `debug` со всем
-   `ctx.update`. Для апдейта без ключа сессии падает здесь; ошибка всплывает через все
-   middleware (session-middleware её не глотает), grammY заворачивает в `BotError` и
-   отдаёт `Bot.handleError` → `critical`. Обработка апдейта на этом заканчивается.
-7. **`FillUserToContextMiddleware`** — `existsById` → `edit` (`getById` + `save`) или
-   `create` (`save`) → `ctx.user`. Ошибок не ловит. Своя защита `if (!ctx.from)`
-   недостижима из-за шага 6.
-8. **Fluent** — `ctx.t()`; локаль — язык из `ctx.from.language_code`, незнакомый уводится
+3. **`HasSessionKeyFilter`** — `getSessionKey(ctx) === undefined`: `warning` с
+   `update_id` и тем, какого поля не хватило, и цепочка обрывается без ошибки и без
+   единого запроса в базу. Ниже `ctx.from`, `ctx.chat` и `ctx.session` заполнены.
+4. **`AsyncLocalStorageMiddleware`** — выполняет остаток пайплайна в
+   `asyncLocalStorage.run({ requestId })`. Первый из middleware: всё, что логируется
+   внутри цепочки, пишется с `requestId`.
+5. **`TelegramCallApiMiddleware`** — подменяет `ctx.api.raw` на `Proxy` (поток 4).
+6. **`ResponseTimeMiddleware`** — `await next()`, затем `info` с временем; без try/catch.
+7. **`RequestLogMiddleware`** — `ctx.session.requestCount++`, затем `debug` со всем
+   `ctx.update`.
+8. **`FillUserToContextMiddleware`** — `existsById` → `edit` (`getById` + `save`) или
+   `create` (`save`) → `ctx.user`. Ошибок не ловит. `if (!ctx.from)` — ассерт инварианта
+   шага 3, бросает `UpdateWithoutFrom`.
+9. **Fluent** — `ctx.t()`; локаль — язык из `ctx.from.language_code`, незнакомый уводится
    в дефолтную `ru`.
-9. **`IsPrivateChatFilter`** — не приватный чат: цепочка обрывается без ошибки.
-10. **Conversations** — чат «внутри» conversation получает апдейт в точку `wait()`
+10. **`IsPrivateChatFilter`** — не приватный чат: цепочка обрывается без ошибки.
+11. **Conversations** — чат «внутри» conversation получает апдейт в точку `wait()`
     вместо диспетчеризации команд.
-11. **Команды** — `composer.command(name, handler)`.
+12. **Команды** — `composer.command(name, handler)`.
 
 **База на апдейт:** до 1 `select` + 1 upsert по `sessions`; до 2 `select` + 1 upsert по
 `users`.
@@ -182,8 +185,16 @@ RUNNER_MAX_RETRIES` задача отбрасывается с `error`. Вызы
 
 Не поток, а сквозной аспект. Бэкенд выбирается при старте по `NODE_ENV` (§9).
 
-- `PinoLogger`: `Proxy` из `Application.createLogger()` на каждый доступ к свойству
-  проверяет `asyncLocalStorage.getStore()?.get("logger")` и подставляет дочерний логгер с
-  `requestId`, созданный в `AsyncLocalStorageMiddleware`. Порог дочерний берёт у родителя.
-- `ConsoleLogger`: middleware пропускает настройку, все строки от параллельных апдейтов
-  неразличимы.
+Логгер один на процесс и под запрос не подменяется. `AsyncLocalStorageMiddleware`
+открывает стор апдейта, `AbstractLogger.getRequestContext()` в момент записи берёт из
+него значения `ALS_KEYS` — сейчас один `requestId`:
+
+- `PinoLogger`: значения уходят полями объекта рядом с `message` и `payload`.
+- `ConsoleLogger`: значения печатаются чипами `[key=value]` перед сообщением.
+
+Механизм один на оба бэкенда, поэтому корреляция есть и в разработке.
+
+Вне области `run()` данных запроса нет, и это заметно на ошибках: `bot.catch` →
+`Bot.handleError` вызывается из `handleUpdate` уже после того, как промис пайплайна
+отклонён и область свёрнута, поэтому `critical` про упавший апдейт уходит без
+`requestId`.

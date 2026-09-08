@@ -63,7 +63,7 @@ src/
     database/               Database (§11)
     logger/                 ConsoleLogger, PinoLogger (§9)
     repository/             PgSqlUserRepository (§8)
-    async-local-storage.ts  общий AsyncLocalStorage для per-request логгера (§9)
+    async-local-storage.ts  AsyncLocalStorage запроса и ключи его значений (§9)
 test/                       mocha-спеки, зеркалят src/
 migrations/                 миграции, в common/ — общие shorthands и заготовка (§11)
 scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-worktree-guard
@@ -114,9 +114,9 @@ scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-w
   общего `stop()` перестаёт ждать, пишет `warning`, и `app.ts` делает `process.exit(0)`.
   Собственные сроки зависимостей (`sql.end({ timeout: 5 })`) в проверку не входят.
 
-`createLogger()`: в production `PinoLogger`, обёрнутый в `Proxy`, который на каждый
-доступ к свойству подставляет логгер запроса из `asyncLocalStorage` (§9); иначе
-`ConsoleLogger`. Снять `Proxy` — issue [#40](https://github.com/yuldashevsardor/telegram-bot/issues/40).
+`createLogger()`: в production `PinoLogger`, иначе `ConsoleLogger`; порог из конфига.
+Логгер один на процесс и под запрос не подменяется — данные запроса он берёт из
+`asyncLocalStorage` в момент записи (§9).
 
 ## 5. Bot
 
@@ -131,12 +131,18 @@ ConversationFlavor & FluentContextFlavor & { user: User }`.
 2. `sequentialize()` по ключам `[chat.id, from.id]` — сериализует апдейты одного
    чата/пользователя, иначе конкурентный runner устроил бы гонку по сессии и по
    check-then-act в `FillUserToContextMiddleware` (§8).
-3. Middleware: `TelegramCallApiMiddleware` → `AsyncLocalStorageMiddleware` →
+3. `HasSessionKeyFilter` — тем же `getSessionKey` отбрасывает апдейты без `from`
+   или `chat` (пост в канале, inline-запрос): сессии у них нет, а всё ниже на неё
+   рассчитывает. Отброс пишется `warning`-ом: ниже фильтра дампа апдейта уже не будет.
+   Логгер здесь ещё без `requestId` — `AsyncLocalStorageMiddleware` стоит ниже (§9).
+4. Middleware: `AsyncLocalStorageMiddleware` → `TelegramCallApiMiddleware` →
    `ResponseTimeMiddleware` → `RequestLogMiddleware` → `FillUserToContextMiddleware`.
-4. Fluent (§10).
-5. `IsPrivateChatFilter` — всё ниже работает только в приватных чатах.
-6. `conversations()` + `createConversation` для каждого символа `Modules.Bot.Conversations`.
-7. Команды из `Modules.Bot.Command`: `command.setup(composer)`, затем
+   `AsyncLocalStorageMiddleware` первый: всё, что логируется внутри цепочки, пишется
+   с `requestId` (§9).
+5. Fluent (§10).
+6. `IsPrivateChatFilter` — всё ниже работает только в приватных чатах.
+7. `conversations()` + `createConversation` для каждого символа `Modules.Bot.Conversations`.
+8. Команды из `Modules.Bot.Command`: `command.setup(composer)`, затем
    `api.setMyCommands()` на каждую локаль (§10) — по сетевому вызову при каждом старте.
 
 `Bot.run()` вешает `grammy.catch(handleError)` (только `critical`-лог, пользователю
@@ -144,7 +150,12 @@ ConversationFlavor & FluentContextFlavor & { user: User }`.
 останавливает runner в пределах своего срока.
 
 `Command`, `Filter`, `Middleware`, `ConversationHandler` — абстрактные базы вида
-«`handle`/`run` + `setup(composer)`».
+«`handle`/`run` + `setup(composer)`». `Filter.setup()` обрывает цепочку сам, вызывая
+`next()` только при истинном `handle()`: `composer.filter()` grammY для этого не годится
+— он не отбрасывает апдейт, а прячет за условием лишь то, что повешено на возвращённый
+им composer, и обе ветки его `branch` зовут `next()`. Пока `setup()` полагался на
+`filter()` и выбрасывал этот composer, ни один фильтр репозитория не отсекал ничего
+(тест `test/infrastructure/bot/filter/filter.spec.ts`).
 
 ### TelegramCallApiMiddleware
 
@@ -247,9 +258,10 @@ FontConvertor.convert({ originPath, extension })
 транзакцией; от гонки защищает только `sequentialize()` по `from.id` (§5).
 `create()` не защищает от дублей сам — полагается на upsert.
 
-Защита `if (!ctx.from)` в этом middleware недостижима: апдейт без `from` падает раньше,
-в `RequestLogMiddleware`, на обращении к `ctx.session` при неразрешённом ключе (issue
-[#29](https://github.com/yuldashevsardor/telegram-bot/issues/29)).
+`ctx.from` здесь заполнен по построению пайплайна: апдейты без ключа сессии отбросил
+`HasSessionKeyFilter` (§5). Проверка `if (!ctx.from)` осталась как ассерт — она нужна
+компилятору и бросает `UpdateWithoutFrom` (`bot.errors.ts`), если порядок в
+`Bot.setup()` сломают.
 `RequestLogMiddleware` также логирует весь `ctx.update` на `debug` и инкрементирует
 `session.requestCount`, который нигде не читается. `UserAlreadyExists` не бросается
 (issue [#38](https://github.com/yuldashevsardor/telegram-bot/issues/38)).
@@ -259,15 +271,29 @@ FontConvertor.convert({ originPath, extension })
 Порт `domain/logger/logger.ts` (`critical/error/warning/info/debug(message, payload?)`),
 `Level` и веса `LevelSeverity` в `logger.types.ts`. Адаптеры в `infrastructure/logger/`:
 `AbstractLogger` (порог через `setLevel`, `isEnabled`), `ConsoleLogger`, `PinoLogger`
-(кастомные уровни из `LevelSeverity`, `child(context)`).
+(кастомные уровни из `LevelSeverity`).
 
 Порог — `LOGGER_LEVEL`: пишется он и всё серьёзнее; по умолчанию `WARNING` в production,
 `DEBUG` иначе. Неизвестное значение — `InvalidConfigError`.
 
-Корреляция запросов: `AsyncLocalStorageMiddleware` создаёт `child({ requestId })` и
-выполняет остаток пайплайна в `asyncLocalStorage.run()`, а `Proxy` из
-`Application.createLogger()` подставляет его при каждом обращении к логгеру. Работает
-только с `PinoLogger`, то есть только в production; в разработке корреляции нет.
+Корреляция запросов: `AsyncLocalStorageMiddleware` (первый в пайплайне) выполняет
+остаток пайплайна в `asyncLocalStorage.run({ requestId })`. `AbstractLogger` принимает
+хранилище зависимостью конструктора и в момент записи забирает из него значения
+`ALS_KEYS` — `PinoLogger` кладёт их полями объекта, `ConsoleLogger` печатает чипами
+`[key=value]`. Логгер при этом не подменяется и не пересобирается, поэтому корреляция
+работает на обоих адаптерах, в том числе в разработке.
+
+Область `run()` — это цепочка middleware, и только она: `bot.catch` → `Bot.handleError`
+вызывается из `handleUpdate` уже после того, как промис пайплайна отклонён и область
+свёрнута, поэтому `critical` про упавший апдейт идёт без `requestId`.
+
+Хранилище (`infrastructure/async-local-storage.ts`) общее, а не логгерное: ключи и тип
+стора — в `async-local-storage.types.ts` (`ALS_KEYS` с `as const`, `AlsStore` выведен из
+него, значения `unknown`). В запись логгер кладёт только известные ключи: без отбора
+формат лога зависел бы от того, что в стор положили по дороге, а `as const` делает
+опечатку в ключе ошибкой компиляции, а не молча потерянной корреляцией. Хранилище —
+кандидат в `ApplicationContext`, issue
+[#109](https://github.com/yuldashevsardor/telegram-bot/issues/109).
 
 Payload перед записью проходит через `serialize-error`: без него вложенная ошибка
 печаталась бы как `{}`, а так в лог попадают её `name`, `message`, `stack` и `cause`.
@@ -389,8 +415,8 @@ Payload перед записью проходит через `serialize-error`:
   алиас `app/*` не разрешается). Типы тестов проверяет `npm run typecheck` по
   `tsconfig.check.json`: сборочный `tsconfig.json` ограничен `src`.
 - Покрыто: `task-queue` (очередь, партиция, лимит), `ConfigContainer`,
-  `ConfigEnvStorage`, `ConsoleLogger`, `FileHelper`, `ProcessHelper`, `utils`, `errors`.
-  Не покрыто:
+  `ConfigEnvStorage`, `ConsoleLogger`, `FileHelper`, `ProcessHelper`, `utils`, `errors`,
+  отброс в базовом `Filter`, локали (§10). Не покрыто:
   `Runner`, `FontConvertor`, `UserService`, `Application`, `Bot`, middleware.
 - `nyc` считает покрытие по TypeScript-исходникам; отчёт в `./coverage`.
 - `tsconfig.json`: `strict` и все флаги вне его зонтика; `skipLibCheck` вынужденно
@@ -421,6 +447,10 @@ Payload перед записью проходит через `serialize-error`:
 - **`ctx.api` против `bot.grammy.api`.** Перехват очереди живёт только на `ctx.api`
   текущего апдейта. Прямой вызов `bot.grammy.api` и любой multipart-payload идут мимо
   лимитов.
+- **`HasSessionKeyFilter` регистрируется до middleware.** Ниже него `ctx.session`
+  трогают без проверки ключа (`RequestLogMiddleware`), а `ctx.from` считают заполненным
+  (`FillUserToContextMiddleware`). Переставить фильтр ниже — вернуть `critical` на
+  каждый пост в канале.
 - **`ctx.user` есть только после `FillUserToContextMiddleware`.** Код выше по пайплайну
   или вне его (будущие фоновые задачи) на поле рассчитывать не может.
 - **Сроки остановки**: общий > сумма частных (проверяется), общий <
@@ -432,7 +462,6 @@ Payload перед записью проходит через `serialize-error`:
   `fill-user-to-context.middleware.ts`; компилятор их не связывает, забытая миграция
   проявится SQL-ошибкой в рантайме.
 - **Порядок колонок `sessions`** связан с позиционным `insert` в `PgsqlStorage.write()`.
-- **`NODE_ENV` решает, есть ли корреляция запросов** (§9), а не только формат логов.
 - **`.ftl` именуются `*.locale.<lang>.ftl`, локаль — из `LOCALES`**; и то, и другое
   проверяется при старте (§10). Ключи одной локали лежат в общем пространстве имён,
   поэтому в имя ключа входит модуль-владелец.

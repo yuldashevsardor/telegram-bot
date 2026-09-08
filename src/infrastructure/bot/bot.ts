@@ -89,11 +89,14 @@ export class Bot {
 
         await this.setupSession();
         await this.setupSequential();
+        // До middleware: RequestLogMiddleware обращается к ctx.session, а без ключа
+        // сессии это бросок; такой апдейт всё равно не дойдёт до команд.
+        await this.setupFilters([Modules.Bot.Filter.HasSessionKey]);
         await this.setupMiddlewares();
         // Fluent нужен и командам: их описания переводятся тем же экземпляром до того, как
         // уйдут в setMyCommands.
         const fluent = await this.setupFlavor();
-        await this.setupFilters();
+        await this.setupFilters([Modules.Bot.Filter.IsPrivateChat]);
         await this.setupConversations();
         await this.setupCommands(fluent);
 
@@ -133,8 +136,8 @@ export class Bot {
 
         const composer = new Composer<Context>();
         const middlewares = [
-            container.get<Middleware>(Modules.Bot.Middleware.Mutation.TelegramCallApi),
             container.get<Middleware>(Modules.Bot.Middleware.AsyncLocalStorage),
+            container.get<Middleware>(Modules.Bot.Middleware.Mutation.TelegramCallApi),
             container.get<Middleware>(Modules.Bot.Middleware.ResponseTime),
             container.get<Middleware>(Modules.Bot.Middleware.RequestLog),
             container.get<Middleware>(Modules.Bot.Middleware.FillUserToContext),
@@ -163,14 +166,13 @@ export class Bot {
         return fluent;
     }
 
-    private async setupFilters(): Promise<void> {
-        this.logger.debug("Setup filters...");
+    private async setupFilters(symbols: symbol[]): Promise<void> {
+        this.logger.debug("Setup filters...", { filters: symbols.map(String) });
 
         const composer = new Composer<Context>();
-        const filters = [container.get<Filter>(Modules.Bot.Filter.IsPrivateChat)];
 
-        for (const filter of filters) {
-            filter.setup(composer);
+        for (const symbol of symbols) {
+            container.get<Filter>(symbol).setup(composer);
         }
 
         this.grammy.use(composer);
