@@ -1,12 +1,12 @@
+import { EotConvertor } from "app/domain/font-convertor/convertor/eot-convertor";
 import { Extension } from "app/domain/font-convertor/font-convertor.types";
-import { FontForgeConvertor } from "app/domain/font-convertor/convertor/font-forge-convertor";
 
-export class EotToTtf extends FontForgeConvertor {
+export class EotToTtf extends EotConvertor {
     protected fromExtension: Extension = Extension.EOT;
     protected toExtension: Extension = Extension.TTF;
 
     public async convert(originPath: string, newPath: string): Promise<void> {
         await this.validate(originPath, newPath);
-        await this.fontForge.convert(originPath, newPath);
+        await this.eotPacker.unpack(originPath, newPath);
     }
 }

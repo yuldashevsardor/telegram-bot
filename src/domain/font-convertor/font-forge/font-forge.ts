@@ -10,7 +10,11 @@ export class FontForge {
     @ConfigValue<string>("fontForgePath")
     private readonly fontForgePath!: string;
 
-    private readonly supportedExtensions = [Extension.EOT, Extension.OTF, Extension.TTF, Extension.WOFF, Extension.SVG, Extension.WOFF2];
+    // EOT здесь нет намеренно: движок не читает его конверт, а на запись молча
+    // отдаёт PostScript Type 1 под чужим расширением. Конверт снимает и надевает
+    // EotPacker, движку достаётся уже sfnt
+    // (issue https://github.com/yuldashevsardor/telegram-bot/issues/158).
+    private readonly supportedExtensions = [Extension.OTF, Extension.TTF, Extension.WOFF, Extension.SVG, Extension.WOFF2];
     // Пути читаются из sys.argv, а не подставляются в текст скрипта: у fontforge -c
     // sys.argv — это ["-c", ...аргументы после скрипта], и путь в нём остаётся строкой.
     // Подстановка сделала бы его питоновским кодом — вторым уровнем интерпретации после shell.

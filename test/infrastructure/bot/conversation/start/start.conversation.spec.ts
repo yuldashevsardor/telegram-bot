@@ -5,10 +5,11 @@ import { StartConversation } from "app/infrastructure/bot/conversation/start/sta
 import { ConvertorFactory } from "app/domain/font-convertor/convertor/convertor-factory";
 import { FontForge } from "app/domain/font-convertor/font-forge/font-forge";
 import { FontSignatureMatcher } from "app/domain/font-convertor/font-signature-matcher";
+import { EotPacker } from "app/domain/font-convertor/eot-packer/eot-packer";
 
 describe("StartConversation", function () {
     it("promises exactly the supported formats", async function () {
-        const convertorFactory = new ConvertorFactory({} as FontForge, new FontSignatureMatcher());
+        const convertorFactory = new ConvertorFactory({} as FontForge, new FontSignatureMatcher(), new EotPacker());
         const startConversation = new StartConversation(convertorFactory);
         let formats: unknown = undefined;
 

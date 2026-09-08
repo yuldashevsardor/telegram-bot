@@ -281,6 +281,32 @@ FontConvertor.convert({ originPath, extension })
   → FontForge.convert(): fontforge -c '<скрипт>' SRC DIST через ProcessHelper.run
 ```
 
+Пары с EOT идут иначе: движок этот формат не знает. Ни `Extension.EOT` в
+`FontForge.supportedExtensions`, ни `.eot` в аргументах `fontforge` не появляется —
+конверт снимает и надевает `EotPacker`, а движку достаётся обычный sfnt:
+
+```
+ttf → eot            EotPacker.pack(SRC, DIST)
+{otf,woff,woff2,svg} → eot   FontForge.convert(SRC, DIST.ttf) → EotPacker.pack(DIST.ttf, DIST)
+eot → ttf            EotPacker.unpack(SRC, DIST)
+eot → {otf,woff,woff2,svg}   EotPacker.unpack(SRC, DIST.ttf) → FontForge.convert(DIST.ttf, DIST)
+```
+
+Промежуточный sfnt лежит рядом с результатом (`<результат>.ttf`: имя результата уникально
+в каталоге, значит уникально и производное) и удаляется в `finally` — и после успеха, и
+после ошибки. Общий конструктор пар с EOT — `EotConvertor`, двухшаговые тела вынесены в
+`ToEotConvertor` и `FromEotConvertor`, поэтому восемь из десяти классов пар пусты, кроме
+объявления своего формата.
+
+`EotPacker` (`eot-packer/`) — единственное место, где домен разбирает содержимое шрифта, а
+не только его первые байты. Заголовок EOT дублирует метаданные вложенного шрифта, и
+`SfntReader` достаёт их из таблиц `OS/2` (насыщенность, PANOSE, диапазоны кодировок),
+`head` (наклон, контрольная сумма) и `name` (четыре имени, в конверте — UTF-16LE).
+Раскладка заголовка расписана в самом `eot-packer.ts`. Пишется версия `0x00020001`,
+читаются `0x00010000`, `0x00020001` и `0x00020002`; сжатую (`TTEMBED_TTCOMPRESSED`) и
+зашифрованную (`TTEMBED_XORENCRYPTDATA`) полезную нагрузку кодек отвергает явной ошибкой
+`UnsupportedEotFlags`, а не пытается разобрать.
+
 Движок запускается только через `ProcessHelper.run(file, args)` — обёртку над
 `child_process.execFile`. Аргументы уходят процессу массивом, минуя `/bin/sh`, поэтому
 кавычки и `$(...)` в путях остаются данными. Второй уровень интерпретации, питоновский,
@@ -318,6 +344,9 @@ libmagic).
 - `/font_generator` конвертирует фиксированный `tempDir/app/test-fonts/test-font.woff` в
   EOT/OTF/TTF/WOFF2 и отвечает **путём** к файлу текстом; сам файл не отправляется.
   Ошибки уходят в `console.log`, мимо `Logger`.
+- Конверт EOT читается не насквозь: разбираются имена, дальше шрифт берётся хвостом
+  файла по `FontDataSize`. Хвост версии `0x00020002` (подпись, встроенный EUDC) в
+  проверку целостности не входит.
 
 ## 8. User
 
@@ -516,7 +545,7 @@ Payload перед записью проходит через `serialize-error`:
   `tsconfig.check.json`. Миграции идут мимо `tsx`, их грузит своим jiti `node-pg-migrate`
   (§11).
 - Покрыто: `task-queue` (очередь, партиция, лимит), `ConfigContainer`,
-  `ConfigEnvStorage`, `ConsoleLogger`, `ConvertorFactory`, `FileHelper`,
+  `ConfigEnvStorage`, `ConsoleLogger`, `ConvertorFactory`, `EotPacker`, `FileHelper`,
   `FontSignatureMatcher`, `ProcessHelper`, `utils`, `errors`, отброс в базовом `Filter`,
   список форматов в приветствии `StartConversation`, локали (§10). Не покрыто: `Runner`,
   `FontConvertor`, `Convertor`, `UserService`, `Application`, `Bot`, middleware.
@@ -594,6 +623,11 @@ Payload перед записью проходит через `serialize-error`:
   поэтому в имя ключа входит модуль-владелец.
 - **`Convertor.validateToPath()` требует несуществующий путь**: конвертация не
   идемпотентна по пути, имя генерируется заново на каждый вызов.
+- **EOT не отдаётся движку.** `fontforge` не знает расширения `.eot`: на чтение он падает,
+  а на запись молча уходит в запасной PostScript Type 1 — выходит нулевой код возврата,
+  файл с расширением `.eot` и чужим содержимым внутри, да ещё сайдкар `.afm` рядом.
+  Вернуть `Extension.EOT` в `FontForge.supportedExtensions` — вернуть эту молчаливую
+  порчу (issue [#158](https://github.com/yuldashevsardor/telegram-bot/issues/158)).
 - **Внешние процессы — только через `ProcessHelper.run()`**, с аргументами массивом.
   `exec` и любая сборка команды строкой возвращают `/bin/sh` в цепочку, и подставленный
   путь снова становится кодом; тестами это не ловится, потому что на «нормальных» путях

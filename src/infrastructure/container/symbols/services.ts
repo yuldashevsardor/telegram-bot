@@ -4,6 +4,7 @@ export const Services = {
         ConvertorFactory: Symbol.for("ConvertorFactory"),
         FontForge: Symbol.for("FontForge"),
         FontSignatureMatcher: Symbol.for("FontSignatureMatcher"),
+        EotPacker: Symbol.for("EotPacker"),
     },
     User: {
         UserService: Symbol.for("UserService"),

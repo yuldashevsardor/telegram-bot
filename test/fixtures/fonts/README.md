@@ -5,6 +5,12 @@
 формата на настоящих заголовках, а не на выдуманных.
 
 `fixture.ttf`, `fixture.otf`, `fixture.woff`, `fixture.woff2` и `fixture.svg` сделаны
-`fontforge` из образа проекта. `fixture.eot` — тот же `fixture.ttf`, обёрнутый заголовком
-EOT вручную: `fontforge` EOT не производит, а на просьбу выдаёт PostScript Type 1 с
-расширением `.eot` (issue [#156](https://github.com/yuldashevsardor/telegram-bot/issues/156)).
+`fontforge` из образа проекта. `fixture.eot` — тот же `fixture.ttf`, упакованный сторонним
+`npx ttf2eot fixture.ttf fixture.eot`: `fontforge` EOT не производит, а на просьбу выдаёт
+PostScript Type 1 с расширением `.eot`
+(issue [#158](https://github.com/yuldashevsardor/telegram-bot/issues/158)).
+
+Происхождение `fixture.eot` важно: `EotPacker` обязан собрать из `fixture.ttf` ровно эти
+байты, и тест на побайтовое совпадение — единственная в репозитории проверка конверта на
+соответствие формату, а не самому себе. Пересобирать этот файл своим же кодом нельзя —
+проверка станет тавтологией.

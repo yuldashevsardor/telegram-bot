@@ -79,3 +79,35 @@ export class InvalidExtensions extends RuntimeError {
         });
     }
 }
+
+export class WriteFailed extends RuntimeError {
+    public static byPath(path: string, error: unknown): WriteFailed {
+        if (!(error instanceof Error)) {
+            return new WriteFailed(`Cannot write file ${path}.`, {
+                path: path,
+                error: error,
+            });
+        }
+
+        return new WriteFailed(error.message, {
+            path: path,
+            cause: error,
+        });
+    }
+}
+
+export class RemoveFailed extends RuntimeError {
+    public static byPath(path: string, error: unknown): RemoveFailed {
+        if (!(error instanceof Error)) {
+            return new RemoveFailed(`Cannot remove file ${path}.`, {
+                path: path,
+                error: error,
+            });
+        }
+
+        return new RemoveFailed(error.message, {
+            path: path,
+            cause: error,
+        });
+    }
+}
