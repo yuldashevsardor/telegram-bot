@@ -31,7 +31,7 @@ describe("ConfigContainer", () => {
         expect(result.bot.gracefulShutdown.timeout).to.equal(3000);
         expect(result.taskQueue.gracefulShutdown.timeout).to.equal(5000);
         expect(result.taskQueue.gracefulShutdown.interval).to.equal(500);
-        expect(result.runner.sleepInterval).to.equal(1000);
+        expect(result.runner.sleepInterval).to.deep.equal({ min: 10, max: 100 });
         expect(result.database.host).to.equal("localhost");
         expect(result.database.port).to.equal(5432);
     });
@@ -78,6 +78,21 @@ describe("ConfigContainer", () => {
     it("rejects a non-positive task queue poll interval", () => {
         expect(() => config({ TASK_QUEUE_GRACEFUL_SHUTDOWN_INTERVAL: "0" })).to.throw(InvalidConfigError);
         expect(() => config({ TASK_QUEUE_GRACEFUL_SHUTDOWN_INTERVAL: "-100" })).to.throw(InvalidConfigError);
+    });
+
+    it("rejects a non-positive runner sleep interval minimum", () => {
+        expect(() => config({ RUNNER_SLEEP_INTERVAL_MIN: "0" })).to.throw(InvalidConfigError);
+        expect(() => config({ RUNNER_SLEEP_INTERVAL_MIN: "-10" })).to.throw(InvalidConfigError);
+    });
+
+    it("rejects a runner sleep interval maximum below the minimum", () => {
+        expect(() => config({ RUNNER_SLEEP_INTERVAL_MIN: "50", RUNNER_SLEEP_INTERVAL_MAX: "49" })).to.throw(InvalidConfigError);
+    });
+
+    it("accepts a runner sleep interval collapsed to a single value", () => {
+        const result = config({ RUNNER_SLEEP_INTERVAL_MIN: "25", RUNNER_SLEEP_INTERVAL_MAX: "25" });
+
+        expect(result.runner.sleepInterval).to.deep.equal({ min: 25, max: 25 });
     });
 
     it("rejects a shutdown timeout that does not cover the bot and the task queue", () => {

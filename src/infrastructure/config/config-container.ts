@@ -81,9 +81,14 @@ export class ConfigContainer {
         };
 
         this.runner = {
-            sleepInterval: this.getInteger("RUNNER_SLEEP_INTERVAL", 1000),
+            sleepInterval: {
+                min: this.getInteger("RUNNER_SLEEP_INTERVAL_MIN", 10),
+                max: this.getInteger("RUNNER_SLEEP_INTERVAL_MAX", 100),
+            },
             maxRetries: this.getInteger("RUNNER_MAX_RETRIES", 3),
         };
+
+        this.checkRunner();
 
         this.bot = {
             token: this.getString("BOT_TOKEN"),
@@ -137,6 +142,25 @@ export class ConfigContainer {
         }
 
         return parsed;
+    }
+
+    // Границы сна цикла: из них Runner случайно выбирает паузу на каждой пустой итерации,
+    // поэтому пустой диапазон и неположительный минимум ломают выбор молча.
+    private checkRunner(): void {
+        const { min, max } = this.runner.sleepInterval;
+
+        if (min <= 0) {
+            throw new InvalidConfigError("RUNNER_SLEEP_INTERVAL_MIN must be greater than zero", {
+                got: min,
+            });
+        }
+
+        if (max < min) {
+            throw new InvalidConfigError("RUNNER_SLEEP_INTERVAL_MAX must not be less than RUNNER_SLEEP_INTERVAL_MIN", {
+                min: min,
+                max: max,
+            });
+        }
     }
 
     // Сроки бота и очереди расходуются последовательно внутри общего, поэтому общий должен
