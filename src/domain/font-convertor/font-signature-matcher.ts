@@ -11,7 +11,7 @@ export class FontSignatureMatcher {
     private static readonly UTF8_BOM = [0xef, 0xbb, 0xbf];
     // Пробельные символы XML: пробел, табуляция, перевод строки, возврат каретки.
     private static readonly XML_WHITESPACE = [0x20, 0x09, 0x0a, 0x0d];
-    // Предел всего префикса, вместе с BOM: без него голова файла росла бы вместе с отступом.
+    // Предел отступа, BOM сверх него: без предела голова файла росла бы вместе с отступом.
     private static readonly MAX_INDENT_LENGTH = 16;
 
     private readonly signaturesByExtension: Record<Extension, Array<Signature>>;
@@ -74,21 +74,30 @@ export class FontSignatureMatcher {
         });
     }
 
-    /**
-     * Сколько байт занял префикс этого вида в начале головы файла.
-     */
-    private prefixLength(head: Uint8Array, prefix: Prefix = Prefix.None): number {
-        if (prefix === Prefix.None) {
+    private prefixLength(head: Uint8Array, prefix?: Prefix): number {
+        if (prefix === undefined) {
             return 0;
         }
 
-        let length = FontSignatureMatcher.UTF8_BOM.every((byte, index) => head[index] === byte) ? FontSignatureMatcher.UTF8_BOM.length : 0;
+        const bomLength = FontSignatureMatcher.UTF8_BOM.every((byte, index) => head[index] === byte)
+            ? FontSignatureMatcher.UTF8_BOM.length
+            : 0;
 
-        if (prefix === Prefix.Bom) {
-            return length;
+        switch (prefix) {
+            case Prefix.Bom:
+                return bomLength;
+            case Prefix.Indent:
+                // Отступ считается за BOM, а не вместе с ним: общий бюджет означал бы,
+                // что невидимый BOM укорачивает допустимый отступ и один и тот же
+                // документ из разных редакторов проходит проверку по-разному.
+                return bomLength + this.indentLength(head, bomLength);
         }
+    }
 
-        while (length < FontSignatureMatcher.MAX_INDENT_LENGTH && this.isXmlWhitespace(head[length])) {
+    private indentLength(head: Uint8Array, offset: number): number {
+        let length = 0;
+
+        while (length < FontSignatureMatcher.MAX_INDENT_LENGTH && this.isXmlWhitespace(head[offset + length])) {
             length += 1;
         }
 
@@ -110,14 +119,16 @@ export class FontSignatureMatcher {
         );
     }
 
-    private maxPrefixLength(prefix: Prefix = Prefix.None): number {
+    private maxPrefixLength(prefix?: Prefix): number {
+        if (prefix === undefined) {
+            return 0;
+        }
+
         switch (prefix) {
-            case Prefix.None:
-                return 0;
             case Prefix.Bom:
                 return FontSignatureMatcher.UTF8_BOM.length;
             case Prefix.Indent:
-                return FontSignatureMatcher.MAX_INDENT_LENGTH;
+                return FontSignatureMatcher.UTF8_BOM.length + FontSignatureMatcher.MAX_INDENT_LENGTH;
         }
     }
 
