@@ -83,7 +83,7 @@
    (`PgsqlStorage.read`), а после цепочки пишется обратно, если её читали или меняли
    (`write`, upsert); новая сессия считается изменённой с самого начала. Ниже
    `ctx.session` заполнен.
-5. **`AsyncLocalStorageMiddleware`** — выполняет остаток пайплайна в
+5. **`RequestContextMiddleware`** — выполняет остаток пайплайна в
    `requestContext.run(next)`; `requestId` кладёт в стор сам `RequestContext`. Контекст тот
    же, что у логгера: экземпляр один, логгеру он достался при сборке контекста, а
    middleware — из контейнера (§4). Первый из middleware: всё, что логируется внутри
@@ -200,7 +200,7 @@ RUNNER_MAX_RETRIES` задача отбрасывается с `error`. Вызы
 
 Не поток, а сквозной аспект. Бэкенд выбирается при старте по `NODE_ENV` (§9).
 
-Логгер один на процесс и под запрос не подменяется. `AsyncLocalStorageMiddleware`
+Логгер один на процесс и под запрос не подменяется. `RequestContextMiddleware`
 открывает область апдейта через `RequestContext.run()`, а адаптеры в момент записи берут
 `RequestContext.getValues()` — сейчас там один `requestId`:
 

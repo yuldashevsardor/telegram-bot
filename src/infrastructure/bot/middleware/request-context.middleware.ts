@@ -6,7 +6,7 @@ import { Infrastructure } from "app/infrastructure/container/symbols/infrastruct
 import { Context } from "app/infrastructure/bot/bot.types";
 
 @injectable()
-export class AsyncLocalStorageMiddleware extends Middleware {
+export class RequestContextMiddleware extends Middleware {
     public constructor(
         @inject<RequestContext>(Infrastructure.RequestContext)
         private readonly requestContext: RequestContext,

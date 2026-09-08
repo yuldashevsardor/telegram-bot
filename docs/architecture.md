@@ -89,7 +89,9 @@ scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-w
 падает, а просто отсутствует. Строка внутри `Symbol.for` — глобальный ключ: одно и то же
 имя в разных реестрах даёт один и тот же символ: биндинг под уже занятым именем валит
 резолв «Ambiguous match». Поэтому имена в реестрах не пересекаются — `RequestContext`
-(контекст запроса, `Infrastructure`) и `AsyncLocalStorage` (его middleware, `Modules`).
+(контекст запроса, `Infrastructure`) и `RequestContextMiddleware` (его middleware,
+`Modules`). У второго ключ реестра — `Modules.Bot.Middleware.RequestContext`, а строка
+внутри `Symbol.for` длиннее: короткую уже занял контекст запроса.
 
 Два декоратора свойств тянут значения из модульного синглтона `container` при первом
 обращении (service locator): `@ConfigValue(key)` — путь в `ConfigContainer`
@@ -160,7 +162,7 @@ ConversationFlavor & FluentFlavor & { getUser: () => User }`; `FluentFlavor`
    апдейты без `from` или `chat`: сессии у них нет, а всё ниже на неё рассчитывает. С
    заданным `allowed_updates` (ниже) такие апдейты уже не запрашиваются, поэтому отброс
    здесь — редкость. Он пишется `warning`-ом: ниже фильтра дампа апдейта уже не будет.
-   Логгер здесь ещё без `requestId` — `AsyncLocalStorageMiddleware` стоит ниже (§9).
+   Логгер здесь ещё без `requestId` — `RequestContextMiddleware` стоит ниже (§9).
 2. `IsPrivateChatFilter` — всё ниже работает только в приватных чатах. Стоит вторым:
    `ctx.chat` у него нет и у апдейтов без ключа сессии, а своей строки в логе он не
    пишет — только общую `debug` базы, поэтому их должен раньше увидеть
@@ -174,9 +176,9 @@ ConversationFlavor & FluentFlavor & { getUser: () => User }`; `FluentFlavor`
    ключей, сюда не доходит: их отбросил шаг 1.
 4. `session()` — ключ `${from.id}:${chat.id}`, хранилище `PgsqlStorage` (таблица
    `sessions`), payload `{ requestCount }`.
-5. Middleware: `AsyncLocalStorageMiddleware` → `TelegramCallApiMiddleware` →
+5. Middleware: `RequestContextMiddleware` → `TelegramCallApiMiddleware` →
    `ResponseTimeMiddleware` → `RequestLogMiddleware` → `FillUserToContextMiddleware`.
-   `AsyncLocalStorageMiddleware` первый: всё, что логируется внутри цепочки, пишется
+   `RequestContextMiddleware` первый: всё, что логируется внутри цепочки, пишется
    с `requestId` (§9).
 6. Fluent (§10).
 7. `conversations()` + `createConversation` для каждого символа `Modules.Bot.Conversations`.
@@ -355,7 +357,7 @@ libmagic).
 Порог — `LOGGER_LEVEL`: пишется он и всё серьёзнее; по умолчанию `WARNING` в production,
 `DEBUG` иначе. Неизвестное значение — `InvalidConfigError`.
 
-Корреляция запросов: `AsyncLocalStorageMiddleware` (первый в пайплайне) выполняет
+Корреляция запросов: `RequestContextMiddleware` (первый в пайплайне) выполняет
 остаток пайплайна в `requestContext.run(next)`. `AbstractLogger` принимает
 `RequestContext` зависимостью конструктора и в момент записи забирает у него `getValues()`
 — `PinoLogger` кладёт значения полями объекта, `ConsoleLogger` печатает чипами
