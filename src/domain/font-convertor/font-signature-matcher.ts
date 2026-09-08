@@ -20,16 +20,22 @@ export class FontSignatureMatcher {
     public readonly headLength: number;
 
     public constructor() {
-        // TTF и OTF делят один контейнер sfnt, отдельного маркера формата в нём нет:
-        // различает их версия sfnt, то есть тип обводов — 0x00010000 у TrueType (плюс
-        // "true" старых макинтошевских шрифтов и "ttcf" коллекций) против "OTTO" у CFF.
+        // TTF и OTF лежат в одном контейнере sfnt, и по содержимому они неразличимы:
+        // версия sfnt называет тип обводов (0x00010000 — TrueType, плюс "true" старых
+        // макинтошевских шрифтов и "ttcf" коллекций; "OTTO" — CFF), а не расширение
+        // имени. Обводки любого типа законно встречаются под обоими расширениями,
+        // поэтому сигнатура здесь подтверждает контейнер, а какую пару конвертации
+        // запускать — решает расширение.
+        const sfnt: Array<Signature> = [
+            { offset: 0, bytes: [0x00, 0x01, 0x00, 0x00] },
+            { offset: 0, bytes: this.ascii("true") },
+            { offset: 0, bytes: this.ascii("ttcf") },
+            { offset: 0, bytes: this.ascii("OTTO") },
+        ];
+
         this.signaturesByExtension = {
-            [Extension.TTF]: [
-                { offset: 0, bytes: [0x00, 0x01, 0x00, 0x00] },
-                { offset: 0, bytes: this.ascii("true") },
-                { offset: 0, bytes: this.ascii("ttcf") },
-            ],
-            [Extension.OTF]: [{ offset: 0, bytes: this.ascii("OTTO") }],
+            [Extension.TTF]: sfnt,
+            [Extension.OTF]: sfnt,
             [Extension.WOFF]: [{ offset: 0, bytes: this.ascii("wOFF") }],
             [Extension.WOFF2]: [{ offset: 0, bytes: this.ascii("wOF2") }],
             [Extension.EOT]: [{ offset: EOT_MAGIC_OFFSET, bytes: [0x4c, 0x50] }],

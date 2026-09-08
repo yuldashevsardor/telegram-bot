@@ -21,8 +21,8 @@ describe("FontSignatureMatcher.matches", function () {
             expect(fontSignatureMatcher.matches(head(extension), extension)).to.be.true;
         });
 
-        it(`rejects a real ${extension} font under any other extension`, function () {
-            for (const other of Object.values(Extension).filter((value) => value !== extension)) {
+        it(`rejects a real ${extension} font under a foreign extension`, function () {
+            for (const other of foreignTo(extension)) {
                 expect(fontSignatureMatcher.matches(head(extension), other), `${extension} passed as ${other}`).to.be.false;
             }
         });
@@ -31,6 +31,13 @@ describe("FontSignatureMatcher.matches", function () {
     it("accepts the legacy Macintosh and the collection flavours of ttf", function () {
         expect(fontSignatureMatcher.matches(ascii("true"), Extension.TTF)).to.be.true;
         expect(fontSignatureMatcher.matches(ascii("ttcf"), Extension.TTF)).to.be.true;
+    });
+
+    it("accepts either outline flavour under both sfnt extensions", function () {
+        // Расширение не диктует тип обводок: .otf с обводками TrueType и .ttf с CFF
+        // допускаются спецификацией, и движок открывает оба.
+        expect(fontSignatureMatcher.matches(head(Extension.TTF), Extension.OTF)).to.be.true;
+        expect(fontSignatureMatcher.matches(head(Extension.OTF), Extension.TTF)).to.be.true;
     });
 
     it("accepts an svg starting with the root tag instead of the xml declaration", function () {
@@ -67,6 +74,14 @@ describe("FontSignatureMatcher.matches", function () {
         }
 
         return bytes;
+    }
+
+    // TTF и OTF по содержимому неразличимы: контейнер sfnt у них общий.
+    function foreignTo(extension: Extension): Array<Extension> {
+        const sfnt = [Extension.TTF, Extension.OTF];
+        const same = sfnt.includes(extension) ? sfnt : [extension];
+
+        return Object.values(Extension).filter((value) => !same.includes(value));
     }
 
     function ascii(text: string): Uint8Array {

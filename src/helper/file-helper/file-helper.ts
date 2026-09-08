@@ -2,7 +2,7 @@ import fs from "fs/promises";
 import fsSync from "fs";
 import path from "path";
 import dayjs from "dayjs";
-import { InvalidExtensions, InvalidPath, PermissionDenied } from "app/helper/file-helper/file-helper.errors";
+import { InvalidExtensions, InvalidPath, PermissionDenied, ReadFailed } from "app/helper/file-helper/file-helper.errors";
 import glob from "tiny-glob";
 
 export class FileHelper {
@@ -93,12 +93,20 @@ export class FileHelper {
      */
     public static async readHead(path: string, length: number): Promise<Uint8Array> {
         const buffer = new Uint8Array(length);
-        const file = await fs.open(path, "r");
+        let file;
+
+        try {
+            file = await fs.open(path, "r");
+        } catch (error) {
+            throw ReadFailed.byPath(path, error);
+        }
 
         try {
             const { bytesRead } = await file.read(buffer, 0, length, 0);
 
             return buffer.subarray(0, bytesRead);
+        } catch (error) {
+            throw ReadFailed.byPath(path, error);
         } finally {
             await file.close();
         }

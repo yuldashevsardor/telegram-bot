@@ -56,6 +56,22 @@ export class InvalidFile extends RuntimeError {
     }
 }
 
+export class ReadFailed extends RuntimeError {
+    public static byPath(path: string, error: unknown): ReadFailed {
+        if (!(error instanceof Error)) {
+            return new ReadFailed(`Cannot read file ${path}.`, {
+                path: path,
+                error: error,
+            });
+        }
+
+        return new ReadFailed(error.message, {
+            path: path,
+            cause: error,
+        });
+    }
+}
+
 export class InvalidExtensions extends RuntimeError {
     public static empty(extensions: string[]): InvalidExtensions {
         return new InvalidExtensions("Extensions cannot be empty.", {
