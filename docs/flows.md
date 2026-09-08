@@ -24,7 +24,8 @@
    - `Bot.setup()` — регистрация пайплайна (§5); внутри `setupFlavor()` читает `.ftl`
      с диска, `setupCommands()` делает сетевой `setMyCommands` — по вызову на локаль.
 3. `application.run()`: `runner.run()` (синхронный; ставит `setTimeout(handleTasks, 0)`)
-   → `bot.run()` (`grammy.catch(handleError)`, затем `run(grammy)` — long polling в фоне).
+   → `bot.run()` (`grammy.catch(handleError)`, затем `run(grammy, ...)` — long polling
+   в фоне с `allowed_updates: ["message"]`, §5).
 
 **Ошибки:** любой сбой старта — код выхода 1 через `bootstrap().catch(fail)`. Ошибка из
 `run()` сначала пишется `critical`. `unhandledRejection` и `uncaughtException` тоже ведут
