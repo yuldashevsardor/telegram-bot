@@ -22,9 +22,11 @@ export class FontSignatureMatcher {
         [0x41, 0x5a],
         [0x61, 0x7a],
     ];
-    // Первый печатный символ ASCII: всё, что ниже, — управляющий байт, и в тексте его
-    // нет (пробельные символы XML проверяются отдельно).
-    private static readonly FIRST_PRINTABLE_BYTE = 0x20;
+    // Граница управляющих байт C0: ниже неё лежит только управление, которого в тексте
+    // нет (пробельные символы разметки проверяются отдельно). Выше границы проходит и
+    // то, что текстом не является, — DEL и управляющие C1, — но отделить их не выйдет:
+    // старшие байты нужны целиком, в них живёт UTF-8.
+    private static readonly FIRST_NON_C0_BYTE = 0x20;
     // Сколько байт текста сигнатура требует за началом разметки. Одного `<` с буквой
     // мало: двоичная голова складывается в такую пару случайно — заголовок EOT
     // открывается размером файла, и у фикстуры его младшие байты дают `<m`. Дальше у
@@ -55,8 +57,8 @@ export class FontSignatureMatcher {
             [Extension.WOFF2]: [{ offset: 0, bytes: this.ascii("wOF2") }],
             [Extension.EOT]: [{ offset: FontSignatureMatcher.EOT_MAGIC_OFFSET, bytes: [0x4c, 0x50] }],
             // SVG — единственный текстовый формат здесь, и его сигнатура слабее прочих:
-            // она говорит «это XML», а не «это шрифт». Разбирать разметку домен не
-            // станет, но и такой проверки хватает, чтобы бинарный мусор под именем
+            // она говорит «это разметка», а не «это шрифт». Разбирать документ домен не
+            // станет, но и такой проверки хватает, чтобы двоичный мусор под именем
             // *.svg не прошёл.
             //
             // Поэтому вторая сигнатура ищет не корневой тег, а начало разметки вообще:
@@ -95,6 +97,10 @@ export class FontSignatureMatcher {
     }
 
     private matchesByte(byte: number | undefined, expected: SignatureByte): boolean {
+        if (byte === undefined) {
+            return false;
+        }
+
         if (typeof expected === "number") {
             return byte === expected;
         }
@@ -107,22 +113,14 @@ export class FontSignatureMatcher {
         }
     }
 
-    private isMarkupStart(byte: number | undefined): boolean {
-        if (byte === undefined) {
-            return false;
-        }
-
+    private isMarkupStart(byte: number): boolean {
         const isLetter = FontSignatureMatcher.LETTER_RANGES.some(([from, to]) => byte >= from && byte <= to);
 
         return isLetter || byte === FontSignatureMatcher.EXCLAMATION_MARK;
     }
 
-    private isText(byte: number | undefined): boolean {
-        if (byte === undefined) {
-            return false;
-        }
-
-        return byte >= FontSignatureMatcher.FIRST_PRINTABLE_BYTE || this.isXmlWhitespace(byte);
+    private isText(byte: number): boolean {
+        return byte >= FontSignatureMatcher.FIRST_NON_C0_BYTE || this.isXmlWhitespace(byte);
     }
 
     private markupTail(): Array<SignatureByte> {
