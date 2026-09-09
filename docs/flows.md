@@ -74,23 +74,18 @@
    и цепочка обрывается без ошибки и без единого запроса в базу. Ниже `ctx.from` и
    `ctx.chat` заполнены.
 2. **`IsPrivateChatFilter`** — не приватный чат: цепочка обрывается без ошибки и без
-   своей строки в логе. Оба фильтра стоят до сессии: групповому апдейту ключа сессии
-   хватает, и шаг 4 завёл бы ему строку в `sessions` ещё до того, как его отбросят.
-   Отброс на шагах 1 и 2 пишет базовый `Filter`: `debug` с именем класса фильтра и
-   `update_id`; `requestId` в записи ещё нет — область запроса открывает шаг 5.
+   своей строки в логе. Отброс на шагах 1 и 2 пишет базовый `Filter`: `debug` с именем
+   класса фильтра и `update_id`; `requestId` в записи ещё нет — область запроса
+   открывает шаг 5.
 3. **`sequentialize`** по `[chat.id, from.id]` — апдейты с общим ключом идут по одному.
-   Стоит выше сессии: шаг 4 читает строку до своего `next()` и пишет после возврата из
-   него, а слот очереди освобождается внутри этого `next()` — ниже очереди оба конца
-   сессии остались бы снаружи сериализованного участка.
+   Почему фильтры и `sequentialize` стоят выше сессии — §5 и §14.
 4. **Session.** `getSessionKey` → `${from.id}:${chat.id}`. Сессия читается сразу
    (`PgsqlStorage.read`), а после цепочки пишется обратно, если её читали или меняли
    (`write`, upsert); новая сессия считается изменённой с самого начала. Ниже
    `ctx.session` заполнен.
 5. **`RequestContextMiddleware`** — выполняет остаток пайплайна в
-   `requestContext.run(next)`; `requestId` кладёт в стор сам `RequestContext`. Контекст тот
-   же, что у логгера: экземпляр один, логгеру он достался при сборке контекста, а
-   middleware — из контейнера (§4). Первый из middleware: всё, что логируется внутри
-   цепочки, пишется с `requestId`.
+   `requestContext.run(next)`; `requestId` кладёт в стор сам `RequestContext`. Первый из
+   middleware: всё, что логируется внутри цепочки, пишется с `requestId` (§9).
 6. **`TelegramCallApiMiddleware`** — подменяет `ctx.api.raw` на `Proxy` (поток 4).
 7. **`ResponseTimeMiddleware`** — `await next()`, затем `info` с временем; без try/catch.
 8. **`RequestLogMiddleware`** — `ctx.session.requestCount++`, затем `debug` со всем
@@ -116,29 +111,23 @@
 
 1. grammY собирает payload и зовёт `ctx.api.raw[method](payload, signal)`; `Proxy`
    возвращает `callApi`.
-2. `callApi` идёт **напрямую**, минуя очередь, если payload не простой объект
-   (multipart), нет `chat_id`, `chat_id` не число, или чат групповой и метод в
-   `TELEGRAM_NO_GROUP_RATE_LIMIT_SET`. Иначе создаёт Promise, сохраняет его
-   `resolve`/`reject`, строит `callback` и делает
+2. `callApi` идёт **напрямую**, минуя очередь, если payload или чат под неё не подходят
+   (список условий — §5). Иначе создаёт Promise, сохраняет его `resolve`/`reject`,
+   строит `callback` и делает
    `taskQueue.push({ key: chatId, priorityOnError: HIGH, callback }, MEDIUM)`.
    Вызывающая сторона получает этот Promise.
-3. `TaskQueue.push` кладёт задачу в партицию ключа (заводит её с лимитом от
-   `TelegramLimitResolver`) и в индекс `keysByPriority.MEDIUM`.
-4. Цикл `Runner.handleTasks` (§6) на каждой итерации делает `pull()`: уборка пустых
-   остывших партиций → `null` при бане, пустой очереди или занятом общем лимите → обход
-   `HIGH → MEDIUM → LOW`, первый ключ со свободным лимитом → `take()` резервирует лимит
-   ключа и общий.
-5. `handleTask`: `await task.callback()`; завершения цикл не ждёт, следующая итерация
+3. Задача ждёт своей очереди: партиция ключа, индекс приоритета, `pull()` очередного
+   цикла `Runner` (§6).
+4. `handleTask`: `await task.callback()`; завершения цикл не ждёт, следующая итерация
    через `setTimeout(0)`.
-6. `callback`: `messageResolve(await callRawApi(...))`; в `catch` — `messageReject(error)`
+5. `callback`: `messageResolve(await callRawApi(...))`; в `catch` — `messageReject(error)`
    и `throw`.
 
-**Ошибка вызова:** `Runner.handleError` пишет `error`; при `error_code === 429` —
-`taskQueue.ban(retry_after * 1000)` (нечитаемый `retry_after` → 1 с). `retryTask`
-возвращает задачу с `priorityOnError` и `retryCount + 1`; при `retryCount >
-RUNNER_MAX_RETRIES` задача отбрасывается с `error`. Вызывающая сторона получила reject на
-первой ошибке; успешный повтор уже отклонённый Promise не меняет. Обработчики команд
-`ctx.reply` не оборачивают, поэтому reject доходит до `Bot.handleError`.
+**Ошибка вызова:** `Runner` пишет `error`, при 429 ставит паузу всей очереди и возвращает
+задачу с `priorityOnError`, пока не исчерпан `RUNNER_MAX_RETRIES` (§6). Вызывающая сторона
+получила reject на первой ошибке; успешный повтор уже отклонённый Promise не меняет.
+Обработчики команд `ctx.reply` не оборачивают, поэтому reject доходит до
+`Bot.handleError`.
 
 **Что идёт мимо очереди:** `bot.grammy.api.*` (используется `BulkMessagesCommand`, тот
 кладёт задачу вручную) и multipart-загрузки — их сейчас в коде нет.
@@ -147,15 +136,18 @@ RUNNER_MAX_RETRIES` задача отбрасывается с `error`. Вызы
 
 1. `StartCommand.handle` → `startConversation.enter(ctx)` → `ctx.conversation.enter("start")`;
    состояние conversation хранится в той же сессии.
-2. `StartConversation.run()`: `ctx.t("welcome", { formats })` → `ctx.reply(text)` (поток 4)
-   → `conversation.wait()` — выполнение приостанавливается, следующий апдейт этого чата
-   возобновит его здесь → `nextMessage.reply(nextMessage.message?.text || "Чет не
-   получилось...")` → conversation завершается.
+2. `StartConversation.run()`: `ctx.t("start-conversation-welcome", { formats })` →
+   `ctx.reply(text)` (поток 4) → `conversation.wait()` — выполнение приостанавливается,
+   следующий апдейт этого чата возобновит его здесь → `nextMessage.reply()` с текстом
+   пришедшего сообщения или ключом `start-conversation-not-text`, если текста нет, →
+   conversation завершается.
 
 Два апдейта, для каждого — полный пайплайн потока 3, включая upsert `users`. Ошибок
 внутри `run()` не ловится.
 
 ## 6. `/font_generator`
+
+Тестовая команда (§1); пользовательский ввод не читается.
 
 1. `FontGeneratorCommand.handle` → `generateRandomFonts(ctx)` один раз.
 2. Для каждого из `EOT`, `OTF`, `TTF`, `WOFF2` из фиксированного
@@ -163,45 +155,36 @@ RUNNER_MAX_RETRIES` задача отбрасывается с `error`. Вызы
    `ctx.reply(<путь к файлу>)` — текстом, сам файл не отправляется.
 3. Всё в `try/catch`; пойманная ошибка пишется `error`-ом через `Logger` (§9).
 
-Пользовательский ввод не читается. Запуск `fontforge` до четырёх раз, файлы остаются на
-диске. Поток отладочный: команда живёт только в разработке и в прод не выкладывается.
+До четырёх запусков `fontforge` на команду, файлы результата остаются на диске.
 
 ## 7. `/bulk_messages`
 
-Видна в списке команд и доступна любому пользователю приватного чата (issue
-[#3](https://github.com/yuldashevsardor/telegram-bot/issues/3)). Поток тестовый: команда
-живёт только в разработке и в прод не выкладывается, поэтому ни отсутствие проверки прав,
-ни захардкоженные значения ниже чинить не нужно (§1 architecture.md).
+Тестовая команда (§1); видна в списке команд и доступна любому пользователю приватного
+чата.
 
 1. `handle`: 100 000 × 3 захардкоженных chat ID → `sendRandomText(chatId)`,
    `Promise.all`, `info`-запись о том, что задачи поставлены в очередь.
 2. `sendRandomText`: случайная строка из 1000 символов →
-   `FileHelper.createDirectoriesByDate("/home/sardor/applications/telegram-bot/tmp")`
-   (захардкоженный путь; на другой машине бросает `InvalidPath`, и `Promise.all`
-   реджектится почти сразу) → `taskQueue.push({ key: chatId, callback:
-   bot.grammy.api.sendMessage(...), priorityOnError: MEDIUM }, LOW)`.
+   `FileHelper.createDirectoriesByDate()` по захардкоженному пути машины автора (на
+   другой машине — `InvalidPath`, и `Promise.all` реджектится почти сразу) →
+   `taskQueue.push({ key: chatId, callback: bot.grammy.api.sendMessage(...),
+   priorityOnError: MEDIUM }, LOW)`.
 3. `try/catch` нет; reject уходит в `Bot.handleError`. Задачи, успевшие попасть в
    очередь до reject, всё равно выполнятся.
 
 ## 8. Загрузка локалей Fluent
 
-Часть `Bot.setup()`, один раз за процесс.
+Часть `Bot.setup()`, один раз за процесс; устройство i18n — §10.
 
-1. `FileHelper.findFilesByExtensions(__dirname, [".ftl"])` — каталог `bot.ts` рядом с
-   запущенным кодом: `src/infrastructure/bot` под `npm run dev`,
-   `build/infrastructure/bot` после сборки (§10 architecture.md).
-2. Локаль — предпоследний сегмент имени файла (`start.conversation.locale.ru.ftl` →
-   `ru`); не из `LOCALES` — `UnknownLocale`.
-3. `fluent.addTranslation()` на локаль, `isDefault` — только у `ru`. Локаль без файлов —
-   `MissingLocaleBundle`.
-4. `createFluentMiddleware(fluent)` — свой middleware вместо `useFluent()`: кладёт в
-   контекст `ctx.getFluent()` и `ctx.t` на локали `resolveLocale(from.language_code)`.
-   Обе — функции, чтобы пережить op-лог разговора (§10 architecture.md).
-5. Готовый `Fluent` возвращается наверх: на нём же `setupCommands()` переводит описания
-   команд (§5 architecture.md).
+1. `createFluent(__dirname)` — все `.ftl` рядом с запущенным кодом, бандл на локаль.
+2. `createFluentMiddleware(fluent)` встаёт в пайплайн: кладёт в контекст `ctx.getFluent()`
+   и `ctx.t` на локали `resolveLocale(from.language_code)`.
+3. Готовый `Fluent` возвращается наверх: на нём же `setupCommands()` переводит описания
+   команд перед сетевым `setMyCommands` (§5).
 
-Ошибка разбора `.ftl`, как и ошибки шагов 2-3, не перехватывается: валит `Bot.setup()`
-и процесс (поток 1).
+Ошибки этого шага — неизвестная локаль в имени файла (`UnknownLocale`), локаль без единого
+файла (`MissingLocaleBundle`), разбор `.ftl` — не перехватываются: валят `Bot.setup()` и
+процесс (поток 1).
 
 ## 9. Логирование запроса
 
@@ -209,12 +192,8 @@ RUNNER_MAX_RETRIES` задача отбрасывается с `error`. Вызы
 
 Логгер один на процесс и под запрос не подменяется. `RequestContextMiddleware`
 открывает область апдейта через `RequestContext.run()`, а адаптеры в момент записи берут
-`RequestContext.getValues()` — сейчас там один `requestId`:
-
-- `PinoLogger`: значения уходят полями объекта рядом с `message` и `payload`.
-- `ConsoleLogger`: значения печатаются чипами `[key=value]` перед сообщением.
-
-Механизм один на оба бэкенда, поэтому корреляция есть и в разработке.
+`RequestContext.getValues()` — сейчас там один `requestId`. Механизм общий для обоих
+адаптеров, поэтому корреляция есть и в разработке; форма записи у каждого своя (§9).
 
 Вне области `run()` данных запроса нет, и это заметно на ошибках: `bot.catch` →
 `Bot.handleError` вызывается из `handleUpdate` уже после того, как промис пайплайна
