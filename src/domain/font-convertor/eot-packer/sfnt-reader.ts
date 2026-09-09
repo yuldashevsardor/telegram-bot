@@ -1,5 +1,6 @@
 import { InvalidSfnt } from "app/domain/font-convertor/eot-packer/sfnt-reader.errors";
 import { SfntMetadata } from "app/domain/font-convertor/eot-packer/sfnt-reader.types";
+import { SFNT_VERSIONS } from "app/domain/font-convertor/sfnt-version";
 
 type TableRecord = {
     offset: number;
@@ -8,16 +9,6 @@ type TableRecord = {
 
 const SFNT_HEADER_SIZE = 12;
 const TABLE_RECORD_SIZE = 16;
-
-// Версии sfnt, которые несут ровно один шрифт: TrueType-обводки, их старый
-// макинтошевский вариант ("true") и CFF ("OTTO"). Коллекция ("ttcf") сюда не подходит —
-// в конверт EOT кладётся один шрифт, а какой из коллекции, сказать нечем.
-//
-// Сигнатура на входе (`FontSignatureMatcher`) эту проверку не заменяет: она смотрит
-// только исходник под его собственным расширением, а сюда приходят ещё два файла,
-// которых она не видела, — промежуточный sfnt от движка на упаковке и содержимое
-// конверта на распаковке.
-const SFNT_VERSIONS = [0x00010000, 0x74727565, 0x4f54544f];
 
 // Поля, которые кодек читает из OS/2, кончаются на fsSelection (62), поэтому версии 0
 // хватает 64 байт: у старых шрифтов таблица бывает короче нынешних 78.
