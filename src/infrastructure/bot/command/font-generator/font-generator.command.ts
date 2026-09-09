@@ -6,6 +6,8 @@ import { Services } from "app/infrastructure/container/symbols/services";
 import { Extension } from "app/domain/font-convertor/font-convertor.types";
 import { ConfigValue } from "app/infrastructure/config/config-value.decorator";
 import { Context } from "app/infrastructure/bot/bot.types";
+import { Logger } from "app/domain/logger/logger";
+import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
 
 @injectable()
 export class FontGeneratorCommand extends Command {
@@ -15,7 +17,10 @@ export class FontGeneratorCommand extends Command {
     public readonly command: string = "font_generator";
     public readonly descriptionKey: string = "font-generator-command-description";
 
-    public constructor(@inject<FontConvertor>(Services.FontConvertor.FontConvertor) private readonly convertor: FontConvertor) {
+    public constructor(
+        @inject<FontConvertor>(Services.FontConvertor.FontConvertor) private readonly convertor: FontConvertor,
+        @inject<Logger>(Infrastructure.Logger) private readonly logger: Logger,
+    ) {
         super();
     }
 
@@ -56,7 +61,7 @@ export class FontGeneratorCommand extends Command {
             });
             await ctx.reply(ctx.t("font-generator-result", { path: woff2Path }));
         } catch (error) {
-            console.log(error);
+            this.logger.error("Font generation is failed.", { cause: error });
         }
     }
 }

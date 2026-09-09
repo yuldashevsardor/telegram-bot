@@ -47,11 +47,12 @@ Telegram — способ доставки; `User`, сессии и миграц
 `/font_generator` и `/bulk_messages` — тестовые команды: они нужны только в разработке и
 до выкладки в прод снимаются. Продовые мерки к ним не применяются — привязка к среде
 разработчика (входной шрифт из тестовой фикстуры, захардкоженные chat ID и путь машины
-автора), отсутствие проверки прав, `console.log` мимо `Logger`, `container.get()` вместо
-внедрения зависимостей считаются свойством тестовой команды, а не дефектом, и чинить их
-не нужно (issues [#3](https://github.com/yuldashevsardor/telegram-bot/issues/3),
+автора), отсутствие проверки прав, `container.get()` вместо внедрения зависимостей
+считаются свойством тестовой команды, а не дефектом, и чинить их не нужно (issues
+[#3](https://github.com/yuldashevsardor/telegram-bot/issues/3),
 [#171](https://github.com/yuldashevsardor/telegram-bot/issues/171)). Единственное
-требование к такой команде — не уехать в прод.
+требование к такой команде — не уехать в прод. Запрет на прямой `console.*` (§9) под
+послабление не попадает: он держится линтером на весь репозиторий.
 
 ## 2. Карта директорий
 
@@ -143,7 +144,9 @@ scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-w
 - `setup()`: `ApplicationContext.create()` → `container.setup()`
   → `Database.check()` (`select 1`, недоступная база валит старт) → `Bot.setup()`.
   Конфиг внутри контекста собирается до логгера (из него берётся и адаптер, и порог),
-  поэтому `InvalidConfigError` печатает `fail()` через `console.error`.
+  поэтому `InvalidConfigError` доходит до `fail()`, когда логгера ещё нет: тот пишет через
+  `ApplicationContext.getLogger()`, а на `ApplicationContextIsNotCreated` откатывается на
+  `console.error` (§9).
 - `run()`: `runner.run()` → `bot.run()`. Ошибка пишется `critical` и пробрасывается;
   `bootstrap().catch(fail)` завершает процесс кодом 1.
 - `stop()`: `bot.stop()` → `waitQueueToEmpty()` → `runner.stop()` → `container.close()`.
@@ -377,8 +380,8 @@ libmagic).
   [#37](https://github.com/yuldashevsardor/telegram-bot/issues/37)).
 - `/font_generator` конвертирует фиксированный `test/fixtures/fonts/test-font.woff` в
   EOT/OTF/TTF/WOFF2 и отвечает **путём** к файлу текстом; сам файл не отправляется.
-  Ошибки уходят в `console.log`, мимо `Logger`. Команда отладочная и в прод не идёт (§1),
-  поэтому вход из каталога `test/` остаётся как есть (issue
+  Пойманная ошибка конвертации пишется `error`-ом через `Logger` (§9). Команда отладочная
+  и в прод не идёт (§1), поэтому вход из каталога `test/` остаётся как есть (issue
   [#171](https://github.com/yuldashevsardor/telegram-bot/issues/171)).
 - Конверт EOT читается не насквозь: разбираются имена, дальше шрифт берётся хвостом
   файла по `FontDataSize`. Хвост версии `0x00020002` (подпись, встроенный EUDC) в
@@ -453,6 +456,14 @@ libmagic).
 опечатку в ключе ошибкой компиляции, а не молча потерянной корреляцией. Вне области
 `getRequestId()` — `null`, а не ошибка: у `Runner` своей области нет, поэтому логи фоновых
 задач идут без `requestId`.
+
+Наружу пишет только `Logger`. Прямой `console.*` минует уровень, `requestId` и порог
+`LOGGER_LEVEL`, а в production — ещё и структурный поток pino, поэтому такая запись
+теряется при разборе логов, а ошибка из `catch` превращается в тишину. Исключений два:
+`ConsoleLogger`, для которого `console.*` — реализация порта, и фолбэк `fail()` в
+`app.ts`: он зовётся и до создания контекста (§4). Держит правило `no-console: "error"`
+в `.eslintrc.js`: адаптеру оно снято через `overrides` вместе с его спекой, которая
+снимает записи подменой `console`, фолбэку — точечными `eslint-disable-next-line`.
 
 Payload перед записью проходит через `serialize-error`: без него вложенная ошибка
 печаталась бы как `{}`, а так в лог попадают её `name`, `message`, `stack` и `cause`.
@@ -609,7 +620,7 @@ Payload перед записью проходит через `serialize-error`:
 - `nyc` считает покрытие по TypeScript-исходникам; отчёт в `./coverage`.
 - `tsconfig.json`: `strict` и все флаги вне его зонтика; `skipLibCheck` вынужденно
   (issue [#5](https://github.com/yuldashevsardor/telegram-bot/issues/5)). ESLint: без
-  `any`, неиспользуемые аргументы только с `_`.
+  `any`, неиспользуемые аргументы только с `_`, прямой `console.*` запрещён (§9).
 - Husky `pre-commit` → `lint-staged` (`eslint --fix`, `prettier --write`) — удобство
   хостовой разработки, не гейт: хук ставит `package.json#prepare` при `npm install` на
   хосте. В docker-first окружении его нет намеренно — `npm ci --ignore-scripts` и

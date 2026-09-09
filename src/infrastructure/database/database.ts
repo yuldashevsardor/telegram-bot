@@ -24,6 +24,10 @@ export class Database {
             database: this.settings.database,
             username: this.settings.username,
             password: this.settings.password,
+            // debug у postgres — колбэк, а не флаг: при значении true драйвер запросы
+            // никуда не печатает (проверка typeof === "function" в его connection.js), он
+            // лишь делает query и parameters перечислимыми в ошибке, и они доходят до
+            // payload лога. Мимо Logger вывод не идёт.
             debug: !this.isProduction,
             max: this.settings.connection.max,
             idle_timeout: this.settings.connection.idleTimeout,
