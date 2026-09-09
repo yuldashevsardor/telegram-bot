@@ -1,6 +1,6 @@
 import { injectable } from "inversify";
 import { Extension } from "app/domain/font-convertor/font-convertor.types";
-import { Prefix, Signature } from "app/domain/font-convertor/font-signature-matcher.types";
+import { ByteClass, Prefix, Signature, SignatureByte } from "app/domain/font-convertor/font-signature-matcher.types";
 
 @injectable()
 export class FontSignatureMatcher {
@@ -13,6 +13,22 @@ export class FontSignatureMatcher {
     private static readonly XML_WHITESPACE = [0x20, 0x09, 0x0a, 0x0d];
     // Предел отступа, BOM сверх него: без предела голова файла росла бы вместе с отступом.
     private static readonly MAX_INDENT_LENGTH = 16;
+
+    // Чем документ разметки вправе открываться после `<`: буква корневого тега либо `!`
+    // DOCTYPE и комментария.
+    private static readonly EXCLAMATION_MARK = 0x21;
+    private static readonly LETTER_RANGES: Array<[number, number]> = [
+        [0x41, 0x5a],
+        [0x61, 0x7a],
+    ];
+    // Первый печатный символ ASCII: всё, что ниже, — управляющий байт, и в тексте его
+    // нет (пробельные символы XML проверяются отдельно).
+    private static readonly FIRST_PRINTABLE_BYTE = 0x20;
+    // Сколько байт текста сигнатура требует за началом разметки. Одного `<` с буквой
+    // мало: двоичная голова складывается в такую пару случайно — заголовок EOT
+    // открывается размером файла, и у фикстуры его младшие байты дают `<m`. Дальше у
+    // двоичного формата идут управляющие байты, у документа — текст.
+    private static readonly MARKUP_TAIL_LENGTH = 10;
 
     private readonly signaturesByExtension: Record<Extension, Array<Signature>>;
 
@@ -46,13 +62,19 @@ export class FontSignatureMatcher {
             // станет, но и такой проверки хватает, чтобы бинарный мусор под именем
             // *.svg не прошёл.
             //
-            // Пропускаемый префикс у двух сигнатур разный, и разный он у самого XML:
-            // объявление обязано открывать документ, поэтому перед `<?xml` допустим
-            // только BOM (fontforge файл с отступом перед объявлением не открывает), а
-            // перед корневым тегом документа без объявления пробелы законны.
+            // Поэтому вторая сигнатура ищет не корневой тег, а начало разметки вообще:
+            // законных прологов у документа несколько — `<!DOCTYPE`, комментарий,
+            // инструкция обработки, — и перечислять их значило бы дописывать сигнатуру
+            // на каждый следующий.
+            //
+            // Первая сигнатура отдельно, потому что префикс у неё другой: объявление
+            // XML обязано открывать документ, поэтому перед `<?xml` допустим только BOM
+            // (fontforge файл с отступом перед объявлением не открывает), а перед любой
+            // другой разметкой пробелы законны. По той же причине `?` не входит в класс
+            // начала разметки: иначе отступ стал бы допустим и перед объявлением.
             [Extension.SVG]: [
                 { offset: 0, bytes: this.ascii("<?xml"), prefix: Prefix.Bom },
-                { offset: 0, bytes: this.ascii("<svg"), prefix: Prefix.Indent },
+                { offset: 0, bytes: [...this.ascii("<"), ByteClass.MarkupStart, ...this.markupTail()], prefix: Prefix.Indent },
             ],
         };
 
@@ -70,8 +92,43 @@ export class FontSignatureMatcher {
                 return false;
             }
 
-            return signature.bytes.every((byte, index) => head[start + index] === byte);
+            return signature.bytes.every((byte, index) => this.matchesByte(head[start + index], byte));
         });
+    }
+
+    private matchesByte(byte: number | undefined, expected: SignatureByte): boolean {
+        if (typeof expected === "number") {
+            return byte === expected;
+        }
+
+        switch (expected) {
+            case ByteClass.MarkupStart:
+                return this.isMarkupStart(byte);
+            case ByteClass.Text:
+                return this.isText(byte);
+        }
+    }
+
+    private isMarkupStart(byte: number | undefined): boolean {
+        if (byte === undefined) {
+            return false;
+        }
+
+        const isLetter = FontSignatureMatcher.LETTER_RANGES.some(([from, to]) => byte >= from && byte <= to);
+
+        return isLetter || byte === FontSignatureMatcher.EXCLAMATION_MARK;
+    }
+
+    private isText(byte: number | undefined): boolean {
+        if (byte === undefined) {
+            return false;
+        }
+
+        return byte >= FontSignatureMatcher.FIRST_PRINTABLE_BYTE || this.isXmlWhitespace(byte);
+    }
+
+    private markupTail(): Array<SignatureByte> {
+        return Array.from({ length: FontSignatureMatcher.MARKUP_TAIL_LENGTH }, () => ByteClass.Text);
     }
 
     private prefixLength(head: Uint8Array, prefix?: Prefix): number {
