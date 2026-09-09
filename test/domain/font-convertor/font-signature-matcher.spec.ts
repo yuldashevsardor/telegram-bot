@@ -83,17 +83,18 @@ describe("FontSignatureMatcher.matches", function () {
 
     it("rejects text that opens with an angle bracket but not with markup", function () {
         // Сигнатура ослаблена до «это разметка», но не до «первый байт — `<`»: за
-        // скобкой обязано идти начало тега, доктайпа или комментария.
-        expect(fontSignatureMatcher.matches(ascii("</svg>"), Extension.SVG)).to.be.false;
-        expect(fontSignatureMatcher.matches(concat("<", [0x00, 0x01]), Extension.SVG)).to.be.false;
-        expect(fontSignatureMatcher.matches(ascii("<"), Extension.SVG)).to.be.false;
+        // скобкой обязано идти начало тега, доктайпа или комментария. Входы длиннее
+        // сигнатуры, а хвост у них текстовый: отказ даёт второй байт, а не проверка
+        // длины в `matches` и не класс текста.
+        expect(fontSignatureMatcher.matches(ascii("</svg> and more text"), Extension.SVG)).to.be.false;
+        expect(fontSignatureMatcher.matches(concat("<", [0x00], "0123456789"), Extension.SVG)).to.be.false;
     });
 
     it("rejects a binary head that opens like markup", function () {
-        // Байты — голова фикстуры EOT: её размер файла даёт `<m`.
-        expect(fontSignatureMatcher.matches(concat("<m", [0x02, 0x00, 0x88, 0x6c, 0x02, 0x00]), Extension.SVG)).to.be.false;
-        // Та же пара, но головы хватает на всю сигнатуру: файл отвергает двоичный
-        // хвост, а не проверка длины в `matches`.
+        // Ровно тот случай, из-за которого сигнатура требует хвост: размер файла в
+        // заголовке фикстуры EOT даёт `<m`, а дальше идут управляющие байты.
+        expect(fontSignatureMatcher.matches(head(Extension.EOT), Extension.SVG)).to.be.false;
+        // Та же пара, но байты свои: случай не зависит от того, чем открывается фикстура.
         expect(fontSignatureMatcher.matches(concat("<m", new Uint8Array(10)), Extension.SVG)).to.be.false;
     });
 
@@ -134,6 +135,8 @@ describe("FontSignatureMatcher.matches", function () {
         expect(fontSignatureMatcher.matches(new Uint8Array([0x00, 0x01]), Extension.TTF)).to.be.false;
         // У EOT маркер лежит по смещению 34, до него обрезанный заголовок не достаёт.
         expect(fontSignatureMatcher.matches(head(Extension.EOT).subarray(0, 20), Extension.EOT)).to.be.false;
+        // Одной скобки не хватает ни на объявление XML, ни на начало разметки с хвостом.
+        expect(fontSignatureMatcher.matches(ascii("<"), Extension.SVG)).to.be.false;
     });
 
     it("rejects an empty file", function () {
