@@ -32,9 +32,13 @@ fontforge -c 'import fontforge, sys; font = fontforge.open(sys.argv[1]); font.ge
 npx ttf2eot test-font.ttf test-font.eot
 ```
 
-Открыть готовый EOT fontforge тоже не может, поэтому пары `eot-to-*` и `*-to-eot` сейчас
-нерабочие (issue [#158](https://github.com/yuldashevsardor/telegram-bot/issues/158)).
-Фикстура лежит здесь настоящей, чтобы после починки её не пришлось заводить заново.
+Открыть готовый EOT fontforge тоже не может, поэтому конверт EOT домен собирает и
+разбирает сам (`EotPacker`, issue
+[#158](https://github.com/yuldashevsardor/telegram-bot/issues/158)). Происхождение
+`test-font.eot` из-за этого важно вдвойне: `EotPacker` обязан собрать из `test-font.ttf`
+ровно эти байты, и тест на побайтовое совпадение — единственная в репозитории проверка
+конверта на соответствие формату, а не самому себе. Пересобирать этот файл своим же
+кодом нельзя: проверка станет тавтологией.
 
 Формат каждого файла сверяется по сигнатуре — на этом же держится спек
 `FontSignatureMatcher`, так что замену стоит проверять теми же признаками:

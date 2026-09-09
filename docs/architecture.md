@@ -293,6 +293,47 @@ FontConvertor.convert({ originPath, extension })
   → FontForge.convert(): fontforge -c '<скрипт>' SRC DIST через ProcessHelper.run
 ```
 
+Пары с EOT идут иначе: движок этот формат не знает. Ни `Extension.EOT` в
+`FontForge.supportedExtensions`, ни `.eot` в аргументах `fontforge` не появляется —
+конверт снимает и надевает `EotPacker`, а движку достаётся обычный sfnt:
+
+```
+ttf → eot            EotPacker.pack(SRC, DIST)
+{otf,woff,woff2,svg} → eot   FontForge.convert(SRC, DIST.ttf) → EotPacker.pack(DIST.ttf, DIST)
+eot → ttf            EotPacker.unpack(SRC, DIST)
+eot → {otf,woff,woff2,svg}   EotPacker.unpack(SRC, DIST.ttf) → FontForge.convert(DIST.ttf, DIST)
+```
+
+Промежуточный sfnt лежит рядом с результатом (`<результат>.ttf`: имя результата уникально
+в каталоге, значит уникально и производное) и убирается и после успеха, и после ошибки —
+но не в `finally`: там `RemoveFailed` вытеснил бы исходную ошибку, и настоящей причины
+отказа не осталось бы даже в `cause`. Порядок обратный: ошибка уборки всплывает, только
+если до неё ничего не упало (`TwoStepEotConvertor.throughIntermediate()`).
+
+Классов-родителей два, и наследуют они `Convertor` порознь, чтобы ни один класс пары не
+получал ненужного: `EotConvertor` — конструктор пар, которым хватает кодека (`ttf ↔ eot`),
+`TwoStepEotConvertor` — конструктор, промежуточный путь и уборка для остальных восьми,
+чьи тела лежат в `ToEotConvertor` и `FromEotConvertor`. Сами десять классов пар пусты,
+кроме объявления своего формата.
+
+`EotPacker` (`eot-packer/`) — единственное место, где домен разбирает содержимое шрифта, а
+не только его первые байты. Заголовок EOT дублирует метаданные вложенного шрифта, и
+`SfntReader` достаёт их из таблиц `OS/2` (насыщенность, наклон, PANOSE, диапазоны
+кодировок), `head` (контрольная сумма) и `name` (четыре имени, в конверте — UTF-16LE).
+Наклон берётся из `OS/2.fsSelection`, а не из дублирующего его `head.macStyle`: так же
+делает `ttf2eot`, а в `macStyle` наклон лежит в бите 1, где в `fsSelection` не он.
+Имена читаются с платформы Windows, при её отсутствии — с Unicode, потом с Macintosh, и
+только с `encodingId 0`: однобайтовый MacRoman там лишь он, в остальных записях лежат
+национальные кодировки. Внутри платформы предпочитается английский (`0x0409` у Windows,
+`0` у прочих) — порядок записей шрифт не гарантирует. Имена информационные, поэтому ни
+отсутствие записи, ни отсутствие всей таблицы `name`, ни строка за концом файла шрифт не
+отвергают: соответствующее поле конверта остаётся пустым.
+
+Раскладка заголовка расписана в самом `eot-packer.ts`. Пишется версия `0x00020001`,
+читаются `0x00010000`, `0x00020001` и `0x00020002`; сжатую (`TTEMBED_TTCOMPRESSED`) и
+зашифрованную (`TTEMBED_XORENCRYPTDATA`) полезную нагрузку кодек отвергает явной ошибкой
+`UnsupportedEotFlags`, а не пытается разобрать.
+
 Движок запускается только через `ProcessHelper.run(file, args)` — обёртку над
 `child_process.execFile`. Аргументы уходят процессу массивом, минуя `/bin/sh`, поэтому
 кавычки и `$(...)` в путях остаются данными. Второй уровень интерпретации, питоновский,
@@ -339,6 +380,17 @@ libmagic).
   Ошибки уходят в `console.log`, мимо `Logger`. Команда отладочная и в прод не идёт (§1),
   поэтому вход из каталога `test/` остаётся как есть (issue
   [#171](https://github.com/yuldashevsardor/telegram-bot/issues/171)).
+- Конверт EOT читается не насквозь: разбираются имена, дальше шрифт берётся хвостом
+  файла по `FontDataSize`. Хвост версии `0x00020002` (подпись, встроенный EUDC) в
+  проверку целостности не входит.
+- Конверт, собранный `EotPacker`, повторяет вывод `ttf2eot` байт в байт, кроме `fsType`:
+  тот всегда пишет ноль, объявляя любой шрифт свободным для установки, а мы по
+  спецификации переносим `OS/2.fsType` как есть. На это опирается тест побайтового
+  сравнения с фикстурой.
+- Коллекция `ttcf` проходит сигнатуру `.ttf` и `.otf`, но в конверт не кладётся: в ней
+  несколько шрифтов, и какой из них брать, домен не решает. Пары с EOT для такого файла
+  падают, хотя список форматов в приветствии его не оговаривает (issue
+  [#181](https://github.com/yuldashevsardor/telegram-bot/issues/181)).
 
 ## 8. User
 
@@ -547,8 +599,9 @@ Payload перед записью проходит через `serialize-error`:
   `tsconfig.check.json`. Миграции идут мимо `tsx`, их грузит своим jiti `node-pg-migrate`
   (§11).
 - Покрыто: `task-queue` (очередь, партиция, лимит), `ConfigContainer`,
-  `ConfigEnvStorage`, `ConsoleLogger`, `ConvertorFactory`, `FileHelper`,
-  `FontSignatureMatcher`, `ProcessHelper`, `utils`, `errors`, отброс в базовом `Filter`,
+  `ConfigEnvStorage`, `ConsoleLogger`, `ConvertorFactory`, `EotPacker`, пары с EOT на
+  подставных движке и кодеке, `FileHelper`,
+  `FontSignatureMatcher`, `ProcessHelper`, `SfntReader`, `utils`, `errors`, отброс в базовом `Filter`,
   список форматов в приветствии `StartConversation`, локали (§10). Не покрыто: `Runner`,
   `FontConvertor`, `Convertor`, `UserService`, `Application`, `Bot`, middleware.
 - Шрифты для тестов — `test/fixtures/fonts`, по файлу на формат; происхождение и способ
@@ -625,6 +678,11 @@ Payload перед записью проходит через `serialize-error`:
   поэтому в имя ключа входит модуль-владелец.
 - **`Convertor.validateToPath()` требует несуществующий путь**: конвертация не
   идемпотентна по пути, имя генерируется заново на каждый вызов.
+- **EOT не отдаётся движку.** `fontforge` не знает расширения `.eot`: на чтение он падает,
+  а на запись молча уходит в запасной PostScript Type 1 — выходит нулевой код возврата,
+  файл с расширением `.eot` и чужим содержимым внутри, да ещё сайдкар `.afm` рядом.
+  Вернуть `Extension.EOT` в `FontForge.supportedExtensions` — вернуть эту молчаливую
+  порчу (issue [#158](https://github.com/yuldashevsardor/telegram-bot/issues/158)).
 - **Внешние процессы — только через `ProcessHelper.run()`**, с аргументами массивом.
   `exec` и любая сборка команды строкой возвращают `/bin/sh` в цепочку, и подставленный
   путь снова становится кодом; тестами это не ловится, потому что на «нормальных» путях

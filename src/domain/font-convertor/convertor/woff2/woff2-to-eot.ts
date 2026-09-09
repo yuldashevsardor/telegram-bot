@@ -1,12 +1,6 @@
-import { FontForgeConvertor } from "app/domain/font-convertor/convertor/font-forge-convertor";
 import { Extension } from "app/domain/font-convertor/font-convertor.types";
+import { ToEotConvertor } from "app/domain/font-convertor/convertor/to-eot-convertor";
 
-export class Woff2ToEot extends FontForgeConvertor {
+export class Woff2ToEot extends ToEotConvertor {
     protected fromExtension: Extension = Extension.WOFF2;
-    protected toExtension: Extension = Extension.EOT;
-
-    public async convert(originPath: string, newPath: string): Promise<void> {
-        await this.validate(originPath, newPath);
-        await this.fontForge.convert(originPath, newPath);
-    }
 }

@@ -2,7 +2,14 @@ import fs from "fs/promises";
 import fsSync from "fs";
 import path from "path";
 import dayjs from "dayjs";
-import { InvalidExtensions, InvalidPath, PermissionDenied, ReadFailed } from "app/helper/file-helper/file-helper.errors";
+import {
+    InvalidExtensions,
+    InvalidPath,
+    PermissionDenied,
+    ReadFailed,
+    RemoveFailed,
+    WriteFailed,
+} from "app/helper/file-helper/file-helper.errors";
 import glob from "tiny-glob";
 
 export class FileHelper {
@@ -109,6 +116,38 @@ export class FileHelper {
             throw ReadFailed.byPath(path, error);
         } finally {
             await file.close();
+        }
+    }
+
+    /**
+     * Файл целиком.
+     */
+    public static async read(path: string): Promise<Uint8Array> {
+        try {
+            const content = await fs.readFile(path);
+
+            return new Uint8Array(content.buffer, content.byteOffset, content.byteLength);
+        } catch (error) {
+            throw ReadFailed.byPath(path, error);
+        }
+    }
+
+    public static async write(path: string, data: Uint8Array): Promise<void> {
+        try {
+            await fs.writeFile(path, data);
+        } catch (error) {
+            throw WriteFailed.byPath(path, error);
+        }
+    }
+
+    /**
+     * Удаляет файл; отсутствие пути ошибкой не считается.
+     */
+    public static async remove(path: string): Promise<void> {
+        try {
+            await fs.rm(path, { force: true });
+        } catch (error) {
+            throw RemoveFailed.byPath(path, error);
         }
     }
 

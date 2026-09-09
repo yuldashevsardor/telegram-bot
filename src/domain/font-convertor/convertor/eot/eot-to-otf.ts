@@ -1,12 +1,6 @@
-import { FontForgeConvertor } from "app/domain/font-convertor/convertor/font-forge-convertor";
 import { Extension } from "app/domain/font-convertor/font-convertor.types";
+import { FromEotConvertor } from "app/domain/font-convertor/convertor/from-eot-convertor";
 
-export class EotToOtf extends FontForgeConvertor {
-    protected fromExtension: Extension = Extension.EOT;
+export class EotToOtf extends FromEotConvertor {
     protected toExtension: Extension = Extension.OTF;
-
-    public async convert(originPath: string, newPath: string): Promise<void> {
-        await this.validate(originPath, newPath);
-        await this.fontForge.convert(originPath, newPath);
-    }
 }

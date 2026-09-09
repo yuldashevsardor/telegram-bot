@@ -35,8 +35,9 @@ import { TtfToSvg } from "app/domain/font-convertor/convertor/ttf/ttf-to-svg";
 import { OtfToSvg } from "app/domain/font-convertor/convertor/otf/otf-to-svg";
 import { EotToSvg } from "app/domain/font-convertor/convertor/eot/eot-to-svg";
 import { FontSignatureMatcher } from "app/domain/font-convertor/font-signature-matcher";
+import { EotPacker } from "app/domain/font-convertor/eot-packer/eot-packer";
 
-type ConvertorConstructor = new (fontForge: FontForge, fontSignatureMatcher: FontSignatureMatcher) => Convertor;
+type ConvertorConstructor = new (fontForge: FontForge, fontSignatureMatcher: FontSignatureMatcher, eotPacker: EotPacker) => Convertor;
 
 type ConvertorMatrix = Partial<Record<Extension, Partial<Record<Extension, ConvertorConstructor>>>>;
 
@@ -94,6 +95,7 @@ export class ConvertorFactory {
         @inject<FontForge>(Services.FontConvertor.FontForge) private readonly fontForge: FontForge,
         @inject<FontSignatureMatcher>(Services.FontConvertor.FontSignatureMatcher)
         private readonly fontSignatureMatcher: FontSignatureMatcher,
+        @inject<EotPacker>(Services.FontConvertor.EotPacker) private readonly eotPacker: EotPacker,
     ) {}
 
     public get(fromExtension: Extension, toExtension: Extension): Convertor {
@@ -103,7 +105,7 @@ export class ConvertorFactory {
             throw ConvertorNotFound.byExtensions(fromExtension, toExtension);
         }
 
-        return new convertor(this.fontForge, this.fontSignatureMatcher);
+        return new convertor(this.fontForge, this.fontSignatureMatcher, this.eotPacker);
     }
 
     /**

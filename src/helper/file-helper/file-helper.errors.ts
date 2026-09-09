@@ -1,4 +1,27 @@
 import { RuntimeError } from "app/common/errors";
+import { UnknownObject } from "app/common/types";
+
+/**
+ * Общая форма ошибок файловых операций: сообщение системы, если оно есть, и путь в payload.
+ */
+function byPathAndError<T extends RuntimeError>(
+    error: new (message: string, payloadOrCause?: UnknownObject | Error) => T,
+    fallbackMessage: string,
+    path: string,
+    cause: unknown,
+): T {
+    if (!(cause instanceof Error)) {
+        return new error(fallbackMessage, {
+            path: path,
+            error: cause,
+        });
+    }
+
+    return new error(cause.message, {
+        path: path,
+        cause: cause,
+    });
+}
 
 export class PermissionDenied extends RuntimeError {
     public static read(path: string): PermissionDenied {
@@ -58,17 +81,19 @@ export class InvalidFile extends RuntimeError {
 
 export class ReadFailed extends RuntimeError {
     public static byPath(path: string, error: unknown): ReadFailed {
-        if (!(error instanceof Error)) {
-            return new ReadFailed(`Cannot read file ${path}.`, {
-                path: path,
-                error: error,
-            });
-        }
+        return byPathAndError(ReadFailed, `Cannot read file ${path}.`, path, error);
+    }
+}
 
-        return new ReadFailed(error.message, {
-            path: path,
-            cause: error,
-        });
+export class WriteFailed extends RuntimeError {
+    public static byPath(path: string, error: unknown): WriteFailed {
+        return byPathAndError(WriteFailed, `Cannot write file ${path}.`, path, error);
+    }
+}
+
+export class RemoveFailed extends RuntimeError {
+    public static byPath(path: string, error: unknown): RemoveFailed {
+        return byPathAndError(RemoveFailed, `Cannot remove file ${path}.`, path, error);
     }
 }
 

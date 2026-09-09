@@ -5,8 +5,9 @@ import { ConvertorFactory } from "app/domain/font-convertor/convertor/convertor-
 import { ConvertorNotFound } from "app/domain/font-convertor/font-convertor.errors";
 import { FontForge } from "app/domain/font-convertor/font-forge/font-forge";
 import { FontSignatureMatcher } from "app/domain/font-convertor/font-signature-matcher";
+import { EotPacker } from "app/domain/font-convertor/eot-packer/eot-packer";
 
-const convertorFactory = new ConvertorFactory({} as FontForge, new FontSignatureMatcher());
+const convertorFactory = new ConvertorFactory({} as FontForge, new FontSignatureMatcher(), new EotPacker());
 
 // Имя класса пары строится так же, как имя его файла: <from>-to-<to>.ts.
 function convertorClassName(fromExtension: Extension, toExtension: Extension): string {

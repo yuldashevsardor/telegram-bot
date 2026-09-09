@@ -6,6 +6,7 @@ import { ConfigContainer } from "app/infrastructure/config/config-container";
 import { RequestContext } from "app/infrastructure/request-context";
 import { FontForge } from "app/domain/font-convertor/font-forge/font-forge";
 import { FontSignatureMatcher } from "app/domain/font-convertor/font-signature-matcher";
+import { EotPacker } from "app/domain/font-convertor/eot-packer/eot-packer";
 import { Services } from "app/infrastructure/container/symbols/services";
 import { ConvertorFactory } from "app/domain/font-convertor/convertor/convertor-factory";
 import { FontConvertor } from "app/domain/font-convertor/font-convertor";
@@ -80,6 +81,7 @@ export class Container extends InversifyContainer {
         this.bind<ConvertorFactory>(Services.FontConvertor.ConvertorFactory).to(ConvertorFactory).inSingletonScope();
         this.bind<FontForge>(Services.FontConvertor.FontForge).to(FontForge).inSingletonScope();
         this.bind<FontSignatureMatcher>(Services.FontConvertor.FontSignatureMatcher).to(FontSignatureMatcher).inSingletonScope();
+        this.bind<EotPacker>(Services.FontConvertor.EotPacker).to(EotPacker).inSingletonScope();
         this.bind<FontConvertor>(Services.FontConvertor.FontConvertor).to(FontConvertor).inSingletonScope();
 
         // User
