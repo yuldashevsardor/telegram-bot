@@ -60,3 +60,18 @@ describe("ProcessHelper.run", function () {
         }
     }
 });
+
+describe("ProcessFailed.byCommand", function () {
+    it("кладёт пойманное не-Error значение под cause в payload и берёт запасное сообщение", function () {
+        // Значение подобрано так, чтобы не совпадать ни с file, ни с элементами args:
+        // иначе тест не отличит пойманное от аргумента команды.
+        const error = ProcessFailed.byCommand("/bin/sh", ["-c", "exit 3"], "SIGKILL");
+
+        // Ключ от типа не зависит, глубина зависит: RuntimeError поднимает в нативный
+        // cause только Error, поэтому строка остаётся в payload — и сообщение берётся
+        // запасное, взять его у пойманного значения не у чего.
+        expect(error.message).to.equal("Process /bin/sh failed.");
+        expect(error.cause).to.be.undefined;
+        expect(error.payload).to.deep.equal({ file: "/bin/sh", args: ["-c", "exit 3"], cause: "SIGKILL" });
+    });
+});
