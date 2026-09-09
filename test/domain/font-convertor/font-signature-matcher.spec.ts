@@ -92,6 +92,9 @@ describe("FontSignatureMatcher.matches", function () {
     it("rejects a binary head that opens like markup", function () {
         // Байты — голова фикстуры EOT: её размер файла даёт `<m`.
         expect(fontSignatureMatcher.matches(concat("<m", [0x02, 0x00, 0x88, 0x6c, 0x02, 0x00]), Extension.SVG)).to.be.false;
+        // Та же пара, но головы хватает на всю сигнатуру: файл отвергает двоичный
+        // хвост, а не проверка длины в `matches`.
+        expect(fontSignatureMatcher.matches(concat("<m", new Uint8Array(10)), Extension.SVG)).to.be.false;
     });
 
     it("rejects an svg whose root tag starts beyond the prefix limit", function () {
