@@ -66,8 +66,8 @@ export class Application {
         } catch (error) {
             this.runner.stop();
 
-            this.logger.critical("Unhandled error on application start", { cause: error });
-
+            // Отказ старта здесь не пишется: ошибка уходит в fail(), а тот логирует её сам.
+            // Запись в обоих местах давала два CRITICAL на один отказ и удваивала счётчик алертов.
             throw error;
         }
     }
