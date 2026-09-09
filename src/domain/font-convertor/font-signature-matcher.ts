@@ -1,6 +1,7 @@
 import { injectable } from "inversify";
 import { Extension } from "app/domain/font-convertor/font-convertor.types";
 import { ByteClass, Prefix, Signature, SignatureByte } from "app/domain/font-convertor/font-signature-matcher.types";
+import { SFNT_VERSIONS, sfntVersionBytes } from "app/domain/font-convertor/sfnt-version";
 
 @injectable()
 export class FontSignatureMatcher {
@@ -39,19 +40,13 @@ export class FontSignatureMatcher {
 
     public constructor() {
         // TTF и OTF лежат в одном контейнере sfnt, и по содержимому они неразличимы:
-        // версия sfnt называет тип обводов (0x00010000 — TrueType, плюс "true" старых
-        // макинтошевских шрифтов; "OTTO" — CFF), а не расширение имени. Обводки любого
-        // типа законно встречаются под обоими расширениями, поэтому сигнатура здесь
+        // версия sfnt называет тип обводок, а не расширение имени. Обводки любого типа
+        // законно встречаются под обоими расширениями, поэтому сигнатура здесь
         // подтверждает контейнер, а какую пару конвертации запускать — решает расширение.
         //
-        // Коллекции ("ttcf") здесь нет намеренно, хотя контейнер у неё тот же: какой из
-        // её шрифтов брать, домен не решает, поэтому под sfnt-именем она не проходит
-        // (issue https://github.com/yuldashevsardor/telegram-bot/issues/181).
-        const sfnt: Array<Signature> = [
-            { offset: 0, bytes: [0x00, 0x01, 0x00, 0x00] },
-            { offset: 0, bytes: this.ascii("true") },
-            { offset: 0, bytes: this.ascii("OTTO") },
-        ];
+        // Набор версий общий с кодеком: какие версии домен принимает и почему среди них
+        // нет коллекции ("ttcf"), сказано у `SFNT_VERSIONS`.
+        const sfnt: Array<Signature> = SFNT_VERSIONS.map((version) => ({ offset: 0, bytes: sfntVersionBytes(version) }));
 
         this.signaturesByExtension = {
             [Extension.TTF]: sfnt,
