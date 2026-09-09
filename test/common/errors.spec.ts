@@ -64,6 +64,6 @@ describe("RuntimeError.byError", function () {
 
         expect(error).to.be.instanceOf(ChildError);
         expect(error.cause).to.be.undefined;
-        expect(error.payload).to.deep.equal({ error: "boom" });
+        expect(error.payload).to.deep.equal({ cause: "boom" });
     });
 });

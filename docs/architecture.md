@@ -468,6 +468,24 @@ libmagic).
 Payload перед записью проходит через `serialize-error`: без него вложенная ошибка
 печаталась бы как `{}`, а так в лог попадают её `name`, `message`, `stack` и `cause`.
 
+Пойманная ошибка уходит в payload только под ключом `cause` — `logger.error(message,
+{ cause: error })`, — и то же правило держат конструктор `RuntimeError` и фабрики ошибок
+(`RuntimeError.byError()`, `ReadFailed.byPath()`, `ProcessFailed.byCommand()`). Ключ payload
+— часть контракта записи, а не деталь вызова: по нему ошибку ищут в логах и по нему её
+разберёт будущий ECS-маппинг, поэтому второй ключ вроде `error` расколол бы такой разбор
+надвое молча — запись при этом выглядит целой. Тип пойманного значения на выбор ключа не
+влияет: развилки «`Error` под `cause`, остальное под `error`» нет ни в фабриках, ни в
+вызовах логгера.
+
+От типа зависит не ключ, а глубина, на которой значение окажется в записи. Конструктор
+`RuntimeError` поднимает `payload.cause` в нативный `cause`, только если это `Error`;
+не-`Error` остаётся в payload. Разворачивать его `serialize-error` тоже не станет: в
+`NonError` он заворачивает лишь собственный аргумент, а `PinoLogger` и `ConsoleLogger`
+всегда передают ему объект payload, поэтому вложенные примитивы копируются как есть.
+Так `ReadFailed.byPath(path, new Error("EACCES"))` кладёт исходное в `payload.cause.cause`
+разобранной ошибкой, а `ReadFailed.byPath(path, "EACCES")` — в `payload.cause.payload.cause`
+голой строкой. Разбор записи должен учитывать оба пути.
+
 При добавлении уровня править три места: `Level`, `LevelSeverity` и `pinoLevels` в
 `pino-logger.ts`; последний — `Record<PinoLevel, number>` по строковому имени, забытая
 запись упадёт в рантайме.

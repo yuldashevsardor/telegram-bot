@@ -66,7 +66,7 @@ export class Application {
         } catch (error) {
             this.runner.stop();
 
-            this.logger.critical("Unhandled error on application start", { error: error });
+            this.logger.critical("Unhandled error on application start", { cause: error });
 
             throw error;
         }

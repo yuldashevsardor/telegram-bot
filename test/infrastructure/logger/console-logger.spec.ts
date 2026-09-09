@@ -37,15 +37,15 @@ function logAndParsePayload(payload: UnknownObject): unknown {
 
 describe("ConsoleLogger", function () {
     it("prints a nested error with its message and stack", function () {
-        const payload = logAndParsePayload({ error: new Error("boom") }) as { error: UnknownObject };
+        const payload = logAndParsePayload({ cause: new Error("boom") }) as { cause: UnknownObject };
 
-        expect(payload.error).to.include({ name: "Error", message: "boom" });
-        expect(payload.error["stack"]).to.be.a("string");
+        expect(payload.cause).to.include({ name: "Error", message: "boom" });
+        expect(payload.cause["stack"]).to.be.a("string");
     });
 
     it("prints the cause of a nested error", function () {
-        const payload = logAndParsePayload({ error: new RuntimeError("failed", new Error("boom")) }) as { error: UnknownObject };
-        const cause = payload.error["cause"] as UnknownObject;
+        const payload = logAndParsePayload({ cause: new RuntimeError("failed", new Error("boom")) }) as { cause: UnknownObject };
+        const cause = payload.cause["cause"] as UnknownObject;
 
         expect(cause).to.include({ name: "Error", message: "boom" });
     });
