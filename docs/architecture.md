@@ -147,8 +147,9 @@ scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-w
   поэтому `InvalidConfigError` доходит до `fail()`, когда логгера ещё нет: тот пишет через
   `ApplicationContext.getLogger()`, а на `ApplicationContextIsNotCreated` откатывается на
   `console.error` (§9).
-- `run()`: `runner.run()` → `bot.run()`. Ошибка пишется `critical` и пробрасывается;
-  `bootstrap().catch(fail)` завершает процесс кодом 1.
+- `run()`: `runner.run()` → `bot.run()`. Ошибка останавливает `runner` и пробрасывается
+  без записи в лог; `bootstrap().catch(fail)` пишет `critical` и завершает процесс кодом 1.
+  Логирует только `fail()`: два `critical` на один отказ удваивали бы счётчик алертов.
 - `stop()`: `bot.stop()` → `waitQueueToEmpty()` → `runner.stop()` → `container.close()`.
   Три срока: `BOT_GRACEFUL_SHUTDOWN_TIMEOUT` (3 с) на runner внутри `Bot.stop()`,
   `TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT` (5 с) на разгрузку очереди,

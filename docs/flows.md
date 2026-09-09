@@ -32,9 +32,10 @@
    → `bot.run()` (`grammy.catch(handleError)`, затем `run(grammy, ...)` — long polling
    в фоне с `allowed_updates: ["message"]`, §5).
 
-**Ошибки:** любой сбой старта — код выхода 1 через `bootstrap().catch(fail)`. Ошибка из
-`run()` сначала пишется `critical`. `unhandledRejection` и `uncaughtException` тоже ведут
-в `fail`: он пишет `critical` через `Logger`, а до создания контекста — своим фолбэком (§9).
+**Ошибки:** любой сбой старта — код выхода 1 через `bootstrap().catch(fail)`. Сам `run()`
+ошибку не логирует, только останавливает `runner` и пробрасывает: запись одна и делает её
+`fail()`. `unhandledRejection` и `uncaughtException` тоже ведут в `fail`: он пишет `critical`
+через `Logger`, а до создания контекста — своим фолбэком (§9).
 Повторов нет ни для базы, ни для `setMyCommands`: временный сетевой сбой в этот момент
 фатален.
 
