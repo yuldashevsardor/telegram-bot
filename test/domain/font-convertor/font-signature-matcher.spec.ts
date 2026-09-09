@@ -61,7 +61,9 @@ describe("FontSignatureMatcher.matches", function () {
         expect(fontSignatureMatcher.matches(concat("  ", "<!DOCTYPE svg"), Extension.SVG)).to.be.true;
     });
 
-    it("accepts an svg opening with a processing instruction", function () {
+    it("accepts an svg opening with a processing instruction whose target starts with xml", function () {
+        // Классом начала разметки инструкция обработки не покрыта: её пропускает
+        // сигнатура `<?xml`, поэтому проходит только таргет с таким началом.
         expect(fontSignatureMatcher.matches(ascii('<?xml-stylesheet href="a.css"?>'), Extension.SVG)).to.be.true;
     });
 
