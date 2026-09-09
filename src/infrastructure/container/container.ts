@@ -1,10 +1,9 @@
 import "reflect-metadata";
 import { Container as InversifyContainer } from "inversify";
-import { AsyncLocalStorage } from "async_hooks";
 import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
 import { ApplicationContext } from "app/infrastructure/application/application-context";
 import { ConfigContainer } from "app/infrastructure/config/config-container";
-import { AlsStore } from "app/infrastructure/async-local-storage.types";
+import { RequestContext } from "app/infrastructure/request-context";
 import { FontForge } from "app/domain/font-convertor/font-forge/font-forge";
 import { FontSignatureMatcher } from "app/domain/font-convertor/font-signature-matcher";
 import { EotPacker } from "app/domain/font-convertor/eot-packer/eot-packer";
@@ -22,7 +21,7 @@ import { FontGeneratorCommand } from "app/infrastructure/bot/command/font-genera
 import { Logger } from "app/domain/logger/logger";
 import { ResponseTimeMiddleware } from "app/infrastructure/bot/middleware/response-time.middleware";
 import { RequestLogMiddleware } from "app/infrastructure/bot/middleware/request-log.middleware";
-import { AsyncLocalStorageMiddleware } from "app/infrastructure/bot/middleware/async-local-storage.middleware";
+import { RequestContextMiddleware } from "app/infrastructure/bot/middleware/request-context.middleware";
 import { IsPrivateChatFilter } from "app/infrastructure/bot/filter/is-private-chat.filter";
 import { HasSessionKeyFilter } from "app/infrastructure/bot/filter/has-session-key.filter";
 import { FillUserToContextMiddleware } from "app/infrastructure/bot/middleware/fill-user-to-context.middleware";
@@ -50,7 +49,7 @@ export class Container extends InversifyContainer {
 
         this.bind<ConfigContainer>(Infrastructure.ConfigContainer).toConstantValue(ApplicationContext.getConfigContainer());
         this.bind<Logger>(Infrastructure.Logger).toConstantValue(ApplicationContext.getLogger());
-        this.bind<AsyncLocalStorage<AlsStore>>(Infrastructure.Als).toConstantValue(ApplicationContext.getAls());
+        this.bind<RequestContext>(Infrastructure.RequestContext).toConstantValue(ApplicationContext.getRequestContext());
 
         await this.setupModules();
         await this.setupServices();
@@ -106,7 +105,7 @@ export class Container extends InversifyContainer {
             .to(TelegramCallApiMiddleware)
             .inSingletonScope();
 
-        this.bind<AsyncLocalStorageMiddleware>(Modules.Bot.Middleware.AsyncLocalStorage).to(AsyncLocalStorageMiddleware).inSingletonScope();
+        this.bind<RequestContextMiddleware>(Modules.Bot.Middleware.RequestContext).to(RequestContextMiddleware).inSingletonScope();
         this.bind<ResponseTimeMiddleware>(Modules.Bot.Middleware.ResponseTime).to(ResponseTimeMiddleware).inSingletonScope();
         this.bind<RequestLogMiddleware>(Modules.Bot.Middleware.RequestLog).to(RequestLogMiddleware).inSingletonScope();
         this.bind<FillUserToContextMiddleware>(Modules.Bot.Middleware.FillUserToContext).to(FillUserToContextMiddleware).inSingletonScope();

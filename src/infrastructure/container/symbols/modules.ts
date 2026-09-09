@@ -19,7 +19,7 @@ export const Modules = {
             Mutation: {
                 TelegramCallApi: Symbol.for("TelegramCallApi"),
             },
-            AsyncLocalStorage: Symbol.for("AsyncLocalStorage"),
+            RequestContext: Symbol.for("RequestContextMiddleware"),
             ResponseTime: Symbol.for("ResponseTime"),
             RequestLog: Symbol.for("RequestLog"),
             FillUserToContext: Symbol.for("FillUserToContext"),

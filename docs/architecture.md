@@ -44,6 +44,15 @@ Telegram — способ доставки; `User`, сессии и миграц
 `/bulk_messages` — нагрузочный инструмент, а не фича (issue
 [#3](https://github.com/yuldashevsardor/telegram-bot/issues/3)).
 
+`/font_generator` и `/bulk_messages` — тестовые команды: они нужны только в разработке и
+до выкладки в прод снимаются. Продовые мерки к ним не применяются — привязка к среде
+разработчика (входной шрифт из тестовой фикстуры, захардкоженные chat ID и путь машины
+автора), отсутствие проверки прав, `console.log` мимо `Logger`, `container.get()` вместо
+внедрения зависимостей считаются свойством тестовой команды, а не дефектом, и чинить их
+не нужно (issues [#3](https://github.com/yuldashevsardor/telegram-bot/issues/3),
+[#171](https://github.com/yuldashevsardor/telegram-bot/issues/171)). Единственное
+требование к такой команде — не уехать в прод.
+
 ## 2. Карта директорий
 
 ```
@@ -64,7 +73,8 @@ src/
     database/               Database (§11)
     logger/                 ConsoleLogger, PinoLogger (§9)
     repository/             PgSqlUserRepository (§8)
-    async-local-storage.types.ts  ключи и тип значений запроса (§9)
+    request-context.ts      RequestContext: область и значения запроса (§9)
+    request-context.types.ts  ключи и тип значений запроса (§9)
 test/                       mocha-спеки, зеркалят src/
 migrations/                 миграции, в common/ — общие shorthands и заготовка (§11)
 scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-worktree-guard
@@ -78,7 +88,7 @@ scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-w
 ## 3. DI
 
 `Container extends InversifyContainer` (`container/container.ts`), `setup()`
-идемпотентен. Конфиг, логгер и `AsyncLocalStorage` он берёт готовыми у `ApplicationContext`
+идемпотентен. Конфиг, логгер и `RequestContext` он берёт готовыми у `ApplicationContext`
 (§4) и связывает первыми константами, затем `setupModules()` (лимит-резолвер, очередь, раннер, всё из
 `setupBot()`), `setupServices()` (font-convertor, user), `setupInfrastructure()`
 (`Database`). Всё singleton.
@@ -86,9 +96,11 @@ scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-w
 Символы — `Symbol.for(...)` в `container/symbols/` (`Infrastructure`, `Modules`,
 `Services`). Реестр ручной: новая команда, middleware или сервис без биндинга не
 падает, а просто отсутствует. Строка внутри `Symbol.for` — глобальный ключ: одно и то же
-имя в разных реестрах даёт один и тот же символ, поэтому хранилище запроса связано как
-`Als` — имя `AsyncLocalStorage` уже занято символом middleware, и второй биндинг под тем
-же символом валит резолв «Ambiguous match».
+имя в разных реестрах даёт один и тот же символ: биндинг под уже занятым именем валит
+резолв «Ambiguous match». Поэтому имена в реестрах не пересекаются — `RequestContext`
+(контекст запроса, `Infrastructure`) и `RequestContextMiddleware` (его middleware,
+`Modules`). У второго ключ реестра — `Modules.Bot.Middleware.RequestContext`, а строка
+внутри `Symbol.for` длиннее: короткую уже занял контекст запроса.
 
 Два декоратора свойств тянут значения из модульного синглтона `container` при первом
 обращении (service locator): `@ConfigValue(key)` — путь в `ConfigContainer`
@@ -102,14 +114,14 @@ scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-w
 ## 4. Application
 
 `ApplicationContext` (`infrastructure/application/application-context.ts`) — состав того,
-что нужно приложению всегда: конфиг, логгер, хранилище запроса. Эти объекты существуют до
+что нужно приложению всегда: конфиг, логгер, контекст запроса. Эти объекты существуют до
 контейнера, потому что собрать его без них нельзя. Контекст собирает себя сам
 (`ApplicationContext.create()`): внутри `ConfigEnvStorage` → `ConfigContainer` →
-`AsyncLocalStorage` → выбор адаптера логгера.
+`RequestContext` → выбор адаптера логгера.
 
 Класс статический целиком: части лежат на нём и выдаются `getConfigContainer()`,
-`getLogger()`, `getAls()`, экземпляра нет вовсе. Так контекст нельзя потерять — ссылку на
-объект восстановить было бы нечем, а собранный логгер и хранилище остались бы в процессе
+`getLogger()`, `getRequestContext()`, экземпляра нет вовсе. Так контекст нельзя потерять —
+ссылку на объект восстановить было бы нечем, а собранный логгер и хранилище остались бы в процессе
 без единого входа к ним. Обращение до `create()` — `ApplicationContextIsNotCreated`.
 
 Контекст один на процесс: у второго было бы своё хранилище запроса, и логгер читал бы не
@@ -121,7 +133,7 @@ scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-w
 Дальше контекст никуда не расходится: `Application.setup()` берёт из него `cc` и `logger`,
 `container.setup()` — три константы для биндингов. Потребители получают части из
 контейнера по отдельности (`@inject(Infrastructure.ConfigContainer)`,
-`Infrastructure.Logger`, `Infrastructure.Als`) — контекст не инжектится никуда,
+`Infrastructure.Logger`, `Infrastructure.RequestContext`) — контекст не инжектится никуда,
 иначе он стал бы вторым DI. Состав держится коротким по той же причине: `Database` в него не входит, у неё
 свой жизненный цикл на `container.close()` (§3).
 
@@ -143,8 +155,8 @@ scripts/                    worktree-init/cleanup, bot-token, db-reset, claude-w
   Собственные сроки зависимостей (`sql.end({ timeout: 5 })`) в проверку не входят.
 
 `ApplicationContext.createLogger()`: в production `PinoLogger`, иначе `ConsoleLogger`;
-порог из конфига. Логгер один на процесс и под запрос не подменяется — данные запроса он
-берёт из `AsyncLocalStorage` в момент записи (§9).
+порог из конфига. Логгер один на процесс и под запрос не подменяется — значения запроса он
+берёт из `RequestContext` в момент записи (§9).
 
 ## 5. Bot
 
@@ -159,7 +171,7 @@ ConversationFlavor & FluentFlavor & { getUser: () => User }`; `FluentFlavor`
    апдейты без `from` или `chat`: сессии у них нет, а всё ниже на неё рассчитывает. С
    заданным `allowed_updates` (ниже) такие апдейты уже не запрашиваются, поэтому отброс
    здесь — редкость. Он пишется `warning`-ом: ниже фильтра дампа апдейта уже не будет.
-   Логгер здесь ещё без `requestId` — `AsyncLocalStorageMiddleware` стоит ниже (§9).
+   Логгер здесь ещё без `requestId` — `RequestContextMiddleware` стоит ниже (§9).
 2. `IsPrivateChatFilter` — всё ниже работает только в приватных чатах. Стоит вторым:
    `ctx.chat` у него нет и у апдейтов без ключа сессии, а своей строки в логе он не
    пишет — только общую `debug` базы, поэтому их должен раньше увидеть
@@ -173,9 +185,9 @@ ConversationFlavor & FluentFlavor & { getUser: () => User }`; `FluentFlavor`
    ключей, сюда не доходит: их отбросил шаг 1.
 4. `session()` — ключ `${from.id}:${chat.id}`, хранилище `PgsqlStorage` (таблица
    `sessions`), payload `{ requestCount }`.
-5. Middleware: `AsyncLocalStorageMiddleware` → `TelegramCallApiMiddleware` →
+5. Middleware: `RequestContextMiddleware` → `TelegramCallApiMiddleware` →
    `ResponseTimeMiddleware` → `RequestLogMiddleware` → `FillUserToContextMiddleware`.
-   `AsyncLocalStorageMiddleware` первый: всё, что логируется внутри цепочки, пишется
+   `RequestContextMiddleware` первый: всё, что логируется внутри цепочки, пишется
    с `requestId` (§9).
 6. Fluent (§10).
 7. `conversations()` + `createConversation` для каждого символа `Modules.Bot.Conversations`.
@@ -293,10 +305,16 @@ eot → {otf,woff,woff2,svg}   EotPacker.unpack(SRC, DIST.ttf) → FontForge.con
 ```
 
 Промежуточный sfnt лежит рядом с результатом (`<результат>.ttf`: имя результата уникально
-в каталоге, значит уникально и производное) и удаляется в `finally` — и после успеха, и
-после ошибки. Общий конструктор пар с EOT — `EotConvertor`, двухшаговые тела вынесены в
-`ToEotConvertor` и `FromEotConvertor`, поэтому восемь из десяти классов пар пусты, кроме
-объявления своего формата.
+в каталоге, значит уникально и производное) и убирается и после успеха, и после ошибки —
+но не в `finally`: там `RemoveFailed` вытеснил бы исходную ошибку, и настоящей причины
+отказа не осталось бы даже в `cause`. Порядок обратный: ошибка уборки всплывает, только
+если до неё ничего не упало (`TwoStepEotConvertor.throughIntermediate()`).
+
+Классов-родителей два, и наследуют они `Convertor` порознь, чтобы ни один класс пары не
+получал ненужного: `EotConvertor` — конструктор пар, которым хватает кодека (`ttf ↔ eot`),
+`TwoStepEotConvertor` — конструктор, промежуточный путь и уборка для остальных восьми,
+чьи тела лежат в `ToEotConvertor` и `FromEotConvertor`. Сами десять классов пар пусты,
+кроме объявления своего формата.
 
 `EotPacker` (`eot-packer/`) — единственное место, где домен разбирает содержимое шрифта, а
 не только его первые байты. Заголовок EOT дублирует метаданные вложенного шрифта, и
@@ -304,9 +322,13 @@ eot → {otf,woff,woff2,svg}   EotPacker.unpack(SRC, DIST.ttf) → FontForge.con
 кодировок), `head` (контрольная сумма) и `name` (четыре имени, в конверте — UTF-16LE).
 Наклон берётся из `OS/2.fsSelection`, а не из дублирующего его `head.macStyle`: так же
 делает `ttf2eot`, а в `macStyle` наклон лежит в бите 1, где в `fsSelection` не он.
-Имена читаются с платформы Windows, при её отсутствии — с Unicode, потом с Macintosh
-(там однобайтовый MacRoman, а не Latin-1); имя, которого в шрифте нет, остаётся пустым —
-поля конверта информационные, и субсеттеры их режут.
+Имена читаются с платформы Windows, при её отсутствии — с Unicode, потом с Macintosh, и
+только с `encodingId 0`: однобайтовый MacRoman там лишь он, в остальных записях лежат
+национальные кодировки. Внутри платформы предпочитается английский (`0x0409` у Windows,
+`0` у прочих) — порядок записей шрифт не гарантирует. Имена информационные, поэтому ни
+отсутствие записи, ни отсутствие всей таблицы `name`, ни строка за концом файла шрифт не
+отвергают: соответствующее поле конверта остаётся пустым.
+
 Раскладка заголовка расписана в самом `eot-packer.ts`. Пишется версия `0x00020001`,
 читаются `0x00010000`, `0x00020001` и `0x00020002`; сжатую (`TTEMBED_TTCOMPRESSED`) и
 зашифрованную (`TTEMBED_XORENCRYPTDATA`) полезную нагрузку кодек отвергает явной ошибкой
@@ -334,6 +356,16 @@ libmagic).
 Строгость сигнатур тоже разная: у SVG она лишь отличает XML от двоичного мусора. `<?xml`
 или `<svg` говорят «это разметка», а не «это шрифт».
 
+Смещение сигнатуры фиксировано не у всех: у двоичных форматов оно жёсткое, а у SVG перед
+разметкой законно стоит префикс, и каждая сигнатура сама объявляет, какой префикс перед
+ней пропускается. Перед `<?xml` — только UTF-8 BOM: объявление XML обязано открывать
+документ, и файл с отступом перед ним движок не открывает. Перед корневым `<svg`
+документа без объявления — BOM и ведущие пробельные символы. Отступ ограничен пределом,
+иначе голова файла росла бы вместе с ним, и предел этот считается за BOM, а не вместе с
+ним: общий бюджет означал бы, что невидимый BOM укорачивает допустимый отступ. Предельная
+длина префикса заложена и в `headLength` — пропущенные байты сокращают полезную часть
+головы.
+
 Таблица пар в `ConvertorFactory` — единственный источник того, что домен умеет: из неё
 и выбирается конвертер, и выводится список поддерживаемых форматов
 (`getSupportedExtensions()`), который приветствие обещает пользователю (§10). Формат,
@@ -341,17 +373,24 @@ libmagic).
 
 Известное:
 
-- Сигнатура SVG ждёт `<?xml` или `<svg` с нулевого байта: файл с BOM или пустой строкой
-  в начале не проходит проверку, хотя движок его конвертирует (issue
-  [#165](https://github.com/yuldashevsardor/telegram-bot/issues/165)).
 - Временные файлы не удаляются (issue
   [#37](https://github.com/yuldashevsardor/telegram-bot/issues/37)).
-- `/font_generator` конвертирует фиксированный `tempDir/app/test-fonts/test-font.woff` в
+- `/font_generator` конвертирует фиксированный `test/fixtures/fonts/test-font.woff` в
   EOT/OTF/TTF/WOFF2 и отвечает **путём** к файлу текстом; сам файл не отправляется.
-  Ошибки уходят в `console.log`, мимо `Logger`.
+  Ошибки уходят в `console.log`, мимо `Logger`. Команда отладочная и в прод не идёт (§1),
+  поэтому вход из каталога `test/` остаётся как есть (issue
+  [#171](https://github.com/yuldashevsardor/telegram-bot/issues/171)).
 - Конверт EOT читается не насквозь: разбираются имена, дальше шрифт берётся хвостом
   файла по `FontDataSize`. Хвост версии `0x00020002` (подпись, встроенный EUDC) в
   проверку целостности не входит.
+- Конверт, собранный `EotPacker`, повторяет вывод `ttf2eot` байт в байт, кроме `fsType`:
+  тот всегда пишет ноль, объявляя любой шрифт свободным для установки, а мы по
+  спецификации переносим `OS/2.fsType` как есть. На это опирается тест побайтового
+  сравнения с фикстурой.
+- Коллекция `ttcf` проходит сигнатуру `.ttf` и `.otf`, но в конверт не кладётся: в ней
+  несколько шрифтов, и какой из них брать, домен не решает. Пары с EOT для такого файла
+  падают, хотя список форматов в приветствии его не оговаривает (issue
+  [#181](https://github.com/yuldashevsardor/telegram-bot/issues/181)).
 
 ## 8. User
 
@@ -388,10 +427,10 @@ libmagic).
 Порог — `LOGGER_LEVEL`: пишется он и всё серьёзнее; по умолчанию `WARNING` в production,
 `DEBUG` иначе. Неизвестное значение — `InvalidConfigError`.
 
-Корреляция запросов: `AsyncLocalStorageMiddleware` (первый в пайплайне) выполняет
-остаток пайплайна в `asyncLocalStorage.run({ requestId })`. `AbstractLogger` принимает
-хранилище зависимостью конструктора и в момент записи забирает из него значения
-`ALS_KEYS` — `PinoLogger` кладёт их полями объекта, `ConsoleLogger` печатает чипами
+Корреляция запросов: `RequestContextMiddleware` (первый в пайплайне) выполняет
+остаток пайплайна в `requestContext.run(next)`. `AbstractLogger` принимает
+`RequestContext` зависимостью конструктора и в момент записи забирает у него `getValues()`
+— `PinoLogger` кладёт значения полями объекта, `ConsoleLogger` печатает чипами
 `[key=value]`. Логгер при этом не подменяется и не пересобирается, поэтому корреляция
 работает на обоих адаптерах, в том числе в разработке.
 
@@ -399,14 +438,21 @@ libmagic).
 вызывается из `handleUpdate` уже после того, как промис пайплайна отклонён и область
 свёрнута, поэтому `critical` про упавший апдейт идёт без `requestId`.
 
-Хранилище общее, а не логгерное: экземпляр один и создаёт его `ApplicationContext` (§4).
-Логгеру оно уходит аргументом конструктора там же, до всякого контейнера; в контейнере
-(`Infrastructure.Als`) стор лежит ради middleware. Ключи и тип стора — в
-`infrastructure/async-local-storage.types.ts` (`ALS_KEYS` с `as const`, `AlsStore` выведен
-из него, значения `unknown`). В запись логгер кладёт только известные ключи: без отбора
+`RequestContext` (`infrastructure/request-context.ts`) — единственная работа с
+`AsyncLocalStorage`: сам ALS приватный, наружу уходят `run(fn)` (открывает область и сам
+кладёт в стор `requestId`), `getRequestId()` и `getValues()`. Поэтому ни middleware, ни
+логгер не собирают стор руками и не знают его формы — иначе корреляция зависела бы от
+того, одинаково ли они это делают.
+
+Контекст общий, а не логгерный: экземпляр один и создаёт его `ApplicationContext` (§4).
+Логгеру он уходит аргументом конструктора там же, до всякого контейнера; в контейнере
+(`Infrastructure.RequestContext`) лежит ради middleware. Ключи и тип стора — в
+`infrastructure/request-context.types.ts` (`REQUEST_KEYS` с `as const`, `RequestStore` выведен
+из него, значения `unknown`). `getValues()` отдаёт только известные ключи: без отбора
 формат лога зависел бы от того, что в стор положили по дороге, а `as const` делает
-опечатку в ключе ошибкой компиляции, а не молча потерянной корреляцией. Своего стора нет у
-`Runner`, поэтому логи фоновых задач идут без `requestId`.
+опечатку в ключе ошибкой компиляции, а не молча потерянной корреляцией. Вне области
+`getRequestId()` — `null`, а не ошибка: у `Runner` своей области нет, поэтому логи фоновых
+задач идут без `requestId`.
 
 Payload перед записью проходит через `serialize-error`: без него вложенная ошибка
 печаталась бы как `{}`, а так в лог попадают её `name`, `message`, `stack` и `cause`.

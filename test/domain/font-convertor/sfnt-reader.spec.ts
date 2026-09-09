@@ -16,6 +16,8 @@ const NAME_RECORD_SIZE = 12;
 const PLATFORM_MACINTOSH = 1;
 const PLATFORM_WINDOWS = 3;
 const NAME_ID_FAMILY = 1;
+const NAME_ID_FULL = 4;
+const LANGUAGE_RUSSIAN = 0x0419;
 
 describe("SfntReader.readMetadata", function () {
     let ttf: Uint8Array;
@@ -28,27 +30,27 @@ describe("SfntReader.readMetadata", function () {
         const metadata = new SfntReader(ttf).readMetadata();
 
         expect({ ...metadata, panose: Array.from(metadata.panose) }).to.deep.equal({
-            panose: [2, 0, 5, 3, 0, 0, 0, 0, 0, 0],
+            panose: [2, 0, 10, 3, 0, 0, 0, 0, 0, 0],
             italic: 0,
-            weight: 400,
-            fsType: 0,
-            unicodeRange: [1, 0, 0, 0],
-            codePageRange: [1, 0],
-            checkSumAdjustment: 0x5d0efd61,
-            familyName: "Signature Fixture",
-            styleName: "Regular",
-            versionName: "Version 001.000",
-            fullName: "Signature Fixture",
+            weight: 900,
+            fsType: 8,
+            unicodeRange: [0xe000_02ff, 0x5000_205b, 0x20, 0],
+            codePageRange: [0x2000_019f, 0],
+            checkSumAdjustment: 0xeb67_c797,
+            familyName: "Roboto Black",
+            styleName: "Black",
+            versionName: "Version 1.0",
+            fullName: "Roboto-Black",
         });
     });
 
     it("reads a font with cff outlines the same way", async function () {
         const metadata = new SfntReader(await readFixture(Extension.OTF)).readMetadata();
 
-        expect(metadata.familyName).to.equal("Signature Fixture");
-        expect(metadata.weight).to.equal(400);
-        // Контрольная сумма своя: тот же глиф в другом контейнере — другой файл.
-        expect(metadata.checkSumAdjustment).to.equal(0x98583c4c);
+        expect(metadata.familyName).to.equal("Roboto Black");
+        expect(metadata.weight).to.equal(900);
+        // Контрольная сумма своя: тот же шрифт в другом контейнере — другой файл.
+        expect(metadata.checkSumAdjustment).to.equal(0xf111_6829);
     });
 
     it("takes the italic flag from the os/2 table", function () {
@@ -64,8 +66,8 @@ describe("SfntReader.readMetadata", function () {
     });
 
     it("falls back to the macintosh names when the font has no windows ones", function () {
-        expect(readMetadata(withoutWindowsNames(ttf)).familyName).to.equal("Signature Fixture");
-        expect(readMetadata(withoutWindowsNames(ttf)).versionName).to.equal("Version 001.000");
+        expect(readMetadata(withoutWindowsNames(ttf)).familyName).to.equal("Roboto Black");
+        expect(readMetadata(withoutWindowsNames(ttf)).versionName).to.equal("Version 1.0");
     });
 
     it("decodes the macintosh names as macroman, not latin-1", function () {
@@ -74,16 +76,56 @@ describe("SfntReader.readMetadata", function () {
             bytes[nameStringOffset(bytes, PLATFORM_MACINTOSH, NAME_ID_FAMILY)] = 0x8e;
         });
 
-        expect(readMetadata(renamed).familyName).to.equal("éignature Fixture");
+        expect(readMetadata(renamed).familyName).to.equal("éoboto Black");
     });
 
-    it("leaves a name the font does not carry empty instead of rejecting the font", function () {
-        // Записи name режут субсеттеры, а поля конверта информационные: отвергать из-за
-        // них шрифт целиком дороже, чем отдать пустую строку.
-        const nameless = patch(ttf, (view, bytes) => view.setUint16(tableOffset(bytes, "name") + 2, 0));
-        const metadata = readMetadata(nameless);
+    // Записи name режут субсеттеры, а таблицу целиком снимает
+    // `pyftsubset --drop-tables+=name`; поля конверта при этом информационные, и отвергать
+    // из-за них шрифт целиком дороже, чем отдать пустую строку.
+    const namelessCases: Array<[string, (bytes: Uint8Array) => Uint8Array]> = [
+        ["carries no name records", (bytes): Uint8Array => patch(bytes, (view, copy) => view.setUint16(tableOffset(copy, "name") + 2, 0))],
+        [
+            "carries no name table",
+            (bytes): Uint8Array => patch(bytes, (view, copy) => view.setUint32(tableRecord(copy, "name"), 0x78787878)),
+        ],
+        [
+            "has a truncated name table",
+            (bytes): Uint8Array => patch(bytes, (view, copy) => view.setUint32(tableRecord(copy, "name") + 12, 4)),
+        ],
+        [
+            "points its names past the end of the font",
+            (bytes): Uint8Array =>
+                patch(bytes, (view, copy) => {
+                    forEachNameRecord(copy, (record): void => view.setUint16(record + 10, 0xffff));
+                }),
+        ],
+    ];
 
-        expect([metadata.familyName, metadata.styleName, metadata.versionName, metadata.fullName]).to.deep.equal(["", "", "", ""]);
+    for (const [what, damage] of namelessCases) {
+        it(`leaves the envelope names empty when the font ${what}`, function () {
+            const metadata = readMetadata(damage(ttf));
+
+            expect([metadata.familyName, metadata.styleName, metadata.versionName, metadata.fullName]).to.deep.equal(["", "", "", ""]);
+            // Остальные поля читаются из других таблиц и от имён не зависят.
+            expect(metadata.weight).to.equal(900);
+        });
+    }
+
+    it("prefers the english name over one that stands earlier in the table", function () {
+        // Порядок записей шрифт не гарантирует, поэтому язык важнее места: ttf2eot, на
+        // который равняется кодек, тоже ищет 0x0409. Имеющееся имя семейства объявляем
+        // русским, а английским делаем запись, стоящую позже, — по её тексту и видно,
+        // какую из двух выбрал кодек.
+        const englishLater = patch(ttf, (view, copy) => {
+            const russian = nameRecord(copy, PLATFORM_WINDOWS, NAME_ID_FAMILY);
+            const english = nameRecord(copy, PLATFORM_WINDOWS, NAME_ID_FULL);
+
+            expect(russian, "имя семейства стоит не раньше полного имени").to.be.lessThan(english);
+            view.setUint16(russian + 4, LANGUAGE_RUSSIAN);
+            view.setUint16(english + 6, NAME_ID_FAMILY);
+        });
+
+        expect(readMetadata(englishLater).familyName).to.equal("Roboto-Black");
     });
 
     it("reports no code page ranges for an os/2 table older than version 1", function () {
@@ -92,7 +134,19 @@ describe("SfntReader.readMetadata", function () {
 
         expect(metadata.codePageRange).to.deep.equal([0, 0]);
         // Остальное лежит до диапазонов кодировок и версией не отменяется.
-        expect(metadata.weight).to.equal(400);
+        expect(metadata.weight).to.equal(900);
+    });
+
+    it("reads a short os/2 table of version 0", function () {
+        // Поля кодека кончаются на fsSelection, поэтому таблицы в 64 байта хватает:
+        // у старых шрифтов Apple она короче нынешних 78.
+        const record = tableRecord(ttf, "OS/2");
+        const shortened = patch(ttf, (view) => {
+            view.setUint16(view.getUint32(record + 8), 0);
+            view.setUint32(record + 12, 64);
+        });
+
+        expect(readMetadata(shortened).weight).to.equal(900);
     });
 
     it("rejects a file shorter than the sfnt header", function () {
@@ -115,7 +169,7 @@ describe("SfntReader.readMetadata", function () {
         expectThrows(() => new SfntReader(patch(ttf, (view) => view.setUint16(4, 0xffff))), InvalidSfnt);
     });
 
-    for (const tag of ["OS/2", "head", "name"]) {
+    for (const tag of ["OS/2", "head"]) {
         it(`rejects a font without the ${tag} table`, function () {
             const record = tableRecord(ttf, tag);
 
@@ -138,16 +192,6 @@ describe("SfntReader.readMetadata", function () {
                     // Версия 1 обещает диапазоны кодировок, а длины таблицы на них не хватает.
                     view.setUint16(view.getUint32(record + 8), 1);
                     view.setUint32(record + 12, 78);
-                }),
-            ),
-        );
-    });
-
-    it("rejects a name string that runs past the end of the font", function () {
-        expectThrows(() =>
-            readMetadata(
-                patch(ttf, (view) => {
-                    forEachNameRecord(ttf, (record) => view.setUint16(record + 10, 0xffff));
                 }),
             ),
         );
@@ -177,15 +221,13 @@ describe("SfntReader.readMetadata", function () {
         });
     }
 
-    function nameStringOffset(bytes: Uint8Array, platformId: number, nameId: number): number {
+    function nameRecord(bytes: Uint8Array, platformId: number, nameId: number): number {
         const view = new DataView(bytes.buffer);
-        const name = tableOffset(bytes, "name");
-        const storage = name + view.getUint16(name + 4);
         let found: number | undefined;
 
         forEachNameRecord(bytes, (record) => {
             if (view.getUint16(record) === platformId && view.getUint16(record + 6) === nameId) {
-                found ??= storage + view.getUint16(record + 10);
+                found ??= record;
             }
         });
 
@@ -194,6 +236,13 @@ describe("SfntReader.readMetadata", function () {
         }
 
         return found;
+    }
+
+    function nameStringOffset(bytes: Uint8Array, platformId: number, nameId: number): number {
+        const view = new DataView(bytes.buffer);
+        const name = tableOffset(bytes, "name");
+
+        return name + view.getUint16(name + 4) + view.getUint16(nameRecord(bytes, platformId, nameId) + 10);
     }
 
     function tableRecord(bytes: Uint8Array, tag: string): number {
@@ -234,5 +283,5 @@ describe("SfntReader.readMetadata", function () {
 });
 
 async function readFixture(extension: Extension): Promise<Uint8Array> {
-    return Uint8Array.from(await fs.readFile(path.join(fixtureDir, `fixture.${extension}`)));
+    return Uint8Array.from(await fs.readFile(path.join(fixtureDir, `test-font.${extension}`)));
 }

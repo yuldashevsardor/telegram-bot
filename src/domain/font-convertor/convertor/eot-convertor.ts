@@ -4,15 +4,11 @@ import { FontForge } from "app/domain/font-convertor/font-forge/font-forge";
 import { FontSignatureMatcher } from "app/domain/font-convertor/font-signature-matcher";
 
 /**
- * Общий конструктор пар с EOT. Порядок параметров задан `ConvertorFactory`, поэтому движок
- * приходит сюда и к парам, которым он не нужен.
+ * Пара, которой хватает одного кодека: исходник и результат отличаются только конвертом.
+ * Движок в конструктор приходит всё равно — порядок параметров задан `ConvertorFactory`.
  */
 export abstract class EotConvertor extends Convertor {
-    public constructor(
-        protected readonly fontForge: FontForge,
-        fontSignatureMatcher: FontSignatureMatcher,
-        protected readonly eotPacker: EotPacker,
-    ) {
+    public constructor(_fontForge: FontForge, fontSignatureMatcher: FontSignatureMatcher, protected readonly eotPacker: EotPacker) {
         super(fontSignatureMatcher);
     }
 }

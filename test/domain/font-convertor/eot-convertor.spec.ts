@@ -83,7 +83,7 @@ describe("Convertors of the eot pairs", function () {
     }
 
     function source(extension: Extension): string {
-        return path.join(fixtureDir, `fixture.${extension}`);
+        return path.join(fixtureDir, `test-font.${extension}`);
     }
 
     function result(extension: Extension): string {

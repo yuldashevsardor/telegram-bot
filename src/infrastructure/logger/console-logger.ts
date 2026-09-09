@@ -60,7 +60,7 @@ export class ConsoleLogger extends AbstractLogger {
     private collectFinalMessage(level: Level, message: string, payload?: UnknownObject): string {
         const messages = [`[${dayjs().format("YYYY-MM-DD HH:mm:ss.SSS")}]`, `[${level}]`];
 
-        for (const [key, value] of Object.entries(this.getRequestContext())) {
+        for (const [key, value] of Object.entries(this.requestContext.getValues())) {
             messages.push(`[${key}=${String(value)}]`);
         }
 

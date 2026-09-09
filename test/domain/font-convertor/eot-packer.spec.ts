@@ -9,6 +9,10 @@ import { Extension } from "app/domain/font-convertor/font-convertor.types";
 import { FontSignatureMatcher } from "app/domain/font-convertor/font-signature-matcher";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
+
+// Поля заголовка EOT, которые спека читает по отдельности.
+const EOT_ITALIC_OFFSET = 27;
+const EOT_FS_TYPE_OFFSET = 32;
 const eotPacker = new EotPacker();
 
 describe("EotPacker", function () {
@@ -33,9 +37,24 @@ describe("EotPacker", function () {
         it("wraps the font into the envelope ttf2eot produces for it", async function () {
             // Фикстура EOT сделана сторонним ttf2eot из фикстуры TTF, поэтому побайтовое
             // совпадение с ней — проверка на соответствие формату, а не самим себе.
+            //
+            // Расходимся с ttf2eot ровно в одном поле: fsType он всегда пишет нулём, то
+            // есть объявляет любой шрифт свободным для установки. По спецификации это
+            // поле повторяет OS/2.fsType, откуда мы его и берём, поэтому эталон
+            // сравнивается с подставленным настоящим значением.
+            const expected = Uint8Array.from(eot);
+            new DataView(expected.buffer).setUint16(EOT_FS_TYPE_OFFSET, fontFsType(ttf), true);
+
+            expect(hex(await pack(ttf))).to.equal(hex(expected));
+        });
+
+        it("carries the embedding permissions of the font into the envelope", async function () {
+            // fsType по смещению 32 — то, что читатель EOT спросит, прежде чем ставить
+            // шрифт: у Roboto-Black там 8, «встраивать можно, устанавливать нельзя».
             const packed = await pack(ttf);
 
-            expect(hex(packed)).to.equal(hex(eot));
+            expect(new DataView(packed.buffer, packed.byteOffset).getUint16(EOT_FS_TYPE_OFFSET, true)).to.equal(fontFsType(ttf));
+            expect(fontFsType(ttf)).to.equal(8);
         });
 
         it("produces a file the signature matcher accepts as eot", async function () {
@@ -45,14 +64,13 @@ describe("EotPacker", function () {
         });
 
         it("carries the italic flag of the font into the envelope", async function () {
-            // Наклон — одно из четырёх полей, ради которых конверт вообще читает шрифт;
-            // байт Italic лежит в заголовке по смещению 27.
-            const os2 = new DataView(ttf.buffer).getUint32(tableRecord(ttf, "OS/2") + 8);
+            // Наклон — одно из полей, ради которых конверт вообще читает шрифт; байт
+            // Italic лежит в заголовке по смещению 27.
             const italic = Uint8Array.from(ttf);
-            new DataView(italic.buffer).setUint16(os2 + 62, 0x0001);
+            new DataView(italic.buffer).setUint16(os2Offset(ttf) + 62, 0x0001);
 
-            expect((await pack(ttf))[27]).to.equal(0);
-            expect((await pack(italic))[27]).to.equal(1);
+            expect((await pack(ttf))[EOT_ITALIC_OFFSET]).to.equal(0);
+            expect((await pack(italic))[EOT_ITALIC_OFFSET]).to.equal(1);
         });
 
         it("leaves the font data untouched", async function () {
@@ -150,6 +168,17 @@ function hex(bytes: Uint8Array): string {
     return Buffer.from(bytes).toString("hex");
 }
 
+function os2Offset(bytes: Uint8Array): number {
+    return new DataView(bytes.buffer).getUint32(tableRecord(bytes, "OS/2") + 8);
+}
+
+/**
+ * fsType шрифта: в OS/2 он лежит по смещению 8.
+ */
+function fontFsType(bytes: Uint8Array): number {
+    return new DataView(bytes.buffer).getUint16(os2Offset(bytes) + 8);
+}
+
 /**
  * Смещение записи таблицы в каталоге sfnt: заголовок 12 байт, записи по 16.
  */
@@ -168,5 +197,5 @@ function tableRecord(bytes: Uint8Array, tag: string): number {
 }
 
 async function readFixture(extension: Extension): Promise<Uint8Array> {
-    return Uint8Array.from(await fs.readFile(path.join(fixtureDir, `fixture.${extension}`)));
+    return Uint8Array.from(await fs.readFile(path.join(fixtureDir, `test-font.${extension}`)));
 }

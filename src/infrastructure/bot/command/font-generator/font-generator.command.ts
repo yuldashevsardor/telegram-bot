@@ -9,8 +9,8 @@ import { Context } from "app/infrastructure/bot/bot.types";
 
 @injectable()
 export class FontGeneratorCommand extends Command {
-    @ConfigValue<string>("tempDir")
-    private readonly tempDir!: string;
+    @ConfigValue<string>("rootDir")
+    private readonly rootDir!: string;
 
     public readonly command: string = "font_generator";
     public readonly descriptionKey: string = "font-generator-command-description";
@@ -30,7 +30,7 @@ export class FontGeneratorCommand extends Command {
 
     private async generateRandomFonts(ctx: Context): Promise<void> {
         try {
-            const woffPath = path.join(this.tempDir, "app", "test-fonts", "test-font.woff");
+            const woffPath = path.join(this.rootDir, "test", "fixtures", "fonts", "test-font.woff");
 
             const eotPath = await this.convertor.convert({
                 originPath: woffPath,
