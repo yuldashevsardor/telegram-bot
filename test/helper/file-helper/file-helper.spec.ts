@@ -131,17 +131,17 @@ describe("ReadFailed, WriteFailed and RemoveFailed", function () {
     const cases = [
         {
             name: "ReadFailed",
-            build: (path: string, cause: unknown): RuntimeError => ReadFailed.byPath(path, cause),
+            build: (filePath: string, cause: unknown): RuntimeError => ReadFailed.byPath(filePath, cause),
             fallback: "Cannot read file /x/y.",
         },
         {
             name: "WriteFailed",
-            build: (path: string, cause: unknown): RuntimeError => WriteFailed.byPath(path, cause),
+            build: (filePath: string, cause: unknown): RuntimeError => WriteFailed.byPath(filePath, cause),
             fallback: "Cannot write file /x/y.",
         },
         {
             name: "RemoveFailed",
-            build: (path: string, cause: unknown): RuntimeError => RemoveFailed.byPath(path, cause),
+            build: (filePath: string, cause: unknown): RuntimeError => RemoveFailed.byPath(filePath, cause),
             fallback: "Cannot remove file /x/y.",
         },
     ];
