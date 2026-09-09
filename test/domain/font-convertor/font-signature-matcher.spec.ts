@@ -6,8 +6,7 @@ import { FontSignatureMatcher } from "app/domain/font-convertor/font-signature-m
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 const fontSignatureMatcher = new FontSignatureMatcher();
-// Начало настоящего документа: сигнатура SVG требует за началом разметки ещё текста,
-// и обрубок вроде `<svg` короче её самой.
+// Начало настоящего документа: обрубок вроде `<svg` короче сигнатуры SVG.
 const rootTag = '<svg xmlns="http://www.w3.org/2000/svg"';
 
 describe("FontSignatureMatcher.matches", function () {
@@ -91,8 +90,7 @@ describe("FontSignatureMatcher.matches", function () {
     });
 
     it("rejects a binary head that opens like markup", function () {
-        // Начала разметки одного мало: заголовок EOT открывается размером файла, и у
-        // фикстуры его младшие байты дают `<m`. Отличает документ текст следом.
+        // Байты — голова фикстуры EOT: её размер файла даёт `<m`.
         expect(fontSignatureMatcher.matches(concat("<m", [0x02, 0x00, 0x88, 0x6c, 0x02, 0x00]), Extension.SVG)).to.be.false;
     });
 
