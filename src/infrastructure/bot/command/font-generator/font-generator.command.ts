@@ -61,7 +61,7 @@ export class FontGeneratorCommand extends Command {
             });
             await ctx.reply(ctx.t("font-generator-result", { path: woff2Path }));
         } catch (error) {
-            this.logger.error("Font generation is failed.", { error: error });
+            this.logger.error("Font generation is failed.", { cause: error });
         }
     }
 }

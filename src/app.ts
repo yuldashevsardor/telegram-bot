@@ -16,7 +16,7 @@ async function bootstrap(): Promise<void> {
 // уровня с requestId лишаться не должны.
 function fail(error: unknown): never {
     try {
-        ApplicationContext.getLogger().critical("Fatal error, application is terminated.", { error: error });
+        ApplicationContext.getLogger().critical("Fatal error, application is terminated.", { cause: error });
     } catch (loggerError) {
         if (!(loggerError instanceof ApplicationContextIsNotCreated)) {
             // Логгер есть, но запись не удалась: иначе причина молчания осталась бы неизвестной.
