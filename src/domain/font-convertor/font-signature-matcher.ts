@@ -15,9 +15,10 @@ export class FontSignatureMatcher {
     // Предел отступа, BOM сверх него: без предела голова файла росла бы вместе с отступом.
     private static readonly MAX_INDENT_LENGTH = 16;
 
-    // Чем документ разметки вправе открываться после `<`: буква корневого тега либо `!`
-    // DOCTYPE и комментария.
+    // Чем документ разметки вправе открываться после `<`: буква корневого тега, `!`
+    // DOCTYPE и комментария, `?` инструкции обработки.
     private static readonly EXCLAMATION_MARK = 0x21;
+    private static readonly QUESTION_MARK = 0x3f;
     private static readonly LETTER_RANGES: Array<[number, number]> = [
         [0x41, 0x5a],
         [0x61, 0x7a],
@@ -61,19 +62,20 @@ export class FontSignatureMatcher {
             // станет, но и такой проверки хватает, чтобы двоичный мусор под именем
             // *.svg не прошёл.
             //
-            // Поэтому вторая сигнатура ищет не корневой тег, а начало разметки вообще:
-            // перед корневым тегом законны и `<!DOCTYPE`, и комментарий, а перечислять
-            // прологи значило бы дописывать сигнатуру на каждый следующий.
+            // Поэтому сигнатура ищет не корневой тег, а начало разметки вообще: перед
+            // корневым тегом законны и `<!DOCTYPE`, и комментарий, и инструкция
+            // обработки, а перечислять эти прологи значило бы дописывать сигнатуру на
+            // каждый следующий.
             //
-            // Первая сигнатура отдельно, потому что префикс у неё другой: объявление
-            // XML обязано открывать документ, поэтому перед `<?xml` допустим только BOM
-            // (fontforge файл с отступом перед объявлением не открывает), а перед любой
-            // другой разметкой пробелы законны. По той же причине `?` не входит в класс
-            // начала разметки: иначе отступ стал бы допустим и перед объявлением. Из-за
-            // этого инструкция обработки классом не покрыта — проходит только та, что
-            // начинается с `<?xml`, и только без отступа.
+            // Инструкция обработки лежит в классе наравне с прочими, включая объявление
+            // XML, которое обязано открывать документ: файл с отступом перед `<?xml`
+            // движок не откроет, а сигнатура его пропускает. Это не послабление —
+            // граница «документ разберётся» здесь не проверяется вовсе. Вход отвечает
+            // на один вопрос: лжёт ли расширение о содержимом. Отступ перед объявлением
+            // содержимого не меняет — это тот же шрифт со сломанной разметкой, и
+            // `InvalidFontSignature` сказал бы про него «это не SVG», то есть неправду.
+            // О сломанном документе сообщает тот, кто документ разбирает.
             [Extension.SVG]: [
-                { offset: 0, bytes: this.ascii("<?xml"), prefix: Prefix.Bom },
                 { offset: 0, bytes: [...this.ascii("<"), ByteClass.MarkupStart, ...this.markupTail()], prefix: Prefix.Indent },
             ],
         };
@@ -116,7 +118,7 @@ export class FontSignatureMatcher {
     private isMarkupStart(byte: number): boolean {
         const isLetter = FontSignatureMatcher.LETTER_RANGES.some(([from, to]) => byte >= from && byte <= to);
 
-        return isLetter || byte === FontSignatureMatcher.EXCLAMATION_MARK;
+        return isLetter || byte === FontSignatureMatcher.EXCLAMATION_MARK || byte === FontSignatureMatcher.QUESTION_MARK;
     }
 
     private isText(byte: number): boolean {
@@ -137,8 +139,6 @@ export class FontSignatureMatcher {
             : 0;
 
         switch (prefix) {
-            case Prefix.Bom:
-                return bomLength;
             case Prefix.Indent:
                 // Отступ считается за BOM, а не вместе с ним: общий бюджет означал бы,
                 // что невидимый BOM укорачивает допустимый отступ и один и тот же
@@ -178,8 +178,6 @@ export class FontSignatureMatcher {
         }
 
         switch (prefix) {
-            case Prefix.Bom:
-                return FontSignatureMatcher.UTF8_BOM.length;
             case Prefix.Indent:
                 return FontSignatureMatcher.UTF8_BOM.length + FontSignatureMatcher.MAX_INDENT_LENGTH;
         }

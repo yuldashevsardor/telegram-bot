@@ -60,10 +60,14 @@ describe("FontSignatureMatcher.matches", function () {
         expect(fontSignatureMatcher.matches(concat("  ", "<!DOCTYPE svg"), Extension.SVG)).to.be.true;
     });
 
-    it("accepts an svg opening with a processing instruction whose target starts with xml", function () {
-        // Классом начала разметки инструкция обработки не покрыта: её пропускает
-        // сигнатура `<?xml`, поэтому проходит только таргет с таким началом.
+    it("accepts an svg opening with a processing instruction, whatever its target", function () {
+        // Таргет `xml` спецификация закрепляет не за всеми инструкциями, и движок
+        // открывает документ с любым: инструкция входит в класс начала разметки целиком,
+        // а не одним своим видом.
         expect(fontSignatureMatcher.matches(ascii('<?xml-stylesheet href="a.css"?>'), Extension.SVG)).to.be.true;
+        expect(fontSignatureMatcher.matches(ascii("<?sodipodi-namespace?>"), Extension.SVG)).to.be.true;
+        expect(fontSignatureMatcher.matches(concat("  ", "<?sodipodi-namespace?>"), Extension.SVG)).to.be.true;
+        expect(fontSignatureMatcher.matches(concat("\n", '<?xml-stylesheet href="a.css"?>'), Extension.SVG)).to.be.true;
     });
 
     it("accepts an svg saved with a UTF-8 BOM", function () {
@@ -75,17 +79,20 @@ describe("FontSignatureMatcher.matches", function () {
         expect(fontSignatureMatcher.matches(concat([0xef, 0xbb, 0xbf], "\n", rootTag), Extension.SVG)).to.be.true;
     });
 
-    it("rejects an svg indented before the xml declaration", function () {
-        // Объявление XML обязано открывать документ, и движок такой файл не открывает:
-        // перед `<?xml` домен пропускает только BOM.
-        expect(fontSignatureMatcher.matches(concat("\n  ", "<?xml version="), Extension.SVG)).to.be.false;
+    it("accepts an svg indented before the xml declaration", function () {
+        // Объявление XML обязано открывать документ, и движок такой файл не откроет.
+        // Вход этой границы не держит намеренно: содержимое от отступа не меняется, файл
+        // остаётся тем же шрифтом со сломанной разметкой, и `InvalidFontSignature`
+        // сказал бы про него «это не SVG» — неправду. О сломанном документе сообщает
+        // тот, кто документ разбирает.
+        expect(fontSignatureMatcher.matches(concat("\n  ", "<?xml version="), Extension.SVG)).to.be.true;
     });
 
     it("rejects text that opens with an angle bracket but not with markup", function () {
         // Сигнатура ослаблена до «это разметка», но не до «первый байт — `<`»: за
-        // скобкой обязано идти начало тега, доктайпа или комментария. Входы длиннее
-        // сигнатуры, а хвост у них текстовый: отказ даёт второй байт, а не проверка
-        // длины в `matches` и не класс текста.
+        // скобкой обязано идти начало тега, доктайпа, комментария или инструкции
+        // обработки. Входы длиннее сигнатуры, а хвост у них текстовый: отказ даёт второй
+        // байт, а не проверка длины в `matches` и не класс текста.
         expect(fontSignatureMatcher.matches(ascii("</svg> and more text"), Extension.SVG)).to.be.false;
         expect(fontSignatureMatcher.matches(concat("<", [0x00], "0123456789"), Extension.SVG)).to.be.false;
     });
@@ -135,7 +142,7 @@ describe("FontSignatureMatcher.matches", function () {
         expect(fontSignatureMatcher.matches(new Uint8Array([0x00, 0x01]), Extension.TTF)).to.be.false;
         // У EOT маркер лежит по смещению 34, до него обрезанный заголовок не достаёт.
         expect(fontSignatureMatcher.matches(head(Extension.EOT).subarray(0, 20), Extension.EOT)).to.be.false;
-        // Одной скобки не хватает ни на объявление XML, ни на начало разметки с хвостом.
+        // Одной скобки не хватает на начало разметки с хвостом.
         expect(fontSignatureMatcher.matches(ascii("<"), Extension.SVG)).to.be.false;
     });
 
