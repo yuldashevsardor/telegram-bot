@@ -4,6 +4,7 @@ import os from "os";
 import path from "path";
 import dayjs, { Dayjs } from "dayjs";
 import { FileHelper } from "app/helper/file-helper/file-helper";
+import { RuntimeError } from "app/common/errors";
 import { ReadFailed, RemoveFailed, WriteFailed } from "app/helper/file-helper/file-helper.errors";
 
 describe("FileHelper.createDirectoriesByDate", function () {
@@ -123,5 +124,38 @@ describe("FileHelper.read, write and remove", function () {
             expect((error as ReadFailed).payload).to.have.property("path");
             expect((error as ReadFailed).cause).to.be.instanceOf(Error);
         }
+    }
+});
+
+describe("ReadFailed, WriteFailed and RemoveFailed", function () {
+    const cases = [
+        {
+            name: "ReadFailed",
+            build: (filePath: string, cause: unknown): RuntimeError => ReadFailed.byPath(filePath, cause),
+            fallback: "Cannot read file /x/y.",
+        },
+        {
+            name: "WriteFailed",
+            build: (filePath: string, cause: unknown): RuntimeError => WriteFailed.byPath(filePath, cause),
+            fallback: "Cannot write file /x/y.",
+        },
+        {
+            name: "RemoveFailed",
+            build: (filePath: string, cause: unknown): RuntimeError => RemoveFailed.byPath(filePath, cause),
+            fallback: "Cannot remove file /x/y.",
+        },
+    ];
+
+    for (const { name, build, fallback } of cases) {
+        it(`${name} keeps a caught value that is not an Error under cause in the payload`, function () {
+            const error = build("/x/y", "EACCES");
+
+            // Ключ от типа не зависит, глубина зависит: RuntimeError поднимает в нативный
+            // cause только Error, поэтому строка остаётся в payload — и сообщение берётся
+            // запасное, взять его у пойманного значения не у чего.
+            expect(error.message).to.equal(fallback);
+            expect(error.cause).to.be.undefined;
+            expect(error.payload).to.deep.equal({ path: "/x/y", cause: "EACCES" });
+        });
     }
 });

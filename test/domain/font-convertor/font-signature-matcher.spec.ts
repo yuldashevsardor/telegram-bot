@@ -6,6 +6,9 @@ import { FontSignatureMatcher } from "app/domain/font-convertor/font-signature-m
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 const fontSignatureMatcher = new FontSignatureMatcher();
+// Начало настоящего документа: сигнатура SVG требует за началом разметки ещё текста,
+// и обрубок вроде `<svg` короче её самой.
+const rootTag = '<svg xmlns="http://www.w3.org/2000/svg"';
 
 describe("FontSignatureMatcher.matches", function () {
     const heads = new Map<Extension, Uint8Array>();
@@ -34,7 +37,7 @@ describe("FontSignatureMatcher.matches", function () {
 
     it("rejects a font collection under both sfnt extensions", function () {
         // Контейнер у коллекции тот же, но шрифтов в ней несколько, и выбирать из них
-        // домен не берётся: она отсекается здесь, одинаково для всех пар.
+        // домен не берётся: под sfnt-именем она не проходит.
         expect(fontSignatureMatcher.matches(ascii("ttcf"), Extension.TTF)).to.be.false;
         expect(fontSignatureMatcher.matches(ascii("ttcf"), Extension.OTF)).to.be.false;
     });
@@ -47,7 +50,19 @@ describe("FontSignatureMatcher.matches", function () {
     });
 
     it("accepts an svg starting with the root tag instead of the xml declaration", function () {
-        expect(fontSignatureMatcher.matches(ascii("<svg xmlns="), Extension.SVG)).to.be.true;
+        expect(fontSignatureMatcher.matches(ascii(rootTag), Extension.SVG)).to.be.true;
+    });
+
+    it("accepts an svg whose document opens with a doctype or a comment", function () {
+        // Объявление XML необязательно, а доктайп и комментарий перед корневым тегом
+        // законны и встречаются в выводе редакторов; движок такие файлы открывает.
+        expect(fontSignatureMatcher.matches(ascii('<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"'), Extension.SVG)).to.be.true;
+        expect(fontSignatureMatcher.matches(ascii("<!-- made by an editor -->"), Extension.SVG)).to.be.true;
+        expect(fontSignatureMatcher.matches(concat("  ", "<!DOCTYPE svg"), Extension.SVG)).to.be.true;
+    });
+
+    it("accepts an svg opening with a processing instruction", function () {
+        expect(fontSignatureMatcher.matches(ascii('<?xml-stylesheet href="a.css"?>'), Extension.SVG)).to.be.true;
     });
 
     it("accepts an svg saved with a UTF-8 BOM", function () {
@@ -55,8 +70,8 @@ describe("FontSignatureMatcher.matches", function () {
     });
 
     it("accepts an svg with a blank line before the root tag", function () {
-        expect(fontSignatureMatcher.matches(concat("\r\n  ", "<svg xmlns="), Extension.SVG)).to.be.true;
-        expect(fontSignatureMatcher.matches(concat([0xef, 0xbb, 0xbf], "\n", "<svg xmlns="), Extension.SVG)).to.be.true;
+        expect(fontSignatureMatcher.matches(concat("\r\n  ", rootTag), Extension.SVG)).to.be.true;
+        expect(fontSignatureMatcher.matches(concat([0xef, 0xbb, 0xbf], "\n", rootTag), Extension.SVG)).to.be.true;
     });
 
     it("rejects an svg indented before the xml declaration", function () {
@@ -65,10 +80,24 @@ describe("FontSignatureMatcher.matches", function () {
         expect(fontSignatureMatcher.matches(concat("\n  ", "<?xml version="), Extension.SVG)).to.be.false;
     });
 
+    it("rejects text that opens with an angle bracket but not with markup", function () {
+        // Сигнатура ослаблена до «это разметка», но не до «первый байт — `<`»: за
+        // скобкой обязано идти начало тега, доктайпа или комментария.
+        expect(fontSignatureMatcher.matches(ascii("</svg>"), Extension.SVG)).to.be.false;
+        expect(fontSignatureMatcher.matches(concat("<", [0x00, 0x01]), Extension.SVG)).to.be.false;
+        expect(fontSignatureMatcher.matches(ascii("<"), Extension.SVG)).to.be.false;
+    });
+
+    it("rejects a binary head that opens like markup", function () {
+        // Начала разметки одного мало: заголовок EOT открывается размером файла, и у
+        // фикстуры его младшие байты дают `<m`. Отличает документ текст следом.
+        expect(fontSignatureMatcher.matches(concat("<m", [0x02, 0x00, 0x88, 0x6c, 0x02, 0x00]), Extension.SVG)).to.be.false;
+    });
+
     it("rejects an svg whose root tag starts beyond the prefix limit", function () {
         // Предел пропуска конечен: иначе голова файла должна была бы расти вместе с
         // отступом. Отступ в 17 пробелов за него уже выходит.
-        expect(fontSignatureMatcher.matches(concat(" ".repeat(17), "<svg xmlns="), Extension.SVG)).to.be.false;
+        expect(fontSignatureMatcher.matches(concat(" ".repeat(17), rootTag), Extension.SVG)).to.be.false;
     });
 
     it("measures the indent of an svg past the BOM, not together with it", function () {
@@ -76,8 +105,8 @@ describe("FontSignatureMatcher.matches", function () {
         // документ из разных редакторов проходил бы проверку по-разному.
         const bom = [0xef, 0xbb, 0xbf];
 
-        expect(fontSignatureMatcher.matches(concat(bom, " ".repeat(16), "<svg xmlns="), Extension.SVG)).to.be.true;
-        expect(fontSignatureMatcher.matches(concat(bom, " ".repeat(17), "<svg xmlns="), Extension.SVG)).to.be.false;
+        expect(fontSignatureMatcher.matches(concat(bom, " ".repeat(16), rootTag), Extension.SVG)).to.be.true;
+        expect(fontSignatureMatcher.matches(concat(bom, " ".repeat(17), rootTag), Extension.SVG)).to.be.false;
     });
 
     it("keeps the offsets of binary formats fixed", function () {
