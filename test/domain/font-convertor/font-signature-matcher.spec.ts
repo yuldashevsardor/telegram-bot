@@ -31,9 +31,15 @@ describe("FontSignatureMatcher.matches", function () {
         });
     }
 
-    it("accepts the legacy Macintosh and the collection flavours of ttf", function () {
+    it("accepts the legacy Macintosh flavour of ttf", function () {
         expect(fontSignatureMatcher.matches(ascii("true"), Extension.TTF)).to.be.true;
-        expect(fontSignatureMatcher.matches(ascii("ttcf"), Extension.TTF)).to.be.true;
+    });
+
+    it("rejects a font collection under both sfnt extensions", function () {
+        // Контейнер у коллекции тот же, но шрифтов в ней несколько, и выбирать из них
+        // домен не берётся: под sfnt-именем она не проходит.
+        expect(fontSignatureMatcher.matches(ascii("ttcf"), Extension.TTF)).to.be.false;
+        expect(fontSignatureMatcher.matches(ascii("ttcf"), Extension.OTF)).to.be.false;
     });
 
     it("accepts either outline flavour under both sfnt extensions", function () {
