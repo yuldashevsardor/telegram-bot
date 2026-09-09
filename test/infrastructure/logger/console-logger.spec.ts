@@ -50,6 +50,18 @@ describe("ConsoleLogger", function () {
         expect(cause).to.include({ name: "Error", message: "boom" });
     });
 
+    it("prints a cause that is not an Error a level deeper than a parsed one", function () {
+        const parsed = logAndParsePayload({ cause: new RuntimeError("failed", { cause: new Error("boom") }) }) as { cause: UnknownObject };
+        const asIs = logAndParsePayload({ cause: new RuntimeError("failed", { cause: "boom" }) }) as { cause: UnknownObject };
+
+        // Вызов один и тот же, тип пойманного разный — и значение оказывается на разной
+        // глубине записи: Error конструктор поднял в нативный cause и сериализатор его
+        // разобрал, строку он оставил в payload и скопировал как есть.
+        expect(parsed.cause["cause"]).to.include({ name: "Error", message: "boom" });
+        expect(asIs.cause["cause"]).to.be.undefined;
+        expect((asIs.cause["payload"] as UnknownObject)["cause"]).to.equal("boom");
+    });
+
     it("keeps a payload without errors as is", function () {
         const payload = logAndParsePayload({ userId: 42, formats: ["ttf", "woff2"] });
 
