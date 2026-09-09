@@ -28,9 +28,8 @@ Telegram — способ доставки; `User`, сессии и миграц
 `logger`; `task-queue` порта почти не имеет, потому что внешней системы за ним нет.
 
 Ошибки: наружу бросается `RuntimeError` (`common/errors.ts`) или его подкласс из
-`<модуль>.errors.ts` рядом с бросающим кодом — `font-convertor`, `font-forge`, `logger`,
-`user`, `rate-limit`, `runner`, `file-helper`, `string-helper`, плюс `InvalidConfigError`
-в `common/`. Конструктор — `new RuntimeError(message, payloadOrCause)`: `Error` вторым
+`<модуль>.errors.ts` рядом с бросающим кодом; `InvalidConfigError` — в `common/`.
+Конструктор — `new RuntimeError(message, payloadOrCause)`: `Error` вторым
 аргументом уходит в стандартный `cause`, объект — в `payload`. `Error` в поле `cause`
 такого объекта переезжает в стандартный `cause` и в `payload` не остаётся: иначе
 сериализатор логов развернул бы одну и ту же ошибку дважды — по `payload.cause` и по
@@ -41,16 +40,13 @@ Telegram — способ доставки; `User`, сессии и миграц
 
 Команды бота: `/start` — conversation с приветствием; `/font_generator` — отладочная
 конвертация фиксированного файла, путь результата уходит текстом (§7);
-`/bulk_messages` — нагрузочный инструмент, а не фича (issue
-[#3](https://github.com/yuldashevsardor/telegram-bot/issues/3)).
+`/bulk_messages` — нагрузочный инструмент, а не фича.
 
 `/font_generator` и `/bulk_messages` — тестовые команды: они нужны только в разработке и
 до выкладки в прод снимаются. Продовые мерки к ним не применяются — привязка к среде
 разработчика (входной шрифт из тестовой фикстуры, захардкоженные chat ID и путь машины
 автора), отсутствие проверки прав, `container.get()` вместо внедрения зависимостей
-считаются свойством тестовой команды, а не дефектом, и чинить их не нужно (issues
-[#3](https://github.com/yuldashevsardor/telegram-bot/issues/3),
-[#171](https://github.com/yuldashevsardor/telegram-bot/issues/171)). Единственное
+считаются свойством тестовой команды, а не дефектом, и чинить их не нужно. Единственное
 требование к такой команде — не уехать в прод. Запрет на прямой `console.*` (§9) под
 послабление не попадает: он держится линтером на весь репозиторий.
 
@@ -327,7 +323,7 @@ eot → {otf,woff,woff2,svg}   EotPacker.unpack(SRC, DIST.ttf) → FontForge.con
 Наклон берётся из `OS/2.fsSelection`, а не из дублирующего его `head.macStyle`: так же
 делает `ttf2eot`, а в `macStyle` наклон лежит в бите 1, где в `fsSelection` не он.
 Имена читаются с платформы Windows, при её отсутствии — с Unicode, потом с Macintosh, и
-только с `encodingId 0`: однобайтовый MacRoman там лишь он, в остальных записях лежат
+там только с `encodingId 0`: однобайтовый MacRoman лишь он, в остальных записях лежат
 национальные кодировки. Внутри платформы предпочитается английский (`0x0409` у Windows,
 `0` у прочих) — порядок записей шрифт не гарантирует. Имена информационные, поэтому ни
 отсутствие записи, ни отсутствие всей таблицы `name`, ни строка за концом файла шрифт не
@@ -405,8 +401,7 @@ BOM и ведущие пробельные символы; по той же пр
 - `/font_generator` конвертирует фиксированный `test/fixtures/fonts/test-font.woff` в
   EOT/OTF/TTF/WOFF2 и отвечает **путём** к файлу текстом; сам файл не отправляется.
   Пойманная ошибка конвертации пишется `error`-ом через `Logger` (§9). Команда отладочная
-  и в прод не идёт (§1), поэтому вход из каталога `test/` остаётся как есть (issue
-  [#171](https://github.com/yuldashevsardor/telegram-bot/issues/171)).
+  и в прод не идёт (§1), поэтому вход из каталога `test/` остаётся как есть.
 - Конверт EOT читается не насквозь: разбираются имена, дальше шрифт берётся хвостом
   файла по `FontDataSize`. Хвост версии `0x00020002` (подпись, встроенный EUDC) в
   проверку целостности не входит.
@@ -568,7 +563,9 @@ Payload перед записью проходит через `serialize-error`:
 
 `Database` (`infrastructure/database/database.ts`) оборачивает `postgres`; пул создаётся
 в конструкторе, соединение открывается лениво, поэтому `Application.setup()` делает
-`check()`. `debug: !isProduction` включает лог запросов вне production.
+`check()`. `debug: !isProduction` лога запросов не включает: `debug` у `postgres` — колбэк,
+а не флаг, и на `true` драйвер не печатает ничего, лишь делает `query` и `parameters`
+перечислимыми в ошибке, откуда они доходят до payload лога. Мимо `Logger` вывод не идёт.
 
 Миграции — `node-pg-migrate` (`migrate.json`, каталог `migrations/` в корне),
 накатываются тем же контейнером перед стартом бота. Три файла: `users`, `sessions`,
@@ -631,8 +628,7 @@ Payload перед записью проходит через `serialize-error`:
 `docker-compose.app.yml`.
 
 В истории git есть старый `BOT_TOKEN` в `.env.dist`; он отозван и мёртв, историю не
-переписывали (issue [#36](https://github.com/yuldashevsardor/telegram-bot/issues/36)).
-От повторной утечки защищает secret scanning с push protection на GitHub.
+переписывали. От повторной утечки защищает secret scanning с push protection на GitHub.
 
 ## 13. Тесты и проверки
 
@@ -647,27 +643,19 @@ Payload перед записью проходит через `serialize-error`:
   `undefined`. Типы `tsx` не проверяет, это делает `npm run typecheck` по тому же
   `tsconfig.check.json`. Миграции идут мимо `tsx`, их грузит своим jiti `node-pg-migrate`
   (§11).
-- Покрыто: `task-queue` (очередь, партиция, лимит), `ConfigContainer`,
-  `ConfigEnvStorage`, `ConsoleLogger`, `ConvertorFactory`, `EotPacker`, пары с EOT на
-  подставных движке и кодеке, `FileHelper`,
-  `FontSignatureMatcher`, `ProcessHelper`, `SfntReader`, `utils`, `errors`, отброс в базовом `Filter`,
-  список форматов в приветствии `StartConversation`, локали (§10). Не покрыто: `Runner`,
-  `FontConvertor`, `Convertor`, `UserService`, `Application`, `Bot`, middleware.
+- Спеки лежат в `test/` и зеркалят `src/`: что покрыто, видно по составу каталога.
+  `nyc` считает покрытие по TypeScript-исходникам; отчёт в `./coverage`.
 - Шрифты для тестов — `test/fixtures/fonts`, по файлу на формат; происхождение и способ
   пересборки описаны там же в `README.md`.
-- `nyc` считает покрытие по TypeScript-исходникам; отчёт в `./coverage`.
-- `tsconfig.json`: `strict` и все флаги вне его зонтика; `skipLibCheck` вынужденно
-  (issue [#5](https://github.com/yuldashevsardor/telegram-bot/issues/5)). ESLint: без
+- `tsconfig.json`: `strict` и все флаги вне его зонтика; `skipLibCheck` и
+  `skipDefaultLibCheck` вынужденные — причина в комментарии рядом с ними. ESLint: без
   `any`, неиспользуемые аргументы только с `_`, прямой `console.*` запрещён (§9).
-- Husky `pre-commit` → `lint-staged` (`eslint --fix`, `prettier --write`) — удобство
-  хостовой разработки, не гейт: хук ставит `package.json#prepare` при `npm install` на
-  хосте. В docker-first окружении его нет намеренно — `npm ci --ignore-scripts` и
-  `HUSKY=0` в `Dockerfile`, а `.git` в контейнер не монтируется; сам хук пропускает себя,
-  если node в hook-окружении недоступен. Обязательный гейт — CI, его пока нет (issue
+- Хостовый хук `pre-commit` (husky + `lint-staged`) — удобство, а не гейт; подробности в
+  `README.md`, раздел «Хук pre-commit». Обязательный гейт — CI, его пока нет (issue
   [#116](https://github.com/yuldashevsardor/telegram-bot/issues/116)).
 - `.claude/settings.json` вешает `scripts/claude-worktree-guard.sh` на старт сессии и
-  на `Edit|Write`: правка файла в основном дереве отклоняется. Правки через shell хук
-  не видит.
+  на `Edit|Write|NotebookEdit`: правка файла в основном дереве отклоняется. Правки через
+  shell хук не видит.
 
 ## 14. Инварианты
 
@@ -689,7 +677,7 @@ Payload перед записью проходит через `serialize-error`:
   разных пользователей идут конкурентно: `sequentialize()` выстраивает в очередь только
   один и тот же `chat.id` + `from.id`. Записанное в поле перед `await` к следующей строке
   уже может принадлежать чужому апдейту, поэтому `ctx` и всё производное от него ходят
-  параметрами (issue [#134](https://github.com/yuldashevsardor/telegram-bot/issues/134)).
+  параметрами.
 - **Ручная регистрация в DI.** Новый класс не появится в пайплайне, пока его нет в
   `container.ts` и `symbols/`.
 - **`ctx.api` против `bot.grammy.api`.** Перехват очереди живёт только на `ctx.api`
@@ -731,7 +719,7 @@ Payload перед записью проходит через `serialize-error`:
   а на запись молча уходит в запасной PostScript Type 1 — выходит нулевой код возврата,
   файл с расширением `.eot` и чужим содержимым внутри, да ещё сайдкар `.afm` рядом.
   Вернуть `Extension.EOT` в `FontForge.supportedExtensions` — вернуть эту молчаливую
-  порчу (issue [#158](https://github.com/yuldashevsardor/telegram-bot/issues/158)).
+  порчу.
 - **Внешние процессы — только через `ProcessHelper.run()`**, с аргументами массивом.
   `exec` и любая сборка команды строкой возвращают `/bin/sh` в цепочку, и подставленный
   путь снова становится кодом; тестами это не ловится, потому что на «нормальных» путях
