@@ -93,7 +93,7 @@ export class Runner {
     }
 
     private handleError(error: unknown): void {
-        this.logger.error("Telegram API call is failed.", { error: error });
+        this.logger.error("Telegram API call is failed.", { cause: error });
 
         if (!Runner.isManyRequestError(error)) {
             return;

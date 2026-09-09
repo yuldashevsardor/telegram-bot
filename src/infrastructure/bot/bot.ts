@@ -248,6 +248,6 @@ export class Bot {
     }
 
     private async handleError(error: unknown): Promise<void> {
-        this.logger.critical("Unhandled error on bot", { error: error });
+        this.logger.critical("Unhandled error on bot", { cause: error });
     }
 }

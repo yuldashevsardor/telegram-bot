@@ -10,14 +10,7 @@ function byPathAndError<T extends RuntimeError>(
     path: string,
     cause: unknown,
 ): T {
-    if (!(cause instanceof Error)) {
-        return new error(fallbackMessage, {
-            path: path,
-            error: cause,
-        });
-    }
-
-    return new error(cause.message, {
+    return new error(cause instanceof Error ? cause.message : fallbackMessage, {
         path: path,
         cause: cause,
     });

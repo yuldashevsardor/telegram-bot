@@ -32,7 +32,7 @@ export class RuntimeError extends Error {
 
     static byError<T extends RuntimeError>(this: new (...params: ConstructorParameters<typeof RuntimeError>) => T, error: unknown): T {
         if (!(error instanceof Error)) {
-            return new this("byError got a value that is not an Error", { error: error });
+            return new this("byError got a value that is not an Error", { cause: error });
         }
 
         return new this(error.message, error);
