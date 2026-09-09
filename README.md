@@ -1,7 +1,8 @@
 # telegram-bot
 
 Telegram-бот для конвертации файлов шрифтов между форматами (`ttf`, `otf`, `woff`,
-`woff2`, `eot`). Конвертирует FontForge, пользователи и сессии хранятся в PostgreSQL.
+`woff2`, `eot`, `svg`). Переносит форматы FontForge, конверт EOT сервис собирает и
+разбирает сам; пользователи и сессии хранятся в PostgreSQL.
 
 Устройство кода — [`docs/architecture.md`](docs/architecture.md), рантайм —
 [`docs/flows.md`](docs/flows.md), термины — [`CONTEXT.md`](CONTEXT.md).
@@ -45,12 +46,8 @@ Production-конфигурации в репозитории нет.
 токенов столько, сколько одновременно запущенных ботов. Пул — файл `tmp/bot/tokens`
 в основном дереве, по токену на строку.
 
-```bash
-make token-add      # спросит токен, ввод не отображается
-make token-status   # какие слоты кем заняты
-make token-renew    # продлить аренду; цели up/app-up/restart делают это сами
-make token-release  # освободить слот
-```
+Пулом и арендой слота управляют цели `token-*`; `up`, `app-up` и `restart` продлевают
+аренду сами.
 
 - Токен вводится по приглашению, не аргументом: аргументы видны в `ps` и остаются
   в истории шелла. `token=…` цель отвергает.
@@ -68,7 +65,7 @@ make token-release  # освободить слот
 ### Дерево задачи
 
 ```bash
-make worktree-init   # один раз: симлинк tmp/pgsql на основное дерево, свой .env, свой BOT_TOKEN
+make worktree-init   # один раз, сразу после создания дерева
 make app-up
 ```
 
@@ -78,10 +75,10 @@ make app-up
 make worktree-cleanup
 ```
 
-Цель проверяет, что нет незакоммиченных изменений и ветка влита в `origin/main`, затем
-гасит приложение вместе с образом и томом, удаляет дерево, локальную ветку и ветку на
-`origin`. Каталог исчезает — вернитесь в основное дерево. Ветку после squash-мержа цель
-не распознаёт как влитую и печатает команды для ручной уборки.
+Цель проверяет, что нет незакоммиченных изменений и ветка влита в `origin/main`;
+приложение гасится вместе с образом и томом. Каталог исчезает — вернитесь в основное
+дерево. Ветку после squash-мержа цель не распознаёт как влитую и печатает команды для
+ручной уборки.
 
 ## Команды
 
@@ -92,13 +89,13 @@ make worktree-cleanup
   контейнере и работают при погашенном боте, но база должна быть поднята: её сеть нужна
   любому контейнеру приложения. `shell` и `psql` заходят в работающий контейнер.
 - `make check` — типы, eslint, prettier и тесты; то же смотрит ревью.
-- `make lint files="src/app.ts"` сужает набор файлов (так же `lint-fix`, `format-check`,
-  `format`). Для prettier — только `.ts`: конфиг задаёт `parser: "typescript"`.
+- В `files=` для `format` и `format-check` — только `.ts`: конфиг prettier задаёт
+  `parser: "typescript"` на любой вход.
 - После изменения `package.json`, `package-lock.json`, `.mocharc.json` или конфигов
   линтеров образ устаревает молча — `make rebuild`. Томами смонтированы только `src`,
   `test`, `migrations`, `tsconfig*.json`, `migrate.json` и `coverage`.
-- `make migrate-create name=add-something` кладёт файл в `migrations/`; делается он из
-  заготовки `migrations/common/template.ts`.
+- `make migrate-create` кладёт файл в `migrations/`; делается он из заготовки
+  `migrations/common/template.ts`.
 - `make restart` пересоздаёт контейнер, а не перезапускает: `docker compose restart`
   не перечитывает `env_file`, и сменившийся `BOT_TOKEN` до бота бы не дошёл.
 - `make db-reset` стирает базу всех деревьев сразу. Цель спрашивает подтверждение
