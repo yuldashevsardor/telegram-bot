@@ -3,7 +3,7 @@
 Telegram-бот для конвертации файлов шрифтов между форматами (`ttf`, `otf`, `woff`,
 `woff2`, `eot`, `svg`). Конвертирует FontForge, пользователи и сессии — в PostgreSQL.
 
-Устройство кода и рантайм — [`docs/architecture.md`](docs/architecture.md),
+Устройство кода и рантайм — [`docs/architecture/`](docs/architecture/README.md),
 термины — [`CONTEXT.md`](CONTEXT.md).
 
 ## Быстрый старт
@@ -121,7 +121,7 @@ staged-файлам. Это удобство хостовой разработк
 ## Переменные окружения
 
 Все переменные — в `.env` (шаблон `.env.dist`), обязателен только `BOT_TOKEN`.
-Что читает приложение — таблица в `docs/architecture.md`, раздел «Конфигурация».
+Что читает приложение — таблица в `docs/architecture/config.md`.
 
 - `DATABASE_HOST`/`DATABASE_PORT` из `.env` — только для подключения с хоста: внутри
   compose-сети адрес задаёт `docker-compose.app.yml`, а `DATABASE_PORT` задаёт порт,
