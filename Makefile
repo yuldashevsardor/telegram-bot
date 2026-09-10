@@ -114,7 +114,9 @@ format-check: ## Проверить prettier без правок: make format-ch
 format: ## Переформатировать prettier: make format [files="src/app.ts"]
 	$(DC_APP_RUN) $(if $(FILES),npx prettier --write $(FILES),npm run format)
 
-# То же, что прогоняет ревью и что стоит прогнать перед PR: типы, eslint, prettier, тесты.
+# Быстрый прогон перед PR одним выводом: типы, eslint, prettier, тесты. Ревью проверяет то же,
+# но гоняет свои гейты по одному и добавляет к ним rebuild и build, поэтому зелёный check
+# ещё не значит, что ревью будет зелёным.
 check: ## Все проверки подряд одной командой
 	$(DC_APP_RUN) npm run check
 
