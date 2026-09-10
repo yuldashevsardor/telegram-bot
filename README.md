@@ -3,8 +3,8 @@
 Telegram-бот для конвертации файлов шрифтов между форматами (`ttf`, `otf`, `woff`,
 `woff2`, `eot`, `svg`). Конвертирует FontForge, пользователи и сессии — в PostgreSQL.
 
-Устройство кода — [`docs/architecture.md`](docs/architecture.md), рантайм —
-[`docs/flows.md`](docs/flows.md), термины — [`CONTEXT.md`](CONTEXT.md).
+Устройство кода и рантайм — [`docs/architecture.md`](docs/architecture.md),
+термины — [`CONTEXT.md`](CONTEXT.md).
 
 ## Быстрый старт
 
