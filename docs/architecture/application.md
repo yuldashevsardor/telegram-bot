@@ -123,8 +123,9 @@ DI. Состав держится коротким по
      логирует остаток; по сроку — `warning` с числом невыполненных задач. `isEmpty()`
      считает только лежащее в очереди: задачу, которую `Runner` уже взял, счётчик не
      видит.
-   - `runner.stop()` — только флаг, цикл выйдет на следующей итерации: `run()` и `stop()`
-     синхронные ([инвариант](./invariants.md)).
+   - `runner.stop()` — только флаг, цикл выйдет на следующей итерации
+     ([`task-queue.md`](./task-queue.md)): `Runner.run()` и `Runner.stop()` синхронные
+     ([инвариант](./invariants.md)).
 4. `container.close()` → `Database.close()` → `sql.end({ timeout: 5 })`
    ([`storage.md`](./storage.md)).
 

@@ -22,7 +22,7 @@
   `@types/node` зафиксированы на 17.x; исключения из `no-console` разобраны в
   [`logging.md`](./logging.md).
 - Обязательного гейта нет. `pre-commit` — только удобство хостовой разработки (корневой
-  README, «Хук pre-commit»), CI пока не заведён (issue
+  [`README.md`](../../README.md), «Хук pre-commit»), CI пока не заведён (issue
   [#116](https://github.com/yuldashevsardor/telegram-bot/issues/116)).
 - `.claude/settings.json` вешает `scripts/claude-worktree-guard.sh` на старт сессии и на
   правку файла: правка в основном дереве отклоняется. Правки через shell хук не видит.
