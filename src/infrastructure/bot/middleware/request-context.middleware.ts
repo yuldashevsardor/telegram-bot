@@ -14,9 +14,10 @@ export class RequestContextMiddleware extends Middleware {
         super();
     }
 
-    // Первый в пайплайне: всё, что логируется внутри цепочки, должно попасть в лог с
-    // requestId. Вне области данных запроса нет — в том числе в bot.catch, который
-    // вызывается уже после того, как промис пайплайна отклонён.
+    // Первый из middleware: всё, что логируется внутри цепочки, должно попасть в лог с
+    // requestId. Вне области данных запроса нет — ни в фильтрах, которые стоят выше
+    // middleware, ни в bot.catch, который вызывается уже после того, как промис пайплайна
+    // отклонён.
     public async handle(_context: Context, next: NextFunction): Promise<void> {
         return this.requestContext.run(next);
     }
