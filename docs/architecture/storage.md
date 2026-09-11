@@ -32,11 +32,25 @@
 `_pgm` переименовывают в `pgm`. Расширение `.ts` обязательно: `node-pg-migrate` берёт из
 имени заготовки расширение создаваемого файла.
 
-В `sessions` пишет `PgsqlStorage` напрямую, позиционным
-`insert into sessions values (key, value)` — два значения на четыре колонки: колонку,
-добавленную миграцией перед `value`, запрос молча сдвинет
-([`invariants.md`](./invariants.md)). Репозиторий есть только у `users` (issue
-[#43](https://github.com/yuldashevsardor/telegram-bot/issues/43)).
+В `sessions` пишет `PgsqlStorage` (`infrastructure/bot/session/pgsql-storage.ts`)
+напрямую, позиционным `insert into sessions values (key, value)` — два значения на четыре
+колонки: колонку, добавленную миграцией перед `value`, запрос молча сдвинет
+([`invariants.md`](./invariants.md)).
+
+Порта в домене у него нет намеренно: слой репозитория есть только у `users`. Порт
+описывает потребность домена в хранении — `UserRepository`
+(`domain/user/user.repository.ts`) объявлен доменом, домен его и зовёт. У сессии
+интерфейс задан снаружи: `PgsqlStorage` реализует `StorageAdapter<SessionPayload>` из
+grammY, потому что ровно этот тип принимает `session()` в `Bot.setup()`, а
+`SessionPayload` — состояние Telegram-пайплайна, не доменная сущность. Порт вышел бы
+переименованием чужого интерфейса, который домен не зовёт и подменить не может.
+
+Отсюда образец для следующего хранилища: порт в `domain/` плюс адаптер в
+`infrastructure/repository/` — когда интерфейс диктует домен; адаптер рядом с
+потребителем, без порта, — когда интерфейс диктует библиотека. Поэтому всё про сессию
+лежит в одном каталоге `infrastructure/bot/session/`: ключ и начальный payload
+(`session.helper.ts`), типы payload и строки (`session.types.ts`), SQL
+(`pgsql-storage.ts`).
 
 `User.id` — JS `number` при `bigint` в базе (третья миграция расширила колонку из-под
 `int4`); точность до `2^53 - 1`, текущие ID Telegram укладываются.
