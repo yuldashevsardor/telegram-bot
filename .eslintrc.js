@@ -57,5 +57,20 @@ module.exports = {
                 "no-restricted-imports": "off",
             },
         },
+        {
+            // Правило «Domain не зависит от grammY, PostgreSQL и pino» (CLAUDE.md, «Стиль»)
+            // до сих пор держалось только договорённостью. Запрет относительных импортов в
+            // списке повторён намеренно: overrides заменяет конфигурацию правила целиком, а
+            // не дополняет общую, и без ".*" внутри домена они снова стали бы разрешены.
+            files: ["src/domain/**/*.ts"],
+            rules: {
+                "no-restricted-imports": [
+                    "error",
+                    {
+                        patterns: [".*", "grammy", "grammy/*", "@grammyjs/*", "@moebius/*", "postgres", "pg", "pino"],
+                    },
+                ],
+            },
+        },
     ],
 };

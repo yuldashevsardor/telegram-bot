@@ -76,7 +76,8 @@ Telegram, `User`, PostgreSQL и остальная инфраструктура 
 
 - Внутренние импорты только через `app/*` (исключение — файлы миграций).
 - Новые файлы — kebab-case.
-- Domain не зависит от grammY, PostgreSQL и pino.
+- Domain не зависит от grammY, PostgreSQL и pino: список запрещённых пакетов держит
+  `no-restricted-imports` для `src/domain/**` в `.eslintrc.js`.
 - Голый `Error` наружу не бросается: минимум `RuntimeError` из `app/common/errors`,
   лучше свой подкласс в `<модуль>.errors.ts` рядом с бросающим кодом. Второй аргумент —
   либо исходная ошибка (уедет в `cause`), либо объект деталей (в `payload`); нужны оба —
