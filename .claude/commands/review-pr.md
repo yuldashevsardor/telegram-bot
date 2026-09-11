@@ -46,7 +46,7 @@ gh pr diff <N> --name-only
 | В дифе изменён | Включает |
 | --- | --- |
 | `package.json`, `package-lock.json`, `Dockerfile`, `.eslintrc.js`, `.prettierrc.js`, `.mocharc.json` | `rebuild` |
-| любой `.ts`, `tsconfig.json`, конфиг eslint или prettier | `build`, `lint`, `format-check` |
+| любой `.ts`, `tsconfig.json`, `tsconfig.check.json`, конфиг eslint или prettier | `build`, `typecheck`, `lint`, `format-check` |
 | любой `.ts`, `test/**`, `.mocharc.json` | `test` |
 | `Makefile` | `make-targets` |
 | `scripts/*.sh`, `.husky/*` | `scripts` |
@@ -55,6 +55,12 @@ gh pr diff <N> --name-only
 | `.sh` и ни одного `.ts` | `bug-hunt-medium` |
 | `.ts` внутри `src/domain/`, `src/common/`, `src/helper/` | `smells` |
 | любой `*.md`, включая `docs/**` и `.claude/**` | `docs` |
+
+`build` и `typecheck` включаются вместе и одна другую не заменяет: цели ходят по разным
+тиконфигам, и у `typecheck` набор файлов шире — что в него добавлено и зачем, сказано
+комментарием в `tsconfig.check.json`. Без второго гейта PR, меняющий только спеки,
+на типы не проверяется вовсе: `mocha` грузит их через `tsx`, а тот типы не проверяет
+(`docs/architecture/testing.md`).
 
 `package.json` разбирай по содержанию правки, а не по имени: тронуты
 `dependencies`/`devDependencies` — `rebuild`, тронут блок `scripts` — ещё и `make-targets`.

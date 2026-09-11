@@ -1,7 +1,7 @@
 ---
 name: pr-light-check
 description: Лёгкое ревью Pull Request — механический прогон проверок репозитория по переданным гейтам, дрейф документации в изменённых строках и соответствие issue, с вердиктом и комментарием в PR. Запускается командой /review-pr, а также скиллом pr-deep-review как его механическая часть. Не для обычной работы над кодом и не для проверки незакоммиченных правок.
-allowed-tools: Bash(gh:*), Bash(git:*), Bash(make db-up), Bash(make rebuild), Bash(make build), Bash(make test), Bash(make lint), Bash(make format-check), Bash(make help), Bash(make token-status), Bash(make -n:*), Bash(sh -n:*), Bash(docker run:*), Bash(scripts/bot-token.sh), Bash(cd:*), Bash(ls:*), Bash(cp:*), Bash(grep:*), Bash(awk:*), Read, Grep, Glob, Write
+allowed-tools: Bash(gh:*), Bash(git:*), Bash(make db-up), Bash(make rebuild), Bash(make build), Bash(make typecheck), Bash(make test), Bash(make lint), Bash(make format-check), Bash(make help), Bash(make token-status), Bash(make -n:*), Bash(sh -n:*), Bash(docker run:*), Bash(scripts/bot-token.sh), Bash(cd:*), Bash(ls:*), Bash(cp:*), Bash(grep:*), Bash(awk:*), Read, Grep, Glob, Write
 ---
 
 Ты запускаешь проверки репозитория по коду Pull Request и решаешь, можно ли его вливать.
@@ -89,6 +89,7 @@ ls .env
 | --- | --- |
 | `rebuild` | `make rebuild` |
 | `build` | `make build` |
+| `typecheck` | `make typecheck` |
 | `test` | `make test` |
 | `lint` | `make lint` |
 | `format-check` | `make format-check` |
@@ -109,7 +110,6 @@ ls .env
 - `test-watch` — не завершается, а ждёт изменений. Запустив её, ты повесишь прогон.
 - `coverage` — те же тесты, что `test`, плюс отчёт на диск. Вердикту не добавляет ничего,
   времени отнимает больше.
-- `typecheck` — первый шаг `build`; гейт `build` уже её включает.
 - `check` — `typecheck`, `lint`, `format:check` и `test` подряд одним выводом. Отчёт требует
   строки на каждый гейт отдельно, поэтому цели гоняются по одной.
 
@@ -124,6 +124,12 @@ ls .env
 `package.json`, а он живёт в образе. Поэтому PR, добавляющий или переименовывающий скрипт,
 на непересобранном образе падает с `Missing script`. Это не находка ревью, а пропущенный
 `rebuild` — пересобери и повтори.
+
+### build и typecheck
+
+Обе запускают `tsc`, но по разным тиконфигам, и одна другую не подменяет: набор файлов
+у `typecheck` шире. Что в него добавлено и зачем — в комментарии к `tsconfig.check.json`.
+Зелёный `build` на PR, который трогает спеки или миграции, про их типы не говорит ничего.
 
 ### lint и format-check
 
@@ -164,8 +170,8 @@ bash-измы, которые упадут на dash в Linux. Образ зде
 
 ### Красное
 
-Красное в `make -n` и `sh -n` однозначно само по себе. Красное в `build`, `test`, `lint`
-или `format-check` сверь с базой, если есть сомнения, что оно внесено этим PR: заведи
+Красное в `make -n` и `sh -n` однозначно само по себе. Красное в `build`, `typecheck`, `test`,
+`lint` или `format-check` сверь с базой, если есть сомнения, что оно внесено этим PR: заведи
 worktree на `origin/main`, скопируй в него `.env`, перейди в него и прогони **только
 упавшую** команду.
 
@@ -299,7 +305,7 @@ gh pr view <N> --json headRefOid -q '.headRefOid[0:7]'
 - <критерий> — выполнено / не выполнено / не покрыто (file.ts:42)
 
 ### Прогон
-rebuild: сделан/не нужен · build: ok/fail/n-a · test: ok/fail/n-a · lint: ok/fail/n-a · format-check: ok/fail/n-a
+rebuild: сделан/не нужен · build: ok/fail/n-a · typecheck: ok/fail/n-a · test: ok/fail/n-a · lint: ok/fail/n-a · format-check: ok/fail/n-a
 make -n <цель>: ok/fail — <что показало раскрытие>
 sh -n <скрипт>: ok/fail (+ dash: ok/fail/n-a)
 Не запускалось: <проверка> — <причина>

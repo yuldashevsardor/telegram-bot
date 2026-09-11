@@ -131,10 +131,10 @@ git ls-files 'test/**/*.spec.ts'                            # что вообщ�
 ```bash
 # Проводка DI: новый @injectable() обязан появиться и в container.ts, и в symbols/
 gh pr diff <N> | grep -n '^+.*@injectable'
-git diff origin/main...origin/<ветка PR> -- src/infrastructure/container/
+git diff origin/main...origin/<ветка PR> -- ':(top)src/infrastructure/container/'
 
 # Миграции append-only: допустимы только новые файлы (A), любые M, D или R — blocker
-git diff origin/main...origin/<ветка PR> --name-status -- migrations/
+git diff origin/main...origin/<ветка PR> --name-status -- ':(top)migrations/'
 
 # Относительные импорты (единственное исключение — файлы миграций)
 gh pr diff <N> | grep -nE '^\+.*from "\.'
@@ -142,6 +142,10 @@ gh pr diff <N> | grep -nE '^\+.*from "\.'
 # Секреты в отслеживаемых файлах
 gh pr diff <N> | grep -nE '^\+.*(BOT_TOKEN|SECRET|PASSWORD|_KEY)\s*=\s*\S'
 ```
+
+`:(top)` в pathspec обязателен во всех командах этого шага: без магии git разворачивает
+путь от каталога, где запущена команда, и из подкаталога проверка молча вернёт пусто
+с кодом 0 — от «ничего не нашлось» это по выводу не отличить.
 
 Переименование приходит строкой `R`, а не парой `D`+`A`, и ломает append-only так же, как
 правка (`docs/architecture/invariants.md`). `common/` из проверки не исключён —
@@ -175,7 +179,7 @@ git diff --name-status -M origin/main...origin/<ветка PR> | grep '^R'   # �
 Символы берутся из файла целиком, а не из добавленных строк: диф чаще меняет тело, чем
 объявление — PR #87 удалял поле у `RuntimeError` и не содержал ни одного `export`. Файл
 и доки читаются из `origin/main`, а не из рабочего дерева: дерево может стоять на чужой
-ветке. `:(top)` обязателен, иначе из подкаталога `git grep` молча вернёт пусто.
+ветке.
 
 Два отказа читаются не как пустой результат, а как «проверка не выполнена»:
 `fatal: path … does not exist in 'origin/main'` — файл этим PR добавлен, символы бери
@@ -266,7 +270,7 @@ git merge --abort
 - <критерий> — выполнено / не выполнено / не покрыто (file.ts:42)
 
 ### Проверки
-rebuild: сделан/не нужен · build: ok/fail/n-a · test: ok/fail/n-a · lint: ok/fail/n-a · format-check: ok/fail/n-a
+rebuild: сделан/не нужен · build: ok/fail/n-a · typecheck: ok/fail/n-a · test: ok/fail/n-a · lint: ok/fail/n-a · format-check: ok/fail/n-a
 make -n <цель>: ok/fail — <что показало раскрытие>
 sh -n <скрипт>: ok/fail (+ dash: ok/fail/n-a)
 Не запускалось: <проверка> — <причина>
