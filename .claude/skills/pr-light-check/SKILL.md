@@ -1,7 +1,7 @@
 ---
 name: pr-light-check
 description: Лёгкое ревью Pull Request — механический прогон проверок репозитория по переданным гейтам, дрейф документации в изменённых строках и соответствие issue, с вердиктом и комментарием в PR. Запускается командой /review-pr, а также скиллом pr-deep-review как его механическая часть. Не для обычной работы над кодом и не для проверки незакоммиченных правок.
-allowed-tools: Bash(gh:*), Bash(git:*), Bash(make db-up), Bash(make rebuild), Bash(make build), Bash(make typecheck), Bash(make test), Bash(make lint), Bash(make format-check), Bash(make help), Bash(make token-status), Bash(make -n:*), Bash(sh -n:*), Bash(docker run:*), Bash(scripts/bot-token.sh), Bash(ls:*), Bash(cp:*), Bash(grep:*), Bash(awk:*), Read, Grep, Glob, Write
+allowed-tools: Bash(gh:*), Bash(git:*), Bash(make db-up), Bash(make rebuild), Bash(make build), Bash(make typecheck), Bash(make test), Bash(make lint), Bash(make format-check), Bash(make help), Bash(make token-status), Bash(make -n:*), Bash(sh -n:*), Bash(docker run:*), Bash(scripts/bot-token.sh), Bash(cd:*), Bash(ls:*), Bash(cp:*), Bash(grep:*), Bash(awk:*), Read, Grep, Glob, Write
 ---
 
 Ты запускаешь проверки репозитория по коду Pull Request и решаешь, можно ли его вливать.
@@ -53,11 +53,15 @@ gh pr checkout <N>
 ```bash
 git worktree add <временный путь> <ветка PR>
 cp .env <временный путь>/.env
+cd <временный путь>
 ```
 
-`.env` копируется, а не создаётся через `make worktree-init`: тот занимает слот из пула
-токенов, а одноразовым контейнерам `build`/`test`/`lint` бот не нужен и токен не читается.
-Имя проекта Compose берёт из имени каталога, поэтому временное дерево не мешает основному.
+Шаг 2 целиком исполняется из этого каталога, поэтому `cd` обязателен: цели перечислены в
+`allowed-tools` точным совпадением (`Bash(make test)`), и `make -C <путь> test` под них не
+подпадает. `.env` копируется, а не создаётся через `make worktree-init`: тот занимает слот
+из пула токенов, а одноразовым контейнерам `build`/`test`/`lint` бот не нужен и токен не
+читается. Имя проекта Compose берёт из имени каталога, поэтому временное дерево не мешает
+основному.
 По окончании — `git worktree remove --force <путь>`.
 
 Гейт прогона — любой из тех, что перечислены таблицей шага 2. Ни одного такого нет →
@@ -168,7 +172,8 @@ bash-измы, которые упадут на dash в Linux. Образ зде
 
 Красное в `make -n` и `sh -n` однозначно само по себе. Красное в `build`, `typecheck`, `test`,
 `lint` или `format-check` сверь с базой, если есть сомнения, что оно внесено этим PR: заведи
-worktree на `origin/main`, скопируй в него `.env` и прогони **только упавшую** команду.
+worktree на `origin/main`, скопируй в него `.env`, перейди в него и прогони **только
+упавшую** команду.
 
 ## Шаг 3. Дрейф документации
 
@@ -267,10 +272,9 @@ gh issue view <M> --json number,title,body,labels
   По правилу репозитория одна ветка — одна логически цельная задача; посторонние изменения
   в том же PR — основание для `REQUEST_CHANGES`.
 
-Проверь заодно: `baseRefName` должен быть `main`, `headRefName` — иметь префикс `feat/`,
-`fix/`, `chore/` или `docs/`. Если диф трогает `CLAUDE.md`, `docs/**`, `README.md` или
-добавляет новый документ — текст обязан быть на русском, идентификаторы кода остаются
-в оригинале.
+Проверь заодно: `baseRefName` должен быть `main`. Если диф трогает `CLAUDE.md`, `docs/**`,
+`README.md` или добавляет новый документ — текст обязан быть на русском, идентификаторы
+кода остаются в оригинале.
 
 ## Шаг 5. Вердикт
 
