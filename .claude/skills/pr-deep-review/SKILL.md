@@ -1,7 +1,7 @@
 ---
 name: pr-deep-review
 description: Полное ревью Pull Request — соответствие issue, инварианты репозитория, дрейф документации, пересечения с открытыми PR, поиск багов и смеллов, вердикт и комментарий в PR. Механический прогон и проверку изменённых строк документации берёт из скилла pr-light-check. Запускается командой /review-pr для дифов с исполняемым кодом. Не для обычной работы над кодом.
-allowed-tools: Bash(gh:*), Bash(git:*), Bash(grep:*), Bash(rg:*), Bash(ls:*), Read, Grep, Glob, Skill, Write
+allowed-tools: Bash(gh:*), Bash(git:*), Bash(grep:*), Bash(ls:*), Read, Grep, Glob, Skill, Write
 ---
 
 Ты — ревьюер Pull Request. На входе: номер PR, список гейтов, флаги. Гейты считает команда
