@@ -62,7 +62,7 @@ gh pr view <N> --json headRefOid -q '.headRefOid[0:7]'
   в «Итоге» и не выдавай прежние находки за новые.
 - `head` другой → в «Итоге» отдельной строкой отметь, что изменилось:
   `git log --oneline <прошлый head>..<текущий head>`.
-- `K >= 3` → действует правило третьего прогона из шага 6.
+- `K >= 3` → действует правило третьего прогона из шага 7.
 
 ## Шаг 2. Соответствие issue (важнее поиска багов)
 
@@ -134,8 +134,8 @@ git ls-files 'test/**/*.spec.ts'                            # что вообщ�
 gh pr diff <N> | grep -n '^+.*@injectable'
 git diff origin/main...origin/<ветка PR> -- src/infrastructure/container/
 
-# Миграции append-only: допустимы только новые файлы (A), любые M или D — blocker
-git diff origin/main...origin/<ветка PR> --name-status -- src/infrastructure/database/migrations/
+# Миграции append-only: допустимы только новые файлы (A), любые M, D или R — blocker
+git diff origin/main...origin/<ветка PR> --name-status -- migrations/
 
 # Относительные импорты (единственное исключение — файлы миграций)
 gh pr diff <N> | grep -nE '^\+.*from "\.'
@@ -143,6 +143,12 @@ gh pr diff <N> | grep -nE '^\+.*from "\.'
 # Секреты в отслеживаемых файлах
 gh pr diff <N> | grep -nE '^\+.*(BOT_TOKEN|SECRET|PASSWORD|_KEY)\s*=\s*\S'
 ```
+
+Переименование приходит строкой `R`, а не парой `D`+`A`, и ломает append-only так же, как
+правка (`docs/architecture/invariants.md`). `common/` из проверки не исключён —
+`commonShorthands` из `utils.ts` применённые миграции берут импортом. Исключение одно,
+заготовка `migrate-create` (`template-file-name` в `migrate.json`): её не исполняла ни одна
+база (`docs/architecture/storage.md`), её `M` — не находка.
 
 Отдельно, без команды: если диф трогает `CLAUDE.md`, `docs/**`, `README.md` или добавляет
 новый документ — текст обязан быть на русском, идентификаторы кода остаются в оригинале.
@@ -214,7 +220,7 @@ git diff --name-only --diff-filter=U
 git merge --abort
 ```
 
-Конфликт есть → находка уровня **merge condition** (см. шаг 6): сам по себе код PR может
+Конфликт есть → находка уровня **merge condition** (см. шаг 7): сам по себе код PR может
 быть верен, но кто-то обязан развести две ветки до слияния. Укажи конкретно: какой файл,
 какие два PR, и что сломается при небрежном разрешении.
 
@@ -261,7 +267,10 @@ git merge --abort
 - <критерий> — выполнено / не выполнено / не покрыто (file.ts:42)
 
 ### Проверки
-build: ok/fail/n-a · eslint: ok/fail/n-a · prettier: ok/fail/n-a · test: ok/fail/n-a
+rebuild: сделан/не нужен · build: ok/fail/n-a · test: ok/fail/n-a · lint: ok/fail/n-a · format-check: ok/fail/n-a
+make -n <цель>: ok/fail — <что показало раскрытие>
+sh -n <скрипт>: ok/fail (+ dash: ok/fail/n-a)
+Не запускалось: <проверка> — <причина>
 Унаследованные падения (красные и на base): <список или «нет»>
 Покрытие дифа тестами: есть (<файл>) / нет
 Ручная проверка: <как проверено или «не проводилась»>
