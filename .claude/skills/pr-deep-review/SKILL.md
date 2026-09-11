@@ -38,8 +38,7 @@ gh pr diff <N>
   не по чему.
 - Ссылка есть → `gh issue view <M> --json number,title,body,labels`.
 
-Проверь заодно: `baseRefName` должен быть `main`, `headRefName` — иметь префикс `feat/`,
-`fix/`, `chore/` или `docs/`.
+Проверь заодно: `baseRefName` должен быть `main`.
 
 ### Номер прогона
 
