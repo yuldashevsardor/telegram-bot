@@ -31,17 +31,9 @@ type ValueByPath<T, Path extends string> = Path extends `${infer Key}.${infer Re
 
 type ConfigValue<Path extends ConfigPath> = ValueByPath<ConfigContainer, Path>;
 
-// Значение конфигурации по «точечному» пути. Функция, а не декоратор, намеренно: значение в
-// параметр конструктора кладёт только тот, кто зовёт new, поэтому декоратор параметра отдать
-// его не может — он умеет лишь записать метаданные для того, кто вызов совершает. Обычный
-// вызов в умолчании параметра делает владельцем вызова сам класс, и тогда никакой DI в
-// цепочке конфигурации не участвует.
-//
-// Путь — строковый литерал, но не произвольный: его тип собран из формы ConfigContainer,
-// поэтому несуществующий ключ, путь сквозь примитив и приватное поле конфига не
-// компилируются, а редактор подсказывает доступные. Тип результата тоже берётся из
-// конфигурации, а не объявляется на месте вызова, поэтому объявленный тип параметра
-// компилятор сверяет — у декоратора такой связи с типом нет.
+// Значение конфигурации по «точечному» пути; ставится умолчанием параметра конструктора.
+// Почему функция, а не декоратор, и на чём это держится — docs/architecture/application.md,
+// раздел «DI».
 function configValue<Path extends ConfigPath>(path: Path): ConfigValue<Path> {
     const value = path.split(".").reduce<unknown>((current, key) => {
         if (current === null || typeof current !== "object") {
@@ -66,4 +58,3 @@ function configValue<Path extends ConfigPath>(path: Path): ConfigValue<Path> {
 }
 
 export { configValue };
-export type { ConfigPath, ConfigValue };

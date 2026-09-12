@@ -84,7 +84,7 @@
 ```
 src/
   app.ts                    точка входа: new Application(), сигналы, fail()
-  common/                   RuntimeError, сквозные типы, словарь токенов DI (application.md)
+  common/                   RuntimeError, сквозные типы, словарь токенов DI, configValue (application.md)
   domain/
     task-queue/             очередь исходящих по ключам, лимиты, цикл Runner (task-queue.md)
     font-convertor/         конвертация шрифтов (font-convertor.md)
@@ -112,3 +112,9 @@ scripts/                    хостовые скрипты целей make; cla
 `overrides` в `.eslintrc.js`. Тем же правилом закреплена независимость домена
 (`CLAUDE.md`, «Стиль»), и в его блоке запрет относительных перечислен заново: `overrides`
 заменяет конфигурацию правила целиком, а не дополняет общую.
+
+Прямых импортов `domain → infrastructure` нет, но независимость не полная:
+`common/config-value.ts` берёт конфигурацию у `ApplicationContext`
+([`application.md`](./application.md)), то есть рантайм-зависимость от инфраструктуры в
+`common/` одна и домен дотягивается до неё транзитивно. Линтер этого не видит — в списке
+запрещённых стоят пакеты, а не свои каталоги.
