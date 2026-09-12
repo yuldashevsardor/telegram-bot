@@ -45,10 +45,7 @@ export class Container extends InversifyContainer {
             return;
         }
 
-        this.bind<ConfigContainer>(Tokens.Bootstrap.ConfigContainer).toConstantValue(ApplicationContext.getConfigContainer());
-        this.bind<Logger>(Tokens.Bootstrap.Logger).toConstantValue(ApplicationContext.getLogger());
-        this.bind<RequestContext>(Tokens.Bootstrap.RequestContext).toConstantValue(ApplicationContext.getRequestContext());
-
+        await this.setupBootstrap();
         await this.setupFontConvertor();
         await this.setupTelegram();
         await this.setupPlatform();
@@ -66,6 +63,12 @@ export class Container extends InversifyContainer {
         this.alreadySetup = false;
     }
 
+    private async setupBootstrap(): Promise<void> {
+        this.bind<ConfigContainer>(Tokens.Bootstrap.ConfigContainer).toConstantValue(ApplicationContext.getConfigContainer());
+        this.bind<Logger>(Tokens.Bootstrap.Logger).toConstantValue(ApplicationContext.getLogger());
+        this.bind<RequestContext>(Tokens.Bootstrap.RequestContext).toConstantValue(ApplicationContext.getRequestContext());
+    }
+
     private async setupFontConvertor(): Promise<void> {
         this.bind<ConvertorFactory>(Tokens.Font.Convertor.Factory).to(ConvertorFactory).inSingletonScope();
         this.bind<FontForge>(Tokens.Font.Engine.FontForge).to(FontForge).inSingletonScope();
@@ -75,24 +78,16 @@ export class Container extends InversifyContainer {
     }
 
     private async setupTelegram(): Promise<void> {
-        // User
-        this.bind<UserRepository>(Tokens.User.Repository).to(PgSqlUserRepository).inSingletonScope();
-        this.bind<UserService>(Tokens.User.Service).to(UserService).inSingletonScope();
-
-        await this.setupBot();
-    }
-
-    private async setupPlatform(): Promise<void> {
-        this.bind<Database>(Tokens.Platform.Database).to(Database).inSingletonScope();
-    }
-
-    private async setupBot(): Promise<void> {
         this.bind<Bot>(Tokens.Bot.Bot).to(Bot).inSingletonScope();
 
         // Outbound queue
         this.bind<LimitResolver>(Tokens.Bot.OutboundQueue.LimitResolver).to(TelegramLimitResolver).inSingletonScope();
         this.bind<TaskQueue>(Tokens.Bot.OutboundQueue.TaskQueue).to(TaskQueue).inSingletonScope();
         this.bind<Runner>(Tokens.Bot.OutboundQueue.Runner).to(Runner).inSingletonScope();
+
+        // User
+        this.bind<UserRepository>(Tokens.Bot.User.Repository).to(PgSqlUserRepository).inSingletonScope();
+        this.bind<UserService>(Tokens.Bot.User.Service).to(UserService).inSingletonScope();
 
         // Filters
         this.bind<HasSessionKeyFilter>(Tokens.Bot.Filter.HasSessionKey).to(HasSessionKeyFilter).inSingletonScope();
@@ -118,6 +113,10 @@ export class Container extends InversifyContainer {
 
         // Conversations
         this.bind<StartConversation>(Tokens.Bot.Conversations.Start).to(StartConversation).inSingletonScope();
+    }
+
+    private async setupPlatform(): Promise<void> {
+        this.bind<Database>(Tokens.Platform.Database).to(Database).inSingletonScope();
     }
 }
 

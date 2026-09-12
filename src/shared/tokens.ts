@@ -32,16 +32,16 @@ export const Tokens = {
             FontForge: Symbol.for("FontForge"),
         },
     },
-    User: {
-        Service: Symbol.for("UserService"),
-        Repository: Symbol.for("UserRepository"),
-    },
     Bot: {
         Bot: Symbol.for("Bot"),
         OutboundQueue: {
             TaskQueue: Symbol.for("TaskQueue"),
             LimitResolver: Symbol.for("LimitResolver"),
             Runner: Symbol.for("Runner"),
+        },
+        User: {
+            Service: Symbol.for("UserService"),
+            Repository: Symbol.for("UserRepository"),
         },
         Command: {
             Start: Symbol.for("Start"),

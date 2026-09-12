@@ -4,8 +4,8 @@
 
 `Container extends InversifyContainer` (`container/container.ts`), `setup()`
 идемпотентен. Конфиг, логгер и `RequestContext` он берёт готовыми у `ApplicationContext`
-(ниже) и связывает первыми константами, затем по владельцам: `setupFontConvertor()`,
-`setupTelegram()` (внутри — `setupBot()`), `setupPlatform()`. Всё singleton.
+(ниже) и связывает первыми, в `setupBootstrap()`; дальше по владельцам —
+`setupFontConvertor()`, `setupTelegram()`, `setupPlatform()`. Всё singleton.
 
 Символы — `Symbol.for(...)` в одном словаре `shared/tokens.ts` (`Tokens`), сам список
 веток там же. Ветка называет владельца, ключ — роль внутри него, поэтому имя класса в
