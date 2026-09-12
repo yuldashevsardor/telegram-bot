@@ -14,7 +14,7 @@ export enum TELEGRAM_ERROR_CODES {
      *     payload: { chat_id: 123, text: 'Some text' }
      *   }
      */
-    TO_MANY_REQUESTS = 429,
+    TOO_MANY_REQUESTS = 429,
 }
 
 // Bot API всегда присылает retry_after вместе с 429, но если поле отсутствует или
