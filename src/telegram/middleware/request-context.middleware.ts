@@ -8,7 +8,7 @@ import { Context } from "app/telegram/bot.types";
 @injectable()
 export class RequestContextMiddleware extends Middleware {
     public constructor(
-        @inject<RequestContext>(Tokens.Infrastructure.RequestContext)
+        @inject<RequestContext>(Tokens.Bootstrap.RequestContext)
         private readonly requestContext: RequestContext,
     ) {
         super();

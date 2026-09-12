@@ -12,8 +12,8 @@ import { UpdateWithoutFrom } from "app/telegram/bot.errors";
 @injectable()
 export class FillUserToContextMiddleware extends Middleware {
     public constructor(
-        @inject<UserService>(Tokens.User.Service) private readonly userService: UserService,
-        @inject<UserRepository>(Tokens.User.Repository) private readonly userRepository: UserRepository,
+        @inject<UserService>(Tokens.Bot.User.Service) private readonly userService: UserService,
+        @inject<UserRepository>(Tokens.Bot.User.Repository) private readonly userRepository: UserRepository,
     ) {
         super();
     }
