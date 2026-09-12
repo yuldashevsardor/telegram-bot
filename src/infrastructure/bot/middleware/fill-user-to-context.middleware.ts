@@ -12,8 +12,8 @@ import { UpdateWithoutFrom } from "app/infrastructure/bot/bot.errors";
 @injectable()
 export class FillUserToContextMiddleware extends Middleware {
     public constructor(
-        @inject<UserService>(Tokens.User.UserService) private readonly userService: UserService,
-        @inject<UserRepository>(Tokens.User.UserRepository) private readonly userRepository: UserRepository,
+        @inject<UserService>(Tokens.User.Service) private readonly userService: UserService,
+        @inject<UserRepository>(Tokens.User.Repository) private readonly userRepository: UserRepository,
     ) {
         super();
     }

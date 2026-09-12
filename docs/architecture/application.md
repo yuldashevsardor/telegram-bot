@@ -8,8 +8,12 @@
 `setupServices()`, `setupInfrastructure()`. Всё singleton.
 
 Символы — `Symbol.for(...)` в одном словаре `common/tokens.ts` (`Tokens`), ветки — по
-владельцу: `Infrastructure` (готовое из `ApplicationContext` плюс `Database`),
-`FontConvertor`, `TaskQueue`, `User`, `Bot`. Словарь лежит в `common/`, а не в
+владельцу: `Infrastructure` (готовое из `ApplicationContext` плюс `Database`), `Font`,
+`TaskQueue`, `User`, `Bot`. Ветка называет владельца, ключ — роль внутри него, поэтому имя
+класса в ключе повторяется только там, где роли у класса нет (`Tokens.Bot.Bot`). Внутри
+`Font` под-ветки названы понятиями `CONTEXT.md` — `Signature`, `Envelope`, `Engine`, — и
+второй движок или второй кодек конверта лягут рядом со своим понятием, не двигая чужие
+пути. Словарь лежит в `common/`, а не в
 `container/`: иначе за именем собственной зависимости домен ходил бы в инфраструктуру. Реестр ручной
 ([инвариант](./invariants.md)), и молчит он по-разному: забытый биндинг сервиса ничем себя
 не выдаёт, пока символ никто не внедряет, — первый же `@inject` валит резолв «No matching

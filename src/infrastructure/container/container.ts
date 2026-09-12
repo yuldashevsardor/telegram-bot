@@ -76,15 +76,15 @@ export class Container extends InversifyContainer {
 
     private async setupServices(): Promise<void> {
         // font-convertor
-        this.bind<ConvertorFactory>(Tokens.FontConvertor.ConvertorFactory).to(ConvertorFactory).inSingletonScope();
-        this.bind<FontForge>(Tokens.FontConvertor.FontForge).to(FontForge).inSingletonScope();
-        this.bind<FontSignatureMatcher>(Tokens.FontConvertor.FontSignatureMatcher).to(FontSignatureMatcher).inSingletonScope();
-        this.bind<EotPacker>(Tokens.FontConvertor.EotPacker).to(EotPacker).inSingletonScope();
-        this.bind<FontConvertor>(Tokens.FontConvertor.FontConvertor).to(FontConvertor).inSingletonScope();
+        this.bind<ConvertorFactory>(Tokens.Font.Convertor.Factory).to(ConvertorFactory).inSingletonScope();
+        this.bind<FontForge>(Tokens.Font.Engine.FontForge).to(FontForge).inSingletonScope();
+        this.bind<FontSignatureMatcher>(Tokens.Font.Signature.Matcher).to(FontSignatureMatcher).inSingletonScope();
+        this.bind<EotPacker>(Tokens.Font.Envelope.Packer).to(EotPacker).inSingletonScope();
+        this.bind<FontConvertor>(Tokens.Font.Convertor.Convertor).to(FontConvertor).inSingletonScope();
 
         // User
-        this.bind<UserRepository>(Tokens.User.UserRepository).to(PgSqlUserRepository).inSingletonScope();
-        this.bind<UserService>(Tokens.User.UserService).to(UserService).inSingletonScope();
+        this.bind<UserRepository>(Tokens.User.Repository).to(PgSqlUserRepository).inSingletonScope();
+        this.bind<UserService>(Tokens.User.Service).to(UserService).inSingletonScope();
     }
 
     private async setupInfrastructure(): Promise<void> {

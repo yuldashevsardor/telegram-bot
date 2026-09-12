@@ -8,9 +8,7 @@ import { Tokens } from "app/common/tokens";
 export class StartConversation extends ConversationHandler {
     public readonly name: string = "start";
 
-    public constructor(
-        @inject<ConvertorFactory>(Tokens.FontConvertor.ConvertorFactory) private readonly convertorFactory: ConvertorFactory,
-    ) {
+    public constructor(@inject<ConvertorFactory>(Tokens.Font.Convertor.Factory) private readonly convertorFactory: ConvertorFactory) {
         super();
     }
 

@@ -92,10 +92,10 @@ export class ConvertorFactory {
     };
 
     public constructor(
-        @inject<FontForge>(Tokens.FontConvertor.FontForge) private readonly fontForge: FontForge,
-        @inject<FontSignatureMatcher>(Tokens.FontConvertor.FontSignatureMatcher)
+        @inject<FontForge>(Tokens.Font.Engine.FontForge) private readonly fontForge: FontForge,
+        @inject<FontSignatureMatcher>(Tokens.Font.Signature.Matcher)
         private readonly fontSignatureMatcher: FontSignatureMatcher,
-        @inject<EotPacker>(Tokens.FontConvertor.EotPacker) private readonly eotPacker: EotPacker,
+        @inject<EotPacker>(Tokens.Font.Envelope.Packer) private readonly eotPacker: EotPacker,
     ) {}
 
     public get(fromExtension: Extension, toExtension: Extension): Convertor {

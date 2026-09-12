@@ -8,7 +8,7 @@ import { UserCreateError, UserEditError } from "app/domain/user/user.errors";
 
 @injectable()
 export class UserService {
-    public constructor(@inject<UserRepository>(Tokens.User.UserRepository) private readonly repository: UserRepository) {}
+    public constructor(@inject<UserRepository>(Tokens.User.Repository) private readonly repository: UserRepository) {}
 
     public async create(dto: CreateUserDto): Promise<User> {
         const user = new User({

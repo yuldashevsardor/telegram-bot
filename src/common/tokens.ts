@@ -12,12 +12,23 @@ export const Tokens = {
         RequestContext: Symbol.for("RequestContext"),
         Database: Symbol.for("Database"),
     },
-    FontConvertor: {
-        FontConvertor: Symbol.for("FontConvertor"),
-        ConvertorFactory: Symbol.for("ConvertorFactory"),
-        FontForge: Symbol.for("FontForge"),
-        FontSignatureMatcher: Symbol.for("FontSignatureMatcher"),
-        EotPacker: Symbol.for("EotPacker"),
+    // Ветки внутри Font названы понятиями предметной области (CONTEXT.md): «Сигнатура
+    // формата», «Конверт», «Движок конвертации». Второй движок или второй кодек конверта
+    // лягут рядом со своим понятием, и ни один @inject от этого не поедет.
+    Font: {
+        Convertor: {
+            Convertor: Symbol.for("FontConvertor"),
+            Factory: Symbol.for("ConvertorFactory"),
+        },
+        Signature: {
+            Matcher: Symbol.for("FontSignatureMatcher"),
+        },
+        Envelope: {
+            Packer: Symbol.for("EotPacker"),
+        },
+        Engine: {
+            FontForge: Symbol.for("FontForge"),
+        },
     },
     TaskQueue: {
         TaskQueue: Symbol.for("TaskQueue"),
@@ -25,8 +36,8 @@ export const Tokens = {
         Runner: Symbol.for("Runner"),
     },
     User: {
-        UserService: Symbol.for("UserService"),
-        UserRepository: Symbol.for("UserRepository"),
+        Service: Symbol.for("UserService"),
+        Repository: Symbol.for("UserRepository"),
     },
     Bot: {
         Bot: Symbol.for("Bot"),

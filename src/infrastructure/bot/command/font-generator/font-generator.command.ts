@@ -17,7 +17,7 @@ export class FontGeneratorCommand extends Command {
     public readonly descriptionKey: string = "font-generator-command-description";
 
     public constructor(
-        @inject<FontConvertor>(Tokens.FontConvertor.FontConvertor) private readonly convertor: FontConvertor,
+        @inject<FontConvertor>(Tokens.Font.Convertor.Convertor) private readonly convertor: FontConvertor,
         @inject<Logger>(Tokens.Infrastructure.Logger) private readonly logger: Logger,
     ) {
         super();
