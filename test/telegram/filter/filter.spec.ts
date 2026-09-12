@@ -1,8 +1,8 @@
 import "reflect-metadata";
 import { expect } from "chai";
 import { Composer } from "grammy";
-import { Context } from "app/infrastructure/bot/bot.types";
-import { Filter } from "app/infrastructure/bot/filter/filter";
+import { Context } from "app/telegram/bot.types";
+import { Filter } from "app/telegram/filter/filter";
 import { Logger } from "app/domain/logger/logger";
 import { UnknownObject } from "app/common/types";
 

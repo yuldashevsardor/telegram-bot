@@ -1,13 +1,13 @@
-import { Middleware } from "app/infrastructure/bot/middleware/middleware";
+import { Middleware } from "app/telegram/middleware/middleware";
 import { NextFunction } from "grammy";
 import { inject, injectable } from "inversify";
-import { UserService } from "app/domain/user/user.service";
+import { UserService } from "app/telegram/user/user.service";
 import { Tokens } from "app/common/tokens";
-import { UserRepository } from "app/domain/user/user.repository";
-import { User } from "app/domain/user/user";
+import { UserRepository } from "app/telegram/user/user.repository";
+import { User } from "app/telegram/user/user";
 import dayjs from "dayjs";
-import { Context } from "app/infrastructure/bot/bot.types";
-import { UpdateWithoutFrom } from "app/infrastructure/bot/bot.errors";
+import { Context } from "app/telegram/bot.types";
+import { UpdateWithoutFrom } from "app/telegram/bot.errors";
 
 @injectable()
 export class FillUserToContextMiddleware extends Middleware {

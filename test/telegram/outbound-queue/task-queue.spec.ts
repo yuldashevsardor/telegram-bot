@@ -1,9 +1,9 @@
 import { expect } from "chai";
-import { Limit } from "app/domain/task-queue/rate-limit.types";
-import { LimitResolver } from "app/domain/task-queue/limit-resolver";
+import { Limit } from "app/telegram/outbound-queue/rate-limit.types";
+import { LimitResolver } from "app/telegram/outbound-queue/limit-resolver";
 import { Logger } from "app/domain/logger/logger";
-import { PartitionKey, Priority, Task } from "app/domain/task-queue/task";
-import { TaskQueue } from "app/domain/task-queue/task-queue";
+import { PartitionKey, Priority, Task } from "app/telegram/outbound-queue/task";
+import { TaskQueue } from "app/telegram/outbound-queue/task-queue";
 
 // Лимиты берутся маленькими, чтобы прогон не упирался в остывание: общий слот освобождается за
 // 1 мс, слот ключа — за 10 мс.

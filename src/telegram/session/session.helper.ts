@@ -1,5 +1,5 @@
-import { SessionPayload } from "app/infrastructure/bot/session/session.types";
-import { Context } from "app/infrastructure/bot/bot.types";
+import { SessionPayload } from "app/telegram/session/session.types";
+import { Context } from "app/telegram/bot.types";
 
 export function initialPayload(): SessionPayload {
     return {

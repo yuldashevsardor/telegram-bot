@@ -2,11 +2,11 @@ import { inject, injectable } from "inversify";
 import { Tokens } from "app/common/tokens";
 import { configValue } from "app/common/config-value";
 import { Logger } from "app/domain/logger/logger";
-import { LimitResolver } from "app/domain/task-queue/limit-resolver";
-import { Partition } from "app/domain/task-queue/partition";
-import { RateLimit } from "app/domain/task-queue/rate-limit";
-import { Limit } from "app/domain/task-queue/rate-limit.types";
-import { PartitionKey, Priority, Task } from "app/domain/task-queue/task";
+import { LimitResolver } from "app/telegram/outbound-queue/limit-resolver";
+import { Partition } from "app/telegram/outbound-queue/partition";
+import { RateLimit } from "app/telegram/outbound-queue/rate-limit";
+import { Limit } from "app/telegram/outbound-queue/rate-limit.types";
+import { PartitionKey, Priority, Task } from "app/telegram/outbound-queue/task";
 
 type KeysByPriority = {
     [key in Priority]: Set<PartitionKey>;

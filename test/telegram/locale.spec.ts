@@ -4,12 +4,12 @@ import os from "os";
 import path from "path";
 import { FileHelper } from "app/helper/file-helper/file-helper";
 import { Fluent } from "@moebius/fluent";
-import { Context } from "app/infrastructure/bot/bot.types";
-import { createFluent, createFluentMiddleware, localeFromFilePath, resolveLocale } from "app/infrastructure/bot/locale";
-import { DEFAULT_LOCALE, Locale, LOCALES } from "app/infrastructure/bot/locale.types";
-import { MissingLocaleBundle, UnknownLocale } from "app/infrastructure/bot/locale.errors";
+import { Context } from "app/telegram/bot.types";
+import { createFluent, createFluentMiddleware, localeFromFilePath, resolveLocale } from "app/telegram/locale";
+import { DEFAULT_LOCALE, Locale, LOCALES } from "app/telegram/locale.types";
+import { MissingLocaleBundle, UnknownLocale } from "app/telegram/locale.errors";
 
-const localeDir = path.join(process.cwd(), "src", "infrastructure", "bot");
+const localeDir = path.join(process.cwd(), "src", "telegram");
 
 // Ключ верхнего уровня или терм: в начале строки, без отступа.
 const MESSAGE_LINE = /^(-?[a-zA-Z][\w-]*) *=/;

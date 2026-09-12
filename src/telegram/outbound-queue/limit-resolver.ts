@@ -1,5 +1,5 @@
-import { Limit } from "app/domain/task-queue/rate-limit.types";
-import { Task } from "app/domain/task-queue/task";
+import { Limit } from "app/telegram/outbound-queue/rate-limit.types";
+import { Task } from "app/telegram/outbound-queue/task";
 
 // Порт: лимит принадлежит партиции, поэтому очередь спрашивает его один раз — когда заводит её
 // по первой задаче ключа. Правило, по которому лимит выбирается, принадлежит той стороне, что

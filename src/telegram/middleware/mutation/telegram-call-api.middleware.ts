@@ -1,11 +1,11 @@
-import { Middleware } from "app/infrastructure/bot/middleware/middleware";
+import { Middleware } from "app/telegram/middleware/middleware";
 import { Api, NextFunction, RawApi } from "grammy";
-import { TaskQueue } from "app/domain/task-queue/task-queue";
+import { TaskQueue } from "app/telegram/outbound-queue/task-queue";
 import { inject, injectable } from "inversify";
 import { Tokens } from "app/common/tokens";
-import { Context } from "app/infrastructure/bot/bot.types";
-import { Priority } from "app/domain/task-queue/task";
-import { isGroupChat } from "app/infrastructure/bot/telegram-chat";
+import { Context } from "app/telegram/bot.types";
+import { Priority } from "app/telegram/outbound-queue/task";
+import { isGroupChat } from "app/telegram/telegram-chat";
 
 type RawApiMethod = keyof RawApi;
 type RawApiPayload = Record<string, unknown>;

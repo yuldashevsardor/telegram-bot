@@ -1,11 +1,11 @@
 import { inject, injectable } from "inversify";
-import { TaskQueue } from "app/domain/task-queue/task-queue";
+import { TaskQueue } from "app/telegram/outbound-queue/task-queue";
 import { Tokens } from "app/common/tokens";
 import { configValue } from "app/common/config-value";
-import { RunnerAlreadyRun } from "app/domain/task-queue/runner.errors";
-import { RunnerSettings } from "app/domain/task-queue/runner.types";
-import { Task } from "app/domain/task-queue/task";
-import { DEFAULT_RETRY_AFTER_SECONDS, TelegramApiError, TELEGRAM_ERROR_CODES } from "app/domain/task-queue/telegram-error";
+import { RunnerAlreadyRun } from "app/telegram/outbound-queue/runner.errors";
+import { RunnerSettings } from "app/telegram/outbound-queue/runner.types";
+import { Task } from "app/telegram/outbound-queue/task";
+import { DEFAULT_RETRY_AFTER_SECONDS, TelegramApiError, TELEGRAM_ERROR_CODES } from "app/telegram/outbound-queue/telegram-error";
 import { Logger } from "app/domain/logger/logger";
 import { NumberHelper } from "app/helper/number-helper";
 

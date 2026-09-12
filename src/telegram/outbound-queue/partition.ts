@@ -1,6 +1,6 @@
-import { RateLimit } from "app/domain/task-queue/rate-limit";
-import { Limit } from "app/domain/task-queue/rate-limit.types";
-import { Priority, Task } from "app/domain/task-queue/task";
+import { RateLimit } from "app/telegram/outbound-queue/rate-limit";
+import { Limit } from "app/telegram/outbound-queue/rate-limit.types";
+import { Priority, Task } from "app/telegram/outbound-queue/task";
 
 type PartitionTasks = {
     [key in Priority]: Task[];

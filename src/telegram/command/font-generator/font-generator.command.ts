@@ -1,11 +1,11 @@
-import { Command } from "app/infrastructure/bot/command/command";
+import { Command } from "app/telegram/command/command";
 import { inject, injectable } from "inversify";
 import path from "path";
 import { FontConvertor } from "app/domain/font-convertor/font-convertor";
 import { Tokens } from "app/common/tokens";
 import { configValue } from "app/common/config-value";
 import { Extension } from "app/domain/font-convertor/font-convertor.types";
-import { Context } from "app/infrastructure/bot/bot.types";
+import { Context } from "app/telegram/bot.types";
 import { Logger } from "app/domain/logger/logger";
 
 @injectable()

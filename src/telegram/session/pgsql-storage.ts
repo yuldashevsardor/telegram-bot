@@ -1,5 +1,5 @@
 import { StorageAdapter } from "grammy";
-import { SessionPayload, SessionRow } from "app/infrastructure/bot/session/session.types";
+import { SessionPayload, SessionRow } from "app/telegram/session/session.types";
 import { Database, Sql } from "app/infrastructure/database/database";
 import { inject, injectable } from "inversify";
 import { Tokens } from "app/common/tokens";

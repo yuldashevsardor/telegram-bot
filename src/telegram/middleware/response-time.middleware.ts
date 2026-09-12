@@ -2,8 +2,8 @@ import { inject, injectable } from "inversify";
 import { Tokens } from "app/common/tokens";
 import { Logger } from "app/domain/logger/logger";
 import { NextFunction } from "grammy";
-import { Middleware } from "app/infrastructure/bot/middleware/middleware";
-import { Context } from "app/infrastructure/bot/bot.types";
+import { Middleware } from "app/telegram/middleware/middleware";
+import { Context } from "app/telegram/bot.types";
 
 @injectable()
 export class ResponseTimeMiddleware extends Middleware {

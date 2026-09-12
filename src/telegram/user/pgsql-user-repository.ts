@@ -1,10 +1,10 @@
-import { UserRepository } from "app/domain/user/user.repository";
-import { User } from "app/domain/user/user";
+import { UserRepository } from "app/telegram/user/user.repository";
+import { User } from "app/telegram/user/user";
 import { inject, injectable } from "inversify";
 import { Database, Sql } from "app/infrastructure/database/database";
 import { Tokens } from "app/common/tokens";
-import { UserNotFound } from "app/domain/user/user.errors";
-import { UserRow } from "app/domain/user/user.types";
+import { UserNotFound } from "app/telegram/user/user.errors";
+import { UserRow } from "app/telegram/user/pgsql-user-repository.types";
 import dayjs from "dayjs";
 
 @injectable()

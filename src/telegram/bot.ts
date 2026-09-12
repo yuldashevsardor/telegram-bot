@@ -3,22 +3,22 @@ import { inject, injectable } from "inversify";
 import { Tokens } from "app/common/tokens";
 import { configValue } from "app/common/config-value";
 import { container } from "app/infrastructure/container/container";
-import { Command } from "app/infrastructure/bot/command/command";
-import { Middleware } from "app/infrastructure/bot/middleware/middleware";
-import { BotSettings, Context } from "app/infrastructure/bot/bot.types";
+import { Command } from "app/telegram/command/command";
+import { Middleware } from "app/telegram/middleware/middleware";
+import { BotSettings, Context } from "app/telegram/bot.types";
 import { Logger } from "app/domain/logger/logger";
 import { FetchOptions, run, RunnerHandle, sequentialize } from "@grammyjs/runner";
-import { getSessionKey, initialPayload } from "app/infrastructure/bot/session/session.helper";
-import { SessionPayload } from "app/infrastructure/bot/session/session.types";
-import { ConversationHandler } from "app/infrastructure/bot/conversation/conversation-handler";
+import { getSessionKey, initialPayload } from "app/telegram/session/session.helper";
+import { SessionPayload } from "app/telegram/session/session.types";
+import { ConversationHandler } from "app/telegram/conversation/conversation-handler";
 import { conversations, createConversation } from "@grammyjs/conversations";
-import { Filter } from "app/infrastructure/bot/filter/filter";
+import { Filter } from "app/telegram/filter/filter";
 import { withTimeout } from "app/helper/utils";
 import { InvalidConfigError, RuntimeError } from "app/common/errors";
 import { Fluent } from "@moebius/fluent";
 import { BotCommand } from "grammy/types";
-import { createFluent, createFluentMiddleware } from "app/infrastructure/bot/locale";
-import { DEFAULT_LOCALE, Locale, LOCALES } from "app/infrastructure/bot/locale.types";
+import { createFluent, createFluentMiddleware } from "app/telegram/locale";
+import { DEFAULT_LOCALE, Locale, LOCALES } from "app/telegram/locale.types";
 
 // Умолчание getUpdates — все типы, кроме chat_member и реакций. Бот же обслуживает
 // только команды и ожидание conversation в приватных чатах, то есть один message:

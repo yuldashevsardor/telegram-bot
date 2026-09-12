@@ -1,6 +1,6 @@
 import { expect } from "chai";
-import { Partition } from "app/domain/task-queue/partition";
-import { Priority, Task } from "app/domain/task-queue/task";
+import { Partition } from "app/telegram/outbound-queue/partition";
+import { Priority, Task } from "app/telegram/outbound-queue/task";
 
 const limitNumber = 10;
 const limitInterval = 1000;

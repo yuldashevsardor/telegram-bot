@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { expect } from "chai";
-import { Context, Conversation } from "app/infrastructure/bot/bot.types";
-import { ConversationHandler } from "app/infrastructure/bot/conversation/conversation-handler";
+import { Context, Conversation } from "app/telegram/bot.types";
+import { ConversationHandler } from "app/telegram/conversation/conversation-handler";
 
 type Entered = {
     conversation: Conversation;

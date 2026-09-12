@@ -1,4 +1,4 @@
-import { User } from "app/domain/user/user";
+import { User } from "app/telegram/user/user";
 
 export interface UserRepository {
     getById(id: number): Promise<User>;

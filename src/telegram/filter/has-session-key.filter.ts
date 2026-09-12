@@ -1,7 +1,7 @@
 import { injectable } from "inversify";
-import { Context } from "app/infrastructure/bot/bot.types";
-import { Filter } from "app/infrastructure/bot/filter/filter";
-import { getSessionKey } from "app/infrastructure/bot/session/session.helper";
+import { Context } from "app/telegram/bot.types";
+import { Filter } from "app/telegram/filter/filter";
+import { getSessionKey } from "app/telegram/session/session.helper";
 
 @injectable()
 export class HasSessionKeyFilter extends Filter {

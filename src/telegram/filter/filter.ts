@@ -1,5 +1,5 @@
 import { Composer, NextFunction } from "grammy";
-import { Context } from "app/infrastructure/bot/bot.types";
+import { Context } from "app/telegram/bot.types";
 import { inject, injectable } from "inversify";
 import { Logger } from "app/domain/logger/logger";
 import { Tokens } from "app/common/tokens";

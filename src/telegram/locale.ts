@@ -1,10 +1,10 @@
 import path from "path";
 import { MiddlewareFn } from "grammy";
 import { Fluent } from "@moebius/fluent";
-import { Context } from "app/infrastructure/bot/bot.types";
+import { Context } from "app/telegram/bot.types";
 import { FileHelper } from "app/helper/file-helper/file-helper";
-import { DEFAULT_LOCALE, Locale, LOCALES } from "app/infrastructure/bot/locale.types";
-import { MissingLocaleBundle, UnknownLocale } from "app/infrastructure/bot/locale.errors";
+import { DEFAULT_LOCALE, Locale, LOCALES } from "app/telegram/locale.types";
+import { MissingLocaleBundle, UnknownLocale } from "app/telegram/locale.errors";
 
 export function isLocale(value: string): value is Locale {
     return (LOCALES as readonly string[]).includes(value);

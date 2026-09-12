@@ -1,7 +1,7 @@
 import { injectable } from "inversify";
 import { Chat } from "@grammyjs/types";
-import { Context } from "app/infrastructure/bot/bot.types";
-import { Filter } from "app/infrastructure/bot/filter/filter";
+import { Context } from "app/telegram/bot.types";
+import { Filter } from "app/telegram/filter/filter";
 
 @injectable()
 export class IsPrivateChatFilter extends Filter {
