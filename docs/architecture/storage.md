@@ -1,6 +1,6 @@
 # Хранение данных
 
-`Database` (`infrastructure/database/database.ts`) оборачивает `postgres`; пул создаётся
+`Database` (`platform/database/database.ts`) оборачивает `postgres`; пул создаётся
 в конструкторе, соединение открывается лениво, поэтому `Application.setup()` делает
 `check()`. `debug: !isProduction` — не лог запросов: `debug` у postgres не флаг, а
 колбэк, и сам драйвер не печатает ничего; при `true` он лишь делает поля ошибки запроса

@@ -53,7 +53,7 @@ gh pr diff <N> --name-only
 | любой `.ts` или `.sh` | `docs-sync` |
 | любой `.ts` | `bug-hunt-high` |
 | `.sh` и ни одного `.ts` | `bug-hunt-medium` |
-| `.ts` внутри `src/font-convertor/`, `src/domain/`, `src/common/`, `src/helper/` | `smells` |
+| `.ts` внутри `src/font-convertor/`, `src/shared/` | `smells` |
 | любой `*.md`, включая `docs/**` и `.claude/**` | `docs` |
 
 `build` и `typecheck` включаются вместе и одна другую не заменяет: цели ходят по разным
@@ -67,8 +67,8 @@ gh pr diff <N> --name-only
 Посмотри диф файла.
 
 `bug-hunt-*` и `smells` разведены намеренно, и границы у них разные. Баги ищутся везде, где
-есть исполняемый код: в `src/infrastructure/` они дороже доменных, потому что падают
-в рантайме у пользователя. Смеллы Фаулера осмысленны только на коде, выражающем предметную
+есть исполняемый код: в `src/platform/`, `src/bootstrap/` и `src/telegram/` они дороже
+доменных, потому что падают в рантайме у пользователя. Смеллы Фаулера осмысленны только на коде, выражающем предметную
 область: адаптер вокруг grammY по своей природе Middle Man, `container.ts` — Divergent
 Change, а миграции — Duplicated Code, и переписать их нельзя, они append-only. На таком
 дифе ось Standards выдаёт заведомо отклоняемые замечания, а стоит полного прогона.
