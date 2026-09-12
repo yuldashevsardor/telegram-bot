@@ -2,7 +2,7 @@ import { Middleware } from "app/telegram/middleware/middleware";
 import { NextFunction } from "grammy";
 import { inject, injectable } from "inversify";
 import { UserService } from "app/telegram/user/user.service";
-import { Tokens } from "app/common/tokens";
+import { Tokens } from "app/shared/tokens";
 import { UserRepository } from "app/telegram/user/user.repository";
 import { User } from "app/telegram/user/user";
 import dayjs from "dayjs";

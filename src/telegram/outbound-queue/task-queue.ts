@@ -1,7 +1,7 @@
 import { inject, injectable } from "inversify";
-import { Tokens } from "app/common/tokens";
-import { configValue } from "app/common/config-value";
-import { Logger } from "app/domain/logger/logger";
+import { Tokens } from "app/shared/tokens";
+import { configValue } from "app/shared/config-value";
+import { Logger } from "app/shared/logger";
 import { LimitResolver } from "app/telegram/outbound-queue/limit-resolver";
 import { Partition } from "app/telegram/outbound-queue/partition";
 import { RateLimit } from "app/telegram/outbound-queue/rate-limit";

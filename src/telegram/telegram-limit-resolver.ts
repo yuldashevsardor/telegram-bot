@@ -1,9 +1,9 @@
 import { injectable } from "inversify";
-import { configValue } from "app/common/config-value";
+import { configValue } from "app/shared/config-value";
 import { LimitResolver } from "app/telegram/outbound-queue/limit-resolver";
 import { Limit } from "app/telegram/outbound-queue/rate-limit.types";
 import { Task } from "app/telegram/outbound-queue/task";
-import { TelegramLimits } from "app/infrastructure/config/config-container";
+import { TelegramLimits } from "app/bootstrap/config-container";
 import { isGroupChat } from "app/telegram/telegram-chat";
 
 @injectable()

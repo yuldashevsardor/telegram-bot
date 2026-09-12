@@ -1,4 +1,4 @@
-import { RuntimeError } from "app/common/errors";
+import { RuntimeError } from "app/shared/errors";
 
 export class UnknownLocale extends RuntimeError {
     public static byFilePath(filePath: string, locale: string): UnknownLocale {

@@ -1,8 +1,8 @@
 import { StorageAdapter } from "grammy";
 import { SessionPayload, SessionRow } from "app/telegram/session/session.types";
-import { Database, Sql } from "app/infrastructure/database/database";
+import { Database, Sql } from "app/platform/database/database";
 import { inject, injectable } from "inversify";
-import { Tokens } from "app/common/tokens";
+import { Tokens } from "app/shared/tokens";
 
 @injectable()
 export class PgsqlStorage implements StorageAdapter<SessionPayload> {
