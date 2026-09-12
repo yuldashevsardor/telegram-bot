@@ -64,7 +64,6 @@
             "**/*.d.ts",
             "**/test/**/*",
             "**/*.js",
-            "**/config.ts",
             "./coverage"
         ],
         "excludeNodeModules": true,
