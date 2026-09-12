@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { expect } from "chai";
 import { PinoLogger } from "app/platform/logger/pino-logger";
 import { Level } from "app/shared/logger.types";
-import { RequestContext } from "app/platform/request-context";
+import { RequestContext } from "app/platform/request-context/request-context";
 
 // pino пишет в process.stdout, поэтому записи снимаются подменой write — так же, как
 // записи ConsoleLogger снимаются подменой console. Логгер строится уже после подмены:

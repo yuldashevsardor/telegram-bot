@@ -3,7 +3,7 @@ import { Container as InversifyContainer } from "inversify";
 import { Tokens } from "app/shared/tokens";
 import { ApplicationContext } from "app/bootstrap/application/application-context";
 import { ConfigContainer } from "app/bootstrap/config-container";
-import { RequestContext } from "app/platform/request-context";
+import { RequestContext } from "app/platform/request-context/request-context";
 import { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher";
 import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";

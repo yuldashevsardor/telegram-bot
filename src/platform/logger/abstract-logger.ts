@@ -3,7 +3,7 @@ import { Level, Levels, LevelSeverity } from "app/shared/logger.types";
 import { UnknownObject } from "app/shared/types";
 import { InvalidLogLevel } from "app/platform/logger/abstract-logger.errors";
 import { injectable } from "inversify";
-import { RequestContext } from "app/platform/request-context";
+import { RequestContext } from "app/platform/request-context/request-context";
 
 @injectable()
 export abstract class AbstractLogger implements Logger {

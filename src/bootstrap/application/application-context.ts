@@ -3,7 +3,7 @@ import { ConfigEnvStorage } from "app/platform/config/config-env-storage";
 import { Logger } from "app/shared/logger";
 import { ConsoleLogger } from "app/platform/logger/console-logger";
 import { PinoLogger } from "app/platform/logger/pino-logger";
-import { RequestContext } from "app/platform/request-context";
+import { RequestContext } from "app/platform/request-context/request-context";
 import { ApplicationContextIsNotCreated } from "app/bootstrap/application/application-context.errors";
 
 // Состав того, что приложению нужно всегда: эти объекты существуют до контейнера, потому что

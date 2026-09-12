@@ -105,8 +105,7 @@ src/
     config/                 ConfigStorage и ConfigEnvStorage — источник значений (config.md)
     database/               Database (storage.md)
     logger/                 ConsoleLogger, PinoLogger (logging.md)
-    request-context.ts      RequestContext: область и значения запроса (logging.md)
-    request-context.types.ts  ключи и тип значений запроса (logging.md)
+    request-context/        RequestContext: область и значения запроса (logging.md)
   bootstrap/                корень сборки, знает все стороны
     application/            ApplicationContext и Application: сборка и жизненный цикл (application.md)
     container/              inversify-контейнер (application.md)

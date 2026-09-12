@@ -1,8 +1,8 @@
 import "reflect-metadata";
 import { expect } from "chai";
 import { AsyncLocalStorage } from "async_hooks";
-import { RequestContext } from "app/platform/request-context";
-import { REQUEST_KEYS, RequestStore } from "app/platform/request-context.types";
+import { RequestContext } from "app/platform/request-context/request-context";
+import { REQUEST_KEYS, RequestStore } from "app/platform/request-context/request-context.types";
 
 describe("RequestContext", function () {
     it("gives the running function a request id", function () {
