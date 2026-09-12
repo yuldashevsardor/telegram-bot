@@ -45,10 +45,10 @@ Telegram-слой. `Context` (`bot.types.ts`) — контекст grammY с ф�
    ловит и ниже себя оставляет `ctx.getUser()` ([`user.md`](./user.md)).
 6. Fluent ([`i18n.md`](./i18n.md)) — ниже заполнены `ctx.t` и `ctx.getFluent()`.
 7. `conversations()` + `createConversation` для каждого символа
-   `Modules.Bot.Conversations`. Апдейт чата, который сейчас внутри разговора, уходит в
+   `Tokens.Bot.Conversations`. Апдейт чата, который сейчас внутри разговора, уходит в
    точку `wait()` и до шага 8 не доходит: `createConversation` зовёт `next()`, только если
    разговор апдейт не забрал.
-8. Команды из `Modules.Bot.Command`: `command.setup(composer)`, затем
+8. Команды из `Tokens.Bot.Command`: `command.setup(composer)`, затем
    `api.setMyCommands()` на каждую локаль ([`i18n.md`](./i18n.md)) — по сетевому вызову
    при каждом старте. Последний шаг: апдейт, не подошедший ни одной команде, дальше не
    делает ничего.
