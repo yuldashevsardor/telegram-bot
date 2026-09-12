@@ -158,8 +158,8 @@ grep -rHoE "app/<путь>/[A-Za-z0-9._-]+" src --include='*.ts' | grep -v "^src
 (`CLAUDE.md`, «Стиль»), и в его блоке запрет относительных перечислен заново: `overrides`
 заменяет конфигурацию правила целиком, а не дополняет общую.
 
-Прямых импортов из `font-convertor/` и `domain/` в `infrastructure/` нет, но независимость
-не полная: `common/config-value.ts` берёт конфигурацию у `ApplicationContext`
+Ни `font-convertor/`, ни `domain/` не импортируют `infrastructure/` напрямую, но
+независимость не полная: `common/config-value.ts` берёт конфигурацию у `ApplicationContext`
 ([`application.md`](./application.md)), то есть рантайм-зависимость от инфраструктуры в
 `common/` одна и домен дотягивается до неё транзитивно. Линтер этого не видит — в списке
 запрещённых стоят пакеты, а не свои каталоги.
