@@ -1,5 +1,5 @@
 import postgres from "postgres";
-import { injectable, unmanaged } from "inversify";
+import { injectable } from "inversify";
 import { DatabaseSettings } from "app/infrastructure/database/database.types";
 import { configValue } from "app/common/config-value";
 
@@ -11,10 +11,7 @@ export type Sql = ReturnType<typeof postgres>;
 export class Database {
     public readonly sql: Sql;
 
-    public constructor(
-        @unmanaged() settings: DatabaseSettings = configValue("database"),
-        @unmanaged() isProduction: boolean = configValue("isProduction"),
-    ) {
+    public constructor(settings: DatabaseSettings = configValue("database"), isProduction: boolean = configValue("isProduction")) {
         this.sql = postgres({
             host: settings.host,
             port: settings.port,

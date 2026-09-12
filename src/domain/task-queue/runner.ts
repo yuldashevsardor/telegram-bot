@@ -1,4 +1,4 @@
-import { inject, injectable, unmanaged } from "inversify";
+import { inject, injectable } from "inversify";
 import { TaskQueue } from "app/domain/task-queue/task-queue";
 import { Tokens } from "app/common/tokens";
 import { configValue } from "app/common/config-value";
@@ -16,7 +16,7 @@ export class Runner {
     public constructor(
         @inject<TaskQueue>(Tokens.TaskQueue.TaskQueue) private readonly taskQueue: TaskQueue,
         @inject<Logger>(Tokens.Infrastructure.Logger) private readonly logger: Logger,
-        @unmanaged() private readonly settings: RunnerSettings = configValue("runner"),
+        private readonly settings: RunnerSettings = configValue("runner"),
     ) {}
 
     public run(): void {

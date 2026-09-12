@@ -1,6 +1,6 @@
 import { FileHelper } from "app/helper/file-helper/file-helper";
 import { ProcessHelper } from "app/helper/process-helper/process-helper";
-import { injectable, unmanaged } from "inversify";
+import { injectable } from "inversify";
 import { ExecuteError, ExtensionNotSupport } from "app/domain/font-convertor/font-forge/font-forge.errors";
 import { Extension } from "app/domain/font-convertor/font-convertor.types";
 import { configValue } from "app/common/config-value";
@@ -17,7 +17,7 @@ export class FontForge {
     // Подстановка сделала бы его питоновским кодом — вторым уровнем интерпретации после shell.
     private readonly convertScript = "import fontforge, sys; font = fontforge.open(sys.argv[1]); font.generate(sys.argv[2])";
 
-    public constructor(@unmanaged() private readonly fontForgePath: string = configValue("fontForgePath")) {}
+    public constructor(private readonly fontForgePath: string = configValue("fontForgePath")) {}
 
     public async convert(srcPath: string, distPath: string): Promise<void> {
         const srcExtension = await FileHelper.getFileExtension(srcPath);

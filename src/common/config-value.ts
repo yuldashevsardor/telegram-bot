@@ -1,9 +1,9 @@
-// Только тип: импорт стирается при сборке, поэтому рантайм-ребра из common в
-// infrastructure нет — как нет и цикла, который держал прежний @ConfigValue, ходивший за
-// конфигурацией в модульный синглтон container. Здесь её отдаёт ApplicationContext:
-// конфигурация существует до контейнера, и спрашивать её у контейнера незачем.
-import type { ConfigContainer } from "app/infrastructure/config/config-container";
+// Конфигурация берётся у ApplicationContext, а не из DI-контейнера: она существует до
+// контейнера, поэтому спрашивать её у контейнера незачем. Так же снимается цикл импорта,
+// который держал прежний @ConfigValue, ходивший за ней в модульный синглтон container.
 import { ApplicationContext } from "app/infrastructure/application/application-context";
+// Только тип: импорт стирается при сборке.
+import type { ConfigContainer } from "app/infrastructure/config/config-container";
 import { UnknownObject } from "app/common/types";
 import { InvalidConfigError } from "app/common/errors";
 
@@ -31,10 +31,17 @@ type ValueByPath<T, Path extends string> = Path extends `${infer Key}.${infer Re
 
 type ConfigValue<Path extends ConfigPath> = ValueByPath<ConfigContainer, Path>;
 
-// Значение конфигурации по «точечному» пути. Путь — строковый литерал, но не произвольный:
-// его тип собран из формы ConfigContainer, поэтому несуществующий ключ, путь сквозь
-// примитив и приватное поле конфига не компилируются, а редактор подсказывает доступные.
-// Тип результата тоже берётся из конфигурации, а не объявляется на месте вызова.
+// Значение конфигурации по «точечному» пути. Функция, а не декоратор, намеренно: значение в
+// параметр конструктора кладёт только тот, кто зовёт new, поэтому декоратор параметра отдать
+// его не может — он умеет лишь записать метаданные для того, кто вызов совершает. Обычный
+// вызов в умолчании параметра делает владельцем вызова сам класс, и тогда никакой DI в
+// цепочке конфигурации не участвует.
+//
+// Путь — строковый литерал, но не произвольный: его тип собран из формы ConfigContainer,
+// поэтому несуществующий ключ, путь сквозь примитив и приватное поле конфига не
+// компилируются, а редактор подсказывает доступные. Тип результата тоже берётся из
+// конфигурации, а не объявляется на месте вызова, поэтому объявленный тип параметра
+// компилятор сверяет — у декоратора такой связи с типом нет.
 function configValue<Path extends ConfigPath>(path: Path): ConfigValue<Path> {
     const value = path.split(".").reduce<unknown>((current, key) => {
         if (current === null || typeof current !== "object") {
@@ -52,8 +59,8 @@ function configValue<Path extends ConfigPath>(path: Path): ConfigValue<Path> {
         });
     }
 
-    // Единственное приведение на весь модуль: обход по точкам компилятору не проследить,
-    // но путь он уже сверил с ConfigContainer, и ValueByPath выводит тип из того же места,
+    // Единственное приведение на весь модуль: обход по точкам компилятору не проследить, но
+    // путь он уже сверил с ConfigContainer, и ValueByPath выводит тип из того же места,
     // откуда пришло значение.
     return value as ConfigValue<Path>;
 }

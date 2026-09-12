@@ -1,6 +1,6 @@
 import path from "path";
 import { InvalidPath, PermissionDenied } from "app/helper/file-helper/file-helper.errors";
-import { inject, injectable, unmanaged } from "inversify";
+import { inject, injectable } from "inversify";
 import { FileHelper } from "app/helper/file-helper/file-helper";
 import { ConvertParams, Extension } from "app/domain/font-convertor/font-convertor.types";
 import { FontConvertorError } from "app/domain/font-convertor/font-convertor.errors";
@@ -15,7 +15,7 @@ export class FontConvertor {
 
     public constructor(
         @inject<ConvertorFactory>(Tokens.Font.Convertor.Factory) private readonly convertorFactory: ConvertorFactory,
-        @unmanaged() private readonly tempDir: string = configValue("tempDir"),
+        private readonly tempDir: string = configValue("tempDir"),
     ) {}
 
     private async prepare(): Promise<void> {

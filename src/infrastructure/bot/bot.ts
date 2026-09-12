@@ -1,5 +1,5 @@
 import { Bot as TelegramBot, Composer, session, StorageAdapter } from "grammy";
-import { inject, injectable, unmanaged } from "inversify";
+import { inject, injectable } from "inversify";
 import { Tokens } from "app/common/tokens";
 import { configValue } from "app/common/config-value";
 import { container } from "app/infrastructure/container/container";
@@ -41,7 +41,7 @@ export class Bot {
         @inject<Logger>(Tokens.Infrastructure.Logger) private readonly logger: Logger,
         @inject<StorageAdapter<SessionPayload>>(Tokens.Bot.Session.Storage)
         private readonly sessionStorage: StorageAdapter<SessionPayload>,
-        @unmanaged() private readonly settings: BotSettings = configValue("bot"),
+        private readonly settings: BotSettings = configValue("bot"),
     ) {
         if (!this.settings.token) {
             throw new InvalidConfigError("Bot token cannot be empty!");

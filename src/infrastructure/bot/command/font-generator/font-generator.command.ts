@@ -1,5 +1,5 @@
 import { Command } from "app/infrastructure/bot/command/command";
-import { inject, injectable, unmanaged } from "inversify";
+import { inject, injectable } from "inversify";
 import path from "path";
 import { FontConvertor } from "app/domain/font-convertor/font-convertor";
 import { Tokens } from "app/common/tokens";
@@ -16,7 +16,7 @@ export class FontGeneratorCommand extends Command {
     public constructor(
         @inject<FontConvertor>(Tokens.Font.Convertor.Convertor) private readonly convertor: FontConvertor,
         @inject<Logger>(Tokens.Infrastructure.Logger) private readonly logger: Logger,
-        @unmanaged() private readonly rootDir: string = configValue("rootDir"),
+        private readonly rootDir: string = configValue("rootDir"),
     ) {
         super();
     }
