@@ -8,7 +8,7 @@ import { TaskQueue } from "app/telegram/outbound-queue/task-queue";
 import { Context } from "app/telegram/bot.types";
 import { Priority } from "app/telegram/outbound-queue/task";
 import { FileHelper } from "app/shared/fs/file-helper";
-import { Logger } from "app/shared/logger";
+import { Logger } from "app/platform/logger/logger";
 
 @injectable()
 export class BulkMessagesCommand extends Command {

@@ -42,7 +42,7 @@
   + `@grammyjs/conversations`.
 - **inversify** — DI, биндинги вручную.
 - **PostgreSQL** — клиент `postgres` (porsager) в рантайме, `node-pg-migrate` для миграций.
-- **pino** в production, `console` в остальных режимах — за доменным интерфейсом `Logger`.
+- **pino** в production, `console` в остальных режимах — за интерфейсом `Logger`.
 - **FontForge** — внешний CLI.
 - **Fluent** (`@moebius/fluent`) — i18n, локали `ru` (дефолтная) и `en`. Плагин
   `@grammyjs/fluent` не используется: контекст наполняет свой middleware
@@ -54,22 +54,23 @@
 ради Telegram (выше), — бот, `User` и очередь исходящих. Вокруг них три каталога по роли:
 `platform/` — адаптеры к внешнему миру, которые не импортируют ни одного модуля;
 `bootstrap/` — корень сборки, он знает все стороны разом, и в этом его работа; `shared/` —
-то, что берут все: базовая ошибка, сквозные типы, словарь токенов DI, `configValue`, порт
-`Logger` и утилиты.
+то, что берут все: базовая ошибка, сквозные типы, словарь токенов DI, `configValue` и
+утилиты.
 
-Порт отдельно от адаптера лежит там, где реализаций несколько: интерфейс `Logger` в
-`shared/`, два адаптера в `platform/logger/`. Где реализация одна, слоя между
-интерфейсом и ею нет: `UserRepository` и `PgSqlUserRepository` стоят в одном каталоге
-`telegram/user/` ([`storage.md`](./storage.md)). По каталогам такая пара всё равно может
-разойтись, но уже не по слоям: `LimitResolver` объявлен в `telegram/outbound-queue/`, где
+Отдельного слоя между интерфейсом и реализацией нет, сколько бы реализаций ни было:
+интерфейс `Logger` и оба адаптера лежат в `platform/logger/`, `UserRepository` и
+`PgSqlUserRepository` — в `telegram/user/` ([`storage.md`](./storage.md)). По каталогам
+такая пара всё равно может разойтись, но уже не по слоям: `LimitResolver` объявлен в `telegram/outbound-queue/`, где
 его зовут, а `TelegramLimitResolver` лежит выше, в `telegram/`, потому что выбор лимита по
 chat ID — знание о Telegram, а не об очереди
 ([`outbound-queue.md`](./outbound-queue.md)).
 
 Ошибки: наружу уходит только `RuntimeError` (`shared/errors.ts`) или его подкласс из
 `<модуль>.errors.ts` рядом с бросающим кодом (`<модуль>` — префикс имени файла, а не
-каталог); единственный подкласс вне такого файла — `InvalidConfigError`, он лежит рядом
-с базовым. Конструктор —
+каталог). Вне такого файла два подкласса: `InvalidConfigError` лежит рядом с базовым, а
+`InvalidLogLevel` — в `platform/logger/logger.errors.ts` у порта, хотя бросает его
+`AbstractLogger`: ошибка описывает недопустимый `Level`, то есть контракт логгера, а не
+одного адаптера. Конструктор —
 `new RuntimeError(message, payloadOrCause)`: `Error` вторым аргументом уходит в
 стандартный `cause`, объект — в `payload`. `Error` в поле `cause` такого объекта
 переезжает в стандартный `cause` и в `payload` не остаётся: иначе сериализатор логов
@@ -104,7 +105,7 @@ src/
   platform/                 адаптеры, не знающие модулей
     config/                 ConfigStorage и ConfigEnvStorage — источник значений (config.md)
     database/               Database (storage.md)
-    logger/                 ConsoleLogger, PinoLogger (logging.md)
+    logger/                 интерфейс Logger, enum Level, ConsoleLogger, PinoLogger (logging.md)
     request-context.ts      RequestContext: область и значения запроса (logging.md)
     request-context.types.ts  ключи и тип значений запроса (logging.md)
   bootstrap/                корень сборки, знает все стороны
@@ -112,7 +113,7 @@ src/
     container/              inversify-контейнер (application.md)
     config-container.ts     ConfigContainer: разбор и валидация настроек всех сторон (config.md)
   shared/                   RuntimeError, сквозные типы, словарь токенов DI, configValue (application.md);
-                            интерфейс Logger, enum Level (logging.md); string/number/utils (sleep, withTimeout)
+                            string/number/utils (sleep, withTimeout)
     fs/                     FileHelper
     process/                ProcessHelper — запуск внешних процессов (invariants.md)
 test/                       mocha-спеки; путь спеки повторяет путь исходника с точностью до модуля

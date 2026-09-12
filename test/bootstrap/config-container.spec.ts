@@ -3,7 +3,7 @@ import { expect } from "chai";
 import { ConfigContainer } from "app/bootstrap/config-container";
 import { ConfigStorage } from "app/platform/config/config-storage";
 import { InvalidConfigError } from "app/shared/errors";
-import { Level } from "app/shared/logger.types";
+import { Level } from "app/platform/logger/logger.types";
 
 class FakeStorage implements ConfigStorage {
     private readonly values: Map<string, string>;

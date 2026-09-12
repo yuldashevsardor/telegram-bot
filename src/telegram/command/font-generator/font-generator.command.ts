@@ -6,7 +6,7 @@ import { Tokens } from "app/shared/tokens";
 import { configValue } from "app/shared/config-value";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { Context } from "app/telegram/bot.types";
-import { Logger } from "app/shared/logger";
+import { Logger } from "app/platform/logger/logger";
 
 @injectable()
 export class FontGeneratorCommand extends Command {

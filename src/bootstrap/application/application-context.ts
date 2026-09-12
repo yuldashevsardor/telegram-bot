@@ -1,6 +1,6 @@
 import { ConfigContainer } from "app/bootstrap/config-container";
 import { ConfigEnvStorage } from "app/platform/config/config-env-storage";
-import { Logger } from "app/shared/logger";
+import { Logger } from "app/platform/logger/logger";
 import { ConsoleLogger } from "app/platform/logger/console-logger";
 import { PinoLogger } from "app/platform/logger/pino-logger";
 import { RequestContext } from "app/platform/request-context";

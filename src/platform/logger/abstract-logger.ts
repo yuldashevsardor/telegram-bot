@@ -1,7 +1,7 @@
-import { Logger } from "app/shared/logger";
-import { Level, Levels, LevelSeverity } from "app/shared/logger.types";
+import { Logger } from "app/platform/logger/logger";
+import { Level, Levels, LevelSeverity } from "app/platform/logger/logger.types";
 import { UnknownObject } from "app/shared/types";
-import { InvalidLogLevel } from "app/platform/logger/abstract-logger.errors";
+import { InvalidLogLevel } from "app/platform/logger/logger.errors";
 import { injectable } from "inversify";
 import { RequestContext } from "app/platform/request-context";
 

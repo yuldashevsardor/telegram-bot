@@ -1,7 +1,7 @@
 # Логирование
 
-Порт — `shared/logger.ts`, уровни `Level` и их веса `LevelSeverity` —
-`logger.types.ts`, адаптеры — `platform/logger/`. Какой из них собрать, решает
+Логгер целиком лежит в `platform/logger/`: порт — `logger.ts`, уровни `Level` и их веса
+`LevelSeverity` — `logger.types.ts`, рядом адаптеры. Какой из них собрать, решает
 `ApplicationContext` ([`application.md`](./application.md)) при старте по `isProduction`
 из конфига ([`config.md`](./config.md)): в production `PinoLogger`, иначе `ConsoleLogger`.
 Порог оба берут у общего `AbstractLogger`, но применяют по-разному: `ConsoleLogger`

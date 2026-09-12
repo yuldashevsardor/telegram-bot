@@ -1,7 +1,7 @@
 import { AbstractLogger } from "app/platform/logger/abstract-logger";
 import { UnknownObject } from "app/shared/types";
 import { Logger, LoggerOptions, pino } from "pino";
-import { Level, LevelSeverity } from "app/shared/logger.types";
+import { Level, LevelSeverity } from "app/platform/logger/logger.types";
 import { injectable } from "inversify";
 import { serializeError } from "serialize-error";
 import { RequestContext } from "app/platform/request-context";

@@ -6,7 +6,7 @@ import { container } from "app/bootstrap/container/container";
 import { Command } from "app/telegram/command/command";
 import { Middleware } from "app/telegram/middleware/middleware";
 import { BotSettings, Context } from "app/telegram/bot.types";
-import { Logger } from "app/shared/logger";
+import { Logger } from "app/platform/logger/logger";
 import { FetchOptions, run, RunnerHandle, sequentialize } from "@grammyjs/runner";
 import { getSessionKey, initialPayload } from "app/telegram/session/session.helper";
 import { SessionPayload } from "app/telegram/session/session.types";
