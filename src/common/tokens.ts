@@ -11,9 +11,6 @@ export const Tokens = {
         Logger: Symbol.for("Logger"),
         RequestContext: Symbol.for("RequestContext"),
         Database: Symbol.for("Database"),
-        // Один токен на всю конфигурацию: какое именно значение вернуть, говорит не он, а
-        // селектор в @InjectConfig на месте внедрения (common/inject-config.ts).
-        ConfigValue: Symbol.for("ConfigValue"),
     },
     // Ветки внутри Font названы понятиями предметной области (CONTEXT.md): «Сигнатура
     // формата», «Конверт», «Движок конвертации». Второй движок или второй кодек конверта

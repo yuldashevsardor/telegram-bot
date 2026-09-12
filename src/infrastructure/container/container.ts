@@ -1,7 +1,6 @@
 import "reflect-metadata";
 import { Container as InversifyContainer } from "inversify";
 import { Tokens } from "app/common/tokens";
-import { getConfigPath, resolveConfigPath } from "app/common/inject-config";
 import { ApplicationContext } from "app/infrastructure/application/application-context";
 import { ConfigContainer } from "app/infrastructure/config/config-container";
 import { RequestContext } from "app/infrastructure/request-context";
@@ -49,14 +48,6 @@ export class Container extends InversifyContainer {
         this.bind<ConfigContainer>(Tokens.Infrastructure.ConfigContainer).toConstantValue(ApplicationContext.getConfigContainer());
         this.bind<Logger>(Tokens.Infrastructure.Logger).toConstantValue(ApplicationContext.getLogger());
         this.bind<RequestContext>(Tokens.Infrastructure.RequestContext).toConstantValue(ApplicationContext.getRequestContext());
-
-        // Значение по пути из @InjectConfig. Область — transient (умолчание toDynamicValue):
-        // путь у каждого параметра свой, а singleton отдал бы всем первое разрешённое
-        // значение. Конфигурация берётся у ApplicationContext, а не из биндинга выше:
-        // она существует до контейнера, и лишнего резолва внутри setup() не возникает.
-        this.bind<unknown>(Tokens.Infrastructure.ConfigValue).toDynamicValue((context) =>
-            resolveConfigPath(ApplicationContext.getConfigContainer(), getConfigPath(context)),
-        );
 
         await this.setupModules();
         await this.setupServices();
