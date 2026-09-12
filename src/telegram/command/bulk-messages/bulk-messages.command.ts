@@ -15,7 +15,7 @@ export class BulkMessagesCommand extends Command {
     public readonly command: string = "bulk_messages";
     public readonly descriptionKey: string = "bulk-messages-command-description";
 
-    public constructor(@inject<Logger>(Tokens.Infrastructure.Logger) private readonly logger: Logger) {
+    public constructor(@inject<Logger>(Tokens.Platform.Logger) private readonly logger: Logger) {
         super();
     }
 
@@ -41,7 +41,7 @@ export class BulkMessagesCommand extends Command {
             await bot.grammy.api.sendMessage(chatId, randomText);
         };
 
-        const taskQueue = container.get<TaskQueue>(Tokens.TaskQueue.TaskQueue);
+        const taskQueue = container.get<TaskQueue>(Tokens.OutboundQueue.TaskQueue);
 
         taskQueue.push(
             {

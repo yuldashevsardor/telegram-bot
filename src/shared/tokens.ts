@@ -1,13 +1,15 @@
 // Единый словарь токенов DI. Лежит в shared/, а не в bootstrap/container/: за именем
-// собственной зависимости ни один модуль не должен ходить в чужой слой — раньше из-за этого
+// собственной зависимости ни один модуль не должен ходить в чужой модуль — раньше из-за этого
 // домен импортировал реестры инфраструктуры.
 //
 // Строка внутри Symbol.for — глобальный ключ процесса: одинаковая строка в разных ветках
 // даст один и тот же символ, и второй bind под ним свалит резолв «Ambiguous match».
 // Поэтому ветки здесь только группируют имена, уникальность держат сами строки.
 export const Tokens = {
-    Infrastructure: {
+    Bootstrap: {
         ConfigContainer: Symbol.for("ConfigContainer"),
+    },
+    Platform: {
         Logger: Symbol.for("Logger"),
         RequestContext: Symbol.for("RequestContext"),
         Database: Symbol.for("Database"),
@@ -30,7 +32,7 @@ export const Tokens = {
             FontForge: Symbol.for("FontForge"),
         },
     },
-    TaskQueue: {
+    OutboundQueue: {
         TaskQueue: Symbol.for("TaskQueue"),
         LimitResolver: Symbol.for("LimitResolver"),
         Runner: Symbol.for("Runner"),

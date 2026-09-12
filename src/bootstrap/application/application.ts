@@ -37,12 +37,12 @@ export class Application {
         this.logger.info("Container successfully setup.");
         this.logger.info("Check database connection...");
 
-        await container.get<Database>(Tokens.Infrastructure.Database).check();
+        await container.get<Database>(Tokens.Platform.Database).check();
 
         this.logger.info("Database connection is alive.");
 
-        this.taskQueue = container.get<TaskQueue>(Tokens.TaskQueue.TaskQueue);
-        this.runner = container.get<Runner>(Tokens.TaskQueue.Runner);
+        this.taskQueue = container.get<TaskQueue>(Tokens.OutboundQueue.TaskQueue);
+        this.runner = container.get<Runner>(Tokens.OutboundQueue.Runner);
         this.bot = container.get<Bot>(Tokens.Bot.Bot);
 
         await this.bot.setup();

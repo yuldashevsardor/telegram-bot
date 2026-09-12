@@ -37,8 +37,8 @@ export class TaskQueue {
     private taskCount = 0;
 
     public constructor(
-        @inject<Logger>(Tokens.Infrastructure.Logger) private readonly logger: Logger,
-        @inject<LimitResolver>(Tokens.TaskQueue.LimitResolver) private readonly limitResolver: LimitResolver,
+        @inject<Logger>(Tokens.Platform.Logger) private readonly logger: Logger,
+        @inject<LimitResolver>(Tokens.OutboundQueue.LimitResolver) private readonly limitResolver: LimitResolver,
         commonLimitSettings: Limit = configValue("limits.common"),
     ) {
         this.partitions = new Map<PartitionKey, Partition>();

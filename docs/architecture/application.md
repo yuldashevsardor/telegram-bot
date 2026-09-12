@@ -4,16 +4,14 @@
 
 `Container extends InversifyContainer` (`container/container.ts`), `setup()`
 идемпотентен. Конфиг, логгер и `RequestContext` он берёт готовыми у `ApplicationContext`
-(ниже) и связывает первыми константами, затем `setupModules()` (внутри — `setupBot()`),
-`setupServices()`, `setupInfrastructure()`. Всё singleton.
+(ниже) и связывает первыми константами, затем по владельцам: `setupFontConvertor()`,
+`setupTelegram()` (внутри — `setupBot()`), `setupPlatform()`. Всё singleton.
 
 Символы — `Symbol.for(...)` в одном словаре `shared/tokens.ts` (`Tokens`), сам список
 веток там же. Ветка называет владельца, ключ — роль внутри него, поэтому имя класса в
-ключе повторяется только там, где роли у класса нет (`Tokens.Bot.Bot`). Ветка
-`Infrastructure` — исключение из правила «владелец»: в ней лежит готовое из
-`ApplicationContext` плюс `Database`, то есть то, у чьего токена владельца-модуля нет.
-Словарь лежит в `shared/`, а не в `bootstrap/container/`: иначе за именем собственной
-зависимости домен ходил бы в корень сборки.
+ключе повторяется только там, где роли у класса нет (`Tokens.Bot.Bot`). Словарь лежит в
+`shared/`, а не в `bootstrap/container/`: иначе за именем собственной зависимости домен
+ходил бы в корень сборки.
 
 Реестр ручной ([инвариант](./invariants.md)), и молчит он по-разному: забытый биндинг
 сервиса ничем себя не выдаёт, пока символ никто не внедряет, — первый же `@inject` валит
@@ -95,8 +93,8 @@ configValue("limits.common")` не соберётся. Прежний `@ConfigVa
 
 Дальше контекст никуда не расходится: `Application.setup()` берёт из него `cc` и `logger`,
 `container.setup()` — три константы для биндингов. Потребители получают части из
-контейнера по отдельности: `Tokens.Infrastructure.Logger` и
-`Tokens.Infrastructure.RequestContext` — через `@inject`; `ConfigContainer` связан под своим
+контейнера по отдельности: `Tokens.Platform.Logger` и
+`Tokens.Platform.RequestContext` — через `@inject`; `ConfigContainer` связан под своим
 токеном, но не внедряется никуда — значения из него берут прямо у контекста, мимо
 контейнера (выше). Контекст не инжектится никуда, иначе он стал бы вторым DI. Состав
 держится коротким по той же причине: `Database` в него не входит, у неё свой жизненный цикл
