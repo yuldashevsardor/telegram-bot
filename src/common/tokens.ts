@@ -11,9 +11,9 @@ export const Tokens = {
         Logger: Symbol.for("Logger"),
         RequestContext: Symbol.for("RequestContext"),
         Database: Symbol.for("Database"),
-        DatabaseSettings: Symbol.for("DatabaseSettings"),
-        IsProduction: Symbol.for("IsProduction"),
-        RootDir: Symbol.for("RootDir"),
+        // Один токен на всю конфигурацию: какое именно значение вернуть, говорит не он, а
+        // селектор в @InjectConfig на месте внедрения (common/inject-config.ts).
+        ConfigValue: Symbol.for("ConfigValue"),
     },
     // Ветки внутри Font названы понятиями предметной области (CONTEXT.md): «Сигнатура
     // формата», «Конверт», «Движок конвертации». Второй движок или второй кодек конверта
@@ -22,7 +22,6 @@ export const Tokens = {
         Convertor: {
             Convertor: Symbol.for("FontConvertor"),
             Factory: Symbol.for("ConvertorFactory"),
-            Settings: Symbol.for("FontConvertorSettings"),
         },
         Signature: {
             Matcher: Symbol.for("FontSignatureMatcher"),
@@ -32,15 +31,12 @@ export const Tokens = {
         },
         Engine: {
             FontForge: Symbol.for("FontForge"),
-            FontForgeSettings: Symbol.for("FontForgeSettings"),
         },
     },
     TaskQueue: {
         TaskQueue: Symbol.for("TaskQueue"),
         LimitResolver: Symbol.for("LimitResolver"),
         Runner: Symbol.for("Runner"),
-        CommonLimit: Symbol.for("CommonLimit"),
-        RunnerSettings: Symbol.for("RunnerSettings"),
     },
     User: {
         Service: Symbol.for("UserService"),
@@ -48,8 +44,6 @@ export const Tokens = {
     },
     Bot: {
         Bot: Symbol.for("Bot"),
-        Settings: Symbol.for("BotSettings"),
-        Limits: Symbol.for("TelegramLimits"),
         Command: {
             Start: Symbol.for("Start"),
             BulkMessages: Symbol.for("BulkMessages"),

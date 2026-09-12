@@ -1,10 +1,9 @@
 import { FileHelper } from "app/helper/file-helper/file-helper";
 import { ProcessHelper } from "app/helper/process-helper/process-helper";
-import { inject, injectable } from "inversify";
+import { injectable } from "inversify";
 import { ExecuteError, ExtensionNotSupport } from "app/domain/font-convertor/font-forge/font-forge.errors";
 import { Extension } from "app/domain/font-convertor/font-convertor.types";
-import { FontForgeSettings } from "app/domain/font-convertor/font-forge/font-forge.types";
-import { Tokens } from "app/common/tokens";
+import { InjectConfig } from "app/common/inject-config";
 
 @injectable()
 export class FontForge {
@@ -18,7 +17,7 @@ export class FontForge {
     // Подстановка сделала бы его питоновским кодом — вторым уровнем интерпретации после shell.
     private readonly convertScript = "import fontforge, sys; font = fontforge.open(sys.argv[1]); font.generate(sys.argv[2])";
 
-    public constructor(@inject<FontForgeSettings>(Tokens.Font.Engine.FontForgeSettings) private readonly settings: FontForgeSettings) {}
+    public constructor(@InjectConfig("fontForgePath") private readonly fontForgePath: string) {}
 
     public async convert(srcPath: string, distPath: string): Promise<void> {
         const srcExtension = await FileHelper.getFileExtension(srcPath);
@@ -33,7 +32,7 @@ export class FontForge {
         }
 
         try {
-            await ProcessHelper.run(this.settings.executablePath, ["-c", this.convertScript, srcPath, distPath]);
+            await ProcessHelper.run(this.fontForgePath, ["-c", this.convertScript, srcPath, distPath]);
         } catch (error) {
             throw ExecuteError.byError(error);
         }

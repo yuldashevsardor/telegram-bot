@@ -1,5 +1,6 @@
 import { inject, injectable } from "inversify";
 import { Tokens } from "app/common/tokens";
+import { InjectConfig } from "app/common/inject-config";
 import { Logger } from "app/domain/logger/logger";
 import { LimitResolver } from "app/domain/task-queue/limit-resolver";
 import { Partition } from "app/domain/task-queue/partition";
@@ -38,7 +39,7 @@ export class TaskQueue {
     public constructor(
         @inject<Logger>(Tokens.Infrastructure.Logger) private readonly logger: Logger,
         @inject<LimitResolver>(Tokens.TaskQueue.LimitResolver) private readonly limitResolver: LimitResolver,
-        @inject<Limit>(Tokens.TaskQueue.CommonLimit) commonLimitSettings: Limit,
+        @InjectConfig("limits.common") commonLimitSettings: Limit,
     ) {
         this.partitions = new Map<PartitionKey, Partition>();
         this.keysByPriority = {

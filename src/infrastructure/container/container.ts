@@ -1,24 +1,20 @@
 import "reflect-metadata";
 import { Container as InversifyContainer } from "inversify";
 import { Tokens } from "app/common/tokens";
+import { getConfigPath, resolveConfigPath } from "app/common/inject-config";
 import { ApplicationContext } from "app/infrastructure/application/application-context";
-import { ConfigContainer, TelegramLimits } from "app/infrastructure/config/config-container";
+import { ConfigContainer } from "app/infrastructure/config/config-container";
 import { RequestContext } from "app/infrastructure/request-context";
 import { FontForge } from "app/domain/font-convertor/font-forge/font-forge";
 import { FontSignatureMatcher } from "app/domain/font-convertor/font-signature-matcher";
 import { EotPacker } from "app/domain/font-convertor/eot-packer/eot-packer";
 import { ConvertorFactory } from "app/domain/font-convertor/convertor/convertor-factory";
 import { FontConvertor } from "app/domain/font-convertor/font-convertor";
-import { FontConvertorSettings } from "app/domain/font-convertor/font-convertor.types";
-import { FontForgeSettings } from "app/domain/font-convertor/font-forge/font-forge.types";
 import { TaskQueue } from "app/domain/task-queue/task-queue";
 import { Runner } from "app/domain/task-queue/runner";
 import { LimitResolver } from "app/domain/task-queue/limit-resolver";
-import { Limit } from "app/domain/task-queue/rate-limit.types";
-import { RunnerSettings } from "app/domain/task-queue/runner.types";
 import { TelegramLimitResolver } from "app/infrastructure/bot/telegram-limit-resolver";
 import { Bot } from "app/infrastructure/bot/bot";
-import { BotSettings } from "app/infrastructure/bot/bot.types";
 import { BulkMessagesCommand } from "app/infrastructure/bot/command/bulk-messages/bulk-messages.command";
 import { FontGeneratorCommand } from "app/infrastructure/bot/command/font-generator/font-generator.command";
 import { Logger } from "app/domain/logger/logger";
@@ -33,7 +29,6 @@ import { StorageAdapter } from "grammy";
 import { SessionPayload } from "app/infrastructure/bot/session/session.types";
 import { PgsqlStorage } from "app/infrastructure/bot/session/pgsql-storage";
 import { Database } from "app/infrastructure/database/database";
-import { DatabaseSettings } from "app/infrastructure/database/database.types";
 import { UserRepository } from "app/domain/user/user.repository";
 import { PgSqlUserRepository } from "app/infrastructure/repository/pgsql-user-repository";
 import { UserService } from "app/domain/user/user.service";
@@ -51,16 +46,21 @@ export class Container extends InversifyContainer {
             return;
         }
 
-        const config = ApplicationContext.getConfigContainer();
-
-        this.bind<ConfigContainer>(Tokens.Infrastructure.ConfigContainer).toConstantValue(config);
+        this.bind<ConfigContainer>(Tokens.Infrastructure.ConfigContainer).toConstantValue(ApplicationContext.getConfigContainer());
         this.bind<Logger>(Tokens.Infrastructure.Logger).toConstantValue(ApplicationContext.getLogger());
         this.bind<RequestContext>(Tokens.Infrastructure.RequestContext).toConstantValue(ApplicationContext.getRequestContext());
-        this.bind<string>(Tokens.Infrastructure.RootDir).toConstantValue(config.rootDir);
 
-        await this.setupModules(config);
-        await this.setupServices(config);
-        await this.setupInfrastructure(config);
+        // Значение по пути из @InjectConfig. Область — transient (умолчание toDynamicValue):
+        // путь у каждого параметра свой, а singleton отдал бы всем первое разрешённое
+        // значение. Конфигурация берётся у ApplicationContext, а не из биндинга выше:
+        // она существует до контейнера, и лишнего резолва внутри setup() не возникает.
+        this.bind<unknown>(Tokens.Infrastructure.ConfigValue).toDynamicValue((context) =>
+            resolveConfigPath(ApplicationContext.getConfigContainer(), getConfigPath(context)),
+        );
+
+        await this.setupModules();
+        await this.setupServices();
+        await this.setupInfrastructure();
 
         this.alreadySetup = true;
     }
@@ -75,22 +75,16 @@ export class Container extends InversifyContainer {
         this.alreadySetup = false;
     }
 
-    private async setupModules(config: ConfigContainer): Promise<void> {
-        this.bind<Limit>(Tokens.TaskQueue.CommonLimit).toConstantValue(config.limits.common);
-        this.bind<RunnerSettings>(Tokens.TaskQueue.RunnerSettings).toConstantValue(config.runner);
-
+    private async setupModules(): Promise<void> {
         this.bind<LimitResolver>(Tokens.TaskQueue.LimitResolver).to(TelegramLimitResolver).inSingletonScope();
         this.bind<TaskQueue>(Tokens.TaskQueue.TaskQueue).to(TaskQueue).inSingletonScope();
         this.bind<Runner>(Tokens.TaskQueue.Runner).to(Runner).inSingletonScope();
 
-        await this.setupBot(config);
+        await this.setupBot();
     }
 
-    private async setupServices(config: ConfigContainer): Promise<void> {
+    private async setupServices(): Promise<void> {
         // font-convertor
-        this.bind<FontConvertorSettings>(Tokens.Font.Convertor.Settings).toConstantValue({ tempDir: config.tempDir });
-        this.bind<FontForgeSettings>(Tokens.Font.Engine.FontForgeSettings).toConstantValue({ executablePath: config.fontForgePath });
-
         this.bind<ConvertorFactory>(Tokens.Font.Convertor.Factory).to(ConvertorFactory).inSingletonScope();
         this.bind<FontForge>(Tokens.Font.Engine.FontForge).to(FontForge).inSingletonScope();
         this.bind<FontSignatureMatcher>(Tokens.Font.Signature.Matcher).to(FontSignatureMatcher).inSingletonScope();
@@ -102,17 +96,11 @@ export class Container extends InversifyContainer {
         this.bind<UserService>(Tokens.User.Service).to(UserService).inSingletonScope();
     }
 
-    private async setupInfrastructure(config: ConfigContainer): Promise<void> {
-        this.bind<DatabaseSettings>(Tokens.Infrastructure.DatabaseSettings).toConstantValue(config.database);
-        this.bind<boolean>(Tokens.Infrastructure.IsProduction).toConstantValue(config.isProduction);
-
+    private async setupInfrastructure(): Promise<void> {
         this.bind<Database>(Tokens.Infrastructure.Database).to(Database).inSingletonScope();
     }
 
-    private async setupBot(config: ConfigContainer): Promise<void> {
-        this.bind<BotSettings>(Tokens.Bot.Settings).toConstantValue(config.bot);
-        this.bind<TelegramLimits>(Tokens.Bot.Limits).toConstantValue(config.limits);
-
+    private async setupBot(): Promise<void> {
         this.bind<Bot>(Tokens.Bot.Bot).to(Bot).inSingletonScope();
 
         // Filters

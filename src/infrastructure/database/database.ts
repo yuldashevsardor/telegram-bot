@@ -1,7 +1,7 @@
 import postgres from "postgres";
-import { inject, injectable } from "inversify";
+import { injectable } from "inversify";
 import { DatabaseSettings } from "app/infrastructure/database/database.types";
-import { Tokens } from "app/common/tokens";
+import { InjectConfig } from "app/common/inject-config";
 
 const CLOSE_TIMEOUT_SECONDS = 5;
 
@@ -11,10 +11,7 @@ export type Sql = ReturnType<typeof postgres>;
 export class Database {
     public readonly sql: Sql;
 
-    public constructor(
-        @inject<DatabaseSettings>(Tokens.Infrastructure.DatabaseSettings) settings: DatabaseSettings,
-        @inject<boolean>(Tokens.Infrastructure.IsProduction) isProduction: boolean,
-    ) {
+    public constructor(@InjectConfig("database") settings: DatabaseSettings, @InjectConfig("isProduction") isProduction: boolean) {
         this.sql = postgres({
             host: settings.host,
             port: settings.port,

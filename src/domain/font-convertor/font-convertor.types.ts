@@ -11,7 +11,3 @@ export type ConvertParams = {
     originPath: string;
     extension: Extension;
 };
-
-export type FontConvertorSettings = {
-    tempDir: string;
-};

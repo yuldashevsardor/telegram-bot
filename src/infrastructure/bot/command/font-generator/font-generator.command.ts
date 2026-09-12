@@ -3,6 +3,7 @@ import { inject, injectable } from "inversify";
 import path from "path";
 import { FontConvertor } from "app/domain/font-convertor/font-convertor";
 import { Tokens } from "app/common/tokens";
+import { InjectConfig } from "app/common/inject-config";
 import { Extension } from "app/domain/font-convertor/font-convertor.types";
 import { Context } from "app/infrastructure/bot/bot.types";
 import { Logger } from "app/domain/logger/logger";
@@ -15,7 +16,7 @@ export class FontGeneratorCommand extends Command {
     public constructor(
         @inject<FontConvertor>(Tokens.Font.Convertor.Convertor) private readonly convertor: FontConvertor,
         @inject<Logger>(Tokens.Infrastructure.Logger) private readonly logger: Logger,
-        @inject<string>(Tokens.Infrastructure.RootDir) private readonly rootDir: string,
+        @InjectConfig("rootDir") private readonly rootDir: string,
     ) {
         super();
     }
