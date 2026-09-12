@@ -56,10 +56,13 @@ DI, `helper/` — утилиты. Перестройка идёт по част�
 [#245](https://github.com/yuldashevsardor/telegram-bot/issues/245).
 
 Порт отдельно от адаптера лежит там, где реализаций несколько: интерфейс `Logger` в
-`domain/logger/`, две реализации в `infrastructure/logger/`. Где реализация одна,
-интерфейс лежит с ней в одном модуле — `UserRepository` и `PgSqlUserRepository` в
-`telegram/user/`, `LimitResolver` и `TelegramLimitResolver` внутри `telegram/`
-([`storage.md`](./storage.md), [`outbound-queue.md`](./outbound-queue.md)).
+`domain/logger/`, два адаптера в `infrastructure/logger/`. Где реализация одна, слоя между
+интерфейсом и ею нет: `UserRepository` и `PgSqlUserRepository` стоят в одном каталоге
+`telegram/user/` ([`storage.md`](./storage.md)). По каталогам такая пара всё равно может
+разойтись, но уже не по слоям: `LimitResolver` объявлен в `telegram/outbound-queue/`, где
+его зовут, а `TelegramLimitResolver` лежит выше, в `telegram/`, потому что выбор лимита по
+chat ID — знание о Telegram, а не об очереди
+([`outbound-queue.md`](./outbound-queue.md)).
 
 Ошибки: наружу уходит только `RuntimeError` (`common/errors.ts`) или его подкласс из
 `<модуль>.errors.ts` рядом с бросающим кодом (`<модуль>` — префикс имени файла, а не
