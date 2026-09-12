@@ -12,7 +12,7 @@
 ключе повторяется только там, где роли у класса нет (`Tokens.Bot.Bot`). У готового из
 `ApplicationContext` владелец — тот, кто собирает экземпляр, а не каталог класса: логгер и
 `RequestContext` лежат в ветке `Bootstrap` рядом с `ConfigContainer`, хотя сам
-`RequestContext` и реализации логгера — в `platform/`. Словарь лежит в `shared/`, а не в
+`RequestContext` и логгер — в `platform/`. Словарь лежит в `shared/`, а не в
 `bootstrap/container/`: иначе за именем собственной зависимости домен ходил бы в корень
 сборки.
 
