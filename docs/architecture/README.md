@@ -113,9 +113,10 @@ src/
     container/              inversify-контейнер (application.md)
     config-container.ts     ConfigContainer: разбор и валидация настроек всех сторон (config.md)
   shared/                   RuntimeError, сквозные типы, словарь токенов DI, configValue (application.md);
-                            string/number/utils (sleep, withTimeout)
+                            NumberHelper, utils (sleep, withTimeout)
     fs/                     FileHelper
     process/                ProcessHelper — запуск внешних процессов (invariants.md)
+    string/                 StringHelper
 test/                       mocha-спеки; путь спеки повторяет путь исходника с точностью до модуля
 migrations/                 миграции, в common/ — общие shorthands и заготовка (storage.md)
 scripts/                    хостовые скрипты целей make; claude-worktree-guard — хук (testing.md)
@@ -143,11 +144,14 @@ scripts/                    хостовые скрипты целей make; cla
 (`font-signature-matcher.ts` и `font-signature-matcher.types.ts` — в корне
 `font-convertor/`). Один каталог правилу не отвечает: в `telegram/session/` лежат три файла
 разных ролей (`pgsql-storage.ts`, `session.helper.ts`, `session.types.ts`), и ни один не
-прячет остальных. `shared/fs/` и `shared/process/` стоят в карте и под правило не подпадают,
-но форма у них та же, что у каталога внутри подсистемы, и расходится с ним: оба названы по
-роли, а не по главному файлу, и из `fs/` снаружи видны и `file-helper.ts`, и
-`file-helper.errors.ts`, хотя та же форма рядом с ним живёт плоско (`string-helper.ts` +
-`string-helper.errors.ts`).
+прячет остальных.
+
+В `shared/` правило своё, и оно намеренно расходится с правилом для подсистем: утилита из
+нескольких файлов лежит в каталоге, названном по роли, вместе со спутниками (`fs/`,
+`process/`, `string/`), утилита из одного файла — плоско в корне (`number-helper.ts`,
+`utils.ts`). Появился у плоской утилиты `*.errors.ts` или `*.types.ts` — она уезжает в
+каталог. Границу видимости такой каталог не объявляет: из `fs/` снаружи импортируют и
+`file-helper.ts`, и `file-helper.errors.ts`.
 
 Какие файлы каталога видны снаружи, считает команда (`<путь>` — от `src/`; для `locale/`
 неприменима, `.ftl` через алиас не импортируют):

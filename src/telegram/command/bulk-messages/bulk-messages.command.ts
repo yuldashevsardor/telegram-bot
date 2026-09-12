@@ -1,6 +1,6 @@
 import { Command } from "app/telegram/command/command";
 import { inject, injectable } from "inversify";
-import { StringHelper } from "app/shared/string-helper";
+import { StringHelper } from "app/shared/string/string-helper";
 import { container } from "app/bootstrap/container/container";
 import { Tokens } from "app/shared/tokens";
 import { Bot } from "app/telegram/bot";

@@ -4,7 +4,7 @@ import { inject, injectable } from "inversify";
 import { FileHelper } from "app/shared/fs/file-helper";
 import { ConvertParams, Extension } from "app/font-convertor/font-convertor.types";
 import { FontConvertorError } from "app/font-convertor/font-convertor.errors";
-import { StringHelper } from "app/shared/string-helper";
+import { StringHelper } from "app/shared/string/string-helper";
 import { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory";
 import { Tokens } from "app/shared/tokens";
 import { configValue } from "app/shared/config-value";

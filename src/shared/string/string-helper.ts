@@ -1,5 +1,5 @@
 import { NumberHelper } from "app/shared/number-helper";
-import { InvalidRandomStringParams } from "app/shared/string-helper.errors";
+import { InvalidRandomStringParams } from "app/shared/string/string-helper.errors";
 
 export class StringHelper {
     public static readonly LATIN_CHARACTERS_UPPER_CASE = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
