@@ -7,15 +7,16 @@ import { FontConvertorError } from "app/domain/font-convertor/font-convertor.err
 import { StringHelper } from "app/helper/string-helper";
 import { ConvertorFactory } from "app/domain/font-convertor/convertor/convertor-factory";
 import { Tokens } from "app/common/tokens";
-import { ConfigValue } from "app/infrastructure/config/config-value.decorator";
+import { configValue } from "app/common/config-value";
 
 @injectable()
 export class FontConvertor {
-    @ConfigValue<string>("tempDir")
-    private readonly tempDir!: string;
     private isPrepared = false;
 
-    public constructor(@inject<ConvertorFactory>(Tokens.Font.Convertor.Factory) private readonly convertorFactory: ConvertorFactory) {}
+    public constructor(
+        @inject<ConvertorFactory>(Tokens.Font.Convertor.Factory) private readonly convertorFactory: ConvertorFactory,
+        private readonly tempDir: string = configValue("tempDir"),
+    ) {}
 
     private async prepare(): Promise<void> {
         if (this.isPrepared) {

@@ -1,7 +1,7 @@
 import { inject, injectable } from "inversify";
 import { Tokens } from "app/common/tokens";
+import { configValue } from "app/common/config-value";
 import { Logger } from "app/domain/logger/logger";
-import { ConfigValue } from "app/infrastructure/config/config-value.decorator";
 import { LimitResolver } from "app/domain/task-queue/limit-resolver";
 import { Partition } from "app/domain/task-queue/partition";
 import { RateLimit } from "app/domain/task-queue/rate-limit";
@@ -18,9 +18,6 @@ export class TaskQueue {
     // уборка не должна зависеть от настроек лимитов — после всплеска накопленное снимается
     // за несколько вызовов, а не одним проходом по событийному циклу.
     private static readonly REMOVED_PARTITIONS_PER_PULL = 100;
-
-    @ConfigValue<Limit>("limits.common")
-    private readonly commonLimitSettings!: Limit;
 
     private readonly partitions: Map<PartitionKey, Partition>;
 
@@ -42,6 +39,7 @@ export class TaskQueue {
     public constructor(
         @inject<Logger>(Tokens.Infrastructure.Logger) private readonly logger: Logger,
         @inject<LimitResolver>(Tokens.TaskQueue.LimitResolver) private readonly limitResolver: LimitResolver,
+        commonLimitSettings: Limit = configValue("limits.common"),
     ) {
         this.partitions = new Map<PartitionKey, Partition>();
         this.keysByPriority = {
@@ -50,7 +48,7 @@ export class TaskQueue {
             [Priority.LOW]: new Set<PartitionKey>(),
         };
         this.idleKeys = new Set<PartitionKey>();
-        this.commonLimit = new RateLimit(this.commonLimitSettings);
+        this.commonLimit = new RateLimit(commonLimitSettings);
 
         this.logTaskCount();
         this.logBanExpires();

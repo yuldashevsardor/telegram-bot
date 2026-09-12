@@ -1,16 +1,19 @@
 import { UserRepository } from "app/domain/user/user.repository";
 import { User } from "app/domain/user/user";
-import { injectable } from "inversify";
-import { Sql } from "app/infrastructure/database/database";
-import { PgSql } from "app/infrastructure/database/pgsql-decorator";
+import { inject, injectable } from "inversify";
+import { Database, Sql } from "app/infrastructure/database/database";
+import { Tokens } from "app/common/tokens";
 import { UserNotFound } from "app/domain/user/user.errors";
 import { UserRow } from "app/domain/user/user.types";
 import dayjs from "dayjs";
 
 @injectable()
 export class PgSqlUserRepository implements UserRepository {
-    @PgSql()
-    private readonly sql!: Sql;
+    private readonly sql: Sql;
+
+    public constructor(@inject<Database>(Tokens.Infrastructure.Database) database: Database) {
+        this.sql = database.sql;
+    }
 
     public async delete(id: number): Promise<void> {
         await this.sql`

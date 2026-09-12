@@ -1,7 +1,7 @@
 import postgres from "postgres";
 import { injectable } from "inversify";
 import { DatabaseSettings } from "app/infrastructure/database/database.types";
-import { ConfigValue } from "app/infrastructure/config/config-value.decorator";
+import { configValue } from "app/common/config-value";
 
 const CLOSE_TIMEOUT_SECONDS = 5;
 
@@ -9,29 +9,23 @@ export type Sql = ReturnType<typeof postgres>;
 
 @injectable()
 export class Database {
-    @ConfigValue<DatabaseSettings>("database")
-    private settings!: DatabaseSettings;
-
-    @ConfigValue<boolean>("isProduction")
-    private isProduction!: boolean;
-
     public readonly sql: Sql;
 
-    public constructor() {
+    public constructor(settings: DatabaseSettings = configValue("database"), isProduction: boolean = configValue("isProduction")) {
         this.sql = postgres({
-            host: this.settings.host,
-            port: this.settings.port,
-            database: this.settings.database,
-            username: this.settings.username,
-            password: this.settings.password,
+            host: settings.host,
+            port: settings.port,
+            database: settings.database,
+            username: settings.username,
+            password: settings.password,
             // debug у postgres — колбэк, а не флаг: при значении true драйвер запросы
             // никуда не печатает (проверка typeof === "function" в его connection.js), он
             // лишь делает query и parameters перечислимыми в ошибке, и они доходят до
             // payload лога. Мимо Logger вывод не идёт.
-            debug: !this.isProduction,
-            max: this.settings.connection.max,
-            idle_timeout: this.settings.connection.idleTimeout,
-            max_lifetime: this.settings.connection.maxLifetime,
+            debug: !isProduction,
+            max: settings.connection.max,
+            idle_timeout: settings.connection.idleTimeout,
+            max_lifetime: settings.connection.maxLifetime,
         });
     }
 

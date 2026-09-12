@@ -6,7 +6,12 @@
         "rootDir": "./src",
         "declarationDir": "./typings",
         "experimentalDecorators": true,
-        "emitDecoratorMetadata": true,
+        // Выключено намеренно: эмитированные метаданные параметров никто не читает — все
+        // зависимости внедряются явным @inject (инвариант), а вывод по типам всё равно
+        // недоступен, потому что esbuild в dev их не эмитит. Включённый флаг оставлял бы dev
+        // и сборку с разными метаданными, и от этого зависело бы, считает ли inversify своей
+        // зависимостью параметр со значением по умолчанию (configValue).
+        "emitDecoratorMetadata": false,
         // Почему-то с этим не работает декораторы
         "useDefineForClassFields": false,
         "importHelpers": true,

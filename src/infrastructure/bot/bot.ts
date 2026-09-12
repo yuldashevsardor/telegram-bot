@@ -1,10 +1,10 @@
 import { Bot as TelegramBot, Composer, session, StorageAdapter } from "grammy";
 import { inject, injectable } from "inversify";
 import { Tokens } from "app/common/tokens";
+import { configValue } from "app/common/config-value";
 import { container } from "app/infrastructure/container/container";
 import { Command } from "app/infrastructure/bot/command/command";
 import { Middleware } from "app/infrastructure/bot/middleware/middleware";
-import { ConfigValue } from "app/infrastructure/config/config-value.decorator";
 import { BotSettings, Context } from "app/infrastructure/bot/bot.types";
 import { Logger } from "app/domain/logger/logger";
 import { FetchOptions, run, RunnerHandle, sequentialize } from "@grammyjs/runner";
@@ -33,9 +33,6 @@ const ALLOWED_UPDATES: NonNullable<FetchOptions["allowed_updates"]> = ["message"
 export class Bot {
     public readonly grammy: TelegramBot<Context>;
 
-    @ConfigValue<BotSettings>("bot")
-    private readonly settings!: BotSettings;
-
     private runner?: RunnerHandle;
     private isRun = false;
     private isSetup = false;
@@ -44,6 +41,7 @@ export class Bot {
         @inject<Logger>(Tokens.Infrastructure.Logger) private readonly logger: Logger,
         @inject<StorageAdapter<SessionPayload>>(Tokens.Bot.Session.Storage)
         private readonly sessionStorage: StorageAdapter<SessionPayload>,
+        private readonly settings: BotSettings = configValue("bot"),
     ) {
         if (!this.settings.token) {
             throw new InvalidConfigError("Bot token cannot be empty!");
