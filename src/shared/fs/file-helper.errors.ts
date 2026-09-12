@@ -1,5 +1,5 @@
 import { RuntimeError } from "app/shared/errors";
-import { UnknownObject } from "app/shared/types";
+import type { UnknownObject } from "app/shared/types";
 
 /**
  * Общая форма ошибок файловых операций: сообщение системы, если оно есть, и путь в payload.

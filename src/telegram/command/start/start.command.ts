@@ -1,8 +1,8 @@
 import { Command } from "app/telegram/command/command";
 import { inject, injectable } from "inversify";
 import { Tokens } from "app/shared/tokens";
-import { Context } from "app/telegram/bot.types";
-import { StartConversation } from "app/telegram/conversation/start/start.conversation";
+import type { Context } from "app/telegram/bot.types";
+import type { StartConversation } from "app/telegram/conversation/start/start.conversation";
 
 @injectable()
 export class StartCommand extends Command {

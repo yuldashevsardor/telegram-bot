@@ -3,7 +3,7 @@ import { expect } from "chai";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory";
 import { ConvertorNotFound } from "app/font-convertor/font-convertor.errors";
-import { FontForge } from "app/font-convertor/font-forge/font-forge";
+import type { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher";
 import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 

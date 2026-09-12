@@ -3,9 +3,9 @@ import { expect } from "chai";
 import dayjs from "dayjs";
 import { Composer } from "grammy";
 import { User } from "app/telegram/user/user";
-import { UserRepository } from "app/telegram/user/user.repository";
-import { UserService } from "app/telegram/user/user.service";
-import { Context } from "app/telegram/bot.types";
+import type { UserRepository } from "app/telegram/user/user.repository";
+import type { UserService } from "app/telegram/user/user.service";
+import type { Context } from "app/telegram/bot.types";
 import { FillUserToContextMiddleware } from "app/telegram/middleware/fill-user-to-context.middleware";
 
 const FROM = { id: 42, is_bot: false, first_name: "Sardor" };

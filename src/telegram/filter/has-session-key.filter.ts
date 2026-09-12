@@ -1,5 +1,5 @@
 import { injectable } from "inversify";
-import { Context } from "app/telegram/bot.types";
+import type { Context } from "app/telegram/bot.types";
 import { Filter } from "app/telegram/filter/filter";
 import { getSessionKey } from "app/telegram/session/session.helper";
 

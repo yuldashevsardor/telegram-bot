@@ -1,10 +1,10 @@
 import "reflect-metadata";
 import { expect } from "chai";
 import { Composer } from "grammy";
-import { Context } from "app/telegram/bot.types";
+import type { Context } from "app/telegram/bot.types";
 import { Filter } from "app/telegram/filter/filter";
-import { Logger } from "app/platform/logger/logger";
-import { UnknownObject } from "app/shared/types";
+import type { Logger } from "app/platform/logger/logger";
+import type { UnknownObject } from "app/shared/types";
 
 type DebugRecord = { message: string; payload: UnknownObject | undefined };
 

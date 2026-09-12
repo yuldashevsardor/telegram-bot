@@ -3,10 +3,11 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import { FileHelper } from "app/shared/fs/file-helper";
-import { Fluent } from "@moebius/fluent";
-import { Context } from "app/telegram/bot.types";
+import type { Fluent } from "@moebius/fluent";
+import type { Context } from "app/telegram/bot.types";
 import { createFluent, createFluentMiddleware, localeFromFilePath, resolveLocale } from "app/telegram/locale";
-import { DEFAULT_LOCALE, Locale, LOCALES } from "app/telegram/locale.types";
+import type { Locale } from "app/telegram/locale.types";
+import { DEFAULT_LOCALE, LOCALES } from "app/telegram/locale.types";
 import { MissingLocaleBundle, UnknownLocale } from "app/telegram/locale.errors";
 
 const localeDir = path.join(process.cwd(), "src", "telegram");

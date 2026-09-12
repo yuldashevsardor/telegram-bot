@@ -4,7 +4,7 @@
 import { ApplicationContext } from "app/bootstrap/application/application-context";
 // Только тип: импорт стирается при сборке.
 import type { ConfigContainer } from "app/bootstrap/config-container";
-import { UnknownObject } from "app/shared/types";
+import type { UnknownObject } from "app/shared/types";
 import { InvalidConfigError } from "app/shared/errors";
 
 type Leaf = string | number | boolean | bigint | symbol | null | undefined;

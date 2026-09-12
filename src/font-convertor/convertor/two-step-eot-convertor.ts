@@ -1,9 +1,9 @@
 import { Convertor } from "app/font-convertor/convertor/convertor";
-import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
+import type { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { FileHelper } from "app/shared/fs/file-helper";
-import { FontForge } from "app/font-convertor/font-forge/font-forge";
-import { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher";
+import type { FontForge } from "app/font-convertor/font-forge/font-forge";
+import type { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher";
 
 /**
  * Пара с EOT, в которой участвуют оба: кодек снимает или надевает конверт, движок

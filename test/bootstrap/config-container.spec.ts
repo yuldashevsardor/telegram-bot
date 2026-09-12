@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { expect } from "chai";
 import { ConfigContainer } from "app/bootstrap/config-container";
-import { ConfigStorage } from "app/platform/config/config-storage";
+import type { ConfigStorage } from "app/platform/config/config-storage";
 import { InvalidConfigError } from "app/shared/errors";
 import { Level } from "app/platform/logger/logger.types";
 

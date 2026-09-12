@@ -1,5 +1,5 @@
 import { RuntimeError } from "app/shared/errors";
-import { Update } from "@grammyjs/types";
+import type { Update } from "@grammyjs/types";
 
 export class UpdateWithoutFrom extends RuntimeError {
     public static byUpdate(update: Update): UpdateWithoutFrom {

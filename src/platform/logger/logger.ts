@@ -1,4 +1,4 @@
-import { UnknownObject } from "app/shared/types";
+import type { UnknownObject } from "app/shared/types";
 
 export interface Logger {
     critical(message: string, payload?: UnknownObject): void;

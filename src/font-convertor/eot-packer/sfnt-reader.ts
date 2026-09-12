@@ -1,5 +1,5 @@
 import { InvalidSfnt } from "app/font-convertor/eot-packer/sfnt-reader.errors";
-import { SfntMetadata } from "app/font-convertor/eot-packer/sfnt-reader.types";
+import type { SfntMetadata } from "app/font-convertor/eot-packer/sfnt-reader.types";
 import { SFNT_VERSIONS } from "app/font-convertor/sfnt-version";
 
 type TableRecord = {

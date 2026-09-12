@@ -1,5 +1,5 @@
-import { Limit } from "app/telegram/outbound-queue/rate-limit.types";
-import { Task } from "app/telegram/outbound-queue/task";
+import type { Limit } from "app/telegram/outbound-queue/rate-limit.types";
+import type { Task } from "app/telegram/outbound-queue/task";
 
 // Лимит принадлежит партиции, поэтому очередь спрашивает его один раз — когда заводит её по
 // первой задаче ключа. Правило, по которому лимит выбирается, принадлежит той стороне, что
