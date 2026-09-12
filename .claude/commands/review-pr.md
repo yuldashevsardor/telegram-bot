@@ -53,7 +53,7 @@ gh pr diff <N> --name-only
 | любой `.ts` или `.sh` | `docs-sync` |
 | любой `.ts` | `bug-hunt-high` |
 | `.sh` и ни одного `.ts` | `bug-hunt-medium` |
-| `.ts` внутри `src/domain/`, `src/common/`, `src/helper/` | `smells` |
+| `.ts` внутри `src/font-convertor/`, `src/domain/`, `src/common/`, `src/helper/` | `smells` |
 | любой `*.md`, включая `docs/**` и `.claude/**` | `docs` |
 
 `build` и `typecheck` включаются вместе и одна другую не заменяет: цели ходят по разным

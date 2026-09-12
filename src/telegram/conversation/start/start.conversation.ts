@@ -1,7 +1,7 @@
 import { Context, Conversation } from "app/telegram/bot.types";
 import { ConversationHandler } from "app/telegram/conversation/conversation-handler";
 import { inject, injectable } from "inversify";
-import { ConvertorFactory } from "app/domain/font-convertor/convertor/convertor-factory";
+import { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory";
 import { Tokens } from "app/common/tokens";
 
 @injectable()

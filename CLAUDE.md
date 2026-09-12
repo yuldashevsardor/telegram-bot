@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Telegram-бот для конвертации шрифтов. Главный домен — `src/domain/font-convertor/`;
+Telegram-бот для конвертации шрифтов. Главный домен — `src/font-convertor/`;
 Telegram, `User`, PostgreSQL и остальная инфраструктура обслуживают его.
 
 ## Документация
@@ -81,7 +81,7 @@ Telegram, `User`, PostgreSQL и остальная инфраструктура 
   `*.types.ts` и `*.errors.ts` — рядом со своим главным. Примеры, исключения и команда
   проверки — `docs/architecture/README.md`, «Карта директорий».
 - Domain не зависит от grammY, PostgreSQL и pino: список запрещённых пакетов держит
-  `no-restricted-imports` для `src/domain/**` в `.eslintrc.js`.
+  `no-restricted-imports` для `src/font-convertor/**` и `src/domain/**` в `.eslintrc.js`.
 - Голый `Error` наружу не бросается: минимум `RuntimeError` из `app/common/errors`,
   лучше свой подкласс в `<модуль>.errors.ts` рядом с бросающим кодом. Второй аргумент —
   либо исходная ошибка (уедет в `cause`), либо объект деталей (в `payload`); нужны оба —
