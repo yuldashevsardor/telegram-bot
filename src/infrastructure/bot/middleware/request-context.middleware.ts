@@ -2,13 +2,13 @@ import { inject, injectable } from "inversify";
 import { NextFunction } from "grammy";
 import { Middleware } from "app/infrastructure/bot/middleware/middleware";
 import { RequestContext } from "app/infrastructure/request-context";
-import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
+import { Tokens } from "app/common/tokens";
 import { Context } from "app/infrastructure/bot/bot.types";
 
 @injectable()
 export class RequestContextMiddleware extends Middleware {
     public constructor(
-        @inject<RequestContext>(Infrastructure.RequestContext)
+        @inject<RequestContext>(Tokens.Infrastructure.RequestContext)
         private readonly requestContext: RequestContext,
     ) {
         super();

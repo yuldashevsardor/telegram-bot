@@ -1,13 +1,12 @@
 import { Bot as TelegramBot, Composer, session, StorageAdapter } from "grammy";
 import { inject, injectable } from "inversify";
-import { Modules } from "app/infrastructure/container/symbols/modules";
+import { Tokens } from "app/common/tokens";
 import { container } from "app/infrastructure/container/container";
 import { Command } from "app/infrastructure/bot/command/command";
 import { Middleware } from "app/infrastructure/bot/middleware/middleware";
 import { ConfigValue } from "app/infrastructure/config/config-value.decorator";
 import { BotSettings, Context } from "app/infrastructure/bot/bot.types";
 import { Logger } from "app/domain/logger/logger";
-import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
 import { FetchOptions, run, RunnerHandle, sequentialize } from "@grammyjs/runner";
 import { getSessionKey, initialPayload } from "app/infrastructure/bot/session/session.helper";
 import { SessionPayload } from "app/infrastructure/bot/session/session.types";
@@ -42,8 +41,8 @@ export class Bot {
     private isSetup = false;
 
     public constructor(
-        @inject<Logger>(Infrastructure.Logger) private readonly logger: Logger,
-        @inject<StorageAdapter<SessionPayload>>(Modules.Bot.Session.Storage)
+        @inject<Logger>(Tokens.Infrastructure.Logger) private readonly logger: Logger,
+        @inject<StorageAdapter<SessionPayload>>(Tokens.Bot.Session.Storage)
         private readonly sessionStorage: StorageAdapter<SessionPayload>,
     ) {
         if (!this.settings.token) {
@@ -97,7 +96,7 @@ export class Bot {
         // базе; очередь отброшенному апдейту не нужна тем более. Порядок внутри списка
         // важен: IsPrivateChat отбрасывает молча и без chat тоже, поэтому апдейты без ключа
         // сессии должен раньше увидеть HasSessionKey с его warning.
-        await this.setupFilters([Modules.Bot.Filter.HasSessionKey, Modules.Bot.Filter.IsPrivateChat]);
+        await this.setupFilters([Tokens.Bot.Filter.HasSessionKey, Tokens.Bot.Filter.IsPrivateChat]);
         // sequentialize() строго выше session(): session() не ленив — читает строку до
         // next() и пишет после возврата, поэтому под очередью оказалась бы только середина
         // цепочки, а само чтение и запись остались бы снаружи. Два апдейта одного
@@ -149,11 +148,11 @@ export class Bot {
 
         const composer = new Composer<Context>();
         const middlewares = [
-            container.get<Middleware>(Modules.Bot.Middleware.RequestContext),
-            container.get<Middleware>(Modules.Bot.Middleware.Mutation.TelegramCallApi),
-            container.get<Middleware>(Modules.Bot.Middleware.ResponseTime),
-            container.get<Middleware>(Modules.Bot.Middleware.RequestLog),
-            container.get<Middleware>(Modules.Bot.Middleware.FillUserToContext),
+            container.get<Middleware>(Tokens.Bot.Middleware.RequestContext),
+            container.get<Middleware>(Tokens.Bot.Middleware.Mutation.TelegramCallApi),
+            container.get<Middleware>(Tokens.Bot.Middleware.ResponseTime),
+            container.get<Middleware>(Tokens.Bot.Middleware.RequestLog),
+            container.get<Middleware>(Tokens.Bot.Middleware.FillUserToContext),
         ];
 
         for (const middleware of middlewares) {
@@ -193,7 +192,7 @@ export class Bot {
     private async setupConversations(): Promise<void> {
         this.logger.debug("Setup conversations...");
 
-        const conversationHandlers: ConversationHandler[] = Object.values(Modules.Bot.Conversations).map((symbol) => {
+        const conversationHandlers: ConversationHandler[] = Object.values(Tokens.Bot.Conversations).map((symbol) => {
             return container.get<ConversationHandler>(symbol);
         });
 
@@ -209,7 +208,7 @@ export class Bot {
     private async setupCommands(fluent: Fluent): Promise<void> {
         this.logger.debug("Setup commands...");
 
-        const commands = Object.values(Modules.Bot.Command).map((symbol) => {
+        const commands = Object.values(Tokens.Bot.Command).map((symbol) => {
             return container.get<Command>(symbol);
         });
 

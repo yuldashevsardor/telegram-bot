@@ -1,17 +1,15 @@
 import "reflect-metadata";
 import { Container as InversifyContainer } from "inversify";
-import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
+import { Tokens } from "app/common/tokens";
 import { ApplicationContext } from "app/infrastructure/application/application-context";
 import { ConfigContainer } from "app/infrastructure/config/config-container";
 import { RequestContext } from "app/infrastructure/request-context";
 import { FontForge } from "app/domain/font-convertor/font-forge/font-forge";
 import { FontSignatureMatcher } from "app/domain/font-convertor/font-signature-matcher";
 import { EotPacker } from "app/domain/font-convertor/eot-packer/eot-packer";
-import { Services } from "app/infrastructure/container/symbols/services";
 import { ConvertorFactory } from "app/domain/font-convertor/convertor/convertor-factory";
 import { FontConvertor } from "app/domain/font-convertor/font-convertor";
 import { TaskQueue } from "app/domain/task-queue/task-queue";
-import { Modules } from "app/infrastructure/container/symbols/modules";
 import { Runner } from "app/domain/task-queue/runner";
 import { LimitResolver } from "app/domain/task-queue/limit-resolver";
 import { TelegramLimitResolver } from "app/infrastructure/bot/telegram-limit-resolver";
@@ -47,9 +45,9 @@ export class Container extends InversifyContainer {
             return;
         }
 
-        this.bind<ConfigContainer>(Infrastructure.ConfigContainer).toConstantValue(ApplicationContext.getConfigContainer());
-        this.bind<Logger>(Infrastructure.Logger).toConstantValue(ApplicationContext.getLogger());
-        this.bind<RequestContext>(Infrastructure.RequestContext).toConstantValue(ApplicationContext.getRequestContext());
+        this.bind<ConfigContainer>(Tokens.Infrastructure.ConfigContainer).toConstantValue(ApplicationContext.getConfigContainer());
+        this.bind<Logger>(Tokens.Infrastructure.Logger).toConstantValue(ApplicationContext.getLogger());
+        this.bind<RequestContext>(Tokens.Infrastructure.RequestContext).toConstantValue(ApplicationContext.getRequestContext());
 
         await this.setupModules();
         await this.setupServices();
@@ -63,63 +61,63 @@ export class Container extends InversifyContainer {
             return;
         }
 
-        await this.get<Database>(Infrastructure.Database).close();
+        await this.get<Database>(Tokens.Infrastructure.Database).close();
 
         this.alreadySetup = false;
     }
 
     private async setupModules(): Promise<void> {
-        this.bind<LimitResolver>(Modules.TaskQueue.LimitResolver).to(TelegramLimitResolver).inSingletonScope();
-        this.bind<TaskQueue>(Modules.TaskQueue.TaskQueue).to(TaskQueue).inSingletonScope();
-        this.bind<Runner>(Modules.TaskQueue.Runner).to(Runner).inSingletonScope();
+        this.bind<LimitResolver>(Tokens.TaskQueue.LimitResolver).to(TelegramLimitResolver).inSingletonScope();
+        this.bind<TaskQueue>(Tokens.TaskQueue.TaskQueue).to(TaskQueue).inSingletonScope();
+        this.bind<Runner>(Tokens.TaskQueue.Runner).to(Runner).inSingletonScope();
 
         await this.setupBot();
     }
 
     private async setupServices(): Promise<void> {
         // font-convertor
-        this.bind<ConvertorFactory>(Services.FontConvertor.ConvertorFactory).to(ConvertorFactory).inSingletonScope();
-        this.bind<FontForge>(Services.FontConvertor.FontForge).to(FontForge).inSingletonScope();
-        this.bind<FontSignatureMatcher>(Services.FontConvertor.FontSignatureMatcher).to(FontSignatureMatcher).inSingletonScope();
-        this.bind<EotPacker>(Services.FontConvertor.EotPacker).to(EotPacker).inSingletonScope();
-        this.bind<FontConvertor>(Services.FontConvertor.FontConvertor).to(FontConvertor).inSingletonScope();
+        this.bind<ConvertorFactory>(Tokens.FontConvertor.ConvertorFactory).to(ConvertorFactory).inSingletonScope();
+        this.bind<FontForge>(Tokens.FontConvertor.FontForge).to(FontForge).inSingletonScope();
+        this.bind<FontSignatureMatcher>(Tokens.FontConvertor.FontSignatureMatcher).to(FontSignatureMatcher).inSingletonScope();
+        this.bind<EotPacker>(Tokens.FontConvertor.EotPacker).to(EotPacker).inSingletonScope();
+        this.bind<FontConvertor>(Tokens.FontConvertor.FontConvertor).to(FontConvertor).inSingletonScope();
 
         // User
-        this.bind<UserRepository>(Services.User.UserRepository).to(PgSqlUserRepository).inSingletonScope();
-        this.bind<UserService>(Services.User.UserService).to(UserService).inSingletonScope();
+        this.bind<UserRepository>(Tokens.User.UserRepository).to(PgSqlUserRepository).inSingletonScope();
+        this.bind<UserService>(Tokens.User.UserService).to(UserService).inSingletonScope();
     }
 
     private async setupInfrastructure(): Promise<void> {
-        this.bind<Database>(Infrastructure.Database).to(Database).inSingletonScope();
+        this.bind<Database>(Tokens.Infrastructure.Database).to(Database).inSingletonScope();
     }
 
     private async setupBot(): Promise<void> {
-        this.bind<Bot>(Modules.Bot.Bot).to(Bot).inSingletonScope();
+        this.bind<Bot>(Tokens.Bot.Bot).to(Bot).inSingletonScope();
 
         // Filters
-        this.bind<HasSessionKeyFilter>(Modules.Bot.Filter.HasSessionKey).to(HasSessionKeyFilter).inSingletonScope();
-        this.bind<IsPrivateChatFilter>(Modules.Bot.Filter.IsPrivateChat).to(IsPrivateChatFilter).inSingletonScope();
+        this.bind<HasSessionKeyFilter>(Tokens.Bot.Filter.HasSessionKey).to(HasSessionKeyFilter).inSingletonScope();
+        this.bind<IsPrivateChatFilter>(Tokens.Bot.Filter.IsPrivateChat).to(IsPrivateChatFilter).inSingletonScope();
 
         // Middlewares
-        this.bind<TelegramCallApiMiddleware>(Modules.Bot.Middleware.Mutation.TelegramCallApi)
+        this.bind<TelegramCallApiMiddleware>(Tokens.Bot.Middleware.Mutation.TelegramCallApi)
             .to(TelegramCallApiMiddleware)
             .inSingletonScope();
 
-        this.bind<RequestContextMiddleware>(Modules.Bot.Middleware.RequestContext).to(RequestContextMiddleware).inSingletonScope();
-        this.bind<ResponseTimeMiddleware>(Modules.Bot.Middleware.ResponseTime).to(ResponseTimeMiddleware).inSingletonScope();
-        this.bind<RequestLogMiddleware>(Modules.Bot.Middleware.RequestLog).to(RequestLogMiddleware).inSingletonScope();
-        this.bind<FillUserToContextMiddleware>(Modules.Bot.Middleware.FillUserToContext).to(FillUserToContextMiddleware).inSingletonScope();
+        this.bind<RequestContextMiddleware>(Tokens.Bot.Middleware.RequestContext).to(RequestContextMiddleware).inSingletonScope();
+        this.bind<ResponseTimeMiddleware>(Tokens.Bot.Middleware.ResponseTime).to(ResponseTimeMiddleware).inSingletonScope();
+        this.bind<RequestLogMiddleware>(Tokens.Bot.Middleware.RequestLog).to(RequestLogMiddleware).inSingletonScope();
+        this.bind<FillUserToContextMiddleware>(Tokens.Bot.Middleware.FillUserToContext).to(FillUserToContextMiddleware).inSingletonScope();
 
         // Commands
-        this.bind<StartCommand>(Modules.Bot.Command.Start).to(StartCommand).inSingletonScope();
-        this.bind<BulkMessagesCommand>(Modules.Bot.Command.BulkMessages).to(BulkMessagesCommand).inSingletonScope();
-        this.bind<FontGeneratorCommand>(Modules.Bot.Command.FontGenerator).to(FontGeneratorCommand).inSingletonScope();
+        this.bind<StartCommand>(Tokens.Bot.Command.Start).to(StartCommand).inSingletonScope();
+        this.bind<BulkMessagesCommand>(Tokens.Bot.Command.BulkMessages).to(BulkMessagesCommand).inSingletonScope();
+        this.bind<FontGeneratorCommand>(Tokens.Bot.Command.FontGenerator).to(FontGeneratorCommand).inSingletonScope();
 
         // Session
-        this.bind<StorageAdapter<SessionPayload>>(Modules.Bot.Session.Storage).to(PgsqlStorage).inSingletonScope();
+        this.bind<StorageAdapter<SessionPayload>>(Tokens.Bot.Session.Storage).to(PgsqlStorage).inSingletonScope();
 
         // Conversations
-        this.bind<StartConversation>(Modules.Bot.Conversations.Start).to(StartConversation).inSingletonScope();
+        this.bind<StartConversation>(Tokens.Bot.Conversations.Start).to(StartConversation).inSingletonScope();
     }
 }
 

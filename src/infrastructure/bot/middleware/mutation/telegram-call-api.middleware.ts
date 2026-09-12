@@ -2,7 +2,7 @@ import { Middleware } from "app/infrastructure/bot/middleware/middleware";
 import { Api, NextFunction, RawApi } from "grammy";
 import { TaskQueue } from "app/domain/task-queue/task-queue";
 import { inject, injectable } from "inversify";
-import { Modules } from "app/infrastructure/container/symbols/modules";
+import { Tokens } from "app/common/tokens";
 import { Context } from "app/infrastructure/bot/bot.types";
 import { Priority } from "app/domain/task-queue/task";
 import { isGroupChat } from "app/infrastructure/bot/telegram-chat";
@@ -20,7 +20,7 @@ const TELEGRAM_NO_GROUP_RATE_LIMIT_SET = new Set<string | symbol>([
 
 @injectable()
 export class TelegramCallApiMiddleware extends Middleware {
-    public constructor(@inject<TaskQueue>(Modules.TaskQueue.TaskQueue) private readonly taskQueue: TaskQueue) {
+    public constructor(@inject<TaskQueue>(Tokens.TaskQueue.TaskQueue) private readonly taskQueue: TaskQueue) {
         super();
     }
 

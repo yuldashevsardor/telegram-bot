@@ -7,9 +7,10 @@
 (ниже) и связывает первыми константами, затем `setupModules()` (внутри — `setupBot()`),
 `setupServices()`, `setupInfrastructure()`. Всё singleton.
 
-Символы — `Symbol.for(...)` в `container/symbols/` (`Infrastructure`, `Modules`,
-`Services`): `Modules` — подсистемы, `Services` — доменные сервисы, `Infrastructure` —
-готовое из `ApplicationContext` плюс `Database`. Реестр ручной
+Символы — `Symbol.for(...)` в одном словаре `common/tokens.ts` (`Tokens`), ветки — по
+владельцу: `Infrastructure` (готовое из `ApplicationContext` плюс `Database`),
+`FontConvertor`, `TaskQueue`, `User`, `Bot`. Словарь лежит в `common/`, а не в
+`container/`: иначе за именем собственной зависимости домен ходил бы в инфраструктуру. Реестр ручной
 ([инвариант](./invariants.md)), и молчит он по-разному: забытый биндинг сервиса ничем себя
 не выдаёт, пока символ никто не внедряет, — первый же `@inject` валит резолв «No matching
 bindings found»; команды и разговоры резолвятся по своим реестрам (шаги 7-8

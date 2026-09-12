@@ -6,7 +6,7 @@ import { ConvertParams, Extension } from "app/domain/font-convertor/font-convert
 import { FontConvertorError } from "app/domain/font-convertor/font-convertor.errors";
 import { StringHelper } from "app/helper/string-helper";
 import { ConvertorFactory } from "app/domain/font-convertor/convertor/convertor-factory";
-import { Services } from "app/infrastructure/container/symbols/services";
+import { Tokens } from "app/common/tokens";
 import { ConfigValue } from "app/infrastructure/config/config-value.decorator";
 
 @injectable()
@@ -16,7 +16,7 @@ export class FontConvertor {
     private isPrepared = false;
 
     public constructor(
-        @inject<ConvertorFactory>(Services.FontConvertor.ConvertorFactory) private readonly convertorFactory: ConvertorFactory,
+        @inject<ConvertorFactory>(Tokens.FontConvertor.ConvertorFactory) private readonly convertorFactory: ConvertorFactory,
     ) {}
 
     private async prepare(): Promise<void> {

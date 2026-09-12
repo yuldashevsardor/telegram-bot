@@ -2,14 +2,14 @@ import { Context, Conversation } from "app/infrastructure/bot/bot.types";
 import { ConversationHandler } from "app/infrastructure/bot/conversation/conversation-handler";
 import { inject, injectable } from "inversify";
 import { ConvertorFactory } from "app/domain/font-convertor/convertor/convertor-factory";
-import { Services } from "app/infrastructure/container/symbols/services";
+import { Tokens } from "app/common/tokens";
 
 @injectable()
 export class StartConversation extends ConversationHandler {
     public readonly name: string = "start";
 
     public constructor(
-        @inject<ConvertorFactory>(Services.FontConvertor.ConvertorFactory) private readonly convertorFactory: ConvertorFactory,
+        @inject<ConvertorFactory>(Tokens.FontConvertor.ConvertorFactory) private readonly convertorFactory: ConvertorFactory,
     ) {
         super();
     }

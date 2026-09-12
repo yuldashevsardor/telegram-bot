@@ -49,7 +49,7 @@
   ([`i18n.md`](./i18n.md)).
 
 Слои: `domain/` — логика и порты, `infrastructure/` — адаптеры, `common/` — сквозные
-типы и базовая ошибка, `helper/` — утилиты. Разделение последовательно у `user` и
+типы, базовая ошибка и словарь токенов DI, `helper/` — утилиты. Разделение последовательно у `user` и
 `logger`; `task-queue` порта почти не имеет, потому что внешней системы за ним нет.
 
 Ошибки: наружу уходит только `RuntimeError` (`common/errors.ts`) или его подкласс из
@@ -83,7 +83,7 @@
 ```
 src/
   app.ts                    точка входа: new Application(), сигналы, fail()
-  common/                   RuntimeError и сквозные типы
+  common/                   RuntimeError, сквозные типы, словарь токенов DI (application.md)
   domain/
     task-queue/             очередь исходящих по ключам, лимиты, цикл Runner (task-queue.md)
     font-convertor/         конвертация шрифтов (font-convertor.md)
@@ -94,7 +94,7 @@ src/
     application/            ApplicationContext и Application: сборка и жизненный цикл (application.md)
     bot/                    grammY: команды, conversations, middleware, фильтры, сессия (bot.md)
     config/                 ConfigStorage → ConfigContainer (config.md)
-    container/              inversify-контейнер и символы (application.md)
+    container/              inversify-контейнер (application.md)
     database/               Database (storage.md)
     logger/                 ConsoleLogger, PinoLogger (logging.md)
     repository/             PgSqlUserRepository (user.md)

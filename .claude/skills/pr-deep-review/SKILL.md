@@ -129,9 +129,9 @@ git ls-files 'test/**/*.spec.ts'                            # что вообщ�
 Ниже — только механика проверки, которой в `CLAUDE.md` нет.
 
 ```bash
-# Проводка DI: новый @injectable() обязан появиться и в container.ts, и в symbols/
+# Проводка DI: новый @injectable() обязан появиться и в container.ts, и в common/tokens.ts
 gh pr diff <N> | grep -n '^+.*@injectable'
-git diff origin/main...origin/<ветка PR> -- ':(top)src/infrastructure/container/'
+git diff origin/main...origin/<ветка PR> -- ':(top)src/infrastructure/container/' ':(top)src/common/tokens.ts'
 
 # Миграции append-only: допустимы только новые файлы (A), любые M, D или R — blocker
 git diff origin/main...origin/<ветка PR> --name-status -- ':(top)migrations/'

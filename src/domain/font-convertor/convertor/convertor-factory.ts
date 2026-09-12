@@ -8,7 +8,7 @@ import { WoffToWoff2 } from "app/domain/font-convertor/convertor/woff/woff-to-wo
 import { Woff2ToEot } from "app/domain/font-convertor/convertor/woff2/woff2-to-eot";
 import { inject, injectable } from "inversify";
 import { FontForge } from "app/domain/font-convertor/font-forge/font-forge";
-import { Services } from "app/infrastructure/container/symbols/services";
+import { Tokens } from "app/common/tokens";
 import { EotToWoff2 } from "app/domain/font-convertor/convertor/eot/eot-to-woff2";
 import { EotToWoff } from "app/domain/font-convertor/convertor/eot/eot-to-woff";
 import { EotToTtf } from "app/domain/font-convertor/convertor/eot/eot-to-ttf";
@@ -92,10 +92,10 @@ export class ConvertorFactory {
     };
 
     public constructor(
-        @inject<FontForge>(Services.FontConvertor.FontForge) private readonly fontForge: FontForge,
-        @inject<FontSignatureMatcher>(Services.FontConvertor.FontSignatureMatcher)
+        @inject<FontForge>(Tokens.FontConvertor.FontForge) private readonly fontForge: FontForge,
+        @inject<FontSignatureMatcher>(Tokens.FontConvertor.FontSignatureMatcher)
         private readonly fontSignatureMatcher: FontSignatureMatcher,
-        @inject<EotPacker>(Services.FontConvertor.EotPacker) private readonly eotPacker: EotPacker,
+        @inject<EotPacker>(Tokens.FontConvertor.EotPacker) private readonly eotPacker: EotPacker,
     ) {}
 
     public get(fromExtension: Extension, toExtension: Extension): Convertor {
