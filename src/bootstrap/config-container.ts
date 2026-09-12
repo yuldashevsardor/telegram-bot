@@ -1,6 +1,6 @@
 import path from "path";
-import { Level, Levels } from "app/shared/logger.types";
-import { isLevel } from "app/shared/logger.helper";
+import { Level, Levels } from "app/platform/logger/logger.types";
+import { isLevel } from "app/platform/logger/logger.helper";
 import { InvalidConfigError } from "app/shared/errors";
 import { Limit } from "app/telegram/outbound-queue/rate-limit.types";
 import { RunnerSettings } from "app/telegram/outbound-queue/runner.types";
