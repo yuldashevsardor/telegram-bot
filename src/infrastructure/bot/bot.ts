@@ -4,7 +4,6 @@ import { Tokens } from "app/common/tokens";
 import { container } from "app/infrastructure/container/container";
 import { Command } from "app/infrastructure/bot/command/command";
 import { Middleware } from "app/infrastructure/bot/middleware/middleware";
-import { ConfigValue } from "app/infrastructure/config/config-value.decorator";
 import { BotSettings, Context } from "app/infrastructure/bot/bot.types";
 import { Logger } from "app/domain/logger/logger";
 import { FetchOptions, run, RunnerHandle, sequentialize } from "@grammyjs/runner";
@@ -33,9 +32,6 @@ const ALLOWED_UPDATES: NonNullable<FetchOptions["allowed_updates"]> = ["message"
 export class Bot {
     public readonly grammy: TelegramBot<Context>;
 
-    @ConfigValue<BotSettings>("bot")
-    private readonly settings!: BotSettings;
-
     private runner?: RunnerHandle;
     private isRun = false;
     private isSetup = false;
@@ -44,6 +40,7 @@ export class Bot {
         @inject<Logger>(Tokens.Infrastructure.Logger) private readonly logger: Logger,
         @inject<StorageAdapter<SessionPayload>>(Tokens.Bot.Session.Storage)
         private readonly sessionStorage: StorageAdapter<SessionPayload>,
+        @inject<BotSettings>(Tokens.Bot.Settings) private readonly settings: BotSettings,
     ) {
         if (!this.settings.token) {
             throw new InvalidConfigError("Bot token cannot be empty!");

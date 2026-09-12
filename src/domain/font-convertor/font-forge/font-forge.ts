@@ -1,15 +1,13 @@
 import { FileHelper } from "app/helper/file-helper/file-helper";
 import { ProcessHelper } from "app/helper/process-helper/process-helper";
-import { injectable } from "inversify";
+import { inject, injectable } from "inversify";
 import { ExecuteError, ExtensionNotSupport } from "app/domain/font-convertor/font-forge/font-forge.errors";
 import { Extension } from "app/domain/font-convertor/font-convertor.types";
-import { ConfigValue } from "app/infrastructure/config/config-value.decorator";
+import { FontForgeSettings } from "app/domain/font-convertor/font-forge/font-forge.types";
+import { Tokens } from "app/common/tokens";
 
 @injectable()
 export class FontForge {
-    @ConfigValue<string>("fontForgePath")
-    private readonly fontForgePath!: string;
-
     // EOT здесь нет намеренно: движок не читает его конверт, а на запись молча
     // отдаёт PostScript Type 1 под чужим расширением. Конверт снимает и надевает
     // EotPacker, движку достаётся уже sfnt
@@ -19,6 +17,8 @@ export class FontForge {
     // sys.argv — это ["-c", ...аргументы после скрипта], и путь в нём остаётся строкой.
     // Подстановка сделала бы его питоновским кодом — вторым уровнем интерпретации после shell.
     private readonly convertScript = "import fontforge, sys; font = fontforge.open(sys.argv[1]); font.generate(sys.argv[2])";
+
+    public constructor(@inject<FontForgeSettings>(Tokens.Font.Engine.FontForgeSettings) private readonly settings: FontForgeSettings) {}
 
     public async convert(srcPath: string, distPath: string): Promise<void> {
         const srcExtension = await FileHelper.getFileExtension(srcPath);
@@ -33,7 +33,7 @@ export class FontForge {
         }
 
         try {
-            await ProcessHelper.run(this.fontForgePath, ["-c", this.convertScript, srcPath, distPath]);
+            await ProcessHelper.run(this.settings.executablePath, ["-c", this.convertScript, srcPath, distPath]);
         } catch (error) {
             throw ExecuteError.byError(error);
         }

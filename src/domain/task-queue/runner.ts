@@ -5,20 +5,17 @@ import { RunnerAlreadyRun } from "app/domain/task-queue/runner.errors";
 import { RunnerSettings } from "app/domain/task-queue/runner.types";
 import { Task } from "app/domain/task-queue/task";
 import { DEFAULT_RETRY_AFTER_SECONDS, TelegramApiError, TELEGRAM_ERROR_CODES } from "app/domain/task-queue/telegram-error";
-import { ConfigValue } from "app/infrastructure/config/config-value.decorator";
 import { Logger } from "app/domain/logger/logger";
 import { NumberHelper } from "app/helper/number-helper";
 
 @injectable()
 export class Runner {
-    @ConfigValue<RunnerSettings>("runner")
-    private readonly settings!: RunnerSettings;
-
     private _isRun = false;
 
     public constructor(
         @inject<TaskQueue>(Tokens.TaskQueue.TaskQueue) private readonly taskQueue: TaskQueue,
         @inject<Logger>(Tokens.Infrastructure.Logger) private readonly logger: Logger,
+        @inject<RunnerSettings>(Tokens.TaskQueue.RunnerSettings) private readonly settings: RunnerSettings,
     ) {}
 
     public run(): void {

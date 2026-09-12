@@ -1,13 +1,16 @@
 import { StorageAdapter } from "grammy";
 import { SessionPayload, SessionRow } from "app/infrastructure/bot/session/session.types";
-import { Sql } from "app/infrastructure/database/database";
-import { injectable } from "inversify";
-import { PgSql } from "app/infrastructure/database/pgsql-decorator";
+import { Database, Sql } from "app/infrastructure/database/database";
+import { inject, injectable } from "inversify";
+import { Tokens } from "app/common/tokens";
 
 @injectable()
 export class PgsqlStorage implements StorageAdapter<SessionPayload> {
-    @PgSql()
-    private readonly sql!: Sql;
+    private readonly sql: Sql;
+
+    public constructor(@inject<Database>(Tokens.Infrastructure.Database) database: Database) {
+        this.sql = database.sql;
+    }
 
     public async delete(key: string): Promise<void> {
         await this.sql`

@@ -2,40 +2,40 @@ import path from "path";
 import { InvalidPath, PermissionDenied } from "app/helper/file-helper/file-helper.errors";
 import { inject, injectable } from "inversify";
 import { FileHelper } from "app/helper/file-helper/file-helper";
-import { ConvertParams, Extension } from "app/domain/font-convertor/font-convertor.types";
+import { ConvertParams, Extension, FontConvertorSettings } from "app/domain/font-convertor/font-convertor.types";
 import { FontConvertorError } from "app/domain/font-convertor/font-convertor.errors";
 import { StringHelper } from "app/helper/string-helper";
 import { ConvertorFactory } from "app/domain/font-convertor/convertor/convertor-factory";
 import { Tokens } from "app/common/tokens";
-import { ConfigValue } from "app/infrastructure/config/config-value.decorator";
 
 @injectable()
 export class FontConvertor {
-    @ConfigValue<string>("tempDir")
-    private readonly tempDir!: string;
     private isPrepared = false;
 
-    public constructor(@inject<ConvertorFactory>(Tokens.Font.Convertor.Factory) private readonly convertorFactory: ConvertorFactory) {}
+    public constructor(
+        @inject<ConvertorFactory>(Tokens.Font.Convertor.Factory) private readonly convertorFactory: ConvertorFactory,
+        @inject<FontConvertorSettings>(Tokens.Font.Convertor.Settings) private readonly settings: FontConvertorSettings,
+    ) {}
 
     private async prepare(): Promise<void> {
         if (this.isPrepared) {
             return;
         }
 
-        if (!(await FileHelper.isExist(this.tempDir))) {
-            throw InvalidPath.isNotExist(this.tempDir);
+        if (!(await FileHelper.isExist(this.settings.tempDir))) {
+            throw InvalidPath.isNotExist(this.settings.tempDir);
         }
 
-        if (!(await FileHelper.isReadable(this.tempDir))) {
-            throw PermissionDenied.read(this.tempDir);
+        if (!(await FileHelper.isReadable(this.settings.tempDir))) {
+            throw PermissionDenied.read(this.settings.tempDir);
         }
 
-        if (!(await FileHelper.isWritable(this.tempDir))) {
-            throw PermissionDenied.write(this.tempDir);
+        if (!(await FileHelper.isWritable(this.settings.tempDir))) {
+            throw PermissionDenied.write(this.settings.tempDir);
         }
 
-        if (!(await FileHelper.isDirectory(this.tempDir))) {
-            throw InvalidPath.isNotDirectory(this.tempDir);
+        if (!(await FileHelper.isDirectory(this.settings.tempDir))) {
+            throw InvalidPath.isNotDirectory(this.settings.tempDir);
         }
 
         this.isPrepared = true;
@@ -51,7 +51,7 @@ export class FontConvertor {
         }
 
         const newFontFilename = StringHelper.generateRandomString(15) + "." + params.extension;
-        const directory = await FileHelper.createDirectoriesByDate(this.tempDir);
+        const directory = await FileHelper.createDirectoriesByDate(this.settings.tempDir);
         const newFontPath = path.join(directory, newFontFilename).toLowerCase();
 
         try {

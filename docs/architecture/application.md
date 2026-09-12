@@ -26,12 +26,17 @@
 `Tokens.Bot.Middleware.RequestContext` (его middleware): пути разные, а строка у второго
 длиннее — короткую уже занял контекст запроса.
 
-Два декоратора свойств тянут значения из модульного синглтона `container` при первом
-обращении (service locator): `@ConfigValue(key)` — путь в `ConfigContainer`
-(`"limits.common"`), `@PgSql()` — `Database.sql`. Геттер вешается на прототип, значение
-одно на класс: для несинглтонного класса все экземпляры разделят его. Замена на
-конструкторное внедрение — issue
-[#41](https://github.com/yuldashevsardor/telegram-bot/issues/41).
+Конфигурация раздаётся узкими срезами, а не целиком: `setup()` берёт `ConfigContainer` у
+`ApplicationContext` (ниже) и связывает его куски константами под своими токенами —
+`Tokens.TaskQueue.CommonLimit` (`config.limits.common`), `Tokens.Font.Convertor.Settings`
+(`{ tempDir }`) и остальные из ветки владельца. Потребитель берёт срез обычным `@inject`,
+тип среза лежит рядом с ним самим (`FontConvertorSettings` в
+`font-convertor.types.ts`, `RunnerSettings` в `runner.types.ts`), поэтому домен о
+`ConfigContainer` не знает и в тесте строится обычным `new` с литералом настроек
+(`test/domain/task-queue/task-queue.spec.ts`). Состав среза сверяет компилятор на месте
+биндинга: несуществующее поле конфигурации не соберётся, тогда как прежний
+`@ConfigValue("ключ.строкой")` валил первое обращение к свойству — то есть, возможно,
+сильно позже старта.
 
 `Container.close()` закрывает пул Postgres и сбрасывает `alreadySetup`, но биндинги не
 снимает: контейнер одноразовый на процесс. Повторный `setup()` пройдёт молча — дубли
@@ -61,8 +66,8 @@
 Дальше контекст никуда не расходится: `Application.setup()` берёт из него `cc` и `logger`,
 `container.setup()` — три константы для биндингов. Потребители получают части из
 контейнера по отдельности: `Tokens.Infrastructure.Logger` и `Tokens.Infrastructure.RequestContext` —
-через `@inject`; сам `ConfigContainer` не выдаётся никому — его резолвит `@ConfigValue`
-и отдаёт значение по пути (выше). Контекст не инжектится никуда, иначе он стал бы вторым
+через `@inject`; `ConfigContainer` связан под своим токеном, но не внедряется никуда —
+классы получают срезы конфигурации (выше). Контекст не инжектится никуда, иначе он стал бы вторым
 DI. Состав держится коротким по
 той же причине: `Database` в него не входит, у неё свой жизненный цикл на
 `container.close()` (выше).

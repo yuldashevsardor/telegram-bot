@@ -1,7 +1,4 @@
 import { expect } from "chai";
-import { container } from "app/infrastructure/container/container";
-import { ConfigContainer } from "app/infrastructure/config/config-container";
-import { Tokens } from "app/common/tokens";
 import { Limit } from "app/domain/task-queue/rate-limit.types";
 import { LimitResolver } from "app/domain/task-queue/limit-resolver";
 import { Logger } from "app/domain/logger/logger";
@@ -13,14 +10,6 @@ import { TaskQueue } from "app/domain/task-queue/task-queue";
 const commonLimit: Limit = { number: 1000, interval: 1000 };
 const keyLimit: Limit = { number: 100, interval: 1000 };
 const keyCooldown = keyLimit.interval / keyLimit.number;
-
-// ConfigContainer подменяется целиком: @ConfigValue читает его из DI-контейнера, и подставленный
-// объект избавляет тест от .env и от реальных лимитов бота.
-if (!container.isBound(Tokens.Infrastructure.ConfigContainer)) {
-    container.bind<ConfigContainer>(Tokens.Infrastructure.ConfigContainer).toConstantValue({
-        limits: { common: commonLimit, private: keyLimit, group: keyLimit },
-    } as unknown as ConfigContainer);
-}
 
 describe("TaskQueue", function () {
     this.timeout(2000);
@@ -101,7 +90,7 @@ function build(): TaskQueue {
         resolve: () => keyLimit,
     };
 
-    return new TaskQueue(logger, limitResolver);
+    return new TaskQueue(logger, limitResolver, commonLimit);
 }
 
 function task(key: PartitionKey, name: string): Task {
