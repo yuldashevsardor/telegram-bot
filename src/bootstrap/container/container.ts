@@ -75,11 +75,6 @@ export class Container extends InversifyContainer {
     }
 
     private async setupTelegram(): Promise<void> {
-        // Outbound queue
-        this.bind<LimitResolver>(Tokens.Bot.OutboundQueue.LimitResolver).to(TelegramLimitResolver).inSingletonScope();
-        this.bind<TaskQueue>(Tokens.Bot.OutboundQueue.TaskQueue).to(TaskQueue).inSingletonScope();
-        this.bind<Runner>(Tokens.Bot.OutboundQueue.Runner).to(Runner).inSingletonScope();
-
         // User
         this.bind<UserRepository>(Tokens.User.Repository).to(PgSqlUserRepository).inSingletonScope();
         this.bind<UserService>(Tokens.User.Service).to(UserService).inSingletonScope();
@@ -93,6 +88,11 @@ export class Container extends InversifyContainer {
 
     private async setupBot(): Promise<void> {
         this.bind<Bot>(Tokens.Bot.Bot).to(Bot).inSingletonScope();
+
+        // Outbound queue
+        this.bind<LimitResolver>(Tokens.Bot.OutboundQueue.LimitResolver).to(TelegramLimitResolver).inSingletonScope();
+        this.bind<TaskQueue>(Tokens.Bot.OutboundQueue.TaskQueue).to(TaskQueue).inSingletonScope();
+        this.bind<Runner>(Tokens.Bot.OutboundQueue.Runner).to(Runner).inSingletonScope();
 
         // Filters
         this.bind<HasSessionKeyFilter>(Tokens.Bot.Filter.HasSessionKey).to(HasSessionKeyFilter).inSingletonScope();
