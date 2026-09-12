@@ -4,7 +4,7 @@ import { ConsoleLogger } from "app/platform/logger/console-logger";
 import { Level } from "app/platform/logger/logger.types";
 import { UnknownObject } from "app/shared/types";
 import { RuntimeError } from "app/shared/errors";
-import { RequestContext } from "app/platform/request-context";
+import { RequestContext } from "app/platform/request-context/request-context";
 
 // Контекст свой, а не production-синглтон: спека не зависит от того, открыл ли кто-то
 // область запроса рядом.

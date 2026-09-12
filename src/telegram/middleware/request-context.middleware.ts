@@ -1,7 +1,7 @@
 import { inject, injectable } from "inversify";
 import { NextFunction } from "grammy";
 import { Middleware } from "app/telegram/middleware/middleware";
-import { RequestContext } from "app/platform/request-context";
+import { RequestContext } from "app/platform/request-context/request-context";
 import { Tokens } from "app/shared/tokens";
 import { Context } from "app/telegram/bot.types";
 

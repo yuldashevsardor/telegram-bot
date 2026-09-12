@@ -4,7 +4,7 @@ import { Logger, LoggerOptions, pino } from "pino";
 import { Level, LevelSeverity } from "app/platform/logger/logger.types";
 import { injectable } from "inversify";
 import { serializeError } from "serialize-error";
-import { RequestContext } from "app/platform/request-context";
+import { RequestContext } from "app/platform/request-context/request-context";
 
 type PinoLevel = Lowercase<Level>;
 

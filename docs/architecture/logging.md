@@ -26,7 +26,7 @@
 `Bot.handleError` вызывается не из `handleUpdate`, а из sink'а `@grammyjs/runner` — уже по
 отклонённому промису `handleUpdate`, когда область свёрнута.
 
-`RequestContext` (`platform/request-context.ts`) — единственная работа с
+`RequestContext` (`platform/request-context/request-context.ts`) — единственная работа с
 `AsyncLocalStorage`: сам ALS приватный, наружу уходят только операции над областью, а
 `requestId` рождается внутри `run()`, а не у вызывающего. Поэтому ни middleware, ни
 логгер не собирают стор руками и не знают его формы — иначе корреляция зависела бы от
@@ -35,7 +35,7 @@
 Контекст общий, а не логгерный: экземпляр один и создаёт его `ApplicationContext`
 ([`application.md`](./application.md)). Логгеру он уходит аргументом конструктора там же,
 до всякого контейнера; в контейнере (`Tokens.Bootstrap.RequestContext`) лежит ради
-middleware. Ключи и тип стора — в `platform/request-context.types.ts`
+middleware. Ключи и тип стора — в `request-context.types.ts` рядом с ним
 (`REQUEST_KEYS` с `as const`, `RequestStore` выведен из него, значения `unknown`).
 `getValues()` отдаёт только известные ключи: без отбора формат лога зависел бы от того,
 что в стор положили по дороге, а `as const` делает опечатку в ключе ошибкой компиляции, а
