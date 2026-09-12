@@ -15,7 +15,7 @@ export class FontGeneratorCommand extends Command {
 
     public constructor(
         @inject<FontConvertor>(Tokens.Font.Convertor.Convertor) private readonly convertor: FontConvertor,
-        @inject<Logger>(Tokens.Infrastructure.Logger) private readonly logger: Logger,
+        @inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger,
         private readonly rootDir: string = configValue("rootDir"),
     ) {
         super();

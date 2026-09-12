@@ -8,7 +8,7 @@ import { UserCreateError, UserEditError } from "app/telegram/user/user.errors";
 
 @injectable()
 export class UserService {
-    public constructor(@inject<UserRepository>(Tokens.User.Repository) private readonly repository: UserRepository) {}
+    public constructor(@inject<UserRepository>(Tokens.Bot.User.Repository) private readonly repository: UserRepository) {}
 
     public async create(dto: CreateUserDto): Promise<User> {
         const user = new User({

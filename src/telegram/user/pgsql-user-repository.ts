@@ -11,7 +11,7 @@ import dayjs from "dayjs";
 export class PgSqlUserRepository implements UserRepository {
     private readonly sql: Sql;
 
-    public constructor(@inject<Database>(Tokens.Infrastructure.Database) database: Database) {
+    public constructor(@inject<Database>(Tokens.Platform.Database) database: Database) {
         this.sql = database.sql;
     }
 

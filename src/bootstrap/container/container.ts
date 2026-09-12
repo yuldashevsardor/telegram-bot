@@ -45,13 +45,10 @@ export class Container extends InversifyContainer {
             return;
         }
 
-        this.bind<ConfigContainer>(Tokens.Infrastructure.ConfigContainer).toConstantValue(ApplicationContext.getConfigContainer());
-        this.bind<Logger>(Tokens.Infrastructure.Logger).toConstantValue(ApplicationContext.getLogger());
-        this.bind<RequestContext>(Tokens.Infrastructure.RequestContext).toConstantValue(ApplicationContext.getRequestContext());
-
-        await this.setupModules();
-        await this.setupServices();
-        await this.setupInfrastructure();
+        await this.setupBootstrap();
+        await this.setupFontConvertor();
+        await this.setupTelegram();
+        await this.setupPlatform();
 
         this.alreadySetup = true;
     }
@@ -61,38 +58,36 @@ export class Container extends InversifyContainer {
             return;
         }
 
-        await this.get<Database>(Tokens.Infrastructure.Database).close();
+        await this.get<Database>(Tokens.Platform.Database).close();
 
         this.alreadySetup = false;
     }
 
-    private async setupModules(): Promise<void> {
-        this.bind<LimitResolver>(Tokens.TaskQueue.LimitResolver).to(TelegramLimitResolver).inSingletonScope();
-        this.bind<TaskQueue>(Tokens.TaskQueue.TaskQueue).to(TaskQueue).inSingletonScope();
-        this.bind<Runner>(Tokens.TaskQueue.Runner).to(Runner).inSingletonScope();
-
-        await this.setupBot();
+    private async setupBootstrap(): Promise<void> {
+        this.bind<ConfigContainer>(Tokens.Bootstrap.ConfigContainer).toConstantValue(ApplicationContext.getConfigContainer());
+        this.bind<Logger>(Tokens.Bootstrap.Logger).toConstantValue(ApplicationContext.getLogger());
+        this.bind<RequestContext>(Tokens.Bootstrap.RequestContext).toConstantValue(ApplicationContext.getRequestContext());
     }
 
-    private async setupServices(): Promise<void> {
-        // font-convertor
+    private async setupFontConvertor(): Promise<void> {
         this.bind<ConvertorFactory>(Tokens.Font.Convertor.Factory).to(ConvertorFactory).inSingletonScope();
         this.bind<FontForge>(Tokens.Font.Engine.FontForge).to(FontForge).inSingletonScope();
         this.bind<FontSignatureMatcher>(Tokens.Font.Signature.Matcher).to(FontSignatureMatcher).inSingletonScope();
         this.bind<EotPacker>(Tokens.Font.Envelope.Packer).to(EotPacker).inSingletonScope();
         this.bind<FontConvertor>(Tokens.Font.Convertor.Convertor).to(FontConvertor).inSingletonScope();
+    }
+
+    private async setupTelegram(): Promise<void> {
+        this.bind<Bot>(Tokens.Bot.Bot).to(Bot).inSingletonScope();
+
+        // Outbound queue
+        this.bind<LimitResolver>(Tokens.Bot.OutboundQueue.LimitResolver).to(TelegramLimitResolver).inSingletonScope();
+        this.bind<TaskQueue>(Tokens.Bot.OutboundQueue.TaskQueue).to(TaskQueue).inSingletonScope();
+        this.bind<Runner>(Tokens.Bot.OutboundQueue.Runner).to(Runner).inSingletonScope();
 
         // User
-        this.bind<UserRepository>(Tokens.User.Repository).to(PgSqlUserRepository).inSingletonScope();
-        this.bind<UserService>(Tokens.User.Service).to(UserService).inSingletonScope();
-    }
-
-    private async setupInfrastructure(): Promise<void> {
-        this.bind<Database>(Tokens.Infrastructure.Database).to(Database).inSingletonScope();
-    }
-
-    private async setupBot(): Promise<void> {
-        this.bind<Bot>(Tokens.Bot.Bot).to(Bot).inSingletonScope();
+        this.bind<UserRepository>(Tokens.Bot.User.Repository).to(PgSqlUserRepository).inSingletonScope();
+        this.bind<UserService>(Tokens.Bot.User.Service).to(UserService).inSingletonScope();
 
         // Filters
         this.bind<HasSessionKeyFilter>(Tokens.Bot.Filter.HasSessionKey).to(HasSessionKeyFilter).inSingletonScope();
@@ -118,6 +113,10 @@ export class Container extends InversifyContainer {
 
         // Conversations
         this.bind<StartConversation>(Tokens.Bot.Conversations.Start).to(StartConversation).inSingletonScope();
+    }
+
+    private async setupPlatform(): Promise<void> {
+        this.bind<Database>(Tokens.Platform.Database).to(Database).inSingletonScope();
     }
 }
 

@@ -8,7 +8,7 @@ import { Tokens } from "app/shared/tokens";
 export class PgsqlStorage implements StorageAdapter<SessionPayload> {
     private readonly sql: Sql;
 
-    public constructor(@inject<Database>(Tokens.Infrastructure.Database) database: Database) {
+    public constructor(@inject<Database>(Tokens.Platform.Database) database: Database) {
         this.sql = database.sql;
     }
 
