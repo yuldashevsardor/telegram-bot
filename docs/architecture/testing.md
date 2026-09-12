@@ -13,7 +13,7 @@
   идут мимо `tsx`, их грузит своим jiti `node-pg-migrate` ([`storage.md`](./storage.md)).
 - Что покрыто — видно по дереву `test/` и отчёту `make coverage` (`nyc` считает по
   TypeScript-исходникам). Без автотестов остаются `Runner` (в том числе путь бана и
-  повтора, [`task-queue.md`](./task-queue.md)), `FontConvertor`, пары без EOT,
+  повтора, [`outbound-queue.md`](./outbound-queue.md)), `FontConvertor`, пары без EOT,
   `Application`, `Bot` и `UserService`.
 - Шрифты для тестов — `test/fixtures/fonts`; происхождение и способ пересборки описаны в
   `test/fixtures/fonts/README.md`.

@@ -4,9 +4,9 @@ import { ConfigContainer } from "app/infrastructure/config/config-container";
 import { Logger } from "app/domain/logger/logger";
 import { Tokens } from "app/common/tokens";
 import { Database } from "app/infrastructure/database/database";
-import { Runner } from "app/domain/task-queue/runner";
-import { TaskQueue } from "app/domain/task-queue/task-queue";
-import { Bot } from "app/infrastructure/bot/bot";
+import { Runner } from "app/telegram/outbound-queue/runner";
+import { TaskQueue } from "app/telegram/outbound-queue/task-queue";
+import { Bot } from "app/telegram/bot";
 import { sleep, withTimeout } from "app/helper/utils";
 import { RuntimeError } from "app/common/errors";
 

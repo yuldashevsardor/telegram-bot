@@ -6,7 +6,7 @@
 
 Рантайм-последовательности стоят в файлах своих подсистем: старт и остановка —
 [`application.md`](./application.md), входящий апдейт и команды — [`bot.md`](./bot.md),
-исходящий вызов — [`task-queue.md`](./task-queue.md), загрузка локалей —
+исходящий вызов — [`outbound-queue.md`](./outbound-queue.md), загрузка локалей —
 [`i18n.md`](./i18n.md).
 
 ## Оглавление
@@ -15,15 +15,15 @@
   и остановка процесса
 - [`bot.md`](./bot.md) — пайплайн апдейта, фильтры, middleware, очередь исходящих на
   `ctx.api`, команды
-- [`task-queue.md`](./task-queue.md) — лимиты, партиции, цикл `Runner`, путь исходящего
-  вызова
+- [`outbound-queue.md`](./outbound-queue.md) — лимиты, партиции, цикл `Runner`, путь
+  исходящего вызова
 - [`font-convertor.md`](./font-convertor.md) — пары форматов, EOT-кодек, сигнатуры,
   запуск движка
 - [`user.md`](./user.md) — сущность, репозиторий, наполнение контекста
 - [`logging.md`](./logging.md) — порт и адаптеры, пороги, корреляция запроса
 - [`i18n.md`](./i18n.md) — локали, бандлы Fluent, описания команд
-- [`storage.md`](./storage.md) — `Database`, миграции, заготовка миграции, выбор между
-  портом в домене и адаптером рядом с потребителем
+- [`storage.md`](./storage.md) — `Database`, миграции, заготовка миграции, когда у
+  хранилища заводится свой интерфейс
 - [`config.md`](./config.md) — `ConfigContainer` и таблица переменных окружения
 - [`testing.md`](./testing.md) — `mocha`, линтеры, покрытие, гейты
 - [`invariants.md`](./invariants.md) — правила, которые компилятор не связывает:
@@ -48,10 +48,21 @@
   `@grammyjs/fluent` не используется: контекст наполняет свой middleware
   ([`i18n.md`](./i18n.md)).
 
-Слои: `domain/` — логика и порты, `infrastructure/` — адаптеры, `common/` — сквозные
-типы, базовая ошибка и словарь токенов DI, `helper/` — утилиты. Разделение
-последовательно у `user` и `logger`; `task-queue` порта почти не имеет, потому что
-внешней системы за ним нет.
+Раскладка `src/` смешанная, и это её текущее состояние, а не итоговое. `telegram/` —
+модуль по назначению: в нём собрано то, что существует ради Telegram (выше), — бот, `User`
+и очередь исходящих. Остальное пока разложено слоями: `domain/` — логика и порты,
+`infrastructure/` — адаптеры, `common/` — сквозные типы, базовая ошибка и словарь токенов
+DI, `helper/` — утилиты. Перестройка идёт по частям, план —
+[#245](https://github.com/yuldashevsardor/telegram-bot/issues/245).
+
+Порт отдельно от адаптера лежит там, где реализаций несколько: интерфейс `Logger` в
+`domain/logger/`, два адаптера в `infrastructure/logger/`. Где реализация одна, слоя между
+интерфейсом и ею нет: `UserRepository` и `PgSqlUserRepository` стоят в одном каталоге
+`telegram/user/` ([`storage.md`](./storage.md)). По каталогам такая пара всё равно может
+разойтись, но уже не по слоям: `LimitResolver` объявлен в `telegram/outbound-queue/`, где
+его зовут, а `TelegramLimitResolver` лежит выше, в `telegram/`, потому что выбор лимита по
+chat ID — знание о Telegram, а не об очереди
+([`outbound-queue.md`](./outbound-queue.md)).
 
 Ошибки: наружу уходит только `RuntimeError` (`common/errors.ts`) или его подкласс из
 `<модуль>.errors.ts` рядом с бросающим кодом (`<модуль>` — префикс имени файла, а не
@@ -85,20 +96,19 @@
 src/
   app.ts                    точка входа: new Application(), сигналы, fail()
   common/                   RuntimeError, сквозные типы, словарь токенов DI, configValue (application.md)
+  telegram/                 grammY: команды, conversations, middleware, фильтры, сессия, локали (bot.md, i18n.md)
+    user/                   сущность, интерфейс репозитория, сервис, адаптер к PostgreSQL (user.md)
+    outbound-queue/         очередь исходящих по ключам, лимиты, цикл Runner (outbound-queue.md)
   domain/
-    task-queue/             очередь исходящих по ключам, лимиты, цикл Runner (task-queue.md)
     font-convertor/         конвертация шрифтов (font-convertor.md)
-    user/                   сущность, порт репозитория, сервис (user.md)
     logger/                 интерфейс Logger, enum Level (logging.md)
   helper/                   string/number/file/process/utils (sleep, withTimeout)
   infrastructure/
     application/            ApplicationContext и Application: сборка и жизненный цикл (application.md)
-    bot/                    grammY: команды, conversations, middleware, фильтры, сессия (bot.md)
     config/                 ConfigStorage → ConfigContainer (config.md)
     container/              inversify-контейнер (application.md)
     database/               Database (storage.md)
     logger/                 ConsoleLogger, PinoLogger (logging.md)
-    repository/             PgSqlUserRepository (user.md)
     request-context.ts      RequestContext: область и значения запроса (logging.md)
     request-context.types.ts  ключи и тип значений запроса (logging.md)
 test/                       mocha-спеки, зеркалят src/
@@ -114,7 +124,8 @@ scripts/                    хостовые скрипты целей make; cla
 внутренности: `eot-packer/eot-packer.ts`, `font-forge/font-forge.ts`,
 `process-helper/process-helper.ts`, `convertor/convertor-factory.ts`. Имя каталога — префикс
 имени этого файла, чтобы путь импорта угадывался по имени класса; единственное расхождение
-— `bot/middleware/mutation/`, названный по роли, а не по `telegram-call-api.middleware.ts`.
+— `telegram/middleware/mutation/`, названный по роли, а не по
+`telegram-call-api.middleware.ts`.
 
 **Собирает** — однотипных братьев одного контракта, которых перечисляет один регистратор:
 `convertor/<from>/` перечисляет `convertor-factory.ts`, `command/`, `filter/` и
@@ -127,9 +138,9 @@ scripts/                    хостовые скрипты целей make; cla
 (`font-signature-matcher.ts` и `font-signature-matcher.types.ts` — в корне
 `font-convertor/`). Два каталога правилу не отвечают: из `helper/file-helper/` снаружи
 видны и `file-helper.ts`, и `file-helper.errors.ts`, хотя та же форма рядом живёт плоско
-(`string-helper.ts` + `string-helper.errors.ts`); в `bot/session/` лежат три файла разных
-ролей (`pgsql-storage.ts`, `session.helper.ts`, `session.types.ts`), и ни один не прячет
-остальных.
+(`string-helper.ts` + `string-helper.errors.ts`); в `telegram/session/` лежат три файла
+разных ролей (`pgsql-storage.ts`, `session.helper.ts`, `session.types.ts`), и ни один не
+прячет остальных.
 
 Какие файлы каталога видны снаружи, считает команда (`<путь>` — от `src/`; для `locale/`
 неприменима, `.ftl` через алиас не импортируют):

@@ -11,8 +11,8 @@
 | `BOT_TOKEN` | токен бота; пустой валит конструктор `Bot`, а не сборку конфига |
 | `TEMP_DIR` | временные файлы конвертации (`<root>/tmp`) |
 | `FONT_FORGE_PATH` | бинарник FontForge (`fontforge`) |
-| `LIMIT_{COMMON,PRIVATE,GROUP}_{NUMBER,INTERVAL}` | лимиты очереди, интервалы в мс; значения по умолчанию — [`task-queue.md`](./task-queue.md) |
-| `RUNNER_SLEEP_INTERVAL_MIN` / `RUNNER_SLEEP_INTERVAL_MAX` | границы случайного сна Runner, мс; значения по умолчанию — [`task-queue.md`](./task-queue.md); минимум больше нуля, максимум не меньше минимума |
+| `LIMIT_{COMMON,PRIVATE,GROUP}_{NUMBER,INTERVAL}` | лимиты очереди, интервалы в мс; значения по умолчанию — [`outbound-queue.md`](./outbound-queue.md) |
+| `RUNNER_SLEEP_INTERVAL_MIN` / `RUNNER_SLEEP_INTERVAL_MAX` | границы случайного сна Runner, мс; значения по умолчанию — [`outbound-queue.md`](./outbound-queue.md); минимум больше нуля, максимум не меньше минимума |
 | `RUNNER_MAX_RETRIES` | повторов задачи до отбрасывания (3) |
 | `GRACEFUL_SHUTDOWN_TIMEOUT` | общий срок остановки (15000), больше суммы двух ниже ([инвариант](./invariants.md)) |
 | `BOT_GRACEFUL_SHUTDOWN_TIMEOUT` | остановка runner'а бота (3000) |

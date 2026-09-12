@@ -50,14 +50,15 @@
   `stop_grace_period` контейнера (не проверяется); сами сроки — в
   [`application.md`](./application.md).
 - **`LIMIT_*_NUMBER > 0`.** Ноль → `reserveDuration = Infinity` → слот занят навсегда,
-  партиция никогда не удалится ([`task-queue.md`](./task-queue.md)).
+  партиция никогда не удалится ([`outbound-queue.md`](./outbound-queue.md)).
 - **Новое поле пользователя из `ctx.from`** требует синхронной правки `user.types.ts`,
-  `user.ts`, миграции, мапперов и перечня колонок `update set` в
-  `pgsql-user-repository.ts`, веток в `UserService.create()`/`edit()` и литерала в
-  `fill-user-to-context.middleware.ts`. Забытая миграция проявится SQL-ошибкой в
-  рантайме, а молчит всё, что идёт через `EditUserDto` (`Partial<Pick<...>>`): его `Pick`,
-  литерал в middleware, ветка в `edit()` — и перечень колонок `update set`: поле
-  запишется при создании и никогда не обновится.
+  `user.ts`, миграции, `UserRow` в `pgsql-user-repository.types.ts`, мапперов и перечня
+  колонок `update set` в `pgsql-user-repository.ts`, веток в
+  `UserService.create()`/`edit()` и литерала в `fill-user-to-context.middleware.ts`.
+  Забытая миграция проявится SQL-ошибкой в рантайме, а молчит всё, что идёт через
+  `EditUserDto` (`Partial<Pick<...>>`): его `Pick`, литерал в middleware, ветка в
+  `edit()` — и перечень колонок `update set`: поле запишется при создании и никогда не
+  обновится.
 - **Порядок колонок `sessions`** связан с позиционным `insert` в `PgsqlStorage.write()`.
 - **`.ftl` именуются `*.locale.<lang>.ftl`, локаль — из `LOCALES`**: иначе старт падает
   `UnknownLocale` или `MissingLocaleBundle` ([`i18n.md`](./i18n.md)).

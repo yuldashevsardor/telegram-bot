@@ -1,0 +1,106 @@
+import { Middleware } from "app/telegram/middleware/middleware";
+import { Api, NextFunction, RawApi } from "grammy";
+import { TaskQueue } from "app/telegram/outbound-queue/task-queue";
+import { inject, injectable } from "inversify";
+import { Tokens } from "app/common/tokens";
+import { Context } from "app/telegram/bot.types";
+import { Priority } from "app/telegram/outbound-queue/task";
+import { isGroupChat } from "app/telegram/telegram-chat";
+
+type RawApiMethod = keyof RawApi;
+type RawApiPayload = Record<string, unknown>;
+
+const TELEGRAM_NO_GROUP_RATE_LIMIT_SET = new Set<string | symbol>([
+    "getChat",
+    "getChatAdministrators",
+    "getChatMembersCount",
+    "getChatMember",
+    "sendChatAction",
+]);
+
+@injectable()
+export class TelegramCallApiMiddleware extends Middleware {
+    public constructor(@inject<TaskQueue>(Tokens.TaskQueue.TaskQueue) private readonly taskQueue: TaskQueue) {
+        super();
+    }
+
+    protected handle(ctx: Context, next: NextFunction): Promise<void> {
+        this.changeTelegramCallApi(ctx.api);
+
+        return next();
+    }
+
+    private changeTelegramCallApi(api: Api): void {
+        // Сохраняем старый raw, что бы вызывать в брокере реально отправку
+        const originRaw = api.raw;
+        const taskQueue = this.taskQueue;
+
+        // Готовим ProxyHandler, который будет ставить запросы в ТГ задачами в очередь
+        const proxyHandler: ProxyHandler<RawApi> = {
+            get: (_target, method) => {
+                return method === "toJSON" ? "__internal" : callApi.bind(api, method as RawApiMethod);
+            },
+        };
+
+        // Методы RawApi различаются типом payload, поэтому обращение по вычисляемому имени
+        // не типизируется без приведения: конкретный метод известен только в рантайме.
+        function callRawApi(method: RawApiMethod, payload: RawApiPayload, signal: AbortSignal | undefined): Promise<unknown> {
+            const call = originRaw[method] as (payload: RawApiPayload, signal?: AbortSignal) => Promise<unknown>;
+
+            return call(payload, signal);
+        }
+
+        async function callApi(method: RawApiMethod, payload: RawApiPayload, signal: AbortSignal | undefined): Promise<unknown> {
+            if (payload.constructor.name !== "Object" || !("chat_id" in payload)) {
+                return callRawApi(method, payload, signal);
+            }
+
+            const chatId = Number(payload["chat_id"]);
+            const isAllowedGroupMethod = TELEGRAM_NO_GROUP_RATE_LIMIT_SET.has(method);
+            const isGroup = isGroupChat(chatId);
+            if (isNaN(chatId) || (isGroup && isAllowedGroupMethod)) {
+                return callRawApi(method, payload, signal);
+            }
+
+            // Это хак, который нужен для того что бы получить результат отправки сообщения через очереди.
+            // Создаем переменные для резолва и режекта promise
+            // Они будут вызваны после того как сообщения отправится успешно или ошибочно
+            let messageResolve!: (value: unknown) => void;
+            let messageReject!: (reason: unknown) => void;
+
+            // Создаем сам promise, который и будем отдавать в ответе этой функции
+            const promise = new Promise<unknown>((resolve, reject) => {
+                messageResolve = resolve;
+                messageReject = reject;
+            });
+
+            const callback = async (): Promise<void> => {
+                try {
+                    // Ждём фактический вызов: без await наружу ушёл бы ещё не завершённый promise,
+                    // и брокер не увидел бы отказа Telegram.
+                    messageResolve(await callRawApi(method, payload, signal));
+                } catch (error) {
+                    // Вызывающая сторона получает отказ сразу, брокер — ту же ошибку для бана и повтора.
+                    messageReject(error);
+
+                    throw error;
+                }
+            };
+
+            taskQueue.push(
+                {
+                    key: chatId,
+                    priorityOnError: Priority.HIGH,
+                    callback: callback,
+                },
+                Priority.MEDIUM,
+            );
+
+            // Возвращаем promise, у которого resolve или reject будут вызваны в методе callback
+            return promise;
+        }
+
+        // Подменяем RawApi через Proxy на его замену с очередью
+        (api as unknown as { raw: RawApi }).raw = new Proxy(originRaw, proxyHandler);
+    }
+}

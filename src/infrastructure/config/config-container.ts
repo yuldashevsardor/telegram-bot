@@ -2,11 +2,11 @@ import path from "path";
 import { Level, Levels } from "app/domain/logger/logger.types";
 import { isLevel } from "app/domain/logger/logger.helper";
 import { InvalidConfigError } from "app/common/errors";
-import { Limit } from "app/domain/task-queue/rate-limit.types";
-import { RunnerSettings } from "app/domain/task-queue/runner.types";
+import { Limit } from "app/telegram/outbound-queue/rate-limit.types";
+import { RunnerSettings } from "app/telegram/outbound-queue/runner.types";
 import { DatabaseSettings } from "app/infrastructure/database/database.types";
 import { ConfigStorage } from "app/infrastructure/config/config-storage";
-import { BotSettings } from "app/infrastructure/bot/bot.types";
+import { BotSettings } from "app/telegram/bot.types";
 
 type LoggerConfig = {
     level: Level;

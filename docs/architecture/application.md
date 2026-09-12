@@ -57,7 +57,7 @@ public constructor(
 свойству, то есть отказ конфигурации приходится на старт. И `new FontConvertor(factory,
 "/tmp")` в тесте подставляет своё значение, вообще не касаясь `ApplicationContext`, —
 прежний `@ConfigValue` требовал поднятого контейнера
-(`test/domain/task-queue/task-queue.spec.ts` больше ничего не подменяет).
+(`test/telegram/outbound-queue/task-queue.spec.ts` больше ничего не подменяет).
 
 Путь — строковый литерал, но не произвольный: его тип собран из формы `ConfigContainer`
 (`ConfigPaths`), а тип результата выведен из того же места (`ValueByPath`). Поэтому
@@ -128,8 +128,8 @@ configValue("limits.common")` не соберётся. Прежний `@ConfigVa
    - `Bot.setup()` — сборка пайплайна ([`bot.md`](./bot.md)); по дороге читаются `.ftl` с
      диска ([`i18n.md`](./i18n.md)) и уходит сетевой `setMyCommands` на каждую локаль.
 3. `application.run()`: `runner.run()` — синхронный, ставит цикл очереди на `setTimeout`
-   и сразу возвращает управление ([`task-queue.md`](./task-queue.md)), затем `bot.run()` —
-   long polling в фоне ([`bot.md`](./bot.md)).
+   и сразу возвращает управление ([`outbound-queue.md`](./outbound-queue.md)), затем
+   `bot.run()` — long polling в фоне ([`bot.md`](./bot.md)).
 
 **Ошибки:** любой сбой старта уходит в `fail()` — `critical` и выход с кодом 1
 (`bootstrap().catch(fail)`). Логирует только `fail()`: два `critical` на один отказ
@@ -163,8 +163,8 @@ configValue("limits.common")` не соберётся. Прежний `@ConfigVa
      считает только лежащее в очереди: задачу, которую `Runner` уже взял, счётчик не
      видит.
    - `runner.stop()` — только флаг, цикл выйдет на следующей итерации
-     ([`task-queue.md`](./task-queue.md)): `Runner.run()` и `Runner.stop()` синхронные
-     ([инвариант](./invariants.md)).
+     ([`outbound-queue.md`](./outbound-queue.md)): `Runner.run()` и `Runner.stop()`
+     синхронные ([инвариант](./invariants.md)).
 4. `container.close()` → `Database.close()` → `sql.end({ timeout: 5 })`
    ([`storage.md`](./storage.md)).
 
