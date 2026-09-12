@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { expect } from "chai";
 import { ConsoleLogger } from "app/platform/logger/console-logger";
 import { Level } from "app/platform/logger/logger.types";
-import { UnknownObject } from "app/shared/types";
+import type { UnknownObject } from "app/shared/types";
 import { RuntimeError } from "app/shared/errors";
 import { RequestContext } from "app/platform/request-context/request-context";
 

@@ -1,4 +1,4 @@
-import { Context, Conversation } from "app/telegram/bot.types";
+import type { Context, Conversation } from "app/telegram/bot.types";
 import { injectable } from "inversify";
 
 @injectable()

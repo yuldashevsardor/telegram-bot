@@ -1,5 +1,6 @@
-import dayjs, { Dayjs } from "dayjs";
-import { UserDto } from "app/telegram/user/user.types";
+import type { Dayjs } from "dayjs";
+import dayjs from "dayjs";
+import type { UserDto } from "app/telegram/user/user.types";
 
 export class User {
     readonly #id: number;

@@ -1,9 +1,9 @@
 import { inject, injectable } from "inversify";
-import { NextFunction } from "grammy";
+import type { NextFunction } from "grammy";
 import { Middleware } from "app/telegram/middleware/middleware";
-import { RequestContext } from "app/platform/request-context/request-context";
+import type { RequestContext } from "app/platform/request-context/request-context";
 import { Tokens } from "app/shared/tokens";
-import { Context } from "app/telegram/bot.types";
+import type { Context } from "app/telegram/bot.types";
 
 @injectable()
 export class RequestContextMiddleware extends Middleware {

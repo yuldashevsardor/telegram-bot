@@ -12,6 +12,11 @@ module.exports = {
         // по сигнатуре, но не используется, помечается подчёркиванием.
         "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
         "@typescript-eslint/no-empty-function": "off",
+        // Отдельная строка `import type`, а не инлайн `import { type X }`: по строке импорта
+        // видно, нужен ли модуль в рантайме. no-import-type-side-effects сворачивает
+        // импорт из одних инлайн-типов в ту же форму.
+        "@typescript-eslint/consistent-type-imports": ["error", { fixStyle: "separate-type-imports" }],
+        "@typescript-eslint/no-import-type-side-effects": "error",
 
         // Наружу пишет только Logger: console.* минует уровень, requestId и порог
         // LOGGER_LEVEL, а на проде — структурный поток pino. Исключения — адаптер

@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { Context } from "app/telegram/bot.types";
+import type { Context } from "app/telegram/bot.types";
 import { getSessionKey, initialPayload } from "app/telegram/session/session.helper";
 
 type ContextWithoutSession = Omit<Context, "session">;

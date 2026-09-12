@@ -1,7 +1,7 @@
 import { promisify } from "util";
 import { execFile as execFileOrigin } from "child_process";
 import { ProcessFailed } from "app/shared/process/process-helper.errors";
-import { ProcessResult } from "app/shared/process/process-helper.types";
+import type { ProcessResult } from "app/shared/process/process-helper.types";
 
 const execFile = promisify(execFileOrigin);
 

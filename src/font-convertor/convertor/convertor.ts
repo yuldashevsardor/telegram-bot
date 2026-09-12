@@ -1,8 +1,8 @@
 import { InvalidFile, InvalidPath, PermissionDenied } from "app/shared/fs/file-helper.errors";
 import path from "path";
-import { Extension } from "app/font-convertor/font-convertor.types";
+import type { Extension } from "app/font-convertor/font-convertor.types";
 import { InvalidFontSignature } from "app/font-convertor/font-convertor.errors";
-import { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher";
+import type { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher";
 import { FileHelper } from "app/shared/fs/file-helper";
 
 export abstract class Convertor {
