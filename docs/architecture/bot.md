@@ -1,6 +1,6 @@
 # Bot
 
-`Bot` (`infrastructure/bot/bot.ts`) оборачивает `grammy.Bot<Context>` и знает только
+`Bot` (`telegram/bot.ts`) оборачивает `grammy.Bot<Context>` и знает только
 Telegram-слой. `Context` (`bot.types.ts`) — контекст grammY с флейворами сессии,
 разговоров и Fluent плюс `ctx.getUser()`; `FluentFlavor` (`locale.types.ts`) — свой,
 вместо флейвора плагина ([`i18n.md`](./i18n.md)).
@@ -79,7 +79,7 @@ Telegram-слой. `Context` (`bot.types.ts`) — контекст grammY с ф�
 прячет за условием лишь то, что повешено на возвращённый им composer, и обе ветки его
 `branch` зовут `next()`. Пока `setup()` полагался на `filter()` и выбрасывал этот
 composer, ни один фильтр репозитория не отсекал ничего (тест
-`test/infrastructure/bot/filter/filter.spec.ts`).
+`test/telegram/filter/filter.spec.ts`).
 
 Отброс логирует сам `Filter`: строка `debug` с `constructor.name` фильтра и `update_id`.
 Поэтому `Logger` инжектится в базу, а не в наследников: решение об отбросе принимается в
@@ -91,12 +91,12 @@ composer, ни один фильтр репозитория не отсекал 
 
 ## TelegramCallApiMiddleware
 
-`middleware/mutation/telegram-call-api.middleware.ts` подменяет `ctx.api.raw` на `Proxy`.
-Вызов с payload-объектом, содержащим `chat_id`, превращается в задачу `TaskQueue` (ключ —
-`chat_id`, приоритет `MEDIUM`, `priorityOnError: HIGH`); что при этом происходит с Promise
-вызывающей стороны — в [`task-queue.md`](./task-queue.md). Мимо очереди идут: payload
-создан не литералом (методы grammY такого не строят, и отправка файла тоже идёт через
-очередь), нет `chat_id`, `chat_id` не число, и методы из
+`telegram/middleware/mutation/telegram-call-api.middleware.ts` подменяет `ctx.api.raw` на
+`Proxy`. Вызов с payload-объектом, содержащим `chat_id`, превращается в задачу `TaskQueue`
+(ключ — `chat_id`, приоритет `MEDIUM`, `priorityOnError: HIGH`); что при этом происходит
+с Promise вызывающей стороны — в [`outbound-queue.md`](./outbound-queue.md). Мимо очереди
+идут: payload создан не литералом (методы grammY такого не строят, и отправка файла тоже
+идёт через очередь), нет `chat_id`, `chat_id` не число, и методы из
 `TELEGRAM_NO_GROUP_RATE_LIMIT_SET` — только для групповых чатов.
 
 grammY создаёт новый `Api` на каждый апдейт, поэтому обёртка не накапливается и не
@@ -108,7 +108,7 @@ grammY создаёт новый `Api` на каждый апдейт, поэт�
 `/start` — вход в разговор: `StartCommand.handle` зовёт `startConversation.enter(ctx)` →
 `ctx.conversation.enter("start")`. Дальше `StartConversation.run()` собирает приветствие
 `ctx.t("start-conversation-welcome", { formats })` ([`i18n.md`](./i18n.md)), отвечает им
-задачей через очередь ([`task-queue.md`](./task-queue.md)) и встаёт на
+задачей через очередь ([`outbound-queue.md`](./outbound-queue.md)) и встаёт на
 `conversation.wait()`. На `wait()` выполнение приостанавливается; возобновит его следующий
 апдейт этого чата — вторым полным проходом пайплайна, включая upsert `users`. Текст этого
 апдейта уходит обратно эхом, а нетекстовый получает `start-conversation-not-text` —

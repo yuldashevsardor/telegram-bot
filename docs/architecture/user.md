@@ -1,9 +1,18 @@
 # User
 
-`domain/user/`: сущность `User` с приватными полями и сеттерами, которые проставляют
-`updatedTime`; порт `UserRepository`; `UserService.create()`/`edit()` с обёрткой ошибок
-в `UserCreateError`/`UserEditError`. `PgSqlUserRepository.save()` — upsert
-`on conflict (id) do update`.
+`telegram/user/`: сущность `User` с приватными полями и сеттерами, которые проставляют
+`updatedTime`; интерфейс `UserRepository`; `UserService.create()`/`edit()` с обёрткой
+ошибок в `UserCreateError`/`UserEditError`; адаптер `PgSqlUserRepository`, чей `save()` —
+upsert `on conflict (id) do update`.
+
+`User` — не пользователь сервиса, а снимок Telegram-профиля, поэтому модуль и лежит в
+телеграмном каталоге: колонки подписаны «in telegram» в миграции
+`1660261075301_users-table.ts`, `isBot` вне Telegram смысла не имеет, а заполняется
+сущность целиком из `ctx.from` (`FillUserToContextMiddleware`).
+
+Снимок строки таблицы — отдельный тип `UserRow` (`pgsql-user-repository.types.ts`):
+snake_case и `Date` вместо `Dayjs` — форма хранилища, а не словарь сущности, и знает её
+только адаптер.
 
 `FillUserToContextMiddleware` на каждом апдейте: `existsById` → `edit` (с
 `lastActiveTime = now`) или `create` → `ctx.getUser()`. Проверка и действие не связаны

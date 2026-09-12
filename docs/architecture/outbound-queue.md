@@ -1,9 +1,16 @@
 # Очередь исходящих (TaskQueue / Partition / Runner)
 
-Ограничивает темп исходящих вызовов Telegram. О Telegram знает минимум: работает с
-задачами по произвольному ключу; телеграмное — `telegram-error.ts` в домене (коды, по
-которым `Runner` опознаёт 429) и `TelegramLimitResolver` с `isGroupChat` в
-инфраструктуре (отрицательный chat ID — группа).
+Ограничивает темп исходящих вызовов Telegram. Сам механизм работает с задачами по
+произвольному ключу, а лимит ключа спрашивает у интерфейса `LimitResolver`; телеграмного
+в нём одно место — `telegram-error.ts` с кодами, по которым `Runner` опознаёт 429.
+Реализация `LimitResolver` лежит снаружи каталога — `telegram/telegram-limit-resolver.ts`
+с `isGroupChat` (отрицательный chat ID — группа).
+
+Обслуживает очередь только Telegram — отсюда и место, `telegram/outbound-queue/`:
+потребителей два, оба телеграмные (`TelegramCallApiMiddleware` и `BulkMessagesCommand`,
+[`bot.md`](./bot.md)), а лимиты приходят типом `TelegramLimits` с ключами
+`private`/`group` ([`config.md`](./config.md)), чьи значения по умолчанию — рекомендации
+Telegram (ниже).
 
 ```
 push(task, priority) → Partition ключа (заводится по первой задаче; лимит ключа
