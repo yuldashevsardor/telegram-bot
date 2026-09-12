@@ -14,8 +14,8 @@ export class Runner {
     private _isRun = false;
 
     public constructor(
-        @inject<TaskQueue>(Tokens.OutboundQueue.TaskQueue) private readonly taskQueue: TaskQueue,
-        @inject<Logger>(Tokens.Platform.Logger) private readonly logger: Logger,
+        @inject<TaskQueue>(Tokens.Bot.OutboundQueue.TaskQueue) private readonly taskQueue: TaskQueue,
+        @inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger,
         private readonly settings: RunnerSettings = configValue("runner"),
     ) {}
 

@@ -41,8 +41,8 @@ export class Application {
 
         this.logger.info("Database connection is alive.");
 
-        this.taskQueue = container.get<TaskQueue>(Tokens.OutboundQueue.TaskQueue);
-        this.runner = container.get<Runner>(Tokens.OutboundQueue.Runner);
+        this.taskQueue = container.get<TaskQueue>(Tokens.Bot.OutboundQueue.TaskQueue);
+        this.runner = container.get<Runner>(Tokens.Bot.OutboundQueue.Runner);
         this.bot = container.get<Bot>(Tokens.Bot.Bot);
 
         await this.bot.setup();

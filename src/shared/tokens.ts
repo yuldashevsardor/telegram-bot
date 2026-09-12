@@ -8,10 +8,10 @@
 export const Tokens = {
     Bootstrap: {
         ConfigContainer: Symbol.for("ConfigContainer"),
-    },
-    Platform: {
         Logger: Symbol.for("Logger"),
         RequestContext: Symbol.for("RequestContext"),
+    },
+    Platform: {
         Database: Symbol.for("Database"),
     },
     // Ветки внутри Font названы понятиями предметной области (CONTEXT.md): «Сигнатура
@@ -32,17 +32,17 @@ export const Tokens = {
             FontForge: Symbol.for("FontForge"),
         },
     },
-    OutboundQueue: {
-        TaskQueue: Symbol.for("TaskQueue"),
-        LimitResolver: Symbol.for("LimitResolver"),
-        Runner: Symbol.for("Runner"),
-    },
     User: {
         Service: Symbol.for("UserService"),
         Repository: Symbol.for("UserRepository"),
     },
     Bot: {
         Bot: Symbol.for("Bot"),
+        OutboundQueue: {
+            TaskQueue: Symbol.for("TaskQueue"),
+            LimitResolver: Symbol.for("LimitResolver"),
+            Runner: Symbol.for("Runner"),
+        },
         Command: {
             Start: Symbol.for("Start"),
             BulkMessages: Symbol.for("BulkMessages"),

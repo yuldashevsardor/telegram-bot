@@ -38,7 +38,7 @@ export class Bot {
     private isSetup = false;
 
     public constructor(
-        @inject<Logger>(Tokens.Platform.Logger) private readonly logger: Logger,
+        @inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger,
         @inject<StorageAdapter<SessionPayload>>(Tokens.Bot.Session.Storage)
         private readonly sessionStorage: StorageAdapter<SessionPayload>,
         private readonly settings: BotSettings = configValue("bot"),

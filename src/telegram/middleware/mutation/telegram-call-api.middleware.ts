@@ -20,7 +20,7 @@ const TELEGRAM_NO_GROUP_RATE_LIMIT_SET = new Set<string | symbol>([
 
 @injectable()
 export class TelegramCallApiMiddleware extends Middleware {
-    public constructor(@inject<TaskQueue>(Tokens.OutboundQueue.TaskQueue) private readonly taskQueue: TaskQueue) {
+    public constructor(@inject<TaskQueue>(Tokens.Bot.OutboundQueue.TaskQueue) private readonly taskQueue: TaskQueue) {
         super();
     }
 

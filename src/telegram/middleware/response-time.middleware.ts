@@ -7,7 +7,7 @@ import { Context } from "app/telegram/bot.types";
 
 @injectable()
 export class ResponseTimeMiddleware extends Middleware {
-    public constructor(@inject<Logger>(Tokens.Platform.Logger) private readonly logger: Logger) {
+    public constructor(@inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger) {
         super();
     }
 
