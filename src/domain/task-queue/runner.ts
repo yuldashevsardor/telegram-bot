@@ -107,7 +107,7 @@ export class Runner {
             return false;
         }
 
-        return error.error_code === TELEGRAM_ERROR_CODES.TO_MANY_REQUESTS;
+        return error.error_code === TELEGRAM_ERROR_CODES.TOO_MANY_REQUESTS;
     }
 
     private static getRetryAfterSeconds(error: TelegramApiError): number {
