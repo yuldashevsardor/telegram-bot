@@ -2,17 +2,13 @@ import { Bot as TelegramBot, Composer, session, StorageAdapter } from "grammy";
 import { inject, injectable } from "inversify";
 import { Tokens } from "app/shared/tokens";
 import { configValue } from "app/shared/config-value";
-import { container } from "app/bootstrap/container/container";
 import { Command } from "app/telegram/command/command";
-import { Middleware } from "app/telegram/middleware/middleware";
-import { BotSettings, Context } from "app/telegram/bot.types";
+import { BotHandlers, BotSettings, Context } from "app/telegram/bot.types";
 import { Logger } from "app/platform/logger/logger";
 import { FetchOptions, run, RunnerHandle, sequentialize } from "@grammyjs/runner";
 import { getSessionKey, initialPayload } from "app/telegram/session/session.helper";
 import { SessionPayload } from "app/telegram/session/session.types";
-import { ConversationHandler } from "app/telegram/conversation/conversation-handler";
 import { conversations, createConversation } from "@grammyjs/conversations";
-import { Filter } from "app/telegram/filter/filter";
 import { withTimeout } from "app/shared/utils";
 import { InvalidConfigError, RuntimeError } from "app/shared/errors";
 import { Fluent } from "@moebius/fluent";
@@ -41,6 +37,7 @@ export class Bot {
         @inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger,
         @inject<StorageAdapter<SessionPayload>>(Tokens.Bot.Session.Storage)
         private readonly sessionStorage: StorageAdapter<SessionPayload>,
+        @inject<BotHandlers>(Tokens.Bot.Handlers) private readonly handlers: BotHandlers,
         private readonly settings: BotSettings = configValue("bot"),
     ) {
         if (!this.settings.token) {
@@ -91,10 +88,9 @@ export class Bot {
         // Фильтры выше всего остального: обоим хватает ctx.from и ctx.chat, зато session()
         // уже на входе читает строку, а на выходе пишет её обратно — у группового апдейта
         // ключ сессии есть, и отброшенный ниже он всё равно оставил бы за собой запись в
-        // базе; очередь отброшенному апдейту не нужна тем более. Порядок внутри списка
-        // важен: IsPrivateChat отбрасывает молча и без chat тоже, поэтому апдейты без ключа
-        // сессии должен раньше увидеть HasSessionKey с его warning.
-        await this.setupFilters([Tokens.Bot.Filter.HasSessionKey, Tokens.Bot.Filter.IsPrivateChat]);
+        // базе; очередь отброшенному апдейту не нужна тем более. Порядок внутри списков
+        // задаёт тот, кто собирает BotHandlers.
+        await this.setupFilters();
         // sequentialize() строго выше session(): session() не ленив — читает строку до
         // next() и пишет после возврата, поэтому под очередью оказалась бы только середина
         // цепочки, а само чтение и запись остались бы снаружи. Два апдейта одного
@@ -145,15 +141,8 @@ export class Bot {
         this.logger.debug("Setup middlewares...");
 
         const composer = new Composer<Context>();
-        const middlewares = [
-            container.get<Middleware>(Tokens.Bot.Middleware.RequestContext),
-            container.get<Middleware>(Tokens.Bot.Middleware.Mutation.TelegramCallApi),
-            container.get<Middleware>(Tokens.Bot.Middleware.ResponseTime),
-            container.get<Middleware>(Tokens.Bot.Middleware.RequestLog),
-            container.get<Middleware>(Tokens.Bot.Middleware.FillUserToContext),
-        ];
 
-        for (const middleware of middlewares) {
+        for (const middleware of this.handlers.middlewares) {
             middleware.setup(composer);
         }
 
@@ -173,13 +162,15 @@ export class Bot {
         return fluent;
     }
 
-    private async setupFilters(symbols: symbol[]): Promise<void> {
-        this.logger.debug("Setup filters...", { filters: symbols.map(String) });
+    private async setupFilters(): Promise<void> {
+        const { filters } = this.handlers;
+
+        this.logger.debug("Setup filters...", { filters: filters.map((filter) => filter.constructor.name) });
 
         const composer = new Composer<Context>();
 
-        for (const symbol of symbols) {
-            container.get<Filter>(symbol).setup(composer);
+        for (const filter of filters) {
+            filter.setup(composer);
         }
 
         this.grammy.use(composer);
@@ -190,13 +181,9 @@ export class Bot {
     private async setupConversations(): Promise<void> {
         this.logger.debug("Setup conversations...");
 
-        const conversationHandlers: ConversationHandler[] = Object.values(Tokens.Bot.Conversations).map((symbol) => {
-            return container.get<ConversationHandler>(symbol);
-        });
-
         this.grammy.use(conversations());
 
-        for (const handler of conversationHandlers) {
+        for (const handler of this.handlers.conversations) {
             this.grammy.use(createConversation(handler.handle.bind(handler), handler.name));
         }
 
@@ -206,10 +193,7 @@ export class Bot {
     private async setupCommands(fluent: Fluent): Promise<void> {
         this.logger.debug("Setup commands...");
 
-        const commands = Object.values(Tokens.Bot.Command).map((symbol) => {
-            return container.get<Command>(symbol);
-        });
-
+        const { commands } = this.handlers;
         const composer = new Composer<Context>();
 
         for (const command of commands) {

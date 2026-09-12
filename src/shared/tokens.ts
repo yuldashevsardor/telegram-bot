@@ -34,6 +34,7 @@ export const Tokens = {
     },
     Bot: {
         Bot: Symbol.for("Bot"),
+        Handlers: Symbol.for("BotHandlers"),
         OutboundQueue: {
             TaskQueue: Symbol.for("TaskQueue"),
             LimitResolver: Symbol.for("LimitResolver"),

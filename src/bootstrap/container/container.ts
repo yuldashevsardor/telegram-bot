@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { Container as InversifyContainer } from "inversify";
+import { Container as InversifyContainer, interfaces } from "inversify";
 import { Tokens } from "app/shared/tokens";
 import { ApplicationContext } from "app/bootstrap/application/application-context";
 import { ConfigContainer } from "app/bootstrap/config-container";
@@ -14,6 +14,11 @@ import { Runner } from "app/telegram/outbound-queue/runner";
 import { LimitResolver } from "app/telegram/outbound-queue/limit-resolver";
 import { TelegramLimitResolver } from "app/telegram/telegram-limit-resolver";
 import { Bot } from "app/telegram/bot";
+import { BotHandlers } from "app/telegram/bot.types";
+import { Filter } from "app/telegram/filter/filter";
+import { Middleware } from "app/telegram/middleware/middleware";
+import { ConversationHandler } from "app/telegram/conversation/conversation-handler";
+import { Command } from "app/telegram/command/command";
 import { BulkMessagesCommand } from "app/telegram/command/bulk-messages/bulk-messages.command";
 import { FontGeneratorCommand } from "app/telegram/command/font-generator/font-generator.command";
 import { Logger } from "app/platform/logger/logger";
@@ -113,6 +118,29 @@ export class Container extends InversifyContainer {
 
         // Conversations
         this.bind<StartConversation>(Tokens.Bot.Conversations.Start).to(StartConversation).inSingletonScope();
+
+        // Обработчики резолвятся вместе с Bot, поэтому символ без биндинга валит резолв Bot,
+        // а не всплывает позже внутри Bot.setup().
+        this.bind<BotHandlers>(Tokens.Bot.Handlers).toDynamicValue(this.resolveBotHandlers).inSingletonScope();
+    }
+
+    // Порядок в списках — порядок пайплайна (docs/architecture/bot.md), Bot.setup() его не
+    // меняет.
+    private resolveBotHandlers({ container }: interfaces.Context): BotHandlers {
+        return {
+            // IsPrivateChat отбрасывает молча и без chat тоже, поэтому апдейты без ключа
+            // сессии должен раньше увидеть HasSessionKey с его warning.
+            filters: [container.get<Filter>(Tokens.Bot.Filter.HasSessionKey), container.get<Filter>(Tokens.Bot.Filter.IsPrivateChat)],
+            middlewares: [
+                container.get<Middleware>(Tokens.Bot.Middleware.RequestContext),
+                container.get<Middleware>(Tokens.Bot.Middleware.Mutation.TelegramCallApi),
+                container.get<Middleware>(Tokens.Bot.Middleware.ResponseTime),
+                container.get<Middleware>(Tokens.Bot.Middleware.RequestLog),
+                container.get<Middleware>(Tokens.Bot.Middleware.FillUserToContext),
+            ],
+            conversations: Object.values(Tokens.Bot.Conversations).map((symbol) => container.get<ConversationHandler>(symbol)),
+            commands: Object.values(Tokens.Bot.Command).map((symbol) => container.get<Command>(symbol)),
+        };
     }
 
     private async setupPlatform(): Promise<void> {
