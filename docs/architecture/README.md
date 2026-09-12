@@ -106,6 +106,39 @@ migrations/                 миграции, в common/ — общие shorthan
 scripts/                    хостовые скрипты целей make; claude-worktree-guard — хук (testing.md)
 ```
 
+Каталог, которого в карте выше нет, то есть заводимый внутри подсистемы, либо прячет, либо
+собирает, иначе не заводится: каталог — заявление о границе видимости, и каталог, из
+которого импортируют всё подряд, границы не объявляет, а только удлиняет путь импорта.
+
+**Прячет** — снаружи него импортируется ровно один его файл, остальные файлы каталога его
+внутренности: `eot-packer/eot-packer.ts`, `font-forge/font-forge.ts`,
+`process-helper/process-helper.ts`, `convertor/convertor-factory.ts`. Имя каталога — префикс
+имени этого файла, чтобы путь импорта угадывался по имени класса; единственное расхождение
+— `bot/middleware/mutation/`, названный по роли, а не по `telegram-call-api.middleware.ts`.
+
+**Собирает** — однотипных братьев одного контракта, которых перечисляет один регистратор:
+`convertor/<from>/` перечисляет `convertor-factory.ts`, `command/`, `filter/` и
+`middleware/` — `container.ts`, `locale/` — обход каталога в `createFluent()`
+(`locale.ts`). Базовый класс контракта лежит при братьях (`command/command.ts`,
+`filter/filter.ts`, `middleware/middleware.ts`) или в родителе (`convertor/convertor.ts`).
+
+Иначе файлы лежат плоско: части подсистемы группирует префикс имени файла, а спутники
+`*.types.ts` и `*.errors.ts` стоят рядом со своим главным и в каталог его не уводят
+(`font-signature-matcher.ts` и `font-signature-matcher.types.ts` — в корне
+`font-convertor/`). Два каталога правилу не отвечают: из `helper/file-helper/` снаружи
+видны и `file-helper.ts`, и `file-helper.errors.ts`, хотя та же форма рядом живёт плоско
+(`string-helper.ts` + `string-helper.errors.ts`); в `bot/session/` лежат три файла разных
+ролей (`pgsql-storage.ts`, `session.helper.ts`, `session.types.ts`), и ни один не прячет
+остальных.
+
+Какие файлы каталога видны снаружи, считает команда (`<путь>` — от `src/`; для `locale/`
+неприменима, `.ftl` через алиас не импортируют):
+
+```bash
+grep -rHoE "app/<путь>/[A-Za-z0-9._-]+" src --include='*.ts' | grep -v "^src/<путь>/" \
+    | sed "s#.*app/<путь>/##" | sort -u
+```
+
 Импорты только через алиас `app/*` (`tsconfig.json` + `tsc-alias`), относительные
 запрещены ESLint-правилом `no-restricted-imports`. Исключение — каталог `migrations/`:
 он лежит вне `src/`, алиас туда не ведёт, и правило снято на весь каталог через
