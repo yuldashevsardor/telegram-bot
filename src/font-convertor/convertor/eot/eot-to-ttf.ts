@@ -1,5 +1,5 @@
-import { EotConvertor } from "app/domain/font-convertor/convertor/eot-convertor";
-import { Extension } from "app/domain/font-convertor/font-convertor.types";
+import { EotConvertor } from "app/font-convertor/convertor/eot-convertor";
+import { Extension } from "app/font-convertor/font-convertor.types";
 
 export class EotToTtf extends EotConvertor {
     protected fromExtension: Extension = Extension.EOT;

@@ -31,7 +31,7 @@
 
 ## Обзор
 
-Назначение — конвертация шрифтов между форматами (`src/domain/font-convertor/`,
+Назначение — конвертация шрифтов между форматами (`src/font-convertor/`,
 [`font-convertor.md`](./font-convertor.md); предметная область —
 [`CONTEXT.md`](../../CONTEXT.md)). Telegram — способ доставки; `User`, сессии и миграции
 существуют ради Telegram-фронтенда.
@@ -48,11 +48,12 @@
   `@grammyjs/fluent` не используется: контекст наполняет свой middleware
   ([`i18n.md`](./i18n.md)).
 
-Раскладка `src/` смешанная, и это её текущее состояние, а не итоговое. `telegram/` —
-модуль по назначению: в нём собрано то, что существует ради Telegram (выше), — бот, `User`
-и очередь исходящих. Остальное пока разложено слоями: `domain/` — логика и порты,
-`infrastructure/` — адаптеры, `common/` — сквозные типы, базовая ошибка и словарь токенов
-DI, `helper/` — утилиты. Перестройка идёт по частям, план —
+Раскладка `src/` смешанная, и это её текущее состояние, а не итоговое. Модулей по
+назначению два: `font-convertor/` — единственный предметный, и `telegram/`, где собрано то,
+что существует ради Telegram (выше), — бот, `User` и очередь исходящих. Остальное пока
+разложено слоями: `domain/` — порт `Logger`, `infrastructure/` — адаптеры, `common/` —
+сквозные типы, базовая ошибка и словарь токенов DI, `helper/` — утилиты. Перестройка идёт
+по частям, план —
 [#245](https://github.com/yuldashevsardor/telegram-bot/issues/245).
 
 Порт отдельно от адаптера лежит там, где реализаций несколько: интерфейс `Logger` в
@@ -96,11 +97,11 @@ chat ID — знание о Telegram, а не об очереди
 src/
   app.ts                    точка входа: new Application(), сигналы, fail()
   common/                   RuntimeError, сквозные типы, словарь токенов DI, configValue (application.md)
+  font-convertor/           конвертация шрифтов (font-convertor.md)
   telegram/                 grammY: команды, conversations, middleware, фильтры, сессия, локали (bot.md, i18n.md)
     user/                   сущность, интерфейс репозитория, сервис, адаптер к PostgreSQL (user.md)
     outbound-queue/         очередь исходящих по ключам, лимиты, цикл Runner (outbound-queue.md)
   domain/
-    font-convertor/         конвертация шрифтов (font-convertor.md)
     logger/                 интерфейс Logger, enum Level (logging.md)
   helper/                   string/number/file/process/utils (sleep, withTimeout)
   infrastructure/
@@ -157,8 +158,8 @@ grep -rHoE "app/<путь>/[A-Za-z0-9._-]+" src --include='*.ts' | grep -v "^src
 (`CLAUDE.md`, «Стиль»), и в его блоке запрет относительных перечислен заново: `overrides`
 заменяет конфигурацию правила целиком, а не дополняет общую.
 
-Прямых импортов `domain → infrastructure` нет, но независимость не полная:
-`common/config-value.ts` берёт конфигурацию у `ApplicationContext`
+Прямых импортов из `font-convertor/` и `domain/` в `infrastructure/` нет, но независимость
+не полная: `common/config-value.ts` берёт конфигурацию у `ApplicationContext`
 ([`application.md`](./application.md)), то есть рантайм-зависимость от инфраструктуры в
 `common/` одна и домен дотягивается до неё транзитивно. Линтер этого не видит — в списке
 запрещённых стоят пакеты, а не свои каталоги.

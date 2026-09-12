@@ -1,7 +1,7 @@
 import { injectable } from "inversify";
-import { Extension } from "app/domain/font-convertor/font-convertor.types";
-import { ByteClass, Prefix, Signature, SignatureByte } from "app/domain/font-convertor/font-signature-matcher.types";
-import { SFNT_VERSIONS, sfntVersionBytes } from "app/domain/font-convertor/sfnt-version";
+import { Extension } from "app/font-convertor/font-convertor.types";
+import { ByteClass, Prefix, Signature, SignatureByte } from "app/font-convertor/font-signature-matcher.types";
+import { SFNT_VERSIONS, sfntVersionBytes } from "app/font-convertor/sfnt-version";
 
 @injectable()
 export class FontSignatureMatcher {

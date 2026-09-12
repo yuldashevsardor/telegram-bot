@@ -1,5 +1,5 @@
-import { Extension } from "app/domain/font-convertor/font-convertor.types";
-import { TwoStepEotConvertor } from "app/domain/font-convertor/convertor/two-step-eot-convertor";
+import { Extension } from "app/font-convertor/font-convertor.types";
+import { TwoStepEotConvertor } from "app/font-convertor/convertor/two-step-eot-convertor";
 
 /**
  * Пара «EOT → формат» для всего, кроме TTF: конверт снимается здесь, а дальше движок

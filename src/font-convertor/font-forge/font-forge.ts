@@ -1,8 +1,8 @@
 import { FileHelper } from "app/helper/file-helper/file-helper";
 import { ProcessHelper } from "app/helper/process-helper/process-helper";
 import { injectable } from "inversify";
-import { ExecuteError, ExtensionNotSupport } from "app/domain/font-convertor/font-forge/font-forge.errors";
-import { Extension } from "app/domain/font-convertor/font-convertor.types";
+import { ExecuteError, ExtensionNotSupport } from "app/font-convertor/font-forge/font-forge.errors";
+import { Extension } from "app/font-convertor/font-convertor.types";
 import { configValue } from "app/common/config-value";
 
 @injectable()

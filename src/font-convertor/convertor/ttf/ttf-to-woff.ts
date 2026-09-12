@@ -1,5 +1,5 @@
-import { FontForgeConvertor } from "app/domain/font-convertor/convertor/font-forge-convertor";
-import { Extension } from "app/domain/font-convertor/font-convertor.types";
+import { FontForgeConvertor } from "app/font-convertor/convertor/font-forge-convertor";
+import { Extension } from "app/font-convertor/font-convertor.types";
 
 export class TtfToWoff extends FontForgeConvertor {
     protected fromExtension: Extension = Extension.TTF;

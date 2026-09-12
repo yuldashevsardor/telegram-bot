@@ -1,5 +1,5 @@
-import { Extension } from "app/domain/font-convertor/font-convertor.types";
-import { ToEotConvertor } from "app/domain/font-convertor/convertor/to-eot-convertor";
+import { Extension } from "app/font-convertor/font-convertor.types";
+import { ToEotConvertor } from "app/font-convertor/convertor/to-eot-convertor";
 
 export class Woff2ToEot extends ToEotConvertor {
     protected fromExtension: Extension = Extension.WOFF2;

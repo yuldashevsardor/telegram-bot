@@ -2,11 +2,11 @@ import { expect } from "chai";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import { ConvertorFactory } from "app/domain/font-convertor/convertor/convertor-factory";
-import { EotPacker } from "app/domain/font-convertor/eot-packer/eot-packer";
-import { Extension } from "app/domain/font-convertor/font-convertor.types";
-import { FontForge } from "app/domain/font-convertor/font-forge/font-forge";
-import { FontSignatureMatcher } from "app/domain/font-convertor/font-signature-matcher";
+import { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory";
+import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
+import { Extension } from "app/font-convertor/font-convertor.types";
+import { FontForge } from "app/font-convertor/font-forge/font-forge";
+import { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
