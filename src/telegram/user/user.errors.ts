@@ -1,4 +1,4 @@
-import { RuntimeError } from "app/common/errors";
+import { RuntimeError } from "app/shared/errors";
 
 export class UserNotFound extends RuntimeError {
     public static byId(id: number): UserNotFound {

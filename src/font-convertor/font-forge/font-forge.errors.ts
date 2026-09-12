@@ -1,4 +1,4 @@
-import { RuntimeError } from "app/common/errors";
+import { RuntimeError } from "app/shared/errors";
 
 export class ExtensionNotSupport extends RuntimeError {
     public static byExtension(extension: string): ExtensionNotSupport {

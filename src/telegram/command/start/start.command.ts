@@ -1,6 +1,6 @@
 import { Command } from "app/telegram/command/command";
 import { inject, injectable } from "inversify";
-import { Tokens } from "app/common/tokens";
+import { Tokens } from "app/shared/tokens";
 import { Context } from "app/telegram/bot.types";
 import { StartConversation } from "app/telegram/conversation/start/start.conversation";
 

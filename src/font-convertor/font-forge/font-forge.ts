@@ -1,9 +1,9 @@
-import { FileHelper } from "app/helper/file-helper/file-helper";
-import { ProcessHelper } from "app/helper/process-helper/process-helper";
+import { FileHelper } from "app/shared/fs/file-helper";
+import { ProcessHelper } from "app/shared/process/process-helper";
 import { injectable } from "inversify";
 import { ExecuteError, ExtensionNotSupport } from "app/font-convertor/font-forge/font-forge.errors";
 import { Extension } from "app/font-convertor/font-convertor.types";
-import { configValue } from "app/common/config-value";
+import { configValue } from "app/shared/config-value";
 
 @injectable()
 export class FontForge {

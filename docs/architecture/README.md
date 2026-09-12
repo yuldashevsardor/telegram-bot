@@ -48,16 +48,17 @@
   `@grammyjs/fluent` не используется: контекст наполняет свой middleware
   ([`i18n.md`](./i18n.md)).
 
-Раскладка `src/` смешанная, и это её текущее состояние, а не итоговое. Модулей по
-назначению два: `font-convertor/` — единственный предметный, и `telegram/`, где собрано то,
-что существует ради Telegram (выше), — бот, `User` и очередь исходящих. Остальное пока
-разложено слоями: `domain/` — порт `Logger`, `infrastructure/` — адаптеры, `common/` —
-сквозные типы, базовая ошибка и словарь токенов DI, `helper/` — утилиты. Перестройка идёт
-по частям, план —
-[#245](https://github.com/yuldashevsardor/telegram-bot/issues/245).
+Раскладка `src/` — по назначению, а не по техническим слоям (план перестройки —
+[#245](https://github.com/yuldashevsardor/telegram-bot/issues/245)). Модулей два:
+`font-convertor/` — единственный предметный, и `telegram/`, где собрано то, что существует
+ради Telegram (выше), — бот, `User` и очередь исходящих. Вокруг них три каталога по роли:
+`platform/` — адаптеры к внешнему миру, которые не импортируют ни одного модуля;
+`bootstrap/` — корень сборки, он знает все стороны разом, и в этом его работа; `shared/` —
+то, что берут все: базовая ошибка, сквозные типы, словарь токенов DI, `configValue`, порт
+`Logger` и утилиты.
 
 Порт отдельно от адаптера лежит там, где реализаций несколько: интерфейс `Logger` в
-`domain/logger/`, два адаптера в `infrastructure/logger/`. Где реализация одна, слоя между
+`shared/`, два адаптера в `platform/logger/`. Где реализация одна, слоя между
 интерфейсом и ею нет: `UserRepository` и `PgSqlUserRepository` стоят в одном каталоге
 `telegram/user/` ([`storage.md`](./storage.md)). По каталогам такая пара всё равно может
 разойтись, но уже не по слоям: `LimitResolver` объявлен в `telegram/outbound-queue/`, где
@@ -65,7 +66,7 @@
 chat ID — знание о Telegram, а не об очереди
 ([`outbound-queue.md`](./outbound-queue.md)).
 
-Ошибки: наружу уходит только `RuntimeError` (`common/errors.ts`) или его подкласс из
+Ошибки: наружу уходит только `RuntimeError` (`shared/errors.ts`) или его подкласс из
 `<модуль>.errors.ts` рядом с бросающим кодом (`<модуль>` — префикс имени файла, а не
 каталог); единственный подкласс вне такого файла — `InvalidConfigError`, он лежит рядом
 с базовым. Конструктор —
@@ -96,23 +97,25 @@ chat ID — знание о Telegram, а не об очереди
 ```
 src/
   app.ts                    точка входа: new Application(), сигналы, fail()
-  common/                   RuntimeError, сквозные типы, словарь токенов DI, configValue (application.md)
   font-convertor/           конвертация шрифтов (font-convertor.md)
   telegram/                 grammY: команды, conversations, middleware, фильтры, сессия, локали (bot.md, i18n.md)
     user/                   сущность, интерфейс репозитория, сервис, адаптер к PostgreSQL (user.md)
     outbound-queue/         очередь исходящих по ключам, лимиты, цикл Runner (outbound-queue.md)
-  domain/
-    logger/                 интерфейс Logger, enum Level (logging.md)
-  helper/                   string/number/file/process/utils (sleep, withTimeout)
-  infrastructure/
-    application/            ApplicationContext и Application: сборка и жизненный цикл (application.md)
-    config/                 ConfigStorage → ConfigContainer (config.md)
-    container/              inversify-контейнер (application.md)
+  platform/                 адаптеры, не знающие модулей
+    config/                 ConfigStorage и ConfigEnvStorage — источник значений (config.md)
     database/               Database (storage.md)
     logger/                 ConsoleLogger, PinoLogger (logging.md)
     request-context.ts      RequestContext: область и значения запроса (logging.md)
     request-context.types.ts  ключи и тип значений запроса (logging.md)
-test/                       mocha-спеки, зеркалят src/
+  bootstrap/                корень сборки, знает все стороны
+    application/            ApplicationContext и Application: сборка и жизненный цикл (application.md)
+    container/              inversify-контейнер (application.md)
+    config-container.ts     ConfigContainer: разбор и валидация настроек всех сторон (config.md)
+  shared/                   RuntimeError, сквозные типы, словарь токенов DI, configValue (application.md);
+                            интерфейс Logger, enum Level (logging.md); string/number/utils (sleep, withTimeout)
+    fs/                     FileHelper
+    process/                ProcessHelper — запуск внешних процессов (invariants.md)
+test/                       mocha-спеки; путь спеки повторяет путь исходника с точностью до модуля
 migrations/                 миграции, в common/ — общие shorthands и заготовка (storage.md)
 scripts/                    хостовые скрипты целей make; claude-worktree-guard — хук (testing.md)
 ```
@@ -123,7 +126,7 @@ scripts/                    хостовые скрипты целей make; cla
 
 **Прячет** — снаружи него импортируется ровно один его файл, остальные файлы каталога его
 внутренности: `eot-packer/eot-packer.ts`, `font-forge/font-forge.ts`,
-`process-helper/process-helper.ts`, `convertor/convertor-factory.ts`. Имя каталога — префикс
+`convertor/convertor-factory.ts`. Имя каталога — префикс
 имени этого файла, чтобы путь импорта угадывался по имени класса; единственное расхождение
 — `telegram/middleware/mutation/`, названный по роли, а не по
 `telegram-call-api.middleware.ts`.
@@ -137,11 +140,13 @@ scripts/                    хостовые скрипты целей make; cla
 Иначе файлы лежат плоско: части подсистемы группирует префикс имени файла, а спутники
 `*.types.ts` и `*.errors.ts` стоят рядом со своим главным и в каталог его не уводят
 (`font-signature-matcher.ts` и `font-signature-matcher.types.ts` — в корне
-`font-convertor/`). Два каталога правилу не отвечают: из `helper/file-helper/` снаружи
-видны и `file-helper.ts`, и `file-helper.errors.ts`, хотя та же форма рядом живёт плоско
-(`string-helper.ts` + `string-helper.errors.ts`); в `telegram/session/` лежат три файла
+`font-convertor/`). Один каталог правилу не отвечает: в `telegram/session/` лежат три файла
 разных ролей (`pgsql-storage.ts`, `session.helper.ts`, `session.types.ts`), и ни один не
-прячет остальных.
+прячет остальных. `shared/fs/` и `shared/process/` стоят в карте и под правило не подпадают,
+но форма у них та же, что у каталога внутри подсистемы, и расходится с ним: оба названы по
+роли, а не по главному файлу, и из `fs/` снаружи видны и `file-helper.ts`, и
+`file-helper.errors.ts`, хотя та же форма рядом с ним живёт плоско (`string-helper.ts` +
+`string-helper.errors.ts`).
 
 Какие файлы каталога видны снаружи, считает команда (`<путь>` — от `src/`; для `locale/`
 неприменима, `.ftl` через алиас не импортируют):
@@ -158,8 +163,8 @@ grep -rHoE "app/<путь>/[A-Za-z0-9._-]+" src --include='*.ts' | grep -v "^src
 (`CLAUDE.md`, «Стиль»), и в его блоке запрет относительных перечислен заново: `overrides`
 заменяет конфигурацию правила целиком, а не дополняет общую.
 
-Ни `font-convertor/`, ни `domain/` не импортируют `infrastructure/` напрямую, но
-независимость не полная: `common/config-value.ts` берёт конфигурацию у `ApplicationContext`
-([`application.md`](./application.md)), то есть рантайм-зависимость от инфраструктуры в
-`common/` одна и домен дотягивается до неё транзитивно. Линтер этого не видит — в списке
+`font-convertor/` не импортирует ни `platform/`, ни `bootstrap/` напрямую, но
+независимость не полная: `shared/config-value.ts` берёт конфигурацию у `ApplicationContext`
+([`application.md`](./application.md)), то есть рантайм-зависимость от корня сборки в
+`shared/` одна и домен дотягивается до неё транзитивно. Линтер этого не видит — в списке
 запрещённых стоят пакеты, а не свои каталоги.

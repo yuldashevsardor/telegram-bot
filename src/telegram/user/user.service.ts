@@ -1,6 +1,6 @@
 import { inject, injectable } from "inversify";
 import { UserRepository } from "app/telegram/user/user.repository";
-import { Tokens } from "app/common/tokens";
+import { Tokens } from "app/shared/tokens";
 import { CreateUserDto, EditUserDto } from "app/telegram/user/user.types";
 import { User } from "app/telegram/user/user";
 import dayjs from "dayjs";

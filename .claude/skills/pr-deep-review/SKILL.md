@@ -129,9 +129,9 @@ git ls-files 'test/**/*.spec.ts'                            # что вообщ�
 Ниже — только механика проверки, которой в `CLAUDE.md` нет.
 
 ```bash
-# Проводка DI: новый @injectable() обязан появиться и в container.ts, и в common/tokens.ts
+# Проводка DI: новый @injectable() обязан появиться и в container.ts, и в shared/tokens.ts
 gh pr diff <N> | grep -n '^+.*@injectable'
-git diff origin/main...origin/<ветка PR> -- ':(top)src/infrastructure/container/' ':(top)src/common/tokens.ts'
+git diff origin/main...origin/<ветка PR> -- ':(top)src/bootstrap/container/' ':(top)src/shared/tokens.ts'
 
 # Миграции append-only: допустимы только новые файлы (A), любые M, D или R — blocker
 git diff origin/main...origin/<ветка PR> --name-status -- ':(top)migrations/'
@@ -241,7 +241,7 @@ git merge --abort
 прямо в PR.
 
 **Смеллы** — гейт `smells`, включён только на `.ts` внутри `src/font-convertor/`,
-`src/domain/`, `src/common/`, `src/helper/`. Гейта нет → этот скилл не запускай вовсе и
+`src/shared/`. Гейта нет → этот скилл не запускай вовсе и
 отметь в «Итоге» строкой, что смеллы не проверялись: диф не трогает доменный код.
 Молчание здесь читается как «смеллов не нашлось», а это другое утверждение.
 

@@ -2,7 +2,7 @@ import { expect } from "chai";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import { FileHelper } from "app/helper/file-helper/file-helper";
+import { FileHelper } from "app/shared/fs/file-helper";
 import { Fluent } from "@moebius/fluent";
 import { Context } from "app/telegram/bot.types";
 import { createFluent, createFluentMiddleware, localeFromFilePath, resolveLocale } from "app/telegram/locale";

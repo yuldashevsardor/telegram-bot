@@ -7,13 +7,13 @@
 (ниже) и связывает первыми константами, затем `setupModules()` (внутри — `setupBot()`),
 `setupServices()`, `setupInfrastructure()`. Всё singleton.
 
-Символы — `Symbol.for(...)` в одном словаре `common/tokens.ts` (`Tokens`), сам список
+Символы — `Symbol.for(...)` в одном словаре `shared/tokens.ts` (`Tokens`), сам список
 веток там же. Ветка называет владельца, ключ — роль внутри него, поэтому имя класса в
 ключе повторяется только там, где роли у класса нет (`Tokens.Bot.Bot`). Ветка
 `Infrastructure` — исключение из правила «владелец»: в ней лежит готовое из
 `ApplicationContext` плюс `Database`, то есть то, у чьего токена владельца-модуля нет.
-Словарь лежит в `common/`, а не в `container/`: иначе за именем собственной зависимости
-домен ходил бы в инфраструктуру.
+Словарь лежит в `shared/`, а не в `bootstrap/container/`: иначе за именем собственной
+зависимости домен ходил бы в корень сборки.
 
 Реестр ручной ([инвариант](./invariants.md)), и молчит он по-разному: забытый биндинг
 сервиса ничем себя не выдаёт, пока символ никто не внедряет, — первый же `@inject` валит
@@ -27,7 +27,7 @@
 длиннее — короткую уже занял контекст запроса.
 
 Конфигурация в DI не участвует: значение берёт функция `configValue("limits.common")`
-(`common/config-value.ts`) — спрашивает `ConfigContainer` у `ApplicationContext` (ниже) и
+(`shared/config-value.ts`) — спрашивает `ConfigContainer` у `ApplicationContext` (ниже) и
 разрешает «точечный» путь. Ни токена, ни биндинга, ни inversify у неё нет: конфигурация
 существует до контейнера, и спрашивать её у контейнера незачем.
 
@@ -75,7 +75,7 @@ configValue("limits.common")` не соберётся. Прежний `@ConfigVa
 
 ## Application
 
-`ApplicationContext` (`infrastructure/application/application-context.ts`) — состав того,
+`ApplicationContext` (`bootstrap/application/application-context.ts`) — состав того,
 что нужно приложению всегда: конфиг, логгер, контекст запроса. Эти объекты существуют до
 контейнера, потому что собрать его без них нельзя. Контекст собирает себя сам
 (`ApplicationContext.create()`): внутри `ConfigEnvStorage` → `ConfigContainer` →
@@ -102,7 +102,7 @@ configValue("limits.common")` не соберётся. Прежний `@ConfigVa
 держится коротким по той же причине: `Database` в него не входит, у неё свой жизненный цикл
 на `container.close()` (выше).
 
-`Application` (`infrastructure/application/application.ts`) — жизненный цикл; создаётся
+`Application` (`bootstrap/application/application.ts`) — жизненный цикл; создаётся
 `new` в `app.ts`, в контейнере не значится.
 
 ### Старт

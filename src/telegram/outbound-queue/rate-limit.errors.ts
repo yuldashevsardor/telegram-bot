@@ -1,4 +1,4 @@
-import { RuntimeError } from "app/common/errors";
+import { RuntimeError } from "app/shared/errors";
 
 export class RateLimitIsBusy extends RuntimeError {
     public static byRemainingTime(remainingTime: number): RateLimitIsBusy {

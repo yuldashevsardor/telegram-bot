@@ -1,14 +1,14 @@
 import { Command } from "app/telegram/command/command";
 import { inject, injectable } from "inversify";
-import { StringHelper } from "app/helper/string-helper";
-import { container } from "app/infrastructure/container/container";
-import { Tokens } from "app/common/tokens";
+import { StringHelper } from "app/shared/string-helper";
+import { container } from "app/bootstrap/container/container";
+import { Tokens } from "app/shared/tokens";
 import { Bot } from "app/telegram/bot";
 import { TaskQueue } from "app/telegram/outbound-queue/task-queue";
 import { Context } from "app/telegram/bot.types";
 import { Priority } from "app/telegram/outbound-queue/task";
-import { FileHelper } from "app/helper/file-helper/file-helper";
-import { Logger } from "app/domain/logger/logger";
+import { FileHelper } from "app/shared/fs/file-helper";
+import { Logger } from "app/shared/logger";
 
 @injectable()
 export class BulkMessagesCommand extends Command {

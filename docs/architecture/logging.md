@@ -1,7 +1,7 @@
 # Логирование
 
-Порт — `domain/logger/logger.ts`, уровни `Level` и их веса `LevelSeverity` —
-`logger.types.ts`, адаптеры — `infrastructure/logger/`. Какой из них собрать, решает
+Порт — `shared/logger.ts`, уровни `Level` и их веса `LevelSeverity` —
+`logger.types.ts`, адаптеры — `platform/logger/`. Какой из них собрать, решает
 `ApplicationContext` ([`application.md`](./application.md)) при старте по `isProduction`
 из конфига ([`config.md`](./config.md)): в production `PinoLogger`, иначе `ConsoleLogger`.
 Порог оба берут у общего `AbstractLogger`, но применяют по-разному: `ConsoleLogger`
@@ -26,7 +26,7 @@
 `Bot.handleError` вызывается не из `handleUpdate`, а из sink'а `@grammyjs/runner` — уже по
 отклонённому промису `handleUpdate`, когда область свёрнута.
 
-`RequestContext` (`infrastructure/request-context.ts`) — единственная работа с
+`RequestContext` (`platform/request-context.ts`) — единственная работа с
 `AsyncLocalStorage`: сам ALS приватный, наружу уходят только операции над областью, а
 `requestId` рождается внутри `run()`, а не у вызывающего. Поэтому ни middleware, ни
 логгер не собирают стор руками и не знают его формы — иначе корреляция зависела бы от
@@ -35,7 +35,7 @@
 Контекст общий, а не логгерный: экземпляр один и создаёт его `ApplicationContext`
 ([`application.md`](./application.md)). Логгеру он уходит аргументом конструктора там же,
 до всякого контейнера; в контейнере (`Tokens.Infrastructure.RequestContext`) лежит ради
-middleware. Ключи и тип стора — в `infrastructure/request-context.types.ts`
+middleware. Ключи и тип стора — в `platform/request-context.types.ts`
 (`REQUEST_KEYS` с `as const`, `RequestStore` выведен из него, значения `unknown`).
 `getValues()` отдаёт только известные ключи: без отбора формат лога зависел бы от того,
 что в стор положили по дороге, а `as const` делает опечатку в ключе ошибкой компиляции, а

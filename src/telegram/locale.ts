@@ -2,7 +2,7 @@ import path from "path";
 import { MiddlewareFn } from "grammy";
 import { Fluent } from "@moebius/fluent";
 import { Context } from "app/telegram/bot.types";
-import { FileHelper } from "app/helper/file-helper/file-helper";
+import { FileHelper } from "app/shared/fs/file-helper";
 import { DEFAULT_LOCALE, Locale, LOCALES } from "app/telegram/locale.types";
 import { MissingLocaleBundle, UnknownLocale } from "app/telegram/locale.errors";
 

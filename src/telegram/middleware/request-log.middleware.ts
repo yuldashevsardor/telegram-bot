@@ -1,6 +1,6 @@
 import { inject, injectable } from "inversify";
-import { Tokens } from "app/common/tokens";
-import { Logger } from "app/domain/logger/logger";
+import { Tokens } from "app/shared/tokens";
+import { Logger } from "app/shared/logger";
 import { NextFunction } from "grammy";
 import { Middleware } from "app/telegram/middleware/middleware";
 import { Context } from "app/telegram/bot.types";

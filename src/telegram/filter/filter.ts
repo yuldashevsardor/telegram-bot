@@ -1,8 +1,8 @@
 import { Composer, NextFunction } from "grammy";
 import { Context } from "app/telegram/bot.types";
 import { inject, injectable } from "inversify";
-import { Logger } from "app/domain/logger/logger";
-import { Tokens } from "app/common/tokens";
+import { Logger } from "app/shared/logger";
+import { Tokens } from "app/shared/tokens";
 
 @injectable()
 export abstract class Filter {

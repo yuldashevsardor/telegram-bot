@@ -1,4 +1,4 @@
-import { RuntimeError } from "app/common/errors";
+import { RuntimeError } from "app/shared/errors";
 
 export class InvalidEot extends RuntimeError {
     public static tooShort(length: number): InvalidEot {

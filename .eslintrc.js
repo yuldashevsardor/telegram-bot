@@ -44,7 +44,7 @@ module.exports = {
         {
             // Адаптер порта Logger: console.* — его реализация, а не обход. Тест
             // адаптера снимает записи подменой console по тем же именам методов.
-            files: ["src/infrastructure/logger/console-logger.ts", "test/infrastructure/logger/console-logger.spec.ts"],
+            files: ["src/platform/logger/console-logger.ts", "test/platform/logger/console-logger.spec.ts"],
             rules: {
                 "no-console": "off",
             },
@@ -62,7 +62,9 @@ module.exports = {
             // до сих пор держалось только договорённостью. Запрет относительных импортов в
             // списке повторён намеренно: overrides заменяет конфигурацию правила целиком, а
             // не дополняет общую, и без ".*" внутри домена они снова стали бы разрешены.
-            files: ["src/font-convertor/**/*.ts", "src/domain/**/*.ts"],
+            // shared/ в заборе потому, что домен импортирует из него ошибки, FileHelper,
+            // ProcessHelper и configValue: запрещённый пакет там дошёл бы до домена транзитивно.
+            files: ["src/font-convertor/**/*.ts", "src/shared/**/*.ts"],
             rules: {
                 "no-restricted-imports": [
                     "error",
