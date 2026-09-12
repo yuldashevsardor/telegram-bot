@@ -1,5 +1,5 @@
 import { inject, injectable } from "inversify";
-import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
+import { Tokens } from "app/common/tokens";
 import { Logger } from "app/domain/logger/logger";
 import { NextFunction } from "grammy";
 import { Middleware } from "app/infrastructure/bot/middleware/middleware";
@@ -7,7 +7,7 @@ import { Context } from "app/infrastructure/bot/bot.types";
 
 @injectable()
 export class ResponseTimeMiddleware extends Middleware {
-    public constructor(@inject<Logger>(Infrastructure.Logger) private readonly logger: Logger) {
+    public constructor(@inject<Logger>(Tokens.Infrastructure.Logger) private readonly logger: Logger) {
         super();
     }
 

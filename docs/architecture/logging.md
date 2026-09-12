@@ -34,7 +34,7 @@
 
 Контекст общий, а не логгерный: экземпляр один и создаёт его `ApplicationContext`
 ([`application.md`](./application.md)). Логгеру он уходит аргументом конструктора там же,
-до всякого контейнера; в контейнере (`Infrastructure.RequestContext`) лежит ради
+до всякого контейнера; в контейнере (`Tokens.Infrastructure.RequestContext`) лежит ради
 middleware. Ключи и тип стора — в `infrastructure/request-context.types.ts`
 (`REQUEST_KEYS` с `as const`, `RequestStore` выведен из него, значения `unknown`).
 `getValues()` отдаёт только известные ключи: без отбора формат лога зависел бы от того,

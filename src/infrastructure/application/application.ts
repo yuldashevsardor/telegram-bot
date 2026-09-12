@@ -2,8 +2,7 @@ import { container } from "app/infrastructure/container/container";
 import { ApplicationContext } from "app/infrastructure/application/application-context";
 import { ConfigContainer } from "app/infrastructure/config/config-container";
 import { Logger } from "app/domain/logger/logger";
-import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
-import { Modules } from "app/infrastructure/container/symbols/modules";
+import { Tokens } from "app/common/tokens";
 import { Database } from "app/infrastructure/database/database";
 import { Runner } from "app/domain/task-queue/runner";
 import { TaskQueue } from "app/domain/task-queue/task-queue";
@@ -38,13 +37,13 @@ export class Application {
         this.logger.info("Container successfully setup.");
         this.logger.info("Check database connection...");
 
-        await container.get<Database>(Infrastructure.Database).check();
+        await container.get<Database>(Tokens.Infrastructure.Database).check();
 
         this.logger.info("Database connection is alive.");
 
-        this.taskQueue = container.get<TaskQueue>(Modules.TaskQueue.TaskQueue);
-        this.runner = container.get<Runner>(Modules.TaskQueue.Runner);
-        this.bot = container.get<Bot>(Modules.Bot.Bot);
+        this.taskQueue = container.get<TaskQueue>(Tokens.TaskQueue.TaskQueue);
+        this.runner = container.get<Runner>(Tokens.TaskQueue.Runner);
+        this.bot = container.get<Bot>(Tokens.Bot.Bot);
 
         await this.bot.setup();
 

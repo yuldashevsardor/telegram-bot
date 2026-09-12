@@ -1,6 +1,6 @@
 import { inject, injectable } from "inversify";
 import { UserRepository } from "app/domain/user/user.repository";
-import { Services } from "app/infrastructure/container/symbols/services";
+import { Tokens } from "app/common/tokens";
 import { CreateUserDto, EditUserDto } from "app/domain/user/user.types";
 import { User } from "app/domain/user/user";
 import dayjs from "dayjs";
@@ -8,7 +8,7 @@ import { UserCreateError, UserEditError } from "app/domain/user/user.errors";
 
 @injectable()
 export class UserService {
-    public constructor(@inject<UserRepository>(Services.User.UserRepository) private readonly repository: UserRepository) {}
+    public constructor(@inject<UserRepository>(Tokens.User.Repository) private readonly repository: UserRepository) {}
 
     public async create(dto: CreateUserDto): Promise<User> {
         const user = new User({

@@ -2,7 +2,7 @@ import { Middleware } from "app/infrastructure/bot/middleware/middleware";
 import { NextFunction } from "grammy";
 import { inject, injectable } from "inversify";
 import { UserService } from "app/domain/user/user.service";
-import { Services } from "app/infrastructure/container/symbols/services";
+import { Tokens } from "app/common/tokens";
 import { UserRepository } from "app/domain/user/user.repository";
 import { User } from "app/domain/user/user";
 import dayjs from "dayjs";
@@ -12,8 +12,8 @@ import { UpdateWithoutFrom } from "app/infrastructure/bot/bot.errors";
 @injectable()
 export class FillUserToContextMiddleware extends Middleware {
     public constructor(
-        @inject<UserService>(Services.User.UserService) private readonly userService: UserService,
-        @inject<UserRepository>(Services.User.UserRepository) private readonly userRepository: UserRepository,
+        @inject<UserService>(Tokens.User.Service) private readonly userService: UserService,
+        @inject<UserRepository>(Tokens.User.Repository) private readonly userRepository: UserRepository,
     ) {
         super();
     }

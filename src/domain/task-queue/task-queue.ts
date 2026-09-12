@@ -1,9 +1,8 @@
 import { inject, injectable } from "inversify";
-import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
+import { Tokens } from "app/common/tokens";
 import { Logger } from "app/domain/logger/logger";
 import { ConfigValue } from "app/infrastructure/config/config-value.decorator";
 import { LimitResolver } from "app/domain/task-queue/limit-resolver";
-import { Modules } from "app/infrastructure/container/symbols/modules";
 import { Partition } from "app/domain/task-queue/partition";
 import { RateLimit } from "app/domain/task-queue/rate-limit";
 import { Limit } from "app/domain/task-queue/rate-limit.types";
@@ -41,8 +40,8 @@ export class TaskQueue {
     private taskCount = 0;
 
     public constructor(
-        @inject<Logger>(Infrastructure.Logger) private readonly logger: Logger,
-        @inject<LimitResolver>(Modules.TaskQueue.LimitResolver) private readonly limitResolver: LimitResolver,
+        @inject<Logger>(Tokens.Infrastructure.Logger) private readonly logger: Logger,
+        @inject<LimitResolver>(Tokens.TaskQueue.LimitResolver) private readonly limitResolver: LimitResolver,
     ) {
         this.partitions = new Map<PartitionKey, Partition>();
         this.keysByPriority = {

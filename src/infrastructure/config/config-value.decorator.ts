@@ -1,11 +1,11 @@
 import { container } from "app/infrastructure/container/container";
 import { ConfigContainer } from "app/infrastructure/config/config-container";
-import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
+import { Tokens } from "app/common/tokens";
 import { InvalidConfigError } from "app/common/errors";
 import { UnknownObject } from "app/common/types";
 
 function getConfigValue<T>(key: string, defaultValue?: T): T {
-    const config = container.get<ConfigContainer>(Infrastructure.ConfigContainer);
+    const config = container.get<ConfigContainer>(Tokens.Infrastructure.ConfigContainer);
     const keys = key.split(".").filter((key) => key.trim() !== "");
     let value: unknown;
 

@@ -1,9 +1,9 @@
 import { container } from "app/infrastructure/container/container";
-import { Infrastructure } from "app/infrastructure/container/symbols/infrastructure";
+import { Tokens } from "app/common/tokens";
 import { Database, Sql } from "app/infrastructure/database/database";
 
 function getSql(): Sql {
-    const database = container.get<Database>(Infrastructure.Database);
+    const database = container.get<Database>(Tokens.Infrastructure.Database);
 
     return database.sql;
 }
