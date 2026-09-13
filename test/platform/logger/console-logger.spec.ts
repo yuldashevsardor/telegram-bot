@@ -10,7 +10,7 @@ import { RequestContext } from "app/platform/request-context/request-context";
 // область запроса рядом.
 const requestContext = new RequestContext();
 
-function capture(method: "error" | "info", write: (logger: ConsoleLogger) => void): string {
+function capture(method: "error" | "warn" | "info" | "debug", write: (logger: ConsoleLogger) => void, level: Level = Level.ERROR): string {
     const original = console[method];
     let captured = "";
     console[method] = (message: string): void => {
@@ -18,7 +18,7 @@ function capture(method: "error" | "info", write: (logger: ConsoleLogger) => voi
     };
 
     const logger = new ConsoleLogger(requestContext);
-    logger.setLevel(Level.ERROR);
+    logger.setLevel(level);
 
     try {
         write(logger);
@@ -75,6 +75,20 @@ describe("ConsoleLogger", function () {
     it("prints a level above the configured one", function () {
         expect(capture("error", (logger) => logger.critical("printed"))).to.contain("[CRITICAL] printed");
     });
+
+    const writes = [
+        { level: Level.CRITICAL, method: "error", write: (logger: ConsoleLogger): void => logger.critical("printed") },
+        { level: Level.ERROR, method: "error", write: (logger: ConsoleLogger): void => logger.error("printed") },
+        { level: Level.WARNING, method: "warn", write: (logger: ConsoleLogger): void => logger.warning("printed") },
+        { level: Level.INFO, method: "info", write: (logger: ConsoleLogger): void => logger.info("printed") },
+        { level: Level.DEBUG, method: "debug", write: (logger: ConsoleLogger): void => logger.debug("printed") },
+    ] as const;
+
+    for (const { level, method, write } of writes) {
+        it(`prints ${level} through console.${method} at the ${level} threshold`, function () {
+            expect(capture(method, write, level)).to.contain(`[${level}] printed`);
+        });
+    }
 
     it("prints the request values of the surrounding request", function () {
         const { captured, requestId } = requestContext.run(() => ({

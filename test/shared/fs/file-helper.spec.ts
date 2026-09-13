@@ -6,7 +6,45 @@ import type { Dayjs } from "dayjs";
 import dayjs from "dayjs";
 import { FileHelper } from "app/shared/fs/file-helper";
 import type { RuntimeError } from "app/shared/errors";
-import { ReadFailed, RemoveFailed, WriteFailed } from "app/shared/fs/file-helper.errors";
+import {
+    InvalidExtensions,
+    InvalidFile,
+    InvalidPath,
+    PermissionDenied,
+    ReadFailed,
+    RemoveFailed,
+    WriteFailed,
+} from "app/shared/fs/file-helper.errors";
+
+// Права проверяет access(2), а root проходит его при любых битах: тесты с chmod рассчитаны
+// на непривилегированного пользователя, как node в Dockerfile.
+async function withMode(target: string, mode: number, check: () => Promise<void>): Promise<void> {
+    const { mode: original } = await fs.stat(target);
+    await fs.chmod(target, mode);
+
+    try {
+        await check();
+    } finally {
+        await fs.chmod(target, original & 0o7777);
+    }
+}
+
+// Вызов, который не бросил, падает сообщением «call did not throw»: брошенный внутри try,
+// AssertionError поймал бы собственный catch, и отказ читался бы как ошибка не того класса.
+function rejectionOf(call: () => Promise<unknown>): Promise<unknown> {
+    return call().then(
+        () => expect.fail("call did not throw"),
+        (error: unknown) => error,
+    );
+}
+
+async function expectRejection(call: () => Promise<unknown>, expected: RuntimeError): Promise<void> {
+    const error = await rejectionOf(call);
+
+    expect(error).to.be.instanceOf(expected.constructor);
+    expect((error as RuntimeError).message).to.equal(expected.message);
+    expect((error as RuntimeError).payload).to.deep.equal(expected.payload);
+}
 
 describe("FileHelper.isExist", function () {
     let basePath: string;
@@ -19,15 +57,28 @@ describe("FileHelper.isExist", function () {
         await fs.rm(basePath, { recursive: true, force: true });
     });
 
-    it("sees a file that cannot be read", async function () {
-        // Существование и право чтения — разные вопросы: на первом держится запрет перезаписи
-        // в Convertor, и нечитаемый файл не должен сойти за отсутствующий.
+    it("reports an unreadable path as existing", async function () {
         const filePath = path.join(basePath, "locked.bin");
         await fs.writeFile(filePath, Uint8Array.from([1]));
-        await fs.chmod(filePath, 0o000);
 
-        expect(await FileHelper.isExist(filePath)).to.be.true;
-        expect(await FileHelper.isReadable(filePath)).to.be.false;
+        await withMode(filePath, 0o000, async () => {
+            expect(await FileHelper.isExist(filePath)).to.be.true;
+            expect(await FileHelper.isReadable(filePath)).to.be.false;
+        });
+    });
+
+    it("reports a missing path as not existing", async function () {
+        expect(await FileHelper.isExist(path.join(basePath, "missing.bin"))).to.be.false;
+    });
+});
+
+describe("FileHelper.getFileExtension", function () {
+    it("returns the extension without the dot", async function () {
+        expect(await FileHelper.getFileExtension("/fonts/font.ttf")).to.equal("ttf");
+    });
+
+    it("returns an empty string for a name without an extension", async function () {
+        expect(await FileHelper.getFileExtension("/fonts/font")).to.equal("");
     });
 });
 
@@ -50,6 +101,40 @@ describe("FileHelper.createDirectoriesByDate", function () {
         // Два ожидаемых пути, потому что прогон может пересечь полночь.
         expect([expectedPath(before), expectedPath(after)]).to.include(createdPath);
         expect(await FileHelper.isDirectory(createdPath)).to.be.true;
+    });
+
+    it("reuses the directories that already exist", async function () {
+        const first = await FileHelper.createDirectoriesByDate(basePath);
+        const second = await FileHelper.createDirectoriesByDate(basePath);
+        const after = dayjs();
+
+        // Второй вызов мог пересечь полночь и завести соседний день.
+        expect([first, expectedPath(after)]).to.include(second);
+    });
+
+    it("refuses a base path that does not exist", async function () {
+        const missingPath = path.join(basePath, "missing");
+
+        await expectRejection(() => FileHelper.createDirectoriesByDate(missingPath), InvalidPath.isNotExist(missingPath));
+    });
+
+    it("refuses a base path that is not readable", async function () {
+        await withMode(basePath, 0o000, async () => {
+            await expectRejection(() => FileHelper.createDirectoriesByDate(basePath), PermissionDenied.read(basePath));
+        });
+    });
+
+    it("refuses a base path that is not writable", async function () {
+        await withMode(basePath, 0o500, async () => {
+            await expectRejection(() => FileHelper.createDirectoriesByDate(basePath), PermissionDenied.write(basePath));
+        });
+    });
+
+    it("refuses a base path that is a file", async function () {
+        const filePath = path.join(basePath, "file.bin");
+        await fs.writeFile(filePath, Uint8Array.from([1]));
+
+        await expectRejection(() => FileHelper.createDirectoriesByDate(filePath), InvalidPath.isNotDirectory(filePath));
     });
 
     function expectedPath(dateTime: Dayjs): string {
@@ -91,6 +176,43 @@ describe("FileHelper.readHead", function () {
             expect((error as ReadFailed).payload).to.have.property("path");
             expect((error as ReadFailed).cause).to.be.instanceOf(Error);
         }
+    });
+
+    it("wraps an error that comes after the file was opened", async function () {
+        // Каталог открывается на чтение, а падает уже само чтение (EISDIR).
+        const error = await rejectionOf(() => FileHelper.readHead(basePath, 4));
+
+        expect(error).to.be.instanceOf(ReadFailed);
+        expect((error as ReadFailed).payload).to.deep.equal({ path: basePath });
+        expect((error as ReadFailed).cause).to.be.instanceOf(Error);
+    });
+});
+
+describe("FileHelper.findFilesByExtensions", function () {
+    let basePath: string;
+
+    beforeEach(async function () {
+        basePath = await fs.mkdtemp(path.join(os.tmpdir(), "file-helper-"));
+    });
+
+    afterEach(async function () {
+        await fs.rm(basePath, { recursive: true, force: true });
+    });
+
+    it("takes extensions with or without a leading dot", async function () {
+        for (const name of ["a.ttf", "b.otf", "c.txt"]) {
+            await fs.writeFile(path.join(basePath, name), Uint8Array.from([1]));
+        }
+
+        const files = await FileHelper.findFilesByExtensions(basePath, [" .ttf", "otf"]);
+
+        expect(files.sort()).to.deep.equal([path.join(basePath, "a.ttf"), path.join(basePath, "b.otf")]);
+    });
+
+    it("refuses a list with nothing but blanks", async function () {
+        const extensions = [" ", "."];
+
+        await expectRejection(() => FileHelper.findFilesByExtensions(basePath, extensions), InvalidExtensions.empty(extensions));
     });
 });
 
@@ -180,6 +302,28 @@ describe("ReadFailed, WriteFailed and RemoveFailed", function () {
             expect(error.message).to.equal(fallback);
             expect(error.cause).to.be.undefined;
             expect(error.payload).to.deep.equal({ path: "/x/y", cause: "EACCES" });
+        });
+    }
+});
+
+describe("InvalidPath and InvalidFile", function () {
+    // FileHelper этих фабрик не бросает, поэтому они проверяются напрямую.
+    const cases = [
+        { name: "InvalidPath.isNotFile", error: InvalidPath.isNotFile("/x/y"), type: InvalidPath, payload: { path: "/x/y" } },
+        { name: "InvalidPath.isAlreadyExists", error: InvalidPath.isAlreadyExists("/x/y"), type: InvalidPath, payload: { path: "/x/y" } },
+        { name: "InvalidFile.byPath", error: InvalidFile.byPath("/x/y"), type: InvalidFile, payload: { path: "/x/y" } },
+        {
+            name: "InvalidFile.byPathAndExtension",
+            error: InvalidFile.byPathAndExtension("/x/y.txt", "txt", "ttf"),
+            type: InvalidFile,
+            payload: { path: "/x/y.txt", extension: "txt", allowed: "ttf" },
+        },
+    ];
+
+    for (const { name, error, type, payload } of cases) {
+        it(`${name} keeps its details in the payload`, function () {
+            expect(error).to.be.instanceOf(type);
+            expect(error.payload).to.deep.equal(payload);
         });
     }
 });
