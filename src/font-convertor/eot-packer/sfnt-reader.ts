@@ -158,6 +158,10 @@ export class SfntReader {
         // platformId 0, encodingId 2, languageId 4, nameId 6, length 8, stringOffset 10.
         const recordCount = this.view.getUint16(name.offset + 2);
         const storage = name.offset + this.view.getUint16(name.offset + 4);
+        // Записи лежат до хранилища строк. Завышенный счётчик — от обрезки или субсеттера с
+        // ошибкой — уводит их в строки и соседние таблицы, а там байты складываются в
+        // «записи» с мусорными именами и заслоняют настоящие имена следующих источников.
+        const recordsEnd = Math.min(storage, this.bytes.length);
         const wanted = [NAME_ID_FAMILY, NAME_ID_STYLE, NAME_ID_VERSION, NAME_ID_FULL];
 
         for (const source of NAME_SOURCES) {
@@ -167,8 +171,10 @@ export class SfntReader {
                 for (let index = 0; index < recordCount; index++) {
                     const record = name.offset + NAME_HEADER_SIZE + index * NAME_RECORD_SIZE;
 
-                    if (record + NAME_RECORD_SIZE > this.bytes.length) {
-                        return names;
+                    // Дальше записи тоже за границей, и этот проход кончен. Остальные проходы
+                    // начинают с нулевой записи и уместившиеся ещё прочитают.
+                    if (record + NAME_RECORD_SIZE > recordsEnd) {
+                        break;
                     }
 
                     const nameId = this.view.getUint16(record + 6);
