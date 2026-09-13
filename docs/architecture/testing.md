@@ -14,7 +14,7 @@
 - Что покрыто — видно по дереву `test/` и отчёту `make coverage`; как он считается и что
   в него не входит — раздел «Покрытие» ниже. Без автотестов остаются `Runner` (в том числе путь бана и
   повтора, [`outbound-queue.md`](./outbound-queue.md)), `FontConvertor`, пары без EOT,
-  `Application`, `Bot` и `UserService`.
+  `Application` и `Bot`.
 - Шрифты для тестов — `test/fixtures/fonts`; происхождение и способ пересборки описаны в
   `test/fixtures/fonts/README.md`.
 - Строгость типов и правила линтера заданы в `tsconfig.json` и `.eslintrc.js`, там же
