@@ -136,22 +136,12 @@ export class Bot {
         );
     }
 
+    // Ключ очереди — тот же getSessionKey, что у session(): сериализовать нужно ровно апдейты
+    // одной строки sessions. Check-then-act в FillUserToContextMiddleware он защищает тоже:
+    // в ключе есть from.id, а других чатов пользователя, кроме приватного, фильтры выше не
+    // пропускают.
     private async setupSequential(): Promise<void> {
-        this.grammy.use(
-            sequentialize((ctx): string[] => {
-                const result: string[] = [];
-
-                if (ctx.chat) {
-                    result.push(ctx.chat.id.toString());
-                }
-
-                if (ctx.from) {
-                    result.push(ctx.from.id.toString());
-                }
-
-                return result;
-            }),
-        );
+        this.grammy.use(sequentialize<Context>(getSessionKey));
     }
 
     private async setupMiddlewares(): Promise<void> {
