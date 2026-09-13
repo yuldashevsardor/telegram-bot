@@ -2,9 +2,10 @@ import { expect } from "chai";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import dayjs, { Dayjs } from "dayjs";
+import type { Dayjs } from "dayjs";
+import dayjs from "dayjs";
 import { FileHelper } from "app/shared/fs/file-helper";
-import { RuntimeError } from "app/shared/errors";
+import type { RuntimeError } from "app/shared/errors";
 import { ReadFailed, RemoveFailed, WriteFailed } from "app/shared/fs/file-helper.errors";
 
 describe("FileHelper.createDirectoriesByDate", function () {

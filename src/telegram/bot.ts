@@ -1,20 +1,26 @@
-import { Bot as TelegramBot, Composer, session, StorageAdapter } from "grammy";
+import type { StorageAdapter } from "grammy";
+import { Bot as TelegramBot, Composer, session } from "grammy";
 import { inject, injectable } from "inversify";
 import { Tokens } from "app/shared/tokens";
 import { configValue } from "app/shared/config-value";
-import { Command } from "app/telegram/command/command";
-import { BotHandlers, BotSettings, Context } from "app/telegram/bot.types";
-import { Logger } from "app/platform/logger/logger";
-import { FetchOptions, run, RunnerHandle, sequentialize } from "@grammyjs/runner";
+import type { Command } from "app/telegram/command/command";
+import type { Middleware } from "app/telegram/middleware/middleware";
+import type { BotSettings, Context } from "app/telegram/bot.types";
+import type { Logger } from "app/platform/logger/logger";
+import type { FetchOptions, RunnerHandle } from "@grammyjs/runner";
+import { run, sequentialize } from "@grammyjs/runner";
 import { getSessionKey, initialPayload } from "app/telegram/session/session.helper";
-import { SessionPayload } from "app/telegram/session/session.types";
+import type { SessionPayload } from "app/telegram/session/session.types";
+import type { ConversationHandler } from "app/telegram/conversation/conversation-handler";
 import { conversations, createConversation } from "@grammyjs/conversations";
+import type { Filter } from "app/telegram/filter/filter";
 import { withTimeout } from "app/shared/utils";
 import { InvalidConfigError, RuntimeError } from "app/shared/errors";
-import { Fluent } from "@moebius/fluent";
-import { BotCommand } from "grammy/types";
+import type { Fluent } from "@moebius/fluent";
+import type { BotCommand } from "grammy/types";
 import { createFluent, createFluentMiddleware } from "app/telegram/locale";
-import { DEFAULT_LOCALE, Locale, LOCALES } from "app/telegram/locale.types";
+import type { Locale } from "app/telegram/locale.types";
+import { DEFAULT_LOCALE, LOCALES } from "app/telegram/locale.types";
 
 // Умолчание getUpdates — все типы, кроме chat_member и реакций. Бот же обслуживает
 // только команды и ожидание conversation в приватных чатах, то есть один message:
@@ -37,7 +43,17 @@ export class Bot {
         @inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger,
         @inject<StorageAdapter<SessionPayload>>(Tokens.Bot.Session.Storage)
         private readonly sessionStorage: StorageAdapter<SessionPayload>,
-        @inject<BotHandlers>(Tokens.Bot.Handlers) private readonly handlers: BotHandlers,
+        @inject<Filter>(Tokens.Bot.Filter.HasSessionKey) private readonly hasSessionKeyFilter: Filter,
+        @inject<Filter>(Tokens.Bot.Filter.IsPrivateChat) private readonly isPrivateChatFilter: Filter,
+        @inject<Middleware>(Tokens.Bot.Middleware.RequestContext) private readonly requestContextMiddleware: Middleware,
+        @inject<Middleware>(Tokens.Bot.Middleware.Mutation.TelegramCallApi) private readonly telegramCallApiMiddleware: Middleware,
+        @inject<Middleware>(Tokens.Bot.Middleware.ResponseTime) private readonly responseTimeMiddleware: Middleware,
+        @inject<Middleware>(Tokens.Bot.Middleware.RequestLog) private readonly requestLogMiddleware: Middleware,
+        @inject<Middleware>(Tokens.Bot.Middleware.FillUserToContext) private readonly fillUserToContextMiddleware: Middleware,
+        @inject<ConversationHandler>(Tokens.Bot.Conversations.Start) private readonly startConversation: ConversationHandler,
+        @inject<Command>(Tokens.Bot.Command.Start) private readonly startCommand: Command,
+        @inject<Command>(Tokens.Bot.Command.BulkMessages) private readonly bulkMessagesCommand: Command,
+        @inject<Command>(Tokens.Bot.Command.FontGenerator) private readonly fontGeneratorCommand: Command,
         private readonly settings: BotSettings = configValue("bot"),
     ) {
         if (!this.settings.token) {
@@ -88,9 +104,10 @@ export class Bot {
         // Фильтры выше всего остального: обоим хватает ctx.from и ctx.chat, зато session()
         // уже на входе читает строку, а на выходе пишет её обратно — у группового апдейта
         // ключ сессии есть, и отброшенный ниже он всё равно оставил бы за собой запись в
-        // базе; очередь отброшенному апдейту не нужна тем более. Порядок внутри списков
-        // задаёт тот, кто собирает BotHandlers.
-        await this.setupFilters();
+        // базе; очередь отброшенному апдейту не нужна тем более. Порядок внутри списка
+        // важен: IsPrivateChat отбрасывает молча и без chat тоже, поэтому апдейты без ключа
+        // сессии должен раньше увидеть HasSessionKey с его warning.
+        await this.setupFilters([this.hasSessionKeyFilter, this.isPrivateChatFilter]);
         // sequentialize() строго выше session(): session() не ленив — читает строку до
         // next() и пишет после возврата, поэтому под очередью оказалась бы только середина
         // цепочки, а само чтение и запись остались бы снаружи. Два апдейта одного
@@ -141,8 +158,15 @@ export class Bot {
         this.logger.debug("Setup middlewares...");
 
         const composer = new Composer<Context>();
+        const middlewares = [
+            this.requestContextMiddleware,
+            this.telegramCallApiMiddleware,
+            this.responseTimeMiddleware,
+            this.requestLogMiddleware,
+            this.fillUserToContextMiddleware,
+        ];
 
-        for (const middleware of this.handlers.middlewares) {
+        for (const middleware of middlewares) {
             middleware.setup(composer);
         }
 
@@ -162,9 +186,7 @@ export class Bot {
         return fluent;
     }
 
-    private async setupFilters(): Promise<void> {
-        const { filters } = this.handlers;
-
+    private async setupFilters(filters: Filter[]): Promise<void> {
         this.logger.debug("Setup filters...", { filters: filters.map((filter) => filter.constructor.name) });
 
         const composer = new Composer<Context>();
@@ -181,9 +203,11 @@ export class Bot {
     private async setupConversations(): Promise<void> {
         this.logger.debug("Setup conversations...");
 
+        const conversationHandlers = [this.startConversation];
+
         this.grammy.use(conversations());
 
-        for (const handler of this.handlers.conversations) {
+        for (const handler of conversationHandlers) {
             this.grammy.use(createConversation(handler.handle.bind(handler), handler.name));
         }
 
@@ -193,7 +217,8 @@ export class Bot {
     private async setupCommands(fluent: Fluent): Promise<void> {
         this.logger.debug("Setup commands...");
 
-        const { commands } = this.handlers;
+        const commands = [this.startCommand, this.bulkMessagesCommand, this.fontGeneratorCommand];
+
         const composer = new Composer<Context>();
 
         for (const command of commands) {

@@ -1,5 +1,5 @@
 import { AbstractLogger } from "app/platform/logger/abstract-logger";
-import { UnknownObject } from "app/shared/types";
+import type { UnknownObject } from "app/shared/types";
 import { Level } from "app/platform/logger/logger.types";
 import { injectable } from "inversify";
 import dayjs from "dayjs";

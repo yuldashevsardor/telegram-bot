@@ -1,12 +1,12 @@
 import { container } from "app/bootstrap/container/container";
 import { ApplicationContext } from "app/bootstrap/application/application-context";
-import { ConfigContainer } from "app/bootstrap/config-container";
-import { Logger } from "app/platform/logger/logger";
+import type { ConfigContainer } from "app/bootstrap/config-container";
+import type { Logger } from "app/platform/logger/logger";
 import { Tokens } from "app/shared/tokens";
-import { Database } from "app/platform/database/database";
-import { Runner } from "app/telegram/outbound-queue/runner";
-import { TaskQueue } from "app/telegram/outbound-queue/task-queue";
-import { Bot } from "app/telegram/bot";
+import type { Database } from "app/platform/database/database";
+import type { Runner } from "app/telegram/outbound-queue/runner";
+import type { TaskQueue } from "app/telegram/outbound-queue/task-queue";
+import type { Bot } from "app/telegram/bot";
 import { sleep, withTimeout } from "app/shared/utils";
 import { RuntimeError } from "app/shared/errors";
 

@@ -1,4 +1,4 @@
-import { Fluent, TranslationContext } from "@moebius/fluent";
+import type { Fluent, TranslationContext } from "@moebius/fluent";
 
 // Список локалей задан явно, а не выведен из найденных .ftl: локаль берётся из имени
 // файла, и опечатка в нём иначе молча завела бы бандл несуществующего языка, в который

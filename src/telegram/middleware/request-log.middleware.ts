@@ -1,9 +1,9 @@
 import { inject, injectable } from "inversify";
 import { Tokens } from "app/shared/tokens";
-import { Logger } from "app/platform/logger/logger";
-import { NextFunction } from "grammy";
+import type { Logger } from "app/platform/logger/logger";
+import type { NextFunction } from "grammy";
 import { Middleware } from "app/telegram/middleware/middleware";
-import { Context } from "app/telegram/bot.types";
+import type { Context } from "app/telegram/bot.types";
 
 @injectable()
 export class RequestLogMiddleware extends Middleware {

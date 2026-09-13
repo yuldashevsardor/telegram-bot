@@ -1,4 +1,4 @@
-import { Extension } from "app/font-convertor/font-convertor.types";
+import type { Extension } from "app/font-convertor/font-convertor.types";
 import { RuntimeError } from "app/shared/errors";
 
 export class ConvertorNotFound extends RuntimeError {

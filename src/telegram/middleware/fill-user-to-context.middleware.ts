@@ -1,12 +1,12 @@
 import { Middleware } from "app/telegram/middleware/middleware";
-import { NextFunction } from "grammy";
+import type { NextFunction } from "grammy";
 import { inject, injectable } from "inversify";
-import { UserService } from "app/telegram/user/user.service";
+import type { UserService } from "app/telegram/user/user.service";
 import { Tokens } from "app/shared/tokens";
-import { UserRepository } from "app/telegram/user/user.repository";
-import { User } from "app/telegram/user/user";
+import type { UserRepository } from "app/telegram/user/user.repository";
+import type { User } from "app/telegram/user/user";
 import dayjs from "dayjs";
-import { Context } from "app/telegram/bot.types";
+import type { Context } from "app/telegram/bot.types";
 import { UpdateWithoutFrom } from "app/telegram/bot.errors";
 
 @injectable()
