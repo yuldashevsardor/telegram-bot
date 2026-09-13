@@ -11,8 +11,8 @@ upsert `on conflict (id) do update`.
 сущность целиком из `ctx.from` (`FillUserToContextMiddleware`).
 
 Снимок строки таблицы — отдельный тип `UserRow` (`pgsql-user-repository.types.ts`):
-snake_case и `Date` вместо `Dayjs` — форма хранилища, а не словарь сущности, и знает её
-только адаптер.
+snake_case, `Date` вместо `Dayjs` и `id` строкой ([`storage.md`](./storage.md)) — форма
+хранилища, а не словарь сущности, и знает её только адаптер.
 
 `FillUserToContextMiddleware` на каждом апдейте: `existsById` → `edit` (с
 `lastActiveTime = now`) или `create` → `ctx.getUser()`. Проверка и действие не связаны
