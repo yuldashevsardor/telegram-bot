@@ -113,6 +113,13 @@ describe("SfntReader.readMetadata", function () {
                     forEachNameRecord(copy, (record): void => view.setUint16(record + 10, 0xffff));
                 }),
         ],
+        [
+            "is cut off in the middle of the name records",
+            // У обрезанного шрифта хранилище строк за концом файла, и проход по записям кончает
+            // уже конец файла. Не будь этой границы, недописанная восьмая запись читалась бы
+            // за концом DataView и уронила бы разбор RangeError.
+            (bytes): Uint8Array => bytes.subarray(0, tableOffset(bytes, "name") + 6 + 8 * NAME_RECORD_SIZE + 6),
+        ],
     ];
 
     for (const [what, damage] of namelessCases) {
@@ -126,9 +133,9 @@ describe("SfntReader.readMetadata", function () {
     }
 
     it("keeps the names found before the name records run past the end of the font", function () {
-        // Счётчик обещает записи за концом файла: без проверки их чтение упало бы RangeError
-        // из DataView. На первой такой записи кончается проход по записям, а найденное к
-        // этому моменту остаётся. У фикстуры это английские имена Windows, первого источника.
+        // Счётчик обещает записи за концом файла, но проход по ним кончается раньше: там, где
+        // начинается хранилище строк, у фикстуры сразу за двенадцатью настоящими записями.
+        // Найденное к этому моменту остаётся — английские имена Windows, первого источника.
         const name = tableOffset(ttf, "name");
 
         expect(name + 6 + 0xffff * NAME_RECORD_SIZE, "записи со счётчиком 0xffff умещаются в шрифт").to.be.greaterThan(ttf.length);
@@ -159,12 +166,12 @@ describe("SfntReader.readMetadata", function () {
         ],
     ];
 
-    for (const [what, rename] of laterPassCases) {
+    for (const [what, relabel] of laterPassCases) {
         it(`reads a font with ${what} when the name records run past the end of the font`, function () {
-            const named = rename(ttf);
+            const relabeled = relabel(ttf);
 
-            expect(envelopeNames(overcountNameRecords(named))).to.deep.equal(envelopeNames(named));
-            expect(envelopeNames(named)).to.deep.equal(["Roboto Black", "Black", "Version 1.0", "Roboto-Black"]);
+            expect(envelopeNames(overcountNameRecords(relabeled))).to.deep.equal(envelopeNames(relabeled));
+            expect(envelopeNames(relabeled)).to.deep.equal(["Roboto Black", "Black", "Version 1.0", "Roboto-Black"]);
         });
     }
 
