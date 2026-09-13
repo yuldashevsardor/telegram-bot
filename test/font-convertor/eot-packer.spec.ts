@@ -15,6 +15,7 @@ const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 const EOT_SIZE_OFFSET = 0;
 const EOT_FONT_DATA_SIZE_OFFSET = 4;
 const EOT_VERSION_OFFSET = 8;
+const EOT_FLAGS_OFFSET = 12;
 const EOT_ITALIC_OFFSET = 27;
 const EOT_FS_TYPE_OFFSET = 32;
 const EOT_HEADER_FIXED_SIZE = 82;
@@ -143,26 +144,36 @@ describe("EotPacker", function () {
         it("rejects an envelope with compressed font data", async function () {
             const compressed = Uint8Array.from(eot);
             // TTEMBED_TTCOMPRESSED во Flags: полезная нагрузка перестаёт быть сырым sfnt.
-            new DataView(compressed.buffer).setUint32(12, 0x00000004, true);
+            new DataView(compressed.buffer).setUint32(EOT_FLAGS_OFFSET, 0x00000004, true);
 
             await expectRejects(() => unpack(compressed), UnsupportedEotFlags);
         });
 
-        it("rejects an envelope whose font data is empty or does not fit behind the header", async function () {
-            // Размером во весь файл шрифт не помещается: место занимает заголовок.
-            for (const fontDataSize of [0, eot.length]) {
-                const resized = Uint8Array.from(eot);
-                new DataView(resized.buffer).setUint32(EOT_FONT_DATA_SIZE_OFFSET, fontDataSize, true);
+        it("rejects an envelope that declares no font data", async function () {
+            const empty = Uint8Array.from(eot);
+            new DataView(empty.buffer).setUint32(EOT_FONT_DATA_SIZE_OFFSET, 0, true);
 
-                await expectRejects(() => unpack(resized), InvalidEot);
-            }
+            await expectRejects(() => unpack(empty), InvalidEot);
+        });
+
+        it("rejects an envelope whose font data does not fit behind the fixed part of the header", async function () {
+            // Шрифт на байт длиннее места за фиксированной частью. Сверяется payload, а не
+            // только класс: такое начало шрифта отвергла бы и проверка перекрытия с именами,
+            // тоже InvalidEot, но со своим payload.
+            const oversized = Uint8Array.from(eot);
+            const fontDataSize = oversized.length - EOT_HEADER_FIXED_SIZE + 1;
+            new DataView(oversized.buffer).setUint32(EOT_FONT_DATA_SIZE_OFFSET, fontDataSize, true);
+
+            const error = await expectRejects(() => unpack(oversized), InvalidEot);
+
+            expect(error.payload).to.deep.equal({ fontDataSize: fontDataSize, length: oversized.length });
         });
 
         it("rejects an envelope whose name blocks run past the font data", async function () {
             const shifted = Uint8Array.from(eot);
             // Раздутое имя семейства съедает начало шрифта — так выглядит конверт,
             // собранный с ошибкой в раскладке заголовка.
-            new DataView(shifted.buffer).setUint16(82, 0x0400, true);
+            new DataView(shifted.buffer).setUint16(EOT_HEADER_FIXED_SIZE, 0x0400, true);
 
             await expectRejects(() => unpack(shifted), InvalidEot);
         });
@@ -188,12 +199,14 @@ describe("EotPacker", function () {
         });
     });
 
-    async function expectRejects(call: () => Promise<unknown>, expected: new (...params: never) => Error): Promise<void> {
+    async function expectRejects<T extends Error>(call: () => Promise<unknown>, expected: new (...params: never) => T): Promise<T> {
         try {
             await call();
             expect.fail(`call did not throw ${expected.name}`);
         } catch (error) {
             expect(error).to.be.instanceOf(expected);
+
+            return error as T;
         }
     }
 

@@ -125,9 +125,11 @@ describe("SfntReader.readMetadata", function () {
         });
     }
 
-    it("reads the names that fit when the name table declares more records than the font holds", function () {
+    it("keeps the names found before the name records run past the end of the font", function () {
         // Счётчик обещает записи за концом файла: без проверки их чтение упало бы RangeError
-        // из DataView. Имена из записей, которые в файле уместились, остаются в силе.
+        // из DataView. На первой такой записи разбор имён прекращается целиком, со всеми
+        // оставшимися источниками, — остаётся найденное к этому моменту. У фикстуры это
+        // английские имена Windows, первого источника.
         const name = tableOffset(ttf, "name");
         const overcounted = patch(ttf, (view) => view.setUint16(name + 2, 0xffff));
 
