@@ -166,14 +166,10 @@ grep -rHoE "app/<путь>/[A-Za-z0-9._-]+" src --include='*.ts' | grep -v "^src
 Импорты только через алиас `app/*` (`tsconfig.json` + `tsc-alias`), относительные
 запрещены ESLint-правилом `no-restricted-imports`. Исключение — каталог `migrations/`:
 он лежит вне `src/`, алиас туда не ведёт, и правило снято на весь каталог через
-`overrides` в `.eslintrc.js`. Тем же правилом закреплена независимость домена
-(`CLAUDE.md`, «Стиль»), и в его блоке запрет относительных перечислен заново: `overrides`
-заменяет конфигурацию правила целиком, а не дополняет общую.
+`overrides` в `.eslintrc.js`.
 
-Кроме пакетов в том же списке стоят свои каталоги `app/telegram/*`, `app/bootstrap/*` и
-`app/platform/*`: запрещённый пакет доходит до домена и через них. Открыт только порт
-`app/platform/logger/logger`. Независимость при этом не полная: `shared/config-value.ts`
-берёт конфигурацию у `ApplicationContext` ([`application.md`](./application.md)), и домен
-при загрузке дотягивается через него до `PinoLogger` и `pino`. Эта стрелка единственная, и
-запрет снят на её двух импортах `eslint-disable-next-line`, так что новый обход линтер
-поймает.
+Независимость домена (`CLAUDE.md`, «Стиль») линтер не проверяет. `font-convertor/` не
+импортирует ни `platform/`, ни `bootstrap/` напрямую, но независимость не полная:
+`shared/config-value.ts` берёт конфигурацию у `ApplicationContext`
+([`application.md`](./application.md)), то есть рантайм-зависимость от корня сборки в
+`shared/` одна и домен дотягивается через неё до `pino`.
