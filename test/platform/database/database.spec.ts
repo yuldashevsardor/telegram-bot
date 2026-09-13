@@ -91,7 +91,12 @@ describe("Database", function () {
     });
 
     it("keeps the failed query out of the enumerable fields in production", async function () {
-        expect(await failedQueryKeys(true)).to.not.include.members(["query", "parameters"]);
+        const keys = await failedQueryKeys(true);
+
+        // По одному полю: not.include.members значит «не надмножество» и прошёл бы, будь
+        // скрыто хотя бы одно из двух.
+        expect(keys).to.not.include("query");
+        expect(keys).to.not.include("parameters");
     });
 });
 
