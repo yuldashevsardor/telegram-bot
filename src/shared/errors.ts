@@ -1,4 +1,4 @@
-import { UnknownObject } from "app/shared/types";
+import type { UnknownObject } from "app/shared/types";
 
 export class RuntimeError extends Error {
     public override readonly message: string;

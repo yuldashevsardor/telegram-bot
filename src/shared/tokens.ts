@@ -4,68 +4,72 @@
 //
 // Строка внутри Symbol.for — глобальный ключ процесса: одинаковая строка в разных ветках
 // даст один и тот же символ, и второй bind под ним свалит резолв «Ambiguous match».
-// Поэтому ветки здесь только группируют имена, уникальность держат сами строки.
+// Поэтому строка — полный путь в словаре без разделителей: Tokens.Font.Envelope.Packer →
+// "FontEnvelopePacker". Путь уникален в объекте, значит, и строка: склейка совпадёт, только
+// если одно имя разбить на ветки двумя способами (Bot.UserService рядом с Bot.User.Service).
+// С таким правилом Symbol() ничего не добавил бы: второй загрузки словаря в процессе нет,
+// а уникальность строк уже держит путь. Сверку строки с путём делает test/shared/tokens.spec.ts.
 export const Tokens = {
     Bootstrap: {
-        ConfigContainer: Symbol.for("ConfigContainer"),
-        Logger: Symbol.for("Logger"),
-        RequestContext: Symbol.for("RequestContext"),
+        ConfigContainer: Symbol.for("BootstrapConfigContainer"),
+        Logger: Symbol.for("BootstrapLogger"),
+        RequestContext: Symbol.for("BootstrapRequestContext"),
     },
     Platform: {
-        Database: Symbol.for("Database"),
+        Database: Symbol.for("PlatformDatabase"),
     },
     // Ветки внутри Font названы понятиями предметной области (CONTEXT.md): «Сигнатура
     // формата», «Конверт», «Движок конвертации». Второй движок или второй кодек конверта
     // лягут рядом со своим понятием, и ни один @inject от этого не поедет.
     Font: {
         Convertor: {
-            Convertor: Symbol.for("FontConvertor"),
-            Factory: Symbol.for("ConvertorFactory"),
+            Convertor: Symbol.for("FontConvertorConvertor"),
+            Factory: Symbol.for("FontConvertorFactory"),
         },
         Signature: {
             Matcher: Symbol.for("FontSignatureMatcher"),
         },
         Envelope: {
-            Packer: Symbol.for("EotPacker"),
+            Packer: Symbol.for("FontEnvelopePacker"),
         },
         Engine: {
-            FontForge: Symbol.for("FontForge"),
+            FontForge: Symbol.for("FontEngineFontForge"),
         },
     },
     Bot: {
-        Bot: Symbol.for("Bot"),
+        Bot: Symbol.for("BotBot"),
         OutboundQueue: {
-            TaskQueue: Symbol.for("TaskQueue"),
-            LimitResolver: Symbol.for("LimitResolver"),
-            Runner: Symbol.for("Runner"),
+            TaskQueue: Symbol.for("BotOutboundQueueTaskQueue"),
+            LimitResolver: Symbol.for("BotOutboundQueueLimitResolver"),
+            Runner: Symbol.for("BotOutboundQueueRunner"),
         },
         User: {
-            Service: Symbol.for("UserService"),
-            Repository: Symbol.for("UserRepository"),
+            Service: Symbol.for("BotUserService"),
+            Repository: Symbol.for("BotUserRepository"),
         },
         Command: {
-            Start: Symbol.for("Start"),
-            BulkMessages: Symbol.for("BulkMessages"),
-            FontGenerator: Symbol.for("FontGenerator"),
+            Start: Symbol.for("BotCommandStart"),
+            BulkMessages: Symbol.for("BotCommandBulkMessages"),
+            FontGenerator: Symbol.for("BotCommandFontGenerator"),
         },
         Filter: {
-            HasSessionKey: Symbol.for("HasSessionKey"),
-            IsPrivateChat: Symbol.for("IsPrivateChat"),
+            HasSessionKey: Symbol.for("BotFilterHasSessionKey"),
+            IsPrivateChat: Symbol.for("BotFilterIsPrivateChat"),
         },
         Middleware: {
             Mutation: {
-                TelegramCallApi: Symbol.for("TelegramCallApi"),
+                TelegramCallApi: Symbol.for("BotMiddlewareMutationTelegramCallApi"),
             },
-            RequestContext: Symbol.for("RequestContextMiddleware"),
-            ResponseTime: Symbol.for("ResponseTime"),
-            RequestLog: Symbol.for("RequestLog"),
-            FillUserToContext: Symbol.for("FillUserToContext"),
+            RequestContext: Symbol.for("BotMiddlewareRequestContext"),
+            ResponseTime: Symbol.for("BotMiddlewareResponseTime"),
+            RequestLog: Symbol.for("BotMiddlewareRequestLog"),
+            FillUserToContext: Symbol.for("BotMiddlewareFillUserToContext"),
         },
         Conversations: {
-            Start: Symbol.for("StartConversation"),
+            Start: Symbol.for("BotConversationsStart"),
         },
         Session: {
-            Storage: Symbol.for("SessionStorage"),
+            Storage: Symbol.for("BotSessionStorage"),
         },
     },
 };

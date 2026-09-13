@@ -1,4 +1,5 @@
-import { ColumnDefinitions, PgLiteral } from "node-pg-migrate";
+import type { ColumnDefinitions } from "node-pg-migrate";
+import { PgLiteral } from "node-pg-migrate";
 
 export const commonShorthands: ColumnDefinitions = {
     timestampWithTimeZoneNotNullDefaultNow: {

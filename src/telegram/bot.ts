@@ -1,24 +1,27 @@
-import { Bot as TelegramBot, Composer, session, StorageAdapter } from "grammy";
+import type { StorageAdapter } from "grammy";
+import { Bot as TelegramBot, Composer, session } from "grammy";
 import { inject, injectable } from "inversify";
 import { Tokens } from "app/shared/tokens";
 import { configValue } from "app/shared/config-value";
 import { container } from "app/bootstrap/container/container";
-import { Command } from "app/telegram/command/command";
-import { Middleware } from "app/telegram/middleware/middleware";
-import { BotSettings, Context } from "app/telegram/bot.types";
-import { Logger } from "app/platform/logger/logger";
-import { FetchOptions, run, RunnerHandle, sequentialize } from "@grammyjs/runner";
+import type { Command } from "app/telegram/command/command";
+import type { Middleware } from "app/telegram/middleware/middleware";
+import type { BotSettings, Context } from "app/telegram/bot.types";
+import type { Logger } from "app/platform/logger/logger";
+import type { FetchOptions, RunnerHandle } from "@grammyjs/runner";
+import { run, sequentialize } from "@grammyjs/runner";
 import { getSessionKey, initialPayload } from "app/telegram/session/session.helper";
-import { SessionPayload } from "app/telegram/session/session.types";
-import { ConversationHandler } from "app/telegram/conversation/conversation-handler";
+import type { SessionPayload } from "app/telegram/session/session.types";
+import type { ConversationHandler } from "app/telegram/conversation/conversation-handler";
 import { conversations, createConversation } from "@grammyjs/conversations";
-import { Filter } from "app/telegram/filter/filter";
+import type { Filter } from "app/telegram/filter/filter";
 import { withTimeout } from "app/shared/utils";
 import { InvalidConfigError, RuntimeError } from "app/shared/errors";
-import { Fluent } from "@moebius/fluent";
-import { BotCommand } from "grammy/types";
+import type { Fluent } from "@moebius/fluent";
+import type { BotCommand } from "grammy/types";
 import { createFluent, createFluentMiddleware } from "app/telegram/locale";
-import { DEFAULT_LOCALE, Locale, LOCALES } from "app/telegram/locale.types";
+import type { Locale } from "app/telegram/locale.types";
+import { DEFAULT_LOCALE, LOCALES } from "app/telegram/locale.types";
 
 // Умолчание getUpdates — все типы, кроме chat_member и реакций. Бот же обслуживает
 // только команды и ожидание conversation в приватных чатах, то есть один message:

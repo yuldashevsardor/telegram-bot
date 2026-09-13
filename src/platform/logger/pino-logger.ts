@@ -1,10 +1,11 @@
 import { AbstractLogger } from "app/platform/logger/abstract-logger";
-import { UnknownObject } from "app/shared/types";
-import { Logger, LoggerOptions, pino } from "pino";
+import type { UnknownObject } from "app/shared/types";
+import type { Logger, LoggerOptions } from "pino";
+import { pino } from "pino";
 import { Level, LevelSeverity } from "app/platform/logger/logger.types";
 import { injectable } from "inversify";
 import { serializeError } from "serialize-error";
-import { RequestContext } from "app/platform/request-context/request-context";
+import type { RequestContext } from "app/platform/request-context/request-context";
 
 type PinoLevel = Lowercase<Level>;
 

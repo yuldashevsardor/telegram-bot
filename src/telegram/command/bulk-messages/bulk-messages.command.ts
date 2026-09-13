@@ -3,12 +3,12 @@ import { inject, injectable } from "inversify";
 import { StringHelper } from "app/shared/string/string-helper";
 import { container } from "app/bootstrap/container/container";
 import { Tokens } from "app/shared/tokens";
-import { Bot } from "app/telegram/bot";
-import { TaskQueue } from "app/telegram/outbound-queue/task-queue";
-import { Context } from "app/telegram/bot.types";
+import type { Bot } from "app/telegram/bot";
+import type { TaskQueue } from "app/telegram/outbound-queue/task-queue";
+import type { Context } from "app/telegram/bot.types";
 import { Priority } from "app/telegram/outbound-queue/task";
 import { FileHelper } from "app/shared/fs/file-helper";
-import { Logger } from "app/platform/logger/logger";
+import type { Logger } from "app/platform/logger/logger";
 
 @injectable()
 export class BulkMessagesCommand extends Command {

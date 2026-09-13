@@ -1,9 +1,9 @@
 import "reflect-metadata";
 import { expect } from "chai";
-import { Context, Conversation } from "app/telegram/bot.types";
+import type { Context, Conversation } from "app/telegram/bot.types";
 import { StartConversation } from "app/telegram/conversation/start/start.conversation";
 import { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory";
-import { FontForge } from "app/font-convertor/font-forge/font-forge";
+import type { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher";
 import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 

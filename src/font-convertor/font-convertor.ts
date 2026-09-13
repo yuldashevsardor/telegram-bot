@@ -2,10 +2,10 @@ import path from "path";
 import { InvalidPath, PermissionDenied } from "app/shared/fs/file-helper.errors";
 import { inject, injectable } from "inversify";
 import { FileHelper } from "app/shared/fs/file-helper";
-import { ConvertParams, Extension } from "app/font-convertor/font-convertor.types";
+import type { ConvertParams, Extension } from "app/font-convertor/font-convertor.types";
 import { FontConvertorError } from "app/font-convertor/font-convertor.errors";
 import { StringHelper } from "app/shared/string/string-helper";
-import { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory";
+import type { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory";
 import { Tokens } from "app/shared/tokens";
 import { configValue } from "app/shared/config-value";
 

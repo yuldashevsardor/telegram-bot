@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "async_hooks";
 import { v4 as uuid } from "uuid";
-import { REQUEST_KEYS, RequestStore } from "app/platform/request-context/request-context.types";
+import type { RequestStore } from "app/platform/request-context/request-context.types";
+import { REQUEST_KEYS } from "app/platform/request-context/request-context.types";
 
 // Значения текущего апдейта и область, в которой они живут. AsyncLocalStorage — деталь
 // реализации и наружу не отдаётся: вызывающему хватает операций над областью, а форму

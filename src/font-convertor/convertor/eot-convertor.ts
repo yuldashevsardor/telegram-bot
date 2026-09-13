@@ -1,7 +1,7 @@
 import { Convertor } from "app/font-convertor/convertor/convertor";
-import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
-import { FontForge } from "app/font-convertor/font-forge/font-forge";
-import { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher";
+import type { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
+import type { FontForge } from "app/font-convertor/font-forge/font-forge";
+import type { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher";
 
 /**
  * Пара, которой хватает одного кодека: исходник и результат отличаются только конвертом.

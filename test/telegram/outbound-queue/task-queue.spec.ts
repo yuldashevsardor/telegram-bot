@@ -1,8 +1,9 @@
 import { expect } from "chai";
-import { Limit } from "app/telegram/outbound-queue/rate-limit.types";
-import { LimitResolver } from "app/telegram/outbound-queue/limit-resolver";
-import { Logger } from "app/platform/logger/logger";
-import { PartitionKey, Priority, Task } from "app/telegram/outbound-queue/task";
+import type { Limit } from "app/telegram/outbound-queue/rate-limit.types";
+import type { LimitResolver } from "app/telegram/outbound-queue/limit-resolver";
+import type { Logger } from "app/platform/logger/logger";
+import type { PartitionKey, Task } from "app/telegram/outbound-queue/task";
+import { Priority } from "app/telegram/outbound-queue/task";
 import { TaskQueue } from "app/telegram/outbound-queue/task-queue";
 
 // Лимиты берутся маленькими, чтобы прогон не упирался в остывание: общий слот освобождается за

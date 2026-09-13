@@ -2,7 +2,7 @@ import { injectable } from "inversify";
 import { FileHelper } from "app/shared/fs/file-helper";
 import { InvalidEot, UnsupportedEotFlags } from "app/font-convertor/eot-packer/eot-packer.errors";
 import { SfntReader } from "app/font-convertor/eot-packer/sfnt-reader";
-import { SfntMetadata } from "app/font-convertor/eot-packer/sfnt-reader.types";
+import type { SfntMetadata } from "app/font-convertor/eot-packer/sfnt-reader.types";
 
 // EOT — не самостоятельный формат обводок, а конверт: заголовок с метаданными и следом
 // нетронутые байты sfnt. Поэтому пара с EOT идёт мимо движка: он этот конверт не читает,

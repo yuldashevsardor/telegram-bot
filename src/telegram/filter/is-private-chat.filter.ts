@@ -1,6 +1,6 @@
 import { injectable } from "inversify";
-import { Chat } from "@grammyjs/types";
-import { Context } from "app/telegram/bot.types";
+import type { Chat } from "@grammyjs/types";
+import type { Context } from "app/telegram/bot.types";
 import { Filter } from "app/telegram/filter/filter";
 
 @injectable()

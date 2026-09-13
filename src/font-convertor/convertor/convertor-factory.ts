@@ -1,13 +1,13 @@
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { ConvertorNotFound } from "app/font-convertor/font-convertor.errors";
 import { WoffToEot } from "app/font-convertor/convertor/woff/woff-to-eot";
-import { Convertor } from "app/font-convertor/convertor/convertor";
+import type { Convertor } from "app/font-convertor/convertor/convertor";
 import { WoffToOtf } from "app/font-convertor/convertor/woff/woff-to-otf";
 import { WoffToTtf } from "app/font-convertor/convertor/woff/woff-to-ttf";
 import { WoffToWoff2 } from "app/font-convertor/convertor/woff/woff-to-woff2";
 import { Woff2ToEot } from "app/font-convertor/convertor/woff2/woff2-to-eot";
 import { inject, injectable } from "inversify";
-import { FontForge } from "app/font-convertor/font-forge/font-forge";
+import type { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { Tokens } from "app/shared/tokens";
 import { EotToWoff2 } from "app/font-convertor/convertor/eot/eot-to-woff2";
 import { EotToWoff } from "app/font-convertor/convertor/eot/eot-to-woff";
@@ -34,8 +34,8 @@ import { Woff2ToSvg } from "app/font-convertor/convertor/woff2/woff2-to-svg";
 import { TtfToSvg } from "app/font-convertor/convertor/ttf/ttf-to-svg";
 import { OtfToSvg } from "app/font-convertor/convertor/otf/otf-to-svg";
 import { EotToSvg } from "app/font-convertor/convertor/eot/eot-to-svg";
-import { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher";
-import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
+import type { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher";
+import type { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 
 type ConvertorConstructor = new (fontForge: FontForge, fontSignatureMatcher: FontSignatureMatcher, eotPacker: EotPacker) => Convertor;
 

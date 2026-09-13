@@ -1,6 +1,6 @@
 import postgres from "postgres";
 import { injectable } from "inversify";
-import { DatabaseSettings } from "app/platform/database/database.types";
+import type { DatabaseSettings } from "app/platform/database/database.types";
 import { configValue } from "app/shared/config-value";
 
 const CLOSE_TIMEOUT_SECONDS = 5;
