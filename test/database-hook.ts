@@ -50,12 +50,21 @@ function connectAsSuperuser(): Sql {
 }
 
 async function createDatabase(name: string): Promise<void> {
+    // До try: пропущенная переменная должна упасть своей ошибкой, а не под обёрткой ниже.
+    const owner = env("DATABASE_USER_NAME");
     const sql = connectAsSuperuser();
 
     try {
-        await sql`create database ${sql(name)} with owner ${sql(env("DATABASE_USER_NAME"))}`;
+        await sql`create database ${sql(name)} with owner ${sql(owner)}`;
     } catch (error) {
-        throw new RuntimeError("Could not create the test database: is PostgreSQL up (make db-up)?", { cause: error });
+        // Отказ бывает не только по связи (пароль, роль), поэтому причина — в cause, а
+        // подсказка про make db-up условная.
+        throw new RuntimeError(
+            "Could not create the test database, see the cause; if PostgreSQL is unreachable, start it with make db-up",
+            {
+                cause: error,
+            },
+        );
     } finally {
         await sql.end();
     }
