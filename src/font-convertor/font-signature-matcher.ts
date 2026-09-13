@@ -89,15 +89,13 @@ export class FontSignatureMatcher {
         return this.signaturesByExtension[extension].some((signature) => {
             const start = this.prefixLength(head, signature.prefix) + signature.offset;
 
-            if (start + signature.bytes.length > head.length) {
-                return false;
-            }
-
             return signature.bytes.every((byte, index) => this.matchesByte(head[start + index], byte));
         });
     }
 
     private matchesByte(byte: number | undefined, expected: SignatureByte): boolean {
+        // Байта нет — файл короче сигнатуры. Эта ветка и есть проверка длины: отдельная
+        // проверка в `matches` сделала бы её недостижимой.
         if (byte === undefined) {
             return false;
         }
