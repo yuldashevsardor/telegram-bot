@@ -12,8 +12,7 @@
   проверяет, это делает `npm run typecheck` по тому же `tsconfig.check.json`. Миграции
   идут мимо `tsx`, их грузит своим jiti `node-pg-migrate` ([`storage.md`](./storage.md)).
 - Что покрыто — видно по дереву `test/` и отчёту `make coverage`; как он считается и что
-  в него не входит — раздел «Покрытие» ниже. Без автотестов остаются `Runner` (в том числе путь бана и
-  повтора, [`outbound-queue.md`](./outbound-queue.md)), `FontConvertor`, пары без EOT,
+  в него не входит — раздел «Покрытие» ниже. Без автотестов остаются `FontConvertor`, пары без EOT,
   `Application` и `Bot`.
 - Шрифты для тестов — `test/fixtures/fonts`; происхождение и способ пересборки описаны в
   `test/fixtures/fonts/README.md`.

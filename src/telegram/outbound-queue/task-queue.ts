@@ -41,6 +41,7 @@ export class TaskQueue {
         @inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger,
         @inject<LimitResolver>(Tokens.Bot.OutboundQueue.LimitResolver) private readonly limitResolver: LimitResolver,
         commonLimitSettings: Limit = configValue("limits.common"),
+        private readonly logInterval: number = configValue("taskQueue.logInterval"),
     ) {
         this.partitions = new Map<PartitionKey, Partition>();
         this.keysByPriority = {
@@ -126,21 +127,14 @@ export class TaskQueue {
         const keys = this.keysByPriority[priority];
 
         for (const key of keys) {
-            const partition = this.partitions.get(key);
-
-            if (!partition) {
-                keys.delete(key);
-                continue;
-            }
-
-            if (!partition.isFree()) {
-                continue;
-            }
-
+            // Ключ лежит в наборе, только пока у его партиции есть задачи этого приоритета: push()
+            // кладёт его вместе с задачей, выемка ниже убирает, когда корзина опустела, а forgetKey()
+            // снимает отовсюду вместе с партицией. Поэтому null из take() значит одно — лимит ключа
+            // ещё не остыл.
+            const partition = this.partitions.get(key) as Partition;
             const task = partition.take(priority);
 
             if (!task) {
-                keys.delete(key);
                 continue;
             }
 
@@ -180,19 +174,9 @@ export class TaskQueue {
                 break;
             }
 
-            const partition = this.partitions.get(key);
-
-            if (!partition) {
-                this.idleKeys.delete(key);
-                removed++;
-                continue;
-            }
-
-            if (!partition.isEmpty()) {
-                this.idleKeys.delete(key);
-                removed++;
-                continue;
-            }
+            // В idleKeys ключ попадает с опустевшей партицией, а push() и forgetKey() его оттуда
+            // снимают, поэтому партиция здесь есть и пуста — ждать осталось только остывания.
+            const partition = this.partitions.get(key) as Partition;
 
             if (!partition.isFree()) {
                 break;
@@ -218,7 +202,7 @@ export class TaskQueue {
     private logTaskCount(): void {
         setInterval(() => {
             this.logger.info(`Number of tasks in the queue: ${this.taskCount}. Number of partitions: ${this.getPartitionCount()}`);
-        }, 10000).unref();
+        }, this.logInterval).unref();
     }
 
     private logBanExpires(): void {
@@ -226,6 +210,6 @@ export class TaskQueue {
             if (this.banExpirationTime && this.isBanned()) {
                 this.logger.info(`Ban expires in ${Math.floor((this.banExpirationTime - Date.now()) / 1000)} second.`);
             }
-        }, 10000).unref();
+        }, this.logInterval).unref();
     }
 }

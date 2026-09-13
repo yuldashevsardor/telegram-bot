@@ -30,6 +30,7 @@
 | `BOT_GRACEFUL_SHUTDOWN_TIMEOUT` | остановка runner'а бота (3000) |
 | `TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT` | разгрузка очереди (5000), `0` — не ждать |
 | `TASK_QUEUE_GRACEFUL_SHUTDOWN_INTERVAL` | шаг опроса очереди (500), больше нуля |
+| `TASK_QUEUE_LOG_INTERVAL` | период info-лога `TaskQueue`: число задач и партиций, а во время паузы после 429 — её остаток (10000), больше нуля |
 | `LOGGER_LEVEL` | порог логирования |
 | `DATABASE_HOST/PORT/NAME/USER_NAME/USER_PASSWORD` | подключение; внутри compose host/port задаёт `docker-compose.app.yml` |
 | `DATABASE_CONNECTION_LIMIT/IDLE_TIMEOUT/MAX_LIFETIME` | пул (10, 10 с, 600 с) |
