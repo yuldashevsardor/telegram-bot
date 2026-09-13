@@ -13,10 +13,12 @@ module.exports = {
         "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
         "@typescript-eslint/no-empty-function": "off",
         // Отдельная строка `import type`, а не инлайн `import { type X }`: по строке импорта
-        // видно, нужен ли модуль в рантайме. no-import-type-side-effects сворачивает
-        // импорт из одних инлайн-типов в ту же форму.
+        // видно, нужен ли модуль в рантайме. consistent-type-imports ловит тип, ввезённый
+        // как значение, но инлайн-`type` считает законной пометкой — форму держит
+        // consistent-type-specifier-style. Он же покрывает импорт из одних инлайн-типов,
+        // поэтому @typescript-eslint/no-import-type-side-effects не включён: был бы дублем.
         "@typescript-eslint/consistent-type-imports": ["error", { fixStyle: "separate-type-imports" }],
-        "@typescript-eslint/no-import-type-side-effects": "error",
+        "import/consistent-type-specifier-style": ["error", "prefer-top-level"],
 
         // Наружу пишет только Logger: console.* минует уровень, requestId и порог
         // LOGGER_LEVEL, а на проде — структурный поток pino. Исключения — адаптер
