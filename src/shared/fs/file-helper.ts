@@ -6,8 +6,16 @@ import { InvalidExtensions, InvalidPath, PermissionDenied, ReadFailed, RemoveFai
 import glob from "tiny-glob";
 
 export class FileHelper {
-    public static isExist(path: string): Promise<boolean> {
-        return FileHelper.isReadable(path);
+    // F_OK, а не R_OK: вызывающие проверяют чтение отдельно, следом, и с R_OK существующий
+    // нечитаемый путь получал бы «не существует» вместо отказа в доступе.
+    public static async isExist(path: string): Promise<boolean> {
+        try {
+            await fs.access(path, fsSync.constants.F_OK);
+
+            return true;
+        } catch {
+            return false;
+        }
     }
 
     public static async isReadable(path: string): Promise<boolean> {
