@@ -29,15 +29,21 @@ async function withMode(target: string, mode: number, check: () => Promise<void>
     }
 }
 
+// Вызов, который не бросил, падает сообщением «call did not throw»: брошенный внутри try,
+// AssertionError поймал бы собственный catch, и отказ читался бы как ошибка не того класса.
+function rejectionOf(call: () => Promise<unknown>): Promise<unknown> {
+    return call().then(
+        () => expect.fail("call did not throw"),
+        (error: unknown) => error,
+    );
+}
+
 async function expectRejection(call: () => Promise<unknown>, expected: RuntimeError): Promise<void> {
-    try {
-        await call();
-        expect.fail(`call did not throw ${expected.constructor.name}`);
-    } catch (error) {
-        expect(error).to.be.instanceOf(expected.constructor);
-        expect((error as RuntimeError).message).to.equal(expected.message);
-        expect((error as RuntimeError).payload).to.deep.equal(expected.payload);
-    }
+    const error = await rejectionOf(call);
+
+    expect(error).to.be.instanceOf(expected.constructor);
+    expect((error as RuntimeError).message).to.equal(expected.message);
+    expect((error as RuntimeError).payload).to.deep.equal(expected.payload);
 }
 
 describe("FileHelper.isExist", function () {
@@ -174,14 +180,11 @@ describe("FileHelper.readHead", function () {
 
     it("wraps an error that comes after the file was opened", async function () {
         // Каталог открывается на чтение, а падает уже само чтение (EISDIR).
-        try {
-            await FileHelper.readHead(basePath, 4);
-            expect.fail("readHead did not throw");
-        } catch (error) {
-            expect(error).to.be.instanceOf(ReadFailed);
-            expect((error as ReadFailed).payload).to.deep.equal({ path: basePath });
-            expect((error as ReadFailed).cause).to.be.instanceOf(Error);
-        }
+        const error = await rejectionOf(() => FileHelper.readHead(basePath, 4));
+
+        expect(error).to.be.instanceOf(ReadFailed);
+        expect((error as ReadFailed).payload).to.deep.equal({ path: basePath });
+        expect((error as ReadFailed).cause).to.be.instanceOf(Error);
     });
 });
 
