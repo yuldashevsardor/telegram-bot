@@ -29,6 +29,9 @@ export type TelegramLimits = {
 };
 
 export class ConfigContainer {
+    // Наибольшая задержка таймеров Node: знаковое 32-битное целое.
+    private static readonly MAX_TIMER_DELAY = 2 ** 31 - 1;
+
     public readonly environment: Environment;
     public readonly isProduction: boolean;
 
@@ -167,13 +170,14 @@ export class ConfigContainer {
         }
     }
 
-    // Журналы очереди идут через setInterval, а тот период меньше 1 мс молча превращает в 1 мс:
-    // info-лог писался бы на каждом витке событийного цикла.
+    // Журналы очереди идут через setInterval, а тот период меньше 1 мс или больше 2^31 - 1 мс
+    // превращает в 1 мс (на переполнении — лишь с предупреждением): info-лог писался бы на каждом
+    // витке событийного цикла. Большое значение, взятое, чтобы журнал «выключить», дало бы ровно это.
     private checkTaskQueue(): void {
         const { logInterval } = this.taskQueue;
 
-        if (logInterval <= 0) {
-            throw new InvalidConfigError("TASK_QUEUE_LOG_INTERVAL must be greater than zero", {
+        if (logInterval <= 0 || logInterval > ConfigContainer.MAX_TIMER_DELAY) {
+            throw new InvalidConfigError(`TASK_QUEUE_LOG_INTERVAL must be between 1 and ${ConfigContainer.MAX_TIMER_DELAY}`, {
                 got: logInterval,
             });
         }

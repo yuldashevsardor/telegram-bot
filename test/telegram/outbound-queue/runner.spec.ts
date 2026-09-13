@@ -21,6 +21,10 @@ const settings: RunnerSettings = {
 
 const DROPPED = "Task is dropped: retry limit is reached.";
 
+// Срок ожидания короче таймаута теста: невыполнимое условие иначе крутило бы цикл опроса и после
+// упавшего теста, и mocha без --exit не завершился бы.
+const waitLimit = 1000;
+
 type LogRecord = {
     message: string;
     payload: UnknownObject | undefined;
@@ -279,7 +283,13 @@ function tooManyRequests(parameters?: UnknownObject): UnknownObject {
 }
 
 async function waitFor(condition: () => boolean): Promise<void> {
+    const deadline = Date.now() + waitLimit;
+
     while (!condition()) {
+        if (Date.now() > deadline) {
+            expect.fail(`the condition is not met within ${waitLimit} ms`);
+        }
+
         await delay(1);
     }
 }

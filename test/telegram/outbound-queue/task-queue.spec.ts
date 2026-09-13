@@ -22,6 +22,10 @@ const frozenKeyLimit: Limit = { number: 1, interval: 60 * 1000 };
 const silentLogInterval = 60 * 1000;
 const logInterval = 10;
 
+// Срок ожидания короче таймаута теста: невыполнимое условие иначе крутило бы цикл опроса и после
+// упавшего теста, и mocha без --exit не завершился бы.
+const waitLimit = 1000;
+
 describe("TaskQueue", function () {
     this.timeout(2000);
 
@@ -46,7 +50,7 @@ describe("TaskQueue", function () {
     });
 
     it("skips a key whose limit has not cooled down", async function () {
-        const queue = build({ keyLimit: frozenKeyLimit });
+        const queue = build({ keyLimit: () => frozenKeyLimit });
         queue.push(task(111, "a-high"), Priority.HIGH);
         queue.push(task(111, "a-medium"), Priority.MEDIUM);
         queue.push(task(222, "b-medium"), Priority.MEDIUM);
@@ -72,7 +76,7 @@ describe("TaskQueue", function () {
     });
 
     it("keeps the key limit while the partition cools down", async function () {
-        const queue = build({ keyLimit: frozenKeyLimit });
+        const queue = build({ keyLimit: () => frozenKeyLimit });
         queue.push(task(111, "a1"), Priority.MEDIUM);
         queue.push(task(111, "a2"), Priority.MEDIUM);
 
@@ -109,24 +113,26 @@ describe("TaskQueue", function () {
     });
 
     it("forgets at most a hundred idle partitions per pull", async function () {
-        // Остывание дольше, чем очередь отдаёт 101 задачу под общим лимитом: иначе ранние партиции
-        // снимались бы по ходу выдачи, и до одного вызова с сотней не дошло бы.
-        const idleKeyLimit: Limit = { number: 1, interval: 500 };
-        const queue = build({ keyLimit: idleKeyLimit });
+        // Голову idleKeys держит ключ, который не остывает: пока он там, уборка упирается в него, и
+        // остывшие партиции копятся за ним сколько бы ни длилась выдача. Новая задача снимает его из
+        // idleKeys, и следующий pull() упирается уже в потолок.
+        const blocker = "blocker";
+        const queue = build({ keyLimit: (key) => (key === blocker ? frozenKeyLimit : keyLimit) });
+        queue.push(task(blocker, "first"), Priority.MEDIUM);
 
         for (let key = 1; key <= 101; key++) {
             queue.push(task(key, "only"), Priority.MEDIUM);
         }
 
         await drain(queue);
-        expect(queue.getPartitionCount()).to.equal(101);
-        await delay(idleKeyLimit.interval + 5);
+        await delay(keyCooldown + 5);
+        queue.push(task(blocker, "second"), Priority.MEDIUM);
+
+        queue.pull();
+        expect(queue.getPartitionCount()).to.equal(2);
 
         queue.pull();
         expect(queue.getPartitionCount()).to.equal(1);
-
-        queue.pull();
-        expect(queue.getPartitionCount()).to.equal(0);
     });
 
     it("gives out nothing while the ban lasts", function () {
@@ -200,14 +206,14 @@ class RecordingLogger implements Logger {
 }
 
 type BuildOptions = {
-    keyLimit?: Limit;
+    keyLimit?: (key: PartitionKey) => Limit;
     logger?: Logger;
     logInterval?: number;
 };
 
 function build(options: BuildOptions = {}): TaskQueue {
     const limitResolver: LimitResolver = {
-        resolve: () => options.keyLimit ?? keyLimit,
+        resolve: (task) => (options.keyLimit ? options.keyLimit(task.key) : keyLimit),
     };
 
     return new TaskQueue(options.logger ?? new RecordingLogger(), limitResolver, commonLimit, options.logInterval ?? silentLogInterval);
@@ -224,8 +230,13 @@ function task(key: PartitionKey, name: string): Task {
 // Забирает из очереди всё, дожидаясь остывания лимитов, и возвращает задачи в порядке выдачи.
 async function drain(queue: TaskQueue): Promise<Task[]> {
     const tasks: Task[] = [];
+    const deadline = Date.now() + waitLimit;
 
     while (!queue.isEmpty()) {
+        if (Date.now() > deadline) {
+            expect.fail(`the queue is not drained within ${waitLimit} ms`);
+        }
+
         const pulled = queue.pull();
 
         if (pulled) {
@@ -253,7 +264,13 @@ function isBanLog(message: string): boolean {
 }
 
 async function waitFor(condition: () => boolean): Promise<void> {
+    const deadline = Date.now() + waitLimit;
+
     while (!condition()) {
+        if (Date.now() > deadline) {
+            expect.fail(`the condition is not met within ${waitLimit} ms`);
+        }
+
         await delay(1);
     }
 }

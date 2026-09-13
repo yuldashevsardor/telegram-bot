@@ -81,9 +81,14 @@ describe("ConfigContainer", () => {
         expect(() => config({ TASK_QUEUE_GRACEFUL_SHUTDOWN_INTERVAL: "-100" })).to.throw(InvalidConfigError);
     });
 
-    it("rejects a non-positive task queue log interval", () => {
+    it("rejects a task queue log interval that a timer would turn into 1 ms", () => {
         expect(() => config({ TASK_QUEUE_LOG_INTERVAL: "0" })).to.throw(InvalidConfigError);
         expect(() => config({ TASK_QUEUE_LOG_INTERVAL: "-100" })).to.throw(InvalidConfigError);
+        expect(() => config({ TASK_QUEUE_LOG_INTERVAL: "2147483648" })).to.throw(InvalidConfigError);
+    });
+
+    it("accepts the longest task queue log interval a timer can hold", () => {
+        expect(config({ TASK_QUEUE_LOG_INTERVAL: "2147483647" }).taskQueue.logInterval).to.equal(2147483647);
     });
 
     it("rejects a non-positive runner sleep interval minimum", () => {
