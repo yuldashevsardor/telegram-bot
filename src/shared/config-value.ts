@@ -1,8 +1,14 @@
 // Конфигурация берётся у ApplicationContext, а не из DI-контейнера: она существует до
 // контейнера, поэтому спрашивать её у контейнера незачем. Так же снимается цикл импорта,
 // который держал прежний @ConfigValue, ходивший за ней в модульный синглтон container.
+// Это единственная стрелка shared/ → bootstrap/: через неё домен при загрузке дотягивается
+// до PinoLogger и pino. Запрет снят только на этих двух строках, чтобы новый обход линтер
+// поймал. Если домену понадобится грузиться без корня сборки, зависимость разворачивается:
+// конфигурацию кладёт в ячейку shared/ сам ApplicationContext.create().
+// eslint-disable-next-line no-restricted-imports -- доступ к конфигурации, см. выше
 import { ApplicationContext } from "app/bootstrap/application/application-context";
 // Только тип: импорт стирается при сборке.
+// eslint-disable-next-line no-restricted-imports -- без типа не проверить путь в configValue
 import type { ConfigContainer } from "app/bootstrap/config-container";
 import type { UnknownObject } from "app/shared/types";
 import { InvalidConfigError } from "app/shared/errors";

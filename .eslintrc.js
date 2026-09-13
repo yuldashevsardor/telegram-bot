@@ -71,12 +71,33 @@ module.exports = {
             // не дополняет общую, и без ".*" внутри домена они снова стали бы разрешены.
             // shared/ в заборе потому, что домен импортирует из него ошибки, FileHelper,
             // ProcessHelper и configValue: запрещённый пакет там дошёл бы до домена транзитивно.
+            // По той же причине запрещены свои каталоги, через которые пакеты доходят
+            // (bootstrap/ собирает PinoLogger). Стрелка в bootstrap/ одна — config-value.ts,
+            // она снята в самом файле с причиной, и домен через неё по-прежнему грузит pino.
+            // Порт Logger открыт, чтобы домен мог логировать. Каталог logger/ открывается и
+            // закрывается заново: шаблоны сопоставляются по правилам gitignore, и файл внутри
+            // запрещённого каталога одним отрицанием обратно не включить.
             files: ["src/font-convertor/**/*.ts", "src/shared/**/*.ts"],
             rules: {
                 "no-restricted-imports": [
                     "error",
                     {
-                        patterns: [".*", "grammy", "grammy/*", "@grammyjs/*", "@moebius/*", "postgres", "pg", "pino"],
+                        patterns: [
+                            ".*",
+                            "grammy",
+                            "grammy/*",
+                            "@grammyjs/*",
+                            "@moebius/*",
+                            "postgres",
+                            "pg",
+                            "pino",
+                            "app/telegram/*",
+                            "app/bootstrap/*",
+                            "app/platform/*",
+                            "!app/platform/logger",
+                            "app/platform/logger/*",
+                            "!app/platform/logger/logger",
+                        ],
                     },
                 ],
             },
