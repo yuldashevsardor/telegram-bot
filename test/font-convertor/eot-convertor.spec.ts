@@ -7,9 +7,11 @@ import type { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import type { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher";
-import { RemoveFailed } from "app/shared/fs/file-helper.errors";
+import { InvalidPath, RemoveFailed } from "app/shared/fs/file-helper.errors";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
+
+type StepName = "fontForge" | "pack" | "unpack";
 
 // Пары с EOT проверяются на подставных движке и кодеке: интересен порядок шагов и судьба
 // промежуточного файла, а не то, что эти двое делают с байтами — на это у них свои спеки.
@@ -17,8 +19,8 @@ describe("Convertors of the eot pairs", function () {
     let workDir: string;
     let steps: Array<string>;
     let factory: ConvertorFactory;
-    let failOn: string | undefined;
-    let unremovableOn: string | undefined;
+    let failOn: StepName | undefined;
+    let unremovableOn: StepName | undefined;
 
     beforeEach(async function () {
         workDir = await fs.mkdtemp(path.join(os.tmpdir(), "eot-convertor-"));
@@ -61,8 +63,11 @@ describe("Convertors of the eot pairs", function () {
     it("removes the intermediate font after a failed conversion too", async function () {
         failOn = "pack";
 
-        await rejectionOf(() => convert(Extension.OTF, Extension.EOT));
+        const error = await rejectionOf(() => convert(Extension.OTF, Extension.EOT));
 
+        // Без сверки сообщения тест прошёл бы и при отказе ещё в validate(): тогда
+        // промежуточного файла не было бы вовсе.
+        expect((error as Error).message).to.equal("pack failed");
         expect(await exists(path.join(workDir, `result.${Extension.EOT}.ttf`))).to.be.false;
     });
 
@@ -82,16 +87,30 @@ describe("Convertors of the eot pairs", function () {
         expect((error as Error).message).to.equal("pack failed");
     });
 
-    it("checks the source before touching the engine or the packer", async function () {
-        // Расширение и сигнатура сверяются в Convertor.validate(): битый файл не должен
-        // дойти ни до движка, ни до кодека.
-        const brokenPath = path.join(workDir, `broken.${Extension.EOT}`);
-        await fs.writeFile(brokenPath, Uint8Array.from([1, 2, 3, 4]));
+    // Convertor.validate() каждая пара вызывает сама, а реализаций convert() у пар с EOT
+    // четыре: отказ закреплён у каждой пары, ветви самой проверки гоняет convertor.spec.ts.
+    const eotPairs = new ConvertorFactory(fontForge(), new FontSignatureMatcher(), eotPacker())
+        .getSupportedExtensions()
+        .filter((extension) => extension !== Extension.EOT)
+        .flatMap(
+            (extension): Array<[Extension, Extension]> => [
+                [extension, Extension.EOT],
+                [Extension.EOT, extension],
+            ],
+        );
 
-        await rejectionOf(() => factory.get(Extension.EOT, Extension.WOFF).convert(brokenPath, result(Extension.WOFF)));
+    for (const [from, to] of eotPairs) {
+        it(`checks the paths of ${from} to ${to} before touching the engine or the packer`, async function () {
+            const newPath = result(to);
+            await fs.writeFile(newPath, Uint8Array.from([0]));
 
-        expect(steps).to.be.empty;
-    });
+            const error = await rejectionOf(() => factory.get(from, to).convert(source(from), newPath));
+
+            expect(error).to.be.instanceOf(InvalidPath);
+            expect((error as InvalidPath).message).to.equal(InvalidPath.isAlreadyExists(newPath).message);
+            expect(steps).to.be.empty;
+        });
+    }
 
     async function convert(from: Extension, to: Extension): Promise<string> {
         const newPath = result(to);
@@ -112,7 +131,7 @@ describe("Convertors of the eot pairs", function () {
     // Подставные шаги пишут файл по своему пути: без него не проверить, что промежуточный
     // sfnt действительно убирают, а не просто не создают. Шаг unremovableOn оставляет каталог
     // вместо файла, чтобы уборка упала: FileHelper.remove() удаляет только файлы.
-    async function step(name: string, fromPath: string, toPath: string): Promise<void> {
+    async function step(name: StepName, fromPath: string, toPath: string): Promise<void> {
         steps.push(`${name} ${fromPath} -> ${toPath}`);
 
         if (failOn === name) {

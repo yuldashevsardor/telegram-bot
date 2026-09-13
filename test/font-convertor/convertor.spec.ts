@@ -13,9 +13,10 @@ import { InvalidFile, InvalidPath, PermissionDenied } from "app/shared/fs/file-h
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
-// Проверки входа у всех пар общие (Convertor.validate()), поэтому гоняются на одной паре
-// ttf → woff. Движок подставной: отказ обязан случиться раньше него. Права отнимаются
-// chmod, поэтому спека не для root (docs/architecture/testing.md).
+// Проверка входа у всех пар общая (Convertor.validate()), поэтому её ветви гоняются на одной
+// паре ttf → woff; что проверку вызывает каждая пара, закреплено в font-forge-convertor.spec.ts
+// и eot-convertor.spec.ts. Движок подставной: отказ обязан случиться раньше него. Права
+// отнимаются chmod, поэтому спека не для root (docs/architecture/testing.md).
 describe("Convertor.validate", function () {
     let workDir: string;
     let lockedDirs: Array<string>;
@@ -57,7 +58,7 @@ describe("Convertor.validate", function () {
         it("when it does not exist", async function () {
             const fromPath = inWorkDir("missing.ttf");
 
-            await expectRejected(fromPath, inWorkDir("result.woff"), InvalidPath.isNotExist(fromPath));
+            await expectRejection(fromPath, inWorkDir("result.woff"), InvalidPath.isNotExist(fromPath));
         });
 
         it("when it cannot be read", async function () {
@@ -65,20 +66,20 @@ describe("Convertor.validate", function () {
             await fs.copyFile(fixture(Extension.TTF), fromPath);
             await fs.chmod(fromPath, 0o000);
 
-            await expectRejected(fromPath, inWorkDir("result.woff"), PermissionDenied.read(fromPath));
+            await expectRejection(fromPath, inWorkDir("result.woff"), PermissionDenied.read(fromPath));
         });
 
         it("when it is not a file", async function () {
             const fromPath = inWorkDir("directory.ttf");
             await fs.mkdir(fromPath);
 
-            await expectRejected(fromPath, inWorkDir("result.woff"), InvalidPath.isNotFile(fromPath));
+            await expectRejection(fromPath, inWorkDir("result.woff"), InvalidPath.isNotFile(fromPath));
         });
 
         it("when its extension belongs to another pair", async function () {
             const fromPath = fixture(Extension.OTF);
 
-            await expectRejected(
+            await expectRejection(
                 fromPath,
                 inWorkDir("result.woff"),
                 InvalidFile.byPathAndExtension(fromPath, Extension.OTF, Extension.TTF),
@@ -89,7 +90,7 @@ describe("Convertor.validate", function () {
             const fromPath = inWorkDir("garbage.ttf");
             await fs.writeFile(fromPath, Uint8Array.from([1, 2, 3, 4]));
 
-            await expectRejected(fromPath, inWorkDir("result.woff"), InvalidFontSignature.byPathAndExtension(fromPath, Extension.TTF));
+            await expectRejection(fromPath, inWorkDir("result.woff"), InvalidFontSignature.byPathAndExtension(fromPath, Extension.TTF));
         });
     });
 
@@ -98,7 +99,7 @@ describe("Convertor.validate", function () {
             const toPath = inWorkDir("result.woff");
             await fs.writeFile(toPath, Uint8Array.from([0]));
 
-            await expectRejected(fixture(Extension.TTF), toPath, InvalidPath.isAlreadyExists(toPath));
+            await expectRejection(fixture(Extension.TTF), toPath, InvalidPath.isAlreadyExists(toPath));
         });
 
         it("when something is already there, even unreadable", async function () {
@@ -108,36 +109,36 @@ describe("Convertor.validate", function () {
             await fs.writeFile(toPath, Uint8Array.from([0]));
             await fs.chmod(toPath, 0o000);
 
-            await expectRejected(fixture(Extension.TTF), toPath, InvalidPath.isAlreadyExists(toPath));
+            await expectRejection(fixture(Extension.TTF), toPath, InvalidPath.isAlreadyExists(toPath));
         });
 
         it("when its directory cannot be read", async function () {
             const directory = await lockedDir(0o300);
 
-            await expectRejected(fixture(Extension.TTF), path.join(directory, "result.woff"), PermissionDenied.read(directory));
+            await expectRejection(fixture(Extension.TTF), path.join(directory, "result.woff"), PermissionDenied.read(directory));
         });
 
         it("when its directory cannot be written", async function () {
             const directory = await lockedDir(0o500);
 
-            await expectRejected(fixture(Extension.TTF), path.join(directory, "result.woff"), PermissionDenied.write(directory));
+            await expectRejection(fixture(Extension.TTF), path.join(directory, "result.woff"), PermissionDenied.write(directory));
         });
 
         it("when its directory is not a directory", async function () {
             const directory = inWorkDir("file.bin");
             await fs.writeFile(directory, Uint8Array.from([0]));
 
-            await expectRejected(fixture(Extension.TTF), path.join(directory, "result.woff"), InvalidPath.isNotDirectory(directory));
+            await expectRejection(fixture(Extension.TTF), path.join(directory, "result.woff"), InvalidPath.isNotDirectory(directory));
         });
 
         it("when its extension belongs to another pair", async function () {
             const toPath = inWorkDir("result.otf");
 
-            await expectRejected(fixture(Extension.TTF), toPath, InvalidFile.byPathAndExtension(toPath, Extension.OTF, Extension.WOFF));
+            await expectRejection(fixture(Extension.TTF), toPath, InvalidFile.byPathAndExtension(toPath, Extension.OTF, Extension.WOFF));
         });
     });
 
-    async function expectRejected(fromPath: string, toPath: string, expected: Error): Promise<void> {
+    async function expectRejection(fromPath: string, toPath: string, expected: Error): Promise<void> {
         const error = await rejectionOf(() => convertor.convert(fromPath, toPath));
 
         expect(error).to.be.instanceOf(expected.constructor);

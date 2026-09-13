@@ -72,7 +72,10 @@ describe("FontConvertor", function () {
             new FontConvertor(factory, tempDir).convert({ originPath: fixture(Extension.TTF), extension: Extension.TTF }),
         );
 
+        // Класса мало: пары ttf → ttf нет, и без своей проверки отказ пришёл бы от фабрики,
+        // обёрнутый в тот же FontConvertorError.
         expect(error).to.be.instanceOf(FontConvertorError);
+        expect((error as FontConvertorError).message).to.equal("New and old font extension cannot be equal.");
         expect(engineCalls).to.be.empty;
     });
 
@@ -88,34 +91,36 @@ describe("FontConvertor", function () {
         expect((error as FontConvertorError).cause).to.be.instanceOf(InvalidFontSignature);
     });
 
+    // Те же четыре отказа с теми же ошибками бросает и FileHelper.createDirectoriesByDate(),
+    // которую convert() зовёт после prepare(): эти тесты не отличают, чья проверка сработала.
     describe("rejects the temp dir", function () {
         it("when it does not exist", async function () {
             const directory = path.join(tempDir, "missing");
 
-            await expectRejected(directory, InvalidPath.isNotExist(directory));
+            await expectRejection(directory, InvalidPath.isNotExist(directory));
         });
 
         it("when it cannot be read", async function () {
             const directory = await lockedDir(0o300);
 
-            await expectRejected(directory, PermissionDenied.read(directory));
+            await expectRejection(directory, PermissionDenied.read(directory));
         });
 
         it("when it cannot be written", async function () {
             const directory = await lockedDir(0o500);
 
-            await expectRejected(directory, PermissionDenied.write(directory));
+            await expectRejection(directory, PermissionDenied.write(directory));
         });
 
         it("when it is not a directory", async function () {
             const directory = path.join(tempDir, "file.bin");
             await fs.writeFile(directory, Uint8Array.from([0]));
 
-            await expectRejected(directory, InvalidPath.isNotDirectory(directory));
+            await expectRejection(directory, InvalidPath.isNotDirectory(directory));
         });
     });
 
-    async function expectRejected(directory: string, expected: Error): Promise<void> {
+    async function expectRejection(directory: string, expected: Error): Promise<void> {
         const error = await rejectionOf(() =>
             new FontConvertor(factory, directory).convert({ originPath: fixture(Extension.TTF), extension: Extension.WOFF }),
         );
