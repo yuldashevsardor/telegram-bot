@@ -100,7 +100,7 @@ describe("Convertors of the eot pairs", function () {
         );
 
     for (const [from, to] of eotPairs) {
-        it(`checks the paths of ${from} to ${to} before touching the engine or the packer`, async function () {
+        it(`refuses to write ${from} to ${to} over an existing file, touching neither the engine nor the packer`, async function () {
             const newPath = result(to);
             await fs.writeFile(newPath, Uint8Array.from([0]));
 
