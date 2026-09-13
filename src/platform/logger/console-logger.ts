@@ -5,56 +5,38 @@ import { injectable } from "inversify";
 import dayjs from "dayjs";
 import { serializeError } from "serialize-error";
 
+type ConsoleMethod = "error" | "warn" | "info" | "debug";
+
 @injectable()
 export class ConsoleLogger extends AbstractLogger {
     public critical(message: string, payload?: UnknownObject): void {
-        const level = Level.CRITICAL;
-
-        if (!this.isEnabled(level)) {
-            return;
-        }
-
-        console.error(this.collectFinalMessage(level, message, payload));
+        this.write(Level.CRITICAL, "error", message, payload);
     }
 
     public error(message: string, payload?: UnknownObject): void {
-        const level = Level.ERROR;
-
-        if (!this.isEnabled(level)) {
-            return;
-        }
-
-        console.error(this.collectFinalMessage(level, message, payload));
+        this.write(Level.ERROR, "error", message, payload);
     }
 
     public warning(message: string, payload?: UnknownObject): void {
-        const level = Level.WARNING;
-
-        if (!this.isEnabled(level)) {
-            return;
-        }
-
-        console.warn(this.collectFinalMessage(level, message, payload));
+        this.write(Level.WARNING, "warn", message, payload);
     }
 
     public info(message: string, payload?: UnknownObject): void {
-        const level = Level.INFO;
-
-        if (!this.isEnabled(level)) {
-            return;
-        }
-
-        console.info(this.collectFinalMessage(level, message, payload));
+        this.write(Level.INFO, "info", message, payload);
     }
 
     public debug(message: string, payload?: UnknownObject): void {
-        const level = Level.DEBUG;
+        this.write(Level.DEBUG, "debug", message, payload);
+    }
 
+    // Порог проверяется в одном месте, а не в каждом методе: выше CRITICAL уровней нет, и
+    // собственная проверка в critical() была бы недостижимой веткой.
+    private write(level: Level, method: ConsoleMethod, message: string, payload?: UnknownObject): void {
         if (!this.isEnabled(level)) {
             return;
         }
 
-        console.debug(this.collectFinalMessage(level, message, payload));
+        console[method](this.collectFinalMessage(level, message, payload));
     }
 
     private collectFinalMessage(level: Level, message: string, payload?: UnknownObject): string {

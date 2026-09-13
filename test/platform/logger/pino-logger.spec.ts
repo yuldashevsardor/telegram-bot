@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { expect } from "chai";
 import { PinoLogger } from "app/platform/logger/pino-logger";
 import { Level } from "app/platform/logger/logger.types";
+import { InvalidLogLevel } from "app/platform/logger/logger.errors";
 import { RequestContext } from "app/platform/request-context/request-context";
 
 // pino пишет в process.stdout, поэтому записи снимаются подменой write — так же, как
@@ -10,7 +11,10 @@ import { RequestContext } from "app/platform/request-context/request-context";
 // Результат write возвращается наружу: значение из области запроса (тот же requestId)
 // иначе пришлось бы ловить присваиванием в замыкание, а его тип к моменту проверки
 // TypeScript сузил бы до начального.
-function capture<Result>(write: (logger: PinoLogger, requestContext: RequestContext) => Result): [Array<Record<string, unknown>>, Result] {
+function capture<Result>(
+    write: (logger: PinoLogger, requestContext: RequestContext) => Result,
+    level: Level = Level.INFO,
+): [Array<Record<string, unknown>>, Result] {
     const original = process.stdout.write;
     let captured = "";
     process.stdout.write = ((chunk: string): boolean => {
@@ -21,7 +25,7 @@ function capture<Result>(write: (logger: PinoLogger, requestContext: RequestCont
 
     const requestContext = new RequestContext();
     const logger = new PinoLogger(requestContext);
-    logger.setLevel(Level.INFO);
+    logger.setLevel(level);
 
     let result: Result;
     try {
@@ -59,5 +63,37 @@ describe("PinoLogger", function () {
         const [[record]] = capture((logger) => logger.info("done"));
 
         expect(record).to.not.have.property("requestId");
+    });
+
+    const writes = [
+        { level: Level.CRITICAL, write: (logger: PinoLogger): void => logger.critical("done") },
+        { level: Level.ERROR, write: (logger: PinoLogger): void => logger.error("done") },
+        { level: Level.WARNING, write: (logger: PinoLogger): void => logger.warning("done") },
+        { level: Level.INFO, write: (logger: PinoLogger): void => logger.info("done") },
+        { level: Level.DEBUG, write: (logger: PinoLogger): void => logger.debug("done") },
+    ];
+
+    for (const { level, write } of writes) {
+        it(`writes ${level} as the record level at the ${level} threshold`, function () {
+            const [[record]] = capture(write, level);
+
+            expect(record).to.include({ level: level, message: "done" });
+        });
+    }
+
+    it("puts a nested error of the payload into the record with its message and stack", function () {
+        const [[record]] = capture((logger) => logger.error("failed", { cause: new Error("boom") }));
+        const cause = (record?.["payload"] as { cause: Record<string, unknown> }).cause;
+
+        expect(cause).to.include({ name: "Error", message: "boom" });
+        expect(cause["stack"]).to.be.a("string");
+    });
+
+    it("rejects an unknown level before handing it to pino", function () {
+        const logger = new PinoLogger(new RequestContext());
+
+        // Отказ даёт AbstractLogger. Переопределение обязано позвать его раньше, чем
+        // присвоить уровень pino: иначе вместо InvalidLogLevel вылетел бы голый Error pino.
+        expect(() => logger.setLevel("TRACE" as Level)).to.throw(InvalidLogLevel);
     });
 });
