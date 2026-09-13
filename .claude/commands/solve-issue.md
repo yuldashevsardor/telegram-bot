@@ -41,8 +41,8 @@ gh pr list --state open --search "<N> in:body" --json number,title,headRefName
 1. Префикс ветки выбери до первого пуша: переименование ветки открытого PR его закрывает.
 2. Worktree `../telegram-bot-<задача>` от `origin/main`, в нём `make worktree-init`.
 3. Правки, `make check`, `git status -sb`, коммит, пуш.
-4. PR в `main`. Тело — через `--body-file`, в нём `Closes #<N>` по-английски: без ссылки на
-   issue ревью даст BLOCKED, а русское «Закрывает» issue не закроет.
+4. PR в `main` со ссылкой на issue — как её писать, сказано в `docs/agents/issue-tracker.md`.
+   Без ссылки ревью даст BLOCKED.
 
 Все дальнейшие команды — в дереве задачи.
 
@@ -160,5 +160,5 @@ inline — ответом в тред:
 После мержа, в дереве задачи — `make worktree-cleanup`. Он удалит дерево, поэтому потом
 вернись в основное дерево и не переключай в нём ветку: там может работать соседняя сессия.
 
-Проверь `gh issue view <N> --json state`. Issue не закрылась — закрой её комментарием
-с итогом (что влито и чем закрыт вопрос) и подписью.
+Проверь `gh issue view <N> --json state`. Issue не закрылась — закрой её руками по
+`docs/agents/issue-tracker.md`.
