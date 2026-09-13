@@ -84,8 +84,8 @@ describe("FontSignatureMatcher.matches", function () {
     it("rejects text that opens with an angle bracket but not with markup", function () {
         // Сигнатура ослаблена до «это разметка», но не до «первый байт — `<`»: за
         // скобкой обязано идти начало тега, доктайпа или комментария. Входы длиннее
-        // сигнатуры, а хвост у них текстовый: отказ даёт второй байт, а не проверка
-        // длины в `matches` и не класс текста.
+        // сигнатуры, а хвост у них текстовый: отказ даёт второй байт, а не нехватка байт
+        // и не класс текста.
         expect(fontSignatureMatcher.matches(ascii("</svg> and more text"), Extension.SVG)).to.be.false;
         expect(fontSignatureMatcher.matches(concat("<", [0x00], "0123456789"), Extension.SVG)).to.be.false;
     });

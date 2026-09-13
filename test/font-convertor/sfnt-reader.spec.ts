@@ -9,12 +9,13 @@ const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
 // Смещения полей, которые правятся в фикстуре ради проверки отказов: в каталоге таблиц —
 // тег, длина и смещение записи; в OS/2 — версия; в head — macStyle; в name — количество
-// записей, а внутри записи — платформа и смещение строки.
+// записей, а внутри записи — платформа, кодировка и смещение строки.
 const TABLE_DIRECTORY_OFFSET = 12;
 const TABLE_RECORD_SIZE = 16;
 const NAME_RECORD_SIZE = 12;
 const PLATFORM_MACINTOSH = 1;
 const PLATFORM_WINDOWS = 3;
+const MAC_ENCODING_JAPANESE = 1;
 const NAME_ID_FAMILY = 1;
 const NAME_ID_FULL = 4;
 const LANGUAGE_RUSSIAN = 0x0419;
@@ -79,6 +80,19 @@ describe("SfntReader.readMetadata", function () {
         expect(readMetadata(renamed).familyName).to.equal("éoboto Black");
     });
 
+    it("skips a macintosh name in an encoding other than macroman", function () {
+        // MacRoman у платформы Macintosh — только encodingId 0, а в японской записи лежит
+        // Shift-JIS: прочитанный как MacRoman, он уехал бы в конверт мусором.
+        const japanese = patch(withoutWindowsNames(ttf), (view, copy) => {
+            view.setUint16(nameRecord(copy, PLATFORM_MACINTOSH, NAME_ID_FAMILY) + 2, MAC_ENCODING_JAPANESE);
+        });
+        const metadata = readMetadata(japanese);
+
+        expect(metadata.familyName).to.equal("");
+        // Пропускается запись, а не платформа: соседние имена в MacRoman читаются.
+        expect(metadata.styleName).to.equal("Black");
+    });
+
     // Записи name режут субсеттеры, а таблицу целиком снимает
     // `pyftsubset --drop-tables+=name`; поля конверта при этом информационные, и отвергать
     // из-за них шрифт целиком дороже, чем отдать пустую строку.
@@ -110,6 +124,16 @@ describe("SfntReader.readMetadata", function () {
             expect(metadata.weight).to.equal(900);
         });
     }
+
+    it("reads the names that fit when the name table declares more records than the font holds", function () {
+        // Счётчик обещает записи за концом файла: без проверки их чтение упало бы RangeError
+        // из DataView. Имена из записей, которые в файле уместились, остаются в силе.
+        const name = tableOffset(ttf, "name");
+        const overcounted = patch(ttf, (view) => view.setUint16(name + 2, 0xffff));
+
+        expect(name + 6 + 0xffff * NAME_RECORD_SIZE, "записи со счётчиком 0xffff умещаются в шрифт").to.be.greaterThan(ttf.length);
+        expect(readMetadata(overcounted).familyName).to.equal("Roboto Black");
+    });
 
     it("prefers the english name over one that stands earlier in the table", function () {
         // Порядок записей шрифт не гарантирует, поэтому язык важнее места: ttf2eot, на

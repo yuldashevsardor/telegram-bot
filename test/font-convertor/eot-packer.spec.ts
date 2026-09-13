@@ -10,9 +10,14 @@ import { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher"
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
-// Поля заголовка EOT, которые спека читает по отдельности.
+// Поля заголовка EOT, которые спека читает и правит по отдельности, и длина его
+// фиксированной части — до FamilyNameSize.
+const EOT_SIZE_OFFSET = 0;
+const EOT_FONT_DATA_SIZE_OFFSET = 4;
+const EOT_VERSION_OFFSET = 8;
 const EOT_ITALIC_OFFSET = 27;
 const EOT_FS_TYPE_OFFSET = 32;
+const EOT_HEADER_FIXED_SIZE = 82;
 const eotPacker = new EotPacker();
 
 describe("EotPacker", function () {
@@ -101,12 +106,38 @@ describe("EotPacker", function () {
             }
         });
 
+        it("returns the font of a version 1.0 envelope, which has no root string", async function () {
+            // У версии 1.0 заголовок кончается полным именем: блока RootString (Padding5 и
+            // RootStringSize, у фикстуры строка пустая) нет, и шрифт идёт сразу за именами.
+            // Прочитанный как 0x00020001, такой конверт залез бы пятым блоком в шрифт.
+            const rootStringStart = eot.length - ttf.length - 4;
+            const legacy = Uint8Array.from(Buffer.concat([eot.subarray(0, rootStringStart), ttf]));
+            const view = new DataView(legacy.buffer);
+            view.setUint32(EOT_SIZE_OFFSET, legacy.length, true);
+            view.setUint32(EOT_VERSION_OFFSET, 0x00010000, true);
+
+            expect(hex(await unpack(legacy))).to.equal(hex(ttf));
+        });
+
         it("rejects a font without the eot magic number", async function () {
             await expectRejects(() => unpack(ttf), InvalidEot);
         });
 
+        it("rejects a file cut off inside the fixed part of the header", async function () {
+            // Обрубок не дотягивает даже до маркера формата по смещению 34: без проверки
+            // длины вместо InvalidEot вылетел бы RangeError из DataView.
+            await expectRejects(() => unpack(eot.subarray(0, 20)), InvalidEot);
+        });
+
         it("rejects an envelope whose declared size does not match the file", async function () {
             await expectRejects(() => unpack(eot.subarray(0, eot.length - 1)), InvalidEot);
+        });
+
+        it("rejects an envelope of an unknown version", async function () {
+            const unknown = Uint8Array.from(eot);
+            new DataView(unknown.buffer).setUint32(EOT_VERSION_OFFSET, 0x00030000, true);
+
+            await expectRejects(() => unpack(unknown), InvalidEot);
         });
 
         it("rejects an envelope with compressed font data", async function () {
@@ -117,6 +148,16 @@ describe("EotPacker", function () {
             await expectRejects(() => unpack(compressed), UnsupportedEotFlags);
         });
 
+        it("rejects an envelope whose font data is empty or does not fit behind the header", async function () {
+            // Размером во весь файл шрифт не помещается: место занимает заголовок.
+            for (const fontDataSize of [0, eot.length]) {
+                const resized = Uint8Array.from(eot);
+                new DataView(resized.buffer).setUint32(EOT_FONT_DATA_SIZE_OFFSET, fontDataSize, true);
+
+                await expectRejects(() => unpack(resized), InvalidEot);
+            }
+        });
+
         it("rejects an envelope whose name blocks run past the font data", async function () {
             const shifted = Uint8Array.from(eot);
             // Раздутое имя семейства съедает начало шрифта — так выглядит конверт,
@@ -124,6 +165,19 @@ describe("EotPacker", function () {
             new DataView(shifted.buffer).setUint16(82, 0x0400, true);
 
             await expectRejects(() => unpack(shifted), InvalidEot);
+        });
+
+        it("rejects an envelope that ends inside its name blocks", async function () {
+            // Размеры в заголовке с длиной файла сходятся — шрифту отведены четыре байта
+            // за фиксированной частью, — но имена обрываются вместе с файлом. Это уже не
+            // наезд на шрифт, а чтение за концом буфера: без своей проверки вылетел бы
+            // RangeError из DataView.
+            const cut = Uint8Array.from(eot.subarray(0, EOT_HEADER_FIXED_SIZE + 4));
+            const view = new DataView(cut.buffer);
+            view.setUint32(EOT_SIZE_OFFSET, cut.length, true);
+            view.setUint32(EOT_FONT_DATA_SIZE_OFFSET, 4, true);
+
+            await expectRejects(() => unpack(cut), InvalidEot);
         });
 
         it("rejects an envelope that does not hold a font", async function () {
