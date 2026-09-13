@@ -6,6 +6,7 @@ import { ConfigContainer } from "app/bootstrap/config-container";
 import type { ConfigStorage } from "app/platform/config/config-storage";
 import type { Logger } from "app/platform/logger/logger";
 import { ConsoleLogger } from "app/platform/logger/console-logger";
+import { Level } from "app/platform/logger/logger.types";
 import { RequestContext } from "app/platform/request-context/request-context";
 import { Tokens } from "app/shared/tokens";
 
@@ -45,23 +46,27 @@ describe("Container", () => {
 
         context.config = new ConfigContainer(new FakeStorage({ BOT_TOKEN: "test-token" }));
         context.requestContext = requestContext;
-        context.logger = new ConsoleLogger(requestContext);
+        // TaskQueue на конструировании заводит интервалы с info-логом раз в 10 с. Гасить их
+        // нечем, а в test-watch они копятся между прогонами и писали бы в вывод mocha.
+        const logger = new ConsoleLogger(requestContext);
+        logger.setLevel(Level.CRITICAL);
+        context.logger = logger;
 
         await container.setup();
     });
 
     after(async () => {
-        await container.close();
-
-        context.config = null;
-        context.requestContext = null;
-        context.logger = null;
+        try {
+            await container.close();
+        } finally {
+            context.config = null;
+            context.requestContext = null;
+            context.logger = null;
+        }
     });
 
     // Резолв без внешних ресурсов: postgres() не подключается до первого запроса, а grammY
-    // не ходит в сеть до init(). Ловит забытый биндинг, второй биндинг под тем же символом
-    // («Ambiguous match») и пропущенный @inject не в хвосте конструктора; забытый @inject у
-    // последнего параметра резолв не валит (docs/architecture/invariants.md).
+    // не ходит в сеть до init(). Что он ловит и чего нет — docs/architecture/application.md, «DI».
     for (const { path, token } of collectTokens(Tokens)) {
         it(`resolves Tokens.${path.join(".")}`, () => {
             expect(container.get(token)).to.not.equal(undefined);
