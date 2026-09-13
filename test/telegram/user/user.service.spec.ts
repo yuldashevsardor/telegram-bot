@@ -111,6 +111,18 @@ describe("UserService", function () {
             expect(toDto(user)).to.deep.equal(saved);
         });
 
+        // FillUserToContextMiddleware штатно передаёт "" за отсутствующие фамилию и username и
+        // false в isBot: проверка поля на истинность вместо !== undefined оставила бы в базе
+        // прежние значения.
+        it("saves empty strings and false over the stored values", async function () {
+            await repository.save(new User({ ...STORED, isBot: true }));
+            const dto: EditUserDto = { firstname: "", lastname: "", username: "", isBot: false };
+
+            await service.edit(STORED.id, dto);
+
+            expect(toDto(await repository.getById(STORED.id))).to.deep.include(dto);
+        });
+
         it("keeps the stored user as it was when nothing is passed", async function () {
             await service.edit(STORED.id, {});
 
