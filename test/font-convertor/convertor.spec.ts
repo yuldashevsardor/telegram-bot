@@ -15,7 +15,7 @@ const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
 // Проверки входа у всех пар общие (Convertor.validate()), поэтому гоняются на одной паре
 // ttf → woff. Движок подставной: отказ обязан случиться раньше него. Права отнимаются
-// chmod, а root их не замечает — спека рассчитана на пользователя node из образа.
+// chmod, поэтому спека не для root (docs/architecture/testing.md).
 describe("Convertor.validate", function () {
     let workDir: string;
     let lockedDirs: Array<string>;
@@ -138,16 +138,10 @@ describe("Convertor.validate", function () {
     });
 
     async function expectRejected(fromPath: string, toPath: string, expected: Error): Promise<void> {
-        let rejection: unknown;
+        const error = await rejectionOf(() => convertor.convert(fromPath, toPath));
 
-        try {
-            await convertor.convert(fromPath, toPath);
-        } catch (error) {
-            rejection = error;
-        }
-
-        expect(rejection).to.be.instanceOf(expected.constructor);
-        expect((rejection as Error).message).to.equal(expected.message);
+        expect(error).to.be.instanceOf(expected.constructor);
+        expect((error as Error).message).to.equal(expected.message);
         expect(engineCalls, "отвергнутый вход дошёл до движка").to.be.empty;
     }
 
@@ -158,6 +152,13 @@ describe("Convertor.validate", function () {
         lockedDirs.push(directory);
 
         return directory;
+    }
+
+    function rejectionOf(call: () => Promise<unknown>): Promise<unknown> {
+        return call().then(
+            () => expect.fail("call did not throw"),
+            (error: unknown) => error,
+        );
     }
 
     function inWorkDir(name: string): string {

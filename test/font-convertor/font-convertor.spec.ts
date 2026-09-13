@@ -15,8 +15,8 @@ import { InvalidPath, PermissionDenied } from "app/shared/fs/file-helper.errors"
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
 // Пары настоящие, движок подставной: выбор пары и её проверки входа здесь идут насквозь, а
-// что движок делает с байтами — предмет спеки пар. Права отнимаются chmod, а root их не
-// замечает — спека рассчитана на пользователя node из образа.
+// что движок делает с байтами — предмет спеки пар. Права отнимаются chmod, поэтому спека не
+// для root (docs/architecture/testing.md).
 describe("FontConvertor", function () {
     let tempDir: string;
     let lockedDirs: Array<string>;
@@ -68,7 +68,7 @@ describe("FontConvertor", function () {
     });
 
     it("rejects a target format equal to the source one", async function () {
-        const error = await rejection(() =>
+        const error = await rejectionOf(() =>
             new FontConvertor(factory, tempDir).convert({ originPath: fixture(Extension.TTF), extension: Extension.TTF }),
         );
 
@@ -80,7 +80,7 @@ describe("FontConvertor", function () {
         const originPath = path.join(tempDir, "garbage.ttf");
         await fs.writeFile(originPath, Uint8Array.from([1, 2, 3, 4]));
 
-        const error = await rejection(() =>
+        const error = await rejectionOf(() =>
             new FontConvertor(factory, tempDir).convert({ originPath: originPath, extension: Extension.WOFF }),
         );
 
@@ -116,7 +116,7 @@ describe("FontConvertor", function () {
     });
 
     async function expectRejected(directory: string, expected: Error): Promise<void> {
-        const error = await rejection(() =>
+        const error = await rejectionOf(() =>
             new FontConvertor(factory, directory).convert({ originPath: fixture(Extension.TTF), extension: Extension.WOFF }),
         );
 
@@ -138,13 +138,10 @@ describe("FontConvertor", function () {
         return path.join(fixtureDir, `test-font.${extension}`);
     }
 
-    async function rejection(call: () => Promise<unknown>): Promise<unknown> {
-        try {
-            await call();
-        } catch (error) {
-            return error;
-        }
-
-        return expect.fail("call did not throw");
+    function rejectionOf(call: () => Promise<unknown>): Promise<unknown> {
+        return call().then(
+            () => expect.fail("call did not throw"),
+            (error: unknown) => error,
+        );
     }
 });

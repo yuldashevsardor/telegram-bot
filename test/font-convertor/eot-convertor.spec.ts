@@ -18,13 +18,13 @@ describe("Convertors of the eot pairs", function () {
     let steps: Array<string>;
     let factory: ConvertorFactory;
     let failOn: string | undefined;
-    let directoryOn: string | undefined;
+    let unremovableOn: string | undefined;
 
     beforeEach(async function () {
         workDir = await fs.mkdtemp(path.join(os.tmpdir(), "eot-convertor-"));
         steps = [];
         failOn = undefined;
-        directoryOn = undefined;
+        unremovableOn = undefined;
         factory = new ConvertorFactory(fontForge(), new FontSignatureMatcher(), eotPacker());
     });
 
@@ -61,22 +61,22 @@ describe("Convertors of the eot pairs", function () {
     it("removes the intermediate font after a failed conversion too", async function () {
         failOn = "pack";
 
-        await expectRejects(() => convert(Extension.OTF, Extension.EOT));
+        await rejectionOf(() => convert(Extension.OTF, Extension.EOT));
 
         expect(await exists(path.join(workDir, `result.${Extension.EOT}.ttf`))).to.be.false;
     });
 
     it("fails when only the removal of the intermediate font fails", async function () {
-        directoryOn = "fontForge";
+        unremovableOn = "fontForge";
 
-        expect(await expectRejects(() => convert(Extension.OTF, Extension.EOT))).to.be.instanceOf(RemoveFailed);
+        expect(await rejectionOf(() => convert(Extension.OTF, Extension.EOT))).to.be.instanceOf(RemoveFailed);
     });
 
     it("keeps the original failure when the removal fails after it", async function () {
-        directoryOn = "fontForge";
+        unremovableOn = "fontForge";
         failOn = "pack";
 
-        const error = await expectRejects(() => convert(Extension.OTF, Extension.EOT));
+        const error = await rejectionOf(() => convert(Extension.OTF, Extension.EOT));
 
         expect(error).to.not.be.instanceOf(RemoveFailed);
         expect((error as Error).message).to.equal("pack failed");
@@ -88,7 +88,7 @@ describe("Convertors of the eot pairs", function () {
         const brokenPath = path.join(workDir, `broken.${Extension.EOT}`);
         await fs.writeFile(brokenPath, Uint8Array.from([1, 2, 3, 4]));
 
-        await expectRejects(() => factory.get(Extension.EOT, Extension.WOFF).convert(brokenPath, result(Extension.WOFF)));
+        await rejectionOf(() => factory.get(Extension.EOT, Extension.WOFF).convert(brokenPath, result(Extension.WOFF)));
 
         expect(steps).to.be.empty;
     });
@@ -110,8 +110,8 @@ describe("Convertors of the eot pairs", function () {
     }
 
     // Подставные шаги пишут файл по своему пути: без него не проверить, что промежуточный
-    // sfnt действительно убирают, а не просто не создают. Каталог вместо файла нужен, чтобы
-    // уборка упала: FileHelper.remove() удаляет только файлы.
+    // sfnt действительно убирают, а не просто не создают. Шаг unremovableOn оставляет каталог
+    // вместо файла, чтобы уборка упала: FileHelper.remove() удаляет только файлы.
     async function step(name: string, fromPath: string, toPath: string): Promise<void> {
         steps.push(`${name} ${fromPath} -> ${toPath}`);
 
@@ -119,7 +119,7 @@ describe("Convertors of the eot pairs", function () {
             throw new Error(`${name} failed`);
         }
 
-        if (directoryOn === name) {
+        if (unremovableOn === name) {
             await fs.mkdir(toPath);
         } else {
             await fs.writeFile(toPath, Uint8Array.from([0]));
@@ -144,17 +144,10 @@ describe("Convertors of the eot pairs", function () {
             .catch(() => false);
     }
 
-    // expect.fail() стоит вне try: внутри его AssertionError поймал бы catch и принял бы за
-    // ожидаемый отказ.
-    async function expectRejects(call: () => Promise<unknown>): Promise<unknown> {
-        try {
-            await call();
-        } catch (error) {
-            expect(error).to.be.instanceOf(Error);
-
-            return error;
-        }
-
-        return expect.fail("call did not throw");
+    function rejectionOf(call: () => Promise<unknown>): Promise<unknown> {
+        return call().then(
+            () => expect.fail("call did not throw"),
+            (error: unknown) => error,
+        );
     }
 });

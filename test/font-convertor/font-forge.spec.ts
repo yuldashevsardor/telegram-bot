@@ -33,7 +33,7 @@ describe("FontForge.convert", function () {
     });
 
     it("does not give eot to the engine to read", async function () {
-        const error = await rejection(() => fontForge.convert(fixture(Extension.EOT), path.join(workDir, "result.ttf")));
+        const error = await rejectionOf(() => fontForge.convert(fixture(Extension.EOT), path.join(workDir, "result.ttf")));
 
         expect(error).to.be.instanceOf(ExtensionNotSupport);
         expect((error as ExtensionNotSupport).payload).to.deep.equal({ extension: Extension.EOT });
@@ -44,7 +44,7 @@ describe("FontForge.convert", function () {
         // сработать до запуска, и файла не должно появиться вовсе.
         const distPath = path.join(workDir, "result.eot");
 
-        const error = await rejection(() => fontForge.convert(fixture(Extension.TTF), distPath));
+        const error = await rejectionOf(() => fontForge.convert(fixture(Extension.TTF), distPath));
 
         expect(error).to.be.instanceOf(ExtensionNotSupport);
         expect((error as ExtensionNotSupport).payload).to.deep.equal({ extension: Extension.EOT });
@@ -55,7 +55,7 @@ describe("FontForge.convert", function () {
         const srcPath = path.join(workDir, "garbage.ttf");
         await fs.writeFile(srcPath, Uint8Array.from([1, 2, 3, 4]));
 
-        const error = await rejection(() => fontForge.convert(srcPath, path.join(workDir, "result.otf")));
+        const error = await rejectionOf(() => fontForge.convert(srcPath, path.join(workDir, "result.otf")));
 
         expect(error).to.be.instanceOf(ExecuteError);
         expect((error as ExecuteError).cause).to.be.instanceOf(ProcessFailed);
@@ -65,13 +65,10 @@ describe("FontForge.convert", function () {
         return path.join(fixtureDir, `test-font.${extension}`);
     }
 
-    async function rejection(call: () => Promise<unknown>): Promise<unknown> {
-        try {
-            await call();
-        } catch (error) {
-            return error;
-        }
-
-        return expect.fail("call did not throw");
+    function rejectionOf(call: () => Promise<unknown>): Promise<unknown> {
+        return call().then(
+            () => expect.fail("call did not throw"),
+            (error: unknown) => error,
+        );
     }
 });
