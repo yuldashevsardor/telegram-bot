@@ -22,10 +22,9 @@
 (шаги 7-8 [`bot.md`](./bot.md)), поэтому символ без биндинга валит `Bot.setup()`, то есть
 старт, а не первый апдейт; middleware и фильтры заданы списками в `bot.ts` — забытый в
 списке не попадёт в пайплайн и не скажет об этом ничего. Глобален не путь в объекте, а
-строка внутри `Symbol.for`, поэтому строка повторяет путь без разделителей:
-`Tokens.Bootstrap.RequestContext` и `Tokens.Bot.Middleware.RequestContext` расходятся в
-`"BootstrapRequestContext"` и `"BotMiddlewareRequestContext"` без ручных суффиксов. Правило
-и чем кончается совпадение строк — в шапке словаря.
+строка внутри `Symbol.for`; как она строится и чем кончается совпадение — в шапке
+`shared/tokens.ts`. Поэтому `Tokens.Bootstrap.RequestContext` и
+`Tokens.Bot.Middleware.RequestContext` одноимённы, но не сталкиваются.
 
 Конфигурация в DI не участвует: значение берёт функция `configValue("limits.common")`
 (`shared/config-value.ts`) — спрашивает `ConfigContainer` у `ApplicationContext` (ниже) и
