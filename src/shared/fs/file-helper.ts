@@ -6,8 +6,9 @@ import { InvalidExtensions, InvalidPath, PermissionDenied, ReadFailed, RemoveFai
 import glob from "tiny-glob";
 
 export class FileHelper {
-    // F_OK, а не R_OK: вызывающие проверяют чтение отдельно, следом, и с R_OK существующий
-    // нечитаемый путь получал бы «не существует» вместо отказа в доступе.
+    // F_OK, а не R_OK: с R_OK существующий нечитаемый путь сходил бы за отсутствующий.
+    // Проверка «путь свободен» пропустила бы запись поверх такого файла, а проверка чтения,
+    // идущая следом за существованием, не срабатывала бы никогда.
     public static isExist(path: string): Promise<boolean> {
         return FileHelper.hasAccess(path, fsSync.constants.F_OK);
     }
