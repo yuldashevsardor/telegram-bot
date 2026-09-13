@@ -8,7 +8,8 @@
 // "FontEnvelopePacker". Путь уникален в объекте, значит, и строка: склейка совпадёт, только
 // если одно имя разбить на ветки двумя способами (Bot.UserService рядом с Bot.User.Service).
 // С таким правилом Symbol() ничего не добавил бы: второй загрузки словаря в процессе нет,
-// а уникальность строк уже держит путь. Сверку строки с путём делает test/shared/tokens.spec.ts.
+// а уникальность строк уже держит путь. Сверку строки с путём и попарное несовпадение строк
+// делает test/shared/tokens.spec.ts.
 export const Tokens = {
     Bootstrap: {
         ConfigContainer: Symbol.for("BootstrapConfigContainer"),

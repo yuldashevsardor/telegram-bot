@@ -81,7 +81,8 @@
   никто: `tsx` (esbuild) их не умеет, а в сборке выключен `emitDecoratorMetadata`
   (`tsconfig.json`). Поэтому inversify собирает аргументы конструктора из одних индексов
   `@inject`, и промах ловится не везде: пропуск в середине валит резолв («Found unexpected
-  missing metadata on type … at constructor indexes»), а **забытый `@inject` у последнего
+  missing metadata on type … at constructor indexes») — у класса с токеном в `Tokens` уже в
+  `make check` ([`application.md`](./application.md)), а **забытый `@inject` у последнего
   параметра не ловится ничем** — резолв проходит, параметр остаётся `undefined`, и отказ
   всплывает позже, на первом обращении к нему. Это цена внедрения конфигурации: inversify
   не отличает забытый `@inject` в хвосте от намеренного `configValue` в умолчании
