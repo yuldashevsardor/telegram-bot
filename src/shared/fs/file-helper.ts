@@ -6,8 +6,14 @@ import { InvalidExtensions, InvalidPath, PermissionDenied, ReadFailed, RemoveFai
 import glob from "tiny-glob";
 
 export class FileHelper {
-    public static isExist(path: string): Promise<boolean> {
-        return FileHelper.isReadable(path);
+    public static async isExist(path: string): Promise<boolean> {
+        try {
+            await fs.access(path, fsSync.constants.F_OK);
+
+            return true;
+        } catch {
+            return false;
+        }
     }
 
     public static async isReadable(path: string): Promise<boolean> {

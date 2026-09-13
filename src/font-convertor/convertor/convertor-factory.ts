@@ -39,7 +39,9 @@ import type { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 
 type ConvertorConstructor = new (fontForge: FontForge, fontSignatureMatcher: FontSignatureMatcher, eotPacker: EotPacker) => Convertor;
 
-type ConvertorMatrix = Partial<Record<Extension, Partial<Record<Extension, ConvertorConstructor>>>>;
+type ConvertorRow = Partial<Record<Extension, ConvertorConstructor>>;
+
+type ConvertorMatrix = Partial<Record<Extension, ConvertorRow>>;
 
 @injectable()
 export class ConvertorFactory {
@@ -114,10 +116,10 @@ export class ConvertorFactory {
     public getSupportedExtensions(): Array<Extension> {
         const extensions = new Set<Extension>();
 
-        for (const fromExtension of Object.keys(this.convertors) as Array<Extension>) {
+        for (const [fromExtension, toConvertors] of Object.entries(this.convertors) as Array<[Extension, ConvertorRow]>) {
             extensions.add(fromExtension);
 
-            for (const toExtension of Object.keys(this.convertors[fromExtension] ?? {}) as Array<Extension>) {
+            for (const toExtension of Object.keys(toConvertors) as Array<Extension>) {
                 extensions.add(toExtension);
             }
         }

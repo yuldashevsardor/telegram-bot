@@ -7,6 +7,7 @@ import type { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import type { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher";
+import { RemoveFailed } from "app/shared/fs/file-helper.errors";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
@@ -17,11 +18,13 @@ describe("Convertors of the eot pairs", function () {
     let steps: Array<string>;
     let factory: ConvertorFactory;
     let failOn: string | undefined;
+    let directoryOn: string | undefined;
 
     beforeEach(async function () {
         workDir = await fs.mkdtemp(path.join(os.tmpdir(), "eot-convertor-"));
         steps = [];
         failOn = undefined;
+        directoryOn = undefined;
         factory = new ConvertorFactory(fontForge(), new FontSignatureMatcher(), eotPacker());
     });
 
@@ -63,6 +66,22 @@ describe("Convertors of the eot pairs", function () {
         expect(await exists(path.join(workDir, `result.${Extension.EOT}.ttf`))).to.be.false;
     });
 
+    it("fails when only the removal of the intermediate font fails", async function () {
+        directoryOn = "fontForge";
+
+        expect(await expectRejects(() => convert(Extension.OTF, Extension.EOT))).to.be.instanceOf(RemoveFailed);
+    });
+
+    it("keeps the original failure when the removal fails after it", async function () {
+        directoryOn = "fontForge";
+        failOn = "pack";
+
+        const error = await expectRejects(() => convert(Extension.OTF, Extension.EOT));
+
+        expect(error).to.not.be.instanceOf(RemoveFailed);
+        expect((error as Error).message).to.equal("pack failed");
+    });
+
     it("checks the source before touching the engine or the packer", async function () {
         // Расширение и сигнатура сверяются в Convertor.validate(): битый файл не должен
         // дойти ни до движка, ни до кодека.
@@ -91,7 +110,8 @@ describe("Convertors of the eot pairs", function () {
     }
 
     // Подставные шаги пишут файл по своему пути: без него не проверить, что промежуточный
-    // sfnt действительно убирают, а не просто не создают.
+    // sfnt действительно убирают, а не просто не создают. Каталог вместо файла нужен, чтобы
+    // уборка упала: FileHelper.remove() удаляет только файлы.
     async function step(name: string, fromPath: string, toPath: string): Promise<void> {
         steps.push(`${name} ${fromPath} -> ${toPath}`);
 
@@ -99,7 +119,11 @@ describe("Convertors of the eot pairs", function () {
             throw new Error(`${name} failed`);
         }
 
-        await fs.writeFile(toPath, Uint8Array.from([0]));
+        if (directoryOn === name) {
+            await fs.mkdir(toPath);
+        } else {
+            await fs.writeFile(toPath, Uint8Array.from([0]));
+        }
     }
 
     function fontForge(): FontForge {
@@ -120,12 +144,17 @@ describe("Convertors of the eot pairs", function () {
             .catch(() => false);
     }
 
-    async function expectRejects(call: () => Promise<unknown>): Promise<void> {
+    // expect.fail() стоит вне try: внутри его AssertionError поймал бы catch и принял бы за
+    // ожидаемый отказ.
+    async function expectRejects(call: () => Promise<unknown>): Promise<unknown> {
         try {
             await call();
-            expect.fail("call did not throw");
         } catch (error) {
             expect(error).to.be.instanceOf(Error);
+
+            return error;
         }
+
+        return expect.fail("call did not throw");
     }
 });

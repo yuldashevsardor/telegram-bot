@@ -8,6 +8,29 @@ import { FileHelper } from "app/shared/fs/file-helper";
 import type { RuntimeError } from "app/shared/errors";
 import { ReadFailed, RemoveFailed, WriteFailed } from "app/shared/fs/file-helper.errors";
 
+describe("FileHelper.isExist", function () {
+    let basePath: string;
+
+    beforeEach(async function () {
+        basePath = await fs.mkdtemp(path.join(os.tmpdir(), "file-helper-"));
+    });
+
+    afterEach(async function () {
+        await fs.rm(basePath, { recursive: true, force: true });
+    });
+
+    it("sees a file that cannot be read", async function () {
+        // Существование и право чтения — разные вопросы: на первом держится запрет перезаписи
+        // в Convertor, и нечитаемый файл не должен сойти за отсутствующий.
+        const filePath = path.join(basePath, "locked.bin");
+        await fs.writeFile(filePath, Uint8Array.from([1]));
+        await fs.chmod(filePath, 0o000);
+
+        expect(await FileHelper.isExist(filePath)).to.be.true;
+        expect(await FileHelper.isReadable(filePath)).to.be.false;
+    });
+});
+
 describe("FileHelper.createDirectoriesByDate", function () {
     let basePath: string;
 
