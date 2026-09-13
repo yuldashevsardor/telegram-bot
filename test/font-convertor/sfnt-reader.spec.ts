@@ -116,8 +116,8 @@ describe("SfntReader.readMetadata", function () {
         [
             "is cut off in the middle of the name records",
             // У обрезанного шрифта хранилище строк за концом файла, и проход по записям кончает
-            // уже конец файла. Не будь этой границы, недописанная восьмая запись читалась бы
-            // за концом DataView и уронила бы разбор RangeError.
+            // уже конец файла. Не будь этой границы, недописанная запись с индексом 8 читалась
+            // бы за концом DataView и уронила бы разбор RangeError.
             (bytes): Uint8Array => bytes.subarray(0, tableOffset(bytes, "name") + 6 + 8 * NAME_RECORD_SIZE + 6),
         ],
     ];
