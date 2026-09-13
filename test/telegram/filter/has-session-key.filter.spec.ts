@@ -1,10 +1,10 @@
 import "reflect-metadata";
 import { expect } from "chai";
-import { Context } from "app/telegram/bot.types";
+import type { Context } from "app/telegram/bot.types";
 import { HasSessionKeyFilter } from "app/telegram/filter/has-session-key.filter";
 import { getSessionKey } from "app/telegram/session/session.helper";
-import { Logger } from "app/platform/logger/logger";
-import { UnknownObject } from "app/shared/types";
+import type { Logger } from "app/platform/logger/logger";
+import type { UnknownObject } from "app/shared/types";
 
 type WarningRecord = { message: string; payload: UnknownObject | undefined };
 
