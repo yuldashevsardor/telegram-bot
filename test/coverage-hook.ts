@@ -30,9 +30,9 @@ function compileInstrumented(module: CompilableModule, filename: string): void {
     // строки инструментированного текста, а не исходника.
     const map = Buffer.from(JSON.stringify(instrumenter.lastSourceMap())).toString("base64");
     // Опции, от которых зависит поведение кода, повторяют tsx, tsconfig — тот же, что у него
-    // через TSX_TSCONFIG_PATH. Рабочий
-    // каталог — каталог файла: пути в карте esbuild пишет от него, а Node разрешает их от
-    // каталога модуля, и с корнем проекта путь в стеке задвоился бы.
+    // через TSX_TSCONFIG_PATH. Рабочий каталог — каталог файла: пути в карте esbuild пишет
+    // от него, а Node разрешает их от каталога модуля, и с корнем проекта путь в стеке
+    // задвоился бы.
     const [output] = buildSync({
         stdin: {
             contents: `${instrumented}\n//# sourceMappingURL=data:application/json;base64,${map}`,
