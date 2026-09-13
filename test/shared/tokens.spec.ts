@@ -15,4 +15,12 @@ describe("Tokens", () => {
             expect(Symbol.keyFor(token), path.join(".")).to.equal(path.join(""));
         }
     });
+
+    // Сверка выше пропускает склейку, совпавшую у двух разных путей (пример — в шапке
+    // shared/tokens.ts): оба символа ключены своим путём, но это один символ.
+    it("gives every symbol its own string", () => {
+        const keys = collectTokens(Tokens).map(({ token }) => Symbol.keyFor(token));
+
+        expect(keys.filter((key, index) => keys.indexOf(key) !== index)).to.deep.equal([]);
+    });
 });
