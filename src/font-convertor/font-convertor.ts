@@ -45,7 +45,7 @@ export class FontConvertor {
     public async convert(params: ConvertParams): Promise<string> {
         await this.prepare();
 
-        const originExtension = await FileHelper.getFileExtension(params.originPath);
+        const originExtension = (await FileHelper.getFileExtension(params.originPath)).toLowerCase();
 
         if (originExtension === params.extension) {
             throw new FontConvertorError("New and old font extension cannot be equal.");

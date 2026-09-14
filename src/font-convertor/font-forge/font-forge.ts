@@ -20,7 +20,7 @@ export class FontForge {
     public constructor(private readonly fontForgePath: string = configValue("fontForgePath")) {}
 
     public async convert(srcPath: string, distPath: string): Promise<void> {
-        const srcExtension = await FileHelper.getFileExtension(srcPath);
+        const srcExtension = (await FileHelper.getFileExtension(srcPath)).toLowerCase();
         const distExtension = await FileHelper.getFileExtension(distPath);
 
         if (!this.supportedExtensions.includes(srcExtension as Extension)) {
