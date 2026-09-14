@@ -17,14 +17,17 @@ function convertorClassName(fromExtension: Extension, toExtension: Extension): s
 }
 
 describe("ConvertorFactory.getSupportedExtensions", function () {
-    it("returns every extension of the conversion matrix and nothing else", function () {
-        expect(convertorFactory.getSupportedExtensions()).to.have.members([
+    // Порядок сверяется намеренно: в нём список видит пользователь в приветствии /start
+    // (StartConversation). Он складывается из порядка матрицы — формат попадает в список там, где
+    // встретился впервые, источником или целью, — и перестановка в матрице меняет приветствие.
+    it("returns every extension of the conversion matrix in the order of its first appearance", function () {
+        expect(convertorFactory.getSupportedExtensions()).to.deep.equal([
             Extension.WOFF,
-            Extension.WOFF2,
-            Extension.TTF,
-            Extension.OTF,
             Extension.EOT,
+            Extension.OTF,
             Extension.SVG,
+            Extension.TTF,
+            Extension.WOFF2,
         ]);
     });
 });

@@ -115,6 +115,7 @@ describe("FontConvertor", function () {
 
         expect(error).to.be.instanceOf(FontConvertorError);
         expect((error as FontConvertorError).cause).to.be.instanceOf(ConvertorNotFound);
+        expect(((error as FontConvertorError).cause as ConvertorNotFound).payload).to.deep.equal({ from: "pfb", to: Extension.WOFF });
         expect(engineCalls).to.be.empty;
     });
 
