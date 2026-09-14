@@ -85,6 +85,9 @@ describe("Convertors of the eot pairs", function () {
 
         expect(error).to.not.be.instanceOf(RemoveFailed);
         expect((error as Error).message).to.equal("pack failed");
+        // Исходная ошибка та же и при удавшейся уборке: без этой проверки тест прошёл бы, даже
+        // если бы промежуточный путь удалить получилось.
+        expect(await exists(path.join(workDir, `result.${Extension.EOT}.ttf`)), "уборка промежуточного sfnt не упала").to.be.true;
     });
 
     // Convertor.validate() каждая пара вызывает сама, а реализаций convert() у пар с EOT

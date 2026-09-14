@@ -28,13 +28,15 @@ describe("FontForge.convert", function () {
         await fs.rm(workDir, { recursive: true, force: true });
     });
 
+    // Сигнатуры у пары разные намеренно: у TTF и OTF она общая, и с ней тест прошёл бы, даже
+    // если бы движок просто скопировал исходник.
     it("converts a font with the engine", async function () {
         const matcher = new FontSignatureMatcher();
-        const distPath = path.join(workDir, "result.otf");
+        const distPath = path.join(workDir, "result.woff");
 
         await fontForge.convert(fixture(Extension.TTF), distPath);
 
-        expect(matcher.matches(await FileHelper.readHead(distPath, matcher.headLength), Extension.OTF)).to.be.true;
+        expect(matcher.matches(await FileHelper.readHead(distPath, matcher.headLength), Extension.WOFF)).to.be.true;
     });
 
     // Регистр расширения исходника задаёт тот, кто прислал файл, а список форматов движка строчный.
