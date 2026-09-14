@@ -63,7 +63,8 @@ gh pr diff <N> --name-only
 (`docs/architecture/testing.md`).
 
 `package.json` разбирай по содержанию правки, а не по имени: тронуты
-`dependencies`/`devDependencies` — `rebuild`, тронут блок `scripts` — ещё и `make-targets`.
+`dependencies`/`devDependencies` — `rebuild`, тронут блок `scripts` — ещё и `make-targets`,
+тронут ключ `nyc` — ещё и `test`: там конфиг и порог покрытия, который гейт проверяет.
 Посмотри диф файла.
 
 `bug-hunt-*` и `smells` разведены намеренно, и границы у них разные. Баги ищутся везде, где
