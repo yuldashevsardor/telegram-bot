@@ -11,16 +11,16 @@ upsert `on conflict (id) do update`.
 сущность целиком из `ctx.from` (`FillUserToContextMiddleware`).
 
 Снимок строки таблицы — отдельный тип `UserRow` (`pgsql-user-repository.types.ts`):
-snake_case и `Date` вместо `Dayjs` — форма хранилища, а не словарь сущности, и знает её
-только адаптер.
+snake_case, `Date` вместо `Dayjs` и `id` строкой ([`storage.md`](./storage.md)) — форма
+хранилища, а не словарь сущности, и знает её только адаптер.
 
 `FillUserToContextMiddleware` на каждом апдейте: `existsById` → `edit` (с
 `lastActiveTime = now`) или `create` → `ctx.getUser()`. Проверка и действие не связаны
-транзакцией; от гонки защищает только `sequentialize()` по `from.id`
-([`bot.md`](./bot.md)). `create()` не защищает от дублей сам — полагается на upsert.
-`UserService.edit()` перед `save` читает пользователя `getById`: конструктору `User` нужен
-весь `UserDto`, а `createdTime` в апдейте не приходит и сеттера не имеет — собрать
-сущность на месте нечем.
+транзакцией; от гонки защищает только `sequentialize()`, и только пока в пайплайн проходят
+одни приватные чаты ([инвариант](./invariants.md)). `create()` не защищает от дублей сам —
+полагается на upsert. `UserService.edit()` перед `save` читает пользователя `getById`:
+конструктору `User` нужен весь `UserDto`, а `createdTime` в апдейте не приходит и сеттера
+не имеет — собрать сущность на месте нечем.
 
 Пользователь лежит в контексте функцией `ctx.getUser()`, а не полем: клон `User` был бы
 пустым объектом — у сущности всё в приватных полях ([инвариант](./invariants.md)). Функции

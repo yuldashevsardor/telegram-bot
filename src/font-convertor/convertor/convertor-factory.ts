@@ -114,10 +114,10 @@ export class ConvertorFactory {
     public getSupportedExtensions(): Array<Extension> {
         const extensions = new Set<Extension>();
 
-        for (const fromExtension of Object.keys(this.convertors) as Array<Extension>) {
-            extensions.add(fromExtension);
+        for (const [fromExtension, toConvertors] of Object.entries(this.convertors)) {
+            extensions.add(fromExtension as Extension);
 
-            for (const toExtension of Object.keys(this.convertors[fromExtension] ?? {}) as Array<Extension>) {
+            for (const toExtension of Object.keys(toConvertors) as Array<Extension>) {
                 extensions.add(toExtension);
             }
         }

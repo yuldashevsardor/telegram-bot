@@ -40,6 +40,9 @@
 `DATABASE_USER_PASSWORD` и `DATABASE_NAME` читает ещё и скрипт первичной инициализации
 `docker/pgsql/docker-entrypoint-initdb.d/init-user-db.sh`. Скрипт отрабатывает только на
 пустом каталоге данных: переименование любой из них ломает не текущую базу, а следующую.
+Исключение из «только» — хук тестов `test/database-hook.ts`: он создаёт базу прогона
+суперпользователем (`DATABASE_SUPERUSER_NAME`, `DATABASE_SUPERUSER_PASSWORD`) из того же
+окружения контейнера, и переименование ломает ещё и ближайший `make test`.
 `DATABASE_URL` — только `node-pg-migrate`; собирается в `docker-compose.app.yml`, потому
 что в `.env` подстановки `${...}` нет, а в `environment:` Compose она работает.
 

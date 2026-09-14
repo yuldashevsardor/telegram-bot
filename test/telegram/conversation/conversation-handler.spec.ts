@@ -23,6 +23,21 @@ class StubConversationHandler extends ConversationHandler {
 }
 
 describe("ConversationHandler", function () {
+    it("enters the conversation registered under its name", async function () {
+        const entered: string[] = [];
+        const ctx = {
+            conversation: {
+                enter: async (name: string): Promise<void> => {
+                    entered.push(name);
+                },
+            },
+        } as unknown as Context;
+
+        await new StubConversationHandler().enter(ctx);
+
+        expect(entered).to.deep.equal(["stub"]);
+    });
+
     it("keeps ctx and conversation of concurrent conversations apart", async function () {
         const handler = new StubConversationHandler();
         const first: Entered = { conversation: {} as Conversation, ctx: {} as Context };
