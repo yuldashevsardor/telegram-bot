@@ -19,6 +19,7 @@ const PLATFORM_WINDOWS = 3;
 const PLATFORM_UNKNOWN = 9;
 const MAC_ENCODING_JAPANESE = 1;
 const NAME_ID_FAMILY = 1;
+const NAME_ID_STYLE = 2;
 const NAME_ID_FULL = 4;
 const NAME_ID_VERSION = 5;
 const NAME_ID_POSTSCRIPT = 6;
@@ -105,20 +106,23 @@ describe("SfntReader.readMetadata", function () {
         expect(readMetadata(lastVersion).versionName).to.equal("Roboto-Black");
     });
 
-    // Строка, которая кончается ровно на конце файла, в него умещается; на байт короче файл её
-    // уже обрывает. Обрезаем файл по имени семейства Windows: у фикстуры строки остальных
-    // платформ лежат дальше и остаются за концом, так что прочитать имя больше неоткуда.
-    const familyNameEndCases: Array<[string, number, string]> = [
-        ["reads a name that ends right at the end of the font", 0, "Roboto Black"],
-        ["leaves out a name that the end of the font cuts short", 1, ""],
+    // Строка, которая кончается ровно на границе, в неё умещается; на байт короче граница её уже
+    // обрывает. Границ две: конец файла и объявленный конец таблицы name — за ним лежит соседняя
+    // таблица, и её байты не имя, хотя файл цел. Ставим границу по имени семейства Windows: у
+    // фикстуры строки остальных платформ лежат дальше и остаются за ней, так что прочитать имя
+    // больше неоткуда.
+    const familyNameEndCases: Array<[string, (bytes: Uint8Array, end: number) => Uint8Array]> = [
+        ["the end of the font", (bytes, end): Uint8Array => bytes.subarray(0, end)],
+        ["the end of the name table", (bytes, end): Uint8Array => withNameTableLength(bytes, end - tableOffset(bytes, "name"))],
     ];
 
-    for (const [what, shortfall, familyName] of familyNameEndCases) {
-        it(what, function () {
-            const length = new DataView(ttf.buffer).getUint16(nameRecord(ttf, PLATFORM_WINDOWS, NAME_ID_FAMILY) + 8);
-            const end = nameStringOffset(ttf, PLATFORM_WINDOWS, NAME_ID_FAMILY) + length;
+    for (const [boundary, cut] of familyNameEndCases) {
+        it(`reads a name that ends right at ${boundary}`, function () {
+            expect(readMetadata(cut(ttf, windowsFamilyNameEnd(ttf))).familyName).to.equal("Roboto Black");
+        });
 
-            expect(readMetadata(ttf.subarray(0, end - shortfall)).familyName).to.equal(familyName);
+        it(`leaves out a name that ${boundary} cuts short`, function () {
+            expect(readMetadata(cut(ttf, windowsFamilyNameEnd(ttf) - 1)).familyName).to.equal("");
         });
     }
 
@@ -144,6 +148,10 @@ describe("SfntReader.readMetadata", function () {
         expect(metadata.styleName).to.equal("Black");
     });
 
+    // Смещение от начала таблицы name посреди записи с индексом 8: заголовок в 6 байт, восемь
+    // целых записей и половина следующей.
+    const middleOfNameRecords = 6 + 8 * NAME_RECORD_SIZE + 6;
+
     // Записи name режут субсеттеры, а таблицу целиком снимает
     // `pyftsubset --drop-tables+=name`; поля конверта при этом информационные, и отвергать
     // из-за них шрифт целиком дороже, чем отдать пустую строку.
@@ -153,10 +161,7 @@ describe("SfntReader.readMetadata", function () {
             "carries no name table",
             (bytes): Uint8Array => patch(bytes, (view, copy) => view.setUint32(tableRecord(copy, "name"), 0x78787878)),
         ],
-        [
-            "has a truncated name table",
-            (bytes): Uint8Array => patch(bytes, (view, copy) => view.setUint32(tableRecord(copy, "name") + 12, 4)),
-        ],
+        ["has a truncated name table", (bytes): Uint8Array => withNameTableLength(bytes, 4)],
         [
             "points its names past the end of the font",
             (bytes): Uint8Array =>
@@ -169,7 +174,13 @@ describe("SfntReader.readMetadata", function () {
             // У обрезанного шрифта хранилище строк за концом файла, и проход по записям кончает
             // уже конец файла. Не будь этой границы, недописанная запись с индексом 8 читалась
             // бы за концом DataView и уронила бы разбор RangeError.
-            (bytes): Uint8Array => bytes.subarray(0, tableOffset(bytes, "name") + 6 + 8 * NAME_RECORD_SIZE + 6),
+            (bytes): Uint8Array => bytes.subarray(0, tableOffset(bytes, "name") + middleOfNameRecords),
+        ],
+        [
+            "declares its name table shorter than its name records",
+            // Файл цел, укорочена только объявленная длина: записи за ней и хранилище строк уже
+            // не байты таблицы name.
+            (bytes): Uint8Array => withNameTableLength(bytes, middleOfNameRecords),
         ],
         [
             "is cut off inside the name table header",
@@ -201,9 +212,7 @@ describe("SfntReader.readMetadata", function () {
 
     // Кончается только текущий проход: следующий источник или язык снова начинает с нулевой
     // записи. Поэтому имена, которые находит не первый проход, при завышенном счётчике
-    // читаются так же, как при правильном. Случай Macintosh заодно держит границу записей на
-    // хранилище строк: за ним в фикстуре, в post и GDEF, байты складываются в «записи»
-    // Unicode, а этот источник проверяется раньше Macintosh.
+    // читаются так же, как при правильном.
     const laterPassCases: Array<[string, (bytes: Uint8Array) => Uint8Array]> = [
         ["only macintosh names", withoutWindowsNames],
         [
@@ -229,6 +238,29 @@ describe("SfntReader.readMetadata", function () {
             expect(envelopeNames(relabeled)).to.deep.equal(["Roboto Black", "Black", "Version 1.0", "Roboto-Black"]);
         });
     }
+
+    it("stops the name records at the string storage", function () {
+        // Хранилище строк у фикстуры начинается сразу за последней записью, и завышенный счётчик
+        // повёл бы проход дальше, по строкам. Складываем в начале хранилища «запись» Unicode с
+        // именем семейства, которая указывает на строку стиля Windows: записи Windows спрятаны,
+        // и их строк больше никто не читает. Unicode проверяется раньше Macintosh, так что
+        // прочитанная «запись» заслонила бы настоящее имя.
+        const disguised = patch(withoutWindowsNames(ttf), (view, copy) => {
+            const name = tableOffset(copy, "name");
+            const storage = name + view.getUint16(name + 4);
+            const style = nameRecord(ttf, PLATFORM_WINDOWS, NAME_ID_STYLE);
+
+            expect(storage, "хранилище строк начинается сразу за записями").to.equal(
+                name + 6 + view.getUint16(name + 2) * NAME_RECORD_SIZE,
+            );
+            copy.set(ttf.subarray(style, style + NAME_RECORD_SIZE), storage);
+            view.setUint16(storage, PLATFORM_UNICODE);
+            view.setUint16(storage + 4, 0);
+            view.setUint16(storage + 6, NAME_ID_FAMILY);
+        });
+
+        expect(readMetadata(overcountNameRecords(disguised)).familyName).to.equal("Roboto Black");
+    });
 
     it("prefers the english name over one that stands earlier in the table", function () {
         // Порядок записей шрифт не гарантирует, поэтому язык важнее места: ttf2eot, на
@@ -383,6 +415,11 @@ describe("SfntReader.readMetadata", function () {
         return patch(bytes, (view, copy) => view.setUint16(tableOffset(copy, "name") + 2, 0xffff));
     }
 
+    // Длина таблицы — последнее поле её записи в каталоге. Байты самой таблицы не меняются.
+    function withNameTableLength(bytes: Uint8Array, length: number): Uint8Array {
+        return patch(bytes, (view, copy) => view.setUint32(tableRecord(copy, "name") + 12, length));
+    }
+
     function envelopeNames(bytes: Uint8Array): Array<string> {
         const metadata = readMetadata(bytes);
 
@@ -404,6 +441,12 @@ describe("SfntReader.readMetadata", function () {
         }
 
         return found;
+    }
+
+    function windowsFamilyNameEnd(bytes: Uint8Array): number {
+        const length = new DataView(bytes.buffer).getUint16(nameRecord(bytes, PLATFORM_WINDOWS, NAME_ID_FAMILY) + 8);
+
+        return nameStringOffset(bytes, PLATFORM_WINDOWS, NAME_ID_FAMILY) + length;
     }
 
     function nameStringOffset(bytes: Uint8Array, platformId: number, nameId: number): number {
