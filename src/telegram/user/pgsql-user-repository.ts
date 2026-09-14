@@ -61,7 +61,7 @@ export class PgSqlUserRepository implements UserRepository {
 
     private static rowToEntity(row: UserRow): User {
         return new User({
-            id: row.id,
+            id: Number(row.id),
             firstname: row.first_name,
             lastname: row.last_name,
             username: row.username,
@@ -74,7 +74,7 @@ export class PgSqlUserRepository implements UserRepository {
 
     private static entityToRow(user: User): UserRow {
         return {
-            id: user.id,
+            id: String(user.id),
             first_name: user.firstname,
             last_name: user.lastname,
             username: user.username,

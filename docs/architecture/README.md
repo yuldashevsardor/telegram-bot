@@ -118,7 +118,7 @@ src/
     process/                ProcessHelper — запуск внешних процессов (invariants.md)
     string/                 StringHelper
 test/                       mocha-спеки; путь спеки повторяет путь исходника с точностью до модуля;
-                            coverage-hook.ts — хук make coverage (testing.md)
+                            coverage-hook.ts — хук make coverage, database-hook.ts — база на прогон (testing.md)
 migrations/                 миграции, в common/ — общие shorthands и заготовка (storage.md)
 scripts/                    хостовые скрипты целей make; claude-worktree-guard — хук (testing.md)
 ```

@@ -3,7 +3,9 @@
     // резолвер путей не нужен. Типы он не проверяет — это делает npm run typecheck.
     // Тиконфиг ему задаёт TSX_TSCONFIG_PATH в npm-скрипте test: compilerOptions
     // применяются только к файлам из include, а test/** есть лишь в tsconfig.check.json.
-    "require": ["tsx/cjs"],
+    // database-hook идёт после tsx, потому что сам написан на TypeScript; он создаёт базу
+    // на прогон (docs/architecture/testing.md, «База для тестов»).
+    "require": ["tsx/cjs", "./test/database-hook.ts"],
     "spec": "test/**/*.spec.ts",
     "color": true
 }
