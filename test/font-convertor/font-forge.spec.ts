@@ -2,6 +2,8 @@ import { expect } from "chai";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
+import { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory";
+import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { ExecuteError, ExtensionNotSupport } from "app/font-convertor/font-forge/font-forge.errors";
@@ -13,6 +15,9 @@ const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
 describe("FontForge.convert", function () {
     const fontForge = new FontForge("fontforge");
+    const engineExtensions = new ConvertorFactory(fontForge, new FontSignatureMatcher(), new EotPacker())
+        .getSupportedExtensions()
+        .filter((extension) => extension !== Extension.EOT);
     let workDir: string;
 
     beforeEach(async function () {
@@ -33,7 +38,7 @@ describe("FontForge.convert", function () {
     });
 
     // Регистр расширения исходника задаёт тот, кто прислал файл, а список форматов движка строчный.
-    for (const extension of [Extension.OTF, Extension.SVG, Extension.TTF, Extension.WOFF, Extension.WOFF2]) {
+    for (const extension of engineExtensions) {
         it(`reads ${extension} under an uppercase extension`, async function () {
             const matcher = new FontSignatureMatcher();
             const srcPath = path.join(workDir, `Font.${extension.toUpperCase()}`);
