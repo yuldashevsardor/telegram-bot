@@ -3,7 +3,6 @@ import fsSync from "fs";
 import path from "path";
 import dayjs from "dayjs";
 import { InvalidExtensions, InvalidPath, PermissionDenied, ReadFailed, RemoveFailed, WriteFailed } from "app/shared/fs/file-helper.errors";
-import glob from "tiny-glob";
 
 export class FileHelper {
     // F_OK, а не R_OK: с R_OK существующий нечитаемый путь сходил бы за отсутствующий.
@@ -154,14 +153,22 @@ export class FileHelper {
             throw InvalidExtensions.empty(extensions);
         }
 
-        const searchPattern = `**/*.{${filteredExtensions.join(",")}}`;
+        // Шаблон на расширение, а не один `**/*.{ttf,otf}`: скобки из одного элемента glob
+        // оставляет буквально, и `**/*.{ftl}` не нашёл бы ничего. Скрытые файлы и каталоги
+        // glob пропускает сам, опции для этого у него нет. Так же молча, без ошибки, он
+        // пропускает каталог, который не прочитать или которого нет, включая сам basePath:
+        // выпавшие файлы вызывающий заметит, только если проверит результат.
+        const searchPatterns = filteredExtensions.map((extension) => `**/*.${extension}`);
+        const files: string[] = [];
 
-        return await glob(searchPattern, {
-            cwd: basePath,
-            filesOnly: true,
-            dot: false,
-            absolute: true,
-        });
+        for await (const entry of fs.glob(searchPatterns, { cwd: basePath, withFileTypes: true })) {
+            // Каталог с подходящим именем glob тоже отдаёт.
+            if (entry.isFile()) {
+                files.push(path.resolve(entry.parentPath, entry.name));
+            }
+        }
+
+        return files;
     }
 
     private static async hasAccess(path: string, mode: number): Promise<boolean> {

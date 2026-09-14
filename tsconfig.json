@@ -18,12 +18,11 @@
         "esModuleInterop": true,
         "declarationMap": true,
         //        "inlineSourceMap": true,
-        // Оставлены включёнными вынужденно: @types/node зафиксированы на 17.x, и без
-        // пропуска проверки .d.ts сборка падает на несовместимости их Buffer с lib
-        // ESNext, а также на untyped node-fetch внутри grammy. Снимать вместе с
-        // обновлением @types/node.
+        // Оставлен включённым вынужденно: без пропуска проверки .d.ts tsc падает на
+        // декларациях зависимостей, которые импортируют нетипизированные модули (TS7016):
+        // сборка — на node-fetch внутри grammy, typecheck по tsconfig.check.json — ещё и на
+        // pg внутри node-pg-migrate.
         "skipLibCheck": true,
-        "skipDefaultLibCheck": true,
         "strict": true,
         "noImplicitOverride": true,
         "noPropertyAccessFromIndexSignature": true,

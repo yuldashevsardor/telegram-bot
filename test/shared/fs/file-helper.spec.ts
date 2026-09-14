@@ -242,11 +242,28 @@ describe("FileHelper.findFilesByExtensions", function () {
 
     // Локали собираются из всех .ftl каталога (createFluent), и скрытый ._start.locale.en.ftl —
     // файл метаданных, который macOS кладёт рядом на чужой файловой системе, — ушёл бы в бандл en.
+    // Скрытых два: проверка скрытого имени регуляркой с флагом g, как в tiny-glob, пропускает
+    // второе подряд.
     it("skips hidden files", async function () {
-        await fs.writeFile(path.join(basePath, "start.locale.en.ftl"), Uint8Array.from([1]));
-        await fs.writeFile(path.join(basePath, "._start.locale.en.ftl"), Uint8Array.from([1]));
+        for (const name of ["._start.locale.en.ftl", "._start.locale.ru.ftl", "start.locale.en.ftl"]) {
+            await fs.writeFile(path.join(basePath, name), Uint8Array.from([1]));
+        }
 
         expect(await FileHelper.findFilesByExtensions(basePath, ["ftl"])).to.deep.equal([path.join(basePath, "start.locale.en.ftl")]);
+    });
+
+    // Кэш типов между вызовами, как в tiny-glob, с ключом по пути относительно каталога поиска
+    // спустил бы второй вызов в файл как в каталог (ENOTDIR) и вернул бы каталог вместо файла.
+    it("does not carry file types over from a previous call", async function () {
+        const first = path.join(basePath, "first");
+        const second = path.join(basePath, "second");
+        await fs.mkdir(path.join(first, "x.ftl"), { recursive: true });
+        await fs.writeFile(path.join(first, "y.ftl"), Uint8Array.from([1]));
+        await fs.mkdir(path.join(second, "y.ftl"), { recursive: true });
+        await fs.writeFile(path.join(second, "x.ftl"), Uint8Array.from([1]));
+
+        expect(await FileHelper.findFilesByExtensions(first, ["ftl"])).to.deep.equal([path.join(first, "y.ftl")]);
+        expect(await FileHelper.findFilesByExtensions(second, ["ftl"])).to.deep.equal([path.join(second, "x.ftl")]);
     });
 
     it("refuses a list with nothing but blanks", async function () {
