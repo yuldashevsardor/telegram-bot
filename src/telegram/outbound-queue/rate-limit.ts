@@ -10,6 +10,7 @@ export class RateLimit {
     }
 
     public isFree(): boolean {
+        // Stryker disable next-line ConditionalExpression,EqualityOperator: `false` слева от `||` — не компилируется: reserveTimeout может быть null; `<=` — конец остывания на миллисекунду раньше, эту границу требование не задаёт
         return this.reserveTimeout === null || this.reserveTimeout < Date.now();
     }
 

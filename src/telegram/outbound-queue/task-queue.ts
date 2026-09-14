@@ -77,6 +77,7 @@ export class TaskQueue {
             return null;
         }
 
+        // Stryker disable next-line ConditionalExpression,BlockStatement: `false` и `{}` — эквивалентны: без задач наборы keysByPriority пусты, и обход ниже вернёт тот же null
         if (this.isEmpty()) {
             return null;
         }
@@ -111,6 +112,7 @@ export class TaskQueue {
     public ban(duration: number): void {
         const expirationTime = duration + Date.now();
 
+        // Stryker disable next-line EqualityOperator: `<=` — расходится только на паузе, истекающей в ту же миллисекунду, а эту границу требование не задаёт
         if (expirationTime < Date.now()) {
             return;
         }
@@ -119,6 +121,7 @@ export class TaskQueue {
     }
 
     private isBanned(): boolean {
+        // Stryker disable next-line ConditionalExpression,EqualityOperator: `true` слева от `&&` — не компилируется: banExpirationTime может быть null; `>` — конец паузы на миллисекунду раньше, эту границу требование не задаёт
         return this.banExpirationTime !== null && this.banExpirationTime >= Date.now();
     }
 
@@ -199,7 +202,9 @@ export class TaskQueue {
         this.partitions.delete(key);
         this.idleKeys.delete(key);
 
+        // Stryker disable next-line BlockStatement: `{}` — эквивалентен: сюда доходит только пустая партиция, а её ключ выемка уже сняла с индекса
         for (const keys of Object.values(this.keysByPriority)) {
+            // Stryker disable next-line CallExpression: удаление вызова — эквивалентно: сюда доходит только пустая партиция, а её ключ выемка уже сняла с индекса
             keys.delete(key);
         }
     }
