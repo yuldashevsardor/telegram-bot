@@ -1,5 +1,4 @@
 import { expect } from "chai";
-import { randomUUID } from "crypto";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
@@ -24,11 +23,7 @@ describe("FontConvertor", function () {
     let factory: ConvertorFactory;
 
     beforeEach(async function () {
-        // Путь нужен целиком строчными: convert() приводит к нижнему регистру путь результата
-        // вместе с tempDir. Поэтому суффикс — randomUUID(), а не fs.mkdtemp(), у которого он
-        // бывает заглавным; os.tmpdir() в образе — /tmp.
-        tempDir = path.join(os.tmpdir(), `font-convertor-${randomUUID()}`);
-        await fs.mkdir(tempDir);
+        tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "font-convertor-"));
         lockedDirs = [];
         engineCalls = [];
 
@@ -55,6 +50,19 @@ describe("FontConvertor", function () {
 
         expect(path.relative(tempDir, result)).to.match(/^\d{4}\/\d{1,2}\/\d{1,2}\/[a-z0-9]{15}\.woff$/);
         expect(engineCalls).to.deep.equal([`${fixture(Extension.TTF)} -> ${result}`]);
+    });
+
+    it("keeps the case of the temp dir", async function () {
+        // Суффикс mkdtemp() бывает и строчным, поэтому заглавные в пути задаются явно.
+        const directory = path.join(tempDir, "Upper-Case");
+        await fs.mkdir(directory);
+
+        const result = await new FontConvertor(factory, directory).convert({
+            originPath: fixture(Extension.TTF),
+            extension: Extension.WOFF,
+        });
+
+        expect(path.relative(directory, result)).to.match(/^\d{4}\/\d{1,2}\/\d{1,2}\/[a-z0-9]{15}\.woff$/);
     });
 
     it("gives every conversion a new name", async function () {
