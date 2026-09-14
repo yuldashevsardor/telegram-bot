@@ -29,6 +29,9 @@ export type TelegramLimits = {
 };
 
 export class ConfigContainer {
+    // Наибольшая задержка таймеров Node: знаковое 32-битное целое.
+    private static readonly MAX_TIMER_DELAY = 2 ** 31 - 1;
+
     public readonly environment: Environment;
     public readonly isProduction: boolean;
 
@@ -43,6 +46,7 @@ export class ConfigContainer {
     public readonly bot: BotSettings;
 
     public readonly taskQueue: {
+        logInterval: number;
         gracefulShutdown: {
             timeout: number;
             interval: number;
@@ -98,11 +102,14 @@ export class ConfigContainer {
         };
 
         this.taskQueue = {
+            logInterval: this.getInteger("TASK_QUEUE_LOG_INTERVAL", 10 * 1000), // 10 секунд
             gracefulShutdown: {
                 timeout: this.getInteger("TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT", 5000),
                 interval: this.getInteger("TASK_QUEUE_GRACEFUL_SHUTDOWN_INTERVAL", 500),
             },
         };
+
+        this.checkTaskQueue();
 
         this.gracefulShutdown = {
             timeout: this.getInteger("GRACEFUL_SHUTDOWN_TIMEOUT", 15000),
@@ -159,6 +166,19 @@ export class ConfigContainer {
             throw new InvalidConfigError("RUNNER_SLEEP_INTERVAL_MAX must not be less than RUNNER_SLEEP_INTERVAL_MIN", {
                 min: min,
                 max: max,
+            });
+        }
+    }
+
+    // Журналы очереди идут через setInterval, а тот период меньше 1 мс или больше 2^31 - 1 мс
+    // превращает в 1 мс (на переполнении — лишь с предупреждением): info-лог писался бы на каждом
+    // витке событийного цикла. Большое значение, взятое, чтобы журнал «выключить», дало бы ровно это.
+    private checkTaskQueue(): void {
+        const { logInterval } = this.taskQueue;
+
+        if (logInterval <= 0 || logInterval > ConfigContainer.MAX_TIMER_DELAY) {
+            throw new InvalidConfigError(`TASK_QUEUE_LOG_INTERVAL must be between 1 and ${ConfigContainer.MAX_TIMER_DELAY}`, {
+                got: logInterval,
             });
         }
     }

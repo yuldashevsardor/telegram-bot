@@ -76,17 +76,32 @@ describe("FontConvertor", function () {
         expect(second).to.not.equal(first);
     });
 
-    it("rejects a target format equal to the source one", async function () {
-        const error = await rejectionOf(() =>
-            new FontConvertor(factory, tempDir).convert({ originPath: fixture(Extension.TTF), extension: Extension.TTF }),
-        );
+    for (const filename of ["font.ttf", "Font.TTF"]) {
+        it(`rejects a target format equal to the source one named ${filename}`, async function () {
+            const originPath = await copyTtfFixture(filename);
 
-        // Класса мало: пары ttf → ttf нет, и без своей проверки отказ пришёл бы от фабрики,
-        // обёрнутый в тот же FontConvertorError.
-        expect(error).to.be.instanceOf(FontConvertorError);
-        expect((error as FontConvertorError).message).to.equal("New and old font extension cannot be equal.");
-        expect(engineCalls).to.be.empty;
-    });
+            const error = await rejectionOf(() =>
+                new FontConvertor(factory, tempDir).convert({ originPath: originPath, extension: Extension.TTF }),
+            );
+
+            // Класса мало: пары ttf → ttf нет, и без своей проверки отказ пришёл бы от фабрики,
+            // обёрнутый в тот же FontConvertorError.
+            expect(error).to.be.instanceOf(FontConvertorError);
+            expect((error as FontConvertorError).message).to.equal("New and old font extension cannot be equal.");
+            expect(engineCalls).to.be.empty;
+        });
+    }
+
+    // Ключи таблицы пар строчные, а регистр расширения задаёт тот, кто прислал файл.
+    for (const filename of ["Font.TTF", "Font.tTf"]) {
+        it(`converts a source named ${filename} as a lowercase one`, async function () {
+            const originPath = await copyTtfFixture(filename);
+
+            const result = await new FontConvertor(factory, tempDir).convert({ originPath: originPath, extension: Extension.WOFF });
+
+            expect(engineCalls).to.deep.equal([`${originPath} -> ${result}`]);
+        });
+    }
 
     it("wraps a failure of the pair", async function () {
         const originPath = path.join(tempDir, "garbage.ttf");
@@ -151,6 +166,13 @@ describe("FontConvertor", function () {
 
     function fixture(extension: Extension): string {
         return path.join(fixtureDir, `test-font.${extension}`);
+    }
+
+    async function copyTtfFixture(filename: string): Promise<string> {
+        const copyPath = path.join(tempDir, filename);
+        await fs.copyFile(fixture(Extension.TTF), copyPath);
+
+        return copyPath;
     }
 
     function rejectionOf(call: () => Promise<unknown>): Promise<unknown> {
