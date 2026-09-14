@@ -52,8 +52,7 @@ describe("RequestLogMiddleware", function () {
 
         await run(ctx, records);
 
-        expect(records).to.have.lengthOf(1);
-        expect(records[0]?.payload).to.deep.equal({ update: ctx.update });
+        expect(records).to.deep.equal([{ message: "Request", payload: { update: ctx.update } }]);
     });
 
     it("passes the update down", async function () {

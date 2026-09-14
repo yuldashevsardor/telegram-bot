@@ -82,6 +82,7 @@ describe("UserService", function () {
             const error = await rejectionOf(() => service.create(PROFILE));
 
             expect(error).to.be.instanceOf(UserCreateError);
+            expect((error as UserCreateError).message).to.equal("Error in create user");
             expect((error as UserCreateError).payload).to.deep.equal({ dto: PROFILE });
             expect((error as UserCreateError).cause).to.equal(failure);
         });
@@ -137,6 +138,7 @@ describe("UserService", function () {
             const error = await rejectionOf(() => service.edit(STORED.id, dto));
 
             expect(error).to.be.instanceOf(UserEditError);
+            expect((error as UserEditError).message).to.equal("Error in edit user");
             expect((error as UserEditError).payload).to.deep.equal({ dto: dto });
             expect((error as UserEditError).cause).to.equal(failure);
         });
@@ -147,6 +149,7 @@ describe("UserService", function () {
             const error = await rejectionOf(() => service.edit(missingId, { username: "ivan" }));
 
             expect(error).to.be.instanceOf(UserNotFound);
+            expect((error as UserNotFound).message).to.equal(`User with id ${missingId} not found.`);
             expect((error as UserNotFound).payload).to.deep.equal({ id: missingId });
         });
     });

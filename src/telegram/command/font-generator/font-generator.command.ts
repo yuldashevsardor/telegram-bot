@@ -22,6 +22,7 @@ export class FontGeneratorCommand extends Command {
     }
 
     protected async handle(ctx: Context): Promise<void> {
+        // Stryker disable next-line ArrayDeclaration: `["Stryker was here"]` — эквивалентен: не-промис Promise.all() отдаёт сразу, а его результат не читается
         const promises: Promise<unknown>[] = [];
         for (let i = 0; i < 1; i++) {
             promises.push(this.generateRandomFonts(ctx));

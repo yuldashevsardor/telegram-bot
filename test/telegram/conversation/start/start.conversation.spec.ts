@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { expect } from "chai";
 import type { Message } from "@grammyjs/types";
+import { createConversation } from "@grammyjs/conversations";
 import type { Context, Conversation } from "app/telegram/bot.types";
 import { StartConversation } from "app/telegram/conversation/start/start.conversation";
 import { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory";
@@ -52,6 +53,13 @@ async function run(convertorFactory: ConvertorFactory, nextMessage: Partial<Mess
 }
 
 describe("StartConversation", function () {
+    // Bot.setup() регистрирует разговор в плагине под его именем, а без имени плагин отказывает.
+    it("registers in the conversations plugin under its name", function () {
+        const handler = new StartConversation(buildConvertorFactory());
+
+        expect(() => createConversation(handler.handle.bind(handler), handler.name)).to.not.throw();
+    });
+
     it("promises exactly the supported formats", async function () {
         const convertorFactory = buildConvertorFactory();
 

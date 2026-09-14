@@ -97,6 +97,7 @@ describe("FillUserToContextMiddleware", function () {
             );
 
         expect(caught).to.be.instanceOf(UpdateWithoutFrom);
+        expect((caught as UpdateWithoutFrom).message).to.equal("Update without `from` reached the middleware chain.");
         expect((caught as UpdateWithoutFrom).payload).to.deep.equal({ updateId: 7 });
         expect(touched).to.equal(false);
     });

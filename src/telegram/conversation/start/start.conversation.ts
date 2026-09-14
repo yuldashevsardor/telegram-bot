@@ -21,6 +21,7 @@ export class StartConversation extends ConversationHandler {
         await ctx.reply(text);
         const nextMessage = await conversation.wait();
 
+        // Stryker disable next-line OptionalChaining: `nextMessage.message.text` — не компилируется: message у апдейта необязателен
         await nextMessage.reply(nextMessage.message?.text || nextMessage.t("start-conversation-not-text"));
     }
 }

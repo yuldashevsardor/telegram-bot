@@ -1,5 +1,8 @@
 import "reflect-metadata";
+import path from "path";
 import { expect } from "chai";
+import { Api, Composer, Context as GrammyContext } from "grammy";
+import type { Update, UserFromGetMe } from "@grammyjs/types";
 import type { Context } from "app/telegram/bot.types";
 import type { Logger } from "app/platform/logger/logger";
 import type { UnknownObject } from "app/shared/types";
@@ -7,15 +10,27 @@ import type { FontConvertor } from "app/font-convertor/font-convertor";
 import type { ConvertParams } from "app/font-convertor/font-convertor.types";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { FontGeneratorCommand } from "app/telegram/command/font-generator/font-generator.command";
+import { createFluent } from "app/telegram/locale";
+import { LOCALES } from "app/telegram/locale.types";
 
 type ErrorRecord = { message: string; payload: UnknownObject | undefined };
 
 type Run = { events: string[]; originPaths: string[]; errors: ErrorRecord[] };
 
-class ExposedFontGeneratorCommand extends FontGeneratorCommand {
-    public run(ctx: Context): Promise<void> {
-        return this.handle(ctx);
-    }
+const ME = { id: 1, is_bot: true, first_name: "Bot", username: "test_bot" } as UserFromGetMe;
+
+function commandUpdate(text: string): Update {
+    return {
+        update_id: 1,
+        message: {
+            message_id: 1,
+            date: 0,
+            chat: { id: 1, type: "private", first_name: "User" },
+            from: { id: 1, is_bot: false, first_name: "User" },
+            text: text,
+            entities: [{ type: "bot_command", offset: 0, length: text.length }],
+        },
+    };
 }
 
 async function run(failOn?: { extension: Extension; error: Error }): Promise<Run> {
@@ -44,14 +59,17 @@ async function run(failOn?: { extension: Extension; error: Error }): Promise<Run
         debug: () => undefined,
     };
 
-    const ctx = {
+    // Апдейт идёт через setup(), как в Bot: команда должна откликнуться на своё имя.
+    const ctx = Object.assign(new GrammyContext(commandUpdate("/font_generator"), new Api("test-token"), ME), {
         t: (key: string, args?: Record<string, unknown>): string => `${key} ${String(args?.["path"])}`,
         reply: async (text: string): Promise<void> => {
             result.events.push(`reply ${text}`);
         },
-    } as unknown as Context;
+    }) as unknown as Context;
+    const composer = new Composer<Context>();
+    new FontGeneratorCommand(convertor, logger, "/root").setup(composer);
 
-    await new ExposedFontGeneratorCommand(convertor, logger, "/root").run(ctx);
+    await composer.middleware()(ctx, () => Promise.resolve());
 
     return result;
 }
@@ -87,5 +105,15 @@ describe("FontGeneratorCommand", function () {
 
         expect(events).to.deep.equal(["convert eot", "reply font-generator-result /result.eot", "convert otf"]);
         expect(errors).to.deep.equal([{ message: "Font generation is failed.", payload: { cause: error } }]);
+    });
+
+    // Описание в меню команд Bot берёт переводом descriptionKey; ключ без перевода Fluent отдал бы как «{ключ}».
+    it("has a translated description for the command menu in every locale", async function () {
+        const fluent = await createFluent(path.join(process.cwd(), "src", "telegram"));
+        const { descriptionKey } = new FontGeneratorCommand({} as FontConvertor, {} as Logger, "/root");
+
+        for (const locale of LOCALES) {
+            expect(fluent.translate(locale, descriptionKey), locale).to.not.equal(`{${descriptionKey}}`);
+        }
     });
 });

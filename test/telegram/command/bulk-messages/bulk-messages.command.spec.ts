@@ -1,5 +1,8 @@
 import "reflect-metadata";
+import path from "path";
 import { expect } from "chai";
+import { Api, Composer, Context as GrammyContext } from "grammy";
+import type { Update, UserFromGetMe } from "@grammyjs/types";
 import type { Context } from "app/telegram/bot.types";
 import type { Logger } from "app/platform/logger/logger";
 import type { Bot } from "app/telegram/bot";
@@ -12,17 +15,29 @@ import { Tokens } from "app/shared/tokens";
 import { FileHelper } from "app/shared/fs/file-helper";
 import { InvalidPath } from "app/shared/fs/file-helper.errors";
 import { StringHelper } from "app/shared/string/string-helper";
+import { createFluent } from "app/telegram/locale";
+import { LOCALES } from "app/telegram/locale.types";
 
 type Pushed = { task: Task; priority: Priority };
 
-class ExposedBulkMessagesCommand extends BulkMessagesCommand {
-    public run(ctx: Context): Promise<void> {
-        return this.handle(ctx);
-    }
-}
-
 const CHATS = [2815426, 5067823410, 858262157];
 const TEXT = "random text";
+
+const ME = { id: 1, is_bot: true, first_name: "Bot", username: "test_bot" } as UserFromGetMe;
+
+function commandUpdate(text: string): Update {
+    return {
+        update_id: 1,
+        message: {
+            message_id: 1,
+            date: 0,
+            chat: { id: 1, type: "private", first_name: "User" },
+            from: { id: 1, is_bot: false, first_name: "User" },
+            text: text,
+            entities: [{ type: "bot_command", offset: 0, length: text.length }],
+        },
+    };
+}
 
 describe("BulkMessagesCommand", function () {
     // 300 000 постановок за вызов: даже с подменами ниже прогон идёт секунды, а не миллисекунды.
@@ -92,10 +107,17 @@ describe("BulkMessagesCommand", function () {
         textLengths.length = 0;
         FileHelper.createDirectoriesByDate = createDirectoriesByDate;
 
-        return new ExposedBulkMessagesCommand(logger).run({} as Context).then(
-            () => undefined,
-            (error: unknown) => error,
-        );
+        // Апдейт идёт через setup(), как в Bot: команда должна откликнуться на своё имя.
+        const ctx = new GrammyContext(commandUpdate("/bulk_messages"), new Api("test-token"), ME) as Context;
+        const composer = new Composer<Context>();
+        new BulkMessagesCommand(logger).setup(composer);
+
+        return Promise.resolve()
+            .then(() => composer.middleware()(ctx, () => Promise.resolve()))
+            .then(
+                () => undefined,
+                (error: unknown) => error,
+            );
     }
 
     describe("when the date directory is created", function () {
@@ -121,8 +143,9 @@ describe("BulkMessagesCommand", function () {
             );
         });
 
-        it("creates the date directory for every message", function () {
+        it("creates the date directory under the path of the author's machine for every message", function () {
             expect(basePaths).to.have.lengthOf(pushed.length);
+            expect(new Set(basePaths)).to.deep.equal(new Set(["/home/sardor/applications/telegram-bot/tmp"]));
         });
 
         it("logs once everything is queued", function () {
@@ -151,5 +174,15 @@ describe("BulkMessagesCommand", function () {
         expect(caught).to.equal(error);
         expect(pushed).to.have.lengthOf(0);
         expect(infos).to.have.lengthOf(0);
+    });
+
+    // Описание в меню команд Bot берёт переводом descriptionKey; ключ без перевода Fluent отдал бы как «{ключ}».
+    it("has a translated description for the command menu in every locale", async function () {
+        const fluent = await createFluent(path.join(process.cwd(), "src", "telegram"));
+        const { descriptionKey } = new BulkMessagesCommand(logger);
+
+        for (const locale of LOCALES) {
+            expect(fluent.translate(locale, descriptionKey), locale).to.not.equal(`{${descriptionKey}}`);
+        }
     });
 });
