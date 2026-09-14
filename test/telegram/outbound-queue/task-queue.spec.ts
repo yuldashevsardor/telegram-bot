@@ -180,12 +180,18 @@ describe("TaskQueue", function () {
         const queue = build({ logger: logger, logInterval: logInterval });
 
         await waitFor(() => logger.infos.length >= 1);
-        queue.ban(1);
-        // Журнал числа задач пишется раньше журнала паузы, поэтому третья запись гарантирует, что
-        // проверка паузы после ban() уже отработала.
-        await waitFor(() => logger.infos.length >= 3);
-
         expect(logger.infos.filter(isBanLog)).to.be.empty;
+
+        queue.ban(1);
+        // Тик журнала, вставший в очередь вместе с ожиданием, может сработать в ту же миллисекунду,
+        // что и ban(1), и честно застать паузу. Поэтому записи считаются с точки, где миллисекундная
+        // пауза гарантированно истекла. Журнал числа задач пишется раньше журнала паузы, так что вторая
+        // запись после этой точки значит, что проверка паузы за ней уже отработала.
+        await delay(5);
+        const expired = logger.infos.length;
+        await waitFor(() => logger.infos.length >= expired + 2);
+
+        expect(logger.infos.slice(expired).filter(isBanLog)).to.be.empty;
     });
 });
 
