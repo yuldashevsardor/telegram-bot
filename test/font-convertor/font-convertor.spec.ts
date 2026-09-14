@@ -1,5 +1,4 @@
 import { expect } from "chai";
-import { randomUUID } from "crypto";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
@@ -13,6 +12,7 @@ import { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher"
 import { InvalidPath, PermissionDenied } from "app/shared/fs/file-helper.errors";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
+const datedWoffPath = /^\d{4}\/\d{1,2}\/\d{1,2}\/[a-z0-9]{15}\.woff$/;
 
 // Пары настоящие, движок подставной: выбор пары и её проверки входа здесь идут насквозь, а
 // что движок делает с байтами — предмет спеки пар. Права отнимаются chmod, поэтому спека не
@@ -24,11 +24,7 @@ describe("FontConvertor", function () {
     let factory: ConvertorFactory;
 
     beforeEach(async function () {
-        // Путь нужен целиком строчными: convert() приводит к нижнему регистру путь результата
-        // вместе с tempDir. Поэтому суффикс — randomUUID(), а не fs.mkdtemp(), у которого он
-        // бывает заглавным; os.tmpdir() в образе — /tmp.
-        tempDir = path.join(os.tmpdir(), `font-convertor-${randomUUID()}`);
-        await fs.mkdir(tempDir);
+        tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "font-convertor-"));
         lockedDirs = [];
         engineCalls = [];
 
@@ -53,8 +49,21 @@ describe("FontConvertor", function () {
     it("converts into a dated directory of the temp dir under a generated name", async function () {
         const result = await new FontConvertor(factory, tempDir).convert({ originPath: fixture(Extension.TTF), extension: Extension.WOFF });
 
-        expect(path.relative(tempDir, result)).to.match(/^\d{4}\/\d{1,2}\/\d{1,2}\/[a-z0-9]{15}\.woff$/);
+        expect(path.relative(tempDir, result)).to.match(datedWoffPath);
         expect(engineCalls).to.deep.equal([`${fixture(Extension.TTF)} -> ${result}`]);
+    });
+
+    it("keeps the case of the temp dir", async function () {
+        // Суффикс mkdtemp() бывает и строчным, поэтому заглавные в пути задаются явно.
+        const directory = path.join(tempDir, "Upper-Case");
+        await fs.mkdir(directory);
+
+        const result = await new FontConvertor(factory, directory).convert({
+            originPath: fixture(Extension.TTF),
+            extension: Extension.WOFF,
+        });
+
+        expect(path.relative(directory, result)).to.match(datedWoffPath);
     });
 
     it("gives every conversion a new name", async function () {
