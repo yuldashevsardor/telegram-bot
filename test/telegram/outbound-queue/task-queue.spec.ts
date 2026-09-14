@@ -49,6 +49,21 @@ describe("TaskQueue", function () {
         expect(queue.pull()?.key).to.equal(222);
     });
 
+    it("puts a key that comes back with a new task behind the keys already waiting", async function () {
+        // Опустевшая корзина должна снять ключ с индекса приоритета: иначе add() в push() оставит его на
+        // старом месте, впереди 222. Пауза нужна, чтобы оба ключа остыли: пока лимит 111 занят, 222 вышел
+        // бы первым и при нарушении.
+        const queue = build();
+        queue.push(task(111, "a1"), Priority.MEDIUM);
+
+        expect(queue.pull()?.key).to.equal(111);
+        queue.push(task(222, "b1"), Priority.MEDIUM);
+        queue.push(task(111, "a2"), Priority.MEDIUM);
+        await delay(keyCooldown + 5);
+
+        expect(queue.pull()?.key).to.equal(222);
+    });
+
     it("skips a key whose limit has not cooled down", async function () {
         const queue = build({ keyLimit: () => frozenKeyLimit });
         queue.push(task(111, "a-high"), Priority.HIGH);
