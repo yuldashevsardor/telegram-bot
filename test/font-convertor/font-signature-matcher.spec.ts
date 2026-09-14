@@ -70,6 +70,12 @@ describe("FontSignatureMatcher.matches", function () {
         expect(fontSignatureMatcher.matches(concat([0xef, 0xbb, 0xbf], "<?xml version="), Extension.SVG)).to.be.true;
     });
 
+    it("rejects an svg behind a damaged BOM", function () {
+        // BOM узнаётся по всем трём байтам: иначе байты, лишь начинающие его, пропускались бы
+        // перед объявлением XML как пролог.
+        expect(fontSignatureMatcher.matches(concat([0xef, 0xbb, 0x3f], "<?xml version="), Extension.SVG)).to.be.false;
+    });
+
     it("accepts an svg with a blank line before the root tag", function () {
         expect(fontSignatureMatcher.matches(concat("\r\n  ", rootTag), Extension.SVG)).to.be.true;
         expect(fontSignatureMatcher.matches(concat([0xef, 0xbb, 0xbf], "\n", rootTag), Extension.SVG)).to.be.true;
@@ -81,6 +87,16 @@ describe("FontSignatureMatcher.matches", function () {
         expect(fontSignatureMatcher.matches(concat("\n  ", "<?xml version="), Extension.SVG)).to.be.false;
     });
 
+    it("accepts markup opening with a letter of either case", function () {
+        // Корневой тег SVG строчный, но разметкой остаётся и тег с префиксом пространства
+        // имён, а префикс бывает любого регистра. Буквы взяты с краёв обоих диапазонов.
+        for (const letter of ["A", "Z", "a", "z"]) {
+            const markup = ascii(`<${letter}:svg xmlns:${letter}="http://www.w3.org/2000/svg"`);
+
+            expect(fontSignatureMatcher.matches(markup, Extension.SVG), letter).to.be.true;
+        }
+    });
+
     it("rejects text that opens with an angle bracket but not with markup", function () {
         // Сигнатура ослаблена до «это разметка», но не до «первый байт — `<`»: за
         // скобкой обязано идти начало тега, доктайпа или комментария. Входы длиннее
@@ -88,6 +104,11 @@ describe("FontSignatureMatcher.matches", function () {
         // и не класс текста.
         expect(fontSignatureMatcher.matches(ascii("</svg> and more text"), Extension.SVG)).to.be.false;
         expect(fontSignatureMatcher.matches(concat("<", [0x00], "0123456789"), Extension.SVG)).to.be.false;
+
+        // Соседи диапазонов букв: имя тега ни один из них не открывает.
+        for (const char of ["@", "[", "`", "{"]) {
+            expect(fontSignatureMatcher.matches(ascii(`<${char}svg xmlns="http://www.w3.org/2000/svg"`), Extension.SVG), char).to.be.false;
+        }
     });
 
     it("rejects a binary head that opens like markup", function () {

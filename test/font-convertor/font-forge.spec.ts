@@ -58,6 +58,9 @@ describe("FontForge.convert", function () {
 
         expect(error).to.be.instanceOf(ExtensionNotSupport);
         expect((error as ExtensionNotSupport).payload).to.deep.equal({ extension: Extension.EOT });
+        // Сообщение payload не заменяет: FontConvertorError.byError() берёт своим именно его, и в
+        // лог отказ конвертации уходит с ним.
+        expect((error as ExtensionNotSupport).message).to.equal("Fontforge not support eot extension.");
     });
 
     it("does not give eot to the engine to write", async function () {
