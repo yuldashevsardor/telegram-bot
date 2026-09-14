@@ -16,6 +16,7 @@ const NAME_RECORD_SIZE = 12;
 const PLATFORM_UNICODE = 0;
 const PLATFORM_MACINTOSH = 1;
 const PLATFORM_WINDOWS = 3;
+const PLATFORM_UNKNOWN = 9;
 const MAC_ENCODING_JAPANESE = 1;
 const NAME_ID_FAMILY = 1;
 const NAME_ID_FULL = 4;
@@ -77,13 +78,11 @@ describe("SfntReader.readMetadata", function () {
     it("falls back to the unicode names when the font has no windows ones", function () {
         // Записи Windows переименовываем в Unicode — строки у обеих платформ в UTF-16BE, — а
         // записи Macintosh прячем: их имена совпадают, и по тексту было бы не видно, чьи прочитаны.
-        const unicode = patch(ttf, (view, copy) => {
+        const unicode = patch(withoutNames(ttf, PLATFORM_MACINTOSH), (view, copy) => {
             forEachNameRecord(copy, (record) => {
                 if (view.getUint16(record) === PLATFORM_WINDOWS) {
                     view.setUint16(record, PLATFORM_UNICODE);
                     view.setUint16(record + 4, 0);
-                } else {
-                    view.setUint16(record, 0x0009);
                 }
             });
         });
@@ -209,15 +208,13 @@ describe("SfntReader.readMetadata", function () {
         ["only macintosh names", withoutWindowsNames],
         [
             "only non-english windows names",
+            // Записи Macintosh прячем: их имена совпадают с именами Windows, и по тексту было
+            // бы не видно, какой проход их прочитал.
             (bytes): Uint8Array =>
-                patch(bytes, (view, copy) => {
-                    // Записи Macintosh прячем: их имена совпадают с именами Windows, и по
-                    // тексту было бы не видно, какой проход их прочитал.
+                patch(withoutNames(bytes, PLATFORM_MACINTOSH), (view, copy) => {
                     forEachNameRecord(copy, (record) => {
                         if (view.getUint16(record) === PLATFORM_WINDOWS) {
                             view.setUint16(record + 4, LANGUAGE_RUSSIAN);
-                        } else {
-                            view.setUint16(record, 0x0009);
                         }
                     });
                 }),
@@ -368,10 +365,15 @@ describe("SfntReader.readMetadata", function () {
     // У фикстуры имена продублированы обеими платформами, поэтому спрятать записи Windows
     // достаточно, чтобы дойти до записей Macintosh.
     function withoutWindowsNames(bytes: Uint8Array): Uint8Array {
+        return withoutNames(bytes, PLATFORM_WINDOWS);
+    }
+
+    // Записи прячутся номером платформы, которой в OpenType нет, и кодек их пропускает.
+    function withoutNames(bytes: Uint8Array, platformId: number): Uint8Array {
         return patch(bytes, (view, copy) => {
             forEachNameRecord(copy, (record) => {
-                if (view.getUint16(record) === PLATFORM_WINDOWS) {
-                    view.setUint16(record, 0x0009);
+                if (view.getUint16(record) === platformId) {
+                    view.setUint16(record, PLATFORM_UNKNOWN);
                 }
             });
         });
