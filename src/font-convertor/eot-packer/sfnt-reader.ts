@@ -152,8 +152,17 @@ export class SfntReader {
         const names = new Map<number, string>();
         const name = this.tables.get("name");
 
-        // Stryker disable next-line EqualityOperator: `>=` у offset — эквивалентен: при offset + 6 на конце файла места нет ни одной записи; `<=` у length — эквивалентен: расходится только на битой таблице, чьи записи не умещаются в объявленные 6 байт, а имена информационные
-        if (name === undefined || name.length < NAME_HEADER_SIZE || name.offset + NAME_HEADER_SIZE > this.bytes.length) {
+        if (name === undefined) {
+            return names;
+        }
+
+        // Заголовок, записи и строки лежат внутри объявленной длины таблицы. За ней — соседняя
+        // таблица, и строка, которая туда заходит, уехала бы в конверт чужими байтами. Обрезанный
+        // файл кончается ещё раньше.
+        const nameEnd = Math.min(name.offset + name.length, this.bytes.length);
+
+        // Stryker disable next-line EqualityOperator: `>=` — эквивалентен: заголовок, который кончается ровно на конце таблицы или файла, не оставляет места ни одной записи
+        if (name.offset + NAME_HEADER_SIZE > nameEnd) {
             return names;
         }
 
@@ -164,7 +173,7 @@ export class SfntReader {
         // Записи лежат до хранилища строк. Завышенный счётчик — от обрезки или субсеттера с
         // ошибкой — уводит их в строки и соседние таблицы, а там байты складываются в
         // «записи» с мусорными именами и заслоняют настоящие имена следующих источников.
-        const recordsEnd = Math.min(storage, this.bytes.length);
+        const recordsEnd = Math.min(storage, nameEnd);
         const wanted = [NAME_ID_FAMILY, NAME_ID_STYLE, NAME_ID_VERSION, NAME_ID_FULL];
 
         for (const source of NAME_SOURCES) {
@@ -201,7 +210,7 @@ export class SfntReader {
                     const length = this.view.getUint16(record + 8);
                     const offset = storage + this.view.getUint16(record + 10);
 
-                    if (offset + length > this.bytes.length) {
+                    if (offset + length > nameEnd) {
                         continue;
                     }
 
