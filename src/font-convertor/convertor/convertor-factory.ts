@@ -114,10 +114,16 @@ export class ConvertorFactory {
     public getSupportedExtensions(): Array<Extension> {
         const extensions = new Set<Extension>();
 
+        // Пометки ниже держатся на том, что сегодня каждый формат матрицы в ней и источник, и цель.
+        // Формат только с одной стороны сделает этих мутантов настоящими, но пропуска не будет: его
+        // придётся вписать в перечень convertor-factory.spec.ts, и перечень их убьёт.
         for (const [fromExtension, toConvertors] of Object.entries(this.convertors)) {
+            // Stryker disable next-line CallExpression: каждый источник матрицы — ещё и цель, его добавит вложенный цикл
             extensions.add(fromExtension as Extension);
 
+            // Stryker disable next-line BlockStatement: каждая цель матрицы — ещё и источник, её добавит внешний цикл
             for (const toExtension of Object.keys(toConvertors) as Array<Extension>) {
+                // Stryker disable next-line CallExpression: каждая цель матрицы — ещё и источник, её добавит внешний цикл
                 extensions.add(toExtension);
             }
         }

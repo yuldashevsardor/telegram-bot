@@ -5,7 +5,7 @@ import path from "path";
 import { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory";
 import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 import { FontConvertor } from "app/font-convertor/font-convertor";
-import { FontConvertorError, InvalidFontSignature } from "app/font-convertor/font-convertor.errors";
+import { ConvertorNotFound, FontConvertorError, InvalidFontSignature } from "app/font-convertor/font-convertor.errors";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import type { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher";
@@ -102,6 +102,21 @@ describe("FontConvertor", function () {
             expect(engineCalls).to.deep.equal([`${originPath} -> ${result}`]);
         });
     }
+
+    // Расширение исходника берётся из имени файла и с Extension не сверяется: формат, которого нет
+    // в таблице пар даже источником, доходит до ConvertorFactory.get() как есть. Отказ обязан
+    // назвать пару, а не упасть TypeError на чтении таблицы.
+    it("rejects a source in a format without pairs", async function () {
+        const originPath = await copyTtfFixture("font.pfb");
+
+        const error = await rejectionOf(() =>
+            new FontConvertor(factory, tempDir).convert({ originPath: originPath, extension: Extension.WOFF }),
+        );
+
+        expect(error).to.be.instanceOf(FontConvertorError);
+        expect((error as FontConvertorError).cause).to.be.instanceOf(ConvertorNotFound);
+        expect(engineCalls).to.be.empty;
+    });
 
     it("wraps a failure of the pair", async function () {
         const originPath = path.join(tempDir, "garbage.ttf");
