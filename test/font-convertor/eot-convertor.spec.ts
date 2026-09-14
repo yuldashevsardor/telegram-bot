@@ -88,7 +88,9 @@ describe("Convertors of the eot pairs", function () {
     });
 
     // Convertor.validate() каждая пара вызывает сама, а реализаций convert() у пар с EOT
-    // четыре: отказ закреплён у каждой пары, ветви самой проверки гоняет convertor.spec.ts.
+    // четыре: проход и отказ закреплены у каждой пары, ветви самой проверки гоняет
+    // convertor.spec.ts. Расширение результата держит только проход: отказ по занятому пути
+    // случается раньше его сверки.
     const eotPairs = new ConvertorFactory(fontForge(), new FontSignatureMatcher(), eotPacker())
         .getSupportedExtensions()
         .filter((extension) => extension !== Extension.EOT)
@@ -100,6 +102,12 @@ describe("Convertors of the eot pairs", function () {
         );
 
     for (const [from, to] of eotPairs) {
+        it(`converts ${from} to ${to}`, async function () {
+            const newPath = await convert(from, to);
+
+            expect(await exists(newPath)).to.be.true;
+        });
+
         it(`refuses to write ${from} to ${to} over an existing file, touching neither the engine nor the packer`, async function () {
             const newPath = result(to);
             await fs.writeFile(newPath, Uint8Array.from([0]));
