@@ -1,9 +1,12 @@
+import { globSync } from "node:fs";
+
 // Мутационное тестирование, запуск — make mutation. Почему настроено так и как разбирать
 // выживших мутантов — docs/architecture/testing.md, «Мутационное тестирование».
 
 // Спеки, которым нужна база. Stryker гоняет спеки без test/database-hook.ts, поэтому они
 // исключены: без хука они падают на чтении TEST_DATABASE_NAME, и новая такая спека уронит
-// первый прогон Stryker, пока её не впишут сюда. Найти их — grep -rln TEST_DATABASE_NAME test.
+// первый прогон Stryker, пока её не впишут сюда. Найти их —
+// grep -rln TEST_DATABASE_NAME test --include='*.spec.ts'.
 const DATABASE_SPECS = [
     "test/platform/database/database.spec.ts",
     "test/telegram/session/pgsql-storage.spec.ts",
@@ -25,6 +28,21 @@ const area = (process.env.MUTATE ?? "").split(/\s+/).filter((pattern) => pattern
 // Область из одних исключений («всё, кроме конвертора») вычитается из всего src/: без
 // положительного глоба Stryker не нашёл бы ни одного файла и молча завершился успехом.
 const base = area.some((pattern) => !pattern.startsWith("!")) ? [] : ["src/**/*.ts"];
+
+// Положительный глоб, который не нашёл ни одного .ts в src/, — опечатка, каталог без глоба
+// (src/shared вместо src/shared/**) или файл не из src/. Stryker на нём только предупредил бы и
+// завершился успехом с пустой таблицей, поэтому прогон останавливается здесь. Хвост :10-20 —
+// диапазон строк Stryker, его glob не понимает.
+for (const pattern of area.filter((pattern) => !pattern.startsWith("!"))) {
+    const files = globSync(pattern.replace(/:\d+(:\d+)?-\d+(:\d+)?$/, ""));
+
+    if (!files.some((file) => file.startsWith("src/") && file.endsWith(".ts"))) {
+        console.error(
+            `make mutation: files="${pattern}" не находит ни одного .ts в src/ — нужен глоб до файлов, например src/shared/**`,
+        );
+        process.exit(1);
+    }
+}
 
 export default {
     testRunner: "mocha",
