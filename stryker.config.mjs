@@ -21,6 +21,9 @@ const DATABASE_ONLY_SOURCES = [
 // Область make mutation files="…": глобы через пробел или запятую. Приходит переменной, а не
 // флагом --mutate, потому что флаг заменил бы список целиком вместе с исключениями ниже.
 const area = (process.env.MUTATE ?? "").split(/[\s,]+/).filter((pattern) => pattern !== "");
+// Область из одних исключений («всё, кроме конвертора») вычитается из всего src/: без
+// положительного глоба Stryker не нашёл бы ни одного файла и молча завершился успехом.
+const base = area.some((pattern) => !pattern.startsWith("!")) ? [] : ["src/**/*.ts"];
 
 export default {
     testRunner: "mocha",
@@ -29,7 +32,8 @@ export default {
     // несколько раз дольше (docs/architecture/testing.md, «Мутационное тестирование»).
     coverageAnalysis: "all",
     mutate: [
-        ...(area.length > 0 ? area : ["src/**/*.ts"]),
+        ...base,
+        ...area,
         // Точка входа на импорте поднимает Application, спека её не загружает — как exclude у nyc.
         "!src/app.ts",
         // Глоб области вроде src/telegram/** захватывает и локали, а .ftl Stryker разобрать не
