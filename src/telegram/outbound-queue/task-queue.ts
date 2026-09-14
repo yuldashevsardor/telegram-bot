@@ -112,7 +112,7 @@ export class TaskQueue {
     public ban(duration: number): void {
         const expirationTime = duration + Date.now();
 
-        // Stryker disable next-line EqualityOperator: `<=` — эквивалентен: расходится только на ban(0) при действующей паузе, а Runner нулевой паузы не ставит — retry_after ≤ 0 он заменяет DEFAULT_RETRY_AFTER_SECONDS
+        // Stryker disable next-line EqualityOperator: `<=` — эквивалентен: расходится только на паузе, которая истекает к проверке здесь же, — ban(0) или ban(1) на смене миллисекунды, а Runner ставит не меньше секунды: retry_after в Bot API целый, а ≤ 0 заменяется DEFAULT_RETRY_AFTER_SECONDS
         if (expirationTime < Date.now()) {
             return;
         }
@@ -202,9 +202,9 @@ export class TaskQueue {
         this.partitions.delete(key);
         this.idleKeys.delete(key);
 
-        // Stryker disable next-line BlockStatement: `{}` — эквивалентен: сюда доходит только пустая партиция, а её ключ выемка уже сняла с индекса
+        // Stryker disable next-line BlockStatement: `{}` — эквивалентен, пока выемка снимает с индекса ключ опустевшей корзины: сюда доходит только пустая партиция
         for (const keys of Object.values(this.keysByPriority)) {
-            // Stryker disable next-line CallExpression: удаление вызова — эквивалентно: сюда доходит только пустая партиция, а её ключ выемка уже сняла с индекса
+            // Stryker disable next-line CallExpression: удаление вызова — эквивалентно, пока выемка снимает с индекса ключ опустевшей корзины: сюда доходит только пустая партиция
             keys.delete(key);
         }
     }
