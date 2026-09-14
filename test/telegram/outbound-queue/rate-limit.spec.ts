@@ -38,6 +38,18 @@ describe("RateLimit", function () {
         rateLimit.reserve();
         expect(() => rateLimit.reserve()).to.throw(RateLimitIsBusy, "Can't reserve until the rate limit is free.");
     });
+
+    it("tells how long the limit stays busy", function () {
+        const rateLimit = build();
+
+        rateLimit.reserve();
+
+        expect(() => rateLimit.reserve())
+            .to.throw(RateLimitIsBusy)
+            .with.property("payload")
+            .that.has.property("remainingTime")
+            .that.is.within(0, reserveDuration);
+    });
 });
 
 function build(): RateLimit {

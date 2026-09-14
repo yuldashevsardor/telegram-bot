@@ -112,21 +112,28 @@ describe("Runner", function () {
         expect(queue.isEmpty()).to.be.true;
     });
 
-    it("picks up a task pushed while it sleeps on an empty queue", async function () {
+    it("sleeps on an empty queue and picks up a task pushed meanwhile once it wakes", async function () {
+        // Без сна задача вышла бы через миллисекунды после push(). Порог — половина сна, а не весь сон:
+        // setTimeout отсчитывает срок от времени, закэшированного циклом событий, и может сработать чуть
+        // раньше, чем показывает Date.now().
+        const sleep = 300;
         const queue = new RecordingQueue();
-        let calls = 0;
+        const startedAt = Date.now();
+        let calledAt = 0;
 
-        start(queue);
-        await delay(settings.sleepInterval.max * 4);
+        start(queue, new RecordingLogger(), { ...settings, sleepInterval: { min: sleep, max: sleep } });
+        await delay(10);
         queue.push(
             task(111, () => {
-                calls++;
+                calledAt = Date.now();
                 return Promise.resolve();
             }),
             Priority.MEDIUM,
         );
 
-        await waitFor(() => calls === 1);
+        await waitFor(() => calledAt > 0);
+
+        expect(calledAt - startedAt).to.be.at.least(sleep / 2);
     });
 
     it("does not wait for a call to finish before taking the next task", async function () {
@@ -152,7 +159,7 @@ describe("Runner", function () {
     it("refuses to run twice", function () {
         const runner = start(new RecordingQueue());
 
-        expect(() => runner.run()).to.throw(RunnerAlreadyRun);
+        expect(() => runner.run()).to.throw(RunnerAlreadyRun, "Runner is already run.");
     });
 
     it("takes no tasks once stopped", async function () {

@@ -13,9 +13,9 @@ const commonCooldown = commonLimit.interval / commonLimit.number;
 const keyLimit: Limit = { number: 100, interval: 1000 };
 const keyCooldown = keyLimit.interval / keyLimit.number;
 
-// Ключ, который за время теста не остывает вовсе: общий лимит успевает освободиться, а лимит ключа
-// нет, и ни одна задержка в прогоне не дотягивает до его конца.
-const frozenKeyLimit: Limit = { number: 1, interval: 60 * 1000 };
+// Лимит, который за время теста не остывает вовсе: ни одна задержка в прогоне не дотягивает до его
+// конца. Отданный ключу, он держит только этот ключ — общий лимит за ту же паузу освобождается.
+const frozenLimit: Limit = { number: 1, interval: 60 * 1000 };
 
 // Интервалы журнала TaskQueue ничем не гасятся и живут до конца прогона, поэтому по умолчанию
 // период длиннее любого прогона, а короткий берут только тесты самого журнала.
@@ -65,7 +65,7 @@ describe("TaskQueue", function () {
     });
 
     it("skips a key whose limit has not cooled down", async function () {
-        const queue = build({ keyLimit: () => frozenKeyLimit });
+        const queue = build({ keyLimit: () => frozenLimit });
         queue.push(task(111, "a-high"), Priority.HIGH);
         queue.push(task(111, "a-medium"), Priority.MEDIUM);
         queue.push(task(222, "b-medium"), Priority.MEDIUM);
@@ -91,7 +91,7 @@ describe("TaskQueue", function () {
     });
 
     it("keeps the key limit while the partition cools down", async function () {
-        const queue = build({ keyLimit: () => frozenKeyLimit });
+        const queue = build({ keyLimit: () => frozenLimit });
         queue.push(task(111, "a1"), Priority.MEDIUM);
         queue.push(task(111, "a2"), Priority.MEDIUM);
 
@@ -99,6 +99,16 @@ describe("TaskQueue", function () {
         // Без паузы второй pull() вернул бы null из-за занятого общего лимита, а не лимита ключа.
         await delay(commonCooldown + 5);
 
+        expect(queue.pull()).to.be.null;
+        expect(queue.getTaskCount()).to.equal(1);
+    });
+
+    it("gives out nothing to any key while the common limit has not cooled down", function () {
+        const queue = build({ commonLimit: frozenLimit });
+        queue.push(task(111, "a1"), Priority.MEDIUM);
+        queue.push(task(222, "b1"), Priority.MEDIUM);
+
+        expect(queue.pull()?.key).to.equal(111);
         expect(queue.pull()).to.be.null;
         expect(queue.getTaskCount()).to.equal(1);
     });
@@ -132,7 +142,7 @@ describe("TaskQueue", function () {
         // остывшие партиции копятся за ним сколько бы ни длилась выдача. Новая задача снимает его из
         // idleKeys, и следующий pull() упирается уже в потолок.
         const blocker = "blocker";
-        const queue = build({ keyLimit: (key) => (key === blocker ? frozenKeyLimit : keyLimit) });
+        const queue = build({ keyLimit: (key) => (key === blocker ? frozenLimit : keyLimit) });
         queue.push(task(blocker, "first"), Priority.MEDIUM);
 
         for (let key = 1; key <= 101; key++) {
@@ -228,6 +238,7 @@ class RecordingLogger implements Logger {
 
 type BuildOptions = {
     keyLimit?: (key: PartitionKey) => Limit;
+    commonLimit?: Limit;
     logger?: Logger;
     logInterval?: number;
 };
@@ -237,7 +248,12 @@ function build(options: BuildOptions = {}): TaskQueue {
         resolve: (task) => (options.keyLimit ? options.keyLimit(task.key) : keyLimit),
     };
 
-    return new TaskQueue(options.logger ?? new RecordingLogger(), limitResolver, commonLimit, options.logInterval ?? silentLogInterval);
+    return new TaskQueue(
+        options.logger ?? new RecordingLogger(),
+        limitResolver,
+        options.commonLimit ?? commonLimit,
+        options.logInterval ?? silentLogInterval,
+    );
 }
 
 function task(key: PartitionKey, name: string): Task {
