@@ -41,6 +41,7 @@ export class FillUserToContextMiddleware extends Middleware {
                 firstname: ctx.from.first_name,
                 lastname: ctx.from.last_name || "",
                 username: ctx.from.username || "",
+                // Stryker disable next-line OptionalChaining: `ctx.from.is_bot` — эквивалентен: апдейт без from отвергнут в начале handle()
                 isBot: ctx.from?.is_bot,
             });
         }

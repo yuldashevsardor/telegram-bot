@@ -112,11 +112,21 @@ describe("localeFromFilePath", function () {
     });
 
     it("rejects a name whose locale is not supported", function () {
-        expect(() => localeFromFilePath("/app/src/start.conversation.locale.de.ftl")).to.throw(UnknownLocale);
+        const filePath = "/app/src/start.conversation.locale.de.ftl";
+
+        expect(() => localeFromFilePath(filePath))
+            .to.throw(UnknownLocale, /^Unknown locale "de" in translation file name\.$/)
+            .with.property("payload")
+            .that.deep.equals({ path: filePath, locale: "de" });
     });
 
     it("rejects a name without the locale segment", function () {
-        expect(() => localeFromFilePath("/app/src/ftl")).to.throw(UnknownLocale);
+        const filePath = "/app/src/ftl";
+
+        expect(() => localeFromFilePath(filePath))
+            .to.throw(UnknownLocale, /^Unknown locale "" in translation file name\.$/)
+            .with.property("payload")
+            .that.deep.equals({ path: filePath, locale: "" });
     });
 });
 
@@ -210,8 +220,12 @@ describe("createFluent", function () {
 
     it("rejects a locale without a single file", async function () {
         await writeLocaleFile(DEFAULT_LOCALE, "greeting = Привет");
+        const [missing] = LOCALES.filter((locale) => locale !== DEFAULT_LOCALE);
 
-        await expectRejection(createFluent(localeDir), MissingLocaleBundle);
+        const error = await expectRejection(createFluent(localeDir), MissingLocaleBundle);
+
+        expect(error.message).to.equal(`No translation files found for locale "${missing}".`);
+        expect(error.payload).to.deep.equal({ path: localeDir, locale: missing });
     });
 
     it("rejects a file named with an unsupported locale", async function () {
@@ -227,13 +241,16 @@ describe("createFluent", function () {
         await fs.writeFile(path.join(localeDir, `test.locale.${locale}.ftl`), `${source}\n`);
     }
 
-    async function expectRejection(promise: Promise<unknown>, expected: new (...params: never[]) => Error): Promise<void> {
+    async function expectRejection<T extends Error>(promise: Promise<unknown>, expected: new (...params: never[]) => T): Promise<T> {
         try {
             await promise;
-            expect.fail(`expected ${expected.name}`);
         } catch (error) {
             expect(error).to.be.instanceOf(expected);
+
+            return error as T;
         }
+
+        return expect.fail(`expected ${expected.name}`);
     }
 });
 

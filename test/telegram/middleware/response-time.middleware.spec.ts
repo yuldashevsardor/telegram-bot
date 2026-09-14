@@ -30,14 +30,19 @@ describe("ResponseTimeMiddleware", function () {
         const messages: string[] = [];
         let loggedBeforeDone = true;
 
+        const start = Date.now();
         await run(messages, async () => {
             await new Promise((resolve) => setTimeout(resolve, 5));
             loggedBeforeDone = messages.length > 0;
         });
+        const elapsed = Date.now() - start;
 
         expect(loggedBeforeDone).to.equal(false);
         expect(messages).to.have.lengthOf(1);
-        expect(messages[0]).to.match(/^Response time: \d+ ms$/);
+
+        const [, time] = /^Response time: (\d+) ms$/.exec(messages[0] ?? "") ?? [];
+
+        expect(Number(time)).to.be.within(0, elapsed);
     });
 
     // Без try/catch вокруг next(): у упавшего апдейта строки времени нет, ошибка уходит

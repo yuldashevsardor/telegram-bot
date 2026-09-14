@@ -67,8 +67,7 @@ describe("Filter", function () {
     it("logs the dropped update with the filter name", async function () {
         const { records } = await run(false);
 
-        expect(records).to.have.lengthOf(1);
-        expect(records[0]?.payload).to.deep.equal({ filter: "StubFilter", updateId: 42 });
+        expect(records).to.deep.equal([{ message: "Update is dropped by filter.", payload: { filter: "StubFilter", updateId: 42 } }]);
     });
 
     it("does not log the update passed down", async function () {

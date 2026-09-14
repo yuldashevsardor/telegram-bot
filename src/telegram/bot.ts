@@ -85,6 +85,7 @@ export class Bot {
 
         const { timeout } = this.settings.gracefulShutdown;
 
+        // Stryker disable next-line OptionalChaining: `this.runner.isRunning()` — не компилируется: до run() runner не задан
         if (this.runner?.isRunning() && !(await withTimeout(this.runner.stop(), timeout))) {
             this.logger.warning("Bot shutdown timeout is over, the runner was left stopping.", {
                 timeout: timeout,

@@ -247,7 +247,7 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 
 describe("Bot", function () {
     it("refuses an empty token", function () {
-        expect(() => build({ ...SETTINGS, token: "" })).to.throw(InvalidConfigError);
+        expect(() => build({ ...SETTINGS, token: "" })).to.throw(InvalidConfigError, "Bot token cannot be empty!");
     });
 
     describe("setup", function () {
@@ -284,6 +284,27 @@ describe("Bot", function () {
 
             expect(harness.calls.filter((call) => call.method === "setMyCommands")).to.have.lengthOf(LOCALES.length);
             expect(harness.events.filter((event) => event === "/start")).to.have.lengthOf(1);
+        });
+
+        it("logs every step of the pipeline on debug", async function () {
+            const { bot, logs } = build();
+
+            await bot.setup();
+
+            expect(logs.filter((log) => log.level === "debug")).to.deep.equal([
+                {
+                    level: "debug",
+                    message: "Setup filters...",
+                    payload: { filters: ["RecordingHasSessionKeyFilter", "RecordingIsPrivateChatFilter"] },
+                },
+                { level: "debug", message: "Filters successfully setup.", payload: undefined },
+                { level: "debug", message: "Setup middlewares...", payload: undefined },
+                { level: "debug", message: "Middlewares successfully setup.", payload: undefined },
+                { level: "debug", message: "Setup conversations...", payload: undefined },
+                { level: "debug", message: "Conversations successfully setup.", payload: undefined },
+                { level: "debug", message: "Setup commands...", payload: undefined },
+                { level: "debug", message: "Commands successfully setup.", payload: undefined },
+            ]);
         });
     });
 
@@ -396,6 +417,7 @@ describe("Bot", function () {
             });
 
             expect(caught).to.be.instanceOf(RuntimeError);
+            expect((caught as RuntimeError).message).to.equal("Bot is not set up!");
         });
 
         // Список типов апдейта — ALLOWED_UPDATES в bot.ts: без него getUpdates притащил бы всё,
@@ -426,6 +448,7 @@ describe("Bot", function () {
             const cause = critical[0]?.payload?.["cause"];
 
             expect(critical).to.have.lengthOf(1);
+            expect(critical[0]?.message).to.equal("Unhandled error on bot");
             expect(cause).to.be.instanceOf(BotError);
             expect((cause as BotError).error).to.equal(error);
             expect(harness.calls.filter((call) => call.method !== "getMe" && call.method !== "getUpdates")).to.have.lengthOf(0);
@@ -450,8 +473,25 @@ describe("Bot", function () {
             await harness.bot.stop();
 
             expect(harness.events).to.include("getUpdates aborted");
-            expect(harness.logs.map((log) => log.message)).to.include("Bot is successfully stopped.");
+            expect(harness.logs.filter((log) => log.level === "info").map((log) => log.message)).to.deep.equal([
+                "Bot is successfully started.",
+                "Stop bot...",
+                "Bot is successfully stopped.",
+            ]);
             expect(harness.logs.filter((log) => log.level === "warning")).to.have.lengthOf(0);
+        });
+
+        it("does nothing on a second stop after the first one has finished", async function () {
+            const harness = await setUp();
+
+            await harness.bot.run();
+            await waitFor(() => harness.calls.some((call) => call.method === "getUpdates"));
+            await harness.bot.stop();
+            harness.logs.length = 0;
+
+            await harness.bot.stop();
+
+            expect(harness.logs.map((log) => log.message)).to.deep.equal(["Stop bot...", "Bot is not running!"]);
         });
 
         describe("when getUpdates does not give way", function () {

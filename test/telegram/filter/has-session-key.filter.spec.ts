@@ -74,8 +74,9 @@ describe("HasSessionKeyFilter", function () {
                     return;
                 }
 
-                expect(records).to.have.lengthOf(1);
-                expect(records[0]?.payload).to.deep.equal(payload);
+                expect(records).to.deep.equal([
+                    { message: "Update is dropped, because its session key cannot be resolved.", payload: payload },
+                ]);
             });
 
             // Фильтр стоит выше session() ради того, чтобы до неё не дошёл апдейт без
