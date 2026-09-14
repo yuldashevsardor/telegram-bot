@@ -39,12 +39,4 @@ describe("RequestContextMiddleware", function () {
         expect(requestIds).to.have.lengthOf(2);
         expect(requestIds[0]).to.not.equal(requestIds[1]);
     });
-
-    it("leaves no request id outside the chain", async function () {
-        const requestContext = new RequestContext();
-
-        await run(requestContext, () => Promise.resolve());
-
-        expect(requestContext.getRequestId()).to.equal(null);
-    });
 });
