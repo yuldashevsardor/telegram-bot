@@ -112,7 +112,7 @@ export class TaskQueue {
     public ban(duration: number): void {
         const expirationTime = duration + Date.now();
 
-        // Stryker disable next-line EqualityOperator: `<=` — расходится только на паузе, истекающей в ту же миллисекунду, а эту границу требование не задаёт
+        // Stryker disable next-line EqualityOperator: `<=` — эквивалентен: расходится только на ban(0) при действующей паузе, а Runner нулевой паузы не ставит — retry_after ≤ 0 он заменяет DEFAULT_RETRY_AFTER_SECONDS
         if (expirationTime < Date.now()) {
             return;
         }
@@ -121,7 +121,7 @@ export class TaskQueue {
     }
 
     private isBanned(): boolean {
-        // Stryker disable next-line ConditionalExpression,EqualityOperator: `true` слева от `&&` — не компилируется: banExpirationTime может быть null; `>` — конец паузы на миллисекунду раньше, эту границу требование не задаёт
+        // Stryker disable next-line ConditionalExpression,EqualityOperator: `true` слева от `&&` — не компилируется: banExpirationTime может быть null; `>` — эквивалентен: пауза кончается на миллисекунду раньше, а retry_after соблюдают оба варианта
         return this.banExpirationTime !== null && this.banExpirationTime >= Date.now();
     }
 
