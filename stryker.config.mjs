@@ -24,7 +24,10 @@ const area = (process.env.MUTATE ?? "").split(/[\s,]+/).filter((pattern) => patt
 
 export default {
     testRunner: "mocha",
-    coverageAnalysis: "perTest",
+    // all, а не perTest: perTest приписывает код из before/after последнему тесту перед хуком и
+    // гоняет на мутанта этот чужой тест — такой мутант ложно выживает. Цена — прогон в
+    // несколько раз дольше (docs/architecture/testing.md, «Мутационное тестирование»).
+    coverageAnalysis: "all",
     mutate: [
         ...(area.length > 0 ? area : ["src/**/*.ts"]),
         // Точка входа на импорте поднимает Application, спека её не загружает — как exclude у nyc.
@@ -40,9 +43,9 @@ export default {
         require: ["tsx/cjs"],
         ignore: DATABASE_SPECS,
     },
-    // Значение по умолчанию, выписанное после замера: при 30 000 прогон шёл втрое дольше, а
-    // статус сменили три мутанта из двухсот десяти — с Timeout на Killed, и оба статуса
-    // значат «обнаружен».
+    // Значение по умолчанию, выписанное после замера при perTest: при 30 000 прогон шёл втрое
+    // дольше, а статус сменили три мутанта из двухсот десяти — с Timeout на Killed, и оба
+    // статуса значат «обнаружен».
     timeoutMS: 5000,
     reporters: ["clear-text", "progress", "html"],
     // Иначе clear-text печатает под таблицей все пятьсот с лишним тестов прогона.
