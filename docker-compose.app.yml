@@ -36,7 +36,8 @@ services:
             # внутрь контейнера, и на хосте его бы не было.
             - ./migrations:/app/migrations
             # Отчёт nyc должен пережить одноразовый контейнер: без монтирования lcov
-            # остаётся внутри и пропадает вместе с ним. Каталог создаёт make coverage.
+            # остаётся внутри и пропадает вместе с ним. Каталог создают make coverage
+            # и make check.
             - ./coverage:/app/coverage
             - app-tmp:/app/tmp
         networks:

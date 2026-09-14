@@ -22,8 +22,9 @@
   комментариями объяснены неочевидные исключения: `skipLibCheck` вынужденный, пока
   `@types/node` зафиксированы на 17.x; исключения из `no-console` разобраны в
   [`logging.md`](./logging.md).
-- Обязательного гейта нет. `pre-commit` — только удобство хостовой разработки (корневой
-  [`README.md`](../../README.md), «Хук pre-commit»), CI пока не заведён (issue
+- Гейт перед PR — `make check`, тесты в нём идут с порогом покрытия (раздел «Покрытие»,
+  «Порог»). Принудительно его не держит ничто: `pre-commit` — удобство хостовой разработки
+  (корневой [`README.md`](../../README.md), «Хук pre-commit»), CI пока не заведён (issue
   [#116](https://github.com/yuldashevsardor/telegram-bot/issues/116)).
 - `.claude/settings.json` вешает `scripts/claude-worktree-guard.sh` на старт сессии и на
   правку файла: правка в основном дереве отклоняется. Правки через shell хук не видит.
@@ -77,6 +78,19 @@
 
 `make coverage` запускает `npm run test:coverage`: те же спеки под `nyc`, конфиг — ключ
 `nyc` в `package.json`.
+
+**Порог.** `check-coverage` в том же ключе включает порог, а `lines`, `branches`, `functions` и
+`statements` рядом задают его каждой метрике — 99. Порог глобальный: считается по сумме всех
+файлов отчёта, так что недобор одного файла прячется в запасе остальных, пока итог не ниже
+порога. Ниже хоть одна
+метрика — `nyc` уже после зелёных спек печатает `ERROR: Coverage for <метрика> (…%) does not
+meet global threshold (99%)` и завершается с ошибкой.
+
+Проверяет порог любой запуск `npm run test:coverage`: `make coverage`, npm-скрипт `check` под
+`make check` и гейт `test` ревью PR, под которым `pr-light-check` гоняет `make coverage`
+(`.claude/skills/pr-light-check/SKILL.md`). `npm test` и `make test` порога не знают, поэтому CI
+(issue [#116](https://github.com/yuldashevsardor/telegram-bot/issues/116)) получит его, только
+если позовёт `npm run check` или `npm run test:coverage`.
 
 **Считается исходный TypeScript, а не вывод tsx.** `test/coverage-hook.ts` подменяет
 загрузчик `.ts` для файлов `src/`: инструментирует исходник через `istanbul-lib-instrument`,

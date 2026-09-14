@@ -1,7 +1,7 @@
 ---
 name: pr-light-check
 description: Лёгкое ревью Pull Request — механический прогон проверок репозитория по переданным гейтам, дрейф документации в изменённых строках и соответствие issue, с вердиктом и комментарием в PR. Запускается командой /review-pr, а также скиллом pr-deep-review как его механическая часть. Не для обычной работы над кодом и не для проверки незакоммиченных правок.
-allowed-tools: Bash(gh:*), Bash(git:*), Bash(make db-up), Bash(make rebuild), Bash(make build), Bash(make typecheck), Bash(make test), Bash(make lint), Bash(make format-check), Bash(make help), Bash(make token-status), Bash(make -n:*), Bash(sh -n:*), Bash(docker run:*), Bash(scripts/bot-token.sh), Bash(cd:*), Bash(ls:*), Bash(cp:*), Bash(grep:*), Bash(awk:*), Read, Grep, Glob, Write
+allowed-tools: Bash(gh:*), Bash(git:*), Bash(make db-up), Bash(make rebuild), Bash(make build), Bash(make typecheck), Bash(make coverage), Bash(make lint), Bash(make format-check), Bash(make help), Bash(make token-status), Bash(make -n:*), Bash(sh -n:*), Bash(docker run:*), Bash(scripts/bot-token.sh), Bash(cd:*), Bash(ls:*), Bash(cp:*), Bash(grep:*), Bash(awk:*), Read, Grep, Glob, Write
 ---
 
 Ты запускаешь проверки репозитория по коду Pull Request и решаешь, можно ли его вливать.
@@ -76,8 +76,8 @@ cd <временный путь>
 ```
 
 Шаг 2 целиком исполняется из этого каталога, поэтому `cd` обязателен: цели перечислены в
-`allowed-tools` точным совпадением (`Bash(make test)`), и `make -C <путь> test` под них не
-подпадает. `.env` копируется, а не создаётся через `make worktree-init`: тот занимает слот
+`allowed-tools` точным совпадением (`Bash(make coverage)`), и `make -C <путь> coverage` под
+них не подпадает. `.env` копируется, а не создаётся через `make worktree-init`: тот занимает слот
 из пула токенов, а одноразовым контейнерам `build`/`test`/`lint` бот не нужен и токен не
 читается.
 По окончании — `git worktree remove --force <путь>`.
@@ -100,7 +100,7 @@ Compose берёт из имени каталога. База устроена �
 | `rebuild` | `make rebuild` |
 | `build` | `make build` |
 | `typecheck` | `make typecheck` |
-| `test` | `make test` |
+| `test` | `make coverage` |
 | `lint` | `make lint` |
 | `format-check` | `make format-check` |
 | `make-targets` | `make help`, затем `make -n <изменённая цель>` |
@@ -118,10 +118,14 @@ Compose берёт из имени каталога. База устроена �
   не чинишь»: после них ты проверяешь уже не тот код, который прислали, а красное в `lint`
   и `format-check` исчезает вместе с находкой.
 - `test-watch` — не завершается, а ждёт изменений. Запустив её, ты повесишь прогон.
-- `coverage` — те же тесты, что `test`, плюс отчёт на диск. Вердикту не добавляет ничего,
-  времени отнимает больше.
-- `check` — `typecheck`, `lint`, `format:check` и `test` подряд одним выводом. Отчёт требует
-  строки на каждый гейт отдельно, поэтому цели гоняются по одной.
+- `test` — те же спеки, что `coverage`, но без порога покрытия
+  (`docs/architecture/testing.md`, «Покрытие»): PR, уронивший покрытие ниже порога, прошёл бы
+  её зелёным, хотя `make check` у автора падает. Поэтому гейт `test` гоняет `make coverage`, и
+  ничего при этом не теряет: под `nyc` идёт тот же `mocha`, упавшая спека печатается так же
+  (`N failing` и её ошибка), и прогон падает даже при покрытии 100%. Отчёт `make coverage`
+  пишет в `./coverage` дерева PR — каталог в `.gitignore`, диф от этого не меняется.
+- `check` — `typecheck`, `lint`, `format:check` и `test:coverage` подряд одним выводом. Отчёт
+  требует строки на каждый гейт отдельно, поэтому цели гоняются по одной.
 
 ### rebuild
 
@@ -130,7 +134,7 @@ Compose берёт из имени каталога. База устроена �
 в `Makefile`. Без пересборки ты проверишь новый код старыми зависимостями и старым конфигом
 и получишь зелёный результат, который ничего не значит.
 
-Цели `build`, `typecheck`, `test`, `lint` и `format-check` запускают npm-скрипты из
+Цели `build`, `typecheck`, `coverage`, `lint` и `format-check` запускают npm-скрипты из
 `package.json`, а он живёт в образе. Поэтому PR, добавляющий или переименовывающий скрипт,
 на непересобранном образе падает с `Missing script`. Это не находка ревью, а пропущенный
 `rebuild` — пересобери и повтори.

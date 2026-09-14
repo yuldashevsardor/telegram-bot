@@ -72,4 +72,16 @@ describe("Container", () => {
             expect(container.get(token)).to.not.equal(undefined);
         });
     }
+
+    it("keeps one binding per token when set up again", async () => {
+        await container.setup();
+
+        expect(container.getAll(Tokens.Platform.Database)).to.have.lengthOf(1);
+    });
+
+    // Утверждения нет, проверка — сам отказ: без раннего выхода close() резолвил бы Database
+    // из пустого контейнера и падал «No matching bindings found».
+    it("does nothing when closed before setup", async () => {
+        await new Container().close();
+    });
 });

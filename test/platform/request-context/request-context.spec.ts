@@ -72,4 +72,15 @@ describe("RequestContext", function () {
 
         expect(values).to.deep.equal({ requestId: "req-1" });
     });
+
+    // Стор без requestId run() не открывает, поэтому, как и выше, он кладётся прямо в хранилище.
+    // Ключ со значением undefined ConsoleLogger напечатал бы как [requestId=undefined].
+    it("keeps keys missing from the store out of the values", function () {
+        const context = new RequestContext();
+        const als = (context as unknown as { als: AsyncLocalStorage<RequestStore> }).als;
+
+        const values = als.run({}, () => context.getValues());
+
+        expect(values).to.not.have.property(REQUEST_KEYS.REQUEST_ID);
+    });
 });

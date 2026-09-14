@@ -90,7 +90,7 @@ make worktree-cleanup
   ([`docs/architecture/testing.md`](docs/architecture/testing.md), «База для тестов»).
   Исключения — `rebuild` (собирает образ, база не нужна), `shell` и `psql` (заходят в
   работающий контейнер).
-- `make check` — типы, eslint, prettier и тесты одной командой.
+- `make check` — типы, eslint, prettier и тесты с порогом покрытия одной командой.
 - В `files=` у `format-check` и `format` годятся только `.ts`: `.prettierrc.js` жёстко
   задаёт `parser: "typescript"`.
 - `package.json`, `package-lock.json`, `.mocharc.json` и конфиги линтеров с хоста не
