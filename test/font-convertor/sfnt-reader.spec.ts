@@ -113,6 +113,13 @@ describe("SfntReader.readMetadata", function () {
                     forEachNameRecord(copy, (record): void => view.setUint16(record + 10, 0xffff));
                 }),
         ],
+        [
+            "is cut off in the middle of the name records",
+            // У обрезанного шрифта хранилище строк за концом файла, и проход по записям кончает
+            // уже конец файла. Не будь этой границы, недописанная запись с индексом 8 читалась
+            // бы за концом DataView и уронила бы разбор RangeError.
+            (bytes): Uint8Array => bytes.subarray(0, tableOffset(bytes, "name") + 6 + 8 * NAME_RECORD_SIZE + 6),
+        ],
     ];
 
     for (const [what, damage] of namelessCases) {
@@ -126,16 +133,47 @@ describe("SfntReader.readMetadata", function () {
     }
 
     it("keeps the names found before the name records run past the end of the font", function () {
-        // Счётчик обещает записи за концом файла: без проверки их чтение упало бы RangeError
-        // из DataView. На первой такой записи разбор имён прекращается целиком, со всеми
-        // оставшимися источниками, — остаётся найденное к этому моменту. У фикстуры это
-        // английские имена Windows, первого источника.
+        // Счётчик обещает записи за концом файла, но проход по ним кончается раньше: там, где
+        // начинается хранилище строк, у фикстуры сразу за двенадцатью настоящими записями.
+        // Найденное к этому моменту остаётся — английские имена Windows, первого источника.
         const name = tableOffset(ttf, "name");
-        const overcounted = patch(ttf, (view) => view.setUint16(name + 2, 0xffff));
 
         expect(name + 6 + 0xffff * NAME_RECORD_SIZE, "записи со счётчиком 0xffff умещаются в шрифт").to.be.greaterThan(ttf.length);
-        expect(readMetadata(overcounted).familyName).to.equal("Roboto Black");
+        expect(readMetadata(overcountNameRecords(ttf)).familyName).to.equal("Roboto Black");
     });
+
+    // Кончается только текущий проход: следующий источник или язык снова начинает с нулевой
+    // записи. Поэтому имена, которые находит не первый проход, при завышенном счётчике
+    // читаются так же, как при правильном. Случай Macintosh заодно держит границу записей на
+    // хранилище строк: за ним в фикстуре, в post и GDEF, байты складываются в «записи»
+    // Unicode, а этот источник проверяется раньше Macintosh.
+    const laterPassCases: Array<[string, (bytes: Uint8Array) => Uint8Array]> = [
+        ["only macintosh names", withoutWindowsNames],
+        [
+            "only non-english windows names",
+            (bytes): Uint8Array =>
+                patch(bytes, (view, copy) => {
+                    // Записи Macintosh прячем: их имена совпадают с именами Windows, и по
+                    // тексту было бы не видно, какой проход их прочитал.
+                    forEachNameRecord(copy, (record) => {
+                        if (view.getUint16(record) === PLATFORM_WINDOWS) {
+                            view.setUint16(record + 4, LANGUAGE_RUSSIAN);
+                        } else {
+                            view.setUint16(record, 0x0009);
+                        }
+                    });
+                }),
+        ],
+    ];
+
+    for (const [what, relabel] of laterPassCases) {
+        it(`reads a font with ${what} when the name records run past the end of the font`, function () {
+            const relabeled = relabel(ttf);
+
+            expect(envelopeNames(overcountNameRecords(relabeled))).to.deep.equal(envelopeNames(relabeled));
+            expect(envelopeNames(relabeled)).to.deep.equal(["Roboto Black", "Black", "Version 1.0", "Roboto-Black"]);
+        });
+    }
 
     it("prefers the english name over one that stands earlier in the table", function () {
         // Порядок записей шрифт не гарантирует, поэтому язык важнее места: ttf2eot, на
@@ -245,6 +283,16 @@ describe("SfntReader.readMetadata", function () {
                 }
             });
         });
+    }
+
+    function overcountNameRecords(bytes: Uint8Array): Uint8Array {
+        return patch(bytes, (view, copy) => view.setUint16(tableOffset(copy, "name") + 2, 0xffff));
+    }
+
+    function envelopeNames(bytes: Uint8Array): Array<string> {
+        const metadata = readMetadata(bytes);
+
+        return [metadata.familyName, metadata.styleName, metadata.versionName, metadata.fullName];
     }
 
     function nameRecord(bytes: Uint8Array, platformId: number, nameId: number): number {
