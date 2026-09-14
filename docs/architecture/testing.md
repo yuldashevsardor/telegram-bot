@@ -13,10 +13,12 @@
   идут мимо `tsx`, их грузит своим jiti `node-pg-migrate` ([`storage.md`](./storage.md)).
 - Что покрыто — видно по дереву `test/` и отчёту `make coverage`; как он считается и что
   в него не входит — раздел «Покрытие» ниже. Без автотестов остаются `Runner` (в том числе путь бана и
-  повтора, [`outbound-queue.md`](./outbound-queue.md)), `FontConvertor`, пары без EOT,
-  `Application` и `Bot`.
+  повтора, [`outbound-queue.md`](./outbound-queue.md)), `Application` и `Bot`.
 - Шрифты для тестов — `test/fixtures/fonts`; происхождение и способ пересборки описаны в
   `test/fixtures/fonts/README.md`.
+- Отказы в доступе спеки получают через `chmod`, а root проходит `access(2)` при любых
+  битах прав: от root эти тесты падают. В образе прогон идёт от `node` (`USER` в
+  `Dockerfile`).
 - Строгость типов и правила линтера заданы в `tsconfig.json` и `.eslintrc.js`, там же
   комментариями объяснены неочевидные исключения: `skipLibCheck` вынужденный, пока
   `@types/node` зафиксированы на 17.x; исключения из `no-console` разобраны в
