@@ -113,11 +113,7 @@ describe("SfntReader.readMetadata", function () {
     // больше неоткуда.
     const familyNameEndCases: Array<[string, (bytes: Uint8Array, end: number) => Uint8Array]> = [
         ["the end of the font", (bytes, end): Uint8Array => bytes.subarray(0, end)],
-        [
-            "the end of the name table",
-            (bytes, end): Uint8Array =>
-                patch(bytes, (view, copy) => view.setUint32(tableRecord(copy, "name") + 12, end - tableOffset(copy, "name"))),
-        ],
+        ["the end of the name table", (bytes, end): Uint8Array => withNameTableLength(bytes, end - tableOffset(bytes, "name"))],
     ];
 
     for (const [boundary, cut] of familyNameEndCases) {
@@ -152,6 +148,10 @@ describe("SfntReader.readMetadata", function () {
         expect(metadata.styleName).to.equal("Black");
     });
 
+    // Смещение от начала таблицы name посреди записи с индексом 8: заголовок в 6 байт, восемь
+    // целых записей и половина следующей.
+    const middleOfNameRecords = 6 + 8 * NAME_RECORD_SIZE + 6;
+
     // Записи name режут субсеттеры, а таблицу целиком снимает
     // `pyftsubset --drop-tables+=name`; поля конверта при этом информационные, и отвергать
     // из-за них шрифт целиком дороже, чем отдать пустую строку.
@@ -161,10 +161,7 @@ describe("SfntReader.readMetadata", function () {
             "carries no name table",
             (bytes): Uint8Array => patch(bytes, (view, copy) => view.setUint32(tableRecord(copy, "name"), 0x78787878)),
         ],
-        [
-            "has a truncated name table",
-            (bytes): Uint8Array => patch(bytes, (view, copy) => view.setUint32(tableRecord(copy, "name") + 12, 4)),
-        ],
+        ["has a truncated name table", (bytes): Uint8Array => withNameTableLength(bytes, 4)],
         [
             "points its names past the end of the font",
             (bytes): Uint8Array =>
@@ -177,14 +174,13 @@ describe("SfntReader.readMetadata", function () {
             // У обрезанного шрифта хранилище строк за концом файла, и проход по записям кончает
             // уже конец файла. Не будь этой границы, недописанная запись с индексом 8 читалась
             // бы за концом DataView и уронила бы разбор RangeError.
-            (bytes): Uint8Array => bytes.subarray(0, tableOffset(bytes, "name") + 6 + 8 * NAME_RECORD_SIZE + 6),
+            (bytes): Uint8Array => bytes.subarray(0, tableOffset(bytes, "name") + middleOfNameRecords),
         ],
         [
             "declares its name table shorter than its name records",
             // Файл цел, укорочена только объявленная длина: записи за ней и хранилище строк уже
             // не байты таблицы name.
-            (bytes): Uint8Array =>
-                patch(bytes, (view, copy) => view.setUint32(tableRecord(copy, "name") + 12, 6 + 8 * NAME_RECORD_SIZE + 6)),
+            (bytes): Uint8Array => withNameTableLength(bytes, middleOfNameRecords),
         ],
         [
             "is cut off inside the name table header",
@@ -417,6 +413,11 @@ describe("SfntReader.readMetadata", function () {
 
     function overcountNameRecords(bytes: Uint8Array): Uint8Array {
         return patch(bytes, (view, copy) => view.setUint16(tableOffset(copy, "name") + 2, 0xffff));
+    }
+
+    // Длина таблицы — последнее поле её записи в каталоге. Байты самой таблицы не меняются.
+    function withNameTableLength(bytes: Uint8Array, length: number): Uint8Array {
+        return patch(bytes, (view, copy) => view.setUint32(tableRecord(copy, "name") + 12, length));
     }
 
     function envelopeNames(bytes: Uint8Array): Array<string> {
