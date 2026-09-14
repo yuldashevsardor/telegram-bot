@@ -96,7 +96,7 @@ export class FontSignatureMatcher {
     private matchesByte(byte: number | undefined, expected: SignatureByte): boolean {
         // Байта нет — файл короче сигнатуры. Эта ветка и есть проверка длины: отдельная
         // проверка в `matches` сделала бы её недостижимой.
-        // Stryker disable next-line ConditionalExpression,BlockStatement: не компилируется — без ветки byte не сужается до number
+        // Stryker disable next-line ConditionalExpression,BlockStatement: `false` и `{}` — не компилируются: byte не сужается до number
         if (byte === undefined) {
             return false;
         }
@@ -120,7 +120,7 @@ export class FontSignatureMatcher {
     }
 
     private isText(byte: number): boolean {
-        // Stryker disable next-line EqualityOperator: эквивалентен — на самом пороге лежит пробел, его пропускает и isXmlWhitespace
+        // Stryker disable next-line EqualityOperator: `>` — эквивалентен: на самом пороге лежит пробел, его пропускает и isXmlWhitespace
         return byte >= FontSignatureMatcher.FIRST_NON_C0_BYTE || this.isXmlWhitespace(byte);
     }
 
@@ -159,7 +159,7 @@ export class FontSignatureMatcher {
     }
 
     private isXmlWhitespace(byte: number | undefined): boolean {
-        // Stryker disable next-line ConditionalExpression: не компилируется — includes() не примет number | undefined
+        // Stryker disable next-line ConditionalExpression: `true` слева от `&&` — не компилируется: includes() не примет undefined
         return byte !== undefined && FontSignatureMatcher.XML_WHITESPACE.includes(byte);
     }
 
@@ -178,17 +178,17 @@ export class FontSignatureMatcher {
         // Пометки ниже об одном: headLength сейчас задаёт не SVG, а EOT — его маркер лежит
         // дальше, чем кончается сигнатура SVG даже с предельным префиксом, поэтому неверная
         // длина префикса итог не меняет. Станет сигнатура SVG длиннее EOT — пометки снять.
-        // Stryker disable next-line ConditionalExpression: эквивалентен, пока headLength задаёт EOT
+        // Stryker disable next-line ConditionalExpression: `true` — эквивалентен, пока headLength задаёт EOT
         if (prefix === undefined) {
             return 0;
         }
 
         switch (prefix) {
-            // Stryker disable next-line ConditionalExpression: эквивалентен, пока headLength задаёт EOT
+            // Stryker disable next-line ConditionalExpression: провал в `Prefix.Indent` — эквивалентен, пока headLength задаёт EOT
             case Prefix.Bom:
                 return FontSignatureMatcher.UTF8_BOM.length;
             case Prefix.Indent:
-                // Stryker disable next-line ArithmeticOperator: эквивалентен, пока headLength задаёт EOT
+                // Stryker disable next-line ArithmeticOperator: `-` — эквивалентен, пока headLength задаёт EOT
                 return FontSignatureMatcher.UTF8_BOM.length + FontSignatureMatcher.MAX_INDENT_LENGTH;
         }
     }
