@@ -192,12 +192,20 @@ describe("FileHelper.readHead", function () {
         expect((error as ReadFailed).cause).to.be.instanceOf(Error);
     });
 
-    it("closes the file whether the read succeeds or fails", async function () {
+    it("closes the file after reading its head", async function () {
         const filePath = path.join(basePath, "head.bin");
         await fs.writeFile(filePath, Uint8Array.from([1, 2, 3]));
         const before = await openDescriptors();
 
         await FileHelper.readHead(filePath, 3);
+
+        expect(await openDescriptors()).to.equal(before);
+    });
+
+    it("closes the file when the read fails after it was opened", async function () {
+        const before = await openDescriptors();
+
+        // Каталог открывается на чтение, а падает уже само чтение (EISDIR).
         await rejectionOf(() => FileHelper.readHead(basePath, 4));
 
         expect(await openDescriptors()).to.equal(before);
