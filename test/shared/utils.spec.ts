@@ -2,11 +2,8 @@ import "reflect-metadata";
 import { expect } from "chai";
 import { sleep, withTimeout } from "app/shared/utils";
 
-// getActiveResourcesInfo() в Node 24 есть, а @types/node 17.0.45 его ещё не объявляет.
-type ProcessResources = { getActiveResourcesInfo(): string[] };
-
 function activeTimers(): number {
-    return (process as NodeJS.Process & ProcessResources).getActiveResourcesInfo().filter((resource) => resource === "Timeout").length;
+    return process.getActiveResourcesInfo().filter((resource) => resource === "Timeout").length;
 }
 
 describe("withTimeout", () => {

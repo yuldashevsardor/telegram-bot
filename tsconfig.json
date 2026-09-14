@@ -18,11 +18,11 @@
         "esModuleInterop": true,
         "declarationMap": true,
         //        "inlineSourceMap": true,
-        // Оставлены включёнными вынужденно: без пропуска проверки .d.ts сборка падает на
+        // Оставлен включённым вынужденно: без пропуска проверки .d.ts tsc падает на
         // декларациях зависимостей, которые импортируют нетипизированные модули (TS7016):
-        // node-fetch внутри grammy и pg внутри node-pg-migrate.
+        // сборка — на node-fetch внутри grammy, typecheck по tsconfig.check.json — ещё и на
+        // pg внутри node-pg-migrate.
         "skipLibCheck": true,
-        "skipDefaultLibCheck": true,
         "strict": true,
         "noImplicitOverride": true,
         "noPropertyAccessFromIndexSignature": true,
