@@ -32,6 +32,20 @@ describe("FontForge.convert", function () {
         expect(matcher.matches(await FileHelper.readHead(distPath, matcher.headLength), Extension.OTF)).to.be.true;
     });
 
+    // Регистр расширения исходника задаёт тот, кто прислал файл, а список форматов движка строчный.
+    for (const extension of [Extension.OTF, Extension.SVG, Extension.TTF, Extension.WOFF, Extension.WOFF2]) {
+        it(`reads ${extension} under an uppercase extension`, async function () {
+            const matcher = new FontSignatureMatcher();
+            const srcPath = path.join(workDir, `Font.${extension.toUpperCase()}`);
+            const distPath = path.join(workDir, "result.otf");
+            await fs.copyFile(fixture(extension), srcPath);
+
+            await fontForge.convert(srcPath, distPath);
+
+            expect(matcher.matches(await FileHelper.readHead(distPath, matcher.headLength), Extension.OTF)).to.be.true;
+        });
+    }
+
     it("does not give eot to the engine to read", async function () {
         const error = await rejectionOf(() => fontForge.convert(fixture(Extension.EOT), path.join(workDir, "result.ttf")));
 
