@@ -102,6 +102,12 @@ composer, ни один фильтр репозитория не отсекал 
 идёт через очередь), нет `chat_id`, `chat_id` не число, и методы из
 `TELEGRAM_NO_GROUP_RATE_LIMIT_SET` — только для групповых чатов.
 
+Аргументы вызова `Proxy` передаёт в оригинальный `raw` как пришли. Методы без параметров
+(`getMe`, `getWebhookInfo`) grammY зовёт без payload, одним `signal`, а пустой payload им
+подставляет сам оригинальный `raw` (`createRawApi` в `grammy/out/core/client.js`): свой,
+добавленный в подмене, занял бы место `signal` (тест
+`test/telegram/middleware/mutation/telegram-call-api.middleware.spec.ts`).
+
 grammY создаёт новый `Api` на каждый апдейт, поэтому обёртка не накапливается и не
 касается `bot.grammy.api`: код, вызывающий его напрямую (`BulkMessagesCommand`), кладёт
 задачу в очередь сам.

@@ -58,9 +58,9 @@ Runner               → цикл на setTimeout: pull(), выполнить ca
 
 Любой `ctx.api.*` (включая `ctx.reply`) во время обработки апдейта идёт так:
 
-1. Метод `Api` grammY собирает payload и зовёт `ctx.api.raw[method](payload, signal)`; на
-   `raw` стоит `Proxy` из `TelegramCallApiMiddleware` ([`bot.md`](./bot.md)), он отдаёт
-   `callApi`.
+1. Метод `Api` grammY собирает payload и зовёт `ctx.api.raw[method](payload, signal)` (метод
+   без параметров — `raw[method](signal)`); на `raw` стоит `Proxy` из
+   `TelegramCallApiMiddleware` ([`bot.md`](./bot.md)), он отдаёт `callApi`.
 2. `callApi` либо зовёт сохранённый `originRaw` напрямую (условия обхода —
    [`bot.md`](./bot.md)), либо создаёт Promise, строит `callback`, кладёт задачу в очередь
    и отдаёт Promise вызывающей стороне — то есть та получает его до того, как вызов

@@ -8,7 +8,7 @@ import { Priority } from "app/telegram/outbound-queue/task";
 import type { TaskQueue } from "app/telegram/outbound-queue/task-queue";
 import { TelegramCallApiMiddleware } from "app/telegram/middleware/mutation/telegram-call-api.middleware";
 
-type RawCall = { method: string; payload: unknown };
+type RawCall = { method: string; payload: unknown; signal: unknown };
 
 type Pushed = { task: Task; priority: Priority };
 
@@ -24,8 +24,8 @@ async function setup(fail = false): Promise<Setup> {
     const pushed: Pushed[] = [];
 
     const api = new Api("test-token");
-    const transformer: Transformer<RawApi> = async (_prev, method, payload) => {
-        calls.push({ method: method, payload: payload });
+    const transformer: Transformer<RawApi> = async (_prev, method, payload, signal) => {
+        calls.push({ method: method, payload: payload, signal: signal });
 
         const response = fail ? { ok: false, error_code: 400, description: "Bad Request" } : { ok: true, result: `${method} result` };
 
@@ -75,7 +75,9 @@ describe("TelegramCallApiMiddleware", function () {
             await pushed[0]?.task.callback();
 
             expect(await sent).to.equal("sendMessage result");
-            expect(calls).to.deep.equal([{ method: "sendMessage", payload: { chat_id: PRIVATE_CHAT_ID, text: "text" } }]);
+            expect(calls).to.deep.equal([
+                { method: "sendMessage", payload: { chat_id: PRIVATE_CHAT_ID, text: "text" }, signal: undefined },
+            ]);
         });
 
         // Отказ получают обе стороны: вызывающая — сразу, брокер — для бана и повтора.
@@ -141,6 +143,23 @@ describe("TelegramCallApiMiddleware", function () {
                 await expectDirect(call, method);
             });
         }
+
+        for (const method of ["getMe", "getWebhookInfo"] as const) {
+            it(`for ${method}, a method without parameters`, async function () {
+                await expectDirect((api) => api[method](), method);
+            });
+        }
+
+        // grammY зовёт такие методы одним signal, а пустой payload подставляет его собственный raw.
+        it("with the signal of a method without parameters in its place", async function () {
+            const { api, calls } = await setup();
+            // AbortSignal в типах grammY — из шима abort-controller, с глобальным он не сходится.
+            const signal = new AbortController().signal as Parameters<Api["getMe"]>[0];
+
+            await api.getMe(signal);
+
+            expect(calls).to.deep.equal([{ method: "getMe", payload: {}, signal: signal }]);
+        });
 
         // Методы grammY строят payload литералом; что построено иначе, в очередь не идёт.
         it("with a payload that is not an object literal", async function () {
