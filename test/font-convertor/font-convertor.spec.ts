@@ -115,8 +115,9 @@ describe("FontConvertor", function () {
         expect((error as FontConvertorError).cause).to.be.instanceOf(InvalidFontSignature);
     });
 
-    // Те же четыре отказа с теми же ошибками бросает и FileHelper.createDirectoriesByDate(),
-    // которую convert() зовёт после prepare(): эти тесты не отличают, чья проверка сработала.
+    // Путь проверяет FileHelper.createDirectoriesByDate(), сами проверки закреплены её спекой.
+    // Здесь — что отказ выходит из convert() как есть: каталог создаётся до try, который
+    // заворачивает ошибки пары в FontConvertorError, и до движка дело не доходит.
     describe("rejects the temp dir", function () {
         it("when it does not exist", async function () {
             const directory = path.join(tempDir, "missing");

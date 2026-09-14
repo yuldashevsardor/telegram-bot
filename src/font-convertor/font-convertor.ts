@@ -1,5 +1,4 @@
 import path from "path";
-import { InvalidPath, PermissionDenied } from "app/shared/fs/file-helper.errors";
 import { inject, injectable } from "inversify";
 import { FileHelper } from "app/shared/fs/file-helper";
 import type { ConvertParams, Extension } from "app/font-convertor/font-convertor.types";
@@ -11,40 +10,12 @@ import { configValue } from "app/shared/config-value";
 
 @injectable()
 export class FontConvertor {
-    private isPrepared = false;
-
     public constructor(
         @inject<ConvertorFactory>(Tokens.Font.Convertor.Factory) private readonly convertorFactory: ConvertorFactory,
         private readonly tempDir: string = configValue("tempDir"),
     ) {}
 
-    private async prepare(): Promise<void> {
-        if (this.isPrepared) {
-            return;
-        }
-
-        if (!(await FileHelper.isExist(this.tempDir))) {
-            throw InvalidPath.isNotExist(this.tempDir);
-        }
-
-        if (!(await FileHelper.isReadable(this.tempDir))) {
-            throw PermissionDenied.read(this.tempDir);
-        }
-
-        if (!(await FileHelper.isWritable(this.tempDir))) {
-            throw PermissionDenied.write(this.tempDir);
-        }
-
-        if (!(await FileHelper.isDirectory(this.tempDir))) {
-            throw InvalidPath.isNotDirectory(this.tempDir);
-        }
-
-        this.isPrepared = true;
-    }
-
     public async convert(params: ConvertParams): Promise<string> {
-        await this.prepare();
-
         const originExtension = (await FileHelper.getFileExtension(params.originPath)).toLowerCase();
 
         if (originExtension === params.extension) {
