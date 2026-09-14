@@ -31,6 +31,7 @@ describe("ConfigContainer", () => {
         expect(result.bot.gracefulShutdown.timeout).to.equal(3000);
         expect(result.taskQueue.gracefulShutdown.timeout).to.equal(5000);
         expect(result.taskQueue.gracefulShutdown.interval).to.equal(500);
+        expect(result.taskQueue.logInterval).to.equal(10000);
         expect(result.runner.sleepInterval).to.deep.equal({ min: 10, max: 1000 });
         expect(result.database.host).to.equal("localhost");
         expect(result.database.port).to.equal(5432);
@@ -78,6 +79,16 @@ describe("ConfigContainer", () => {
     it("rejects a non-positive task queue poll interval", () => {
         expect(() => config({ TASK_QUEUE_GRACEFUL_SHUTDOWN_INTERVAL: "0" })).to.throw(InvalidConfigError);
         expect(() => config({ TASK_QUEUE_GRACEFUL_SHUTDOWN_INTERVAL: "-100" })).to.throw(InvalidConfigError);
+    });
+
+    it("rejects a task queue log interval that a timer would turn into 1 ms", () => {
+        expect(() => config({ TASK_QUEUE_LOG_INTERVAL: "0" })).to.throw(InvalidConfigError);
+        expect(() => config({ TASK_QUEUE_LOG_INTERVAL: "-100" })).to.throw(InvalidConfigError);
+        expect(() => config({ TASK_QUEUE_LOG_INTERVAL: "2147483648" })).to.throw(InvalidConfigError);
+    });
+
+    it("accepts the longest task queue log interval a timer can hold", () => {
+        expect(config({ TASK_QUEUE_LOG_INTERVAL: "2147483647" }).taskQueue.logInterval).to.equal(2147483647);
     });
 
     it("rejects a non-positive runner sleep interval minimum", () => {
