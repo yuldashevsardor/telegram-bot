@@ -112,6 +112,12 @@ describe("Convertor.validate", function () {
             await expectRejection(fixture(Extension.TTF), toPath, InvalidPath.isAlreadyExists(toPath));
         });
 
+        it("when its directory does not exist", async function () {
+            const directory = inWorkDir("missing");
+
+            await expectRejection(fixture(Extension.TTF), path.join(directory, "result.woff"), InvalidPath.isNotExist(directory));
+        });
+
         it("when its directory cannot be read", async function () {
             const directory = await lockedDir(0o300);
 

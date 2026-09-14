@@ -51,6 +51,10 @@ export abstract class Convertor {
 
         const directoryPath = path.dirname(toPath);
 
+        if (!(await FileHelper.isExist(directoryPath))) {
+            throw InvalidPath.isNotExist(directoryPath);
+        }
+
         if (!(await FileHelper.isReadable(directoryPath))) {
             throw PermissionDenied.read(directoryPath);
         }
