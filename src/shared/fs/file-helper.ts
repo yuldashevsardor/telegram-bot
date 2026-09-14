@@ -35,6 +35,7 @@ export class FileHelper {
 
     public static async getFileExtension(filePath: string): Promise<string> {
         let extension = path.extname(filePath);
+        // Stryker disable next-line ConditionalExpression: `true` — эквивалентен: extname отдаёт пустую строку или расширение с точкой, а substring(1) пустой строки — пустая строка
         if (extension.charAt(0) === ".") {
             extension = extension.substring(1);
         }

@@ -14,6 +14,12 @@ describe("ProcessHelper.run", function () {
         expect(result.stdout.trim()).to.equal(argument);
     });
 
+    it("запускает процесс без аргументов, когда их не передали", async function () {
+        const result = await ProcessHelper.run("/bin/echo");
+
+        expect(result.stdout).to.equal("\n");
+    });
+
     it("не даёт аргументу дописать команду: побочного файла не появляется", async function () {
         const basePath = await fs.mkdtemp(path.join(os.tmpdir(), "process-helper-"));
         const marker = path.join(basePath, "injected");

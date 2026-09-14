@@ -2,6 +2,13 @@ import "reflect-metadata";
 import { expect } from "chai";
 import { sleep, withTimeout } from "app/shared/utils";
 
+// getActiveResourcesInfo() в Node 24 есть, а @types/node 17.0.45 его ещё не объявляет.
+type ProcessResources = { getActiveResourcesInfo(): string[] };
+
+function activeTimers(): number {
+    return (process as NodeJS.Process & ProcessResources).getActiveResourcesInfo().filter((resource) => resource === "Timeout").length;
+}
+
 describe("withTimeout", () => {
     it("reports success when the step finishes in time", async () => {
         expect(await withTimeout(sleep(1), 100)).to.equal(true);
@@ -35,6 +42,17 @@ describe("withTimeout", () => {
         } finally {
             process.off("unhandledRejection", onRejection);
         }
+    });
+
+    // Неснятый таймер держит цикл событий до срока. Шаг — уже выполненный промис, поэтому между
+    // замерами идут одни микрозадачи и чужой таймер сработать не успевает. Свой таймер на тест
+    // mocha заводит, когда тест вернул промис (callFn в mocha/lib/runnable.js), — отсюда первый await.
+    it("clears its timer once the step has finished", async () => {
+        await Promise.resolve();
+        const before = activeTimers();
+
+        expect(await withTimeout(Promise.resolve(), 60_000)).to.equal(true);
+        expect(activeTimers()).to.equal(before);
     });
 
     it("passes a rejection through while it is still waiting", async () => {

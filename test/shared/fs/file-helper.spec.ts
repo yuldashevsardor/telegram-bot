@@ -38,6 +38,11 @@ function rejectionOf(call: () => Promise<unknown>): Promise<unknown> {
     );
 }
 
+// Спеки идут в образе на Linux, где открытые дескрипторы процесса перечислены в /proc/self/fd.
+async function openDescriptors(): Promise<number> {
+    return (await fs.readdir("/proc/self/fd")).length;
+}
+
 async function expectRejection(call: () => Promise<unknown>, expected: RuntimeError): Promise<void> {
     const error = await rejectionOf(call);
 
@@ -186,6 +191,17 @@ describe("FileHelper.readHead", function () {
         expect((error as ReadFailed).payload).to.deep.equal({ path: basePath });
         expect((error as ReadFailed).cause).to.be.instanceOf(Error);
     });
+
+    it("closes the file whether the read succeeds or fails", async function () {
+        const filePath = path.join(basePath, "head.bin");
+        await fs.writeFile(filePath, Uint8Array.from([1, 2, 3]));
+        const before = await openDescriptors();
+
+        await FileHelper.readHead(filePath, 3);
+        await rejectionOf(() => FileHelper.readHead(basePath, 4));
+
+        expect(await openDescriptors()).to.equal(before);
+    });
 });
 
 describe("FileHelper.findFilesByExtensions", function () {
@@ -207,6 +223,22 @@ describe("FileHelper.findFilesByExtensions", function () {
         const files = await FileHelper.findFilesByExtensions(basePath, [" .ttf", "otf"]);
 
         expect(files.sort()).to.deep.equal([path.join(basePath, "a.ttf"), path.join(basePath, "b.otf")]);
+    });
+
+    it("skips directories that match the extension", async function () {
+        await fs.writeFile(path.join(basePath, "a.ftl"), Uint8Array.from([1]));
+        await fs.mkdir(path.join(basePath, "b.ftl"));
+
+        expect(await FileHelper.findFilesByExtensions(basePath, ["ftl"])).to.deep.equal([path.join(basePath, "a.ftl")]);
+    });
+
+    // Локали собираются из всех .ftl каталога (createFluent), и скрытый ._start.locale.en.ftl —
+    // файл метаданных, который macOS кладёт рядом на чужой файловой системе, — ушёл бы в бандл en.
+    it("skips hidden files", async function () {
+        await fs.writeFile(path.join(basePath, "start.locale.en.ftl"), Uint8Array.from([1]));
+        await fs.writeFile(path.join(basePath, "._start.locale.en.ftl"), Uint8Array.from([1]));
+
+        expect(await FileHelper.findFilesByExtensions(basePath, ["ftl"])).to.deep.equal([path.join(basePath, "start.locale.en.ftl")]);
     });
 
     it("refuses a list with nothing but blanks", async function () {
@@ -306,24 +338,81 @@ describe("ReadFailed, WriteFailed and RemoveFailed", function () {
     }
 });
 
-describe("InvalidPath and InvalidFile", function () {
-    // FileHelper этих фабрик не бросает, поэтому они проверяются напрямую.
+describe("PermissionDenied, InvalidPath, InvalidFile and InvalidExtensions", function () {
+    // Фабрики проверяются напрямую: FileHelper бросает не все, а спеки выше сверяют отказ с
+    // ошибкой той же фабрики, и её сообщение и payload там сравниваются сами с собой.
     const cases = [
-        { name: "InvalidPath.isNotFile", error: InvalidPath.isNotFile("/x/y"), type: InvalidPath, payload: { path: "/x/y" } },
-        { name: "InvalidPath.isAlreadyExists", error: InvalidPath.isAlreadyExists("/x/y"), type: InvalidPath, payload: { path: "/x/y" } },
-        { name: "InvalidFile.byPath", error: InvalidFile.byPath("/x/y"), type: InvalidFile, payload: { path: "/x/y" } },
+        {
+            name: "PermissionDenied.read",
+            error: PermissionDenied.read("/x/y"),
+            type: PermissionDenied,
+            message: "Path /x/y is not readable.",
+            payload: { path: "/x/y" },
+        },
+        {
+            name: "PermissionDenied.write",
+            error: PermissionDenied.write("/x/y"),
+            type: PermissionDenied,
+            message: "Path /x/y is not writable.",
+            payload: { path: "/x/y" },
+        },
+        {
+            name: "InvalidPath.isNotFile",
+            error: InvalidPath.isNotFile("/x/y"),
+            type: InvalidPath,
+            message: "/x/y is not file.",
+            payload: { path: "/x/y" },
+        },
+        {
+            name: "InvalidPath.isNotDirectory",
+            error: InvalidPath.isNotDirectory("/x/y"),
+            type: InvalidPath,
+            message: "/x/y is not directory.",
+            payload: { path: "/x/y" },
+        },
+        {
+            name: "InvalidPath.isNotExist",
+            error: InvalidPath.isNotExist("/x/y"),
+            type: InvalidPath,
+            message: "/x/y is not exists.",
+            payload: { path: "/x/y" },
+        },
+        {
+            name: "InvalidPath.isAlreadyExists",
+            error: InvalidPath.isAlreadyExists("/x/y"),
+            type: InvalidPath,
+            message: "/x/y is already exists.",
+            payload: { path: "/x/y" },
+        },
         {
             name: "InvalidFile.byPathAndExtension",
             error: InvalidFile.byPathAndExtension("/x/y.txt", "txt", "ttf"),
             type: InvalidFile,
+            message: "File /x/y.txt extension is invalid. Got: txt, allowed: ttf.",
             payload: { path: "/x/y.txt", extension: "txt", allowed: "ttf" },
+        },
+        {
+            name: "InvalidExtensions.empty",
+            error: InvalidExtensions.empty([" ", "."]),
+            type: InvalidExtensions,
+            message: "Extensions cannot be empty.",
+            payload: { extensions: [" ", "."] },
         },
     ];
 
-    for (const { name, error, type, payload } of cases) {
-        it(`${name} keeps its details in the payload`, function () {
+    for (const { name, error, type, message, payload } of cases) {
+        it(`${name} keeps its message and details`, function () {
             expect(error).to.be.instanceOf(type);
+            expect(error.message).to.equal(message);
             expect(error.payload).to.deep.equal(payload);
         });
     }
+
+    // Сообщение не сверяется: в src/ эту фабрику никто не вызывает.
+    it("InvalidFile.byPath keeps its details in the payload", function () {
+        const error = InvalidFile.byPath("/x/y");
+
+        expect(error).to.be.instanceOf(InvalidFile);
+        expect(error.payload).to.deep.equal({ path: "/x/y" });
+    });
 });
