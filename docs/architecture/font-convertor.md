@@ -2,9 +2,10 @@
 
 ```
 FontConvertor.convert({ originPath, extension })
-  → prepare(): tempDir существует, читаем, доступен на запись
   → расширение исходника ≠ целевому, иначе FontConvertorError
   → имя: 15 случайных символов + расширение, каталог tempDir/YYYY/M/D
+    (FileHelper.createDirectoriesByDate(): tempDir существует, читаем, доступен на
+    запись и это каталог)
   → ConvertorFactory.get(from, to): по таблице пар, класс на пару,
     convertor/<from>/<from>-to-<to>.ts
   → Convertor.validate(): исходник существует и читаем, расширение совпадает,
