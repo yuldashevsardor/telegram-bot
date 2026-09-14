@@ -52,6 +52,15 @@ describe("RequestContext", function () {
         expect(context.getValues()).to.deep.equal({});
     });
 
+    it("leaves no request data after a scope ends", async function () {
+        const context = new RequestContext();
+
+        await context.run(() => Promise.resolve());
+
+        expect(context.getRequestId()).to.be.null;
+        expect(context.getValues()).to.deep.equal({});
+    });
+
     it("keeps unknown keys of the store out of the values", function () {
         const context = new RequestContext();
         // Область открывает только run(), и чужой ключ через публичную поверхность в стор
