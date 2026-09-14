@@ -4,7 +4,8 @@
     // Тиконфиг ему задаёт TSX_TSCONFIG_PATH в npm-скрипте test: compilerOptions
     // применяются только к файлам из include, а test/** есть лишь в tsconfig.check.json.
     // database-hook идёт после tsx, потому что сам написан на TypeScript; он создаёт базу
-    // на прогон (docs/architecture/testing.md, «База для тестов»).
+    // на прогон (docs/architecture/testing.md, «База для тестов»). Stryker (stryker.config.mjs)
+    // берёт отсюда spec, а require задаёт свой — без database-hook: новый require нужен и там.
     "require": ["tsx/cjs", "./test/database-hook.ts"],
     "spec": "test/**/*.spec.ts",
     "color": true

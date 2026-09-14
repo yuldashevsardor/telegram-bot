@@ -25,6 +25,10 @@ coverage
 # nyc test coverage
 .nyc_output
 
+# StrykerJS: песочницы прогона и отчёт make mutation
+.stryker-tmp
+/reports
+
 # Grunt intermediate storage (https://gruntjs.com/creating-plugins#storing-task-files)
 .grunt
 

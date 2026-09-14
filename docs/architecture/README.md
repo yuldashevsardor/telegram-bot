@@ -25,7 +25,7 @@
 - [`storage.md`](./storage.md) — `Database`, миграции, заготовка миграции, когда у
   хранилища заводится свой интерфейс
 - [`config.md`](./config.md) — `ConfigContainer` и таблица переменных окружения
-- [`testing.md`](./testing.md) — `mocha`, линтеры, покрытие, гейты
+- [`testing.md`](./testing.md) — `mocha`, линтеры, покрытие, гейты, мутационное тестирование
 - [`invariants.md`](./invariants.md) — правила, которые компилятор не связывает:
   нарушение компилируется и ломает поведение молча
 
@@ -118,7 +118,8 @@ src/
     process/                ProcessHelper — запуск внешних процессов (invariants.md)
     string/                 StringHelper
 test/                       mocha-спеки; путь спеки повторяет путь исходника с точностью до модуля;
-                            coverage-hook.ts — хук make coverage, database-hook.ts — база на прогон (testing.md)
+                            coverage-hook.ts — хук make coverage, database-hook.ts — база на прогон,
+                            stryker-mocha-hook.cjs — шим mocha 12 для make mutation (testing.md)
 migrations/                 миграции, в common/ — общие shorthands и заготовка (storage.md)
 scripts/                    хостовые скрипты целей make; claude-worktree-guard — хук (testing.md)
 ```

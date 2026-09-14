@@ -102,6 +102,10 @@ describe("BulkMessagesCommand", function () {
         const basePaths: string[] = [];
 
         before(async function () {
+            // Массив живёт в describe, а не в before: без очистки повторный прогон спеки в том же
+            // процессе (make mutation) копил бы пути от прошлого и падал.
+            basePaths.length = 0;
+
             await run(async (basePath: string): Promise<string> => {
                 basePaths.push(basePath);
 

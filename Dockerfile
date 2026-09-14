@@ -7,10 +7,13 @@ FROM node:${NODE_VERSION}-bookworm-slim
 
 # fontforge-nox — headless-сборка: тот же /usr/bin/fontforge, но без зависимостей X11.
 # Это ядро проекта: без бинарника конвертация шрифтов не работает вообще.
+# procps — ради ps: Stryker (make mutation) гасит свои воркеры через tree-kill, а тот ищет
+# дочерние процессы вызовом ps. В slim-образе его нет, и прогон падает на spawn ps ENOENT.
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
         fontforge-nox \
         ca-certificates \
+        procps \
     && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=development \

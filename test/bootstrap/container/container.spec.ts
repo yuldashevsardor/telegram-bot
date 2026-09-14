@@ -39,9 +39,13 @@ function collectTokens(branch: Branch, path: string[] = []): Array<{ path: strin
 const context = ApplicationContext as unknown as ContextParts;
 
 describe("Container", () => {
-    const container = new Container();
+    // Свежий контейнер на каждый прогон, а не на загрузку файла: close() привязок не снимает, и
+    // повторный прогон спеки в том же процессе (make mutation) связал бы всё дважды.
+    let container: Container;
 
     before(async () => {
+        container = new Container();
+
         const requestContext = new RequestContext();
 
         context.config = new ConfigContainer(new FakeStorage({ BOT_TOKEN: "test-token" }));
