@@ -18,6 +18,11 @@ const TELEGRAM_NO_GROUP_RATE_LIMIT_SET = new Set<string | symbol>([
     "sendChatAction",
 ]);
 
+// Методы без параметров grammY зовёт без payload: первым аргументом приходит signal или ничего.
+function isPayloadLiteral(value: unknown): value is RawApiPayload {
+    return typeof value === "object" && value !== null && value.constructor.name === "Object";
+}
+
 @injectable()
 export class TelegramCallApiMiddleware extends Middleware {
     public constructor(@inject<TaskQueue>(Tokens.Bot.OutboundQueue.TaskQueue) private readonly taskQueue: TaskQueue) {
@@ -44,22 +49,25 @@ export class TelegramCallApiMiddleware extends Middleware {
 
         // Методы RawApi различаются типом payload, поэтому обращение по вычисляемому имени
         // не типизируется без приведения: конкретный метод известен только в рантайме.
-        function callRawApi(method: RawApiMethod, payload: RawApiPayload, signal: AbortSignal | undefined): Promise<unknown> {
-            const call = originRaw[method] as (payload: RawApiPayload, signal?: AbortSignal) => Promise<unknown>;
+        // Аргументы уходят в originRaw как пришли: пустой payload методу без параметров подставляет
+        // сам originRaw, и добавленный ещё и здесь занял бы место signal.
+        function callRawApi(method: RawApiMethod, args: unknown[]): Promise<unknown> {
+            const call = originRaw[method] as (...args: unknown[]) => Promise<unknown>;
 
-            return call(payload, signal);
+            return call(...args);
         }
 
-        async function callApi(method: RawApiMethod, payload: RawApiPayload, signal: AbortSignal | undefined): Promise<unknown> {
-            if (payload.constructor.name !== "Object" || !("chat_id" in payload)) {
-                return callRawApi(method, payload, signal);
+        async function callApi(method: RawApiMethod, ...args: unknown[]): Promise<unknown> {
+            const [payload] = args;
+            if (!isPayloadLiteral(payload) || !("chat_id" in payload)) {
+                return callRawApi(method, args);
             }
 
             const chatId = Number(payload["chat_id"]);
             const isAllowedGroupMethod = TELEGRAM_NO_GROUP_RATE_LIMIT_SET.has(method);
             const isGroup = isGroupChat(chatId);
             if (isNaN(chatId) || (isGroup && isAllowedGroupMethod)) {
-                return callRawApi(method, payload, signal);
+                return callRawApi(method, args);
             }
 
             // Это хак, который нужен для того что бы получить результат отправки сообщения через очереди.
@@ -78,7 +86,7 @@ export class TelegramCallApiMiddleware extends Middleware {
                 try {
                     // Ждём фактический вызов: без await наружу ушёл бы ещё не завершённый promise,
                     // и брокер не увидел бы отказа Telegram.
-                    messageResolve(await callRawApi(method, payload, signal));
+                    messageResolve(await callRawApi(method, args));
                 } catch (error) {
                     // Вызывающая сторона получает отказ сразу, брокер — ту же ошибку для бана и повтора.
                     messageReject(error);
