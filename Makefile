@@ -115,6 +115,14 @@ format-check: ## Проверить prettier без правок: make format-ch
 format: ## Переформатировать prettier: make format [files="src/app.ts"]
 	$(DC_APP_RUN) $(if $(FILES),npx prettier --write $(FILES),npm run format)
 
+# Прогон долгий, поэтому в check не входит. Область уходит в контейнер переменной MUTATE, а
+# не флагом --mutate: флаг заменил бы весь список mutate из stryker.config.mjs вместе с его
+# исключениями. Кавычки нужны, чтобы глоб развернул Stryker, а не шелл хоста. Каталог отчёта
+# создаётся заранее по той же причине, что у coverage.
+mutation: ## Мутационное тестирование, отчёт в ./reports: make mutation [files="src/shared/**"]
+	@mkdir -p reports
+	$(DC_APP_RUN) $(if $(FILES),env MUTATE='$(FILES)') npm run mutation
+
 # Быстрый прогон перед PR одним выводом: типы, eslint, prettier, тесты с порогом покрытия.
 # Ревью проверяет то же, но гоняет свои гейты по одному и добавляет к ним rebuild и build,
 # поэтому зелёный check ещё не значит, что ревью будет зелёным.
@@ -124,9 +132,9 @@ check: ## Все проверки подряд одной командой
 
 # Одноразовый контейнер берёт готовый образ и сам пересобирает его только когда образа нет.
 # Томами монтируются лишь src, test, migrations, tsconfig.json, tsconfig.check.json,
-# migrate.json и coverage, всё остальное попало в образ на сборке — поэтому после
-# изменения package.json, package-lock.json, .mocharc.json, .eslintrc.js или
-# .prettierrc.js образ устаревает молча, и его нужно пересобрать этой целью.
+# migrate.json, stryker.config.mjs, coverage и reports, всё остальное попало в образ на
+# сборке — поэтому после изменения package.json, package-lock.json, .mocharc.json,
+# .eslintrc.js или .prettierrc.js образ устаревает молча, и его нужно пересобрать этой целью.
 rebuild: ## Пересобрать образ приложения этого дерева
 	$(DC_APP) build app
 
@@ -181,5 +189,5 @@ help: ## Показать этот список
 
 .PHONY: up db-up app-up app-down db-down logs restart db-reset \
 	migrate migrate-create build typecheck test test-watch coverage \
-	lint lint-fix format-check format check rebuild shell psql \
+	lint lint-fix format-check format mutation check rebuild shell psql \
 	worktree-init worktree-cleanup token-acquire token-renew token-release token-status token-add help

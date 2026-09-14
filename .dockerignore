@@ -5,6 +5,8 @@ build
 typings
 coverage
 .nyc_output
+.stryker-tmp
+reports
 tmp
 docs
 .env
