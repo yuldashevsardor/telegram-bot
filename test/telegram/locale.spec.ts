@@ -114,6 +114,10 @@ describe("localeFromFilePath", function () {
     it("rejects a name whose locale is not supported", function () {
         expect(() => localeFromFilePath("/app/src/start.conversation.locale.de.ftl")).to.throw(UnknownLocale);
     });
+
+    it("rejects a name without the locale segment", function () {
+        expect(() => localeFromFilePath("/app/src/ftl")).to.throw(UnknownLocale);
+    });
 });
 
 describe("resolveLocale", function () {
