@@ -18,6 +18,8 @@ const EOT_VERSION_OFFSET = 8;
 const EOT_FLAGS_OFFSET = 12;
 const EOT_ITALIC_OFFSET = 27;
 const EOT_FS_TYPE_OFFSET = 32;
+const EOT_MAGIC_OFFSET = 34;
+const EOT_UNICODE_RANGE_OFFSET = 36;
 const EOT_HEADER_FIXED_SIZE = 82;
 const eotPacker = new EotPacker();
 
@@ -79,6 +81,21 @@ describe("EotPacker", function () {
             expect((await pack(italic))[EOT_ITALIC_OFFSET]).to.equal(1);
         });
 
+        it("puts each unicode and code page range into its own place in the header", async function () {
+            // У фикстуры UnicodeRange4 и CodePageRange2 нулевые, и сравнение с ttf2eot не
+            // заметило бы диапазон, записанный не на своё место: ноль лёг бы на ноль. В OS/2
+            // диапазоны лежат двумя кусками, в заголовке EOT — подряд.
+            const ranges = [0x0102_0304, 0x0506_0708, 0x090a_0b0c, 0x0d0e_0f10, 0x1112_1314, 0x1516_1718];
+            const font = Uint8Array.from(ttf);
+            const view = new DataView(font.buffer);
+            ranges.slice(0, 4).forEach((range, index) => view.setUint32(os2Offset(ttf) + 42 + index * 4, range));
+            ranges.slice(4).forEach((range, index) => view.setUint32(os2Offset(ttf) + 78 + index * 4, range));
+
+            const packed = new DataView((await pack(font)).buffer);
+
+            expect(ranges.map((_range, index) => packed.getUint32(EOT_UNICODE_RANGE_OFFSET + index * 4, true))).to.deep.equal(ranges);
+        });
+
         it("leaves the font data untouched", async function () {
             const packed = await pack(ttf);
 
@@ -120,8 +137,12 @@ describe("EotPacker", function () {
             expect(hex(await unpack(legacy))).to.equal(hex(ttf));
         });
 
-        it("rejects a font without the eot magic number", async function () {
-            await expectRejects(() => unpack(ttf), InvalidEot);
+        it("rejects an envelope without the eot magic number", async function () {
+            // Остальной заголовок цел: без проверки маркера такой конверт распаковался бы.
+            const unmarked = Uint8Array.from(eot);
+            new DataView(unmarked.buffer).setUint16(EOT_MAGIC_OFFSET, 0, true);
+
+            await expectRejects(() => unpack(unmarked), InvalidEot);
         });
 
         it("rejects a file cut off inside the fixed part of the header", async function () {
@@ -131,7 +152,12 @@ describe("EotPacker", function () {
         });
 
         it("rejects an envelope whose declared size does not match the file", async function () {
-            await expectRejects(() => unpack(eot.subarray(0, eot.length - 1)), InvalidEot);
+            // Размер правится в заголовке, а файл остаётся целым. Обрезанный файл проверку не
+            // держит: у него сдвигается и начало шрифта, и отказ пришёл бы от сверки имён с ним.
+            const misdeclared = Uint8Array.from(eot);
+            new DataView(misdeclared.buffer).setUint32(EOT_SIZE_OFFSET, eot.length + 1, true);
+
+            await expectRejects(() => unpack(misdeclared), InvalidEot);
         });
 
         it("rejects an envelope of an unknown version", async function () {
@@ -178,12 +204,24 @@ describe("EotPacker", function () {
             await expectRejects(() => unpack(shifted), InvalidEot);
         });
 
-        it("rejects an envelope that ends inside its name blocks", async function () {
-            // Размеры в заголовке с длиной файла сходятся — шрифту отведены четыре байта
-            // за фиксированной частью, — но имена обрываются вместе с файлом. Это уже не
-            // наезд на шрифт, а чтение за концом буфера: без своей проверки вылетел бы
-            // RangeError из DataView.
-            const cut = Uint8Array.from(eot.subarray(0, EOT_HEADER_FIXED_SIZE + 4));
+        it("rejects an envelope whose root string runs past the font data", async function () {
+            // С версии 0x00020001 за именами идёт пятый блок, RootString, и с началом шрифта
+            // он сверяется так же. У фикстуры строка пустая, и её размер — последние два байта
+            // перед шрифтом.
+            const rooted = Uint8Array.from(eot);
+            new DataView(rooted.buffer).setUint16(eot.length - ttf.length - 2, 0x0400, true);
+
+            await expectRejects(() => unpack(rooted), InvalidEot);
+        });
+
+        it("rejects an envelope that ends inside a name size", async function () {
+            // Размеры в заголовке с длиной файла сходятся — шрифту отведены четыре байта, —
+            // но файл обрывается на первом байте StyleNameSize. Это уже не наезд на шрифт, а
+            // чтение за концом буфера: без своей проверки вылетел бы RangeError из DataView.
+            // Обрыв приходится на сам размер, а не на имя за ним: иначе проверку, сдвинутую
+            // на пару байт, тест не отличил бы.
+            const familyNameSize = new DataView(eot.buffer).getUint16(EOT_HEADER_FIXED_SIZE, true);
+            const cut = Uint8Array.from(eot.subarray(0, EOT_HEADER_FIXED_SIZE + 2 + familyNameSize + 2 + 1));
             const view = new DataView(cut.buffer);
             view.setUint32(EOT_SIZE_OFFSET, cut.length, true);
             view.setUint32(EOT_FONT_DATA_SIZE_OFFSET, 4, true);
