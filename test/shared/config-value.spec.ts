@@ -34,13 +34,23 @@ describe("configValue", function () {
         useConfig({});
 
         expect(() => configValue("tempDir"))
-            .to.throw(InvalidConfigError)
+            .to.throw(InvalidConfigError, 'Invalid config "tempDir"')
             .with.property("payload")
             .that.deep.equals({ path: "tempDir" });
     });
 
     it("throws InvalidConfigError when an object on the path is missing", function () {
         useConfig({});
+
+        expect(() => configValue("limits.common"))
+            .to.throw(InvalidConfigError)
+            .with.property("payload")
+            .that.deep.equals({ path: "limits.common" });
+    });
+
+    // typeof null — тоже "object": без отдельной проверки на null обход упал бы TypeError.
+    it("throws InvalidConfigError when an object on the path is null", function () {
+        useConfig({ limits: null });
 
         expect(() => configValue("limits.common"))
             .to.throw(InvalidConfigError)

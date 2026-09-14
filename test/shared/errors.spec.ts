@@ -63,6 +63,7 @@ describe("RuntimeError.byError", function () {
         const error = ChildError.byError("boom");
 
         expect(error).to.be.instanceOf(ChildError);
+        expect(error.message).to.equal("byError got a value that is not an Error");
         expect(error.cause).to.be.undefined;
         expect(error.payload).to.deep.equal({ cause: "boom" });
     });
