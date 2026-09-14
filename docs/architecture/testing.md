@@ -12,8 +12,8 @@
   проверяет, это делает `npm run typecheck` по тому же `tsconfig.check.json`. Миграции
   идут мимо `tsx`, их грузит своим jiti `node-pg-migrate` ([`storage.md`](./storage.md)).
 - Что покрыто — видно по дереву `test/` и отчёту `make coverage`; как он считается и что
-  в него не входит — раздел «Покрытие» ниже. Без автотестов остаются `Runner` (в том числе путь бана и
-  повтора, [`outbound-queue.md`](./outbound-queue.md)) и `Application`.
+  в него не входит — раздел «Покрытие» ниже. Без автотестов остаётся `Runner` (в том числе путь бана и
+  повтора, [`outbound-queue.md`](./outbound-queue.md)).
 - Шрифты для тестов — `test/fixtures/fonts`; происхождение и способ пересборки описаны в
   `test/fixtures/fonts/README.md`.
 - Отказы в доступе спеки получают через `chmod`, а root проходит `access(2)` при любых
