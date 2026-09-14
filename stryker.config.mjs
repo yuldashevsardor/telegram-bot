@@ -18,9 +18,10 @@ const DATABASE_ONLY_SOURCES = [
     "src/telegram/user/pgsql-user-repository.ts",
 ];
 
-// Область make mutation files="…": глобы через пробел или запятую. Приходит переменной, а не
+// Область make mutation files="…": глобы через пробел или перенос строки, как у make lint.
+// Запятая не разделитель: она часть глоба src/{shared,telegram}/**. Приходит переменной, а не
 // флагом --mutate, потому что флаг заменил бы список целиком вместе с исключениями ниже.
-const area = (process.env.MUTATE ?? "").split(/[\s,]+/).filter((pattern) => pattern !== "");
+const area = (process.env.MUTATE ?? "").split(/\s+/).filter((pattern) => pattern !== "");
 // Область из одних исключений («всё, кроме конвертора») вычитается из всего src/: без
 // положительного глоба Stryker не нашёл бы ни одного файла и молча завершился успехом.
 const base = area.some((pattern) => !pattern.startsWith("!")) ? [] : ["src/**/*.ts"];
