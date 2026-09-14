@@ -26,7 +26,6 @@ export function resolveLocale(languageCode: string | undefined): Locale {
 // источник правды о том, в какой бандл попадёт файл.
 export function localeFromFilePath(filePath: string): Locale {
     const nameParts = path.basename(filePath).split(".");
-    // Stryker disable next-line StringLiteral: `"Stryker was here!"` — эквивалентен: undefined бывает только у имени без точки, и ни одна из двух строк не локаль — отказ тот же, меняется лишь locale в деталях
     const locale = nameParts.at(-2) ?? "";
 
     if (!isLocale(locale)) {

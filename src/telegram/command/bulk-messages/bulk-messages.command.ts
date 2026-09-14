@@ -20,7 +20,7 @@ export class BulkMessagesCommand extends Command {
     }
 
     protected async handle(_ctx: Context): Promise<void> {
-        // Stryker disable next-line ArrayDeclaration: `["Stryker was here"]` — эквивалентен: не-промис Promise.all() отдаёт сразу, а его результат не читается
+        // Stryker disable next-line ArrayDeclaration: `["Stryker was here"]` — не компилируется: строка не Promise<unknown>
         const promises: Promise<unknown>[] = [];
         const chats = [2815426, 5067823410, 858262157];
         for (let i = 0; i < 100000; i++) {

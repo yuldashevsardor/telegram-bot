@@ -16,7 +16,7 @@ import { FileHelper } from "app/shared/fs/file-helper";
 import { InvalidPath } from "app/shared/fs/file-helper.errors";
 import { StringHelper } from "app/shared/string/string-helper";
 import { createFluent } from "app/telegram/locale";
-import { LOCALES } from "app/telegram/locale.types";
+import { DEFAULT_LOCALE } from "app/telegram/locale.types";
 
 type Pushed = { task: Task; priority: Priority };
 
@@ -177,12 +177,12 @@ describe("BulkMessagesCommand", function () {
     });
 
     // Описание в меню команд Bot берёт переводом descriptionKey; ключ без перевода Fluent отдал бы как «{ключ}».
-    it("has a translated description for the command menu in every locale", async function () {
+    // Недостающий в другой локали ключ Fluent молча берёт из дефолтной, его ловит «declares the same keys
+    // in every locale» в locale.spec.ts.
+    it("has a translated description for the command menu", async function () {
         const fluent = await createFluent(path.join(process.cwd(), "src", "telegram"));
         const { descriptionKey } = new BulkMessagesCommand(logger);
 
-        for (const locale of LOCALES) {
-            expect(fluent.translate(locale, descriptionKey), locale).to.not.equal(`{${descriptionKey}}`);
-        }
+        expect(fluent.translate(DEFAULT_LOCALE, descriptionKey)).to.not.equal(`{${descriptionKey}}`);
     });
 });

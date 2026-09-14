@@ -121,7 +121,12 @@ describe("localeFromFilePath", function () {
     });
 
     it("rejects a name without the locale segment", function () {
-        expect(() => localeFromFilePath("/app/src/ftl")).to.throw(UnknownLocale);
+        const filePath = "/app/src/ftl";
+
+        expect(() => localeFromFilePath(filePath))
+            .to.throw(UnknownLocale, /^Unknown locale "" in translation file name\.$/)
+            .with.property("payload")
+            .that.deep.equals({ path: filePath, locale: "" });
     });
 });
 
