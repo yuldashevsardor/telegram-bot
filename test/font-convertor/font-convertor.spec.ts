@@ -79,6 +79,31 @@ describe("FontConvertor", function () {
         expect(engineCalls).to.be.empty;
     });
 
+    // Ключи таблицы пар строчные, а регистр расширения задаёт тот, кто прислал файл.
+    for (const filename of ["Font.TTF", "Font.tTf"]) {
+        it(`converts a source named ${filename} as a lowercase one`, async function () {
+            const originPath = await fixtureCopy(filename);
+
+            const result = await new FontConvertor(factory, tempDir).convert({ originPath: originPath, extension: Extension.WOFF });
+
+            expect(engineCalls).to.deep.equal([`${originPath} -> ${result}`]);
+        });
+    }
+
+    it("rejects a target format equal to the source one written in another case", async function () {
+        const originPath = await fixtureCopy("Font.TTF");
+
+        const error = await rejectionOf(() =>
+            new FontConvertor(factory, tempDir).convert({ originPath: originPath, extension: Extension.TTF }),
+        );
+
+        // Сообщение решает по той же причине, что и выше: сравнив расширения без приведения
+        // регистра, convert() дошёл бы до фабрики, и отказ пришёл бы от неё.
+        expect(error).to.be.instanceOf(FontConvertorError);
+        expect((error as FontConvertorError).message).to.equal("New and old font extension cannot be equal.");
+        expect(engineCalls).to.be.empty;
+    });
+
     it("wraps a failure of the pair", async function () {
         const originPath = path.join(tempDir, "garbage.ttf");
         await fs.writeFile(originPath, Uint8Array.from([1, 2, 3, 4]));
@@ -141,6 +166,13 @@ describe("FontConvertor", function () {
 
     function fixture(extension: Extension): string {
         return path.join(fixtureDir, `test-font.${extension}`);
+    }
+
+    async function fixtureCopy(filename: string): Promise<string> {
+        const copyPath = path.join(tempDir, filename);
+        await fs.copyFile(fixture(Extension.TTF), copyPath);
+
+        return copyPath;
     }
 
     function rejectionOf(call: () => Promise<unknown>): Promise<unknown> {
