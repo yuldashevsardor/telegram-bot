@@ -59,6 +59,7 @@ export class SfntReader {
     private readonly tables = new Map<string, TableRecord>();
 
     public constructor(private readonly bytes: Uint8Array) {
+        // Stryker disable next-line EqualityOperator: мутант расходится только на 12 байтах заголовка без единой таблицы, а это не шрифт
         if (bytes.length < SFNT_HEADER_SIZE) {
             throw InvalidSfnt.tooShort(bytes.length);
         }
@@ -76,6 +77,7 @@ export class SfntReader {
         for (let index = 0; index < tableCount; index++) {
             const record = SFNT_HEADER_SIZE + index * TABLE_RECORD_SIZE;
 
+            // Stryker disable next-line EqualityOperator: мутант расходится только на файле, где за каталогом нет ни байта таблиц, а это не шрифт
             if (record + TABLE_RECORD_SIZE > bytes.length) {
                 throw InvalidSfnt.tooShort(bytes.length);
             }
@@ -150,6 +152,7 @@ export class SfntReader {
         const names = new Map<number, string>();
         const name = this.tables.get("name");
 
+        // Stryker disable next-line EqualityOperator: при offset + 6 на конце файла места нет ни одной записи; length <= 6 расходится только на битой таблице, чьи записи не умещаются в объявленные 6 байт, а имена информационные
         if (name === undefined || name.length < NAME_HEADER_SIZE || name.offset + NAME_HEADER_SIZE > this.bytes.length) {
             return names;
         }

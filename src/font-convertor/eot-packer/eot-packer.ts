@@ -93,6 +93,7 @@ export class EotPacker {
         view.setUint32(0, eot.length, true);
         view.setUint32(4, font.length, true);
         view.setUint32(8, VERSION_WRITTEN, true);
+        // Stryker disable next-line BooleanLiteral,CallExpression: ноль в любом порядке байтов — те же нулевые байты, а без записи поле остаётся нулём нового буфера
         view.setUint32(12, 0, true);
         eot.set(metadata.panose.subarray(0, PANOSE_SIZE), 16);
         view.setUint8(26, CHARSET_DEFAULT);
@@ -101,10 +102,12 @@ export class EotPacker {
         view.setUint16(32, metadata.fsType, true);
         view.setUint16(MAGIC_OFFSET, MAGIC, true);
 
+        // Stryker disable next-line EqualityOperator: лишний проход пишет undefined, то есть ноль, в CodePageRange1, а его перезаписывает цикл ниже
         for (let index = 0; index < 4; index++) {
             view.setUint32(36 + index * 4, metadata.unicodeRange[index] as number, true);
         }
 
+        // Stryker disable next-line EqualityOperator: лишний проход пишет ноль в CheckSumAdjustment, а его перезаписывает строка ниже
         for (let index = 0; index < 2; index++) {
             view.setUint32(52 + index * 4, metadata.codePageRange[index] as number, true);
         }
@@ -126,6 +129,7 @@ export class EotPacker {
     }
 
     private readFontData(eot: Uint8Array): Uint8Array {
+        // Stryker disable next-line EqualityOperator: файл ровно в 82 байта отвергается и так, нехваткой места под шрифт; мутант меняет только текст InvalidEot
         if (eot.length < HEADER_FIXED_SIZE) {
             throw InvalidEot.tooShort(eot.length);
         }
@@ -157,6 +161,7 @@ export class EotPacker {
 
         const fontDataSize = view.getUint32(4, true);
 
+        // Stryker disable next-line EqualityOperator: шрифт, начатый сразу за фиксированной частью, отвергает сверка с именами; мутант меняет только текст InvalidEot
         if (fontDataSize === 0 || fontDataSize > eot.length - HEADER_FIXED_SIZE) {
             throw InvalidEot.invalidFontDataSize(fontDataSize, eot.length);
         }
@@ -189,6 +194,7 @@ export class EotPacker {
             // Padding, размер блока, сам блок.
             offset += 2;
 
+            // Stryker disable next-line EqualityOperator: файл, который кончается размером блока, отвергается и так, следующим шагом или сверкой с началом шрифта; мутант меняет только текст InvalidEot
             if (offset + 2 > eot.length) {
                 throw InvalidEot.tooShort(eot.length);
             }

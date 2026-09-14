@@ -13,11 +13,14 @@ const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 const TABLE_DIRECTORY_OFFSET = 12;
 const TABLE_RECORD_SIZE = 16;
 const NAME_RECORD_SIZE = 12;
+const PLATFORM_UNICODE = 0;
 const PLATFORM_MACINTOSH = 1;
 const PLATFORM_WINDOWS = 3;
 const MAC_ENCODING_JAPANESE = 1;
 const NAME_ID_FAMILY = 1;
 const NAME_ID_FULL = 4;
+const NAME_ID_VERSION = 5;
+const NAME_ID_POSTSCRIPT = 6;
 const LANGUAGE_RUSSIAN = 0x0419;
 
 describe("SfntReader.readMetadata", function () {
@@ -71,6 +74,55 @@ describe("SfntReader.readMetadata", function () {
         expect(readMetadata(withoutWindowsNames(ttf)).versionName).to.equal("Version 1.0");
     });
 
+    it("falls back to the unicode names when the font has no windows ones", function () {
+        // Записи Windows переименовываем в Unicode — строки у обеих платформ в UTF-16BE, — а
+        // записи Macintosh прячем: их имена совпадают, и по тексту было бы не видно, чьи прочитаны.
+        const unicode = patch(ttf, (view, copy) => {
+            forEachNameRecord(copy, (record) => {
+                if (view.getUint16(record) === PLATFORM_WINDOWS) {
+                    view.setUint16(record, PLATFORM_UNICODE);
+                    view.setUint16(record + 4, 0);
+                } else {
+                    view.setUint16(record, 0x0009);
+                }
+            });
+        });
+
+        expect(envelopeNames(unicode)).to.deep.equal(["Roboto Black", "Black", "Version 1.0", "Roboto-Black"]);
+    });
+
+    it("reads the name from the last record of the table", function () {
+        // У фикстуры последняя запись — PostScript-имя Windows, конверту не нужное, и пропуск
+        // последней записи ничего бы не изменил. Делаем её именем версии, а настоящую запись
+        // версии — PostScript-именем: по тексту видно, какая из двух прочитана.
+        const lastVersion = patch(ttf, (view, copy) => {
+            const name = tableOffset(copy, "name");
+            const last = name + 6 + (view.getUint16(name + 2) - 1) * NAME_RECORD_SIZE;
+
+            view.setUint16(nameRecord(copy, PLATFORM_WINDOWS, NAME_ID_VERSION) + 6, NAME_ID_POSTSCRIPT);
+            view.setUint16(last + 6, NAME_ID_VERSION);
+        });
+
+        expect(readMetadata(lastVersion).versionName).to.equal("Roboto-Black");
+    });
+
+    // Строка, которая кончается ровно на конце файла, в него умещается; на байт короче файл её
+    // уже обрывает. Обрезаем файл по имени семейства Windows: у фикстуры строки остальных
+    // платформ лежат дальше и остаются за концом, так что прочитать имя больше неоткуда.
+    const familyNameEndCases: Array<[string, number, string]> = [
+        ["reads a name that ends right at the end of the font", 0, "Roboto Black"],
+        ["leaves out a name that the end of the font cuts short", 1, ""],
+    ];
+
+    for (const [what, shortfall, familyName] of familyNameEndCases) {
+        it(what, function () {
+            const length = new DataView(ttf.buffer).getUint16(nameRecord(ttf, PLATFORM_WINDOWS, NAME_ID_FAMILY) + 8);
+            const end = nameStringOffset(ttf, PLATFORM_WINDOWS, NAME_ID_FAMILY) + length;
+
+            expect(readMetadata(ttf.subarray(0, end - shortfall)).familyName).to.equal(familyName);
+        });
+    }
+
     it("decodes the macintosh names as macroman, not latin-1", function () {
         // 0x8e — «é» в MacRoman и «Ž» в Latin-1: байт, на котором кодировки расходятся.
         const renamed = patch(withoutWindowsNames(ttf), (_view, bytes) => {
@@ -119,6 +171,12 @@ describe("SfntReader.readMetadata", function () {
             // уже конец файла. Не будь этой границы, недописанная запись с индексом 8 читалась
             // бы за концом DataView и уронила бы разбор RangeError.
             (bytes): Uint8Array => bytes.subarray(0, tableOffset(bytes, "name") + 6 + 8 * NAME_RECORD_SIZE + 6),
+        ],
+        [
+            "is cut off inside the name table header",
+            // Счётчик записей ещё в файле, а смещения хранилища строк уже нет: без сверки
+            // заголовка с концом файла оно читалось бы за концом DataView.
+            (bytes): Uint8Array => bytes.subarray(0, tableOffset(bytes, "name") + 4),
         ],
     ];
 
@@ -213,8 +271,34 @@ describe("SfntReader.readMetadata", function () {
         expect(readMetadata(shortened).weight).to.equal(900);
     });
 
+    it("reads an os/2 table that ends right at the end of the font", function () {
+        // Таблица, последняя в файле, кончается вместе с ним. OS/2 версии 1 — ровно те 86 байт,
+        // что читает кодек, поэтому её копия переносится в конец файла.
+        const record = tableRecord(ttf, "OS/2");
+        const os2 = tableOffset(ttf, "OS/2");
+        const moved = patch(Uint8Array.from(Buffer.concat([ttf, ttf.subarray(os2, os2 + 86)])), (view) => {
+            view.setUint32(record + 8, ttf.length);
+            view.setUint32(record + 12, 86);
+        });
+
+        expect(readMetadata(moved).codePageRange).to.deep.equal([0x2000_019f, 0]);
+    });
+
+    it("reads no more table records than the directory declares", function () {
+        // Счётчик кончается прямо перед записью head: шестнадцать байт за каталогом — уже не
+        // запись, и таблицы head у такого шрифта нет. OS/2 в каталоге раньше, иначе отказ
+        // пришёл бы от неё.
+        const head = tableRecord(ttf, "head");
+        const shortened = patch(ttf, (view) => view.setUint16(4, (head - TABLE_DIRECTORY_OFFSET) / TABLE_RECORD_SIZE));
+
+        expect(tableRecord(ttf, "OS/2"), "OS/2 стоит в каталоге раньше head").to.be.lessThan(head);
+        expectThrows(() => readMetadata(shortened), InvalidSfnt);
+    });
+
     it("rejects a file shorter than the sfnt header", function () {
-        expectThrows(() => new SfntReader(ttf.subarray(0, 8)), InvalidSfnt);
+        // Файл обрывается внутри счётчика таблиц. На восьми байтах отказ пришёл бы и от разбора
+        // каталога, а здесь без проверки длины вылетел бы RangeError из DataView.
+        expectThrows(() => new SfntReader(ttf.subarray(0, 5)), InvalidSfnt);
     });
 
     it("rejects a container that is not sfnt", async function () {
@@ -244,6 +328,14 @@ describe("SfntReader.readMetadata", function () {
             const record = tableRecord(ttf, tag);
 
             expectThrows(() => readMetadata(patch(ttf, (view) => view.setUint32(record + 12, 4))), InvalidSfnt);
+        });
+
+        it(`rejects a ${tag} table that runs past the end of the font`, function () {
+            // Длина таблицы прежняя, а начинается она за четыре байта до конца файла: без сверки
+            // с концом файла поля читались бы за концом DataView.
+            const record = tableRecord(ttf, tag);
+
+            expectThrows(() => readMetadata(patch(ttf, (view) => view.setUint32(record + 8, ttf.length - 4))), InvalidSfnt);
         });
     }
 
