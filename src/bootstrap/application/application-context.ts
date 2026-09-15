@@ -1,6 +1,6 @@
 import { ConfigContainer } from "app/bootstrap/config/config-container";
-import { ConfigBuilder } from "app/bootstrap/config/builder/config-builder";
-import type { ConfigValues } from "app/bootstrap/config/config-values";
+import type { CC } from "app/bootstrap/config/config-container.types";
+import { ConfigValuesBuilder } from "app/bootstrap/config/builder/config-values-builder";
 import { ConfigEnvStorage } from "app/bootstrap/config/storage/config-env-storage";
 import type { Logger } from "app/platform/logger/logger";
 import { ConsoleLogger } from "app/platform/logger/console-logger";
@@ -17,38 +17,34 @@ import { ApplicationContextIsNotCreated } from "app/bootstrap/application/applic
 // обязан не потерять. Потерянную ссылку на объект восстановить было бы нечем — собранный
 // логгер и хранилище остались бы в процессе без единого входа к ним.
 export class ApplicationContext {
-    private static config: ConfigContainer<ConfigValues> | null = null;
+    private static cc: CC | null = null;
     private static logger: Logger | null = null;
     private static requestContext: RequestContext | null = null;
+    private static creating: Promise<void> | null = null;
 
     // Контекст один на процесс: второй сломал бы корреляцию молча — у него своё хранилище
     // запроса, и логгер читал бы не тот стор, который открыл middleware. Поэтому повторный
-    // create() не ошибка, а выход без пересборки: части уже собраны и доступны геттерами.
-    //
-    // Конфиг раньше логгера: из него берётся и адаптер, и порог. Поэтому ошибка конфигурации
-    // случается до появления логгера, и печатает её fail() своим фолбэком через console.error.
-    public static create(): void {
-        if (ApplicationContext.config !== null) {
-            return;
+    // create() не ошибка, а та же сборка: вызов посреди неё ждёт её, а не начинает вторую, —
+    // конфиг собирается асинхронно, и проверка готовых полей пропустила бы оба вызова.
+    // Упавшая сборка забывается, и следующий create() начинает с нуля.
+    public static create(): Promise<void> {
+        if (ApplicationContext.creating === null) {
+            ApplicationContext.creating = ApplicationContext.assemble().catch((error: unknown) => {
+                ApplicationContext.creating = null;
+
+                throw error;
+            });
         }
 
-        const config = new ConfigContainer(new ConfigBuilder(new ConfigEnvStorage()).build());
-        const requestContext = new RequestContext();
-        const logger = ApplicationContext.createLogger(config, requestContext);
-
-        // Поля заполняются после сборки всех частей: упавший конфиг оставляет контекст пустым,
-        // и следующий create() начинает с нуля, а не достраивает половину.
-        ApplicationContext.config = config;
-        ApplicationContext.requestContext = requestContext;
-        ApplicationContext.logger = logger;
+        return ApplicationContext.creating;
     }
 
-    public static getConfigContainer(): ConfigContainer<ConfigValues> {
-        if (ApplicationContext.config === null) {
+    public static getConfigContainer(): CC {
+        if (ApplicationContext.cc === null) {
             throw new ApplicationContextIsNotCreated("ApplicationContext is not created, call create() first.");
         }
 
-        return ApplicationContext.config;
+        return ApplicationContext.cc;
     }
 
     public static getLogger(): Logger {
@@ -67,11 +63,27 @@ export class ApplicationContext {
         return ApplicationContext.requestContext;
     }
 
+    // Конфиг раньше логгера: из него берётся и адаптер, и порог. Поэтому ошибка конфигурации
+    // случается до появления логгера, и печатает её fail() своим фолбэком через console.error.
+    private static async assemble(): Promise<void> {
+        const cc = new ConfigContainer(new ConfigEnvStorage(), new ConfigValuesBuilder());
+        await cc.init();
+
+        const requestContext = new RequestContext();
+        const logger = ApplicationContext.createLogger(cc, requestContext);
+
+        // Поля заполняются после сборки всех частей: упавший конфиг оставляет контекст пустым,
+        // а не достраивает половину.
+        ApplicationContext.cc = cc;
+        ApplicationContext.requestContext = requestContext;
+        ApplicationContext.logger = logger;
+    }
+
     // Логгер один на процесс: значения запроса он берёт из RequestContext в момент записи,
     // поэтому подменять сам объект под запрос не требуется.
-    private static createLogger(config: ConfigContainer<ConfigValues>, requestContext: RequestContext): Logger {
-        const logger = config.get("isProduction") ? new PinoLogger(requestContext) : new ConsoleLogger(requestContext);
-        logger.setLevel(config.get("logger.level"));
+    private static createLogger(cc: CC, requestContext: RequestContext): Logger {
+        const logger = cc.get("isProduction") ? new PinoLogger(requestContext) : new ConsoleLogger(requestContext);
+        logger.setLevel(cc.get("logger.level"));
 
         return logger;
     }

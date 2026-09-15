@@ -2,8 +2,7 @@ import "reflect-metadata";
 import { Container as InversifyContainer } from "inversify";
 import { Tokens } from "app/shared/tokens";
 import { ApplicationContext } from "app/bootstrap/application/application-context";
-import type { ConfigContainer } from "app/bootstrap/config/config-container";
-import type { ConfigValues } from "app/bootstrap/config/config-values";
+import type { CC } from "app/bootstrap/config/config-container.types";
 import type { RequestContext } from "app/platform/request-context/request-context";
 import { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher";
@@ -66,7 +65,7 @@ export class Container extends InversifyContainer {
     }
 
     private async setupBootstrap(): Promise<void> {
-        this.bind<ConfigContainer<ConfigValues>>(Tokens.Bootstrap.ConfigContainer).toConstantValue(ApplicationContext.getConfigContainer());
+        this.bind<CC>(Tokens.Bootstrap.ConfigContainer).toConstantValue(ApplicationContext.getConfigContainer());
         this.bind<Logger>(Tokens.Bootstrap.Logger).toConstantValue(ApplicationContext.getLogger());
         this.bind<RequestContext>(Tokens.Bootstrap.RequestContext).toConstantValue(ApplicationContext.getRequestContext());
     }

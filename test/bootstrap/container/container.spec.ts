@@ -3,9 +3,9 @@ import { expect } from "chai";
 import { Container } from "app/bootstrap/container/container";
 import { ApplicationContext } from "app/bootstrap/application/application-context";
 import { ConfigContainer } from "app/bootstrap/config/config-container";
-import { ConfigBuilder } from "app/bootstrap/config/builder/config-builder";
-import type { ConfigValues } from "app/bootstrap/config/config-values";
-import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
+import type { CC } from "app/bootstrap/config/config-container.types";
+import { ConfigValuesBuilder } from "app/bootstrap/config/builder/config-values-builder";
+import type { ConfigStorage, RawConfig } from "app/bootstrap/config/storage/config-storage";
 import type { Database } from "app/platform/database/database";
 import type { Logger } from "app/platform/logger/logger";
 import { ConsoleLogger } from "app/platform/logger/console-logger";
@@ -16,16 +16,16 @@ import { Tokens } from "app/shared/tokens";
 type Branch = { [key: string]: symbol | Branch };
 
 type ContextParts = {
-    config: ConfigContainer<ConfigValues> | null;
+    cc: CC | null;
     logger: Logger | null;
     requestContext: RequestContext | null;
 };
 
 class FakeStorage implements ConfigStorage {
-    public constructor(private readonly values: Record<string, string>) {}
+    public constructor(private readonly values: RawConfig) {}
 
-    public get(key: string): string | undefined {
-        return this.values[key];
+    public async load(): Promise<RawConfig> {
+        return this.values;
     }
 }
 
@@ -47,7 +47,10 @@ describe("Container", () => {
     before(async () => {
         const requestContext = new RequestContext();
 
-        context.config = new ConfigContainer(new ConfigBuilder(new FakeStorage({ BOT_TOKEN: "test-token" })).build());
+        const cc = new ConfigContainer(new FakeStorage({ BOT_TOKEN: "test-token" }), new ConfigValuesBuilder());
+        await cc.init();
+
+        context.cc = cc;
         context.requestContext = requestContext;
         // TaskQueue на конструировании заводит интервалы с info-логом раз в 10 с. Гасить их
         // нечем, а в test-watch они копятся между прогонами и писали бы в вывод mocha.
@@ -62,7 +65,7 @@ describe("Container", () => {
         try {
             await container.close();
         } finally {
-            context.config = null;
+            context.cc = null;
             context.requestContext = null;
             context.logger = null;
         }

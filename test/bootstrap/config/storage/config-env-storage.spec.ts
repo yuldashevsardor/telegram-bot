@@ -4,24 +4,26 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import { ConfigEnvStorage } from "app/bootstrap/config/storage/config-env-storage";
+import type { RawConfig } from "app/bootstrap/config/storage/config-storage";
 
 const KEY = "CONFIG_ENV_STORAGE_SPEC_VALUE";
 const FILE_KEY = "CONFIG_ENV_STORAGE_SPEC_FILE_VALUE";
 
 // dotenv ищет .env в текущем каталоге процесса. Каталог меняется и возвращается в одном
-// синхронном вызове: асинхронный код соседних спек чужого cwd не застанет.
-function createIn(directory: string): ConfigEnvStorage {
+// синхронном вызове: тело load() до первого await выполняется сразу, а await в нём нет, поэтому
+// асинхронный код соседних спек чужого cwd не застанет.
+function loadIn(directory: string): Promise<RawConfig> {
     const cwd = process.cwd();
     process.chdir(directory);
 
     try {
-        return new ConfigEnvStorage();
+        return new ConfigEnvStorage().load();
     } finally {
         process.chdir(cwd);
     }
 }
 
-function withEnv(value: string | undefined, assertion: (storage: ConfigEnvStorage) => void): void {
+async function withEnv(value: string | undefined, assertion: (raw: RawConfig) => void): Promise<void> {
     const original = process.env[KEY];
 
     if (value === undefined) {
@@ -31,7 +33,7 @@ function withEnv(value: string | undefined, assertion: (storage: ConfigEnvStorag
     }
 
     try {
-        assertion(new ConfigEnvStorage());
+        assertion(await new ConfigEnvStorage().load());
     } finally {
         if (original === undefined) {
             delete process.env[KEY];
@@ -42,21 +44,30 @@ function withEnv(value: string | undefined, assertion: (storage: ConfigEnvStorag
 }
 
 describe("ConfigEnvStorage", () => {
-    it("reads a value from the process environment", () => {
-        withEnv("value", (storage) => {
-            expect(storage.get(KEY)).to.equal("value");
+    it("reads a value from the process environment", async () => {
+        await withEnv("value", (raw) => {
+            expect(raw[KEY]).to.equal("value");
         });
     });
 
-    it("returns the value as is, without trimming or parsing", () => {
-        withEnv("  10  ", (storage) => {
-            expect(storage.get(KEY)).to.equal("  10  ");
+    it("returns the value as is, without trimming or parsing", async () => {
+        await withEnv("  10  ", (raw) => {
+            expect(raw[KEY]).to.equal("  10  ");
         });
     });
 
-    it("returns undefined for a key that is not set", () => {
-        withEnv(undefined, (storage) => {
-            expect(storage.get(KEY)).to.equal(undefined);
+    it("returns undefined for a key that is not set", async () => {
+        await withEnv(undefined, (raw) => {
+            expect(raw[KEY]).to.equal(undefined);
+        });
+    });
+
+    // Снимок, а не сам process.env: сборка конфига не должна видеть переменные, поменявшиеся после load().
+    it("returns a snapshot that later changes of the environment do not reach", async () => {
+        await withEnv("before", (raw) => {
+            process.env[KEY] = "after";
+
+            expect(raw[KEY]).to.equal("before");
         });
     });
 
@@ -76,12 +87,12 @@ describe("ConfigEnvStorage", () => {
             await fs.rm(workDir, { recursive: true, force: true });
         });
 
-        it("loads its values into the process environment", () => {
-            expect(createIn(workDir).get(FILE_KEY)).to.equal("from-file");
+        it("loads its values", async () => {
+            expect((await loadIn(workDir))[FILE_KEY]).to.equal("from-file");
         });
 
         // Почему stdout должен молчать — комментарий у dotenv.config() в ConfigEnvStorage.
-        it("writes nothing to stdout while loading it", () => {
+        it("writes nothing to stdout while loading it", async () => {
             const original = process.stdout.write;
             let captured = "";
             process.stdout.write = ((chunk: string): boolean => {
@@ -90,11 +101,17 @@ describe("ConfigEnvStorage", () => {
                 return true;
             }) as typeof process.stdout.write;
 
+            // Подмена снимается до await: dotenv пишет синхронно внутри load(), а за время ожидания в
+            // stdout успел бы написать кто-то чужой.
+            let loaded: Promise<RawConfig>;
+
             try {
-                createIn(workDir);
+                loaded = loadIn(workDir);
             } finally {
                 process.stdout.write = original;
             }
+
+            await loaded;
 
             expect(captured).to.equal("");
         });

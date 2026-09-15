@@ -3,13 +3,13 @@ import { expect } from "chai";
 import { Application } from "app/bootstrap/application/application";
 import { ApplicationContext } from "app/bootstrap/application/application-context";
 import { ConfigContainer } from "app/bootstrap/config/config-container";
-import { ConfigBuilder } from "app/bootstrap/config/builder/config-builder";
-import type { ConfigValues } from "app/bootstrap/config/config-values";
+import type { CC } from "app/bootstrap/config/config-container.types";
+import { ConfigValuesBuilder } from "app/bootstrap/config/builder/config-values-builder";
 import { container } from "app/bootstrap/container/container";
-import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
+import type { ConfigStorage, RawConfig } from "app/bootstrap/config/storage/config-storage";
 import type { Database } from "app/platform/database/database";
 import type { Logger } from "app/platform/logger/logger";
-import { RuntimeError } from "app/shared/errors";
+import { InvalidConfigError, RuntimeError } from "app/shared/errors";
 import { Tokens } from "app/shared/tokens";
 import type { UnknownObject } from "app/shared/types";
 import type { Bot } from "app/telegram/bot";
@@ -17,7 +17,7 @@ import type { Runner } from "app/telegram/outbound-queue/runner";
 import type { TaskQueue } from "app/telegram/outbound-queue/task-queue";
 
 type ContextParts = {
-    config: ConfigContainer<ConfigValues> | null;
+    cc: CC | null;
     logger: Logger | null;
 };
 
@@ -28,10 +28,10 @@ type Log = {
 };
 
 class FakeStorage implements ConfigStorage {
-    public constructor(private readonly values: Record<string, string>) {}
+    public constructor(private readonly values: RawConfig) {}
 
-    public get(key: string): string | undefined {
-        return this.values[key];
+    public async load(): Promise<RawConfig> {
+        return this.values;
     }
 }
 
@@ -125,9 +125,11 @@ describe("Application", function () {
     const originalClose = container.close.bind(container);
 
     before(function () {
-        ApplicationContext.create = (): void => {
+        ApplicationContext.create = async (): Promise<void> => {
             calls.push("context.create");
-            context.config = new ConfigContainer(new ConfigBuilder(new FakeStorage({ BOT_TOKEN: "test-token", ...configValues })).build());
+            const cc = new ConfigContainer(new FakeStorage({ BOT_TOKEN: "test-token", ...configValues }), new ConfigValuesBuilder());
+            await cc.init();
+            context.cc = cc;
             context.logger = logger;
         };
         container.setup = async (): Promise<void> => {
@@ -162,7 +164,7 @@ describe("Application", function () {
 
     afterEach(function () {
         container.restore();
-        context.config = null;
+        context.cc = null;
         context.logger = null;
     });
 
@@ -506,6 +508,21 @@ describe("Application", function () {
             expect(await setup).to.equal(error);
             expect(await stop).to.equal(error);
             expect(calls).to.deep.equal(["context.create", "container.setup", "database.check"]);
+        });
+
+        // Без контекста у остановки нет ни логгера, ни срока: не дождись она сборки, упала бы TypeError
+        // на первом же логе, а не отдала отказ конфигурации, который fail() и должен напечатать.
+        it("rejects with the config error when the context fails while the stop waits for it", async function () {
+            configValues = { NODE_ENV: "prod" };
+            const application = new Application();
+
+            const setup = caught(application.setup());
+            const stop = caught(application.stop());
+
+            expect(await setup).to.be.instanceOf(InvalidConfigError);
+            expect(await stop).to.equal(await setup);
+            expect(calls).to.deep.equal(["context.create"]);
+            expect(logs).to.deep.equal([]);
         });
 
         it("waits for the setup in progress no longer than the graceful shutdown timeout", async function () {

@@ -1,3 +1,4 @@
+import type { ConfigContainer } from "app/bootstrap/config/config-container";
 import type { ConfigValues } from "app/bootstrap/config/config-values";
 
 type Leaf = string | number | boolean | bigint | symbol | null | undefined;
@@ -22,3 +23,5 @@ export type ValueByPath<T, Path extends string> = Path extends `${infer Key}.${i
 export type ConfigPath = Paths<ConfigValues>;
 
 export type ConfigValue<Path extends ConfigPath> = ValueByPath<ConfigValues, Path>;
+
+export type CC = ConfigContainer<ConfigValues>;

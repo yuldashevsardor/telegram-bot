@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { expect } from "chai";
-import { ConfigBuilder } from "app/bootstrap/config/builder/config-builder";
+import { ConfigValuesBuilder } from "app/bootstrap/config/builder/config-values-builder";
 import { ConfigEnvStorage } from "app/bootstrap/config/storage/config-env-storage";
 import { Database } from "app/platform/database/database";
 import { RuntimeError } from "app/shared/errors";
@@ -12,12 +12,10 @@ describe("PgsqlStorage", function () {
     let database: Database;
     let storage: PgsqlStorage;
 
-    before(function () {
-        const env = new ConfigEnvStorage();
+    before(async function () {
+        const env = await new ConfigEnvStorage().load();
         // BOT_TOKEN конфиг требует, а спеке нужна только база: без подстановки она зависела бы от токена в .env.
-        const settings = new ConfigBuilder({
-            get: (key): string | undefined => (key === "BOT_TOKEN" ? "test-token" : env.get(key)),
-        }).build().database;
+        const settings = new ConfigValuesBuilder().build({ ...env, BOT_TOKEN: "test-token" }).database;
 
         database = new Database({ ...settings, database: testDatabaseName() }, false);
         storage = new PgsqlStorage(database);
