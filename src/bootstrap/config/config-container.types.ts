@@ -3,6 +3,11 @@ import type { ConfigValues } from "app/bootstrap/config/config-values";
 
 type Leaf = string | number | boolean | bigint | symbol | null | undefined;
 
+// Снимок источника целиком: storage отдаёт переменные разом, а не по одной, поэтому builder видит
+// их согласованными, даже если источник поменяется посреди сборки. Лежит здесь, а не у storage или
+// builder: оба работают с ним и друг о друге не знают.
+export type RawConfig = Readonly<Record<string, string | undefined>>;
+
 // Все «точечные» пути внутрь T: сам ключ, а для вложенного объекта — ещё и пути под ним.
 // У листа набор путей пуст, и `${Key}.${never}` схлопывается в never, поэтому за примитив
 // путь не продолжается.

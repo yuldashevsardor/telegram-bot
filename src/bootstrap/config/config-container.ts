@@ -8,7 +8,7 @@ import { ConfigContainerIsNotInitialized } from "app/bootstrap/config/config-con
 // Хранит значения и отдаёт их по пути; откуда они берутся и как проверяются, решают storage и
 // builder. Сборка вынесена из конструктора в init(): источник может отдавать значения только
 // асинхронно (vault), а конструктор ждать не умеет.
-export class ConfigContainer<Values extends object> {
+export class ConfigContainer<Values> {
     private values: Values | null = null;
 
     public constructor(private readonly storage: ConfigStorage, private readonly builder: ConfigBuilder<Values>) {}

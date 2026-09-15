@@ -1,5 +1,5 @@
 import { InvalidConfigError } from "app/shared/errors";
-import type { RawConfig } from "app/bootstrap/config/storage/config-storage";
+import type { RawConfig } from "app/bootstrap/config/config-container.types";
 
 const Booleans = new Map([
     ["true", true],

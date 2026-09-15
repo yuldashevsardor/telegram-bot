@@ -4,9 +4,11 @@ import { Application } from "app/bootstrap/application/application";
 import { ApplicationContext } from "app/bootstrap/application/application-context";
 import { ConfigContainer } from "app/bootstrap/config/config-container";
 import type { CC } from "app/bootstrap/config/config-container.types";
+import type { ConfigValues } from "app/bootstrap/config/config-values";
 import { ConfigValuesBuilder } from "app/bootstrap/config/builder/config-values-builder";
 import { container } from "app/bootstrap/container/container";
-import type { ConfigStorage, RawConfig } from "app/bootstrap/config/storage/config-storage";
+import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
+import type { RawConfig } from "app/bootstrap/config/config-container.types";
 import type { Database } from "app/platform/database/database";
 import type { Logger } from "app/platform/logger/logger";
 import { InvalidConfigError, RuntimeError } from "app/shared/errors";
@@ -127,7 +129,10 @@ describe("Application", function () {
     before(function () {
         ApplicationContext.create = async (): Promise<void> => {
             calls.push("context.create");
-            const cc = new ConfigContainer(new FakeStorage({ BOT_TOKEN: "test-token", ...configValues }), new ConfigValuesBuilder());
+            const cc = new ConfigContainer<ConfigValues>(
+                new FakeStorage({ BOT_TOKEN: "test-token", ...configValues }),
+                new ConfigValuesBuilder(),
+            );
             await cc.init();
             context.cc = cc;
             context.logger = logger;

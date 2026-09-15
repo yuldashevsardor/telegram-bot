@@ -1,5 +1,6 @@
 import * as dotenv from "dotenv";
-import type { ConfigStorage, RawConfig } from "app/bootstrap/config/storage/config-storage";
+import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
+import type { RawConfig } from "app/bootstrap/config/config-container.types";
 
 export class ConfigEnvStorage implements ConfigStorage {
     public async load(): Promise<RawConfig> {

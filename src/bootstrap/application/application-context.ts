@@ -1,5 +1,6 @@
 import { ConfigContainer } from "app/bootstrap/config/config-container";
 import type { CC } from "app/bootstrap/config/config-container.types";
+import type { ConfigValues } from "app/bootstrap/config/config-values";
 import { ConfigValuesBuilder } from "app/bootstrap/config/builder/config-values-builder";
 import { ConfigEnvStorage } from "app/bootstrap/config/storage/config-env-storage";
 import type { Logger } from "app/platform/logger/logger";
@@ -66,7 +67,7 @@ export class ApplicationContext {
     // Конфиг раньше логгера: из него берётся и адаптер, и порог. Поэтому ошибка конфигурации
     // случается до появления логгера, и печатает её fail() своим фолбэком через console.error.
     private static async assemble(): Promise<void> {
-        const cc = new ConfigContainer(new ConfigEnvStorage(), new ConfigValuesBuilder());
+        const cc = new ConfigContainer<ConfigValues>(new ConfigEnvStorage(), new ConfigValuesBuilder());
         await cc.init();
 
         const requestContext = new RequestContext();

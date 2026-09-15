@@ -17,9 +17,9 @@ import { RuntimeError } from "app/shared/errors";
 type State =
     | { name: "created" }
     // Остаётся и после отказа, повторный setup() отдаёт тот же отказ: процесс после него
-    // завершает fail() в app.ts, и повторять настройку некому. context — первая часть настройки,
+    // завершает fail() в app.ts, и повторять настройку некому. contextReady — первая часть настройки,
     // сборка ApplicationContext: её отдельно ждёт stop(), которому нужны логгер и срок из конфига.
-    | { name: "settingUp"; context: Promise<void>; done: Promise<void> }
+    | { name: "settingUp"; contextReady: Promise<void>; done: Promise<void> }
     | { name: "ready" }
     | { name: "running" }
     // Остаётся и после отказа, повторный stop() отдаёт тот же отказ: процесс после него
@@ -50,9 +50,9 @@ export class Application {
             return;
         }
 
-        const context = this.createContext();
+        const contextReady = this.createContext();
 
-        this.state = { name: "settingUp", context: context, done: this.assemble(context) };
+        this.state = { name: "settingUp", contextReady: contextReady, done: this.assemble(contextReady) };
 
         await this.state.done;
     }
@@ -103,7 +103,7 @@ export class Application {
         // Остановка берёт логгер и срок из контекста, поэтому посреди его сборки сперва ждёт её.
         // Общий срок на это ожидание не распространяется: пока конфиг не собран, срока нет.
         if (this.state.name === "settingUp") {
-            await this.state.context;
+            await this.state.contextReady;
         }
 
         // Сигнал другого вида во время остановки снова зовёт stop() из app.ts. Вызов ждёт
@@ -122,8 +122,8 @@ export class Application {
         this.logger = ApplicationContext.getLogger();
     }
 
-    private async assemble(context: Promise<void>): Promise<void> {
-        await context;
+    private async assemble(contextReady: Promise<void>): Promise<void> {
+        await contextReady;
 
         this.logger.info("Setup container...");
 

@@ -3,7 +3,7 @@ import { ApplicationContext } from "app/bootstrap/application/application-contex
 import { ConfigContainer } from "app/bootstrap/config/config-container";
 import type { CC } from "app/bootstrap/config/config-container.types";
 import type { ConfigValues } from "app/bootstrap/config/config-values";
-import type { RawConfig } from "app/bootstrap/config/storage/config-storage";
+import type { RawConfig } from "app/bootstrap/config/config-container.types";
 import { configValue } from "app/shared/config-value";
 
 type ContextParts = {
@@ -22,7 +22,7 @@ describe("configValue", function () {
     });
 
     it("resolves a dotted path from the context's config", async function () {
-        const cc = new ConfigContainer(
+        const cc = new ConfigContainer<ConfigValues>(
             { load: async (): Promise<RawConfig> => ({}) },
             { build: (): ConfigValues => ({ bot: { token: "token" } } as ConfigValues) },
         );

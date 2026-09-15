@@ -2,7 +2,8 @@ import { expect } from "chai";
 import { ConfigContainer } from "app/bootstrap/config/config-container";
 import { ConfigContainerIsNotInitialized } from "app/bootstrap/config/config-container.errors";
 import type { ConfigBuilder } from "app/bootstrap/config/builder/config-builder";
-import type { ConfigStorage, RawConfig } from "app/bootstrap/config/storage/config-storage";
+import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
+import type { RawConfig } from "app/bootstrap/config/config-container.types";
 import { InvalidConfigError } from "app/shared/errors";
 
 type Values = {
@@ -23,7 +24,7 @@ function returning(values: object): ConfigBuilder<Values> {
 }
 
 async function container(values: object): Promise<ConfigContainer<Values>> {
-    const cc = new ConfigContainer(storage({}), returning(values));
+    const cc = new ConfigContainer<Values>(storage({}), returning(values));
     await cc.init();
 
     return cc;
@@ -34,7 +35,7 @@ describe("ConfigContainer", () => {
         const builder: ConfigBuilder<Values> = {
             build: (raw): Values => ({ tempDir: raw["TEMP_DIR"] ?? "", limits: { common: { number: 1, interval: 1 } } }),
         };
-        const cc = new ConfigContainer(storage({ TEMP_DIR: "/data/tmp" }), builder);
+        const cc = new ConfigContainer<Values>(storage({ TEMP_DIR: "/data/tmp" }), builder);
 
         await cc.init();
 
@@ -42,7 +43,7 @@ describe("ConfigContainer", () => {
     });
 
     it("throws ConfigContainerIsNotInitialized before init()", () => {
-        const cc = new ConfigContainer(storage({}), returning({ tempDir: "/tmp" }));
+        const cc = new ConfigContainer<Values>(storage({}), returning({ tempDir: "/tmp" }));
 
         expect(() => cc.get("tempDir"))
             .to.throw(ConfigContainerIsNotInitialized)

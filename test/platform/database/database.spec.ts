@@ -3,8 +3,10 @@ import { expect } from "chai";
 import { ApplicationContext } from "app/bootstrap/application/application-context";
 import { ConfigContainer } from "app/bootstrap/config/config-container";
 import type { CC } from "app/bootstrap/config/config-container.types";
+import type { ConfigValues } from "app/bootstrap/config/config-values";
 import { ConfigValuesBuilder } from "app/bootstrap/config/builder/config-values-builder";
-import type { ConfigStorage, RawConfig } from "app/bootstrap/config/storage/config-storage";
+import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
+import type { RawConfig } from "app/bootstrap/config/config-container.types";
 import { Database } from "app/platform/database/database";
 import type { DatabaseSettings } from "app/platform/database/database.types";
 import { RuntimeError } from "app/shared/errors";
@@ -28,7 +30,7 @@ const context = ApplicationContext as unknown as ContextParts;
 
 describe("Database", function () {
     it("connects with the settings from the config by default", async function () {
-        const cc = new ConfigContainer(new TestDatabaseStorage(), new ConfigValuesBuilder());
+        const cc = new ConfigContainer<ConfigValues>(new TestDatabaseStorage(), new ConfigValuesBuilder());
         await cc.init();
         context.cc = cc;
 
