@@ -493,6 +493,46 @@ describe("SfntReader.readMetadata", function () {
     }
 });
 
+describe("InvalidSfnt", function () {
+    // Фабрики проверяются напрямую: спеки выше держат класс отказа, а не текст — какая из
+    // проверок отвергла вход, не требование (docs/architecture/testing.md, «Разбор выживших»).
+    // Версия взята с ведущими нулями: поле печатается во всю ширину.
+    const cases = [
+        {
+            name: "InvalidSfnt.tooShort",
+            error: InvalidSfnt.tooShort(5),
+            message: "Sfnt font is too short: 5 bytes.",
+            payload: { length: 5 },
+        },
+        {
+            name: "InvalidSfnt.unknownVersion",
+            error: InvalidSfnt.unknownVersion(0x00020000),
+            message: "Unknown sfnt version: 0x00020000.",
+            payload: { version: 0x00020000 },
+        },
+        {
+            name: "InvalidSfnt.truncatedTable",
+            error: InvalidSfnt.truncatedTable("glyf"),
+            message: "Sfnt table glyf does not fit into the font.",
+            payload: { tag: "glyf" },
+        },
+        {
+            name: "InvalidSfnt.tableNotFound",
+            error: InvalidSfnt.tableNotFound("OS/2"),
+            message: "Sfnt table OS/2 not found.",
+            payload: { tag: "OS/2" },
+        },
+    ];
+
+    for (const { name, error, message, payload } of cases) {
+        it(`${name} keeps its message and details`, function () {
+            expect(error).to.be.instanceOf(InvalidSfnt);
+            expect(error.message).to.equal(message);
+            expect(error.payload).to.deep.equal(payload);
+        });
+    }
+});
+
 async function readFixture(extension: Extension): Promise<Uint8Array> {
     return Uint8Array.from(await fs.readFile(path.join(fixtureDir, `test-font.${extension}`)));
 }

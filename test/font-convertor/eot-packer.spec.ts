@@ -269,6 +269,72 @@ describe("EotPacker", function () {
     }
 });
 
+describe("InvalidEot and UnsupportedEotFlags", function () {
+    // Фабрики проверяются напрямую: спеки unpack() выше держат класс отказа, а не текст — какая
+    // из проверок отвергла вход, не требование (docs/architecture/testing.md, «Разбор
+    // выживших»). Шестнадцатеричные значения взяты с ведущими нулями: поле печатается во всю
+    // ширину.
+    const cases = [
+        {
+            name: "InvalidEot.tooShort",
+            error: InvalidEot.tooShort(20),
+            type: InvalidEot,
+            message: "Eot font is too short: 20 bytes.",
+            payload: { length: 20 },
+        },
+        {
+            name: "InvalidEot.invalidMagic",
+            error: InvalidEot.invalidMagic(0x4c),
+            type: InvalidEot,
+            message: "Eot magic number is 0x004c, expected 0x504c.",
+            payload: { magic: 0x4c },
+        },
+        {
+            name: "InvalidEot.unknownVersion",
+            error: InvalidEot.unknownVersion(0x00030000),
+            type: InvalidEot,
+            message: "Unknown eot version: 0x00030000.",
+            payload: { version: 0x00030000 },
+        },
+        {
+            name: "InvalidEot.sizeMismatch",
+            error: InvalidEot.sizeMismatch(1025, 1024),
+            type: InvalidEot,
+            message: "Eot declares 1025 bytes, file has 1024.",
+            payload: { declared: 1025, actual: 1024 },
+        },
+        {
+            name: "InvalidEot.invalidFontDataSize",
+            error: InvalidEot.invalidFontDataSize(0, 1024),
+            type: InvalidEot,
+            message: "Eot declares 0 bytes of font data, which does not fit into 1024 bytes.",
+            payload: { fontDataSize: 0, length: 1024 },
+        },
+        {
+            name: "InvalidEot.headerOverlapsFontData",
+            error: InvalidEot.headerOverlapsFontData(1200, 1100),
+            type: InvalidEot,
+            message: "Eot header ends at 1200, past the font data start at 1100.",
+            payload: { headerEnd: 1200, fontDataOffset: 1100 },
+        },
+        {
+            name: "UnsupportedEotFlags.byFlags",
+            error: UnsupportedEotFlags.byFlags(0x00000004),
+            type: UnsupportedEotFlags,
+            message: "Eot font data is compressed or encrypted: flags 0x00000004.",
+            payload: { flags: 0x00000004 },
+        },
+    ];
+
+    for (const { name, error, type, message, payload } of cases) {
+        it(`${name} keeps its message and details`, function () {
+            expect(error).to.be.instanceOf(type);
+            expect(error.message).to.equal(message);
+            expect(error.payload).to.deep.equal(payload);
+        });
+    }
+});
+
 function hex(bytes: Uint8Array): string {
     return Buffer.from(bytes).toString("hex");
 }
