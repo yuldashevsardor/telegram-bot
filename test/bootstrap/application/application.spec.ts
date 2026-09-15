@@ -258,6 +258,19 @@ describe("Application", function () {
             expect(await caught(application.run())).to.be.instanceOf(RuntimeError);
         });
 
+        // Экземпляр одноразовый: контейнер после close() второй setup() не переживает.
+        it("does nothing once the application has been stopped", async function () {
+            const application = await setUp();
+            await application.stop();
+            calls.length = 0;
+            logs.length = 0;
+
+            await application.setup();
+
+            expect(calls).to.deep.equal([]);
+            expect(logs).to.deep.equal([]);
+        });
+
         it("rejects again with the same error without repeating a failed setup", async function () {
             const error = new Error("connection refused");
             checkDatabase = (): Promise<void> => Promise.reject(error);
@@ -329,22 +342,33 @@ describe("Application", function () {
             expect(calls).to.deep.equal(["runner.run", "bot.run", "bot.stop", "taskQueue.isEmpty", "runner.stop", "container.close"]);
         });
 
-        it("stays stopping when the bot fails to start after a stop has begun", async function () {
+        // Отказ приходит, пока остановка ещё идёт: откат в ready дал бы повторному stop() начать
+        // вторую остановку, а конец первой всё равно поставит stopped.
+        it("stays stopping when the bot fails to start while a stop is in progress", async function () {
             const error = new Error("getMe failed");
             const botStarted = Promise.withResolvers<void>();
+            const botStopped = Promise.withResolvers<void>();
             runBot = (): Promise<void> => botStarted.promise;
+            stopBot = (): Promise<void> => botStopped.promise;
             const application = await setUp();
 
             const started = caught(application.run());
             const stopped = application.stop();
             botStarted.reject(error);
             expect(await started).to.equal(error);
-            await stopped;
-            calls.length = 0;
+            const repeated = application.stop();
+            botStopped.resolve();
+            await Promise.all([stopped, repeated]);
 
-            await application.run();
-
-            expect(calls).to.deep.equal([]);
+            expect(calls).to.deep.equal([
+                "runner.run",
+                "bot.run",
+                "bot.stop",
+                "runner.stop",
+                "taskQueue.isEmpty",
+                "runner.stop",
+                "container.close",
+            ]);
         });
 
         it("rejects when already running without starting anything again", async function () {
@@ -406,6 +430,19 @@ describe("Application", function () {
 
             await application.stop();
 
+            expect(calls).to.deep.equal([]);
+            expect(logs).to.deep.equal([]);
+        });
+
+        it("rejects again with the same error without repeating a failed stop", async function () {
+            const error = new Error("runner stop failed");
+            stopBot = (): Promise<void> => Promise.reject(error);
+            const application = await start();
+            expect(await caught(application.stop())).to.equal(error);
+            calls.length = 0;
+            logs.length = 0;
+
+            expect(await caught(application.stop())).to.equal(error);
             expect(calls).to.deep.equal([]);
             expect(logs).to.deep.equal([]);
         });

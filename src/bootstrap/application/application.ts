@@ -21,12 +21,18 @@ type State =
     | { name: "settingUp"; done: Promise<void> }
     | { name: "ready" }
     | { name: "running" }
-    // Остаётся и после конца остановки: повторный stop() получает тот же завершённый промис.
-    | { name: "stopping"; done: Promise<void> };
+    // Остаётся и после отказа, повторный stop() отдаёт тот же отказ: процесс после него
+    // завершает fail() в app.ts.
+    | { name: "stopping"; done: Promise<void> }
+    // Конечное, экземпляр одноразовый: контейнер-синглтон после close() второй setup() не
+    // переживает, а ApplicationContext один на процесс.
+    | { name: "stopped" };
 
 export class Application {
     private cc!: ConfigContainer;
     private logger!: Logger;
+    // Заполняются в assemble() и до её конца никем не читаются: run() идёт только из ready, а
+    // shutdown() трогает их только из running.
     private taskQueue!: TaskQueue;
     private runner!: Runner;
     private bot!: Bot;
@@ -55,7 +61,7 @@ export class Application {
     public async run(): Promise<void> {
         // stop() посреди setup() дождался его и уже закрывает приложение, а bootstrap() в
         // app.ts приходит сюда следом: отказ увёл бы его в fail() с кодом 1.
-        if (this.state.name === "stopping") {
+        if (this.state.name === "stopping" || this.state.name === "stopped") {
             return;
         }
 
@@ -91,7 +97,7 @@ export class Application {
     }
 
     public async stop(): Promise<void> {
-        if (this.state.name === "created") {
+        if (this.state.name === "created" || this.state.name === "stopped") {
             return;
         }
 
@@ -133,7 +139,11 @@ export class Application {
 
         const { timeout } = this.cc.gracefulShutdown;
 
-        if (!(await withTimeout(this.shutdown(from), timeout))) {
+        const finished = await withTimeout(this.shutdown(from), timeout);
+
+        this.state = { name: "stopped" };
+
+        if (!finished) {
             this.logger.warning("Graceful shutdown timeout is over, the shutdown was cut short.", {
                 timeout: timeout,
             });
