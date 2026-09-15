@@ -313,8 +313,9 @@ describe("Application", function () {
         });
 
         // Сегодня окна между runner.run() и концом bot.run() нет: в Bot.run() нет await. Этот тест
-        // и следующий держат поведение на случай, если await там появится.
-        it("counts as running while the bot is starting, so a stop in between stops the bot too", async function () {
+        // и следующий держат поведение Application на случай, если await там появится; что тогда
+        // сделает настоящий Bot.stop() с ещё не запущенным ботом, подмена не проверяет.
+        it("counts as running while the bot is starting, so a stop in between runs the full shutdown", async function () {
             const botStarted = Promise.withResolvers<void>();
             runBot = (): Promise<void> => botStarted.promise;
             const application = await setUp();
