@@ -60,6 +60,7 @@ export class Container extends InversifyContainer {
 
         await this.get<Database>(Tokens.Platform.Database).close();
 
+        // Stryker disable next-line BooleanLiteral: `true` — расходится только на повторном close(), где sql.end() отдаёт тот же промис завершения, и на setup() после close(), который не работает при обоих значениях: контейнер одноразовый
         this.alreadySetup = false;
     }
 

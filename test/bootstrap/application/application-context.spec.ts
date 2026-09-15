@@ -58,9 +58,17 @@ describe("ApplicationContext", function () {
     });
 
     it("throws ApplicationContextIsNotCreated from every getter before create()", function () {
-        expect(() => ApplicationContext.getConfigContainer()).to.throw(ApplicationContextIsNotCreated);
-        expect(() => ApplicationContext.getLogger()).to.throw(ApplicationContextIsNotCreated);
-        expect(() => ApplicationContext.getRequestContext()).to.throw(ApplicationContextIsNotCreated);
+        const message = "ApplicationContext is not created, call create() first.";
+
+        expect(() => ApplicationContext.getConfigContainer())
+            .to.throw(ApplicationContextIsNotCreated)
+            .with.property("message", message);
+        expect(() => ApplicationContext.getLogger())
+            .to.throw(ApplicationContextIsNotCreated)
+            .with.property("message", message);
+        expect(() => ApplicationContext.getRequestContext())
+            .to.throw(ApplicationContextIsNotCreated)
+            .with.property("message", message);
     });
 
     it("builds a console logger outside production with the configured level and the request context it hands out", function () {
