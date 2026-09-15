@@ -67,15 +67,22 @@ export class Application {
             throw new RuntimeError("Application is not set up!");
         }
 
+        // Запущенным приложение считается с начала запуска: stop(), который застанет бот
+        // стартующим, должен остановить и его, а не закрыть один контейнер.
+        this.state = { name: "running" };
+
         try {
             this.runner.run();
             await this.bot.run();
 
-            this.state = { name: "running" };
-
             this.logger.info("Application is successfully started.");
         } catch (error) {
             this.runner.stop();
+
+            // stop() во время запуска уже перевёл приложение в остановку, отменять её нельзя.
+            if (this.state.name === "running") {
+                this.state = { name: "ready" };
+            }
 
             throw error;
         }

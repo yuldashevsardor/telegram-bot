@@ -300,6 +300,52 @@ describe("Application", function () {
             expect(logs).to.deep.equal([]);
         });
 
+        it("starts again after the bot has failed to start", async function () {
+            runBot = (): Promise<void> => Promise.reject(new Error("getMe failed"));
+            const application = await setUp();
+            await caught(application.run());
+            calls.length = 0;
+            runBot = async (): Promise<void> => undefined;
+
+            await application.run();
+
+            expect(calls).to.deep.equal(["runner.run", "bot.run"]);
+        });
+
+        // Сегодня окна между runner.run() и концом bot.run() нет: в Bot.run() нет await. Этот тест
+        // и следующий держат поведение на случай, если await там появится.
+        it("counts as running while the bot is starting, so a stop in between stops the bot too", async function () {
+            const botStarted = Promise.withResolvers<void>();
+            runBot = (): Promise<void> => botStarted.promise;
+            const application = await setUp();
+
+            const started = application.run();
+            const stopped = application.stop();
+            botStarted.resolve();
+            await Promise.all([started, stopped]);
+            await application.stop();
+
+            expect(calls).to.deep.equal(["runner.run", "bot.run", "bot.stop", "taskQueue.isEmpty", "runner.stop", "container.close"]);
+        });
+
+        it("stays stopping when the bot fails to start after a stop has begun", async function () {
+            const error = new Error("getMe failed");
+            const botStarted = Promise.withResolvers<void>();
+            runBot = (): Promise<void> => botStarted.promise;
+            const application = await setUp();
+
+            const started = caught(application.run());
+            const stopped = application.stop();
+            botStarted.reject(error);
+            expect(await started).to.equal(error);
+            await stopped;
+            calls.length = 0;
+
+            await application.run();
+
+            expect(calls).to.deep.equal([]);
+        });
+
         it("rejects when already running without starting anything again", async function () {
             const application = await start();
 
