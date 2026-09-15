@@ -57,12 +57,6 @@ export class InvalidPath extends RuntimeError {
 }
 
 export class InvalidFile extends RuntimeError {
-    public static byPath(path: string): InvalidFile {
-        return new InvalidFile(`Invalid file: ${path}.`, {
-            path: path,
-        });
-    }
-
     public static byPathAndExtension(path: string, extension: string, allowed: string): InvalidFile {
         return new InvalidFile(`File ${path} extension is invalid. Got: ${extension}, allowed: ${allowed}.`, {
             path: path,
