@@ -89,11 +89,19 @@ describe("PinoLogger", function () {
         expect(cause["stack"]).to.be.a("string");
     });
 
+    it("writes no payload into a record without one", function () {
+        const [[record]] = capture((logger) => logger.info("done"));
+
+        expect(record).to.not.have.property("payload");
+    });
+
     it("rejects an unknown level before handing it to pino", function () {
         const logger = new PinoLogger(new RequestContext());
 
         // Отказ даёт AbstractLogger. Переопределение обязано позвать его раньше, чем
         // присвоить уровень pino: иначе вместо InvalidLogLevel вылетел бы голый Error pino.
-        expect(() => logger.setLevel("TRACE" as Level)).to.throw(InvalidLogLevel);
+        expect(() => logger.setLevel("TRACE" as Level))
+            .to.throw(InvalidLogLevel)
+            .with.property("message", "Invalid log level. Got: TRACE");
     });
 });
