@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { expect } from "chai";
 import { ApplicationContext } from "app/bootstrap/application/application-context";
 import { ApplicationContextIsNotCreated } from "app/bootstrap/application/application-context.errors";
-import type { ConfigContainer } from "app/bootstrap/config-container";
+import type { CC } from "app/bootstrap/config/config-container.types";
 import type { Logger } from "app/platform/logger/logger";
 import { ConsoleLogger } from "app/platform/logger/console-logger";
 import { PinoLogger } from "app/platform/logger/pino-logger";
@@ -11,9 +11,10 @@ import type { RequestContext } from "app/platform/request-context/request-contex
 import { InvalidConfigError } from "app/shared/errors";
 
 type ContextParts = {
-    config: ConfigContainer | null;
+    cc: CC | null;
     logger: Logger | null;
     requestContext: RequestContext | null;
+    creating: Promise<void> | null;
 };
 
 // Поля логгера защищённые, а проверить нужно именно их: порог пришёл из конфига, а контекст
@@ -57,9 +58,10 @@ describe("ApplicationContext", function () {
 
         originalEnv.clear();
 
-        context.config = null;
+        context.cc = null;
         context.logger = null;
         context.requestContext = null;
+        context.creating = null;
     });
 
     it("throws ApplicationContextIsNotCreated from every getter before create()", function () {
@@ -76,23 +78,23 @@ describe("ApplicationContext", function () {
             .with.property("message", message);
     });
 
-    it("builds a console logger outside production with the configured level and the request context it hands out", function () {
+    it("builds a console logger outside production with the configured level and the request context it hands out", async function () {
         setEnv({ NODE_ENV: "development", LOGGER_LEVEL: "error" });
 
-        ApplicationContext.create();
+        await ApplicationContext.create();
 
         const logger = ApplicationContext.getLogger();
 
-        expect(ApplicationContext.getConfigContainer().environment).to.equal("development");
+        expect(ApplicationContext.getConfigContainer().get("environment")).to.equal("development");
         expect(logger).to.be.instanceOf(ConsoleLogger);
         expect((logger as unknown as LoggerParts).level).to.equal(Level.ERROR);
         expect((logger as unknown as LoggerParts).requestContext).to.equal(ApplicationContext.getRequestContext());
     });
 
-    it("builds a pino logger in production", function () {
+    it("builds a pino logger in production", async function () {
         setEnv({ NODE_ENV: "production", LOGGER_LEVEL: "critical" });
 
-        ApplicationContext.create();
+        await ApplicationContext.create();
 
         const logger = ApplicationContext.getLogger();
 
@@ -101,33 +103,52 @@ describe("ApplicationContext", function () {
         expect((logger as unknown as LoggerParts).requestContext).to.equal(ApplicationContext.getRequestContext());
     });
 
-    it("keeps the parts on a repeated create() even when the environment has changed", function () {
+    it("keeps the parts on a repeated create() even when the environment has changed", async function () {
         setEnv({ NODE_ENV: "development" });
-        ApplicationContext.create();
+        await ApplicationContext.create();
 
-        const config = ApplicationContext.getConfigContainer();
+        const cc = ApplicationContext.getConfigContainer();
         const logger = ApplicationContext.getLogger();
         const requestContext = ApplicationContext.getRequestContext();
 
         setEnv({ NODE_ENV: "production" });
-        ApplicationContext.create();
+        await ApplicationContext.create();
 
-        expect(ApplicationContext.getConfigContainer()).to.equal(config);
+        expect(ApplicationContext.getConfigContainer()).to.equal(cc);
         expect(ApplicationContext.getLogger()).to.equal(logger);
         expect(ApplicationContext.getRequestContext()).to.equal(requestContext);
     });
 
-    it("stays empty when the config fails, so the next create() starts from scratch", function () {
+    // Сборка асинхронная: проверка готовых полей пропустила бы оба вызова, и второй собрал бы
+    // второй контекст поверх первого.
+    it("waits for the create() in progress instead of starting another one", async function () {
+        setEnv({ NODE_ENV: "development" });
+        const first = ApplicationContext.create();
+
+        setEnv({ NODE_ENV: "production" });
+        const second = ApplicationContext.create();
+        await Promise.all([first, second]);
+
+        expect(second).to.equal(first);
+        expect(ApplicationContext.getConfigContainer().get("environment")).to.equal("development");
+    });
+
+    it("stays empty when the config fails, so the next create() starts from scratch", async function () {
         setEnv({ NODE_ENV: "prod" });
 
-        expect(() => ApplicationContext.create()).to.throw(InvalidConfigError);
+        const error = await ApplicationContext.create().then(
+            () => expect.fail("create() was expected to reject"),
+            (reason: unknown) => reason,
+        );
+
+        expect(error).to.be.instanceOf(InvalidConfigError);
         expect(() => ApplicationContext.getConfigContainer()).to.throw(ApplicationContextIsNotCreated);
         expect(() => ApplicationContext.getLogger()).to.throw(ApplicationContextIsNotCreated);
         expect(() => ApplicationContext.getRequestContext()).to.throw(ApplicationContextIsNotCreated);
 
         setEnv({ NODE_ENV: "production" });
-        ApplicationContext.create();
+        await ApplicationContext.create();
 
-        expect(ApplicationContext.getConfigContainer().environment).to.equal("production");
+        expect(ApplicationContext.getConfigContainer().get("environment")).to.equal("production");
     });
 });

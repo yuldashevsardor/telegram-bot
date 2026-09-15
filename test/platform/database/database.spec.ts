@@ -1,26 +1,26 @@
 import "reflect-metadata";
 import { expect } from "chai";
 import { ApplicationContext } from "app/bootstrap/application/application-context";
-import { ConfigContainer } from "app/bootstrap/config-container";
-import type { ConfigStorage } from "app/platform/config/config-storage";
+import { ConfigContainer } from "app/bootstrap/config/config-container";
+import type { CC } from "app/bootstrap/config/config-container.types";
+import type { ConfigValues } from "app/bootstrap/config/config-values";
+import { ConfigValuesBuilder } from "app/bootstrap/config/builder/config-values-builder";
+import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
+import type { RawConfig } from "app/bootstrap/config/config-container.types";
 import { Database } from "app/platform/database/database";
 import type { DatabaseSettings } from "app/platform/database/database.types";
 import { RuntimeError } from "app/shared/errors";
 
 type ContextParts = {
-    config: ConfigContainer | null;
+    cc: CC | null;
 };
 
 // Окружение контейнера, в котором DATABASE_NAME заменено базой прогона. Её создаёт
 // test/database-hook.ts; почему имя приходит своей переменной — там же. BOT_TOKEN конфиг
 // требует, а базе он не нужен: без подстановки спека зависела бы от токена в .env.
 class TestDatabaseStorage implements ConfigStorage {
-    public get(key: string): string | undefined {
-        if (key === "BOT_TOKEN") {
-            return "test-token";
-        }
-
-        return key === "DATABASE_NAME" ? testDatabaseName() : process.env[key];
+    public async load(): Promise<RawConfig> {
+        return testDatabaseEnv();
     }
 }
 
@@ -30,14 +30,16 @@ const context = ApplicationContext as unknown as ContextParts;
 
 describe("Database", function () {
     it("connects with the settings from the config by default", async function () {
-        context.config = new ConfigContainer(new TestDatabaseStorage());
+        const cc = new ConfigContainer<ConfigValues>(new TestDatabaseStorage(), new ConfigValuesBuilder());
+        await cc.init();
+        context.cc = cc;
 
         let database: Database;
 
         try {
             database = new Database();
         } finally {
-            context.config = null;
+            context.cc = null;
         }
 
         try {
@@ -115,8 +117,12 @@ function testDatabaseName(): string {
     return name;
 }
 
+function testDatabaseEnv(): RawConfig {
+    return { ...process.env, BOT_TOKEN: "test-token", DATABASE_NAME: testDatabaseName() };
+}
+
 function settings(): DatabaseSettings {
-    return new ConfigContainer(new TestDatabaseStorage()).database;
+    return new ConfigValuesBuilder().build(testDatabaseEnv()).database;
 }
 
 async function failedQueryKeys(isProduction: boolean): Promise<string[]> {

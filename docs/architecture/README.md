@@ -106,15 +106,16 @@ src/
     user/                   сущность, интерфейс репозитория, сервис, адаптер к PostgreSQL (user.md)
     outbound-queue/         очередь исходящих по ключам, лимиты, цикл Runner (outbound-queue.md)
   platform/                 адаптеры, не знающие модулей
-    config/                 ConfigStorage и ConfigEnvStorage — источник значений (config.md)
     database/               Database (storage.md)
     logger/                 интерфейс Logger, enum Level, ConsoleLogger, PinoLogger (logging.md)
     request-context/        RequestContext: область и значения запроса (logging.md)
   bootstrap/                корень сборки, знает все стороны
     application/            ApplicationContext и Application: сборка и жизненный цикл (application.md)
     container/              inversify-контейнер (application.md)
-    config-container.ts     ConfigContainer: разбор и валидация настроек всех сторон (config.md)
-    config-reader.ts        ConfigReader: строгий разбор строк источника для ConfigContainer (config.md)
+    config/                 ConfigContainer, форма ConfigValues, типы путей get() и алиас CC (config.md)
+      builder/              интерфейс ConfigBuilder и ConfigValuesBuilder: сборка и валидация ConfigValues (config.md)
+      parser/               ConfigParser: строгий разбор строк снимка источника (config.md)
+      storage/              ConfigStorage и ConfigEnvStorage — источник значений (config.md)
   shared/                   RuntimeError, сквозные типы, словарь токенов DI, configValue (application.md);
                             NumberHelper, utils (sleep, withTimeout)
     fs/                     FileHelper

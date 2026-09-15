@@ -1,6 +1,6 @@
 import { container } from "app/bootstrap/container/container";
 import { ApplicationContext } from "app/bootstrap/application/application-context";
-import type { ConfigContainer } from "app/bootstrap/config-container";
+import type { CC } from "app/bootstrap/config/config-container.types";
 import type { Logger } from "app/platform/logger/logger";
 import { Tokens } from "app/shared/tokens";
 import type { Database } from "app/platform/database/database";
@@ -17,8 +17,9 @@ import { RuntimeError } from "app/shared/errors";
 type State =
     | { name: "created" }
     // Остаётся и после отказа, повторный setup() отдаёт тот же отказ: процесс после него
-    // завершает fail() в app.ts, и повторять настройку некому.
-    | { name: "settingUp"; done: Promise<void> }
+    // завершает fail() в app.ts, и повторять настройку некому. contextReady — первая часть настройки,
+    // сборка ApplicationContext: её отдельно ждёт stop(), которому нужны логгер и срок из конфига.
+    | { name: "settingUp"; contextReady: Promise<void>; done: Promise<void> }
     | { name: "ready" }
     | { name: "running" }
     // Остаётся и после отказа, повторный stop() отдаёт тот же отказ: процесс после него
@@ -29,7 +30,8 @@ type State =
     | { name: "stopped" };
 
 export class Application {
-    private cc!: ConfigContainer;
+    // Заполняются в createContext() и до её конца никем не читаются: assemble() и stop() её ждут.
+    private cc!: CC;
     private logger!: Logger;
     // Заполняются в assemble() и до её конца никем не читаются: run() идёт только из ready, а
     // shutdown() трогает их только из running.
@@ -48,12 +50,9 @@ export class Application {
             return;
         }
 
-        ApplicationContext.create();
+        const contextReady = this.createContext();
 
-        this.cc = ApplicationContext.getConfigContainer();
-        this.logger = ApplicationContext.getLogger();
-
-        this.state = { name: "settingUp", done: this.assemble() };
+        this.state = { name: "settingUp", contextReady: contextReady, done: this.assemble(contextReady) };
 
         await this.state.done;
     }
@@ -101,6 +100,12 @@ export class Application {
             return;
         }
 
+        // Остановка берёт логгер и срок из контекста, поэтому посреди его сборки сперва ждёт её.
+        // Общий срок на это ожидание не распространяется: пока конфиг не собран, срока нет.
+        if (this.state.name === "settingUp") {
+            await this.state.contextReady;
+        }
+
         // Сигнал другого вида во время остановки снова зовёт stop() из app.ts. Вызов ждёт
         // идущую остановку: вернись он сразу, его process.exit(0) оборвал бы её.
         if (this.state.name !== "stopping") {
@@ -110,7 +115,16 @@ export class Application {
         await this.state.done;
     }
 
-    private async assemble(): Promise<void> {
+    private async createContext(): Promise<void> {
+        await ApplicationContext.create();
+
+        this.cc = ApplicationContext.getConfigContainer();
+        this.logger = ApplicationContext.getLogger();
+    }
+
+    private async assemble(contextReady: Promise<void>): Promise<void> {
+        await contextReady;
+
         this.logger.info("Setup container...");
 
         await container.setup();
@@ -137,7 +151,7 @@ export class Application {
     private async terminate(from: State): Promise<void> {
         this.logger.info("Stop application...");
 
-        const { timeout } = this.cc.gracefulShutdown;
+        const timeout = this.cc.get("gracefulShutdown.timeout");
 
         const finished = await withTimeout(this.shutdown(from), timeout);
 
@@ -176,7 +190,7 @@ export class Application {
     }
 
     private async waitQueueToEmpty(): Promise<void> {
-        const { timeout, interval } = this.cc.taskQueue.gracefulShutdown;
+        const { timeout, interval } = this.cc.get("taskQueue.gracefulShutdown");
         const deadline = Date.now() + timeout;
 
         while (!this.taskQueue.isEmpty()) {

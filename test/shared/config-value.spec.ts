@@ -1,60 +1,34 @@
 import { expect } from "chai";
 import { ApplicationContext } from "app/bootstrap/application/application-context";
-import type { ConfigContainer } from "app/bootstrap/config-container";
+import { ConfigContainer } from "app/bootstrap/config/config-container";
+import type { CC } from "app/bootstrap/config/config-container.types";
+import type { ConfigValues } from "app/bootstrap/config/config-values";
+import type { RawConfig } from "app/bootstrap/config/config-container.types";
 import { configValue } from "app/shared/config-value";
-import { InvalidConfigError } from "app/shared/errors";
 
 type ContextParts = {
-    config: ConfigContainer | null;
+    cc: CC | null;
 };
 
 // Конфиг кладётся в статическое поле мимо create(), как в container.spec.ts: create() собрал бы
-// его из настоящего окружения. Форма конфига здесь расходится с объявленной намеренно —
-// именно такое расхождение configValue и ловит, компилятор его не видит.
+// его из настоящего окружения. Значения неполные намеренно: спеке нужен только путь до контекста,
+// обход пути и его отказы проверяет config-container.spec.ts.
 const context = ApplicationContext as unknown as ContextParts;
-
-function useConfig(config: object): void {
-    context.config = config as ConfigContainer;
-}
 
 describe("configValue", function () {
     afterEach(function () {
         // Контекст общий на весь прогон mocha: заполненным он отдал бы этот конфиг чужим спекам.
-        context.config = null;
+        context.cc = null;
     });
 
-    it("resolves a dotted path", function () {
-        const common = { number: 30, interval: 1000 };
-        useConfig({ limits: { common: common } });
+    it("resolves a dotted path from the context's config", async function () {
+        const cc = new ConfigContainer<ConfigValues>(
+            { load: async (): Promise<RawConfig> => ({}) },
+            { build: (): ConfigValues => ({ bot: { token: "token" } } as ConfigValues) },
+        );
+        await cc.init();
+        context.cc = cc;
 
-        expect(configValue("limits.common")).to.equal(common);
-    });
-
-    it("throws InvalidConfigError when the value is undefined", function () {
-        useConfig({});
-
-        expect(() => configValue("tempDir"))
-            .to.throw(InvalidConfigError, 'Invalid config "tempDir"')
-            .with.property("payload")
-            .that.deep.equals({ path: "tempDir" });
-    });
-
-    it("throws InvalidConfigError when an object on the path is missing", function () {
-        useConfig({});
-
-        expect(() => configValue("limits.common"))
-            .to.throw(InvalidConfigError)
-            .with.property("payload")
-            .that.deep.equals({ path: "limits.common" });
-    });
-
-    // typeof null — тоже "object": без отдельной проверки на null обход упал бы TypeError.
-    it("throws InvalidConfigError when an object on the path is null", function () {
-        useConfig({ limits: null });
-
-        expect(() => configValue("limits.common"))
-            .to.throw(InvalidConfigError)
-            .with.property("payload")
-            .that.deep.equals({ path: "limits.common" });
+        expect(configValue("bot.token")).to.equal("token");
     });
 });

@@ -1,26 +1,14 @@
 import "reflect-metadata";
 import path from "path";
 import { expect } from "chai";
-import { ConfigContainer } from "app/bootstrap/config-container";
-import type { ConfigStorage } from "app/platform/config/config-storage";
+import { ConfigValuesBuilder } from "app/bootstrap/config/builder/config-values-builder";
+import type { ConfigValues } from "app/bootstrap/config/config-values";
 import { InvalidConfigError } from "app/shared/errors";
 import { Level, Levels } from "app/platform/logger/logger.types";
 
-class FakeStorage implements ConfigStorage {
-    private readonly values: Map<string, string>;
-
-    public constructor(values: Record<string, string> = {}) {
-        this.values = new Map(Object.entries(values));
-    }
-
-    public get(key: string): string | undefined {
-        return this.values.get(key);
-    }
-}
-
 // BOT_TOKEN обязателен, поэтому подложен всем; спека, которой нужен его пропуск, затирает его пустым.
-function config(values: Record<string, string> = {}): ConfigContainer {
-    return new ConfigContainer(new FakeStorage({ BOT_TOKEN: "token", ...values }));
+function config(values: Record<string, string> = {}): ConfigValues {
+    return new ConfigValuesBuilder().build({ BOT_TOKEN: "token", ...values });
 }
 
 // Ошибку конфигурации печатает fail() в app.ts, и её текст с деталями — всё, что оператор узнает о
@@ -37,7 +25,7 @@ function rejection(values: Record<string, string>): InvalidConfigError {
     return expect.fail("the config was expected to be rejected");
 }
 
-describe("ConfigContainer", () => {
+describe("ConfigValuesBuilder", () => {
     it("falls back to defaults when only the bot token is set", () => {
         const result = config();
 
@@ -178,7 +166,7 @@ describe("ConfigContainer", () => {
     });
 
     // Сообщение называет все границы переменной, поэтому одного значения ниже минимума хватает,
-    // чтобы сверить её диапазон целиком; что сами границы проходят, проверяет config-reader.spec.ts.
+    // чтобы сверить её диапазон целиком; что сами границы проходят, проверяет config-parser.spec.ts.
     const bounds: Array<{ name: string; below: string; range: string }> = [
         { name: "LIMIT_COMMON_NUMBER", below: "0", range: "at least 1" },
         { name: "LIMIT_COMMON_INTERVAL", below: "0", range: "at least 1" },

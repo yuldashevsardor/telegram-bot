@@ -1,5 +1,5 @@
 import { InvalidConfigError } from "app/shared/errors";
-import type { ConfigStorage } from "app/platform/config/config-storage";
+import type { RawConfig } from "app/bootstrap/config/config-container.types";
 
 const Booleans = new Map([
     ["true", true],
@@ -13,20 +13,19 @@ export type IntegerRange = {
     max?: number;
 };
 
-// Разбор строк источника в значения. Умолчание подставляется только вместо отсутствующей или
+// Разбор строк снимка источника в значения. Умолчание подставляется только вместо отсутствующей или
 // пустой переменной; всё, что задано, но недопустимо, — InvalidConfigError с её именем на старте.
-// Отдельный класс, а не приватные методы ConfigContainer: у хелпера может ещё не быть вызова
-// (getBoolean, getArray), а noUnusedLocals не пропускает приватный метод без вызовов. Публичный же
-// метод ConfigContainer попал бы в пути configValue.
-export class ConfigReader {
+// Отдельный класс, а не приватные методы билдера: у хелпера может ещё не быть вызова
+// (getBoolean, getArray), а noUnusedLocals не пропускает приватный метод без вызовов.
+export class ConfigParser {
     // Наибольшая задержка таймеров Node: знаковое 32-битное целое.
     public static readonly MAX_TIMER_DELAY = 2 ** 31 - 1;
 
-    public constructor(private readonly storage: ConfigStorage) {}
+    public constructor(private readonly raw: RawConfig) {}
 
     // Без умолчания переменная обязательна.
     public getString(name: string, defaultValue?: string): string {
-        const value = this.storage.get(name)?.trim();
+        const value = this.raw[name]?.trim();
 
         if (value !== undefined && value !== "") {
             return value;
@@ -41,7 +40,7 @@ export class ConfigReader {
 
     public getInteger(name: string, defaultValue: number, range: IntegerRange): number {
         const value = this.getString(name, "");
-        const integer = value === "" ? defaultValue : ConfigReader.parseInteger(name, value);
+        const integer = value === "" ? defaultValue : ConfigParser.parseInteger(name, value);
         const { min, max = Infinity } = range;
 
         if (integer < min || integer > max) {
@@ -65,7 +64,7 @@ export class ConfigReader {
     // «не срабатывать никогда», сработало бы сразу, а интервальный лог писался бы на каждом витке
     // событийного цикла. Ноль допускают только там, где он значит «не ждать».
     public getTimerDelay(name: string, defaultValue: number, { min = 1 }: { min?: number } = {}): number {
-        return this.getInteger(name, defaultValue, { min: min, max: ConfigReader.MAX_TIMER_DELAY });
+        return this.getInteger(name, defaultValue, { min: min, max: ConfigParser.MAX_TIMER_DELAY });
     }
 
     // Не через parseInt: "MAYBE" дал бы NaN, приведённый к false, и опечатку нельзя было бы
