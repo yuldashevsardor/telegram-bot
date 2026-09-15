@@ -18,8 +18,9 @@ class FakeStorage implements ConfigStorage {
     }
 }
 
+// BOT_TOKEN обязателен, поэтому подложен всем; спека, которой нужен его пропуск, затирает его пустым.
 function config(values: Record<string, string> = {}): ConfigContainer {
-    return new ConfigContainer(new FakeStorage(values));
+    return new ConfigContainer(new FakeStorage({ BOT_TOKEN: "token", ...values }));
 }
 
 // Ошибку конфигурации печатает fail() в app.ts, и её текст с деталями — всё, что оператор узнает о
@@ -37,7 +38,7 @@ function rejection(values: Record<string, string>): InvalidConfigError {
 }
 
 describe("ConfigContainer", () => {
-    it("falls back to defaults on an empty storage", () => {
+    it("falls back to defaults when only the bot token is set", () => {
         const result = config();
 
         expect(result.environment).to.equal("development");
@@ -51,8 +52,7 @@ describe("ConfigContainer", () => {
             group: { number: 20, interval: 60000 },
         });
         expect(result.runner).to.deep.equal({ sleepInterval: { min: 10, max: 1000 }, maxRetries: 3 });
-        // Пустой токен отвергает конструктор Bot, а не сборка конфига.
-        expect(result.bot).to.deep.equal({ token: "", gracefulShutdown: { timeout: 3000 } });
+        expect(result.bot).to.deep.equal({ token: "token", gracefulShutdown: { timeout: 3000 } });
         expect(result.taskQueue).to.deep.equal({ logInterval: 10000, gracefulShutdown: { timeout: 5000, interval: 500 } });
         expect(result.gracefulShutdown).to.deep.equal({ timeout: 15000 });
         expect(result.logger).to.deep.equal({ level: Level.DEBUG });
@@ -81,7 +81,7 @@ describe("ConfigContainer", () => {
             RUNNER_SLEEP_INTERVAL_MIN: "11",
             RUNNER_SLEEP_INTERVAL_MAX: "1003",
             RUNNER_MAX_RETRIES: "5",
-            BOT_TOKEN: "token",
+            BOT_TOKEN: "own-token",
             BOT_GRACEFUL_SHUTDOWN_TIMEOUT: "3001",
             TASK_QUEUE_LOG_INTERVAL: "10001",
             TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT: "5001",
@@ -108,7 +108,7 @@ describe("ConfigContainer", () => {
             group: { number: 21, interval: 60001 },
         });
         expect(result.runner).to.deep.equal({ sleepInterval: { min: 11, max: 1003 }, maxRetries: 5 });
-        expect(result.bot).to.deep.equal({ token: "token", gracefulShutdown: { timeout: 3001 } });
+        expect(result.bot).to.deep.equal({ token: "own-token", gracefulShutdown: { timeout: 3001 } });
         expect(result.taskQueue).to.deep.equal({ logInterval: 10001, gracefulShutdown: { timeout: 5001, interval: 501 } });
         expect(result.gracefulShutdown).to.deep.equal({ timeout: 15001 });
         expect(result.logger).to.deep.equal({ level: Level.INFO });
@@ -130,7 +130,14 @@ describe("ConfigContainer", () => {
     });
 
     it("trims a value before using it", () => {
-        expect(config({ BOT_TOKEN: "  token  " }).bot.token).to.equal("token");
+        expect(config({ BOT_TOKEN: "  trimmed  " }).bot.token).to.equal("trimmed");
+    });
+
+    it("requires the bot token", () => {
+        const error = rejection({ BOT_TOKEN: "" });
+
+        expect(error.message).to.equal('Config value "BOT_TOKEN" is required');
+        expect(() => config({ BOT_TOKEN: "   " })).to.throw(InvalidConfigError);
     });
 
     it("picks the development logger level", () => {
@@ -151,14 +158,14 @@ describe("ConfigContainer", () => {
     it("rejects an unknown logger level", () => {
         const error = rejection({ LOGGER_LEVEL: "verbose" });
 
-        expect(error.message).to.equal("Invalid logger level");
-        expect(error.payload).to.deep.equal({ got: "VERBOSE", allowed: Levels });
+        expect(error.message).to.equal('Config value "LOGGER_LEVEL" must be one of the allowed values');
+        expect(error.payload).to.deep.equal({ got: "verbose", allowed: Levels });
     });
 
     it("rejects an unknown environment", () => {
         const error = rejection({ NODE_ENV: "prod" });
 
-        expect(error.message).to.equal("Invalid environment");
+        expect(error.message).to.equal('Config value "NODE_ENV" must be one of the allowed values');
         expect(error.payload).to.deep.equal({ got: "prod", allowed: ["production", "development", "testing"] });
     });
 
@@ -170,33 +177,51 @@ describe("ConfigContainer", () => {
         expect(() => config({ DATABASE_PORT: "abc" })).to.throw(InvalidConfigError);
     });
 
-    it("rejects a non-positive task queue poll interval", () => {
-        const error = rejection({ TASK_QUEUE_GRACEFUL_SHUTDOWN_INTERVAL: "0" });
+    // Сообщение называет все границы переменной, поэтому одного значения ниже минимума хватает,
+    // чтобы сверить её диапазон целиком; что сами границы проходят, проверяет config-reader.spec.ts.
+    const bounds: Array<{ name: string; below: string; range: string }> = [
+        { name: "LIMIT_COMMON_NUMBER", below: "0", range: "at least 1" },
+        { name: "LIMIT_COMMON_INTERVAL", below: "0", range: "at least 1" },
+        { name: "LIMIT_PRIVATE_NUMBER", below: "0", range: "at least 1" },
+        { name: "LIMIT_PRIVATE_INTERVAL", below: "0", range: "at least 1" },
+        { name: "LIMIT_GROUP_NUMBER", below: "0", range: "at least 1" },
+        { name: "LIMIT_GROUP_INTERVAL", below: "0", range: "at least 1" },
+        { name: "RUNNER_SLEEP_INTERVAL_MIN", below: "0", range: "between 1 and 2147483647" },
+        { name: "RUNNER_SLEEP_INTERVAL_MAX", below: "0", range: "between 1 and 2147483647" },
+        { name: "RUNNER_MAX_RETRIES", below: "-1", range: "at least 0" },
+        { name: "BOT_GRACEFUL_SHUTDOWN_TIMEOUT", below: "-1", range: "between 0 and 2147483647" },
+        { name: "TASK_QUEUE_LOG_INTERVAL", below: "0", range: "between 1 and 2147483647" },
+        { name: "TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT", below: "-1", range: "between 0 and 2147483647" },
+        { name: "TASK_QUEUE_GRACEFUL_SHUTDOWN_INTERVAL", below: "0", range: "between 1 and 2147483647" },
+        { name: "GRACEFUL_SHUTDOWN_TIMEOUT", below: "0", range: "between 1 and 2147483647" },
+        { name: "DATABASE_PORT", below: "0", range: "between 1 and 65535" },
+        { name: "DATABASE_CONNECTION_LIMIT", below: "0", range: "at least 1" },
+        { name: "DATABASE_CONNECTION_IDLE_TIMEOUT", below: "-1", range: "between 0 and 2147483" },
+        { name: "DATABASE_CONNECTION_MAX_LIFETIME", below: "-1", range: "between 0 and 2147483" },
+    ];
 
-        expect(error.message).to.equal("TASK_QUEUE_GRACEFUL_SHUTDOWN_INTERVAL must be greater than zero");
-        expect(error.payload).to.deep.equal({ got: 0 });
-        expect(() => config({ TASK_QUEUE_GRACEFUL_SHUTDOWN_INTERVAL: "-100" })).to.throw(InvalidConfigError);
-    });
+    for (const { name, below, range } of bounds) {
+        it(`rejects ${name} below its range`, () => {
+            const error = rejection({ [name]: below });
 
-    it("rejects a task queue log interval that a timer would turn into 1 ms", () => {
-        const error = rejection({ TASK_QUEUE_LOG_INTERVAL: "0" });
+            expect(error.message).to.equal(`Config value "${name}" must be ${range}`);
+            expect(error.payload).to.include({ got: Number(below) });
+        });
+    }
 
-        expect(error.message).to.equal("TASK_QUEUE_LOG_INTERVAL must be between 1 and 2147483647");
-        expect(error.payload).to.deep.equal({ got: 0 });
-        expect(() => config({ TASK_QUEUE_LOG_INTERVAL: "-100" })).to.throw(InvalidConfigError);
-        expect(() => config({ TASK_QUEUE_LOG_INTERVAL: "2147483648" })).to.throw(InvalidConfigError);
-    });
+    it("accepts zero where it means not to wait or to switch a timer off", () => {
+        const result = config({
+            RUNNER_MAX_RETRIES: "0",
+            BOT_GRACEFUL_SHUTDOWN_TIMEOUT: "0",
+            TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT: "0",
+            DATABASE_CONNECTION_IDLE_TIMEOUT: "0",
+            DATABASE_CONNECTION_MAX_LIFETIME: "0",
+        });
 
-    it("accepts the longest task queue log interval a timer can hold", () => {
-        expect(config({ TASK_QUEUE_LOG_INTERVAL: "2147483647" }).taskQueue.logInterval).to.equal(2147483647);
-    });
-
-    it("rejects a non-positive runner sleep interval minimum", () => {
-        const error = rejection({ RUNNER_SLEEP_INTERVAL_MIN: "0" });
-
-        expect(error.message).to.equal("RUNNER_SLEEP_INTERVAL_MIN must be greater than zero");
-        expect(error.payload).to.deep.equal({ got: 0 });
-        expect(() => config({ RUNNER_SLEEP_INTERVAL_MIN: "-10" })).to.throw(InvalidConfigError);
+        expect(result.runner.maxRetries).to.equal(0);
+        expect(result.bot.gracefulShutdown.timeout).to.equal(0);
+        expect(result.taskQueue.gracefulShutdown.timeout).to.equal(0);
+        expect(result.database.connection).to.deep.equal({ max: 10, idleTimeout: 0, maxLifetime: 0 });
     });
 
     it("rejects a runner sleep interval maximum below the minimum", () => {

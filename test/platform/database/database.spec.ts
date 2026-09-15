@@ -12,9 +12,14 @@ type ContextParts = {
 };
 
 // Окружение контейнера, в котором DATABASE_NAME заменено базой прогона. Её создаёт
-// test/database-hook.ts; почему имя приходит своей переменной — там же.
+// test/database-hook.ts; почему имя приходит своей переменной — там же. BOT_TOKEN конфиг
+// требует, а базе он не нужен: без подстановки спека зависела бы от токена в .env.
 class TestDatabaseStorage implements ConfigStorage {
     public get(key: string): string | undefined {
+        if (key === "BOT_TOKEN") {
+            return "test-token";
+        }
+
         return key === "DATABASE_NAME" ? testDatabaseName() : process.env[key];
     }
 }
