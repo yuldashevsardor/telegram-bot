@@ -34,7 +34,7 @@ function collectTokens(branch: Branch, path: string[] = []): Array<{ path: strin
 }
 
 // ApplicationContext.create() собирает конфиг из реального окружения, а пустой BOT_TOKEN
-// валит конструктор Bot. Поэтому части кладутся в статические поля мимо create(): шов для
+// валит эту сборку. Поэтому части кладутся в статические поля мимо create(): шов для
 // тестов менял бы публичную форму контекста. Поля обнуляются в after — контекст общий на весь
 // прогон mocha, и заполненным он молча отдал бы этот конфиг configValue() в чужих спеках.
 const context = ApplicationContext as unknown as ContextParts;
