@@ -207,6 +207,17 @@ describe("Application", function () {
             ]);
         });
 
+        it("logs every step on info", async function () {
+            await new Application().setup();
+
+            expect(logs).to.deep.equal([
+                { level: "info", message: "Setup container...", payload: undefined },
+                { level: "info", message: "Container successfully setup.", payload: undefined },
+                { level: "info", message: "Check database connection...", payload: undefined },
+                { level: "info", message: "Database connection is alive.", payload: undefined },
+            ]);
+        });
+
         it("does nothing when called again", async function () {
             const application = await setUp();
 
@@ -228,16 +239,20 @@ describe("Application", function () {
 
     describe("run()", function () {
         it("rejects before setup without starting anything", async function () {
-            expect(await caught(new Application().run())).to.be.instanceOf(RuntimeError);
+            const error = await caught(new Application().run());
+
+            expect(error).to.be.instanceOf(RuntimeError);
+            expect((error as RuntimeError).message).to.equal("Application is not set up!");
             expect(calls).to.deep.equal([]);
         });
 
-        it("starts the runner before the bot", async function () {
+        it("starts the runner before the bot and logs the start", async function () {
             const application = await setUp();
 
             await application.run();
 
             expect(calls).to.deep.equal(["runner.run", "bot.run"]);
+            expect(logs).to.deep.equal([{ level: "info", message: "Application is successfully started.", payload: undefined }]);
         });
 
         // Отказ логирует только fail() в app.ts: второй critical на тот же отказ удвоил бы
@@ -275,7 +290,20 @@ describe("Application", function () {
             await application.stop();
 
             expect(calls).to.deep.equal(["bot.stop", "taskQueue.isEmpty", "runner.stop", "container.close"]);
-            expect(logs.map(({ message }) => message)).to.include("Application is successfully stopped.");
+            expect(logs).to.deep.equal([
+                { level: "info", message: "Stop application...", payload: undefined },
+                { level: "info", message: "Application is successfully stopped.", payload: undefined },
+            ]);
+        });
+
+        it("only closes the container on a second stop after the first one has finished", async function () {
+            const application = await start();
+            await application.stop();
+            calls.length = 0;
+
+            await application.stop();
+
+            expect(calls).to.deep.equal(["container.close"]);
         });
 
         it("stops the runner only after the queue has emptied", async function () {
@@ -317,6 +345,29 @@ describe("Application", function () {
                     message: "Shutdown timeout is over, remaining tasks will not be done.",
                     payload: { tasksLeft: 3, timeout: 20 },
                 },
+            ]);
+        });
+
+        // Нулевой срок в docs/architecture/config.md — «не ждать»: ни витка ожидания с логом, ни паузы
+        // перед остановкой runner. Мутанта `timeLeft < 0` тест ловит, только если оба Date.now() в
+        // waitQueueToEmpty() пришлись на одну миллисекунду: сменись она между ними — и мутант тоже сразу
+        // уходит в предупреждение. Поэтому изредка он выживает, и дыры в тесте за этим нет.
+        it("does not wait for the queue when its timeout is zero", async function () {
+            configValues = { TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT: "0" };
+            queueSize = (): number => 3;
+            const application = await start();
+
+            await application.stop();
+
+            expect(calls).to.deep.equal(["bot.stop", "taskQueue.isEmpty", "runner.stop", "container.close"]);
+            expect(logs).to.deep.equal([
+                { level: "info", message: "Stop application...", payload: undefined },
+                {
+                    level: "warning",
+                    message: "Shutdown timeout is over, remaining tasks will not be done.",
+                    payload: { tasksLeft: 3, timeout: 0 },
+                },
+                { level: "info", message: "Application is successfully stopped.", payload: undefined },
             ]);
         });
 

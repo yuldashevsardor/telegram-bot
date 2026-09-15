@@ -4,6 +4,7 @@ import { Container } from "app/bootstrap/container/container";
 import { ApplicationContext } from "app/bootstrap/application/application-context";
 import { ConfigContainer } from "app/bootstrap/config-container";
 import type { ConfigStorage } from "app/platform/config/config-storage";
+import type { Database } from "app/platform/database/database";
 import type { Logger } from "app/platform/logger/logger";
 import { ConsoleLogger } from "app/platform/logger/console-logger";
 import { Level } from "app/platform/logger/logger.types";
@@ -77,6 +78,24 @@ describe("Container", () => {
         await container.setup();
 
         expect(container.getAll(Tokens.Platform.Database)).to.have.lengthOf(1);
+    });
+
+    // Закрытый пул postgres отвергает запрос сразу, не выходя в сеть (handler() в index.js пакета).
+    it("closes the database pool", async () => {
+        const closable = new Container();
+        await closable.setup();
+
+        await closable.close();
+
+        const error = await closable
+            .get<Database>(Tokens.Platform.Database)
+            .check()
+            .then(
+                () => expect.fail("the query was expected to be refused"),
+                (reason: unknown) => reason,
+            );
+
+        expect(error).to.have.property("code", "CONNECTION_ENDED");
     });
 
     // Утверждения нет, проверка — сам отказ: без раннего выхода close() резолвил бы Database
