@@ -1,45 +1,22 @@
 import "reflect-metadata";
 import { expect } from "chai";
-import { ApplicationContext } from "app/bootstrap/application/application-context";
-import { ConfigContainer } from "app/bootstrap/config/config-container";
-import type { CC } from "app/bootstrap/config/config-container.types";
-import type { ConfigValues } from "app/bootstrap/config/config-values";
 import { ConfigValuesBuilder } from "app/bootstrap/config/builder/config-values-builder";
-import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
 import type { RawConfig } from "app/bootstrap/config/config-container.types";
 import { Database } from "app/platform/database/database";
 import type { DatabaseSettings } from "app/platform/database/database.types";
 import { RuntimeError } from "app/shared/errors";
-
-type ContextParts = {
-    cc: CC | null;
-};
-
-// Окружение контейнера, в котором DATABASE_NAME заменено базой прогона. Её создаёт
-// test/database-hook.ts; почему имя приходит своей переменной — там же. BOT_TOKEN конфиг
-// требует, а базе он не нужен: без подстановки спека зависела бы от токена в .env.
-class TestDatabaseStorage implements ConfigStorage {
-    public async load(): Promise<RawConfig> {
-        return testDatabaseEnv();
-    }
-}
-
-// Как в container.spec.ts: поле обнуляется сразу после конструктора, иначе заполненный
-// контекст молча отдал бы этот конфиг configValue() в чужих спеках.
-const context = ApplicationContext as unknown as ContextParts;
+import { fillApplicationContext, resetApplicationContext } from "test/bootstrap/application/application-context.helper";
 
 describe("Database", function () {
     it("connects with the settings from the config by default", async function () {
-        const cc = new ConfigContainer<ConfigValues>(new TestDatabaseStorage(), new ConfigValuesBuilder());
-        await cc.init();
-        context.cc = cc;
+        await fillApplicationContext(testDatabaseEnv());
 
         let database: Database;
 
         try {
             database = new Database();
         } finally {
-            context.cc = null;
+            resetApplicationContext();
         }
 
         try {
@@ -117,6 +94,9 @@ function testDatabaseName(): string {
     return name;
 }
 
+// Окружение контейнера, в котором DATABASE_NAME заменено базой прогона. Её создаёт
+// test/database-hook.ts; почему имя приходит своей переменной — там же. BOT_TOKEN конфиг
+// требует, а базе он не нужен: без подстановки спека зависела бы от токена в .env.
 function testDatabaseEnv(): RawConfig {
     return { ...process.env, BOT_TOKEN: "test-token", DATABASE_NAME: testDatabaseName() };
 }

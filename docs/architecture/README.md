@@ -122,6 +122,7 @@ src/
     process/                ProcessHelper — запуск внешних процессов (invariants.md)
     string/                 StringHelper
 test/                       mocha-спеки; путь спеки повторяет путь исходника с точностью до модуля;
+                            общий код спек — *.helper.ts рядом со спекой своего исходника;
                             coverage-hook.ts — хук make coverage, database-hook.ts — база на прогон,
                             stryker-mocha-hook.cjs — шим mocha 12 для make mutation (testing.md)
 migrations/                 миграции, в common/ — общие shorthands и заготовка (storage.md)
@@ -170,7 +171,9 @@ grep -rHoE "app/<путь>/[A-Za-z0-9._-]+" src --include='*.ts' | grep -v "^src
 ```
 
 Импорты только через алиас `app/*` (`tsconfig.json` + `tsc-alias`), относительные
-запрещены ESLint-правилом `no-restricted-imports`. Исключение — каталог `migrations/`:
+запрещены ESLint-правилом `no-restricted-imports`. Спеки импортируют общий код из `test/`
+вторым алиасом, `test/*`: он объявлен только в `tsconfig.check.json`, и в сборке его нет
+(почему и чем это грозит — комментарий там же). Исключение — каталог `migrations/`:
 он лежит вне `src/`, алиас туда не ведёт, и правило снято на весь каталог через
 `overrides` в `.eslintrc.js`.
 

@@ -1,33 +1,15 @@
 import { expect } from "chai";
-import { ApplicationContext } from "app/bootstrap/application/application-context";
-import { ConfigContainer } from "app/bootstrap/config/config-container";
-import type { CC } from "app/bootstrap/config/config-container.types";
-import type { ConfigValues } from "app/bootstrap/config/config-values";
-import type { RawConfig } from "app/bootstrap/config/config-container.types";
 import { configValue } from "app/shared/config-value";
+import { fillApplicationContext, resetApplicationContext } from "test/bootstrap/application/application-context.helper";
 
-type ContextParts = {
-    cc: CC | null;
-};
-
-// Конфиг кладётся в статическое поле мимо create(), как в container.spec.ts: create() собрал бы
-// его из настоящего окружения. Значения неполные намеренно: спеке нужен только путь до контекста,
-// обход пути и его отказы проверяет config-container.spec.ts.
-const context = ApplicationContext as unknown as ContextParts;
-
+// Спеке нужен только путь до контекста: обход пути и его отказы проверяет config-container.spec.ts.
 describe("configValue", function () {
     afterEach(function () {
-        // Контекст общий на весь прогон mocha: заполненным он отдал бы этот конфиг чужим спекам.
-        context.cc = null;
+        resetApplicationContext();
     });
 
     it("resolves a dotted path from the context's config", async function () {
-        const cc = new ConfigContainer<ConfigValues>(
-            { load: async (): Promise<RawConfig> => ({}) },
-            { build: (): ConfigValues => ({ bot: { token: "token" } } as ConfigValues) },
-        );
-        await cc.init();
-        context.cc = cc;
+        await fillApplicationContext({ BOT_TOKEN: "token" });
 
         expect(configValue("bot.token")).to.equal("token");
     });

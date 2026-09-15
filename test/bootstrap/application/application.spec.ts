@@ -2,13 +2,7 @@ import "reflect-metadata";
 import { expect } from "chai";
 import { Application } from "app/bootstrap/application/application";
 import { ApplicationContext } from "app/bootstrap/application/application-context";
-import { ConfigContainer } from "app/bootstrap/config/config-container";
-import type { CC } from "app/bootstrap/config/config-container.types";
-import type { ConfigValues } from "app/bootstrap/config/config-values";
-import { ConfigValuesBuilder } from "app/bootstrap/config/builder/config-values-builder";
 import { container } from "app/bootstrap/container/container";
-import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
-import type { RawConfig } from "app/bootstrap/config/config-container.types";
 import type { Database } from "app/platform/database/database";
 import type { Logger } from "app/platform/logger/logger";
 import { InvalidConfigError, RuntimeError } from "app/shared/errors";
@@ -17,27 +11,13 @@ import type { UnknownObject } from "app/shared/types";
 import type { Bot } from "app/telegram/bot";
 import type { Runner } from "app/telegram/outbound-queue/runner";
 import type { TaskQueue } from "app/telegram/outbound-queue/task-queue";
-
-type ContextParts = {
-    cc: CC | null;
-    logger: Logger | null;
-};
+import { fillApplicationContext, resetApplicationContext } from "test/bootstrap/application/application-context.helper";
 
 type Log = {
     level: keyof Logger;
     message: string;
     payload: UnknownObject | undefined;
 };
-
-class FakeStorage implements ConfigStorage {
-    public constructor(private readonly values: RawConfig) {}
-
-    public async load(): Promise<RawConfig> {
-        return this.values;
-    }
-}
-
-const context = ApplicationContext as unknown as ContextParts;
 
 describe("Application", function () {
     // Порядок старта и остановки — то, что спека закрепляет, поэтому все подмены пишут свои
@@ -129,13 +109,7 @@ describe("Application", function () {
     before(function () {
         ApplicationContext.create = async (): Promise<void> => {
             calls.push("context.create");
-            const cc = new ConfigContainer<ConfigValues>(
-                new FakeStorage({ BOT_TOKEN: "test-token", ...configValues }),
-                new ConfigValuesBuilder(),
-            );
-            await cc.init();
-            context.cc = cc;
-            context.logger = logger;
+            await fillApplicationContext(configValues, logger);
         };
         container.setup = async (): Promise<void> => {
             calls.push("container.setup");
@@ -169,8 +143,7 @@ describe("Application", function () {
 
     afterEach(function () {
         container.restore();
-        context.cc = null;
-        context.logger = null;
+        resetApplicationContext();
     });
 
     // Вызовы на пути к нужному состоянию сбрасываются: их закрепляют тесты setup() и run().
