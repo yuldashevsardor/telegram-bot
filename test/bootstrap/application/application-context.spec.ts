@@ -2,20 +2,12 @@ import "reflect-metadata";
 import { expect } from "chai";
 import { ApplicationContext } from "app/bootstrap/application/application-context";
 import { ApplicationContextIsNotCreated } from "app/bootstrap/application/application-context.errors";
-import type { CC } from "app/bootstrap/config/config-container.types";
-import type { Logger } from "app/platform/logger/logger";
 import { ConsoleLogger } from "app/platform/logger/console-logger";
 import { PinoLogger } from "app/platform/logger/pino-logger";
 import { Level } from "app/platform/logger/logger.types";
 import type { RequestContext } from "app/platform/request-context/request-context";
 import { InvalidConfigError } from "app/shared/errors";
-
-type ContextParts = {
-    cc: CC | null;
-    logger: Logger | null;
-    requestContext: RequestContext | null;
-    creating: Promise<void> | null;
-};
+import { resetApplicationContext } from "test/bootstrap/application/application-context.helper";
 
 // Поля логгера защищённые, а проверить нужно именно их: порог пришёл из конфига, а контекст
 // запроса тот же, что отдаёт ApplicationContext, — с чужим корреляция сломалась бы молча.
@@ -25,10 +17,7 @@ type LoggerParts = {
 };
 
 // create() собирает конфиг из окружения процесса, поэтому спека меняет process.env и после
-// каждого теста возвращает его и обнуляет поля: контекст общий на весь прогон mocha, и
-// заполненным он отдал бы этот конфиг configValue() в чужих спеках.
-const context = ApplicationContext as unknown as ContextParts;
-
+// каждого теста возвращает его и сбрасывает контекст.
 describe("ApplicationContext", function () {
     const originalEnv = new Map<string, string | undefined>();
 
@@ -57,11 +46,7 @@ describe("ApplicationContext", function () {
         }
 
         originalEnv.clear();
-
-        context.cc = null;
-        context.logger = null;
-        context.requestContext = null;
-        context.creating = null;
+        resetApplicationContext();
     });
 
     it("throws ApplicationContextIsNotCreated from every getter before create()", function () {
@@ -131,6 +116,17 @@ describe("ApplicationContext", function () {
 
         expect(second).to.equal(first);
         expect(ApplicationContext.getConfigContainer().get("environment")).to.equal("development");
+    });
+
+    it("builds the context again once its parts have been reset", async function () {
+        setEnv({ NODE_ENV: "development" });
+        await ApplicationContext.create();
+        resetApplicationContext();
+
+        setEnv({ NODE_ENV: "production" });
+        await ApplicationContext.create();
+
+        expect(ApplicationContext.getConfigContainer().get("environment")).to.equal("production");
     });
 
     it("stays empty when the config fails, so the next create() starts from scratch", async function () {

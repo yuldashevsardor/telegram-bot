@@ -1,35 +1,11 @@
 import "reflect-metadata";
 import { expect } from "chai";
 import { Container } from "app/bootstrap/container/container";
-import { ApplicationContext } from "app/bootstrap/application/application-context";
-import { ConfigContainer } from "app/bootstrap/config/config-container";
-import type { CC } from "app/bootstrap/config/config-container.types";
-import type { ConfigValues } from "app/bootstrap/config/config-values";
-import { ConfigValuesBuilder } from "app/bootstrap/config/builder/config-values-builder";
-import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
-import type { RawConfig } from "app/bootstrap/config/config-container.types";
 import type { Database } from "app/platform/database/database";
-import type { Logger } from "app/platform/logger/logger";
-import { ConsoleLogger } from "app/platform/logger/console-logger";
-import { Level } from "app/platform/logger/logger.types";
-import { RequestContext } from "app/platform/request-context/request-context";
 import { Tokens } from "app/shared/tokens";
+import { fillApplicationContext, resetApplicationContext } from "test/bootstrap/application/application-context.helper";
 
 type Branch = { [key: string]: symbol | Branch };
-
-type ContextParts = {
-    cc: CC | null;
-    logger: Logger | null;
-    requestContext: RequestContext | null;
-};
-
-class FakeStorage implements ConfigStorage {
-    public constructor(private readonly values: RawConfig) {}
-
-    public async load(): Promise<RawConfig> {
-        return this.values;
-    }
-}
 
 function collectTokens(branch: Branch, path: string[] = []): Array<{ path: string[]; token: symbol }> {
     return Object.entries(branch).flatMap(([key, value]) =>
@@ -37,29 +13,11 @@ function collectTokens(branch: Branch, path: string[] = []): Array<{ path: strin
     );
 }
 
-// ApplicationContext.create() собирает конфиг из реального окружения, а пустой BOT_TOKEN
-// валит эту сборку. Поэтому части кладутся в статические поля мимо create(): шов для
-// тестов менял бы публичную форму контекста. Поля обнуляются в after — контекст общий на весь
-// прогон mocha, и заполненным он молча отдал бы этот конфиг configValue() в чужих спеках.
-const context = ApplicationContext as unknown as ContextParts;
-
 describe("Container", () => {
     const container = new Container();
 
     before(async () => {
-        const requestContext = new RequestContext();
-
-        const cc = new ConfigContainer<ConfigValues>(new FakeStorage({ BOT_TOKEN: "test-token" }), new ConfigValuesBuilder());
-        await cc.init();
-
-        context.cc = cc;
-        context.requestContext = requestContext;
-        // TaskQueue на конструировании заводит интервалы с info-логом раз в 10 с. Гасить их
-        // нечем, а в test-watch они копятся между прогонами и писали бы в вывод mocha.
-        const logger = new ConsoleLogger(requestContext);
-        logger.setLevel(Level.CRITICAL);
-        context.logger = logger;
-
+        await fillApplicationContext();
         await container.setup();
     });
 
@@ -67,9 +25,7 @@ describe("Container", () => {
         try {
             await container.close();
         } finally {
-            context.cc = null;
-            context.requestContext = null;
-            context.logger = null;
+            resetApplicationContext();
         }
     });
 

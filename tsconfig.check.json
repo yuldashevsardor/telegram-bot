@@ -8,7 +8,19 @@
         "declarationDir": null,
         "declaration": false,
         "declarationMap": false,
-        "rootDir": "."
+        "rootDir": ".",
+        // test/* — алиас общего кода спек: относительный импорт запрещает eslint, а app/* ведёт
+        // только в src. Сборка по tsconfig.json его не знает, поэтому импорт test/* из src
+        // пройдёт typecheck и dev, но уронит build. paths у наследника заменяет родительский
+        // целиком, а не дописывается к нему, поэтому app/* здесь повторён.
+        "paths": {
+            "app/*": [
+                "./src/*"
+            ],
+            "test/*": [
+                "./test/*"
+            ]
+        }
     },
     "include": [
         "src/**/*.ts",

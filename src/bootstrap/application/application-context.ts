@@ -26,14 +26,21 @@ export class ApplicationContext {
     // Контекст один на процесс: второй сломал бы корреляцию молча — у него своё хранилище
     // запроса, и логгер читал бы не тот стор, который открыл middleware. Поэтому повторный
     // create() не ошибка, а та же сборка: вызов посреди неё ждёт её, а не начинает вторую, —
-    // конфиг собирается асинхронно, и проверка готовых полей пропустила бы оба вызова.
-    // Упавшая сборка забывается, и следующий create() начинает с нуля.
+    // конфиг собирается асинхронно, и одна проверка готовых полей пропустила бы оба вызова.
+    //
+    // Промис живёт, только пока сборка идёт, и забывается при любом исходе: упавшая сборка не
+    // мешает следующему create() начать с нуля, а собран ли контекст, create() решает по тем же
+    // полям, что и геттеры. Держись промис и после сборки, признаков готовности стало бы два, и
+    // контекст с обнулёнными полями (так его сбрасывают спеки) create() не пересобрал бы, а
+    // геттеры отвергли бы.
     public static create(): Promise<void> {
-        if (ApplicationContext.creating === null) {
-            ApplicationContext.creating = ApplicationContext.assemble().catch((error: unknown) => {
-                ApplicationContext.creating = null;
+        if (ApplicationContext.cc !== null && ApplicationContext.logger !== null && ApplicationContext.requestContext !== null) {
+            return Promise.resolve();
+        }
 
-                throw error;
+        if (ApplicationContext.creating === null) {
+            ApplicationContext.creating = ApplicationContext.assemble().finally(() => {
+                ApplicationContext.creating = null;
             });
         }
 
