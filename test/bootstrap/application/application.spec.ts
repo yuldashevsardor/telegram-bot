@@ -349,7 +349,9 @@ describe("Application", function () {
         });
 
         // Нулевой срок в docs/architecture/config.md — «не ждать»: ни витка ожидания с логом, ни паузы
-        // перед остановкой runner.
+        // перед остановкой runner. Мутанта `timeLeft < 0` тест ловит, только если оба Date.now() в
+        // waitQueueToEmpty() пришлись на одну миллисекунду: сменись она между ними — и мутант тоже сразу
+        // уходит в предупреждение. Поэтому изредка он выживает, и дыры в тесте за этим нет.
         it("does not wait for the queue when its timeout is zero", async function () {
             configValues = { TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT: "0" };
             queueSize = (): number => 3;
