@@ -226,6 +226,28 @@ describe("Application", function () {
             expect(calls).to.deep.equal([]);
         });
 
+        it("waits for the setup in progress instead of starting another one", async function () {
+            const check = Promise.withResolvers<void>();
+            checkDatabase = (): Promise<void> => check.promise;
+            const application = new Application();
+
+            const first = application.setup();
+            const second = application.setup().then(() => calls.push("second setup resolved"));
+            check.resolve();
+            await Promise.all([first, second]);
+
+            expect(calls).to.deep.equal([
+                "context.create",
+                "container.setup",
+                "database.check",
+                "resolve TaskQueue",
+                "resolve Runner",
+                "resolve Bot",
+                "bot.setup",
+                "second setup resolved",
+            ]);
+        });
+
         it("does not resolve the bot and stays not set up when the database check fails", async function () {
             const error = new Error("connection refused");
             checkDatabase = (): Promise<void> => Promise.reject(error);
@@ -234,6 +256,17 @@ describe("Application", function () {
             expect(await caught(application.setup())).to.equal(error);
             expect(calls).to.deep.equal(["context.create", "container.setup", "database.check"]);
             expect(await caught(application.run())).to.be.instanceOf(RuntimeError);
+        });
+
+        it("rejects again with the same error without repeating a failed setup", async function () {
+            const error = new Error("connection refused");
+            checkDatabase = (): Promise<void> => Promise.reject(error);
+            const application = new Application();
+            await caught(application.setup());
+            calls.length = 0;
+
+            expect(await caught(application.setup())).to.equal(error);
+            expect(calls).to.deep.equal([]);
         });
     });
 
@@ -266,6 +299,28 @@ describe("Application", function () {
             expect(calls).to.deep.equal(["runner.run", "bot.run", "runner.stop"]);
             expect(logs).to.deep.equal([]);
         });
+
+        it("rejects when already running without starting anything again", async function () {
+            const application = await start();
+
+            const error = await caught(application.run());
+
+            expect(error).to.be.instanceOf(RuntimeError);
+            expect((error as RuntimeError).message).to.equal("Application is already running!");
+            expect(calls).to.deep.equal([]);
+        });
+
+        it("starts nothing once the application has been stopped", async function () {
+            const application = await setUp();
+            await application.stop();
+            calls.length = 0;
+            logs.length = 0;
+
+            await application.run();
+
+            expect(calls).to.deep.equal([]);
+            expect(logs).to.deep.equal([]);
+        });
     });
 
     describe("stop()", function () {
@@ -296,14 +351,97 @@ describe("Application", function () {
             ]);
         });
 
-        it("only closes the container on a second stop after the first one has finished", async function () {
+        it("does nothing on a second stop after the first one has finished", async function () {
             const application = await start();
             await application.stop();
             calls.length = 0;
+            logs.length = 0;
 
             await application.stop();
 
-            expect(calls).to.deep.equal(["container.close"]);
+            expect(calls).to.deep.equal([]);
+            expect(logs).to.deep.equal([]);
+        });
+
+        // Так app.ts обрабатывает сигнал другого вида, пришедший во время остановки: второй
+        // stop(), вернувшийся раньше первого, дал бы process.exit(0) оборвать остановку.
+        it("waits for the stop in progress instead of starting another one", async function () {
+            const botStopped = Promise.withResolvers<void>();
+            stopBot = (): Promise<void> => botStopped.promise;
+            const application = await start();
+
+            const first = application.stop();
+            const second = application.stop().then(() => calls.push("second stop resolved"));
+            botStopped.resolve();
+            await Promise.all([first, second]);
+
+            expect(calls).to.deep.equal(["bot.stop", "taskQueue.isEmpty", "runner.stop", "container.close", "second stop resolved"]);
+            expect(logs.map(({ message }) => message)).to.deep.equal(["Stop application...", "Application is successfully stopped."]);
+        });
+
+        // Сигнал посреди setup(): bootstrap() в app.ts после настройки зовёт run(), и тот не
+        // должен запустить приложение, которое уже останавливается.
+        it("waits for the setup in progress, then only closes the container while run() starts nothing", async function () {
+            const check = Promise.withResolvers<void>();
+            checkDatabase = (): Promise<void> => check.promise;
+            const application = new Application();
+
+            const started = application.setup().then(() => application.run());
+            const stopped = application.stop();
+            check.resolve();
+            await Promise.all([started, stopped]);
+
+            expect(calls).to.deep.equal([
+                "context.create",
+                "container.setup",
+                "database.check",
+                "resolve TaskQueue",
+                "resolve Runner",
+                "resolve Bot",
+                "bot.setup",
+                "container.close",
+            ]);
+            expect(logs.map(({ message }) => message)).to.include("Application is successfully stopped.");
+            expect(logs.map(({ message }) => message)).to.not.include("Application is successfully started.");
+        });
+
+        // Отказ приходит в fail() из обоих путей app.ts с одной ошибкой; первый вызов завершает
+        // процесс, поэтому critical один, а код выхода — 1, а не exit(0) остановки.
+        it("rejects with the error of the setup in progress when it fails", async function () {
+            const error = new Error("connection refused");
+            const check = Promise.withResolvers<void>();
+            checkDatabase = (): Promise<void> => check.promise;
+            const application = new Application();
+
+            const setup = caught(application.setup());
+            const stop = caught(application.stop());
+            check.reject(error);
+
+            expect(await setup).to.equal(error);
+            expect(await stop).to.equal(error);
+            expect(calls).to.deep.equal(["context.create", "container.setup", "database.check"]);
+        });
+
+        it("waits for the setup in progress no longer than the graceful shutdown timeout", async function () {
+            configValues = {
+                GRACEFUL_SHUTDOWN_TIMEOUT: "20",
+                BOT_GRACEFUL_SHUTDOWN_TIMEOUT: "0",
+                TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT: "0",
+            };
+            checkDatabase = (): Promise<void> => new Promise(() => undefined);
+            const application = new Application();
+
+            void application.setup();
+            await application.stop();
+
+            expect(calls).to.deep.equal(["context.create", "container.setup", "database.check"]);
+            expect(logs.filter(({ level }) => level === "warning")).to.deep.equal([
+                {
+                    level: "warning",
+                    message: "Graceful shutdown timeout is over, the shutdown was cut short.",
+                    payload: { timeout: 20 },
+                },
+            ]);
         });
 
         it("stops the runner only after the queue has emptied", async function () {
