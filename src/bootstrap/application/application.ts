@@ -1,6 +1,7 @@
 import { container } from "app/bootstrap/container/container";
 import { ApplicationContext } from "app/bootstrap/application/application-context";
-import type { ConfigContainer } from "app/bootstrap/config-container";
+import type { ConfigContainer } from "app/bootstrap/config/config-container";
+import type { ConfigValues } from "app/bootstrap/config/config-values";
 import type { Logger } from "app/platform/logger/logger";
 import { Tokens } from "app/shared/tokens";
 import type { Database } from "app/platform/database/database";
@@ -29,7 +30,7 @@ type State =
     | { name: "stopped" };
 
 export class Application {
-    private cc!: ConfigContainer;
+    private cc!: ConfigContainer<ConfigValues>;
     private logger!: Logger;
     // Заполняются в assemble() и до её конца никем не читаются: run() идёт только из ready, а
     // shutdown() трогает их только из running.

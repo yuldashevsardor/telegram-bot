@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { expect } from "chai";
-import { ConfigContainer } from "app/bootstrap/config-container";
-import { ConfigEnvStorage } from "app/platform/config/config-env-storage";
+import { ConfigBuilder } from "app/bootstrap/config/builder/config-builder";
+import { ConfigEnvStorage } from "app/bootstrap/config/storage/config-env-storage";
 import { Database } from "app/platform/database/database";
 import { RuntimeError } from "app/shared/errors";
 import { PgsqlStorage } from "app/telegram/session/pgsql-storage";
@@ -15,9 +15,11 @@ describe("PgsqlStorage", function () {
     before(function () {
         const env = new ConfigEnvStorage();
         // BOT_TOKEN конфиг требует, а спеке нужна только база: без подстановки она зависела бы от токена в .env.
-        const config = new ConfigContainer({ get: (key): string | undefined => (key === "BOT_TOKEN" ? "test-token" : env.get(key)) });
+        const settings = new ConfigBuilder({
+            get: (key): string | undefined => (key === "BOT_TOKEN" ? "test-token" : env.get(key)),
+        }).build().database;
 
-        database = new Database({ ...config.get("database"), database: testDatabaseName() }, false);
+        database = new Database({ ...settings, database: testDatabaseName() }, false);
         storage = new PgsqlStorage(database);
     });
 

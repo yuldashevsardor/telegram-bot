@@ -1,5 +1,7 @@
-import { ConfigContainer } from "app/bootstrap/config-container";
-import { ConfigEnvStorage } from "app/platform/config/config-env-storage";
+import { ConfigContainer } from "app/bootstrap/config/config-container";
+import { ConfigBuilder } from "app/bootstrap/config/builder/config-builder";
+import type { ConfigValues } from "app/bootstrap/config/config-values";
+import { ConfigEnvStorage } from "app/bootstrap/config/storage/config-env-storage";
 import type { Logger } from "app/platform/logger/logger";
 import { ConsoleLogger } from "app/platform/logger/console-logger";
 import { PinoLogger } from "app/platform/logger/pino-logger";
@@ -15,7 +17,7 @@ import { ApplicationContextIsNotCreated } from "app/bootstrap/application/applic
 // обязан не потерять. Потерянную ссылку на объект восстановить было бы нечем — собранный
 // логгер и хранилище остались бы в процессе без единого входа к ним.
 export class ApplicationContext {
-    private static config: ConfigContainer | null = null;
+    private static config: ConfigContainer<ConfigValues> | null = null;
     private static logger: Logger | null = null;
     private static requestContext: RequestContext | null = null;
 
@@ -30,7 +32,7 @@ export class ApplicationContext {
             return;
         }
 
-        const config = new ConfigContainer(new ConfigEnvStorage());
+        const config = new ConfigContainer(new ConfigBuilder(new ConfigEnvStorage()).build());
         const requestContext = new RequestContext();
         const logger = ApplicationContext.createLogger(config, requestContext);
 
@@ -41,7 +43,7 @@ export class ApplicationContext {
         ApplicationContext.logger = logger;
     }
 
-    public static getConfigContainer(): ConfigContainer {
+    public static getConfigContainer(): ConfigContainer<ConfigValues> {
         if (ApplicationContext.config === null) {
             throw new ApplicationContextIsNotCreated("ApplicationContext is not created, call create() first.");
         }
@@ -67,7 +69,7 @@ export class ApplicationContext {
 
     // Логгер один на процесс: значения запроса он берёт из RequestContext в момент записи,
     // поэтому подменять сам объект под запрос не требуется.
-    private static createLogger(config: ConfigContainer, requestContext: RequestContext): Logger {
+    private static createLogger(config: ConfigContainer<ConfigValues>, requestContext: RequestContext): Logger {
         const logger = config.get("isProduction") ? new PinoLogger(requestContext) : new ConsoleLogger(requestContext);
         logger.setLevel(config.get("logger.level"));
 

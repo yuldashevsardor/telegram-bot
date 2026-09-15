@@ -3,7 +3,7 @@ import { expect } from "chai";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import { ConfigEnvStorage } from "app/platform/config/config-env-storage";
+import { ConfigEnvStorage } from "app/bootstrap/config/storage/config-env-storage";
 
 const KEY = "CONFIG_ENV_STORAGE_SPEC_VALUE";
 const FILE_KEY = "CONFIG_ENV_STORAGE_SPEC_FILE_VALUE";

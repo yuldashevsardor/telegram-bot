@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import type { TelegramLimits } from "app/bootstrap/config-container";
+import type { TelegramLimits } from "app/bootstrap/config/config-values";
 import type { PartitionKey, Task } from "app/telegram/outbound-queue/task";
 import { Priority } from "app/telegram/outbound-queue/task";
 import { TelegramLimitResolver } from "app/telegram/telegram-limit-resolver";

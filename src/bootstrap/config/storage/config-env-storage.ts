@@ -1,5 +1,5 @@
 import * as dotenv from "dotenv";
-import type { ConfigStorage } from "app/platform/config/config-storage";
+import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
 
 export class ConfigEnvStorage implements ConfigStorage {
     public constructor() {

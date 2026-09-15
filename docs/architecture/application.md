@@ -31,8 +31,8 @@ match») и `@inject`, пропущенный не в хвосте констр�
 `Tokens.Bot.Middleware.RequestContext` одноимённы, но не сталкиваются.
 
 Конфигурация в DI не участвует: значение берёт функция `configValue("limits.common")`
-(`shared/config-value.ts`) — спрашивает `ConfigContainer` у `ApplicationContext` (ниже) и
-отдаёт его `get()` «точечный» путь. Ни токена, ни биндинга, ни inversify у неё нет: конфигурация
+(`shared/config-value.ts`) — берёт `ConfigContainer` у `ApplicationContext` (ниже) и
+передаёт «точечный» путь в `ConfigContainer.get()`. Ни токена, ни биндинга, ни inversify у неё нет: конфигурация
 существует до контейнера, и спрашивать её у контейнера незачем.
 
 Стоит она умолчанием параметра конструктора, и никакой пометки параметру не нужно:
@@ -63,11 +63,11 @@ public constructor(
 прежний `@ConfigValue` требовал поднятого контейнера
 (`test/telegram/outbound-queue/task-queue.spec.ts` больше ничего не подменяет).
 
-Путь — строковый литерал, но не произвольный: его тип `ConfigPath` собран из
-`ConfigValues` (`bootstrap/config-container.ts`), а тип результата выведен из того же места
-(`ValueByPath`). Поэтому компилятор отвергает и промах в пути — опечатку, путь сквозь
-примитив (`"tempDir.nope"`), — и несовпадение объявленного типа: `const x: string =
-configValue("limits.common")` не соберётся. Прежний `@ConfigValue<T>("ключ")` не проверял
+Путь — строковый литерал, но не произвольный: его тип `ConfigPath`
+(`bootstrap/config/config-container.types.ts`) собран из `ConfigValues`, а тип результата
+выведен из того же места (`ValueByPath`). Поэтому компилятор отвергает и промах в пути —
+опечатку, путь сквозь примитив (`"tempDir.nope"`), — и несовпадение объявленного типа:
+`const x: string = configValue("limits.common")` не соберётся. Прежний `@ConfigValue<T>("ключ")` не проверял
 ни того, ни другого: ключ был строкой, тип — подсказкой на месте вызова, а внутри стояли
 три `as`. Осталось одно приведение, в `ConfigContainer.get()`: обход по точкам компилятору
 не проследить.
@@ -82,8 +82,8 @@ configValue("limits.common")` не соберётся. Прежний `@ConfigVa
 `ApplicationContext` (`bootstrap/application/application-context.ts`) — состав того,
 что нужно приложению всегда: конфиг, логгер, контекст запроса. Эти объекты существуют до
 контейнера, потому что собрать его без них нельзя. Контекст собирает себя сам
-(`ApplicationContext.create()`): внутри `ConfigEnvStorage` → `ConfigContainer` →
-`RequestContext` → выбор адаптера логгера.
+(`ApplicationContext.create()`): внутри `ConfigEnvStorage` → `ConfigBuilder` →
+`ConfigContainer` → `RequestContext` → выбор адаптера логгера.
 
 Класс статический целиком: части лежат на нём и выдаются `getConfigContainer()`,
 `getLogger()`, `getRequestContext()`, экземпляра нет вовсе. Так контекст нельзя потерять —
@@ -190,7 +190,7 @@ configValue("limits.common")` не соберётся. Прежний `@ConfigVa
 5. `container.close()` → `Database.close()` → `sql.end({ timeout: 5 })`
    ([`storage.md`](./storage.md)).
 
-Общий срок обязан быть больше суммы двух частных (`ConfigContainer` проверяет) и меньше
+Общий срок обязан быть больше суммы двух частных (`ConfigBuilder` проверяет) и меньше
 `stop_grace_period: 20s` контейнера — это уже не проверяется
 ([инвариант](./invariants.md)). Собственные сроки зависимостей (`sql.end({ timeout: 5 })`)
 в проверку не входят.

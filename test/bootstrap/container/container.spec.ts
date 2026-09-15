@@ -2,8 +2,10 @@ import "reflect-metadata";
 import { expect } from "chai";
 import { Container } from "app/bootstrap/container/container";
 import { ApplicationContext } from "app/bootstrap/application/application-context";
-import { ConfigContainer } from "app/bootstrap/config-container";
-import type { ConfigStorage } from "app/platform/config/config-storage";
+import { ConfigContainer } from "app/bootstrap/config/config-container";
+import { ConfigBuilder } from "app/bootstrap/config/builder/config-builder";
+import type { ConfigValues } from "app/bootstrap/config/config-values";
+import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
 import type { Database } from "app/platform/database/database";
 import type { Logger } from "app/platform/logger/logger";
 import { ConsoleLogger } from "app/platform/logger/console-logger";
@@ -14,7 +16,7 @@ import { Tokens } from "app/shared/tokens";
 type Branch = { [key: string]: symbol | Branch };
 
 type ContextParts = {
-    config: ConfigContainer | null;
+    config: ConfigContainer<ConfigValues> | null;
     logger: Logger | null;
     requestContext: RequestContext | null;
 };
@@ -45,7 +47,7 @@ describe("Container", () => {
     before(async () => {
         const requestContext = new RequestContext();
 
-        context.config = new ConfigContainer(new FakeStorage({ BOT_TOKEN: "test-token" }));
+        context.config = new ConfigContainer(new ConfigBuilder(new FakeStorage({ BOT_TOKEN: "test-token" })).build());
         context.requestContext = requestContext;
         // TaskQueue на конструировании заводит интервалы с info-логом раз в 10 с. Гасить их
         // нечем, а в test-watch они копятся между прогонами и писали бы в вывод mocha.

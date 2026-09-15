@@ -1,14 +1,16 @@
 import "reflect-metadata";
 import { expect } from "chai";
 import { ApplicationContext } from "app/bootstrap/application/application-context";
-import { ConfigContainer } from "app/bootstrap/config-container";
-import type { ConfigStorage } from "app/platform/config/config-storage";
+import { ConfigContainer } from "app/bootstrap/config/config-container";
+import { ConfigBuilder } from "app/bootstrap/config/builder/config-builder";
+import type { ConfigValues } from "app/bootstrap/config/config-values";
+import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
 import { Database } from "app/platform/database/database";
 import type { DatabaseSettings } from "app/platform/database/database.types";
 import { RuntimeError } from "app/shared/errors";
 
 type ContextParts = {
-    config: ConfigContainer | null;
+    config: ConfigContainer<ConfigValues> | null;
 };
 
 // Окружение контейнера, в котором DATABASE_NAME заменено базой прогона. Её создаёт
@@ -30,7 +32,7 @@ const context = ApplicationContext as unknown as ContextParts;
 
 describe("Database", function () {
     it("connects with the settings from the config by default", async function () {
-        context.config = new ConfigContainer(new TestDatabaseStorage());
+        context.config = new ConfigContainer(new ConfigBuilder(new TestDatabaseStorage()).build());
 
         let database: Database;
 
@@ -116,7 +118,7 @@ function testDatabaseName(): string {
 }
 
 function settings(): DatabaseSettings {
-    return new ConfigContainer(new TestDatabaseStorage()).get("database");
+    return new ConfigBuilder(new TestDatabaseStorage()).build().database;
 }
 
 async function failedQueryKeys(isProduction: boolean): Promise<string[]> {

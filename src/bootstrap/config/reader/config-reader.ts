@@ -1,5 +1,5 @@
 import { InvalidConfigError } from "app/shared/errors";
-import type { ConfigStorage } from "app/platform/config/config-storage";
+import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
 
 const Booleans = new Map([
     ["true", true],
@@ -15,7 +15,7 @@ export type IntegerRange = {
 
 // Разбор строк источника в значения. Умолчание подставляется только вместо отсутствующей или
 // пустой переменной; всё, что задано, но недопустимо, — InvalidConfigError с её именем на старте.
-// Отдельный класс, а не приватные методы ConfigContainer: у хелпера может ещё не быть вызова
+// Отдельный класс, а не приватные методы ConfigBuilder: у хелпера может ещё не быть вызова
 // (getBoolean, getArray), а noUnusedLocals не пропускает приватный метод без вызовов.
 export class ConfigReader {
     // Наибольшая задержка таймеров Node: знаковое 32-битное целое.

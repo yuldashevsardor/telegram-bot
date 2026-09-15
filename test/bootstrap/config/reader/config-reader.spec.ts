@@ -1,6 +1,6 @@
 import { expect } from "chai";
-import { ConfigReader } from "app/bootstrap/config-reader";
-import type { ConfigStorage } from "app/platform/config/config-storage";
+import { ConfigReader } from "app/bootstrap/config/reader/config-reader";
+import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
 import { InvalidConfigError } from "app/shared/errors";
 
 const Colors = ["red", "green", "blue"] as const;

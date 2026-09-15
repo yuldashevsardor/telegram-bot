@@ -2,9 +2,11 @@ import "reflect-metadata";
 import { expect } from "chai";
 import { Application } from "app/bootstrap/application/application";
 import { ApplicationContext } from "app/bootstrap/application/application-context";
-import { ConfigContainer } from "app/bootstrap/config-container";
+import { ConfigContainer } from "app/bootstrap/config/config-container";
+import { ConfigBuilder } from "app/bootstrap/config/builder/config-builder";
+import type { ConfigValues } from "app/bootstrap/config/config-values";
 import { container } from "app/bootstrap/container/container";
-import type { ConfigStorage } from "app/platform/config/config-storage";
+import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
 import type { Database } from "app/platform/database/database";
 import type { Logger } from "app/platform/logger/logger";
 import { RuntimeError } from "app/shared/errors";
@@ -15,7 +17,7 @@ import type { Runner } from "app/telegram/outbound-queue/runner";
 import type { TaskQueue } from "app/telegram/outbound-queue/task-queue";
 
 type ContextParts = {
-    config: ConfigContainer | null;
+    config: ConfigContainer<ConfigValues> | null;
     logger: Logger | null;
 };
 
@@ -125,7 +127,7 @@ describe("Application", function () {
     before(function () {
         ApplicationContext.create = (): void => {
             calls.push("context.create");
-            context.config = new ConfigContainer(new FakeStorage({ BOT_TOKEN: "test-token", ...configValues }));
+            context.config = new ConfigContainer(new ConfigBuilder(new FakeStorage({ BOT_TOKEN: "test-token", ...configValues })).build());
             context.logger = logger;
         };
         container.setup = async (): Promise<void> => {

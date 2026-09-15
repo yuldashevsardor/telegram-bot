@@ -1,86 +1,17 @@
 import path from "path";
 import { Level, Levels } from "app/platform/logger/logger.types";
 import { InvalidConfigError } from "app/shared/errors";
-import type { UnknownObject } from "app/shared/types";
-import { ConfigReader } from "app/bootstrap/config-reader";
-import type { IntegerRange } from "app/bootstrap/config-reader";
-import type { Limit } from "app/telegram/outbound-queue/rate-limit.types";
+import { ConfigReader } from "app/bootstrap/config/reader/config-reader";
+import type { IntegerRange } from "app/bootstrap/config/reader/config-reader";
 import type { RunnerSettings } from "app/telegram/outbound-queue/runner.types";
 import type { DatabaseSettings } from "app/platform/database/database.types";
-import type { ConfigStorage } from "app/platform/config/config-storage";
-import type { BotSettings } from "app/telegram/bot.types";
+import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
+import { Environments } from "app/bootstrap/config/config-values";
+import type { ConfigValues, LoggerConfig } from "app/bootstrap/config/config-values";
 
-type LoggerConfig = {
-    level: Level;
-};
-
-const Environments = ["production", "development", "testing"] as const;
-
-type Leaf = string | number | boolean | bigint | symbol | null | undefined;
-
-// Все «точечные» пути внутрь T: сам ключ, а для вложенного объекта — ещё и пути под ним.
-// У листа набор путей пуст, и `${Key}.${never}` схлопывается в never, поэтому за примитив
-// путь не продолжается.
-type Paths<T> = T extends Leaf
-    ? never
-    : {
-          [Key in keyof T & string]: Key | `${Key}.${Paths<T[Key]>}`;
-      }[keyof T & string];
-
-type ValueByPath<T, Path extends string> = Path extends `${infer Key}.${infer Rest}`
-    ? Key extends keyof T
-        ? ValueByPath<T[Key], Rest>
-        : never
-    : Path extends keyof T
-    ? T[Path]
-    : never;
-
-export type Environment = (typeof Environments)[number];
-
-// Лимиты бота по областям: общий на весь исходящий трафик и по одному на приватный чат и на
-// группу. Какой из них достанется партиции, решает TelegramLimitResolver, а не сама очередь.
-export type TelegramLimits = {
-    common: Limit;
-    private: Limit;
-    group: Limit;
-};
-
-export type ConfigValues = {
-    environment: Environment;
-    isProduction: boolean;
-
-    rootDir: string;
-    tempDir: string;
-    fontForgePath: string;
-
-    limits: TelegramLimits;
-
-    runner: RunnerSettings;
-
-    bot: BotSettings;
-
-    taskQueue: {
-        logInterval: number;
-        gracefulShutdown: {
-            timeout: number;
-            interval: number;
-        };
-    };
-
-    gracefulShutdown: {
-        timeout: number;
-    };
-
-    logger: LoggerConfig;
-
-    database: DatabaseSettings;
-};
-
-export type ConfigPath = Paths<ConfigValues>;
-
-export type ConfigValue<Path extends ConfigPath> = ValueByPath<ConfigValues, Path>;
-
-export class ConfigContainer {
+// Собирает ConfigValues из источника: разбор идёт через ConfigReader, а проверки, связывающие
+// несколько переменных, — здесь, поэтому отказ конфигурации приходится на build(), то есть на старт.
+export class ConfigBuilder {
     // Остывание слота RateLimit — interval / number: ноль в number делает его бесконечным, и слот
     // не освобождается никогда, а ноль в interval — нулевым, и лимит перестаёт ограничивать.
     private static readonly LIMIT_RANGE: IntegerRange = { min: 1 };
@@ -93,18 +24,18 @@ export class ConfigContainer {
         max: Math.floor(ConfigReader.MAX_TIMER_DELAY / 1000),
     };
 
-    private readonly values: ConfigValues;
-
     private readonly reader: ConfigReader;
 
     public constructor(storage: ConfigStorage) {
         this.reader = new ConfigReader(storage);
+    }
 
+    public build(): ConfigValues {
         const environment = this.reader.getEnum("NODE_ENV", Environments, "development");
         const isProduction = environment === "production";
         const rootDir = process.cwd();
 
-        this.values = {
+        const values: ConfigValues = {
             environment: environment,
             isProduction: isProduction,
 
@@ -114,16 +45,16 @@ export class ConfigContainer {
 
             limits: {
                 common: {
-                    number: this.reader.getInteger("LIMIT_COMMON_NUMBER", 30, ConfigContainer.LIMIT_RANGE),
-                    interval: this.reader.getInteger("LIMIT_COMMON_INTERVAL", 1000, ConfigContainer.LIMIT_RANGE), // 1 секунда
+                    number: this.reader.getInteger("LIMIT_COMMON_NUMBER", 30, ConfigBuilder.LIMIT_RANGE),
+                    interval: this.reader.getInteger("LIMIT_COMMON_INTERVAL", 1000, ConfigBuilder.LIMIT_RANGE), // 1 секунда
                 },
                 private: {
-                    number: this.reader.getInteger("LIMIT_PRIVATE_NUMBER", 3, ConfigContainer.LIMIT_RANGE),
-                    interval: this.reader.getInteger("LIMIT_PRIVATE_INTERVAL", 1000, ConfigContainer.LIMIT_RANGE), // 1 секунда
+                    number: this.reader.getInteger("LIMIT_PRIVATE_NUMBER", 3, ConfigBuilder.LIMIT_RANGE),
+                    interval: this.reader.getInteger("LIMIT_PRIVATE_INTERVAL", 1000, ConfigBuilder.LIMIT_RANGE), // 1 секунда
                 },
                 group: {
-                    number: this.reader.getInteger("LIMIT_GROUP_NUMBER", 20, ConfigContainer.LIMIT_RANGE),
-                    interval: this.reader.getInteger("LIMIT_GROUP_INTERVAL", 60 * 1000, ConfigContainer.LIMIT_RANGE), // 1 минута
+                    number: this.reader.getInteger("LIMIT_GROUP_NUMBER", 20, ConfigBuilder.LIMIT_RANGE),
+                    interval: this.reader.getInteger("LIMIT_GROUP_INTERVAL", 60 * 1000, ConfigBuilder.LIMIT_RANGE), // 1 минута
                 },
             },
 
@@ -152,29 +83,9 @@ export class ConfigContainer {
             database: this.getDatabase(),
         };
 
-        this.checkGracefulShutdown();
-    }
+        ConfigBuilder.checkGracefulShutdown(values);
 
-    public get<Path extends ConfigPath>(dottedPath: Path): ConfigValue<Path> {
-        const value = dottedPath.split(".").reduce<unknown>((current, key) => {
-            if (current === null || typeof current !== "object") {
-                return undefined;
-            }
-
-            return (current as UnknownObject)[key];
-        }, this.values);
-
-        // Путь проверен компилятором, поэтому сюда приводит не опечатка в нём, а расхождение
-        // объявленной формы конфигурации с настоящей — необязательное поле, ставшее undefined.
-        if (value === undefined) {
-            throw new InvalidConfigError(`Invalid config "${dottedPath}"`, {
-                path: dottedPath,
-            });
-        }
-
-        // Приведение результата: обход по точкам компилятору не проследить, но путь он уже сверил
-        // с ConfigValues, и ValueByPath выводит тип из того же места, откуда пришло значение.
-        return value as ConfigValue<Path>;
+        return values;
     }
 
     // Из этих границ Runner случайно выбирает паузу на каждой пустой итерации, поэтому пустой
@@ -201,8 +112,7 @@ export class ConfigContainer {
     // покрывать их сумму. Дальше этого проверка не идёт: приложение не пересчитывает
     // собственные сроки всех своих зависимостей (у sql.end() внутри Database.close(), скажем,
     // свои 5 секунд) — общий срок просто берётся с запасом, а не выводится из них.
-    private checkGracefulShutdown(): void {
-        const { bot, taskQueue, gracefulShutdown } = this.values;
+    private static checkGracefulShutdown({ bot, taskQueue, gracefulShutdown }: ConfigValues): void {
         const parts = bot.gracefulShutdown.timeout + taskQueue.gracefulShutdown.timeout;
 
         if (gracefulShutdown.timeout <= parts) {
@@ -231,8 +141,8 @@ export class ConfigContainer {
             password: this.reader.getString("DATABASE_USER_PASSWORD", ""),
             connection: {
                 max: this.reader.getInteger("DATABASE_CONNECTION_LIMIT", 10, { min: 1 }),
-                idleTimeout: this.reader.getInteger("DATABASE_CONNECTION_IDLE_TIMEOUT", 10, ConfigContainer.DATABASE_TIMER_RANGE),
-                maxLifetime: this.reader.getInteger("DATABASE_CONNECTION_MAX_LIFETIME", 60 * 10, ConfigContainer.DATABASE_TIMER_RANGE),
+                idleTimeout: this.reader.getInteger("DATABASE_CONNECTION_IDLE_TIMEOUT", 10, ConfigBuilder.DATABASE_TIMER_RANGE),
+                maxLifetime: this.reader.getInteger("DATABASE_CONNECTION_MAX_LIFETIME", 60 * 10, ConfigBuilder.DATABASE_TIMER_RANGE),
             },
         };
     }

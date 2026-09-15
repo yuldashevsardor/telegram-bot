@@ -2,7 +2,8 @@ import "reflect-metadata";
 import { expect } from "chai";
 import { ApplicationContext } from "app/bootstrap/application/application-context";
 import { ApplicationContextIsNotCreated } from "app/bootstrap/application/application-context.errors";
-import type { ConfigContainer } from "app/bootstrap/config-container";
+import type { ConfigContainer } from "app/bootstrap/config/config-container";
+import type { ConfigValues } from "app/bootstrap/config/config-values";
 import type { Logger } from "app/platform/logger/logger";
 import { ConsoleLogger } from "app/platform/logger/console-logger";
 import { PinoLogger } from "app/platform/logger/pino-logger";
@@ -11,7 +12,7 @@ import type { RequestContext } from "app/platform/request-context/request-contex
 import { InvalidConfigError } from "app/shared/errors";
 
 type ContextParts = {
-    config: ConfigContainer | null;
+    config: ConfigContainer<ConfigValues> | null;
     logger: Logger | null;
     requestContext: RequestContext | null;
 };
