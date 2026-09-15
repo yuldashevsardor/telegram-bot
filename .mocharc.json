@@ -1,5 +1,5 @@
 {
-    // tsx грузит TypeScript и сам разрешает алиас app/* по paths, поэтому отдельный
+    // tsx грузит TypeScript и сам разрешает алиасы app/* и test/* по paths, поэтому отдельный
     // резолвер путей не нужен. Типы он не проверяет — это делает npm run typecheck.
     // Тиконфиг ему задаёт TSX_TSCONFIG_PATH в npm-скрипте test: compilerOptions
     // применяются только к файлам из include, а test/** есть лишь в tsconfig.check.json.
