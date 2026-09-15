@@ -198,3 +198,32 @@ describe("FontConvertor", function () {
         );
     }
 });
+
+describe("ConvertorNotFound and InvalidFontSignature", function () {
+    // Фабрики проверяются напрямую: спека выше сверяет у ConvertorNotFound только payload, а
+    // спека Convertor сверяет отказ с ошибкой той же фабрики, и текст там сравнивается сам с собой.
+    const cases = [
+        {
+            name: "ConvertorNotFound.byExtensions",
+            error: ConvertorNotFound.byExtensions(Extension.TTF, Extension.WOFF),
+            type: ConvertorNotFound,
+            message: "Convertor for ttf to woff not found.",
+            payload: { from: "ttf", to: "woff" },
+        },
+        {
+            name: "InvalidFontSignature.byPathAndExtension",
+            error: InvalidFontSignature.byPathAndExtension("/x/font.ttf", Extension.TTF),
+            type: InvalidFontSignature,
+            message: "File /x/font.ttf content does not match ttf format.",
+            payload: { path: "/x/font.ttf", extension: "ttf" },
+        },
+    ];
+
+    for (const { name, error, type, message, payload } of cases) {
+        it(`${name} keeps its message and details`, function () {
+            expect(error).to.be.instanceOf(type);
+            expect(error.message).to.equal(message);
+            expect(error.payload).to.deep.equal(payload);
+        });
+    }
+});
