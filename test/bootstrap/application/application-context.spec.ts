@@ -83,7 +83,7 @@ describe("ApplicationContext", function () {
 
         const logger = ApplicationContext.getLogger();
 
-        expect(ApplicationContext.getConfigContainer().environment).to.equal("development");
+        expect(ApplicationContext.getConfigContainer().get("environment")).to.equal("development");
         expect(logger).to.be.instanceOf(ConsoleLogger);
         expect((logger as unknown as LoggerParts).level).to.equal(Level.ERROR);
         expect((logger as unknown as LoggerParts).requestContext).to.equal(ApplicationContext.getRequestContext());
@@ -128,6 +128,6 @@ describe("ApplicationContext", function () {
         setEnv({ NODE_ENV: "production" });
         ApplicationContext.create();
 
-        expect(ApplicationContext.getConfigContainer().environment).to.equal("production");
+        expect(ApplicationContext.getConfigContainer().get("environment")).to.equal("production");
     });
 });

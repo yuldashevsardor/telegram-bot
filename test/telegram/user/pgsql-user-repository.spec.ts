@@ -23,7 +23,7 @@ describe("PgSqlUserRepository", function () {
         // BOT_TOKEN конфиг требует, а спеке нужна только база: без подстановки она зависела бы от токена в .env.
         const config = new ConfigContainer({ get: (key): string | undefined => (key === "BOT_TOKEN" ? "test-token" : env.get(key)) });
 
-        database = new Database({ ...config.database, database: testDatabaseName() }, false);
+        database = new Database({ ...config.get("database"), database: testDatabaseName() }, false);
         repository = new PgSqlUserRepository(database);
     });
 

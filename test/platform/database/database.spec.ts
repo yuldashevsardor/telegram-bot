@@ -116,7 +116,7 @@ function testDatabaseName(): string {
 }
 
 function settings(): DatabaseSettings {
-    return new ConfigContainer(new TestDatabaseStorage()).database;
+    return new ConfigContainer(new TestDatabaseStorage()).get("database");
 }
 
 async function failedQueryKeys(isProduction: boolean): Promise<string[]> {

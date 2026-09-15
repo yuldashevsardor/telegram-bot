@@ -137,7 +137,7 @@ export class Application {
     private async terminate(from: State): Promise<void> {
         this.logger.info("Stop application...");
 
-        const { timeout } = this.cc.gracefulShutdown;
+        const timeout = this.cc.get("gracefulShutdown.timeout");
 
         const finished = await withTimeout(this.shutdown(from), timeout);
 
@@ -176,7 +176,7 @@ export class Application {
     }
 
     private async waitQueueToEmpty(): Promise<void> {
-        const { timeout, interval } = this.cc.taskQueue.gracefulShutdown;
+        const { timeout, interval } = this.cc.get("taskQueue.gracefulShutdown");
         const deadline = Date.now() + timeout;
 
         while (!this.taskQueue.isEmpty()) {

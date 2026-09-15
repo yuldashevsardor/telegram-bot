@@ -68,8 +68,8 @@ export class ApplicationContext {
     // Логгер один на процесс: значения запроса он берёт из RequestContext в момент записи,
     // поэтому подменять сам объект под запрос не требуется.
     private static createLogger(config: ConfigContainer, requestContext: RequestContext): Logger {
-        const logger = config.isProduction ? new PinoLogger(requestContext) : new ConsoleLogger(requestContext);
-        logger.setLevel(config.logger.level);
+        const logger = config.get("isProduction") ? new PinoLogger(requestContext) : new ConsoleLogger(requestContext);
+        logger.setLevel(config.get("logger.level"));
 
         return logger;
     }

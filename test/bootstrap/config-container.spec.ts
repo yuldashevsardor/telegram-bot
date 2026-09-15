@@ -37,26 +37,35 @@ function rejection(values: Record<string, string>): InvalidConfigError {
     return expect.fail("the config was expected to be rejected");
 }
 
+// Собранный конструктором values объявленной форме соответствует всегда, поэтому расхождение, которое
+// ловит get(), подкладывается мимо конструктора — компилятор его не видит.
+function withValues(values: object): ConfigContainer {
+    const result = config();
+    (result as unknown as { values: object }).values = values;
+
+    return result;
+}
+
 describe("ConfigContainer", () => {
     it("falls back to defaults when only the bot token is set", () => {
         const result = config();
 
-        expect(result.environment).to.equal("development");
-        expect(result.isProduction).to.equal(false);
-        expect(result.rootDir).to.equal(process.cwd());
-        expect(result.tempDir).to.equal(path.join(process.cwd(), "tmp"));
-        expect(result.fontForgePath).to.equal("fontforge");
-        expect(result.limits).to.deep.equal({
+        expect(result.get("environment")).to.equal("development");
+        expect(result.get("isProduction")).to.equal(false);
+        expect(result.get("rootDir")).to.equal(process.cwd());
+        expect(result.get("tempDir")).to.equal(path.join(process.cwd(), "tmp"));
+        expect(result.get("fontForgePath")).to.equal("fontforge");
+        expect(result.get("limits")).to.deep.equal({
             common: { number: 30, interval: 1000 },
             private: { number: 3, interval: 1000 },
             group: { number: 20, interval: 60000 },
         });
-        expect(result.runner).to.deep.equal({ sleepInterval: { min: 10, max: 1000 }, maxRetries: 3 });
-        expect(result.bot).to.deep.equal({ token: "token", gracefulShutdown: { timeout: 3000 } });
-        expect(result.taskQueue).to.deep.equal({ logInterval: 10000, gracefulShutdown: { timeout: 5000, interval: 500 } });
-        expect(result.gracefulShutdown).to.deep.equal({ timeout: 15000 });
-        expect(result.logger).to.deep.equal({ level: Level.DEBUG });
-        expect(result.database).to.deep.equal({
+        expect(result.get("runner")).to.deep.equal({ sleepInterval: { min: 10, max: 1000 }, maxRetries: 3 });
+        expect(result.get("bot")).to.deep.equal({ token: "token", gracefulShutdown: { timeout: 3000 } });
+        expect(result.get("taskQueue")).to.deep.equal({ logInterval: 10000, gracefulShutdown: { timeout: 5000, interval: 500 } });
+        expect(result.get("gracefulShutdown")).to.deep.equal({ timeout: 15000 });
+        expect(result.get("logger")).to.deep.equal({ level: Level.DEBUG });
+        expect(result.get("database")).to.deep.equal({
             host: "localhost",
             port: 5432,
             database: "postgres",
@@ -98,21 +107,21 @@ describe("ConfigContainer", () => {
             DATABASE_CONNECTION_MAX_LIFETIME: "601",
         });
 
-        expect(result.environment).to.equal("production");
-        expect(result.isProduction).to.equal(true);
-        expect(result.tempDir).to.equal("/data/tmp");
-        expect(result.fontForgePath).to.equal("/opt/fontforge/bin/fontforge");
-        expect(result.limits).to.deep.equal({
+        expect(result.get("environment")).to.equal("production");
+        expect(result.get("isProduction")).to.equal(true);
+        expect(result.get("tempDir")).to.equal("/data/tmp");
+        expect(result.get("fontForgePath")).to.equal("/opt/fontforge/bin/fontforge");
+        expect(result.get("limits")).to.deep.equal({
             common: { number: 31, interval: 1001 },
             private: { number: 4, interval: 1002 },
             group: { number: 21, interval: 60001 },
         });
-        expect(result.runner).to.deep.equal({ sleepInterval: { min: 11, max: 1003 }, maxRetries: 5 });
-        expect(result.bot).to.deep.equal({ token: "own-token", gracefulShutdown: { timeout: 3001 } });
-        expect(result.taskQueue).to.deep.equal({ logInterval: 10001, gracefulShutdown: { timeout: 5001, interval: 501 } });
-        expect(result.gracefulShutdown).to.deep.equal({ timeout: 15001 });
-        expect(result.logger).to.deep.equal({ level: Level.INFO });
-        expect(result.database).to.deep.equal({
+        expect(result.get("runner")).to.deep.equal({ sleepInterval: { min: 11, max: 1003 }, maxRetries: 5 });
+        expect(result.get("bot")).to.deep.equal({ token: "own-token", gracefulShutdown: { timeout: 3001 } });
+        expect(result.get("taskQueue")).to.deep.equal({ logInterval: 10001, gracefulShutdown: { timeout: 5001, interval: 501 } });
+        expect(result.get("gracefulShutdown")).to.deep.equal({ timeout: 15001 });
+        expect(result.get("logger")).to.deep.equal({ level: Level.INFO });
+        expect(result.get("database")).to.deep.equal({
             host: "pgsql",
             port: 5433,
             database: "bot",
@@ -125,12 +134,12 @@ describe("ConfigContainer", () => {
     it("treats a blank value as a missing one", () => {
         const result = config({ DATABASE_HOST: "   ", RUNNER_MAX_RETRIES: "" });
 
-        expect(result.database.host).to.equal("localhost");
-        expect(result.runner.maxRetries).to.equal(3);
+        expect(result.get("database.host")).to.equal("localhost");
+        expect(result.get("runner.maxRetries")).to.equal(3);
     });
 
     it("trims a value before using it", () => {
-        expect(config({ BOT_TOKEN: "  trimmed  " }).bot.token).to.equal("trimmed");
+        expect(config({ BOT_TOKEN: "  trimmed  " }).get("bot.token")).to.equal("trimmed");
     });
 
     it("requires the bot token", () => {
@@ -141,18 +150,18 @@ describe("ConfigContainer", () => {
     });
 
     it("picks the development logger level", () => {
-        expect(config().logger.level).to.equal(Level.DEBUG);
+        expect(config().get("logger.level")).to.equal(Level.DEBUG);
     });
 
     it("picks the production logger level", () => {
         const result = config({ NODE_ENV: "production" });
 
-        expect(result.isProduction).to.equal(true);
-        expect(result.logger.level).to.equal(Level.WARNING);
+        expect(result.get("isProduction")).to.equal(true);
+        expect(result.get("logger.level")).to.equal(Level.WARNING);
     });
 
     it("reads the logger level case-insensitively", () => {
-        expect(config({ LOGGER_LEVEL: "info" }).logger.level).to.equal(Level.INFO);
+        expect(config({ LOGGER_LEVEL: "info" }).get("logger.level")).to.equal(Level.INFO);
     });
 
     it("rejects an unknown logger level", () => {
@@ -218,10 +227,10 @@ describe("ConfigContainer", () => {
             DATABASE_CONNECTION_MAX_LIFETIME: "0",
         });
 
-        expect(result.runner.maxRetries).to.equal(0);
-        expect(result.bot.gracefulShutdown.timeout).to.equal(0);
-        expect(result.taskQueue.gracefulShutdown.timeout).to.equal(0);
-        expect(result.database.connection).to.deep.equal({ max: 10, idleTimeout: 0, maxLifetime: 0 });
+        expect(result.get("runner.maxRetries")).to.equal(0);
+        expect(result.get("bot.gracefulShutdown.timeout")).to.equal(0);
+        expect(result.get("taskQueue.gracefulShutdown.timeout")).to.equal(0);
+        expect(result.get("database.connection")).to.deep.equal({ max: 10, idleTimeout: 0, maxLifetime: 0 });
     });
 
     it("rejects a runner sleep interval maximum below the minimum", () => {
@@ -234,7 +243,7 @@ describe("ConfigContainer", () => {
     it("accepts a runner sleep interval collapsed to a single value", () => {
         const result = config({ RUNNER_SLEEP_INTERVAL_MIN: "25", RUNNER_SLEEP_INTERVAL_MAX: "25" });
 
-        expect(result.runner.sleepInterval).to.deep.equal({ min: 25, max: 25 });
+        expect(result.get("runner.sleepInterval")).to.deep.equal({ min: 25, max: 25 });
     });
 
     it("rejects a shutdown timeout that does not cover the bot and the task queue", () => {
@@ -255,6 +264,30 @@ describe("ConfigContainer", () => {
             TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT: "5000",
         });
 
-        expect(result.gracefulShutdown.timeout).to.equal(8001);
+        expect(result.get("gracefulShutdown.timeout")).to.equal(8001);
+    });
+
+    describe("get", () => {
+        it("throws InvalidConfigError when the value is undefined", () => {
+            expect(() => withValues({}).get("tempDir"))
+                .to.throw(InvalidConfigError, 'Invalid config "tempDir"')
+                .with.property("payload")
+                .that.deep.equals({ path: "tempDir" });
+        });
+
+        it("throws InvalidConfigError when an object on the path is missing", () => {
+            expect(() => withValues({}).get("limits.common"))
+                .to.throw(InvalidConfigError)
+                .with.property("payload")
+                .that.deep.equals({ path: "limits.common" });
+        });
+
+        // typeof null — тоже "object": без отдельной проверки на null обход упал бы TypeError.
+        it("throws InvalidConfigError when an object on the path is null", () => {
+            expect(() => withValues({ limits: null }).get("limits.common"))
+                .to.throw(InvalidConfigError)
+                .with.property("payload")
+                .that.deep.equals({ path: "limits.common" });
+        });
     });
 });
