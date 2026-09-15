@@ -114,6 +114,7 @@ src/
     application/            ApplicationContext и Application: сборка и жизненный цикл (application.md)
     container/              inversify-контейнер (application.md)
     config-container.ts     ConfigContainer: разбор и валидация настроек всех сторон (config.md)
+    config-reader.ts        ConfigReader: строгий разбор строк источника для ConfigContainer (config.md)
   shared/                   RuntimeError, сквозные типы, словарь токенов DI, configValue (application.md);
                             NumberHelper, utils (sleep, withTimeout)
     fs/                     FileHelper

@@ -53,8 +53,8 @@
 - **Сроки остановки**: общий > сумма частных (проверяется), общий <
   `stop_grace_period` контейнера (не проверяется); сами сроки — в
   [`application.md`](./application.md).
-- **`LIMIT_*_NUMBER > 0`.** Ноль → `reserveDuration = Infinity` → слот занят навсегда,
-  партиция никогда не удалится ([`outbound-queue.md`](./outbound-queue.md)).
+- **`LIMIT_*_NUMBER > 0`** (конфиг проверяет). Ноль → `reserveDuration = Infinity` → слот
+  занят навсегда, партиция никогда не удалится ([`outbound-queue.md`](./outbound-queue.md)).
 - **Новое поле пользователя из `ctx.from`** требует синхронной правки `user.types.ts`,
   `user.ts`, миграции, `UserRow` в `pgsql-user-repository.types.ts`, мапперов и перечня
   колонок `update set` в `pgsql-user-repository.ts`, веток в

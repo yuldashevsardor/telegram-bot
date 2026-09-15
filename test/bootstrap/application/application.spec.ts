@@ -125,7 +125,7 @@ describe("Application", function () {
     before(function () {
         ApplicationContext.create = (): void => {
             calls.push("context.create");
-            context.config = new ConfigContainer(new FakeStorage(configValues));
+            context.config = new ConfigContainer(new FakeStorage({ BOT_TOKEN: "test-token", ...configValues }));
             context.logger = logger;
         };
         container.setup = async (): Promise<void> => {

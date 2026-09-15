@@ -41,6 +41,11 @@ describe("ApplicationContext", function () {
         }
     }
 
+    // Конфиг требует BOT_TOKEN, а окружение прогона держать настоящий токен не обязано.
+    beforeEach(function () {
+        setEnv({ BOT_TOKEN: "test-token" });
+    });
+
     afterEach(function () {
         for (const [key, value] of originalEnv) {
             if (value === undefined) {

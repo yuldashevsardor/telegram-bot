@@ -1,7 +1,8 @@
 import path from "path";
 import { Level, Levels } from "app/platform/logger/logger.types";
-import { isLevel } from "app/platform/logger/logger.helper";
 import { InvalidConfigError } from "app/shared/errors";
+import { ConfigReader } from "app/bootstrap/config-reader";
+import type { IntegerRange } from "app/bootstrap/config-reader";
 import type { Limit } from "app/telegram/outbound-queue/rate-limit.types";
 import type { RunnerSettings } from "app/telegram/outbound-queue/runner.types";
 import type { DatabaseSettings } from "app/platform/database/database.types";
@@ -14,10 +15,6 @@ type LoggerConfig = {
 
 const Environments = ["production", "development", "testing"] as const;
 
-function isEnvironment(value: string): value is (typeof Environments)[number] {
-    return Environments.some((environment) => environment === value);
-}
-
 export type Environment = (typeof Environments)[number];
 
 // Лимиты бота по областям: общий на весь исходящий трафик и по одному на приватный чат и на
@@ -29,8 +26,17 @@ export type TelegramLimits = {
 };
 
 export class ConfigContainer {
-    // Наибольшая задержка таймеров Node: знаковое 32-битное целое.
-    private static readonly MAX_TIMER_DELAY = 2 ** 31 - 1;
+    // Остывание слота RateLimit — interval / number: ноль в number делает его бесконечным, и слот
+    // не освобождается никогда, а ноль в interval — нулевым, и лимит перестаёт ограничивать.
+    private static readonly LIMIT_RANGE: IntegerRange = { min: 1 };
+
+    // Сроки пула в секундах: postgres.js умножает их на 1000 для setTimeout, поэтому потолок —
+    // наибольшая задержка таймера в секундах. Ноль у него выключает таймер, а отрицательное
+    // значение истинно и закрыло бы соединение через 1 мс.
+    private static readonly DATABASE_TIMER_RANGE: IntegerRange = {
+        min: 0,
+        max: Math.floor(ConfigReader.MAX_TIMER_DELAY / 1000),
+    };
 
     public readonly environment: Environment;
     public readonly isProduction: boolean;
@@ -61,58 +67,60 @@ export class ConfigContainer {
 
     public readonly database: DatabaseSettings;
 
-    public constructor(private readonly storage: ConfigStorage) {
-        this.environment = this.getEnvironment();
+    private readonly reader: ConfigReader;
+
+    public constructor(storage: ConfigStorage) {
+        this.reader = new ConfigReader(storage);
+
+        this.environment = this.reader.getEnum("NODE_ENV", Environments, "development");
         this.isProduction = this.environment === "production";
 
         this.rootDir = process.cwd();
-        this.tempDir = this.getString("TEMP_DIR", path.join(this.rootDir, "tmp"));
-        this.fontForgePath = this.getString("FONT_FORGE_PATH", "fontforge");
+        this.tempDir = this.reader.getString("TEMP_DIR", path.join(this.rootDir, "tmp"));
+        this.fontForgePath = this.reader.getString("FONT_FORGE_PATH", "fontforge");
 
         this.limits = {
             common: {
-                number: this.getInteger("LIMIT_COMMON_NUMBER", 30),
-                interval: this.getInteger("LIMIT_COMMON_INTERVAL", 1000), // 1 секунда
+                number: this.reader.getInteger("LIMIT_COMMON_NUMBER", 30, ConfigContainer.LIMIT_RANGE),
+                interval: this.reader.getInteger("LIMIT_COMMON_INTERVAL", 1000, ConfigContainer.LIMIT_RANGE), // 1 секунда
             },
             private: {
-                number: this.getInteger("LIMIT_PRIVATE_NUMBER", 3),
-                interval: this.getInteger("LIMIT_PRIVATE_INTERVAL", 1000), // 1 секунда
+                number: this.reader.getInteger("LIMIT_PRIVATE_NUMBER", 3, ConfigContainer.LIMIT_RANGE),
+                interval: this.reader.getInteger("LIMIT_PRIVATE_INTERVAL", 1000, ConfigContainer.LIMIT_RANGE), // 1 секунда
             },
             group: {
-                number: this.getInteger("LIMIT_GROUP_NUMBER", 20),
-                interval: this.getInteger("LIMIT_GROUP_INTERVAL", 60 * 1000), // 1 минута
+                number: this.reader.getInteger("LIMIT_GROUP_NUMBER", 20, ConfigContainer.LIMIT_RANGE),
+                interval: this.reader.getInteger("LIMIT_GROUP_INTERVAL", 60 * 1000, ConfigContainer.LIMIT_RANGE), // 1 минута
             },
         };
 
         this.runner = {
             sleepInterval: {
-                min: this.getInteger("RUNNER_SLEEP_INTERVAL_MIN", 10),
-                max: this.getInteger("RUNNER_SLEEP_INTERVAL_MAX", 1000),
+                min: this.reader.getTimerDelay("RUNNER_SLEEP_INTERVAL_MIN", 10),
+                max: this.reader.getTimerDelay("RUNNER_SLEEP_INTERVAL_MAX", 1000),
             },
-            maxRetries: this.getInteger("RUNNER_MAX_RETRIES", 3),
+            maxRetries: this.reader.getInteger("RUNNER_MAX_RETRIES", 3, { min: 0 }),
         };
 
         this.checkRunner();
 
         this.bot = {
-            token: this.getString("BOT_TOKEN"),
+            token: this.reader.getString("BOT_TOKEN"),
             gracefulShutdown: {
-                timeout: this.getInteger("BOT_GRACEFUL_SHUTDOWN_TIMEOUT", 3000),
+                timeout: this.reader.getTimerDelay("BOT_GRACEFUL_SHUTDOWN_TIMEOUT", 3000, { min: 0 }),
             },
         };
 
         this.taskQueue = {
-            logInterval: this.getInteger("TASK_QUEUE_LOG_INTERVAL", 10 * 1000), // 10 секунд
+            logInterval: this.reader.getTimerDelay("TASK_QUEUE_LOG_INTERVAL", 10 * 1000), // 10 секунд
             gracefulShutdown: {
-                timeout: this.getInteger("TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT", 5000),
-                interval: this.getInteger("TASK_QUEUE_GRACEFUL_SHUTDOWN_INTERVAL", 500),
+                timeout: this.reader.getTimerDelay("TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT", 5000, { min: 0 }),
+                interval: this.reader.getTimerDelay("TASK_QUEUE_GRACEFUL_SHUTDOWN_INTERVAL", 500),
             },
         };
 
-        this.checkTaskQueue();
-
         this.gracefulShutdown = {
-            timeout: this.getInteger("GRACEFUL_SHUTDOWN_TIMEOUT", 15000),
+            timeout: this.reader.getTimerDelay("GRACEFUL_SHUTDOWN_TIMEOUT", 15000),
         };
 
         this.checkGracefulShutdown();
@@ -121,46 +129,10 @@ export class ConfigContainer {
         this.database = this.getDatabase();
     }
 
-    private getString(name: string, defaultValue = ""): string {
-        const value = this.storage.get(name)?.trim();
-
-        if (value === undefined || value === "") {
-            return defaultValue;
-        }
-
-        return value;
-    }
-
-    private getInteger(name: string, defaultValue: number): number {
-        const value = this.getString(name, "");
-
-        if (value === "") {
-            return defaultValue;
-        }
-
-        const parsed = Number(value);
-
-        // Number, а не parseInt: тот молча съедает хвост ("10s" → 10) и на "abc" отдаёт NaN,
-        // так что нечисловое значение уехало бы в конфиг незамеченным.
-        if (!Number.isInteger(parsed)) {
-            throw new InvalidConfigError(`Config value "${name}" must be an integer`, {
-                got: value,
-            });
-        }
-
-        return parsed;
-    }
-
-    // Границы сна цикла: из них Runner случайно выбирает паузу на каждой пустой итерации,
-    // поэтому пустой диапазон и неположительный минимум ломают выбор молча.
+    // Из этих границ Runner случайно выбирает паузу на каждой пустой итерации, поэтому пустой
+    // диапазон ломает выбор молча.
     private checkRunner(): void {
         const { min, max } = this.runner.sleepInterval;
-
-        if (min <= 0) {
-            throw new InvalidConfigError("RUNNER_SLEEP_INTERVAL_MIN must be greater than zero", {
-                got: min,
-            });
-        }
 
         if (max < min) {
             throw new InvalidConfigError("RUNNER_SLEEP_INTERVAL_MAX must not be less than RUNNER_SLEEP_INTERVAL_MIN", {
@@ -170,32 +142,11 @@ export class ConfigContainer {
         }
     }
 
-    // Журналы очереди идут через setInterval, а тот период меньше 1 мс или больше 2^31 - 1 мс
-    // превращает в 1 мс (на переполнении — лишь с предупреждением): info-лог писался бы на каждом
-    // витке событийного цикла. Большое значение, взятое, чтобы журнал «выключить», дало бы ровно это.
-    private checkTaskQueue(): void {
-        const { logInterval } = this.taskQueue;
-
-        if (logInterval <= 0 || logInterval > ConfigContainer.MAX_TIMER_DELAY) {
-            throw new InvalidConfigError(`TASK_QUEUE_LOG_INTERVAL must be between 1 and ${ConfigContainer.MAX_TIMER_DELAY}`, {
-                got: logInterval,
-            });
-        }
-    }
-
     // Сроки бота и очереди расходуются последовательно внутри общего, поэтому общий должен
     // покрывать их сумму. Дальше этого проверка не идёт: приложение не пересчитывает
     // собственные сроки всех своих зависимостей (у sql.end() внутри Database.close(), скажем,
     // свои 5 секунд) — общий срок просто берётся с запасом, а не выводится из них.
     private checkGracefulShutdown(): void {
-        const { interval } = this.taskQueue.gracefulShutdown;
-
-        if (interval <= 0) {
-            throw new InvalidConfigError("TASK_QUEUE_GRACEFUL_SHUTDOWN_INTERVAL must be greater than zero", {
-                got: interval,
-            });
-        }
-
         const parts = this.bot.gracefulShutdown.timeout + this.taskQueue.gracefulShutdown.timeout;
 
         if (this.gracefulShutdown.timeout <= parts) {
@@ -207,45 +158,25 @@ export class ConfigContainer {
         }
     }
 
-    private getEnvironment(): Environment {
-        const value = this.getString("NODE_ENV", "development");
-
-        if (!isEnvironment(value)) {
-            throw new InvalidConfigError("Invalid environment", {
-                got: value,
-                allowed: Environments,
-            });
-        }
-
-        return value;
-    }
-
     private getLogger(): LoggerConfig {
-        const level = this.getString("LOGGER_LEVEL", "").toUpperCase() || (this.isProduction ? Level.WARNING : Level.DEBUG);
-
-        if (!isLevel(level)) {
-            throw new InvalidConfigError("Invalid logger level", {
-                got: level,
-                allowed: Levels,
-            });
-        }
+        const defaultLevel = this.isProduction ? Level.WARNING : Level.DEBUG;
 
         return {
-            level: level,
+            level: this.reader.getEnum("LOGGER_LEVEL", Levels, defaultLevel, { ignoreCase: true }),
         };
     }
 
     private getDatabase(): DatabaseSettings {
         return {
-            host: this.getString("DATABASE_HOST", "localhost"),
-            port: this.getInteger("DATABASE_PORT", 5432),
-            database: this.getString("DATABASE_NAME", "postgres"),
-            username: this.getString("DATABASE_USER_NAME", "docker"),
-            password: this.getString("DATABASE_USER_PASSWORD", ""),
+            host: this.reader.getString("DATABASE_HOST", "localhost"),
+            port: this.reader.getPort("DATABASE_PORT", 5432),
+            database: this.reader.getString("DATABASE_NAME", "postgres"),
+            username: this.reader.getString("DATABASE_USER_NAME", "docker"),
+            password: this.reader.getString("DATABASE_USER_PASSWORD", ""),
             connection: {
-                max: this.getInteger("DATABASE_CONNECTION_LIMIT", 10),
-                idleTimeout: this.getInteger("DATABASE_CONNECTION_IDLE_TIMEOUT", 10),
-                maxLifetime: this.getInteger("DATABASE_CONNECTION_MAX_LIFETIME", 60 * 10),
+                max: this.reader.getInteger("DATABASE_CONNECTION_LIMIT", 10, { min: 1 }),
+                idleTimeout: this.reader.getInteger("DATABASE_CONNECTION_IDLE_TIMEOUT", 10, ConfigContainer.DATABASE_TIMER_RANGE),
+                maxLifetime: this.reader.getInteger("DATABASE_CONNECTION_MAX_LIFETIME", 60 * 10, ConfigContainer.DATABASE_TIMER_RANGE),
             },
         };
     }
