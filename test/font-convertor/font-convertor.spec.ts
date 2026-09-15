@@ -205,10 +205,10 @@ describe("ConvertorNotFound and InvalidFontSignature", function () {
     const cases = [
         {
             name: "ConvertorNotFound.byExtensions",
-            error: ConvertorNotFound.byExtensions(Extension.WOFF, Extension.WOFF),
+            error: ConvertorNotFound.byExtensions(Extension.TTF, Extension.WOFF),
             type: ConvertorNotFound,
-            message: "Convertor for woff to woff not found.",
-            payload: { from: "woff", to: "woff" },
+            message: "Convertor for ttf to woff not found.",
+            payload: { from: "ttf", to: "woff" },
         },
         {
             name: "InvalidFontSignature.byPathAndExtension",
