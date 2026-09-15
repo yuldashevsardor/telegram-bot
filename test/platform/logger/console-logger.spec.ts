@@ -68,6 +68,12 @@ describe("ConsoleLogger", function () {
         expect(payload).to.deep.equal({ userId: 42, formats: ["ttf", "woff2"] });
     });
 
+    it("prints a record without payload as the time, the level and the message only", function () {
+        expect(capture("error", (logger) => logger.error("failed"))).to.match(
+            /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}\] \[ERROR\] failed$/,
+        );
+    });
+
     it("skips a level below the configured one", function () {
         expect(capture("info", (logger) => logger.info("skipped"))).to.equal("");
     });
