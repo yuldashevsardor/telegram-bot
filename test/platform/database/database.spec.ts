@@ -4,8 +4,8 @@ import { ConfigValuesBuilder } from "app/bootstrap/config/builder/config-values-
 import type { RawConfig } from "app/bootstrap/config/config-container.types";
 import { Database } from "app/platform/database/database";
 import type { DatabaseSettings } from "app/platform/database/database.types";
-import { RuntimeError } from "app/shared/errors";
 import { fillApplicationContext, resetApplicationContext } from "test/bootstrap/application/application-context.helper";
+import { testDatabaseName } from "test/database.helper";
 
 describe("Database", function () {
     it("connects with the settings from the config by default", async function () {
@@ -83,16 +83,6 @@ describe("Database", function () {
         expect(keys).to.not.include("parameters");
     });
 });
-
-function testDatabaseName(): string {
-    const name = process.env["TEST_DATABASE_NAME"];
-
-    if (name === undefined) {
-        throw new RuntimeError("TEST_DATABASE_NAME is not set: test/database-hook.ts did not run, rebuild the image (make rebuild)");
-    }
-
-    return name;
-}
 
 // Окружение контейнера, в котором DATABASE_NAME заменено базой прогона. Её создаёт
 // test/database-hook.ts; почему имя приходит своей переменной — там же. BOT_TOKEN конфиг

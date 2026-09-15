@@ -4,11 +4,11 @@ import dayjs from "dayjs";
 import { ConfigValuesBuilder } from "app/bootstrap/config/builder/config-values-builder";
 import { ConfigEnvStorage } from "app/bootstrap/config/storage/config-env-storage";
 import { Database } from "app/platform/database/database";
-import { RuntimeError } from "app/shared/errors";
 import { PgSqlUserRepository } from "app/telegram/user/pgsql-user-repository";
 import { User } from "app/telegram/user/user";
 import { UserNotFound } from "app/telegram/user/user.errors";
 import type { UserDto } from "app/telegram/user/user.types";
+import { testDatabaseName } from "test/database.helper";
 
 // Больше 2^31 - 1: в int4 не влезает, так спека держит и миграцию, расширившую id до bigint.
 // deep.equal строгий, поэтому id, вернувшийся строкой (так драйвер отдаёт bigint), не пройдёт.
@@ -115,16 +115,4 @@ function snapshot(user: User): Record<string, unknown> {
         createdTime: user.createdTime.toISOString(),
         updatedTime: user.updatedTime.toISOString(),
     };
-}
-
-// Базу прогона создаёт test/database-hook.ts; почему имя приходит своей переменной, а не
-// DATABASE_NAME, — там же.
-function testDatabaseName(): string {
-    const name = process.env["TEST_DATABASE_NAME"];
-
-    if (name === undefined) {
-        throw new RuntimeError("TEST_DATABASE_NAME is not set: test/database-hook.ts did not run, rebuild the image (make rebuild)");
-    }
-
-    return name;
 }

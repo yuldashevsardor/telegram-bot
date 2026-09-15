@@ -122,8 +122,10 @@ src/
     process/                ProcessHelper — запуск внешних процессов (invariants.md)
     string/                 StringHelper
 test/                       mocha-спеки; путь спеки повторяет путь исходника с точностью до модуля;
-                            общий код спек — *.helper.ts рядом со спекой своего исходника;
+                            общий код спек — *.helper.ts рядом со спекой своего исходника, а у
+                            корневого хука — рядом с ним;
                             coverage-hook.ts — хук make coverage, database-hook.ts — база на прогон,
+                            database.helper.ts — её имя для спек,
                             stryker-mocha-hook.cjs — шим mocha 12 для make mutation (testing.md)
 migrations/                 миграции, в common/ — общие shorthands и заготовка (storage.md)
 scripts/                    хостовые скрипты целей make; claude-worktree-guard — хук (testing.md)
