@@ -45,7 +45,6 @@ export type TelegramLimits = {
     group: Limit;
 };
 
-// Вся конфигурация по секциям. Форма секций объявлена у потребителей и сюда только собрана.
 export type ConfigValues = {
     environment: Environment;
     isProduction: boolean;
@@ -156,10 +155,8 @@ export class ConfigContainer {
         this.checkGracefulShutdown();
     }
 
-    // Значение по «точечному» пути: get("bot.token"). Путь и тип результата компилятор выводит
-    // из ConfigValues.
-    public get<Path extends ConfigPath>(path: Path): ConfigValue<Path> {
-        const value = path.split(".").reduce<unknown>((current, key) => {
+    public get<Path extends ConfigPath>(dottedPath: Path): ConfigValue<Path> {
+        const value = dottedPath.split(".").reduce<unknown>((current, key) => {
             if (current === null || typeof current !== "object") {
                 return undefined;
             }
@@ -170,8 +167,8 @@ export class ConfigContainer {
         // Путь проверен компилятором, поэтому сюда приводит не опечатка в нём, а расхождение
         // объявленной формы конфигурации с настоящей — необязательное поле, ставшее undefined.
         if (value === undefined) {
-            throw new InvalidConfigError(`Invalid config "${path}"`, {
-                path: path,
+            throw new InvalidConfigError(`Invalid config "${dottedPath}"`, {
+                path: dottedPath,
             });
         }
 
