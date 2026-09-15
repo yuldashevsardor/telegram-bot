@@ -6,7 +6,7 @@ import { globSync } from "node:fs";
 // Спеки, которым нужна база. Stryker гоняет спеки без test/database-hook.ts, поэтому они
 // исключены: без хука они падают на чтении TEST_DATABASE_NAME, и новая такая спека уронит
 // первый прогон Stryker, пока её не впишут сюда. Найти их —
-// grep -rln TEST_DATABASE_NAME test --include='*.spec.ts'.
+// grep -rln testDatabaseName test --include='*.spec.ts'.
 const DATABASE_SPECS = [
     "test/platform/database/database.spec.ts",
     "test/telegram/session/pgsql-storage.spec.ts",

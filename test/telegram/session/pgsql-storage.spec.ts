@@ -3,8 +3,8 @@ import { expect } from "chai";
 import { ConfigValuesBuilder } from "app/bootstrap/config/builder/config-values-builder";
 import { ConfigEnvStorage } from "app/bootstrap/config/storage/config-env-storage";
 import { Database } from "app/platform/database/database";
-import { RuntimeError } from "app/shared/errors";
 import { PgsqlStorage } from "app/telegram/session/pgsql-storage";
+import { testDatabaseName } from "test/database.helper";
 
 const KEY = "42:42";
 
@@ -79,15 +79,3 @@ describe("PgsqlStorage", function () {
         expect(await storage.read(KEY)).to.equal(undefined);
     });
 });
-
-// Базу прогона создаёт test/database-hook.ts; почему имя приходит своей переменной, а не
-// DATABASE_NAME, — там же.
-function testDatabaseName(): string {
-    const name = process.env["TEST_DATABASE_NAME"];
-
-    if (name === undefined) {
-        throw new RuntimeError("TEST_DATABASE_NAME is not set: test/database-hook.ts did not run, rebuild the image (make rebuild)");
-    }
-
-    return name;
-}
