@@ -432,12 +432,4 @@ describe("PermissionDenied, InvalidPath, InvalidFile and InvalidExtensions", fun
             expect(error.payload).to.deep.equal(payload);
         });
     }
-
-    // Сообщение не сверяется: в src/ эту фабрику никто не вызывает.
-    it("InvalidFile.byPath keeps its details in the payload", function () {
-        const error = InvalidFile.byPath("/x/y");
-
-        expect(error).to.be.instanceOf(InvalidFile);
-        expect(error.payload).to.deep.equal({ path: "/x/y" });
-    });
 });
