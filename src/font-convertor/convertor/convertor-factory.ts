@@ -34,7 +34,7 @@ import { Woff2ToSvg } from "app/font-convertor/convertor/woff2/woff2-to-svg";
 import { TtfToSvg } from "app/font-convertor/convertor/ttf/ttf-to-svg";
 import { OtfToSvg } from "app/font-convertor/convertor/otf/otf-to-svg";
 import { EotToSvg } from "app/font-convertor/convertor/eot/eot-to-svg";
-import type { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher";
+import type { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher/font-signature-matcher";
 import type { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 
 type ConvertorConstructor = new (fontForge: FontForge, fontSignatureMatcher: FontSignatureMatcher, eotPacker: EotPacker) => Convertor;

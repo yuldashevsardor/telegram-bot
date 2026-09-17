@@ -6,7 +6,7 @@ import { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory
 import type { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import type { FontForge } from "app/font-convertor/font-forge/font-forge";
-import { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher";
+import { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher/font-signature-matcher";
 import { InvalidPath, RemoveFailed } from "app/shared/fs/file-helper.errors";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
