@@ -2,7 +2,7 @@ import { InvalidFile, InvalidPath, PermissionDenied } from "app/shared/fs/file-h
 import path from "path";
 import type { Extension } from "app/font-convertor/font-convertor.types";
 import { InvalidFontSignature } from "app/font-convertor/font-convertor.errors";
-import type { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher";
+import type { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher/font-signature-matcher";
 import { FileHelper } from "app/shared/fs/file-helper";
 
 export abstract class Convertor {
