@@ -5,6 +5,7 @@ import type { ConfigValues } from "app/bootstrap/config/config-values";
 import { ConfigValuesBuilder } from "app/bootstrap/config/builder/config-values-builder";
 import { ConfigParser } from "app/bootstrap/config/parser/config-parser";
 import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
+import { InvalidConfigError } from "app/shared/errors";
 import { ConfigEnvStorage } from "app/bootstrap/config/storage/config-env-storage";
 import { ConfigFileStorage } from "app/bootstrap/config/storage/config-file-storage";
 import type { Logger } from "app/platform/logger/logger";
@@ -22,6 +23,11 @@ import { ApplicationContextIsNotCreated } from "app/bootstrap/application/applic
 // обязан не потерять. Потерянную ссылку на объект восстановить было бы нечем — собранный
 // логгер и хранилище остались бы в процессе без единого входа к ним.
 export class ApplicationContext {
+    // Опрос наблюдаемого файла: мс, ноль выключает наблюдение. Держится здесь, а не в
+    // ConfigValuesBuilder: обе переменные файла нужны раньше собранной конфигурации.
+    private static readonly DEFAULT_WATCH_INTERVAL = 2000;
+    private static readonly DEFAULT_CONFIG_FILE = ".runtime.env";
+
     private static cc: CC | null = null;
     private static logger: Logger | null = null;
     private static requestContext: RequestContext | null = null;
@@ -90,27 +96,50 @@ export class ApplicationContext {
         ApplicationContext.requestContext = requestContext;
         ApplicationContext.logger = logger;
 
-        // Наблюдение включается последним: до подписки логгера отказ пересборки было бы некуда
-        // написать, а гасит его остановка приложения (`Application.terminate()`) — оставленный
-        // опрос файла пересобирал бы конфигурацию уже закрывающегося приложения.
+        // Отказ пересборки пишет логгер: у самой конфигурации логгера нет, она собирается
+        // раньше него. Наблюдение при этом включил уже init(), то есть первые несколько
+        // синхронных строк выше конфигурация следит за файлом без этой подписки — окно короче
+        // одного опроса, и потерять в нём можно только отказ правки, сделанной ровно в него.
+        // Гасит наблюдение остановка приложения (`Application.terminate()`): оставленный опрос
+        // пересобирал бы конфигурацию уже закрывающегося приложения.
         cc.onError((error: unknown): void => {
             logger.error("Config reload failed, the previous values are kept.", { cause: error });
         });
-        cc.watch();
     }
 
-    // Путь файла и интервал его опроса нужны, чтобы собрать конфигурацию, поэтому берутся из
-    // окружения напрямую — в собранных значениях их к этому моменту ещё нет. Разбор тот же, что и
-    // у остальных переменных, поэтому недопустимый интервал валит старт, а не выключает
-    // наблюдение молча.
+    // Путь файла и интервал его опроса берутся прямо из окружения: они нужны, чтобы собрать
+    // конфигурацию, поэтому в собранных значениях их к этому моменту ещё нет, а ConfigParser
+    // работает по снимку, который из них и получается.
     private static createStorage(): ConfigStorage {
-        const parser = new ConfigParser({ ...process.env });
-        const filePath = parser.getString("CONFIG_FILE_PATH", path.join(process.cwd(), "config", "runtime.env"));
-        // Ноль выключает наблюдение: приложению, которому менять значения на ходу не нужно, опрос
-        // файла не нужен тоже.
-        const watchInterval = parser.getTimerDelay("CONFIG_FILE_WATCH_INTERVAL", 2000, { min: 0 });
+        const filePath = process.env["CONFIG_FILE_PATH"]?.trim();
 
-        return new ConfigFileStorage(new ConfigEnvStorage(), filePath, watchInterval);
+        return new ConfigFileStorage(
+            new ConfigEnvStorage(),
+            filePath === undefined || filePath === "" ? path.join(process.cwd(), ApplicationContext.DEFAULT_CONFIG_FILE) : filePath,
+            ApplicationContext.watchInterval(),
+        );
+    }
+
+    // Недопустимое значение валит старт, а не превращается в умолчание: молча выключенное или
+    // ускоренное наблюдение выглядит как работающее. Верхний предел — общий для таймеров Node:
+    // большее значение он превращает в 1 мс, и «редкий» опрос пошёл бы на каждом витке цикла.
+    private static watchInterval(): number {
+        const raw = process.env["CONFIG_FILE_WATCH_INTERVAL"]?.trim();
+
+        if (raw === undefined || raw === "") {
+            return ApplicationContext.DEFAULT_WATCH_INTERVAL;
+        }
+
+        const interval = Number(raw);
+
+        if (!Number.isInteger(interval) || interval < 0 || interval > ConfigParser.MAX_TIMER_DELAY) {
+            throw new InvalidConfigError(
+                `Config value "CONFIG_FILE_WATCH_INTERVAL" must be an integer between 0 and ${ConfigParser.MAX_TIMER_DELAY}`,
+                { got: raw },
+            );
+        }
+
+        return interval;
     }
 
     // Логгер один на процесс: значения запроса он берёт из RequestContext в момент записи,

@@ -9,8 +9,18 @@ import type {
 } from "app/bootstrap/config/config-container.types";
 import type { ConfigBuilder } from "app/bootstrap/config/builder/config-builder";
 import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
-import { isWatchableConfigStorage } from "app/bootstrap/config/storage/config-storage";
+import { isWatchableConfigStorage } from "app/bootstrap/config/storage/config-storage.helpers";
 import { ConfigContainerIsNotInitialized } from "app/bootstrap/config/config-container.errors";
+
+// Идущая пересборка одна на контейнер: параллельные гонялись бы за одно поле values, и порядок
+// событий решала бы гонка. again — сигнал источника, пришедший за время этой пересборки: файл мог
+// измениться уже после того, как снимок прочитан, поэтому за ней идёт ещё один проход. Все
+// сигналы, пришедшие за время прохода, сливаются в один: снимок читается целиком, и следующий
+// проход всё равно увидит последнее состояние источника. Промиса здесь нет: ждать пересборку
+// некому — её единственный вход, сигнал источника, ничего не возвращает.
+type Reloading = {
+    again: boolean;
+};
 
 // Хранит значения и отдаёт их по пути; откуда они берутся и как проверяются, решают storage и
 // builder. Сборка вынесена из конструктора в init(): источник может отдавать значения только
@@ -24,20 +34,31 @@ export class ConfigContainer<Values> {
     private readonly changeListeners = new Map<string, Set<ConfigChangeListener>>();
     private readonly errorListeners = new Set<ConfigErrorListener>();
 
-    // Идущая пересборка и отметка, что источник просил ещё одну: параллельных пересборок быть не
-    // должно — они гонялись бы за одно поле values, и порядок событий решала бы гонка.
-    private reloading: Promise<void> | null = null;
-    // Stryker disable next-line BooleanLiteral: `true` — эквивалентен: проход цикла гасит отметку у себя на входе, поэтому начальное значение поля до первой пересборки не доживает
-    private reloadAgain = false;
+    private reloading: Reloading | null = null;
 
     public constructor(private readonly storage: ConfigStorage, private readonly builder: ConfigBuilder<Values>) {}
 
     public async init(): Promise<void> {
         this.values = this.builder.build(await this.storage.load());
+
+        // Наблюдение включается здесь же, а не отдельным вызовом: отдельный можно забыть, и
+        // конфигурация молча осталась бы на значениях старта. Источник, который об изменениях не
+        // сообщает (env, фейки спек), просто не наблюдается.
+        if (isWatchableConfigStorage(this.storage)) {
+            this.storage.watch((): void => {
+                void this.reload();
+            });
+        }
+    }
+
+    // Останавливает источник: опрос файла держал бы событийный цикл, а пересборка на
+    // закрывающемся приложении никому не нужна.
+    public stop(): void {
+        this.storage.stop();
     }
 
     public get<Path extends Paths<Values> & string>(dottedPath: Path): ValueByPath<Values, Path> {
-        const value = ConfigContainer.valueAt(this.currentValues(), dottedPath);
+        const value = this.valueAt(this.currentValues(), dottedPath);
 
         // Путь проверен компилятором, поэтому сюда приводит не опечатка в нём, а расхождение
         // объявленной формы конфигурации с настоящей — необязательное поле, ставшее undefined.
@@ -54,6 +75,7 @@ export class ConfigContainer<Values> {
 
     // Слушателя зовёт и изменение вложенного значения: подписка на "limits" срабатывает на правку
     // "limits.common.number", потому что изменившийся лист уведомляет ещё и все свои префиксы.
+    // Сколько бы значений внутри поддерева ни изменилось, слушатель его пути получает один вызов.
     public onChange<Path extends Paths<Values> & string>(
         dottedPath: Path,
         listener: (newValue: ValueByPath<Values, Path>, oldValue: ValueByPath<Values, Path>) => void,
@@ -84,50 +106,40 @@ export class ConfigContainer<Values> {
         };
     }
 
-    // Включается явным вызовом, а не концом init(): пока логгер не подписан на onError, отказ
-    // первой же пересборки было бы некуда написать. Источник без наблюдения (env, фейки спек) —
-    // не ошибка: за process.env следить нечем.
-    public watch(): void {
-        if (!isWatchableConfigStorage(this.storage)) {
+    private reload(): void {
+        const reloading = this.reloading;
+
+        if (reloading !== null) {
+            reloading.again = true;
+
             return;
         }
 
-        this.storage.watch((): void => {
-            void this.reload();
-        });
+        // Stryker disable next-line ObjectLiteral: `{}` — эквивалентен: отсутствующее поле так же
+        // ложно, как false, а проход цикла его и так перезаписывает перед следующей проверкой
+        const started: Reloading = { again: false };
+
+        this.reloading = started;
+
+        // Отказа у прохода нет: rebuild() отправляет свои ошибки в канал ошибок, потому что
+        // наверху колбэк наблюдателя — отказ оттуда стал бы unhandledRejection.
+        void this.reloadUntilSettled(started);
     }
 
-    public unwatch(): void {
-        if (!isWatchableConfigStorage(this.storage)) {
-            return;
-        }
-
-        this.storage.unwatch();
-    }
-
-    // Промис накрывает все проходы, включая те, что добавились по дороге, и никогда не
-    // отказывает: зовут её из колбэка наблюдателя, где отказ стал бы unhandledRejection.
-    public reload(): Promise<void> {
-        if (this.reloading !== null) {
-            this.reloadAgain = true;
-
-            return this.reloading;
-        }
-
-        this.reloading = this.reloadUntilSettled();
-
-        return this.reloading;
-    }
-
-    private async reloadUntilSettled(): Promise<void> {
+    // Состояние приходит параметром, а не читается из поля: поле обнуляет finally этой же
+    // функции, то есть до её конца там лежит ровно этот объект, и проверка на null была бы
+    // недостижимой ветвью.
+    private async reloadUntilSettled(reloading: Reloading): Promise<void> {
         try {
-            // Сигналы, пришедшие во время пересборки, сливаются в один проход: снимок читается
-            // целиком, поэтому следующий проход всё равно увидит последнее состояние источника.
-            do {
-                this.reloadAgain = false;
-
+            for (;;) {
                 await this.rebuild();
-            } while (this.reloadAgain);
+
+                if (!reloading.again) {
+                    return;
+                }
+
+                reloading.again = false;
+            }
         } finally {
             this.reloading = null;
         }
@@ -135,7 +147,8 @@ export class ConfigContainer<Values> {
 
     // Значения подменяются целиком и только после сборки: отказ билдера оставляет рабочими
     // прежние, а не половину новых. Подменяются до рассылки — get() внутри слушателя обязан
-    // отдавать уже новое значение.
+    // отдавать уже новое значение. Отказ уходит в канал ошибок, а не наружу: наверху колбэк
+    // наблюдателя, бросать там некуда.
     private async rebuild(): Promise<void> {
         try {
             const previous = this.currentValues();
@@ -152,7 +165,7 @@ export class ConfigContainer<Values> {
     private notifyChanges(previous: Values, current: Values): void {
         const changed = new Set<string>();
 
-        ConfigContainer.collectChanges(previous, current, "", changed);
+        this.collectChanges(previous, current, "", changed);
 
         for (const dottedPath of changed) {
             const listeners = this.changeListeners.get(dottedPath);
@@ -161,8 +174,8 @@ export class ConfigContainer<Values> {
                 continue;
             }
 
-            const newValue = ConfigContainer.valueAt(current, dottedPath);
-            const oldValue = ConfigContainer.valueAt(previous, dottedPath);
+            const newValue = this.valueAt(current, dottedPath);
+            const oldValue = this.valueAt(previous, dottedPath);
 
             // Копия набора: слушатель вправе подписаться или отцепиться прямо в вызове, а обход
             // живого Set увидел бы добавленное и позвал бы его на том же изменении.
@@ -210,11 +223,13 @@ export class ConfigContainer<Values> {
     }
 
     // Сравниваются листья: builder собирает новые объекты на каждой сборке, поэтому сравнение
-    // поддеревьев по ссылке сообщало бы об изменении всего и на каждой пересборке.
-    private static collectChanges(previous: unknown, current: unknown, prefix: string, changed: Set<string>): void {
-        if (ConfigContainer.isTree(previous) && ConfigContainer.isTree(current)) {
+    // поддеревьев по ссылке сообщало бы об изменении всего и на каждой пересборке. Конфигурация
+    // вложенная (limits.common.number), поэтому обход рекурсивный; плоский только сырой снимок
+    // источника.
+    private collectChanges(previous: unknown, current: unknown, prefix: string, changed: Set<string>): void {
+        if (this.isObject(previous) && this.isObject(current)) {
             for (const key of new Set([...Object.keys(previous), ...Object.keys(current)])) {
-                ConfigContainer.collectChanges(previous[key], current[key], prefix === "" ? key : `${prefix}.${key}`, changed);
+                this.collectChanges(previous[key], current[key], prefix === "" ? key : `${prefix}.${key}`, changed);
             }
 
             return;
@@ -225,6 +240,8 @@ export class ConfigContainer<Values> {
         }
 
         // Путь и все его префиксы: подписка на поддерево должна срабатывать на изменение внутри.
+        // Набор, а не список: два изменившихся листа одного поддерева дают его путь один раз,
+        // поэтому и слушатель поддерева зовётся один раз.
         let dottedPath = prefix;
 
         changed.add(dottedPath);
@@ -236,7 +253,7 @@ export class ConfigContainer<Values> {
         }
     }
 
-    private static valueAt(values: unknown, dottedPath: string): unknown {
+    private valueAt(values: unknown, dottedPath: string): unknown {
         return dottedPath.split(".").reduce<unknown>((current, key) => {
             if (current === null || typeof current !== "object") {
                 return undefined;
@@ -247,7 +264,7 @@ export class ConfigContainer<Values> {
     }
 
     // typeof null — тоже "object": без отдельной проверки на null обход упал бы TypeError.
-    private static isTree(value: unknown): value is UnknownObject {
+    private isObject(value: unknown): value is UnknownObject {
         return value !== null && typeof value === "object";
     }
 }

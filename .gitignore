@@ -75,8 +75,8 @@ typings/
 # dotenv environment variables FileHelper
 .env
 .env.test
-# Горячий файл конфигурации: локальные значения, в репозитории только шаблон
-config/runtime.env
+# Горячий файл конфигурации: локальные значения, описание — в .env.dist
+.runtime.env
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache

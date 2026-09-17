@@ -115,7 +115,7 @@ src/
     config/                 ConfigContainer, форма ConfigValues, типы путей get() и алиас CC (config.md)
       builder/              интерфейс ConfigBuilder и ConfigValuesBuilder: сборка и валидация ConfigValues (config.md)
       parser/               ConfigParser: строгий разбор строк снимка источника (config.md)
-      storage/              ConfigStorage, наблюдаемость и источники значений: env и файл (config.md)
+      storage/              ConfigStorage и WatchableConfigStorage, страж наблюдаемости, источники значений: env и файл (config.md)
   shared/                   RuntimeError, сквозные типы, словарь токенов DI, configValue (application.md);
                             NumberHelper, utils (sleep, withTimeout)
     fs/                     FileHelper
@@ -150,7 +150,8 @@ scripts/                    хостовые скрипты целей make; cla
 `filter/filter.ts`, `middleware/middleware.ts`) или в родителе (`convertor/convertor.ts`).
 
 Иначе файлы лежат плоско: части подсистемы группирует префикс имени файла, а спутники
-`*.types.ts` и `*.errors.ts` стоят рядом со своим главным и в каталог его не уводят
+`*.types.ts`, `*.errors.ts` и `*.helpers.ts` (`config-storage.helpers.ts` — страж
+наблюдаемости источника) стоят рядом со своим главным и в каталог его не уводят
 (`font-signature-matcher.ts` и `font-signature-matcher.types.ts` — в корне
 `font-convertor/`). Один каталог правилу не отвечает: в `telegram/session/` лежат три файла
 разных ролей (`pgsql-storage.ts`, `session.helper.ts`, `session.types.ts`), и ни один не

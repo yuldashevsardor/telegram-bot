@@ -11,7 +11,7 @@ import type { RawConfig } from "app/bootstrap/config/config-container.types";
 const INTERVAL = 5;
 
 function base(raw: RawConfig): ConfigStorage {
-    return { load: async (): Promise<RawConfig> => raw };
+    return { load: async (): Promise<RawConfig> => raw, stop: (): void => undefined };
 }
 
 function sleep(ms: number): Promise<void> {
@@ -45,7 +45,7 @@ describe("ConfigFileStorage", () => {
     // своего таймаута вместо завершения.
     afterEach(async () => {
         for (const storage of storages) {
-            storage.unwatch();
+            storage.stop();
         }
 
         await fs.rm(directory, { recursive: true, force: true });
@@ -181,13 +181,13 @@ describe("ConfigFileStorage", () => {
     });
 
     // Снятое наблюдение заводится заново: иначе выключить его на время и вернуть было бы нечем.
-    it("watches again after unwatch()", async () => {
+    it("watches again after stop()", async () => {
         await fs.writeFile(filePath, "A=1\n");
 
         const watchable = storage();
         let signals = 0;
 
-        watchable.unwatch();
+        watchable.stop();
         watchable.watch(() => {
             signals += 1;
         });
@@ -196,7 +196,7 @@ describe("ConfigFileStorage", () => {
         await fs.writeFile(filePath, "A=2\n");
         await waitFor(() => signals === 1);
 
-        watchable.unwatch();
+        watchable.stop();
         watchable.watch(() => {
             signals += 1;
         });
@@ -206,7 +206,7 @@ describe("ConfigFileStorage", () => {
         await waitFor(() => signals === 2);
     });
 
-    it("stops reporting after unwatch()", async () => {
+    it("stops reporting after stop()", async () => {
         await fs.writeFile(filePath, "A=1\n");
 
         const watchable = storage();
@@ -217,7 +217,7 @@ describe("ConfigFileStorage", () => {
         });
 
         await sleep(INTERVAL * 4);
-        watchable.unwatch();
+        watchable.stop();
 
         await fs.writeFile(filePath, "A=2\n");
         await sleep(INTERVAL * 6);
@@ -225,7 +225,7 @@ describe("ConfigFileStorage", () => {
         expect(signals).to.equal(0);
     });
 
-    // Второй watch() поверх первого завёл бы второй опрос того же пути, а unwatch() снял бы оба
+    // Второй watch() поверх первого завёл бы второй опрос того же пути, а stop() снял бы оба
     // сразу: слушатель молча перестал бы получать сигналы.
     it("keeps a single watch when watch() is called twice", async () => {
         await fs.writeFile(filePath, "A=1\n");
@@ -265,9 +265,25 @@ describe("ConfigFileStorage", () => {
         expect(signals).to.equal(0);
     });
 
-    // unwatch() без watch() — обычный путь остановки приложения, наблюдение которого выключено
+    // stop() без watch() — обычный путь остановки приложения, наблюдение которого выключено
     // нулевым интервалом.
-    it("does nothing on unwatch() without watch()", () => {
-        expect(() => storage().unwatch()).to.not.throw();
+    it("does nothing on stop() without watch()", () => {
+        expect(() => storage().stop()).to.not.throw();
+    });
+
+    // Источник оборачивает базовый, поэтому и останавливает его: иначе vault под ним остался бы
+    // с открытым соединением.
+    it("stops the base source too", () => {
+        let stops = 0;
+        const base: ConfigStorage = {
+            load: async (): Promise<RawConfig> => ({}),
+            stop: (): void => {
+                stops += 1;
+            },
+        };
+
+        new ConfigFileStorage(base, filePath, INTERVAL).stop();
+
+        expect(stops).to.equal(1);
     });
 });

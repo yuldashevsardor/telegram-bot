@@ -2,7 +2,8 @@ import { expect } from "chai";
 import { ConfigContainer } from "app/bootstrap/config/config-container";
 import { ConfigContainerIsNotInitialized } from "app/bootstrap/config/config-container.errors";
 import type { ConfigBuilder } from "app/bootstrap/config/builder/config-builder";
-import type { ConfigStorage, WatchableConfigStorage } from "app/bootstrap/config/storage/config-storage";
+import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
+import type { WatchableConfigStorage } from "app/bootstrap/config/storage/watchable-config-storage";
 import type { RawConfig } from "app/bootstrap/config/config-container.types";
 import { InvalidConfigError } from "app/shared/errors";
 
@@ -14,7 +15,7 @@ type Values = {
 };
 
 function storage(raw: RawConfig): ConfigStorage {
-    return { load: async (): Promise<RawConfig> => raw };
+    return { load: async (): Promise<RawConfig> => raw, stop: (): void => undefined };
 }
 
 // Билдер отдаёт то, что ему дали, без разбора: форма значений здесь расходится с объявленной
@@ -36,7 +37,7 @@ class FakeWatchableStorage implements WatchableConfigStorage {
     public raw: RawConfig = {};
     public loads = 0;
     public watchCalls = 0;
-    public unwatchCalls = 0;
+    public stopCalls = 0;
 
     private onChanged: (() => void) | null = null;
     private held: Promise<void> | null = null;
@@ -56,8 +57,8 @@ class FakeWatchableStorage implements WatchableConfigStorage {
         this.onChanged = onChanged;
     }
 
-    public unwatch(): void {
-        this.unwatchCalls += 1;
+    public stop(): void {
+        this.stopCalls += 1;
         this.onChanged = null;
     }
 
@@ -69,8 +70,8 @@ class FakeWatchableStorage implements WatchableConfigStorage {
         this.onChanged();
     }
 
-    // Держит load() до вызова отданной функции: так спека успевает подать сигналы посреди
-    // идущей пересборки.
+    // Держит load() до вызова отданной функции: так спека успевает подать сигналы посреди идущей
+    // пересборки.
     public holdLoads(): () => void {
         let release = (): void => undefined;
 
@@ -118,6 +119,14 @@ function sleep(ms: number): Promise<void> {
 }
 
 // Пересборку по сигналу дождаться промисом нельзя: колбэк наблюдателя ничего не возвращает.
+// Поэтому спека ждёт прокрутки очереди задач — к сроку таймера пересборка на фейковом источнике
+// (его load() не уходит за пределы процесса) уже закончена вместе с рассылкой.
+async function signalled(storage: FakeWatchableStorage): Promise<void> {
+    storage.signal();
+
+    await sleep(0);
+}
+
 async function waitFor(done: () => boolean): Promise<void> {
     const deadline = Date.now() + 1000;
 
@@ -187,7 +196,48 @@ describe("ConfigContainer", () => {
             .that.deep.equals({ path: "limits.common" });
     });
 
-    describe("reload()", () => {
+    describe("init()", () => {
+        // Наблюдение заводит сама сборка: отдельный вызов можно забыть, и конфигурация молча
+        // осталась бы на значениях старта.
+        it("starts watching a storage that reports changes", async () => {
+            const { storage } = await watched();
+
+            expect(storage.watchCalls).to.equal(1);
+        });
+
+        // За process.env следить нечем, и это не отказ: контейнер с таким источником остаётся на
+        // значениях старта.
+        it("accepts a storage that cannot report changes", async () => {
+            const cc = await container({ tempDir: "/tmp" });
+
+            expect(cc.get("tempDir")).to.equal("/tmp");
+        });
+    });
+
+    describe("stop()", () => {
+        it("stops the storage", async () => {
+            const { cc, storage } = await watched();
+
+            cc.stop();
+
+            expect(storage.stopCalls).to.equal(1);
+        });
+
+        it("stops a storage that cannot report changes too", async () => {
+            let stops = 0;
+            const cc = new ConfigContainer<Values>(
+                { load: async (): Promise<RawConfig> => ({}), stop: (): void => void (stops += 1) },
+                returning({ tempDir: "/tmp" }),
+            );
+
+            await cc.init();
+            cc.stop();
+
+            expect(stops).to.equal(1);
+        });
+    });
+
+    describe("rebuild on a signal from the storage", () => {
         it("calls the listener of a changed leaf with the new and the old value", async () => {
             const { cc, storage } = await watched({ TEMP_DIR: "/data" });
             const calls: Array<[string, string]> = [];
@@ -197,7 +247,7 @@ describe("ConfigContainer", () => {
             });
 
             storage.raw = { TEMP_DIR: "/data/next" };
-            await cc.reload();
+            await signalled(storage);
 
             expect(calls).to.deep.equal([["/data/next", "/data"]]);
             expect(cc.get("tempDir")).to.equal("/data/next");
@@ -214,15 +264,32 @@ describe("ConfigContainer", () => {
             });
 
             storage.raw = { NUMBER: "2" };
-            await cc.reload();
+            await signalled(storage);
 
             expect(calls).to.deep.equal([[{ common: { number: 2, interval: 1000 } }, { common: { number: 1, interval: 1000 } }]]);
+        });
+
+        // Один вызов на пересборку, а не по вызову на каждый изменившийся лист внутри: пути
+        // собираются в набор, поэтому путь поддерева встречается в нём один раз.
+        it("calls the listener of a subtree once when two values inside it change", async () => {
+            const { cc, storage } = await watched({ NUMBER: "1", INTERVAL: "1000" });
+            let calls = 0;
+
+            cc.onChange("limits", () => {
+                calls += 1;
+            });
+
+            storage.raw = { NUMBER: "2", INTERVAL: "2000" };
+            await signalled(storage);
+
+            expect(calls).to.equal(1);
+            expect(cc.get("limits.common")).to.deep.equal({ number: 2, interval: 2000 });
         });
 
         // Билдер собирает новые объекты на каждой сборке, поэтому сравнение поддеревьев по
         // ссылке сообщало бы об изменении на каждой пересборке.
         it("keeps silent when the rebuilt values repeat the previous ones", async () => {
-            const { cc } = await watched({ TEMP_DIR: "/data" });
+            const { cc, storage } = await watched({ TEMP_DIR: "/data" });
             let calls = 0;
 
             cc.onChange("limits", () => {
@@ -232,7 +299,7 @@ describe("ConfigContainer", () => {
                 calls += 1;
             });
 
-            await cc.reload();
+            await signalled(storage);
 
             expect(calls).to.equal(0);
         });
@@ -246,7 +313,7 @@ describe("ConfigContainer", () => {
             });
 
             storage.raw = { NUMBER: "2" };
-            await cc.reload();
+            await signalled(storage);
 
             expect(calls).to.equal(0);
             expect(cc.get("limits.common.number")).to.equal(2);
@@ -267,7 +334,7 @@ describe("ConfigContainer", () => {
             });
 
             storage.raw = { TEMP_DIR: "/data/next" };
-            await cc.reload();
+            await signalled(storage);
 
             expect(calls).to.deep.equal(["second"]);
         });
@@ -286,7 +353,7 @@ describe("ConfigContainer", () => {
             unsubscribe();
 
             storage.raw = { TEMP_DIR: "/data/next" };
-            await cc.reload();
+            await signalled(storage);
 
             expect(calls).to.deep.equal(["second"]);
         });
@@ -301,7 +368,7 @@ describe("ConfigContainer", () => {
             const sequence: ConfigBuilder<Values> = {
                 build: (): Values => values.shift() ?? { tempDir: "/data", limits: null as unknown as Values["limits"] },
             };
-            const { cc } = await watched({}, sequence);
+            const { cc, storage } = await watched({}, sequence);
             const calls: Array<[unknown, unknown]> = [];
             let insideCalls = 0;
 
@@ -312,7 +379,7 @@ describe("ConfigContainer", () => {
                 insideCalls += 1;
             });
 
-            await cc.reload();
+            await signalled(storage);
 
             expect(calls).to.deep.equal([[null, { common: { number: 1, interval: 1000 } }]]);
             expect(insideCalls).to.equal(0);
@@ -336,36 +403,24 @@ describe("ConfigContainer", () => {
             });
 
             storage.raw = { TEMP_DIR: "/broken" };
-            await cc.reload();
+            await signalled(storage);
 
             expect(errors).to.have.lengthOf(1);
             expect(errors[0]).to.be.instanceOf(InvalidConfigError);
             expect(cc.get("tempDir")).to.equal("/data");
         });
 
-        it("reports ConfigContainerIsNotInitialized when it runs before init()", async () => {
-            const storage = new FakeWatchableStorage();
-            const cc = new ConfigContainer<Values>(storage, fromRaw);
-            const errors: unknown[] = [];
-
-            cc.onError((error) => {
-                errors.push(error);
-            });
-
-            await cc.reload();
-
-            expect(errors).to.have.lengthOf(1);
-            expect(errors[0]).to.be.instanceOf(ConfigContainerIsNotInitialized);
-        });
-
         it("stops reporting to an error listener that has unsubscribed", async () => {
             const failing: ConfigBuilder<Values> = {
-                build: (): Values => {
-                    throw new InvalidConfigError("always broken");
+                build: (raw): Values => {
+                    if (raw["TEMP_DIR"] === "/broken") {
+                        throw new InvalidConfigError("the config is broken");
+                    }
+
+                    return fromRaw.build(raw);
                 },
             };
-            const storage = new FakeWatchableStorage();
-            const cc = new ConfigContainer<Values>(storage, failing);
+            const { cc, storage } = await watched({ TEMP_DIR: "/data" }, failing);
             const errors: unknown[] = [];
 
             const unsubscribe = cc.onError((error) => {
@@ -373,16 +428,19 @@ describe("ConfigContainer", () => {
             });
 
             unsubscribe();
-            await cc.reload();
+
+            storage.raw = { TEMP_DIR: "/broken" };
+            await signalled(storage);
 
             expect(errors).to.have.lengthOf(0);
+            expect(cc.get("tempDir")).to.equal("/data");
         });
 
-        it("reads the source once when nobody asked for another pass", async () => {
-            const { cc, storage } = await watched();
+        it("reads the source once per signal", async () => {
+            const { storage } = await watched();
             const loadsAfterInit = storage.loads;
 
-            await cc.reload();
+            await signalled(storage);
 
             expect(storage.loads - loadsAfterInit).to.equal(1);
         });
@@ -391,19 +449,17 @@ describe("ConfigContainer", () => {
         // событий решала бы гонка. Сигналы, пришедшие во время пересборки, сливаются в один
         // проход — снимок читается целиком и увидит последнее состояние источника.
         it("merges the signals that arrive during a rebuild into one extra pass", async () => {
-            const { cc, storage } = await watched();
+            const { storage } = await watched();
             const loadsAfterInit = storage.loads;
             const release = storage.holdLoads();
 
-            const first = cc.reload();
-            const second = cc.reload();
-            const third = cc.reload();
-
-            expect(second).to.equal(first);
-            expect(third).to.equal(first);
+            storage.signal();
+            storage.signal();
+            storage.signal();
 
             release();
-            await first;
+            await waitFor(() => storage.loads - loadsAfterInit === 2);
+            await sleep(0);
 
             expect(storage.loads - loadsAfterInit).to.equal(2);
         });
@@ -427,7 +483,7 @@ describe("ConfigContainer", () => {
             });
 
             storage.raw = { TEMP_DIR: "/data/next" };
-            await cc.reload();
+            await signalled(storage);
 
             expect(errors).to.deep.equal([failure]);
             expect(calls).to.equal(1);
@@ -450,7 +506,7 @@ describe("ConfigContainer", () => {
             });
 
             storage.raw = { TEMP_DIR: "/data/next" };
-            await cc.reload();
+            await signalled(storage);
             await waitFor(() => errors.length > 0);
 
             expect(errors).to.deep.equal([failure]);
@@ -479,7 +535,7 @@ describe("ConfigContainer", () => {
             });
 
             storage.raw = { TEMP_DIR: "/broken" };
-            await cc.reload();
+            await signalled(storage);
 
             expect(errors).to.have.lengthOf(1);
             expect(errors[0]).to.be.instanceOf(InvalidConfigError);
@@ -500,43 +556,14 @@ describe("ConfigContainer", () => {
             });
 
             storage.raw = { TEMP_DIR: "/data/next" };
-            await cc.reload();
+            await signalled(storage);
 
             expect(calls).to.deep.equal(["first"]);
 
             storage.raw = { TEMP_DIR: "/data/third" };
-            await cc.reload();
+            await signalled(storage);
 
             expect(calls).to.deep.equal(["first", "first", "second"]);
-        });
-    });
-
-    describe("watch()", () => {
-        it("rebuilds on a signal from the storage and stops after unwatch()", async () => {
-            const { cc, storage } = await watched({ TEMP_DIR: "/data" });
-
-            cc.watch();
-
-            storage.raw = { TEMP_DIR: "/changed" };
-            storage.signal();
-            await waitFor(() => cc.get("tempDir") === "/changed");
-
-            expect(storage.watchCalls).to.equal(1);
-
-            cc.unwatch();
-
-            expect(storage.unwatchCalls).to.equal(1);
-        });
-
-        // За process.env следить нечем, и это не отказ: контейнер с таким источником просто
-        // остаётся на значениях старта.
-        it("does nothing with a storage that cannot report changes", async () => {
-            const cc = await container({ tempDir: "/tmp" });
-
-            cc.watch();
-            cc.unwatch();
-
-            expect(cc.get("tempDir")).to.equal("/tmp");
         });
     });
 });

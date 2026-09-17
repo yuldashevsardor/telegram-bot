@@ -2,7 +2,8 @@ import fs from "fs";
 import fsPromises from "fs/promises";
 import * as dotenv from "dotenv";
 import type { RawConfig } from "app/bootstrap/config/config-container.types";
-import type { ConfigStorage, WatchableConfigStorage } from "app/bootstrap/config/storage/config-storage";
+import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
+import type { WatchableConfigStorage } from "app/bootstrap/config/storage/watchable-config-storage";
 import { ConfigFileUnreadable } from "app/bootstrap/config/storage/config-file-storage.errors";
 
 // Файл поверх другого источника: значения файла перекрывают базовые, поэтому поменять на ходу
@@ -44,9 +45,10 @@ export class ConfigFileStorage implements WatchableConfigStorage {
 
     // Без проверки флага: на пути, за которым никто не следит, unwatchFile ничего не делает, а
     // сброшенный флаг возвращает право завести опрос заново.
-    public unwatch(): void {
+    public stop(): void {
         fs.unwatchFile(this.filePath);
         this.watching = false;
+        this.base.stop();
     }
 
     // Отсутствие файла — не отказ: наблюдение начинается до его появления, а удаление возвращает

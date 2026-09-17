@@ -35,6 +35,11 @@ if [ ! -f .env ]; then
     chmod 600 .env
 fi
 
+# Горячий файл конфигурации у каждого дерева свой и пустой: значения в нём — то, что правят на
+# ходу, а не то, что наследуют из основного дерева. Создаётся здесь по той же причине, по какой
+# его создают цели make, — см. комментарий у DC_APP в Makefile.
+touch .runtime.env
+
 scripts/bot-token.sh acquire
 
-printf 'дерево %s готово: tmp/pgsql общий, .env свой\n' "$root"
+printf 'дерево %s готово: tmp/pgsql общий, .env и .runtime.env свои\n' "$root"

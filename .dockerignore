@@ -11,7 +11,7 @@ tmp
 docs
 .env
 .env.test
-config/runtime.env
+.runtime.env
 *.log
 Dockerfile
 .dockerignore

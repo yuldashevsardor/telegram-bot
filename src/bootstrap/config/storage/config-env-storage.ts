@@ -10,4 +10,8 @@ export class ConfigEnvStorage implements ConfigStorage {
 
         return { ...process.env };
     }
+
+    // Между вызовами load() источник ничего не держит: process.env всегда под рукой, а следить
+    // за ним нечем.
+    public stop(): void {}
 }

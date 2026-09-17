@@ -60,16 +60,21 @@
   `get("bot.token")` отдаёт уже новый токен, а работающий `Bot`, пул `Database` и лимиты
   очереди остаются на прежних — расхождение молчит, подписчиков же в приложении пока нет ни
   одного.
-- **Значения наблюдаемого файла перекрывают окружение.** `config/runtime.env` кладётся поверх
-  снимка `process.env` ([`config.md`](./config.md)), поэтому переменная, которой compose
-  направляет приложение (`DATABASE_HOST: pgsql` в `docker-compose.app.yml`), из этого файла
-  перебивается. В файле держат ровно то, что меняют на ходу.
-- **Наблюдение за файлом гасится `unwatch()`.** Оставленный опрос держит событийный цикл: в
-  проде его обрывает `process.exit(0)` (`app.ts`), а прогон тестов — нет, у mocha нет
-  `--exit` (`.mocharc.json`), и он дождётся своего таймаута. В приложении гасит
-  `Application.terminate()`, в спеках — `resetApplicationContext()`
+- **Значения наблюдаемого файла перекрывают окружение.** `.runtime.env` кладётся поверх снимка
+  `process.env` ([`config.md`](./config.md)), поэтому переменная, которой compose направляет
+  приложение (`DATABASE_HOST: pgsql` в `docker-compose.app.yml`), из этого файла перебивается.
+  В файле держат ровно то, что меняют на ходу.
+- **Источник конфигурации останавливается `ConfigContainer.stop()`.** Оставленный опрос файла
+  держит событийный цикл: в проде его обрывает `process.exit(0)` (`app.ts`), а прогон тестов —
+  нет, у mocha нет `--exit` (`.mocharc.json`), и он дождётся своего таймаута. В приложении
+  останавливает `Application.terminate()`, в спеках — `resetApplicationContext()`
   (`test/bootstrap/application/application-context.helper.ts`) и `afterEach` спеки
   `ConfigFileStorage`.
+- **`.runtime.env` должен существовать на хосте до запуска compose.** Он смонтирован в
+  контейнер по имени файла, а bind-mount несуществующего пути Docker создаёт каталогом от root:
+  старт падает `ConfigFileUnreadable`, а каталог потом удаляется из-под sudo. Файл создают
+  `DC_APP` в `Makefile` и `scripts/worktree-init.sh`; запуск `docker compose` руками, мимо
+  `make`, этой страховки не имеет.
 - **`LIMIT_*_NUMBER > 0`** (конфиг проверяет). Ноль → `reserveDuration = Infinity` → слот
   занят навсегда, партиция никогда не удалится ([`outbound-queue.md`](./outbound-queue.md)).
 - **Новое поле пользователя из `ctx.from`** требует синхронной правки `user.types.ts`,
