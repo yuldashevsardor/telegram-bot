@@ -31,6 +31,7 @@ describe("Application", function () {
     let stopBot: () => Promise<void>;
     let queueSize: () => number;
     let lastQueueSize = 0;
+    let configUnwatches = 0;
 
     function write(level: keyof Logger): (message: string, payload?: UnknownObject) => void {
         return (message: string, payload?: UnknownObject): void => {
@@ -110,6 +111,13 @@ describe("Application", function () {
         ApplicationContext.create = async (): Promise<void> => {
             calls.push("context.create");
             await fillApplicationContext(configValues, logger);
+
+            // Наблюдение считается отдельно от общего списка вызовов: настоящий контейнер с
+            // фейковым источником снимает его без следа, а порядок остановки закрепляют
+            // остальные тесты — им запись о конфигурации не нужна.
+            ApplicationContext.getConfigContainer().unwatch = (): void => {
+                configUnwatches += 1;
+            };
         };
         container.setup = async (): Promise<void> => {
             calls.push("container.setup");
@@ -128,6 +136,7 @@ describe("Application", function () {
     beforeEach(function () {
         calls.length = 0;
         logs.length = 0;
+        configUnwatches = 0;
         configValues = {};
         checkDatabase = async (): Promise<void> => undefined;
         runBot = async (): Promise<void> => undefined;
@@ -522,6 +531,26 @@ describe("Application", function () {
                     message: "Graceful shutdown timeout is over, the shutdown was cut short.",
                     payload: { timeout: 20 },
                 },
+            ]);
+        });
+
+        // Наблюдение за конфигурацией снимается до общего срока и вне него: оставленный опрос
+        // пересобирал бы конфигурацию уже закрытого приложения и держал бы событийный цикл.
+        it("stops watching the config even when the shutdown timeout is over", async function () {
+            configValues = {
+                GRACEFUL_SHUTDOWN_TIMEOUT: "20",
+                BOT_GRACEFUL_SHUTDOWN_TIMEOUT: "0",
+                TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT: "0",
+            };
+            queueSize = (): number => 0;
+            stopBot = (): Promise<void> => new Promise(() => undefined);
+            const application = await start();
+
+            await application.stop();
+
+            expect(configUnwatches).to.equal(1);
+            expect(logs.filter(({ level }) => level === "warning").map(({ message }) => message)).to.deep.equal([
+                "Graceful shutdown timeout is over, the shutdown was cut short.",
             ]);
         });
 

@@ -31,6 +31,11 @@ services:
             - ./tsconfig.json:/app/tsconfig.json
             - ./tsconfig.check.json:/app/tsconfig.check.json
             - ./migrate.json:/app/migrate.json
+            # Горячий файл конфигурации: приложение опрашивает config/runtime.env и пересобирает
+            # конфигурацию при его правке (docs/architecture/config.md). Монтируется каталог, а не
+            # файл: одиночный bind-mount файла держится за inode, и сохранение редактора через
+            # временный файл с переименованием в контейнер не попало бы.
+            - ./config:/app/config
             # Иначе правка конфига Stryker молча не доезжала бы до make mutation до
             # make rebuild, как у .mocharc.json.
             - ./stryker.config.mjs:/app/stryker.config.mjs

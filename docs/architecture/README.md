@@ -115,7 +115,7 @@ src/
     config/                 ConfigContainer, форма ConfigValues, типы путей get() и алиас CC (config.md)
       builder/              интерфейс ConfigBuilder и ConfigValuesBuilder: сборка и валидация ConfigValues (config.md)
       parser/               ConfigParser: строгий разбор строк снимка источника (config.md)
-      storage/              ConfigStorage и ConfigEnvStorage — источник значений (config.md)
+      storage/              ConfigStorage, наблюдаемость и источники значений: env и файл (config.md)
   shared/                   RuntimeError, сквозные типы, словарь токенов DI, configValue (application.md);
                             NumberHelper, utils (sleep, withTimeout)
     fs/                     FileHelper

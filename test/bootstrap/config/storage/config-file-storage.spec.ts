@@ -1,0 +1,273 @@
+import { expect } from "chai";
+import fs from "fs/promises";
+import os from "os";
+import path from "path";
+import { ConfigFileStorage } from "app/bootstrap/config/storage/config-file-storage";
+import { ConfigFileUnreadable } from "app/bootstrap/config/storage/config-file-storage.errors";
+import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
+import type { RawConfig } from "app/bootstrap/config/config-container.types";
+
+// Интервал опроса в спеке — единицы миллисекунд: настоящий (2000) растянул бы прогон на минуты.
+const INTERVAL = 5;
+
+function base(raw: RawConfig): ConfigStorage {
+    return { load: async (): Promise<RawConfig> => raw };
+}
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitFor(done: () => boolean, timeout = 1000): Promise<void> {
+    const deadline = Date.now() + timeout;
+
+    while (!done()) {
+        if (Date.now() > deadline) {
+            expect.fail("the storage did not report the change in time");
+        }
+
+        await sleep(1);
+    }
+}
+
+describe("ConfigFileStorage", () => {
+    let directory: string;
+    let filePath: string;
+    let storages: ConfigFileStorage[];
+
+    beforeEach(async () => {
+        directory = await fs.mkdtemp(path.join(os.tmpdir(), "config-file-storage-"));
+        filePath = path.join(directory, "runtime.env");
+        storages = [];
+    });
+
+    // Оставленный опрос держал бы событийный цикл: у mocha нет --exit, и прогон дождался бы
+    // своего таймаута вместо завершения.
+    afterEach(async () => {
+        for (const storage of storages) {
+            storage.unwatch();
+        }
+
+        await fs.rm(directory, { recursive: true, force: true });
+    });
+
+    function storage(interval = INTERVAL, raw: RawConfig = {}): ConfigFileStorage {
+        const created = new ConfigFileStorage(base(raw), filePath, interval);
+
+        storages.push(created);
+
+        return created;
+    }
+
+    it("lays the values of the file over the base source", async () => {
+        await fs.writeFile(filePath, "FROM_FILE=file\nSHARED=file\n");
+
+        const raw = await storage(INTERVAL, { FROM_BASE: "base", SHARED: "base" }).load();
+
+        expect(raw["FROM_BASE"]).to.equal("base");
+        expect(raw["FROM_FILE"]).to.equal("file");
+        expect(raw["SHARED"]).to.equal("file");
+    });
+
+    // Отсутствие файла — нормальное состояние: наблюдение начинается до его появления, а
+    // удаление возвращает значения базовому источнику.
+    it("falls back to the base source when there is no file", async () => {
+        const raw = await storage(INTERVAL, { FROM_BASE: "base" }).load();
+
+        expect(raw).to.deep.equal({ FROM_BASE: "base" });
+    });
+
+    // Пустой набор вместо отказа снял бы разом все значения файла, и причина осталась бы
+    // неизвестной.
+    it("throws ConfigFileUnreadable when the path cannot be read", async () => {
+        // Каталог на месте файла: его чтение падает не ENOENT, а EISDIR.
+        await fs.mkdir(filePath);
+
+        const failed = await storage()
+            .load()
+            .then(
+                () => expect.fail("load() was expected to reject"),
+                (reason: unknown) => reason,
+            );
+
+        expect(failed).to.be.instanceOf(ConfigFileUnreadable);
+        expect(failed).to.have.property("message", `Config file "${filePath}" is unreadable`);
+        expect(failed).to.have.property("payload").that.deep.equals({ path: filePath });
+        expect(failed).to.have.property("cause").that.has.property("code", "EISDIR");
+    });
+
+    it("reports the appearance, the change and the removal of the file", async () => {
+        const watchable = storage();
+        let signals = 0;
+
+        watchable.watch(() => {
+            signals += 1;
+        });
+
+        // Слушатель на отсутствующем файле зовётся сразу после подписки, с нулями в обоих
+        // снимках: этот вызов изменением не считается.
+        await sleep(INTERVAL * 4);
+        expect(signals).to.equal(0);
+
+        await fs.writeFile(filePath, "A=1\n");
+        await waitFor(() => signals === 1);
+
+        // Та же длина: изменение видно по времени правки, а не по размеру.
+        await fs.writeFile(filePath, "A=2\n");
+        await waitFor(() => signals === 2);
+
+        expect((await watchable.load())["A"]).to.equal("2");
+
+        await fs.rm(filePath);
+        await waitFor(() => signals === 3);
+
+        expect(await watchable.load()).to.deep.equal({});
+    });
+
+    // Редактор сохраняет файл записью во временный и переименованием поверх: inode меняется, и
+    // подписка на события файловой системы потеряла бы файл вместе с ним.
+    it("keeps reporting after the file has been replaced with another inode", async () => {
+        await fs.writeFile(filePath, "A=1\n");
+
+        const watchable = storage();
+        let signals = 0;
+
+        watchable.watch(() => {
+            signals += 1;
+        });
+
+        // Базовое состояние наблюдатель снимает уже после подписки: правка, обогнавшая первый
+        // опрос, попала бы в это состояние и изменением не считалась бы.
+        await sleep(INTERVAL * 4);
+
+        const temporary = `${filePath}.tmp`;
+
+        await fs.writeFile(temporary, "A=2\n");
+        await fs.rename(temporary, filePath);
+        await waitFor(() => signals === 1);
+
+        await fs.writeFile(filePath, "A=3\n");
+        await waitFor(() => signals === 2);
+
+        expect((await watchable.load())["A"]).to.equal("3");
+    });
+
+    // Правка, сохранившая время изменения (архиватор, rsync --times), видна по размеру: иначе
+    // такой файл остался бы непрочитанным до следующей обычной правки. Время выставляется обоим
+    // состояниям файла явно: естественное время правки идёт с наносекундами, а возвращённое
+    // через Date округляется до миллисекунд, и сравнение времени отличило бы их само. Интервал
+    // секундный намеренно: запись и возврат времени должны попасть в один опрос, иначе опрос
+    // между ними увидел бы новое время, и проверялось бы не то.
+    it("reports a change that kept the modification time", async function () {
+        this.timeout(6000);
+
+        const time = new Date(1700000000000);
+
+        await fs.writeFile(filePath, "A=1\n");
+        await fs.utimes(filePath, time, time);
+
+        const watchable = storage(1000);
+        let signals = 0;
+
+        watchable.watch(() => {
+            signals += 1;
+        });
+
+        await fs.writeFile(filePath, "A=1234567890\n");
+        await fs.utimes(filePath, time, time);
+        await waitFor(() => signals === 1, 4000);
+
+        expect((await watchable.load())["A"]).to.equal("1234567890");
+    });
+
+    // Снятое наблюдение заводится заново: иначе выключить его на время и вернуть было бы нечем.
+    it("watches again after unwatch()", async () => {
+        await fs.writeFile(filePath, "A=1\n");
+
+        const watchable = storage();
+        let signals = 0;
+
+        watchable.unwatch();
+        watchable.watch(() => {
+            signals += 1;
+        });
+
+        await sleep(INTERVAL * 4);
+        await fs.writeFile(filePath, "A=2\n");
+        await waitFor(() => signals === 1);
+
+        watchable.unwatch();
+        watchable.watch(() => {
+            signals += 1;
+        });
+
+        await sleep(INTERVAL * 4);
+        await fs.writeFile(filePath, "A=3\n");
+        await waitFor(() => signals === 2);
+    });
+
+    it("stops reporting after unwatch()", async () => {
+        await fs.writeFile(filePath, "A=1\n");
+
+        const watchable = storage();
+        let signals = 0;
+
+        watchable.watch(() => {
+            signals += 1;
+        });
+
+        await sleep(INTERVAL * 4);
+        watchable.unwatch();
+
+        await fs.writeFile(filePath, "A=2\n");
+        await sleep(INTERVAL * 6);
+
+        expect(signals).to.equal(0);
+    });
+
+    // Второй watch() поверх первого завёл бы второй опрос того же пути, а unwatch() снял бы оба
+    // сразу: слушатель молча перестал бы получать сигналы.
+    it("keeps a single watch when watch() is called twice", async () => {
+        await fs.writeFile(filePath, "A=1\n");
+
+        const watchable = storage();
+        let signals = 0;
+
+        watchable.watch(() => {
+            signals += 1;
+        });
+        watchable.watch(() => {
+            signals += 1;
+        });
+
+        await sleep(INTERVAL * 4);
+        await fs.writeFile(filePath, "A=2\n");
+        await waitFor(() => signals === 1);
+        await sleep(INTERVAL * 4);
+
+        expect(signals).to.equal(1);
+    });
+
+    it("does not watch at all with a zero interval", async () => {
+        await fs.writeFile(filePath, "A=1\n");
+
+        const watchable = storage(0);
+        let signals = 0;
+
+        watchable.watch(() => {
+            signals += 1;
+        });
+
+        await sleep(INTERVAL * 4);
+        await fs.writeFile(filePath, "A=2\n");
+        await sleep(INTERVAL * 6);
+
+        expect(signals).to.equal(0);
+    });
+
+    // unwatch() без watch() — обычный путь остановки приложения, наблюдение которого выключено
+    // нулевым интервалом.
+    it("does nothing on unwatch() without watch()", () => {
+        expect(() => storage().unwatch()).to.not.throw();
+    });
+});

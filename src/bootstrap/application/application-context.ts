@@ -1,8 +1,12 @@
+import path from "path";
 import { ConfigContainer } from "app/bootstrap/config/config-container";
 import type { CC } from "app/bootstrap/config/config-container.types";
 import type { ConfigValues } from "app/bootstrap/config/config-values";
 import { ConfigValuesBuilder } from "app/bootstrap/config/builder/config-values-builder";
+import { ConfigParser } from "app/bootstrap/config/parser/config-parser";
+import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
 import { ConfigEnvStorage } from "app/bootstrap/config/storage/config-env-storage";
+import { ConfigFileStorage } from "app/bootstrap/config/storage/config-file-storage";
 import type { Logger } from "app/platform/logger/logger";
 import { ConsoleLogger } from "app/platform/logger/console-logger";
 import { PinoLogger } from "app/platform/logger/pino-logger";
@@ -74,7 +78,7 @@ export class ApplicationContext {
     // Конфиг раньше логгера: из него берётся и адаптер, и порог. Поэтому ошибка конфигурации
     // случается до появления логгера, и печатает её fail() своим фолбэком через console.error.
     private static async assemble(): Promise<void> {
-        const cc = new ConfigContainer<ConfigValues>(new ConfigEnvStorage(), new ConfigValuesBuilder());
+        const cc = new ConfigContainer<ConfigValues>(ApplicationContext.createStorage(), new ConfigValuesBuilder());
         await cc.init();
 
         const requestContext = new RequestContext();
@@ -85,6 +89,28 @@ export class ApplicationContext {
         ApplicationContext.cc = cc;
         ApplicationContext.requestContext = requestContext;
         ApplicationContext.logger = logger;
+
+        // Наблюдение включается последним: до подписки логгера отказ пересборки было бы некуда
+        // написать, а гасит его остановка приложения (`Application.terminate()`) — оставленный
+        // опрос файла пересобирал бы конфигурацию уже закрывающегося приложения.
+        cc.onError((error: unknown): void => {
+            logger.error("Config reload failed, the previous values are kept.", { cause: error });
+        });
+        cc.watch();
+    }
+
+    // Путь файла и интервал его опроса нужны, чтобы собрать конфигурацию, поэтому берутся из
+    // окружения напрямую — в собранных значениях их к этому моменту ещё нет. Разбор тот же, что и
+    // у остальных переменных, поэтому недопустимый интервал валит старт, а не выключает
+    // наблюдение молча.
+    private static createStorage(): ConfigStorage {
+        const parser = new ConfigParser({ ...process.env });
+        const filePath = parser.getString("CONFIG_FILE_PATH", path.join(process.cwd(), "config", "runtime.env"));
+        // Ноль выключает наблюдение: приложению, которому менять значения на ходу не нужно, опрос
+        // файла не нужен тоже.
+        const watchInterval = parser.getTimerDelay("CONFIG_FILE_WATCH_INTERVAL", 2000, { min: 0 });
+
+        return new ConfigFileStorage(new ConfigEnvStorage(), filePath, watchInterval);
     }
 
     // Логгер один на процесс: значения запроса он берёт из RequestContext в момент записи,

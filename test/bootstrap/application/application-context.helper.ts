@@ -48,6 +48,10 @@ export async function fillApplicationContext(values: RawConfig = {}, logger?: Lo
 // чужих спеках. Промис сборки не трогается: между сборками create() и так держит его пустым, а
 // идущую сборку сброс промиса не отменил бы — она заполнила бы поля уже после сброса.
 export function resetApplicationContext(): void {
+    // Наблюдение снимается до сброса ссылки: настоящий create() включает его на файле
+    // конфигурации, у mocha нет --exit, и оставленный опрос держал бы прогон до таймаута.
+    context.cc?.unwatch();
+
     context.cc = null;
     context.logger = null;
     context.requestContext = null;
