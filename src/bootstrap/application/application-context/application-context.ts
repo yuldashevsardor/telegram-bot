@@ -1,5 +1,5 @@
-import { ConfigContainer } from "app/bootstrap/config/config-container";
-import type { CC } from "app/bootstrap/config/config-container.types";
+import { ConfigContainer } from "app/bootstrap/config/config-container/config-container";
+import type { CC } from "app/bootstrap/config/config-container/config-container.types";
 import type { ConfigValues } from "app/bootstrap/config/config-values";
 import { ConfigValuesBuilder } from "app/bootstrap/config/builder/config-values-builder";
 import { ConfigEnvStorage } from "app/bootstrap/config/storage/config-env-storage";

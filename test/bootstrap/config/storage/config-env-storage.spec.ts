@@ -4,7 +4,7 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import { ConfigEnvStorage } from "app/bootstrap/config/storage/config-env-storage";
-import type { RawConfig } from "app/bootstrap/config/config-container.types";
+import type { RawConfig } from "app/bootstrap/config/config-container/config-container.types";
 
 const KEY = "CONFIG_ENV_STORAGE_SPEC_VALUE";
 const FILE_KEY = "CONFIG_ENV_STORAGE_SPEC_FILE_VALUE";

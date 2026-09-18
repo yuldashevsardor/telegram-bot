@@ -1,6 +1,6 @@
 import { ApplicationContext } from "app/bootstrap/application/application-context/application-context";
-import { ConfigContainer } from "app/bootstrap/config/config-container";
-import type { CC, RawConfig } from "app/bootstrap/config/config-container.types";
+import { ConfigContainer } from "app/bootstrap/config/config-container/config-container";
+import type { CC, RawConfig } from "app/bootstrap/config/config-container/config-container.types";
 import type { ConfigValues } from "app/bootstrap/config/config-values";
 import { ConfigValuesBuilder } from "app/bootstrap/config/builder/config-values-builder";
 import type { Logger } from "app/platform/logger/logger";

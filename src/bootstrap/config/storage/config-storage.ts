@@ -1,4 +1,4 @@
-import type { RawConfig } from "app/bootstrap/config/config-container.types";
+import type { RawConfig } from "app/bootstrap/config/config-container/config-container.types";
 
 // Промис — под источники, которые отдают значения по сети (vault), даже если env отдаёт их сразу.
 export interface ConfigStorage {

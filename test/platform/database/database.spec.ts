@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { expect } from "chai";
 import { ConfigValuesBuilder } from "app/bootstrap/config/builder/config-values-builder";
-import type { RawConfig } from "app/bootstrap/config/config-container.types";
+import type { RawConfig } from "app/bootstrap/config/config-container/config-container.types";
 import { Database } from "app/platform/database/database";
 import type { DatabaseSettings } from "app/platform/database/database.types";
 import { fillApplicationContext, resetApplicationContext } from "test/bootstrap/application/application-context.helper";

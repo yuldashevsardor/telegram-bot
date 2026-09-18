@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { Container as InversifyContainer } from "inversify";
 import { Tokens } from "app/shared/tokens";
 import { ApplicationContext } from "app/bootstrap/application/application-context/application-context";
-import type { CC } from "app/bootstrap/config/config-container.types";
+import type { CC } from "app/bootstrap/config/config-container/config-container.types";
 import type { RequestContext } from "app/platform/request-context/request-context";
 import { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher/font-signature-matcher";

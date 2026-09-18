@@ -1,9 +1,9 @@
 import type { UnknownObject } from "app/shared/types";
 import { InvalidConfigError } from "app/shared/errors";
-import type { Paths, ValueByPath } from "app/bootstrap/config/config-container.types";
+import type { Paths, ValueByPath } from "app/bootstrap/config/config-container/config-container.types";
 import type { ConfigBuilder } from "app/bootstrap/config/builder/config-builder";
 import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
-import { ConfigContainerIsNotInitialized } from "app/bootstrap/config/config-container.errors";
+import { ConfigContainerIsNotInitialized } from "app/bootstrap/config/config-container/config-container.errors";
 
 // Хранит значения и отдаёт их по пути; откуда они берутся и как проверяются, решают storage и
 // builder. Сборка вынесена из конструктора в init(): источник может отдавать значения только

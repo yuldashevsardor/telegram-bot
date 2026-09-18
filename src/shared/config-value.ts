@@ -3,7 +3,7 @@
 // который держал прежний @ConfigValue, ходивший за ней в модульный синглтон container.
 import { ApplicationContext } from "app/bootstrap/application/application-context/application-context";
 // Только типы: импорт стирается при сборке.
-import type { ConfigPath, ConfigValue } from "app/bootstrap/config/config-container.types";
+import type { ConfigPath, ConfigValue } from "app/bootstrap/config/config-container/config-container.types";
 
 // Значение конфигурации по «точечному» пути; ставится умолчанием параметра конструктора.
 // Почему функция, а не декоратор, и на чём это держится — docs/architecture/application.md,

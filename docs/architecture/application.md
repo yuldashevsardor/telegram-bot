@@ -64,8 +64,8 @@ public constructor(
 (`test/telegram/outbound-queue/task-queue.spec.ts` больше ничего не подменяет).
 
 Путь — строковый литерал, но не произвольный: его тип `ConfigPath`
-(`bootstrap/config/config-container.types.ts`) собран из `ConfigValues`, а тип результата
-выведен из того же места (`ValueByPath`). Поэтому компилятор отвергает и промах в пути —
+(`bootstrap/config/config-container/config-container.types.ts`) собран из `ConfigValues`, а
+тип результата выведен из того же места (`ValueByPath`). Поэтому компилятор отвергает и промах в пути —
 опечатку, путь сквозь примитив (`"tempDir.nope"`), — и несовпадение объявленного типа:
 `const x: string = configValue("limits.common")` не соберётся. Прежний `@ConfigValue<T>("ключ")` не проверял
 ни того, ни другого: ключ был строкой, тип — подсказкой на месте вызова, а внутри стояли
