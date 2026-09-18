@@ -157,8 +157,9 @@ scripts/                    хостовые скрипты целей make; cla
 
 **Собирает** — однотипных братьев одного контракта, которых перечисляет один регистратор:
 `convertor/<from>/` перечисляет `convertor-factory.ts`, `command/`, `conversation/`,
-`filter/` и `middleware/` — `container.ts`, `locale/` — обход каталога в `createFluent()`
-(`locale.ts`). Базовый класс контракта лежит при братьях (`command/command.ts`,
+`filter/` и `middleware/` — `container.ts`, бандлы `.ftl` в каталогах `locale/` при
+командах и разговорах — обход в `createFluent()` (`telegram/locale/locale.ts`). Базовый
+класс контракта лежит при братьях (`command/command.ts`,
 `conversation/conversation-handler.ts`, `filter/filter.ts`, `middleware/middleware.ts`) или
 в родителе (`convertor/convertor.ts`). Имя каталога братьев — имя их контракта (`command/`
 при `command.ts`) или общий признак братьев (`convertor/eot/` — исходный формат).
@@ -175,11 +176,13 @@ scripts/                    хостовые скрипты целей make; cla
 `font-signature-matcher/font-signature-matcher.ts` со своим `*.types.ts`,
 `eot-packer/eot-packer.ts` со своим `*.errors.ts`. Так же лежат спутники и в каталогах,
 которые карта называет сама: `font-convertor/font-convertor.*`, `platform/logger/logger.*`,
-`telegram/user/user.*` — имя каталога и там имя главного.
+`telegram/user/user.*` — имя каталога и там имя главного. Каталог со спутниками может стоять
+и внутри прячущего: `eot-packer/sfnt-reader/` держит `sfnt-reader.ts` со спутниками, а
+снаружи `eot-packer/` по-прежнему виден один `eot-packer.ts`.
 
-Дерево под это основание переведено не целиком: главные файлы, чьи спутники лежат в
-каталоге с другим именем, ещё есть — их печатает команда (три каталога роли `shared/` из
-вывода вычтены, имя у них своё):
+Главные файлы, чьи спутники лежат в каталоге с другим именем, печатает команда (три
+каталога роли `shared/` из вывода вычтены, имя у них своё); дерево под это основание
+переведено целиком, и вывод пуст:
 
 ```bash
 find src -name '*.types.ts' -o -name '*.errors.ts' | while read -r f; do m="${f%.*.ts}"; \
@@ -187,13 +190,10 @@ find src -name '*.types.ts' -o -name '*.errors.ts' | while read -r f; do m="${f%
     && echo "$m.ts"; done | grep -vE '^src/shared/(fs|process|string)/' | sort -u
 ```
 
-Вывод — не готовый список правок: двум файлам из него правило даёт больше одного ответа.
-Спутники `src/telegram/locale.ts` просят каталог `telegram/locale/`, а четыре каталога с
-этим именем уже стоят глубже, в `command/*/` и `conversation/start/`, и держат бандлы
-`.ftl`; собирает их обход всей подсистемы (`createFluent(__dirname)` в `bot.ts`), так что
-в новом каталоге `.ftl` не окажется ни одного, а имя будет то же.
-`src/font-convertor/eot-packer/sfnt-reader.ts` — внутренность прячущего каталога, и его
-каталог встал бы внутри `eot-packer/`.
+Имя `locale/` носят каталоги двух оснований: `telegram/locale/` держит `locale.ts` со
+спутниками и ни одного `.ftl`, а бандлы лежат в одноимённых каталогах при командах и
+разговорах. В рантайме они не путаются: `createFluent()` ищет файлы по расширению `.ftl`
+(`FileHelper.findFilesByExtensions()`), а не по имени каталога.
 
 Иначе файлы лежат плоско: части подсистемы группирует префикс имени файла, а файл без
 спутников каталога не заводит (`font-convertor/sfnt-version.ts`). Одному каталогу оснований
@@ -206,8 +206,8 @@ find src -name '*.types.ts' -o -name '*.errors.ts' | while read -r f; do m="${f%
 лежит плоско в корне (`number-helper.ts`, `utils.ts`); корневые `errors.ts` и `types.ts` —
 самостоятельные файлы, а не спутники, и в каталог никого не уводят.
 
-Какие файлы каталога видны снаружи, считает команда (`<путь>` — от `src/`; для `locale/`
-неприменима, `.ftl` через алиас не импортируют):
+Какие файлы каталога видны снаружи, считает команда (`<путь>` — от `src/`; для каталога
+бандлов `locale/` неприменима, `.ftl` через алиас не импортируют):
 
 ```bash
 grep -rHoE "app/<путь>/[A-Za-z0-9._-]+" src --include='*.ts' | grep -v "^src/<путь>/" \
@@ -217,10 +217,10 @@ grep -rHoE "app/<путь>/[A-Za-z0-9._-]+" src --include='*.ts' | grep -v "^src
 Путь спеки повторяет путь исходника, кроме одного: каталог внутри подсистемы, названный
 именем своего главного файла или его префиксом, в пути спеки не отражается (исключения —
 каталог братьев и каталог брата, абзацем ниже) — файлы `convertor/`, `eot-packer/`,
-`font-forge/` и `font-signature-matcher/` проверяют спеки прямо из `test/font-convertor/`.
-Каталог самой подсистемы отражается, даже когда устроен так же:
-`platform/request-context/` держит главный со спутником, а спека лежит в
-`test/platform/request-context/`; так же `platform/logger/`, `platform/database/` и
+`font-forge/` и `font-signature-matcher/` проверяют спеки прямо из `test/font-convertor/`, а
+`telegram/bot/bot.ts` — `test/telegram/bot.spec.ts`. Каталог самой подсистемы отражается,
+даже когда устроен так же: `platform/request-context/` держит главный со спутником, а спека
+лежит в `test/platform/request-context/`; так же `platform/logger/`, `platform/database/` и
 `telegram/user/`. Каталог, названный ролью, а не именем своего главного, под правило не
 попадает и без оговорки: `parser/` при `config-parser.ts`, `fs/` при `file-helper.ts`,
 `mutation/` при `telegram-call-api.middleware.ts`.
