@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { expect } from "chai";
 import { Application } from "app/bootstrap/application/application";
-import { ApplicationContext } from "app/bootstrap/application/application-context";
+import { ApplicationContext } from "app/bootstrap/application/application-context/application-context";
 import { container } from "app/bootstrap/container/container";
 import type { Database } from "app/platform/database/database";
 import type { Logger } from "app/platform/logger/logger";

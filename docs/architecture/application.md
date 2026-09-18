@@ -80,9 +80,9 @@ public constructor(
 
 ## Application
 
-`ApplicationContext` (`bootstrap/application/application-context.ts`) — состав того,
-что нужно приложению всегда: конфиг, логгер, контекст запроса. Эти объекты существуют до
-контейнера, потому что собрать его без них нельзя. Контекст собирает себя сам
+`ApplicationContext` (`bootstrap/application/application-context/application-context.ts`) —
+состав того, что нужно приложению всегда: конфиг, логгер, контекст запроса. Эти объекты
+существуют до контейнера, потому что собрать его без них нельзя. Контекст собирает себя сам
 (`ApplicationContext.create()`): внутри `ConfigContainer` с `ConfigEnvStorage` и
 `ConfigValuesBuilder` и его `init()` → `RequestContext` → выбор адаптера логгера.
 

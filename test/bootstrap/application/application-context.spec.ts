@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { expect } from "chai";
-import { ApplicationContext } from "app/bootstrap/application/application-context";
-import { ApplicationContextIsNotCreated } from "app/bootstrap/application/application-context.errors";
+import { ApplicationContext } from "app/bootstrap/application/application-context/application-context";
+import { ApplicationContextIsNotCreated } from "app/bootstrap/application/application-context/application-context.errors";
 import { ConsoleLogger } from "app/platform/logger/console-logger";
 import { PinoLogger } from "app/platform/logger/pino-logger";
 import { Level } from "app/platform/logger/logger.types";

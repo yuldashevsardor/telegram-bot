@@ -1,4 +1,4 @@
-import { ApplicationContext } from "app/bootstrap/application/application-context";
+import { ApplicationContext } from "app/bootstrap/application/application-context/application-context";
 import { ConfigContainer } from "app/bootstrap/config/config-container";
 import type { CC, RawConfig } from "app/bootstrap/config/config-container.types";
 import type { ConfigValues } from "app/bootstrap/config/config-values";

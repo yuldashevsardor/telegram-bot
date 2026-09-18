@@ -7,7 +7,7 @@ import type { Logger } from "app/platform/logger/logger";
 import { ConsoleLogger } from "app/platform/logger/console-logger";
 import { PinoLogger } from "app/platform/logger/pino-logger";
 import { RequestContext } from "app/platform/request-context/request-context";
-import { ApplicationContextIsNotCreated } from "app/bootstrap/application/application-context.errors";
+import { ApplicationContextIsNotCreated } from "app/bootstrap/application/application-context/application-context.errors";
 
 // Состав того, что приложению нужно всегда: эти объекты существуют до контейнера, потому что
 // собрать его без них нельзя. Список намеренно короткий и держится таким: контекст знают

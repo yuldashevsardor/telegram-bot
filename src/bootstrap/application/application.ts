@@ -1,5 +1,5 @@
 import { container } from "app/bootstrap/container/container";
-import { ApplicationContext } from "app/bootstrap/application/application-context";
+import { ApplicationContext } from "app/bootstrap/application/application-context/application-context";
 import type { CC } from "app/bootstrap/config/config-container.types";
 import type { Logger } from "app/platform/logger/logger";
 import { Tokens } from "app/shared/tokens";
