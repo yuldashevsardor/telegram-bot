@@ -1,7 +1,7 @@
 ---
 name: pr-light-check
 description: Лёгкое ревью Pull Request — механический прогон проверок репозитория по переданным гейтам, дрейф документации в изменённых строках и соответствие issue, с вердиктом и комментарием в PR. Запускается командой /review-pr, а также скиллом pr-deep-review как его механическая часть. Не для обычной работы над кодом и не для проверки незакоммиченных правок.
-allowed-tools: Bash(gh:*), Bash(git:*), Bash(make db-up), Bash(make rebuild), Bash(make build), Bash(make typecheck), Bash(make coverage), Bash(make lint), Bash(make format-check), Bash(make help), Bash(make token-status), Bash(make -n:*), Bash(sh -n:*), Bash(docker run:*), Bash(docker compose -f docker-compose.app.yml down --rmi local --volumes), Bash(scripts/bot-token.sh), Bash(cd:*), Bash(ls:*), Bash(cp:*), Bash(grep:*), Bash(awk:*), Read, Grep, Glob, Write
+allowed-tools: Bash(gh:*), Bash(git:*), Bash(make db-up), Bash(make rebuild), Bash(make build), Bash(make typecheck), Bash(make coverage), Bash(make lint), Bash(make format-check), Bash(make mutation:*), Bash(make help), Bash(make token-status), Bash(make -n:*), Bash(sh -n:*), Bash(docker run:*), Bash(docker compose -f docker-compose.app.yml down --rmi local --volumes), Bash(scripts/bot-token.sh), Bash(cd:*), Bash(ls:*), Bash(cp:*), Bash(grep:*), Bash(awk:*), Read, Grep, Glob, Write
 ---
 
 Ты запускаешь проверки репозитория по коду Pull Request и решаешь, можно ли его вливать.
@@ -109,6 +109,8 @@ Compose берёт из имени каталога. База устроена �
 | `format-check` | `make format-check` |
 | `make-targets` | `make help`, затем `make -n <изменённая цель>` |
 | `scripts` | `sh -n <скрипт>`, затем разбор dash'ем |
+| `mutation` | `make mutation files="<область из дифа>"` |
+| `mutation-full` | `make mutation` |
 
 Это и есть белый список. Дополнительно разрешены `make token-status` и
 `scripts/bot-token.sh` без аргументов — обе ничего не меняют. Больше ничего.
@@ -186,12 +188,70 @@ docker run --rm -v "$PWD":/app -w /app node:24-bookworm-slim sh -n scripts/<фа
 bash-измы, которые упадут на dash в Linux. Образ здесь нужен только как источник dash,
 с версией Node он не связан.
 
+### mutation и mutation-full
+
+Порог — `thresholds.break: 100` в `stryker.config.mjs`: хоть один выживший (`Survived`) или
+непокрытый (`NoCoverage`) мутант в области — и `make mutation` падает. Итог берётся из строки
+`Final mutation score`: Stryker печатает её со счётом при любом исходе, а ниже порога — со словами
+`under breaking threshold` и выходит с кодом 1. Выживших `clear-text` печатает выше, по одному:
+мутатор, файл со строкой и замена — их перечисли в «Красном».
+
+`mutation-full` мутирует весь `src/`. Это минуты, дольше предела одной команды, поэтому прогон
+запускается в фоне, а результат читается по завершении.
+
+`mutation` мутирует область из дифа. Собери её в дереве PR:
+
+```bash
+gh pr diff <N> --name-only \
+  | awk '/^src\/.+\.ts$/ {print; next} /^test\/.+\.spec\.ts$/ {sub(/^test\//, "src/"); sub(/\.spec\.ts$/, ".ts"); print}'
+git ls-files -- <пути из первой команды>
+git ls-files -- 'src/**/<имя спеки без .spec.ts>.ts'
+```
+
+1. Первая команда даёт кандидатов: исходник — как есть, спеку — её зеркалом
+   (`test/a/b.spec.ts` → `src/a/b.ts`). Спека в области нужна потому, что PR, ослабивший её,
+   исходников не трогает, и без зеркала мутировать ему было бы нечего.
+2. Вторая оставляет только файлы, которые есть в дереве PR. `--name-only` отдаёт и удалённые
+   файлы, и старые пути переездов (PR #366), а глоб, не нашедший ни одного `.ts` в `src/`,
+   останавливает прогон проверкой в `stryker.config.mjs`.
+3. Зеркала спеки во втором выводе нет — ищи её исходник по имени файла третьей командой: не
+   каждая спека лежит зеркалом (спеки `test/font-convertor/` плоские, а исходники разложены по
+   каталогам). Не нашлось и так — исходника в дереве нет, спека области не даёт.
+4. Вычти `src/app.ts` и файлы `DATABASE_ONLY_SOURCES` из `stryker.config.mjs` дерева PR. Конфиг
+   исключает их и сам, но область из одних таких файлов его проверку проходит, и Stryker
+   завершается успехом, не создав ни одного мутанта.
+
+Область пуста после вычета — `make mutation` не запускай и ставь `n-a` с причиной «область
+пуста»: PR правил, например, только спеки на базе (PR #372). Не `ok`: при нуле мутантов счёт —
+`NaN`, а `NaN < 100` ложно, поэтому пустой прогон выходит зелёным, ничего не проверив. По той же
+причине `n-a`, а не `ok`, и прогон со счётом `NaN`: в области нашлись только файлы без кода.
+
+При пороге 100 заглушить выжившего пометкой дешевле, чем написать тест, поэтому зелёный прогон
+ещё не значит, что выживших нет. Новые пометки в дифе прочитай вместе с причиной — на любом из
+двух гейтов:
+
+```bash
+gh pr diff <N> | awk '/^\+\+\+ /{f=substr($0,7); next} /^\+.*Stryker disable/{print f": "$0}'
+```
+
+Причина сверяется с «Разбором выживших» в `docs/architecture/testing.md`: мутант
+эквивалентный, мутация не компилируется или поведение не требуется и на это заведена issue —
+тогда ссылка на неё стоит в пометке. Не держится — гейт `fail`, как с живым выжившим: пометка
+его только спрятала.
+
 ### Красное
 
-Красное в `make -n` и `sh -n` однозначно само по себе. Красное в `build`, `typecheck`, `test`,
-`lint` или `format-check` сверь с базой, если есть сомнения, что оно внесено этим PR: заведи
-worktree на `origin/main`, скопируй в него `.env`, перейди в него и прогони **только
-упавшую** команду. Это тоже временное дерево, и убирается оно так же.
+Красное в `make -n` и `sh -n` однозначно само по себе. Красное в `mutation` и
+`mutation-full` сначала сверь повторным прогоном — `make mutation files="<файлы с выжившими>"`:
+у порога 100 запаса нет, а на загруженной машине статус мутанта врёт
+(`docs/architecture/testing.md`, «Таймауты и ошибки»). Файлов с выжившими хватает, повторять
+всю область незачем: мутанты других файлов на них не влияют. Выживший повторился — красное.
+Не повторился — дрейф: гейт `ok`, а мутант назови в «Красном» с пометкой «дрейф».
+
+Красное в `build`, `typecheck`, `test`, `lint`, `format-check` или гейтах мутаций сверь с
+базой, если есть сомнения, что оно внесено этим PR: заведи worktree на `origin/main`, скопируй
+в него `.env`, перейди в него и прогони **только упавшую** команду. Это тоже временное дерево,
+и убирается оно так же.
 
 ## Шаг 3. Дрейф документации
 
@@ -353,6 +413,7 @@ gh pr view <N> --json headRefOid -q '.headRefOid[0:7]'
 
 ### Прогон
 rebuild: сделан/не нужен · build: ok/fail/n-a · typecheck: ok/fail/n-a · test: ok/fail/n-a · lint: ok/fail/n-a · format-check: ok/fail/n-a
+mutation: ok/fail/n-a — <счёт из Final mutation score>, <весь src/ или файлы области> (n-a — причина)
 make -n <цель>: ok/fail — <что показало раскрытие>
 sh -n <скрипт>: ok/fail (+ dash: ok/fail/n-a)
 Не запускалось: <проверка> — <причина>

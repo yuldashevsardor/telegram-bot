@@ -242,6 +242,20 @@ describe("ConfigContainer", () => {
 
             expect(watches).to.equal(0);
         });
+
+        // Другая половина пары: источник с одним unwatch() контейнер счёл бы наблюдаемым и позвал
+        // бы у него watch(), которого нет, — сборка упала бы с TypeError.
+        it("accepts a storage that has only the other half of the watching methods", async () => {
+            const halfWatchable = {
+                load: async (): Promise<RawConfig> => ({}),
+                unwatch: (): void => undefined,
+            };
+            const cc = new ConfigContainer<Values>(halfWatchable, returning({ tempDir: "/tmp" }));
+
+            await cc.init();
+
+            expect(cc.get("tempDir")).to.equal("/tmp");
+        });
     });
 
     describe("unwatch()", () => {
