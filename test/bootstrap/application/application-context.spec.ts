@@ -68,9 +68,10 @@ describe("ApplicationContext", function () {
         directory = await fs.mkdtemp(path.join(os.tmpdir(), "application-context-"));
         filePath = path.join(directory, ".runtime.env");
 
-        // Опрос по умолчанию выключен: тесты, которым он нужен, включают его сами, а
-        // оставленный держал бы прогон — у mocha нет --exit.
-        setEnv({ BOT_TOKEN: "test-token", CONFIG_FILE_PATH: filePath, CONFIG_FILE_WATCH_INTERVAL: "0" });
+        // Опрос по умолчанию редкий: до конца теста он не сработает ни разу, а тесты, которым
+        // наблюдение нужно, задают свой интервал. Совсем выключить его нечем — минимум задан
+        // конфигурацией, — поэтому каждый тест гасит источник в afterEach: у mocha нет --exit.
+        setEnv({ BOT_TOKEN: "test-token", CONFIG_FILE_PATH: filePath, CONFIG_FILE_WATCH_INTERVAL: "100000" });
     });
 
     // Один хук, а не два: наблюдение обязано умереть раньше своего каталога, иначе опрос успевает
@@ -191,11 +192,18 @@ describe("ApplicationContext", function () {
         expect(ApplicationContext.getConfigContainer().get("environment")).to.equal("production");
     });
 
-    // Значения файла ложатся поверх окружения: иначе поменять на ходу то, что задано переменной,
-    // было бы нечем.
-    it("builds the config with the file values laid over the environment", async function () {
+    // Заданная переменная окружения сильнее файла, а пустая уступает ему: менять на ходу можно
+    // то, чего в окружении нет.
+    it("builds the config with the environment winning over the file", async function () {
         setEnv({ NODE_ENV: "development", LOGGER_LEVEL: "debug" });
         await fs.writeFile(filePath, "LOGGER_LEVEL=error\n");
+
+        await ApplicationContext.create();
+
+        expect(ApplicationContext.getConfigContainer().get("logger.level")).to.equal(Level.DEBUG);
+
+        resetApplicationContext();
+        setEnv({ LOGGER_LEVEL: "" });
 
         await ApplicationContext.create();
 
@@ -205,7 +213,7 @@ describe("ApplicationContext", function () {
     // Наблюдение включает сам контекст: без него правка файла осталась бы незамеченной до
     // перезапуска, и подписки не значили бы ничего.
     it("watches the file it was pointed at, so a change reaches the config by itself", async function () {
-        setEnv({ NODE_ENV: "development", LOGGER_LEVEL: "debug", CONFIG_FILE_WATCH_INTERVAL: "25" });
+        setEnv({ NODE_ENV: "development", LOGGER_LEVEL: "", CONFIG_FILE_WATCH_INTERVAL: "100" });
 
         await ApplicationContext.create();
 
@@ -219,7 +227,7 @@ describe("ApplicationContext", function () {
         await fs.writeFile(filePath, "LOGGER_LEVEL=error\n");
         // Срок короткий намеренно: с интервалом по умолчанию (2000 мс) правка за него не
         // доехала бы, то есть тест держит и сам интервал, а не только факт наблюдения.
-        await waitFor(() => levels.length > 0, "the change of the file did not reach the config", 1000);
+        await waitFor(() => levels.length > 0, "the change of the file did not reach the config", 1500);
 
         expect(levels).to.deep.equal([Level.ERROR]);
         expect(cc.get("logger.level")).to.equal(Level.ERROR);
@@ -228,7 +236,7 @@ describe("ApplicationContext", function () {
     // Путь по умолчанию — <корень приложения>/.runtime.env, и в контейнере туда смонтирован
     // одноимённый файл с хоста; ошибка в нём означала бы, что приложение следит не за тем файлом.
     it("falls back to .runtime.env in the working directory", async function () {
-        setEnv({ NODE_ENV: "development", LOGGER_LEVEL: "debug" });
+        setEnv({ NODE_ENV: "development", LOGGER_LEVEL: "" });
         unsetEnv("CONFIG_FILE_PATH");
         unsetEnv("CONFIG_FILE_WATCH_INTERVAL");
 
@@ -251,7 +259,7 @@ describe("ApplicationContext", function () {
     // между ними, опрос остался бы работать, а дотянуться до него было бы нечем — ссылки на
     // контейнер нигде нет.
     it("stops the config source when the rest of the context fails to assemble", async function () {
-        setEnv({ NODE_ENV: "development", CONFIG_FILE_WATCH_INTERVAL: "25" });
+        setEnv({ NODE_ENV: "development", CONFIG_FILE_WATCH_INTERVAL: "100" });
 
         const failure = new Error("logger is broken");
         const parts = ApplicationContext as unknown as { createLogger: () => never };
@@ -285,7 +293,12 @@ describe("ApplicationContext", function () {
     // Отказ пересборки не валит процесс: приложение остаётся на прежних значениях, а причина
     // уходит в лог — логгера у самой конфигурации нет, она собирается раньше него.
     it("logs a failed reload and keeps the previous values", async function () {
-        setEnv({ NODE_ENV: "development", CONFIG_FILE_WATCH_INTERVAL: "25" });
+        this.timeout(6000);
+
+        // NODE_ENV снимается с окружения: заданная переменная сильнее файла, и подсунуть в файл
+        // недопустимое значение поверх неё нельзя.
+        setEnv({ CONFIG_FILE_WATCH_INTERVAL: "100" });
+        unsetEnv("NODE_ENV");
         await ApplicationContext.create();
 
         const records: Array<{ message: string; payload: UnknownObject | undefined }> = [];
@@ -296,7 +309,7 @@ describe("ApplicationContext", function () {
         };
 
         await fs.writeFile(filePath, "NODE_ENV=prod\n");
-        await waitFor(() => records.length > 0, "the failed reload did not reach the log");
+        await waitFor(() => records.length > 0, "the failed reload did not reach the log", 4000);
 
         expect(records[0]?.message).to.equal("Config reload failed, the previous values are kept.");
         expect(records[0]?.payload?.["cause"]).to.be.instanceOf(InvalidConfigError);
@@ -342,7 +355,7 @@ describe("ApplicationContext", function () {
     // пробелом на конце уводил бы наблюдение на файл, которого нет, а интервал не разобрался бы
     // вовсе.
     it("treats a blank path and a padded value as if they were not set", async function () {
-        setEnv({ NODE_ENV: "development", LOGGER_LEVEL: "debug", CONFIG_FILE_PATH: "   ", CONFIG_FILE_WATCH_INTERVAL: "  25  " });
+        setEnv({ NODE_ENV: "development", LOGGER_LEVEL: "", CONFIG_FILE_PATH: "   ", CONFIG_FILE_WATCH_INTERVAL: "  100  " });
 
         await fs.writeFile(path.join(directory, ".runtime.env"), "LOGGER_LEVEL=error\n");
 
@@ -362,7 +375,7 @@ describe("ApplicationContext", function () {
 
         // Интервал разобран как 5 мс, а не отброшен: правка доезжает задолго до умолчания.
         await fs.writeFile(path.join(directory, ".runtime.env"), "LOGGER_LEVEL=warning\n");
-        await waitFor(() => cc.get("logger.level") === Level.WARNING, "the padded interval was not applied", 1000);
+        await waitFor(() => cc.get("logger.level") === Level.WARNING, "the padded interval was not applied", 1500);
     });
 
     // Верхнюю границу интервала приложение принимает: это наибольшая задержка, которую держит
@@ -380,7 +393,7 @@ describe("ApplicationContext", function () {
     it("watches with the default interval when the variable holds only spaces", async function () {
         this.timeout(8000);
 
-        setEnv({ NODE_ENV: "development", LOGGER_LEVEL: "debug", CONFIG_FILE_WATCH_INTERVAL: "   " });
+        setEnv({ NODE_ENV: "development", LOGGER_LEVEL: "", CONFIG_FILE_WATCH_INTERVAL: "   " });
         await ApplicationContext.create();
 
         const cc = ApplicationContext.getConfigContainer();
@@ -393,15 +406,18 @@ describe("ApplicationContext", function () {
         );
     });
 
-    // Ноль выключает наблюдение целиком: приложению, которому менять значения на ходу не нужно,
-    // опрос файла не нужен тоже.
-    it("does not watch the file at all with a zero interval", async function () {
-        setEnv({ NODE_ENV: "development", LOGGER_LEVEL: "debug", CONFIG_FILE_WATCH_INTERVAL: "0" });
-        await ApplicationContext.create();
+    // Ниже сотни опрос не опускается: конфигурацию не правят чаще, а stat на каждый виток
+    // цикла не бесплатен.
+    it("fails the start on an interval below the minimum", async function () {
+        setEnv({ NODE_ENV: "development", CONFIG_FILE_WATCH_INTERVAL: "50" });
 
-        await fs.writeFile(filePath, "LOGGER_LEVEL=error\n");
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        const error = await ApplicationContext.create().then(
+            () => expect.fail("create() was expected to reject"),
+            (reason: unknown) => reason,
+        );
 
-        expect(ApplicationContext.getConfigContainer().get("logger.level")).to.equal(Level.DEBUG);
+        expect(error)
+            .to.be.instanceOf(InvalidConfigError)
+            .with.property("message", 'Config value "CONFIG_FILE_WATCH_INTERVAL" must be between 100 and 2147483647');
     });
 });

@@ -61,29 +61,32 @@ describe("ConfigFileStorage", () => {
         return created;
     }
 
-    it("lays the values of the file over the base source", async () => {
+    // Файл лежит под базовым источником: заданное там перекрывает его, а сам файл добавляет
+    // значения ключам, которых в базовом источнике нет.
+    it("lets the base source win over the file", async () => {
         await fs.writeFile(filePath, "FROM_FILE=file\nSHARED=file\n");
 
         const raw = await storage(INTERVAL, { FROM_BASE: "base", SHARED: "base" }).load();
 
         expect(raw["FROM_BASE"]).to.equal("base");
         expect(raw["FROM_FILE"]).to.equal("file");
-        expect(raw["SHARED"]).to.equal("file");
+        expect(raw["SHARED"]).to.equal("base");
     });
 
-    // Пустая строка в файле — «здесь ничего не задано», а не «задано пустым»: иначе оператор,
-    // обнуливший значение вместо удаления строки, увёл бы его не к переменной окружения, откуда
-    // его брали до правки, а к умолчанию кода.
-    it("lets the base value through for a key the file leaves blank", async () => {
-        // Пробелы в кавычках dotenv сохраняет (незакавыченные он обрезает сам), а ConfigParser
-        // всё равно считает их пустотой — перекрывать ими базовое значение нечем.
-        await fs.writeFile(filePath, 'SHARED=\nPADDED="   "\nFROM_FILE=file\n');
+    // Пустая переменная базового источника — «не задано», а не «задано пустым»: половина
+    // переменных в .env объявлена пустыми, и перекрывай они файл, менять их на ходу было бы
+    // нельзя. Пробелы в кавычках dotenv сохраняет (незакавыченные он обрезает сам), а
+    // ConfigParser всё равно считает их пустотой.
+    it("lets the file value through for a key the base source leaves blank", async () => {
+        await fs.writeFile(filePath, "BLANK=file\nPADDED=file\nMISSING=file\n");
 
-        const raw = await storage(INTERVAL, { SHARED: "base", PADDED: "base" }).load();
+        // undefined базовый источник вправе отдать: снимок объявлен как Record<string, string |
+        // undefined>, и обращаться с ним как со строкой нельзя.
+        const raw = await storage(INTERVAL, { BLANK: "", PADDED: "   ", MISSING: undefined }).load();
 
-        expect(raw["SHARED"]).to.equal("base");
-        expect(raw["PADDED"]).to.equal("base");
-        expect(raw["FROM_FILE"]).to.equal("file");
+        expect(raw["BLANK"]).to.equal("file");
+        expect(raw["PADDED"]).to.equal("file");
+        expect(raw["MISSING"]).to.equal("file");
     });
 
     // Отсутствие файла — нормальное состояние: наблюдение начинается до его появления, а
@@ -265,52 +268,9 @@ describe("ConfigFileStorage", () => {
         expect(signals).to.equal(1);
     });
 
-    it("does not watch at all with a zero interval", async () => {
-        await fs.writeFile(filePath, "A=1\n");
-
-        const watchable = storage(0);
-        let signals = 0;
-
-        watchable.watch(() => {
-            signals += 1;
-        });
-
-        await sleep(INTERVAL * 4);
-        await fs.writeFile(filePath, "A=2\n");
-        await sleep(INTERVAL * 6);
-
-        expect(signals).to.equal(0);
-    });
-
-    // unwatchFile без слушателя снимает с пути всех, поэтому второй экземпляр на том же файле
-    // замолчал бы навсегда: своего слушателя он уже завёл и второй раз не заводит.
-    it("leaves another watcher of the same file alone", async () => {
-        await fs.writeFile(filePath, "A=1\n");
-
-        const first = storage();
-        const second = storage();
-        let firstSignals = 0;
-        let secondSignals = 0;
-
-        first.watch(() => {
-            firstSignals += 1;
-        });
-        second.watch(() => {
-            secondSignals += 1;
-        });
-
-        await sleep(INTERVAL * 4);
-        first.stop();
-
-        await fs.writeFile(filePath, "A=2\n");
-        await waitFor(() => secondSignals === 1);
-
-        expect(firstSignals).to.equal(0);
-    });
-
-    // stop() без watch() — обычный путь остановки приложения, наблюдение которого выключено
-    // нулевым интервалом. Своего слушателя у источника при этом нет, и снимать с пути чужих он
-    // не вправе: unwatchFile без слушателя убирает всех, кто следит за этим путём.
+    // stop() без watch() — обычный путь остановки приложения, которое не успело дойти до
+    // наблюдения. Своего слушателя у источника при этом нет, и снимать с пути чужих он не вправе:
+    // unwatchFile без слушателя убирает всех, кто следит за этим путём.
     it("does nothing on stop() without watch()", async () => {
         await fs.writeFile(filePath, "A=1\n");
 

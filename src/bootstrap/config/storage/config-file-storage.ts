@@ -6,22 +6,29 @@ import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage"
 import type { WatchableConfigStorage } from "app/bootstrap/config/storage/watchable-config-storage";
 import { ConfigFileUnreadable } from "app/bootstrap/config/storage/config-file-storage.errors";
 
-// Файл поверх другого источника: значения файла перекрывают базовые, поэтому поменять на ходу
-// можно и то, что пришло переменной окружения. Базовый источник приходит параметром, а не
-// собирается внутри, иначе файловый источник повторял бы работу с process.env, а порядок
-// наложения знал бы ещё и тот, кто их связывает.
+// Файл под другим источником: заданное в базовом источнике перекрывает файл, поэтому поменять на
+// ходу можно то, чего в нём нет (пустая переменная — это «нет»). Базовый источник приходит
+// параметром, а не собирается внутри, иначе файловый источник повторял бы работу с process.env, а
+// порядок наложения знал бы ещё и тот, кто их связывает.
 export class ConfigFileStorage implements WatchableConfigStorage {
     private listener: ((current: fs.Stats, previous: fs.Stats) => void) | null = null;
 
-    // Интервал опроса в миллисекундах; ноль выключает наблюдение целиком.
+    // Интервал опроса в миллисекундах.
     public constructor(private readonly base: ConfigStorage, private readonly filePath: string, private readonly watchInterval: number) {}
 
     public async load(): Promise<RawConfig> {
-        return { ...(await this.base.load()), ...(await this.read()) };
+        // Базовый источник спрашивается первым: его снимок должен быть взят на входе в load(), а
+        // не после чтения файла, иначе сборка увидела бы окружение, поменявшееся за время чтения.
+        const base = await this.base.load();
+
+        // Пустые значения базового источника не в счёт: ConfigParser всё равно считает их
+        // отсутствием, а перекрывай они файл — переменная, объявленная в .env пустой (там так
+        // объявлена половина), запрещала бы менять своё значение на ходу.
+        return { ...(await this.read()), ...ConfigFileStorage.withoutBlanks(base) };
     }
 
     public watch(onChanged: () => void): void {
-        if (this.watchInterval === 0 || this.listener !== null) {
+        if (this.listener !== null) {
             return;
         }
 
@@ -62,7 +69,7 @@ export class ConfigFileStorage implements WatchableConfigStorage {
         try {
             // dotenv.parse, а не dotenv.config(): тот пишет в process.env, то есть снимок правил
             // бы окружение процесса, а перечитывание видело бы собственные прошлые значения.
-            return ConfigFileStorage.withoutBlanks(dotenv.parse(await fsPromises.readFile(this.filePath)));
+            return dotenv.parse(await fsPromises.readFile(this.filePath));
         } catch (error) {
             if ((error as NodeJS.ErrnoException).code === "ENOENT") {
                 return {};
@@ -72,11 +79,10 @@ export class ConfigFileStorage implements WatchableConfigStorage {
         }
     }
 
-    // Пустое значение в файле («KEY=») значит «здесь ничего не задано», а не «задано пустым»:
-    // задать пустоту им всё равно нельзя (ConfigParser считает её отсутствием и берёт умолчание),
-    // а перекрой оно базовый источник — обнуление строки в файле уводило бы значение не к
-    // переменной окружения, откуда его брали до правки, а к умолчанию кода.
-    private static withoutBlanks(parsed: Record<string, string>): RawConfig {
-        return Object.fromEntries(Object.entries(parsed).filter(([, value]) => value.trim() !== ""));
+    // Пустое значение значит «здесь ничего не задано», а не «задано пустым»: задать пустоту им
+    // всё равно нельзя — ConfigParser считает её отсутствием и берёт умолчание. Поэтому пустая
+    // строка не перекрывает ничего, с какой бы стороны наложения она ни пришла.
+    private static withoutBlanks(parsed: RawConfig): RawConfig {
+        return Object.fromEntries(Object.entries(parsed).filter(([, value]) => value !== undefined && value.trim() !== ""));
     }
 }

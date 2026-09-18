@@ -22,9 +22,10 @@ import { ApplicationContextIsNotCreated } from "app/bootstrap/application/applic
 // обязан не потерять. Потерянную ссылку на объект восстановить было бы нечем — собранный
 // логгер и хранилище остались бы в процессе без единого входа к ним.
 export class ApplicationContext {
-    // Опрос наблюдаемого файла: мс, ноль выключает наблюдение. Держится здесь, а не в
-    // ConfigValuesBuilder: обе переменные файла нужны раньше собранной конфигурации.
+    // Опрос наблюдаемого файла, мс. Держится здесь, а не в ConfigValuesBuilder: обе переменные
+    // файла нужны раньше собранной конфигурации.
     private static readonly DEFAULT_WATCH_INTERVAL = 2000;
+    private static readonly MIN_WATCH_INTERVAL = 100;
     private static readonly DEFAULT_CONFIG_FILE = ".runtime.env";
 
     private static cc: CC | null = null;
@@ -126,10 +127,13 @@ export class ApplicationContext {
         return new ConfigFileStorage(
             new ConfigEnvStorage(),
             parser.getString("CONFIG_FILE_PATH", path.join(process.cwd(), ApplicationContext.DEFAULT_CONFIG_FILE)),
-            // Ноль выключает наблюдение: приложению, которому менять значения на ходу не нужно,
-            // опрос файла не нужен тоже. Недопустимое значение валит старт, а не превращается в
-            // умолчание — молча выключенное наблюдение выглядит как работающее.
-            parser.getTimerDelay("CONFIG_FILE_WATCH_INTERVAL", ApplicationContext.DEFAULT_WATCH_INTERVAL, { min: 0 }),
+            // Нижняя граница — не единица: опрос дешёвый, но не бесплатный (stat на каждый виток),
+            // а конфигурацию не правят чаще, чем раз в десятую долю секунды. Недопустимое значение
+            // валит старт, а не превращается в умолчание — молча ускоренный опрос выглядит как
+            // работающий.
+            parser.getTimerDelay("CONFIG_FILE_WATCH_INTERVAL", ApplicationContext.DEFAULT_WATCH_INTERVAL, {
+                min: ApplicationContext.MIN_WATCH_INTERVAL,
+            }),
         );
     }
 
