@@ -1,6 +1,6 @@
 import type { Level } from "app/platform/logger/logger.types";
 import type { Limit } from "app/telegram/outbound-queue/rate-limit.types";
-import type { RunnerSettings } from "app/telegram/outbound-queue/runner.types";
+import type { RunnerSettings } from "app/telegram/outbound-queue/runner/runner.types";
 import type { DatabaseSettings } from "app/platform/database/database.types";
 import type { BotSettings } from "app/telegram/bot.types";
 

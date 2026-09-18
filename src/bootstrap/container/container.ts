@@ -10,7 +10,7 @@ import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 import { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory";
 import { FontConvertor } from "app/font-convertor/font-convertor";
 import { TaskQueue } from "app/telegram/outbound-queue/task-queue";
-import { Runner } from "app/telegram/outbound-queue/runner";
+import { Runner } from "app/telegram/outbound-queue/runner/runner";
 import type { LimitResolver } from "app/telegram/outbound-queue/limit-resolver";
 import { TelegramLimitResolver } from "app/telegram/telegram-limit-resolver";
 import { Bot } from "app/telegram/bot";
