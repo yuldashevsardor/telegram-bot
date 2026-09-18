@@ -9,12 +9,14 @@ import { Level } from "app/platform/logger/logger.types";
 import { RequestContext } from "app/platform/request-context/request-context";
 
 type ContextParts = {
-    cc: CC | null;
-    logger: Logger | null;
-    requestContext: RequestContext | null;
+    parts: {
+        cc: CC;
+        logger: Logger;
+        requestContext: RequestContext;
+    } | null;
 };
 
-// Части кладутся в статические поля мимо create(): тот собрал бы конфиг из настоящего окружения,
+// Части кладутся в статическое поле мимо create(): тот собрал бы конфиг из настоящего окружения,
 // а шов для тестов менял бы публичную форму контекста.
 const context = ApplicationContext as unknown as ContextParts;
 
@@ -39,20 +41,16 @@ export async function fillApplicationContext(values: RawConfig = {}, logger?: Lo
 
     const requestContext = new RequestContext();
 
-    context.cc = cc;
-    context.requestContext = requestContext;
-    context.logger = logger ?? createQuietLogger(requestContext);
+    context.parts = { cc: cc, logger: logger ?? createQuietLogger(requestContext), requestContext: requestContext };
 }
 
 // Контекст общий на весь прогон mocha: заполненным он молча отдал бы свой конфиг configValue() в
 // чужих спеках. Промис сборки не трогается: между сборками create() и так держит его пустым, а
-// идущую сборку сброс промиса не отменил бы — она заполнила бы поля уже после сброса.
+// идущую сборку сброс промиса не отменил бы — она заполнила бы контекст уже после сброса.
 export function resetApplicationContext(): void {
     // Наблюдение снимается до сброса ссылки: настоящий create() заводит опрос файла
     // конфигурации, у mocha нет --exit, и оставленный опрос держал бы прогон до таймаута.
-    context.cc?.unwatch();
+    context.parts?.cc.unwatch();
 
-    context.cc = null;
-    context.logger = null;
-    context.requestContext = null;
+    context.parts = null;
 }
