@@ -1,5 +1,5 @@
 import type { SessionPayload } from "app/telegram/session/session.types";
-import type { Context } from "app/telegram/bot.types";
+import type { Context } from "app/telegram/bot/bot.types";
 
 export function initialPayload(): SessionPayload {
     return {

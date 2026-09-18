@@ -3,7 +3,7 @@ import type { Api, NextFunction, RawApi } from "grammy";
 import type { TaskQueue } from "app/telegram/outbound-queue/task-queue";
 import { inject, injectable } from "inversify";
 import { Tokens } from "app/shared/tokens";
-import type { Context } from "app/telegram/bot.types";
+import type { Context } from "app/telegram/bot/bot.types";
 import { Priority } from "app/telegram/outbound-queue/task";
 import { isGroupChat } from "app/telegram/telegram-chat";
 

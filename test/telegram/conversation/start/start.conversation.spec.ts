@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { expect } from "chai";
 import type { Message } from "@grammyjs/types";
 import { createConversation } from "@grammyjs/conversations";
-import type { Context, Conversation } from "app/telegram/bot.types";
+import type { Context, Conversation } from "app/telegram/bot/bot.types";
 import { StartConversation } from "app/telegram/conversation/start/start.conversation";
 import { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory";
 import type { FontForge } from "app/font-convertor/font-forge/font-forge";

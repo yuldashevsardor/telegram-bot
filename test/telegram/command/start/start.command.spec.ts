@@ -3,7 +3,7 @@ import path from "path";
 import { expect } from "chai";
 import { Api, Composer, Context as GrammyContext } from "grammy";
 import type { Update, UserFromGetMe } from "@grammyjs/types";
-import type { Context } from "app/telegram/bot.types";
+import type { Context } from "app/telegram/bot/bot.types";
 import type { StartConversation } from "app/telegram/conversation/start/start.conversation";
 import { StartCommand } from "app/telegram/command/start/start.command";
 import { createFluent } from "app/telegram/locale/locale";

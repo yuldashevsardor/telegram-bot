@@ -6,7 +6,7 @@ import { Tokens } from "app/shared/tokens";
 import type { Database } from "app/platform/database/database";
 import type { Runner } from "app/telegram/outbound-queue/runner/runner";
 import type { TaskQueue } from "app/telegram/outbound-queue/task-queue";
-import type { Bot } from "app/telegram/bot";
+import type { Bot } from "app/telegram/bot/bot";
 import { sleep, withTimeout } from "app/shared/utils";
 import { RuntimeError } from "app/shared/errors";
 

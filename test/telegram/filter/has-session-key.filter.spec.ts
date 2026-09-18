@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { expect } from "chai";
-import type { Context } from "app/telegram/bot.types";
+import type { Context } from "app/telegram/bot/bot.types";
 import { HasSessionKeyFilter } from "app/telegram/filter/has-session-key.filter";
 import { getSessionKey } from "app/telegram/session/session.helper";
 import type { Logger } from "app/platform/logger/logger";

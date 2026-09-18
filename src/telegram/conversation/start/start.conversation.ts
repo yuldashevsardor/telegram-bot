@@ -1,4 +1,4 @@
-import type { Context, Conversation } from "app/telegram/bot.types";
+import type { Context, Conversation } from "app/telegram/bot/bot.types";
 import { ConversationHandler } from "app/telegram/conversation/conversation-handler";
 import { inject, injectable } from "inversify";
 import type { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory";

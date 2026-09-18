@@ -1,7 +1,7 @@
 import path from "path";
 import type { MiddlewareFn } from "grammy";
 import { Fluent } from "@moebius/fluent";
-import type { Context } from "app/telegram/bot.types";
+import type { Context } from "app/telegram/bot/bot.types";
 import { FileHelper } from "app/shared/fs/file-helper";
 import type { Locale } from "app/telegram/locale/locale.types";
 import { DEFAULT_LOCALE, LOCALES } from "app/telegram/locale/locale.types";

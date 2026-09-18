@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { expect } from "chai";
 import type { RawApi, Transformer } from "grammy";
 import { Api, Composer, GrammyError } from "grammy";
-import type { Context } from "app/telegram/bot.types";
+import type { Context } from "app/telegram/bot/bot.types";
 import type { Task } from "app/telegram/outbound-queue/task";
 import { Priority } from "app/telegram/outbound-queue/task";
 import type { TaskQueue } from "app/telegram/outbound-queue/task-queue";

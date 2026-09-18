@@ -1,3 +1,4 @@
+import path from "path";
 import type { StorageAdapter } from "grammy";
 import { Bot as TelegramBot, Composer, session } from "grammy";
 import { inject, injectable } from "inversify";
@@ -5,7 +6,7 @@ import { Tokens } from "app/shared/tokens";
 import { configValue } from "app/shared/config-value";
 import type { Command } from "app/telegram/command/command";
 import type { Middleware } from "app/telegram/middleware/middleware";
-import type { BotSettings, Context } from "app/telegram/bot.types";
+import type { BotSettings, Context } from "app/telegram/bot/bot.types";
 import type { Logger } from "app/platform/logger/logger";
 import type { FetchOptions, RunnerHandle } from "@grammyjs/runner";
 import { run, sequentialize } from "@grammyjs/runner";
@@ -170,7 +171,9 @@ export class Bot {
         // Каталог берётся от запущенного кода (__dirname), а не от rootDir: в build/ рядом
         // с кодом лежат свои копии `.ftl` (шаг сборки в package.json), и путь от cwd увёл бы
         // собранное приложение читать локали из src/ — которого в развёрнутом виде нет.
-        const fluent = await createFluent(__dirname);
+        // Бот лежит в своём каталоге bot/, а `.ftl` разложены по всей подсистеме telegram/ —
+        // при командах и разговорах, поэтому обход начинается уровнем выше.
+        const fluent = await createFluent(path.dirname(__dirname));
 
         this.grammy.use(createFluentMiddleware(fluent));
 

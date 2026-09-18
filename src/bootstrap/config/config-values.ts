@@ -2,7 +2,7 @@ import type { Level } from "app/platform/logger/logger.types";
 import type { Limit } from "app/telegram/outbound-queue/rate-limit/rate-limit.types";
 import type { RunnerSettings } from "app/telegram/outbound-queue/runner/runner.types";
 import type { DatabaseSettings } from "app/platform/database/database.types";
-import type { BotSettings } from "app/telegram/bot.types";
+import type { BotSettings } from "app/telegram/bot/bot.types";
 
 export const Environments = ["production", "development", "testing"] as const;
 

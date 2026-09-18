@@ -4,7 +4,7 @@ import os from "os";
 import path from "path";
 import { FileHelper } from "app/shared/fs/file-helper";
 import type { Fluent } from "@moebius/fluent";
-import type { Context } from "app/telegram/bot.types";
+import type { Context } from "app/telegram/bot/bot.types";
 import { createFluent, createFluentMiddleware, localeFromFilePath, resolveLocale } from "app/telegram/locale/locale";
 import type { Locale } from "app/telegram/locale/locale.types";
 import { DEFAULT_LOCALE, LOCALES } from "app/telegram/locale/locale.types";

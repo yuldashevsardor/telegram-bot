@@ -5,7 +5,7 @@ import type { FontConvertor } from "app/font-convertor/font-convertor";
 import { Tokens } from "app/shared/tokens";
 import { configValue } from "app/shared/config-value";
 import { Extension } from "app/font-convertor/font-convertor.types";
-import type { Context } from "app/telegram/bot.types";
+import type { Context } from "app/telegram/bot/bot.types";
 import type { Logger } from "app/platform/logger/logger";
 
 @injectable()

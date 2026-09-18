@@ -3,7 +3,7 @@ import type { NextFunction } from "grammy";
 import { Middleware } from "app/telegram/middleware/middleware";
 import type { RequestContext } from "app/platform/request-context/request-context";
 import { Tokens } from "app/shared/tokens";
-import type { Context } from "app/telegram/bot.types";
+import type { Context } from "app/telegram/bot/bot.types";
 
 @injectable()
 export class RequestContextMiddleware extends Middleware {

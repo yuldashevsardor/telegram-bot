@@ -6,8 +6,8 @@ import { Tokens } from "app/shared/tokens";
 import type { UserRepository } from "app/telegram/user/user.repository";
 import type { User } from "app/telegram/user/user";
 import dayjs from "dayjs";
-import type { Context } from "app/telegram/bot.types";
-import { UpdateWithoutFrom } from "app/telegram/bot.errors";
+import type { Context } from "app/telegram/bot/bot.types";
+import { UpdateWithoutFrom } from "app/telegram/bot/bot.errors";
 
 @injectable()
 export class FillUserToContextMiddleware extends Middleware {

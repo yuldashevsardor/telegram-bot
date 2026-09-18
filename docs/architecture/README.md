@@ -71,7 +71,7 @@ chat ID — знание о Telegram, а не об очереди
 с базовым. Ошибка, которая описывает контракт, а не дело одного файла, может лежать у
 контракта, а не рядом с бросающим кодом: `InvalidLogLevel` (недопустимый `Level`) — в
 `platform/logger/logger.errors.ts`, а бросает её `AbstractLogger`; `UpdateWithoutFrom` — в
-`telegram/bot.errors.ts`, а бросает `fill-user-to-context.middleware.ts`. Конструктор —
+`telegram/bot/bot.errors.ts`, а бросает `fill-user-to-context.middleware.ts`. Конструктор —
 `new RuntimeError(message, payloadOrCause)`: `Error` вторым аргументом уходит в
 стандартный `cause`, объект — в `payload`. `Error` в поле `cause` такого объекта
 переезжает в стандартный `cause` и в `payload` не остаётся: иначе сериализатор логов

@@ -3,7 +3,7 @@ import { Tokens } from "app/shared/tokens";
 import type { Logger } from "app/platform/logger/logger";
 import type { NextFunction } from "grammy";
 import { Middleware } from "app/telegram/middleware/middleware";
-import type { Context } from "app/telegram/bot.types";
+import type { Context } from "app/telegram/bot/bot.types";
 
 @injectable()
 export class RequestLogMiddleware extends Middleware {

@@ -8,7 +8,7 @@ import type { Logger } from "app/platform/logger/logger";
 import { InvalidConfigError, RuntimeError } from "app/shared/errors";
 import { Tokens } from "app/shared/tokens";
 import type { UnknownObject } from "app/shared/types";
-import type { Bot } from "app/telegram/bot";
+import type { Bot } from "app/telegram/bot/bot";
 import type { Runner } from "app/telegram/outbound-queue/runner/runner";
 import type { TaskQueue } from "app/telegram/outbound-queue/task-queue";
 import { fillApplicationContext, resetApplicationContext } from "test/bootstrap/application/application-context.helper";

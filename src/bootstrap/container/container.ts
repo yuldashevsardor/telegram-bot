@@ -13,7 +13,7 @@ import { TaskQueue } from "app/telegram/outbound-queue/task-queue";
 import { Runner } from "app/telegram/outbound-queue/runner/runner";
 import type { LimitResolver } from "app/telegram/outbound-queue/limit-resolver";
 import { TelegramLimitResolver } from "app/telegram/telegram-limit-resolver";
-import { Bot } from "app/telegram/bot";
+import { Bot } from "app/telegram/bot/bot";
 import { BulkMessagesCommand } from "app/telegram/command/bulk-messages/bulk-messages.command";
 import { FontGeneratorCommand } from "app/telegram/command/font-generator/font-generator.command";
 import type { Logger } from "app/platform/logger/logger";
