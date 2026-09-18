@@ -151,6 +151,11 @@ export class Application {
     private async terminate(from: State): Promise<void> {
         this.logger.info("Stop application...");
 
+        // Наблюдение за конфигурацией снимается до общего срока и вне него: по истечении срока
+        // terminate() возвращается, а оставленный опрос файла продолжал бы пересобирать
+        // конфигурацию уже закрытого приложения и держал бы событийный цикл.
+        this.cc.unwatch();
+
         const timeout = this.cc.get("gracefulShutdown.timeout");
 
         const finished = await withTimeout(this.shutdown(from), timeout);
