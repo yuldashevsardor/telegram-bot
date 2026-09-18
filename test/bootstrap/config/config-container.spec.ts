@@ -40,6 +40,7 @@ class FakeWatchableStorage implements WatchableConfigStorage {
     public stopCalls = 0;
 
     private onChanged: (() => void) | null = null;
+    private captured: (() => void) | null = null;
     private held: Promise<void> | null = null;
 
     public async load(): Promise<RawConfig> {
@@ -55,6 +56,7 @@ class FakeWatchableStorage implements WatchableConfigStorage {
     public watch(onChanged: () => void): void {
         this.watchCalls += 1;
         this.onChanged = onChanged;
+        this.captured = onChanged;
     }
 
     public stop(): void {
@@ -68,6 +70,16 @@ class FakeWatchableStorage implements WatchableConfigStorage {
         }
 
         this.onChanged();
+    }
+
+    // Сигнал в обход остановки: настоящий источник его не пришлёт, но колбэк наблюдателя мог
+    // встать в очередь задач ещё до stop() — на этот случай защищается сам контейнер.
+    public signalIgnoringStop(): void {
+        if (this.captured === null) {
+            expect.fail("the storage was signalled while nobody has ever watched it");
+        }
+
+        this.captured();
     }
 
     // Держит load() до вызова отданной функции: так спека успевает подать сигналы посреди идущей
@@ -215,6 +227,43 @@ describe("ConfigContainer", () => {
     });
 
     describe("stop()", () => {
+        // Пересборка, начатая до остановки, значений уже не меняет: следом за stop() их читает
+        // тот, кто закрывает приложение (`Application.terminate()` берёт оттуда срок остановки).
+        it("cancels the rebuild that is already reading the source", async () => {
+            const { cc, storage } = await watched({ TEMP_DIR: "/data" });
+            let calls = 0;
+
+            cc.onChange("tempDir", () => {
+                calls += 1;
+            });
+
+            const release = storage.holdLoads();
+
+            storage.raw = { TEMP_DIR: "/data/next" };
+            storage.signal();
+
+            cc.stop();
+            release();
+            await sleep(0);
+
+            expect(cc.get("tempDir")).to.equal("/data");
+            expect(calls).to.equal(0);
+        });
+
+        it("ignores a signal that arrives after it", async () => {
+            const { cc, storage } = await watched({ TEMP_DIR: "/data" });
+            const loadsAfterInit = storage.loads;
+
+            cc.stop();
+
+            storage.raw = { TEMP_DIR: "/data/next" };
+            storage.signalIgnoringStop();
+            await sleep(0);
+
+            expect(storage.loads).to.equal(loadsAfterInit);
+            expect(cc.get("tempDir")).to.equal("/data");
+        });
+
         it("stops the storage", async () => {
             const { cc, storage } = await watched();
 
@@ -434,6 +483,22 @@ describe("ConfigContainer", () => {
 
             expect(errors).to.have.lengthOf(0);
             expect(cc.get("tempDir")).to.equal("/data");
+        });
+
+        // Значения подменяются до рассылки: слушатель, который спрашивает конфигурацию по другому
+        // пути, обязан увидеть уже новую.
+        it("gives a listener the values that are already new", async () => {
+            const { cc, storage } = await watched({ TEMP_DIR: "/data", NUMBER: "1" });
+            const seen: number[] = [];
+
+            cc.onChange("tempDir", () => {
+                seen.push(cc.get("limits.common.number"));
+            });
+
+            storage.raw = { TEMP_DIR: "/data/next", NUMBER: "2" };
+            await signalled(storage);
+
+            expect(seen).to.deep.equal([2]);
         });
 
         it("reads the source once per signal", async () => {

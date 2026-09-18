@@ -9,7 +9,7 @@ import type {
 } from "app/bootstrap/config/config-container.types";
 import type { ConfigBuilder } from "app/bootstrap/config/builder/config-builder";
 import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
-import { isWatchableConfigStorage } from "app/bootstrap/config/storage/config-storage.helpers";
+import { isWatchableConfigStorage } from "app/bootstrap/config/storage/config-storage.helper";
 import { ConfigContainerIsNotInitialized } from "app/bootstrap/config/config-container.errors";
 
 // Идущая пересборка одна на контейнер: параллельные гонялись бы за одно поле values, и порядок
@@ -35,6 +35,7 @@ export class ConfigContainer<Values> {
     private readonly errorListeners = new Set<ConfigErrorListener>();
 
     private reloading: Reloading | null = null;
+    private stopped = false;
 
     public constructor(private readonly storage: ConfigStorage, private readonly builder: ConfigBuilder<Values>) {}
 
@@ -52,8 +53,12 @@ export class ConfigContainer<Values> {
     }
 
     // Останавливает источник: опрос файла держал бы событийный цикл, а пересборка на
-    // закрывающемся приложении никому не нужна.
+    // закрывающемся приложении никому не нужна. Идущая пересборка тоже отменяется: снимок она
+    // уже читает, и без флага успела бы подменить значения под тем, кто их читает следом
+    // (`Application.terminate()` берёт срок остановки строкой ниже).
     public stop(): void {
+        this.stopped = true;
+
         this.storage.stop();
     }
 
@@ -107,6 +112,10 @@ export class ConfigContainer<Values> {
     }
 
     private reload(): void {
+        if (this.stopped) {
+            return;
+        }
+
         const reloading = this.reloading;
 
         if (reloading !== null) {
@@ -152,7 +161,15 @@ export class ConfigContainer<Values> {
     private async rebuild(): Promise<void> {
         try {
             const previous = this.currentValues();
-            const current = this.builder.build(await this.storage.load());
+            const raw = await this.storage.load();
+
+            // Остановка могла прийти, пока читался снимок: подменять значения под тем, кто уже
+            // закрывает приложение, нельзя.
+            if (this.stopped) {
+                return;
+            }
+
+            const current = this.builder.build(raw);
 
             this.values = current;
 

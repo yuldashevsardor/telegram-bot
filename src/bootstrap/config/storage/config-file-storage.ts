@@ -11,7 +11,7 @@ import { ConfigFileUnreadable } from "app/bootstrap/config/storage/config-file-s
 // собирается внутри, иначе файловый источник повторял бы работу с process.env, а порядок
 // наложения знал бы ещё и тот, кто их связывает.
 export class ConfigFileStorage implements WatchableConfigStorage {
-    private watching = false;
+    private listener: ((current: fs.Stats, previous: fs.Stats) => void) | null = null;
 
     // Интервал опроса в миллисекундах; ноль выключает наблюдение целиком.
     public constructor(private readonly base: ConfigStorage, private readonly filePath: string, private readonly watchInterval: number) {}
@@ -21,17 +21,11 @@ export class ConfigFileStorage implements WatchableConfigStorage {
     }
 
     public watch(onChanged: () => void): void {
-        if (this.watchInterval === 0 || this.watching) {
+        if (this.watchInterval === 0 || this.listener !== null) {
             return;
         }
 
-        this.watching = true;
-
-        // Опрос по stat, а не fs.watch: приложение работает в контейнере с bind-mount, где
-        // inotify-события с хоста не гарантированы, а сохранение редактора через временный файл
-        // с переименованием уводит inode — с ним fs.watch теряет и сам файл, а опрос продолжает
-        // видеть путь.
-        fs.watchFile(this.filePath, { interval: this.watchInterval }, (current, previous) => {
+        this.listener = (current: fs.Stats, previous: fs.Stats): void => {
             // На отсутствующем файле watchFile зовёт слушателя сразу после подписки, с нулями в
             // обоих снимках; сравнение отсекает этот вызов и смену одних прав, оставляя правку
             // содержимого, появление файла (mtime из нуля) и его удаление (mtime в ноль).
@@ -40,14 +34,24 @@ export class ConfigFileStorage implements WatchableConfigStorage {
             }
 
             onChanged();
-        });
+        };
+
+        // Опрос по stat, а не fs.watch: приложение работает в контейнере с bind-mount, где
+        // inotify-события с хоста не гарантированы, а сохранение редактора через временный файл
+        // с переименованием уводит inode — с ним fs.watch теряет и сам файл, а опрос продолжает
+        // видеть путь.
+        fs.watchFile(this.filePath, { interval: this.watchInterval }, this.listener);
     }
 
-    // Без проверки флага: на пути, за которым никто не следит, unwatchFile ничего не делает, а
-    // сброшенный флаг возвращает право завести опрос заново.
+    // Снимается ровно свой слушатель: unwatchFile без него убрал бы с этого пути всех, включая
+    // чужой экземпляр, который следит за тем же файлом. Сброшенная ссылка возвращает право
+    // завести опрос заново.
     public stop(): void {
-        fs.unwatchFile(this.filePath);
-        this.watching = false;
+        if (this.listener !== null) {
+            fs.unwatchFile(this.filePath, this.listener);
+            this.listener = null;
+        }
+
         this.base.stop();
     }
 
@@ -58,7 +62,7 @@ export class ConfigFileStorage implements WatchableConfigStorage {
         try {
             // dotenv.parse, а не dotenv.config(): тот пишет в process.env, то есть снимок правил
             // бы окружение процесса, а перечитывание видело бы собственные прошлые значения.
-            return dotenv.parse(await fsPromises.readFile(this.filePath));
+            return ConfigFileStorage.withoutBlanks(dotenv.parse(await fsPromises.readFile(this.filePath)));
         } catch (error) {
             if ((error as NodeJS.ErrnoException).code === "ENOENT") {
                 return {};
@@ -66,5 +70,13 @@ export class ConfigFileStorage implements WatchableConfigStorage {
 
             throw ConfigFileUnreadable.byPath(this.filePath, error);
         }
+    }
+
+    // Пустое значение в файле («KEY=») значит «здесь ничего не задано», а не «задано пустым»:
+    // задать пустоту им всё равно нельзя (ConfigParser считает её отсутствием и берёт умолчание),
+    // а перекрой оно базовый источник — обнуление строки в файле уводило бы значение не к
+    // переменной окружения, откуда его брали до правки, а к умолчанию кода.
+    private static withoutBlanks(parsed: Record<string, string>): RawConfig {
+        return Object.fromEntries(Object.entries(parsed).filter(([, value]) => value.trim() !== ""));
     }
 }

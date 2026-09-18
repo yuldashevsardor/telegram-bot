@@ -7,8 +7,10 @@ import { ConfigFileUnreadable } from "app/bootstrap/config/storage/config-file-s
 import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
 import type { RawConfig } from "app/bootstrap/config/config-container.types";
 
-// Интервал опроса в спеке — единицы миллисекунд: настоящий (2000) растянул бы прогон на минуты.
-const INTERVAL = 5;
+// Интервал опроса в спеке — десятки миллисекунд: настоящий (2000) растянул бы прогон на минуты, а
+// единицы дробили бы на опросы саму запись файла, и под нагрузкой (Stryker гоняет спеки в
+// нескольких воркерах) счёт сигналов переставал бы совпадать с числом правок.
+const INTERVAL = 25;
 
 function base(raw: RawConfig): ConfigStorage {
     return { load: async (): Promise<RawConfig> => raw, stop: (): void => undefined };
@@ -67,6 +69,21 @@ describe("ConfigFileStorage", () => {
         expect(raw["FROM_BASE"]).to.equal("base");
         expect(raw["FROM_FILE"]).to.equal("file");
         expect(raw["SHARED"]).to.equal("file");
+    });
+
+    // Пустая строка в файле — «здесь ничего не задано», а не «задано пустым»: иначе оператор,
+    // обнуливший значение вместо удаления строки, увёл бы его не к переменной окружения, откуда
+    // его брали до правки, а к умолчанию кода.
+    it("lets the base value through for a key the file leaves blank", async () => {
+        // Пробелы в кавычках dotenv сохраняет (незакавыченные он обрезает сам), а ConfigParser
+        // всё равно считает их пустотой — перекрывать ими базовое значение нечем.
+        await fs.writeFile(filePath, 'SHARED=\nPADDED="   "\nFROM_FILE=file\n');
+
+        const raw = await storage(INTERVAL, { SHARED: "base", PADDED: "base" }).load();
+
+        expect(raw["SHARED"]).to.equal("base");
+        expect(raw["PADDED"]).to.equal("base");
+        expect(raw["FROM_FILE"]).to.equal("file");
     });
 
     // Отсутствие файла — нормальное состояние: наблюдение начинается до его появления, а
@@ -265,10 +282,52 @@ describe("ConfigFileStorage", () => {
         expect(signals).to.equal(0);
     });
 
+    // unwatchFile без слушателя снимает с пути всех, поэтому второй экземпляр на том же файле
+    // замолчал бы навсегда: своего слушателя он уже завёл и второй раз не заводит.
+    it("leaves another watcher of the same file alone", async () => {
+        await fs.writeFile(filePath, "A=1\n");
+
+        const first = storage();
+        const second = storage();
+        let firstSignals = 0;
+        let secondSignals = 0;
+
+        first.watch(() => {
+            firstSignals += 1;
+        });
+        second.watch(() => {
+            secondSignals += 1;
+        });
+
+        await sleep(INTERVAL * 4);
+        first.stop();
+
+        await fs.writeFile(filePath, "A=2\n");
+        await waitFor(() => secondSignals === 1);
+
+        expect(firstSignals).to.equal(0);
+    });
+
     // stop() без watch() — обычный путь остановки приложения, наблюдение которого выключено
-    // нулевым интервалом.
-    it("does nothing on stop() without watch()", () => {
-        expect(() => storage().stop()).to.not.throw();
+    // нулевым интервалом. Своего слушателя у источника при этом нет, и снимать с пути чужих он
+    // не вправе: unwatchFile без слушателя убирает всех, кто следит за этим путём.
+    it("does nothing on stop() without watch()", async () => {
+        await fs.writeFile(filePath, "A=1\n");
+
+        const watching = storage();
+        const idle = storage();
+        let signals = 0;
+
+        watching.watch(() => {
+            signals += 1;
+        });
+
+        await sleep(INTERVAL * 4);
+
+        expect(() => idle.stop()).to.not.throw();
+
+        await fs.writeFile(filePath, "A=2\n");
+        await waitFor(() => signals === 1);
     });
 
     // Источник оборачивает базовый, поэтому и останавливает его: иначе vault под ним остался бы
