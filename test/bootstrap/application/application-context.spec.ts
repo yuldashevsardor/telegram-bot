@@ -148,7 +148,7 @@ describe("ApplicationContext", function () {
         expect(ApplicationContext.getRequestContext()).to.equal(requestContext);
     });
 
-    // Сборка асинхронная: проверка готовых полей пропустила бы оба вызова, и второй собрал бы
+    // Сборка асинхронная: проверка готовых частей пропустила бы оба вызова, и второй собрал бы
     // второй контекст поверх первого.
     it("waits for the create() in progress instead of starting another one", async function () {
         setEnv({ NODE_ENV: "development" });
