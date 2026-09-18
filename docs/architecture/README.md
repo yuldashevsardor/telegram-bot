@@ -158,11 +158,14 @@ scripts/                    хостовые скрипты целей make; cla
 **Собирает** — однотипных братьев одного контракта, которых перечисляет один регистратор:
 `convertor/<from>/` перечисляет `convertor-factory.ts`, `command/`, `conversation/`,
 `filter/` и `middleware/` — `container.ts`, бандлы `.ftl` в каталогах `locale/` при
-командах и разговорах — обход в `createFluent()` (`telegram/locale/locale.ts`). Базовый
-класс контракта лежит при братьях (`command/command.ts`,
-`conversation/conversation-handler.ts`, `filter/filter.ts`, `middleware/middleware.ts`) или
-в родителе (`convertor/convertor.ts`). Имя каталога братьев — имя их контракта (`command/`
-при `command.ts`) или общий признак братьев (`convertor/eot/` — исходный формат).
+командах и разговорах — обход в `createFluent()` (`telegram/locale/locale.ts`). Обход ищет
+файлы по расширению (`FileHelper.findFilesByExtensions()`), а не по имени каталога, поэтому
+одноимённый `telegram/locale/`, где лежит сам `locale.ts` со спутниками и ни одного `.ftl`,
+с каталогами бандлов не путается. Базовый класс контракта лежит при братьях
+(`command/command.ts`, `conversation/conversation-handler.ts`, `filter/filter.ts`,
+`middleware/middleware.ts`) или в родителе (`convertor/convertor.ts`). Имя каталога
+братьев — имя их контракта (`command/` при `command.ts`) или общий признак братьев
+(`convertor/eot/` — исходный формат).
 
 **Стоит вокруг одного брата** — каталог отделяет брата от прочих файлов каталога братьев:
 `command/start/`, `command/bulk-messages/`, `command/font-generator/` и
@@ -189,11 +192,6 @@ find src -name '*.types.ts' -o -name '*.errors.ts' | while read -r f; do m="${f%
     [ -f "$m.ts" ] && [ "$(basename "$(dirname "$f")")" != "$(basename "$m")" ] \
     && echo "$m.ts"; done | grep -vE '^src/shared/(fs|process|string)/' | sort -u
 ```
-
-Имя `locale/` носят каталоги двух оснований: `telegram/locale/` держит `locale.ts` со
-спутниками и ни одного `.ftl`, а бандлы лежат в одноимённых каталогах при командах и
-разговорах. В рантайме они не путаются: `createFluent()` ищет файлы по расширению `.ftl`
-(`FileHelper.findFilesByExtensions()`), а не по имени каталога.
 
 Иначе файлы лежат плоско: части подсистемы группирует префикс имени файла, а файл без
 спутников каталога не заводит (`font-convertor/sfnt-version.ts`). Одному каталогу оснований

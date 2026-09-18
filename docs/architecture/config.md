@@ -1,10 +1,10 @@
 # Конфигурация
 
-Конфигурация живёт в `bootstrap/config/`. `ConfigContainer<Values>` (`config-container.ts`)
-получает в конструкторе `ConfigStorage` и `ConfigBuilder<Values>` и собирает значения в
-`init()`: storage одним вызовом `load()` отдаёт снимок всех переменных (`RawConfig`), builder
-разбирает и проверяет его и возвращает `Values`, контейнер их хранит и раздаёт методом
-`get("bot.token")`. `get()` до `init()` — `ConfigContainerIsNotInitialized`. В приложении
+Конфигурация живёт в `bootstrap/config/`. `ConfigContainer<Values>`
+(`config-container/config-container.ts`) получает в конструкторе `ConfigStorage` и
+`ConfigBuilder<Values>` и собирает значения в `init()`: storage одним вызовом `load()` отдаёт
+снимок всех переменных (`RawConfig`), builder разбирает и проверяет его и возвращает
+`Values`, контейнер их хранит и раздаёт методом `get("bot.token")`. `get()` до `init()` — `ConfigContainerIsNotInitialized`. В приложении
 это `CC` — `ConfigContainer<ConfigValues>` со `ConfigEnvStorage` и `ConfigValuesBuilder`,
 его собирает `ApplicationContext.create()` ([`application.md`](./application.md)). Раскрытия
 `${...}` в `.env` нет.
@@ -31,11 +31,11 @@ vault) ходят за значениями вне процесса, и инте
 `getArray`), а `noUnusedLocals` не пропускает приватный метод без вызовов.
 
 Форма значений передаётся контейнеру дженериком явно, без ограничения на тип, и из неё же
-`Paths` и `ValueByPath` (`config-container.types.ts`) выводят допустимые пути и тип
-результата `get()`. Там же `ConfigPath` и `ConfigValue` — те же типы, применённые к
-`ConfigValues` (их берёт `shared/config-value.ts`), алиас `CC` (зависимость от контейнера
-везде называется `cc` и типизируется им) и `RawConfig`: снимок лежит в общем файле, а не у
-storage или builder, потому что работают с ним оба, а друг о друге они не знают.
+`Paths` и `ValueByPath` (`config-container/config-container.types.ts`) выводят допустимые
+пути и тип результата `get()`. Там же `ConfigPath` и `ConfigValue` — те же типы,
+применённые к `ConfigValues` (их берёт `shared/config-value.ts`), алиас `CC` (зависимость от
+контейнера везде называется `cc` и типизируется им) и `RawConfig`: снимок лежит в общем
+файле, а не у storage или builder, потому что работают с ним оба, а друг о друге они не знают.
 
 Форма конфигурации целиком — `config-values.ts`: `ConfigValues` и типы, объявленные для
 самого конфига (`Environment`, `LoggerConfig`, `TelegramLimits`). `ConfigStorage` и
