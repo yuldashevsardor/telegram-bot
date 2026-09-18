@@ -6,7 +6,7 @@ import { ConfigValuesBuilder } from "app/bootstrap/config/builder/config-values-
 import { ConfigParser } from "app/bootstrap/config/parser/config-parser";
 import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
 import { ConfigEnvStorage } from "app/bootstrap/config/storage/config-env-storage";
-import { ConfigFileStorage } from "app/bootstrap/config/storage/config-file-storage";
+import { ConfigFileStorage } from "app/bootstrap/config/storage/config-file-storage/config-file-storage";
 import type { Logger } from "app/platform/logger/logger";
 import { ConsoleLogger } from "app/platform/logger/console-logger";
 import { PinoLogger } from "app/platform/logger/pino-logger";

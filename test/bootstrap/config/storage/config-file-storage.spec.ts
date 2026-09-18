@@ -2,8 +2,8 @@ import { expect } from "chai";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import { ConfigFileStorage } from "app/bootstrap/config/storage/config-file-storage";
-import { ConfigFileUnreadable } from "app/bootstrap/config/storage/config-file-storage.errors";
+import { ConfigFileStorage } from "app/bootstrap/config/storage/config-file-storage/config-file-storage";
+import { ConfigFileUnreadable } from "app/bootstrap/config/storage/config-file-storage/config-file-storage.errors";
 import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
 import type { RawConfig } from "app/bootstrap/config/config-container/config-container.types";
 

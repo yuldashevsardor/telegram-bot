@@ -10,7 +10,7 @@ import { PinoLogger } from "app/platform/logger/pino-logger";
 import { Level } from "app/platform/logger/logger.types";
 import type { RequestContext } from "app/platform/request-context/request-context";
 import { InvalidConfigError } from "app/shared/errors";
-import { ConfigFileStorage } from "app/bootstrap/config/storage/config-file-storage";
+import { ConfigFileStorage } from "app/bootstrap/config/storage/config-file-storage/config-file-storage";
 import type { UnknownObject } from "app/shared/types";
 import { resetApplicationContext } from "test/bootstrap/application/application-context.helper";
 
