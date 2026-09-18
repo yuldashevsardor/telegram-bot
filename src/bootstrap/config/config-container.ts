@@ -14,13 +14,13 @@ import { ConfigContainerIsNotInitialized } from "app/bootstrap/config/config-con
 
 // Одно состояние на весь жизненный цикл, а не флаги: их набор допускает сочетания, которых не
 // бывает («идёт пересборка, но наблюдение уже снято»), и каждая проверка перечисляла бы их сама.
-// idle — и до init(), пока наблюдения ещё нет, и после него, пока не пришёл сигнал: для всего,
-// что решает это состояние, разницы нет, а отдельный вариант под «ещё не наблюдаем» ничего бы не
-// менял. again — сигнал источника, пришедший за время идущей пересборки: файл мог измениться уже после
-// того, как снимок прочитан, поэтому за ней идёт ещё один проход, а все сигналы одного прохода
-// сливаются в этот один — снимок читается целиком и увидит последнее состояние источника.
-// unwatched конечное: контейнер живёт до конца процесса, и возвращать наблюдение некому.
-type State = { name: "idle" } | { name: "reloading"; again: boolean } | { name: "unwatched" };
+// idle — наблюдения нет: так контейнер живёт до init() и туда же возвращается после unwatch(),
+// поэтому поздний сигнал (колбэк наблюдателя мог встать в очередь до остановки) ничего не
+// запускает. watching ставит init(), и только из него сигнал уводит контейнер в reloading.
+// again — сигнал, пришедший за время идущей пересборки: файл мог измениться уже после того, как
+// снимок прочитан, поэтому за ней идёт ещё один проход, а все сигналы одного прохода сливаются в
+// этот один — снимок читается целиком и увидит последнее состояние источника.
+type State = { name: "idle" } | { name: "watching" } | { name: "reloading"; again: boolean };
 
 // Хранит значения и отдаёт их по пути; откуда они берутся и как проверяются, решают storage и
 // builder. Сборка вынесена из конструктора в init(): источник может отдавать значения только
@@ -34,7 +34,7 @@ export class ConfigContainer<Values> {
     private readonly changeListeners = new Map<string, Set<ConfigChangeListener>>();
     private readonly errorListeners = new Set<ConfigErrorListener>();
 
-    // Stryker disable next-line ObjectLiteral,StringLiteral: эквивалентны — проверки состояния сравнивают name с "reloading" и "unwatched", поэтому любое третье значение ведёт себя как "idle"
+    // Stryker disable next-line ObjectLiteral,StringLiteral: эквивалентны — состояние сравнивается только с "watching" и "reloading", поэтому любое третье значение и есть «не наблюдаем»
     private state: State = { name: "idle" };
 
     public constructor(private readonly storage: ConfigStorage, private readonly builder: ConfigBuilder<Values>) {}
@@ -49,6 +49,8 @@ export class ConfigContainer<Values> {
             this.storage.watch((): void => {
                 void this.reload();
             });
+
+            this.state = { name: "watching" };
         }
     }
 
@@ -57,7 +59,8 @@ export class ConfigContainer<Values> {
     // флага успела бы подменить значения под тем, кто их читает следом (`Application.terminate()`
     // берёт срок остановки строкой ниже).
     public unwatch(): void {
-        this.state = { name: "unwatched" };
+        // Stryker disable next-line ObjectLiteral,StringLiteral: эквивалентны по той же причине, что и начальное состояние выше
+        this.state = { name: "idle" };
 
         if (isWatchableConfigStorage(this.storage)) {
             this.storage.unwatch();
@@ -114,13 +117,15 @@ export class ConfigContainer<Values> {
     }
 
     private reload(): void {
-        if (this.state.name === "unwatched") {
-            return;
-        }
-
         if (this.state.name === "reloading") {
             this.state.again = true;
 
+            return;
+        }
+
+        // Не наблюдаем — значит сигнала быть не должно: он остался от наблюдения, снятого
+        // только что, и пересобирать конфигурацию закрывающемуся приложению уже незачем.
+        if (this.state.name !== "watching") {
             return;
         }
 
@@ -144,11 +149,10 @@ export class ConfigContainer<Values> {
                 await this.rebuild();
             } while (reloading.again);
         } finally {
-            // Наблюдение могли снять за время прохода — тогда состояние конечное, и возвращать
-            // контейнер к наблюдению нельзя.
+            // Наблюдение могли снять за время прохода — тогда поле уже занято состоянием
+            // остановки, и возвращать контейнер к наблюдению нельзя.
             if (this.state === reloading) {
-                // Stryker disable next-line ObjectLiteral,StringLiteral: эквивалентны по той же причине, что и начальное состояние выше
-                this.state = { name: "idle" };
+                this.state = { name: "watching" };
             }
         }
     }
@@ -164,7 +168,7 @@ export class ConfigContainer<Values> {
 
             // Наблюдение могли снять, пока читался снимок: подменять значения под тем, кто уже
             // закрывает приложение, нельзя.
-            if (this.state.name === "unwatched") {
+            if (this.state.name !== "reloading") {
                 return;
             }
 

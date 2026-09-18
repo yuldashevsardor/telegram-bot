@@ -271,7 +271,7 @@ describe("ConfigContainer", () => {
         // Проход, заставший unwatch(), не возвращает контейнер к наблюдению: иначе поздний сигнал
         // (колбэк наблюдателя мог встать в очередь до остановки) запустил бы пересборку уже
         // закрытого приложения.
-        it("stays unwatched when it happens in the middle of a rebuild", async () => {
+        it("leaves the container unwatching when it happens in the middle of a rebuild", async () => {
             const { cc, storage } = await watched({ TEMP_DIR: "/data" });
             const release = storage.holdLoads();
 
