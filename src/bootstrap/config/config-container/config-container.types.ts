@@ -25,6 +25,18 @@ export type ValueByPath<T, Path extends string> = Path extends `${infer Key}.${i
     ? T[Path]
     : never;
 
+// Снятие подписки: контейнер живёт всё время процесса, поэтому подписчик, который умирает
+// раньше (спека, объект под замену), обязан уметь отцепиться.
+export type Unsubscribe = () => void;
+
+// Слушатель изменения в том виде, в каком его хранит контейнер: путь стёрт до строки, поэтому
+// и значения стёрты до unknown. Типизированную пару значений собирает onChange() под свой путь.
+export type ConfigChangeListener = (newValue: unknown, oldValue: unknown) => void;
+
+// Отказ пересборки и всё, что бросили сами слушатели: наверху колбэк наблюдателя, бросать
+// оттуда некуда, а логгера у конфигурации нет — она собирается раньше него.
+export type ConfigErrorListener = (error: unknown) => void;
+
 export type ConfigPath = Paths<ConfigValues>;
 
 export type ConfigValue<Path extends ConfigPath> = ValueByPath<ConfigValues, Path>;

@@ -31,6 +31,13 @@ services:
             - ./tsconfig.json:/app/tsconfig.json
             - ./tsconfig.check.json:/app/tsconfig.check.json
             - ./migrate.json:/app/migrate.json
+            # Горячий файл конфигурации: приложение опрашивает .runtime.env и пересобирает
+            # конфигурацию при его правке (docs/architecture/config.md). Bind-mount одиночного
+            # файла держится за inode, поэтому правка «на месте» доезжает, а сохранение через
+            # временный файл с переименованием (vim по умолчанию) — нет. Файл создают цели make
+            # до запуска compose: несуществующий путь Docker создал бы каталогом от root, и
+            # приложение упало бы на чтении конфигурации.
+            - ./.runtime.env:/app/.runtime.env
             # Иначе правка конфига Stryker молча не доезжала бы до make mutation до
             # make rebuild, как у .mocharc.json.
             - ./stryker.config.mjs:/app/stryker.config.mjs
