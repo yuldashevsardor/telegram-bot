@@ -64,13 +64,13 @@ public constructor(
 (`test/telegram/outbound-queue/task-queue.spec.ts` больше ничего не подменяет).
 
 Путь — строковый литерал, но не произвольный: его тип `ConfigPath`
-(`bootstrap/config/config-container/config-container.types.ts`) собран из `ConfigValues`, а
+(`bootstrap/config/container/config-container.types.ts`) собран из `ConfigValues`, а
 тип результата выведен из того же места (`ValueByPath`). Поэтому компилятор отвергает и промах в пути —
 опечатку, путь сквозь примитив (`"tempDir.nope"`), — и несовпадение объявленного типа:
 `const x: string = configValue("limits.common")` не соберётся. Прежний `@ConfigValue<T>("ключ")` не проверял
 ни того, ни другого: ключ был строкой, тип — подсказкой на месте вызова, а внутри стояли
 три `as`. Остались в двух местах, оба в
-`bootstrap/config/config-container/config-container.ts`: найденное значение `get()` приводится к `ValueByPath`, и
+`bootstrap/config/container/config-container.ts`: найденное значение `get()` приводится к `ValueByPath`, и
 по той же причине к `ValueByPath` приводится пара значений, которую `onChange()` отдаёт слушателю
 ([`config.md`](./config.md)), — обход по точкам компилятору не проследить. Сам обход приведения не требует: он сужает тип
 стражем.
@@ -82,7 +82,7 @@ public constructor(
 
 ## Application
 
-`ApplicationContext` (`bootstrap/application/application-context/application-context.ts`) —
+`ApplicationContext` (`bootstrap/application/context/application-context.ts`) —
 состав того, что нужно приложению всегда: конфиг, логгер, контекст запроса. Эти объекты
 существуют до контейнера, потому что собрать его без них нельзя. Контекст собирает себя сам
 (`ApplicationContext.create()`): внутри `ConfigContainer` с `ConfigValuesBuilder` и

@@ -18,7 +18,7 @@ const DATABASE_SPECS = [
 const DATABASE_ONLY_SOURCES = [
     "src/platform/database/database.ts",
     "src/telegram/session/pgsql-storage.ts",
-    "src/telegram/user/pgsql-user-repository/pgsql-user-repository.ts",
+    "src/telegram/user/pgsql-repository/pgsql-user-repository.ts",
 ];
 
 // Область make mutation files="…": глобы через пробел или перенос строки, как у make lint.

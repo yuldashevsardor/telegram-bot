@@ -2,10 +2,10 @@ import { expect } from "chai";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import { ConfigFileStorage } from "app/bootstrap/config/storage/config-file-storage/config-file-storage";
-import { ConfigFileUnreadable } from "app/bootstrap/config/storage/config-file-storage/config-file-storage.errors";
+import { ConfigFileStorage } from "app/bootstrap/config/storage/file/config-file-storage";
+import { ConfigFileUnreadable } from "app/bootstrap/config/storage/file/config-file-storage.errors";
 import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
-import type { RawConfig } from "app/bootstrap/config/config-container/config-container.types";
+import type { RawConfig } from "app/bootstrap/config/container/config-container.types";
 
 // Интервал опроса в спеке — десятки миллисекунд: настоящий (2000) растянул бы прогон на минуты, а
 // единицы дробили бы на опросы саму запись файла, и под нагрузкой (Stryker гоняет спеки в

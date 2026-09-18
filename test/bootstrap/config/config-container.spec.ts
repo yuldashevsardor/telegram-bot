@@ -1,10 +1,10 @@
 import { expect } from "chai";
-import { ConfigContainer } from "app/bootstrap/config/config-container/config-container";
-import { ConfigContainerIsNotInitialized } from "app/bootstrap/config/config-container/config-container.errors";
+import { ConfigContainer } from "app/bootstrap/config/container/config-container";
+import { ConfigContainerIsNotInitialized } from "app/bootstrap/config/container/config-container.errors";
 import type { ConfigBuilder } from "app/bootstrap/config/builder/config-builder";
 import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
 import type { WatchableConfigStorage } from "app/bootstrap/config/storage/watchable-config-storage";
-import type { RawConfig } from "app/bootstrap/config/config-container/config-container.types";
+import type { RawConfig } from "app/bootstrap/config/container/config-container.types";
 import { InvalidConfigError } from "app/shared/errors";
 
 type Values = {

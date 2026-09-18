@@ -1,4 +1,4 @@
-import type { RawConfig } from "app/bootstrap/config/config-container/config-container.types";
+import type { RawConfig } from "app/bootstrap/config/container/config-container.types";
 
 // Схема конфигурации: из снимка источника собирает значения формы Values и валидирует их.
 export interface ConfigBuilder<Values> {

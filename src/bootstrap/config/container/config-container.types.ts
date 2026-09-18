@@ -1,4 +1,4 @@
-import type { ConfigContainer } from "app/bootstrap/config/config-container/config-container";
+import type { ConfigContainer } from "app/bootstrap/config/container/config-container";
 import type { ConfigValues } from "app/bootstrap/config/config-values";
 
 type Leaf = string | number | boolean | bigint | symbol | null | undefined;

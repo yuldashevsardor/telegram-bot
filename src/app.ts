@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { Application } from "app/bootstrap/application/application";
-import { ApplicationContext } from "app/bootstrap/application/application-context/application-context";
-import { ApplicationContextIsNotCreated } from "app/bootstrap/application/application-context/application-context.errors";
+import { ApplicationContext } from "app/bootstrap/application/context/application-context";
+import { ApplicationContextIsNotCreated } from "app/bootstrap/application/context/application-context.errors";
 
 const application = new Application();
 

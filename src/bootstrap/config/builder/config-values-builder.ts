@@ -5,7 +5,7 @@ import { ConfigParser } from "app/bootstrap/config/parser/config-parser";
 import type { IntegerRange } from "app/bootstrap/config/parser/config-parser";
 import type { RunnerSettings } from "app/telegram/outbound-queue/runner/runner.types";
 import type { DatabaseSettings } from "app/platform/database/database.types";
-import type { RawConfig } from "app/bootstrap/config/config-container/config-container.types";
+import type { RawConfig } from "app/bootstrap/config/container/config-container.types";
 import type { ConfigBuilder } from "app/bootstrap/config/builder/config-builder";
 import { Environments } from "app/bootstrap/config/config-values";
 import type { ConfigValues, LoggerConfig } from "app/bootstrap/config/config-values";

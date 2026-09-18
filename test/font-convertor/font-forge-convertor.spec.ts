@@ -6,7 +6,7 @@ import { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory
 import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { FontForge } from "app/font-convertor/font-forge/font-forge";
-import { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher/font-signature-matcher";
+import { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-signature-matcher";
 import { FileHelper } from "app/shared/fs/file-helper";
 import { InvalidPath } from "app/shared/fs/file-helper.errors";
 

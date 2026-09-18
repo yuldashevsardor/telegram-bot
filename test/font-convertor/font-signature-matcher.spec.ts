@@ -2,7 +2,7 @@ import { expect } from "chai";
 import fs from "fs/promises";
 import path from "path";
 import { Extension } from "app/font-convertor/font-convertor.types";
-import { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher/font-signature-matcher";
+import { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-signature-matcher";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 const fontSignatureMatcher = new FontSignatureMatcher();

@@ -1,17 +1,17 @@
 import path from "path";
-import { ConfigContainer } from "app/bootstrap/config/config-container/config-container";
-import type { CC } from "app/bootstrap/config/config-container/config-container.types";
+import { ConfigContainer } from "app/bootstrap/config/container/config-container";
+import type { CC } from "app/bootstrap/config/container/config-container.types";
 import type { ConfigValues } from "app/bootstrap/config/config-values";
 import { ConfigValuesBuilder } from "app/bootstrap/config/builder/config-values-builder";
 import { ConfigParser } from "app/bootstrap/config/parser/config-parser";
 import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
 import { ConfigEnvStorage } from "app/bootstrap/config/storage/config-env-storage";
-import { ConfigFileStorage } from "app/bootstrap/config/storage/config-file-storage/config-file-storage";
+import { ConfigFileStorage } from "app/bootstrap/config/storage/file/config-file-storage";
 import type { Logger } from "app/platform/logger/logger";
 import { ConsoleLogger } from "app/platform/logger/console-logger";
 import { PinoLogger } from "app/platform/logger/pino-logger";
 import { RequestContext } from "app/platform/request-context/request-context";
-import { ApplicationContextIsNotCreated } from "app/bootstrap/application/application-context/application-context.errors";
+import { ApplicationContextIsNotCreated } from "app/bootstrap/application/context/application-context.errors";
 
 type Parts = {
     cc: CC;
