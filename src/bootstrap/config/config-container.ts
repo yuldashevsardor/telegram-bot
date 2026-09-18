@@ -12,6 +12,14 @@ import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage"
 import { isWatchableConfigStorage } from "app/bootstrap/config/storage/config-storage.helper";
 import { ConfigContainerIsNotInitialized } from "app/bootstrap/config/config-container.errors";
 
+// Одно состояние на весь жизненный цикл, а не флаги: их набор допускает сочетания, которых не
+// бывает («идёт пересборка, но наблюдение уже снято»), и каждая проверка перечисляла бы их сама.
+// again — сигнал источника, пришедший за время идущей пересборки: файл мог измениться уже после
+// того, как снимок прочитан, поэтому за ней идёт ещё один проход, а все сигналы одного прохода
+// сливаются в этот один — снимок читается целиком и увидит последнее состояние источника.
+// unwatched конечное: контейнер живёт до конца процесса, и возвращать наблюдение некому.
+type State = { name: "watching" } | { name: "reloading"; again: boolean } | { name: "unwatched" };
+
 // Хранит значения и отдаёт их по пути; откуда они берутся и как проверяются, решают storage и
 // builder. Сборка вынесена из конструктора в init(): источник может отдавать значения только
 // асинхронно (vault), а конструктор ждать не умеет. Наблюдаемый источник сообщает об изменениях,
@@ -24,15 +32,8 @@ export class ConfigContainer<Values> {
     private readonly changeListeners = new Map<string, Set<ConfigChangeListener>>();
     private readonly errorListeners = new Set<ConfigErrorListener>();
 
-    // Идущая пересборка одна на контейнер: параллельные гонялись бы за одно поле values, и
-    // порядок событий решала бы гонка. Вторая переменная — сигнал источника, пришедший за время
-    // этой пересборки: файл мог измениться уже после того, как снимок прочитан, поэтому за ней
-    // идёт ещё один проход. Все сигналы одного прохода сливаются в этот один: снимок читается
-    // целиком и увидит последнее состояние источника.
-    private reloading = false;
-    // Stryker disable next-line BooleanLiteral: `true` — эквивалентен: проход цикла гасит отметку у себя на входе, поэтому начальное значение поля до первой пересборки не доживает
-    private reloadAgain = false;
-    private stopped = false;
+    // Stryker disable next-line ObjectLiteral,StringLiteral: эквивалентны — проверки состояния сравнивают name с "reloading" и "unwatched", поэтому любое третье значение ведёт себя как "watching"
+    private state: State = { name: "watching" };
 
     public constructor(private readonly storage: ConfigStorage, private readonly builder: ConfigBuilder<Values>) {}
 
@@ -54,7 +55,7 @@ export class ConfigContainer<Values> {
     // флага успела бы подменить значения под тем, кто их читает следом (`Application.terminate()`
     // берёт срок остановки строкой ниже).
     public unwatch(): void {
-        this.stopped = true;
+        this.state = { name: "unwatched" };
 
         if (isWatchableConfigStorage(this.storage)) {
             this.storage.unwatch();
@@ -111,32 +112,42 @@ export class ConfigContainer<Values> {
     }
 
     private reload(): void {
-        if (this.stopped) {
+        if (this.state.name === "unwatched") {
             return;
         }
 
-        if (this.reloading) {
-            this.reloadAgain = true;
+        if (this.state.name === "reloading") {
+            this.state.again = true;
 
             return;
         }
 
-        this.reloading = true;
+        // Stryker disable next-line BooleanLiteral: `true` — эквивалентен: проход цикла гасит отметку у себя на входе, поэтому начальное значение до первой пересборки не доживает
+        const reloading: State = { name: "reloading", again: false };
+
+        this.state = reloading;
 
         // Отказа у прохода нет: rebuild() отправляет свои ошибки в канал ошибок, потому что
         // наверху колбэк наблюдателя — отказ оттуда стал бы unhandledRejection.
-        void this.reloadUntilSettled();
+        void this.reloadUntilSettled(reloading);
     }
 
-    private async reloadUntilSettled(): Promise<void> {
+    // Состояние прохода приходит параметром: unwatch() посреди него подменяет поле, и читать
+    // отметку о новых сигналах нужно из своего объекта, а не из чужого состояния.
+    private async reloadUntilSettled(reloading: { again: boolean }): Promise<void> {
         try {
             do {
-                this.reloadAgain = false;
+                reloading.again = false;
 
                 await this.rebuild();
-            } while (this.reloadAgain);
+            } while (reloading.again);
         } finally {
-            this.reloading = false;
+            // Наблюдение могли снять за время прохода — тогда состояние конечное, и возвращать
+            // контейнер к наблюдению нельзя.
+            if (this.state === reloading) {
+                // Stryker disable next-line ObjectLiteral,StringLiteral: эквивалентны по той же причине, что и начальное состояние выше
+                this.state = { name: "watching" };
+            }
         }
     }
 
@@ -149,9 +160,9 @@ export class ConfigContainer<Values> {
             const previous = this.currentValues();
             const raw = await this.storage.load();
 
-            // Остановка могла прийти, пока читался снимок: подменять значения под тем, кто уже
+            // Наблюдение могли снять, пока читался снимок: подменять значения под тем, кто уже
             // закрывает приложение, нельзя.
-            if (this.stopped) {
+            if (this.state.name === "unwatched") {
                 return;
             }
 

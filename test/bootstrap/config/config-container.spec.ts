@@ -268,6 +268,26 @@ describe("ConfigContainer", () => {
             expect(calls).to.equal(0);
         });
 
+        // Проход, заставший unwatch(), не возвращает контейнер к наблюдению: иначе поздний сигнал
+        // (колбэк наблюдателя мог встать в очередь до остановки) запустил бы пересборку уже
+        // закрытого приложения.
+        it("stays unwatched when it happens in the middle of a rebuild", async () => {
+            const { cc, storage } = await watched({ TEMP_DIR: "/data" });
+            const release = storage.holdLoads();
+
+            storage.signal();
+            cc.unwatch();
+            release();
+            await sleep(0);
+
+            const loadsAfterRebuild = storage.loads;
+
+            storage.signalIgnoringStop();
+            await sleep(0);
+
+            expect(storage.loads).to.equal(loadsAfterRebuild);
+        });
+
         it("ignores a signal that arrives after it", async () => {
             const { cc, storage } = await watched({ TEMP_DIR: "/data" });
             const loadsAfterInit = storage.loads;
