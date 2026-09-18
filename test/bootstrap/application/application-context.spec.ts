@@ -373,7 +373,7 @@ describe("ApplicationContext", function () {
 
         expect(cc.get("logger.level")).to.equal(Level.ERROR);
 
-        // Интервал разобран как 5 мс, а не отброшен: правка доезжает задолго до умолчания.
+        // Интервал разобран как 100 мс, а не отброшен: правка доезжает задолго до умолчания.
         await fs.writeFile(path.join(directory, ".runtime.env"), "LOGGER_LEVEL=warning\n");
         await waitFor(() => cc.get("logger.level") === Level.WARNING, "the padded interval was not applied", 1500);
     });

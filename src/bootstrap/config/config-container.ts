@@ -14,11 +14,13 @@ import { ConfigContainerIsNotInitialized } from "app/bootstrap/config/config-con
 
 // Одно состояние на весь жизненный цикл, а не флаги: их набор допускает сочетания, которых не
 // бывает («идёт пересборка, но наблюдение уже снято»), и каждая проверка перечисляла бы их сама.
-// again — сигнал источника, пришедший за время идущей пересборки: файл мог измениться уже после
+// idle — и до init(), пока наблюдения ещё нет, и после него, пока не пришёл сигнал: для всего,
+// что решает это состояние, разницы нет, а отдельный вариант под «ещё не наблюдаем» ничего бы не
+// менял. again — сигнал источника, пришедший за время идущей пересборки: файл мог измениться уже после
 // того, как снимок прочитан, поэтому за ней идёт ещё один проход, а все сигналы одного прохода
 // сливаются в этот один — снимок читается целиком и увидит последнее состояние источника.
 // unwatched конечное: контейнер живёт до конца процесса, и возвращать наблюдение некому.
-type State = { name: "watching" } | { name: "reloading"; again: boolean } | { name: "unwatched" };
+type State = { name: "idle" } | { name: "reloading"; again: boolean } | { name: "unwatched" };
 
 // Хранит значения и отдаёт их по пути; откуда они берутся и как проверяются, решают storage и
 // builder. Сборка вынесена из конструктора в init(): источник может отдавать значения только
@@ -32,8 +34,8 @@ export class ConfigContainer<Values> {
     private readonly changeListeners = new Map<string, Set<ConfigChangeListener>>();
     private readonly errorListeners = new Set<ConfigErrorListener>();
 
-    // Stryker disable next-line ObjectLiteral,StringLiteral: эквивалентны — проверки состояния сравнивают name с "reloading" и "unwatched", поэтому любое третье значение ведёт себя как "watching"
-    private state: State = { name: "watching" };
+    // Stryker disable next-line ObjectLiteral,StringLiteral: эквивалентны — проверки состояния сравнивают name с "reloading" и "unwatched", поэтому любое третье значение ведёт себя как "idle"
+    private state: State = { name: "idle" };
 
     public constructor(private readonly storage: ConfigStorage, private readonly builder: ConfigBuilder<Values>) {}
 
@@ -146,7 +148,7 @@ export class ConfigContainer<Values> {
             // контейнер к наблюдению нельзя.
             if (this.state === reloading) {
                 // Stryker disable next-line ObjectLiteral,StringLiteral: эквивалентны по той же причине, что и начальное состояние выше
-                this.state = { name: "watching" };
+                this.state = { name: "idle" };
             }
         }
     }

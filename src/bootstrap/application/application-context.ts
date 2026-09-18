@@ -120,7 +120,10 @@ export class ApplicationContext {
     }
 
     // Путь файла и интервал его опроса нужны раньше собранной конфигурации, поэтому читаются из
-    // окружения: снимок для ConfigParser — это и есть process.env.
+    // окружения: снимок для ConfigParser — это и есть process.env. Именно окружение, а не .env:
+    // dotenv.config() зовёт ConfigEnvStorage.load() уже внутри init(), то есть позже. В
+    // поддерживаемом запуске это одно и то же — переменные из .env кладёт в окружение Compose
+    // (env_file), — а вне его обе задают переменными процесса.
     private static createStorage(): ConfigStorage {
         const parser = new ConfigParser({ ...process.env });
 
