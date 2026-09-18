@@ -10,8 +10,8 @@ import type { FontConvertor } from "app/font-convertor/font-convertor";
 import type { ConvertParams } from "app/font-convertor/font-convertor.types";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { FontGeneratorCommand } from "app/telegram/command/font-generator/font-generator.command";
-import { createFluent } from "app/telegram/locale";
-import { DEFAULT_LOCALE } from "app/telegram/locale.types";
+import { createFluent } from "app/telegram/locale/locale";
+import { DEFAULT_LOCALE } from "app/telegram/locale/locale.types";
 
 type ErrorRecord = { message: string; payload: UnknownObject | undefined };
 

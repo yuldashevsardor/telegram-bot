@@ -15,8 +15,8 @@ import { Middleware } from "app/telegram/middleware/middleware";
 import { ConversationHandler } from "app/telegram/conversation/conversation-handler";
 import { HasSessionKeyFilter } from "app/telegram/filter/has-session-key.filter";
 import { IsPrivateChatFilter } from "app/telegram/filter/is-private-chat.filter";
-import { createFluent } from "app/telegram/locale";
-import { DEFAULT_LOCALE, LOCALES } from "app/telegram/locale.types";
+import { createFluent } from "app/telegram/locale/locale";
+import { DEFAULT_LOCALE, LOCALES } from "app/telegram/locale/locale.types";
 
 type LogRecord = { level: keyof Logger; message: string; payload: UnknownObject | undefined };
 

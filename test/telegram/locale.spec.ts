@@ -5,10 +5,10 @@ import path from "path";
 import { FileHelper } from "app/shared/fs/file-helper";
 import type { Fluent } from "@moebius/fluent";
 import type { Context } from "app/telegram/bot.types";
-import { createFluent, createFluentMiddleware, localeFromFilePath, resolveLocale } from "app/telegram/locale";
-import type { Locale } from "app/telegram/locale.types";
-import { DEFAULT_LOCALE, LOCALES } from "app/telegram/locale.types";
-import { MissingLocaleBundle, UnknownLocale } from "app/telegram/locale.errors";
+import { createFluent, createFluentMiddleware, localeFromFilePath, resolveLocale } from "app/telegram/locale/locale";
+import type { Locale } from "app/telegram/locale/locale.types";
+import { DEFAULT_LOCALE, LOCALES } from "app/telegram/locale/locale.types";
+import { MissingLocaleBundle, UnknownLocale } from "app/telegram/locale/locale.errors";
 
 const localeDir = path.join(process.cwd(), "src", "telegram");
 

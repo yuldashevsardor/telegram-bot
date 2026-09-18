@@ -15,8 +15,8 @@ import { Tokens } from "app/shared/tokens";
 import { FileHelper } from "app/shared/fs/file-helper";
 import { InvalidPath } from "app/shared/fs/file-helper.errors";
 import { StringHelper } from "app/shared/string/string-helper";
-import { createFluent } from "app/telegram/locale";
-import { DEFAULT_LOCALE } from "app/telegram/locale.types";
+import { createFluent } from "app/telegram/locale/locale";
+import { DEFAULT_LOCALE } from "app/telegram/locale/locale.types";
 
 type Pushed = { task: Task; priority: Priority };
 

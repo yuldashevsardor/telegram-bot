@@ -18,9 +18,9 @@ import { withTimeout } from "app/shared/utils";
 import { InvalidConfigError, RuntimeError } from "app/shared/errors";
 import type { Fluent } from "@moebius/fluent";
 import type { BotCommand } from "grammy/types";
-import { createFluent, createFluentMiddleware } from "app/telegram/locale";
-import type { Locale } from "app/telegram/locale.types";
-import { DEFAULT_LOCALE, LOCALES } from "app/telegram/locale.types";
+import { createFluent, createFluentMiddleware } from "app/telegram/locale/locale";
+import type { Locale } from "app/telegram/locale/locale.types";
+import { DEFAULT_LOCALE, LOCALES } from "app/telegram/locale/locale.types";
 
 // Умолчание getUpdates — все типы, кроме chat_member и реакций. Бот же обслуживает
 // только команды и ожидание conversation в приватных чатах, то есть один message:
