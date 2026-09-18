@@ -258,22 +258,22 @@ describe("ApplicationContext", function () {
     // Наблюдение заводит init() контейнера, то есть до того, как контекст заполнен: упади сборка
     // между ними, опрос остался бы работать, а дотянуться до него было бы нечем — ссылки на
     // контейнер нигде нет.
-    it("stops the config source when the rest of the context fails to assemble", async function () {
+    it("unwatches the config file when the rest of the context fails to assemble", async function () {
         setEnv({ NODE_ENV: "development", CONFIG_FILE_WATCH_INTERVAL: "100" });
 
         const failure = new Error("logger is broken");
         const parts = ApplicationContext as unknown as { createLogger: () => never };
         const originalCreateLogger = parts.createLogger;
-        const originalStop = ConfigFileStorage.prototype.stop;
-        let stops = 0;
+        const originalUnwatch = ConfigFileStorage.prototype.unwatch;
+        let unwatches = 0;
 
         parts.createLogger = (): never => {
             throw failure;
         };
-        ConfigFileStorage.prototype.stop = function stop(this: ConfigFileStorage): void {
-            stops += 1;
+        ConfigFileStorage.prototype.unwatch = function unwatch(this: ConfigFileStorage): void {
+            unwatches += 1;
 
-            originalStop.call(this);
+            originalUnwatch.call(this);
         };
 
         try {
@@ -283,10 +283,10 @@ describe("ApplicationContext", function () {
             );
 
             expect(error).to.equal(failure);
-            expect(stops).to.equal(1);
+            expect(unwatches).to.equal(1);
         } finally {
             parts.createLogger = originalCreateLogger;
-            ConfigFileStorage.prototype.stop = originalStop;
+            ConfigFileStorage.prototype.unwatch = originalUnwatch;
         }
     });
 

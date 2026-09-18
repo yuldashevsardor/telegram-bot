@@ -53,13 +53,13 @@ export class ConfigFileStorage implements WatchableConfigStorage {
     // Снимается ровно свой слушатель: unwatchFile без него убрал бы с этого пути всех, включая
     // чужой экземпляр, который следит за тем же файлом. Сброшенная ссылка возвращает право
     // завести опрос заново.
-    public stop(): void {
-        if (this.listener !== null) {
-            fs.unwatchFile(this.filePath, this.listener);
-            this.listener = null;
+    public unwatch(): void {
+        if (this.listener === null) {
+            return;
         }
 
-        this.base.stop();
+        fs.unwatchFile(this.filePath, this.listener);
+        this.listener = null;
     }
 
     // Отсутствие файла — не отказ: наблюдение начинается до его появления, а удаление возвращает

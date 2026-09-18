@@ -93,7 +93,7 @@ export class ApplicationContext {
         try {
             ApplicationContext.fill(cc);
         } catch (error) {
-            cc.stop();
+            cc.unwatch();
 
             throw error;
         }

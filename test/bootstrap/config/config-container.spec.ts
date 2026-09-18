@@ -15,7 +15,7 @@ type Values = {
 };
 
 function storage(raw: RawConfig): ConfigStorage {
-    return { load: async (): Promise<RawConfig> => raw, stop: (): void => undefined };
+    return { load: async (): Promise<RawConfig> => raw };
 }
 
 // Билдер отдаёт то, что ему дали, без разбора: форма значений здесь расходится с объявленной
@@ -37,7 +37,7 @@ class FakeWatchableStorage implements WatchableConfigStorage {
     public raw: RawConfig = {};
     public loads = 0;
     public watchCalls = 0;
-    public stopCalls = 0;
+    public unwatchCalls = 0;
 
     private onChanged: (() => void) | null = null;
     private captured: (() => void) | null = null;
@@ -59,8 +59,8 @@ class FakeWatchableStorage implements WatchableConfigStorage {
         this.captured = onChanged;
     }
 
-    public stop(): void {
-        this.stopCalls += 1;
+    public unwatch(): void {
+        this.unwatchCalls += 1;
         this.onChanged = null;
     }
 
@@ -224,9 +224,27 @@ describe("ConfigContainer", () => {
 
             expect(cc.get("tempDir")).to.equal("/tmp");
         });
+
+        // Наблюдение — это пара методов: источник с одним из них контейнер завёл бы, а снять
+        // наблюдение потом не смог, и опрос пережил бы остановку приложения.
+        it("does not watch a storage that has only half of the watching methods", async () => {
+            let watches = 0;
+            const halfWatchable = {
+                load: async (): Promise<RawConfig> => ({}),
+                watch: (): void => {
+                    watches += 1;
+                },
+            };
+            const cc = new ConfigContainer<Values>(halfWatchable, returning({ tempDir: "/tmp" }));
+
+            await cc.init();
+            cc.unwatch();
+
+            expect(watches).to.equal(0);
+        });
     });
 
-    describe("stop()", () => {
+    describe("unwatch()", () => {
         // Пересборка, начатая до остановки, значений уже не меняет: следом за stop() их читает
         // тот, кто закрывает приложение (`Application.terminate()` берёт оттуда срок остановки).
         it("cancels the rebuild that is already reading the source", async () => {
@@ -242,7 +260,7 @@ describe("ConfigContainer", () => {
             storage.raw = { TEMP_DIR: "/data/next" };
             storage.signal();
 
-            cc.stop();
+            cc.unwatch();
             release();
             await sleep(0);
 
@@ -254,7 +272,7 @@ describe("ConfigContainer", () => {
             const { cc, storage } = await watched({ TEMP_DIR: "/data" });
             const loadsAfterInit = storage.loads;
 
-            cc.stop();
+            cc.unwatch();
 
             storage.raw = { TEMP_DIR: "/data/next" };
             storage.signalIgnoringStop();
@@ -264,25 +282,20 @@ describe("ConfigContainer", () => {
             expect(cc.get("tempDir")).to.equal("/data");
         });
 
-        it("stops the storage", async () => {
+        it("unwatches the storage", async () => {
             const { cc, storage } = await watched();
 
-            cc.stop();
+            cc.unwatch();
 
-            expect(storage.stopCalls).to.equal(1);
+            expect(storage.unwatchCalls).to.equal(1);
         });
 
-        it("stops a storage that cannot report changes too", async () => {
-            let stops = 0;
-            const cc = new ConfigContainer<Values>(
-                { load: async (): Promise<RawConfig> => ({}), stop: (): void => void (stops += 1) },
-                returning({ tempDir: "/tmp" }),
-            );
+        // За process.env следить нечем, и снимать наблюдение с такого источника тоже нечего:
+        // остановка приложения зовёт unwatch() не глядя на то, наблюдаемый ли источник.
+        it("does nothing with a storage that cannot report changes", async () => {
+            const cc = await container({ tempDir: "/tmp" });
 
-            await cc.init();
-            cc.stop();
-
-            expect(stops).to.equal(1);
+            expect(() => cc.unwatch()).to.not.throw();
         });
     });
 
@@ -577,9 +590,9 @@ describe("ConfigContainer", () => {
             expect(errors).to.deep.equal([failure]);
         });
 
-        // Отказ самого канала ошибок глушится: отправить его туда же значит уйти в рекурсию,
-        // а бросить наружу — оборвать рассылку остальным.
-        it("swallows an error thrown by an error listener and reports to the rest", async () => {
+        // Упавший слушатель канала ошибок — тоже отказ, и он уходит в тот же канал: иначе
+        // единственный след неисправного логгера пропадал бы молча.
+        it("reports an error thrown by an error listener to the rest of them", async () => {
             const failing: ConfigBuilder<Values> = {
                 build: (raw): Values => {
                     if (raw["TEMP_DIR"] === "/broken") {
@@ -590,10 +603,11 @@ describe("ConfigContainer", () => {
                 },
             };
             const { cc, storage } = await watched({ TEMP_DIR: "/data" }, failing);
+            const failure = new Error("error listener is broken");
             const errors: unknown[] = [];
 
             cc.onError(() => {
-                throw new Error("error listener is broken");
+                throw failure;
             });
             cc.onError((error) => {
                 errors.push(error);
@@ -602,8 +616,36 @@ describe("ConfigContainer", () => {
             storage.raw = { TEMP_DIR: "/broken" };
             await signalled(storage);
 
-            expect(errors).to.have.lengthOf(1);
+            expect(errors).to.have.lengthOf(2);
             expect(errors[0]).to.be.instanceOf(InvalidConfigError);
+            expect(errors[1]).to.equal(failure);
+        });
+
+        // Рассылка отказов идёт ровно на один круг и мимо самого упавшего: слушатель, падающий
+        // всегда, иначе крутил бы её бесконечно.
+        it("does not send an error listener its own failure", async () => {
+            const failing: ConfigBuilder<Values> = {
+                build: (raw): Values => {
+                    if (raw["TEMP_DIR"] === "/broken") {
+                        throw new InvalidConfigError("the config is broken");
+                    }
+
+                    return fromRaw.build(raw);
+                },
+            };
+            const { cc, storage } = await watched({ TEMP_DIR: "/data" }, failing);
+            let calls = 0;
+
+            cc.onError(() => {
+                calls += 1;
+
+                throw new Error("error listener is broken");
+            });
+
+            storage.raw = { TEMP_DIR: "/broken" };
+            await signalled(storage);
+
+            expect(calls).to.equal(1);
         });
 
         // Слушатель вправе подписаться прямо в вызове: обход живого набора позвал бы

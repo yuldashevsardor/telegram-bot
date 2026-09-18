@@ -66,10 +66,10 @@
   стороны). В контейнере окружение содержит весь `.env` целиком (`env_file`), так что
   переменная, заданная там непустой, файлу не поддаётся — это цена того, что ни правка файла,
   ни его подмена не уводят приложение от того, чем его настроили при запуске.
-- **Источник конфигурации останавливается `ConfigContainer.stop()`.** Оставленный опрос файла
+- **Наблюдение за конфигурацией снимается `ConfigContainer.unwatch()`.** Оставленный опрос файла
   держит событийный цикл: в проде его обрывает `process.exit(0)` (`app.ts`), а прогон тестов —
   нет, у mocha нет `--exit` (`.mocharc.json`), и он дождётся своего таймаута. В приложении
-  останавливает `Application.terminate()`, в спеках — `resetApplicationContext()`
+  снимает `Application.terminate()`, в спеках — `resetApplicationContext()`
   (`test/bootstrap/application/application-context.helper.ts`) и `afterEach` спеки
   `ConfigFileStorage`.
 - **`.runtime.env` должен существовать на хосте до запуска compose.** Он смонтирован в

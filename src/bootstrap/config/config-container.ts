@@ -12,16 +12,6 @@ import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage"
 import { isWatchableConfigStorage } from "app/bootstrap/config/storage/config-storage.helper";
 import { ConfigContainerIsNotInitialized } from "app/bootstrap/config/config-container.errors";
 
-// Идущая пересборка одна на контейнер: параллельные гонялись бы за одно поле values, и порядок
-// событий решала бы гонка. again — сигнал источника, пришедший за время этой пересборки: файл мог
-// измениться уже после того, как снимок прочитан, поэтому за ней идёт ещё один проход. Все
-// сигналы, пришедшие за время прохода, сливаются в один: снимок читается целиком, и следующий
-// проход всё равно увидит последнее состояние источника. Промиса здесь нет: ждать пересборку
-// некому — её единственный вход, сигнал источника, ничего не возвращает.
-type Reloading = {
-    again: boolean;
-};
-
 // Хранит значения и отдаёт их по пути; откуда они берутся и как проверяются, решают storage и
 // builder. Сборка вынесена из конструктора в init(): источник может отдавать значения только
 // асинхронно (vault), а конструктор ждать не умеет. Наблюдаемый источник сообщает об изменениях,
@@ -34,7 +24,14 @@ export class ConfigContainer<Values> {
     private readonly changeListeners = new Map<string, Set<ConfigChangeListener>>();
     private readonly errorListeners = new Set<ConfigErrorListener>();
 
-    private reloading: Reloading | null = null;
+    // Идущая пересборка одна на контейнер: параллельные гонялись бы за одно поле values, и
+    // порядок событий решала бы гонка. Вторая переменная — сигнал источника, пришедший за время
+    // этой пересборки: файл мог измениться уже после того, как снимок прочитан, поэтому за ней
+    // идёт ещё один проход. Все сигналы одного прохода сливаются в этот один: снимок читается
+    // целиком и увидит последнее состояние источника.
+    private reloading = false;
+    // Stryker disable next-line BooleanLiteral: `true` — эквивалентен: проход цикла гасит отметку у себя на входе, поэтому начальное значение поля до первой пересборки не доживает
+    private reloadAgain = false;
     private stopped = false;
 
     public constructor(private readonly storage: ConfigStorage, private readonly builder: ConfigBuilder<Values>) {}
@@ -52,14 +49,16 @@ export class ConfigContainer<Values> {
         }
     }
 
-    // Останавливает источник: опрос файла держал бы событийный цикл, а пересборка на
-    // закрывающемся приложении никому не нужна. Идущая пересборка тоже отменяется: снимок она
-    // уже читает, и без флага успела бы подменить значения под тем, кто их читает следом
-    // (`Application.terminate()` берёт срок остановки строкой ниже).
-    public stop(): void {
+    // Снимает наблюдение: опрос файла держал бы событийный цикл, а пересборка на закрывающемся
+    // приложении никому не нужна. Идущая пересборка тоже отменяется: снимок она уже читает, и без
+    // флага успела бы подменить значения под тем, кто их читает следом (`Application.terminate()`
+    // берёт срок остановки строкой ниже).
+    public unwatch(): void {
         this.stopped = true;
 
-        this.storage.stop();
+        if (isWatchableConfigStorage(this.storage)) {
+            this.storage.unwatch();
+        }
     }
 
     public get<Path extends Paths<Values> & string>(dottedPath: Path): ValueByPath<Values, Path> {
@@ -116,41 +115,28 @@ export class ConfigContainer<Values> {
             return;
         }
 
-        const reloading = this.reloading;
-
-        if (reloading !== null) {
-            reloading.again = true;
+        if (this.reloading) {
+            this.reloadAgain = true;
 
             return;
         }
 
-        // Stryker disable next-line ObjectLiteral: `{}` — эквивалентен: отсутствующее поле так же
-        // ложно, как false, а проход цикла его и так перезаписывает перед следующей проверкой
-        const started: Reloading = { again: false };
-
-        this.reloading = started;
+        this.reloading = true;
 
         // Отказа у прохода нет: rebuild() отправляет свои ошибки в канал ошибок, потому что
         // наверху колбэк наблюдателя — отказ оттуда стал бы unhandledRejection.
-        void this.reloadUntilSettled(started);
+        void this.reloadUntilSettled();
     }
 
-    // Состояние приходит параметром, а не читается из поля: поле обнуляет finally этой же
-    // функции, то есть до её конца там лежит ровно этот объект, и проверка на null была бы
-    // недостижимой ветвью.
-    private async reloadUntilSettled(reloading: Reloading): Promise<void> {
+    private async reloadUntilSettled(): Promise<void> {
         try {
-            for (;;) {
+            do {
+                this.reloadAgain = false;
+
                 await this.rebuild();
-
-                if (!reloading.again) {
-                    return;
-                }
-
-                reloading.again = false;
-            }
+            } while (this.reloadAgain);
         } finally {
-            this.reloading = null;
+            this.reloading = false;
         }
     }
 
@@ -220,15 +206,32 @@ export class ConfigContainer<Values> {
     }
 
     private notifyError(error: unknown): void {
+        const failures = this.callErrorListeners(error);
+
+        // Упавший слушатель канала ошибок — тоже отказ, и он уходит в тот же канал, минуя
+        // самого упавшего. Ровно один раз: отказы этой рассылки уже никуда не идут, иначе
+        // слушатель, падающий всегда, крутил бы её бесконечно.
+        for (const [failed, failure] of failures) {
+            this.callErrorListeners(failure, failed);
+        }
+    }
+
+    private callErrorListeners(error: unknown, skip?: ConfigErrorListener): Array<[ConfigErrorListener, unknown]> {
+        const failures: Array<[ConfigErrorListener, unknown]> = [];
+
         for (const listener of [...this.errorListeners]) {
+            if (listener === skip) {
+                continue;
+            }
+
             try {
                 listener(error);
-            } catch {
-                // Отказ самого канала ошибок глушится: отправить его туда же значит уйти в
-                // рекурсию, а бросить наружу — оборвать рассылку остальным и всплыть в колбэке
-                // наблюдателя, откуда его никто не ждёт.
+            } catch (failure) {
+                failures.push([listener, failure]);
             }
         }
+
+        return failures;
     }
 
     private currentValues(): Values {
@@ -270,14 +273,22 @@ export class ConfigContainer<Values> {
         }
     }
 
+    // undefined значит «по этому пути значения нет»: либо шаг пути упёрся в лист и идти дальше
+    // некуда, либо ключа в объекте нет. Найденное значение отдаётся как есть — что с ним делать
+    // дальше, решает вызывающий: get() превращает undefined в InvalidConfigError, а сравнение
+    // считает его отсутствием значения.
     private valueAt(values: unknown, dottedPath: string): unknown {
-        return dottedPath.split(".").reduce<unknown>((current, key) => {
-            if (current === null || typeof current !== "object") {
+        let current = values;
+
+        for (const key of dottedPath.split(".")) {
+            if (!this.isObject(current)) {
                 return undefined;
             }
 
-            return (current as UnknownObject)[key];
-        }, values);
+            current = current[key];
+        }
+
+        return current;
     }
 
     // typeof null — тоже "object": без отдельной проверки на null обход упал бы TypeError.

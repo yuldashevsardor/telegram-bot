@@ -31,7 +31,7 @@ describe("Application", function () {
     let stopBot: () => Promise<void>;
     let queueSize: () => number;
     let lastQueueSize = 0;
-    let configStops = 0;
+    let configUnwatches = 0;
 
     function write(level: keyof Logger): (message: string, payload?: UnknownObject) => void {
         return (message: string, payload?: UnknownObject): void => {
@@ -112,11 +112,11 @@ describe("Application", function () {
             calls.push("context.create");
             await fillApplicationContext(configValues, logger);
 
-            // Остановка источника считается отдельно от общего списка вызовов: настоящий
-            // контейнер с фейковым источником останавливает его без следа, а порядок остановки
+            // Снятие наблюдения считается отдельно от общего списка вызовов: настоящий
+            // контейнер с фейковым источником снимает его без следа, а порядок остановки
             // закрепляют остальные тесты — им запись о конфигурации не нужна.
-            ApplicationContext.getConfigContainer().stop = (): void => {
-                configStops += 1;
+            ApplicationContext.getConfigContainer().unwatch = (): void => {
+                configUnwatches += 1;
             };
         };
         container.setup = async (): Promise<void> => {
@@ -136,7 +136,7 @@ describe("Application", function () {
     beforeEach(function () {
         calls.length = 0;
         logs.length = 0;
-        configStops = 0;
+        configUnwatches = 0;
         configValues = {};
         checkDatabase = async (): Promise<void> => undefined;
         runBot = async (): Promise<void> => undefined;
@@ -534,9 +534,9 @@ describe("Application", function () {
             ]);
         });
 
-        // Источник конфигурации останавливается до общего срока и вне него: оставленный опрос
+        // Наблюдение за конфигурацией снимается до общего срока и вне него: оставленный опрос
         // пересобирал бы конфигурацию уже закрытого приложения и держал бы событийный цикл.
-        it("stops the config source even when the shutdown timeout is over", async function () {
+        it("unwatches the config even when the shutdown timeout is over", async function () {
             configValues = {
                 GRACEFUL_SHUTDOWN_TIMEOUT: "20",
                 BOT_GRACEFUL_SHUTDOWN_TIMEOUT: "0",
@@ -548,7 +548,7 @@ describe("Application", function () {
 
             await application.stop();
 
-            expect(configStops).to.equal(1);
+            expect(configUnwatches).to.equal(1);
             expect(logs.filter(({ level }) => level === "warning").map(({ message }) => message)).to.deep.equal([
                 "Graceful shutdown timeout is over, the shutdown was cut short.",
             ]);

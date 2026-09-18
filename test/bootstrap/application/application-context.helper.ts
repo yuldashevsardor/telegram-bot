@@ -32,7 +32,7 @@ function createQuietLogger(requestContext: RequestContext): Logger {
 // и писали бы в вывод mocha. Упавший конфиг, как и в create(), оставляет контекст пустым.
 export async function fillApplicationContext(values: RawConfig = {}, logger?: Logger): Promise<void> {
     const cc = new ConfigContainer<ConfigValues>(
-        { load: async (): Promise<RawConfig> => ({ BOT_TOKEN: "test-token", ...values }), stop: (): void => undefined },
+        { load: async (): Promise<RawConfig> => ({ BOT_TOKEN: "test-token", ...values }) },
         new ConfigValuesBuilder(),
     );
     await cc.init();
@@ -48,9 +48,9 @@ export async function fillApplicationContext(values: RawConfig = {}, logger?: Lo
 // чужих спеках. Промис сборки не трогается: между сборками create() и так держит его пустым, а
 // идущую сборку сброс промиса не отменил бы — она заполнила бы поля уже после сброса.
 export function resetApplicationContext(): void {
-    // Источник останавливается до сброса ссылки: настоящий create() заводит опрос файла
+    // Наблюдение снимается до сброса ссылки: настоящий create() заводит опрос файла
     // конфигурации, у mocha нет --exit, и оставленный опрос держал бы прогон до таймаута.
-    context.cc?.stop();
+    context.cc?.unwatch();
 
     context.cc = null;
     context.logger = null;
