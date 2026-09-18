@@ -13,6 +13,12 @@ import { PinoLogger } from "app/platform/logger/pino-logger";
 import { RequestContext } from "app/platform/request-context/request-context";
 import { ApplicationContextIsNotCreated } from "app/bootstrap/application/application-context.errors";
 
+type Parts = {
+    cc: CC;
+    logger: Logger;
+    requestContext: RequestContext;
+};
+
 // Состав того, что приложению нужно всегда: эти объекты существуют до контейнера, потому что
 // собрать его без них нельзя. Список намеренно короткий и держится таким: контекст знают
 // только Application и Container.setup(), а потребители получают его части из контейнера —
@@ -28,23 +34,23 @@ export class ApplicationContext {
     private static readonly MIN_WATCH_INTERVAL = 100;
     private static readonly DEFAULT_CONFIG_FILE = ".runtime.env";
 
-    private static cc: CC | null = null;
-    private static logger: Logger | null = null;
-    private static requestContext: RequestContext | null = null;
+    // Одно значение, а не поле на часть: собран ли контекст, create() и геттеры решают по одной
+    // проверке, и контекста, собранного наполовину, тип не допускает.
+    private static parts: Parts | null = null;
     private static creating: Promise<void> | null = null;
 
     // Контекст один на процесс: второй сломал бы корреляцию молча — у него своё хранилище
     // запроса, и логгер читал бы не тот стор, который открыл middleware. Поэтому повторный
     // create() не ошибка, а та же сборка: вызов посреди неё ждёт её, а не начинает вторую, —
-    // конфиг собирается асинхронно, и одна проверка готовых полей пропустила бы оба вызова.
+    // конфиг собирается асинхронно, и одна проверка готовых частей пропустила бы оба вызова.
     //
     // Промис живёт, только пока сборка идёт, и забывается при любом исходе: упавшая сборка не
     // мешает следующему create() начать с нуля, а собран ли контекст, create() решает по тем же
-    // полям, что и геттеры. Держись промис и после сборки, признаков готовности стало бы два, и
-    // контекст с обнулёнными полями (так его сбрасывают спеки) create() не пересобрал бы, а
-    // геттеры отвергли бы.
+    // частям, что и геттеры. Держись промис и после сборки, признаков готовности стало бы два, и
+    // сброшенный контекст (так его сбрасывают спеки) create() не пересобрал бы, а геттеры
+    // отвергли бы.
     public static create(): Promise<void> {
-        if (ApplicationContext.cc !== null && ApplicationContext.logger !== null && ApplicationContext.requestContext !== null) {
+        if (ApplicationContext.parts !== null) {
             return Promise.resolve();
         }
 
@@ -58,27 +64,23 @@ export class ApplicationContext {
     }
 
     public static getConfigContainer(): CC {
-        if (ApplicationContext.cc === null) {
-            throw new ApplicationContextIsNotCreated("ApplicationContext is not created, call create() first.");
-        }
-
-        return ApplicationContext.cc;
+        return ApplicationContext.getParts().cc;
     }
 
     public static getLogger(): Logger {
-        if (ApplicationContext.logger === null) {
-            throw new ApplicationContextIsNotCreated("ApplicationContext is not created, call create() first.");
-        }
-
-        return ApplicationContext.logger;
+        return ApplicationContext.getParts().logger;
     }
 
     public static getRequestContext(): RequestContext {
-        if (ApplicationContext.requestContext === null) {
+        return ApplicationContext.getParts().requestContext;
+    }
+
+    private static getParts(): Parts {
+        if (ApplicationContext.parts === null) {
             throw new ApplicationContextIsNotCreated("ApplicationContext is not created, call create() first.");
         }
 
-        return ApplicationContext.requestContext;
+        return ApplicationContext.parts;
     }
 
     // Конфиг раньше логгера: из него берётся и адаптер, и порог. Поэтому ошибка конфигурации
@@ -87,7 +89,7 @@ export class ApplicationContext {
         const cc = new ConfigContainer<ConfigValues>(ApplicationContext.createStorage(), new ConfigValuesBuilder());
         await cc.init();
 
-        // Наблюдение завёл init(), а поля контекста заполняются ниже: упади сборка между ними,
+        // Наблюдение завёл init(), а контекст заполняется ниже: упади сборка между ними,
         // опрос остался бы работать и стал бы недостижим — ссылки на контейнер нигде нет, и
         // остановка приложения до него не дошла бы.
         try {
@@ -103,11 +105,7 @@ export class ApplicationContext {
         const requestContext = new RequestContext();
         const logger = ApplicationContext.createLogger(cc, requestContext);
 
-        // Поля заполняются после сборки всех частей: упавший конфиг оставляет контекст пустым,
-        // а не достраивает половину.
-        ApplicationContext.cc = cc;
-        ApplicationContext.requestContext = requestContext;
-        ApplicationContext.logger = logger;
+        ApplicationContext.parts = { cc: cc, logger: logger, requestContext: requestContext };
 
         // Отказ пересборки пишет логгер: у самой конфигурации логгера нет, она собирается
         // раньше него. Наблюдение включил уже init(), но окна без адресата это не создаёт:
