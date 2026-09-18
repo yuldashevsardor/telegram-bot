@@ -5,7 +5,7 @@ import { ApplicationContext } from "app/bootstrap/application/application-contex
 import type { CC } from "app/bootstrap/config/config-container.types";
 import type { RequestContext } from "app/platform/request-context/request-context";
 import { FontForge } from "app/font-convertor/font-forge/font-forge";
-import { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher";
+import { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher/font-signature-matcher";
 import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 import { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory";
 import { FontConvertor } from "app/font-convertor/font-convertor";

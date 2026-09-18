@@ -8,7 +8,7 @@ import { FontConvertor } from "app/font-convertor/font-convertor";
 import { ConvertorNotFound, FontConvertorError, InvalidFontSignature } from "app/font-convertor/font-convertor.errors";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import type { FontForge } from "app/font-convertor/font-forge/font-forge";
-import { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher";
+import { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher/font-signature-matcher";
 import { InvalidPath, PermissionDenied } from "app/shared/fs/file-helper.errors";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
