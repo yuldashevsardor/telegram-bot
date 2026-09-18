@@ -2,7 +2,7 @@ import { expect } from "chai";
 import type { Logger } from "app/platform/logger/logger";
 import type { UnknownObject } from "app/shared/types";
 import type { LimitResolver } from "app/telegram/outbound-queue/limit-resolver";
-import type { Limit } from "app/telegram/outbound-queue/rate-limit.types";
+import type { Limit } from "app/telegram/outbound-queue/rate-limit/rate-limit.types";
 import { Runner } from "app/telegram/outbound-queue/runner/runner";
 import { RunnerAlreadyRun } from "app/telegram/outbound-queue/runner/runner.errors";
 import type { RunnerSettings } from "app/telegram/outbound-queue/runner/runner.types";

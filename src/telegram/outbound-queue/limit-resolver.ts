@@ -1,4 +1,4 @@
-import type { Limit } from "app/telegram/outbound-queue/rate-limit.types";
+import type { Limit } from "app/telegram/outbound-queue/rate-limit/rate-limit.types";
 import type { Task } from "app/telegram/outbound-queue/task";
 
 // Лимит принадлежит партиции, поэтому очередь спрашивает его один раз — когда заводит её по

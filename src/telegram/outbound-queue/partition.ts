@@ -1,5 +1,5 @@
-import { RateLimit } from "app/telegram/outbound-queue/rate-limit";
-import type { Limit } from "app/telegram/outbound-queue/rate-limit.types";
+import { RateLimit } from "app/telegram/outbound-queue/rate-limit/rate-limit";
+import type { Limit } from "app/telegram/outbound-queue/rate-limit/rate-limit.types";
 import type { Task } from "app/telegram/outbound-queue/task";
 import { Priority } from "app/telegram/outbound-queue/task";
 

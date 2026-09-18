@@ -1,5 +1,5 @@
-import { RateLimitIsBusy } from "app/telegram/outbound-queue/rate-limit.errors";
-import type { Limit } from "app/telegram/outbound-queue/rate-limit.types";
+import { RateLimitIsBusy } from "app/telegram/outbound-queue/rate-limit/rate-limit.errors";
+import type { Limit } from "app/telegram/outbound-queue/rate-limit/rate-limit.types";
 
 export class RateLimit {
     private reserveTimeout: number | null = null;
