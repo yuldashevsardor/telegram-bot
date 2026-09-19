@@ -3,10 +3,12 @@ import { expect } from "chai";
 import type { Dayjs } from "dayjs";
 import dayjs from "dayjs";
 import { User } from "app/telegram/user/user";
-import { UserCreateError, UserEditError, UserNotFound } from "app/telegram/user/user.errors";
-import type { UserRepository } from "app/telegram/user/user.repository";
-import { UserService } from "app/telegram/user/user.service";
-import type { CreateUserDto, EditUserDto, UserDto } from "app/telegram/user/user.types";
+import { UserNotFound } from "app/telegram/user/user.errors";
+import { UserCreateError, UserEditError } from "app/telegram/user/service/user-service.errors";
+import type { UserRepository } from "app/telegram/user/user-repository";
+import { UserService } from "app/telegram/user/service/user-service";
+import type { CreateUserDto, EditUserDto } from "app/telegram/user/service/user-service.types";
+import type { UserDto } from "app/telegram/user/user.types";
 
 const PROFILE: CreateUserDto = { id: 42, firstname: "Sardor", lastname: "Yuldashev", username: "sardor", isBot: false };
 

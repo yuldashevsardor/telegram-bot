@@ -1,4 +1,4 @@
-import type { UserRepository } from "app/telegram/user/user.repository";
+import type { UserRepository } from "app/telegram/user/user-repository";
 import { User } from "app/telegram/user/user";
 import { inject, injectable } from "inversify";
 import type { Database, Sql } from "app/platform/database/database";

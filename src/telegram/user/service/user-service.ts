@@ -1,10 +1,10 @@
 import { inject, injectable } from "inversify";
-import type { UserRepository } from "app/telegram/user/user.repository";
+import type { UserRepository } from "app/telegram/user/user-repository";
 import { Tokens } from "app/shared/tokens";
-import type { CreateUserDto, EditUserDto } from "app/telegram/user/user.types";
+import type { CreateUserDto, EditUserDto } from "app/telegram/user/service/user-service.types";
 import { User } from "app/telegram/user/user";
 import dayjs from "dayjs";
-import { UserCreateError, UserEditError } from "app/telegram/user/user.errors";
+import { UserCreateError, UserEditError } from "app/telegram/user/service/user-service.errors";
 
 @injectable()
 export class UserService {
