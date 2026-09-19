@@ -69,7 +69,9 @@ gh pr diff <N> --name-only
 Остальные гейты по нему считай по содержанию правки, а не по имени — посмотри диф файла:
 тронут блок `scripts` — ещё и `make-targets`, тронут ключ `nyc` — ещё и `test`, там конфиг и
 порог покрытия, который гейт проверяет. Тронуты скрипт `mutation`, зависимости
-`@stryker-mutator/*` или `typescript` — ещё и `mutation-full`.
+`@stryker-mutator/*` или `typescript` — ещё и `mutation-full`. То же по `package-lock.json`:
+сменилась версия `typescript` или `@stryker-mutator/*` — ещё и `mutation-full`, даже если
+`package.json` не тронут (`npm update` в пределах диапазона).
 
 `bug-hunt-*` и `smells` разведены намеренно, и границы у них разные. Баги ищутся везде, где
 есть исполняемый код: в `src/platform/`, `src/bootstrap/` и `src/telegram/` они дороже
