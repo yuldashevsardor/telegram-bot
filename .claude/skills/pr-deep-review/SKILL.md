@@ -271,6 +271,7 @@ git merge --abort
 
 ### Проверки
 rebuild: сделан/не нужен · build: ok/fail/n-a · typecheck: ok/fail/n-a · test: ok/fail/n-a · lint: ok/fail/n-a · format-check: ok/fail/n-a
+mutation: ok/fail/n-a — <счёт из Final mutation score>, <весь src/ или файлы области> (n-a — причина)
 make -n <цель>: ok/fail — <что показало раскрытие>
 sh -n <скрипт>: ok/fail (+ dash: ok/fail/n-a)
 Не запускалось: <проверка> — <причина>
