@@ -28,9 +28,9 @@ import type { StorageAdapter } from "grammy";
 import type { SessionPayload } from "app/telegram/session/session.types";
 import { PgsqlStorage } from "app/telegram/session/pgsql-storage";
 import { Database } from "app/platform/database/database";
-import type { UserRepository } from "app/telegram/user/user.repository";
+import type { UserRepository } from "app/telegram/user/user-repository";
 import { PgSqlUserRepository } from "app/telegram/user/pgsql-repository/pgsql-user-repository";
-import { UserService } from "app/telegram/user/user.service";
+import { UserService } from "app/telegram/user/service/user-service";
 import { TelegramCallApiMiddleware } from "app/telegram/middleware/mutation/telegram-call-api.middleware";
 import { StartConversation } from "app/telegram/conversation/start/start.conversation";
 

@@ -38,7 +38,7 @@
 ([`invariants.md`](./invariants.md)).
 
 Своего интерфейса хранилища у него нет намеренно: он есть только у `users`. Там интерфейс
-объявляет сам потребитель — `UserRepository` (`telegram/user/user.repository.ts`) написан
+объявляет сам потребитель — `UserRepository` (`telegram/user/user-repository.ts`) написан
 под нужды `UserService`, он же его и зовёт. У сессии интерфейс задан снаружи:
 `PgsqlStorage` реализует `StorageAdapter<SessionPayload>` из grammY, потому что ровно этот
 тип принимает `session()` в `Bot.setupSession()`. Свой интерфейс вышел бы переименованием

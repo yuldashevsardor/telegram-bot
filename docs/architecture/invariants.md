@@ -84,9 +84,10 @@
 - **`LIMIT_*_NUMBER > 0`** (конфиг проверяет). Ноль → `reserveDuration = Infinity` → слот
   занят навсегда, партиция никогда не удалится ([`outbound-queue.md`](./outbound-queue.md)).
 - **Новое поле пользователя из `ctx.from`** требует синхронной правки `user.types.ts`,
-  `user.ts`, миграции, `UserRow` в `pgsql-user-repository.types.ts`, мапперов и перечня
-  колонок `update set` в `pgsql-user-repository.ts`, веток в
-  `UserService.create()`/`edit()` и литерала в `fill-user-to-context.middleware.ts`.
+  обоих `Pick` в `service/user-service.types.ts`, `user.ts`, миграции, `UserRow` в
+  `pgsql-user-repository.types.ts`, мапперов и перечня колонок `update set` в
+  `pgsql-user-repository.ts`, веток в `UserService.create()`/`edit()` и литерала в
+  `fill-user-to-context.middleware.ts`.
   Забытая миграция проявится SQL-ошибкой в рантайме, а молчит всё, что идёт через
   `EditUserDto` (`Partial<Pick<...>>`): его `Pick`, литерал в middleware, ветка в
   `edit()` — и перечень колонок `update set`: поле запишется при создании и никогда не

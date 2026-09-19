@@ -7,7 +7,3 @@ export class UserNotFound extends RuntimeError {
         });
     }
 }
-
-export class UserCreateError extends RuntimeError {}
-
-export class UserEditError extends RuntimeError {}

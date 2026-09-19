@@ -1,9 +1,9 @@
 import { Middleware } from "app/telegram/middleware/middleware";
 import type { NextFunction } from "grammy";
 import { inject, injectable } from "inversify";
-import type { UserService } from "app/telegram/user/user.service";
+import type { UserService } from "app/telegram/user/service/user-service";
 import { Tokens } from "app/shared/tokens";
-import type { UserRepository } from "app/telegram/user/user.repository";
+import type { UserRepository } from "app/telegram/user/user-repository";
 import type { User } from "app/telegram/user/user";
 import dayjs from "dayjs";
 import type { Context } from "app/telegram/bot/bot.types";
