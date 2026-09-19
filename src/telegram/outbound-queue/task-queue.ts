@@ -121,7 +121,7 @@ export class TaskQueue {
     }
 
     private isBanned(): boolean {
-        // Stryker disable next-line ConditionalExpression,EqualityOperator: `true` слева от `&&` — не компилируется: banExpirationTime может быть null; `>` — эквивалентен: пауза кончается на миллисекунду раньше, а retry_after соблюдают оба варианта
+        // Stryker disable next-line EqualityOperator: `>` — эквивалентен: пауза кончается на миллисекунду раньше, а retry_after соблюдают оба варианта
         return this.banExpirationTime !== null && this.banExpirationTime >= Date.now();
     }
 
