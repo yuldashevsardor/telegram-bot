@@ -79,6 +79,16 @@ export default {
         require: ["tsx/cjs"],
         ignore: DATABASE_SPECS,
     },
+    // Чекер типов ставит мутанту, который ломает типы, CompileError до тестов: tsx типы не
+    // проверяет, и такой мутант, не убитый тестами, иначе выживал бы. Тиконфиг тот же, что у
+    // make typecheck: сборочный tsconfig.json не видит спек.
+    checkers: ["typescript"],
+    tsconfigFile: "tsconfig.check.json",
+    // Процессов чекера Stryker поднимает половину concurrency (ConcurrencyTokenProvider в
+    // @stryker-mutator/core), и без лимита кучи каждый держал 1–1,3 ГБ: шесть чекеров занимали
+    // больше 6 ГБ из 7,65 у Docker и гибли по SIGKILL. С лимитом процесс держит до 800 МБ, а tsc по
+    // тому же тиконфигу укладывается в 300.
+    checkerNodeArgs: ["--max-old-space-size=512"],
     // Значение по умолчанию, выписанное после замера при perTest: при 30 000 прогон шёл втрое
     // дольше, а статус сменили три мутанта из двухсот десяти — с Timeout на Killed, и оба
     // статуса значат «обнаружен».

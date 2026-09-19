@@ -102,7 +102,6 @@ export class Application {
 
         // Остановка берёт логгер и срок из контекста, поэтому посреди его сборки сперва ждёт её.
         // Общий срок на это ожидание не распространяется: пока конфиг не собран, срока нет.
-        // Stryker disable next-line ConditionalExpression: `true` — не компилируется, contextReady есть только у settingUp
         if (this.state.name === "settingUp") {
             await this.state.contextReady;
         }

@@ -20,7 +20,6 @@ const TELEGRAM_NO_GROUP_RATE_LIMIT_SET = new Set<string | symbol>([
 
 // Методы без параметров grammY зовёт без payload: первым аргументом приходит signal или ничего.
 function isPayloadLiteral(value: unknown): value is RawApiPayload {
-    // Stryker disable next-line ConditionalExpression: `true` вместо `value !== null` — не компилируется: value не сужается до object
     return typeof value === "object" && value !== null && value.constructor.name === "Object";
 }
 
