@@ -186,27 +186,25 @@ scripts/                    хостовые скрипты целей make; cla
 основание, они вычёркиваются — `bootstrap/config/container/` при `config-container.ts`,
 `bootstrap/config/storage/file/` при `config-file-storage.ts`,
 `telegram/user/pgsql-repository/` при `pgsql-user-repository.ts`. Файлы внутри имён не
-сокращают: файл по-прежнему называется по своему классу. Вычёркивание останавливается на
-последнем слове — `convertor/` в `font-convertor/` без него остался бы без имени — и не
-режет имён собственных: `font-forge/` назван по программе FontForge.
+сокращают: файл по-прежнему называется по своему классу. Если путь назвал все слова, имя
+каталога — последнее слово имени главного: `convertor/` в `font-convertor/` без него остался
+бы без имени, а `config-storage.ts`, заведи он спутники, остался бы прямо в `storage/`.
+Имён собственных вычёркивание не режет: `font-forge/` назван по программе FontForge.
 
-Главные файлы со спутниками, чей каталог правилу не отвечает, печатает команда: слово имени
-главного, которого нет ни в каталоге, ни в пути над ним (спутники лежат не в своём
-каталоге), и слово каталога, которое путь над ним уже назвал. Если путь назвал все слова
-каталога, последнее из них не печатается: на нём вычёркивание останавливается, так что
-`convertor/` в `font-convertor/` правилу отвечает, а `storage/config-storage/` — нет. Из вывода
+Главные файлы со спутниками, чей каталог правилу не отвечает, печатает команда: она
+вычисляет по правилу имя каталога от пути над ним и сравнивает с настоящим. Так ловятся
+и спутники не в своём каталоге (главный со спутниками, оставленный плоско в `telegram/`),
+и слово, которое путь уже назвал, и слово, которого нет в имени главного. Из вывода
 вычтены три каталога роли `shared/` (имя у них своё) и `font-forge/`; дерево правилу
 отвечает целиком, и вывод пуст. Прячущие каталоги без спутников команда не проверяет.
 
 ```bash
 find src -name '*.types.ts' -o -name '*.errors.ts' | while read -r f; do m="${f%.*.ts}"; \
     [ -f "$m.ts" ] || continue; d="${f%/*}"; up=" $(echo "${d%/*}" | tr '/-' '  ') "; \
-    own="$(basename "$d" | tr '-' '\n')"; basename "$m" | tr '.-' '\n\n' | while read -r w; do \
-    echo "$up $own " | tr '\n' ' ' | grep -q " $w " || echo "$m.ts: «${w}» нет в пути"; done; \
-    rep="$(echo "$own" | while read -r w; do echo "$up" | grep -q " $w " && echo "$w"; done)"; \
-    { [ "$rep" = "$own" ] && echo "$rep" | sed '$d' || echo "$rep"; } | grep . | while read -r w; do \
-    echo "$m.ts: каталог повторяет «${w}»"; done; done \
-    | grep -vE '^src/(shared/(fs|process|string)|font-convertor/font-forge)/' | LC_ALL=C sort -u
+    words="$(basename "$m" | tr '.-' '\n\n')"; want="$(echo "$words" | while read -r w; do \
+    echo "$up" | grep -q " $w " || echo "$w"; done | paste -s -d - -)"; \
+    [ "$(basename "$d")" = "${want:-$(echo "$words" | tail -1)}" ] || echo "$m.ts"; done \
+    | grep -vE '^src/(shared/(fs|process|string)|font-convertor/font-forge)/' | sort -u
 ```
 
 Иначе файлы лежат плоско: части подсистемы группирует префикс имени файла, а файл без
