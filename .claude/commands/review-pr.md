@@ -54,7 +54,7 @@ gh pr diff <N> --name-only
 | любой `.ts` | `bug-hunt-high` |
 | `.sh` и ни одного `.ts` | `bug-hunt-medium` |
 | `.ts` внутри `src/font-convertor/`, `src/shared/`, `src/telegram/outbound-queue/` | `smells` |
-| `stryker.config.mjs`, `test/stryker-mocha-hook.cjs`, `.mocharc.json` | `mutation-full` |
+| `stryker.config.mjs`, `test/stryker-mocha-hook.cjs`, `.mocharc.json`, `tsconfig.json`, `tsconfig.check.json` | `mutation-full` |
 | любой `.ts` в `src/` или `test/`, если `mutation-full` не включён | `mutation` |
 | любой `*.md`, включая `docs/**` и `.claude/**` | `docs` |
 
@@ -68,8 +68,10 @@ gh pr diff <N> --name-only
 монтируется, и на старом образе проверятся старые зависимости, скрипты и конфиг `nyc`.
 Остальные гейты по нему считай по содержанию правки, а не по имени — посмотри диф файла:
 тронут блок `scripts` — ещё и `make-targets`, тронут ключ `nyc` — ещё и `test`, там конфиг и
-порог покрытия, который гейт проверяет. Тронуты скрипт `mutation` или зависимости
-`@stryker-mutator/*` — ещё и `mutation-full`.
+порог покрытия, который гейт проверяет. Тронуты скрипт `mutation`, зависимости
+`@stryker-mutator/*` или `typescript` — ещё и `mutation-full`. То же по `package-lock.json`:
+сменилась версия `typescript` или `@stryker-mutator/*` — ещё и `mutation-full`, даже если
+`package.json` не тронут (`npm update` в пределах диапазона).
 
 `bug-hunt-*` и `smells` разведены намеренно, и границы у них разные. Баги ищутся везде, где
 есть исполняемый код: в `src/platform/`, `src/bootstrap/` и `src/telegram/` они дороже
@@ -97,7 +99,9 @@ gh pr diff <N> --name-only
 идёт секунды. Область собирает `pr-light-check`, там и правило сборки: ей нужен код PR, а
 здесь видны только имена файлов. `mutation-full` включают инструменты прогона, и мутируется
 весь `src/`: их правка меняет прогон каждого мутанта, а не строк дифа, а у PR, который правит
-одни инструменты, область из дифа пуста. На остальных PR весь `src/` не гоняется: это минуты
+одни инструменты, область из дифа пуста. Тиконфиги и `typescript` — тоже инструменты: по ним чекер
+типов решает, какой мутант получает `CompileError`, а какой идёт в тесты
+(`docs/architecture/testing.md`, «Чекер типов»). На остальных PR весь `src/` не гоняется: это минуты
 на каждый круг ради строк, которых PR не трогал.
 
 Гейт `rebuild` включён — образ пересобирается **до** остальных проверок: иначе новый код

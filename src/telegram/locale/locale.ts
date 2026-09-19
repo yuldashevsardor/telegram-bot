@@ -15,10 +15,8 @@ export function isLocale(value: string): value is Locale {
 // по языку. Регион отбрасываем, незнакомый язык уводим в дефолтную локаль: иначе Fluent
 // не нашёл бы бандл и пользователь получил бы имена ключей вместо текста.
 export function resolveLocale(languageCode: string | undefined): Locale {
-    // Stryker disable next-line OptionalChaining: `[0].toLowerCase()` — не компилируется: при noUncheckedIndexedAccess элемент массива может быть undefined
     const language = languageCode?.split("-")[0]?.toLowerCase();
 
-    // Stryker disable next-line ConditionalExpression: `true` вместо `language !== undefined` — не компилируется: isLocale() не примет undefined
     return language !== undefined && isLocale(language) ? language : DEFAULT_LOCALE;
 }
 
@@ -42,7 +40,6 @@ export async function createFluent(localeDir: string): Promise<Fluent> {
     const filesByLocale = new Map<Locale, string[]>(LOCALES.map((locale) => [locale, []]));
 
     for (const filePath of files) {
-        // Stryker disable next-line OptionalChaining: `.push()` без `?.` — не компилируется: Map.get() может вернуть undefined
         filesByLocale.get(localeFromFilePath(filePath))?.push(filePath);
     }
 
@@ -89,7 +86,6 @@ export async function createFluent(localeDir: string): Promise<Fluent> {
 export function createFluentMiddleware(fluent: Fluent): MiddlewareFn<Context> {
     return (ctx, next) => {
         ctx.getFluent = (): Fluent => fluent;
-        // Stryker disable next-line OptionalChaining: `ctx.from.language_code` — не компилируется: from у контекста необязателен
         ctx.t = fluent.withLocale(resolveLocale(ctx.from?.language_code));
 
         return next();

@@ -96,7 +96,6 @@ export class FontSignatureMatcher {
     private matchesByte(byte: number | undefined, expected: SignatureByte): boolean {
         // Байта нет — файл короче сигнатуры. Эта ветка и есть проверка длины: отдельная
         // проверка в `matches` сделала бы её недостижимой.
-        // Stryker disable next-line ConditionalExpression,BlockStatement: `false` и `{}` — не компилируются: byte не сужается до number
         if (byte === undefined) {
             return false;
         }
@@ -159,7 +158,6 @@ export class FontSignatureMatcher {
     }
 
     private isXmlWhitespace(byte: number | undefined): boolean {
-        // Stryker disable next-line ConditionalExpression: `true` слева от `&&` — не компилируется: includes() не примет undefined
         return byte !== undefined && FontSignatureMatcher.XML_WHITESPACE.includes(byte);
     }
 

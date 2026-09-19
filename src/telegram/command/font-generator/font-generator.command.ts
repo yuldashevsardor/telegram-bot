@@ -22,7 +22,6 @@ export class FontGeneratorCommand extends Command {
     }
 
     protected async handle(ctx: Context): Promise<void> {
-        // Stryker disable next-line ArrayDeclaration: `["Stryker was here"]` — не компилируется: строка не Promise<unknown>
         const promises: Promise<unknown>[] = [];
         for (let i = 0; i < 1; i++) {
             promises.push(this.generateRandomFonts(ctx));
