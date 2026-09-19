@@ -54,7 +54,7 @@ gh pr diff <N> --name-only
 | любой `.ts` | `bug-hunt-high` |
 | `.sh` и ни одного `.ts` | `bug-hunt-medium` |
 | `.ts` внутри `src/font-convertor/`, `src/shared/`, `src/telegram/outbound-queue/` | `smells` |
-| `stryker.config.mjs`, `test/stryker-mocha-hook.cjs`, `.mocharc.json`, `tsconfig.json`, `tsconfig.check.json` | `mutation-full` |
+| `stryker.config.mjs`, `test/stryker-mocha-hook.cjs`, `test/mutation-record.ts`, `.mocharc.json`, `tsconfig.json`, `tsconfig.check.json` | `mutation-full` |
 | любой `.ts` в `src/` или `test/`, если `mutation-full` не включён | `mutation` |
 | любой `*.md`, включая `docs/**` и `.claude/**` | `docs` |
 

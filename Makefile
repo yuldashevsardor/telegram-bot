@@ -126,9 +126,13 @@ format: ## Переформатировать prettier: make format [files="src/
 # не флагом --mutate: флаг заменил бы весь список mutate из stryker.config.mjs вместе с его
 # исключениями. Кавычки нужны, чтобы глоб развернул Stryker, а не шелл хоста. Каталог отчёта
 # создаётся заранее по той же причине, что у coverage.
-mutation: ## Мутационное тестирование, отчёт в ./reports: make mutation [files="src/shared/**"]
+#
+# Stryker запускает обёртка test/mutation-record.ts: она пишет запись прогона и выходит с кодом
+# Stryker. Head и число изменённых путей для записи считает хост: .git в контейнер не смонтирован.
+mutation: ## Мутационное тестирование, отчёт и запись прогона в ./reports: make mutation [files="src/shared/**"]
 	@mkdir -p reports
-	$(DC_APP_RUN) $(if $(FILES),env MUTATE='$(FILES)') npm run mutation
+	$(DC_APP_RUN) env MUTATION_HEAD="$$(git rev-parse HEAD)" MUTATION_DIRTY="$$(git status --porcelain | wc -l | tr -d ' ')" \
+		$(if $(FILES),MUTATE='$(FILES)') node --require tsx/cjs test/mutation-record.ts
 
 # Быстрый прогон перед PR одним выводом: типы, eslint, prettier, тесты с порогом покрытия.
 # Ревью проверяет то же, но гоняет свои гейты по одному и добавляет к ним rebuild, build и
