@@ -3,15 +3,15 @@ import path from "path";
 import { expect } from "chai";
 import { Api, Composer, Context as GrammyContext } from "grammy";
 import type { Update, UserFromGetMe } from "@grammyjs/types";
-import type { Context } from "app/telegram/bot.types";
+import type { Context } from "app/telegram/bot/bot.types";
 import type { Logger } from "app/platform/logger/logger";
 import type { UnknownObject } from "app/shared/types";
 import type { FontConvertor } from "app/font-convertor/font-convertor";
 import type { ConvertParams } from "app/font-convertor/font-convertor.types";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { FontGeneratorCommand } from "app/telegram/command/font-generator/font-generator.command";
-import { createFluent } from "app/telegram/locale";
-import { DEFAULT_LOCALE } from "app/telegram/locale.types";
+import { createFluent } from "app/telegram/locale/locale";
+import { DEFAULT_LOCALE } from "app/telegram/locale/locale.types";
 
 type ErrorRecord = { message: string; payload: UnknownObject | undefined };
 

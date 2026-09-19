@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { expect } from "chai";
 import type { Chat } from "@grammyjs/types";
-import type { Context } from "app/telegram/bot.types";
+import type { Context } from "app/telegram/bot/bot.types";
 import { IsPrivateChatFilter } from "app/telegram/filter/is-private-chat.filter";
 import type { Logger } from "app/platform/logger/logger";
 

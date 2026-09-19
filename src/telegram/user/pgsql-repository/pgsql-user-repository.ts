@@ -4,7 +4,7 @@ import { inject, injectable } from "inversify";
 import type { Database, Sql } from "app/platform/database/database";
 import { Tokens } from "app/shared/tokens";
 import { UserNotFound } from "app/telegram/user/user.errors";
-import type { UserRow } from "app/telegram/user/pgsql-user-repository.types";
+import type { UserRow } from "app/telegram/user/pgsql-repository/pgsql-user-repository.types";
 import dayjs from "dayjs";
 
 @injectable()

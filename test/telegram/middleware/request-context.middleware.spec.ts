@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { expect } from "chai";
 import { Composer } from "grammy";
-import type { Context } from "app/telegram/bot.types";
+import type { Context } from "app/telegram/bot/bot.types";
 import { RequestContext } from "app/platform/request-context/request-context";
 import { RequestContextMiddleware } from "app/telegram/middleware/request-context.middleware";
 

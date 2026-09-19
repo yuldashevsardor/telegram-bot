@@ -4,7 +4,7 @@ import dayjs from "dayjs";
 import { ConfigValuesBuilder } from "app/bootstrap/config/builder/config-values-builder";
 import { ConfigEnvStorage } from "app/bootstrap/config/storage/config-env-storage";
 import { Database } from "app/platform/database/database";
-import { PgSqlUserRepository } from "app/telegram/user/pgsql-user-repository";
+import { PgSqlUserRepository } from "app/telegram/user/pgsql-repository/pgsql-user-repository";
 import { User } from "app/telegram/user/user";
 import { UserNotFound } from "app/telegram/user/user.errors";
 import type { UserDto } from "app/telegram/user/user.types";

@@ -4,9 +4,9 @@ import os from "os";
 import path from "path";
 import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 import { InvalidEot, UnsupportedEotFlags } from "app/font-convertor/eot-packer/eot-packer.errors";
-import { InvalidSfnt } from "app/font-convertor/eot-packer/sfnt-reader.errors";
+import { InvalidSfnt } from "app/font-convertor/eot-packer/sfnt-reader/sfnt-reader.errors";
 import { Extension } from "app/font-convertor/font-convertor.types";
-import { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher/font-signature-matcher";
+import { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-signature-matcher";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 

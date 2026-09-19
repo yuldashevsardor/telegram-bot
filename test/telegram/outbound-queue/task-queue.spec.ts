@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import type { Limit } from "app/telegram/outbound-queue/rate-limit.types";
+import type { Limit } from "app/telegram/outbound-queue/rate-limit/rate-limit.types";
 import type { LimitResolver } from "app/telegram/outbound-queue/limit-resolver";
 import type { Logger } from "app/platform/logger/logger";
 import type { PartitionKey, Task } from "app/telegram/outbound-queue/task";

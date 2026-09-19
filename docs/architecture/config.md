@@ -1,14 +1,14 @@
 # Конфигурация
 
-Конфигурация живёт в `bootstrap/config/`. `ConfigContainer<Values>` (`config-container.ts`)
-получает в конструкторе `ConfigStorage` и `ConfigBuilder<Values>` и собирает значения в
-`init()`: storage одним вызовом `load()` отдаёт снимок всех переменных (`RawConfig`), builder
-разбирает и проверяет его и возвращает `Values`, контейнер их хранит и раздаёт методом
-`get("bot.token")`. `get()` до `init()` — `ConfigContainerIsNotInitialized`. В приложении
-это `CC` — `ConfigContainer<ConfigValues>` с `ConfigValuesBuilder` и `ConfigFileStorage` над
-`ConfigEnvStorage` (ниже, «Наблюдение за файлом»), его собирает `ApplicationContext.create()`
-([`application.md`](./application.md)). Раскрытия `${...}` ни в `.env`, ни в наблюдаемом файле
-нет.
+Конфигурация живёт в `bootstrap/config/`. `ConfigContainer<Values>`
+(`container/config-container.ts`) получает в конструкторе `ConfigStorage` и
+`ConfigBuilder<Values>` и собирает значения в `init()`: storage одним вызовом `load()` отдаёт
+снимок всех переменных (`RawConfig`), builder разбирает и проверяет его и возвращает
+`Values`, контейнер их хранит и раздаёт методом `get("bot.token")`. `get()` до `init()` —
+`ConfigContainerIsNotInitialized`. В приложении это `CC` — `ConfigContainer<ConfigValues>` с
+`ConfigValuesBuilder` и `ConfigFileStorage` над `ConfigEnvStorage` (ниже, «Наблюдение за
+файлом»), его собирает `ApplicationContext.create()` ([`application.md`](./application.md)).
+Раскрытия `${...}` ни в `.env`, ни в наблюдаемом файле нет.
 
 `init()` и `load()` асинхронные, хотя env отдаёт переменные сразу: остальные источники (файл,
 vault) ходят за значениями вне процесса, и интерфейс под них не пришлось менять. Storage держит
@@ -31,11 +31,11 @@ vault) ходят за значениями вне процесса, и инте
 `getArray`), а `noUnusedLocals` не пропускает приватный метод без вызовов.
 
 Форма значений передаётся контейнеру дженериком явно, без ограничения на тип, и из неё же
-`Paths` и `ValueByPath` (`config-container.types.ts`) выводят допустимые пути и тип
-результата `get()`. Там же `ConfigPath` и `ConfigValue` — те же типы, применённые к
-`ConfigValues` (их берёт `shared/config-value.ts`), алиас `CC` (зависимость от контейнера
-везде называется `cc` и типизируется им) и `RawConfig`: снимок лежит в общем файле, а не у
-storage или builder, потому что работают с ним оба, а друг о друге они не знают.
+`Paths` и `ValueByPath` (`container/config-container.types.ts`) выводят допустимые
+пути и тип результата `get()`. Там же `ConfigPath` и `ConfigValue` — те же типы,
+применённые к `ConfigValues` (их берёт `shared/config-value.ts`), алиас `CC` (зависимость от
+контейнера везде называется `cc` и типизируется им) и `RawConfig`: снимок лежит в общем
+файле, а не у storage или builder, потому что работают с ним оба, а друг о друге они не знают.
 
 Форма конфигурации целиком — `config-values.ts`: `ConfigValues` и типы, объявленные для
 самого конфига (`Environment`, `LoggerConfig`, `TelegramLimits`). Файлы `storage/`
@@ -53,7 +53,7 @@ storage или builder, потому что работают с ним оба, �
 
 ## Наблюдение за файлом
 
-`ConfigFileStorage` (`storage/config-file-storage.ts`) — второй источник: читает
+`ConfigFileStorage` (`storage/file/config-file-storage.ts`) — второй источник: читает
 `KEY=value`-файл через `dotenv.parse` и кладёт его значения **под** снимок базового источника,
 который получает в конструкторе (в приложении это `ConfigEnvStorage`). Заданная переменная
 окружения сильнее файла, поэтому ни правка файла, ни его подмена не уводят приложение от того,

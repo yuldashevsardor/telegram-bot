@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { expect } from "chai";
 import { Api, Composer, Context as GrammyContext } from "grammy";
 import type { Update, UserFromGetMe } from "@grammyjs/types";
-import type { Context } from "app/telegram/bot.types";
+import type { Context } from "app/telegram/bot/bot.types";
 import { Command } from "app/telegram/command/command";
 
 const ME = { id: 1, is_bot: true, first_name: "Bot", username: "test_bot" } as UserFromGetMe;

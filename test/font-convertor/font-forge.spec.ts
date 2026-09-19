@@ -7,7 +7,7 @@ import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { ExecuteError, ExtensionNotSupport } from "app/font-convertor/font-forge/font-forge.errors";
-import { FontSignatureMatcher } from "app/font-convertor/font-signature-matcher/font-signature-matcher";
+import { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-signature-matcher";
 import { FileHelper } from "app/shared/fs/file-helper";
 import { ProcessFailed } from "app/shared/process/process-helper.errors";
 

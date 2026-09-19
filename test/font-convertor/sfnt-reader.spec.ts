@@ -2,8 +2,8 @@ import { expect } from "chai";
 import fs from "fs/promises";
 import path from "path";
 import { Extension } from "app/font-convertor/font-convertor.types";
-import { SfntReader } from "app/font-convertor/eot-packer/sfnt-reader";
-import { InvalidSfnt } from "app/font-convertor/eot-packer/sfnt-reader.errors";
+import { SfntReader } from "app/font-convertor/eot-packer/sfnt-reader/sfnt-reader";
+import { InvalidSfnt } from "app/font-convertor/eot-packer/sfnt-reader/sfnt-reader.errors";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 

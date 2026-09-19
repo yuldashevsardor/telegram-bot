@@ -3,14 +3,14 @@ import { expect } from "chai";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import { ApplicationContext } from "app/bootstrap/application/application-context";
-import { ApplicationContextIsNotCreated } from "app/bootstrap/application/application-context.errors";
+import { ApplicationContext } from "app/bootstrap/application/context/application-context";
+import { ApplicationContextIsNotCreated } from "app/bootstrap/application/context/application-context.errors";
 import { ConsoleLogger } from "app/platform/logger/console-logger";
 import { PinoLogger } from "app/platform/logger/pino-logger";
 import { Level } from "app/platform/logger/logger.types";
 import type { RequestContext } from "app/platform/request-context/request-context";
 import { InvalidConfigError } from "app/shared/errors";
-import { ConfigFileStorage } from "app/bootstrap/config/storage/config-file-storage";
+import { ConfigFileStorage } from "app/bootstrap/config/storage/file/config-file-storage";
 import type { UnknownObject } from "app/shared/types";
 import { resetApplicationContext } from "test/bootstrap/application/application-context.helper";
 

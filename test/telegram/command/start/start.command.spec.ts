@@ -3,11 +3,11 @@ import path from "path";
 import { expect } from "chai";
 import { Api, Composer, Context as GrammyContext } from "grammy";
 import type { Update, UserFromGetMe } from "@grammyjs/types";
-import type { Context } from "app/telegram/bot.types";
+import type { Context } from "app/telegram/bot/bot.types";
 import type { StartConversation } from "app/telegram/conversation/start/start.conversation";
 import { StartCommand } from "app/telegram/command/start/start.command";
-import { createFluent } from "app/telegram/locale";
-import { DEFAULT_LOCALE } from "app/telegram/locale.types";
+import { createFluent } from "app/telegram/locale/locale";
+import { DEFAULT_LOCALE } from "app/telegram/locale/locale.types";
 
 const ME = { id: 1, is_bot: true, first_name: "Bot", username: "test_bot" } as UserFromGetMe;
 

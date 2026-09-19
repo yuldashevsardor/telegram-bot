@@ -1,6 +1,6 @@
 import { expect } from "chai";
-import { RateLimit } from "app/telegram/outbound-queue/rate-limit";
-import { RateLimitIsBusy } from "app/telegram/outbound-queue/rate-limit.errors";
+import { RateLimit } from "app/telegram/outbound-queue/rate-limit/rate-limit";
+import { RateLimitIsBusy } from "app/telegram/outbound-queue/rate-limit/rate-limit.errors";
 
 const limitNumber = 10;
 const limitInterval = 1000;

@@ -1,10 +1,10 @@
 import fs from "fs";
 import fsPromises from "fs/promises";
 import * as dotenv from "dotenv";
-import type { RawConfig } from "app/bootstrap/config/config-container.types";
+import type { RawConfig } from "app/bootstrap/config/container/config-container.types";
 import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
 import type { WatchableConfigStorage } from "app/bootstrap/config/storage/watchable-config-storage";
-import { ConfigFileUnreadable } from "app/bootstrap/config/storage/config-file-storage.errors";
+import { ConfigFileUnreadable } from "app/bootstrap/config/storage/file/config-file-storage.errors";
 
 // Файл под другим источником: заданное в базовом источнике перекрывает файл, поэтому поменять на
 // ходу можно то, чего в нём нет (пустая переменная — это «нет»). Базовый источник приходит

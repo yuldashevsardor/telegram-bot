@@ -7,9 +7,9 @@ import { User } from "app/telegram/user/user";
 import type { UserRepository } from "app/telegram/user/user.repository";
 import type { UserService } from "app/telegram/user/user.service";
 import type { CreateUserDto, EditUserDto } from "app/telegram/user/user.types";
-import type { Context } from "app/telegram/bot.types";
+import type { Context } from "app/telegram/bot/bot.types";
 import { FillUserToContextMiddleware } from "app/telegram/middleware/fill-user-to-context.middleware";
-import { UpdateWithoutFrom } from "app/telegram/bot.errors";
+import { UpdateWithoutFrom } from "app/telegram/bot/bot.errors";
 
 const FROM: TelegramUser = { id: 42, is_bot: false, first_name: "Sardor" };
 const FULL_FROM: TelegramUser = { ...FROM, last_name: "Lastname", username: "username" };

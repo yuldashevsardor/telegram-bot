@@ -1,6 +1,6 @@
 import type { Composer } from "grammy";
 import { injectable } from "inversify";
-import type { Context } from "app/telegram/bot.types";
+import type { Context } from "app/telegram/bot/bot.types";
 
 @injectable()
 export abstract class Command {

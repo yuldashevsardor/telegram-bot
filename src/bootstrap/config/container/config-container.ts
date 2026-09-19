@@ -6,11 +6,11 @@ import type {
     Paths,
     Unsubscribe,
     ValueByPath,
-} from "app/bootstrap/config/config-container.types";
+} from "app/bootstrap/config/container/config-container.types";
 import type { ConfigBuilder } from "app/bootstrap/config/builder/config-builder";
 import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
 import { isWatchableConfigStorage } from "app/bootstrap/config/storage/config-storage.helper";
-import { ConfigContainerIsNotInitialized } from "app/bootstrap/config/config-container.errors";
+import { ConfigContainerIsNotInitialized } from "app/bootstrap/config/container/config-container.errors";
 
 // Одно состояние на весь жизненный цикл, а не флаги: их набор допускает сочетания, которых не
 // бывает («идёт пересборка, но наблюдение уже снято»), и каждая проверка перечисляла бы их сама.

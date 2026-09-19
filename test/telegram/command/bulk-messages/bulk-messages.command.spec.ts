@@ -3,9 +3,9 @@ import path from "path";
 import { expect } from "chai";
 import { Api, Composer, Context as GrammyContext } from "grammy";
 import type { Update, UserFromGetMe } from "@grammyjs/types";
-import type { Context } from "app/telegram/bot.types";
+import type { Context } from "app/telegram/bot/bot.types";
 import type { Logger } from "app/platform/logger/logger";
-import type { Bot } from "app/telegram/bot";
+import type { Bot } from "app/telegram/bot/bot";
 import type { Task } from "app/telegram/outbound-queue/task";
 import { Priority } from "app/telegram/outbound-queue/task";
 import type { TaskQueue } from "app/telegram/outbound-queue/task-queue";
@@ -15,8 +15,8 @@ import { Tokens } from "app/shared/tokens";
 import { FileHelper } from "app/shared/fs/file-helper";
 import { InvalidPath } from "app/shared/fs/file-helper.errors";
 import { StringHelper } from "app/shared/string/string-helper";
-import { createFluent } from "app/telegram/locale";
-import { DEFAULT_LOCALE } from "app/telegram/locale.types";
+import { createFluent } from "app/telegram/locale/locale";
+import { DEFAULT_LOCALE } from "app/telegram/locale/locale.types";
 
 type Pushed = { task: Task; priority: Priority };
 

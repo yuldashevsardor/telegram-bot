@@ -4,8 +4,8 @@ import { expect } from "chai";
 import type { NextFunction, RawApi, StorageAdapter, Transformer } from "grammy";
 import { BotError } from "grammy";
 import type { Chat, Update, UserFromGetMe } from "@grammyjs/types";
-import { Bot } from "app/telegram/bot";
-import type { BotSettings, Context, Conversation } from "app/telegram/bot.types";
+import { Bot } from "app/telegram/bot/bot";
+import type { BotSettings, Context, Conversation } from "app/telegram/bot/bot.types";
 import type { Logger } from "app/platform/logger/logger";
 import type { UnknownObject } from "app/shared/types";
 import { InvalidConfigError, RuntimeError } from "app/shared/errors";
@@ -15,8 +15,8 @@ import { Middleware } from "app/telegram/middleware/middleware";
 import { ConversationHandler } from "app/telegram/conversation/conversation-handler";
 import { HasSessionKeyFilter } from "app/telegram/filter/has-session-key.filter";
 import { IsPrivateChatFilter } from "app/telegram/filter/is-private-chat.filter";
-import { createFluent } from "app/telegram/locale";
-import { DEFAULT_LOCALE, LOCALES } from "app/telegram/locale.types";
+import { createFluent } from "app/telegram/locale/locale";
+import { DEFAULT_LOCALE, LOCALES } from "app/telegram/locale/locale.types";
 
 type LogRecord = { level: keyof Logger; message: string; payload: UnknownObject | undefined };
 

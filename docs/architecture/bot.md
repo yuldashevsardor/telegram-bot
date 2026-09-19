@@ -1,6 +1,6 @@
 # Bot
 
-`Bot` (`telegram/bot.ts`) оборачивает `grammy.Bot<Context>` и знает только
+`Bot` (`telegram/bot/bot.ts`) оборачивает `grammy.Bot<Context>` и знает только
 Telegram-слой. `Context` (`bot.types.ts`) — контекст grammY с флейворами сессии,
 разговоров и Fluent плюс `ctx.getUser()`; `FluentFlavor` (`locale.types.ts`) — свой,
 вместо флейвора плагина ([`i18n.md`](./i18n.md)).
