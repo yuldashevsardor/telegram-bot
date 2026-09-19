@@ -1,4 +1,4 @@
-import { globSync } from "node:fs";
+import { existsSync, globSync } from "node:fs";
 
 // Мутационное тестирование, запуск — make mutation. Почему настроено так и как разбирать
 // выживших мутантов — docs/architecture/testing.md, «Мутационное тестирование».
@@ -20,6 +20,19 @@ const DATABASE_ONLY_SOURCES = [
     "src/telegram/session/pgsql-storage.ts",
     "src/telegram/user/pgsql-repository/pgsql-user-repository.ts",
 ];
+
+// Исключение по пути, которого нет, ни с чем не совпадает: переехавший или переименованный файл
+// мутировался бы без своих спек, и его выжившие красили бы прогон так, будто тесты слабые. Глоб
+// по имени файла пережил бы переезд, но не переименование. Спекам из DATABASE_SPECS такая
+// проверка не нужна: не вписанная спека роняет прогон сама.
+for (const file of DATABASE_ONLY_SOURCES) {
+    if (!existsSync(file)) {
+        console.error(
+            `make mutation: файла ${file} из DATABASE_ONLY_SOURCES нет — впиши в stryker.config.mjs его новый путь`,
+        );
+        process.exit(1);
+    }
+}
 
 // Область make mutation files="…": глобы через пробел или перенос строки, как у make lint.
 // Запятая не разделитель: она часть глоба src/{shared,telegram}/**. Приходит переменной, а не
