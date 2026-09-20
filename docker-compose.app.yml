@@ -49,7 +49,8 @@ services:
             # остаётся внутри и пропадает вместе с ним. Каталог создают make coverage
             # и make check.
             - ./coverage:/app/coverage
-            # То же для HTML-отчёта Stryker (reports/mutation). Каталог создаёт make mutation.
+            # То же для отчётов Stryker и записи прогона (reports/mutation). Каталог создаёт
+            # make mutation.
             - ./reports:/app/reports
             - app-tmp:/app/tmp
         networks:

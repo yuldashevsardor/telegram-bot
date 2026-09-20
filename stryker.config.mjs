@@ -99,7 +99,9 @@ export default {
     // выживших, а на области из двадцати мутантов — ни одного. 100 значит «ни одного выжившего»
     // на области любой величины.
     thresholds: { break: 100 },
-    reporters: ["clear-text", "progress", "html"],
+    // json — источник записи прогона, которую пишет обёртка make mutation (test/mutation-record.ts):
+    // мутированные файлы, статусы и мутанты она берёт из него, а не из вывода clear-text.
+    reporters: ["clear-text", "progress", "html", "json"],
     // Иначе clear-text печатает под таблицей все пятьсот с лишним тестов прогона.
     clearTextReporter: { reportTests: false },
     // Песочница копирует проект целиком; тома с временными файлами и отчётами ей не нужны.
