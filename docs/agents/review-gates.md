@@ -107,7 +107,7 @@
 которому запись примеряют: у ревьюера head PR, у автора свой `HEAD` перед пушем.
 
 ```bash
-git cat-file -e <head записи>^{commit} && git diff --name-only <head записи> <коммит>
+git cat-file -e "<head записи>^{commit}" && git diff --name-only <head записи> <коммит>
 ```
 
 После rebase head записи уже не предок нового коммита, и диф от merge-base добавил бы к
