@@ -34,7 +34,6 @@ export class ConfigContainer<Values> {
     private readonly changeListeners = new Map<string, Set<ConfigChangeListener>>();
     private readonly errorListeners = new Set<ConfigErrorListener>();
 
-    // Stryker disable next-line ObjectLiteral,StringLiteral: эквивалентны — состояние сравнивается только с "watching" и "reloading", поэтому любое третье значение и есть «не наблюдаем»
     private state: State = { name: "idle" };
 
     public constructor(private readonly storage: ConfigStorage, private readonly builder: ConfigBuilder<Values>) {}
@@ -59,7 +58,6 @@ export class ConfigContainer<Values> {
     // флага успела бы подменить значения под тем, кто их читает следом (`Application.terminate()`
     // берёт срок остановки строкой ниже).
     public unwatch(): void {
-        // Stryker disable next-line ObjectLiteral,StringLiteral: эквивалентны по той же причине, что и начальное состояние выше
         this.state = { name: "idle" };
 
         if (isWatchableConfigStorage(this.storage)) {

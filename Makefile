@@ -132,9 +132,20 @@ format: ## Переформатировать prettier: make format [files="src/
 # Число путей считается не конвейером `git status | wc -l`: код выхода у конвейера — это код wc, и
 # отказ git дал бы 0, то есть «дерево чистое» там, где его не смотрели. Отсюда отдельная
 # подстановка со своим кодом выхода и unknown, который обёртка отличает от числа.
+#
+# Прогон идёт минутами, а Mac без действий пользователя уходит в сон по простою: прогон встаёт
+# вместе с машиной, а после пробуждения часы уже ушли вперёд — срок мутанта у Stryker и опросы
+# со своим сроком в спеках срабатывают на исправных мутантах, и статус врёт так же, как под
+# нагрузкой (docs/architecture/testing.md, «Таймауты и ошибки»). Поэтому прогон идёт под
+# caffeinate. Он уходит в фон, а не встаёт префиксом: $(DC_APP_RUN) — составная команда, и
+# префикс достался бы только её первой части. `-w $$` привязывает запрет к шеллу рецепта, и
+# снимается тот сам при любом исходе — после красного порога, ошибки и Ctrl-C. Кода выхода цели
+# фоновая задача не меняет: его отдаёт последняя команда строки. Сон по закрытой крышке
+# `caffeinate -i` не отменяет. На Linux caffeinate нет — там проверка оставляет цель как есть.
 mutation: ## Мутационное тестирование, отчёт и запись прогона в ./reports: make mutation [files="src/shared/**"]
 	@mkdir -p reports
-	tree=$$(git status --porcelain) && dirty=$$(printf '%s' "$$tree" | awk 'END { print NR }') || dirty=unknown; \
+	{ command -v caffeinate >/dev/null && caffeinate -i -w $$$$; } & \
+		tree=$$(git status --porcelain) && dirty=$$(printf '%s' "$$tree" | awk 'END { print NR }') || dirty=unknown; \
 		$(DC_APP_RUN) env MUTATION_HEAD="$$(git rev-parse HEAD)" MUTATION_DIRTY="$$dirty" \
 		TSX_TSCONFIG_PATH=./tsconfig.check.json $(if $(FILES),MUTATE='$(FILES)') \
 		node --require tsx/cjs test/mutation-record.ts
