@@ -53,12 +53,16 @@ function duration(run: Run): string {
     return seconds < 60 ? `${seconds} с` : `${Math.floor(seconds / 60)} мин ${seconds % 60} с`;
 }
 
-// Замена бывает многострочной и сама содержит обратные кавычки (мутант шаблонной строки).
+// Замена бывает многострочной и сама содержит обратные кавычки (мутант шаблонной строки). Разметка
+// требует обрамления длиннее самой длинной цепочки кавычек внутри, иначе строка выжившего с ``
+// закрывает код раньше времени и мутатор с местом уезжают в прозу.
 function inline(text: string): string {
     const line = text.replace(/\s+/g, " ").trim();
     const short = line.length > 80 ? `${line.slice(0, 80)}…` : line;
+    const longest = [...short.matchAll(/`+/g)].reduce((max, [run]) => Math.max(max, run.length), 0);
+    const fence = "`".repeat(longest + 1);
 
-    return short.includes("`") ? `\`\` ${short} \`\`` : `\`${short}\``;
+    return longest === 0 ? `${fence}${short}${fence}` : `${fence} ${short} ${fence}`;
 }
 
 function record(run: Run): string {
@@ -129,7 +133,10 @@ function record(run: Run): string {
 
     for (const [index, line] of undetected.entries()) {
         if (length + line.length + 1 > RECORD_LIMIT) {
-            lines.push(`- …и ещё ${undetected.length - index}, полный список — в \`reports/mutation/mutation.html\``);
+            lines.push(
+                `- …и ещё ${undetected.length - index}: в запись не поместились, полный список — в ` +
+                    `\`reports/mutation/mutation.html\` на машине прогона`,
+            );
             break;
         }
 
@@ -165,8 +172,8 @@ function finish(exitCode: number): void {
         process.stderr.write(`\nЗапись прогона не записана: ${(error as Error).stack ?? String(error)}\n`);
     }
 
-    // Не process.exit: в пайпе (make mutation | tee …) вывод уходит асинхронно и оборвался бы
-    // вместе с процессом. Своих незакрытых дескрипторов у обёртки нет, она ждала один процесс.
+    // Не process.exit: вывод в пайп уходит асинхронно и оборвался бы вместе с процессом. Своих
+    // незакрытых дескрипторов у обёртки нет, она ждала один процесс.
     process.exitCode = exitCode;
 }
 
@@ -182,4 +189,5 @@ child.on("error", (error) => {
     finish(1);
 });
 
+// Код выхода npm, а не Stryker: умер по сигналу сам Stryker — npm отдаёт обычный ненулевой код.
 child.on("close", (code, signal) => finish(code ?? 128 + (signal === null ? 0 : constants.signals[signal])));
