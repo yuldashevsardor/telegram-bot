@@ -180,7 +180,6 @@ export class Application {
         // Отказ настройки уходит и отсюда: gracefulStop() и bootstrap() в app.ts оба зовут
         // fail() с одной ошибкой, первый вызов завершает процесс синхронно, и critical
         // остаётся один. Проглоти его остановка, код выхода решала бы гонка exit(0) с exit(1).
-        // Stryker disable next-line ConditionalExpression: `true` — у других состояний промиса нет, а await undefined только откладывает остановку на микрозадачу
         if (from.name === "settingUp") {
             await from.done;
         }
