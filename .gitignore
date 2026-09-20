@@ -109,6 +109,10 @@ dist
 # TernJS port FileHelper
 .tern-port
 
+# Finder заводит .DS_Store в каждом открытом каталоге, а неотслеживаемый файл даёт записи
+# прогона clean=no (docs/architecture/testing.md, «Запись прогона»).
+.DS_Store
+
 /.idea
 
 # Build files
