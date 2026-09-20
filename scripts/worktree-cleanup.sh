@@ -55,11 +55,21 @@ git worktree remove "$root"
 git branch -d "$branch"
 
 # Ветки на origin может уже не быть: GitHub умеет удалять её сам при влитии PR.
-if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
-    git push origin --delete "$branch"
+origin_left=""
+if ! git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+    where="локально; на origin её уже не было"
+# Отказ push стоит условием, а не телом if: в теле его поймал бы set -e и оборвал скрипт
+# после необратимых шагов. Отказывает push по причинам, к состоянию дерева не относящимся:
+# сеть, права, удаление ветки кем-то между ls-remote и push. Ронять цель ими нечем — дерево
+# и локальная ветка уже удалены, а падение съело бы итоговую строку, подтягивание main и
+# подсказку про cd, притом что каталог сессии к этому моменту уже не существует.
+elif git push origin --delete "$branch"; then
     where="локально и на origin"
 else
-    where="локально; на origin её уже не было"
+    where="локально; на origin осталась"
+    origin_left=1
+    printf 'ветку %s на origin удалить не удалось, причина выше.\nУдалите её сами: git push origin --delete %s\n' \
+        "$branch" "$branch" >&2
 fi
 
 printf 'убрано: дерево %s, ветка %s %s\n' "$root" "$branch" "$where"
@@ -96,3 +106,8 @@ else
 fi
 
 printf 'текущий каталог сессии удалён — перейдите в основное дерево: cd %s\n' "$main"
+
+# Оставшаяся ветка — единственный остаток уборки, который доделывают руками, а вывод
+# дочитывают не всегда. Ненулевой код отличает этот исход от полной уборки и виден тому,
+# кто зовёт цель из скрипта или скимит её вывод.
+[ -z "$origin_left" ] || exit 1
