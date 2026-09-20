@@ -129,10 +129,15 @@ format: ## Переформатировать prettier: make format [files="src/
 #
 # Stryker запускает обёртка test/mutation-record.ts: она пишет запись прогона и выходит с кодом
 # Stryker. Head и число изменённых путей для записи считает хост: .git в контейнер не смонтирован.
+# Число путей считается не конвейером `git status | wc -l`: код выхода у конвейера — это код wc, и
+# упавший git (чужой .git/index.lock) дал бы 0, то есть «дерево чистое» там, где его не смотрели.
+# Отсюда отдельная подстановка со своим кодом выхода и unknown, который обёртка отличает от числа.
 mutation: ## Мутационное тестирование, отчёт и запись прогона в ./reports: make mutation [files="src/shared/**"]
 	@mkdir -p reports
-	$(DC_APP_RUN) env MUTATION_HEAD="$$(git rev-parse HEAD)" MUTATION_DIRTY="$$(git status --porcelain | wc -l | tr -d ' ')" \
-		$(if $(FILES),MUTATE='$(FILES)') node --require tsx/cjs test/mutation-record.ts
+	tree=$$(git status --porcelain) && dirty=$$(printf '%s' "$$tree" | awk 'END { print NR }') || dirty=unknown; \
+		$(DC_APP_RUN) env MUTATION_HEAD="$$(git rev-parse HEAD)" MUTATION_DIRTY="$$dirty" \
+		TSX_TSCONFIG_PATH=./tsconfig.check.json $(if $(FILES),MUTATE='$(FILES)') \
+		node --require tsx/cjs test/mutation-record.ts
 
 # Быстрый прогон перед PR одним выводом: типы, eslint, prettier, тесты с порогом покрытия.
 # Ревью проверяет то же, но гоняет свои гейты по одному и добавляет к ним rebuild, build и

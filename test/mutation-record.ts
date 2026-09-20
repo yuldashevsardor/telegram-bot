@@ -7,6 +7,7 @@ import { constants } from "node:os";
 
 // Путь по умолчанию у репортёра json из stryker.config.mjs.
 const REPORT_FILE = "reports/mutation/mutation.json";
+const HTML_FILE = "reports/mutation/mutation.html";
 const RECORD_FILE = "reports/mutation/record.md";
 // Запись уходит в PR комментарием, а он вмещает 65 536 символов; запас — под подпись публикующего.
 const RECORD_LIMIT = 60_000;
@@ -62,7 +63,10 @@ function inline(text: string): string {
 
 function record(run: Run): string {
     const head = process.env["MUTATION_HEAD"] ?? "";
-    const dirty = Number(process.env["MUTATION_DIRTY"] ?? Number.NaN);
+    // Число путей или что угодно ещё: рецепт цели пишет сюда unknown, когда git не ответил, а
+    // Number("") — это 0, то есть «чисто» на дереве, которого никто не смотрел.
+    const counted = process.env["MUTATION_DIRTY"] ?? "";
+    const dirty = /^\d+$/.test(counted) ? Number(counted) : Number.NaN;
     const area = process.env["MUTATE"] ?? "";
     const report = readReport();
     const clean = head === "" || Number.isNaN(dirty) ? "unknown" : dirty === 0 ? "yes" : "no";
@@ -136,16 +140,21 @@ function record(run: Run): string {
     return lines.join("\n") + "\n";
 }
 
-// Старые файлы убираются до прогона: оборванный прогон своих не оставит, и чужие выдали бы себя за
-// его результат.
+// Старые файлы убираются до прогона: оборванный прогон своих не оставит, и старые выдали бы себя
+// за его результат — и запись, и отчёты, на которые она ссылается.
 rmSync(REPORT_FILE, { force: true });
+rmSync(HTML_FILE, { force: true });
 rmSync(RECORD_FILE, { force: true });
 
 const startedAt = new Date();
-const child = spawn("npm", ["run", "mutation"], { stdio: "inherit" });
+let finished = false;
 
-child.on("close", (code, signal) => {
-    const exitCode = code ?? 128 + (signal === null ? 0 : constants.signals[signal]);
+function finish(exitCode: number): void {
+    if (finished) {
+        return;
+    }
+
+    finished = true;
 
     // Сбой записи не подменяет исход прогона: по коду выхода гейт ревью решает ok или fail.
     try {
@@ -156,5 +165,21 @@ child.on("close", (code, signal) => {
         process.stderr.write(`\nЗапись прогона не записана: ${(error as Error).stack ?? String(error)}\n`);
     }
 
-    process.exit(exitCode);
+    // Не process.exit: в пайпе (make mutation | tee …) вывод уходит асинхронно и оборвался бы
+    // вместе с процессом. Своих незакрытых дескрипторов у обёртки нет, она ждала один процесс.
+    process.exitCode = exitCode;
+}
+
+// spawn, а не ProcessHelper из app/shared/process: тот копит вывод в памяти и считает ненулевой код
+// отказом, а здесь нужен живой вывод Stryker на 15 минут и его код выхода как штатный исход.
+// Инвариант про внешние процессы (docs/architecture/invariants.md) соблюдён: аргументы массивом,
+// шелла в цепочке нет.
+const child = spawn("npm", ["run", "mutation"], { stdio: "inherit" });
+
+// npm не запустился — close после error приходит не всегда, а старая запись уже удалена.
+child.on("error", (error) => {
+    process.stderr.write(`\nnpm run mutation не запустился: ${error.message}\n`);
+    finish(1);
 });
+
+child.on("close", (code, signal) => finish(code ?? 128 + (signal === null ? 0 : constants.signals[signal])));
