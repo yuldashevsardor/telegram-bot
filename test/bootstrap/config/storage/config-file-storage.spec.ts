@@ -8,8 +8,9 @@ import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage"
 import type { RawConfig } from "app/bootstrap/config/container/config-container.types";
 
 // Интервал опроса в спеке — десятки миллисекунд: настоящий (2000) растянул бы прогон на минуты, а
-// единицы дробили бы на опросы саму запись файла, и под нагрузкой (Stryker гоняет спеки в
-// нескольких воркерах) счёт сигналов переставал бы совпадать с числом правок.
+// на единицах до единиц ужался бы запас `sleep(INTERVAL * 4)`, которым спеки ждут первый опрос:
+// под нагрузкой (Stryker гоняет спеки в нескольких воркерах) правка обогнала бы его, ушла бы в
+// базовое состояние наблюдателя и сигнала не дала.
 const INTERVAL = 25;
 
 function base(raw: RawConfig): ConfigStorage {
@@ -59,6 +60,35 @@ describe("ConfigFileStorage", () => {
         storages.push(created);
 
         return created;
+    }
+
+    // Правка под наблюдением идёт одной записью на месте, без обрезки: fs.writeFile сначала
+    // обрезает файл (O_TRUNC) и только потом пишет содержимое, и опрос, попавший между обрезкой и
+    // записью, видит два изменения вместо одного — одна правка дала бы два сигнала. Содержимое не
+    // короче прежнего: запись на месте остаток файла не убирает, и хвост прежнего значения
+    // остался бы в нём.
+    async function change(contents: string): Promise<void> {
+        const handle = await fs.open(filePath, "r+");
+
+        try {
+            // Запись целиком за один раз, иначе счёт сигналов снова зависел бы от того, попал ли
+            // опрос между её частями.
+            const written = await handle.write(contents, 0);
+
+            expect(written.bytesWritten).to.equal(Buffer.byteLength(contents));
+        } finally {
+            await handle.close();
+        }
+    }
+
+    // Подмена файла целиком — готовое содержимое переименованием поверх пути. Так же файл и
+    // появляется: fs.writeFile создал бы его пустым и наполнил вторым шагом, а это для
+    // наблюдателя снова два изменения.
+    async function replace(contents: string): Promise<void> {
+        const temporary = `${filePath}.tmp`;
+
+        await fs.writeFile(temporary, contents);
+        await fs.rename(temporary, filePath);
     }
 
     // Файл лежит под базовым источником: заданное там перекрывает его, а сам файл добавляет
@@ -129,11 +159,11 @@ describe("ConfigFileStorage", () => {
         await sleep(INTERVAL * 4);
         expect(signals).to.equal(0);
 
-        await fs.writeFile(filePath, "A=1\n");
+        await replace("A=1\n");
         await waitFor(() => signals === 1);
 
         // Та же длина: изменение видно по времени правки, а не по размеру.
-        await fs.writeFile(filePath, "A=2\n");
+        await change("A=2\n");
         await waitFor(() => signals === 2);
 
         expect((await watchable.load())["A"]).to.equal("2");
@@ -160,13 +190,10 @@ describe("ConfigFileStorage", () => {
         // опрос, попала бы в это состояние и изменением не считалась бы.
         await sleep(INTERVAL * 4);
 
-        const temporary = `${filePath}.tmp`;
-
-        await fs.writeFile(temporary, "A=2\n");
-        await fs.rename(temporary, filePath);
+        await replace("A=2\n");
         await waitFor(() => signals === 1);
 
-        await fs.writeFile(filePath, "A=3\n");
+        await change("A=3\n");
         await waitFor(() => signals === 2);
 
         expect((await watchable.load())["A"]).to.equal("3");
@@ -193,7 +220,7 @@ describe("ConfigFileStorage", () => {
             signals += 1;
         });
 
-        await fs.writeFile(filePath, "A=1234567890\n");
+        await change("A=1234567890\n");
         await fs.utimes(filePath, time, time);
         await waitFor(() => signals === 1, 4000);
 
@@ -213,7 +240,7 @@ describe("ConfigFileStorage", () => {
         });
 
         await sleep(INTERVAL * 4);
-        await fs.writeFile(filePath, "A=2\n");
+        await change("A=2\n");
         await waitFor(() => signals === 1);
 
         watchable.unwatch();
@@ -222,7 +249,7 @@ describe("ConfigFileStorage", () => {
         });
 
         await sleep(INTERVAL * 4);
-        await fs.writeFile(filePath, "A=3\n");
+        await change("A=3\n");
         await waitFor(() => signals === 2);
     });
 
@@ -239,7 +266,7 @@ describe("ConfigFileStorage", () => {
         await sleep(INTERVAL * 4);
         watchable.unwatch();
 
-        await fs.writeFile(filePath, "A=2\n");
+        await change("A=2\n");
         await sleep(INTERVAL * 6);
 
         expect(signals).to.equal(0);
@@ -261,7 +288,7 @@ describe("ConfigFileStorage", () => {
         });
 
         await sleep(INTERVAL * 4);
-        await fs.writeFile(filePath, "A=2\n");
+        await change("A=2\n");
         await waitFor(() => signals === 1);
         await sleep(INTERVAL * 4);
 
@@ -286,7 +313,7 @@ describe("ConfigFileStorage", () => {
 
         expect(() => idle.unwatch()).to.not.throw();
 
-        await fs.writeFile(filePath, "A=2\n");
+        await change("A=2\n");
         await waitFor(() => signals === 1);
     });
 });
