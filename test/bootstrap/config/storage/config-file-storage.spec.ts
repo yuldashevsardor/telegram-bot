@@ -27,15 +27,15 @@ function sleep(ms: number): Promise<void> {
 // делает строгое равенство ложным навсегда, и ожидание кончается тем же дедлайном, что и
 // недостача. Сообщение про несостоявшийся сигнал обвиняло бы тогда наблюдателя в пропаже, хотя
 // сигналов было больше, чем ждали, и искать пошли бы не туда. Отсюда сравнение чисел: и текст, и
-// напечатанные рядом фактическое с ожидаемым верны в обе стороны. Перебор ждать дедлайна не
-// заставляет — счётчик его уже не отыграет, и диагноз готов сразу.
+// напечатанные рядом фактическое с ожидаемым верны в обе стороны. Про время текст молчит: перебор
+// дедлайна не ждёт — счётчик его уже не отыграет, и диагноз готов сразу.
 async function waitForSignals(signals: () => number, expected: number, timeout = 1000): Promise<void> {
     const deadline = Date.now() + timeout;
     let actual = signals();
 
     while (actual !== expected) {
         if (actual > expected || Date.now() > deadline) {
-            expect(actual).to.equal(expected, "the storage did not settle on the expected number of changes in time");
+            expect(actual).to.equal(expected, "the storage did not signal the expected number of changes");
         }
 
         await sleep(1);
