@@ -6,24 +6,25 @@ import type { PartitionKey, Task } from "app/telegram/outbound-queue/task";
 import { Priority } from "app/telegram/outbound-queue/task";
 import { TaskQueue } from "app/telegram/outbound-queue/task-queue";
 
-// Лимиты берутся маленькими, чтобы прогон не упирался в остывание: общий слот освобождается за
-// 1 мс, слот ключа — за 10 мс.
+// The limits are taken small so that the run does not stall on cooldowns: the common slot is
+// released in 1 ms, the slot of a key in 10 ms.
 const commonLimit: Limit = { number: 1000, interval: 1000 };
 const commonCooldown = commonLimit.interval / commonLimit.number;
 const keyLimit: Limit = { number: 100, interval: 1000 };
 const keyCooldown = keyLimit.interval / keyLimit.number;
 
-// Лимит, который за время теста не остывает вовсе: ни одна задержка в прогоне не дотягивает до его
-// конца. Отданный ключу, он держит только этот ключ — общий лимит за ту же паузу освобождается.
+// A limit that does not cool down at all during a test: no delay in the run reaches its end. Given to
+// a key, it holds that key alone — the common limit is released within the same pause.
 const frozenLimit: Limit = { number: 1, interval: 60 * 1000 };
 
-// Интервалы журнала TaskQueue ничем не гасятся и живут до конца прогона, поэтому по умолчанию
-// период длиннее любого прогона, а короткий берут только тесты самого журнала.
+// Nothing shuts down the log intervals of TaskQueue and they live until the end of the run, so the
+// default period is longer than any run, and only the tests of the log itself take a short one.
 const silentLogInterval = 60 * 1000;
 const logInterval = 10;
 
-// Срок ожидания короче таймаута теста: невыполнимое условие иначе крутило бы цикл опроса и после
-// упавшего теста, и mocha без --exit не завершился бы.
+// The waiting deadline is shorter than the test timeout: otherwise a condition that can never be met
+// would keep the polling loop spinning after the test has failed, and mocha without --exit would not
+// finish.
 const waitLimit = 1000;
 
 describe("TaskQueue", function () {
@@ -50,9 +51,9 @@ describe("TaskQueue", function () {
     });
 
     it("puts a key that comes back with a new task behind the keys already waiting", async function () {
-        // Опустевшая корзина должна снять ключ с индекса приоритета: иначе add() в push() оставит его на
-        // старом месте, впереди 222. Пауза нужна, чтобы оба ключа остыли: пока лимит 111 занят, 222 вышел
-        // бы первым и при нарушении.
+        // An emptied bucket has to strip the key from the priority index: otherwise add() in push() leaves
+        // it in its old place, ahead of 222. The pause is needed for both keys to cool down: while the limit
+        // of 111 is busy, 222 would come out first even if the rule were broken.
         const queue = build();
         queue.push(task(111, "a1"), Priority.MEDIUM);
 
@@ -96,7 +97,8 @@ describe("TaskQueue", function () {
         queue.push(task(111, "a2"), Priority.MEDIUM);
 
         expect(queue.pull()).to.be.an("object");
-        // Без паузы второй pull() вернул бы null из-за занятого общего лимита, а не лимита ключа.
+        // Without the pause the second pull() would return null because of the busy common limit, not the
+        // limit of the key.
         await delay(commonCooldown + 5);
 
         expect(queue.pull()).to.be.null;
@@ -138,9 +140,9 @@ describe("TaskQueue", function () {
     });
 
     it("forgets at most a hundred idle partitions per pull", async function () {
-        // Голову idleKeys держит ключ, который не остывает: пока он там, уборка упирается в него, и
-        // остывшие партиции копятся за ним сколько бы ни длилась выдача. Новая задача снимает его из
-        // idleKeys, и следующий pull() упирается уже в потолок.
+        // The head of idleKeys is held by a key that does not cool down: while it is there the cleanup
+        // stalls on it, and cooled down partitions pile up behind it however long the giving out lasts. A
+        // new task takes it out of idleKeys, and the next pull() stalls on the ceiling instead.
         const blocker = "blocker";
         const queue = build({ keyLimit: (key) => (key === blocker ? frozenLimit : keyLimit) });
         queue.push(task(blocker, "first"), Priority.MEDIUM);
@@ -208,10 +210,10 @@ describe("TaskQueue", function () {
         expect(logger.infos.filter(isBanLog)).to.be.empty;
 
         queue.ban(1);
-        // Тик журнала, вставший в очередь вместе с ожиданием, может сработать в ту же миллисекунду,
-        // что и ban(1), и честно застать паузу. Поэтому записи считаются с точки, где миллисекундная
-        // пауза гарантированно истекла. Журнал числа задач пишется раньше журнала паузы, так что вторая
-        // запись после этой точки значит, что проверка паузы за ней уже отработала.
+        // A log tick queued together with the wait may fire in the same millisecond as ban(1) and honestly
+        // catch the pause. So the records are counted from the point where a one-millisecond pause has
+        // certainly expired. The task count is logged before the pause, so a second record after that point
+        // means the pause check behind it has already run.
         await delay(5);
         const expired = logger.infos.length;
         await waitFor(() => logger.infos.length >= expired + 2);
@@ -264,7 +266,8 @@ function task(key: PartitionKey, name: string): Task {
     };
 }
 
-// Забирает из очереди всё, дожидаясь остывания лимитов, и возвращает задачи в порядке выдачи.
+// Takes everything out of the queue, waiting for the limits to cool down, and returns the tasks in the
+// order they were given out.
 async function drain(queue: TaskQueue): Promise<Task[]> {
     const tasks: Task[] = [];
     const deadline = Date.now() + waitLimit;

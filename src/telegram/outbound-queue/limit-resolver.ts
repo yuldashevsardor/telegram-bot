@@ -1,10 +1,10 @@
 import type { Limit } from "app/telegram/outbound-queue/rate-limit/rate-limit.types";
 import type { Task } from "app/telegram/outbound-queue/task";
 
-// Лимит принадлежит партиции, поэтому очередь спрашивает его один раз — когда заводит её по
-// первой задаче ключа. Правило, по которому лимит выбирается, принадлежит той стороне, что
-// очередь использует, и опереться может на что угодно из задачи, поэтому сюда едет вся задача,
-// а не только ключ.
+// The limit belongs to the partition, so the queue asks for it once — when it creates the
+// partition on the first task of the key. The rule that picks the limit belongs to the side using
+// the queue and may lean on anything in the task, so the whole task goes in here, not just the
+// key.
 export interface LimitResolver {
     resolve(task: Task): Limit;
 }
