@@ -35,6 +35,19 @@ async function waitFor(done: () => boolean, reason: string, timeout = 2000): Pro
     }
 }
 
+// Правка наблюдаемого файла идёт одним шагом — готовое содержимое переименовывается поверх пути.
+// fs.writeFile с флагом по умолчанию сначала обрезает файл (O_TRUNC) и только потом пишет
+// содержимое, поэтому опрос, попавший между обрезкой и записью, видит два изменения вместо одного,
+// и конфигурация пересобирается лишний раз — по пустому файлу. Так же файл и появляется:
+// наблюдение заводит create(), то есть до первой записи. Записи до create() под наблюдение не
+// попадают и идут обычным fs.writeFile.
+async function replace(target: string, contents: string): Promise<void> {
+    const temporary = `${target}.tmp`;
+
+    await fs.writeFile(temporary, contents);
+    await fs.rename(temporary, target);
+}
+
 // create() собирает конфиг из окружения процесса, поэтому спека меняет process.env и после
 // каждого теста возвращает его и сбрасывает контекст.
 describe("ApplicationContext", function () {
@@ -224,7 +237,7 @@ describe("ApplicationContext", function () {
             levels.push(newValue);
         });
 
-        await fs.writeFile(filePath, "LOGGER_LEVEL=error\n");
+        await replace(filePath, "LOGGER_LEVEL=error\n");
         // Срок короткий намеренно: с интервалом по умолчанию (2000 мс) правка за него не
         // доехала бы, то есть тест держит и сам интервал, а не только факт наблюдения.
         await waitFor(() => levels.length > 0, "the change of the file did not reach the config", 1500);
@@ -308,7 +321,7 @@ describe("ApplicationContext", function () {
             records.push({ message: message, payload: payload });
         };
 
-        await fs.writeFile(filePath, "NODE_ENV=prod\n");
+        await replace(filePath, "NODE_ENV=prod\n");
         await waitFor(() => records.length > 0, "the failed reload did not reach the log", 4000);
 
         expect(records[0]?.message).to.equal("Config reload failed, the previous values are kept.");
@@ -374,7 +387,7 @@ describe("ApplicationContext", function () {
         expect(cc.get("logger.level")).to.equal(Level.ERROR);
 
         // Интервал разобран как 100 мс, а не отброшен: правка доезжает задолго до умолчания.
-        await fs.writeFile(path.join(directory, ".runtime.env"), "LOGGER_LEVEL=warning\n");
+        await replace(path.join(directory, ".runtime.env"), "LOGGER_LEVEL=warning\n");
         await waitFor(() => cc.get("logger.level") === Level.WARNING, "the padded interval was not applied", 1500);
     });
 
@@ -398,7 +411,7 @@ describe("ApplicationContext", function () {
 
         const cc = ApplicationContext.getConfigContainer();
 
-        await fs.writeFile(filePath, "LOGGER_LEVEL=error\n");
+        await replace(filePath, "LOGGER_LEVEL=error\n");
         await waitFor(
             () => cc.get("logger.level") === Level.ERROR,
             "the change of the file did not reach the config within the default interval",
