@@ -107,7 +107,7 @@ describe("Runner", function () {
         );
 
         start(queue);
-        await waitFor(() => calls === 1);
+        await waitForCount(() => calls, 1, "calls");
 
         expect(queue.isEmpty()).to.be.true;
     });
@@ -153,7 +153,7 @@ describe("Runner", function () {
 
         start(queue);
 
-        await waitFor(() => secondCalls === 1);
+        await waitForCount(() => secondCalls, 1, "calls of the second task");
     });
 
     it("refuses to run twice", function () {
@@ -200,7 +200,7 @@ describe("Runner", function () {
         );
 
         start(queue, logger);
-        await waitFor(() => calls === 2);
+        await waitForCount(() => calls, 2, "calls");
 
         expect(queue.pushes.map((push) => push.priority)).to.deep.equal([Priority.HIGH, Priority.LOW]);
         expect(queue.pushes[1]?.task.retryCount).to.equal(1);
@@ -220,7 +220,7 @@ describe("Runner", function () {
         );
 
         start(queue, logger);
-        await waitFor(() => logger.countDropped() === 1);
+        await waitForCount(() => logger.countDropped(), 1, "dropped tasks");
 
         expect(calls).to.equal(settings.maxRetries + 1);
         expect(queue.pushes.map((push) => push.task.retryCount)).to.deep.equal([undefined, 1, 2]);
@@ -237,7 +237,7 @@ describe("Runner", function () {
         queue.push(failingTask(111, tooManyRequests({ retry_after: 7 })), Priority.MEDIUM);
 
         start(queue, logger, { ...settings, maxRetries: 0 });
-        await waitFor(() => logger.countDropped() === 1);
+        await waitForCount(() => logger.countDropped(), 1, "dropped tasks");
 
         expect(queue.bans).to.deep.equal([7 * 1000]);
     });
@@ -254,7 +254,7 @@ describe("Runner", function () {
         failures.forEach((failure, index) => queue.push(failingTask(index, failure), Priority.MEDIUM));
 
         start(queue, logger, { ...settings, maxRetries: 0 });
-        await waitFor(() => logger.countDropped() === failures.length);
+        await waitForCount(() => logger.countDropped(), failures.length, "dropped tasks");
 
         expect(queue.bans).to.deep.equal(failures.map(() => DEFAULT_RETRY_AFTER_SECONDS * 1000));
     });
@@ -266,7 +266,7 @@ describe("Runner", function () {
         failures.forEach((failure, index) => queue.push(failingTask(index, failure), Priority.MEDIUM));
 
         start(queue, logger, { ...settings, maxRetries: 0 });
-        await waitFor(() => logger.countDropped() === failures.length);
+        await waitForCount(() => logger.countDropped(), failures.length, "dropped tasks");
 
         expect(queue.bans).to.be.empty;
     });
@@ -287,6 +287,23 @@ function failingTask(key: PartitionKey, failure: unknown): Task {
 // Форма отказа Bot API, как её видит Runner: он смотрит только на поля, а не на класс ошибки.
 function tooManyRequests(parameters?: UnknownObject): UnknownObject {
     return parameters === undefined ? { error_code: 429 } : { error_code: 429, parameters: parameters };
+}
+
+// Ждёт число событий, а не предикат по нему: у монотонного счётчика строгое равенство ложно и при
+// переборе, поэтому предикат досидел бы дедлайн и назвал перебор недостачей. Разбор формы — у
+// waitForSignals в test/bootstrap/config/storage/config-file-storage.spec.ts.
+async function waitForCount(counter: () => number, expected: number, subject: string): Promise<void> {
+    const deadline = Date.now() + waitLimit;
+    let actual = counter();
+
+    while (actual !== expected) {
+        if (actual > expected || Date.now() > deadline) {
+            expect(actual).to.equal(expected, `unexpected number of ${subject}`);
+        }
+
+        await delay(1);
+        actual = counter();
+    }
 }
 
 async function waitFor(condition: () => boolean): Promise<void> {

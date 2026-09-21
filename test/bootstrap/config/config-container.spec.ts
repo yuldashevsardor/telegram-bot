@@ -139,6 +139,23 @@ async function signalled(storage: FakeWatchableStorage): Promise<void> {
     await sleep(0);
 }
 
+// Ждёт число чтений, а не предикат по нему: у монотонного счётчика строгое равенство ложно и при
+// переборе, поэтому предикат досидел бы дедлайн и назвал лишнюю пересборку пропавшей. Разбор
+// формы — у waitForSignals в test/bootstrap/config/storage/config-file-storage.spec.ts.
+async function waitForCount(counter: () => number, expected: number): Promise<void> {
+    const deadline = Date.now() + 1000;
+    let actual = counter();
+
+    while (actual !== expected) {
+        if (actual > expected || Date.now() > deadline) {
+            expect(actual).to.equal(expected, "unexpected number of reads from the storage");
+        }
+
+        await sleep(1);
+        actual = counter();
+    }
+}
+
 async function waitFor(done: () => boolean): Promise<void> {
     const deadline = Date.now() + 1000;
 
@@ -589,7 +606,7 @@ describe("ConfigContainer", () => {
             storage.signal();
 
             release();
-            await waitFor(() => storage.loads - loadsAfterInit === 2);
+            await waitForCount(() => storage.loads - loadsAfterInit, 2);
             await sleep(0);
 
             expect(storage.loads - loadsAfterInit).to.equal(2);
