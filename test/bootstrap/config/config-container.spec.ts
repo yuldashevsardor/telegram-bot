@@ -18,8 +18,9 @@ function storage(raw: RawConfig): ConfigStorage {
     return { load: async (): Promise<RawConfig> => raw };
 }
 
-// Билдер отдаёт то, что ему дали, без разбора: форма значений здесь расходится с объявленной
-// намеренно — именно такое расхождение get() и ловит, компилятор его не видит.
+// The builder returns what it was given, without parsing: the shape of the values here drifts from
+// the declared one on purpose — that is exactly the drift get() catches and the compiler does not
+// see.
 function returning(values: object): ConfigBuilder<Values> {
     return { build: (): Values => values as Values };
 }
@@ -31,8 +32,8 @@ async function container(values: object): Promise<ConfigContainer<Values>> {
     return cc;
 }
 
-// Источник со сменным снимком и наблюдением: сигнал подаётся вручную, чтобы пересборка не
-// зависела ни от файловой системы, ни от интервала опроса.
+// A source with a replaceable snapshot and with watching: the signal is given by hand so that a
+// rebuild depends neither on the file system nor on a polling interval.
 class FakeWatchableStorage implements WatchableConfigStorage {
     public raw: RawConfig = {};
     public loads = 0;
@@ -72,8 +73,8 @@ class FakeWatchableStorage implements WatchableConfigStorage {
         this.onChanged();
     }
 
-    // Сигнал в обход остановки: настоящий источник его не пришлёт, но колбэк наблюдателя мог
-    // встать в очередь задач ещё до stop() — на этот случай защищается сам контейнер.
+    // A signal that bypasses the stop: a real source will not send one, but the callback of the
+    // watcher could have been queued before unwatch() — the container guards against that itself.
     public signalIgnoringStop(): void {
         if (this.captured === null) {
             expect.fail("the storage was signalled while nobody has ever watched it");
@@ -82,8 +83,8 @@ class FakeWatchableStorage implements WatchableConfigStorage {
         this.captured();
     }
 
-    // Держит load() до вызова отданной функции: так спека успевает подать сигналы посреди идущей
-    // пересборки.
+    // Holds load() until the returned function is called: that way a spec manages to give signals in
+    // the middle of a running rebuild.
     public holdLoads(): () => void {
         let release = (): void => undefined;
 
@@ -98,7 +99,8 @@ class FakeWatchableStorage implements WatchableConfigStorage {
     }
 }
 
-// Собирает значения из снимка, как настоящий билдер: пересборка обязана увидеть смену снимка.
+// Assembles the values from the snapshot, like the real builder: a rebuild has to see the snapshot
+// change.
 const fromRaw: ConfigBuilder<Values> = {
     build: (raw): Values => ({
         tempDir: raw["TEMP_DIR"] ?? "/tmp",
@@ -132,18 +134,19 @@ function sleep(ms: number): Promise<void> {
 
 const waitLimit = 1000;
 
-// Пересборку по сигналу дождаться промисом нельзя: колбэк наблюдателя ничего не возвращает.
-// Поэтому спека ждёт прокрутки очереди задач — к сроку таймера пересборка на фейковом источнике
-// (его load() не уходит за пределы процесса) уже закончена вместе с рассылкой.
+// A rebuild on a signal cannot be awaited with a promise: the callback of the watcher returns
+// nothing. So a spec waits for the task queue to turn over — by the deadline of the timer a rebuild
+// on the fake source (its load() never leaves the process) is already finished, delivery and all.
 async function signalled(storage: FakeWatchableStorage): Promise<void> {
     storage.signal();
 
     await sleep(0);
 }
 
-// Ждёт число событий, а не предикат по нему: у монотонного счётчика строгое равенство ложно и при
-// переборе, поэтому предикат досидел бы дедлайн и назвал лишнюю пересборку пропавшей. Разбор
-// формы — у waitForSignals в test/bootstrap/config/storage/config-file-storage.spec.ts.
+// Waits for a number of events rather than a predicate over it: for a monotonic counter strict
+// equality is false on an overshoot too, so a predicate would sit out the deadline and call a
+// surplus rebuild a lost one. The shape is explained at waitForSignals in
+// test/bootstrap/config/storage/config-file-storage.spec.ts.
 async function waitForCount(counter: () => number, expected: number, subject: string): Promise<void> {
     const deadline = Date.now() + waitLimit;
     let actual = counter();
@@ -217,7 +220,8 @@ describe("ConfigContainer", () => {
             .that.deep.equals({ path: "limits.common" });
     });
 
-    // typeof null — тоже "object": без отдельной проверки на null обход упал бы TypeError.
+    // typeof null is "object" too: without a separate check for null the walk would fail with a
+    // TypeError.
     it("throws InvalidConfigError when an object on the path is null", async () => {
         const cc = await container({ limits: null });
 
@@ -228,24 +232,25 @@ describe("ConfigContainer", () => {
     });
 
     describe("init()", () => {
-        // Наблюдение заводит сама сборка: отдельный вызов можно забыть, и конфигурация молча
-        // осталась бы на значениях старта.
+        // Watching is started by the assembly itself: a separate call can be forgotten, and the
+        // configuration would silently stay on the values of the startup.
         it("starts watching a storage that reports changes", async () => {
             const { storage } = await watched();
 
             expect(storage.watchCalls).to.equal(1);
         });
 
-        // За process.env следить нечем, и это не отказ: контейнер с таким источником остаётся на
-        // значениях старта.
+        // There is nothing to watch in process.env, and that is not a failure: a container with such
+        // a source stays on the values of the startup.
         it("accepts a storage that cannot report changes", async () => {
             const cc = await container({ tempDir: "/tmp" });
 
             expect(cc.get("tempDir")).to.equal("/tmp");
         });
 
-        // Наблюдение — это пара методов: источник с одним из них контейнер завёл бы, а снять
-        // наблюдение потом не смог, и опрос пережил бы остановку приложения.
+        // Watching is a pair of methods: a source with only one of them would be started by the
+        // container, which then could not remove the watching, and the poll would outlive the
+        // shutdown of the application.
         it("does not watch a storage that has only half of the watching methods", async () => {
             let watches = 0;
             const halfWatchable = {
@@ -262,8 +267,9 @@ describe("ConfigContainer", () => {
             expect(watches).to.equal(0);
         });
 
-        // Другая половина пары: источник с одним unwatch() контейнер счёл бы наблюдаемым и позвал
-        // бы у него watch(), которого нет, — сборка упала бы с TypeError.
+        // The other half of the pair: a source with only unwatch() would be taken for watchable by
+        // the container, which would call the watch() it does not have — the assembly would fail with
+        // a TypeError.
         it("accepts a storage that has only the other half of the watching methods", async () => {
             const halfWatchable = {
                 load: async (): Promise<RawConfig> => ({}),
@@ -278,8 +284,9 @@ describe("ConfigContainer", () => {
     });
 
     describe("unwatch()", () => {
-        // Пересборка, начатая до остановки, значений уже не меняет: следом за stop() их читает
-        // тот, кто закрывает приложение (`Application.terminate()` берёт оттуда срок остановки).
+        // A rebuild started before the stop no longer changes the values: right after unwatch() they
+        // are read by whoever shuts the application down (`Application.terminate()` takes the shutdown
+        // deadline from there).
         it("cancels the rebuild that is already reading the source", async () => {
             const { cc, storage } = await watched({ TEMP_DIR: "/data" });
             let calls = 0;
@@ -301,9 +308,9 @@ describe("ConfigContainer", () => {
             expect(calls).to.equal(0);
         });
 
-        // Проход, заставший unwatch(), не возвращает контейнер к наблюдению: иначе поздний сигнал
-        // (колбэк наблюдателя мог встать в очередь до остановки) запустил бы пересборку уже
-        // закрытого приложения.
+        // A pass that ran into an unwatch() does not return the container to watching: otherwise a
+        // late signal (the callback of the watcher could have been queued before the stop) would start
+        // a rebuild for an application that is already closed.
         it("leaves the container unwatching when it happens in the middle of a rebuild", async () => {
             const { cc, storage } = await watched({ TEMP_DIR: "/data" });
             const release = storage.holdLoads();
@@ -321,9 +328,9 @@ describe("ConfigContainer", () => {
             expect(storage.loads).to.equal(loadsAfterRebuild);
         });
 
-        // Сигнал, пришедший за время пересборки, оставляет отметку о ещё одном проходе, и после
-        // остановки она уже никого не касается: второй проход читал бы снимок для закрывающегося
-        // приложения.
+        // A signal that arrived while a rebuild was running leaves a mark asking for one more pass,
+        // and after the stop that mark concerns nobody: the second pass would read the snapshot for
+        // an application that is shutting down.
         it("cancels the extra pass that a signal during the rebuild has asked for", async () => {
             const { cc, storage } = await watched({ TEMP_DIR: "/data" });
             const release = storage.holdLoads();
@@ -362,8 +369,9 @@ describe("ConfigContainer", () => {
             expect(storage.unwatchCalls).to.equal(1);
         });
 
-        // За process.env следить нечем, и снимать наблюдение с такого источника тоже нечего:
-        // остановка приложения зовёт unwatch() не глядя на то, наблюдаемый ли источник.
+        // There is nothing to watch in process.env, and nothing to unwatch on such a source either:
+        // the shutdown of the application calls unwatch() without looking at whether the source is
+        // watchable.
         it("does nothing with a storage that cannot report changes", async () => {
             const cc = await container({ tempDir: "/tmp" });
 
@@ -387,8 +395,8 @@ describe("ConfigContainer", () => {
             expect(cc.get("tempDir")).to.equal("/data/next");
         });
 
-        // Подписка на поддерево — на весь набор значений разом: слушателю лимитов важно, что
-        // изменилось хоть что-то внутри, а не какой именно лист.
+        // A subscription to a subtree covers the whole set of values at once: what matters to a
+        // listener of the limits is that something inside changed, not which leaf it was.
         it("calls the listener of a subtree when a value inside it changes", async () => {
             const { cc, storage } = await watched({ NUMBER: "1" });
             const calls: Array<[unknown, unknown]> = [];
@@ -403,8 +411,8 @@ describe("ConfigContainer", () => {
             expect(calls).to.deep.equal([[{ common: { number: 2, interval: 1000 } }, { common: { number: 1, interval: 1000 } }]]);
         });
 
-        // Один вызов на пересборку, а не по вызову на каждый изменившийся лист внутри: пути
-        // собираются в набор, поэтому путь поддерева встречается в нём один раз.
+        // One call per rebuild rather than a call for every changed leaf inside: the paths are
+        // collected into a set, so the path of a subtree occurs in it once.
         it("calls the listener of a subtree once when two values inside it change", async () => {
             const { cc, storage } = await watched({ NUMBER: "1", INTERVAL: "1000" });
             let calls = 0;
@@ -420,8 +428,8 @@ describe("ConfigContainer", () => {
             expect(cc.get("limits.common")).to.deep.equal({ number: 2, interval: 2000 });
         });
 
-        // Билдер собирает новые объекты на каждой сборке, поэтому сравнение поддеревьев по
-        // ссылке сообщало бы об изменении на каждой пересборке.
+        // The builder creates new objects on every assembly, so comparing subtrees by reference
+        // would report a change on every rebuild.
         it("keeps silent when the rebuilt values repeat the previous ones", async () => {
             const { cc, storage } = await watched({ TEMP_DIR: "/data" });
             let calls = 0;
@@ -453,8 +461,8 @@ describe("ConfigContainer", () => {
             expect(cc.get("limits.common.number")).to.equal(2);
         });
 
-        // Отписка последнего слушателя пути не закрывает путь: подписка на него обязана работать
-        // как первая.
+        // Unsubscribing the last listener of a path does not close the path: a subscription to it has
+        // to work like the first one.
         it("accepts a new listener on a path whose last listener has unsubscribed", async () => {
             const { cc, storage } = await watched({ TEMP_DIR: "/data" });
             const calls: string[] = [];
@@ -492,8 +500,9 @@ describe("ConfigContainer", () => {
             expect(calls).to.deep.equal(["second"]);
         });
 
-        // Необязательное поддерево, ставшее null, — изменение самого пути, а не его листьев:
-        // обходить null нечем, и слушателю отдаётся то, что теперь лежит по его пути.
+        // An optional subtree that became null is a change of the path itself rather than of its
+        // leaves: there is nothing to walk in a null, and the listener is given whatever now lies at
+        // its path.
         it("reports a subtree that became null as a change of its own path", async () => {
             const values: Values[] = [
                 { tempDir: "/data", limits: { common: { number: 1, interval: 1000 } } },
@@ -570,8 +579,8 @@ describe("ConfigContainer", () => {
             expect(cc.get("tempDir")).to.equal("/data");
         });
 
-        // Значения подменяются до рассылки: слушатель, который спрашивает конфигурацию по другому
-        // пути, обязан увидеть уже новую.
+        // The values are replaced before the delivery: a listener that asks the configuration by
+        // another path has to see the new one already.
         it("gives a listener the values that are already new", async () => {
             const { cc, storage } = await watched({ TEMP_DIR: "/data", NUMBER: "1" });
             const seen: number[] = [];
@@ -595,9 +604,9 @@ describe("ConfigContainer", () => {
             expect(storage.loads - loadsAfterInit).to.equal(1);
         });
 
-        // Пересборки не идут параллельно: они гонялись бы за одно поле значений, и порядок
-        // событий решала бы гонка. Сигналы, пришедшие во время пересборки, сливаются в один
-        // проход — снимок читается целиком и увидит последнее состояние источника.
+        // Rebuilds do not run in parallel: they would race for one field of values, and a race would
+        // decide the order of events. The signals that arrive during a rebuild merge into one pass —
+        // the snapshot is read whole and will see the latest state of the source.
         it("merges the signals that arrive during a rebuild into one extra pass", async () => {
             const { storage } = await watched();
             const loadsAfterInit = storage.loads;
@@ -639,8 +648,9 @@ describe("ConfigContainer", () => {
             expect(calls).to.equal(1);
         });
 
-        // Слушатель объявлен возвращающим void, но асинхронную функцию компилятор в такой тип
-        // пропускает: без catch её отказ дошёл бы до unhandledRejection и погасил процесс.
+        // A listener is declared as returning void, but the compiler lets an asynchronous function
+        // into such a type: without a catch its rejection would reach unhandledRejection and take the
+        // process down.
         it("reports the rejection of an asynchronous listener", async () => {
             const { cc, storage } = await watched({ TEMP_DIR: "/data" });
             const failure = new Error("listener is broken");
@@ -662,8 +672,8 @@ describe("ConfigContainer", () => {
             expect(errors).to.deep.equal([failure]);
         });
 
-        // Упавший слушатель канала ошибок — тоже отказ, и он уходит в тот же канал: иначе
-        // единственный след неисправного логгера пропадал бы молча.
+        // A listener of the error channel that threw is a failure too, and it goes to the same
+        // channel: otherwise the only trace of a broken logger would vanish silently.
         it("reports an error thrown by an error listener to the rest of them", async () => {
             const failing: ConfigBuilder<Values> = {
                 build: (raw): Values => {
@@ -693,8 +703,8 @@ describe("ConfigContainer", () => {
             expect(errors[1]).to.equal(failure);
         });
 
-        // Рассылка отказов идёт ровно на один круг и мимо самого упавшего: слушатель, падающий
-        // всегда, иначе крутил бы её бесконечно.
+        // The delivery of failures goes exactly one round and past the one that threw: otherwise a
+        // listener that always throws would spin it forever.
         it("does not send an error listener its own failure", async () => {
             const failing: ConfigBuilder<Values> = {
                 build: (raw): Values => {
@@ -720,8 +730,8 @@ describe("ConfigContainer", () => {
             expect(calls).to.equal(1);
         });
 
-        // Слушатель вправе подписаться прямо в вызове: обход живого набора позвал бы
-        // добавленного на том же изменении.
+        // A listener is free to subscribe right inside the call: walking a live set would call the
+        // one that was added on the same change.
         it("does not call a listener that appeared during the same notification", async () => {
             const { cc, storage } = await watched({ TEMP_DIR: "/data" });
             const calls: string[] = [];

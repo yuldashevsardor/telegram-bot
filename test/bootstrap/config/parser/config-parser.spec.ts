@@ -14,7 +14,8 @@ function parser(values: Record<string, string> = {}): ConfigParser {
     return new ConfigParser(values);
 }
 
-// Текст ошибки с деталями — всё, что оператор узнает о неверной переменной, поэтому сверяются оба.
+// The text of the error together with its details is all the operator learns about the wrong
+// variable, so both are checked.
 function rejection(read: () => unknown): InvalidConfigError {
     try {
         read();
@@ -93,7 +94,8 @@ describe("ConfigParser", () => {
             expect(above.payload).to.deep.equal({ got: 10, min: 3, max: 9 });
         });
 
-        // Неверное умолчание — ошибка кода, но всплыть ей лучше на старте, чем у потребителя.
+        // A wrong default is a bug in the code, but it had better surface at startup than at the
+        // consumer.
         it("checks the default against the range too", () => {
             expect(() => parser().getInteger("NAME", 0, { min: 1 })).to.throw(InvalidConfigError, 'Config value "NAME" must be at least 1');
         });

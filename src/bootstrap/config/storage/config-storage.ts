@@ -1,6 +1,7 @@
 import type { RawConfig } from "app/bootstrap/config/container/config-container.types";
 
-// Промис — под источники, которые отдают значения по сети (vault), даже если env отдаёт их сразу.
+// The promise is for sources that hand values over the network (a vault), even though env hands
+// them over straight away.
 export interface ConfigStorage {
     load(): Promise<RawConfig>;
 }

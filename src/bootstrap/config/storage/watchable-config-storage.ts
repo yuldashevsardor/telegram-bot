@@ -1,11 +1,11 @@
 import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
 
-// Источник, который сам сообщает об изменениях. Отдельным интерфейсом, а не парой методов в
-// ConfigStorage: за process.env следить нечем, а vault сообщает об изменениях своим способом, и
-// обязывать каждый источник к заглушкам watch()/unwatch() незачем.
+// A source that reports changes itself. A separate interface rather than a pair of methods in
+// ConfigStorage: there is nothing to watch in process.env, a vault reports changes its own way,
+// and there is no point in obliging every source to stub watch()/unwatch().
 export interface WatchableConfigStorage extends ConfigStorage {
-    // Сообщает только факт изменения: снимок перечитывает контейнер тем же load(), что и на
-    // старте, — иначе приоритет источников пришлось бы собирать в двух местах.
+    // Reports the fact of a change alone: the container rereads the snapshot with the same load()
+    // it used at startup — otherwise the priority of the sources would live in two places.
     watch(onChanged: () => void): void;
 
     unwatch(): void;

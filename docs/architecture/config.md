@@ -1,197 +1,213 @@
-# Конфигурация
+# Configuration
 
-Конфигурация живёт в `bootstrap/config/`. `ConfigContainer<Values>`
-(`container/config-container.ts`) получает в конструкторе `ConfigStorage` и
-`ConfigBuilder<Values>` и собирает значения в `init()`: storage одним вызовом `load()` отдаёт
-снимок всех переменных (`RawConfig`), builder разбирает и проверяет его и возвращает
-`Values`, контейнер их хранит и раздаёт методом `get("bot.token")`. `get()` до `init()` —
-`ConfigContainerIsNotInitialized`. В приложении это `CC` — `ConfigContainer<ConfigValues>` с
-`ConfigValuesBuilder` и `ConfigFileStorage` над `ConfigEnvStorage` (ниже, «Наблюдение за
-файлом»), его собирает `ApplicationContext.create()` ([`application.md`](./application.md)).
-Раскрытия `${...}` ни в `.env`, ни в наблюдаемом файле нет.
+Configuration lives in `bootstrap/config/`. `ConfigContainer<Values>`
+(`container/config-container.ts`) takes a `ConfigStorage` and a `ConfigBuilder<Values>` in its
+constructor and assembles the values in `init()`: the storage hands over a snapshot of every
+variable in one `load()` call (`RawConfig`), the builder parses and validates it and returns
+`Values`, and the container keeps them and serves them through `get("bot.token")`. A `get()`
+before `init()` is a `ConfigContainerIsNotInitialized`. In the application this is `CC` — a
+`ConfigContainer<ConfigValues>` with a `ConfigValuesBuilder` and a `ConfigFileStorage` over a
+`ConfigEnvStorage` (below, "Watching the file"), assembled by `ApplicationContext.create()`
+([`application.md`](./application.md)). Neither `.env` nor the watched file expands `${...}`.
 
-`init()` и `load()` асинхронные, хотя env отдаёт переменные сразу: остальные источники (файл,
-vault) ходят за значениями вне процесса, и интерфейс под них не пришлось менять. Storage держит
-сам контейнер, а не отдаёт ему готовый снимок: наблюдаемый источник сообщает об изменениях, а
-пересобирает значения по ним контейнер. `ConfigEnvStorage.load()` зовёт `dotenv.config()` и
-отдаёт копию `process.env`, а не сам объект: сборка видит переменные на момент загрузки.
+`init()` and `load()` are asynchronous although env hands over its variables straight away: the
+other sources (a file, a vault) fetch values outside the process, and the interface did not have
+to change for them. The storage is held by the container itself instead of handing it a ready
+snapshot: a watchable source reports changes, and it is the container that rebuilds the values on
+them. `ConfigEnvStorage.load()` calls `dotenv.config()` and returns a copy of `process.env`
+rather than the object itself: an assembly sees the variables as they were at load time.
 
-`ConfigValuesBuilder` (`builder/config-values-builder.ts`) — схема приложения: какие
-переменные, с какими умолчаниями и диапазонами. На каждый `build()` он заводит
-`ConfigParser` (`parser/config-parser.ts`) на переданный снимок, и тот разбирает строки
-строго: умолчание подставляется только вместо отсутствующей или пустой переменной, а
-заданное, но недопустимое значение валит старт `InvalidConfigError` с именем переменной, а не
-превращается в умолчание. Строка без умолчания обязательна, целое читается только с
-диапазоном. Сроки и периоды в миллисекундах, которые уходят в таймеры Node, читает
-`getTimerDelay`: не больше 2147483647 мс, потому что большее значение Node превращает в
-1 мс, и срок, взятый «на никогда», срабатывает сразу; сроки пула в секундах читает
-`getInteger` со своим потолком (таблица ниже). Проверки, связывающие несколько переменных,
-остаются в `ConfigValuesBuilder`. Хелперы разбора — публичные методы отдельного класса, а не
-приватные методы билдера: у хелпера может ещё не быть вызова (так вернулись `getBoolean` и
-`getArray`), а `noUnusedLocals` не пропускает приватный метод без вызовов.
+`ConfigValuesBuilder` (`builder/config-values-builder.ts`) is the schema of the application:
+which variables exist, with which defaults and ranges. On every `build()` it creates a
+`ConfigParser` (`parser/config-parser.ts`) over the given snapshot, and that parser reads strings
+strictly: a default is substituted only for a missing or blank variable, while a value that is
+set but not allowed fails the start with an `InvalidConfigError` naming the variable instead of
+turning into the default. A string without a default is required; an integer is read only
+together with a range. Deadlines and periods in milliseconds that end up in Node timers are read
+by `getTimerDelay`: no more than 2147483647 ms, because Node turns anything larger into 1 ms, and
+a deadline meant as "never" would fire at once. The pool deadlines, which are in seconds, are
+read by `getInteger` with a ceiling of its own (the table below). Checks that tie several
+variables together stay in `ConfigValuesBuilder`. The parsing helpers are public methods of a
+separate class rather than private methods of the builder: a helper may have no call site yet
+(that is how `getBoolean` and `getArray` came back), and `noUnusedLocals` does not let a private
+method without calls through.
 
-Форма значений передаётся контейнеру дженериком явно, без ограничения на тип, и из неё же
-`Paths` и `ValueByPath` (`container/config-container.types.ts`) выводят допустимые
-пути и тип результата `get()`. Там же `ConfigPath` и `ConfigValue` — те же типы,
-применённые к `ConfigValues` (их берёт `shared/config-value.ts`), алиас `CC` (зависимость от
-контейнера везде называется `cc` и типизируется им) и `RawConfig`: снимок лежит в общем
-файле, а не у storage или builder, потому что работают с ним оба, а друг о друге они не знают.
+The shape of the values is passed to the container as an explicit generic with no constraint on
+the type, and from that shape `Paths` and `ValueByPath` (`container/config-container.types.ts`)
+derive the allowed paths and the result type of `get()`. The same file holds `ConfigPath` and
+`ConfigValue` — the same types applied to `ConfigValues` (`shared/config-value.ts` takes them) —
+the `CC` alias (a dependency on the container is always named `cc` and typed by it) and
+`RawConfig`: the snapshot lives in the shared file rather than with the storage or the builder,
+because both work with it and neither knows about the other.
 
-Форма конфигурации целиком — `config-values.ts`: `ConfigValues` и типы, объявленные для
-самого конфига (`Environment`, `LoggerConfig`, `TelegramLimits`). Файлы `storage/`
-импортируют из-за пределов каталога только `dotenv`, `fs` с `fs/promises`, тип `RawConfig` из общих типов конфига
-и `RuntimeError` для своей ошибки: это механика источников, и второй источник лёг рядом с первым. Изоляции от сторон это не гарантирует: `config-container.types.ts` импортирует типы
-`ConfigContainer` и `ConfigValues`, а через них тянет типы настроек всех сторон. Импорты только
-типовые, в рантайме их нет. `ConfigValues` импортирует типы настроек всех сторон (их список —
-импорты файла), поэтому каталог принадлежит корню сборки. Своих копий этих типов
-в конфиге нет намеренно: форма настроек объявлена там, где её потребляют, дубль пришлось бы
-править дважды, а рассинхрон по необязательному полю не поймали бы ни компилятор, ни тесты.
+The shape of the configuration as a whole is `config-values.ts`: `ConfigValues` and the types
+declared for the config itself (`Environment`, `LoggerConfig`, `TelegramLimits`). The files of
+`storage/` import from outside their directory only `dotenv`, `fs` with `fs/promises`, the
+`RawConfig` type from the shared config types and `RuntimeError` for their own error: this is the
+mechanics of the sources, and the second source was placed next to the first. That does not
+guarantee isolation from the sides: `config-container.types.ts` imports the `ConfigContainer` and
+`ConfigValues` types and through them pulls in the settings types of every side. The imports are
+type-only, so at runtime they are gone. `ConfigValues` imports the settings types of every side
+(the list is the imports of the file), which is why the directory belongs to the composition
+root. Config keeps no copies of those types on purpose: the shape of the settings is declared
+where it is consumed, a copy would have to be fixed twice, and a drift in an optional field would
+be caught neither by the compiler nor by the tests.
 
-Исключение одно — `TelegramLimits`: он объявлен в `config-values.ts`, и потребитель
-`telegram/telegram-limit-resolver.ts` импортирует его из корня сборки, то есть стрелка идёт
-обратно.
+There is one exception — `TelegramLimits`: it is declared in `config-values.ts`, and its consumer
+`telegram/telegram-limit-resolver.ts` imports it from the composition root, so the arrow points
+backwards.
 
-## Наблюдение за файлом
+## Watching the file
 
-`ConfigFileStorage` (`storage/file/config-file-storage.ts`) — второй источник: читает
-`KEY=value`-файл через `dotenv.parse` и кладёт его значения **под** снимок базового источника,
-который получает в конструкторе (в приложении это `ConfigEnvStorage`). Заданная переменная
-окружения сильнее файла, поэтому ни правка файла, ни его подмена не уводят приложение от того,
-чем его настроили при запуске (`docker-compose.app.yml`, `env_file`). Цена — менять на ходу
-можно только то, чего в окружении нет: переменная, заданная в `.env` непустой, файлу не
-поддаётся, а объявленная пустой — поддаётся, потому что пустое значение в счёт не идёт
-([инвариант](./invariants.md)). `dotenv.parse`, а не `dotenv.config()`: тот пишет в
-`process.env`, то есть снимок правил бы окружение процесса, а следующее чтение видело бы
-собственные прошлые значения. Пустые значения не перекрывают ничего и ни с какой стороны:
-`ConfigParser` всё равно считает пустую строку отсутствием, и перекрывай она файл — переменная,
-объявленная в `.env` пустой (там так объявлена половина), запрещала бы менять себя на ходу.
-Базовый источник спрашивается первым, чтобы его снимок был взят на входе в `load()`, а не после
-чтения файла: иначе сборка увидела бы окружение, поменявшееся за время чтения. Отсутствие файла —
-не отказ: снимок собирается из одного окружения, а удаление файла возвращает значения к нему. Нечитаемый путь (нет прав, каталог на
-месте файла) — `ConfigFileUnreadable`: пустой набор вместо отказа снял бы разом все значения
-файла, и причина осталась бы неизвестной.
+`ConfigFileStorage` (`storage/file/config-file-storage.ts`) is the second source: it reads a
+`KEY=value` file through `dotenv.parse` and puts its values **under** the snapshot of the base
+source it receives in its constructor (in the application that is `ConfigEnvStorage`). A variable
+set in the environment beats the file, so neither editing the file nor swapping it takes the
+application away from what it was configured with at startup (`docker-compose.app.yml`,
+`env_file`). The price is that only what the environment does not hold can be changed on the fly:
+a variable set to a non-blank value in `.env` does not yield to the file, whereas one declared
+blank does, because a blank value does not count ([invariant](./invariants.md)). `dotenv.parse`
+and not `dotenv.config()`: the latter writes into `process.env`, so taking a snapshot would edit
+the environment of the process and the next read would see its own past values. Blank values
+override nothing from either side: `ConfigParser` treats a blank string as a missing value
+anyway, and were a blank one to override the file, a variable declared blank in `.env` (half of
+them are) would forbid changing itself on the fly. The base source is asked first so that its
+snapshot is taken on entry into `load()` rather than after the file has been read: otherwise the
+assembly would see an environment that changed while the file was being read. A missing file is
+not a failure: the snapshot is then assembled from the environment alone, and deleting the file
+returns the values to it. An unreadable path (no permission, a directory in place of the file) is
+a `ConfigFileUnreadable`: an empty set instead of a failure would drop every value of the file at
+once, and the reason would stay unknown.
 
-Интерфейсов два. `ConfigStorage` (`storage/config-storage.ts`) — это один `load()`.
-`WatchableConfigStorage` (`storage/watchable-config-storage.ts`) добавляет `watch(onChanged)` и
-`unwatch()` и живёт отдельным файлом: за `process.env` следить нечем, а vault
-([#107](https://github.com/yuldashevsardor/telegram-bot/issues/107)) сообщает об изменениях своим
-способом, так что заглушки в каждом источнике были бы лишними. В рантайме интерфейсов нет,
-поэтому наблюдаемость проверяется стражем `isWatchableConfigStorage`
-(`storage/config-storage.helper.ts`), и проверяет он оба метода сразу: источник с одним из них
-контейнер завёл бы, но снять наблюдение не смог. `unwatch()` снимает ровно своего слушателя
-(`fs.unwatchFile` вторым аргументом): без него ушли бы все слушатели этого пути в процессе,
-включая чужой экземпляр, следящий за тем же файлом.
+There are two interfaces. `ConfigStorage` (`storage/config-storage.ts`) is a single `load()`.
+`WatchableConfigStorage` (`storage/watchable-config-storage.ts`) adds `watch(onChanged)` and
+`unwatch()` and lives in a file of its own: there is nothing to watch in `process.env`, and a
+vault ([#107](https://github.com/yuldashevsardor/telegram-bot/issues/107)) reports changes its
+own way, so stubs in every source would be pointless. Interfaces do not exist at runtime, so
+watchability is checked by the `isWatchableConfigStorage` guard
+(`storage/config-storage.helper.ts`), and it checks both methods at once: a source with only one
+of them would be watched by the container but could not be unwatched. `unwatch()` removes exactly
+its own listener (`fs.unwatchFile` with a second argument): without it every listener of that
+path in the process would go, including another instance watching the same file.
 
-`watch()` опрашивает файл через `fs.watchFile`, а не подписывается `fs.watch`: приложение
-работает в контейнере с bind-mount, где inotify-события с хоста не гарантированы, а сохранение
-редактора через временный файл с переименованием уводит inode — вместе с ним `fs.watch` теряет и
-сам файл. Снимки `stat` сравниваются по времени изменения и размеру: слушателя на отсутствующем
-файле `watchFile` зовёт сразу после подписки, с нулями в обоих снимках, и этот вызов изменением
-не считается — сигнал идёт за правкой содержимого, появлением файла (`mtime` из нуля), его
-удалением (`mtime` в ноль) и правкой, сохранившей время (её видно по размеру).
+`watch()` polls the file through `fs.watchFile` instead of subscribing with `fs.watch`: the
+application runs in a container with a bind mount, where inotify events from the host are not
+guaranteed, and an editor saving through a temporary file with a rename moves the inode — and
+`fs.watch` loses the file along with it. The `stat` snapshots are compared by modification time
+and by size: on a missing file `watchFile` calls the listener right after the subscription, with
+zeroes in both snapshots, and that call does not count as a change — a signal goes out for an
+edit of the contents, for the appearance of the file (`mtime` out of zero), for its removal
+(`mtime` back to zero) and for an edit that kept the time (visible by the size).
 
-У такого сравнения есть цена: запись «на месте» — не один шаг. `fs.writeFile` с флагом по
-умолчанию, `echo … >` и `cat >` сначала обрезают файл (`O_TRUNC`), а содержимое пишут вторым
-шагом, поэтому опрос, попавший между шагами, видит нулевой размер и зовёт слушателя. Отсечь такой
-снимок, не потеряв законный, нечем: от удаления файла он отличается только ненулевым `mtime`, а по
-этому же признаку он неотличим от намеренной очистки файла в ноль, и та законна — ею значения
-возвращают базовому источнику, не удаляя файл. Врёт такой сигнал ровно столько, сколько успеет:
-несёт он только факт, а значения контейнер собирает по свежему чтению (`ConfigContainer.rebuild()`
-зовёт `load()`), поэтому пустой снимок получится, только если в то же окно попал и сам `readFile`;
-следующий опрос увидит дописанный файл и пересоберёт значения заново, так что разойтись с файлом
-они могут не дольше чем на интервал опроса. Заметит расхождение первый подписчик `onChange()`,
-применяющий значение ([инвариант](./invariants.md)). Спеки от лишнего сигнала защищаются сами:
-правку файла под наблюдением они делают одним шагом
-(`test/bootstrap/config/storage/config-file-storage.helper.ts`).
+Such a comparison has a price: a write "in place" is not a single step. `fs.writeFile` with the
+default flag, `echo … >` and `cat >` first truncate the file (`O_TRUNC`) and write the contents in
+a second step, so a poll that lands between the steps sees a size of zero and calls the listener.
+There is nothing to cut such a snapshot off by without losing a legitimate one: it differs from a
+removal of the file only by a non-zero `mtime`, and by that same sign it is indistinguishable
+from a deliberate truncation of the file to zero, which is legitimate — that is how values are
+handed back to the base source without deleting the file. Such a signal lies only for as long as
+it takes: it carries the fact alone, and the container assembles the values from a fresh read
+(`ConfigContainer.rebuild()` calls `load()`), so an empty snapshot only comes out if `readFile`
+itself landed in the same window; the next poll sees the completed file and rebuilds the values
+again, so they can disagree with the file for no longer than the polling interval. The first
+subscriber applying the value through `onChange()` is the one that notices the disagreement
+([invariant](./invariants.md)). The specs protect themselves from a spurious signal: they edit a
+watched file in a single step (`test/bootstrap/config/storage/config-file-storage.helper.ts`).
 
-Наблюдаемый файл — `.runtime.env` в корне проекта; путь меняет `CONFIG_FILE_PATH`. В контейнер
-он попадает одноимённым bind-mount (`docker-compose.app.yml`), и у этого есть цена: mount
-держится за inode, поэтому правка «на месте» доезжает, а сохранение через временный файл с
-переименованием (`vim` по умолчанию, `sed -i` без суффикса) — нет, контейнер останется на старом
-содержимом. Сам файл создаётся до запуска compose целями `make` и `scripts/worktree-init.sh`:
-bind-mount несуществующего пути Docker создал бы каталогом от root, и старт упал бы
-`ConfigFileUnreadable`. `.env` так наблюдать нельзя вообще: он в образ не попадает
-(`.dockerignore`) и приходит переменными через `env_file`, то есть внутри контейнера файла нет, а
-его значения уже лежат в `process.env`. Сам `.runtime.env` — в `.gitignore` и `.dockerignore`,
-как `.env`; что в нём держат, описано в `.env.dist` рядом с `CONFIG_FILE_PATH`.
+The watched file is `.runtime.env` in the project root; `CONFIG_FILE_PATH` changes the path. It
+gets into the container through a bind mount of the same name (`docker-compose.app.yml`), and
+that has a price: the mount holds on to the inode, so an edit "in place" arrives, while a save
+through a temporary file with a rename (`vim` by default, `sed -i` without a suffix) does not —
+the container stays on the old contents. The file itself is created before compose starts, by
+`make` targets and `scripts/worktree-init.sh`: Docker would create a bind mount of a missing path
+as a directory owned by root, and the start would fail with `ConfigFileUnreadable`. `.env` cannot
+be watched this way at all: it does not get into the image (`.dockerignore`) and arrives as
+variables through `env_file`, so inside the container there is no such file and its values are
+already in `process.env`. `.runtime.env` itself is in `.gitignore` and `.dockerignore`, like
+`.env`; what is kept in it is described in `.env.dist` next to `CONFIG_FILE_PATH`.
 
-Путь файла и интервал опроса нужны раньше собранной конфигурации, поэтому `ApplicationContext`
-читает их из `process.env` — но тем же `ConfigParser`, которому снимок и передаётся: правила
-разбора остаются в одном месте, и недопустимый интервал валит старт `InvalidConfigError`, а не
-превращается в умолчание (молча выключенное или ускоренное наблюдение выглядит как работающее).
-Интервал читает `getTimerDelay` с нижней границей 100 мс: конфигурацию не правят чаще, а `stat`
-на каждый виток цикла не бесплатен. Выключить наблюдение нечем — источник, который читают, и
-наблюдают.
+The path of the file and the polling interval are needed before the assembled configuration, so
+`ApplicationContext` reads them from `process.env` — but through the same `ConfigParser`, which
+is given that snapshot: the parsing rules stay in one place, and an interval that is not allowed
+fails the start with an `InvalidConfigError` instead of turning into the default (watching that
+has silently been switched off or sped up looks like watching that works). The interval is read
+by `getTimerDelay` with a lower bound of 100 ms: configuration is not edited more often than
+that, and a `stat` on every turn of the loop is not free. There is nothing to switch watching off
+with — a source that is read is a source that is watched.
 
-## Подписка на изменения
+## Change subscriptions
 
-По сигналу источника контейнер пересобирает значения тем же путём, что на старте: `load()` →
-`build()`. Сигнал несёт только факт изменения, поэтому приоритет источников и разбор остаются в
-одном месте. Значения подменяются целиком и только после успешной сборки — отказ билдера
-оставляет рабочими прежние, а причина уходит слушателям `onError()`. Канал ошибок отдельный,
-потому что логгера у конфигурации нет: она собирается раньше него, и логгер подписывается на
-канал уже в `ApplicationContext` ([`application.md`](./application.md)). Пересборки не идут
-параллельно: пока идёт пересборка, у контейнера заполнено поле состояния, и сигналы, пришедшие
-за это время, помечают в нём же, что нужен ещё один проход, — все они сливаются в этот один
-проход, потому что снимок читается целиком и увидит последнее состояние источника. Промиса в
-состоянии нет: ждать пересборку некому — наружу она не вызывается, единственный её вход — сигнал
-источника. `unwatch()` её отменяет целиком: проход, уже стоящий на чтении снимка, значения не
-подменит — иначе он менял бы их под тем, кто сразу после остановки их читает
-(`Application.terminate()` берёт оттуда общий срок), — и за отметкой о сигнале, пришедшем до
-остановки, на второй проход не уходит: снимок читался бы уже для закрывающегося приложения.
+On a signal from the source the container rebuilds the values the same way it did at startup:
+`load()` → `build()`. The signal carries the fact of a change alone, so the priority of the
+sources and the parsing stay in one place. The values are replaced whole and only after a
+successful assembly — a failure of the builder leaves the previous ones working, and the reason
+goes to the `onError()` listeners. The error channel is separate because the configuration has no
+logger: it is assembled before one, and the logger subscribes to the channel later, in
+`ApplicationContext` ([`application.md`](./application.md)). Rebuilds do not run in parallel:
+while one is running the container has its state field filled, and the signals that arrive during
+that time mark in the same field that one more pass is needed — all of them merge into that one
+pass, because the snapshot is read whole and will see the latest state of the source. There is no
+promise in the state: there is nobody to await a rebuild — it is never called from the outside,
+and its only entrance is a signal from the source. `unwatch()` cancels it completely: a pass that
+already stands on reading the snapshot does not replace the values — otherwise it would change
+them under whoever reads them right after the stop (`Application.terminate()` takes the overall
+deadline from there) — and it does not go for a second pass on a mark left by a signal that
+arrived before the stop: the snapshot would then be read for an application that is shutting
+down.
 
-`onChange("limits.common", listener)` — подписка по тому же «точечному» пути, что у `get()`, с
-путями и типом значения из `Paths` и `ValueByPath`; слушатель получает новое и старое значение,
-а возврат `onChange()` — функция отписки. Сравниваются листья: билдер собирает новые объекты на
-каждой сборке, поэтому сравнение поддеревьев по ссылке сообщало бы об изменении на каждой
-пересборке. Изменившийся лист уведомляет ещё и все свои префиксы, так что подписка на `limits`
-срабатывает на правку `limits.common.number`. Пути собираются в набор, поэтому слушатель пути
-получает ровно один вызов на пересборку, сколько бы значений внутри его поддерева ни изменилось.
-Упавший слушатель не отменяет рассылку остальным, его отказ уходит в `onError()`; туда же уходит
-отказ промиса асинхронного слушателя — по объявлению слушатель возвращает `void`, но компилятор в
-такой тип асинхронную функцию пропускает, и без перехвата её отказ дошёл бы до
-`unhandledRejection` в `app.ts` ([`application.md`](./application.md)).
+`onChange("limits.common", listener)` subscribes by the same dotted path that `get()` uses, with
+the paths and the value type coming from `Paths` and `ValueByPath`; the listener receives the new
+and the old value, and the return of `onChange()` is an unsubscribe function. Leaves are
+compared: the builder creates new objects on every assembly, so comparing subtrees by reference
+would report a change on every rebuild. A changed leaf notifies all of its prefixes as well, so a
+subscription to `limits` fires on an edit of `limits.common.number`. The paths are collected into
+a set, so a listener of a path gets exactly one call per rebuild, however many values inside its
+subtree have changed. A listener that threw does not cancel the delivery to the rest, and its
+failure goes to `onError()`; so does the rejection of an asynchronous listener's promise — by its
+declaration a listener returns `void`, but the compiler lets an asynchronous function into such a
+type, and without a catch its rejection would reach `unhandledRejection` in `app.ts`
+([`application.md`](./application.md)).
 
-Что пересборка меняет в работающем приложении, решают подписчики: значение, взятое
-`configValue(...)` умолчанием параметра конструктора, остаётся у объекта прежним
-([инвариант](./invariants.md)). Наблюдение включает `init()` вместе со сборкой значений, а
-снимает `unwatch()` контейнера — его зовёт `Application.terminate()` до общего срока остановки
-и вне него.
+What a rebuild changes in a running application is up to the subscribers: a value taken by
+`configValue(...)` as the default of a constructor parameter stays as it was for that object
+([invariant](./invariants.md)). Watching is switched on by `init()` together with the assembly of
+the values, and switched off by the container's `unwatch()` — which `Application.terminate()`
+calls before the overall shutdown deadline and outside it.
 
-| Переменная | Назначение (по умолчанию) |
+| Variable | Purpose (default) |
 |---|---|
-| `NODE_ENV` | режим приложения (`development`); от него зависят адаптер логгера и порог ([`logging.md`](./logging.md)) |
-| `CONFIG_FILE_PATH` | наблюдаемый файл (`<root>/.runtime.env`); его значения уступают заданным переменным окружения |
-| `CONFIG_FILE_WATCH_INTERVAL` | интервал опроса этого файла, мс (2000), целое от 100 до 2147483647 |
-| `BOT_TOKEN` | токен бота, обязателен: пустой валит сборку конфига, конструктор `Bot` проверяет его ещё раз |
-| `TEMP_DIR` | временные файлы конвертации (`<root>/tmp`) |
-| `FONT_FORGE_PATH` | бинарник FontForge (`fontforge`) |
-| `LIMIT_{COMMON,PRIVATE,GROUP}_{NUMBER,INTERVAL}` | лимиты очереди, интервалы в мс, оба от 1 ([инвариант](./invariants.md)); значения по умолчанию — [`outbound-queue.md`](./outbound-queue.md) |
-| `RUNNER_SLEEP_INTERVAL_MIN` / `RUNNER_SLEEP_INTERVAL_MAX` | границы случайного сна Runner, мс; значения по умолчанию — [`outbound-queue.md`](./outbound-queue.md); от 1 до 2147483647, максимум не меньше минимума |
-| `RUNNER_MAX_RETRIES` | повторов задачи до отбрасывания (3), от 0 |
-| `GRACEFUL_SHUTDOWN_TIMEOUT` | общий срок остановки (15000), до 2147483647 и больше суммы двух ниже ([инвариант](./invariants.md)) |
-| `BOT_GRACEFUL_SHUTDOWN_TIMEOUT` | остановка runner'а бота (3000), от 0 до 2147483647 |
-| `TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT` | разгрузка очереди (5000), от 0 до 2147483647, `0` — не ждать |
-| `TASK_QUEUE_GRACEFUL_SHUTDOWN_INTERVAL` | шаг опроса очереди (500), от 1 до 2147483647 |
-| `TASK_QUEUE_LOG_INTERVAL` | период info-лога `TaskQueue`: число задач и партиций, а во время паузы после 429 — её остаток (10000), от 1 до 2147483647 |
-| `LOGGER_LEVEL` | порог логирования |
-| `DATABASE_HOST/PORT/NAME/USER_NAME/USER_PASSWORD` | подключение, порт от 1 до 65535; внутри compose host/port задаёт `docker-compose.app.yml` |
-| `DATABASE_CONNECTION_LIMIT/IDLE_TIMEOUT/MAX_LIFETIME` | пул (10, 10 с, 600 с); лимит от 1, сроки от 0 до 2147483 с: `postgres.js` умножает их на 1000 для таймера, а `0` у него выключает таймер |
+| `NODE_ENV` | the mode of the application (`development`); the logger adapter and the threshold depend on it ([`logging.md`](./logging.md)) |
+| `CONFIG_FILE_PATH` | the watched file (`<root>/.runtime.env`); its values yield to the variables set in the environment |
+| `CONFIG_FILE_WATCH_INTERVAL` | the polling interval of that file, ms (2000), an integer from 100 to 2147483647 |
+| `BOT_TOKEN` | the bot token, required: a blank one fails the config assembly, and the `Bot` constructor checks it once more |
+| `TEMP_DIR` | the temporary files of a conversion (`<root>/tmp`) |
+| `FONT_FORGE_PATH` | the FontForge binary (`fontforge`) |
+| `LIMIT_{COMMON,PRIVATE,GROUP}_{NUMBER,INTERVAL}` | the queue limits, the intervals in ms, both from 1 ([invariant](./invariants.md)); the defaults are in [`outbound-queue.md`](./outbound-queue.md) |
+| `RUNNER_SLEEP_INTERVAL_MIN` / `RUNNER_SLEEP_INTERVAL_MAX` | the bounds of the random sleep of the Runner, ms; the defaults are in [`outbound-queue.md`](./outbound-queue.md); from 1 to 2147483647, the maximum not below the minimum |
+| `RUNNER_MAX_RETRIES` | retries of a task before it is dropped (3), from 0 |
+| `GRACEFUL_SHUTDOWN_TIMEOUT` | the overall shutdown deadline (15000), up to 2147483647 and greater than the sum of the two below ([invariant](./invariants.md)) |
+| `BOT_GRACEFUL_SHUTDOWN_TIMEOUT` | stopping the runner of the bot (3000), from 0 to 2147483647 |
+| `TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT` | draining the queue (5000), from 0 to 2147483647, `0` means not to wait |
+| `TASK_QUEUE_GRACEFUL_SHUTDOWN_INTERVAL` | the polling step of the queue (500), from 1 to 2147483647 |
+| `TASK_QUEUE_LOG_INTERVAL` | the period of the `TaskQueue` info log: the number of tasks and partitions, and during a pause after a 429 what is left of it (10000), from 1 to 2147483647 |
+| `LOGGER_LEVEL` | the logging threshold ([`logging.md`](./logging.md)) |
+| `DATABASE_HOST/PORT/NAME/USER_NAME/USER_PASSWORD` | the connection, the port from 1 to 65535; inside compose the host and the port are set by `docker-compose.app.yml` |
+| `DATABASE_CONNECTION_LIMIT/IDLE_TIMEOUT/MAX_LIFETIME` | the pool (10, 10 s, 600 s); the limit from 1, the deadlines from 0 to 2147483 s: `postgres.js` multiplies them by 1000 for a timer, and `0` switches the timer off |
 
-`DATABASE_SUPERUSER_PASSWORD`, `DATABASE_TIMEZONE`, `DATABASE_DATE_STYLE` читает только
+`DATABASE_SUPERUSER_PASSWORD`, `DATABASE_TIMEZONE` and `DATABASE_DATE_STYLE` are read only by
 `docker-compose.db.yml`; `DATABASE_SUPERUSER_NAME`, `DATABASE_USER_NAME`,
-`DATABASE_USER_PASSWORD` и `DATABASE_NAME` читает ещё и скрипт первичной инициализации
-`docker/pgsql/docker-entrypoint-initdb.d/init-user-db.sh`. Скрипт отрабатывает только на
-пустом каталоге данных: переименование любой из них ломает не текущую базу, а следующую.
-Исключение из «только» — хук тестов `test/database-hook.ts`: он создаёт базу прогона
-суперпользователем (`DATABASE_SUPERUSER_NAME`, `DATABASE_SUPERUSER_PASSWORD`) из того же
-окружения контейнера, и переименование ломает ещё и ближайший `make test`.
-`DATABASE_URL` — только `node-pg-migrate`; собирается в `docker-compose.app.yml`, потому
-что в `.env` подстановки `${...}` нет, а в `environment:` Compose она работает.
+`DATABASE_USER_PASSWORD` and `DATABASE_NAME` are read on top of that by the first-run
+initialisation script `docker/pgsql/docker-entrypoint-initdb.d/init-user-db.sh`. That script only
+runs on an empty data directory: renaming any of them breaks not the current database but the
+next one. The exception to that "only" is the test hook `test/database-hook.ts`: it creates the
+database of a run as the superuser (`DATABASE_SUPERUSER_NAME`, `DATABASE_SUPERUSER_PASSWORD`)
+from the same container environment, so a rename breaks the very next `make test` as well.
+`DATABASE_URL` is read only by `node-pg-migrate`; it is assembled in `docker-compose.app.yml`,
+because `.env` has no `${...}` substitution while Compose does have it in `environment:`.
 
-В истории git есть старый `BOT_TOKEN` в `.env.dist`; он отозван и мёртв, историю не
-переписывали намеренно: после отзыва переписывание сломало бы клоны и ссылки на коммиты,
-а значение всё равно осталось бы в форках и кэшах GitHub. Повторную утечку ловит secret
-scanning с push protection на стороне GitHub (корневой
-[`README.md`](../../README.md), «Переменные окружения»), а не хук `pre-commit`: тот
-обходится `--no-verify` и на чужие клоны не действует.
+There is an old `BOT_TOKEN` in the git history; it has been revoked and is dead, and the history
+was deliberately not rewritten: after the revocation a rewrite would have broken clones and links
+to commits, and the value would have stayed in forks and GitHub caches anyway. A repeat leak is
+caught by secret scanning with push protection on the GitHub side (the environment variables
+section of the root [`README.md`](../../README.md)) rather than by a `pre-commit` hook: that one
+is bypassed with `--no-verify` and has no effect on other people's clones.

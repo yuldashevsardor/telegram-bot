@@ -9,9 +9,10 @@ import type { RawConfig } from "app/bootstrap/config/container/config-container.
 const KEY = "CONFIG_ENV_STORAGE_SPEC_VALUE";
 const FILE_KEY = "CONFIG_ENV_STORAGE_SPEC_FILE_VALUE";
 
-// dotenv ищет .env в текущем каталоге процесса. Каталог меняется и возвращается в одном
-// синхронном вызове: тело load() до первого await выполняется сразу, а await в нём нет, поэтому
-// асинхронный код соседних спек чужого cwd не застанет.
+// dotenv looks for .env in the current directory of the process. The directory is changed and
+// changed back within one synchronous call: the body of load() up to the first await runs at once,
+// and there is no await in it, so the asynchronous code of neighbouring specs never sees a foreign
+// cwd.
 function loadIn(directory: string): Promise<RawConfig> {
     const cwd = process.cwd();
     process.chdir(directory);
@@ -62,7 +63,8 @@ describe("ConfigEnvStorage", () => {
         });
     });
 
-    // Снимок, а не сам process.env: сборка конфига не должна видеть переменные, поменявшиеся после load().
+    // A snapshot rather than process.env itself: a config assembly must not see variables that
+    // changed after load().
     it("returns a snapshot that later changes of the environment do not reach", async () => {
         await withEnv("before", (raw) => {
             process.env[KEY] = "after";
@@ -91,7 +93,7 @@ describe("ConfigEnvStorage", () => {
             expect((await loadIn(workDir))[FILE_KEY]).to.equal("from-file");
         });
 
-        // Почему stdout должен молчать — комментарий у dotenv.config() в ConfigEnvStorage.
+        // Why stdout has to stay silent is in the comment at dotenv.config() in ConfigEnvStorage.
         it("writes nothing to stdout while loading it", async () => {
             const original = process.stdout.write;
             let captured = "";
@@ -101,8 +103,8 @@ describe("ConfigEnvStorage", () => {
                 return true;
             }) as typeof process.stdout.write;
 
-            // Подмена снимается до await: dotenv пишет синхронно внутри load(), а за время ожидания в
-            // stdout успел бы написать кто-то чужой.
+            // The stub is removed before the await: dotenv writes synchronously inside load(), and
+            // while waiting somebody else could manage to write to stdout.
             let loaded: Promise<RawConfig>;
 
             try {
