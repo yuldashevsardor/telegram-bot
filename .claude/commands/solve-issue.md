@@ -67,6 +67,11 @@ gh pr list --state open --search "<N> in:body" --json number,title,headRefName
 и её `head=` достаёт команда из `.claude/skills/pr-light-check/SKILL.md`, «Запись прогона
 автора»). Годится и запись ревьюера: она лежит в том же треде, и правило у неё то же.
 
+Same rule, one case worth naming: a merge of `origin/main` into the branch moves the head although
+you edited nothing, and what the merge brings goes through the same three gates. Measure the record
+against the new `HEAD` before the next round and run again if one of them turns on: a round opened
+on a record the review refuses costs the reviewer a run of its own and buys the branch nothing.
+
 Все дальнейшие команды — в дереве задачи.
 
 ## Шаг 3. Ревью
@@ -174,8 +179,9 @@ inline — ответом в тред:
   gh pr view <PR> --json mergeable,mergeStateStatus
   ```
 
-  Конфликт — влей `origin/main` в ветку, разреши, `make check`, пуш. Head сменился,
-  поэтому нужен новый круг ревью (шаг 3), затем снова этот шаг. Без конфликта:
+  Конфликт — влей `origin/main` в ветку, разреши, `make check`, прогон мутаций, если он нужен
+  (шаг 2), пуш, запись прогона в PR. Head сменился, поэтому нужен новый круг ревью (шаг 3),
+  затем снова этот шаг. Без конфликта:
 
   ```bash
   gh pr merge <PR> --merge
