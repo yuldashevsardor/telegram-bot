@@ -36,6 +36,9 @@ export class TelegramCallApiMiddleware extends Middleware {
     }
 
     private changeTelegramCallApi(api: Api): void {
+        // The raw kept from before the replacement at the end of this method: the actual send has
+        // to go through it and not through api.raw, where the Proxy will sit by then — its get
+        // gives back callApi again, and the queue task would loop onto itself instead of sending.
         const originRaw = api.raw;
         const taskQueue = this.taskQueue;
 
