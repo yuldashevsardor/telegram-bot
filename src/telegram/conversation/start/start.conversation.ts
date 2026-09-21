@@ -13,8 +13,8 @@ export class StartConversation extends ConversationHandler {
     }
 
     protected async run(conversation: Conversation, ctx: Context): Promise<void> {
-        // Список берётся из матрицы пар, а не пишется здесь строкой: иначе обещание
-        // пользователю расходится с тем, что домен на самом деле умеет.
+        // The list comes from the pair matrix instead of being spelled out here as a string:
+        // otherwise what is promised to the user drifts from what the domain can actually do.
         const text = ctx.t("start-conversation-welcome", {
             formats: this.convertorFactory.getSupportedExtensions().join(", "),
         });

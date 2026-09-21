@@ -40,7 +40,7 @@ function commandUpdate(text: string): Update {
 }
 
 describe("BulkMessagesCommand", function () {
-    // 300 000 постановок за вызов: даже с подменами ниже прогон идёт секунды, а не миллисекунды.
+    // 300 000 pushes per call: even with the stubs below the run takes seconds, not milliseconds.
     this.timeout(10000);
 
     const pushed: Pushed[] = [];
@@ -74,12 +74,12 @@ describe("BulkMessagesCommand", function () {
         debug: () => undefined,
     };
 
-    // Команда тестовая (docs/architecture/README.md, «Обзор»): Bot и TaskQueue она берёт из
-    // глобального container, а каталог по дате заводит по пути машины автора. Поэтому
-    // подменяются привязки контейнера и вызов FileHelper. Генератор строк подменён ради
-    // времени: 300 000 настоящих строк по 1000 символов — секунды на каждый прогон, а у
-    // самого генератора своя спека. После спеки всё возвращается: контейнер и классы общие
-    // на весь прогон mocha.
+    // The command is a test one (see the overview in docs/architecture/README.md): it takes Bot
+    // and TaskQueue from the global container and creates the date directory under the path of
+    // the author's machine. That is why the container bindings and the FileHelper call are
+    // stubbed. The string generator is stubbed for time: 300 000 real strings of 1000 characters
+    // are seconds on every run, and the generator has a spec of its own. Everything is restored
+    // afterwards: the container and the classes are shared by the whole mocha run.
     const originalCreateDirectoriesByDate = FileHelper.createDirectoriesByDate.bind(FileHelper);
     const originalGenerateRandomString = StringHelper.generateRandomString.bind(StringHelper);
 
@@ -107,7 +107,7 @@ describe("BulkMessagesCommand", function () {
         textLengths.length = 0;
         FileHelper.createDirectoriesByDate = createDirectoriesByDate;
 
-        // Апдейт идёт через setup(), как в Bot: команда должна откликнуться на своё имя.
+        // The update goes through setup(), as in Bot: the command has to answer to its own name.
         const ctx = new GrammyContext(commandUpdate("/bulk_messages"), new Api("test-token"), ME) as Context;
         const composer = new Composer<Context>();
         new BulkMessagesCommand(logger).setup(composer);
@@ -152,8 +152,8 @@ describe("BulkMessagesCommand", function () {
             expect(infos).to.deep.equal(["Bulk messages are pushed to the queue."]);
         });
 
-        // Вызов идёт мимо ctx.api, поэтому TelegramCallApiMiddleware его не перехватит: в очередь
-        // команда кладёт задачу сама, и задача зовёт bot.grammy.api напрямую.
+        // The call goes past ctx.api, so TelegramCallApiMiddleware does not intercept it: the
+        // command pushes the task into the queue itself, and the task calls bot.grammy.api directly.
         it("sends a random text of 1000 characters through bot.grammy.api when the task runs", async function () {
             const first = pushed[0] as Pushed;
 
@@ -164,10 +164,10 @@ describe("BulkMessagesCommand", function () {
         });
     });
 
-    // Так команда ведёт себя на любой машине, кроме машины автора: пути нет, и до push()
-    // дело не доходит (docs/architecture/bot.md, «Команды»).
+    // This is how the command behaves on any machine but the author's: the path is not there, and
+    // it never gets as far as push() (docs/architecture/bot.md, "Commands").
     it("rejects without queueing and logging when the date directory cannot be created", async function () {
-        // Один экземпляр на все 300 000 отказов: стек у каждой новой ошибки — ещё секунда.
+        // One instance for all 300 000 refusals: a stack for every new error is another second.
         const error = InvalidPath.isNotExist("/missing");
         const caught = await run(() => Promise.reject(error));
 
@@ -176,9 +176,10 @@ describe("BulkMessagesCommand", function () {
         expect(infos).to.have.lengthOf(0);
     });
 
-    // Описание в меню команд Bot берёт переводом descriptionKey; ключ без перевода Fluent отдал бы как «{ключ}».
-    // Недостающий в другой локали ключ Fluent молча берёт из дефолтной, его ловит «declares the same keys
-    // in every locale» в locale.spec.ts.
+    // Bot takes the description for the command menu by translating descriptionKey; a key without
+    // a translation Fluent gives back as `{key}`. A key missing in another locale Fluent silently
+    // takes from the default one, which "declares the same keys in every locale" in locale.spec.ts
+    // catches.
     it("has a translated description for the command menu", async function () {
         const fluent = await createFluent(path.join(process.cwd(), "src", "telegram"));
         const { descriptionKey } = new BulkMessagesCommand(logger);

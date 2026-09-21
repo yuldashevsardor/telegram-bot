@@ -26,7 +26,7 @@ function commandUpdate(text: string): Update {
 }
 
 describe("StartCommand", function () {
-    // Апдейт идёт через setup(), как в Bot: команда должна откликнуться на своё имя.
+    // The update goes through setup(), as in Bot: the command has to answer to its own name.
     it("enters the start conversation with the update context on /start", async function () {
         const entered: Context[] = [];
         const startConversation = {
@@ -44,9 +44,10 @@ describe("StartCommand", function () {
         expect(entered[0]).to.equal(ctx);
     });
 
-    // Описание в меню команд Bot берёт переводом descriptionKey; ключ без перевода Fluent отдал бы как «{ключ}».
-    // Недостающий в другой локали ключ Fluent молча берёт из дефолтной, его ловит «declares the same keys
-    // in every locale» в locale.spec.ts.
+    // Bot takes the description for the command menu by translating descriptionKey; a key without
+    // a translation Fluent gives back as `{key}`. A key missing in another locale Fluent silently
+    // takes from the default one, which "declares the same keys in every locale" in locale.spec.ts
+    // catches.
     it("has a translated description for the command menu", async function () {
         const fluent = await createFluent(path.join(process.cwd(), "src", "telegram"));
         const { descriptionKey } = new StartCommand({} as StartConversation);

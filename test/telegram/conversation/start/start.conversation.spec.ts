@@ -53,7 +53,7 @@ async function run(convertorFactory: ConvertorFactory, nextMessage: Partial<Mess
 }
 
 describe("StartConversation", function () {
-    // Bot.setup() регистрирует разговор в плагине под его именем, а без имени плагин отказывает.
+    // Bot.setup() registers the conversation in the plugin under its name, and without a name the plugin refuses.
     it("registers in the conversations plugin under its name", function () {
         const handler = new StartConversation(buildConvertorFactory());
 

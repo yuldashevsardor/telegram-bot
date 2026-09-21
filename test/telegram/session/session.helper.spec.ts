@@ -27,8 +27,8 @@ describe("initialPayload", function () {
         expect(initialPayload()).to.deep.equal({ requestCount: 0 });
     });
 
-    // session() зовёт initial на каждую новую сессию: общий объект раздал бы
-    // requestCount одного пользователя всем остальным.
+    // session() calls initial for every new session: a shared object would hand the requestCount
+    // of one user to everyone else.
     it("returns a fresh object on every call", function () {
         const payload = initialPayload();
         payload.requestCount = 7;
