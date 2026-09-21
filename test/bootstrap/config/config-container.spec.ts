@@ -139,16 +139,16 @@ async function signalled(storage: FakeWatchableStorage): Promise<void> {
     await sleep(0);
 }
 
-// Ждёт число чтений, а не предикат по нему: у монотонного счётчика строгое равенство ложно и при
+// Ждёт число событий, а не предикат по нему: у монотонного счётчика строгое равенство ложно и при
 // переборе, поэтому предикат досидел бы дедлайн и назвал лишнюю пересборку пропавшей. Разбор
 // формы — у waitForSignals в test/bootstrap/config/storage/config-file-storage.spec.ts.
-async function waitForCount(counter: () => number, expected: number): Promise<void> {
+async function waitForCount(counter: () => number, expected: number, subject: string): Promise<void> {
     const deadline = Date.now() + 1000;
     let actual = counter();
 
     while (actual !== expected) {
         if (actual > expected || Date.now() > deadline) {
-            expect(actual).to.equal(expected, "unexpected number of reads from the storage");
+            expect(actual).to.equal(expected, `unexpected number of ${subject}`);
         }
 
         await sleep(1);
@@ -161,7 +161,7 @@ async function waitFor(done: () => boolean): Promise<void> {
 
     while (!done()) {
         if (Date.now() > deadline) {
-            expect.fail("the rebuild did not happen in time");
+            expect.fail("the listener failure was not reported in time");
         }
 
         await sleep(1);
@@ -606,7 +606,7 @@ describe("ConfigContainer", () => {
             storage.signal();
 
             release();
-            await waitForCount(() => storage.loads - loadsAfterInit, 2);
+            await waitForCount(() => storage.loads - loadsAfterInit, 2, "reads from the storage");
             await sleep(0);
 
             expect(storage.loads - loadsAfterInit).to.equal(2);
