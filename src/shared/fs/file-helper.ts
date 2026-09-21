@@ -59,7 +59,7 @@ export class FileHelper {
         }
 
         const dateTime = dayjs();
-        // Months are counted from 0
+        // dayjs counts months from 0, hence the +1
         const month = dateTime.month() + 1;
 
         const pathWithYear = path.join(basePath, dateTime.year().toString());

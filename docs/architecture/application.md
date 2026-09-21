@@ -206,7 +206,7 @@ waits for the one under way (step 2), and both `exit(0)` fall at the end of it.
    `gracefulStop()` and `bootstrap()` come to `fail()` with one error, the first call ends the
    process synchronously — one `critical`, code 1.
 4. `shutdown()`, if the application is running:
-   - `Bot.stop()` — if the runner is still working, `runner.stop()` within
+   - `Bot.stop()` — if the grammY runner is still working, its `stop()` within
      `BOT_GRACEFUL_SHUTDOWN_TIMEOUT`, and a `warning` if it did not make it. The source of updates
      is closed, there are no new `getUpdates`; the updates already handed to the pipeline,
      however, are not waited for by `stop()` — they play out in parallel with the remaining steps,
