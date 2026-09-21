@@ -1,7 +1,7 @@
 ---
 name: pr-light-check
 description: Лёгкое ревью Pull Request — механический прогон проверок репозитория по переданным гейтам, дрейф документации в изменённых строках и соответствие issue, с вердиктом и комментарием в PR. Запускается командой /review-pr, а также скиллом pr-deep-review как его механическая часть. Не для обычной работы над кодом и не для проверки незакоммиченных правок.
-allowed-tools: Bash(gh:*), Bash(git:*), Bash(make db-up), Bash(make rebuild), Bash(make build), Bash(make typecheck), Bash(make coverage), Bash(make lint), Bash(make format-check), Bash(make mutation:*), Bash(make help), Bash(make token-status), Bash(make -n:*), Bash(sh -n:*), Bash(docker run:*), Bash(docker compose -f docker-compose.app.yml down --rmi local --volumes), Bash(scripts/bot-token.sh), Bash(cd:*), Bash(ls:*), Bash(cp:*), Bash(grep:*), Bash(awk:*), Read, Grep, Glob, Write
+allowed-tools: Bash(gh:*), Bash(git:*), Bash(make db-up), Bash(make rebuild), Bash(make build), Bash(make typecheck), Bash(make coverage), Bash(make lint), Bash(make format-check), Bash(make mutation:*), Bash(make help), Bash(make token-status), Bash(make -n:*), Bash(sh -n:*), Bash(docker run:*), Bash(docker compose -f docker-compose.app.yml down --rmi local --volumes), Bash(scripts/bot-token.sh), Bash(cd:*), Bash(ls:*), Bash(cp:*), Bash(touch mutation-dirty-probe), Bash(rm mutation-dirty-probe), Bash(grep:*), Bash(awk:*), Read, Grep, Glob, Write
 ---
 
 Ты запускаешь проверки репозитория по коду Pull Request и решаешь, можно ли его вливать.
@@ -191,19 +191,27 @@ GNU make — строки с `$(MAKE)`: их он выполняет и под `
 исполняется настоящий рецепт, а печатает он посчитанные значения за секунду.
 
 ```bash
-make mutation DC_APP_RUN=echo | tail -1                      # MUTATION_DIRTY=0
+# чистое дерево — MUTATION_DIRTY=0
+make mutation DC_APP_RUN=echo | grep '^env MUTATION_HEAD='
+# один неотслеживаемый файл — на единицу больше
 touch mutation-dirty-probe
-make mutation DC_APP_RUN=echo | tail -1                      # MUTATION_DIRTY=1
+make mutation DC_APP_RUN=echo | grep '^env MUTATION_HEAD='
 rm mutation-dirty-probe
-GIT_DIR=/nonexistent make mutation DC_APP_RUN=echo | tail -1 # MUTATION_DIRTY=unknown
+# git не отвечает — MUTATION_DIRTY=unknown, а не число
+make mutation DC_APP_RUN=echo GIT_DIR=/nonexistent | grep '^env MUTATION_HEAD='
 ```
 
-Ожидаемое — в комментариях: на чистом дереве 0, с одним неотслеживаемым файлом 1, при отказе
-`git` — `unknown`, а не число. Не совпало — гейт `fail`: подстановка считает не то, что уходит
-в запись. `MUTATION_HEAD` в третьей строке пустеет вместе с `dirty`, и это ожидаемо — по пустому
+Ожидаемое — в комментариях: на свежем checkout первая проба даёт 0, вторая ровно на единицу
+больше, третья — `unknown`. Не совпало — гейт `fail`: подстановка считает не то, что уходит
+в запись. `MUTATION_HEAD` в последней пробе пустеет вместе с `dirty`, и это ожидаемо — по пустому
 head обёртка сама ставит `clean=unknown` (`docs/architecture/testing.md`, «Запись прогона»).
-Пробный файл не отслеживается и убирается следующей строкой, диф PR от него не меняется;
-каталог `reports` цель создаёт и без прогона, он в `.gitignore`.
+
+Форма команд разобрана, менять её на более привычную не надо. `grep` берёт исполненную строку:
+рецепт make печатает и сам себя, а в его тексте `MUTATION_DIRTY="$dirty"` ещё не раскрыт. `GIT_DIR`
+передан переменной make, а не префиксом шелла: командные переменные make кладёт в окружение
+рецепта, и в этой форме команда начинается с `make mutation` — то есть покрыта `allowed-tools`
+скилла, как и остальные пробы. Пробный файл не отслеживается и убирается следующей строкой, диф PR
+от него не меняется; каталог `reports` цель создаёт и без прогона, он в `.gitignore`.
 
 ### scripts
 
