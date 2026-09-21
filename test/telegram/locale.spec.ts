@@ -20,9 +20,10 @@ const ATTRIBUTE_LINE = /^\s+\.([a-zA-Z][\w-]*) *=/;
 
 // How a key gets into the code: ctx.t("key") and a command's descriptionKey. The parsing is
 // crude, over the text of the source: a key assembled from anything but a string literal
-// will not get here. Both expressions are held to a single line — a class that lets a
-// newline through drags the match to the first assignment further down the file and
-// substitutes a foreign line as the key.
+// will not get here. The `\n` in DESCRIPTION_KEY is what holds it to a single line: without
+// it the abstract declaration (`descriptionKey: string;` in command.ts) would drag the match
+// to the first assignment further down the file and register a foreign string as the key.
+// TRANSLATE_CALL needs no such class — a double-quoted literal does not span lines.
 const TRANSLATE_CALL = /\.t\("([^"]+)"/g;
 const DESCRIPTION_KEY = /descriptionKey[^=\n]*= *"([^"]+)"/g;
 

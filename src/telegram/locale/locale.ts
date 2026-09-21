@@ -47,7 +47,7 @@ export async function createFluent(localeDir: string): Promise<Fluent> {
     const fluent = new Fluent();
 
     for (const [locale, localeFiles] of filesByLocale) {
-        // A locale without files Fluent would swallow, and its users would silently end up
+        // Fluent would swallow a locale without files, and its users would silently end up
         // in the default one; in build/ that is how every `.ftl` goes missing at once.
         if (localeFiles.length === 0) {
             throw MissingLocaleBundle.byLocale(locale, localeDir);
@@ -81,8 +81,8 @@ export async function createFluent(localeDir: string): Promise<Fluent> {
 // parsed bundles, and on replay returns it as an empty shell (the `Set` of bundles and the
 // `Map` of messages collapse into `{}` on serialization).
 // The plugin does not make the property name configurable, so it is replaced entirely:
-// parsing the `.ftl` and translating stay with `@moebius/fluent`, and of the plugin three
-// lines without `fluent` are repeated here.
+// parsing the `.ftl` and translating stay with `@moebius/fluent`, and only three lines of
+// the plugin, the ones without `fluent`, are repeated here.
 // The instance lies in the context as a function: functions the conversations plugin does
 // not clone but restores bound to the live context, so `getFluent()` works on replay too,
 // inside a conversation. `ctx.t` lives there by the same mechanism.
