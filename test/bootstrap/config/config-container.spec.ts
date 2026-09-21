@@ -130,6 +130,8 @@ function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const waitLimit = 1000;
+
 // Пересборку по сигналу дождаться промисом нельзя: колбэк наблюдателя ничего не возвращает.
 // Поэтому спека ждёт прокрутки очереди задач — к сроку таймера пересборка на фейковом источнике
 // (его load() не уходит за пределы процесса) уже закончена вместе с рассылкой.
@@ -143,7 +145,7 @@ async function signalled(storage: FakeWatchableStorage): Promise<void> {
 // переборе, поэтому предикат досидел бы дедлайн и назвал лишнюю пересборку пропавшей. Разбор
 // формы — у waitForSignals в test/bootstrap/config/storage/config-file-storage.spec.ts.
 async function waitForCount(counter: () => number, expected: number, subject: string): Promise<void> {
-    const deadline = Date.now() + 1000;
+    const deadline = Date.now() + waitLimit;
     let actual = counter();
 
     while (actual !== expected) {
@@ -157,11 +159,11 @@ async function waitForCount(counter: () => number, expected: number, subject: st
 }
 
 async function waitFor(done: () => boolean): Promise<void> {
-    const deadline = Date.now() + 1000;
+    const deadline = Date.now() + waitLimit;
 
     while (!done()) {
         if (Date.now() > deadline) {
-            expect.fail("the listener failure was not reported in time");
+            expect.fail(`the condition is not met within ${waitLimit} ms`);
         }
 
         await sleep(1);
