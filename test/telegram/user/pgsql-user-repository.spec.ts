@@ -21,7 +21,8 @@ describe("PgSqlUserRepository", function () {
 
     before(async function () {
         const env = await new ConfigEnvStorage().load();
-        // The config requires BOT_TOKEN while the spec needs only the database: without the substitution it would depend on the token in .env.
+        // The config requires BOT_TOKEN while the spec needs only the database: without
+        // the substitution it would depend on the token in .env.
         const settings = new ConfigValuesBuilder().build({ ...env, BOT_TOKEN: "test-token" }).database;
 
         database = new Database({ ...settings, database: testDatabaseName() }, false);
