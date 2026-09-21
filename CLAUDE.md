@@ -56,7 +56,11 @@ Telegram, `User`, PostgreSQL и остальная инфраструктура 
   задача в работе.
 - Одна ветка/PR — одна задача. Перед commit — `git status -sb`. В `main` напрямую не
   коммитить: ветка защищена на GitHub.
-- Документация, issues и комментарии — на русском; идентификаторы кода не переводятся.
+- Language: repository files, GitHub texts (issue bodies, PR descriptions, review and PR
+  comments) and commit messages are English; code identifiers are not translated. A session
+  conversation with the owner stays Russian. `src/**/locale/*.ru.ftl` is the bot's own speech,
+  product content, and stands outside this rule. Russian text still in the repository is a
+  leftover, not a violation: #385 translates it area by area.
 
 ## Команды
 
@@ -106,9 +110,9 @@ Telegram, `User`, PostgreSQL и остальная инфраструктура 
 (комментарии к PR и issues, ответы на inline-ревью, тела issue), заканчивается строкой:
 
 ```
-_🤖 Опубликовано Claude Code от аккаунта владельца · [сессия](<ссылка на сессию>)_
+_🤖 Posted by Claude Code from the owner's account · [session](<session link>)_
 ```
 
 Ссылка — та же, что в трейлере `Claude-Session` коммита. Ссылки нет — подпись без неё:
-`_🤖 Опубликовано Claude Code от аккаунта владельца._`
+`_🤖 Posted by Claude Code from the owner's account._`
 Описания PR и сообщения коммитов подписи не требуют: у них своя пометка.

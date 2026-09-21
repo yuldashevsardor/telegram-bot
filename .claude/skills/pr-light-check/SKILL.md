@@ -508,9 +508,11 @@ gh issue view <M> --json number,title,body,labels
   По правилу репозитория одна ветка — одна логически цельная задача; посторонние изменения
   в том же PR — основание для `REQUEST_CHANGES`.
 
-Проверь заодно: `baseRefName` должен быть `main`. Если диф трогает `CLAUDE.md`, `docs/**`,
-`README.md` или добавляет новый документ — текст обязан быть на русском, идентификаторы
-кода остаются в оригинале.
+Проверь заодно: `baseRefName` должен быть `main`.
+
+If the diff touches `CLAUDE.md`, `docs/**`, `README.md` or adds a new document, the lines it
+writes must be English; code identifiers stay as they are. Russian outside the changed lines is
+a leftover, not a finding: #385 translates it area by area.
 
 ## Шаг 5. Вердикт
 
@@ -558,7 +560,7 @@ sh -n <скрипт>: ok/fail (+ dash: ok/fail/n-a)
 ### Итог
 <1–3 предложения: можно вливать, или что именно чинить>
 
-_🤖 Опубликовано Claude Code от аккаунта владельца · [сессия](<ссылка на сессию>)_
+_🤖 Posted by Claude Code from the owner's account · [session](<session link>)_
 
 <!-- pr-light-check run=<K> head=<sha> -->
 ```
@@ -569,7 +571,7 @@ _🤖 Опубликовано Claude Code от аккаунта владель�
 
 Подпись обязательна: вердикт уходит от аккаунта владельца и без неё читается как написанный
 им (см. «Подпись агента на GitHub» в `CLAUDE.md`). Ссылки на сессию нет — оставь
-`_🤖 Опубликовано Claude Code от аккаунта владельца._`
+`_🤖 Posted by Claude Code from the owner's account._`
 
 Маркер — последняя строка, ровно в этом виде и без отступа: по нему следующий прогон считает
 свой номер. Подпись идёт перед ним: маркер в ленте не виден и подписью не работает.

@@ -155,8 +155,9 @@ gh pr diff <N> | grep -nE '^\+.*(BOT_TOKEN|SECRET|PASSWORD|_KEY)\s*=\s*\S'
 заготовка `migrate-create` (`template-file-name` в `migrate.json`): её не исполняла ни одна
 база (`docs/architecture/storage.md`), её `M` — не находка.
 
-Отдельно, без команды: если диф трогает `CLAUDE.md`, `docs/**`, `README.md` или добавляет
-новый документ — текст обязан быть на русском, идентификаторы кода остаются в оригинале.
+Without a command, separately: if the diff touches `CLAUDE.md`, `docs/**`, `README.md` or adds
+a new document, the lines it writes must be English; code identifiers stay as they are. Russian
+outside the changed lines is a leftover, not a finding: #385 translates it area by area.
 
 ### Документация, которую диф оставил позади (гейт `docs-sync`)
 
@@ -295,14 +296,14 @@ sh -n <скрипт>: ok/fail (+ dash: ok/fail/n-a)
 <1–3 предложения: что нужно сделать автору>
 <если прогон не первый — отдельной строкой: что изменилось с прогона #<K-1> или что код тот же>
 
-_🤖 Опубликовано Claude Code от аккаунта владельца · [сессия](<ссылка на сессию>)_
+_🤖 Posted by Claude Code from the owner's account · [session](<session link>)_
 
 <!-- pr-deep-review run=<K> head=<sha> -->
 ```
 
 Подпись обязательна: вердикт уходит от аккаунта владельца и без неё читается как написанный
 им (см. «Подпись агента на GitHub» в `CLAUDE.md`). Ссылки на сессию нет — оставь
-`_🤖 Опубликовано Claude Code от аккаунта владельца._`
+`_🤖 Posted by Claude Code from the owner's account._`
 
 Маркер — последняя строка, ровно в этом виде и без отступа: по нему следующий прогон считает
 свой номер. Без него нумерация сломается. Подпись идёт перед ним: маркер в ленте не виден
