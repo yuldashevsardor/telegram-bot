@@ -62,7 +62,10 @@ case "${1:-}" in
         dir=$(existing_dir "$cwd")
         notes=""
         if main=$(in_main_tree "$dir"); then
-            branch=$(git -C "$dir" branch --show-current 2>/dev/null || printf 'detached HEAD')
+            # Detached HEAD виден по пустому выводу, а не по коду выхода: git branch
+            # --show-current в этом состоянии завершается успешно и печатает пустую строку.
+            branch=$(git -C "$dir" branch --show-current 2>/dev/null) || branch=""
+            [ -n "$branch" ] || branch="detached HEAD"
             notes=$(printf '%s' \
                 "Сессия запущена в основном рабочем дереве $main (ветка $branch). " \
                 "По правилу CLAUDE.md задача ведётся в своём git worktree, и создать его нужно " \
