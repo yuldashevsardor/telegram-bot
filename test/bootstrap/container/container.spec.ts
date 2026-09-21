@@ -29,8 +29,9 @@ describe("Container", () => {
         }
     });
 
-    // Резолв без внешних ресурсов: postgres() не подключается до первого запроса, а grammY
-    // не ходит в сеть до init(). Что он ловит и чего нет — docs/architecture/application.md, «DI».
+    // A resolve with no external resources: postgres() does not connect before the first query, and
+    // grammY does not go to the network before init(). What it catches and what it does not —
+    // docs/architecture/application.md, "DI".
     for (const { path, token } of collectTokens(Tokens)) {
         it(`resolves Tokens.${path.join(".")}`, () => {
             expect(container.get(token)).to.not.equal(undefined);
@@ -43,7 +44,8 @@ describe("Container", () => {
         expect(container.getAll(Tokens.Platform.Database)).to.have.lengthOf(1);
     });
 
-    // Закрытый пул postgres отвергает запрос сразу, не выходя в сеть (handler() в index.js пакета).
+    // A closed postgres pool refuses a query at once, without going to the network (handler() in the
+    // index.js of the package).
     it("closes the database pool", async () => {
         const closable = new Container();
         await closable.setup();
@@ -61,8 +63,8 @@ describe("Container", () => {
         expect(error).to.have.property("code", "CONNECTION_ENDED");
     });
 
-    // Утверждения нет, проверка — сам отказ: без раннего выхода close() резолвил бы Database
-    // из пустого контейнера и падал «No matching bindings found».
+    // There is no assertion, the check is the failure itself: without the early return close() would
+    // resolve Database from an empty container and fail with "No matching bindings found".
     it("does nothing when closed before setup", async () => {
         await new Container().close();
     });

@@ -16,8 +16,9 @@ describe("Tokens", () => {
         }
     });
 
-    // Сверка выше пропускает склейку, совпавшую у двух разных путей (пример — в шапке
-    // shared/tokens.ts): оба символа ключены своим путём, но это один символ.
+    // The check above lets through a joined string that came out the same for two different paths
+    // (an example is in the head of shared/tokens.ts): both symbols are keyed by their own path, and
+    // yet it is one symbol.
     it("gives every symbol its own string", () => {
         const keys = collectTokens(Tokens).map(({ token }) => Symbol.keyFor(token));
 

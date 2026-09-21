@@ -41,9 +41,10 @@ describe("withTimeout", () => {
         }
     });
 
-    // Неснятый таймер держит цикл событий до срока. Шаг — уже выполненный промис, поэтому между
-    // замерами идут одни микрозадачи и чужой таймер сработать не успевает. Свой таймер на тест
-    // mocha заводит, когда тест вернул промис (callFn в mocha/lib/runnable.js), — отсюда первый await.
+    // A timer that was not cleared holds the event loop until its deadline. The step is a promise
+    // already settled, so between the measurements there are only microtasks and no other timer has
+    // time to fire. Mocha starts a timer of its own for a test once the test has returned a promise
+    // (callFn in mocha/lib/runnable.js) — hence the first await.
     it("clears its timer once the step has finished", async () => {
         await Promise.resolve();
         const before = activeTimers();

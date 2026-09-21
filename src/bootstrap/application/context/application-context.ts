@@ -19,36 +19,40 @@ type Parts = {
     requestContext: RequestContext;
 };
 
-// Состав того, что приложению нужно всегда: эти объекты существуют до контейнера, потому что
-// собрать его без них нельзя. Список намеренно короткий и держится таким: контекст знают
-// только Application и Container.setup(), а потребители получают его части из контейнера —
-// иначе инжектить начнут сам контекст, и он станет вторым DI.
+// What the application always needs: these objects exist before the container, because it cannot
+// be assembled without them. The list is deliberately short and is kept that way: the context is
+// known only to Application and Container.setup(), while the consumers get its parts from the
+// container — otherwise the context itself would start being injected, and it would become a
+// second DI.
 //
-// Класс статический целиком: части лежат на нём, а не в экземпляре, который вызвавший create()
-// обязан не потерять. Потерянную ссылку на объект восстановить было бы нечем — собранный
-// логгер и хранилище остались бы в процессе без единого входа к ним.
+// The class is static through and through: the parts lie on it rather than in an instance that
+// whoever called create() must not lose. A lost reference to an object would be impossible to
+// recover — the assembled logger and storage would stay in the process with no entrance to them.
 export class ApplicationContext {
-    // Опрос наблюдаемого файла, мс. Держится здесь, а не в ConfigValuesBuilder: обе переменные
-    // файла нужны раньше собранной конфигурации.
+    // The polling of the watched file, ms. Kept here rather than in ConfigValuesBuilder: both
+    // variables of the file are needed before the assembled configuration.
     private static readonly DEFAULT_WATCH_INTERVAL = 2000;
     private static readonly MIN_WATCH_INTERVAL = 100;
     private static readonly DEFAULT_CONFIG_FILE = ".runtime.env";
 
-    // Одно значение, а не поле на часть: собран ли контекст, create() и геттеры решают по одной
-    // проверке, и контекста, собранного наполовину, тип не допускает.
+    // One value rather than a field per part: whether the context is assembled is decided by
+    // create() and by the getters with one check, and a half-assembled context is not allowed by the
+    // type.
     private static parts: Parts | null = null;
     private static creating: Promise<void> | null = null;
 
-    // Контекст один на процесс: второй сломал бы корреляцию молча — у него своё хранилище
-    // запроса, и логгер читал бы не тот стор, который открыл middleware. Поэтому повторный
-    // create() не ошибка, а та же сборка: вызов посреди неё ждёт её, а не начинает вторую, —
-    // конфиг собирается асинхронно, и одна проверка готовых частей пропустила бы оба вызова.
+    // There is one context per process: a second one would break correlation silently — it would
+    // have a request storage of its own, and the logger would read a store other than the one the
+    // middleware opened. That is why a repeated create() is not an error but the same assembly: a
+    // call in the middle of it waits for that one instead of starting a second — the config is
+    // assembled asynchronously, and a single check of the ready parts would let both calls through.
     //
-    // Промис живёт, только пока сборка идёт, и забывается при любом исходе: упавшая сборка не
-    // мешает следующему create() начать с нуля, а собран ли контекст, create() решает по тем же
-    // частям, что и геттеры. Держись промис и после сборки, признаков готовности стало бы два, и
-    // сброшенный контекст (так его сбрасывают спеки) create() не пересобрал бы, а геттеры
-    // отвергли бы.
+    // The promise lives only while the assembly is under way and is forgotten whatever the outcome:
+    // an assembly that failed does not stop the next create() from starting from scratch, and
+    // whether the context is assembled create() decides by the same parts the getters use. Were the
+    // promise to be kept after the assembly as well, there would be two signs of readiness, and a
+    // context that has been reset (that is how the specs reset it) would be neither reassembled by
+    // create() nor served by the getters.
     public static create(): Promise<void> {
         if (ApplicationContext.parts !== null) {
             return Promise.resolve();
@@ -83,15 +87,16 @@ export class ApplicationContext {
         return ApplicationContext.parts;
     }
 
-    // Конфиг раньше логгера: из него берётся и адаптер, и порог. Поэтому ошибка конфигурации
-    // случается до появления логгера, и печатает её fail() своим фолбэком через console.error.
+    // The config before the logger: the adapter and the threshold both come from it. So an error of
+    // the configuration happens before there is a logger, and it is printed by fail() through its
+    // console.error fallback.
     private static async assemble(): Promise<void> {
         const cc = new ConfigContainer<ConfigValues>(ApplicationContext.createStorage(), new ConfigValuesBuilder());
         await cc.init();
 
-        // Наблюдение завёл init(), а контекст заполняется ниже: упади сборка между ними,
-        // опрос остался бы работать и стал бы недостижим — ссылки на контейнер нигде нет, и
-        // остановка приложения до него не дошла бы.
+        // Watching was switched on by init(), while the context is filled below: were the assembly
+        // to fail between them, the poll would stay running and become unreachable — there is no
+        // reference to the container anywhere, and the stop of the application would not get to it.
         try {
             ApplicationContext.fill(cc);
         } catch (error) {
@@ -107,39 +112,41 @@ export class ApplicationContext {
 
         ApplicationContext.parts = { cc: cc, logger: logger, requestContext: requestContext };
 
-        // Отказ пересборки пишет логгер: у самой конфигурации логгера нет, она собирается
-        // раньше него. Наблюдение включил уже init(), но окна без адресата это не создаёт:
-        // отсюда и до подписки код синхронный, а колбэк наблюдателя ждёт своей задачи в
-        // очереди. Гасит наблюдение остановка приложения (`Application.terminate()`):
-        // оставленный опрос пересобирал бы конфигурацию уже закрывающегося приложения.
+        // A failed rebuild is written by the logger: the configuration itself has no logger, it is
+        // assembled before one. Watching was switched on by init() already, but that opens no window
+        // without an addressee: from here up to the subscription the code is synchronous, and the
+        // callback of the watcher waits for its task in the queue. Watching is switched off by the
+        // stop of the application (`Application.terminate()`): a poll left behind would rebuild the
+        // configuration of an application that is already closing.
         cc.onError((error: unknown): void => {
             logger.error("Config reload failed, the previous values are kept.", { cause: error });
         });
     }
 
-    // Путь файла и интервал его опроса нужны раньше собранной конфигурации, поэтому читаются из
-    // окружения: снимок для ConfigParser — это и есть process.env. Именно окружение, а не .env:
-    // dotenv.config() зовёт ConfigEnvStorage.load() уже внутри init(), то есть позже. В
-    // поддерживаемом запуске это одно и то же — переменные из .env кладёт в окружение Compose
-    // (env_file), — а вне его обе задают переменными процесса.
+    // The path of the file and the interval of its polling are needed before the assembled
+    // configuration, so they are read from the environment: the snapshot for ConfigParser is
+    // process.env itself. The environment and not .env: dotenv.config() is called by
+    // ConfigEnvStorage.load() inside init(), that is later. In the supported way of running they are
+    // the same thing — the variables from .env are put into the environment by Compose (env_file) —
+    // and outside it both are set as variables of the process.
     private static createStorage(): ConfigStorage {
         const parser = new ConfigParser({ ...process.env });
 
         return new ConfigFileStorage(
             new ConfigEnvStorage(),
             parser.getString("CONFIG_FILE_PATH", path.join(process.cwd(), ApplicationContext.DEFAULT_CONFIG_FILE)),
-            // Нижняя граница — не единица: опрос дешёвый, но не бесплатный (stat на каждый виток),
-            // а конфигурацию не правят чаще, чем раз в десятую долю секунды. Недопустимое значение
-            // валит старт, а не превращается в умолчание — молча ускоренный опрос выглядит как
-            // работающий.
+            // The lower bound is not one: polling is cheap but not free (a stat on every turn), and
+            // configuration is not edited more often than once a tenth of a second. A value that is
+            // not allowed fails the start instead of turning into the default — polling silently sped
+            // up looks like polling that works.
             parser.getTimerDelay("CONFIG_FILE_WATCH_INTERVAL", ApplicationContext.DEFAULT_WATCH_INTERVAL, {
                 min: ApplicationContext.MIN_WATCH_INTERVAL,
             }),
         );
     }
 
-    // Логгер один на процесс: значения запроса он берёт из RequestContext в момент записи,
-    // поэтому подменять сам объект под запрос не требуется.
+    // There is one logger per process: it takes the values of the request from RequestContext at the
+    // moment of the write, so there is no need to swap the object itself per request.
     private static createLogger(cc: CC, requestContext: RequestContext): Logger {
         const logger = cc.get("isProduction") ? new PinoLogger(requestContext) : new ConsoleLogger(requestContext);
         logger.setLevel(cc.get("logger.level"));

@@ -1,15 +1,16 @@
-// Единый словарь токенов DI. Лежит в shared/, а не в bootstrap/container/: за именем
-// собственной зависимости ни один модуль не должен ходить в чужой модуль — раньше из-за этого
-// домен импортировал реестры инфраструктуры.
+// The single dictionary of DI tokens. It lies in shared/ and not in bootstrap/container/: no module
+// should go to another module for the name of its own dependency — that is what used to make the
+// domain import the registries of the infrastructure.
 //
-// Строка внутри Symbol.for — глобальный ключ процесса: одинаковая строка в разных ветках
-// даст один и тот же символ, и второй bind под ним свалит резолв «Ambiguous match».
-// Поэтому строка — полный путь в словаре без разделителей: Tokens.Font.Envelope.Packer →
-// "FontEnvelopePacker". Путь уникален в объекте, значит, и строка: склейка совпадёт, только
-// если одно имя разбить на ветки двумя способами (Bot.UserService рядом с Bot.User.Service).
-// С таким правилом Symbol() ничего не добавил бы: второй загрузки словаря в процессе нет,
-// а уникальность строк уже держит путь. Сверку строки с путём и попарное несовпадение строк
-// делает test/shared/tokens.spec.ts.
+// The string inside Symbol.for is a global key of the process: the same string in different branches
+// gives one and the same symbol, and a second bind under it fails the resolve with "Ambiguous
+// match". That is why the string is the full path in the dictionary with no separators:
+// Tokens.Font.Envelope.Packer → "FontEnvelopePacker". A path is unique in the object, so the string
+// is unique too: two joined paths coincide only if one name is split into branches in two ways
+// (Bot.UserService next to Bot.User.Service). With such a rule Symbol() would add nothing: the
+// dictionary is not loaded twice in a process, and the uniqueness of the strings is already held by
+// the path. The string is checked against the path, and the strings against each other, by
+// test/shared/tokens.spec.ts.
 export const Tokens = {
     Bootstrap: {
         ConfigContainer: Symbol.for("BootstrapConfigContainer"),
@@ -19,9 +20,9 @@ export const Tokens = {
     Platform: {
         Database: Symbol.for("PlatformDatabase"),
     },
-    // Ветки внутри Font названы понятиями предметной области (CONTEXT.md): «Сигнатура
-    // формата», «Конверт», «Движок конвертации». Второй движок или второй кодек конверта
-    // лягут рядом со своим понятием, и ни один @inject от этого не поедет.
+    // The branches inside Font are named after the notions of the subject area (CONTEXT.md): the
+    // format signature, the envelope, the conversion engine. A second engine or a second codec of the
+    // envelope will lie next to its own notion, and not a single @inject will move because of it.
     Font: {
         Convertor: {
             Convertor: Symbol.for("FontConvertorConvertor"),

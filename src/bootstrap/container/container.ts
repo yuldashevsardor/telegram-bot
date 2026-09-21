@@ -37,9 +37,9 @@ import { StartConversation } from "app/telegram/conversation/start/start.convers
 export class Container extends InversifyContainer {
     private alreadySetup = false;
 
-    // Контекст собран до контейнера, поэтому всё, что связывается ниже, уже может
-    // рассчитывать на его части. Дальше сам контекст нигде не фигурирует — потребители
-    // берут части из контейнера по отдельности.
+    // The context is assembled before the container, so everything bound below can already count on
+    // its parts. Beyond that the context itself appears nowhere — the consumers take the parts from
+    // the container one by one.
     public async setup(): Promise<void> {
         if (this.alreadySetup) {
             return;
@@ -60,7 +60,7 @@ export class Container extends InversifyContainer {
 
         await this.get<Database>(Tokens.Platform.Database).close();
 
-        // Stryker disable next-line BooleanLiteral: `true` — расходится только на повторном close(), где sql.end() отдаёт тот же промис завершения, и на setup() после close(), который не работает при обоих значениях: контейнер одноразовый
+        // Stryker disable next-line BooleanLiteral: `true` differs only on a repeated close(), where sql.end() hands back the same promise of completion, and on a setup() after close(), which does not work with either value: the container is single-use
         this.alreadySetup = false;
     }
 

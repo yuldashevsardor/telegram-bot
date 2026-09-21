@@ -10,16 +10,16 @@ async function bootstrap(): Promise<void> {
     await application.run();
 }
 
-// Единственное место с прямым console.*, и решение принимается здесь, а не по вызову:
-// fail() обслуживает и падение конфигурации (оно случается до появления логгера), и
-// unhandledRejection с uncaughtException — а те приходят уже при живом контексте, и
-// уровня с requestId лишаться не должны.
+// The only place with a direct console.*, and the decision is taken here rather than at the call
+// site: fail() serves both a failure of the configuration (which happens before there is a logger)
+// and unhandledRejection with uncaughtException — and those arrive with the context alive, and
+// must not lose the level and the requestId.
 function fail(error: unknown): never {
     try {
         ApplicationContext.getLogger().critical("Fatal error, application is terminated.", { cause: error });
     } catch (loggerError) {
         if (!(loggerError instanceof ApplicationContextIsNotCreated)) {
-            // Логгер есть, но запись не удалась: иначе причина молчания осталась бы неизвестной.
+            // There is a logger, but the write failed: otherwise the reason for the silence would stay unknown.
             // eslint-disable-next-line no-console
             console.error(loggerError);
         }

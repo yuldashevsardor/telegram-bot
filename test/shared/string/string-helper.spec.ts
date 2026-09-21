@@ -34,9 +34,9 @@ describe("StringHelper.generateRandomString", function () {
         expect(StringHelper.generateRandomString(15)).to.match(/^[A-Za-z0-9]{15}$/);
     });
 
-    // Проверка выше пропустит и урезанный алфавит: строка из одних цифр ей тоже подходит.
-    // Здесь каждый вызов Math.random попадает в середину очередного символа алфавита, и
-    // строка в 62 символа перебирает его целиком.
+    // The check above would let a truncated alphabet through as well: a string of digits alone suits
+    // it too. Here every call of Math.random lands in the middle of the next character of the
+    // alphabet, and a string of 62 characters walks through the whole of it.
     it("draws on every latin letter in both cases and every digit", function () {
         const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
         let draw = 0;

@@ -8,13 +8,13 @@ export class RuntimeError extends Error {
         let payload: UnknownObject | undefined;
 
         if (payloadOrCause instanceof Error) {
-            // Исходная ошибка живёт в стандартном cause, а не в payload: так её видят
-            // и сериализаторы логов, и обычный вывод Error.
+            // The original error lives in the standard cause and not in payload: that way both the
+            // log serializers and the ordinary output of Error see it.
             super(message, { cause: payloadOrCause });
         } else if (payloadOrCause?.["cause"] instanceof Error) {
-            // Исходную ошибку из payload убираем: сериализаторы логов защищаются только
-            // от циклов (повтор ищут вдоль текущей ветки обхода), поэтому одну и ту же
-            // ошибку по путям payload.cause и cause они развернули бы в запись дважды.
+            // The original error is taken out of payload: the log serializers guard only against
+            // cycles (they look for a repeat along the current branch of the walk), so one and the
+            // same error would be expanded into the record twice, by payload.cause and by cause.
             const { cause, ...rest } = payloadOrCause;
 
             super(message, { cause: cause });

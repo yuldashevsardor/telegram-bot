@@ -16,8 +16,8 @@ import {
     WriteFailed,
 } from "app/shared/fs/file-helper.errors";
 
-// Права проверяет access(2), а root проходит его при любых битах: тесты с chmod рассчитаны
-// на непривилегированного пользователя, как node в Dockerfile.
+// The permissions are checked by access(2), and root passes it whatever the bits are: the tests
+// with chmod count on an unprivileged user, like node in the Dockerfile.
 async function withMode(target: string, mode: number, check: () => Promise<void>): Promise<void> {
     const { mode: original } = await fs.stat(target);
     await fs.chmod(target, mode);
@@ -29,8 +29,9 @@ async function withMode(target: string, mode: number, check: () => Promise<void>
     }
 }
 
-// Вызов, который не бросил, падает сообщением «call did not throw»: брошенный внутри try,
-// AssertionError поймал бы собственный catch, и отказ читался бы как ошибка не того класса.
+// A call that did not throw fails with the message "call did not throw": thrown inside a try, the
+// AssertionError would be caught by the catch of that same try, and the failure would read as an
+// error of the wrong class.
 function rejectionOf(call: () => Promise<unknown>): Promise<unknown> {
     return call().then(
         () => expect.fail("call did not throw"),
@@ -38,7 +39,8 @@ function rejectionOf(call: () => Promise<unknown>): Promise<unknown> {
     );
 }
 
-// Спеки идут в образе на Linux, где открытые дескрипторы процесса перечислены в /proc/self/fd.
+// The specs run in the image on Linux, where the open descriptors of the process are listed in
+// /proc/self/fd.
 async function openDescriptors(): Promise<number> {
     return (await fs.readdir("/proc/self/fd")).length;
 }
@@ -103,7 +105,7 @@ describe("FileHelper.createDirectoriesByDate", function () {
         const createdPath = await FileHelper.createDirectoriesByDate(basePath);
         const after = dayjs();
 
-        // Два ожидаемых пути, потому что прогон может пересечь полночь.
+        // Two expected paths, because a run may cross midnight.
         expect([expectedPath(before), expectedPath(after)]).to.include(createdPath);
         expect(await FileHelper.isDirectory(createdPath)).to.be.true;
     });
@@ -113,7 +115,7 @@ describe("FileHelper.createDirectoriesByDate", function () {
         const second = await FileHelper.createDirectoriesByDate(basePath);
         const after = dayjs();
 
-        // Второй вызов мог пересечь полночь и завести соседний день.
+        // The second call may have crossed midnight and created the neighbouring day.
         expect([first, expectedPath(after)]).to.include(second);
     });
 
@@ -184,7 +186,7 @@ describe("FileHelper.readHead", function () {
     });
 
     it("wraps an error that comes after the file was opened", async function () {
-        // Каталог открывается на чтение, а падает уже само чтение (EISDIR).
+        // A directory opens for reading, and it is the read itself that fails (EISDIR).
         const error = await rejectionOf(() => FileHelper.readHead(basePath, 4));
 
         expect(error).to.be.instanceOf(ReadFailed);
@@ -205,7 +207,7 @@ describe("FileHelper.readHead", function () {
     it("closes the file when the read fails after it was opened", async function () {
         const before = await openDescriptors();
 
-        // Каталог открывается на чтение, а падает уже само чтение (EISDIR).
+        // A directory opens for reading, and it is the read itself that fails (EISDIR).
         await rejectionOf(() => FileHelper.readHead(basePath, 4));
 
         expect(await openDescriptors()).to.equal(before);
@@ -240,10 +242,10 @@ describe("FileHelper.findFilesByExtensions", function () {
         expect(await FileHelper.findFilesByExtensions(basePath, ["ftl"])).to.deep.equal([path.join(basePath, "a.ftl")]);
     });
 
-    // Локали собираются из всех .ftl каталога (createFluent), и скрытый ._start.locale.en.ftl —
-    // файл метаданных, который macOS кладёт рядом на чужой файловой системе, — ушёл бы в бандл en.
-    // Скрытых два: проверка скрытого имени регуляркой с флагом g, как в tiny-glob, пропускает
-    // второе подряд.
+    // The locales are collected from every .ftl of the directory (createFluent), and a hidden
+    // ._start.locale.en.ftl — the metadata file macOS puts next to a file on a foreign file system —
+    // would go into the en bundle. There are two hidden ones: a check of a hidden name by a regular
+    // expression with the g flag, as in tiny-glob, lets the second one in a row through.
     it("skips hidden files", async function () {
         for (const name of ["._start.locale.en.ftl", "._start.locale.ru.ftl", "start.locale.en.ftl"]) {
             await fs.writeFile(path.join(basePath, name), Uint8Array.from([1]));
@@ -252,8 +254,9 @@ describe("FileHelper.findFilesByExtensions", function () {
         expect(await FileHelper.findFilesByExtensions(basePath, ["ftl"])).to.deep.equal([path.join(basePath, "start.locale.en.ftl")]);
     });
 
-    // Кэш типов между вызовами, как в tiny-glob, с ключом по пути относительно каталога поиска
-    // спустил бы второй вызов в файл как в каталог (ENOTDIR) и вернул бы каталог вместо файла.
+    // A cache of the types between calls, as in tiny-glob, keyed by the path relative to the
+    // directory of the search, would send the second call into a file as into a directory (ENOTDIR)
+    // and hand back a directory instead of a file.
     it("does not carry file types over from a previous call", async function () {
         const first = path.join(basePath, "first");
         const second = path.join(basePath, "second");
@@ -292,8 +295,8 @@ describe("FileHelper.read, write and remove", function () {
     });
 
     it("writes only the part of the buffer it was given", async function () {
-        // Кодек отдаёт на запись не самостоятельный буфер, а окно в чужом: там лежит
-        // шрифт, вынутый из конверта.
+        // What the codec hands over to be written is not a buffer of its own but a window into
+        // somebody else's: in it lies the font taken out of the envelope.
         const filePath = path.join(basePath, "window.bin");
         await FileHelper.write(filePath, Uint8Array.from([1, 2, 3, 4, 5]).subarray(2));
 
@@ -353,9 +356,9 @@ describe("ReadFailed, WriteFailed and RemoveFailed", function () {
         it(`${name} keeps a caught value that is not an Error under cause in the payload`, function () {
             const error = build("/x/y", "EACCES");
 
-            // Ключ от типа не зависит, глубина зависит: RuntimeError поднимает в нативный
-            // cause только Error, поэтому строка остаётся в payload — и сообщение берётся
-            // запасное, взять его у пойманного значения не у чего.
+            // The key does not depend on the type, the depth does: RuntimeError raises only an Error
+            // into the native cause, so the string stays in payload — and the message taken is the
+            // fallback, there being nothing to take it from in the caught value.
             expect(error.message).to.equal(fallback);
             expect(error.cause).to.be.undefined;
             expect(error.payload).to.deep.equal({ path: "/x/y", cause: "EACCES" });
@@ -364,8 +367,9 @@ describe("ReadFailed, WriteFailed and RemoveFailed", function () {
 });
 
 describe("PermissionDenied, InvalidPath, InvalidFile and InvalidExtensions", function () {
-    // Фабрики проверяются напрямую: FileHelper бросает не все, а спеки выше сверяют отказ с
-    // ошибкой той же фабрики, и её сообщение и payload там сравниваются сами с собой.
+    // The factories are checked directly: FileHelper throws only some of them, and the specs above
+    // compare a failure with an error of that same factory, so its message and payload are compared
+    // with themselves there.
     const cases = [
         {
             name: "PermissionDenied.read",
