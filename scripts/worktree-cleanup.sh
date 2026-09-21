@@ -109,8 +109,8 @@ printf 'убрано: дерево %s, ветка %s: %s, %s\n' "$root" "$branch
 # отказ ни привёл сюда: один merge доехал бы до ссылки, полученной ещё во время уборки, —
 # то самое устаревание, от которого стоит fetch ниже. Начинается она с cd по причине из
 # комментария у таких же подсказок выше.
-retry="Подтяните main из основного дерева — уборка дерева задачи при этом уже сделана:
-    cd $main && git fetch origin main && git merge --ff-only origin/main"
+retry="Устраните причину и подтяните main из основного дерева — уборка дерева задачи при этом уже сделана:
+    cd '$main' && git fetch origin main && git merge --ff-only origin/main"
 
 current=$(git branch --show-current) || current=""
 if [ "$current" != "main" ]; then
