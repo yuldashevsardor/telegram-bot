@@ -11,6 +11,8 @@
 set -eu
 
 COMPOSE_FILE="docker-compose.app.yml"
+# Своя ссылка для подтягивания main в основном дереве — причина у самого fetch ниже.
+CLEANUP_REF="refs/worktree-cleanup/main"
 
 die() {
     printf '%s\n' "$*" >&2
@@ -132,14 +134,24 @@ if [ "$current" != "main" ]; then
 # слитости, и этой строкой лежат снос образа, удаление дерева, локальной ветки и ветки на
 # origin — десятки секунд, за которые соседняя сессия успевает влить свой PR. По устаревшей
 # ссылке мерж сообщил бы об успехе, оставив main позади.
-elif ! git fetch --quiet origin main; then
-    printf 'main в %s не подтянут: git fetch origin main отказал, причина выше.\n%s\n' "$main" "$retry" >&2
-elif git merge --ff-only --quiet origin/main; then
-    printf 'main в %s подтянут до origin/main\n' "$main"
+# Идёт он в свою ссылку, а не в origin/main: каталог refs/remotes у всех деревьев
+# репозитория общий, и соседняя сессия, делающая свой fetch в этот же момент, держит
+# origin/main на запись. Тогда объекты и FETCH_HEAD приезжают, а запись ссылки отказывает —
+# и подтягивание пропадало бы целиком из-за ссылки, которая мержу не нужна. Заодно --refmap=:
+# без него origin/main обновляется попутно, чем бы ни была названа ссылка назначения, и
+# отказ возвращается вместе с этим обновлением.
+# Ссылка переписывается каждым прогоном (`+` в refspec) и потому не удаляется: удаление —
+# ещё одна команда после необратимой уборки, а копится от неё ровно одна ссылка.
+elif ! git fetch --quiet --refmap= origin "+refs/heads/main:$CLEANUP_REF"; then
+    printf 'main в %s не подтянут: git fetch отказал, причина выше.\n%s\n' "$main" "$retry" >&2
+elif git merge --ff-only --quiet "$CLEANUP_REF"; then
+    # «до main на origin», а не «до origin/main»: локальная origin/main как раз могла
+    # остаться непереписанной — её и не спрашивали.
+    printf 'main в %s подтянут до main на origin\n' "$main"
 else
     # В stderr, как die() и как сам git: иначе «причина выше» обещает строку, которой в
     # прочитанном потоке нет.
-    printf 'main в %s не подтянут: git merge --ff-only origin/main отказал, причина выше.\n%s\n' "$main" "$retry" >&2
+    printf 'main в %s не подтянут: git merge --ff-only отказал, причина выше.\n%s\n' "$main" "$retry" >&2
 fi
 
 printf "текущий каталог сессии удалён — перейдите в основное дерево: cd '%s'\n" "$main"
