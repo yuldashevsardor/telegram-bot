@@ -23,15 +23,23 @@ function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitFor(done: () => boolean, timeout = 1000): Promise<void> {
+// Ждёт число сигналов, а не предикат по нему: счётчик сигналов только растёт, поэтому перебор
+// делает строгое равенство ложным навсегда, и ожидание кончается тем же дедлайном, что и
+// недостача. Сообщение про несостоявшийся сигнал обвиняло бы тогда наблюдателя в пропаже, хотя
+// сигналов было больше, чем ждали, и искать пошли бы не туда. Отсюда сравнение чисел: и текст, и
+// напечатанные рядом фактическое с ожидаемым верны в обе стороны. Про время текст молчит: перебор
+// дедлайна не ждёт — счётчик его уже не отыграет, и диагноз готов сразу.
+async function waitForSignals(signals: () => number, expected: number, timeout = 1000): Promise<void> {
     const deadline = Date.now() + timeout;
+    let actual = signals();
 
-    while (!done()) {
-        if (Date.now() > deadline) {
-            expect.fail("the storage did not report the change in time");
+    while (actual !== expected) {
+        if (actual > expected || Date.now() > deadline) {
+            expect(actual).to.equal(expected, "the storage did not signal the expected number of changes");
         }
 
         await sleep(1);
+        actual = signals();
     }
 }
 
@@ -133,19 +141,19 @@ describe("ConfigFileStorage", () => {
         expect(signals).to.equal(0);
 
         await replace(filePath, "A=1\n");
-        await waitFor(() => signals === 1);
+        await waitForSignals(() => signals, 1);
 
         // Та же длина: изменение видно по времени правки, а не по размеру. Размер проверяется
         // после записи, потому что страховка change() — «не короче»: удлинённый при доработке
         // литерал прошёл бы её молча, уехав на проверку по размеру и оставив эту строку ложью.
         await change(filePath, "A=2\n");
         expect((await fs.stat(filePath)).size).to.equal(Buffer.byteLength("A=1\n"));
-        await waitFor(() => signals === 2);
+        await waitForSignals(() => signals, 2);
 
         expect((await watchable.load())["A"]).to.equal("2");
 
         await fs.rm(filePath);
-        await waitFor(() => signals === 3);
+        await waitForSignals(() => signals, 3);
 
         expect(await watchable.load()).to.deep.equal({});
     });
@@ -167,10 +175,10 @@ describe("ConfigFileStorage", () => {
         await sleep(INTERVAL * 4);
 
         await replace(filePath, "A=2\n");
-        await waitFor(() => signals === 1);
+        await waitForSignals(() => signals, 1);
 
         await change(filePath, "A=3\n");
-        await waitFor(() => signals === 2);
+        await waitForSignals(() => signals, 2);
 
         expect((await watchable.load())["A"]).to.equal("3");
     });
@@ -198,7 +206,7 @@ describe("ConfigFileStorage", () => {
 
         await change(filePath, "A=1234567890\n");
         await fs.utimes(filePath, time, time);
-        await waitFor(() => signals === 1, 4000);
+        await waitForSignals(() => signals, 1, 4000);
 
         expect((await watchable.load())["A"]).to.equal("1234567890");
     });
@@ -217,7 +225,7 @@ describe("ConfigFileStorage", () => {
 
         await sleep(INTERVAL * 4);
         await change(filePath, "A=2\n");
-        await waitFor(() => signals === 1);
+        await waitForSignals(() => signals, 1);
 
         watchable.unwatch();
         watchable.watch(() => {
@@ -226,7 +234,7 @@ describe("ConfigFileStorage", () => {
 
         await sleep(INTERVAL * 4);
         await change(filePath, "A=3\n");
-        await waitFor(() => signals === 2);
+        await waitForSignals(() => signals, 2);
     });
 
     it("stops reporting after unwatch()", async () => {
@@ -265,7 +273,7 @@ describe("ConfigFileStorage", () => {
 
         await sleep(INTERVAL * 4);
         await change(filePath, "A=2\n");
-        await waitFor(() => signals === 1);
+        await waitForSignals(() => signals, 1);
         await sleep(INTERVAL * 4);
 
         expect(signals).to.equal(1);
@@ -290,6 +298,6 @@ describe("ConfigFileStorage", () => {
         expect(() => idle.unwatch()).to.not.throw();
 
         await change(filePath, "A=2\n");
-        await waitFor(() => signals === 1);
+        await waitForSignals(() => signals, 1);
     });
 });
