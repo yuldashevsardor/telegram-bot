@@ -1,9 +1,9 @@
-# Хук ставит package.json#prepare при `npm install` на хосте, поэтому он есть только у
-# хостовой разработки. Node может быть не виден и там, где он установлен: hook-окружение
-# git минимально, и nvm в нём не инициализирован. Падать в таком случае нельзя — коммит
-# заблокировался бы у того, кто про хук даже не знает.
+# The hook is installed by package.json#prepare on `npm install` on the host, so it exists only in
+# host development. node can be invisible even where it is installed: git's hook environment is
+# minimal, and nvm is not initialised in it. Failing in that case is not an option — the commit
+# would be blocked for someone who does not even know about the hook.
 if ! command -v npx > /dev/null 2>&1; then
-    printf 'pre-commit: node на хосте недоступен, lint-staged пропущен — проверки за make check\n' >&2
+    printf 'pre-commit: node is not available on the host, lint-staged skipped — the checks are up to make check\n' >&2
     exit 0
 fi
 

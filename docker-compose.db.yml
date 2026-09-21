@@ -1,7 +1,7 @@
-# База данных: один экземпляр на машину, общий для всех рабочих деревьев.
-# Имя проекта фиксировано, чтобы повторный запуск из любого дерева попадал в тот же
-# контейнер, а не поднимал вторую базу. Данные лежат в ./tmp/pgsql, который в рабочем
-# дереве задачи является симлинком на tmp/pgsql основного дерева.
+# The database: one instance per machine, shared by every worktree.
+# The project name is fixed so that a repeated run from any worktree lands in the same container
+# instead of bringing up a second database. The data lies in ./tmp/pgsql, which in a task worktree
+# is a symlink to tmp/pgsql of the main worktree.
 name: telegram-bot-db
 
 services:
@@ -19,8 +19,9 @@ services:
         ports:
             - ${DATABASE_PORT}:5432
         volumes:
-            # postgres:18 хранит кластер в $PGDATA=/var/lib/postgresql/18/docker, а не в
-            # /var/lib/postgresql/data, как postgres:14, — монтируется родительский каталог.
+            # postgres:18 keeps the cluster in $PGDATA=/var/lib/postgresql/18/docker rather than
+            # in /var/lib/postgresql/data the way postgres:14 did — the parent directory is what is
+            # mounted.
             - ./tmp/pgsql:/var/lib/postgresql
             - ./docker/pgsql/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d:ro
         healthcheck:

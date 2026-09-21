@@ -26,7 +26,7 @@
 | любой `.ts` | `bug-hunt-high` |
 | `.sh` и ни одного `.ts` | `bug-hunt-medium` |
 | `.ts` внутри `src/font-convertor/`, `src/shared/`, `src/telegram/outbound-queue/` | `smells` |
-| `stryker.config.mjs`, `test/stryker-mocha-hook.cjs`, `test/mutation-record.ts`, `.mocharc.json`, `tsconfig.json`, `tsconfig.check.json` | `mutation-full` |
+| `stryker.config.mjs`, `test/stryker-mocha-hook.cjs`, `test/mutation-record.ts`, `.mocharc.json`, `tsconfig.json`, `tsconfig.check.json` — not a comments-only diff | `mutation-full` |
 | любой `.ts` в `src/` или `test/`, если `mutation-full` не включён | `mutation` |
 | любой `*.md`, включая `docs/**` и `.claude/**` | `docs` |
 
@@ -61,6 +61,23 @@
 по которому чекер типов решает, какой мутант получает `CompileError`, `MUTATE` из `files` и саму
 команду обёртки `node --require tsx/cjs test/mutation-record.ts`. Правка любого из них меняет
 исход по каждому мутанту — тот же довод, по которому в строке стоят тиконфиги.
+
+A diff of the files in the `mutation-full` row that changes only comments leaves the gate off: read
+the diff, as with `package.json` and the `Makefile` above. A comment is neither an option the runner
+reads nor an input of the type checker, and none of these files is mutated: `mutate` in
+`stryker.config.mjs` admits only globs that hit a `.ts` under `src/`, and checks it. So a comment
+changes the outcome of no mutant, while the gate costs the whole `src/` — minutes on every round.
+What still turns it on: a changed option, path, glob, argument or string literal; a hunk that
+touches a comment and code on the same line; a comment that is a tool directive, because
+`// @ts-expect-error`, `// eslint-disable` and `// Stryker disable` are inputs and not text. And
+comments only is a statement about the content of the diff, not about lines that look like comments:
+`.mocharc.json` and both tsconfigs are JSONC, and `"spec": "test/**/*.spec.ts"` carries `**` inside
+a string literal, so a grep for `//` or `*` decides nothing.
+
+Past this row the rule does not hold, which is why it stands here and not over the table as a whole:
+in `src/` a comment can be the mark `// Stryker disable next-line …` that silences a survivor
+(`docs/architecture/testing.md`, «Разбор выживших»), and a diff of that mark is exactly what the
+gate `mutation` has to see.
 
 `bug-hunt-*` и `smells` разведены намеренно, и границы у них разные. Баги ищутся везде, где
 есть исполняемый код: в `src/platform/`, `src/bootstrap/` и `src/telegram/` они дороже
