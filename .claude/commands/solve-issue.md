@@ -48,7 +48,7 @@ gh pr list --state open --search "<N> in:body" --json number,title,headRefName
 о выжившем мутанте автор узнаёт только от ревьюера, кругом. Область собирается по правилу гейта
 `mutation` (`.claude/skills/pr-light-check/SKILL.md`, «mutation и mutation-full»), только
 кандидатов даёт `git diff --name-only origin/main...HEAD`, а не диф PR, и передаётся путями, а не
-глобом. Правка задела инструменты прогона (гейт `mutation-full`, `docs/agents/review-gates.md`) —
+глобом. Правка включила гейт `mutation-full` (`docs/agents/review-gates.md`) —
 `make mutation` без `files`. В `make check` прогон не входит: там он шёл бы на каждой правке.
 
 Прогон оставляет запись — `reports/mutation/record.md`, формат в `docs/architecture/testing.md`,
