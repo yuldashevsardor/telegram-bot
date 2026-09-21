@@ -10,7 +10,7 @@ The glossary describes the subject area, not the layout of the code: class names
 
 **Font conversion**:
 The one and only task of the service: moving a font from one format into another. Its value is measured by the width of the pair matrix — how many formats it can move from into how many.
-_Avoid_: font-format conservation, format preservation, saving formats — a rejected name, and a decision rather than a matter of style: all of them also read as "writing the file to disk", which is not the task.
+_Avoid_: font-format conservation, format preservation, saving formats — a rejected name, and a decision rather than a matter of style. None of the three says that the font comes out in another format: they name keeping a format alive, and `saving` reads as writing the file to disk.
 
 **Conversion**:
 A single move of one font from a source format into a target format, producing a new file. Always one step: the source and the target format cannot be the same, and an intermediate format, if the move goes through one, is invisible from the outside and does not count as a conversion result.
