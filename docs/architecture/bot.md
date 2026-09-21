@@ -1,139 +1,143 @@
 # Bot
 
-`Bot` (`telegram/bot/bot.ts`) оборачивает `grammy.Bot<Context>` и знает только
-Telegram-слой. `Context` (`bot.types.ts`) — контекст grammY с флейворами сессии,
-разговоров и Fluent плюс `ctx.getUser()`; `FluentFlavor` (`locale.types.ts`) — свой,
-вместо флейвора плагина ([`i18n.md`](./i18n.md)).
+`Bot` (`telegram/bot/bot.ts`) wraps `grammy.Bot<Context>` and knows the Telegram layer only.
+`Context` (`bot.types.ts`) is the grammY context with the session, conversation and Fluent
+flavors plus `ctx.getUser()`; `FluentFlavor` (`locale.types.ts`) is our own, instead of the
+flavor of the plugin ([`i18n.md`](./i18n.md)).
 
-`Bot.setup()` собирает пайплайн строго в этом порядке, и в нём же апдейт от runner идёт
-сверху вниз: каждый шаг рассчитывает на то, что заполнили предыдущие. Каждый фильтр,
-middleware, разговор и команда внедряются в конструктор `Bot` отдельным `@inject`, а
-списки шагов 1-2, 5, 7 и 8 `Bot` собирает из этих полей сам: порядок в пайплайне — порядок
-в этих списках, а не в биндингах `container.ts`. Контейнер `Bot` не импортирует.
+`Bot.setup()` assembles the pipeline strictly in this order, and an update from the runner
+travels the same way, top to bottom: every step counts on what the previous ones filled in.
+Every filter, middleware, conversation and command is injected into the `Bot` constructor by
+a separate `@inject`, and the lists of steps 1-2, 5, 7 and 8 `Bot` builds out of those fields
+itself: the order in the pipeline is the order in those lists, not the order of the bindings
+in `container.ts`. `Bot` does not import the container.
 
-1. `HasSessionKeyFilter` — на входе сырой апдейт. Тем же `getSessionKey`, что и
-   `session()` ниже, отбрасывает апдейты без `from` или `chat`: сессии у них нет, а всё
-   ниже на неё рассчитывает. Цепочка обрывается без ошибки; ниже `ctx.from` и `ctx.chat`
-   заполнены. С заданным `allowed_updates` (ниже) такие апдейты уже не запрашиваются,
-   поэтому отброс здесь — редкость. Пишется он `warning`-ом сверх общей `debug` базового
-   `Filter`: ниже фильтра дампа апдейта ([`user.md`](./user.md)) уже не будет, поэтому
-   уровень выше. Логгер здесь ещё без `requestId` — `RequestContextMiddleware` стоит ниже
-   ([`logging.md`](./logging.md)), поэтому отброшенный апдейт по `requestId` не найти.
-2. `IsPrivateChatFilter` — всё ниже работает только в приватных чатах. Стоит вторым:
-   `ctx.chat` у него нет и у апдейтов без ключа сессии, а своей строки в логе он не
-   пишет — только общую `debug` базы, поэтому их должен раньше увидеть
-   `HasSessionKeyFilter` с его `warning`. Оба фильтра выше сессии: групповому апдейту
-   ключа сессии хватает, и шаг 4 завёл бы ему строку в `sessions` ещё до отброса
-   ([инвариант](./invariants.md)).
-3. `sequentialize()` по тому же `getSessionKey`, что и `session()` ниже, — сериализует
-   апдейты одной сессии, иначе конкурентный runner устроил бы гонку по сессии и по
-   check-then-act в `FillUserToContextMiddleware` ([`user.md`](./user.md)). Стоит выше
-   `session()`: тот не ленив — читает строку до `next()` и пишет после возврата, а слот
-   очереди освобождается внутри этого же `next()` ([инвариант](./invariants.md)). Апдейтов
-   без ключа, которые `sequentialize()` пропустил бы мимо очереди, сюда не доходит: их
-   отбросил шаг 1.
-4. `session()` — ключ `${from.id}:${chat.id}`, хранилище `PgsqlStorage` (таблица
-   `sessions`), payload `{ requestCount }`. Строка читается сразу (`read`), а после
-   возврата из цепочки пишется обратно upsert'ом (`write`) — если сессию читали или
-   меняли; новая считается изменённой с самого начала. Ошибка, брошенная ниже, до записи
-   не доходит. Ниже `ctx.session` заполнен.
+1. `HasSessionKeyFilter` — the raw update arrives here. With the same `getSessionKey` that
+   `session()` below gets, it drops updates without `from` or `chat`: those have no session,
+   and everything below counts on one. The chain breaks without an error; below it `ctx.from`
+   and `ctx.chat` are filled in. With `allowed_updates` set (see below) such updates are no
+   longer requested, so a drop here is rare. It is written as a `warning` on top of the common
+   `debug` of the base `Filter`: below the filter there will be no dump of the update
+   ([`user.md`](./user.md)) any more, so the level is higher. The logger here has no
+   `requestId` yet — `RequestContextMiddleware` stands lower ([`logging.md`](./logging.md)),
+   so a dropped update cannot be found by `requestId`.
+2. `IsPrivateChatFilter` — everything below works in private chats only. It stands second: it
+   has no `ctx.chat` for updates without a session key either, and it writes no line of its
+   own to the log — only the common `debug` of the base — so those updates have to be seen
+   first by `HasSessionKeyFilter` with its `warning`. Both filters are above the session: a
+   group update does have a session key, and step 4 would have created a `sessions` row for it
+   before the drop ([invariant](./invariants.md)).
+3. `sequentialize()` on the same `getSessionKey` as `session()` below — serializes the updates
+   of one session, otherwise the concurrent runner would race on the session and on the
+   check-then-act in `FillUserToContextMiddleware` ([`user.md`](./user.md)). It stands above
+   `session()`: that one is not lazy — it reads the row before `next()` and writes it after
+   the return, while the queue slot is released inside that very `next()`
+   ([invariant](./invariants.md)). Updates without a key, which `sequentialize()` would let
+   past the queue, never get here: step 1 dropped them.
+4. `session()` — key `${from.id}:${chat.id}`, storage `PgsqlStorage` (table `sessions`),
+   payload `{ requestCount }`. The row is read right away (`read`), and after the chain
+   returns it is written back with an upsert (`write`) — if the session was read or changed;
+   a new one counts as changed from the start. An error thrown below never reaches the write.
+   Below this point `ctx.session` is filled in.
 5. Middleware: `RequestContextMiddleware` → `TelegramCallApiMiddleware` →
    `ResponseTimeMiddleware` → `RequestLogMiddleware` → `FillUserToContextMiddleware`.
-   `RequestContextMiddleware` первый: всё, что логируется ниже, пишется с `requestId`
-   ([`logging.md`](./logging.md)). `ResponseTimeMiddleware` пишет `info` со временем
-   вокруг `next()` без `try/catch`, поэтому у упавшего апдейта строки времени не будет.
-   `RequestLogMiddleware` инкрементирует `requestCount` и дампит весь `ctx.update` на
-   `debug` ([`user.md`](./user.md)); из-за инкремента сессию трогают на каждом апдейте,
-   поэтому шаг 4 всегда пишет строку обратно. `FillUserToContextMiddleware` ошибок не
-   ловит и ниже себя оставляет `ctx.getUser()` ([`user.md`](./user.md)).
-6. Fluent ([`i18n.md`](./i18n.md)) — ниже заполнены `ctx.t` и `ctx.getFluent()`.
-7. `conversations()` + `createConversation` для каждого разговора из списка в
-   `Bot.setupConversations()`. Апдейт чата, который сейчас внутри разговора, уходит в
-   точку `wait()` и до шага 8 не доходит: `createConversation` зовёт `next()`, только если
-   разговор апдейт не забрал.
-8. Команды из списка в `Bot.setupCommands()`: `command.setup(composer)`, затем
-   `api.setMyCommands()` на каждую локаль ([`i18n.md`](./i18n.md)) — по сетевому вызову
-   при каждом старте. Последний шаг: апдейт, не подошедший ни одной команде, дальше не
-   делает ничего.
+   `RequestContextMiddleware` goes first: everything logged below is written with a
+   `requestId` ([`logging.md`](./logging.md)). `ResponseTimeMiddleware` writes an `info` with
+   the time around `next()` without a `try/catch`, so a failed update gets no timing line.
+   `RequestLogMiddleware` increments `requestCount` and dumps the whole `ctx.update` at
+   `debug` ([`user.md`](./user.md)); because of the increment the session is touched on every
+   update, so step 4 always writes the row back. `FillUserToContextMiddleware` catches no
+   errors and leaves `ctx.getUser()` below itself ([`user.md`](./user.md)).
+6. Fluent ([`i18n.md`](./i18n.md)) — below it `ctx.t` and `ctx.getFluent()` are filled in.
+7. `conversations()` plus a `createConversation` for every conversation in the list in
+   `Bot.setupConversations()`. An update of a chat that is inside a conversation right now
+   goes to the `wait()` point and never reaches step 8: `createConversation` calls `next()`
+   only if the conversation did not take the update.
+8. The commands from the list in `Bot.setupCommands()`: `command.setup(composer)`, then
+   `api.setMyCommands()` for every locale ([`i18n.md`](./i18n.md)) — a network call each, on
+   every start. The last step: an update that matched no command does nothing further.
 
-Один апдейт стоит базе: по `sessions` — `select` на входе и upsert после цепочки, если она
-не упала; по `users` — 1 `select` (`existsById`) у нового пользователя, 2 (`existsById` +
-`getById`) у существующего, плюс upsert ([`user.md`](./user.md)). Отброшенный на шагах 1-2
-апдейт не стоит ни одного запроса.
+One update costs the database: on `sessions` — a `select` on the way in and an upsert after
+the chain, if it did not fail; on `users` — 1 `select` (`existsById`) for a new user, 2
+(`existsById` + `getById`) for an existing one, plus an upsert ([`user.md`](./user.md)). An
+update dropped at steps 1-2 costs no query at all.
 
-`Bot.run()` вешает `grammy.catch(handleError)` — единственный перехватчик ошибок
-пайплайна: только `critical`-лог, пользователю ничего не отвечается, и признаков сбоя он
-не видит. Дальше запускается `run(grammy)` из `@grammyjs/runner` с
-`runner.fetch.allowed_updates = ["message"]` (константа `ALLOWED_UPDATES` в `bot.ts`):
-команды и `conversation.wait()` в приватных чатах питаются только сообщениями, а
-умолчание `getUpdates` притащило бы все прочие типы, которым пайплайн отвечает отбросом.
-Список перечисляет типы апдейта, а не содержимое сообщения: файл приходит тем же
-`message` с `document`, и приём шрифтов список не расширяет.
-Это не фильтр безопасности: список применяется на стороне Telegram, и после его смены
-накопленные апдейты старых типов ещё могут прийти — фильтры остаются на месте.
-`Bot.stop()` останавливает runner в пределах `BOT_GRACEFUL_SHUTDOWN_TIMEOUT`
+`Bot.run()` attaches `grammy.catch(handleError)` — the only interceptor of pipeline errors:
+a `critical` log and nothing more, the user is answered nothing and sees no sign of the
+failure. Then `run(grammy)` from `@grammyjs/runner` starts with
+`runner.fetch.allowed_updates = ["message"]` (the `ALLOWED_UPDATES` constant in `bot.ts`):
+commands and `conversation.wait()` in private chats feed on messages alone, while the
+`getUpdates` default would drag in every other type, to which the pipeline answers with a
+drop. The list enumerates update types, not the contents of a message: a file arrives as the
+same `message` with a `document`, and accepting fonts does not widen the list.
+This is not a security filter: the list is applied on the Telegram side, and after a change
+of it the accumulated updates of the old types can still arrive — the filters stay where they
+are.
+`Bot.stop()` stops the runner within `BOT_GRACEFUL_SHUTDOWN_TIMEOUT`
 ([`application.md`](./application.md)).
 
-`Command`, `Filter`, `Middleware` — абстрактные базы вида «`handle` + `setup(composer)`»;
-`ConversationHandler` себя не вешает: наследник реализует `run`, а его `handle`
-оборачивает `createConversation()` (шаг 7). `Filter.setup()` обрывает цепочку сам, вызывая
-`next()` только при истинном `handle()`: `composer.filter()` grammY для этого не годится —
-он не отбрасывает апдейт, а
-прячет за условием лишь то, что повешено на возвращённый им composer, и обе ветки его
-`branch` зовут `next()`. Пока `setup()` полагался на `filter()` и выбрасывал этот
-composer, ни один фильтр репозитория не отсекал ничего (тест
+`Command`, `Filter`, `Middleware` are abstract bases of the shape "`handle` +
+`setup(composer)`"; `ConversationHandler` does not attach itself: a subclass implements `run`,
+and its `handle` is wrapped by `createConversation()` (step 7). `Filter.setup()` breaks the
+chain itself, calling `next()` only when `handle()` is true: `composer.filter()` of grammY is
+no good for that — it does not drop the update, it only
+hides behind the condition what is attached to the composer it returns, and both branches of
+its `branch` call `next()`. While `setup()` relied on `filter()` and threw that composer away,
+not a single filter of the repository cut anything off (the test
 `test/telegram/filter/filter.spec.ts`).
 
-Отброс логирует сам `Filter`: строка `debug` с `constructor.name` фильтра и `update_id`.
-Поэтому `Logger` инжектится в базу, а не в наследников: решение об отбросе принимается в
-базе, и след о нём остаётся там же — иначе каждый новый фильтр отбрасывал бы молча, пока
-автор не заведёт себе логгер. Наследник с зависимостями передаёт логгер в `super()`, без
-зависимостей — не объявляет конструктор вовсе. Своя строка у фильтра остаётся, когда
-нужен другой уровень или детали: `HasSessionKeyFilter` пишет `warning` с тем, какого
-поля не хватило.
+The drop is logged by `Filter` itself: a `debug` line with the `constructor.name` of the
+filter and the `update_id`. That is why `Logger` is injected into the base and not into the
+subclasses: the decision to drop is taken in the base, and the trace of it stays there too —
+otherwise every new filter would drop silently until its author got it a logger. A subclass
+with dependencies passes the logger into `super()`; one without dependencies declares no
+constructor at all. A filter keeps a line of its own when a different level or extra details
+are needed: `HasSessionKeyFilter` writes a `warning` with the field that was missing.
 
 ## TelegramCallApiMiddleware
 
-`telegram/middleware/mutation/telegram-call-api.middleware.ts` подменяет `ctx.api.raw` на
-`Proxy`. Вызов с payload-объектом, содержащим `chat_id`, превращается в задачу `TaskQueue`
-(ключ — `chat_id`, приоритет `MEDIUM`, `priorityOnError: HIGH`); что при этом происходит
-с Promise вызывающей стороны — в [`outbound-queue.md`](./outbound-queue.md). Мимо очереди
-идут: payload создан не литералом (методы grammY такого не строят, и отправка файла тоже
-идёт через очередь), нет `chat_id`, `chat_id` не число, и методы из
-`TELEGRAM_NO_GROUP_RATE_LIMIT_SET` — только для групповых чатов.
+`telegram/middleware/mutation/telegram-call-api.middleware.ts` replaces `ctx.api.raw` with a
+`Proxy`. A call with a payload object that carries `chat_id` turns into a `TaskQueue` task
+(the key is `chat_id`, the priority `MEDIUM`, `priorityOnError: HIGH`); what happens to the
+promise of the caller meanwhile is in [`outbound-queue.md`](./outbound-queue.md). Past the
+queue go: a payload that is not built as a literal (the methods of grammY build nothing like
+that, and sending a file goes through the queue as well), no `chat_id`, a `chat_id` that is
+not a number, and the methods of `TELEGRAM_NO_GROUP_RATE_LIMIT_SET` — for group chats only.
 
-Аргументы вызова `Proxy` передаёт в оригинальный `raw` как пришли. Методы без параметров
-(`getMe`, `getWebhookInfo`) grammY зовёт без payload, одним `signal`, а пустой payload им
-подставляет сам оригинальный `raw` (`createRawApi` в `grammy/out/core/client.js`): свой,
-добавленный в подмене, занял бы место `signal` (тест
+The arguments of the call the `Proxy` passes to the original `raw` as they came. Methods
+without parameters (`getMe`, `getWebhookInfo`) grammY calls without a payload, with a `signal`
+alone, and the empty payload for them is supplied by the original `raw` itself (`createRawApi`
+in `grammy/out/core/client.js`): one of our own, added in the replacement, would have taken
+the place of the `signal` (the test
 `test/telegram/middleware/mutation/telegram-call-api.middleware.spec.ts`).
 
-grammY создаёт новый `Api` на каждый апдейт, поэтому обёртка не накапливается и не
-касается `bot.grammy.api`: код, вызывающий его напрямую (`BulkMessagesCommand`), кладёт
-задачу в очередь сам.
+grammY creates a new `Api` for every update, so the wrapper does not pile up and does not
+touch `bot.grammy.api`: the code that calls it directly (`BulkMessagesCommand`) pushes its
+task into the queue itself.
 
-## Команды
+## Commands
 
-`/start` — вход в разговор: `StartCommand.handle` зовёт `startConversation.enter(ctx)` →
-`ctx.conversation.enter("start")`. Дальше `StartConversation.run()` собирает приветствие
-`ctx.t("start-conversation-welcome", { formats })` ([`i18n.md`](./i18n.md)), отвечает им
-задачей через очередь ([`outbound-queue.md`](./outbound-queue.md)) и встаёт на
-`conversation.wait()`. На `wait()` выполнение приостанавливается; возобновит его следующий
-апдейт этого чата — вторым полным проходом пайплайна, включая upsert `users`. Текст этого
-апдейта уходит обратно эхом, а нетекстовый получает `start-conversation-not-text` —
-просьбу прислать текст; на этом разговор завершается. Состояние разговора плагин держит в
-той же сессии ([инвариант](./invariants.md)), поэтому порядок шага 3 защищает и его.
-Ошибок внутри `run()` никто не ловит.
+`/start` is the entrance to a conversation: `StartCommand.handle` calls
+`startConversation.enter(ctx)` → `ctx.conversation.enter("start")`. `StartConversation.run()`
+then builds the greeting `ctx.t("start-conversation-welcome", { formats })`
+([`i18n.md`](./i18n.md)), answers with it as a task through the queue
+([`outbound-queue.md`](./outbound-queue.md)) and stops at `conversation.wait()`. At `wait()`
+the execution is suspended; the next update of this chat resumes it — with a second full pass
+of the pipeline, the `users` upsert included. The text of that update is echoed back, while a
+non-text one gets `start-conversation-not-text`, a request to send text; at that point the
+conversation ends. The state of the conversation the plugin keeps in the same session
+([invariant](./invariants.md)), so the order of step 3 protects it as well. Nobody catches
+errors inside `run()`.
 
-`/font_generator` — отладочная конвертация фикстуры в четыре формата
-([`font-convertor.md`](./font-convertor.md)): до четырёх запусков `fontforge` на команду,
-файлы остаются на диске. Конвертации идут одна за другой, и ответ уходит после каждой;
-первая ошибка обрывает остаток и пользователю не видна.
+`/font_generator` — a debugging conversion of a fixture into four formats
+([`font-convertor.md`](./font-convertor.md)): up to four `fontforge` runs per command, and the
+files stay on disk. The conversions go one after another and an answer leaves after each of
+them; the first error cuts off the rest and is invisible to the user.
 
-`/bulk_messages` ([обзор](./README.md#обзор)) — 300 000 задач на три захардкоженных chat
-ID, видна в списке команд у всех. Задачу в `TaskQueue` она кладёт сама: зовёт
-`bot.grammy.api.sendMessage` напрямую, мимо подмены `ctx.api.raw`. Перед каждой
-постановкой дёргается `FileHelper.createDirectoriesByDate()` по пути машины автора,
-поэтому на любой другой машине до `push()` дело не доходит вовсе: `InvalidPath`,
-`Promise.all` реджектится, и `info` о постановке не пишется. `try/catch` в команде нет,
-reject уходит в `Bot.handleError`.
+`/bulk_messages` ([overview](./README.md)) — 300 000 tasks for three hardcoded chat IDs,
+visible in the command menu to everyone. It pushes the task into `TaskQueue` itself: it calls
+`bot.grammy.api.sendMessage` directly, past the replacement of `ctx.api.raw`. Before every
+push `FileHelper.createDirectoriesByDate()` is called on a path of the author's machine, so on
+any other machine it never gets as far as `push()` at all: `InvalidPath`, `Promise.all`
+rejects, and the `info` about the push is not written. There is no `try/catch` in the command,
+and the rejection goes to `Bot.handleError`.

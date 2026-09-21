@@ -14,7 +14,7 @@ describe("PgsqlStorage", function () {
 
     before(async function () {
         const env = await new ConfigEnvStorage().load();
-        // BOT_TOKEN конфиг требует, а спеке нужна только база: без подстановки она зависела бы от токена в .env.
+        // The config demands BOT_TOKEN while the spec needs only the database: without the stub it would depend on the token in .env.
         const settings = new ConfigValuesBuilder().build({ ...env, BOT_TOKEN: "test-token" }).database;
 
         database = new Database({ ...settings, database: testDatabaseName() }, false);
@@ -26,7 +26,7 @@ describe("PgsqlStorage", function () {
     });
 
     after(async function () {
-        // Упавший before не успевает присвоить database, и падение after заслонило бы его причину.
+        // A failed before never gets to assign database, and a failing after would hide the reason for it.
         await database?.close();
     });
 
@@ -34,8 +34,8 @@ describe("PgsqlStorage", function () {
         expect(await storage.read(KEY)).to.equal(undefined);
     });
 
-    // Вставка позиционная: колонку, добавленную миграцией перед value, payload занял бы
-    // вместо неё, и чтение вернуло бы null (docs/architecture/invariants.md).
+    // The insert is positional: a column added by a migration before value would be taken by the
+    // payload instead, and the read would give back null (docs/architecture/invariants.md).
     it("reads back the written payload", async function () {
         await storage.write(KEY, { requestCount: 1 });
 
@@ -49,8 +49,8 @@ describe("PgsqlStorage", function () {
         expect(await storage.read(KEY)).to.deep.equal({ requestCount: 2 });
     });
 
-    // now() — время начала транзакции, а у каждой записи она своя. Сравнивается в SQL:
-    // Date теряет микросекунды, и записи в одну миллисекунду сравнялись бы.
+    // now() is the start time of the transaction, and every write has its own. The comparison is
+    // done in SQL: Date loses microseconds, and writes within one millisecond would come out equal.
     it("moves updated_time on rewrite and keeps created_time", async function () {
         await storage.write(KEY, { requestCount: 1 });
 

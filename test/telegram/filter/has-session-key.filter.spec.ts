@@ -53,8 +53,8 @@ const cases: Case[] = [
         passes: false,
         payload: { updateId: 42, hasFrom: true, hasChat: false },
     },
-    // Нулевой id ложен, но ключ из него строится: проверка «на истинность» вместо
-    // «на undefined» разошлась бы с getSessionKey именно здесь.
+    // A zero id is falsy, yet a key is built from it: a check "for truthiness" instead of "for
+    // undefined" would part ways with getSessionKey exactly here.
     { name: "with zero ids", ctx: buildContext({ id: 0 }, { id: 0 }), passes: true },
 ];
 
@@ -79,8 +79,8 @@ describe("HasSessionKeyFilter", function () {
                 ]);
             });
 
-            // Фильтр стоит выше session() ради того, чтобы до неё не дошёл апдейт без
-            // ключа: отброшенное им обязано совпадать с тем, чему session() ключа не даст.
+            // The filter stands above session() so that an update without a key never reaches
+            // it: what the filter drops has to match what session() would give no key to.
             it("agrees with getSessionKey used by session()", function () {
                 expect(run(ctx).passed).to.equal(getSessionKey(ctx) !== undefined);
             });

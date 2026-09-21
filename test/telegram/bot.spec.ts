@@ -29,7 +29,7 @@ type Harness = {
     events: string[];
     logs: LogRecord[];
     calls: ApiCall[];
-    // Апдейты, которые отдаст следующий getUpdates; пустая очередь — long polling до отмены.
+    // The updates the next getUpdates gives back; an empty queue means long polling until cancelled.
     updates: Update[];
     onCommand: { hook: CommandHook };
 };
@@ -117,7 +117,7 @@ function buildLogger(logs: LogRecord[]): Logger {
     return { critical: write("critical"), error: write("error"), warning: write("warning"), info: write("info"), debug: write("debug") };
 }
 
-// Хранилище сессий в памяти, с копией значения, как у JSONB в PgsqlStorage.
+// An in-memory session storage that copies the value, the way JSONB does in PgsqlStorage.
 function buildStorage(events: string[]): StorageAdapter<SessionPayload> {
     const rows = new Map<string, string>();
 
@@ -138,8 +138,8 @@ function buildStorage(events: string[]): StorageAdapter<SessionPayload> {
     };
 }
 
-// Telegram подставляется transformer'ом клиента grammY: grammY создаёт Api апдейта с теми же
-// transformer'ами, что у bot.grammy.api, поэтому до сети не доходит ни один вызов.
+// Telegram is stubbed by a transformer of the grammY client: grammY builds the Api of an update
+// with the same transformers as bot.grammy.api has, so not a single call reaches the network.
 function useFakeTelegram(harness: Harness): void {
     const transformer: Transformer<RawApi> = async (_prev, method, payload, signal) => {
         harness.calls.push({ method: method, payload: payload as Record<string, unknown> });
@@ -328,7 +328,7 @@ describe("Bot", function () {
             ]);
         });
 
-        // Шаг 2 стоит выше session(): иначе групповой апдейт завёл бы строку в sessions ещё до отброса.
+        // Step 2 stands above session(): otherwise a group update would have created a row in sessions before being dropped.
         it("drops a group message before the session is read", async function () {
             const { bot, events } = await setUp();
 
@@ -337,8 +337,8 @@ describe("Bot", function () {
             expect(events).to.deep.equal(["HasSessionKeyFilter", "IsPrivateChatFilter"]);
         });
 
-        // IsPrivateChatFilter отбрасывает молча, поэтому апдейт без ключа сессии первым видит
-        // HasSessionKeyFilter со своим warning.
+        // IsPrivateChatFilter drops silently, so an update without a session key is seen first by
+        // HasSessionKeyFilter with its warning.
         it("drops an update without a session key before IsPrivateChatFilter sees it", async function () {
             const { bot, events, logs } = await setUp();
 
@@ -364,8 +364,8 @@ describe("Bot", function () {
             expect(translated).to.equal(fluent.withLocale("en")("start-command-description"));
         });
 
-        // sequentialize() выше session(): второй апдейт того же пользователя читает сессию
-        // только после того, как первый её записал, иначе он затёр бы состояние первого.
+        // sequentialize() above session(): the second update of the same user reads the session
+        // only after the first one has written it, otherwise it would wipe out the first one's state.
         it("reads the session of a user only after the previous update of this user has written it", async function () {
             const harness = await setUp();
             let release = (): void => undefined;
@@ -391,7 +391,7 @@ describe("Bot", function () {
             expect(reads[1]).to.be.greaterThan(writes[0] as number);
         });
 
-        // Шаг 7 выше шага 8: апдейт чата внутри разговора уходит в wait(), даже если это команда.
+        // Step 7 above step 8: an update of a chat inside a conversation goes to wait(), even when it is a command.
         it("hands the next update of a chat inside a conversation to the conversation, not to the commands", async function () {
             const harness = await setUp();
             harness.onCommand.hook = async (ctx: Context): Promise<void> => {
@@ -420,8 +420,8 @@ describe("Bot", function () {
             expect((caught as RuntimeError).message).to.equal("Bot is not set up!");
         });
 
-        // Список типов апдейта — ALLOWED_UPDATES в bot.ts: без него getUpdates притащил бы всё,
-        // что пайплайн потом отбросит.
+        // The list of update types is ALLOWED_UPDATES in bot.ts: without it getUpdates would drag
+        // in everything the pipeline then drops.
         it("polls only messages", async function () {
             const harness = await setUp();
 
@@ -497,7 +497,7 @@ describe("Bot", function () {
         describe("when getUpdates does not give way", function () {
             let release = (): void => undefined;
 
-            // Long polling, который не слушает отмену: runner не остановится, пока запрос не вернётся.
+            // Long polling that does not listen for cancellation: the runner will not stop until the request returns.
             async function runStuck(): Promise<Harness> {
                 const harness = await setUp();
                 const stuck = new Promise<void>((resolve) => {
@@ -539,7 +539,7 @@ describe("Bot", function () {
                 expect(harness.logs.map((log) => log.message)).to.include("Bot is successfully stopped.");
             });
 
-            // Повторный сигнал (SIGINT, затем SIGTERM) зовёт stop() второй раз, пока первый ещё ждёт.
+            // A repeated signal (SIGINT, then SIGTERM) calls stop() a second time while the first one is still waiting.
             it("does not wait again on a second stop while the first one is waiting", async function () {
                 const harness = await runStuck();
                 const finished: string[] = [];

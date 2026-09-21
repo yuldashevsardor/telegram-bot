@@ -11,8 +11,8 @@ import { Priority } from "app/telegram/outbound-queue/task";
 import { TaskQueue } from "app/telegram/outbound-queue/task-queue";
 import { DEFAULT_RETRY_AFTER_SECONDS } from "app/telegram/outbound-queue/telegram-error";
 
-// Общий слот и слот ключа освобождаются за 1 мс: темп выдачи здесь не проверяется и не должен
-// растягивать прогон.
+// The common slot and the slot of a key are released in 1 ms: the pace of giving out is not checked
+// here and must not stretch the run.
 const limit: Limit = { number: 1000, interval: 1000 };
 const settings: RunnerSettings = {
     sleepInterval: { min: 1, max: 5 },
@@ -21,8 +21,9 @@ const settings: RunnerSettings = {
 
 const DROPPED = "Task is dropped: retry limit is reached.";
 
-// Срок ожидания короче таймаута теста: невыполнимое условие иначе крутило бы цикл опроса и после
-// упавшего теста, и mocha без --exit не завершился бы.
+// The waiting deadline is shorter than the test timeout: otherwise a condition that can never be met
+// would keep the polling loop spinning after the test has failed, and mocha without --exit would not
+// finish.
 const waitLimit = 1000;
 
 type LogRecord = {
@@ -50,8 +51,8 @@ class RecordingLogger implements Logger {
     }
 }
 
-// Паузу очереди записывает, но не ставит: иначе цикл ждал бы её по-настоящему. Проверяется здесь
-// длительность, которую назначает Runner, а саму паузу закрепляет спека TaskQueue.
+// Records the pause of the queue but does not set it: otherwise the loop would really wait it out. What
+// is checked here is the duration Runner assigns; the pause itself is pinned by the TaskQueue spec.
 class RecordingQueue extends TaskQueue {
     public readonly bans: number[] = [];
     public readonly pushes: Array<{ task: Task; priority: Priority }> = [];
@@ -77,8 +78,8 @@ class RecordingQueue extends TaskQueue {
 describe("Runner", function () {
     this.timeout(2000);
 
-    // Незавершённый цикл держит событийный цикл живым, и mocha не вышел бы после прогона, поэтому
-    // каждый запущенный Runner гасится и при упавшем тесте.
+    // An unfinished loop keeps the event loop alive and mocha would not exit after the run, so every
+    // started Runner is stopped even when the test has failed.
     const started: Runner[] = [];
 
     function start(queue: TaskQueue, logger: Logger = new RecordingLogger(), runnerSettings: RunnerSettings = settings): Runner {
@@ -113,9 +114,9 @@ describe("Runner", function () {
     });
 
     it("sleeps on an empty queue and picks up a task pushed meanwhile once it wakes", async function () {
-        // Без сна задача вышла бы через миллисекунды после push(). Порог — половина сна, а не весь сон:
-        // setTimeout отсчитывает срок от времени, закэшированного циклом событий, и может сработать чуть
-        // раньше, чем показывает Date.now().
+        // Without the sleep the task would come out milliseconds after push(). The threshold is half the
+        // sleep rather than the whole of it: setTimeout counts its deadline from the time cached by the
+        // event loop and may fire slightly earlier than Date.now() shows.
         const sleep = 300;
         const queue = new RecordingQueue();
         const startedAt = Date.now();
@@ -284,14 +285,16 @@ function failingTask(key: PartitionKey, failure: unknown): Task {
     return task(key, () => Promise.reject(failure));
 }
 
-// Форма отказа Bot API, как её видит Runner: он смотрит только на поля, а не на класс ошибки.
+// The shape of a Bot API rejection as Runner sees it: it looks only at the fields, not at the class of
+// the error.
 function tooManyRequests(parameters?: UnknownObject): UnknownObject {
     return parameters === undefined ? { error_code: 429 } : { error_code: 429, parameters: parameters };
 }
 
-// Ждёт число событий, а не предикат по нему: у монотонного счётчика строгое равенство ложно и при
-// переборе, поэтому предикат досидел бы дедлайн и назвал перебор недостачей. Разбор формы — у
-// waitForSignals в test/bootstrap/config/storage/config-file-storage.spec.ts.
+// Waits for a number of events rather than for a predicate over it: with a monotonic counter strict
+// equality is false on an overshoot as well, so a predicate would sit out the deadline and report the
+// overshoot as a shortfall. The shape is explained at waitForSignals in
+// test/bootstrap/config/storage/config-file-storage.spec.ts.
 async function waitForCount(counter: () => number, expected: number, subject: string): Promise<void> {
     const deadline = Date.now() + waitLimit;
     let actual = counter();

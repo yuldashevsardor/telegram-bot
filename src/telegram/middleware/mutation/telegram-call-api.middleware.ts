@@ -18,7 +18,7 @@ const TELEGRAM_NO_GROUP_RATE_LIMIT_SET = new Set<string | symbol>([
     "sendChatAction",
 ]);
 
-// Методы без параметров grammY зовёт без payload: первым аргументом приходит signal или ничего.
+// grammY calls parameterless methods without a payload: the first argument is a signal or nothing.
 function isPayloadLiteral(value: unknown): value is RawApiPayload {
     return typeof value === "object" && value !== null && value.constructor.name === "Object";
 }
@@ -36,21 +36,23 @@ export class TelegramCallApiMiddleware extends Middleware {
     }
 
     private changeTelegramCallApi(api: Api): void {
-        // Сохраняем старый raw, что бы вызывать в брокере реально отправку
+        // The raw kept from before the replacement at the end of this method: the actual send has
+        // to go through it and not through api.raw, where the Proxy will sit by then — its get
+        // gives back callApi again, and the queue task would loop onto itself instead of sending.
         const originRaw = api.raw;
         const taskQueue = this.taskQueue;
 
-        // Готовим ProxyHandler, который будет ставить запросы в ТГ задачами в очередь
         const proxyHandler: ProxyHandler<RawApi> = {
             get: (_target, method) => {
                 return method === "toJSON" ? "__internal" : callApi.bind(api, method as RawApiMethod);
             },
         };
 
-        // Методы RawApi различаются типом payload, поэтому обращение по вычисляемому имени
-        // не типизируется без приведения: конкретный метод известен только в рантайме.
-        // Аргументы уходят в originRaw как пришли: пустой payload методу без параметров подставляет
-        // сам originRaw, и добавленный ещё и здесь занял бы место signal.
+        // The methods of RawApi differ in the type of their payload, so a lookup by a computed
+        // name does not type-check without a cast: the concrete method is known only at runtime.
+        // The arguments go to originRaw as they came: an empty payload for a parameterless method
+        // is supplied by originRaw itself, and one added here as well would take the place of the
+        // signal.
         function callRawApi(method: RawApiMethod, args: unknown[]): Promise<unknown> {
             const call = originRaw[method] as (...args: unknown[]) => Promise<unknown>;
 
@@ -70,13 +72,12 @@ export class TelegramCallApiMiddleware extends Middleware {
                 return callRawApi(method, args);
             }
 
-            // Это хак, который нужен для того что бы получить результат отправки сообщения через очереди.
-            // Создаем переменные для резолва и режекта promise
-            // Они будут вызваны после того как сообщения отправится успешно или ошибочно
+            // The caller needs the result of a call that will happen later, inside the queue
+            // task, so the resolve and the reject of its promise are hoisted here and called from
+            // the callback below once the send has succeeded or failed.
             let messageResolve!: (value: unknown) => void;
             let messageReject!: (reason: unknown) => void;
 
-            // Создаем сам promise, который и будем отдавать в ответе этой функции
             const promise = new Promise<unknown>((resolve, reject) => {
                 messageResolve = resolve;
                 messageReject = reject;
@@ -84,11 +85,11 @@ export class TelegramCallApiMiddleware extends Middleware {
 
             const callback = async (): Promise<void> => {
                 try {
-                    // Ждём фактический вызов: без await наружу ушёл бы ещё не завершённый promise,
-                    // и брокер не увидел бы отказа Telegram.
+                    // Await the actual call: without it an unsettled promise would leave this
+                    // scope and the broker would never see a refusal from Telegram.
                     messageResolve(await callRawApi(method, args));
                 } catch (error) {
-                    // Вызывающая сторона получает отказ сразу, брокер — ту же ошибку для бана и повтора.
+                    // The caller is refused at once, the broker gets the same error for the ban and the retry.
                     messageReject(error);
 
                     throw error;
@@ -104,11 +105,9 @@ export class TelegramCallApiMiddleware extends Middleware {
                 Priority.MEDIUM,
             );
 
-            // Возвращаем promise, у которого resolve или reject будут вызваны в методе callback
             return promise;
         }
 
-        // Подменяем RawApi через Proxy на его замену с очередью
         (api as unknown as { raw: RawApi }).raw = new Proxy(originRaw, proxyHandler);
     }
 }

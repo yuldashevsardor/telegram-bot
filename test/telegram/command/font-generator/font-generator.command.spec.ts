@@ -59,7 +59,7 @@ async function run(failOn?: { extension: Extension; error: Error }): Promise<Run
         debug: () => undefined,
     };
 
-    // Апдейт идёт через setup(), как в Bot: команда должна откликнуться на своё имя.
+    // The update goes through setup(), as in Bot: the command has to answer to its own name.
     const ctx = Object.assign(new GrammyContext(commandUpdate("/font_generator"), new Api("test-token"), ME), {
         t: (key: string, args?: Record<string, unknown>): string => `${key} ${String(args?.["path"])}`,
         reply: async (text: string): Promise<void> => {
@@ -97,7 +97,7 @@ describe("FontGeneratorCommand", function () {
         expect(new Set(originPaths)).to.deep.equal(new Set(["/root/test/fixtures/fonts/test-font.woff"]));
     });
 
-    // Ошибка пользователю не видна: команда отладочная, след остаётся только в логе.
+    // The error is invisible to the user: the command is a debugging one, the only trace is in the log.
     it("stops at the first failure and only logs it", async function () {
         const error = new Error("fontforge failed");
 
@@ -107,9 +107,10 @@ describe("FontGeneratorCommand", function () {
         expect(errors).to.deep.equal([{ message: "Font generation is failed.", payload: { cause: error } }]);
     });
 
-    // Описание в меню команд Bot берёт переводом descriptionKey; ключ без перевода Fluent отдал бы как «{ключ}».
-    // Недостающий в другой локали ключ Fluent молча берёт из дефолтной, его ловит «declares the same keys
-    // in every locale» в locale.spec.ts.
+    // Bot takes the description for the command menu by translating descriptionKey; a key without
+    // a translation Fluent gives back as `{key}`. A key missing in another locale Fluent silently
+    // takes from the default one, which "declares the same keys in every locale" in locale.spec.ts
+    // catches.
     it("has a translated description for the command menu", async function () {
         const fluent = await createFluent(path.join(process.cwd(), "src", "telegram"));
         const { descriptionKey } = new FontGeneratorCommand({} as FontConvertor, {} as Logger, "/root");

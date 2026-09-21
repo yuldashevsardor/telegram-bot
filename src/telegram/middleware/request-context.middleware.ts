@@ -14,10 +14,10 @@ export class RequestContextMiddleware extends Middleware {
         super();
     }
 
-    // Первый из middleware: всё, что логируется внутри цепочки, должно попасть в лог с
-    // requestId. Вне области данных запроса нет — ни в фильтрах, которые стоят выше
-    // middleware, ни в bot.catch, который вызывается уже после того, как промис пайплайна
-    // отклонён.
+    // The first of the middleware: everything logged inside the chain has to reach the log with
+    // a requestId. Outside the scope there is no request data — neither in the filters, which
+    // stand above the middleware, nor in bot.catch, which is called once the pipeline promise
+    // has already been rejected.
     public async handle(_context: Context, next: NextFunction): Promise<void> {
         return this.requestContext.run(next);
     }

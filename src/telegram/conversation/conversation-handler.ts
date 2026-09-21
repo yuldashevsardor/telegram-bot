@@ -9,8 +9,9 @@ export abstract class ConversationHandler {
         return ctx.conversation.enter(this.name);
     }
 
-    // Экземпляр один на весь процесс, а разговоры разных пользователей идут конкурентно:
-    // ctx и conversation ходят параметрами, чтобы их негде было перетереть чужому разговору.
+    // One instance for the whole process, while conversations of different users run
+    // concurrently: ctx and conversation travel as parameters so that another conversation has
+    // nowhere to overwrite them.
     public handle(conversation: Conversation, ctx: Context): Promise<void> {
         return this.run(conversation, ctx);
     }

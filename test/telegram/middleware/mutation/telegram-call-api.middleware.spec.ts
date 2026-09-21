@@ -17,8 +17,8 @@ type Setup = { api: Api; calls: RawCall[]; pushed: Pushed[]; passed: boolean };
 const PRIVATE_CHAT_ID = 111;
 const GROUP_CHAT_ID = -100111;
 
-// Ответ Telegram подставляется transformer'ом клиента grammY: до сети вызов не доходит, а
-// всё, что выше transformer'а, — настоящий Api.
+// The Telegram response is stubbed by a transformer of the grammY client: the call never reaches
+// the network, while everything above the transformer is the real Api.
 async function setup(fail = false): Promise<Setup> {
     const calls: RawCall[] = [];
     const pushed: Pushed[] = [];
@@ -80,7 +80,7 @@ describe("TelegramCallApiMiddleware", function () {
             ]);
         });
 
-        // Отказ получают обе стороны: вызывающая — сразу, брокер — для бана и повтора.
+        // Both sides are refused: the caller at once, the broker for the ban and the retry.
         it("rejects both the caller and the task with the Telegram failure", async function () {
             const { api, pushed } = await setup(true);
 
@@ -150,10 +150,10 @@ describe("TelegramCallApiMiddleware", function () {
             });
         }
 
-        // grammY зовёт такие методы одним signal, а пустой payload подставляет его собственный raw.
+        // grammY calls such methods with a signal alone, and the empty payload is supplied by its own raw.
         it("with the signal of a method without parameters in its place", async function () {
             const { api, calls } = await setup();
-            // AbortSignal в типах grammY — из шима abort-controller, с глобальным он не сходится.
+            // AbortSignal in the grammY types comes from the abort-controller shim and does not match the global one.
             const signal = new AbortController().signal as Parameters<Api["getMe"]>[0];
 
             await api.getMe(signal);
@@ -161,7 +161,7 @@ describe("TelegramCallApiMiddleware", function () {
             expect(calls).to.deep.equal([{ method: "getMe", payload: {}, signal: signal }]);
         });
 
-        // Методы grammY строят payload литералом; что построено иначе, в очередь не идёт.
+        // The methods of grammY build the payload as a literal; what is built otherwise does not go to the queue.
         it("with a payload that is not an object literal", async function () {
             class Payload {
                 public readonly chat_id = PRIVATE_CHAT_ID;
@@ -172,7 +172,7 @@ describe("TelegramCallApiMiddleware", function () {
         });
     });
 
-    // Сериализация ctx.api (например, в лог) не должна превращаться в вызов метода toJSON.
+    // Serializing ctx.api (into the log, for instance) must not turn into a call of a toJSON method.
     it("answers toJSON like the raw API of grammY, without a Telegram call", async function () {
         const { api, calls, pushed } = await setup();
 

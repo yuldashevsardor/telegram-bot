@@ -24,7 +24,7 @@
   флага; исключения из `no-console` разобраны в [`logging.md`](./logging.md).
 - Гейт перед PR — `make check`, тесты в нём идут с порогом покрытия (раздел «Покрытие»,
   «Порог»). Принудительно его не держит ничто: `pre-commit` — удобство хостовой разработки
-  (корневой [`README.md`](../../README.md), «Хук pre-commit»), CI пока не заведён (issue
+  (корневой [`README.md`](../../README.md), «The pre-commit hook»), CI пока не заведён (issue
   [#116](https://github.com/yuldashevsardor/telegram-bot/issues/116)).
 - `.claude/settings.json` вешает `scripts/claude-worktree-guard.sh` на старт сессии и на
   правку файла: правка в основном дереве отклоняется. Правки через shell хук не видит.

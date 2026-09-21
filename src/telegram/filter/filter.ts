@@ -6,16 +6,16 @@ import { Tokens } from "app/shared/tokens";
 
 @injectable()
 export abstract class Filter {
-    // Логгер в базе, а не в наследниках: решение об отбросе принимается здесь, значит и
-    // след о нём остаётся здесь — иначе каждый новый фильтр молчал бы, пока автор не
-    // вспомнит про логгер.
+    // The logger lives in the base, not in the subclasses: the decision to drop is taken here,
+    // so the trace of it stays here too — otherwise every new filter would drop silently until
+    // its author remembered the logger.
     public constructor(@inject<Logger>(Tokens.Bootstrap.Logger) protected readonly logger: Logger) {}
 
     protected abstract handle(ctx: Context): boolean;
 
-    // Не composer.filter(): он не отбрасывает апдейт, а прячет за условием только то,
-    // что повешено на возвращённый им composer. Здесь возвращённый composer никому не
-    // нужен, а цепочку обрывать надо, поэтому next() зовём сами — или не зовём.
+    // Not composer.filter(): it does not drop the update, it only hides behind the condition
+    // what is attached to the composer it returns. Here that composer is of no use to anyone
+    // while the chain does have to be broken, so we call next() ourselves — or do not.
     public setup(composer: Composer<Context>): void {
         composer.use((ctx: Context, next: NextFunction): Promise<void> => {
             if (!this.handle(ctx)) {
