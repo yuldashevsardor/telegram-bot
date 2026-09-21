@@ -1,7 +1,8 @@
-// Снимок колонок таблицы users как их отдаёт и принимает postgres: snake_case, Date
-// вместо Dayjs и id строкой — bigint драйвер без настройки types отдаёт строкой, чтобы не
-// терять точность за 2^53. Деталь хранилища, а не словарь сущности, — поэтому лежит рядом
-// с единственным потребителем, PgSqlUserRepository, а не в user.types.ts.
+// A snapshot of the users columns as postgres returns and takes them: snake_case, Date
+// instead of Dayjs and id as a string — without a types setting the driver returns bigint
+// as a string, so that precision past 2^53 is not lost. A detail of the storage and not the
+// vocabulary of the entity, hence it lies next to its only consumer, PgSqlUserRepository,
+// and not in user.types.ts.
 export type UserRow = {
     id: string;
     first_name: string;

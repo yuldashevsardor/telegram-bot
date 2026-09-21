@@ -19,8 +19,9 @@ const STORED: UserDto = {
     updatedTime: dayjs("2020-01-01T11:00:00Z"),
 };
 
-// Репозиторий хранит снимок полей, а не сам объект, как строку в базе: иначе правка
-// экземпляра без save() была бы видна через getById() и тест её бы не отличил.
+// The repository keeps a snapshot of the fields and not the object itself, the way a row in
+// the database does: otherwise an edit of an instance without save() would be visible through
+// getById() and the test would not tell it apart.
 class InMemoryUserRepository implements UserRepository {
     private readonly rows = new Map<number, UserDto>();
 
@@ -110,13 +111,13 @@ describe("UserService", function () {
             const saved = toDto(await repository.getById(STORED.id));
 
             expect(saved).to.deep.include({ id: STORED.id, ...dto, createdTime: STORED.createdTime });
-            expect(saved.updatedTime.isBefore(before), "updatedTime остался прежним").to.be.false;
+            expect(saved.updatedTime.isBefore(before), "updatedTime stayed the same").to.be.false;
             expect(toDto(user)).to.deep.equal(saved);
         });
 
-        // FillUserToContextMiddleware штатно передаёт "" за отсутствующие фамилию и username и
-        // false в isBot: проверка поля на истинность вместо !== undefined оставила бы в базе
-        // прежние значения.
+        // FillUserToContextMiddleware normally passes "" for a missing lastname and username
+        // and false in isBot: checking a field for truthiness instead of !== undefined would
+        // leave the previous values in the database.
         it("saves empty strings and false over the stored values", async function () {
             await repository.save(new User({ ...STORED, isBot: true }));
             const dto: EditUserDto = { firstname: "", lastname: "", username: "", isBot: false };
@@ -170,8 +171,9 @@ function toDto(user: User): UserDto {
     };
 }
 
-// Вызов, который не бросил, падает сообщением «call did not throw»: брошенный внутри try,
-// AssertionError поймал бы собственный catch, и отказ читался бы как ошибка не того класса.
+// A call that did not throw fails with the "call did not throw" message: thrown inside a try,
+// the AssertionError would be caught by its own catch, and the failure would read as an error
+// of the wrong class.
 function rejectionOf(call: () => Promise<unknown>): Promise<unknown> {
     return call().then(
         () => expect.fail("call did not throw"),
@@ -180,5 +182,5 @@ function rejectionOf(call: () => Promise<unknown>): Promise<unknown> {
 }
 
 function expectBetween(time: Dayjs, from: Dayjs, to: Dayjs): void {
-    expect(time.isBefore(from) || time.isAfter(to), `${time.toISOString()} вне [${from.toISOString()}, ${to.toISOString()}]`).to.be.false;
+    expect(time.isBefore(from) || time.isAfter(to), `${time.toISOString()} not in ${from.toISOString()}..${to.toISOString()}`).to.be.false;
 }

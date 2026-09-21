@@ -1,36 +1,38 @@
 # User
 
-`telegram/user/`: сущность `User` с приватными полями и сеттерами, которые проставляют
-`updatedTime`; интерфейс `UserRepository`; `UserService.create()`/`edit()` с обёрткой
-ошибок в `UserCreateError`/`UserEditError`; адаптер `PgSqlUserRepository`, чей `save()` —
-upsert `on conflict (id) do update`.
+`telegram/user/`: the `User` entity with private fields and setters that bump
+`updatedTime`; the `UserRepository` interface; `UserService.create()`/`edit()` wrapping
+failures into `UserCreateError`/`UserEditError`; the `PgSqlUserRepository` adapter, whose
+`save()` is an upsert, `on conflict (id) do update`.
 
-`User` — не пользователь сервиса, а снимок Telegram-профиля, поэтому модуль и лежит в
-телеграмном каталоге: колонки подписаны «in telegram» в миграции
-`1660261075301_users-table.ts`, `isBot` вне Telegram смысла не имеет, а заполняется
-сущность целиком из `ctx.from` (`FillUserToContextMiddleware`).
+`User` is not a user of the service but a snapshot of a Telegram profile, and that is why
+the module lies in the Telegram directory: the columns are commented "in telegram" in the
+`1660261075301_users-table.ts` migration, `isBot` means nothing outside Telegram, and the
+whole entity is filled from `ctx.from` (`FillUserToContextMiddleware`).
 
-Снимок строки таблицы — отдельный тип `UserRow` (`pgsql-user-repository.types.ts`):
-snake_case, `Date` вместо `Dayjs` и `id` строкой ([`storage.md`](./storage.md)) — форма
-хранилища, а не словарь сущности, и знает её только адаптер.
+The snapshot of a table row is a separate type, `UserRow`
+(`pgsql-user-repository.types.ts`): snake_case, `Date` instead of `Dayjs` and `id` as a
+string ([`storage.md`](./storage.md)) — the shape of the storage, not the vocabulary of the
+entity, and only the adapter knows it.
 
-`FillUserToContextMiddleware` на каждом апдейте: `existsById` → `edit` (с
-`lastActiveTime = now`) или `create` → `ctx.getUser()`. Проверка и действие не связаны
-транзакцией; от гонки защищает только `sequentialize()`, и только пока в пайплайн проходят
-одни приватные чаты ([инвариант](./invariants.md)). `create()` не защищает от дублей сам —
-полагается на upsert. `UserService.edit()` перед `save` читает пользователя `getById`:
-конструктору `User` нужен весь `UserDto`, а `createdTime` в апдейте не приходит и сеттера
-не имеет — собрать сущность на месте нечем.
+`FillUserToContextMiddleware` on every update: `existsById` → `edit` (with
+`lastActiveTime = now`) or `create` → `ctx.getUser()`. The check and the action are not
+tied by a transaction; the only thing protecting them from a race is `sequentialize()`, and
+only while nothing but private chats reaches the pipeline ([invariant](./invariants.md)).
+`create()` does not guard against duplicates itself — it relies on the upsert.
+`UserService.edit()` reads the user with `getById` before `save`: the `User` constructor
+needs a whole `UserDto`, while `createdTime` does not come in an update and has no setter —
+there is nothing to assemble the entity from on the spot.
 
-Пользователь лежит в контексте функцией `ctx.getUser()`, а не полем: клон `User` был бы
-пустым объектом — у сущности всё в приватных полях ([инвариант](./invariants.md)). Функции
-плагин разговоров не клонирует, а восстанавливает биндом от живого контекста, поэтому
-внутри разговора `getUser()` отдаёт пользователя текущего апдейта, а не слепок с момента
-входа в разговор.
+The user lies in the context as a function, `ctx.getUser()`, and not as a field: a clone of
+`User` would be an empty object, everything in the entity is in private fields
+([invariant](./invariants.md)). Functions the conversations plugin does not clone but
+restores bound to the live context, so inside a conversation `getUser()` returns the user of
+the current update and not a snapshot taken when the conversation was entered.
 
-`ctx.from` здесь заполнен по построению пайплайна: апдейты без ключа сессии отбросил
-`HasSessionKeyFilter` ([`bot.md`](./bot.md)). Проверка `if (!ctx.from)` осталась как
-ассерт — она нужна компилятору и бросает `UpdateWithoutFrom` (`bot.errors.ts`), если
-порядок в `Bot.setup()` сломают. `RequestLogMiddleware` ([`bot.md`](./bot.md)) логирует
-весь `ctx.update` на `debug` и инкрементирует `session.requestCount`, который нигде не
-читается.
+`ctx.from` is filled here by the construction of the pipeline: updates without a session key
+were dropped by `HasSessionKeyFilter` ([`bot.md`](./bot.md)). The `if (!ctx.from)` check
+stays as an assertion — the compiler needs it, and it throws `UpdateWithoutFrom`
+(`bot.errors.ts`) if the order in `Bot.setup()` is broken. `RequestLogMiddleware`
+([`bot.md`](./bot.md)) logs the whole `ctx.update` at `debug` and increments
+`session.requestCount`, which nothing reads.
