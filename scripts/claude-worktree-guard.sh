@@ -42,7 +42,10 @@ stale_claude() {
     # ведёт сам PR этого дерева, за отставание не принимается. Своего fetch тут нет: по
     # несвежему origin/main отставание занижается, но не выдумывается, а ходить в сеть на
     # каждом старте сессии дороже пропущенного расхождения.
-    files=$(git -C "$1" diff --name-only HEAD...origin/main -- .claude 2>/dev/null) || return 1
+    # Путь пишется как :(top).claude: обычный pathspec git считает от текущего каталога, а
+    # сессию запускают и из подкаталога дерева — тогда .claude не нашёлся бы и расхождение
+    # молча осталось бы неназванным.
+    files=$(git -C "$1" diff --name-only HEAD...origin/main -- ':(top).claude' 2>/dev/null) || return 1
     [ -n "$files" ] || return 1
     printf '%s' "$files" | tr '\n' ' '
 }
