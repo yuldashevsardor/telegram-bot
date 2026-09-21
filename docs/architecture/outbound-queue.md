@@ -10,9 +10,9 @@ interface and its implementation lie apart is in [`README.md`](./README.md).
 
 The queue serves Telegram alone — hence its place, `telegram/outbound-queue/`: there are two
 consumers, both of them Telegram (`TelegramCallApiMiddleware` and `BulkMessagesCommand`,
-[`bot.md`](./bot.md)), and the limits arrive as `TelegramLimits` with the keys
-`private`/`group` ([`config.md`](./config.md)), whose defaults are Telegram's recommendations
-(`.env.dist`, section `### Limits`).
+[`bot.md`](./bot.md)), and the limits arrive as `TelegramLimits` with the keys `common`,
+`private` and `group` ([`config.md`](./config.md)), whose defaults are Telegram's
+recommendations (`ConfigValuesBuilder.build`, mirrored by `.env.dist` under `### Limits`).
 
 ```
 push(task, priority) → the Partition of the key (created on its first task; the limit of the
@@ -56,9 +56,10 @@ Runner               → a setTimeout loop: pull(), run the callback without wai
   a thousand times shorter than required. The caller sees the first rejection, not the
   outcome of the retries: otherwise `ctx.reply()` would hang for the whole pause.
 
-The sleep of the loop runs between `RUNNER_SLEEP_INTERVAL_MIN` and `..._MAX` (`.env.dist`,
-section `### runner`) and is picked at random on every empty iteration: an even step would
-hit the same point of the cooldown window over and over.
+The sleep of the loop runs between `RUNNER_SLEEP_INTERVAL_MIN` and `..._MAX`
+(`ConfigValuesBuilder.getRunner`, mirrored by `.env.dist` under `### runner`) and is picked
+at random on every empty iteration: an even step would hit the same point of the cooldown
+window over and over.
 
 ## The path of an outgoing call
 
