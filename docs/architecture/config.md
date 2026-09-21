@@ -205,9 +205,10 @@ from the same container environment, so a rename breaks the very next `make test
 `DATABASE_URL` is read only by `node-pg-migrate`; it is assembled in `docker-compose.app.yml`,
 because `.env` has no `${...}` substitution while Compose does have it in `environment:`.
 
-There is an old `BOT_TOKEN` in the git history; it has been revoked and is dead, and the history
-was deliberately not rewritten: after the revocation a rewrite would have broken clones and links
-to commits, and the value would have stayed in forks and GitHub caches anyway. A repeat leak is
-caught by secret scanning with push protection on the GitHub side (the environment variables
-section of the root [`README.md`](../../README.md)) rather than by a `pre-commit` hook: that one
-is bypassed with `--no-verify` and has no effect on other people's clones.
+There is an old `BOT_TOKEN` in the git history, in `.env.dist`; it has been revoked and is dead,
+and the history was deliberately not rewritten: after the revocation a rewrite would have broken
+clones and links to commits, and the value would have stayed in forks and GitHub caches anyway.
+A repeat leak is caught by secret scanning with push protection on the GitHub side (the
+environment variables section of the root [`README.md`](../../README.md)) rather than by a
+`pre-commit` hook: that one is bypassed with `--no-verify` and has no effect on other people's
+clones.
