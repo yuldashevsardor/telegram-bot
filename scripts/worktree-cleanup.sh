@@ -81,7 +81,8 @@ if ! git fetch --quiet origin main; then
         "$main" >&2
 fi
 git merge-base --is-ancestor "$branch" "$CLEANUP_REF" || die "ветка $branch не влита в main на origin — дерево ещё нужно.
-Если PR влит squash-мержем (коммитов ветки в main нет, есть только их результат), уберите дерево вручную:
+Если PR влит squash-мержем (коммитов ветки в main нет, есть только их результат),
+уберите дерево вручную:
     git worktree remove '$root' && git branch -D '$branch' && git push origin --delete '$branch'"
 
 # Образ и том Compose именуются по каталогу дерева, и `git worktree remove` их не трогает:
