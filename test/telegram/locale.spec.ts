@@ -12,15 +12,18 @@ import { MissingLocaleBundle, UnknownLocale } from "app/telegram/locale/locale.e
 
 const localeDir = path.join(process.cwd(), "src", "telegram");
 
-// Ключ верхнего уровня или терм: в начале строки, без отступа.
+// A top-level key or a term: at the start of the line, no indent.
 const MESSAGE_LINE = /^(-?[a-zA-Z][\w-]*) *=/;
-// Атрибут: с отступом и точкой перед именем. Отступ без точки — продолжение значения.
+// An attribute: indented and with a dot before the name. An indent without a dot is a
+// continuation of the value.
 const ATTRIBUTE_LINE = /^\s+\.([a-zA-Z][\w-]*) *=/;
 
-// Как ключ попадает в код: ctx.t("key") и descriptionKey команды. Разбор грубый, по
-// тексту исходника: ключ, собранный не строковым литералом, сюда не попадёт. Оба
-// выражения держатся одной строки — класс, пропускающий перевод строки, уводит
-// совпадение к первому присваиванию ниже по файлу и подставляет чужую строку как ключ.
+// How a key gets into the code: ctx.t("key") and a command's descriptionKey. The parsing is
+// crude, over the text of the source: a key assembled from anything but a string literal
+// will not get here. The `\n` in DESCRIPTION_KEY is what holds it to a single line: without
+// it the abstract declaration (`descriptionKey: string;` in command.ts) would drag the match
+// to the first assignment further down the file and register a foreign string as the key.
+// TRANSLATE_CALL needs no such class — a double-quoted literal does not span lines.
 const TRANSLATE_CALL = /\.t\("([^"]+)"/g;
 const DESCRIPTION_KEY = /descriptionKey[^=\n]*= *"([^"]+)"/g;
 
@@ -53,8 +56,8 @@ describe("Fluent locales", function () {
         }
     });
 
-    // Fluent на отсутствующем ключе откатывается в дефолтный бандл, поэтому расхождение
-    // не падает, а тихо отдаёт пользователю чужой язык.
+    // On a missing key Fluent falls back to the default bundle, so a divergence does not
+    // fail but silently hands the user a foreign language.
     it("declares the same keys in every locale", async function () {
         const keysByLocale = new Map<Locale, Set<string>>();
 
@@ -74,8 +77,8 @@ describe("Fluent locales", function () {
     });
 });
 
-// Ключ в коде — обычная строка, компилятор её с бандлом не связывает, а Fluent на
-// ненайденном ключе возвращает "{ключ}" и молча отдаёт его пользователю.
+// A key in the code is an ordinary string, the compiler does not tie it to a bundle, and on
+// a key it cannot find Fluent returns "{key}" and silently hands it to the user.
 describe("Fluent keys used in the code", function () {
     it("declares every key the code asks for", async function () {
         const sources = await FileHelper.findFilesByExtensions(localeDir, [".ts"]);
@@ -187,39 +190,39 @@ describe("createFluent", function () {
     });
 
     it("loads a bundle per locale", async function () {
-        await writeLocaleFile("ru", "greeting = Привет");
+        await writeLocaleFile("ru", "greeting = Hi");
         await writeLocaleFile("en", "greeting = Hello");
 
         const fluent = await createFluent(localeDir);
 
-        expect(fluent.translate("ru", "greeting")).to.equal("Привет");
+        expect(fluent.translate("ru", "greeting")).to.equal("Hi");
         expect(fluent.translate("en", "greeting")).to.equal("Hello");
     });
 
-    // Изоляция подстановок выключена намеренно (см. createFluent), а по умолчанию она
-    // включена — иначе в тексте появились бы невидимые U+2068/U+2069 вокруг значения.
+    // Placeable isolation is off on purpose (see createFluent), while by default it is on —
+    // otherwise invisible U+2068/U+2069 would appear in the text around the value.
     it("puts a placeable into the text as is", async function () {
-        await writeLocaleFile("ru", "result = Готово: {$path}");
+        await writeLocaleFile("ru", "result = Ready: {$path}");
         await writeLocaleFile("en", "result = Done: {$path}");
 
         const fluent = await createFluent(localeDir);
 
-        expect(fluent.translate("ru", "result", { path: "/tmp/font.eot" })).to.equal("Готово: /tmp/font.eot");
+        expect(fluent.translate("ru", "result", { path: "/tmp/font.eot" })).to.equal("Ready: /tmp/font.eot");
     });
 
-    // Ради этого дефолтным помечается ровно один бандл: иначе им стал бы последний
-    // добавленный, и текст на нехватающем ключе зависел бы от порядка обхода каталогов.
+    // This is what exactly one bundle is marked default for: otherwise it would be the last
+    // one added, and the text on a missing key would depend on the directory walk order.
     it("falls back to the default locale on a key the locale is missing", async function () {
-        await writeLocaleFile("ru", "greeting = Привет\nonly-in-default = Только в дефолте");
+        await writeLocaleFile("ru", "greeting = Hi\nonly-in-default = Default bundle only");
         await writeLocaleFile("en", "greeting = Hello");
 
         const fluent = await createFluent(localeDir);
 
-        expect(fluent.translate("en", "only-in-default")).to.equal("Только в дефолте");
+        expect(fluent.translate("en", "only-in-default")).to.equal("Default bundle only");
     });
 
     it("rejects a locale without a single file", async function () {
-        await writeLocaleFile(DEFAULT_LOCALE, "greeting = Привет");
+        await writeLocaleFile(DEFAULT_LOCALE, "greeting = Hi");
         const [missing] = LOCALES.filter((locale) => locale !== DEFAULT_LOCALE);
 
         const error = await expectRejection(createFluent(localeDir), MissingLocaleBundle);
@@ -278,13 +281,14 @@ describe("createFluentMiddleware", function () {
         expect(ctx.t("greeting")).to.equal("en");
     });
 
-    // Проверяется форма свойств, а не только значения. Плагин разговоров пишет в op-лог, а
-    // оттуда в сессию, все собственные перечислимые свойства контекста, кроме интринсивных:
-    // поля `fluent` (у `useFluent()` — обёртка `{ instance, useLocale, renegotiateLocale }`)
-    // в контексте быть не должно, иначе разобранные бандлы снова уедут в `sessions` пустым
-    // каркасом. Функции плагин не клонирует, а восстанавливает биндом от живого контекста,
-    // но запоминает только ключи собственных перечислимых свойств — спрятанный дескриптором
-    // или унесённый на прототип `t` молча перестал бы работать внутри разговора.
+    // The shape of the properties is checked, not the values alone. The conversations plugin
+    // writes into the op-log, and from there into the session, every own enumerable property
+    // of the context except the intrinsic ones: the `fluent` field (with `useFluent()` a
+    // `{ instance, useLocale, renegotiateLocale }` wrapper) must not be in the context, or
+    // the parsed bundles will travel into `sessions` as an empty shell again. Functions the
+    // plugin does not clone but restores bound to the live context, yet it remembers only
+    // the keys of own enumerable properties — a `t` hidden behind a descriptor or carried
+    // off onto the prototype would silently stop working inside a conversation.
     it("keeps Fluent in the context as own enumerable functions", async function () {
         const ctx = await runMiddleware("ru");
 

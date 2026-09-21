@@ -11,17 +11,18 @@ export function isLocale(value: string): value is Locale {
     return (LOCALES as readonly string[]).includes(value);
 }
 
-// Telegram присылает language_code тегом IETF ("ru", "en-US", "pt-br"), а бандлы заведены
-// по языку. Регион отбрасываем, незнакомый язык уводим в дефолтную локаль: иначе Fluent
-// не нашёл бы бандл и пользователь получил бы имена ключей вместо текста.
+// Telegram sends language_code as an IETF tag ("ru", "en-US", "pt-br"), while the bundles
+// are keyed by language. The region is dropped and an unknown language goes to the default
+// locale: otherwise Fluent would find no bundle and the user would get key names instead of
+// text.
 export function resolveLocale(languageCode: string | undefined): Locale {
     const language = languageCode?.split("-")[0]?.toLowerCase();
 
     return language !== undefined && isLocale(language) ? language : DEFAULT_LOCALE;
 }
 
-// Соглашение об именах — `<что-то>.locale.<lang>.ftl`; локаль здесь единственный
-// источник правды о том, в какой бандл попадёт файл.
+// The naming convention is `<something>.locale.<lang>.ftl`; the locale here is the single
+// source of truth about which bundle the file lands in.
 export function localeFromFilePath(filePath: string): Locale {
     const nameParts = path.basename(filePath).split(".");
     const locale = nameParts.at(-2) ?? "";
@@ -33,8 +34,8 @@ export function localeFromFilePath(filePath: string): Locale {
     return locale;
 }
 
-// Собирает бандлы из всех `.ftl` под localeDir. Отдельно от `Bot`, потому что порядок
-// добавления и `isDefault` определяют, что увидит пользователь на нехватающем ключе.
+// Builds the bundles from every `.ftl` under localeDir. Kept apart from `Bot` because the
+// order of addition and `isDefault` decide what the user sees on a missing key.
 export async function createFluent(localeDir: string): Promise<Fluent> {
     const files = await FileHelper.findFilesByExtensions(localeDir, [".ftl"]);
     const filesByLocale = new Map<Locale, string[]>(LOCALES.map((locale) => [locale, []]));
@@ -46,8 +47,8 @@ export async function createFluent(localeDir: string): Promise<Fluent> {
     const fluent = new Fluent();
 
     for (const [locale, localeFiles] of filesByLocale) {
-        // Локаль без файлов Fluent проглотил бы, и её пользователи молча уехали бы в
-        // дефолтную; при сборке в build/ так теряются все `.ftl` разом.
+        // Fluent would swallow a locale without files, and its users would silently end up
+        // in the default one; in build/ that is how every `.ftl` goes missing at once.
         if (localeFiles.length === 0) {
             throw MissingLocaleBundle.byLocale(locale, localeDir);
         }
@@ -55,16 +56,17 @@ export async function createFluent(localeDir: string): Promise<Fluent> {
         await fluent.addTranslation({
             locales: locale,
             filePath: localeFiles,
-            // Без isolating: Fluent по умолчанию оборачивает каждую подстановку в невидимые
-            // U+2068/U+2069, и они уезжают в текст сообщения. Через подстановки здесь едут
-            // данные, которые пользователь копирует (путь к результату конвертации), а
-            // локалей с письмом справа налево, ради которых изоляция и нужна, нет.
+            // No isolating: by default Fluent wraps every placeable in invisible
+            // U+2068/U+2069, and they travel into the text of the message. What travels
+            // through the placeables here is data the user copies (the path to the
+            // conversion result), and there are no right-to-left locales, which is what the
+            // isolation is there for.
             bundleOptions: { useIsolating: false },
-            // Дефолтный бандл ровно один: Fluent дописывает его в хвост цепочки поиска, и
-            // на нём ключ, которого нет в локали пользователя, отдаёт текст, а не своё имя.
-            // С `isDefault` на каждом бандле дефолтным становился последний добавленный,
-            // то есть цепочка зависела от порядка обхода каталогов.
-            // Stryker disable next-line ConditionalExpression: `false` — эквивалентен, пока DEFAULT_LOCALE стоит первым в LOCALES: без помеченного бандла Fluent дефолтным делает первый добавленный (addTranslation в @moebius/fluent)
+            // There is exactly one default bundle: Fluent appends it to the tail of the
+            // lookup chain, and on it a key missing from the user's locale returns text and
+            // not its own name. With `isDefault` on every bundle the default became the last
+            // one added, that is, the chain depended on the directory walk order.
+            // Stryker disable next-line ConditionalExpression: `false` is equivalent while DEFAULT_LOCALE comes first in LOCALES: without a marked bundle Fluent makes the first added one the default (addTranslation in @moebius/fluent)
             isDefault: locale === DEFAULT_LOCALE,
         });
     }
@@ -72,17 +74,18 @@ export async function createFluent(localeDir: string): Promise<Fluent> {
     return fluent;
 }
 
-// Подключает Fluent к пайплайну вместо `useFluent()` из `@grammyjs/fluent`: тот кладёт в
-// контекст `fluent`, `translate` и `t` одним `Object.assign`, а перечислимое поле `fluent`
-// плагин разговоров на каждом `wait()` клонирует в op-лог и в `sessions`
-// (docs/architecture/invariants.md) — целиком, вместе с разобранными бандлами, и на реплее
-// возвращает пустым каркасом (`Set` бандлов и `Map` сообщений схлопываются в `{}` при
-// сериализации).
-// Имя свойства плагин не настраивает, поэтому заменён целиком: разбор `.ftl` и перевод
-// остались за `@moebius/fluent`, а от плагина здесь повторены три строки без `fluent`.
-// Экземпляр лежит в контексте функцией: функции плагин разговоров не клонирует, а
-// восстанавливает биндом от живого контекста, так что `getFluent()` работает и на реплее,
-// внутри разговора. Тем же механизмом там живёт `ctx.t`.
+// Plugs Fluent into the pipeline instead of `useFluent()` from `@grammyjs/fluent`: that one
+// puts `fluent`, `translate` and `t` into the context with a single `Object.assign`, and the
+// enumerable `fluent` field the conversations plugin clones on every `wait()` into the
+// op-log and into `sessions` (docs/architecture/invariants.md) — whole, together with the
+// parsed bundles, and on replay returns it as an empty shell (the `Set` of bundles and the
+// `Map` of messages collapse into `{}` on serialization).
+// The plugin does not make the property name configurable, so it is replaced entirely:
+// parsing the `.ftl` and translating stay with `@moebius/fluent`, and only three lines of
+// the plugin, the ones without `fluent`, are repeated here.
+// The instance lies in the context as a function: functions the conversations plugin does
+// not clone but restores bound to the live context, so `getFluent()` works on replay too,
+// inside a conversation. `ctx.t` lives there by the same mechanism.
 export function createFluentMiddleware(fluent: Fluent): MiddlewareFn<Context> {
     return (ctx, next) => {
         ctx.getFluent = (): Fluent => fluent;
