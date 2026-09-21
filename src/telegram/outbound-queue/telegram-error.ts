@@ -1,6 +1,6 @@
-// Единственное место механизма очереди, знающее про Telegram: Runner опознаёт по этим кодам
-// ситуацию «слишком часто» и ставит паузу всей очереди. Интерфейса классификации ошибок под
-// это не заведено: очередь обслуживает один Telegram, и подменять тут нечего.
+// The only place in the queue mechanism that knows about Telegram: by these codes Runner
+// recognises a "too often" answer and pauses the whole queue. No error-classification interface is
+// kept for that: the queue serves Telegram alone, and there is nothing here to substitute.
 export enum TELEGRAM_ERROR_CODES {
     /**
      *  response: {
@@ -17,8 +17,8 @@ export enum TELEGRAM_ERROR_CODES {
     TOO_MANY_REQUESTS = 429,
 }
 
-// Bot API всегда присылает retry_after вместе с 429, но если поле отсутствует или
-// нечитаемо, пауза всё равно должна быть ненулевой: ban(0) истекает в момент установки.
+// The Bot API always sends retry_after together with a 429, but if the field is missing or
+// unreadable the pause still has to be non-zero: ban(0) expires the moment it is set.
 export const DEFAULT_RETRY_AFTER_SECONDS = 1;
 
 export type TelegramApiError = {
