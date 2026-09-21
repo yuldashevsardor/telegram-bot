@@ -5,7 +5,8 @@ key and asks the `LimitResolver` interface for the limit of a key; the only Tele
 place in it is `telegram-error.ts` with the codes by which `Runner` recognises a 429. The
 implementation of `LimitResolver` lies outside the directory —
 `telegram/telegram-limit-resolver.ts`, which picks the group or the private limit by
-`isGroupChat` from `telegram/telegram-chat.ts` (a negative chat ID is a group).
+`isGroupChat` from `telegram/telegram-chat.ts` (a negative chat ID is a group). Why the
+interface and its implementation lie apart is in [`README.md`](./README.md).
 
 The queue serves Telegram alone — hence its place, `telegram/outbound-queue/`: there are two
 consumers, both of them Telegram (`TelegramCallApiMiddleware` and `BulkMessagesCommand`,
@@ -55,8 +56,9 @@ Runner               → a setTimeout loop: pull(), run the callback without wai
   a thousand times shorter than required. The caller sees the first rejection, not the
   outcome of the retries: otherwise `ctx.reply()` would hang for the whole pause.
 
-The sleep of the loop is picked at random on every empty iteration: an even step would hit
-the same point of the cooldown window over and over.
+The sleep of the loop runs between `RUNNER_SLEEP_INTERVAL_MIN` and `..._MAX` (`.env.dist`,
+section `### runner`) and is picked at random on every empty iteration: an even step would
+hit the same point of the cooldown window over and over.
 
 ## The path of an outgoing call
 
