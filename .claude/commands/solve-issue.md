@@ -181,7 +181,7 @@ inline — ответом в тред:
   ```
 
   Именно `--merge`, не squash: `make worktree-cleanup` проверяет, что ветка — предок
-  `origin/main`, и после squash откажет.
+  `main` на origin, и после squash откажет.
 
 ## Шаг 8. Уборка
 
