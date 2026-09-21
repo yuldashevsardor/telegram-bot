@@ -182,8 +182,8 @@ calls before the overall shutdown deadline and outside it.
 | `BOT_TOKEN` | the bot token, required: a blank one fails the config assembly, and the `Bot` constructor checks it once more |
 | `TEMP_DIR` | the temporary files of a conversion (`<root>/tmp`) |
 | `FONT_FORGE_PATH` | the FontForge binary (`fontforge`) |
-| `LIMIT_{COMMON,PRIVATE,GROUP}_{NUMBER,INTERVAL}` | the queue limits, the intervals in ms, both from 1 ([invariant](./invariants.md)); the defaults are in [`outbound-queue.md`](./outbound-queue.md) |
-| `RUNNER_SLEEP_INTERVAL_MIN` / `RUNNER_SLEEP_INTERVAL_MAX` | the bounds of the random sleep of the Runner, ms; the defaults are in [`outbound-queue.md`](./outbound-queue.md); from 1 to 2147483647, the maximum not below the minimum |
+| `LIMIT_{COMMON,PRIVATE,GROUP}_{NUMBER,INTERVAL}` | the queue limits, the intervals in ms, both from 1 ([invariant](./invariants.md)); the defaults are in `ConfigValuesBuilder.build`, mirrored by `.env.dist` under `### Limits`; what the limits do is in [`outbound-queue.md`](./outbound-queue.md) |
+| `RUNNER_SLEEP_INTERVAL_MIN` / `RUNNER_SLEEP_INTERVAL_MAX` | the bounds of the random sleep of the Runner, ms; the defaults are in `ConfigValuesBuilder.getRunner`, mirrored by `.env.dist` under `### runner`; from 1 to 2147483647, the maximum not below the minimum; why the sleep is random is in [`outbound-queue.md`](./outbound-queue.md) |
 | `RUNNER_MAX_RETRIES` | retries of a task before it is dropped (3), from 0 |
 | `GRACEFUL_SHUTDOWN_TIMEOUT` | the overall shutdown deadline (15000), up to 2147483647 and greater than the sum of the two below ([invariant](./invariants.md)) |
 | `BOT_GRACEFUL_SHUTDOWN_TIMEOUT` | stopping the runner of the bot (3000), from 0 to 2147483647 |
