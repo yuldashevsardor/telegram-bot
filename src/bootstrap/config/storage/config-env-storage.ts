@@ -4,8 +4,8 @@ import type { RawConfig } from "app/bootstrap/config/container/config-container.
 
 export class ConfigEnvStorage implements ConfigStorage {
     public async load(): Promise<RawConfig> {
-        // quiet: dotenv с 17.0 по умолчанию печатает в stdout строку о загрузке .env — в проде
-        // туда же идёт JSON-лог pino, и эта строка ломала бы его разбор.
+        // quiet: since 17.0 dotenv prints a line about loading .env to stdout by default — in
+        // production the pino JSON log goes there too, and that line would break its parsing.
         dotenv.config({ quiet: true });
 
         return { ...process.env };

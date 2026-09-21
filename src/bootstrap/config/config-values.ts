@@ -12,8 +12,9 @@ export type LoggerConfig = {
     level: Level;
 };
 
-// Лимиты бота по областям: общий на весь исходящий трафик и по одному на приватный чат и на
-// группу. Какой из них достанется партиции, решает TelegramLimitResolver, а не сама очередь.
+// The bot limits by scope: a common one over all outgoing traffic and one each for a private
+// chat and a group. Which one a partition gets is decided by TelegramLimitResolver, not by the
+// queue itself.
 export type TelegramLimits = {
     common: Limit;
     private: Limit;

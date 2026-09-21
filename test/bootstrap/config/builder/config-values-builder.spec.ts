@@ -6,13 +6,14 @@ import type { ConfigValues } from "app/bootstrap/config/config-values";
 import { InvalidConfigError } from "app/shared/errors";
 import { Level, Levels } from "app/platform/logger/logger.types";
 
-// BOT_TOKEN обязателен, поэтому подложен всем; спека, которой нужен его пропуск, затирает его пустым.
+// BOT_TOKEN is required, so it is supplied to every spec; a spec that needs it missing overwrites it
+// with a blank value.
 function config(values: Record<string, string> = {}): ConfigValues {
     return new ConfigValuesBuilder().build({ BOT_TOKEN: "token", ...values });
 }
 
-// Ошибку конфигурации печатает fail() в app.ts, и её текст с деталями — всё, что оператор узнает о
-// неверной переменной, поэтому сверяются оба.
+// A config error is printed by fail() in app.ts, and its text together with its details is all the
+// operator learns about the wrong variable, so both are checked.
 function rejection(values: Record<string, string>): InvalidConfigError {
     try {
         config(values);
@@ -54,7 +55,7 @@ describe("ConfigValuesBuilder", () => {
         });
     });
 
-    // Значения попарно разные: переменная, прочитанная не под своим именем, отдала бы чужое.
+    // The values differ pairwise: a variable read under the wrong name would return somebody else's.
     it("reads every setting from its own variable", () => {
         const result = config({
             NODE_ENV: "production",
@@ -165,8 +166,8 @@ describe("ConfigValuesBuilder", () => {
         expect(() => config({ DATABASE_PORT: "abc" })).to.throw(InvalidConfigError);
     });
 
-    // Сообщение называет все границы переменной, поэтому одного значения ниже минимума хватает,
-    // чтобы сверить её диапазон целиком; что сами границы проходят, проверяет config-parser.spec.ts.
+    // The message names every bound of a variable, so a single value below the minimum is enough to
+    // check its whole range; that the bounds themselves pass is checked by config-parser.spec.ts.
     const bounds: Array<{ name: string; below: string; range: string }> = [
         { name: "LIMIT_COMMON_NUMBER", below: "0", range: "at least 1" },
         { name: "LIMIT_COMMON_INTERVAL", below: "0", range: "at least 1" },
