@@ -95,8 +95,8 @@ Rejected alternatives:
 `branches`, `functions` and `statements` next to it set it for each metric — 99. The threshold
 is global: it is counted over the sum of all the files of the report, so a shortfall in one file
 hides in the surplus of the rest while the total stays at or above the threshold. Once even one
-metric is lower, `nyc` — after the specs have already gone green — prints `ERROR: Coverage for
-<metric> (…%) does not meet global threshold (99%)` and exits with an error.
+metric is lower, `nyc` — after the specs have already gone green — prints
+`ERROR: Coverage for <metric> (…%) does not meet global threshold (99%)` and exits with an error.
 
 The threshold is checked by any run of `npm run test:coverage`: `make coverage`, the `check` npm
 script under `make check` and the `test` gate of PR review, under which `pr-light-check` runs
@@ -161,8 +161,9 @@ covering tests there is empty: with `all` coverage Stryker does not collect it. 
 edit, and each of its non-obvious values is explained by a comment right there.
 
 **Threshold.** `thresholds.break: 100` in `stryker.config.mjs`: a single survived or uncovered
-mutant in the area, and Stryker prints `Final mutation score <score> under breaking threshold
-100` and exits with an error; why 100 and not 99 is in a comment there. The threshold is checked
+mutant in the area, and Stryker prints
+`Final mutation score <score> under breaking threshold 100` and exits with an error; why 100 and
+not 99 is in a comment there. The threshold is checked
 by any `make mutation`: working through an area, the run of the author before a PR
 (`.claude/commands/solve-issue.md`) and the `mutation` and `mutation-full` gates of PR review
 (`docs/agents/review-gates.md`), under which `pr-light-check` runs the target over the area of
@@ -236,10 +237,11 @@ only by `docker stop`.
 **Why Stryker and the `mocha` runner.** There is no living alternative to StrykerJS with
 TypeScript support: `mutode` and `grunt-mutation-testing` have not been updated in npm since
 2022 (`npm view <package> time`). The `command` runner knows nothing about the tests
-(`CommandTestRunner` in `@stryker-mutator/core`): Stryker would see only the exit code of `npm
-test`, without the killing test and the reason, and the specs would go through `.mocharc.json`
-together with the database hook. The `mocha` runner takes the specs and the `require` from the
-`mochaOptions` of the config and names, for every mutant, the test that killed it. Runner 10.0.0
+(`CommandTestRunner` in `@stryker-mutator/core`): Stryker would see only the exit code of
+`npm test`, without the killing test and the reason, and the specs would go through
+`.mocharc.json` together with the database hook. The `mocha` runner takes the specs and the
+`require` from the `mochaOptions` of the config and names, for every mutant, the test that
+killed it. Runner 10.0.0
 does not find the internals of mocha 12, renamed to `.cjs`, so the `mutation` npm script wires
 `test/stryker-mocha-hook.cjs` in through `NODE_OPTIONS`; the mechanics and the condition for
 removing it are in that file.
@@ -282,14 +284,16 @@ exclusion would match nothing, and a moved or renamed file would give false surv
 types would go into the tests like any other and, not killed by them, would survive.
 `@stryker-mutator/typescript-checker` checks the mutants before the tests, by
 `tsconfig.check.json`, and gives such a mutant `CompileError`: it does not count towards the
-score and needs neither working through nor a mark. The tsconfig is the same as for `make
-typecheck`, but the checker strips `noUnusedLocals` and `noUnusedParameters` from it and turns
+score and needs neither working through nor a mark. The tsconfig is the same as for
+`make typecheck`, but the checker strips `noUnusedLocals` and `noUnusedParameters` from it and
+turns
 `allowUnreachableCode` on (`COMPILER_OPTIONS_OVERRIDES` in `tsconfig-helpers.js` of the checker
 package): a mutant whose whole error is an unused variable or unreachable code goes into the
 tests. Before the run the checker compiles the whole project, and a type error in any file stops
 any `make mutation`, even one with a narrow area: `TypescriptChecker.init()` in
-`typescript-checker.js` of the package throws `Typescript error(s) found in dry run
-compilation`. The checker works on any run, with an area and without. It hardly makes the run
+`typescript-checker.js` of the package throws
+`Typescript error(s) found in dry run compilation`. The checker works on any run, with an area
+and without. It hardly makes the run
 more expensive: with `all` coverage every mutant costs a run of the whole set of specs, and one
 weeded out by the checker never reaches the specs. In the measurement of
 [#378](https://github.com/yuldashevsardor/telegram-bot/issues/378) more than a quarter of the
@@ -310,19 +314,19 @@ what has to be raised is the limit in `checkerNodeArgs`.
 Both lines are written by `CheckerRetryDecorator` (`@stryker-mutator/core`), and the prefix
 `Checker process` is put there by it alone. The failures themselves are caught by
 `ChildProcessProxy.handleUnexpectedExit()`, which prints about any child process, the runner
-included: `Child process [pid …] exited unexpectedly with exit code null (SIGKILL)` and `Child
-process [pid …] ran out of memory` (the latter when the output of the process contains
+included: `Child process [pid …] exited unexpectedly with exit code null (SIGKILL)` and
+`Child process [pid …] ran out of memory` (the latter when the output of the process contains
 `JavaScript heap out of memory`). So a line without the prefix says nothing about the checker.
 They have to be told apart because only the checker breaks off the run: a runner that failed on
 a mutant Stryker restarts, giving the mutant `RuntimeError` ("Timeouts and errors"), while its
-failure on the initial run breaks the run off with a message of its own — `Something went wrong
-in the initial test run` (`3-dry-run-executor.js` of the package).
+failure on the initial run breaks the run off with a message of its own —
+`Something went wrong in the initial test run` (`3-dry-run-executor.js` of the package).
 
 The decorator wraps the checks (`check`, `group`): a failed one Stryker repeats once in a new
-process, and if the repeat fails too, the run breaks off with an error and no `Final mutation
-score`. The initial compilation (`init`) it does not wrap — that one is not repeated at all, and
-such a failure gives no line of its own with the prefix: all that stays in the log is `Child
-process [pid …]` from `ChildProcessProxy`.
+process, and if the repeat fails too, the run breaks off with an error and no
+`Final mutation score`. The initial compilation (`init`) it does not wrap — that one is not
+repeated at all, and such a failure gives no line of its own with the prefix: all that stays in
+the log is `Child process [pid …]` from `ChildProcessProxy`.
 
 **Timeouts and errors.** The runner creates Mocha with `timeout: 0`; a hung mutant is caught by
 Stryker itself and counted as `Timeout` — that is "detected", on a par with `Killed`. The
