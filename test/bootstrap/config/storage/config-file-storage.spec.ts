@@ -6,6 +6,7 @@ import { ConfigFileStorage } from "app/bootstrap/config/storage/file/config-file
 import { ConfigFileUnreadable } from "app/bootstrap/config/storage/file/config-file-storage.errors";
 import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage";
 import type { RawConfig } from "app/bootstrap/config/container/config-container.types";
+import { change, replace } from "test/bootstrap/config/storage/config-file-storage.helper";
 
 // Интервал опроса в спеке — десятки миллисекунд: настоящий (2000) растянул бы прогон на минуты, а
 // на единицах обессмыслились бы проверки «сигнала не было»: их окна заданы интервалом
@@ -61,34 +62,6 @@ describe("ConfigFileStorage", () => {
         storages.push(created);
 
         return created;
-    }
-
-    // Правка под наблюдением идёт одной записью на месте: fs.writeFile с флагом по умолчанию
-    // сначала обрезает файл (O_TRUNC) и только потом пишет содержимое, и опрос, попавший между
-    // обрезкой и записью, видит два изменения вместо одного — одна правка дала бы два сигнала.
-    // Флаг r+ не обрезает, отсюда две проверки перед записью. Содержимое не короче прежнего:
-    // остаток файла запись не убирает, и хвост прежнего значения остался бы в файле. И непустое:
-    // на пустом файле проверку размера пустое прошло бы, а запись нулевой длины не меняет ни
-    // размера, ни времени — правка ушла бы без сигнала, и виноватым выглядел бы наблюдатель.
-    // Проверки стоят здесь же: сам stat времён файла не меняет и сигнала не даёт, в отличие от
-    // обрезки.
-    async function change(contents: string): Promise<void> {
-        const length = Buffer.byteLength(contents);
-
-        expect(length).to.be.greaterThan(0);
-        expect(length).to.be.at.least((await fs.stat(filePath)).size);
-
-        await fs.writeFile(filePath, contents, { flag: "r+" });
-    }
-
-    // Подмена файла целиком — готовое содержимое переименованием поверх пути: одним шагом и с
-    // новым inode, который нужен спеке про подмену файла. Так же файл и появляется: fs.writeFile
-    // создал бы его пустым и наполнил вторым шагом, а это для наблюдателя снова два изменения.
-    async function replace(contents: string): Promise<void> {
-        const temporary = `${filePath}.tmp`;
-
-        await fs.writeFile(temporary, contents);
-        await fs.rename(temporary, filePath);
     }
 
     // Файл лежит под базовым источником: заданное там перекрывает его, а сам файл добавляет
@@ -159,13 +132,13 @@ describe("ConfigFileStorage", () => {
         await sleep(INTERVAL * 4);
         expect(signals).to.equal(0);
 
-        await replace("A=1\n");
+        await replace(filePath, "A=1\n");
         await waitFor(() => signals === 1);
 
         // Та же длина: изменение видно по времени правки, а не по размеру. Размер проверяется
         // после записи, потому что страховка change() — «не короче»: удлинённый при доработке
         // литерал прошёл бы её молча, уехав на проверку по размеру и оставив эту строку ложью.
-        await change("A=2\n");
+        await change(filePath, "A=2\n");
         expect((await fs.stat(filePath)).size).to.equal(Buffer.byteLength("A=1\n"));
         await waitFor(() => signals === 2);
 
@@ -193,10 +166,10 @@ describe("ConfigFileStorage", () => {
         // опрос, попала бы в это состояние и изменением не считалась бы.
         await sleep(INTERVAL * 4);
 
-        await replace("A=2\n");
+        await replace(filePath, "A=2\n");
         await waitFor(() => signals === 1);
 
-        await change("A=3\n");
+        await change(filePath, "A=3\n");
         await waitFor(() => signals === 2);
 
         expect((await watchable.load())["A"]).to.equal("3");
@@ -223,7 +196,7 @@ describe("ConfigFileStorage", () => {
             signals += 1;
         });
 
-        await change("A=1234567890\n");
+        await change(filePath, "A=1234567890\n");
         await fs.utimes(filePath, time, time);
         await waitFor(() => signals === 1, 4000);
 
@@ -243,7 +216,7 @@ describe("ConfigFileStorage", () => {
         });
 
         await sleep(INTERVAL * 4);
-        await change("A=2\n");
+        await change(filePath, "A=2\n");
         await waitFor(() => signals === 1);
 
         watchable.unwatch();
@@ -252,7 +225,7 @@ describe("ConfigFileStorage", () => {
         });
 
         await sleep(INTERVAL * 4);
-        await change("A=3\n");
+        await change(filePath, "A=3\n");
         await waitFor(() => signals === 2);
     });
 
@@ -269,7 +242,7 @@ describe("ConfigFileStorage", () => {
         await sleep(INTERVAL * 4);
         watchable.unwatch();
 
-        await change("A=2\n");
+        await change(filePath, "A=2\n");
         await sleep(INTERVAL * 6);
 
         expect(signals).to.equal(0);
@@ -291,7 +264,7 @@ describe("ConfigFileStorage", () => {
         });
 
         await sleep(INTERVAL * 4);
-        await change("A=2\n");
+        await change(filePath, "A=2\n");
         await waitFor(() => signals === 1);
         await sleep(INTERVAL * 4);
 
@@ -316,7 +289,7 @@ describe("ConfigFileStorage", () => {
 
         expect(() => idle.unwatch()).to.not.throw();
 
-        await change("A=2\n");
+        await change(filePath, "A=2\n");
         await waitFor(() => signals === 1);
     });
 });
