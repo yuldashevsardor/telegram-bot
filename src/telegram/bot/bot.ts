@@ -23,13 +23,13 @@ import { createFluent, createFluentMiddleware } from "app/telegram/locale/locale
 import type { Locale } from "app/telegram/locale/locale.types";
 import { DEFAULT_LOCALE, LOCALES } from "app/telegram/locale/locale.types";
 
-// Умолчание getUpdates — все типы, кроме chat_member и реакций. Бот же обслуживает
-// только команды и ожидание conversation в приватных чатах, то есть один message:
-// остальное дошло бы до фильтров и было отброшено, оплатив сеть, middleware и запись
-// пользователя. Присланный пользователем файл — тоже message, с document внутри:
-// allowed_updates перечисляет типы апдейта, а не содержимое сообщения, и на приём
-// шрифтов список расширять не нужно. Список — не защита: Telegram применяет его на
-// своей стороне, а накопленные апдейты старых типов после смены списка ещё могут прийти.
+// The getUpdates default is every type but chat_member and reactions. The bot serves only
+// commands and a conversation wait() in private chats, that is a single message type: the
+// rest would reach the filters and be dropped, having paid for the network, the middleware
+// and a user write. A file sent by a user is a message too, with a document inside:
+// allowed_updates lists update types, not the contents of a message, so accepting fonts does
+// not widen the list. The list is not a defence: Telegram applies it on its side, and updates
+// of the old types accumulated before the change can still arrive.
 const ALLOWED_UPDATES: NonNullable<FetchOptions["allowed_updates"]> = ["message"];
 
 @injectable()
@@ -102,24 +102,25 @@ export class Bot {
             return;
         }
 
-        // Фильтры выше всего остального: обоим хватает ctx.from и ctx.chat, зато session()
-        // уже на входе читает строку, а на выходе пишет её обратно — у группового апдейта
-        // ключ сессии есть, и отброшенный ниже он всё равно оставил бы за собой запись в
-        // базе; очередь отброшенному апдейту не нужна тем более. Порядок внутри списка
-        // важен: IsPrivateChat отбрасывает молча и без chat тоже, поэтому апдейты без ключа
-        // сессии должен раньше увидеть HasSessionKey с его warning.
+        // Filters above everything else: both need no more than ctx.from and ctx.chat, while
+        // session() already reads the row on the way in and writes it back on the way out — a
+        // group update does have a session key, so, dropped below, it would still have left a
+        // row in the database; an update that is dropped needs the queue even less. The order
+        // inside the list matters: IsPrivateChat drops silently and does so without chat as
+        // well, so updates without a session key must be seen first by HasSessionKey with its
+        // warning.
         await this.setupFilters([this.hasSessionKeyFilter, this.isPrivateChatFilter]);
-        // sequentialize() строго выше session(): session() не ленив — читает строку до
-        // next() и пишет после возврата, поэтому под очередью оказалась бы только середина
-        // цепочки, а само чтение и запись остались бы снаружи. Два апдейта одного
-        // пользователя тогда прочитали бы одно состояние, и второй записал бы своё поверх
-        // первого — потерялся бы и requestCount, и шаг разговора, который conversations
-        // держит в той же сессии.
+        // sequentialize() strictly above session(): session() is not lazy — it reads the row
+        // before next() and writes it after the return, so only the middle of the chain would
+        // end up under the queue while the read and the write themselves stayed outside. Two
+        // updates of one user would then read the same state, and the second would write its
+        // own over the first — losing both requestCount and the conversation step, which
+        // conversations keeps in the same session.
         await this.setupSequential();
         await this.setupSession();
         await this.setupMiddlewares();
-        // Fluent нужен и командам: их описания переводятся тем же экземпляром до того, как
-        // уйдут в setMyCommands.
+        // Fluent is needed by the commands too: their descriptions are translated by the same
+        // instance before they go to setMyCommands.
         const fluent = await this.setupFlavor();
         await this.setupConversations();
         await this.setupCommands(fluent);
@@ -137,10 +138,10 @@ export class Bot {
         );
     }
 
-    // Ключ очереди — тот же getSessionKey, что у session(): сериализовать нужно ровно апдейты
-    // одной строки sessions. Check-then-act в FillUserToContextMiddleware он защищает тоже:
-    // в ключе есть from.id, а других чатов пользователя, кроме приватного, фильтры выше не
-    // пропускают.
+    // The queue key is the same getSessionKey that session() gets: what has to be serialized is
+    // exactly the updates of one sessions row. It protects the check-then-act in
+    // FillUserToContextMiddleware as well: the key carries from.id, and the filters above let
+    // through no chat of the user other than the private one.
     private async setupSequential(): Promise<void> {
         this.grammy.use(sequentialize<Context>(getSessionKey));
     }
@@ -167,11 +168,12 @@ export class Bot {
     }
 
     private async setupFlavor(): Promise<Fluent> {
-        // Каталог берётся от запущенного кода (__dirname), а не от rootDir: в build/ рядом
-        // с кодом лежат свои копии `.ftl` (шаг сборки в package.json), и путь от cwd увёл бы
-        // собранное приложение читать локали из src/ — которого в развёрнутом виде нет.
-        // Бот лежит в своём каталоге bot/, а `.ftl` разложены по всей подсистеме telegram/ —
-        // при командах и разговорах, поэтому обход начинается уровнем выше.
+        // The directory comes from the running code (__dirname), not from rootDir: build/
+        // carries its own copies of the `.ftl` next to the code (a build step in package.json),
+        // and a path from cwd would send the built application to read locales from src/, which
+        // a deployment does not have. The bot lives in its own bot/ directory while the `.ftl`
+        // are spread over the whole telegram/ subsystem — next to the commands and the
+        // conversations, so the walk starts one level up.
         const fluent = await createFluent(path.dirname(__dirname));
 
         this.grammy.use(createFluentMiddleware(fluent));
@@ -218,8 +220,8 @@ export class Bot {
             command.setup(composer);
         }
 
-        // Набор без language_code — запасной: его Telegram показывает всем, чей язык не
-        // совпал ни с одним из заданных ниже, поэтому он идёт на дефолтной локали.
+        // The set without language_code is the fallback: Telegram shows it to everyone whose
+        // language matched none of those set below, so it goes in the default locale.
         await this.grammy.api.setMyCommands(this.describeCommands(commands, fluent, DEFAULT_LOCALE));
 
         for (const locale of LOCALES) {

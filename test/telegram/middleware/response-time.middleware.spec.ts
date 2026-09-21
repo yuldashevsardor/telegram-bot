@@ -45,8 +45,8 @@ describe("ResponseTimeMiddleware", function () {
         expect(Number(time)).to.be.within(0, elapsed);
     });
 
-    // Без try/catch вокруг next(): у упавшего апдейта строки времени нет, ошибка уходит
-    // дальше, в Bot.handleError.
+    // No try/catch around next(): a failed update gets no timing line, the error travels on to
+    // Bot.handleError.
     it("logs nothing and passes the error up when the chain fails", async function () {
         const messages: string[] = [];
         const error = new Error("chain failed");

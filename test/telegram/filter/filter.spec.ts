@@ -30,9 +30,9 @@ function buildLogger(records: DebugRecord[]): Logger {
     };
 }
 
-// Повторяет схему Bot.setup(): фильтр и то, что за ним, живут в разных composer'ах,
-// оба подключены к корневому. Именно так пропадал отброс, когда setup() полагался
-// на composer.filter().
+// Repeats the layout of Bot.setup(): the filter and what comes after it live in different
+// composers, both attached to the root one. That is exactly how the drop used to disappear while
+// setup() relied on composer.filter().
 async function run(result: boolean): Promise<{ passed: boolean; records: DebugRecord[] }> {
     const records: DebugRecord[] = [];
     const root = new Composer<Context>();

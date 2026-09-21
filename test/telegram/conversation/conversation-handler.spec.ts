@@ -13,9 +13,9 @@ class StubConversationHandler extends ConversationHandler {
     public readonly seenAfterAwait: Entered[] = [];
 
     protected async run(conversation: Conversation, ctx: Context): Promise<void> {
-        // Уступка исполнения в той же точке, где реальный разговор ждёт сети или
-        // следующего апдейта: в это окно плагин успевает завести разговор другого
-        // пользователя тем же экземпляром обработчика.
+        // Execution yields at the same point where a real conversation waits for the network or
+        // for the next update: in that window the plugin manages to start a conversation of
+        // another user with the same handler instance.
         await Promise.resolve();
 
         this.seenAfterAwait.push({ conversation: conversation, ctx: ctx });

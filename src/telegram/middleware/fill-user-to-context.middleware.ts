@@ -20,8 +20,8 @@ export class FillUserToContextMiddleware extends Middleware {
 
     protected async handle(ctx: Context, next: NextFunction): Promise<void> {
         if (!ctx.from) {
-            // Апдейты без from отсеивает HasSessionKeyFilter; проверка здесь нужна
-            // компилятору и ловит поломку порядка в Bot.setup().
+            // Updates without from are cut off by HasSessionKeyFilter; the check here is for
+            // the compiler and catches a broken order in Bot.setup().
             throw UpdateWithoutFrom.byUpdate(ctx.update);
         }
 
@@ -41,16 +41,17 @@ export class FillUserToContextMiddleware extends Middleware {
                 firstname: ctx.from.first_name,
                 lastname: ctx.from.last_name || "",
                 username: ctx.from.username || "",
-                // Stryker disable next-line OptionalChaining: `ctx.from.is_bot` — эквивалентен: апдейт без from отвергнут в начале handle()
+                // Stryker disable next-line OptionalChaining: `ctx.from.is_bot` is equivalent: an update without from is rejected at the start of handle()
                 isBot: ctx.from?.is_bot,
             });
         }
 
-        // Функция, а не поле: перечислимое свойство контекста плагин разговоров клонирует
-        // в op-лог и в sessions (docs/architecture/invariants.md), а клон User — пустой
-        // объект, у него всё в приватных полях. Функции плагин не клонирует, а
-        // восстанавливает биндом от живого контекста, поэтому внутри разговора getUser()
-        // отдаёт пользователя текущего апдейта, а не слепок с момента входа в разговор.
+        // A function, not a field: an enumerable context property is cloned by the conversations
+        // plugin into the op log and into sessions (docs/architecture/invariants.md), and a clone
+        // of User is an empty object — everything in it sits in private fields. Functions the
+        // plugin does not clone but restores by binding to the live context, so inside a
+        // conversation getUser() gives the user of the current update, not a snapshot taken when
+        // the conversation was entered.
         ctx.getUser = (): User => user;
 
         return next();

@@ -31,9 +31,9 @@ describe("FillUserToContextMiddleware", function () {
         expect(ctx.getUser()).to.equal(created);
     });
 
-    // Перечислимые свойства контекста плагин разговоров клонирует в op-лог и в sessions,
-    // а клон User — пустой объект. Функцию он не клонирует, а восстанавливает биндом от
-    // живого контекста, поэтому пользователь остаётся доступен и внутри разговора.
+    // The conversations plugin clones the enumerable context properties into the op log and into
+    // sessions, and a clone of User is an empty object. A function it does not clone but restores
+    // by binding to the live context, so the user stays reachable inside a conversation as well.
     it("keeps the user out of the enumerable context properties", async function () {
         const { ctx } = await run(buildUser(), true);
 
@@ -64,8 +64,8 @@ describe("FillUserToContextMiddleware", function () {
         expect(lastActiveTime?.isBefore(before)).to.equal(false);
     });
 
-    // Telegram не присылает last_name и username, когда их нет в профиле, а колонки у них
-    // обязательные: отсутствующее поле пишется пустой строкой.
+    // Telegram does not send last_name and username when the profile has none, while their columns
+    // are mandatory: a missing field is written as an empty string.
     it("writes the missing optional names as empty strings", async function () {
         const created = await run(buildUser(), false, FROM);
         const edited = await run(buildUser(), true, FROM);
@@ -74,8 +74,8 @@ describe("FillUserToContextMiddleware", function () {
         expect(edited.calls.edited[0]?.dto).to.include({ lastname: "", username: "" });
     });
 
-    // Такой апдейт отсекает HasSessionKeyFilter выше по пайплайну: сюда он доходит, только
-    // если порядок в Bot.setup() сломан, и молча пройти дальше он не должен.
+    // Such an update is cut off by HasSessionKeyFilter higher up the pipeline: it gets here only
+    // if the order in Bot.setup() is broken, and it must not pass on silently.
     it("rejects an update without from before touching the storage", async function () {
         let touched = false;
         const repository = {
