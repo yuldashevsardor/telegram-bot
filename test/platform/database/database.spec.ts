@@ -85,9 +85,9 @@ describe("Database", function () {
 });
 
 // The environment of the container with DATABASE_NAME replaced by the database of the run.
-// It is created by test/database-hook.ts; why the name comes in a variable of its own is
-// there as well. The config requires BOT_TOKEN while the database does not need it: without
-// the substitution the spec would depend on the token in .env.
+// The database is created by test/database-hook.ts; why its name comes in a variable of
+// its own is there as well. The config requires BOT_TOKEN while the database does not need
+// it: without the substitution the spec would depend on the token in .env.
 function testDatabaseEnv(): RawConfig {
     return { ...process.env, BOT_TOKEN: "test-token", DATABASE_NAME: testDatabaseName() };
 }
