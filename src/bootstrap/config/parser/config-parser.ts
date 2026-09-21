@@ -13,17 +13,18 @@ export type IntegerRange = {
     max?: number;
 };
 
-// Разбор строк снимка источника в значения. Умолчание подставляется только вместо отсутствующей или
-// пустой переменной; всё, что задано, но недопустимо, — InvalidConfigError с её именем на старте.
-// Отдельный класс, а не приватные методы билдера: у хелпера может ещё не быть вызова
-// (getBoolean, getArray), а noUnusedLocals не пропускает приватный метод без вызовов.
+// Parsing the strings of a snapshot of the source into values. A default is substituted only for a
+// missing or blank variable; anything that is set but not allowed is an InvalidConfigError naming it
+// at startup. A separate class rather than private methods of the builder: a helper may have no call
+// site yet (getBoolean, getArray), and noUnusedLocals does not let a private method without calls
+// through.
 export class ConfigParser {
-    // Наибольшая задержка таймеров Node: знаковое 32-битное целое.
+    // The longest delay of a Node timer: a signed 32-bit integer.
     public static readonly MAX_TIMER_DELAY = 2 ** 31 - 1;
 
     public constructor(private readonly raw: RawConfig) {}
 
-    // Без умолчания переменная обязательна.
+    // Without a default the variable is required.
     public getString(name: string, defaultValue?: string): string {
         const value = this.raw[name]?.trim();
 
@@ -59,16 +60,16 @@ export class ConfigParser {
         return this.getInteger(name, defaultValue, { min: 1, max: 65535 });
     }
 
-    // Задержка setTimeout или setInterval, мс. Период меньше 1 мс или больше 2^31 - 1 мс Node
-    // превращает в 1 мс (на переполнении — лишь с предупреждением): огромное значение, взятое, чтобы
-    // «не срабатывать никогда», сработало бы сразу, а интервальный лог писался бы на каждом витке
-    // событийного цикла. Ноль допускают только там, где он значит «не ждать».
+    // The delay of a setTimeout or a setInterval, ms. Node turns a period below 1 ms or above
+    // 2^31 - 1 ms into 1 ms (on an overflow, with nothing but a warning): a huge value taken so that
+    // it would "never fire" would fire at once, and an interval log would be written on every turn of
+    // the event loop. A zero is allowed only where it means "do not wait".
     public getTimerDelay(name: string, defaultValue: number, { min = 1 }: { min?: number } = {}): number {
         return this.getInteger(name, defaultValue, { min: min, max: ConfigParser.MAX_TIMER_DELAY });
     }
 
-    // Не через parseInt: "MAYBE" дал бы NaN, приведённый к false, и опечатку нельзя было бы
-    // отличить от осознанного выключения.
+    // Not through parseInt: "MAYBE" would give a NaN coerced to false, and a typo could not be told
+    // apart from a deliberate switching off.
     public getBoolean(name: string, defaultValue: boolean): boolean {
         const value = this.getString(name, "");
 
@@ -88,7 +89,7 @@ export class ConfigParser {
         return boolean;
     }
 
-    // ignoreCase отдаёт значение в написании из allowed, а не в том, в каком оно пришло.
+    // ignoreCase returns the value in the spelling from allowed, not in the one it came in.
     public getEnum<T extends string>(name: string, allowed: readonly T[], defaultValue: T, { ignoreCase = false } = {}): T {
         const value = this.getString(name, "");
 
@@ -108,9 +109,9 @@ export class ConfigParser {
         return found;
     }
 
-    // Элементы разделяет запятая или точка с запятой, пробелы вокруг них отбрасываются. Каждый
-    // элемент проверяет isElement: приведение результата к целевому типу у вызывающего пропустило
-    // бы мусорный элемент. Пустой элемент ("a,,b", хвостовая запятая) тоже идёт на проверку.
+    // Elements are separated by a comma or a semicolon, and the spaces around them are dropped. Every
+    // element is checked by isElement: casting the result to the target type at the call site would
+    // let a junk element through. A blank element ("a,,b", a trailing comma) goes to the check too.
     public getArray<T extends string>(name: string, isElement: (value: string) => value is T, defaultValue: T[]): T[] {
         const value = this.getString(name, "");
 
@@ -142,8 +143,8 @@ export class ConfigParser {
     private static parseInteger(name: string, value: string): number {
         const parsed = Number(value);
 
-        // Number, а не parseInt: тот молча съедает хвост ("10s" → 10) и на "abc" отдаёт NaN,
-        // так что нечисловое значение уехало бы в конфиг незамеченным.
+        // Number and not parseInt: the latter silently eats the tail ("10s" → 10) and returns NaN
+        // for "abc", so a non-numeric value would slip into the config unnoticed.
         if (!Number.isInteger(parsed)) {
             throw new InvalidConfigError(`Config value "${name}" must be an integer`, {
                 got: value,

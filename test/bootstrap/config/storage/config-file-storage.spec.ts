@@ -8,11 +8,11 @@ import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage"
 import type { RawConfig } from "app/bootstrap/config/container/config-container.types";
 import { change, replace } from "test/bootstrap/config/storage/config-file-storage.helper";
 
-// Интервал опроса в спеке — десятки миллисекунд: настоящий (2000) растянул бы прогон на минуты, а
-// на единицах обессмыслились бы проверки «сигнала не было»: их окна заданы интервалом
-// (`sleep(INTERVAL * 4)` и `sleep(INTERVAL * 6)`) и свелись бы к единицам миллисекунд. Запаса на
-// попадание опроса в такое окно не остаётся, и прошедшая проверка уже не значила бы, что опрос
-// в нём был.
+// The polling interval in the spec is tens of milliseconds: the real one (2000) would stretch the
+// run into minutes, while single digits would make the "there was no signal" checks meaningless:
+// their windows are set by the interval (`sleep(INTERVAL * 4)` and `sleep(INTERVAL * 6)`) and would
+// come down to a few milliseconds. No margin is left for a poll to land in such a window, and a
+// check that passed would no longer mean that a poll was in it.
 const INTERVAL = 25;
 
 function base(raw: RawConfig): ConfigStorage {
@@ -23,12 +23,13 @@ function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Ждёт число сигналов, а не предикат по нему: счётчик сигналов только растёт, поэтому перебор
-// делает строгое равенство ложным навсегда, и ожидание кончается тем же дедлайном, что и
-// недостача. Сообщение про несостоявшийся сигнал обвиняло бы тогда наблюдателя в пропаже, хотя
-// сигналов было больше, чем ждали, и искать пошли бы не туда. Отсюда сравнение чисел: и текст, и
-// напечатанные рядом фактическое с ожидаемым верны в обе стороны. Про время текст молчит: перебор
-// дедлайна не ждёт — счётчик его уже не отыграет, и диагноз готов сразу.
+// Waits for a number of signals rather than a predicate over it: the counter of signals only grows,
+// so an overshoot makes strict equality false forever, and the wait ends on the same deadline as a
+// shortfall. A message about a signal that never happened would then blame the watcher for a loss,
+// although there were more signals than expected, and the search would go the wrong way. Hence the
+// comparison of numbers: both the text and the actual and the expected printed next to it are true
+// in either direction. The text says nothing about time: an overshoot does not wait for the deadline
+// — the counter will not win it back, and the diagnosis is ready at once.
 async function waitForSignals(signals: () => number, expected: number, timeout = 1000): Promise<void> {
     const deadline = Date.now() + timeout;
     let actual = signals();
@@ -54,8 +55,8 @@ describe("ConfigFileStorage", () => {
         storages = [];
     });
 
-    // Оставленный опрос держал бы событийный цикл: у mocha нет --exit, и прогон дождался бы
-    // своего таймаута вместо завершения.
+    // A poll left behind would hold the event loop: mocha has no --exit, and the run would sit out
+    // its own timeout instead of finishing.
     afterEach(async () => {
         for (const storage of storages) {
             storage.unwatch();
@@ -72,8 +73,8 @@ describe("ConfigFileStorage", () => {
         return created;
     }
 
-    // Файл лежит под базовым источником: заданное там перекрывает его, а сам файл добавляет
-    // значения ключам, которых в базовом источнике нет.
+    // The file lies under the base source: what is set there overrides it, while the file itself
+    // adds values for the keys the base source does not hold.
     it("lets the base source win over the file", async () => {
         await fs.writeFile(filePath, "FROM_FILE=file\nSHARED=file\n");
 
@@ -84,15 +85,15 @@ describe("ConfigFileStorage", () => {
         expect(raw["SHARED"]).to.equal("base");
     });
 
-    // Пустая переменная базового источника — «не задано», а не «задано пустым»: половина
-    // переменных в .env объявлена пустыми, и перекрывай они файл, менять их на ходу было бы
-    // нельзя. Пробелы в кавычках dotenv сохраняет (незакавыченные он обрезает сам), а
-    // ConfigParser всё равно считает их пустотой.
+    // A blank variable of the base source is "not set", not "set to blank": half of the variables in
+    // .env are declared blank, and were they to override the file, changing them on the fly would be
+    // impossible. dotenv keeps quoted spaces (unquoted ones it trims itself), and ConfigParser treats
+    // them as blank anyway.
     it("lets the file value through for a key the base source leaves blank", async () => {
         await fs.writeFile(filePath, "BLANK=file\nPADDED=file\nMISSING=file\n");
 
-        // undefined базовый источник вправе отдать: снимок объявлен как Record<string, string |
-        // undefined>, и обращаться с ним как со строкой нельзя.
+        // The base source is free to return undefined: the snapshot is declared as Record<string,
+        // string | undefined>, and it must not be treated as a string.
         const raw = await storage(INTERVAL, { BLANK: "", PADDED: "   ", MISSING: undefined }).load();
 
         expect(raw["BLANK"]).to.equal("file");
@@ -100,18 +101,18 @@ describe("ConfigFileStorage", () => {
         expect(raw["MISSING"]).to.equal("file");
     });
 
-    // Отсутствие файла — нормальное состояние: наблюдение начинается до его появления, а
-    // удаление возвращает значения базовому источнику.
+    // A missing file is a normal state: watching starts before it appears, and deleting it returns
+    // the values to the base source.
     it("falls back to the base source when there is no file", async () => {
         const raw = await storage(INTERVAL, { FROM_BASE: "base" }).load();
 
         expect(raw).to.deep.equal({ FROM_BASE: "base" });
     });
 
-    // Пустой набор вместо отказа снял бы разом все значения файла, и причина осталась бы
-    // неизвестной.
+    // An empty set instead of a failure would drop every value of the file at once, and the reason
+    // would stay unknown.
     it("throws ConfigFileUnreadable when the path cannot be read", async () => {
-        // Каталог на месте файла: его чтение падает не ENOENT, а EISDIR.
+        // A directory in place of the file: reading it fails with EISDIR, not with ENOENT.
         await fs.mkdir(filePath);
 
         const failed = await storage()
@@ -135,17 +136,18 @@ describe("ConfigFileStorage", () => {
             signals += 1;
         });
 
-        // Слушатель на отсутствующем файле зовётся сразу после подписки, с нулями в обоих
-        // снимках: этот вызов изменением не считается.
+        // On a missing file the listener is called right after the subscription, with zeroes in both
+        // snapshots: that call does not count as a change.
         await sleep(INTERVAL * 4);
         expect(signals).to.equal(0);
 
         await replace(filePath, "A=1\n");
         await waitForSignals(() => signals, 1);
 
-        // Та же длина: изменение видно по времени правки, а не по размеру. Размер проверяется
-        // после записи, потому что страховка change() — «не короче»: удлинённый при доработке
-        // литерал прошёл бы её молча, уехав на проверку по размеру и оставив эту строку ложью.
+        // The same length: the change is visible by the modification time, not by the size. The size
+        // is checked after the write, because the safeguard in change() is "not shorter": a literal
+        // lengthened during a later edit would pass it silently, slipping over to a check by size and
+        // leaving this line a lie.
         await change(filePath, "A=2\n");
         expect((await fs.stat(filePath)).size).to.equal(Buffer.byteLength("A=1\n"));
         await waitForSignals(() => signals, 2);
@@ -158,8 +160,8 @@ describe("ConfigFileStorage", () => {
         expect(await watchable.load()).to.deep.equal({});
     });
 
-    // Редактор сохраняет файл записью во временный и переименованием поверх: inode меняется, и
-    // подписка на события файловой системы потеряла бы файл вместе с ним.
+    // An editor saves a file by writing a temporary one and renaming it over: the inode changes, and
+    // a subscription to file system events would lose the file along with it.
     it("keeps reporting after the file has been replaced with another inode", async () => {
         await fs.writeFile(filePath, "A=1\n");
 
@@ -170,8 +172,8 @@ describe("ConfigFileStorage", () => {
             signals += 1;
         });
 
-        // Базовое состояние наблюдатель снимает уже после подписки: правка, обогнавшая первый
-        // опрос, попала бы в это состояние и изменением не считалась бы.
+        // The watcher takes the baseline state only after the subscription: an edit that outran the
+        // first poll would land in that state and would not count as a change.
         await sleep(INTERVAL * 4);
 
         await replace(filePath, "A=2\n");
@@ -183,12 +185,13 @@ describe("ConfigFileStorage", () => {
         expect((await watchable.load())["A"]).to.equal("3");
     });
 
-    // Правка, сохранившая время изменения (архиватор, rsync --times), видна по размеру: иначе
-    // такой файл остался бы непрочитанным до следующей обычной правки. Время выставляется обоим
-    // состояниям файла явно: естественное время правки идёт с наносекундами, а возвращённое
-    // через Date округляется до миллисекунд, и сравнение времени отличило бы их само. Интервал
-    // секундный намеренно: запись и возврат времени должны попасть в один опрос, иначе опрос
-    // между ними увидел бы новое время, и проверялось бы не то.
+    // An edit that kept the modification time (an archiver, rsync --times) is visible by the size:
+    // otherwise such a file would stay unread until the next ordinary edit. The time is set
+    // explicitly for both states of the file: a natural modification time comes with nanoseconds,
+    // while one put back through Date is rounded to milliseconds, and the comparison of times would
+    // tell them apart on its own. The interval is a second on purpose: the write and the restoring of
+    // the time have to land in one poll, otherwise a poll between them would see the new time and the
+    // check would be about something else.
     it("reports a change that kept the modification time", async function () {
         this.timeout(6000);
 
@@ -211,7 +214,8 @@ describe("ConfigFileStorage", () => {
         expect((await watchable.load())["A"]).to.equal("1234567890");
     });
 
-    // Снятое наблюдение заводится заново: иначе выключить его на время и вернуть было бы нечем.
+    // Watching that was removed is started again: otherwise there would be nothing to switch it off
+    // for a while and bring it back with.
     it("watches again after unwatch()", async () => {
         await fs.writeFile(filePath, "A=1\n");
 
@@ -256,8 +260,8 @@ describe("ConfigFileStorage", () => {
         expect(signals).to.equal(0);
     });
 
-    // Второй watch() поверх первого завёл бы второй опрос того же пути, а unwatch() снял бы оба
-    // сразу: слушатель молча перестал бы получать сигналы.
+    // A second watch() on top of the first would start a second poll of the same path, while
+    // unwatch() would remove both at once: the listener would silently stop receiving signals.
     it("keeps a single watch when watch() is called twice", async () => {
         await fs.writeFile(filePath, "A=1\n");
 
@@ -279,9 +283,10 @@ describe("ConfigFileStorage", () => {
         expect(signals).to.equal(1);
     });
 
-    // unwatch() без watch() — обычный путь остановки приложения, которое не успело дойти до
-    // наблюдения. Своего слушателя у источника при этом нет, и снимать с пути чужих он не вправе:
-    // unwatchFile без слушателя убирает всех, кто следит за этим путём.
+    // An unwatch() without a watch() is the ordinary shutdown path of an application that never got
+    // as far as watching. The source has no listener of its own then, and it is not entitled to
+    // remove other people's from the path: unwatchFile without a listener removes everyone watching
+    // it.
     it("does nothing on unwatch() without watch()", async () => {
         await fs.writeFile(filePath, "A=1\n");
 

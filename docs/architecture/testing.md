@@ -24,8 +24,8 @@
   The exceptions to `no-console` are covered in [`logging.md`](./logging.md).
 - The gate before a PR is `make check`, and the tests in it run with the coverage threshold
   ("Coverage", "Threshold"). Nothing enforces it: `pre-commit` is a convenience of host
-  development (the pre-commit hook section of the root [`README.md`](../../README.md)), and CI
-  is not set up yet (issue
+  development (the root [`README.md`](../../README.md), "The pre-commit hook"), and CI is not
+  set up yet (issue
   [#116](https://github.com/yuldashevsardor/telegram-bot/issues/116)).
 - `.claude/settings.json` hangs `scripts/claude-worktree-guard.sh` on the session start and on a
   file edit: an edit in the main tree is rejected. Edits made through the shell the hook does

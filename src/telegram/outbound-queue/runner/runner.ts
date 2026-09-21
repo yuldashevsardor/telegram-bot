@@ -50,16 +50,16 @@ export class Runner {
             return;
         }
 
-        // Завершения вызова цикл намеренно не ждёт: темп выдачи задают лимиты TaskQueue,
-        // а не сетевая задержка Telegram. Ошибку разбирает сам handleTask.
+        // The loop deliberately does not wait for the call to finish: the pace is set by the limits of
+        // TaskQueue, not by the network latency of Telegram. The error is handled by handleTask itself.
         void this.handleTask(task);
 
         setTimeout(this.handleTasks.bind(this), 0);
     }
 
-    // Сон выбирается случайно из диапазона, а не берётся фиксированным: ровный шаг раз за
-    // разом попадает в одну и ту же точку окна остывания лимитов, и часть пробуждений
-    // систематически приходится на занятый лимит. Случайный разводит их по окну.
+    // The sleep is picked at random from a range instead of being fixed: an even step hits the same
+    // point of the limits' cooldown window over and over, and part of the wake-ups systematically lands
+    // on a busy limit. A random one spreads them across the window.
     private getSleepInterval(): number {
         const { min, max } = this.settings.sleepInterval;
 
@@ -100,9 +100,9 @@ export class Runner {
         this.taskQueue.ban(Runner.getRetryAfterSeconds(error) * 1000);
     }
 
-    // Проверяется только error_code: счесть 429 с нечитаемым parameters «не тем» типом
-    // значило бы оставить настоящий 429 без паузы. Форма parameters поэтому не гарантирована —
-    // getRetryAfterSeconds разбирает её, не полагаясь на тип.
+    // Only error_code is checked: treating a 429 with unreadable parameters as "not that" type would
+    // leave a real 429 without a pause. The shape of parameters is therefore not guaranteed —
+    // getRetryAfterSeconds parses it without relying on the type.
     private static isManyRequestError(error: unknown): error is TelegramApiError {
         if (typeof error !== "object" || error === null || !("error_code" in error)) {
             return false;

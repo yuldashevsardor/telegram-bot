@@ -1,6 +1,7 @@
 import type { RawConfig } from "app/bootstrap/config/container/config-container.types";
 
-// Схема конфигурации: из снимка источника собирает значения формы Values и валидирует их.
+// The schema of the configuration: assembles values of the shape Values from a snapshot of the
+// source and validates them.
 export interface ConfigBuilder<Values> {
     build(raw: RawConfig): Values;
 }

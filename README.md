@@ -1,212 +1,175 @@
 # telegram-bot
 
-Telegram-бот для конвертации файлов шрифтов между форматами (`ttf`, `otf`, `woff`,
-`woff2`, `eot`, `svg`). Конвертирует FontForge, пользователи и сессии — в PostgreSQL.
+A Telegram bot that converts font files between formats (`ttf`, `otf`, `woff`, `woff2`,
+`eot`, `svg`). FontForge does the converting; users and sessions live in PostgreSQL.
 
-Устройство кода и рантайм — [`docs/architecture/`](docs/architecture/README.md),
-термины — [`CONTEXT.md`](CONTEXT.md).
+How the code is laid out and what happens at runtime —
+[`docs/architecture/`](docs/architecture/README.md), the terms — [`CONTEXT.md`](CONTEXT.md).
 
-## Быстрый старт
+## Quick start
 
-Нужен только Docker с Compose v2: Node и FontForge входят в образ.
+All you need is Docker with Compose v2: Node and FontForge are part of the image.
 
 ```bash
-cp .env.dist .env   # впишите BOT_TOKEN от @BotFather
-make up             # база и приложение этого дерева
+cp .env.dist .env   # put in the BOT_TOKEN from @BotFather
+make up             # the database and this worktree's application
 ```
 
-`make` без аргументов печатает все цели с описаниями. Это единственная точка входа:
-прямые `docker compose` и `npm` не нужны.
+`make` with no arguments prints every target with its description. It is the only entry
+point: plain `docker compose` and `npm` are not needed.
 
-Окружение только для разработки: `./src` смонтирован с хоста, бот работает через
-`node --watch` и перезапускается на правку. Если перезапуски прекратились (после
-`git checkout` наблюдатель может отвязаться от файла) — `make restart`.
-Production-конфигурации в репозитории нет.
+The environment is for development only: `./src` is mounted from the host, the bot runs
+under `node --watch` and restarts on an edit. If the restarts stop (after a `git checkout`
+the watcher can lose the file) — `make restart`. There is no production configuration in
+the repository.
 
-## Два compose-файла
+## The two compose files
 
-| Файл                     | Проект            | Что поднимает                          |
-| ------------------------ | ----------------- | -------------------------------------- |
-| `docker-compose.db.yml`  | `telegram-bot-db` | PostgreSQL, один на машину             |
-| `docker-compose.app.yml` | имя каталога      | миграции и бот; свой в каждом worktree |
+| File                     | Project           | What it brings up                        |
+| ------------------------ | ----------------- | ---------------------------------------- |
+| `docker-compose.db.yml`  | `telegram-bot-db` | PostgreSQL, one per machine              |
+| `docker-compose.app.yml` | directory name    | migrations and the bot; one per worktree |
 
-Приложение находит базу по имени сервиса `pgsql` во внешней сети
-`telegram-bot-db_default`, поэтому база поднимается первой. Данные базы лежат в
-`./tmp/pgsql` основного дерева.
+The application finds the database by the service name `pgsql` in the external network
+`telegram-bot-db_default`, so the database goes up first. Its data lies in `./tmp/pgsql`
+of the main worktree.
 
-## Работа в нескольких worktree
+## Working in several worktrees
 
-Каждая задача ведётся в своём дереве (правило и команда создания — в `CLAUDE.md`).
-Общего между деревьями два: база и пул токенов, оба живут в основном дереве.
+Every task is done in its own worktree (the rule and the command that creates one are in
+`CLAUDE.md`). Two things are shared between worktrees: the database and the token pool,
+and both live in the main worktree.
 
-### Пул токенов
+### The token pool
 
-Два бота на long polling с одним токеном получают от Telegram `409 Conflict`, поэтому
-токенов столько, сколько одновременно запущенных ботов. Пул — файл `tmp/bot/tokens`
-в основном дереве, по токену на строку.
+Two bots long-polling with the same token get a `409 Conflict` from Telegram, so there are
+as many tokens as there are bots running at once. The pool is the file `tmp/bot/tokens` in
+the main worktree, one token per line.
 
-`token-status` называет дерево, за которым закреплён слот; аренду продлевает
-`make token-renew`, и цели `up`, `app-up`, `restart` делают это сами.
+`make token-status` names the worktree a slot is leased to; `make token-renew` extends the
+lease, and the targets `up`, `app-up` and `restart` do that themselves.
 
-- `make token-add` спрашивает токен с приглашения, а не берёт аргументом: аргументы
-  видны в `ps` и остаются в истории шелла. `token=…` цель отвергает.
-- Номер слота — номер строки. Новые токены дописываются в конец, ненужные
-  комментируются `#` (можно с пояснением: `# 111:aaa отозван 2026-09-01`), а не
-  удаляются: сдвиг строк перепутает выданные аренды.
-- Вернуть токен в оборот — раскомментировать его строку и убрать пояснение:
-  в активной строке токен — вся строка целиком.
-- Аренда привязана к пути дерева и истекает через `BOT_TOKEN_TTL` (по умолчанию 2 часа).
-  Слот освобождает `make token-release`, а удалённое дерево — само.
-- В основном дереве токен вписан руками; незнакомый пулу токен там не трогается.
-  В дереве задачи `.env` — копия основного, и незнакомый токен считается унаследованным:
-  продление аренды заменит его свободным слотом.
+- `make token-add` asks for the token at a prompt instead of taking it as an argument:
+  arguments are visible in `ps` and stay in the shell history. The target rejects `token=…`.
+- The slot number is the line number. New tokens are appended at the end, and the ones no
+  longer needed are commented out with `#` (a note may follow: `# 111:aaa revoked
+  2026-09-01`) rather than deleted: shifting the lines would scramble the leases already
+  handed out.
+- To put a token back into circulation, uncomment its line and drop the note: in an active
+  line the token is the whole line.
+- A lease belongs to a worktree path and expires after `BOT_TOKEN_TTL` (2 hours by default).
+  `make token-release` frees the slot, and a deleted worktree frees it by itself.
+- In the main worktree the token is written by hand, and one the pool does not know is left
+  alone there. In a task worktree `.env` is a copy of the main one, so a token the pool does
+  not know counts as inherited there: renewing the lease replaces it with a free slot.
 
-### Дерево задачи
+### A task worktree
 
 ```bash
-make worktree-init   # один раз
+make worktree-init   # once
 make app-up
 ```
 
-После влития PR, в дереве задачи:
+After the PR is merged, in the task worktree:
 
 ```bash
 make worktree-cleanup
 ```
 
-Цель отказывается убирать дерево, если в нём есть незакоммиченные изменения или ветка не
-влита в `main` на origin: дальше всё необратимо. Иначе она гасит приложение вместе с образом
-и томом и сносит дерево вместе с веткой — каталог исчезает, вернитесь в основное дерево.
-Ветку после squash-мержа цель не
-распознаёт как влитую и печатает команды для ручной уборки.
+The target refuses to clean up a worktree that has uncommitted changes or whose branch is
+not merged into `main` on origin: everything past that point is irreversible. Otherwise it
+takes the application down together with its image and volume, removes the worktree and the
+branch both locally and on origin, and finally fast-forwards `main` in the main worktree —
+a session starts there and reads the code and the docs from it until it creates a worktree
+of its own. The directory disappears, so go back to the main worktree. A branch merged with
+squash the target does not recognise as merged, and prints the commands to clean up by hand.
 
-Снести дерево может не выйти — например, оно заблокировано `git worktree lock` или в нём
-остался файл, который не удаляется (`coverage` и `reports` монтируются в контейнер, и на
-Linux-хосте созданное там принадлежит пользователю контейнера). На этом шаге цель и
-останавливается: при живом дереве удаление его ветки и подтягивание `main` обещали бы
-убранное. В выводе сказано, что приложение вместе с образом и томом уже погашено, а дальше —
-одно из двух. Дерево уцелело: устраните причину и повторите цель из него же, повторное
-гашение уже погашенного приложения ничего не портит. Дерево снято с регистрации — повторять
-цель неоткуда, и вывод называет команды, которыми доделать уборку руками; каталог при этом
-мог и уцелеть с неудалённым остатком, и исчезнуть, поэтому удалять его вывод зовёт не всегда.
+Removing the worktree can fail — it is held by `git worktree lock`, say, or something in it
+will not delete (`coverage` and `reports` are mounted into the container, and on a Linux
+host whatever is created there belongs to the container user). The target stops at that
+step: with the worktree alive, removing its branch and fast-forwarding `main` would promise
+a cleanup that did not happen. The output says that the application is already down together
+with its image and volume, and then names one of two ways on: remove the cause and repeat
+the target from that same worktree, or, once the worktree is unregistered and there is
+nothing left to repeat the target from, finish the cleanup by hand with the commands it
+prints.
 
-Отказ удаления ветки — локальной или на `origin`, например прав не хватило — уборку не
-обрывает: всё необратимое к этому моменту сделано. Так же заканчивается и недоступный
-`origin`: не спросив его, цель не знает, осталась ли там ветка, и не выдаёт это за «ветки
-там уже не было». Цель договаривает вывод, печатает подсказку, которой с веткой
-разбираются вручную из основного дерева, и завершается ненулевым кодом: им эти исходы и
-отличаются от полной уборки, а `make` допечатает поверх свою строку об ошибке. Дерево при
-этом уже убрано, повторять цель неоткуда.
+Failing to remove the branch — locally, on origin, or failing to ask origin whether it is
+still there — does not break off the cleanup: everything irreversible is done by then. The
+target finishes its output, prints the hint for dealing with the branch by hand from the
+main worktree, and exits non-zero; that is what tells these outcomes from a full cleanup,
+and `make` prints its own error line on top. The worktree is gone by then, so there is
+nothing to repeat the target from.
 
-Дойдя до конца, цель подтягивает `main` в основном дереве — свежим `git fetch` в свою
-ссылку `refs/worktree-cleanup/main` и ff-мержем по этой ссылке: двигать `main` больше
-некому, а сессия стартует именно там и до создания своего дерева читает оттуда код и доки,
-то есть текстом до мержа. В ту же ссылку идёт и `fetch` проверки слитости в начале уборки.
-Ссылка своя, а не общая `origin/main`, потому что общую в этот же момент может держать на
-запись `fetch` соседней сессии: проверку слитости такой отказ обрывал бы, а подтягивание
-роняло бы целиком — и то и другое из-за ссылки, которая ни `merge-base`, ни ff-мержу не
-нужна. Саму `origin/main` цель поэтому обновляет отдельной командой — `git update-ref`,
-копирующим ту же ссылку: уборке `origin/main` не нужна, но от неё ответвляют дерево задачи, а
-хук старта сессии сверяет по ней `.claude`
-([`docs/architecture/testing.md`](docs/architecture/testing.md)). Копия, а не свой `fetch`:
-второй поход в сеть оставлял окно, внутри которого мерж успевал попасть в `origin/main` и не
-попасть в ссылку проверки слитости, и цель отказывалась убирать ветку, которую общая ссылка
-уже показывала влитой. На этом шаге ссылка встаёт ровно на коммит, привезённый тем `fetch`:
-свежее его не станет, а чужой `fetch`, успевший записать в неё мерж новее между двумя
-соседними строками, копия отодвинет назад. Стоит команда до проверки слитости, поэтому ссылка
-обновляется и тогда, когда проверка уборку обрывает, — то есть после squash-мержа. Остальные
-отказы — незакоммиченные изменения, недоступный origin и всё прочее, на чём цель отказывает
-раньше, — ссылку не обновляют: команда стоит за ними. Уборку она не роняет, но свой отказ
-называет: занятую соседом ссылку обновит следующая уборка, а повторяющийся отказ значит
-`.lock`, оставшийся от убитого git, — его удаляют руками.
+`main` can be left behind too: the main worktree is not on `main`, the fast-forward is
+refused (own commits in `main`, uncommitted edits in the same files), or the `fetch` fails.
+The target says `main` was not pulled and names the command to pull it by hand. The worktree
+cleanup is done regardless, and the edits in the main worktree are untouched. The same
+happens after a squash merge, where the target refuses at the merged-into-`main` check and
+never gets that far.
 
-Копия повторяется в конце и сети ей уже не нужно: первая осталась на коммите начала уборки, а
-свежую ссылку к этому моменту привёз `fetch` подтягивания. Без второй `origin/main` отставала
-бы от подтянутого `main` на весь промежуток уборки. Стоит она перед ff-мержем, а не в ветке
-его успеха: свежесть ссылки от исхода мержа не зависит, а после отказавшего `origin/main`
-оставалась бы на коммите начала уборки — без чужих мержей, доехавших за её десятки секунд, и
-дерево следующей задачи ответвилось бы мимо них. Отодвинуть ссылку назад она может так же
-узко, как первая, и по той же причине: между хвостовым `fetch` и ею нет ни одной команды.
+How the target keeps `main` and `origin/main` fresh — with a ref of its own, fetched and
+then copied rather than read from `origin/main` — is in the comments of
+[`scripts/worktree-cleanup.sh`](scripts/worktree-cleanup.sh).
 
-Её отказ молчит: сказать он может только о ссылке, занятой соседом между двумя копиями, —
-залипший `.lock` отказал бы и первой, с её сообщением. Исключение — `.lock`, оставленный
-между самими копиями: их разделяют гашение приложения, снос дерева и два удаления ветки,
-десятки секунд, и убитый посреди записи git успевает попасть в этот промежуток. Первая копия
-тогда прошла, вторая отказала молча, и назовёт залипший файл только первая копия следующей
-уборки. Если вторая копия отказала, `origin/main` остаётся на коммите начала уборки, и дерево,
-заведённое от неё командой из `CLAUDE.md`, ответвится от той же точки. Прошёл следом ff-мерж —
-`git status -sb` в основном дереве показывает подтянутый `main` впереди неё, `[ahead N]`, где
-N — то, что влили соседи, пока уборка шла; не влили ничего — обе стоят на одном коммите, и
-`[ahead N]` не печатается. Отказал и мерж — `main` остался не подтянутым: позади ссылки, а при
-своих коммитах в `main` — разошедшимся с ней. Всё это — до первого `git fetch`, а залипший
-`.lock` не отпустит ссылку и ему: до удаления файла руками она остаётся старой.
+## Commands
 
-Основное дерево не на `main`, ff-мерж отказал (свои коммиты в `main`, незакоммиченные правки в
-тех же файлах) или не прошёл `fetch` — цель говорит, что `main` не подтянут, и называет, чем
-подтянуть его руками. Уборка дерева при этом уже сделана, а правки основного дерева не
-тронуты. До второй копии цель доходит только после удавшегося хвостового `fetch`: основное
-дерево не на `main` или `fetch` не прошёл — `origin/main` остаётся на коммите начала уборки
-вместе с не сдвинутым `main`. После отказавшего ff-мержа ссылка уже переписана, а `main` не
-сдвинут: `git status -sb` показывает его позади неё — `[behind N]`, а когда отказ вызвали свои
-коммиты в `main`, разошедшимся с ней, `[ahead N, behind M]`.
+The full list is `make`. What is worth knowing beyond the target descriptions:
 
-До конца цель доходит не всегда: после squash-мержа она отказывается ещё на проверке
-слитости, и подтягивать `main` тогда тоже приходится вручную, вслед за ручной уборкой.
+- One-off targets — `build`, `typecheck`, the tests, the linters, the migrations — run in a
+  throwaway container and work with the bot down, but the database has to be up: its network
+  is needed by any application container, and the tests need the database itself
+  ([`docs/architecture/testing.md`](docs/architecture/testing.md), "The test database"). The
+  exceptions are `rebuild` (it builds the image, no database needed), `shell` and `psql` (they
+  step into a running container).
+- `make check` — types, eslint, prettier and the tests with the coverage threshold in one
+  command.
+- `files=` of `format-check` and `format` takes `.ts` only: `.prettierrc.js` hard-codes
+  `parser: "typescript"`.
+- `package.json`, `package-lock.json`, `.mocharc.json` and the linter configs are not
+  mounted from the host (the list of volumes is in `docker-compose.app.yml`), so after they
+  are edited the image goes stale silently — `make rebuild`.
+- `make restart` recreates the container instead of restarting it: `docker compose restart`
+  does not re-read `env_file`, and a changed `BOT_TOKEN` would never reach the bot.
+- `make db-reset` refuses while application containers of other worktrees are running in the
+  network of the database: the database is shared, and the reset would wipe it out from
+  under them mid-work — take them down there with `make app-down` and repeat. A container of
+  an already deleted worktree the target only names — remove it with `docker rm -f <name>`.
+  `CONFIRM=1` answers the confirmation question in advance.
 
-## Команды
+## The pre-commit hook
 
-Полный список — `make`. Что стоит знать сверх описаний целей:
+`.husky/pre-commit` runs `lint-staged` (`eslint --fix`, `prettier --write`) over the staged
+files. It is a convenience of host development, not a mandatory gate: git runs the hook on
+the host, where node is not always present.
 
-- Разовые цели — `build`, `typecheck`, тесты, линтеры, миграции — идут в одноразовом
-  контейнере и работают при погашенном боте, но база должна быть поднята: её сеть нужна
-  любому контейнеру приложения, а тестам — и сама база
-  ([`docs/architecture/testing.md`](docs/architecture/testing.md), "The test database").
-  Исключения — `rebuild` (собирает образ, база не нужна), `shell` и `psql` (заходят в
-  работающий контейнер).
-- `make check` — типы, eslint, prettier и тесты с порогом покрытия одной командой.
-- В `files=` у `format-check` и `format` годятся только `.ts`: `.prettierrc.js` жёстко
-  задаёт `parser: "typescript"`.
-- `package.json`, `package-lock.json`, `.mocharc.json` и конфиги линтеров с хоста не
-  монтируются (список томов — в `docker-compose.app.yml`), поэтому после их правки образ
-  устаревает молча — `make rebuild`.
-- `make restart` пересоздаёт контейнер, а не перезапускает: `docker compose restart`
-  не перечитывает `env_file`, и сменившийся `BOT_TOKEN` до бота бы не дошёл.
-- `make db-reset` отказывает, пока в сети базы работают контейнеры приложения других
-  деревьев: база общая, и сброс стёр бы её у них посреди работы — погасите их там
-  `make app-down` и повторите. Контейнер уже удалённого дерева цель только называет —
-  уберите его `docker rm -f <имя>`. Вопрос подтверждения снимает `CONFIRM=1`.
+- It turns itself on with `npm install` on the host — `package.json#prepare` calls husky,
+  which creates `.husky/_` and sets `core.hooksPath`. There is no separate command for that.
+- `core.hooksPath` lives in the shared config of the repository, one for every worktree, and
+  git does not track `.husky/_`. So a fresh task worktree has no such directory and the hook
+  silently does not run there until `npm install` is done in it.
+- Working through Docker only, there is nothing to turn on: the image has `HUSKY=0` and
+  `npm ci --ignore-scripts`, and `.git` is not mounted into the container. An installed hook
+  skips itself in such an environment — as it does when node is not visible from git's hook
+  environment (the usual reason is nvm: an interactive shell has node, the hook does not).
+- Without the hook the checks are left to `make check` before a PR.
 
-## Хук pre-commit
+## Environment variables
 
-`.husky/pre-commit` гоняет `lint-staged` (`eslint --fix`, `prettier --write`) по
-staged-файлам. Это удобство хостовой разработки, а не обязательный гейт: git запускает
-хук на хосте, где node есть не всегда.
+Every variable lives in `.env` (the template is `.env.dist`), and only `BOT_TOKEN` is
+mandatory. What the application reads is the table in `docs/architecture/config.md`.
 
-- Включается сам при `npm install` на хосте — `package.json#prepare` вызывает husky, тот
-  создаёт `.husky/_` и прописывает `core.hooksPath`. Отдельной команды для этого нет.
-- `core.hooksPath` лежит в общем конфиге репозитория, один на все деревья, а `.husky/_`
-  git не отслеживает. Поэтому в свежем дереве задачи каталога нет и хук молча не
-  запускается, пока там не сделан `npm install`.
-- При работе только через Docker включать нечего: в образе `HUSKY=0` и
-  `npm ci --ignore-scripts`, `.git` в контейнер не монтируется. Установленный хук в таком
-  окружении пропускает себя сам — как и когда node не виден из hook-окружения git
-  (обычная причина — nvm: в интерактивном шелле node есть, у хука его нет).
-- Без хука проверки остаются за `make check` перед PR.
-
-## Переменные окружения
-
-Все переменные — в `.env` (шаблон `.env.dist`), обязателен только `BOT_TOKEN`.
-Что читает приложение — таблица в `docs/architecture/config.md`.
-
-- `DATABASE_HOST`/`DATABASE_PORT` из `.env` — только для подключения с хоста: внутри
-  compose-сети адрес задаёт `docker-compose.app.yml`, а `DATABASE_PORT` задаёт порт,
-  который база публикует наружу для `psql`, DBeaver и подобных.
-- `BOT_TOKEN` в дереве задачи проставляет пул, руками его там не меняют. В `.env.dist`
-  он всегда пустой. Push с настоящим токеном отклонит secret scanning на GitHub.
-- `.runtime.env` — единственный файл, который приложение перечитывает на ходу: его правка
-  пересобирает конфигурацию. Его значения уступают переменным окружения, то есть поменять на
-  ходу можно то, чего нет в `.env` или что объявлено там пустым. Файл создают цели `make` и
-  `scripts/worktree-init.sh`, пустой он ничего не меняет. Чем правка этого
-  файла отличается в контейнере, какой способ сохранения до него не доезжает и что меняется в
-  работающем приложении — [`docs/architecture/config.md`](docs/architecture/config.md),
-  «Наблюдение за файлом» и «Подписка на изменения».
+- `DATABASE_HOST`/`DATABASE_PORT` from `.env` are only for connecting from the host: inside
+  the compose network the address is set by `docker-compose.app.yml`, and `DATABASE_PORT` is
+  the port the database publishes outwards for `psql`, DBeaver and the like.
+- `BOT_TOKEN` in a task worktree is filled in by the pool and is not edited there by hand.
+  In `.env.dist` it is always empty. A push with a real token is rejected by secret scanning
+  on GitHub.
+- `.runtime.env` is the only file the application re-reads on the fly: editing it rebuilds
+  the configuration. Its values yield to environment variables, that is, what can be changed
+  on the fly is what `.env` does not have or declares empty. The file is created by the
+  `make` targets and by `scripts/worktree-init.sh`, and an empty one changes nothing. How
+  editing this file differs inside the container, which way of saving never reaches it and
+  what changes in a running application —
+  [`docs/architecture/config.md`](docs/architecture/config.md), the sections on watching the
+  file and on subscribing to changes.
