@@ -68,10 +68,9 @@ gh pr list --state open --search "<N> in:body" --json number,title,headRefName
 автора»). Годится и запись ревьюера: она лежит в том же треде, и правило у неё то же.
 
 Same rule, one case worth naming: a merge of `origin/main` into the branch moves the head although
-you edited nothing, and what the merge brings is read by the same table — code and specs by the
-gate `mutation`, the run tooling by `mutation-full`. Measure the record against the new `HEAD`
-before the next round and run again if a gate turns on: a round opened on a record the review
-refuses costs the reviewer a run of its own and buys the branch nothing.
+you edited nothing, and what the merge brings goes through the same three gates. Measure the record
+against the new `HEAD` before the next round and run again if one of them turns on: a round opened
+on a record the review refuses costs the reviewer a run of its own and buys the branch nothing.
 
 Все дальнейшие команды — в дереве задачи.
 
