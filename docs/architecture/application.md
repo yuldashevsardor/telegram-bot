@@ -59,8 +59,8 @@ This rests on `emitDecoratorMetadata` being off ([invariant](./invariants.md)): 
 without `@inject` is visible to inversify only through the emitted `design:paramtypes`, and
 without them it takes the constructor to be described in full by its own `@inject` and never
 reaches the default. The flag is off for another reason — nobody read the metadata anyway — but
-switching it back on means breaking the resolve of all eight classes, and breaking it only at
-assembly.
+switching it back on means breaking the resolve of all eight classes, and breaking it only in the
+build.
 
 Hence two properties. The value is read at construction and not on the first access to the
 property, so a failure of the configuration falls on the start. And `new FontConvertor(factory,
@@ -74,7 +74,7 @@ the result type is derived from the same place (`ConfigValue` over `ValueByPath`
 rejects both a miss in the path — a typo, a path through a primitive (`"tempDir.nope"`) — and a
 declared type that does not match: `const x: string = configValue("limits.common")` does not
 compile. The former `@ConfigValue<T>("key")` checked neither: the key was a string, the type a
-hint at the call site, and inside stood three `as`. Two of them are left, both in
+hint at the call site, and inside stood three `as`. They are left in two places, both in
 `bootstrap/config/container/config-container.ts`: the value `get()` found is cast to
 `ValueByPath`, and for the same reason so is the pair of values that `onChange()` hands to a
 listener ([`config.md`](./config.md)) — a walk by dots is not something the compiler can follow.
