@@ -1,14 +1,16 @@
 # syntax=docker/dockerfile:1
 
-# Дублирует package.json#engines: связи между ними нет, синхронизировать вручную.
+# Duplicates package.json#engines: there is no link between the two, keep them in sync by hand.
 ARG NODE_VERSION=24.20.0
 
 FROM node:${NODE_VERSION}-bookworm-slim
 
-# fontforge-nox — headless-сборка: тот же /usr/bin/fontforge, но без зависимостей X11.
-# Это ядро проекта: без бинарника конвертация шрифтов не работает вообще.
-# procps — ради ps: Stryker (make mutation) гасит свои воркеры через tree-kill, а тот ищет
-# дочерние процессы вызовом ps. В slim-образе его нет, и прогон падает на spawn ps ENOENT.
+# fontforge-nox is the headless build: the same /usr/bin/fontforge, but without the X11
+# dependencies. It is the core of the project: without the binary font conversion does not work
+# at all.
+# procps is there for ps: Stryker (make mutation) kills its workers through tree-kill, and that
+# one looks for the child processes by calling ps. The slim image has none, and the run fails with
+# spawn ps ENOENT.
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
         fontforge-nox \
@@ -26,8 +28,8 @@ RUN npm ci --ignore-scripts
 
 COPY . .
 
-# /app принадлежит node, чтобы из-под него работали tsc (build/, typings/) и eslint --cache;
-# сами файлы остаются root'овыми — исходники всё равно монтируются с хоста.
+# /app belongs to node so that tsc (build/, typings/) and eslint --cache work as that user; the
+# files themselves stay root's — the sources are mounted from the host anyway.
 RUN mkdir -p tmp && chown node:node /app tmp
 
 USER node
