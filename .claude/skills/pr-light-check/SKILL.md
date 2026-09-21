@@ -236,7 +236,7 @@ bash-измы, которые упадут на dash в Linux. Образ зде
 
 Код выхода бывает ненулевым и без выживших: прогон оборвался падением процесса чекера, и строки
 `Final mutation score` нет. Что за этими сообщениями стоит — в `docs/architecture/testing.md`,
-«Чекер типов»; здесь — что делать по каждому:
+"The type checker"; здесь — что делать по каждому:
 
 - `Checker process […] crashed with exit code null` — повтори цель один раз;
 - `Checker process […] ran out of memory` — гейт `fail`: чекеру не хватает лимита кучи из

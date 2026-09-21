@@ -76,7 +76,7 @@ a string literal, so a grep for `//` or `*` decides nothing.
 
 Past this row the rule does not hold, which is why it stands here and not over the table as a whole:
 in `src/` a comment can be the mark `// Stryker disable next-line …` that silences a survivor
-(`docs/architecture/testing.md`, «Разбор выживших»), and a diff of that mark is exactly what the
+(`docs/architecture/testing.md`, "Working through survivors"), and a diff of that mark is exactly what the
 gate `mutation` has to see.
 
 `bug-hunt-*` и `smells` разведены намеренно, и границы у них разные. Баги ищутся везде, где
