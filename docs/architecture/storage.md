@@ -39,8 +39,8 @@ a positional `insert into sessions values (key, value)` — two values for four 
 column added by a migration before `value` will be silently shifted by the query
 ([`invariants.md`](./invariants.md)).
 
-It has no storage interface of its own, and that is deliberate: only `users` has one. There
-the interface is declared by the consumer itself — `UserRepository`
+`PgsqlStorage` has no storage interface of its own, and that is deliberate: only `users`
+has one. There the interface is declared by the consumer itself — `UserRepository`
 (`telegram/user/user-repository.ts`) is written for the needs of `UserService`, which is
 also its caller. For the session the interface is set from outside: `PgsqlStorage`
 implements grammY's `StorageAdapter<SessionPayload>`, because that is exactly the type
@@ -57,6 +57,6 @@ adapters: `PgSqlUserRepository` has a directory of its own with a companion
 the column from `int4`); that is exact up to `2^53 - 1`, and current Telegram IDs fit.
 Without a `types` setting the driver returns `bigint` as a string, so `UserRow.id` is a
 `string`, and `PgSqlUserRepository.rowToEntity()` turns it into a number. The
-`sql<UserRow[]>` parameter is only a type assertion: the compiler does not check it against
+`sql<UserRow[]>` type argument is only an assertion: the compiler does not check it against
 what arrives, and while `UserRow` said `number`, a string silently made it all the way into
 `User.id`.
