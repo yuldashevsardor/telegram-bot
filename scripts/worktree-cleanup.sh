@@ -54,7 +54,10 @@ $changes"
 # refs/rewritten/), и этот в них не входит, — так что две уборки, идущие одновременно, тот
 # же отказ по занятой ссылке воспроизведут. Окно у него другого порядка: эту ссылку пишут
 # две строки одной цели, а origin/main писал любой fetch любого дерева.
-git fetch --quiet --refmap= origin "+refs/heads/main:$CLEANUP_REF" || die "не удалось получить main с origin в $CLEANUP_REF — без него нельзя убедиться, что ветка $branch уже влита. Причина выше: отказывают здесь и недоступный origin, и залипший .lock самой ссылки"
+git fetch --quiet --refmap= origin "+refs/heads/main:$CLEANUP_REF" ||
+    die "не удалось получить main с origin в $CLEANUP_REF — без него нельзя убедиться,
+что ветка $branch уже влита.
+Причина выше: отказывают здесь и недоступный origin, и залипший .lock самой ссылки"
 # Самой уборке origin/main больше не нужна, но свежей её в основном дереве держать некому:
 # от неё ответвляет дерево задачи `git worktree add`, и её же читает stale_claude в
 # scripts/claude-worktree-guard.sh, своего fetch не делая, — оба берут то, что оставил
@@ -71,11 +74,15 @@ git fetch --quiet --refmap= origin "+refs/heads/main:$CLEANUP_REF" || die "не 
 # по-прежнему печатала бы «подтянут до main на origin» (про main, а не про эту ссылку), а
 # единственный видимый след, `[ahead N]` в основном дереве, README объявляет штатным.
 if ! git fetch --quiet origin main; then
-    printf 'origin/main в %s не обновлена: git fetch отказал, причина выше — на уборку это не влияет.\nСсылку мог занять fetch соседней сессии: тогда её обновит следующая уборка. Если отказ повторяется, удалите руками .lock, названный в причине: он остался от убитого git.\n' \
+    printf 'origin/main в %s не обновлена: git fetch отказал,
+причина выше — на уборку это не влияет.
+Ссылку мог занять fetch соседней сессии: тогда её обновит следующая уборка.
+Если отказ повторяется, удалите руками .lock, названный в причине: он остался от убитого git.\n' \
         "$main" >&2
 fi
 git merge-base --is-ancestor "$branch" "$CLEANUP_REF" || die "ветка $branch не влита в main на origin — дерево ещё нужно.
-Если PR влит squash-мержем (коммитов ветки в main нет, есть только их результат), уберите дерево вручную:
+Если PR влит squash-мержем (коммитов ветки в main нет, есть только их результат),
+уберите дерево вручную:
     git worktree remove '$root' && git branch -D '$branch' && git push origin --delete '$branch'"
 
 # Образ и том Compose именуются по каталогу дерева, и `git worktree remove` их не трогает:
