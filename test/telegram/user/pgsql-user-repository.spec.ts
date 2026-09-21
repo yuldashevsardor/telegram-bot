@@ -10,8 +10,9 @@ import { UserNotFound } from "app/telegram/user/user.errors";
 import type { UserDto } from "app/telegram/user/user.types";
 import { testDatabaseName } from "test/database.helper";
 
-// Больше 2^31 - 1: в int4 не влезает, так спека держит и миграцию, расширившую id до bigint.
-// deep.equal строгий, поэтому id, вернувшийся строкой (так драйвер отдаёт bigint), не пройдёт.
+// Larger than 2^31 - 1: it does not fit into int4, so the spec holds the migration that
+// widened id to bigint as well. deep.equal is strict, so an id that came back as a string
+// (that is how the driver returns bigint) will not pass.
 const ID = 5_000_000_000;
 
 describe("PgSqlUserRepository", function () {
@@ -20,7 +21,8 @@ describe("PgSqlUserRepository", function () {
 
     before(async function () {
         const env = await new ConfigEnvStorage().load();
-        // BOT_TOKEN конфиг требует, а спеке нужна только база: без подстановки она зависела бы от токена в .env.
+        // The config requires BOT_TOKEN while the spec needs only the database: without
+        // the substitution it would depend on the token in .env.
         const settings = new ConfigValuesBuilder().build({ ...env, BOT_TOKEN: "test-token" }).database;
 
         database = new Database({ ...settings, database: testDatabaseName() }, false);
@@ -32,7 +34,7 @@ describe("PgSqlUserRepository", function () {
     });
 
     after(async function () {
-        // Упавший before не успевает присвоить database, и падение after заслонило бы его причину.
+        // A failed before does not get to assign database, and a failure in after would hide its cause.
         await database?.close();
     });
 
@@ -57,7 +59,7 @@ describe("PgSqlUserRepository", function () {
         expect(snapshot(await repository.getById(ID))).to.deep.equal(snapshot(user));
     });
 
-    // Upsert обновляет перечисленные в update set колонки; created_time в перечне нет.
+    // The upsert updates the columns listed in update set; created_time is not in the list.
     it("updates a saved user and keeps its created_time", async function () {
         const original = buildUser();
 
@@ -103,7 +105,7 @@ function buildUser(overrides: Partial<UserDto> = {}): User {
     });
 }
 
-// У User всё в приватных полях, поэтому deep.equal сравнивает снимок геттеров, а не сам объект.
+// Everything in User is in private fields, so deep.equal compares a snapshot of the getters and not the object itself.
 function snapshot(user: User): Record<string, unknown> {
     return {
         id: user.id,

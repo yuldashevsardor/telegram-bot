@@ -28,8 +28,8 @@ describe("Database", function () {
         }
     });
 
-    // Поэтому Application.setup() и зовёт check(): без него недоступная база всплыла бы
-    // только на первом апдейте.
+    // This is why Application.setup() calls check(): without it an unreachable database
+    // would surface only on the first update.
     it("does not connect until the first query", async function () {
         const database = new Database({ ...settings(), database: `${testDatabaseName()}_missing` }, false);
 
@@ -37,7 +37,7 @@ describe("Database", function () {
             await database.check();
             expect.fail("check() was expected to reject");
         } catch (error) {
-            // 3D000 — invalid_catalog_name: база не существует.
+            // 3D000 — invalid_catalog_name: the database does not exist.
             expect(error).to.have.property("code", "3D000");
         } finally {
             await database.close();
@@ -68,8 +68,8 @@ describe("Database", function () {
         }
     });
 
-    // Утверждение storage.md: debug у postgres ничего не печатает, а только делает поля
-    // ошибки запроса перечислимыми — так они доходят до payload лога.
+    // The claim of storage.md: debug in postgres prints nothing and only makes the fields
+    // of a failed query's error enumerable — that is how they reach the payload of the log.
     it("exposes the failed query as enumerable fields outside production", async function () {
         expect(await failedQueryKeys(false)).to.include.members(["query", "parameters"]);
     });
@@ -77,16 +77,17 @@ describe("Database", function () {
     it("keeps the failed query out of the enumerable fields in production", async function () {
         const keys = await failedQueryKeys(true);
 
-        // По одному полю: not.include.members значит «не надмножество» и прошёл бы, будь
-        // скрыто хотя бы одно из двух.
+        // One field at a time: not.include.members means "not a superset" and would pass
+        // with only one of the two hidden.
         expect(keys).to.not.include("query");
         expect(keys).to.not.include("parameters");
     });
 });
 
-// Окружение контейнера, в котором DATABASE_NAME заменено базой прогона. Её создаёт
-// test/database-hook.ts; почему имя приходит своей переменной — там же. BOT_TOKEN конфиг
-// требует, а базе он не нужен: без подстановки спека зависела бы от токена в .env.
+// The environment of the container with DATABASE_NAME replaced by the database of the run.
+// The database is created by test/database-hook.ts; why its name comes in a variable of
+// its own is there as well. The config requires BOT_TOKEN while the database does not need
+// it: without the substitution the spec would depend on the token in .env.
 function testDatabaseEnv(): RawConfig {
     return { ...process.env, BOT_TOKEN: "test-token", DATABASE_NAME: testDatabaseName() };
 }
@@ -102,7 +103,7 @@ async function failedQueryKeys(isProduction: boolean): Promise<string[]> {
         await database.sql`select * from missing_table where id = ${1}`;
         expect.fail("the query was expected to reject");
     } catch (error) {
-        // 42P01 — undefined_table; заодно отсекает AssertionError от expect.fail выше.
+        // 42P01 — undefined_table; it also cuts off the AssertionError from expect.fail above.
         expect(error).to.have.property("code", "42P01");
 
         return Object.keys(error as object);

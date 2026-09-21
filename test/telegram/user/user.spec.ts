@@ -48,7 +48,7 @@ describe("User", function () {
             Reflect.set(user, field, CHANGES[field]);
 
             expect(user[field]).to.equal(CHANGES[field]);
-            expect(user.updatedTime.isBefore(before), "updatedTime остался прежним").to.be.false;
+            expect(user.updatedTime.isBefore(before), "updatedTime stayed the same").to.be.false;
             expect(user.createdTime).to.equal(DTO.createdTime);
         });
     }
