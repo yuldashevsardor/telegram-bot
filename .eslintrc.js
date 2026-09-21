@@ -8,21 +8,23 @@ module.exports = {
         "@typescript-eslint/explicit-module-boundary-types": "warn",
         "@typescript-eslint/no-empty-interface": "off",
         "@typescript-eslint/ban-ts-comment": "warn",
-        // Паттерн ^_ повторяет поведение noUnusedParameters: параметр, который нужен
-        // по сигнатуре, но не используется, помечается подчёркиванием.
+        // The ^_ pattern repeats the behaviour of noUnusedParameters: a parameter that the
+        // signature needs but the body does not use is marked with an underscore.
         "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
         "@typescript-eslint/no-empty-function": "off",
-        // Отдельная строка `import type`, а не инлайн `import { type X }`: по строке импорта
-        // видно, нужен ли модуль в рантайме. consistent-type-imports ловит тип, ввезённый
-        // как значение, но инлайн-`type` считает законной пометкой — форму держит
-        // consistent-type-specifier-style. Он же покрывает импорт из одних инлайн-типов,
-        // поэтому @typescript-eslint/no-import-type-side-effects не включён: был бы дублем.
+        // A separate `import type` line rather than an inline `import { type X }`: the import
+        // line shows whether the module is needed at runtime. consistent-type-imports catches a
+        // type brought in as a value but counts an inline `type` as a legitimate mark — the form
+        // is held by consistent-type-specifier-style. It also covers an import of inline types
+        // alone, so @typescript-eslint/no-import-type-side-effects is not on: it would be a
+        // duplicate.
         "@typescript-eslint/consistent-type-imports": ["error", { fixStyle: "separate-type-imports" }],
         "import/consistent-type-specifier-style": ["error", "prefer-top-level"],
 
-        // Наружу пишет только Logger: console.* минует уровень, requestId и порог
-        // LOGGER_LEVEL, а на проде — структурный поток pino. Исключения — адаптер
-        // ConsoleLogger (ниже) и фолбэк fail() в app.ts до появления контекста.
+        // Only Logger writes outwards: console.* bypasses the level, the requestId and the
+        // LOGGER_LEVEL threshold, and in production the structured pino stream. The exceptions are
+        // the ConsoleLogger adapter (below) and the fail() fallback in app.ts before there is a
+        // context.
         "no-console": "error",
         "no-restricted-imports": [
             "error",
@@ -42,23 +44,25 @@ module.exports = {
     },
     overrides: [
         {
-            // Ассерты chai — выражения без вызова: `expect(x).to.be.true`.
+            // The chai assertions are expressions without a call: `expect(x).to.be.true`.
             files: ["test/**/*.ts"],
             rules: {
                 "@typescript-eslint/no-unused-expressions": "off",
             },
         },
         {
-            // Адаптер порта Logger: console.* — его реализация, а не обход. Тест
-            // адаптера снимает записи подменой console по тем же именам методов.
+            // The adapter of the Logger port: console.* is its implementation, not a way around
+            // it. The spec of the adapter collects the entries by substituting console under the
+            // same method names.
             files: ["src/platform/logger/console-logger.ts", "test/platform/logger/console-logger.spec.ts"],
             rules: {
                 "no-console": "off",
             },
         },
         {
-            // Миграции живут вне src, алиас app/* туда не ведёт, и грузит их не сборка,
-            // а node-pg-migrate — общие shorthands подключаются относительным путём.
+            // The migrations live outside src, the app/* alias does not lead there, and they are
+            // loaded not by the build but by node-pg-migrate — the shared shorthands are imported
+            // by a relative path.
             files: ["migrations/**/*.ts"],
             rules: {
                 "no-restricted-imports": "off",

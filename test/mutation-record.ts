@@ -1,15 +1,17 @@
-// Обёртка make mutation: гоняет npm run mutation и при любом его исходе пишет запись прогона. Формат
-// и зачем запись нужна — docs/architecture/testing.md, «Запись прогона». Head и чистоту дерева
-// передаёт хост (цель mutation в Makefile): .git в контейнер не смонтирован.
+// The make mutation wrapper: runs npm run mutation and, whatever its outcome, writes the run record.
+// The format and what the record is for — docs/architecture/testing.md, "The run record". The head and
+// the cleanliness of the tree are passed by the host (the mutation target in the Makefile): .git is not
+// mounted into the container.
 import { spawn } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { constants } from "node:os";
 
-// Путь по умолчанию у репортёра json из stryker.config.mjs.
+// The default path of the json reporter from stryker.config.mjs.
 const REPORT_FILE = "reports/mutation/mutation.json";
 const HTML_FILE = "reports/mutation/mutation.html";
 const RECORD_FILE = "reports/mutation/record.md";
-// Запись уходит в PR комментарием, а он вмещает 65 536 символов; запас — под подпись публикующего.
+// The record goes into a PR as a comment, and that holds 65,536 characters; the slack is for the
+// signature of whoever publishes it.
 const RECORD_LIMIT = 60_000;
 const STATUSES = ["Killed", "Timeout", "Survived", "NoCoverage", "CompileError", "RuntimeError", "Ignored", "Pending"];
 
@@ -29,16 +31,16 @@ function readReport(): Report | string {
         return JSON.parse(readFileSync(REPORT_FILE, "utf8")) as Report;
     } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-            return "Stryker не записал отчёт, прогон оборвался раньше";
+            return "Stryker wrote no report, the run broke off before it";
         }
 
-        return `отчёт не прочитан: ${(error as Error).message}`;
+        return `the report was not read: ${(error as Error).message}`;
     }
 }
 
-// Та же формула, что у mutationScore в mutation-testing-metrics, по которому Stryker печатает
-// Final mutation score: ошибки, заглушённые и неисполненные мутанты в счёт не идут, а без единого
-// мутанта в счёте он NaN.
+// The same formula as mutationScore in mutation-testing-metrics, by which Stryker prints the Final
+// mutation score: errors, silenced and non-executed mutants do not count towards the score, and without
+// a single mutant in it the score is NaN.
 function score(counts: Map<string, number>): string {
     const count = (status: string): number => counts.get(status) ?? 0;
     const detected = count("Killed") + count("Timeout");
@@ -50,12 +52,12 @@ function score(counts: Map<string, number>): string {
 function duration(run: Run): string {
     const seconds = Math.round((run.finishedAt.getTime() - run.startedAt.getTime()) / 1000);
 
-    return seconds < 60 ? `${seconds} с` : `${Math.floor(seconds / 60)} мин ${seconds % 60} с`;
+    return seconds < 60 ? `${seconds} s` : `${Math.floor(seconds / 60)} min ${seconds % 60} s`;
 }
 
-// Замена бывает многострочной и сама содержит обратные кавычки (мутант шаблонной строки). Разметка
-// требует обрамления длиннее самой длинной цепочки кавычек внутри, иначе строка выжившего с ``
-// закрывает код раньше времени и мутатор с местом уезжают в прозу.
+// A replacement can span several lines and contain backticks of its own (the mutant of a template
+// string). The markup needs a fence longer than the longest run of backticks inside, otherwise the line
+// of a survivor holding `` closes the code early and the mutator and the place end up in the prose.
 function inline(text: string): string {
     const line = text.replace(/\s+/g, " ").trim();
     const short = line.length > 80 ? `${line.slice(0, 80)}…` : line;
@@ -67,14 +69,14 @@ function inline(text: string): string {
 
 function record(run: Run): string {
     const head = process.env["MUTATION_HEAD"] ?? "";
-    // Число путей или что угодно ещё: рецепт цели пишет сюда unknown, когда git не ответил, а
-    // Number("") — это 0, то есть «чисто» на дереве, которого никто не смотрел.
+    // A number of paths or anything else: the recipe of the target writes unknown here when git did
+    // not answer, and Number("") is 0, that is "clean" for a tree nobody looked at.
     const counted = process.env["MUTATION_DIRTY"] ?? "";
     const dirty = /^\d+$/.test(counted) ? Number(counted) : Number.NaN;
     const area = process.env["MUTATE"] ?? "";
     const report = readReport();
     const clean = head === "" || Number.isNaN(dirty) ? "unknown" : dirty === 0 ? "yes" : "no";
-    const tree = { yes: "чистое", no: `грязное, путей в \`git status --porcelain\`: ${dirty}`, unknown: "неизвестно" };
+    const tree = { yes: "clean", no: `dirty, paths in \`git status --porcelain\`: ${dirty}`, unknown: "unknown" };
     const files = typeof report === "string" ? [] : Object.entries(report.files).sort(([a], [b]) => (a < b ? -1 : 1));
     const counts = new Map<string, number>();
     const undetected: string[] = [];
@@ -96,16 +98,16 @@ function record(run: Run): string {
     const scope = area === "" ? "full" : "files";
     const lines = [
         `<!-- mutation-record head=${head || "unknown"} clean=${clean} scope=${scope} exit=${run.exitCode} score=${scoreText} -->`,
-        "## Запись прогона `make mutation`",
+        "## `make mutation` run record",
         "",
-        `- head: ${head === "" ? "неизвестен, git на хосте не ответил" : `\`${head}\``}`,
-        `- дерево: ${tree[clean]}`,
-        `- files: ${area === "" ? "не передан, весь `src/`" : `\`${area}\``}`,
-        `- начало: ${run.startedAt.toISOString().replace(/\.\d+Z$/, "Z")} · длительность: ${duration(run)} · код выхода: ${run.exitCode}`,
+        `- head: ${head === "" ? "unknown, git on the host did not answer" : `\`${head}\``}`,
+        `- tree: ${tree[clean]}`,
+        `- files: ${area === "" ? "not passed, the whole `src/`" : `\`${area}\``}`,
+        `- started: ${run.startedAt.toISOString().replace(/\.\d+Z$/, "Z")} · duration: ${duration(run)} · exit code: ${run.exitCode}`,
     ];
 
     if (typeof report === "string") {
-        lines.push(`- счёт: нет — ${report}`);
+        lines.push(`- score: none — ${report}`);
 
         return lines.join("\n") + "\n";
     }
@@ -114,10 +116,10 @@ function record(run: Run): string {
     const unknown = [...counts].filter(([status]) => !STATUSES.includes(status)).map(([status, n]) => `${status} ${n}`);
 
     lines.push(
-        `- счёт (Final mutation score): ${scoreText}`,
-        `- статусы: ${[...known, ...unknown].join(" · ")}`,
+        `- score (Final mutation score): ${scoreText}`,
+        `- statuses: ${[...known, ...unknown].join(" · ")}`,
         "",
-        `<details><summary>Мутированные файлы: ${files.length}</summary>`,
+        `<details><summary>Mutated files: ${files.length}</summary>`,
         "",
         "```text",
         ...files.map(([file]) => file),
@@ -125,7 +127,7 @@ function record(run: Run): string {
         "",
         "</details>",
         "",
-        `### Выжившие и непокрытые: ${undetected.length}`,
+        `### Survived and uncovered: ${undetected.length}`,
         "",
     );
 
@@ -134,8 +136,8 @@ function record(run: Run): string {
     for (const [index, line] of undetected.entries()) {
         if (length + line.length + 1 > RECORD_LIMIT) {
             lines.push(
-                `- …и ещё ${undetected.length - index}: в запись не поместились, полный список — в ` +
-                    `\`reports/mutation/mutation.html\` на машине прогона`,
+                `- …and ${undetected.length - index} more: they did not fit into the record, the full list is in ` +
+                    `\`reports/mutation/mutation.html\` on the machine of the run`,
             );
             break;
         }
@@ -147,8 +149,8 @@ function record(run: Run): string {
     return lines.join("\n") + "\n";
 }
 
-// Старые файлы убираются до прогона: оборванный прогон своих не оставит, и старые выдали бы себя
-// за его результат — и запись, и отчёты, на которые она ссылается.
+// The old files are removed before the run: a run that breaks off will leave none of its own, and the
+// old ones would pass themselves off as its result — both the record and the reports it points to.
 rmSync(REPORT_FILE, { force: true });
 rmSync(HTML_FILE, { force: true });
 rmSync(RECORD_FILE, { force: true });
@@ -163,31 +165,35 @@ function finish(exitCode: number): void {
 
     finished = true;
 
-    // Сбой записи не подменяет исход прогона: по коду выхода гейт ревью решает ok или fail.
+    // A failure to write the record does not replace the outcome of the run: the review gate decides
+    // ok or fail by the exit code.
     try {
         mkdirSync("reports/mutation", { recursive: true });
         writeFileSync(RECORD_FILE, record({ exitCode, startedAt, finishedAt: new Date() }));
-        process.stdout.write(`\nЗапись прогона — ${RECORD_FILE}\n`);
+        process.stdout.write(`\nRun record — ${RECORD_FILE}\n`);
     } catch (error) {
-        process.stderr.write(`\nЗапись прогона не записана: ${(error as Error).stack ?? String(error)}\n`);
+        process.stderr.write(`\nThe run record was not written: ${(error as Error).stack ?? String(error)}\n`);
     }
 
-    // Не process.exit: вывод в пайп уходит асинхронно и оборвался бы вместе с процессом. Своих
-    // незакрытых дескрипторов у обёртки нет, она ждала один процесс.
+    // Not process.exit: output into a pipe goes asynchronously and would be cut off together with the
+    // process. The wrapper has no open descriptors of its own, it waited for one process.
     process.exitCode = exitCode;
 }
 
-// spawn, а не ProcessHelper из app/shared/process: тот копит вывод в памяти и считает ненулевой код
-// отказом, а здесь нужен живой вывод Stryker на 15 минут и его код выхода как штатный исход.
-// Инвариант про внешние процессы (docs/architecture/invariants.md) соблюдён: аргументы массивом,
-// шелла в цепочке нет.
+// spawn, not ProcessHelper from app/shared/process: that one accumulates the output in memory and
+// treats a non-zero code as a refusal, while here the live output of Stryker over 15 minutes and its
+// exit code as a regular outcome are what is needed. The invariant about external processes
+// (docs/architecture/invariants.md) is honoured: the arguments are an array, there is no shell in the
+// chain.
 const child = spawn("npm", ["run", "mutation"], { stdio: "inherit" });
 
-// npm не запустился — close после error приходит не всегда, а старая запись уже удалена.
+// npm did not start — a close after an error does not always arrive, and the old record is already
+// deleted.
 child.on("error", (error) => {
-    process.stderr.write(`\nnpm run mutation не запустился: ${error.message}\n`);
+    process.stderr.write(`\nnpm run mutation did not start: ${error.message}\n`);
     finish(1);
 });
 
-// Код выхода npm, а не Stryker: умер по сигналу сам Stryker — npm отдаёт обычный ненулевой код.
+// The exit code of npm, not of Stryker: when Stryker itself dies from a signal, npm returns an ordinary
+// non-zero code.
 child.on("close", (code, signal) => finish(code ?? 128 + (signal === null ? 0 : constants.signals[signal])));

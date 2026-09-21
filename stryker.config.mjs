@@ -1,11 +1,11 @@
 import { existsSync, globSync } from "node:fs";
 
-// Мутационное тестирование, запуск — make mutation. Почему настроено так и как разбирать
-// выживших мутантов — docs/architecture/testing.md, «Мутационное тестирование».
+// Mutation testing, run by make mutation. Why it is set up this way and how to work through
+// survived mutants — docs/architecture/testing.md, "Mutation testing".
 
-// Спеки, которым нужна база. Stryker гоняет спеки без test/database-hook.ts, поэтому они
-// исключены: без хука они падают на чтении TEST_DATABASE_NAME, и новая такая спека уронит
-// первый прогон Stryker, пока её не впишут сюда. Найти их —
+// The specs that need the database. Stryker runs the specs without test/database-hook.ts, so
+// they are excluded: without the hook they fail on reading TEST_DATABASE_NAME, and a new spec of
+// that kind will fail the first Stryker run until it is written in here. To find them —
 // grep -rln testDatabaseName test --include='*.spec.ts'.
 const DATABASE_SPECS = [
     "test/platform/database/database.spec.ts",
@@ -13,45 +13,47 @@ const DATABASE_SPECS = [
     "test/telegram/user/pgsql-user-repository.spec.ts",
 ];
 
-// Код, поведение которого проверяют только спеки выше. Без них его мутанты выживали бы и
-// оставались непокрытыми не потому, что тесты слабые, а потому, что тесты не запущены.
+// The code whose behaviour only the specs above check. Without them its mutants would survive
+// and stay uncovered not because the tests are weak but because the tests are not running.
 const DATABASE_ONLY_SOURCES = [
     "src/platform/database/database.ts",
     "src/telegram/session/pgsql-storage.ts",
     "src/telegram/user/pgsql-repository/pgsql-user-repository.ts",
 ];
 
-// Исключение по пути, которого нет, ни с чем не совпадает: переехавший или переименованный файл
-// мутировался бы без своих спек, и его выжившие красили бы прогон так, будто тесты слабые. Глоб
-// по имени файла пережил бы переезд, но не переименование. Спекам из DATABASE_SPECS такая
-// проверка не нужна: не вписанная спека роняет прогон сама.
+// An exclusion by a path that does not exist matches nothing: a moved or renamed file would be
+// mutated without its specs, and its survivors would paint the run red as if the tests were
+// weak. A glob by file name would survive a move but not a rename. The specs of DATABASE_SPECS
+// need no such check: a spec that is not written in fails the run by itself.
 for (const file of DATABASE_ONLY_SOURCES) {
     if (!existsSync(file)) {
         console.error(
-            `make mutation: файла ${file} из DATABASE_ONLY_SOURCES нет — впиши в stryker.config.mjs его новый путь`,
+            `make mutation: file ${file} from DATABASE_ONLY_SOURCES is missing — write its new path into stryker.config.mjs`,
         );
         process.exit(1);
     }
 }
 
-// Область make mutation files="…": глобы через пробел или перенос строки, как у make lint.
-// Запятая не разделитель: она часть глоба src/{shared,telegram}/**. Приходит переменной, а не
-// флагом --mutate, потому что флаг заменил бы список целиком вместе с исключениями ниже.
+// The area of make mutation files="…": globs separated by spaces or newlines, as in make lint. A
+// comma is not a separator: it is part of the glob src/{shared,telegram}/**. It arrives as a
+// variable rather than as the --mutate flag, because the flag would replace the whole list
+// together with the exclusions below.
 const area = (process.env.MUTATE ?? "").split(/\s+/).filter((pattern) => pattern !== "");
-// Область из одних исключений («всё, кроме конвертора») вычитается из всего src/: без
-// положительного глоба Stryker не нашёл бы ни одного файла и молча завершился успехом.
+// An area made of exclusions alone ("everything but the convertor") is subtracted from the whole
+// of src/: without a positive glob Stryker would find no file at all and quietly exit with
+// success.
 const base = area.some((pattern) => !pattern.startsWith("!")) ? [] : ["src/**/*.ts"];
 
-// Положительный глоб, который не нашёл ни одного .ts в src/, — опечатка, каталог без глоба
-// (src/shared вместо src/shared/**) или файл не из src/. Stryker на нём только предупредил бы и
-// завершился успехом с пустой таблицей, поэтому прогон останавливается здесь. Хвост :10-20 —
-// диапазон строк Stryker, его glob не понимает.
+// A positive glob that found no .ts under src/ is a typo, a directory without a glob
+// (src/shared instead of src/shared/**) or a file outside src/. Stryker would only warn about it
+// and exit with success and an empty table, so the run is stopped here. The :10-20 tail is the
+// line range of Stryker, which its glob does not understand.
 for (const pattern of area.filter((pattern) => !pattern.startsWith("!"))) {
     const files = globSync(pattern.replace(/:\d+(:\d+)?-\d+(:\d+)?$/, ""));
 
     if (!files.some((file) => file.startsWith("src/") && file.endsWith(".ts"))) {
         console.error(
-            `make mutation: files="${pattern}" не находит ни одного .ts в src/ — нужен глоб до файлов, например src/shared/**`,
+            `make mutation: files="${pattern}" matches no .ts under src/ — the glob has to reach the files, for example src/shared/**`,
         );
         process.exit(1);
     }
@@ -59,51 +61,55 @@ for (const pattern of area.filter((pattern) => !pattern.startsWith("!"))) {
 
 export default {
     testRunner: "mocha",
-    // all, а не perTest: perTest приписывает код из before/after последнему тесту перед хуком и
-    // гоняет на мутанта этот чужой тест — такой мутант ложно выживает. Цена — прогон в
-    // несколько раз дольше (docs/architecture/testing.md, «Мутационное тестирование»).
+    // all, not perTest: perTest attributes the code of before/after to the last test before the
+    // hook and runs that foreign test against the mutant — such a mutant survives falsely. The
+    // price is a run several times longer (docs/architecture/testing.md, "Mutation testing").
     coverageAnalysis: "all",
     mutate: [
         ...base,
         ...area,
-        // Точка входа на импорте поднимает Application, спека её не загружает — как exclude у nyc.
+        // On import the entry point raises Application, a spec does not load it — as exclude in nyc.
         "!src/app.ts",
-        // Глоб области вроде src/telegram/** захватывает и локали, а .ftl Stryker разобрать не
-        // может и падает: «No parser registered for .ftl».
+        // An area glob such as src/telegram/** catches the locales too, and Stryker cannot parse
+        // a .ftl and fails: "No parser registered for .ftl".
         "!src/**/*.ftl",
         ...DATABASE_ONLY_SOURCES.map((file) => `!${file}`),
     ],
     mochaOptions: {
-        // spec раннер берёт из .mocharc.json, а require из конфига заменяет целиком: здесь он
-        // тот же, но без database-hook.ts.
+        // spec the runner takes from .mocharc.json, while require from the config replaces it
+        // whole: here it is the same one but without database-hook.ts.
         require: ["tsx/cjs"],
         ignore: DATABASE_SPECS,
     },
-    // Чекер типов ставит мутанту, который ломает типы, CompileError до тестов: tsx типы не
-    // проверяет, и такой мутант, не убитый тестами, иначе выживал бы. Тиконфиг тот же, что у
-    // make typecheck: сборочный tsconfig.json не видит спек.
+    // The type checker gives a mutant that breaks the types a CompileError before the tests: tsx
+    // does not check types, and such a mutant, not killed by the tests, would otherwise survive.
+    // The tsconfig is the same as for make typecheck: the build tsconfig.json does not see the
+    // specs.
     checkers: ["typescript"],
     tsconfigFile: "tsconfig.check.json",
-    // Процессов чекера Stryker поднимает половину concurrency (ConcurrencyTokenProvider в
-    // @stryker-mutator/core), и без лимита кучи каждый держал 1–1,3 ГБ: шесть чекеров занимали
-    // больше 6 ГБ из 7,65 у Docker и гибли по SIGKILL. С лимитом процесс держит до 800 МБ, а tsc по
-    // тому же тиконфигу укладывается в 300.
+    // Stryker raises half of concurrency checker processes (ConcurrencyTokenProvider in
+    // @stryker-mutator/core), and without a heap limit each of them held 1–1.3 GB: six checkers
+    // took more than 6 GB out of the 7.65 of Docker and died by SIGKILL. With the limit a process
+    // holds up to 800 MB, while tsc over the same tsconfig fits into 300.
     checkerNodeArgs: ["--max-old-space-size=512"],
-    // Значение по умолчанию, выписанное после замера при perTest: при 30 000 прогон шёл втрое
-    // дольше, а статус сменили три мутанта из двухсот десяти — с Timeout на Killed, и оба
-    // статуса значат «обнаружен».
+    // The default value, written out after a measurement under perTest: at 30000 the run took
+    // three times as long, and three mutants out of two hundred and ten changed their status —
+    // from Timeout to Killed, and both statuses mean "detected".
     timeoutMS: 5000,
-    // Порог здесь, а не в скилле ревью: его проверяет любой make mutation — и гейт ревью, и
-    // прогон области у автора, как порог nyc в package.json проверяет любой test:coverage. 100, а
-    // не 99: счёт — процент от мутантов области, и 99 на всём src/ пропускает два десятка
-    // выживших, а на области из двадцати мутантов — ни одного. 100 значит «ни одного выжившего»
-    // на области любой величины.
+    // The threshold is here rather than in the review skill: it is checked by any make mutation —
+    // by the review gate and by a run over an area by the author alike, the way the nyc threshold
+    // in package.json is checked by any test:coverage. 100, not 99: the score is a percentage of
+    // the mutants of the area, and 99 over the whole of src/ lets a couple of dozen survivors
+    // through, while over an area of twenty mutants it lets none. 100 means "not a single
+    // survivor" over an area of any size.
     thresholds: { break: 100 },
-    // json — источник записи прогона, которую пишет обёртка make mutation (test/mutation-record.ts):
-    // мутированные файлы, статусы и мутанты она берёт из него, а не из вывода clear-text.
+    // json is the source of the run record written by the make mutation wrapper
+    // (test/mutation-record.ts): the mutated files, the statuses and the mutants it takes from
+    // there, not from the clear-text output.
     reporters: ["clear-text", "progress", "html", "json"],
-    // Иначе clear-text печатает под таблицей все пятьсот с лишним тестов прогона.
+    // Otherwise clear-text prints all five hundred-odd tests of the run under the table.
     clearTextReporter: { reportTests: false },
-    // Песочница копирует проект целиком; тома с временными файлами и отчётами ей не нужны.
+    // The sandbox copies the whole project; the volumes with temporary files and reports are of
+    // no use to it.
     ignorePatterns: ["/tmp", "/coverage", "/reports"],
 };

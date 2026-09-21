@@ -1,7 +1,7 @@
 import { RuntimeError } from "app/shared/errors";
 
-// Базу прогона создаёт test/database-hook.ts; почему имя приходит своей переменной, а не
-// DATABASE_NAME, — там же.
+// The database of a run is created by test/database-hook.ts; why the name arrives in a variable
+// of its own rather than in DATABASE_NAME is there too.
 export function testDatabaseName(): string {
     const name = process.env["TEST_DATABASE_NAME"];
 

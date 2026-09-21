@@ -1,7 +1,7 @@
 {
-    // Проверка типов по всему репозиторию: сборочный tsconfig.json ограничен src,
-    // потому что из него эмитится build, а тесты, spec-файлы и миграции тоже должны
-    // проверяться. Эмита здесь нет, поэтому rootDir можно расширить до корня.
+    // Type checking over the whole repository: the build tsconfig.json is limited to src,
+    // because build is emitted from it, while the tests, the spec files and the migrations have
+    // to be checked too. There is no emit here, so rootDir can be widened to the root.
     "extends": "./tsconfig.json",
     "compilerOptions": {
         "noEmit": true,
@@ -9,10 +9,11 @@
         "declaration": false,
         "declarationMap": false,
         "rootDir": ".",
-        // test/* — алиас общего кода спек: относительный импорт запрещает eslint, а app/* ведёт
-        // только в src. Сборка по tsconfig.json его не знает, поэтому импорт test/* из src
-        // пройдёт typecheck и dev, но уронит build. paths у наследника заменяет родительский
-        // целиком, а не дописывается к нему, поэтому app/* здесь повторён.
+        // test/* is the alias of the shared code of the specs: a relative import is forbidden by
+        // eslint, and app/* leads into src only. The build by tsconfig.json does not know it, so an
+        // import of test/* from src passes the typecheck and dev but breaks the build. The paths of
+        // an heir replace the ones of the parent whole rather than being appended to them, which is
+        // why app/* is repeated here.
         "paths": {
             "app/*": [
                 "./src/*"
@@ -28,10 +29,9 @@
         "test/**/*.ts",
         "migrations/**/*.ts"
     ],
-    // Единственное исключение — заготовка миграции: её импорт ./common/utils рассчитан
-    // на каталог, куда её скопирует migrate-create, и с её собственного места не
-    // резолвится. node_modules и coverage перечислять незачем: include выше их не
-    // захватывает.
+    // The only exception is the migration template: its ./common/utils import is meant for the
+    // directory migrate-create will copy it into and does not resolve from its own place. There is
+    // no point in listing node_modules and coverage: the include above does not catch them.
     "exclude": [
         "migrations/common/template.ts"
     ]

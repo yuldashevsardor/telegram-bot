@@ -1,16 +1,17 @@
-// Подключается через NODE_OPTIONS в npm-скрипте mutation и живёт только в процессах
-// Stryker; mocha в make test и make check его не видит.
+// Wired in through NODE_OPTIONS in the mutation npm script and living only in the processes of
+// Stryker; the mocha of make test and make check does not see it.
 //
-// @stryker-mutator/mocha-runner 10.0.0 достаёт внутренности mocha через require без
-// расширения (lib/cli/run-helpers, lib/cli/options, lib/cli/collect-files), а в mocha
-// 12.0.0 эти файлы переименованы в .cjs. Расширения для такого require Node берёт из
-// ключей Module._extensions (Module._findPath), а там только .js, .json и .node, поэтому
-// раннер не загружается: «Cannot find TestRunner plugin "mocha"». Ключ .cjs с загрузчиком
-// .js возвращает файлы в перебор; "type": "module" пакета mocha не мешает: загрузчик .js
-// читает .cjs как commonjs по расширению, не заглядывая в package.json.
+// @stryker-mutator/mocha-runner 10.0.0 reaches the internals of mocha through a require without
+// an extension (lib/cli/run-helpers, lib/cli/options, lib/cli/collect-files), and in mocha 12.0.0
+// those files are renamed to .cjs. The extensions for such a require Node takes from the keys of
+// Module._extensions (Module._findPath), and there are only .js, .json and .node there, so the
+// runner does not load: 'Cannot find TestRunner plugin "mocha"'. A .cjs key with the .js loader
+// brings the files back into the lookup; the "type": "module" of the mocha package is no
+// obstacle: the .js loader reads a .cjs as commonjs by its extension, without looking into
+// package.json.
 //
-// Удалить вместе с NODE_OPTIONS в скрипте, когда выйдет раннер с
-// https://github.com/stryker-mutator/stryker-js/pull/6205.
+// To be removed together with the NODE_OPTIONS in the script once a runner with
+// https://github.com/stryker-mutator/stryker-js/pull/6205 is released.
 const Module = require("module");
 
 if (!Module._extensions[".cjs"]) {

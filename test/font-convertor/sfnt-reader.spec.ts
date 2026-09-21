@@ -495,7 +495,7 @@ describe("SfntReader.readMetadata", function () {
 
 describe("InvalidSfnt", function () {
     // Фабрики проверяются напрямую: спеки выше держат класс отказа, а не текст — какая из
-    // проверок отвергла вход, не требование (docs/architecture/testing.md, «Разбор выживших»).
+    // проверок отвергла вход, не требование (docs/architecture/testing.md, "Working through survivors").
     // Версия взята с ведущими нулями: поле печатается во всю ширину.
     const cases = [
         {
