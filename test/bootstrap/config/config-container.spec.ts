@@ -302,6 +302,25 @@ describe("ConfigContainer", () => {
             expect(storage.loads).to.equal(loadsAfterRebuild);
         });
 
+        // Сигнал, пришедший за время пересборки, оставляет отметку о ещё одном проходе, и после
+        // остановки она уже никого не касается: второй проход читал бы снимок для закрывающегося
+        // приложения.
+        it("cancels the extra pass that a signal during the rebuild has asked for", async () => {
+            const { cc, storage } = await watched({ TEMP_DIR: "/data" });
+            const release = storage.holdLoads();
+
+            storage.signal();
+            storage.signal();
+
+            const loadsBeforeUnwatch = storage.loads;
+
+            cc.unwatch();
+            release();
+            await sleep(0);
+
+            expect(storage.loads).to.equal(loadsBeforeUnwatch);
+        });
+
         it("ignores a signal that arrives after it", async () => {
             const { cc, storage } = await watched({ TEMP_DIR: "/data" });
             const loadsAfterInit = storage.loads;
