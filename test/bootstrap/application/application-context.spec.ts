@@ -13,6 +13,7 @@ import { InvalidConfigError } from "app/shared/errors";
 import { ConfigFileStorage } from "app/bootstrap/config/storage/file/config-file-storage";
 import type { UnknownObject } from "app/shared/types";
 import { resetApplicationContext } from "test/bootstrap/application/application-context.helper";
+import { replace } from "test/bootstrap/config/storage/config-file-storage.helper";
 
 // Поля логгера защищённые, а проверить нужно именно их: порог пришёл из конфига, а контекст
 // запроса тот же, что отдаёт ApplicationContext, — с чужим корреляция сломалась бы молча.
@@ -35,18 +36,9 @@ async function waitFor(done: () => boolean, reason: string, timeout = 2000): Pro
     }
 }
 
-// Правка наблюдаемого файла идёт одним шагом — готовое содержимое переименовывается поверх пути.
-// fs.writeFile с флагом по умолчанию сначала обрезает файл (O_TRUNC) и только потом пишет
-// содержимое, поэтому опрос, попавший между обрезкой и записью, видит два изменения вместо одного,
-// и конфигурация пересобирается лишний раз — по пустому файлу. Так же файл и появляется:
-// наблюдение заводит create(), то есть до первой записи. Записи до create() под наблюдение не
-// попадают и идут обычным fs.writeFile.
-async function replace(target: string, contents: string): Promise<void> {
-    const temporary = `${target}.tmp`;
-
-    await fs.writeFile(temporary, contents);
-    await fs.rename(temporary, target);
-}
+// Наблюдаемый файл правится помощником replace(): плоский fs.writeFile обрезает файл до записи, и
+// опрос видит два изменения вместо одного (подробнее — в config-file-storage.helper.ts). Записи до
+// create() идут обычным fs.writeFile: наблюдение заводит сам create(), и попадать опросу некуда.
 
 // create() собирает конфиг из окружения процесса, поэтому спека меняет process.env и после
 // каждого теста возвращает его и сбрасывает контекст.
