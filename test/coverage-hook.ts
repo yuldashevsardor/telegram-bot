@@ -3,36 +3,38 @@ import { dirname, resolve, sep } from "path";
 import { buildSync } from "esbuild";
 import { createInstrumenter } from "istanbul-lib-instrument";
 
-// Хук прогона покрытия (npm run test:coverage): файлы src инструментируются в исходном
-// TypeScript, до транспиляции. Вывод tsx для этого не годится: esbuild кладёт в него свои
-// хелперы (__copyProps, __decorateClass, 0&&(module.exports=…)), и при переносе по source
-// map istanbul приписывает их ветви строкам исходника. Транспилирует хук сам — tsx читает
-// файл с диска, и инструментированный текст ему не передать.
+// The hook of the coverage run (npm run test:coverage): the files of src are instrumented in
+// their source TypeScript, before transpilation. The tsx output will not do: esbuild puts its own
+// helpers into it (__copyProps, __decorateClass, 0&&(module.exports=…)), and when mapping them
+// back through the source map istanbul attributes their branches to the lines of the source. The
+// hook transpiles by itself — tsx reads the file from disk, and the instrumented text cannot be
+// handed to it.
 //
-// Отсюда нельзя импортировать app/*: модуль загрузился бы до установки хука и выпал бы
-// из подсчёта.
+// Nothing from app/* may be imported here: the module would load before the hook is installed and
+// would drop out of the count.
 
 type CompilableModule = NodeModule & { _compile(code: string, filename: string): void };
 
-// Что из src попадёт в отчёт, решают include и exclude nyc: лишнее он отбросит при записи.
+// What of src makes it into the report is decided by the include and exclude of nyc: it drops the
+// rest when writing.
 const SRC_DIR = resolve("src") + sep;
 const TSCONFIG = resolve(process.env["TSX_TSCONFIG_PATH"] ?? "tsconfig.json");
 
-// Плагины разбора — из конфига, который nyc передаёт дочернему процессу: так файлы,
-// загруженные тестами, и незагруженные (режим all) разбираются одинаково. Без nyc плагина
-// typescript не будет, и разбор упадёт на первой же аннотации типа.
+// The parser plugins come from the config nyc passes to the child process: that way the files
+// loaded by the tests and the ones that were not (the all mode) are parsed alike. Without nyc
+// there is no typescript plugin, and parsing fails on the very first type annotation.
 const { parserPlugins = [] } = JSON.parse(process.env["NYC_CONFIG"] ?? "{}") as { parserPlugins?: string[] };
 const instrumenter = createInstrumenter({ esModules: true, produceSourceMap: true, parserPlugins });
 
 function compileInstrumented(module: CompilableModule, filename: string): void {
     const instrumented = instrumenter.instrumentSync(readFileSync(filename, "utf8"), filename);
-    // Карту istanbul esbuild сшивает со своей: иначе стек упавшего теста указывал бы на
-    // строки инструментированного текста, а не исходника.
+    // esbuild stitches the istanbul map together with its own: otherwise the stack of a failed
+    // test would point at the lines of the instrumented text rather than of the source.
     const map = Buffer.from(JSON.stringify(instrumenter.lastSourceMap())).toString("base64");
-    // Опции, от которых зависит поведение кода, повторяют tsx, tsconfig — тот же, что у него
-    // через TSX_TSCONFIG_PATH. Рабочий каталог — каталог файла: пути в карте esbuild пишет
-    // от него, а Node разрешает их от каталога модуля, и с корнем проекта путь в стеке
-    // задвоился бы.
+    // The options the behaviour of the code depends on repeat tsx, and the tsconfig is the one it
+    // gets through TSX_TSCONFIG_PATH. The working directory is the directory of the file: esbuild
+    // writes the paths of the map relative to it, Node resolves them relative to the directory of
+    // the module, and with the project root the path in the stack would be doubled.
     const [output] = buildSync({
         stdin: {
             contents: `${instrumented}\n//# sourceMappingURL=data:application/json;base64,${map}`,
@@ -52,7 +54,7 @@ function compileInstrumented(module: CompilableModule, filename: string): void {
     module._compile(output?.text ?? "", filename);
 }
 
-// Сам этот файл загружен через tsx, поэтому его загрузчик .ts к этому моменту уже стоит.
+// This file is itself loaded through tsx, so by this moment its .ts loader is already in place.
 const tsxLoader = require.extensions[".ts"];
 
 require.extensions[".ts"] = (module, filename): void => {

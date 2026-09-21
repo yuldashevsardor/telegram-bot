@@ -5,14 +5,14 @@ import postgres from "postgres";
 import type { Sql } from "app/platform/database/database";
 import { RuntimeError } from "app/shared/errors";
 
-// Корневой хук mocha (.mocharc.json): база на прогон внутри общего Postgres из
-// docker-compose.db.yml. Почему так, а не транзакция с откатом или testcontainers, —
-// docs/architecture/testing.md, «База для тестов».
+// The mocha root hook (.mocharc.json): a database per run inside the shared Postgres from
+// docker-compose.db.yml. Why this and not a transaction rolled back per test or testcontainers —
+// docs/architecture/testing.md, "The test database".
 //
-// Имя базы уходит спекам через TEST_DATABASE_NAME, а не подменой DATABASE_NAME: хук
-// подключён в .mocharc.json, который живёт в образе, и в устаревшем образе он не встанет.
-// Спека без своей переменной падает, а с подменённой DATABASE_NAME молча чистила бы общую
-// базу работающих ботов.
+// The name of the database reaches the specs through TEST_DATABASE_NAME rather than by
+// substituting DATABASE_NAME: the hook is wired in .mocharc.json, which lives in the image, and
+// in a stale image it is not wired in. A spec without a variable of its own fails, while with a
+// substituted DATABASE_NAME it would silently truncate the shared database of running bots.
 
 const TEST_DATABASE_NAME = "TEST_DATABASE_NAME";
 const HOOK_TIMEOUT_MS = 30_000;
@@ -35,9 +35,9 @@ function env(name: string): string {
     return value;
 }
 
-// Суперпользователь только создаёт и удаляет базу. Спеки и миграции ходят в неё
-// пользователем приложения, как бот: так таблицы принадлежат ему же, и права проверяются
-// те же, что в проде.
+// The superuser only creates and drops the database. The specs and the migrations go to it as
+// the application user, like the bot: that way the tables belong to it too, and the permissions
+// checked are the ones checked in production.
 function connectAsSuperuser(): Sql {
     return postgres({
         host: env("DATABASE_HOST"),
@@ -50,15 +50,15 @@ function connectAsSuperuser(): Sql {
 }
 
 async function createDatabase(name: string): Promise<void> {
-    // До try: пропущенная переменная должна упасть своей ошибкой, а не под обёрткой ниже.
+    // Before the try: a missing variable has to fail with its own error, not under the wrapping below.
     const owner = env("DATABASE_USER_NAME");
     const sql = connectAsSuperuser();
 
     try {
         await sql`create database ${sql(name)} with owner ${sql(owner)}`;
     } catch (error) {
-        // Отказ бывает не только по связи (пароль, роль), поэтому причина — в cause, а
-        // подсказка про make db-up условная.
+        // A refusal is not only about connectivity (a password, a role), so the reason goes into cause
+        // and the hint about make db-up is conditional.
         throw new RuntimeError(
             "Could not create the test database, see the cause; if PostgreSQL is unreachable, start it with make db-up",
             {
@@ -70,8 +70,9 @@ async function createDatabase(name: string): Promise<void> {
     }
 }
 
-// Каталог и таблица миграций — из migrate.json, как у node-pg-migrate в контейнере перед
-// стартом бота: база прогона собирается тем же набором, что и рабочая.
+// The migrations directory and table come from migrate.json, as for node-pg-migrate in the
+// container before the bot starts: the database of a run is assembled by the same set as the
+// working one.
 async function migrate(name: string): Promise<void> {
     const config = JSON.parse(readFileSync("migrate.json", "utf8")) as MigrateConfig;
 
@@ -94,8 +95,8 @@ async function dropDatabase(name: string): Promise<void> {
     const sql = connectAsSuperuser();
 
     try {
-        // force рвёт соединения, которые спека не закрыла: без него drop упал бы, и база
-        // осталась бы висеть в общем Postgres.
+        // force tears down the connections a spec did not close: without it the drop would fail and
+        // the database would be left hanging in the shared Postgres.
         await sql`drop database ${sql(name)} with (force)`;
     } finally {
         await sql.end();
@@ -106,14 +107,14 @@ export const mochaHooks: Mocha.RootHookObject = {
     async beforeAll(this: Mocha.Context): Promise<void> {
         this.timeout(HOOK_TIMEOUT_MS);
 
-        // Суффикс, а не фиксированное имя: прогоны из разных деревьев идут в один Postgres
-        // одновременно.
+        // A suffix rather than a fixed name: runs from different trees go into one Postgres at the
+        // same time.
         const name = `telegram_bot_test_${randomBytes(6).toString("hex")}`;
 
         await createDatabase(name);
 
-        // До миграций: упавшие миграции оставили бы базу, а afterAll удаляет только
-        // запомненную.
+        // Before the migrations: failed migrations would leave the database behind, and afterAll
+        // drops only the one it remembers.
         databaseName = name;
         process.env[TEST_DATABASE_NAME] = name;
 

@@ -47,7 +47,7 @@
 
 Смена версии рантайм-зависимости `mutation-full` не включает, и это решение о цене, а не
 недосмотр. Типы зависимостей идут в компиляцию чекера и решают, кто получит `CompileError`
-(`docs/architecture/testing.md`, «Чекер типов»): если обновление grammY сделает поле `from`
+(`docs/architecture/testing.md`, "The type checker"): если обновление grammY сделает поле `from`
 обязательным, мутант `ctx.from?.language_code` в `src/telegram/locale/locale.ts` начнёт
 компилироваться, дойдёт до тестов и выживет — а красным станет у следующего PR, который тронет
 этот файл. Владелец (21.09.2026) выбрал ловить такого выжившего этим следующим PR: полный прогон
@@ -76,7 +76,7 @@ a string literal, so a grep for `//` or `*` decides nothing.
 
 Past this row the rule does not hold, which is why it stands here and not over the table as a whole:
 in `src/` a comment can be the mark `// Stryker disable next-line …` that silences a survivor
-(`docs/architecture/testing.md`, «Разбор выживших»), and a diff of that mark is exactly what the
+(`docs/architecture/testing.md`, "Working through survivors"), and a diff of that mark is exactly what the
 gate `mutation` has to see.
 
 `bug-hunt-*` и `smells` разведены намеренно, и границы у них разные. Баги ищутся везде, где
@@ -108,7 +108,7 @@ gate `mutation` has to see.
 весь `src/`: их правка меняет прогон каждого мутанта, а не строк дифа, а у PR, который правит
 одни инструменты, область из дифа пуста. Тиконфиги и `typescript` — тоже инструменты: по ним чекер
 типов решает, какой мутант получает `CompileError`, а какой идёт в тесты
-(`docs/architecture/testing.md`, «Чекер типов»). На остальных PR весь `src/` не гоняется: это минуты
+(`docs/architecture/testing.md`, "The type checker"). На остальных PR весь `src/` не гоняется: это минуты
 на каждый круг ради строк, которых PR не трогал.
 
 Гейт `rebuild` включён — образ пересобирается **до** остальных проверок: иначе новый код
@@ -122,7 +122,7 @@ gate `mutation` has to see.
 ## Изменения, которые влияют на прогон мутаций
 
 `make mutation` оставляет запись прогона, и ревью принимает её вместо своего прогона
-(`docs/architecture/testing.md`, «Запись прогона»; условия приёма —
+(`docs/architecture/testing.md`, "The run record"; условия приёма —
 `.claude/skills/pr-light-check/SKILL.md`, «Запись прогона автора»). Прогон шёл на одном
 коммите, а примеряют запись к другому, поэтому её годность — тот же разбор по таблице выше,
 только диф берётся между этими двумя коммитами. Включён хоть один из трёх гейтов — запись
@@ -135,7 +135,7 @@ gate `mutation` has to see.
 
 Ни одного из трёх — прогон не повторяется: ни автором перед пушем, ни ревьюером под гейтом.
 Иначе правка по ревью, тронувшая одну документацию, стоила бы кругу двух прогонов той же
-области, а полный прогон — это минуты (`docs/architecture/testing.md`, «Чекер типов»).
+области, а полный прогон — это минуты (`docs/architecture/testing.md`, "The type checker").
 
 Диф здесь — между деревьями двух коммитов, а не от их merge-base; второй коммит — тот, к
 которому запись примеряют: у ревьюера head PR, у автора свой `HEAD` перед пушем.

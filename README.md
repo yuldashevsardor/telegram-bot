@@ -119,9 +119,9 @@ The full list is `make`. What is worth knowing beyond the target descriptions:
 - One-off targets — `build`, `typecheck`, the tests, the linters, the migrations — run in a
   throwaway container and work with the bot down, but the database has to be up: its network
   is needed by any application container, and the tests need the database itself
-  ([`docs/architecture/testing.md`](docs/architecture/testing.md), the section on the
-  database for tests). The exceptions are `rebuild` (it builds the image, no database
-  needed), `shell` and `psql` (they step into a running container).
+  ([`docs/architecture/testing.md`](docs/architecture/testing.md), "The test database"). The
+  exceptions are `rebuild` (it builds the image, no database needed), `shell` and `psql` (they
+  step into a running container).
 - `make check` — types, eslint, prettier and the tests with the coverage threshold in one
   command.
 - `files=` of `format-check` and `format` takes `.ts` only: `.prettierrc.js` hard-codes

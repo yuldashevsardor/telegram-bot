@@ -110,7 +110,7 @@ dist
 .tern-port
 
 # Finder заводит .DS_Store в каждом открытом каталоге, а неотслеживаемый файл даёт записи
-# прогона clean=no (docs/architecture/testing.md, «Запись прогона»).
+# прогона clean=no (docs/architecture/testing.md, "The run record").
 .DS_Store
 
 /.idea

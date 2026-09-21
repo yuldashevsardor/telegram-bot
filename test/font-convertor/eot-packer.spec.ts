@@ -271,9 +271,9 @@ describe("EotPacker", function () {
 
 describe("InvalidEot and UnsupportedEotFlags", function () {
     // Фабрики проверяются напрямую: спеки unpack() выше держат класс отказа, а не текст — какая
-    // из проверок отвергла вход, не требование (docs/architecture/testing.md, «Разбор
-    // выживших»). Шестнадцатеричные значения взяты с ведущими нулями: поле печатается во всю
-    // ширину.
+    // из проверок отвергла вход, не требование
+    // (docs/architecture/testing.md, "Working through survivors").
+    // Шестнадцатеричные значения взяты с ведущими нулями: поле печатается во всю ширину.
     const cases = [
         {
             name: "InvalidEot.tooShort",

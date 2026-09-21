@@ -1,11 +1,12 @@
 {
-    // tsx грузит TypeScript и сам разрешает алиасы app/* и test/* по paths, поэтому отдельный
-    // резолвер путей не нужен. Типы он не проверяет — это делает npm run typecheck.
-    // Тиконфиг ему задаёт TSX_TSCONFIG_PATH в npm-скрипте test: compilerOptions
-    // применяются только к файлам из include, а test/** есть лишь в tsconfig.check.json.
-    // database-hook идёт после tsx, потому что сам написан на TypeScript; он создаёт базу
-    // на прогон (docs/architecture/testing.md, «База для тестов»). Stryker (stryker.config.mjs)
-    // берёт отсюда spec, а require задаёт свой — без database-hook: новый require нужен и там.
+    // tsx loads TypeScript and resolves the app/* and test/* aliases by paths itself, so no
+    // separate path resolver is needed. It does not check types — npm run typecheck does that.
+    // Its tsconfig comes from TSX_TSCONFIG_PATH in the test npm script: compilerOptions apply
+    // only to the files of include, and test/** is in tsconfig.check.json alone.
+    // database-hook goes after tsx because it is written in TypeScript itself; it creates a
+    // database per run (docs/architecture/testing.md, "The test database"). Stryker
+    // (stryker.config.mjs) takes spec from here, while require it sets on its own — without
+    // database-hook: a new require is needed there too.
     "require": ["tsx/cjs", "./test/database-hook.ts"],
     "spec": "test/**/*.spec.ts",
     "color": true
