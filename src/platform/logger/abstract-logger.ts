@@ -9,8 +9,9 @@ import type { RequestContext } from "app/platform/request-context/request-contex
 export abstract class AbstractLogger implements Logger {
     protected level: Level = Level.DEBUG;
 
-    // The context comes as a dependency: the logger always knows it and reads the values of the
-    // request itself at the moment of the write, so it is never swapped or rebuilt per request.
+    // The context comes as a dependency: the logger always knows it, and each adapter reads the
+    // values of the request itself at the moment of the write, so the logger is never swapped or
+    // rebuilt per request.
     public constructor(protected readonly requestContext: RequestContext) {}
 
     public setLevel(level: Level): void {
