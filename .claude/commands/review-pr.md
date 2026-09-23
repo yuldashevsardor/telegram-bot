@@ -1,55 +1,56 @@
 ---
-description: Ревью Pull Request: считает диф и запускает проверку нужной глубины
-argument-hint: <номер PR> [--comment] [--no-post]
+description: Pull Request review — reads the diff and runs the check of the right depth
+argument-hint: <PR number> [--comment] [--no-post]
 allowed-tools: Bash(gh pr view:*), Bash(gh pr diff:*), Read, Skill
 ---
 
-Ты — маршрутизатор ревью. Аргументы: `$ARGUMENTS`.
+You are the review router. Arguments: `$ARGUMENTS`.
 
-Твоя работа — определить, что изменилось в PR, и запустить один скилл нужной глубины.
-Сам ты ничего не проверяешь, не читаешь код, не запускаешь команды и не выносишь вердикт.
-Здесь живёт вся маршрутизация; скиллы — исполнители и своей маршрутизации не имеют.
+Your job is to find out what changed in the PR and run one skill of the right depth. You
+check nothing yourself: you do not read the code, run commands or give a verdict. All the
+routing lives here; the skills are executors and have no routing of their own.
 
-## Шаг 1. PR
+## Step 1. PR
 
-Первый аргумент — номер PR. Не передан → определи PR текущей ветки:
-`gh pr view --json number,title`. PR не найден — остановись и скажи об этом.
+The first argument is the PR number. None given → find the PR of the current branch:
+`gh pr view --json number,title`. No PR found — stop and say so.
 
-## Шаг 2. Диф
+## Step 2. Diff
 
 ```bash
 gh pr diff <N> --name-only
 ```
 
-Список пуст → скажи, что диф пуст, и остановись.
+The list is empty → say the diff is empty and stop.
 
-## Шаг 3. Глубина
+## Step 3. Depth
 
-| В дифе есть | Скилл |
+| The diff has | Skill |
 | --- | --- |
-| хоть один `.ts` или `.sh` | `pr-deep-review` |
-| всё остальное | `pr-light-check` |
+| at least one `.ts` or `.sh` | `pr-deep-review` |
+| anything else | `pr-light-check` |
 
-`.ts` и `.sh` — единственный признак глубины. Правка `Makefile`, `tsconfig.json`,
-`package.json`, compose-файла или документации сама по себе на полное ревью не тянет:
-инвариантам архитектуры, смеллам и поиску багов там нечего находить, а стоят они дорого.
+`.ts` and `.sh` are the only sign of depth. A change to the `Makefile`, `tsconfig.json`,
+`package.json`, a compose file or the documentation does not by itself call for a full review:
+architecture invariants, smells and bug hunting have nothing to find there, and they cost a lot.
 
-Граница проведена по цене, а не по важности. Соответствие issue проверяют **оба** скилла —
-это не признак глубины, а условие любого вердикта: зелёный прогон на PR, который трогает
-только `Makefile`, означает лишь, что ничего не упало, а не что сделано то, что просили.
+The boundary is drawn by price, not by importance. **Both** skills check issue compliance: it
+is not a sign of depth but a condition of any verdict. A green run on a PR that touches only the
+`Makefile` means only that nothing failed, not that what was asked for is done.
 
-## Шаг 4. Гейты
+## Step 4. Gates
 
-Посчитай по таблице гейтов (`docs/agents/review-gates.md`), что включено, и передай списком
-в скилл. Таблица и разбор её строк лежат там, а не здесь, потому что применяет её не только
-маршрутизация: по той же таблице, но по другому дифу, автор и ревьюер решают, устарела ли
-запись мутационного прогона. Здесь она применяется к дифу шага 2, и только здесь по ней
-выбираются гейты, которые уйдут в скилл.
+Work out by the gate table (`docs/agents/review-gates.md`) which gates are on, and pass them to
+the skill as a list. The table and the reasoning behind its rows live there and not here,
+because routing is not its only user: the author and the reviewer apply the same table to a
+different diff to decide whether a mutation run record is stale. Here it is applied to the diff
+of step 2, and only here does it choose the gates that go to the skill.
 
-## Шаг 5. Запуск
+## Step 5. Launch
 
-Вызови выбранный скилл и передай ему три вещи: номер PR, список включённых гейтов и флаги
-из `$ARGUMENTS` (`--comment`, `--no-post`).
+Call the chosen skill and pass it three things: the PR number, the list of gates that are on,
+and the flags from `$ARGUMENTS` (`--comment`, `--no-post`).
 
-Дальше всё делает скилл — прогон, соответствие issue, вердикт, комментарий в PR. Свой текст
-поверх его вердикта не добавляй и не пересказывай его: он уже вывел отчёт в сессию.
+The skill does the rest: the run, issue compliance, the verdict, the PR comment. Add no text of
+your own on top of its verdict and do not retell it: it has already printed its report to the
+session.
