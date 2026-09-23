@@ -284,7 +284,7 @@ find test -name '*.spec.ts' | while read -r s; do base=$(basename "$s" .spec.ts)
 он лежит вне `src/`, алиас туда не ведёт, и правило снято на весь каталог через
 `overrides` в `.eslintrc.js`.
 
-Независимость домена (`CLAUDE.md`, «Стиль») линтер не проверяет. `font-convertor/` не
+Независимость домена (`CLAUDE.md`, «Style») линтер не проверяет. `font-convertor/` не
 импортирует ни `platform/`, ни `bootstrap/` напрямую, но независимость не полная:
 `shared/config-value.ts` берёт конфигурацию у `ApplicationContext`
 ([`application.md`](./application.md)), то есть рантайм-зависимость от корня сборки в

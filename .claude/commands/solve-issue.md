@@ -36,7 +36,7 @@ gh pr list --state open --search "<N> in:body" --json number,title,headRefName
 решает владелец, — спроси через AskUserQuestion и жди ответа. Угаданный ответ обернётся
 кругом ревью на невыполненный критерий.
 
-Дальше — «Рабочий процесс» из `CLAUDE.md`, без исключений:
+Дальше — «Workflow» из `CLAUDE.md`, без исключений:
 
 1. Префикс ветки выбери до первого пуша: переименование ветки открытого PR его закрывает.
 2. Worktree `../telegram-bot-<задача>` от `origin/main`, в нём `make worktree-init`.
@@ -123,7 +123,7 @@ gh api --paginate repos/{owner}/{repo}/pulls/<PR>/comments -q '.[] | {id, create
 видит, что его прочитали. Обычный комментарий — `gh pr comment <PR> --body-file <файл>`,
 inline — ответом в тред:
 `gh api repos/{owner}/{repo}/pulls/<PR>/comments/<id>/replies -F body=@<файл>`.
-Файл — вне репозитория, в конце текста — подпись из `CLAUDE.md`, «Подпись агента на GitHub».
+Файл — вне репозитория, в конце текста — подпись из `CLAUDE.md`, «Agent signature on GitHub».
 
 ## Шаг 6. Решение по кругу
 
