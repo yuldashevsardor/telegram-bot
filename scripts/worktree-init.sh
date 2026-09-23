@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
-# Подготовка рабочего дерева задачи: общие с основным деревом каталоги, свой .env
-# и свой BOT_TOKEN из пула. Запускается один раз после создания дерева.
+# Prepares a task worktree: the directories shared with the main worktree, its own .env
+# and its own BOT_TOKEN from the pool. Run once after the worktree is created.
 set -eu
 
 die() {
@@ -9,43 +9,43 @@ die() {
 }
 
 main_tree() {
-    common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || die "не git-репозиторий: $PWD"
+    common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || die "not a git repository: $PWD"
     dirname "$common"
 }
 
-root=$(git rev-parse --show-toplevel 2>/dev/null) || die "не git-репозиторий: $PWD"
+root=$(git rev-parse --show-toplevel 2>/dev/null) || die "not a git repository: $PWD"
 main=$(main_tree)
 
-[ "$root" != "$main" ] || die "это основное рабочее дерево — скрипт нужен только в дереве задачи"
+[ "$root" != "$main" ] || die "this is the main worktree — the script is only for a task worktree"
 
 cd "$root"
 
-# База данных одна на машину, поэтому её каталог общий: в дереве задачи tmp/pgsql —
-# симлинк на основное дерево, и docker-compose.db.yml попадает в тот же кластер,
-# из какого бы дерева его ни подняли. Остальное в tmp/ у каждого дерева своё.
+# There is one database per machine, so its directory is shared: in a task worktree tmp/pgsql
+# is a symlink to the main worktree, and docker-compose.db.yml lands in the same cluster
+# whichever worktree brings it up. The rest of tmp/ is each worktree's own.
 mkdir -p "$main/tmp/pgsql"
 if [ -e tmp/pgsql ] && [ ! -L tmp/pgsql ]; then
-    die "tmp/pgsql здесь — обычный каталог; удалите его, если в нём нет нужных данных, и повторите"
+    die "tmp/pgsql here is a plain directory; remove it if it holds no data you need, and repeat"
 fi
 ln -sfn "$main/tmp/pgsql" tmp/pgsql
 
 if [ ! -f .env ]; then
-    [ -f "$main/.env" ] || die "нет $main/.env — создайте его из .env.dist в основном дереве"
+    [ -f "$main/.env" ] || die "no $main/.env — create it from .env.dist in the main worktree"
     cp "$main/.env" .env
     chmod 600 .env
 fi
 
-# Горячий файл конфигурации у каждого дерева свой и пустой: значения в нём — то, что правят на
-# ходу, а не то, что наследуют из основного дерева. Создаётся здесь по той же причине, по какой
-# его создают цели make, — см. комментарий у DC_APP в Makefile. Права не ужимаются до 600, как у
-# .env: файл смонтирован в контейнер и читается там от USER node, а на Linux-хосте его uid с
-# хозяйским не совпадает — приложение упало бы на чтении собственного пустого файла. Секретов в
-# нём и не держат: заданную переменную окружения он всё равно не перекрывает
-# (docs/architecture/invariants.md).
+# The hot configuration file is each worktree's own and starts empty: its values are what gets
+# edited on the fly, not what is inherited from the main worktree. It is created here for the same
+# reason the make targets create it — see the comment at DC_APP in the Makefile. Its permissions
+# are not narrowed to 600 as with .env: the file is mounted into the container and read there as
+# USER node, and on a Linux host that uid does not match the owner's — the application would fail
+# reading its own empty file. Nor are secrets kept in it: a set environment variable wins over it
+# anyway (docs/architecture/invariants.md).
 if [ ! -f .runtime.env ]; then
     touch .runtime.env
 fi
 
 scripts/bot-token.sh acquire
 
-printf 'дерево %s готово: tmp/pgsql общий, .env и .runtime.env свои\n' "$root"
+printf 'worktree %s is ready: tmp/pgsql shared, .env and .runtime.env its own\n' "$root"

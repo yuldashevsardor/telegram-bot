@@ -17,7 +17,7 @@
                     {
                         "type": "command",
                         "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/claude-worktree-guard.sh pre-edit",
-                        "statusMessage": "Проверка рабочего дерева"
+                        "statusMessage": "Checking the worktree"
                     }
                 ]
             }
