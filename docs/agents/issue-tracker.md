@@ -1,43 +1,44 @@
-# Трекер задач: GitHub
+# Issue tracker: GitHub
 
-Задачи живут в GitHub Issues, операции — через `gh` CLI. «Опубликовать в трекер» —
-завести issue; работа по ней идёт своей веткой и PR, см. «Рабочий процесс» в `CLAUDE.md`.
+Tasks live in GitHub Issues and are handled through the `gh` CLI. "Publish to the tracker"
+means filing an issue; the work on it goes in its own branch and PR, see the workflow section
+of `CLAUDE.md`.
 
-- Многострочное тело — через `--body-file <файл>`, не через `--body`: в аргументе
-  оболочка выполнит бэктики и подставит `$…`, а тела здесь сплошь из идентификаторов
-  в бэктиках.
-- Ключевое слово автозакрытия в теле PR пишется по-английски: `Closes #N`. GitHub
-  понимает только английские формы, поэтому русское «Закрывает #N» ничего не закрывает —
-  issue после мержа останется открытой, и закрывать её придётся руками.
-- Закрывая issue руками, оставляй комментарий с итогом: что влито и чем именно закрыт
-  вопрос.
-- Новых лейблов не заводим, хватает штатных (`gh label list`). Триаж-машина скилла
-  `triage` и её лейблы (`needs-triage` и т. п.) не используются,
-  `docs/agents/triage-labels.md` нет намеренно.
-- Голый `#42` может быть и issue, и PR: сначала `gh pr view 42`, при неудаче
+- A multi-line body goes through `--body-file <file>`, not `--body`: in an argument the shell
+  runs the backticks and expands `$…`, and the bodies here are full of identifiers in
+  backticks.
+- The auto-close keyword in a PR body is `Closes #N`. GitHub recognises only its own keywords
+  (`Closes`, `Fixes`, `Resolves` and their forms); any other wording, a translation included,
+  closes nothing — the issue stays open after the merge and has to be closed by hand.
+- When closing an issue by hand, leave a comment with the outcome: what was merged and what
+  exactly settled the question.
+- No new labels: the stock ones are enough (`gh label list`). The triage machine of the
+  `triage` skill and its labels (`needs-triage` and the like) are not used, and
+  `docs/agents/triage-labels.md` is absent on purpose.
+- A bare `#42` can be either an issue or a PR: first `gh pr view 42`, on failure
   `gh issue view 42`.
-- Всё, что уходит на GitHub от аккаунта владельца, несёт подпись из раздела «Подпись
-  агента на GitHub» в `CLAUDE.md`.
+- Everything posted to GitHub from the owner's account carries the signature from the agent
+  signature section of `CLAUDE.md`.
 
-## PR как поверхность запросов: нет
+## PRs as a request surface: no
 
-Внешние PR в очередь разбора наравне с issues не попадают. Поставьте «да», если это
-изменится.
+External PRs do not enter the triage queue alongside issues. Set this to "yes" if that
+changes.
 
-## Операции wayfinding
+## Wayfinding operations
 
-Используются скиллом `wayfinder`. Карта — одна issue с лейблом `wayfinder:map`, тикеты —
-её дочерние issues с лейблами `wayfinder:<тип>`. Лейблов этого семейства в репозитории
-пока нет: заводятся вместе с первой картой.
+Used by the `wayfinder` skill. The map is one issue labelled `wayfinder:map`, the tickets are
+its child issues labelled `wayfinder:<type>`. The repository has no labels of this family
+yet: they are created together with the first map.
 
-Дочерний тикет привязывается к карте нативной sub-issue, блокировки — нативными
-зависимостями GitHub:
+A child ticket is attached to the map as a native sub-issue, blocks are native GitHub
+dependencies:
 
 ```bash
-gh api --method POST repos/<owner>/<repo>/issues/<карта>/sub_issues -F sub_issue_id=<id тикета>
-gh api --method POST repos/<owner>/<repo>/issues/<тикет>/dependencies/blocked_by -F issue_id=<id блокировщика>
+gh api --method POST repos/<owner>/<repo>/issues/<map>/sub_issues -F sub_issue_id=<ticket id>
+gh api --method POST repos/<owner>/<repo>/issues/<ticket>/dependencies/blocked_by -F issue_id=<blocker id>
 ```
 
-Обе операции берут числовой database id, а не номер issue: `gh api
-repos/<owner>/<repo>/issues/<n> --jq .id`; ни `#number`, ни `node_id` не подходят.
-Тикет свободен, когда все его блокировщики закрыты.
+Both operations take the numeric database id, not the issue number: `gh api
+repos/<owner>/<repo>/issues/<n> --jq .id`; neither `#number` nor `node_id` works.
+A ticket is free when all its blockers are closed.
