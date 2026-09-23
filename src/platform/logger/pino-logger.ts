@@ -29,7 +29,7 @@ const pinoLevelNames: Record<Level, PinoLevel> = {
 export class PinoLogger extends AbstractLogger {
     private readonly pinoDefaultOptions: LoggerOptions<PinoLevel> = {
         customLevels: pinoLevels,
-        // Stryker disable next-line BooleanLiteral: `false` — эквивалентен: стандартные уровни pino добавятся, но PinoLogger пишет и выставляет порог только своими пятью, а веса стандартных (10–60) с LevelSeverity не совпадают — записи и порог те же
+        // Stryker disable next-line BooleanLiteral: `false` is equivalent: the standard pino levels without a custom namesake (trace, warn, fatal) get added, but PinoLogger writes and sets the threshold with its own five only, and the weights of the standard ones (10–60) do not match LevelSeverity — the records and the threshold stay the same
         useOnlyCustomLevels: true,
         level: pinoLevelNames[Level.DEBUG],
         formatters: {
@@ -77,9 +77,8 @@ export class PinoLogger extends AbstractLogger {
         this.pino[pinoLevelNames[level]]({
             ...this.requestContext.getValues(),
             message: message,
-            // serialize-error с 13.x заворачивает любое не-Error значение в NonError,
-            // поэтому вызов без payload давал бы «Non-error value: undefined» в каждой
-            // такой записи.
+            // Since 13.x serialize-error wraps any non-Error value into NonError, so a call
+            // without a payload would put "Non-error value: undefined" into every such record.
             payload: payload === undefined ? undefined : serializeError(payload),
         });
     }

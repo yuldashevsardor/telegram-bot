@@ -6,8 +6,8 @@ export enum Level {
     DEBUG = "DEBUG",
 }
 
-// Вес уровня: чем больше, тем серьёзнее. Логируется всё, чей вес не меньше настроенного
-// порога, поэтому порядок уровней задан явно, а не порядком объявления enum'а.
+// The weight of a level: the higher, the more severe. Everything whose weight is not below the
+// configured threshold is logged, so the order is set explicitly, not by the enum declaration order.
 export const LevelSeverity: Record<Level, number> = {
     [Level.DEBUG]: 0,
     [Level.INFO]: 100,

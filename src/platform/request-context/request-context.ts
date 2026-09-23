@@ -3,29 +3,29 @@ import { v4 as uuid } from "uuid";
 import type { RequestStore } from "app/platform/request-context/request-context.types";
 import { REQUEST_KEYS } from "app/platform/request-context/request-context.types";
 
-// Значения текущего апдейта и область, в которой они живут. AsyncLocalStorage — деталь
-// реализации и наружу не отдаётся: вызывающему хватает операций над областью, а форму
-// стора и ключи знает только этот класс. Без обёртки каждая сторона собирала бы стор
-// руками, и корреляция зависела бы от того, одинаково ли они это делают.
+// The values of the current update and the scope they live in. AsyncLocalStorage is an
+// implementation detail and is not handed out: callers need only operations on the scope, and
+// only this class knows the shape of the store and its keys. Without the wrapper every side would
+// build the store by hand, and correlation would depend on whether they do it the same way.
 export class RequestContext {
     private readonly als = new AsyncLocalStorage<RequestStore>();
 
-    // Идентификатор рождается здесь, а не у вызывающего: снаружи область открывают, чтобы
-    // логи апдейта стали связными, а не чтобы выбрать значение ключа.
+    // The id is born here, not at the caller: a scope is opened from outside to make the logs
+    // of an update connected, not to choose the value of a key.
     public run<Result>(fn: () => Result): Result {
         return this.als.run({ [REQUEST_KEYS.REQUEST_ID]: uuid() }, fn);
     }
 
-    // Вне области значения нет — это нормальный случай (фоновые задачи, ошибка после
-    // свёрнутой области), поэтому null, а не ошибка.
+    // Outside a scope there is no value, and that is a normal case (background tasks, an error
+    // after the scope is closed), hence null rather than an error.
     public getRequestId(): string | null {
         const requestId = this.als.getStore()?.[REQUEST_KEYS.REQUEST_ID];
 
         return typeof requestId === "string" ? requestId : null;
     }
 
-    // Отдаются только известные ключи: стор нетипизирован, и без отбора формат лога
-    // зависел бы от того, что в стор положили по дороге.
+    // Only the known keys are returned: nothing checks the keys of the store at runtime, and
+    // without the filter the log format would depend on what was put into the store along the way.
     public getValues(): RequestStore {
         const store = this.als.getStore();
 

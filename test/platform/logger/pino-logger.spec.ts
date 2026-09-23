@@ -5,12 +5,12 @@ import { Level } from "app/platform/logger/logger.types";
 import { InvalidLogLevel } from "app/platform/logger/logger.errors";
 import { RequestContext } from "app/platform/request-context/request-context";
 
-// pino пишет в process.stdout, поэтому записи снимаются подменой write — так же, как
-// записи ConsoleLogger снимаются подменой console. Логгер строится уже после подмены:
-// назначение pino выбирает в конструкторе.
-// Результат write возвращается наружу: значение из области запроса (тот же requestId)
-// иначе пришлось бы ловить присваиванием в замыкание, а его тип к моменту проверки
-// TypeScript сузил бы до начального.
+// pino writes to process.stdout, so the records are captured by replacing write — the same way
+// the records of ConsoleLogger are captured by replacing console. The logger is built after the
+// replacement: pino picks its destination in the constructor.
+// The result of write is returned: otherwise a value from the request scope (the same requestId)
+// would have to be caught by assignment in a closure, and by the time of the check TypeScript
+// would have narrowed its type to the initial one.
 function capture<Result>(
     write: (logger: PinoLogger, requestContext: RequestContext) => Result,
     level: Level = Level.INFO,
@@ -34,7 +34,7 @@ function capture<Result>(
         process.stdout.write = original;
     }
 
-    // Иначе пустой перехват уходил бы в JSON.parse и падал SyntaxError вместо внятного отказа.
+    // Otherwise an empty capture would go to JSON.parse and fail with a SyntaxError instead of a clear failure.
     expect(captured, "pino wrote nothing to the captured stdout").to.not.equal("");
 
     const records = captured
@@ -98,8 +98,8 @@ describe("PinoLogger", function () {
     it("rejects an unknown level before handing it to pino", function () {
         const logger = new PinoLogger(new RequestContext());
 
-        // Отказ даёт AbstractLogger. Переопределение обязано позвать его раньше, чем
-        // присвоить уровень pino: иначе вместо InvalidLogLevel вылетел бы голый Error pino.
+        // The refusal comes from AbstractLogger. The override must call it before assigning the
+        // pino level: otherwise a bare pino Error would be thrown instead of InvalidLogLevel.
         expect(() => logger.setLevel("TRACE" as Level))
             .to.throw(InvalidLogLevel)
             .with.property("message", "Invalid log level. Got: TRACE");

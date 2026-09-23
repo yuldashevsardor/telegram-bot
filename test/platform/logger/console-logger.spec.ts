@@ -6,8 +6,8 @@ import type { UnknownObject } from "app/shared/types";
 import { RuntimeError } from "app/shared/errors";
 import { RequestContext } from "app/platform/request-context/request-context";
 
-// Контекст свой, а не production-синглтон: спека не зависит от того, открыл ли кто-то
-// область запроса рядом.
+// A context of its own, not the production singleton: the spec does not depend on whether
+// someone next to it opened a request scope.
 const requestContext = new RequestContext();
 
 function capture(method: "error" | "warn" | "info" | "debug", write: (logger: ConsoleLogger) => void, level: Level = Level.ERROR): string {
@@ -54,9 +54,9 @@ describe("ConsoleLogger", function () {
         const parsed = logAndParsePayload({ cause: new RuntimeError("failed", { cause: new Error("boom") }) }) as { cause: UnknownObject };
         const asIs = logAndParsePayload({ cause: new RuntimeError("failed", { cause: "boom" }) }) as { cause: UnknownObject };
 
-        // Вызов один и тот же, тип пойманного разный — и значение оказывается на разной
-        // глубине записи: Error конструктор поднял в нативный cause и сериализатор его
-        // разобрал, строку он оставил в payload и скопировал как есть.
+        // The same call, a different type of the caught value — and the value ends up at a
+        // different depth of the record: the constructor lifted the Error into the native cause
+        // and the serializer parsed it, while the string stayed in payload and was copied as is.
         expect(parsed.cause["cause"]).to.include({ name: "Error", message: "boom" });
         expect(asIs.cause["cause"]).to.be.undefined;
         expect((asIs.cause["payload"] as UnknownObject)["cause"]).to.equal("boom");

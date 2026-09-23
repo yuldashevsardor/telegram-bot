@@ -63,9 +63,9 @@ describe("RequestContext", function () {
 
     it("keeps unknown keys of the store out of the values", function () {
         const context = new RequestContext();
-        // Область открывает только run(), и чужой ключ через публичную поверхность в стор
-        // не попадёт — отбор в getValues() сторожит будущих писателей стора, поэтому здесь
-        // ключ кладётся прямо в хранилище.
+        // Only run() opens a scope, and a foreign key cannot reach the store through the public
+        // surface — the filter in getValues() guards against future writers of the store, so here
+        // the key is put straight into the storage.
         const als = (context as unknown as { als: AsyncLocalStorage<RequestStore> }).als;
 
         const values = als.run({ [REQUEST_KEYS.REQUEST_ID]: "req-1", secret: "must not leak" } as RequestStore, () => context.getValues());
@@ -73,8 +73,8 @@ describe("RequestContext", function () {
         expect(values).to.deep.equal({ requestId: "req-1" });
     });
 
-    // Стор без requestId run() не открывает, поэтому, как и выше, он кладётся прямо в хранилище.
-    // Ключ со значением undefined ConsoleLogger напечатал бы как [requestId=undefined].
+    // run() never opens a store without a requestId, so, as above, it is put straight into the storage.
+    // A key with the value undefined would be printed by ConsoleLogger as [requestId=undefined].
     it("keeps keys missing from the store out of the values", function () {
         const context = new RequestContext();
         const als = (context as unknown as { als: AsyncLocalStorage<RequestStore> }).als;
