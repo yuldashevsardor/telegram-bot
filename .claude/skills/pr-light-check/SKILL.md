@@ -1,107 +1,109 @@
 ---
 name: pr-light-check
-description: Лёгкое ревью Pull Request — механический прогон проверок репозитория по переданным гейтам, дрейф документации в изменённых строках и соответствие issue, с вердиктом и комментарием в PR. Запускается командой /review-pr, а также скиллом pr-deep-review как его механическая часть. Не для обычной работы над кодом и не для проверки незакоммиченных правок.
+description: Light Pull Request review — a mechanical run of the repository checks by the gates passed in, documentation drift in the changed lines and issue compliance, with a verdict and a PR comment. Run by the /review-pr command, and by the pr-deep-review skill as its mechanical part. Not for ordinary work on code and not for checking uncommitted edits.
 allowed-tools: Bash(gh:*), Bash(git:*), Bash(make db-up), Bash(make rebuild), Bash(make build), Bash(make typecheck), Bash(make coverage), Bash(make lint), Bash(make format-check), Bash(make mutation:*), Bash(make help), Bash(make token-status), Bash(make -n:*), Bash(sh -n:*), Bash(docker run:*), Bash(docker compose -f docker-compose.app.yml down --rmi local --volumes), Bash(scripts/bot-token.sh), Bash(cd:*), Bash(ls:*), Bash(cp:*), Bash(touch mutation-dirty-probe), Bash(rm mutation-dirty-probe), Bash(grep:*), Bash(awk:*), Read, Grep, Glob, Write
 ---
 
-Ты запускаешь проверки репозитория по коду Pull Request и решаешь, можно ли его вливать.
+You run the repository checks over the code of a Pull Request and decide whether it can be
+merged.
 
-На входе: номер PR, список гейтов, флаги. Гейты считает команда `/review-pr` — сам ты диф
-на группы не раскладываешь.
+Input: the PR number, the list of gates, the flags. The gates are computed by the `/review-pr`
+command — you do not sort the diff into groups yourself.
 
-Это лёгкое ревью. Инварианты архитектуры, поиск багов, смеллы и пересечения с чужими
-ветками — не твоя задача, это `pr-deep-review`. Твой вердикт опирается на три вещи:
-прогон, дрейф документации и соответствие issue.
+This is the light review. Architecture invariants, bug hunting, smells and overlaps with other
+branches are not your job, they belong to `pr-deep-review`. Your verdict rests on three things:
+the run, documentation drift and issue compliance.
 
-## Два режима
+## Two modes
 
-- **Самостоятельный** (позвала команда `/review-pr`) — делаешь всё: шаги 1–6.
-- **Механический** (позвал `pr-deep-review`) — делаешь только шаги 1–3 и уборку и возвращаешь
-  строками результаты прогона и находки по документации. Ни issue, ни вердикта,
-  ни комментария: их выносит тот, кто тебя позвал. Исключение — запись своего прогона мутаций
-  («Запись прогона автора»): это не вердикт, а факт прогона, и публикуешь её ты.
+- **Standalone** (called by the `/review-pr` command) — you do everything: steps 1–6.
+- **Mechanical** (called by `pr-deep-review`) — you do only steps 1–3 and the cleanup and return
+  the run results and the documentation findings as lines. No issue, no verdict, no comment:
+  those belong to the caller. The exception is the record of your own mutation run ("The
+  author's run record"): it is not a verdict but a fact of the run, and you publish it.
 
-Шаг 3 входит в механический режим, потому что владелец у проверки один. `pr-deep-review`
-видит диф `*.md` только через тебя, а PR из одной документации до него не доходит вовсе;
-раздвоив проверку, репозиторий получил бы две копии чек-листа, которые разъедутся первой
-же правкой.
+Step 3 is part of the mechanical mode because the check has one owner. `pr-deep-review` sees the
+`*.md` diff only through you, and a documentation-only PR never reaches it at all; with the check
+split in two, the repository would hold two copies of the checklist, and the first edit would set
+them apart.
 
-## Жёсткие правила роли
+## Hard rules of the role
 
-- **Ты ничего не чинишь.** Результат — отчёт и вердикт. Красное — скажи о нём и предложи
-  починить отдельно; не правь файлы и не делай `--fix` по ходу проверки. `cp` и `Write`
-  выданы под записи, которые предписывают шаги ниже, и только под них: создать файл —
-  тоже правка.
-- **Запускать, а не читать глазами.** Проверка, которую ты не запустил, — это `n-a`, а не `ok`.
-  Формулировки «выглядит корректно», «синтаксис в порядке», «должно работать» без вывода
-  команды запрещены. Исключение одно — принятая запись прогона мутаций автора («Запись
-  прогона автора»): её пишет сам `make mutation`, а не пересказ автора.
-- **Белый список.** По-настоящему запускать можно только то, что перечислено в шаге 2
-  и в разделе «Уборка временных деревьев».
-  Всё остальное — включая любую цель `Makefile`, которой там нет, — не запускается никогда,
-  даже если гейт на неё указывает. Такая проверка идёт в отчёт строкой «не запускалось»
-  с причиной. Список белый, а не чёрный, намеренно: новая цель в `Makefile` по умолчанию
-  считается опасной, пока её сюда не внесли.
-- **Незапущенное не замалчивается.** Каждая проверка, которую гейт включил, а ты не выполнил,
-  обязана попасть в отчёт с причиной.
-- **Временное дерево не переживает прогон.** Каждое, которое ты завёл, убирается по разделу
-  «Уборка временных деревьев» при любом исходе: красный гейт, BLOCKED и остановка на полпути
-  тоже.
+- **You fix nothing.** The result is a report and a verdict. Something red — say so and suggest
+  fixing it separately; do not edit files and do not run `--fix` along the way. `cp` and `Write`
+  are granted for the records the steps below prescribe and only for them: creating a file is an
+  edit too.
+- **Run, do not eyeball.** A check you did not run is `n-a`, not `ok`. "Looks correct", "the
+  syntax is fine", "should work" without the output of a command are forbidden. The one exception
+  is an accepted mutation run record of the author ("The author's run record"): it is written by
+  `make mutation` itself, not retold by the author.
+- **Allowlist.** You may really run only what is listed in step 2 and in "Cleaning up the
+  temporary trees". Everything else — including any `Makefile` target not listed there — is never
+  run, even if a gate points at it; such a check goes into the report as a "Not run" line with the
+  reason. The list is an allowlist rather than a denylist on purpose: a new `Makefile` target counts
+  as dangerous until it is written in here.
+- **What was not run is not hushed up.** Every check a gate turned on and you did not perform goes
+  into the report with the reason.
+- **A temporary tree does not outlive the run.** Every one you created is removed by "Cleaning up
+  the temporary trees" whatever the outcome: a red gate, BLOCKED and a stop halfway included.
 
-## Шаг 1. Подготовка
+## Step 1. Preparation
 
-Гейт прогона — любой из тех, что перечислены таблицей шага 2. Ни одного такого нет →
-шаг 2 пропусти целиком: ни checkout, ни базы, ни контейнеров. Собирать проект, в котором
-не изменилась ни строка исполняемого кода, — трата минут без единого возможного вывода.
-Шагу 3 checkout тоже не нужен: он читает диф через `gh`.
+A run gate is any of those in the table of step 2. None of them — skip step 2 whole: no checkout,
+no database, no containers. Building a project in which not a single line of executable code
+changed costs minutes and cannot yield a single finding. Step 3 needs no checkout either: it reads
+the diff through `gh`.
 
-Есть хоть один гейт прогона → первым делом, ещё в том дереве, где тебя запустили, нужны
-поднятая база (сеть приложения объявлена внешней и принадлежит проекту базы) и `.env`:
+At least one run gate — first of all, still in the tree you were started in, you need the
+database up (the application's network is declared external and belongs to the database project)
+and a `.env`:
 
 ```bash
 make db-up
 ls .env
 ```
 
-`make db-up` поднимает общую базу и ничего в ней не стирает. `.env` нет → останови прогон,
-поставь `n-a` проверкам шага 2 и скажи, что нужен `make worktree-init`; сам его не запускай.
-Шаг 3 в этом случае всё равно делается: ему хватает `gh`.
+`make db-up` brings up the shared database and wipes nothing in it. No `.env` — stop the run, give
+the checks of step 2 `n-a` and say that `make worktree-init` is needed; do not run it yourself.
+Step 3 is still done in that case: `gh` is enough for it.
 
-Затем код PR:
+Then the PR code:
 
 ```bash
 gh pr checkout <N>
 ```
 
-Рабочее дерево занято другой сессией — не переключай в нём ветку, сделай отдельный worktree:
+The working tree is taken by another session — do not switch the branch in it, create a separate
+worktree:
 
 ```bash
-git worktree add <временный путь> <ветка PR>
-cp .env <временный путь>/.env
-cd <временный путь>
+git worktree add <temporary path> <PR branch>
+cp .env <temporary path>/.env
+cd <temporary path>
 ```
 
-Шаг 2 целиком исполняется из этого каталога, поэтому `cd` обязателен: цели перечислены в
-`allowed-tools` точным совпадением (`Bash(make coverage)`), и `make -C <путь> coverage` под
-них не подпадает. `.env` копируется, а не создаётся через `make worktree-init`: тот занимает слот
-из пула токенов, а одноразовым контейнерам `build`/`test`/`lint` бот не нужен и токен не
-читается.
-Убирается оно разделом «Уборка временных деревьев», а не одним `git worktree remove`.
+Step 2 runs whole from that directory, so the `cd` is required: the targets are listed in
+`allowed-tools` by exact match (`Bash(make coverage)`), and `make -C <path> coverage` does not fall
+under them. `.env` is copied rather than created by `make worktree-init`: that one takes a slot of
+the token pool, while the throwaway `build`/`test`/`lint` containers need no bot and do not read the
+token. The tree is removed by "Cleaning up the temporary trees", not by a bare
+`git worktree remove`.
 
-Приложению временное дерево не мешает: в `docker-compose.app.yml` нет `name`, и имя проекта
-Compose берёт из имени каталога. База устроена наоборот. Имя её проекта зафиксировано
-(`name: telegram-bot-db` в `docker-compose.db.yml`), а каталог данных `./tmp/pgsql` ведёт
-в основное дерево только через симлинк, который ставит `scripts/worktree-init.sh`. Во
-временном дереве симлинка нет, и `make db-up` оттуда пересоздаёт общий контейнер на пустом
-`tmp/pgsql`: все деревья молча переезжают на чистую базу без миграций, а прогон на ней
-зелёный и ничего не замечает. Поэтому база поднимается до перехода, а из временного
-дерева — ни здесь, ни в разделе «Красное» — `make db-up` не зовётся.
+The temporary tree does not get in the application's way: `docker-compose.app.yml` has no `name`,
+and Compose takes the project name from the directory name. The database is the other way round.
+Its project name is fixed (`name: telegram-bot-db` in `docker-compose.db.yml`), and its data
+directory `./tmp/pgsql` leads into the main tree only through the symlink that
+`scripts/worktree-init.sh` sets. The temporary tree has no symlink, and `make db-up` from there
+recreates the shared container on an empty `tmp/pgsql`: every tree silently moves to a clean
+database without migrations, and the run on it is green and notices nothing. That is why the
+database is brought up before the move, and `make db-up` is never called from the temporary tree —
+neither here nor in "Red".
 
-## Шаг 2. Прогон по гейтам
+## Step 2. The run by gates
 
-Запускай только то, что включено гейтами. Порядок важен: `rebuild` идёт первым.
+Run only what the gates turned on. The order matters: `rebuild` goes first.
 
-| Гейт | Команда |
+| Gate | Command |
 | --- | --- |
 | `rebuild` | `make rebuild` |
 | `build` | `make build` |
@@ -109,315 +111,331 @@ Compose берёт из имени каталога. База устроена �
 | `test` | `make coverage` |
 | `lint` | `make lint` |
 | `format-check` | `make format-check` |
-| `make-targets` | `make help`, затем `make -n <изменённая цель>`; тронут рецепт `mutation` — ещё подстановка (ниже) |
-| `scripts` | `sh -n <скрипт>`, затем разбор dash'ем |
-| `mutation` | `make mutation files="<область из дифа>"` |
+| `make-targets` | `make help`, then `make -n <changed target>`; the `mutation` recipe touched — also the substitution (below) |
+| `scripts` | `sh -n <script>`, then a parse by dash |
+| `mutation` | `make mutation files="<area from the diff>"` |
 | `mutation-full` | `make mutation` |
 
-Это и есть белый список. Дополнительно разрешены `make token-status` и
-`scripts/bot-token.sh` без аргументов — обе ничего не меняют — и пробный файл подстановки
-`mutation` (ниже, «make-targets»): он неотслеживаемый и убирается сразу за проверкой, поэтому
-дерево PR остаётся тем, которое прислали. Больше ничего.
+This is the allowlist. Also allowed are `make token-status` and `scripts/bot-token.sh` with no
+arguments — neither changes anything — and the probe file of the `mutation` substitution (below,
+"make-targets"): it is untracked and removed right after the check, so the PR tree stays the one
+that was sent. Nothing else.
 
-### Чего в списке нет и почему
+### What is not on the list and why
 
-`Makefile` умеет больше перечисленного. Эти цели выглядят уместно в ревью, но их здесь нет
-намеренно:
+The `Makefile` can do more than the list. These targets look fitting in a review but are left out
+on purpose:
 
-- `lint-fix`, `format` — правят файлы в дереве PR. Это прямое нарушение правила «ты ничего
-  не чинишь»: после них ты проверяешь уже не тот код, который прислали, а красное в `lint`
-  и `format-check` исчезает вместе с находкой.
-- `test-watch` — не завершается, а ждёт изменений. Запустив её, ты повесишь прогон.
-- `test` — те же спеки, что `coverage`, но без порога покрытия
-  (`docs/architecture/testing.md`, "Coverage"): PR, уронивший покрытие ниже порога, прошёл бы
-  её зелёным, хотя `make check` у автора падает. Поэтому гейт `test` гоняет `make coverage`, и
-  ничего при этом не теряет: под `nyc` идёт тот же `mocha`, упавшая спека печатается так же
-  (`N failing` и её ошибка), и прогон падает даже при покрытии 100%. Отчёт `make coverage`
-  пишет в `./coverage` дерева PR — каталог в `.gitignore`, диф от этого не меняется.
-- `check` — `typecheck`, `lint`, `format:check` и `test:coverage` подряд одним выводом. Отчёт
-  требует строки на каждый гейт отдельно, поэтому цели гоняются по одной.
+- `lint-fix`, `format` — they edit files in the PR tree. That breaks "you fix nothing" outright:
+  after them you check not the code that was sent, and the red of `lint` and `format-check`
+  disappears together with the finding.
+- `test-watch` — it does not finish but waits for changes. Run it and the run hangs.
+- `test` — the same specs as `coverage` but without the coverage threshold
+  (`docs/architecture/testing.md`, "Coverage"): a PR that dropped coverage below the threshold
+  would pass it green, while `make check` fails for the author. So the `test` gate runs
+  `make coverage` and loses nothing by it: `nyc` runs the same `mocha`, a failed spec is printed the
+  same way (`N failing` and its error), and the run fails even at 100% coverage. `make coverage`
+  writes its report into `./coverage` of the PR tree — the directory is in `.gitignore`, the diff
+  does not change.
+- `check` — `typecheck`, `lint`, `format:check` and `test:coverage` in a row in one output. The
+  report needs a line per gate, so the targets run one by one.
 
 ### rebuild
 
-Одноразовый контейнер берёт готовый образ и пересобирает его сам только когда образа нет
-вовсе. Причины и список того, что живёт в образе, — в комментарии к цели `rebuild`
-в `Makefile`. Без пересборки ты проверишь новый код старыми зависимостями и старым конфигом
-и получишь зелёный результат, который ничего не значит.
+The throwaway container takes the ready image and rebuilds it itself only when there is no image at
+all. The reasons and what lives in the image are in the comment on the `rebuild` target in the
+`Makefile`. Without a rebuild you check new code against old dependencies and an old config and get
+a green result that means nothing.
 
-Цели `build`, `typecheck`, `coverage`, `lint` и `format-check` запускают npm-скрипты из
-`package.json`, а он живёт в образе. Поэтому PR, добавляющий или переименовывающий скрипт,
-на непересобранном образе падает с `Missing script`. Это не находка ревью, а пропущенный
-`rebuild` — пересобери и повтори.
+The `build`, `typecheck`, `coverage`, `lint` and `format-check` targets run npm scripts from
+`package.json`, and that lives in the image. So a PR that adds or renames a script fails with
+`Missing script` on an image that was not rebuilt. That is not a review finding but a missed
+`rebuild` — rebuild and repeat.
 
-### build и typecheck
+### build and typecheck
 
-Обе запускают `tsc`, но по разным тиконфигам, и одна другую не подменяет: набор файлов
-у `typecheck` шире. Что в него добавлено и зачем — в комментарии к `tsconfig.check.json`.
-Зелёный `build` на PR, который трогает спеки или миграции, про их типы не говорит ничего.
+Both run `tsc`, but by different tsconfigs, and neither replaces the other: the file set of
+`typecheck` is wider. What is added to it and why is in the comment in `tsconfig.check.json`. A
+green `build` on a PR that touches specs or migrations says nothing about their types.
 
-### lint и format-check
+### lint and format-check
 
-Гоняются по всему репозиторию, без `files=`. Репозиторий зелёный целиком, поэтому любое
-красное здесь внесено этим PR — сужать список файлов незачем.
+They run over the whole repository, without `files=`. The repository is green as a whole, so
+anything red here was brought by this PR — there is no point narrowing the file list.
 
 ### make-targets
 
 ```bash
 make help
-make help | grep -w '<изменённая цель>'
-make -n <изменённая цель>
+make help | grep -w '<changed target>'
+make -n <changed target>
 ```
 
-`make -n` печатает рецепт, не выполняя его, — это и есть проверка раскрытия переменных
-(`DC_APP_RUN`, `FILES`, `RENEW_TOKEN`) без побочных эффектов. Единственное исключение
-GNU make — строки с `$(MAKE)`: их он выполняет и под `-n`, но передаёт `-n` через
-`MAKEFLAGS`, поэтому вложенный make тоже только печатает.
+`make -n` prints the recipe without running it — that is the check of how the variables expand
+(`DC_APP_RUN`, `FILES`, `RENEW_TOKEN`) with no side effects. The one exception in GNU make is lines
+with `$(MAKE)`: those it runs even under `-n`, but it passes `-n` on through `MAKEFLAGS`, so the
+nested make only prints too.
 
-Смотри в выводе: подставились ли значения переменных, не осталось ли пустых аргументов,
-не склеился ли многострочный `files` в одну команду.
+Look in the output: whether the variable values were substituted, whether an argument is left
+empty, whether a multi-line `files` got glued into one command.
 
-Для новой или переименованной цели проверь заодно, без команд: есть ли у неё комментарий
-`## описание` (иначе не попадёт в `make help`), внесена ли она в `.PHONY`, отвергается ли
-обязательный параметр в самом рецепте (образец — `migrate-create` и `token-add`).
+For a new or renamed target also check, without commands: whether it has a `## description`
+comment (otherwise it does not get into `make help`), whether it is in `.PHONY`, whether the recipe
+itself rejects a missing required parameter (the example is `migrate-create`).
 
-Рецепт цели `mutation` проверяется не только раскрытием. Он считает `MUTATION_DIRTY` — поле
-`clean=` записи прогона, на котором стоит условие 2 её приёма (ниже, «Запись прогона автора»).
-Цепочку `tree=…&&dirty=…||dirty=unknown` `make -n` печатает, но не исполняет, а прогон под
-`mutation-full` идёт на чистом дереве, где `clean=yes` и ожидается. Поэтому рецепт, в котором
-отказ `git` или непустой `git status` дают 0, исправен на вид в обоих гейтах, а записи начинают
-приходить с `clean=yes` на непроверенном дереве — ревью примет прогон, шедший не по коммиту PR.
-Тронут в дифе рецепт `mutation` — прогони подстановку. `DC_APP_RUN` — простое присваивание
-в `Makefile`, и переопределение из командной строки заменяет запуск контейнера на `echo`:
-исполняется настоящий рецепт, а печатает он посчитанные значения за секунду.
+The recipe of the `mutation` target is checked beyond the expansion. It counts `MUTATION_DIRTY` —
+the `clean=` field of the run record, on which condition 2 of its acceptance rests (below, "The
+author's run record"). `make -n` prints the chain `tree=…&&dirty=…||dirty=unknown` but does not run
+it, and a run under `mutation-full` goes on a clean tree, where `clean=yes` is expected anyway. So a
+recipe in which a failing `git` or a non-empty `git status` gives 0 looks sound under both gates,
+and records start arriving with `clean=yes` on an unchecked tree — review would accept a run that
+did not go on the PR's commit. The `mutation` recipe touched in the diff — run the substitution.
+`DC_APP_RUN` is a simple assignment in the `Makefile`, and overriding it from the command line
+replaces the container launch with `echo`: the real recipe runs and prints the counted values in a
+second.
 
 ```bash
-# чистое дерево — MUTATION_DIRTY=0
+# clean tree — MUTATION_DIRTY=0
 make mutation DC_APP_RUN=echo | grep '^env MUTATION_HEAD='
-# один неотслеживаемый файл — на единицу больше
+# one untracked file — one more
 touch mutation-dirty-probe
 make mutation DC_APP_RUN=echo | grep '^env MUTATION_HEAD='
 rm mutation-dirty-probe
-# git не отвечает — MUTATION_DIRTY=unknown, а не число
+# git does not answer — MUTATION_DIRTY=unknown, not a number
 make mutation DC_APP_RUN=echo GIT_DIR=/nonexistent | grep '^env MUTATION_HEAD='
 ```
 
-Ожидаемое — в комментариях: на свежем checkout первая проба даёт 0, вторая ровно на единицу
-больше, третья — `unknown`. Не совпало — гейт `fail`: подстановка считает не то, что уходит
-в запись. `MUTATION_HEAD` в последней пробе пустеет вместе с `dirty`, и это ожидаемо — по пустому
-head обёртка сама ставит `clean=unknown` (`docs/architecture/testing.md`, "The run record").
+The expected values are in the comments: on a fresh checkout the first probe gives 0, the second
+exactly one more, the third `unknown`. A mismatch — the gate is `fail`: the substitution counts
+something other than what goes into the record. `MUTATION_HEAD` goes empty in the last probe
+together with `dirty`, and that is expected — on an empty head the wrapper sets `clean=unknown`
+itself (`docs/architecture/testing.md`, "The run record").
 
-Форма команд разобрана, менять её на более привычную не надо. `grep` берёт исполненную строку:
-рецепт make печатает и сам себя, а в его тексте `MUTATION_DIRTY="$dirty"` ещё не раскрыт. `GIT_DIR`
-передан переменной make, а не префиксом шелла: командные переменные make кладёт в окружение
-рецепта, и в этой форме команда начинается с `make mutation` — то есть покрыта `allowed-tools`
-скилла, как и остальные пробы. Пробный файл не отслеживается и убирается следующей строкой, диф PR
-от него не меняется; каталог `reports` цель создаёт и без прогона, он в `.gitignore`.
+The form of the commands is thought through; do not swap it for a more familiar one. `grep` takes
+the executed line: make also prints the recipe itself, and in its text `MUTATION_DIRTY="$dirty"`
+is not expanded yet. `GIT_DIR` is passed as a make variable rather than a shell prefix: make puts
+command-line variables into the recipe's environment, and in this form the command starts with
+`make mutation` — so it is covered by the skill's `allowed-tools`, like the other probes. The probe
+file is untracked and removed by the next line, the PR diff does not change; the `reports`
+directory the target creates even without a run, and it is in `.gitignore`.
 
 ### scripts
 
 ```bash
-sh -n scripts/<файл>.sh
-docker run --rm -v "$PWD":/app -w /app node:24-bookworm-slim sh -n scripts/<файл>.sh
+sh -n scripts/<file>.sh
+docker run --rm -v "$PWD":/app -w /app node:24-bookworm-slim sh -n scripts/<file>.sh
 ```
 
-Второй прогон нужен, если изменено тело скрипта, а не только комментарии: скрипты объявлены
-как `#!/usr/bin/env sh`, но на macOS `/bin/sh` — это bash в POSIX-режиме, он пропускает
-bash-измы, которые упадут на dash в Linux. Образ здесь нужен только как источник dash,
-с версией Node он не связан.
+The second run is needed when the body of the script changed, not only its comments: the scripts
+are declared `#!/usr/bin/env sh`, but on macOS `/bin/sh` is bash in POSIX mode, and it lets through
+bashisms that fail on dash in Linux. The image here is only a source of dash; the Node version has
+nothing to do with it.
 
-### mutation и mutation-full
+### mutation and mutation-full
 
-Какой порог проверяет `make mutation` и почему прогон без мутантов зелёный — в
-`docs/architecture/testing.md`, "Threshold". Прежде чем запускать цель, проверь запись прогона автора
-(ниже, «Запись прогона автора»): принятая заменяет твой прогон. Дальше — чтение вывода. Исход
-гейта — код выхода цели, счёт — из строки `Final mutation score`. Выживших (`Survived`) и
-непокрытых (`NoCoverage`) `clear-text` печатает выше, по одному: мутатор,
-`<файл>:<строка>:<колонка>` и замена. Их перечисли в «Красном».
+Which threshold `make mutation` checks and why a run without mutants is green — in
+`docs/architecture/testing.md`, "Threshold". Before running the target, check the author's run
+record (below, "The author's run record"): an accepted one replaces your run. The rest is reading
+the output. The outcome of the gate is the target's exit code, the score comes from the
+`Final mutation score` line. Survived (`Survived`) and uncovered (`NoCoverage`) mutants `clear-text`
+prints above it, one by one: the mutator, `<file>:<line>:<column>` and the replacement. List them in
+"Red".
 
-Код выхода бывает ненулевым и без выживших: прогон оборвался падением процесса чекера, и строки
-`Final mutation score` нет. Что за этими сообщениями стоит — в `docs/architecture/testing.md`,
-"The type checker"; здесь — что делать по каждому:
+The exit code can be non-zero without survivors: the run broke off on a crash of the checker
+process, and there is no `Final mutation score` line. What stands behind these messages is in
+`docs/architecture/testing.md`, "The type checker"; here is what to do on each:
 
-- `Checker process […] crashed with exit code null` — повтори цель один раз;
-- `Checker process […] ran out of memory` — гейт `fail`: чекеру не хватает лимита кучи из
-  `checkerNodeArgs` на дереве этого PR;
-- прогон оборван ошибкой `Child process [pid …]`, а строк `Checker process` нет — падение чекера
-  на начальной компиляции, повтора у неё нет: повтори цель один раз, как в первой строке.
+- `Checker process […] crashed with exit code null` — repeat the target once;
+- `Checker process […] ran out of memory` — the gate is `fail`: the checker lacks the heap limit
+  from `checkerNodeArgs` on the tree of this PR;
+- the run broke off with a `Child process [pid …]` error and there are no `Checker process` lines —
+  the checker crashed on the initial compilation, which has no retry: repeat the target once, as in
+  the first line.
 
-Оборвался и повтор — гейт `n-a` с причиной «прогон оборван падением чекера», вердикт BLOCKED:
-судить о мутантах не по чему.
+The repeat broke off too — the gate is `n-a` with the reason "the run broke off on a checker
+crash", the verdict is BLOCKED: there is nothing to judge the mutants by.
 
-Сами по себе строки `Child process [pid …]` ни о чём не говорят: их пишут и про раннер, чьё падение
-на мутанте прогон не обрывает. Прогон дошёл до `Final mutation score` — читай гейт по счёту,
-сколько бы таких строк ни было выше. Оборвался ошибкой `Something went wrong in the initial test
-run` — упал начальный прогон тестов, а не чекер, и гейт читается как обычно, по коду выхода.
+`Child process [pid …]` lines alone say nothing: they are written about the runner too, and its
+crash on a mutant does not break the run off. The run reached `Final mutation score` — read the gate
+by the score, however many such lines stand above. It broke off with
+`Something went wrong in the initial test run` — the initial test run failed, not the checker, and
+the gate is read as usual, by the exit code.
 
-`mutation-full` мутирует весь `src/`. Это минуты, дольше предела одной команды, поэтому прогон
-запускается в фоне, а результат читается по завершении. Пока он идёт, других гейтов не запускай:
-нагрузку создало бы само ревью, а под нагрузкой статус мутанта врёт в обе стороны
-(`docs/architecture/testing.md`, "Timeouts and errors").
+`mutation-full` mutates the whole of `src/`. That takes minutes, longer than the limit of a single
+command, so the run goes to the background and the result is read on completion. While it runs,
+start no other gates: the load would be created by the review itself, and under load a mutant's
+status lies both ways (`docs/architecture/testing.md`, "Timeouts and errors").
 
-`mutation` мутирует область из дифа. Собери её в дереве PR:
+`mutation` mutates the area from the diff. Assemble it in the PR tree:
 
 ```bash
 gh pr diff <N> --name-only \
   | awk '/^src\/.+\.ts$/ {print; next} /^test\/.+\.spec\.ts$/ {sub(/^test\//, "src/"); sub(/\.spec\.ts$/, ".ts"); print}'
-git grep -l 'from "test/<путь хелпера без .ts>"' -- 'test/*.ts'
-git ls-files -- <пути из первых двух команд>
-git ls-files -- 'src/**/<имя спеки без .spec.ts>.ts'
+git grep -l 'from "test/<helper path without .ts>"' -- 'test/*.ts'
+git ls-files -- <paths from the first two commands>
+git ls-files -- 'src/**/<spec name without .spec.ts>.ts'
 ```
 
-1. Первая команда даёт кандидатов: исходник — как есть, спеку — её зеркалом
-   (`test/a/b.spec.ts` → `src/a/b.ts`). Спека в области нужна потому, что PR, ослабивший её,
-   исходников не трогает, и без зеркала мутировать ему было бы нечего. Изменённый `.ts` в
-   `test/`, который не спека, — хелпер: второй командой найди файлы, которые его импортируют.
-   Спеки из её вывода дают зеркала, а хелперы — снова вторую команду, пока новых не останется.
-   Хуки `mocha` (`*-hook.ts`) никто не импортирует, и области они не дают. Кандидатов нет —
-   область пуста уже здесь (`n-a`, как ниже), дальше не собирай: `git ls-files --` без путей
-   печатает не пустоту, а все файлы репозитория.
-2. Третья оставляет только файлы, которые есть в дереве PR. `--name-only` отдаёт и удалённые
-   файлы, и старые пути переездов (PR #366), а глоб, не нашедший ни одного `.ts` в `src/`,
-   останавливает прогон проверкой в `stryker.config.mjs`.
-3. Зеркала спеки в выводе третьей нет — ищи исходник спеки по имени файла четвёртой командой: не
-   каждая спека лежит зеркалом (спеки `test/font-convertor/` плоские, а исходники разложены по
-   каталогам). Не нашлось и так — исходника в дереве нет, спека области не даёт.
-4. Вычти `src/app.ts` и файлы `DATABASE_ONLY_SOURCES` из `stryker.config.mjs` дерева PR. Конфиг
-   исключает их и сам, но область из одних таких файлов проходит его проверку и даёт прогон
-   без единого мутанта.
+1. The first command gives the candidates: a source as it is, a spec as its mirror
+   (`test/a/b.spec.ts` → `src/a/b.ts`). A spec belongs in the area because a PR that weakened it
+   touches no sources, and without the mirror it would have nothing to mutate. A changed `.ts` in
+   `test/` that is not a spec is a helper: find the files importing it with the second command.
+   Specs from its output give mirrors, and helpers give the second command again, until nothing new
+   is left. `mocha` hooks (`*-hook.ts`) nobody imports, and they give no area. No candidates — the
+   area is empty right here (`n-a`, as below), assemble no further: `git ls-files --` with no paths
+   prints not nothing but every file of the repository.
+2. The third keeps only the files that exist in the PR tree. `--name-only` also yields deleted
+   files and the old paths of moves (PR #366), and a glob that found no `.ts` under `src/` stops the
+   run by a check in `stryker.config.mjs`.
+3. A spec's mirror is not in the output of the third — find the spec's source by file name with the
+   fourth command: not every spec lies as a mirror (the specs of `test/font-convertor/` are flat,
+   while the sources are laid out in directories). Not found that way either — the source is not in
+   the tree, and the spec gives no area.
+4. Subtract `src/app.ts` and the files of `DATABASE_ONLY_SOURCES` from `stryker.config.mjs` of the
+   PR tree. The config excludes them itself, but an area made of such files alone passes its check
+   and gives a run without a single mutant.
 
-Область пуста после вычета — `make mutation` не запускай и ставь `n-a` с причиной «область
-пуста»: PR правил, например, только спеки на базе (PR #372). Прогон со счётом `NaN` — тоже
-`n-a`, а не `ok`: в счёт не попал ни один мутант области, и зелёный выход ничего не проверил.
+The area is empty after the subtraction — do not run `make mutation`, give `n-a` with the reason
+"the area is empty": the PR edited, say, only the database specs (PR #372). A run with the score
+`NaN` is `n-a` too, not `ok`: not a single mutant of the area got into the score, and the green
+exit checked nothing.
 
-При пороге 100 заглушить выжившего пометкой дешевле, чем написать тест, поэтому зелёный прогон
-ещё не значит, что выживших нет. Новые пометки в дифе прочитай вместе с причиной — на любом из
-двух гейтов:
+At a threshold of 100, silencing a survivor with a mark is cheaper than writing a test, so a green
+run does not yet mean there are no survivors. Read the new marks in the diff together with their
+reason — under either gate:
 
 ```bash
 gh pr diff <N> | awk '/^\+\+\+ /{f=substr($0,7); next} /^\+.*Stryker disable/{print f": "$0}'
 ```
 
-Причина сверяется с разделом "Working through survivors" в `docs/architecture/testing.md`: мутант
-эквивалентный или поведение не требуется и на это заведена issue —
-тогда ссылка на неё стоит в пометке. Не держится — гейт `fail`, как с живым выжившим: пометка
-его только спрятала.
+The reason is checked against "Working through survivors" in `docs/architecture/testing.md`: the
+mutant is equivalent, or the behaviour is not required and an issue is filed for it — then the mark
+links to it. The reason does not hold — the gate is `fail`, as with a live survivor: the mark only
+hid it.
 
-#### Запись прогона автора
+#### The author's run record
 
-`make mutation` пишет запись прогона, а автор публикует её в PR; формат — в
-`docs/architecture/testing.md`, "The run record". Проверь её перед запуском цели: на
-`mutation-full` — сразу, на `mutation` — когда область собрана и не пуста. Последняя запись в PR
-(ссылка на комментарий и первая его строка — маркер; пусто — записи нет) и head PR:
+`make mutation` writes a run record, and the author publishes it in the PR; the format is in
+`docs/architecture/testing.md`, "The run record". Check it before running the target: under
+`mutation-full` right away, under `mutation` once the area is assembled and not empty. The last
+record in the PR (the link to the comment and its first line, the marker; empty — there is no
+record) and the PR head:
 
 ```bash
 gh pr view <N> --json comments -q '[.comments[] | select(.body | test("^<!-- mutation-record "))] | last // empty | .url, (.body | split("\n")[0])'
 gh pr view <N> --json headRefOid -q .headRefOid
 ```
 
-Записью считается только комментарий, который с маркера **начинается**: обёртка всегда пишет его
-первой строкой, а цитата маркера в обсуждении иначе выдала бы себя за прогон.
+Only a comment that **starts** with the marker counts as a record: the wrapper always writes it as
+the first line, while a quote of the marker in a discussion would otherwise pass itself off as a
+run.
 
-Запись принимается, если выполнено всё:
+The record is accepted if all of this holds:
 
-1. запись покрывает head PR: `head=` маркера совпадает с head PR либо с того коммита не
-   менялось ничего, что влияет на прогон, — разбор, команда и случай потерянного коммита
-   в `docs/agents/review-gates.md`, "Changes that affect the mutation run";
+1. the record covers the PR head: the marker's `head=` equals the PR head, or nothing that affects
+   the run changed since that commit — the rule, the command and the case of a lost commit are in
+   `docs/agents/review-gates.md`, "Changes that affect the mutation run";
 2. `clean=yes`;
-3. прогон дошёл до отчёта (`score=` не `none`) и область та же: на `mutation-full` — `scope=full`,
-   на `mutation` — `scope=files` и пустой вывод команды ниже. Полная запись на гейте `mutation` не
-   принимается, хотя область и покрывает: исход гейта — код выхода всего прогона, и выживший в
-   файле, которого PR не трогал, покрасил бы гейт и отправил ревьюера повторять прогон вне области,
-   а область без мутантов дала бы `ok` вместо `n-a`. Свой прогон области идёт секунды;
-4. гейта `rebuild` нет: прогон автора мог идти на старом образе.
+3. the run reached the report (`score=` is not `none`) and the area is the same: under
+   `mutation-full` — `scope=full`, under `mutation` — `scope=files` and an empty output of the
+   command below. A full record is not accepted under the `mutation` gate even though its area
+   covers: the gate's outcome is the exit code of the whole run, and a survivor in a file the PR did
+   not touch would paint the gate red and send the reviewer to repeat the run outside the area,
+   while an area without mutants would give `ok` instead of `n-a`. Your own run of the area takes
+   seconds;
+4. the `rebuild` gate is off: the author's run might have gone on an old image.
 
 ```bash
 gh pr view <N> --json comments -q '[.comments[] | select(.body | test("^<!-- mutation-record "))] | last // empty | .body | (split("\n")[] | select(test("^src/\\S+\\.ts$"))), (capture("\n- files: `(?<f>[^`]*)`").f | split(" ")[])' \
-  | awk -v area='<файлы области через пробел>' '{ seen[$0] } END { n = split(area, a, " "); for (i = 1; i <= n; i++) if (!(a[i] in seen)) print a[i] }'
+  | awk -v area='<area files separated by spaces>' '{ seen[$0] } END { n = split(area, a, " "); for (i = 1; i <= n; i++) if (!(a[i] in seen)) print a[i] }'
 ```
 
-Команда печатает файлы области, которых в записи нет ни среди мутированных, ни путём в `files`.
-Путь в `files` засчитывается потому, что файла без единого мутанта в отчёте Stryker не бывает
-(`docs/architecture/testing.md`, "The run record"): файл из одних типов виден в записи только
-названным путём. Тот же файл, попавший в прогон автора одним глобом, команда напечатает, и запись
-не принимается.
+The command prints the area files the record has neither among the mutated nor as a path in
+`files`. A path in `files` counts because a file without a single mutant never appears in the
+Stryker report (`docs/architecture/testing.md`, "The run record"): a file of types alone is visible
+in the record only as a named path. The same file that got into the author's run through a glob the
+command prints, and the record is not accepted.
 
-Принятая запись заменяет только прогон, остальное в гейте то же. Исход — `exit=` записи вместо
-кода выхода цели, счёт — `score=`, выжившие и непокрытые — список записи. Счёт `NaN` — `n-a`;
-красная запись — повтор по каждому файлу с выжившими («Красное»); новые пометки `Stryker disable`
-в дифе читаются вместе с причиной. Список выживших в записи оборван строкой `…and N more` — запись не
-принимается: остаток лежит только на машине прогона, и повторить по каждому файлу с выжившими
-нечего.
+An accepted record replaces only the run; the rest of the gate stays the same. The outcome is the
+record's `exit=` instead of the target's exit code, the score is `score=`, the survived and
+uncovered mutants are the record's list. The score `NaN` is `n-a`; a red record means a repeat on
+every file with survivors ("Red"); new `Stryker disable` marks in the diff are read together with
+their reason. The list of survivors in the record is cut off by an `…and N more` line — the record
+is not accepted: the rest lies only on the machine of the run, and there is nothing to repeat on
+every file with survivors.
 
-Не выполнено хоть одно условие — гоняй цель сам, как описано выше. Отказ от записи — не находка
-ревью и на вердикт не влияет: ошибка процесса не должна стоить круга. Откуда прогон и почему
-запись не принята, говорит строка `mutation:` вердикта (шаг 5). Она говорит «принятая запись» и
-даёт ссылку, а не называет автора: запись ревьюера прошлого круга лежит в том же треде и
-принимается наравне с авторской, а по комментарию автора от неё не отличить — оба аккаунта
-один. Принята запись с прежнего head — назови там же её `head=` и то, что под гейты мутаций
-с него ничего не попало: иначе из вердикта не видно, что прогон шёл не по коммиту PR.
+Any condition not met — run the target yourself, as described above. Refusing the record is not a
+review finding and does not affect the verdict: a process error must not cost a round. Where the run
+came from and why the record was not accepted is told by the `mutation:` line of the verdict (step
+5). It says "accepted record" and gives the link rather than naming the author: the reviewer's record
+of the previous round lies in the same thread and is accepted on a par with the author's, and the
+author's comment cannot be told from it — the account is the same. A record accepted from an
+earlier head — name its `head=` there too and say that nothing under the mutation gates came in
+since: otherwise the verdict does not show that the run went on a commit other than the PR's.
 
-Запись своего прогона опубликуй в PR сразу по его завершении: повтор из «Красного» перезапишет
-`reports/mutation/record.md`, а уборка удалит временное дерево вместе с ней. Скопируй запись во
-временный файл вне репозитория, допиши в конец пустую строку и подпись из `CLAUDE.md` («Agent signature
-on GitHub») и опубликуй: `gh pr comment <N> --body-file <файл>`. Записи повторов не
-публикуются — последней в PR остаётся запись гейта. Флаг `--no-post` отменяет и эту публикацию:
-он приходит в аргументах, а от `pr-deep-review` — вместе с гейтами.
+Publish the record of your own run in the PR as soon as it finishes: a repeat from "Red" overwrites
+`reports/mutation/record.md`, and the cleanup deletes the temporary tree together with it. Copy the
+record into a temporary file outside the repository, append an empty line and the signature from
+`CLAUDE.md` ("Agent signature on GitHub") and publish: `gh pr comment <N> --body-file <file>`. The
+records of repeats are not published — the gate's record stays the last in the PR. The `--no-post`
+flag cancels this publication too: it comes in the arguments, and from `pr-deep-review` together
+with the gates.
 
-### Красное
+### Red
 
-Красное в `make -n` и `sh -n` однозначно само по себе. Красное в `mutation` и
-`mutation-full` повтори по каждому файлу с выжившими — `make mutation files="<файл>"`: у порога
-100 запаса нет, а на загруженной машине статус мутанта врёт в обе стороны
-(`docs/architecture/testing.md`, "Timeouts and errors"). Всю область повторять незачем: мутанты
-других файлов на статус этих не влияют.
+Red in `make -n` and `sh -n` is unambiguous by itself. Red in `mutation` and `mutation-full` —
+repeat on every file with survivors, `make mutation files="<file>"`: the threshold of 100 has no
+margin, and on a loaded machine a mutant's status lies both ways
+(`docs/architecture/testing.md`, "Timeouts and errors"). There is no need to repeat the whole area:
+the mutants of other files do not affect the status of these.
 
-Повтор уточняет красное, но в зелёное его не переводит: гейт `fail` при любом исходе. Выживший
-снова стоит в выводе `clear-text` — тот же мутатор, место и строка `+` — значит, красное
-подтверждено. Не стоит — добавь к нему в «Красном» пометку «возможен дрейф: перепроверить на
-свободной машине». Статус повтора дрейфа не доказывает: под нагрузкой выживший прячется и под
-`Timeout`, и под `Killed` с обычным сообщением спеки, а свободной машины у ревью нет.
+A repeat refines the red but does not turn it green: the gate is `fail` whatever the outcome. The
+survivor stands in the `clear-text` output again — the same mutator, place and `+` line — then the
+red is confirmed. It does not — add to it in "Red" the note "possible drift: recheck on an idle
+machine". The status of the repeat does not prove drift: under load a survivor hides both under
+`Timeout` and under `Killed` with the ordinary message of a spec, and review has no idle machine.
 
-Красное в `build`, `typecheck`, `test`, `lint`, `format-check` или гейтах мутаций сверь с
-базой, если есть сомнения, что оно внесено этим PR: заведи worktree на `origin/main`, скопируй
-в него `.env`, перейди в него и прогони **только упавшую** команду. Это тоже временное дерево,
-и убирается оно так же.
+Red in `build`, `typecheck`, `test`, `lint`, `format-check` or the mutation gates — compare with the
+base if you doubt it was brought by this PR: create a worktree on `origin/main`, copy `.env` into it,
+move into it and run **only the failed** command. That is a temporary tree too, and it is removed
+the same way.
 
-## Шаг 3. Дрейф документации
+## Step 3. Documentation drift
 
-Гейта `docs` нет — шаг пропускается целиком: диф не трогает ни одного `*.md`.
+The `docs` gate is off — skip the step whole: the diff touches no `*.md`.
 
-Правило момента письма — раздел «Editing documentation» в `CLAUDE.md`. Прочитай его, а не
-пересказывай по памяти: чек-лист ниже даёт механику, а критерии живут там. Автор проверял
-свой абзац сам, и дубль он по устройству не видит: он не искал, потому что не подозревал,
-что то же самое уже сказано в другом файле. Ты здесь второй читатель, и область у тебя
-дешёвая — только изменённые строки, а не корпус.
+The rule for the moment of writing is the "Editing documentation" section of `CLAUDE.md`. Read it
+rather than retell it from memory: the checklist below gives the mechanics, the criteria live there.
+The author checked their paragraph themselves, and a duplicate they cannot see by construction: they
+did not search, because they did not suspect the same thing was already said in another file. You
+are the second reader here, and your area is cheap — only the changed lines, not the corpus.
 
-Из четырёх проверок правила здесь три: ссылка на issue, выводимый перечень, дубль. Первую —
-сверку каждого утверждения с кодом — диф не удешевляет: она требует открыть код под каждым
-абзацем и стоит столько же, сколько разовая чистка корпуса. Её в этом шаге нет, и строка
-«Проверено» её не обещает. Правило «запускать, а не читать» на шаг 3 не распространяется:
-`ok` здесь значит «прочитал добавленные строки, находок нет».
+Of the rule's four checks, three are here: the issue link, the derivable list, the duplicate. The
+first — checking every statement against the code — the diff does not make cheaper: it takes
+opening the code under every paragraph and costs as much as a one-off cleanup of the corpus. It is
+not in this step, and the "Checked" line does not promise it. "Run, do not eyeball" does not apply
+to step 3: `ok` here means "read the added lines, no findings".
 
-Ханки `*.md` с именем файла в каждой строке — из них берут и добавленные строки,
-и контекст вокруг них:
+The `*.md` hunks with the file name on every line — both the added lines and the context around
+them come from here:
 
 ```bash
 gh pr diff <N> | awk '/^diff --git /{md=0} /^\+\+\+ /{f=substr($0,7); md=(f ~ /\.md$/); next} md && /^[-+ ]/{print f"|"$0}'
 ```
 
-Сброс на `diff --git` обязателен: заголовок `--- a/<следующий файл>` приходит раньше `+++`
-и без сброса приписывается предыдущему файлу. Имя файла в строке — тоже: без него потом
-нечего открыть.
+The reset on `diff --git` is required: the `--- a/<next file>` header comes before `+++` and without
+the reset is attributed to the previous file. The file name on the line is required too: without it
+there is nothing to open later.
 
-Перенос и переформатирование поднимают старые строки как добавленные: разрезание
-`docs/architecture.md` по подсистемам (PR #221) дало 947 добавленных строк `*.md` и все
-ссылки корпуса разом, ни одна из которых в том PR не писалась. Строка по существу не менялась —
-не находка, в каком бы подразделе она ни всплыла.
+A move or a reformat brings old lines up as added: cutting `docs/architecture.md` into subsystems
+(PR #221) gave 947 added `*.md` lines and every link of the corpus at once, none of which was
+written in that PR. A line that did not change in substance is not a finding, whatever subsection
+it surfaced in.
 
-### Ссылки на issue
+### Issue links
 
-Из этого вывода — добавленные строки со ссылками, с двумя строками контекста, и по каждому
-номеру статус:
+From that output — the added lines with links, with two lines of context, and the state of every
+number:
 
 ```bash
 … | grep -B2 -E '\|\+.*[^A-Za-z0-9_./-]#[0-9]+'
@@ -425,195 +443,200 @@ gh api repos/{owner}/{repo}/issues/<M> \
   -q '[.number, (if .pull_request then "PR" else "issue" end), .state] | @tsv'
 ```
 
-Контекст нужен потому, что строки в доках перенесены: утверждение регулярно стоит выше
-своей ссылки, а в совпавшей строке часто нет ничего, кроме `[#41](...)`. Требование цифры
-после `#` отсекает шебанг и плейсхолдеры `#N`, класс символов перед `#` — якоря с номером
-(`architecture.md#41`).
+The context is needed because the lines in the docs are wrapped: the statement regularly stands
+above its link, and the matched line often holds nothing but `[#41](...)`. Requiring a digit after
+`#` cuts off the shebang and the `#N` placeholders; the character class before `#` cuts off anchors
+with a number (`architecture.md#41`).
 
-Статус берётся через `gh api`, а не `gh issue view`: на номере PR та не падает, а молча
-отдаёт `MERGED`, и правило «состояние не `open` — находка» сработало бы на каждой ссылке
-на соседний PR.
+The state comes through `gh api`, not `gh issue view`: on a PR number that one does not fail but
+silently returns `MERGED`, and the rule "the state is not `open` — a finding" would fire on every
+link to a neighbouring PR.
 
-`issue` + `closed` — это кандидат, а не находка: примени к абзацу тест правила. Пережил
-закрытие — ссылка стоит источником и трогать её незачем: `test/fixtures/fonts/README.md`
-объясняет через закрытую #153, откуда в репозитории взялись файлы не того формата.
-Не пережил — находка.
+`issue` + `closed` is a candidate, not a finding: apply the rule's test to the paragraph. It
+survived the closing — the link stands as a source and there is no reason to touch it:
+`test/fixtures/fonts/README.md` explains through the closed #153 where the files of the wrong format
+in the repository came from. It did not survive — a finding.
 
-### Перечни и дубли
+### Lists and duplicates
 
-Механически не отделяются: детектор по обратным кавычкам ловит прозу — перечисление
-в тексте от списка он отличить не может. Читай сам — но только добавленные строки,
-их меньше всей выдачи:
+They cannot be told apart mechanically: a backtick detector catches prose — it cannot tell an
+enumeration in the text from a list. Read yourself — but only the added lines, there are fewer of
+them than the whole output:
 
 ```bash
 … | awk -F'|' '$2 ~ /^\+/'
 ```
 
-- **Выводимый перечень** — находка по критерию правила. Назови в ней команду или файл,
-  из которых список выводится; не назвал ни того, ни другого — критерий не выполнен,
-  и находки нет.
-- **Дубль** — находка: прогони за автора тот `grep`, который правило требует от него
-  до письма, по ключевому идентификатору нового абзаца. Нашлось в другом файле — правится
-  найденное: две копии дальше расходятся молча, и заметить это будет некому.
+- **A derivable list** is a finding by the rule's criterion. Name in it the command or the file the
+  list is derived from; you named neither — the criterion is not met, and there is no finding.
+- **A duplicate** is a finding: run for the author the `grep` the rule requires of them before
+  writing, by the key identifier of the new paragraph. Found in another file — what was found gets
+  edited: two copies drift apart silently from then on, and nobody will be there to notice.
 
-Находка здесь — REQUEST_CHANGES по правилам шага 5, не слабее красного прогона: ложь
-в документации живёт до следующей чистки, а стоит она читателю дороже, чем автору правка.
+A finding here is REQUEST_CHANGES by the rules of step 5, no weaker than a red run: a lie in the
+documentation lives until the next cleanup, and it costs the reader more than the edit costs the
+author.
 
-## Уборка временных деревьев
+## Cleaning up the temporary trees
 
-Сразу после шага 3, в обоих режимах, убери каждое временное дерево, которое завёл: дерево PR
-из шага 1 и дерево на `origin/main` из «Красного». Шагам 4–6 оно не нужно, а неудача уборки
-до шага 5 ещё успевает попасть в вердикт. Прогон оборвался раньше — уборка идёт перед
-остановкой. Для каждого дерева:
+Right after step 3, in both modes, remove every temporary tree you created: the PR tree from step 1
+and the `origin/main` tree from "Red". Steps 4–6 do not need it, and a failed cleanup before step 5
+still makes it into the verdict. The run broke off earlier — the cleanup goes before the stop. For
+each tree:
 
 ```bash
-cd <временный путь>
+cd <temporary path>
 docker compose -f docker-compose.app.yml down --rmi local --volumes
-cd <дерево, где тебя запустили>
-git worktree remove --force <временный путь>
+cd <the tree you were started in>
+git worktree remove --force <temporary path>
 ```
 
-Одного `git worktree remove` мало. Гейты шага 2 идут одноразовым контейнером: он удаляется
-сам, а образ `<каталог>-app` и том `<каталог>_app-tmp` остаются — имя проекта Compose берёт
-из каталога. Удалишь каталог первым — имя проекта взять неоткуда, и оба остаются сиротами:
-образ в `docker images` весит около гигабайта. Поэтому `down` идёт из самого дерева и до
-`remove`, как в `scripts/worktree-cleanup.sh`. `make worktree-cleanup` здесь не годится: он
-требует ветку, влитую в `main` на origin, и удаляет её на origin, а ветка PR на ревью ещё живая.
-Общую базу `down` не задевает: она живёт отдельным проектом `telegram-bot-db`.
+A bare `git worktree remove` is not enough. The gates of step 2 run in a throwaway container: it
+removes itself, but the `<directory>-app` image and the `<directory>_app-tmp` volume stay — Compose
+takes the project name from the directory. Remove the directory first and there is nowhere to take
+the project name from, so both are orphaned: the image weighs about a gigabyte in `docker images`.
+So `down` goes from the tree itself and before `remove`, as in `scripts/worktree-cleanup.sh`.
+`make worktree-cleanup` does not fit here: it requires a branch merged into `main` on origin and
+deletes it on origin, while the PR branch under review is still alive. `down` does not touch the
+shared database: it lives in a separate project, `telegram-bot-db`.
 
-`down` упал (Docker не отвечает) — дерево не удаляй: без каталога образ этой командой уже не
-убрать. Назови путь строкой «Не убрано» в отчёте, чтобы дерево убрал человек.
+`down` failed (Docker does not answer) — do not remove the tree: without the directory this command
+can no longer remove the image. Name the path in a "Not cleaned up" line of the report so that a
+human removes the tree.
 
-Цена: следующий круг ревью того же PR собирает образ заново — одноразовый контейнер
-пересобирает его, только когда образа нет (комментарий к цели `rebuild` в `Makefile`), а после
-уборки его нет. Это минуты сборки на круг против образа, оставленного на диске каждым.
+The price: the next review round of the same PR builds the image anew — the throwaway container
+rebuilds it only when there is no image (the comment on the `rebuild` target in the `Makefile`), and
+after the cleanup there is none. That is minutes of build per round against an image left on disk
+by every one.
 
-## Шаг 4. Соответствие issue
+## Step 4. Issue compliance
 
-Прогон отвечает на вопрос «не сломано ли», а вердикт — на вопрос «можно ли вливать».
-Второе без issue не проверяется: зелёный прогон на PR, который трогает только `Makefile`,
-означает лишь, что ничего не упало, а не что сделано то, что просили.
+The run answers "is anything broken", the verdict answers "can it be merged". The second cannot be
+checked without the issue: a green run on a PR that touches only the `Makefile` means only that
+nothing failed, not that what was asked for was done.
 
-Найди в теле PR ссылку на issue (`Closes #N`, `Fixes #N`, `#N`):
+Find the issue link in the PR body (`Closes #N`, `Fixes #N`, `#N`):
 
 ```bash
 gh pr view <N> --json number,title,body,headRefName,baseRefName,files
 gh issue view <M> --json number,title,body,labels
 ```
 
-- Ссылки на issue нет → вердикт **BLOCKED**: acceptance-критерии проверить не по чему.
-- Ссылка есть → выпиши из тела issue список критериев (явных пунктов или неявных требований)
-  и по каждому поставь `выполнено` / `не выполнено` / `не покрыто дифом` с файлом и строкой.
-- Проверь обратное направление: есть ли в дифе изменения, которых issue не просила.
-  По правилу репозитория одна ветка — одна логически цельная задача; посторонние изменения
-  в том же PR — основание для `REQUEST_CHANGES`.
+- No issue link → verdict **BLOCKED**: there is nothing to check the acceptance criteria against.
+- There is a link → write out the list of criteria from the issue body (explicit items or implicit
+  requirements) and give each `met` / `not met` / `not covered by the diff` with a file and a line.
+- Check the reverse direction: whether the diff has changes the issue did not ask for. By the
+  repository rule one branch is one coherent task; unrelated changes in the same PR are grounds for
+  `REQUEST_CHANGES`.
 
-Проверь заодно: `baseRefName` должен быть `main`.
+Check along the way: `baseRefName` must be `main`.
 
 If the diff touches `CLAUDE.md`, `docs/**`, `README.md` or adds a new document, the lines it
 writes must be English; code identifiers stay as they are. Russian outside the changed lines is
 a leftover, not a finding: #385 translates it area by area.
 
-## Шаг 5. Вердикт
+## Step 5. Verdict
 
-### Номер прогона
+### Run number
 
-Вердикты по одному PR обязаны отличаться. Идентификатор прогона — счёт по скрытому маркеру
-`<!-- pr-light-check` в комментариях PR, а не дата и не «на глаз».
+Verdicts on one PR must differ. The run identifier is a count of the hidden
+`<!-- pr-light-check` marker in the PR comments, not a date and not a guess.
 
 ```bash
 gh pr view <N> --json comments -q '[.comments[].body | select(contains("<!-- pr-light-check"))] | length'
 gh pr view <N> --json headRefOid -q '.headRefOid[0:7]'
 ```
 
-Первая команда даёт число прошлых прогонов, `K-1`; твой прогон — `K`. Маркер
-`pr-light-check` свой и с маркером `pr-deep-review` не смешивается: это разные счётчики.
+The first command gives the number of past runs, `K-1`; your run is `K`. The `pr-light-check`
+marker is its own and does not mix with the `pr-deep-review` marker: those are separate counters.
 
-### Текст
+### Text
 
 ```
-## Лёгкое ревью PR #<N> — issue #<M> · прогон #<K> · коммит <sha>
+## Light check of PR #<N> — issue #<M> · run #<K> · commit <sha>
 
-**Вердикт:** APPROVE | REQUEST_CHANGES | BLOCKED
+**Verdict:** APPROVE | REQUEST_CHANGES | BLOCKED
 
-Проверено: прогон + изменённые строки документации + соответствие issue
-Не проверялось: инварианты, баги, смеллы, пересечения с открытыми PR, документация вне дифа
+Checked: the run + the changed documentation lines + issue compliance
+Not checked: invariants, bugs, smells, overlaps with open PRs, documentation outside the diff
 
-### Соответствие issue
-- <критерий> — выполнено / не выполнено / не покрыто (file.ts:42)
+### Issue compliance
+- <criterion> — met / not met / not covered (file.ts:42)
 
-### Прогон
-rebuild: сделан/не нужен · build: ok/fail/n-a · typecheck: ok/fail/n-a · test: ok/fail/n-a · lint: ok/fail/n-a · format-check: ok/fail/n-a
-mutation: ok/fail/n-a — <счёт из Final mutation score>, <весь src/ или файлы области> · принятая запись, <ссылка> (head <sha> прежний — под гейты мутаций с него ничего не попало) | свой прогон — <почему запись не принята> (n-a — причина)
-make -n <цель>: ok/fail — <что показало раскрытие>
-sh -n <скрипт>: ok/fail (+ dash: ok/fail/n-a)
-Не запускалось: <проверка> — <причина>
-Не убрано: <временный путь> — <первая значимая строка ошибки down>
+### Run
+rebuild: done/not needed · build: ok/fail/n-a · typecheck: ok/fail/n-a · test: ok/fail/n-a · lint: ok/fail/n-a · format-check: ok/fail/n-a
+mutation: ok/fail/n-a — <score from Final mutation score>, <the whole src/ or the area files> · accepted record, <link> (head <sha> is earlier — nothing under the mutation gates came in since) | own run — <why the record was not accepted> (n-a — the reason)
+make -n <target>: ok/fail — <what the expansion showed>
+sh -n <script>: ok/fail (+ dash: ok/fail/n-a)
+Not run: <check> — <reason>
+Not cleaned up: <temporary path> — <the first meaningful line of the down error>
 
-### Документация
-ссылки на issue: ok/находки/n-a · <file.md> «<цитата строки>» — #<M> закрыта, абзац подан как действующая проблема
-перечни и дубли: ok/находки/n-a · <file.md> «<цитата строки>» — <чем печатается перечень или где лежит дубль>
+### Documentation
+issue links: ok/findings/n-a · <file.md> "<quoted line>" — #<M> is closed, the paragraph presents it as a live problem
+lists and duplicates: ok/findings/n-a · <file.md> "<quoted line>" — <what prints the list or where the duplicate lies>
 
-### Красное
-- <команда> — <первая значимая строка ошибки> [внесено этим PR | было и на базе]
+### Red
+- <command> — <the first meaningful line of the error> [brought by this PR | red on the base too]
 
-### Итог
-<1–3 предложения: можно вливать, или что именно чинить>
+### Summary
+<1–3 sentences: it can be merged, or what exactly to fix>
 
 _🤖 Posted by Claude Code from the owner's account · [session](<session link>)_
 
 <!-- pr-light-check run=<K> head=<sha> -->
 ```
 
-Строка «Не проверялось» обязательна и выкидывать её нельзя: без неё зелёный вердикт читается
-как полное ревью, которым он не является. Гейт `docs` не включён — перенеси документацию
-из «Проверено» в «Не проверялось»; нет ни одного гейта прогона — так же перенеси прогон.
+The "Not checked" line is required and must not be dropped: without it a green verdict reads as a
+full review, which it is not. The `docs` gate is off — move documentation from "Checked" to "Not
+checked"; not a single run gate — move the run the same way.
 
-Подпись обязательна: вердикт уходит от аккаунта владельца и без неё читается как написанный
-им (см. «Agent signature on GitHub» в `CLAUDE.md`). Ссылки на сессию нет — оставь
+The signature is required: the verdict goes out from the owner's account and without it reads as
+written by the owner ("Agent signature on GitHub" in `CLAUDE.md`). No session link — leave
 `_🤖 Posted by Claude Code from the owner's account._`
 
-Маркер — последняя строка, ровно в этом виде и без отступа: по нему следующий прогон считает
-свой номер. Подпись идёт перед ним: маркер в ленте не виден и подписью не работает.
+The marker is the last line, exactly in this form and without indentation: the next run counts its
+number by it. The signature goes before it: the marker is invisible in the feed and does not work as
+a signature.
 
-### Правила вердикта
+### Verdict rules
 
-- **APPROVE** — всё запущенное прошло и критерии issue выполнены. Пустой прогон (диф
-  из одной документации) этому не мешает.
-- **REQUEST_CHANGES** — есть красное, внесённое этим PR, либо находка по документации,
-  либо невыполненный критерий issue, либо изменения, которых issue не просила.
-- **BLOCKED** — судить не по чему: PR не привязан к issue, или прогон не запустился
-  (нет Docker, нет `.env`) и подтвердить работоспособность нечем, или гейт мутаций оборван
-  падением чекера и на повторе («mutation и mutation-full»): мутантов PR не проверил никто.
+- **APPROVE** — everything that ran passed and the issue criteria are met. An empty run (a
+  documentation-only diff) does not stand in the way.
+- **REQUEST_CHANGES** — there is red brought by this PR, or a documentation finding, or an unmet
+  issue criterion, or changes the issue did not ask for.
+- **BLOCKED** — there is nothing to judge by: the PR is not linked to an issue, or the run did not
+  start (no Docker, no `.env`) and there is nothing to confirm it works with, or a mutation gate
+  broke off on a checker crash on the repeat too ("mutation and mutation-full"): nobody checked the
+  PR's mutants.
 
-Красное, которое красно и на базе, вердикт не меняет — вынеси его отдельной строкой
-как унаследованное.
+Red that is red on the base too does not change the verdict — put it on a separate line as
+inherited.
 
-Пришёл к REQUEST_CHANGES на третьем прогоне (`K >= 3`) из-за находки по документации или
-по issue — ставь вместо него BLOCKED: здесь он значит не «судить не по чему», а исчерпанный
-круг правок, и в «Итоге» скажи, что дальше нужен человек. Эти основания считаются по
-накопительному дифу — `gh pr diff <N>` шага 3 и `files` из `gh pr view` шага 4 отдают всю
-ветку против базы, а не последний пуш, — поэтому находка, с которой автор не согласился,
-вернётся слово в слово и на пятом прогоне. Красное сюда не входит: оно гоняется на текущем
-head и гаснет от починки, значит красное на третьем прогоне — новая поломка, а не круг.
+You came to REQUEST_CHANGES on the third run (`K >= 3`) because of a documentation or issue
+finding — give BLOCKED instead: here it means not "nothing to judge by" but an exhausted round of
+fixes, and say in "Summary" that a human is needed next. These grounds are counted over the
+cumulative diff — `gh pr diff <N>` of step 3 and `files` from `gh pr view` of step 4 give the whole
+branch against the base, not the last push — so a finding the author disagreed with comes back
+word for word on the fifth run too. Red is not counted here: it runs on the current head and goes
+out with the fix, so red on the third run is a new breakage, not a round.
 
-## Шаг 6. Комментарий в PR
+## Step 6. PR comment
 
-Вердикт уходит комментарием в PR. Есть `--no-post` в аргументах — пропусти этот шаг
-и просто выведи текст в сессию.
+The verdict goes out as a PR comment. `--no-post` in the arguments — skip this step and just print
+the text into the session.
 
-Запиши текст во временный файл **вне репозитория** (иначе он попадёт в диф) и опубликуй
-из файла — так текст не поедет от экранирования в шелле:
+Write the text into a temporary file **outside the repository** (otherwise it gets into the diff)
+and publish from the file — that way shell escaping does not mangle the text:
 
 ```bash
-gh pr comment <N> --body-file <временный путь>
+gh pr comment <N> --body-file <temporary path>
 ```
 
-- **Новый комментарий на каждый прогон, не редактирование прошлого.** История должна быть
-  видна целиком: по строке `head=<sha>` понятно, на каком коммите было зелено.
-  Не используй `--edit-last`: он правит последний комментарий текущего пользователя
-  независимо от того, какой скилл его написал, и затрёт вердикт `pr-deep-review`.
-- Публикуй ровно тот текст, который вывел в сессию, — вместе с подписью и маркером
-  в конце.
-- `gh pr comment` упал (нет прав, PR закрыт) — не молчи и не обходи: выведи вердикт
-  в сессию и скажи, что публикация не удалась и почему.
+- **A new comment on every run, not an edit of the last one.** The history must stay visible
+  whole: the `head=<sha>` line shows which commit was green. Do not use `--edit-last`: it edits the
+  current user's last comment whatever skill wrote it, and would overwrite the `pr-deep-review`
+  verdict.
+- Publish exactly the text you printed into the session — with the signature and the marker at the
+  end.
+- `gh pr comment` failed (no rights, the PR is closed) — do not keep quiet and do not work around
+  it: print the verdict into the session and say that publishing failed and why.
