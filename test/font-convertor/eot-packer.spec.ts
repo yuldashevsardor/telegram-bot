@@ -147,7 +147,7 @@ describe("EotPacker", function () {
         });
 
         it("rejects a file cut off inside the fixed part of the header", async function () {
-            // The stub does not even reach the format marker at offset 34: without the length
+            // The fragment does not even reach the format marker at offset 34: without the length
             // check a RangeError from DataView would fly out instead of InvalidEot.
             await expectRejects(() => unpack(eot.subarray(0, 20)), InvalidEot);
         });

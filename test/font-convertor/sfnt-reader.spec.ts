@@ -253,7 +253,7 @@ describe("SfntReader.readMetadata", function () {
             const storage = name + view.getUint16(name + 4);
             const style = nameRecord(ttf, PLATFORM_WINDOWS, NAME_ID_STYLE);
 
-            expect(storage, "the string storage starts right after the records").to.equal(
+            expect(storage, "the string storage does not start right after the records").to.equal(
                 name + 6 + view.getUint16(name + 2) * NAME_RECORD_SIZE,
             );
             copy.set(ttf.subarray(style, style + NAME_RECORD_SIZE), storage);
@@ -323,7 +323,7 @@ describe("SfntReader.readMetadata", function () {
         const head = tableRecord(ttf, "head");
         const shortened = patch(ttf, (view) => view.setUint16(4, (head - TABLE_DIRECTORY_OFFSET) / TABLE_RECORD_SIZE));
 
-        expect(tableRecord(ttf, "OS/2"), "OS/2 comes before head in the directory").to.be.lessThan(head);
+        expect(tableRecord(ttf, "OS/2"), "OS/2 does not come before head in the directory").to.be.lessThan(head);
         expectThrows(() => readMetadata(shortened), InvalidSfnt);
     });
 

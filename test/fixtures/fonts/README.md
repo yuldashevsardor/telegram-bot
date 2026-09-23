@@ -54,4 +54,4 @@ that too, so a replacement is best checked by the same signs:
 | `test-font.woff` | `wOFF` |
 | `test-font.woff2` | `wOF2` |
 | `test-font.eot` | `0x504C` at offset 34, `EOTSize` in the first four bytes equals the file size |
-| `test-font.svg` | `<?xml` — the XML declaration |
+| `test-font.svg` | `<?xml` — the XML declaration; the signature also accepts other markup, see `docs/architecture/font-convertor.md` |

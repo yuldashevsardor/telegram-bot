@@ -6,7 +6,7 @@ import { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 const fontSignatureMatcher = new FontSignatureMatcher();
-// The start of a real document: a stub like `<svg` is shorter than the SVG signature.
+// The start of a real document: a fragment like `<svg` is shorter than the SVG signature.
 const rootTag = '<svg xmlns="http://www.w3.org/2000/svg"';
 
 describe("FontSignatureMatcher.matches", function () {

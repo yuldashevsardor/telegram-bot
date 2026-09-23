@@ -18,7 +18,7 @@ export enum ByteClass {
      * (a DOCTYPE, a comment).
      */
     MarkupStart = "markup-start",
-    /** A text byte: not a C0 control byte, or markup whitespace. */
+    /** A text byte: a byte outside the C0 controls, or markup whitespace. */
     Text = "text",
 }
 
