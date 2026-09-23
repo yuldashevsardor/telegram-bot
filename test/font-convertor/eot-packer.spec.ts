@@ -145,7 +145,9 @@ describe("EotPacker", function () {
             //
             // 20 bytes are the fixed fields of that tail with an empty signature and no EUDC font:
             // RootStringCheckSum and EUDCCodePage (u32), Padding6 and SignatureSize (u16), EUDCFlags
-            // and EUDCFontSize (u32). Zero is a valid value for each of them.
+            // and EUDCFontSize (u32). Zeros pass only because the tail is not read: a conforming
+            // writer puts 0x50475342 into RootStringCheckSum for an empty RootString. In version 1.0
+            // the gap is 24 bytes: the walk also stops before the fixture's Padding5 and RootStringSize.
             const fontDataOffset = eot.length - ttf.length;
             const tail = new Uint8Array(20);
 
