@@ -16,8 +16,8 @@ export class RequestContext {
         return this.als.run({ [REQUEST_KEYS.REQUEST_ID]: uuid() }, fn);
     }
 
-    // Outside a scope there is no value, and that is a normal case (background tasks, an error
-    // after the scope is closed), hence null rather than an error.
+    // Outside a scope there is no value, and that is a normal case rather than a misuse, hence
+    // null rather than an error.
     public getRequestId(): string | null {
         const requestId = this.als.getStore()?.[REQUEST_KEYS.REQUEST_ID];
 

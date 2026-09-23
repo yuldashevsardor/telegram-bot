@@ -17,12 +17,15 @@ the rest of the pipeline inside `requestContext.run(next)`. The common `Abstract
 `RequestContext` as a constructor dependency, and each adapter reads `getValues()` from it itself
 at the moment of the write — `PinoLogger` puts the values as fields of the record next to `message`
 and `payload`, `ConsoleLogger` prints them as `[key=value]` chips before the message. The logger is
-one per process and is never swapped, and the dependency lives in the base class, so correlation
-works on both adapters, in development too.
+one per process and is never swapped, and both adapters call `getValues()`
+(`ConsoleLogger.collectFinalMessage()`, `PinoLogger.log()`), so correlation works on both, in
+development too.
 
 The scope of `run()` is the middleware chain and nothing else, so everything written outside it
-goes without a `requestId`. The record the base `Filter` ([`bot.md`](./bot.md)), which stands
-above the middleware, writes when it drops an update goes out that way too. So does the `critical`
+goes without a `requestId`. `Bot.setup()` (`telegram/bot/bot.ts`) installs the filters,
+`sequentialize()` and `session()` before `setupMiddlewares()`, so all three run outside the scope.
+The record the base `Filter` ([`bot.md`](./bot.md)) writes when it drops an update goes out that
+way too. So does the `critical`
 about a failed update: `grammy.catch` → `Bot.handleError` is called not from `handleUpdate` but
 from the sink of `@grammyjs/runner` — on the already rejected promise of `handleUpdate`, when the
 scope is closed.
@@ -61,7 +64,8 @@ A caught error goes into the payload only under the `cause` key —
 `logger.error(message, { cause: error })` — and the constructor of `RuntimeError` and the error
 factories (`RuntimeError.byError()`, `ReadFailed.byPath()`, `ProcessFailed.byCommand()`) keep the
 same rule. The payload key is part of the record's contract, not a detail of the call: errors are
-searched for in the logs by it, and a future ECS mapping (#128) will parse them by it, so a second
+searched for in the logs by it, and a future ECS mapping
+([#128](https://github.com/yuldashevsardor/telegram-bot/issues/128)) will parse them by it, so a second
 key such as `error` would split that parsing in two silently — the record itself still looks whole.
 The type of the caught value does not affect the choice of key: there is no "`Error` under `cause`,
 the rest under `error`" branch in the factories or in the logger calls.
