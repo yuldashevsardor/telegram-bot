@@ -1,74 +1,74 @@
-# Логирование
+# Logging
 
-Логгер целиком лежит в `platform/logger/`: порт — `logger.ts`, уровни `Level` и их веса
-`LevelSeverity` — `logger.types.ts`, рядом адаптеры. Какой из них собрать, решает
-`ApplicationContext` ([`application.md`](./application.md)) при старте по `isProduction`
-из конфига ([`config.md`](./config.md)): в production `PinoLogger`, иначе `ConsoleLogger`.
-Порог оба берут у общего `AbstractLogger`, но применяют по-разному: `ConsoleLogger`
-сверяется с `isEnabled`, а `PinoLogger` перекладывает фильтрацию на pino и совпадает с ним
-только потому, что кастомные уровни pino собраны из тех же `LevelSeverity`.
+The logger lives entirely in `platform/logger/`: the port is `logger.ts`, the levels `Level` and
+their weights `LevelSeverity` are in `logger.types.ts`, and the adapters sit next to them. Which one
+to build is decided by `ApplicationContext` ([`application.md`](./application.md)) at start, by
+`isProduction` from the config ([`config.md`](./config.md)): `PinoLogger` in production,
+`ConsoleLogger` otherwise. Both take the threshold from the common `AbstractLogger` but apply it
+differently: `ConsoleLogger` checks `isEnabled`, while `PinoLogger` leaves filtering to pino and
+agrees with it only because the custom pino levels are built from the same `LevelSeverity`.
 
-Порог — `LOGGER_LEVEL`: пишется он и всё серьёзнее; по умолчанию `WARNING` в production,
-`DEBUG` иначе. Неизвестное значение — `InvalidConfigError`.
+The threshold is `LOGGER_LEVEL`: that level and everything more severe is written; the default is
+`WARNING` in production and `DEBUG` otherwise. An unknown value is an `InvalidConfigError`.
 
-Корреляция запросов: `RequestContextMiddleware` (первый из middleware,
-[`bot.md`](./bot.md)) выполняет остаток пайплайна в `requestContext.run(next)`.
-`AbstractLogger` принимает `RequestContext` зависимостью конструктора и в момент записи
-забирает у него `getValues()` — `PinoLogger` кладёт значения полями объекта рядом с
-`message` и `payload`, `ConsoleLogger` печатает чипами `[key=value]` перед сообщением.
-Логгер при этом один на процесс и не подменяется, а забор значений живёт в общем
-`AbstractLogger`, поэтому корреляция работает на обоих адаптерах, в том числе в
-разработке.
+Request correlation: `RequestContextMiddleware` (the first middleware, [`bot.md`](./bot.md)) runs
+the rest of the pipeline inside `requestContext.run(next)`. `AbstractLogger` takes a
+`RequestContext` as a constructor dependency and reads `getValues()` from it at the moment of the
+write — `PinoLogger` puts the values as fields of the record next to `message` and `payload`,
+`ConsoleLogger` prints them as `[key=value]` chips before the message. The logger is one per
+process and is never swapped, and reading the values lives in the common `AbstractLogger`, so
+correlation works on both adapters, in development too.
 
-Область `run()` — это цепочка middleware, и только она, поэтому всё, что пишется вне её,
-идёт без `requestId`. Так уходит отброс в базовом `Filter` ([`bot.md`](./bot.md)), стоящем
-выше middleware. Так же уходит и `critical` про упавший апдейт: `bot.catch` →
-`Bot.handleError` вызывается не из `handleUpdate`, а из sink'а `@grammyjs/runner` — уже по
-отклонённому промису `handleUpdate`, когда область свёрнута.
+The scope of `run()` is the middleware chain and nothing else, so everything written outside it
+goes without a `requestId`. That is how the drop in the base `Filter` ([`bot.md`](./bot.md)), which
+stands above the middleware, is written. So is the `critical` about a failed update:
+`grammy.catch` → `Bot.handleError` is called not from `handleUpdate` but from the sink of
+`@grammyjs/runner` — on the already rejected promise of `handleUpdate`, when the scope is closed.
 
-`RequestContext` (`platform/request-context/request-context.ts`) — единственная работа с
-`AsyncLocalStorage`: сам ALS приватный, наружу уходят только операции над областью, а
-`requestId` рождается внутри `run()`, а не у вызывающего. Поэтому ни middleware, ни
-логгер не собирают стор руками и не знают его формы — иначе корреляция зависела бы от
-того, одинаково ли они это делают.
+`RequestContext` (`platform/request-context/request-context.ts`) is the only code that touches
+`AsyncLocalStorage`: the ALS itself is private, only operations on the scope go outside, and the
+`requestId` is born inside `run()`, not at the caller. So neither the middleware nor the logger
+builds the store by hand or knows its shape — otherwise correlation would depend on whether they
+do it the same way.
 
-Контекст общий, а не логгерный: экземпляр один и создаёт его `ApplicationContext`
-([`application.md`](./application.md)). Логгеру он уходит аргументом конструктора там же,
-до всякого контейнера; в контейнере (`Tokens.Bootstrap.RequestContext`) лежит ради
-middleware. Ключи и тип стора — в `request-context.types.ts` рядом с ним
-(`REQUEST_KEYS` с `as const`, `RequestStore` выведен из него, значения `unknown`).
-`getValues()` отдаёт только известные ключи: без отбора формат лога зависел бы от того,
-что в стор положили по дороге, а `as const` делает опечатку в ключе ошибкой компиляции, а
-не молча потерянной корреляцией. Вне области `getRequestId()` — `null`, а не ошибка: у
-`Runner` своей области нет, поэтому логи фоновых задач идут без `requestId`.
+The context is shared, not the logger's own: there is one instance, created by
+`ApplicationContext` ([`application.md`](./application.md)). The logger gets it as a constructor
+argument right there, before any container; it sits in the container
+(`Tokens.Bootstrap.RequestContext`) for the middleware. The keys and the store type are in
+`request-context.types.ts` next to it (`REQUEST_KEYS` with `as const`, `RequestStore` derived from
+it, values `unknown`). `getValues()` returns only the known keys: without that filter the log format
+would depend on what was put into the store along the way, and `as const` makes a typo in a key a
+compile error rather than silently lost correlation. Outside a scope `getRequestId()` is `null`, not
+an error: `Runner` has no scope of its own, so the logs of background tasks go without a
+`requestId`.
 
-Наружу пишет только `Logger`. Прямой `console.*` минует уровень, `requestId` и порог
-`LOGGER_LEVEL`, а в production — ещё и структурный поток pino, поэтому такая запись
-теряется при разборе логов, а ошибка из `catch` превращается в тишину. Исключений два:
-`ConsoleLogger`, для которого `console.*` — реализация порта, и фолбэк `fail()` в
-`app.ts`: он зовётся и до создания контекста ([`application.md`](./application.md)).
-Держит правило `no-console: "error"` в `.eslintrc.js`: адаптеру оно снято через
-`overrides` вместе с его спекой (та снимает записи подменой `console`), а фолбэку —
-точечными `eslint-disable-next-line`, а не файлом, поэтому третий `console.*` в `app.ts`
-линтер поймает.
+Only `Logger` writes outwards. A direct `console.*` bypasses the level, the `requestId` and the
+`LOGGER_LEVEL` threshold, and in production the structured pino stream as well, so such a record is
+lost when the logs are parsed, and an error from a `catch` turns into silence. There are two
+exceptions: `ConsoleLogger`, for which `console.*` is the implementation of the port, and the
+`fail()` fallback in `app.ts`, which is called before the context exists too
+([`application.md`](./application.md)). The rule is held by `no-console: "error"` in `.eslintrc.js`:
+the adapter is exempted through `overrides` together with its spec (which captures the records by
+replacing `console`), and the fallback by line-level `eslint-disable-next-line` rather than for the
+whole file, so a third `console.*` in `app.ts` is caught by the linter.
 
-Payload перед записью проходит через `serialize-error`: без него вложенная ошибка
-печаталась бы как `{}`, а так в лог попадают её `name`, `message`, `stack` и `cause`.
+The payload goes through `serialize-error` before the write: without it a nested error would print
+as `{}`, with it the log gets its `name`, `message`, `stack` and `cause`.
 
-Пойманная ошибка уходит в payload только под ключом `cause` —
-`logger.error(message, { cause: error })`, — и то же правило держат конструктор
-`RuntimeError` и фабрики ошибок (`RuntimeError.byError()`, `ReadFailed.byPath()`,
-`ProcessFailed.byCommand()`). Ключ payload — часть контракта записи, а не деталь вызова:
-по нему ошибку ищут в логах и по нему её разберёт будущий ECS-маппинг, поэтому второй ключ
-вроде `error` расколол бы такой разбор надвое молча — запись при этом выглядит целой. Тип
-пойманного значения на выбор ключа не влияет: развилки «`Error` под `cause`, остальное под
-`error`» нет ни в фабриках, ни в вызовах логгера.
+A caught error goes into the payload only under the `cause` key —
+`logger.error(message, { cause: error })` — and the constructor of `RuntimeError` and the error
+factories (`RuntimeError.byError()`, `ReadFailed.byPath()`, `ProcessFailed.byCommand()`) keep the
+same rule. The payload key is part of the record's contract, not a detail of the call: errors are
+searched for in the logs by it, and a future ECS mapping (#128) will parse them by it, so a second
+key such as `error` would split that parsing in two silently — the record itself still looks whole.
+The type of the caught value does not affect the choice of key: there is no "`Error` under `cause`,
+the rest under `error`" branch in the factories or in the logger calls.
 
-От типа зависит не ключ, а глубина, на которой значение окажется в записи. Конструктор
-`RuntimeError` поднимает `payload.cause` в нативный `cause`, только если это `Error`;
-не-`Error` остаётся в payload. Разворачивать его `serialize-error` тоже не станет: в
-`NonError` он заворачивает лишь собственный аргумент, а `PinoLogger` и `ConsoleLogger`
-всегда передают ему объект payload, поэтому вложенные примитивы копируются как есть. Так
-`ReadFailed.byPath(path, new Error("EACCES"))` кладёт исходное в `payload.cause.cause`
-разобранной ошибкой, а `ReadFailed.byPath(path, "EACCES")` — в
-`payload.cause.payload.cause` голой строкой. Разбор записи должен учитывать оба пути.
+The type decides not the key but the depth at which the value ends up in the record. The
+`RuntimeError` constructor lifts `payload.cause` into the native `cause` only if it is an `Error`; a
+non-`Error` stays in the payload. `serialize-error` will not expand it either: it wraps into
+`NonError` only its own argument, and `PinoLogger` and `ConsoleLogger` always pass it the payload
+object, so nested primitives are copied as they are. Thus
+`ReadFailed.byPath(path, new Error("EACCES"))` puts the original into `payload.cause.cause` as a
+parsed error, and `ReadFailed.byPath(path, "EACCES")` into `payload.cause.payload.cause` as a bare
+string. Parsing a record has to account for both paths.

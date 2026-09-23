@@ -29,8 +29,8 @@ export class ConsoleLogger extends AbstractLogger {
         this.write(Level.DEBUG, "debug", message, payload);
     }
 
-    // Порог проверяется в одном месте, а не в каждом методе: выше CRITICAL уровней нет, и
-    // собственная проверка в critical() была бы недостижимой веткой.
+    // The threshold is checked in one place, not in every method: there is no level above
+    // CRITICAL, and a check of its own in critical() would be an unreachable branch.
     private write(level: Level, method: ConsoleMethod, message: string, payload?: UnknownObject): void {
         if (!this.isEnabled(level)) {
             return;
@@ -49,8 +49,8 @@ export class ConsoleLogger extends AbstractLogger {
         messages.push(message);
 
         if (payload) {
-            // Без serializeError вложенные ошибки печатались бы как {}: свойства name,
-            // message и stack у Error неперечислимы, и JSON.stringify их не видит.
+            // Without serializeError nested errors would print as {}: name, message and stack
+            // of an Error are non-enumerable, and JSON.stringify does not see them.
             messages.push(JSON.stringify(serializeError(payload), null, 4));
         }
 

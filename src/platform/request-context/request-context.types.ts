@@ -1,12 +1,12 @@
-// Ключи значений текущего апдейта. Наружу их отдаёт только RequestContext.getValues(),
-// поэтому значение под ключом мимо этого списка в лог не попадёт. as const обязателен: тип
-// стора выведен отсюда, и без него опечатка в ключе компилировалась бы, а корреляция молча
-// терялась.
+// The keys of the values of the current update. Only RequestContext.getValues() hands them out,
+// so a value under a key missing from this list never reaches the log. as const is required: the
+// store type is derived from here, and without it a typo in a key would compile and correlation
+// would be lost silently.
 export const REQUEST_KEYS = {
     REQUEST_ID: "requestId",
 } as const;
 
 export type RequestKey = (typeof REQUEST_KEYS)[keyof typeof REQUEST_KEYS];
 
-// Значения остаются unknown: стор общий, и читающая сторона сужает тип под то, что ей нужно.
+// The values stay unknown: the store is shared, and the reading side narrows the type to its needs.
 export type RequestStore = Partial<Record<RequestKey, unknown>>;
