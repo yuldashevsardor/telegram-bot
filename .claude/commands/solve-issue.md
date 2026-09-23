@@ -47,29 +47,32 @@ Then the "Workflow" of `CLAUDE.md`, with no exceptions:
 
 The mutation run is `make mutation files="<area>"` with the same threshold as the review gate:
 without it the author learns of a survived mutant only from the reviewer, at the cost of a round.
-The area is assembled by the rule of the `mutation` gate (`.claude/skills/pr-light-check/SKILL.md`,
-"mutation and mutation-full"), except that the candidates come from
-`git diff --name-only origin/main...HEAD`, not from the PR diff, and it is passed as paths, not a
-glob. The change turned on the `mutation-full` gate (`docs/agents/review-gates.md`) — `make mutation`
-without `files`. The run is not part of `make check`: there it would go on every edit.
+The area is printed by `make mutation-area`: the rule of the `mutation` gate
+(`scripts/mutation-area.sh`) over the candidates of `git diff --name-only origin/main...HEAD`
+instead of the PR diff. Its paths go into `files` as they are, not as a glob. The change turned on
+the `mutation-full` gate (`docs/agents/review-gates.md`) — `make mutation` without `files`. The run
+is not part of `make check`: there it would go on every edit.
 
 The run leaves a record — `reports/mutation/record.md`, its format is in
 `docs/architecture/testing.md`, "The run record". After the push, post it in the PR as a comment
 as is, appending an empty line and the signature from `CLAUDE.md`: by it the reviewer accepts
-your run instead of its own (the conditions are in `.claude/skills/pr-light-check/SKILL.md`, "The
-author's run record"). The first run goes before the PR, and its record is posted right after the
-PR is created. Post only the record of a run that happened: the area is empty and the target did
-not run — there is nothing to post, and a `record.md` left over from the previous round would lie
-about the head. While the run goes, run nothing else, as the reviewer does on `mutation-full`:
+your run instead of its own (the conditions are in `accept_record()` of `scripts/review-run.sh`).
+The first run goes before the PR, and its record is posted right after the PR is created. Post
+only the record of a run that happened: the area is empty and the target did not run — there is
+nothing to post, and a `record.md` left over from the previous round would lie about the head. While the run goes, run nothing else, as the reviewer does on `mutation-full`:
 under load a mutant's status lies both ways (`docs/architecture/testing.md`, "Timeouts and
 errors"), and the review reuses your run.
 
 The last record in the PR also covers the next commit if the changes since its head do not
 affect the run: then the target does not run and no new record is posted — the review accepts
-the same one (`docs/agents/review-gates.md`, "Changes that affect the mutation run"; the command
-in `.claude/skills/pr-light-check/SKILL.md`, "The author's run record", fetches the last record
-and its `head=`). A record of the reviewer's serves as well: it lies in the same thread, and the
-same rule applies to it.
+the same one (`docs/agents/review-gates.md`, "Changes that affect the mutation run"). A record of
+the reviewer's serves as well: it lies in the same thread, and the same rule applies to it. The
+link to the last record and its marker with `head=` — only a comment that starts with the marker is
+a record:
+
+```bash
+gh pr view <PR> --json comments -q '[.comments[] | select(.body | test("^<!-- mutation-record "))] | last // empty | .url, (.body | split("\n")[0])'
+```
 
 Same rule, one case worth naming: a merge of `origin/main` into the branch moves the head although
 you edited nothing, and what the merge brings goes through the three gates of that section. Measure

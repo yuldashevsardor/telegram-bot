@@ -6,7 +6,10 @@ skill. The same table answers a second question — whether a mutation run recor
 (below, "Changes that affect the mutation run"); that question is asked by both the author and
 the reviewer, and the diff there is a different one. That is why the table is a document of
 its own and not part of the routing: three parties apply it, one copy exists, and nothing can
-drift apart.
+drift apart. The one exception is the reviewer's staleness question: `scripts/review-run.sh`
+asks it and keeps the file names of the rows `rebuild`, `mutation-full` and `mutation` as code
+(`accept_record()`), handing the reviewer the files whose row depends on the content of the
+change. A change of those three rows here is made there too.
 
 The second use does not make routing out of it: neither the author nor the review skill picks
 a skill or the run's gates by the table — that is still done by `/review-pr` alone.
@@ -108,12 +111,12 @@ files would still read coherently, and the boundary would move in only one of th
 
 `mutation` and `mutation-full` are the second such pair: both run `make mutation` and differ
 in area. `mutation` mutates the code the PR touched: a survivor sits on the author's line, and
-the run takes seconds. The area is assembled by `pr-light-check`, which also holds the rule
-for it: it needs the PR's code, while the table sees only file names. `mutation-full` is
-turned on by the run's tools, and the whole of `src/` is mutated: changing them changes the run
-of every mutant, not of the diff's lines, and a PR that changes only the tools has an empty
-area from its diff. The tsconfigs and `typescript` are tools too: by them the type checker
-decides which mutant gets `CompileError` and which goes to the tests
+the run takes seconds. The area is assembled by `scripts/mutation-area.sh` in the PR's tree,
+which also holds the rule for it: it needs the PR's code, while the table sees only file names.
+`mutation-full` is turned on by the run's tools, and the whole of `src/` is mutated: changing
+them changes the run of every mutant, not of the diff's lines, and a PR that changes only the
+tools has an empty area from its diff. The tsconfigs and `typescript` are tools too: by them the
+type checker decides which mutant gets `CompileError` and which goes to the tests
 (`docs/architecture/testing.md`, "The type checker"). On other PRs the whole of `src/` is not
 run: that is minutes on every round for lines the PR did not touch.
 
@@ -129,10 +132,10 @@ so a documentation-only diff still gets by without the database and containers.
 
 `make mutation` leaves a run record, and review accepts it in place of its own run
 (`docs/architecture/testing.md`, "The run record"; the acceptance conditions are in
-`.claude/skills/pr-light-check/SKILL.md`, the section on the author's run record). The run went
-on one commit and the record is measured against another, so whether it still holds is the
-same pass over the table above, only the diff is taken between those two commits. At least one
-of three gates on — the record is stale:
+`accept_record()` of `scripts/review-run.sh`). The run went on one commit and the record is
+measured against another, so whether it still holds is the same pass over the table above, only
+the diff is taken between those two commits. At least one of three gates on — the record is
+stale:
 
 - `mutation` — the mutated code changed, or the specs that kill the mutants;
 - `mutation-full` — the run's tools changed, and they change the outcome of every mutant, not

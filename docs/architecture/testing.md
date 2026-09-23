@@ -99,8 +99,8 @@ metric is lower, `nyc` — after the specs have already gone green — prints
 `ERROR: Coverage for <metric> (…%) does not meet global threshold (99%)` and exits with an error.
 
 The threshold is checked by any run of `npm run test:coverage`: `make coverage`, the `check` npm
-script under `make check` and the `test` gate of PR review, under which `pr-light-check` runs
-`make coverage` (`.claude/skills/pr-light-check/SKILL.md`). `npm test` and `make test` know
+script under `make check` and the `test` gate of PR review, under which `make review-run` runs
+`make coverage` (`scripts/review-run.sh`). `npm test` and `make test` know
 nothing about the threshold, so CI (issue
 [#116](https://github.com/yuldashevsardor/telegram-bot/issues/116)) will get it only if it calls
 `npm run check` or `npm run test:coverage`.
@@ -166,7 +166,7 @@ mutant in the area, and Stryker prints
 not 99 is in a comment there. The threshold is checked
 by any `make mutation`: working through an area, the run of the author before a PR
 (`.claude/commands/solve-issue.md`) and the `mutation` and `mutation-full` gates of PR review
-(`docs/agents/review-gates.md`), under which `pr-light-check` runs the target over the area of
+(`docs/agents/review-gates.md`), under which `make review-run` runs the target over the area of
 the diff or over the whole of `src/`, or else accepts the run record of the author (below, "The
 run record"). While the area holds a survivor nobody has worked through, a run over it stays
 red — that is a sign of unfinished work, not a failure.
@@ -179,9 +179,8 @@ the run is green having checked nothing.
 the run is over, whatever its outcome, the wrapper writes `reports/mutation/record.md` and exits
 with the exit code of Stryker. The record exists so that the reviewer does not repeat the run of
 the author of a PR: the author publishes it in the PR, and the review gate may accept it instead
-of a run of its own (the rules of acceptance are in the author run record section of
-`.claude/skills/pr-light-check/SKILL.md`). The first line of the record is a marker, invisible
-in the PR:
+of a run of its own (the rules of acceptance are in `accept_record()` of
+`scripts/review-run.sh`). The first line of the record is a marker, invisible in the PR:
 
 ```
 <!-- mutation-record head=<sha> clean=<yes|no|unknown> scope=<full|files> exit=<code> score=<score|NaN|none> -->
@@ -193,7 +192,7 @@ host in the recipe of the target — `.git` is not mounted into the container �
 substitutions, each with an exit code of its own. If `git status` exited with an error (not a
 repository, an unreadable `.git`), it is `clean=unknown`, and `head` stays in the record. That
 the substitutions yield exactly these values is checked by the review of a PR that touches the
-recipe (`.claude/skills/pr-light-check/SKILL.md`, the `make-targets` gate): expanding the recipe
+recipe (`scripts/review-run.sh`, the `make-targets` gate): expanding the recipe
 is not enough here — `make -n` does not execute the counting chain — while a run under
 `mutation-full` goes on a clean tree, where `clean=yes` is what is expected anyway. The reverse
 does not happen: with no `head` the wrapper sets `unknown` for `clean` as well, because a record

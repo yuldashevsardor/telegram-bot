@@ -86,8 +86,8 @@ one, and on the issue you get a second, weaker opinion you would have to reconci
 `pr-light-check` publishes the record of its own mutation run in this mode too: it is a fact of
 the run, not a verdict, and `--no-post` cancels that publication only if the flag reached it.
 
-`pr-light-check` fetches the PR code itself: `gh pr checkout`, or a separate worktree if the
-working tree is busy. So do not rely on the PR branch being the `HEAD` of your tree: the commands
+The run goes in a temporary tree of the PR head, which the target of `pr-light-check` creates and
+removes itself: your tree stays where it was, and the PR branch is not its `HEAD`. So the commands
 of step 5 compare against the PR branch by name, not against `HEAD`.
 
 Along with the run, `pr-light-check` returns the findings on the changed `*.md` lines (its step 3,
@@ -277,9 +277,10 @@ at most, more often as a nit.
 rebuild: done/not needed · build: ok/fail/n-a · typecheck: ok/fail/n-a · test: ok/fail/n-a · lint: ok/fail/n-a · format-check: ok/fail/n-a
 mutation: ok/fail/n-a — <score from Final mutation score>, <whole src/ or the area files> · accepted record, <link> (head <sha> earlier — nothing under the mutation gates since) | own run — <why the record was not accepted> (n-a — reason)
 make -n <target>: ok/fail — <what the expansion showed>
+make mutation, the MUTATION_DIRTY substitution: ok/fail — <the three values>
 sh -n <script>: ok/fail (+ dash: ok/fail/n-a)
 Not run: <check> — <reason>
-Not cleaned up: <temporary path> — <first meaningful line of the down error>
+Not cleaned up: <temporary path> — <first meaningful line of the error>
 Inherited failures (red on base too): <list or "none">
 Diff test coverage: yes (<file>) / no
 Manual check: <how it was checked or "not done">
@@ -321,9 +322,8 @@ Verdict rules:
   Red is a ground by itself: it has no finding level, it arrives as step 3 lines and stands in
   "Checks", not in "Findings".
 - **BLOCKED** — review is impossible: the PR is not tied to an issue, the build does not start, the
-  mutation gate is cut short by a checker crash on the retry too (`pr-light-check`, the
-  `mutation` and `mutation-full` section), the diff is empty, or the task is worded so that its
-  criteria cannot be checked.
+  mutation gate is cut short by a checker crash on the retry too (the `mutation:` line of the run
+  says so), the diff is empty, or the task is worded so that its criteria cannot be checked.
 
 Reached REQUEST_CHANGES on the third run (`K >= 3` from step 1) because of a blocker or a
 should-fix — put BLOCKED instead and say explicitly that a human is needed: two rounds of fixes are

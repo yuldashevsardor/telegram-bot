@@ -1,7 +1,7 @@
 ---
 name: pr-light-check
 description: Light Pull Request review — a mechanical run of the repository checks by the gates passed in, documentation drift in the changed lines and issue compliance, with a verdict and a PR comment. Run by the /review-pr command, and by the pr-deep-review skill as its mechanical part. Not for ordinary work on code and not for checking uncommitted edits.
-allowed-tools: Bash(gh:*), Bash(git:*), Bash(make db-up), Bash(make rebuild), Bash(make build), Bash(make typecheck), Bash(make coverage), Bash(make lint), Bash(make format-check), Bash(make mutation:*), Bash(make help), Bash(make token-status), Bash(make -n:*), Bash(sh -n:*), Bash(docker run:*), Bash(docker compose -f docker-compose.app.yml down --rmi local --volumes), Bash(scripts/bot-token.sh), Bash(cd:*), Bash(ls:*), Bash(cp:*), Bash(touch mutation-dirty-probe), Bash(rm mutation-dirty-probe), Bash(grep:*), Bash(awk:*), Read, Grep, Glob, Write
+allowed-tools: Bash(gh:*), Bash(git:*), Bash(make review-run:*), Bash(grep:*), Bash(awk:*), Read, Grep, Glob, Write
 ---
 
 You run the repository checks over the code of a Pull Request and decide whether it can be
@@ -17,10 +17,10 @@ the run, documentation drift and issue compliance.
 ## Two modes
 
 - **Standalone** (called by the `/review-pr` command) — you do everything: steps 1–6.
-- **Mechanical** (called by `pr-deep-review`) — you do only steps 1–3 and the cleanup and return
-  the run results and the documentation findings as lines. No issue, no verdict, no comment:
-  those belong to the caller. The exception is the record of your own mutation run ("The
-  author's run record"): it is not a verdict but a fact of the run, and you publish it.
+- **Mechanical** (called by `pr-deep-review`) — you do only steps 1–3 and return the run results
+  and the documentation findings as lines. No issue, no verdict, no comment: those belong to the
+  caller. The run still publishes the record of its own mutation run (step 1): it is not a verdict
+  but a fact of the run.
 
 Step 3 is part of the mechanical mode because the check has one owner. `pr-deep-review` sees the
 `*.md` diff only through you, and a documentation-only PR never reaches it at all; with the check
@@ -30,375 +30,91 @@ them apart.
 ## Hard rules of the role
 
 - **You fix nothing.** The result is a report and a verdict. Something red — say so and suggest
-  fixing it separately; do not edit files and do not run `--fix` along the way. `cp` and `Write`
-  are granted for the records the steps below prescribe and only for them: creating a file is an
-  edit too.
-- **Run, do not eyeball.** A check you did not run is `n-a`, not `ok`. "Looks correct", "the
+  fixing it separately; do not edit files and do not run `--fix` along the way. `Write` is granted
+  for the verdict text of step 6 and only for it: creating a file is an edit too.
+- **Run, do not eyeball.** A check that did not run is `n-a`, not `ok`. "Looks correct", "the
   syntax is fine", "should work" without the output of a command are forbidden. The one exception
-  is an accepted mutation run record of the author ("The author's run record"): it is written by
-  `make mutation` itself, not retold by the author.
-- **Allowlist.** You may really run only what is listed in step 2 and in "Cleaning up the
-  temporary trees". Everything else — including any `Makefile` target not listed there — is never
-  run, even if a gate points at it; such a check goes into the report as a "Not run" line with the
-  reason. The list is an allowlist rather than a denylist on purpose: a new `Makefile` target counts
-  as dangerous until it is written in here.
-- **What was not run is not hushed up.** Every check a gate turned on and you did not perform goes
-  into the report with the reason.
-- **A temporary tree does not outlive the run.** Every one you created is removed by "Cleaning up
-  the temporary trees" whatever the outcome: a red gate, BLOCKED and a stop halfway included.
+  is a mutation run record the run accepted: it is written by `make mutation` itself, not retold
+  by the author.
+- **Checks run only through `make review-run`.** Its gates and the targets it leaves out on purpose
+  are the allowlist at the top of `scripts/review-run.sh`: a new `Makefile` target counts as
+  dangerous until it is written in there, and a gate it does not know comes back as a "Not run"
+  line. No `Makefile` target is run by hand, even if a gate points at it.
+- **What was not run is not hushed up.** Every check a gate turned on and that did not run goes
+  into the report with the reason: the target prints its "Not run" lines, and a check of your own
+  reading that you did not do gets one from you.
+- **A temporary tree does not outlive the run.** The target removes its trees whatever the
+  outcome. A tree it could not remove comes as a "Not cleaned up" line and goes into the report as
+  it is, so that a human removes it.
 
-## Step 1. Preparation
+## Step 1. The run
 
-A run gate is any of those in the table of step 2. None of them — skip step 2 whole: no checkout,
-no database, no containers. Building a project in which not a single line of executable code
-changed costs minutes and cannot yield a single finding. Step 3 needs no checkout either: it reads
-the diff through `gh`.
+The run gates are `rebuild`, `build`, `typecheck`, `test`, `lint`, `format-check`, `make-targets`,
+`scripts`, `mutation` and `mutation-full`. None of them — skip steps 1 and 2 whole: no database, no
+tree, no containers. Building a project in which not a single line of executable code changed costs
+minutes and cannot yield a single finding. Step 3 needs no checkout either: it reads the diff
+through `gh`.
 
-At least one run gate — first of all, still in the tree you were started in, you need the
-database up (the application's network is declared external and belongs to the database project)
-and a `.env`:
-
-```bash
-make db-up
-ls .env
-```
-
-`make db-up` brings up the shared database and wipes nothing in it. No `.env` — stop the run, give
-the checks of step 2 `n-a` and say that `make worktree-init` is needed; do not run it yourself.
-Step 3 is still done in that case: `gh` is enough for it.
-
-Then the PR code:
+At least one — one call, from the tree you were started in:
 
 ```bash
-gh pr checkout <N>
+make review-run pr=<N> gates="<the gates as they came>" targets="<changed targets>" flags="<the flags as they came>"
 ```
 
-The working tree is taken by another session — do not switch the branch in it, create a separate
-worktree:
+The target brings the database up from this tree, takes the head of the PR into a temporary tree,
+runs the gates there, accepts or refuses the last run record in the PR, removes the tree and prints
+the report. Why each of these steps is the way it is — the comments of `scripts/review-run.sh`; the
+area of the `mutation` gate — `scripts/mutation-area.sh`.
 
-```bash
-git worktree add <temporary path> <PR branch>
-cp .env <temporary path>/.env
-cd <temporary path>
-```
+- `gates` — every gate that came in: the target takes its own and passes over the rest.
+- `targets` — only under `make-targets`: the targets whose recipe or `##` line the `Makefile` diff
+  changes, and those whose recipe expands a changed variable. Take them from the `Makefile` hunks of
+  `gh pr diff <N>` before the call.
+- `flags` — `--no-post` cancels the publication of the target's own mutation run record as well.
 
-Step 2 runs whole from that directory, so the `cd` is required: the targets are listed in
-`allowed-tools` by exact match (`Bash(make coverage)`), and `make -C <path> coverage` does not fall
-under them. `.env` is copied rather than created by `make worktree-init`: that one takes a slot of
-the token pool, while the throwaway `build`/`test`/`lint` containers need no bot and do not read the
-token. The tree is removed by "Cleaning up the temporary trees", not by a bare
-`git worktree remove`.
+A mutation gate on — call it in the background (`run_in_background`) and wait for the completion
+notification: a run of an area takes minutes, of the whole `src/` a quarter of an hour, while one
+command is cut off at ten minutes. Until it ends, run nothing that loads the machine: under load a
+mutant's status lies both ways (`docs/architecture/testing.md`, "Timeouts and errors"). Step 3
+reads through `gh` alone and may go meanwhile. No mutation gate — the foreground with the
+ten-minute limit (`timeout: 600000`) is enough.
 
-The temporary tree does not get in the application's way: `docker-compose.app.yml` has no `name`,
-and Compose takes the project name from the directory name. The database is the other way round.
-Its project name is fixed (`name: telegram-bot-db` in `docker-compose.db.yml`), and its data
-directory `./tmp/pgsql` leads into the main tree only through the symlink that
-`scripts/worktree-init.sh` sets. The temporary tree has no symlink, and `make db-up` from there
-recreates the shared container on an empty `tmp/pgsql`: every tree silently moves to a clean
-database without migrations, and the run on it is green and notices nothing. That is why the
-database is brought up before the move, and `make db-up` is never called from the temporary tree —
-neither here nor in "Red".
+## Step 2. Reading the report
 
-## Step 2. The run by gates
+The lines of **"Checks"** — the `rebuild … format-check` line, `mutation:`, the substitution of
+`make mutation`, `sh -n`, "Not run", "Not cleaned up" — go into the verdict as they are. So do the
+items of **"Red:"**: a command, the first meaningful line of its error, whether this PR brought it
+(the failed command is repeated on `origin/main`), and the lines that explain it. The whole logs lie
+in the directory the first line of the report names.
 
-Run only what the gates turned on. The order matters: `rebuild` goes first.
+The run did not start — a "Not run" line with every gate: there is nothing to confirm the PR works
+with. Step 3 is still done: `gh` is enough for it.
 
-| Gate | Command |
-| --- | --- |
-| `rebuild` | `make rebuild` |
-| `build` | `make build` |
-| `typecheck` | `make typecheck` |
-| `test` | `make coverage` |
-| `lint` | `make lint` |
-| `format-check` | `make format-check` |
-| `make-targets` | `make help`, then `make -n <changed target>`; the `mutation` recipe touched — also the substitution (below) |
-| `scripts` | `sh -n <script>`, then a parse by dash |
-| `mutation` | `make mutation files="<area from the diff>"` |
-| `mutation-full` | `make mutation` |
+An own mutation run in place of a refused record is not a finding and does not affect the verdict:
+a process error must not cost a round. The `mutation:` line says why the record was refused.
 
-This is the allowlist. Also allowed are `make token-status` and `scripts/bot-token.sh` with no
-arguments — neither changes anything — and the probe file of the `mutation` substitution (below,
-"make-targets"): it is untracked and removed right after the check, so the PR tree stays the one
-that was sent. Nothing else.
+**"Yours to read:"** is what a command does not judge:
 
-### What is not on the list and why
-
-The `Makefile` can do more than the list. These targets look fitting in a review but are left out
-on purpose:
-
-- `lint-fix`, `format` — they edit files in the PR tree. That breaks "you fix nothing" outright:
-  after them you check not the code that was sent, and the red of `lint` and `format-check`
-  disappears together with the finding.
-- `test-watch` — it does not finish but waits for changes. Run it and the run hangs.
-- `test` — the same specs as `coverage` but without the coverage threshold
-  (`docs/architecture/testing.md`, "Coverage"): a PR that dropped coverage below the threshold
-  would pass it green, while `make check` fails for the author. So the `test` gate runs
-  `make coverage` and loses nothing by it: `nyc` runs the same `mocha`, a failed spec is printed the
-  same way (`N failing` and its error), and the run fails even at 100% coverage. `make coverage`
-  writes its report into `./coverage` of the PR tree — the directory is in `.gitignore`, the diff
-  does not change.
-- `check` — `typecheck`, `lint`, `format:check` and `test:coverage` in a row in one output. The
-  report needs a line per gate, so the targets run one by one.
-
-### rebuild
-
-The throwaway container takes the ready image and rebuilds it itself only when there is no image at
-all. The reasons and what lives in the image are in the comment on the `rebuild` target in the
-`Makefile`. Without a rebuild you check new code against old dependencies and an old config and get
-a green result that means nothing.
-
-The `build`, `typecheck`, `coverage`, `lint` and `format-check` targets run npm scripts from
-`package.json`, and that lives in the image. So a PR that adds or renames a script fails with
-`Missing script` on an image that was not rebuilt. That is not a review finding but a missed
-`rebuild` — rebuild and repeat.
-
-### build and typecheck
-
-Both run `tsc`, but by different tsconfigs, and neither replaces the other: the file set of
-`typecheck` is wider. What is added to it and why is in the comment in `tsconfig.check.json`. A
-green `build` on a PR that touches specs or migrations says nothing about their types.
-
-### lint and format-check
-
-They run over the whole repository, without `files=`. The repository is green as a whole, so
-anything red here was brought by this PR — there is no point narrowing the file list.
-
-### make-targets
-
-```bash
-make help
-make help | grep -w '<changed target>'
-make -n <changed target>
-```
-
-`make -n` prints the recipe without running it — that is the check of how the variables expand
-(`DC_APP_RUN`, `FILES`, `RENEW_TOKEN`) with no side effects. The one exception in GNU make is lines
-with `$(MAKE)`: those it runs even under `-n`, but it passes `-n` on through `MAKEFLAGS`, so the
-nested make only prints too.
-
-Look in the output: whether the variable values were substituted, whether an argument is left
-empty, whether a multi-line `files` got glued into one command.
-
-For a new or renamed target also check, without commands: whether it has a `## description`
-comment (otherwise it does not get into `make help`), whether it is in `.PHONY`, whether the recipe
-itself rejects a missing required parameter (the example is `migrate-create`).
-
-The recipe of the `mutation` target is checked beyond the expansion. It counts `MUTATION_DIRTY` —
-the `clean=` field of the run record, on which condition 2 of its acceptance rests (below, "The
-author's run record"). `make -n` prints the chain `tree=…&&dirty=…||dirty=unknown` but does not run
-it, and a run under `mutation-full` goes on a clean tree, where `clean=yes` is expected anyway. So a
-recipe in which a failing `git` or a non-empty `git status` gives 0 looks sound under both gates,
-and records start arriving with `clean=yes` on an unchecked tree — review would accept a run that
-did not go on the PR's commit. The `mutation` recipe touched in the diff — run the substitution.
-`DC_APP_RUN` is a simple assignment in the `Makefile`, and overriding it from the command line
-replaces the container launch with `echo`: the real recipe runs and prints the counted values in a
-second.
-
-```bash
-# clean tree — MUTATION_DIRTY=0
-make mutation DC_APP_RUN=echo | grep '^env MUTATION_HEAD='
-# one untracked file — one more
-touch mutation-dirty-probe
-make mutation DC_APP_RUN=echo | grep '^env MUTATION_HEAD='
-rm mutation-dirty-probe
-# git does not answer — MUTATION_DIRTY=unknown, not a number
-make mutation DC_APP_RUN=echo GIT_DIR=/nonexistent | grep '^env MUTATION_HEAD='
-```
-
-The expected values are in the comments: on a fresh checkout the first probe gives 0, the second
-exactly one more, the third `unknown`. A mismatch — the gate is `fail`: the substitution counts
-something other than what goes into the record. `MUTATION_HEAD` goes empty in the last probe
-together with `dirty`, and that is expected — on an empty head the wrapper sets `clean=unknown`
-itself (`docs/architecture/testing.md`, "The run record").
-
-The form of the commands is thought through; do not swap it for a more familiar one. `grep` takes
-the executed line: make also prints the recipe itself, and in its text `MUTATION_DIRTY="$dirty"`
-is not expanded yet. `GIT_DIR` is passed as a make variable rather than a shell prefix: make puts
-command-line variables into the recipe's environment, and in this form the command starts with
-`make mutation` — so it is covered by the skill's `allowed-tools`, like the other probes. The probe
-file is untracked and removed by the next line, the PR diff does not change; the `reports`
-directory the target creates even without a run, and it is in `.gitignore`.
-
-### scripts
-
-```bash
-sh -n scripts/<file>.sh
-docker run --rm -v "$PWD":/app -w /app node:24-bookworm-slim sh -n scripts/<file>.sh
-```
-
-The second run is needed when the body of the script changed, not only its comments: the scripts
-are declared `#!/usr/bin/env sh`, but on macOS `/bin/sh` is bash in POSIX mode, and it lets through
-bashisms that fail on dash in Linux. The image here is only a source of dash; the Node version has
-nothing to do with it.
-
-### mutation and mutation-full
-
-Which threshold `make mutation` checks and why a run without mutants is green — in
-`docs/architecture/testing.md`, "Threshold". Before running the target, check the author's run
-record (below, "The author's run record"): an accepted one replaces your run. The rest is reading
-the output. The outcome of the gate is the target's exit code, the score comes from the
-`Final mutation score` line. Survived (`Survived`) and uncovered (`NoCoverage`) mutants `clear-text`
-prints above it, one by one: the mutator, `<file>:<line>:<column>` and the replacement. List them in
-"Red".
-
-The exit code can be non-zero without survivors: the run broke off on a crash of the checker
-process, and there is no `Final mutation score` line. What stands behind these messages is in
-`docs/architecture/testing.md`, "The type checker"; here is what to do on each:
-
-- `Checker process […] crashed with exit code null` — repeat the target once;
-- `Checker process […] ran out of memory` — the gate is `fail`: the checker lacks the heap limit
-  from `checkerNodeArgs` on the tree of this PR;
-- the run broke off with a `Child process [pid …]` error and there are no `Checker process` lines —
-  the checker crashed on the initial compilation, which has no retry: repeat the target once, as in
-  the first line.
-
-The repeat broke off too — the gate is `n-a` with the reason "the run broke off on a checker
-crash", the verdict is BLOCKED: there is nothing to judge the mutants by.
-
-`Child process [pid …]` lines alone say nothing: they are written about the runner too, and its
-crash on a mutant does not break the run off. The run reached `Final mutation score` — read the gate
-by the score, however many such lines stand above. It broke off with
-`Something went wrong in the initial test run` — the initial test run failed, not the checker, and
-the gate is read as usual, by the exit code.
-
-`mutation-full` mutates the whole of `src/`. That takes minutes, longer than the limit of a single
-command, so the run goes to the background and the result is read on completion. While it runs,
-start no other gates: the load would be created by the review itself, and under load a mutant's
-status lies both ways (`docs/architecture/testing.md`, "Timeouts and errors").
-
-`mutation` mutates the area from the diff. Assemble it in the PR tree:
-
-```bash
-gh pr diff <N> --name-only \
-  | awk '/^src\/.+\.ts$/ {print; next} /^test\/.+\.spec\.ts$/ {sub(/^test\//, "src/"); sub(/\.spec\.ts$/, ".ts"); print}'
-git grep -l 'from "test/<helper path without .ts>"' -- 'test/*.ts'
-git ls-files -- <paths from the first two commands>
-git ls-files -- 'src/**/<spec name without .spec.ts>.ts'
-```
-
-1. The first command gives the candidates: a source as it is, a spec as its mirror
-   (`test/a/b.spec.ts` → `src/a/b.ts`). A spec belongs in the area because a PR that weakened it
-   touches no sources, and without the mirror it would have nothing to mutate. A changed `.ts` in
-   `test/` that is not a spec is a helper: find the files importing it with the second command.
-   Specs from its output give mirrors, and helpers give the second command again, until nothing new
-   is left. `mocha` hooks (`*-hook.ts`) nobody imports, and they give no area. No candidates — the
-   area is empty right here (`n-a`, as below), assemble no further: `git ls-files --` with no paths
-   prints not nothing but every file of the repository.
-2. The third keeps only the files that exist in the PR tree. `--name-only` also yields deleted
-   files and the old paths of moves (PR #366), and a glob that found no `.ts` under `src/` stops the
-   run by a check in `stryker.config.mjs`.
-3. A spec's mirror is not in the output of the third — find the spec's source by file name with the
-   fourth command: not every spec lies as a mirror (the specs of `test/font-convertor/` are flat,
-   while the sources are laid out in directories). Not found that way either — the source is not in
-   the tree, and the spec gives no area.
-4. Subtract `src/app.ts` and the files of `DATABASE_ONLY_SOURCES` from `stryker.config.mjs` of the
-   PR tree. The config excludes them itself, but an area made of such files alone passes its check
-   and gives a run without a single mutant.
-
-The area is empty after the subtraction — do not run `make mutation`, give `n-a` with the reason
-"the area is empty": the PR edited, say, only the database specs (PR #372). A run with the score
-`NaN` is `n-a` too, not `ok`: not a single mutant of the area got into the score, and the green
-exit checked nothing.
-
-At a threshold of 100, silencing a survivor with a mark is cheaper than writing a test, so a green
-run does not yet mean there are no survivors. Read the new marks in the diff together with their
-reason — under either gate:
-
-```bash
-gh pr diff <N> | awk '/^\+\+\+ /{f=substr($0,7); next} /^\+.*Stryker disable/{print f": "$0}'
-```
-
-The reason is checked against "Working through survivors" in `docs/architecture/testing.md`: the
-mutant is equivalent, or the behaviour is not required and an issue is filed for it — then the mark
-links to it. The reason does not hold — the gate is `fail`, as with a live survivor: the mark only
-hid it.
-
-#### The author's run record
-
-`make mutation` writes a run record, and the author publishes it in the PR; the format is in
-`docs/architecture/testing.md`, "The run record". Check it before running the target: under
-`mutation-full` right away, under `mutation` once the area is assembled and not empty. The last
-record in the PR (the link to the comment and its first line, the marker; empty — there is no
-record) and the PR head:
-
-```bash
-gh pr view <N> --json comments -q '[.comments[] | select(.body | test("^<!-- mutation-record "))] | last // empty | .url, (.body | split("\n")[0])'
-gh pr view <N> --json headRefOid -q .headRefOid
-```
-
-Only a comment that **starts** with the marker counts as a record: the wrapper always writes it as
-the first line, while a quote of the marker in a discussion would otherwise pass itself off as a
-run.
-
-The record is accepted if all of this holds:
-
-1. the record covers the PR head: the marker's `head=` equals the PR head, or nothing that affects
-   the run changed since that commit — the rule, the command and the case of a lost commit are in
-   `docs/agents/review-gates.md`, "Changes that affect the mutation run";
-2. `clean=yes`;
-3. the run reached the report (`score=` is not `none`) and the area is the same: under
-   `mutation-full` — `scope=full`, under `mutation` — `scope=files` and an empty output of the
-   command below. A full record is not accepted under the `mutation` gate even though its area
-   covers: the gate's outcome is the exit code of the whole run, and a survivor in a file the PR did
-   not touch would paint the gate red and send the reviewer to repeat the run outside the area,
-   while an area without mutants would give `ok` instead of `n-a`. Your own run of the area takes
-   seconds;
-4. the `rebuild` gate is off: the author's run might have gone on an old image.
-
-```bash
-gh pr view <N> --json comments -q '[.comments[] | select(.body | test("^<!-- mutation-record "))] | last // empty | .body | (split("\n")[] | select(test("^src/\\S+\\.ts$"))), (capture("\n- files: `(?<f>[^`]*)`").f | split(" ")[])' \
-  | awk -v area='<area files separated by spaces>' '{ seen[$0] } END { n = split(area, a, " "); for (i = 1; i <= n; i++) if (!(a[i] in seen)) print a[i] }'
-```
-
-The command prints the area files the record has neither among the mutated nor as a path in
-`files`. A path in `files` counts because a file without a single mutant never appears in the
-Stryker report (`docs/architecture/testing.md`, "The run record"): a file of types alone is visible
-in the record only as a named path. The same file that got into the author's run through a glob the
-command prints, and the record is not accepted.
-
-An accepted record replaces only the run; the rest of the gate stays the same. The outcome is the
-record's `exit=` instead of the target's exit code, the score is `score=`, the survived and
-uncovered mutants are the record's list. The score `NaN` is `n-a`; a red record means a repeat on
-every file with survivors ("Red"); new `Stryker disable` marks in the diff are read together with
-their reason. The list of survivors in the record is cut off by an `…and N more` line — the record
-is not accepted: the rest lies only on the machine of the run, and there is nothing to repeat on
-every file with survivors.
-
-Any condition not met — run the target yourself, as described above. Refusing the record is not a
-review finding and does not affect the verdict: a process error must not cost a round. Where the run
-came from and why the record was not accepted is told by the `mutation:` line of the verdict (step
-5). It says "accepted record" and gives the link rather than naming the author: the reviewer's record
-of the previous round lies in the same thread and is accepted on a par with the author's, and the
-author's comment cannot be told from it — the account is the same. A record accepted from an
-earlier head — name its `head=` there too and say that nothing under the mutation gates came in
-since: otherwise the verdict does not show that the run went on a commit other than the PR's.
-
-Publish the record of your own run in the PR as soon as it finishes: a repeat from "Red" overwrites
-`reports/mutation/record.md`, and the cleanup deletes the temporary tree together with it. Copy the
-record into a temporary file outside the repository, append an empty line and the signature from
-`CLAUDE.md` ("Agent signature on GitHub") and publish: `gh pr comment <N> --body-file <file>`. The
-records of repeats are not published — the gate's record stays the last in the PR. The `--no-post`
-flag cancels this publication too: it comes in the arguments, and from `pr-deep-review` together
-with the gates.
-
-### Red
-
-Red in `make -n` and `sh -n` is unambiguous by itself. Red in `mutation` and `mutation-full` —
-repeat on every file with survivors, `make mutation files="<file>"`: the threshold of 100 has no
-margin, and on a loaded machine a mutant's status lies both ways
-(`docs/architecture/testing.md`, "Timeouts and errors"). There is no need to repeat the whole area:
-the mutants of other files do not affect the status of these.
-
-A repeat refines the red but does not turn it green: the gate is `fail` whatever the outcome. The
-survivor stands in the `clear-text` output again — the same mutator, place and `+` line — then the
-red is confirmed. It does not — add to it in "Red" the note "possible drift: recheck on an idle
-machine". The status of the repeat does not prove drift: under load a survivor hides both under
-`Timeout` and under `Killed` with the ordinary message of a spec, and review has no idle machine.
-
-Red in `build`, `typecheck`, `test`, `lint`, `format-check` or the mutation gates — compare with the
-base if you doubt it was brought by this PR: create a worktree on `origin/main`, copy `.env` into it,
-move into it and run **only the failed** command. That is a temporary tree too, and it is removed
-the same way.
+- `make -n <target>` — the expansion of a changed target: whether the variable values were
+  substituted, whether an argument is left empty, whether a multi-line `files` got glued into one
+  command. For a new or renamed target also: whether it has a `## description` (its `make help`
+  line is printed), whether it is in `.PHONY` (printed), whether the recipe itself rejects a
+  missing required parameter (the example is `migrate-create`). Your line in "Checks" is
+  `make -n <target>: ok/fail — <what the expansion showed>`.
+- The new `Stryker disable` marks. At a threshold of 100 a mark is cheaper than a test, so a green
+  run does not yet mean there are no survivors. Check each reason against "Working through
+  survivors" in `docs/architecture/testing.md`: the mutant is equivalent, or the behaviour is not
+  required and an issue is filed that the mark links to. The reason does not hold — the mutation
+  gate is `fail`, as with a live survivor: the mark only hid it.
+- A record accepted on a condition: its head is earlier than the PR's, and since then files changed
+  whose gate in `docs/agents/review-gates.md` depends on the content of the change; their hunks
+  follow. A diff of comments only leaves `mutation-full` off, and the `Makefile` turns it on only
+  through the `mutation` recipe or a variable it expands. The record holds — write its `mutation:`
+  line without the condition. It does not — call the target once more with the mutation gate alone
+  and `record=refuse`: its own run replaces the record.
+- A file red "on origin/main too": the target prints the survivors of both runs. The lines move
+  with the PR's edits, so match a survivor by its mutator and replacement: one the base does not
+  have is brought by this PR.
 
 ## Step 3. Documentation drift
 
@@ -477,38 +193,6 @@ A finding here is REQUEST_CHANGES by the rules of step 5, no weaker than a red r
 documentation lives until the next cleanup, and it costs the reader more than the edit costs the
 author.
 
-## Cleaning up the temporary trees
-
-Right after step 3, in both modes, remove every temporary tree you created: the PR tree from step 1
-and the `origin/main` tree from "Red". Steps 4–6 do not need it, and a failed cleanup before step 5
-still makes it into the verdict. The run broke off earlier — the cleanup goes before the stop. For
-each tree:
-
-```bash
-cd <temporary path>
-docker compose -f docker-compose.app.yml down --rmi local --volumes
-cd <the tree you were started in>
-git worktree remove --force <temporary path>
-```
-
-A bare `git worktree remove` is not enough. The gates of step 2 run in a throwaway container: it
-removes itself, but the `<directory>-app` image and the `<directory>_app-tmp` volume stay — Compose
-takes the project name from the directory. Remove the directory first and there is nowhere to take
-the project name from, so both are orphaned: the image weighs about a gigabyte in `docker images`.
-So `down` goes from the tree itself and before `remove`, as in `scripts/worktree-cleanup.sh`.
-`make worktree-cleanup` does not fit here: it requires a branch merged into `main` on origin and
-deletes it on origin, while the PR branch under review is still alive. `down` does not touch the
-shared database: it lives in a separate project, `telegram-bot-db`.
-
-`down` failed (Docker does not answer) — do not remove the tree: without the directory this command
-can no longer remove the image. Name the path in a "Not cleaned up" line of the report so that a
-human removes the tree.
-
-The price: the next review round of the same PR builds the image anew — the throwaway container
-rebuilds it only when there is no image (the comment on the `rebuild` target in the `Makefile`), and
-after the cleanup there is none. That is minutes of build per round against an image left on disk
-by every one.
-
 ## Step 4. Issue compliance
 
 The run answers "is anything broken", the verdict answers "can it be merged". The second cannot be
@@ -567,9 +251,10 @@ Not checked: invariants, bugs, smells, overlaps with open PRs, documentation out
 rebuild: done/not needed · build: ok/fail/n-a · typecheck: ok/fail/n-a · test: ok/fail/n-a · lint: ok/fail/n-a · format-check: ok/fail/n-a
 mutation: ok/fail/n-a — <score from Final mutation score>, <the whole src/ or the area files> · accepted record, <link> (head <sha> is earlier — nothing under the mutation gates came in since) | own run — <why the record was not accepted> (n-a — the reason)
 make -n <target>: ok/fail — <what the expansion showed>
+make mutation, the MUTATION_DIRTY substitution: ok/fail — <the three values>
 sh -n <script>: ok/fail (+ dash: ok/fail/n-a)
 Not run: <check> — <reason>
-Not cleaned up: <temporary path> — <the first meaningful line of the down error>
+Not cleaned up: <temporary path> — <the first meaningful line of the error>
 
 ### Documentation
 issue links: ok/findings/n-a · <file.md> "<quoted line>" — #<M> is closed, the paragraph presents it as a live problem
@@ -605,9 +290,9 @@ a signature.
 - **REQUEST_CHANGES** — there is red brought by this PR, or a documentation finding, or an unmet
   issue criterion, or changes the issue did not ask for.
 - **BLOCKED** — there is nothing to judge by: the PR is not linked to an issue, or the run did not
-  start (no Docker, no `.env`) and there is nothing to confirm it works with, or a mutation gate
-  broke off on a checker crash on the repeat too ("mutation and mutation-full"): nobody checked the
-  PR's mutants.
+  start (no Docker, no `.env`) and there is nothing to confirm it works with, or the mutation line
+  says the run broke off on a checker crash and so did its repeat: nobody checked the PR's
+  mutants.
 
 Red that is red on the base too does not change the verdict — put it on a separate line as
 inherited.

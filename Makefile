@@ -180,6 +180,17 @@ shell: ## Shell in the running application container
 psql: ## psql in the database container
 	$(DC_DB) exec pgsql sh -c 'psql -U "$$POSTGRES_USER" -d "$$DATABASE_NAME"'
 
+## Review
+
+# The mechanical run of a PR review (.claude/skills/pr-light-check/SKILL.md): the gates over the head
+# of the PR in a temporary tree, a line per gate. The values go in quoted as they are, and the
+# script checks each: a number, the names of gates and targets, the known flags.
+review-run: ## The gates of a PR review in a temporary tree: make review-run pr=524 gates="build test mutation"
+	@scripts/review-run.sh '$(pr)' '$(gates)' '$(targets)' '$(flags)' '$(record)'
+
+mutation-area: ## The mutation area of this branch against origin/main, for make mutation files="…"
+	@scripts/mutation-area.sh
+
 ## Worktrees and tokens
 
 worktree-init: ## Prepare this task worktree: shared tmp/pgsql, own .env and BOT_TOKEN
@@ -225,5 +236,5 @@ help: ## Show this list
 
 .PHONY: up db-up app-up app-down db-down logs restart db-reset \
 	migrate migrate-create build typecheck test test-watch coverage \
-	lint lint-fix format-check format mutation check rebuild shell psql \
+	lint lint-fix format-check format mutation check rebuild shell psql review-run mutation-area \
 	worktree-init worktree-cleanup token-acquire token-renew token-release token-status token-add help
