@@ -1,108 +1,114 @@
 ---
-description: Решить issue целиком — реализация, PR, круги агентского ревью и мерж по ответу владельца
-argument-hint: <номер issue или ссылка на неё>
+description: Solve an issue end to end — implementation, PR, rounds of agent review and a merge on the owner's answer
+argument-hint: <issue number or link>
 ---
 
-Ты — автор. Аргументы: `$ARGUMENTS`.
+You are the author. Arguments: `$ARGUMENTS`.
 
-Твоя работа — довести issue до PR, который прошёл ревью, и спросить владельца, можно ли его
-вливать. Реализуешь и правишь ты сам. Ревьюирует свежий сабагент командой `/review-pr`.
-Решение о мерже принимает владелец.
+Your job is to bring the issue to a PR that has passed review and to ask the owner whether it
+can be merged. You implement and fix it yourself. A fresh subagent reviews it with the
+`/review-pr` command. The owner decides on the merge.
 
-Ревьюер — не ты, и это не формальность. Ревью в сессии автора смотрит на диф глазами
-автора: он знает, почему каждая строка такая, и не видит ни потерянного знания, ни
-оставшейся лжи. Поэтому находки ревьюера ты не пересматриваешь молча: чинишь, а если не
-согласен — спрашиваешь владельца (шаг 6).
+The reviewer is not you, and that is not a formality. A review in the author's session sees
+the diff through the author's eyes: it knows why every line is the way it is, and sees neither
+the lost knowledge nor the remaining lies. So you do not quietly overrule the reviewer's
+findings: you fix them, and if you disagree, you ask the owner (step 6).
 
-## Шаг 1. Вход
+## Step 1. Input
 
-Аргумент — номер, `#N` или ссылка `.../issues/N`; достань из него `N`. Голый номер может
-оказаться PR (`docs/agents/issue-tracker.md`), поэтому сначала проверь:
+The argument is a number, `#N` or a link `.../issues/N`; take `N` from it. A bare number can
+turn out to be a PR (`docs/agents/issue-tracker.md`), so check first:
 
 ```bash
-gh pr view <N> --json number 2>/dev/null && echo "это PR"
+gh pr view <N> --json number 2>/dev/null && echo "this is a PR"
 gh issue view <N> --json number,title,state,body,comments
 gh pr list --state open --search "<N> in:body" --json number,title,headRefName
 ```
 
-- Это PR, а не issue → остановись и скажи об этом.
-- Issue закрыта или к ней уже открыт PR → остановись и спроси, что делать.
+- It is a PR, not an issue → stop and say so.
+- The issue is closed or already has an open PR → stop and ask what to do.
 
-## Шаг 2. Реализация
+## Step 2. Implementation
 
-Работай так же, как без команды. Прочитай issue вместе с комментариями, затем то, что
-велит `CLAUDE.md` под задачу: `CONTEXT.md`, файл подсистемы в `docs/architecture/`,
-`docs/architecture/invariants.md`. Неясно, что именно просят, или есть развилка, которую
-решает владелец, — спроси через AskUserQuestion и жди ответа. Угаданный ответ обернётся
-кругом ревью на невыполненный критерий.
+Work as you would without the command. Read the issue with its comments, then what
+`CLAUDE.md` tells you to read for the task: `CONTEXT.md`, the subsystem file in
+`docs/architecture/`, `docs/architecture/invariants.md`. It is unclear what exactly is asked,
+or there is a fork the owner decides — ask through AskUserQuestion and wait for the answer. A
+guessed answer turns into a review round over an unmet criterion.
 
-Дальше — «Workflow» из `CLAUDE.md`, без исключений:
+Then the "Workflow" of `CLAUDE.md`, with no exceptions:
 
-1. Префикс ветки выбери до первого пуша: переименование ветки открытого PR его закрывает.
-2. Worktree `../telegram-bot-<задача>` от `origin/main`, в нём `make worktree-init`.
-3. Правки, `make check`, `git status -sb`, коммит, прогон мутаций, пуш.
-4. PR в `main` со ссылкой на issue — как её писать, сказано в `docs/agents/issue-tracker.md`.
-   Без ссылки ревью даст BLOCKED. Сразу за ним — запись прогона мутаций в PR (ниже).
+1. Choose the branch prefix before the first push: renaming the branch of an open PR closes it.
+2. The worktree `../telegram-bot-<task>` from `origin/main`, `make worktree-init` in it.
+3. Edits, `make check`, `git status -sb`, commit, mutation run, push.
+4. A PR into `main` with the issue link — how to write it is in `docs/agents/issue-tracker.md`.
+   Without the link the review gives BLOCKED. Right after it — the mutation run record in the PR
+   (below).
 
-Прогон мутаций — `make mutation files="<область>"` с тем же порогом, что у гейта ревью: без него
-о выжившем мутанте автор узнаёт только от ревьюера, кругом. Область собирается по правилу гейта
-`mutation` (`.claude/skills/pr-light-check/SKILL.md`, «mutation and mutation-full»), только
-кандидатов даёт `git diff --name-only origin/main...HEAD`, а не диф PR, и передаётся путями, а не
-глобом. Правка включила гейт `mutation-full` (`docs/agents/review-gates.md`) —
-`make mutation` без `files`. В `make check` прогон не входит: там он шёл бы на каждой правке.
+The mutation run is `make mutation files="<area>"` with the same threshold as the review gate:
+without it the author learns of a survived mutant only from the reviewer, at the cost of a round.
+The area is assembled by the rule of the `mutation` gate (`.claude/skills/pr-light-check/SKILL.md`,
+"mutation and mutation-full"), except that the candidates come from
+`git diff --name-only origin/main...HEAD`, not from the PR diff, and it is passed as paths, not a
+glob. The change turned on the `mutation-full` gate (`docs/agents/review-gates.md`) — `make mutation`
+without `files`. The run is not part of `make check`: there it would go on every edit.
 
-Прогон оставляет запись — `reports/mutation/record.md`, формат в `docs/architecture/testing.md`,
-"The run record". После пуша опубликуй её в PR комментарием как есть, дописав в конец пустую
-строку и подпись из `CLAUDE.md`: по ней ревьюер принимает твой прогон вместо своего (условия —
-`.claude/skills/pr-light-check/SKILL.md`, «The author's run record»). Первый прогон идёт до PR, и
-его запись публикуется сразу после создания PR. Публикуется только запись прогона, который был:
-область пуста и цель не запускалась — публиковать нечего, а лежащий с прошлого круга `record.md`
-соврал бы про head. Пока прогон идёт, ничего другого не запускай, как ревьюер на `mutation-full`:
-под нагрузкой статус мутанта врёт в обе стороны (`docs/architecture/testing.md`, "Timeouts and
-errors"), а твой прогон ревью переиспользует.
+The run leaves a record — `reports/mutation/record.md`, its format is in
+`docs/architecture/testing.md`, "The run record". After the push, post it in the PR as a comment
+as is, appending an empty line and the signature from `CLAUDE.md`: by it the reviewer accepts
+your run instead of its own (the conditions are in `.claude/skills/pr-light-check/SKILL.md`, "The
+author's run record"). The first run goes before the PR, and its record is posted right after the
+PR is created. Post only the record of a run that happened: the area is empty and the target did
+not run — there is nothing to post, and a `record.md` left over from the previous round would lie
+about the head. While the run goes, run nothing else, as the reviewer does on `mutation-full`:
+under load a mutant's status lies both ways (`docs/architecture/testing.md`, "Timeouts and
+errors"), and the review reuses your run.
 
-Последняя запись в PR покрывает и следующий коммит, если изменения с её head прогона не
-касаются: тогда цель не запускается и новая запись не публикуется — ревью примет ту же
-(`docs/agents/review-gates.md`, "Changes that affect the mutation run"; последнюю запись
-и её `head=` достаёт команда из `.claude/skills/pr-light-check/SKILL.md`, «The author's run
-record»). Годится и запись ревьюера: она лежит в том же треде, и правило у неё то же.
+The last record in the PR also covers the next commit if the changes since its head do not
+affect the run: then the target does not run and no new record is posted — the review accepts
+the same one (`docs/agents/review-gates.md`, "Changes that affect the mutation run"; the command
+in `.claude/skills/pr-light-check/SKILL.md`, "The author's run record", fetches the last record
+and its `head=`). A record of the reviewer's serves as well: it lies in the same thread, and the
+same rule applies to it.
 
 Same rule, one case worth naming: a merge of `origin/main` into the branch moves the head although
-you edited nothing, and what the merge brings goes through the same three gates. Measure the record
-against the new `HEAD` before the next round and run again if one of them turns on: a round opened
-on a record the review refuses costs the reviewer a run of its own and buys the branch nothing.
+you edited nothing, and what the merge brings goes through the three gates of that section. Measure
+the record against the new `HEAD` before the next round and run again if one of them turns on: a
+round opened on a record the review refuses costs the reviewer a run of its own and buys the branch
+nothing.
 
-Все дальнейшие команды — в дереве задачи.
+All further commands run in the task worktree.
 
-## Шаг 3. Ревью
+## Step 3. Review
 
-Круги считай сам: `R` = 1, 2, 3. Каждый круг — новый сабагент: Agent tool,
-`subagent_type: general-purpose`. Промпт — ровно это и ничего больше:
+Count the rounds yourself: `R` = 1, 2, 3. Every round is a new subagent: the Agent tool,
+`subagent_type: general-purpose`. The prompt is exactly this and nothing more:
 
-> Выполни скилл `review-pr` с аргументом `<PR>`. Когда закончишь, выведи одной строкой:
-> вердикт, номер прогона, head.
+> Run the `review-pr` skill with the argument `<PR>`. When done, print on one line: the verdict,
+> the run number, the head.
 
-Ни описания реализации, ни «на что обратить внимание», ни твоих прошлых ответов на
-находки: всё это вернёт ревью глаза автора. Дождись уведомления о завершении сабагента.
+No description of the implementation, no "what to pay attention to", none of your past answers
+to findings: any of it gives the review the author's eyes back. Wait for the subagent's
+completion notification.
 
-## Шаг 4. Вердикт
+## Step 4. Verdict
 
-Отчёт сабагента — не источник: вердикт читай из PR. Публикация вердикта — последний шаг
-скилла, и она доезжает не всегда (#154).
+The subagent's report is not a source: read the verdict from the PR. Posting the verdict is the
+last step of the skill, and it does not always arrive (#154).
 
 ```bash
 gh pr view <PR> --json headRefOid -q '.headRefOid[0:7]'
 gh pr view <PR> --json comments -q '[.comments[] | select(.body | test("<!-- pr-(deep-review|light-check) "))] | last | .body'
 ```
 
-Годится только комментарий, у которого в маркере `head=` совпадает с текущим head. Такого нет
-→ остановись (шаг 7) и скажи, что вердикт в PR не опубликован. Сам ревью не пересказывай
-и не додумывай.
+Only a comment whose marker has `head=` equal to the current head counts. There is none → stop
+(step 7) and say that the verdict was not posted in the PR. Do not retell or fill in the review
+yourself.
 
-## Шаг 5. Комментарии владельца
+## Step 5. Owner comments
 
-Владелец может писать в PR когда угодно, наравне с ревьюером. Перечитывай PR после каждого
-ревью и перед вопросом о мерже. Лент три, и ни одна не содержит двух других:
+The owner can write in the PR at any time, on a par with the reviewer. Reread the PR after every
+review and before the merge question. There are three feeds, and none contains the other two:
 
 ```bash
 gh pr view <PR> --json comments -q '.comments[] | {createdAt, url, body}'
@@ -110,98 +116,103 @@ gh pr view <PR> --json reviews -q '.reviews[] | select(.body != "") | {submitted
 gh api --paginate repos/{owner}/{repo}/pulls/<PR>/comments -q '.[] | {id, created_at, path, line, in_reply_to_id, body}'
 ```
 
-Агент и владелец пишут от одного аккаунта, поэтому автора по логину не отличить. Комментарий
-владельца — тот, в котором нет ни префикса подписи `_🤖`, ни маркера `<!-- pr-`. Ловить подпись
-целиком нельзя: она существует в двух формах, старой русской и новой английской, и общий у них
-только префикс. Новые — позже последнего учтённого: время последнего учтённого держи в сессии.
+The agent and the owner post from one account, so the author cannot be told by login. An owner
+comment is one that has neither the signature prefix `_🤖` nor the marker `<!-- pr-`. Matching
+the whole signature does not work: it exists in two forms, the old Russian one and the new
+English one, and they share only the prefix. New means later than the last one taken into
+account: keep the time of the last one taken into account in the session.
 
-Комментарий владельца весит не меньше находки `should-fix`: чинится при любом вердикте
-ревьюера, а правка по нему уходит на ревью, даже если ревьюер дал APPROVE. Не согласен
-или неясно, чего хочет владелец, — спроси, не угадывай.
+An owner comment weighs no less than a `should-fix` finding: it is fixed under any reviewer
+verdict, and the fix for it goes to review even if the reviewer gave APPROVE. You disagree, or it
+is unclear what the owner wants — ask, do not guess.
 
-На каждый учтённый комментарий ответь в PR: что сделано и каким коммитом. Иначе владелец не
-видит, что его прочитали. Обычный комментарий — `gh pr comment <PR> --body-file <файл>`,
-inline — ответом в тред:
-`gh api repos/{owner}/{repo}/pulls/<PR>/comments/<id>/replies -F body=@<файл>`.
-Файл — вне репозитория, в конце текста — подпись из `CLAUDE.md`, «Agent signature on GitHub».
+Answer every comment taken into account in the PR: what was done and in which commit. Otherwise
+the owner does not see that it was read. A plain comment —
+`gh pr comment <PR> --body-file <file>`, an inline one — a reply in its thread:
+`gh api repos/{owner}/{repo}/pulls/<PR>/comments/<id>/replies -F body=@<file>`.
+The file lies outside the repository, and the text ends with the signature from `CLAUDE.md`,
+"Agent signature on GitHub".
 
-## Шаг 6. Решение по кругу
+## Step 6. Decision after a round
 
-| Состояние после круга `R` | `R` < 3 | `R` = 3 |
+| State after round `R` | `R` < 3 | `R` = 3 |
 | --- | --- | --- |
-| Есть новые комментарии владельца | править | править |
-| REQUEST_CHANGES | править | стоп |
-| BLOCKED | стоп | стоп |
-| APPROVE с условием слияния | стоп | стоп |
-| APPROVE с `nit` или `question` | править | шаг 7, остаток назвать |
-| APPROVE без находок | шаг 7 | шаг 7 |
+| New owner comments | fix | fix |
+| REQUEST_CHANGES | fix | stop |
+| BLOCKED | stop | stop |
+| APPROVE with a merge condition | stop | stop |
+| APPROVE with a `nit` or `question` | fix | step 7, name the rest |
+| APPROVE without findings | step 7 | step 7 |
 
-Строки проверяются сверху вниз, срабатывает первая.
+The rows are checked top down, the first match wins.
 
-**Править** — значит починить всё:
-- каждый `blocker`, `should-fix` и `nit`;
-- красное, внесённое PR;
-- невыполненный критерий issue;
-- изменения, которых issue не просила;
-- `question`, если его снимает правка кода или текста.
+**Fix** means fix everything:
+- every `blocker`, `should-fix` and `nit`;
+- red brought in by the PR;
+- an unmet issue criterion;
+- changes the issue did not ask for;
+- a `question`, if a change to code or text resolves it.
 
-Не согласен с находкой или на `question` отвечают только словами — **стоп**: изложи
-владельцу находку и свою позицию и жди решения. Круг на это не тратится. Отписка в PR вместо
-правки круг не закрывает: следующий прогон считает находки по накопительному дифу и вернёт
-их слово в слово.
+You disagree with a finding, or a `question` can be answered only in words — **stop**: put the
+finding and your position to the owner and wait for the decision. That does not use up a round.
+A reply in the PR instead of a fix does not close the round: the next run counts findings over
+the cumulative diff and returns them word for word.
 
-Правки уходят так: `make check`, коммит «Правки по ревью: …», прогон мутаций, если он нужен
-(шаг 2), пуш, запись прогона в PR, `R` + 1, шаг 3. Если `R` уже 3, а править надо по
-комментарию владельца, — всё равно шаг 3.
+Fixes go out like this: `make check`, a commit "Review fixes: …", a mutation run if one is needed
+(step 2), push, the run record in the PR, `R` + 1, step 3. If `R` is already 3 but an owner
+comment needs a fix — step 3 all the same.
 
-Лимит в три круга защищает от пинг-понга автора с ревьюером, поэтому ты его не обходишь.
-Четвёртый круг идёт только по комментарию владельца. Но скиллы ревью сами ставят BLOCKED
-вместо REQUEST_CHANGES на прогоне `K >= 3`. Тогда — стоп, а не новый круг.
+The three-round limit guards against ping-pong between author and reviewer, so you do not get
+around it. A fourth round happens only on an owner comment. But on run `K >= 3` the review skills
+themselves turn a REQUEST_CHANGES over findings into BLOCKED. Then — stop, not a new round.
 
-## Шаг 7. «Можно вливать?»
+## Step 7. "Can it be merged?"
 
-Сначала отчёт владельцу: PR, число кругов, последний вердикт, неисправленные ниты.
-При остановке — ещё и причина: что именно нужно решить.
+First a report to the owner: the PR, the number of rounds, the last verdict, the unfixed nits.
+When stopping — also the reason: what exactly needs deciding.
 
-Любой вопрос владельцу после открытия PR — здесь, при остановке в шаге 6, при несогласии
-с находкой — идёт с полными ссылками на PR и issue рядом, в отчёте прямо над вопросом.
-Отвечать владелец идёт в PR, и искать его по номеру он не должен.
+Any question to the owner after the PR is opened — here, at a stop in step 6, on a disagreement
+with a finding — comes with the full links to the PR and the issue next to it, in the report
+right above the question. The owner goes to the PR to answer and should not have to look it up
+by number.
 
-После чистого круга — AskUserQuestion «Можно вливать PR #<PR>?» с вариантами «Вливай» и
-«Оставил комментарии в PR». До ответа не мержи: только ответ владельца разрешает мерж,
-чистый вердикт ревьюера — нет.
+After a clean round — AskUserQuestion "Can PR #<PR> be merged?" with the options "Merge" and
+"Left comments in the PR", worded in the session's language. Do not merge before the answer: only
+the owner's answer allows a merge, a clean reviewer verdict does not.
 
-- **Оставил комментарии** → шаг 5, правки, шаг 3.
-- **Вливай** → ещё раз шаг 5: владелец мог написать в PR, пока думал. Есть новые
-  комментарии — назови их и спроси заново. Нет:
+- **Left comments** → step 5, fixes, step 3.
+- **Merge** → step 5 once more: the owner may have written in the PR while thinking. There are
+  new comments — name them and ask again. None:
 
   ```bash
   gh pr view <PR> --json mergeable,mergeStateStatus
   ```
 
-  Конфликт — влей `origin/main` в ветку, разреши, `make check`, прогон мутаций, если он нужен
-  (шаг 2), пуш, запись прогона в PR. Head сменился, поэтому нужен новый круг ревью (шаг 3),
-  затем снова этот шаг. Без конфликта:
+  A conflict — merge `origin/main` into the branch, resolve it, `make check`, a mutation run if
+  one is needed (step 2), push, the run record in the PR. The head changed, so a new review round
+  is needed (step 3), then this step again. No conflict:
 
   ```bash
   gh pr merge <PR> --merge
   ```
 
-  Именно `--merge`, не squash: `make worktree-cleanup` проверяет, что ветка — предок
-  `main` на origin, и после squash откажет.
+  Exactly `--merge`, not squash: `make worktree-cleanup` checks that the branch is an ancestor of
+  `main` on origin and refuses after a squash.
 
-## Шаг 8. Уборка
+## Step 8. Cleanup
 
-После мержа, в дереве задачи — `make worktree-cleanup`. Он удалит дерево и подтянет `main` в
-основном дереве, поэтому потом вернись туда и не переключай в нём ветку: там может работать
-соседняя сессия. Вывод говорит, что `main` не подтянут, — назови это в отчёте вместе с
-подсказкой из вывода: переключать ветку в основном дереве нельзя, а пока `main` позади,
-следующая сессия прочитает там код до мержа. Ненулевой код выхода с сообщением про ветку — не
-удалось удалить локальную, не удалось удалить её на `origin` или не удалось спросить `origin`,
-есть ли она там, — не провал уборки: дерево уже удалено, повторять цель неоткуда, а названную
-в сообщении ветку и подсказку из вывода назови в отчёте. Сообщение про само дерево — наоборот,
-провал: уборка встала на его удалении, и подсказка говорит, повторить ли цель из дерева задачи
-или доделывать уборку названными в ней командами.
+After the merge, in the task worktree — `make worktree-cleanup`. It removes the worktree and
+fast-forwards `main` in the main worktree, so return there afterwards and do not switch the
+branch in it: a neighbouring session may be working there. The output says `main` was not
+fast-forwarded — name that in the report together with the hint from the output: switching the
+branch in the main worktree is not allowed, and while `main` lags behind, the next session reads
+the pre-merge code there. A non-zero exit code with a message about the branch — the local one
+could not be deleted, the one on `origin` could not be deleted, or `origin` could not be asked
+whether it is there — is not a failed cleanup: the worktree is already removed, there is nowhere
+to repeat the target from, and the branch named in the message and the hint from the output go
+into the report. A message about the worktree itself is the opposite, a failure: the cleanup
+stopped on removing it, and the hint says whether to repeat the target from the task worktree or
+to finish the cleanup with the commands it names.
 
-Проверь `gh issue view <N> --json state`. Issue не закрылась — закрой её руками по
-`docs/agents/issue-tracker.md`.
+Check `gh issue view <N> --json state`. The issue did not close — close it by hand as
+`docs/agents/issue-tracker.md` says.
