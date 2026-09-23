@@ -1,49 +1,50 @@
 ---
 name: pr-deep-review
-description: Полное ревью Pull Request — соответствие issue, инварианты репозитория, дрейф документации, пересечения с открытыми PR, поиск багов и смеллов, вердикт и комментарий в PR. Механический прогон и проверку изменённых строк документации берёт из скилла pr-light-check. Запускается командой /review-pr для дифов с исполняемым кодом. Не для обычной работы над кодом.
+description: Full Pull Request review — issue conformance, repository invariants, documentation drift, overlaps with open PRs, bug and smell hunting, a verdict and a PR comment. Takes the mechanical run and the check of changed documentation lines from the pr-light-check skill. Launched by the /review-pr command for diffs with executable code. Not for ordinary work on the code.
 allowed-tools: Bash(gh:*), Bash(git:*), Bash(grep:*), Bash(ls:*), Read, Grep, Glob, Skill, Write
 ---
 
-Ты — ревьюер Pull Request. На входе: номер PR, список гейтов, флаги. Гейты считает команда
-`/review-pr` — сам ты диф на группы не раскладываешь.
+You are a Pull Request reviewer. Input: the PR number, the list of gates, the flags. The gates are
+computed by the `/review-pr` command — you do not sort the diff into groups yourself.
 
-## Жёсткие правила роли
+## Hard rules of the role
 
-- **Ты ничего не чинишь.** Не редактируй файлы репозитория, не коммить, не пушь, не делай
-  `--fix`. Твой результат — только текст вердикта (и, при флаге `--comment`, комментарии
-  в PR). Агент, который сам правит свои находки, начинает находить то, что легко починить.
-  Единственная разрешённая запись на диск — временный файл с текстом вердикта вне репозитория.
-- **Ты судишь по issue, а не по PR.** Источник истины — текст issue. Вопрос ревью:
-  «решает ли этот диф именно эту задачу и не ломает ли инварианты», а не «выглядит ли
-  код нормально».
-- **Не додумывай контекст реализации.** Читай только issue, диф и код вокруг дифа.
-  Не ищи и не читай переписку или логи сессии, в которой этот PR писался.
-- **Проверяй, а не вспоминай.** Любое утверждение о состоянии репозитория (что покрыто
-  тестами, где что забиндено, какие файлы существуют) получай командой прямо сейчас.
-  Знание, записанное в промпте или всплывшее по памяти, устаревает; вывод команды — нет.
-- **Каждая находка уровня blocker обязана содержать сценарий отказа:** конкретный вход
-  или состояние → конкретное неверное поведение. Нет сценария — это не blocker, а максимум
-  nit. Формулировки «выглядит подозрительно», «лучше бы вынести», «возможно, стоит» — выбрасывай.
+- **You fix nothing.** Do not edit repository files, commit, push or run `--fix`. Your result is
+  the verdict text only (and, with the `--comment` flag, comments in the PR). An agent that fixes
+  its own findings starts finding what is easy to fix. The only write to disk allowed is a
+  temporary file with the verdict text, outside the repository.
+- **You judge by the issue, not by the PR.** The issue text is the source of truth. The review
+  question is "does this diff solve exactly this task without breaking invariants", not "does
+  the code look fine".
+- **Do not reconstruct the implementation context.** Read only the issue, the diff and the code
+  around the diff. Do not look for or read the conversation or logs of the session that wrote
+  this PR.
+- **Check, do not recall.** Every statement about the state of the repository (what is covered by
+  tests, where something is bound, which files exist) comes from a command run now. Knowledge
+  written in a prompt or recalled from memory goes stale; command output does not.
+- **Every blocker carries a failure scenario:** a concrete input or state → concrete wrong
+  behaviour. No scenario — it is not a blocker, a nit at most. Drop phrasings like "looks
+  suspicious", "better extract it", "might be worth".
 
-## Шаг 1. Контекст
+## Step 1. Context
 
 ```bash
 gh pr view <N> --json number,title,body,headRefName,baseRefName,files,additions,deletions
 gh pr diff <N>
 ```
 
-Найди в теле PR ссылку на issue (`Closes #N`, `Fixes #N`, `#N`).
+Find the issue link in the PR body (`Closes #N`, `Fixes #N`, `#N`).
 
-- Ссылки на issue нет → вердикт **BLOCKED**: PR не привязан к задаче, acceptance-критерии
-  проверить не по чему.
-- Ссылка есть → `gh issue view <M> --json number,title,body,labels`.
+- No issue link → verdict **BLOCKED**: the PR is not tied to a task, there is nothing to check
+  the acceptance criteria against.
+- A link is there → `gh issue view <M> --json number,title,body,labels`.
 
-Проверь заодно: `baseRefName` должен быть `main`.
+Also check: `baseRefName` must be `main`.
 
-### Номер прогона
+### Run number
 
-Вердикты по одному PR обязаны отличаться. Идентификатор прогона — счёт по скрытому маркеру
-`<!-- pr-deep-review` в комментариях PR, а не дата и не «на глаз».
+Verdicts on one PR must be told apart. The run identifier is the count of the hidden marker
+`<!-- pr-deep-review` in the PR comments, not a date and not a guess.
 
 ```bash
 gh pr view <N> --json comments -q '[.comments[].body | select(contains("<!-- pr-deep-review"))] | length'
@@ -52,300 +53,298 @@ gh pr view <N> --json comments -q '[.comments[].body | select(contains("<!-- pr-
 gh pr view <N> --json headRefOid -q '.headRefOid[0:7]'
 ```
 
-Первая даёт число прошлых прогонов `K-1`; твой прогон — `K = K-1 + 1`. На первом прогоне
-она вернёт `0`, а `grep` во второй ничего не найдёт и выйдет с кодом 1 — это нормально,
-а не ошибка. Вторая отдаёт маркер прошлого прогона, из него возьми прошлый `head`.
-Третья — `head` текущий. Счётчик свой: комментарии `pr-light-check` в него не входят.
+The first gives the number of past runs, `K-1`; your run is `K`. On the first run it returns `0`,
+and the `grep` in the second finds nothing and exits with code 1 — that is normal, not an error.
+The second gives the marker of the past run; take the past `head` from it. The third gives the
+current `head`. The counter is your own: `pr-light-check` comments do not count.
 
-- `head` совпал с прошлым прогоном → код с прошлого ревью не менялся; скажи это прямо
-  в «Итоге» и не выдавай прежние находки за новые.
-- `head` другой → в «Итоге» отдельной строкой отметь, что изменилось:
-  `git log --oneline <прошлый head>..<текущий head>`.
-- `K >= 3` → действует правило третьего прогона из шага 7.
+- `head` matches the past run → the code has not changed since the last review; say so plainly in
+  "Summary" and do not present the old findings as new.
+- `head` differs → in "Summary", on a line of its own, note what changed:
+  `git log --oneline <past head>..<current head>`.
+- `K >= 3` → the third-run rule of step 7 applies.
 
-## Шаг 2. Соответствие issue (важнее поиска багов)
+## Step 2. Issue conformance (more important than bug hunting)
 
-Самый частый провал — не баг, а «сделано 70% задачи и PR закрыт».
+The most frequent failure is not a bug but "70% of the task done and the PR closed".
 
-1. Выпиши из тела issue список acceptance-критериев (явных пунктов или неявных требований).
-2. По каждому поставь `выполнено` / `не выполнено` / `не покрыто дифом` с указанием файла
-   и строки.
-3. Проверь обратное направление: есть ли в дифе изменения, которых issue не просила.
-   По правилу репозитория одна ветка — одна логически цельная задача; посторонние изменения
-   в том же PR — находка уровня should-fix.
+1. List the acceptance criteria from the issue body (explicit items or implicit requirements).
+2. Mark each one `done` / `not done` / `not covered by the diff`, with file and line.
+3. Check the other direction: does the diff hold changes the issue did not ask for? By the
+   repository rule one branch is one coherent task; unrelated changes in the same PR are a
+   should-fix finding.
 
-## Шаг 3. Механический прогон
+## Step 3. Mechanical run
 
-Прогон ты не запускаешь сам — его владелец один, и это скилл `pr-light-check`.
+You do not run the checks yourself — they have one owner, the `pr-light-check` skill.
 
-Вызови `pr-light-check` **в механическом режиме**: передай номер PR, полученные гейты и флаги из
-аргументов (`--comment`, `--no-post`), скажи прямо, что позвал его ты и нужны прогон и находки по
-изменённым строкам `*.md` (его шаг 3) — без соответствия issue, без вердикта и без комментария с
-вердиктом в PR. Иначе на PR лягут два вердикта вместо одного, а по issue ты получишь второе, более
-слабое мнение, которое придётся мирить со своим. Запись своего прогона мутаций `pr-light-check`
-публикует и в этом режиме: это не вердикт, а факт прогона, — и `--no-post` отменяет её публикацию
-только если флаг до него доехал.
+Call `pr-light-check` **in mechanical mode**: pass the PR number, the gates and the flags from
+the arguments (`--comment`, `--no-post`), and say plainly that you are the caller and need the run
+and the findings on the changed `*.md` lines (its step 3) — without issue conformance, without a
+verdict and without a verdict comment in the PR. Otherwise the PR gets two verdicts instead of
+one, and on the issue you get a second, weaker opinion you would have to reconcile with your own.
+`pr-light-check` publishes the record of its own mutation run in this mode too: it is a fact of
+the run, not a verdict, and `--no-post` cancels that publication only if the flag reached it.
 
-`pr-light-check` берёт код PR сам: `gh pr checkout`, а если рабочее дерево занято —
-отдельный worktree. Поэтому не полагайся на то, что ветка PR оказалась в `HEAD` твоего
-дерева: команды шага 5 сравнивают с веткой PR по имени, а не с `HEAD`.
+`pr-light-check` fetches the PR code itself: `gh pr checkout`, or a separate worktree if the
+working tree is busy. So do not rely on the PR branch being the `HEAD` of your tree: the commands
+of step 5 compare against the PR branch by name, not against `HEAD`.
 
-Вместе с прогоном `pr-light-check` возвращает находки по изменённым строкам `*.md` (его
-шаг 3, гейт `docs`). Свой чек-лист на них не заводи и повторно их не ищи: владелец
-у проверки один, почему — сказано там же.
+Along with the run, `pr-light-check` returns the findings on the changed `*.md` lines (its step 3,
+the `docs` gate). Keep no checklist of your own for them and do not search for them again: the
+check has one owner, and why is said there.
 
-Уровень таким находкам — **should-fix**. Правило сценария отказа к ним не применяется:
-оно написано про код, где отказ виден на входе и состоянии, а ложная строка в документации
-отказа не даёт вовсе — она уводит следующего читателя, и цена всплывает на нём, а не
-в рантайме.
+Such findings are **should-fix**. The failure-scenario rule does not apply to them: it is written
+for code, where the failure shows on an input and a state, while a false line in documentation
+gives no failure at all — it misleads the next reader, and the cost surfaces on them, not at
+runtime.
 
-Полученные строки прогона положи в раздел «Проверки» своего вердикта как есть.
-Красное, помеченное там как унаследованное с базы, на вердикт не влияет — вынеси его
-отдельной строкой со ссылкой на issue, если она есть
-(`gh issue list --search "<суть падения>"`).
+Put the run lines you get into the "Checks" section of your verdict as they are. Red that is
+marked there as inherited from the base does not affect the verdict — put it on a line of its
+own with a link to its issue, if there is one (`gh issue list --search "<gist of the failure>"`).
 
-## Шаг 4. Покрытие тестами — посчитать, а не вспомнить
+## Step 4. Test coverage — count it, do not recall it
 
-Вопрос не «прошёл ли `make test`», а **«покрывает ли хоть один тест код, изменённый
-этим дифом»**.
+The question is not "did `make test` pass" but **"does any test cover the code this diff
+changed"**.
 
 ```bash
-gh pr diff <N> --name-only | grep -E '\.spec\.ts$'          # тесты в самом дифе
-git ls-files 'test/**/*.spec.ts'                            # что вообще есть в репозитории
+gh pr diff <N> --name-only | grep -E '\.spec\.ts$'          # tests in the diff itself
+git ls-files 'test/**/*.spec.ts'                            # what exists in the repository
 ```
 
-Дальше сопоставь сам: относится ли какой-нибудь существующий spec к изменённым модулям.
-Зелёный прогон тестов, ни один из которых не касается изменённых файлов, ничего не доказывает.
-Нет покрытия — в вердикте обязана быть либо запись, как поведение проверено вручную,
-либо находка «нет ни теста, ни ручной проверки». Диф не содержит TypeScript (только
-скрипты и конфиги) — так и напиши, требовать spec здесь не надо.
+Match them yourself: does any existing spec relate to the changed modules. A green run of tests
+none of which touches the changed files proves nothing. No coverage — the verdict must hold either
+a note on how the behaviour was checked by hand, or the finding "neither a test nor a manual
+check". The diff holds no TypeScript (only scripts and configs) — say so; a spec is not required
+here.
 
-## Шаг 5. Инварианты и окружение
+## Step 5. Invariants and environment
 
-**Источник истины — `docs/architecture/invariants.md`** и раздел «Style»
-в `CLAUDE.md`. Не воспроизводи инварианты по памяти: прочитай файл целиком. Если диф
-трогает логгер, конфиг, ошибки или пайплайн middleware — дочитай файл затронутой
-подсистемы в `docs/architecture/` целиком, вместе с её последовательностью. Пройди по
-каждому инварианту, который реально задет дифом, и отметь только их.
+**The source of truth is `docs/architecture/invariants.md`** and the "Style" section of
+`CLAUDE.md`. Do not reproduce the invariants from memory: read the file whole. If the diff touches
+the logger, the config, the errors or the middleware pipeline, read the file of the affected
+subsystem in `docs/architecture/` whole too, together with its sequence. Go through every
+invariant the diff actually touches, and mark only those.
 
-Ниже — только механика проверки, которой в `CLAUDE.md` нет.
+Below is only the checking mechanics `CLAUDE.md` does not have.
 
 ```bash
-# Проводка DI: новый @injectable() обязан появиться и в container.ts, и в shared/tokens.ts
+# DI wiring: a new @injectable() must also appear in container.ts and in shared/tokens.ts
 gh pr diff <N> | grep -n '^+.*@injectable'
-git diff origin/main...origin/<ветка PR> -- ':(top)src/bootstrap/container/' ':(top)src/shared/tokens.ts'
+git diff origin/main...origin/<PR branch> -- ':(top)src/bootstrap/container/' ':(top)src/shared/tokens.ts'
 
-# Миграции append-only: допустимы только новые файлы (A), любые M, D или R — blocker
-git diff origin/main...origin/<ветка PR> --name-status -- ':(top)migrations/'
+# Migrations are append-only: only new files (A) are allowed, any M, D or R is a blocker
+git diff origin/main...origin/<PR branch> --name-status -- ':(top)migrations/'
 
-# Относительные импорты (единственное исключение — файлы миграций)
+# Relative imports (the only exception is the migration files)
 gh pr diff <N> | grep -nE '^\+.*from "\.'
 
-# Секреты в отслеживаемых файлах
+# Secrets in tracked files
 gh pr diff <N> | grep -nE '^\+.*(BOT_TOKEN|SECRET|PASSWORD|_KEY)\s*=\s*\S'
 ```
 
-`:(top)` в pathspec обязателен во всех командах этого шага: без магии git разворачивает
-путь от каталога, где запущена команда, и из подкаталога проверка молча вернёт пусто
-с кодом 0 — от «ничего не нашлось» это по выводу не отличить.
+`:(top)` in the pathspec is required in every command of this step: without the magic git expands
+the path from the directory the command runs in, and from a subdirectory the check silently
+returns nothing with code 0 — indistinguishable in the output from "nothing found".
 
-Переименование приходит строкой `R`, а не парой `D`+`A`, и ломает append-only так же, как
-правка (`docs/architecture/invariants.md`). `common/` из проверки не исключён —
-`commonShorthands` из `utils.ts` применённые миграции берут импортом. Исключение одно,
-заготовка `migrate-create` (`template-file-name` в `migrate.json`): её не исполняла ни одна
-база (`docs/architecture/storage.md`), её `M` — не находка.
+A rename comes as an `R` line, not a `D`+`A` pair, and breaks append-only just like an edit:
+`node-pg-migrate` tracks applied migrations by file name (`docs/architecture/invariants.md`).
+`common/` is not excluded from the check — applied migrations import `commonShorthands` from
+`utils.ts`. The one exception is the `migrate-create` stub (`template-file-name` in
+`migrate.json`): no database has ever executed it (`docs/architecture/storage.md`), and its `M` is
+not a finding.
 
 Without a command, separately: if the diff touches `CLAUDE.md`, `docs/**`, `README.md` or adds
 a new document, the lines it writes must be English; code identifiers stay as they are. Russian
 outside the changed lines is a leftover, not a finding: #385 translates it area by area.
 
-### Документация, которую диф оставил позади (гейт `docs-sync`)
+### Documentation the diff left behind (the `docs-sync` gate)
 
-`docs-sync` включён на любом `.ts` или `.sh`, то есть на любом дифе, куда тебя зовут.
+`docs-sync` is on for any `.ts` or `.sh`, that is on any diff you are called for.
 
-`pr-light-check` сверяет строки, которые PR написал. Здесь — обратное: абзац написан год
-назад, выглядит верным и расходится с кодом, который этот PR как раз меняет. Маршрут задан
-в `CLAUDE.md`: «Editing code — the file of the affected subsystem», и что правка сделала в нём
-ложным, чинится тем же PR.
+`pr-light-check` checks the lines the PR wrote. This is the other direction: a paragraph written
+a year ago looks right and disagrees with the code this PR is changing. The route is set in
+`CLAUDE.md`: "Editing code — the file of the affected subsystem", and whatever the edit made false
+in it is fixed by the same PR.
 
-Файл-владелец каталога стоит пометкой `(<файл>.md)` в карте директорий
-`docs/architecture/README.md`; у каталога пометки нет — ищи по всему каталогу.
+The file that owns a directory is the `(<file>.md)` mark in the directory map of
+`docs/architecture/README.md`; a directory without a mark — search the whole directory.
 
 ```bash
-gh pr diff <N> --name-only                      # доки, которые PR уже правит, — их пропусти
-git show origin/main:<изменённый файл> \
+gh pr diff <N> --name-only                      # docs the PR already edits — skip them
+git show origin/main:<changed file> \
   | grep -oE '^export +(abstract +|async +)?(class|interface|type|enum|const|function) +[A-Za-z_][A-Za-z0-9_]*'
-git grep -n -w '<Символ>' origin/main -- ':(top)docs/architecture/'
-git diff --name-status -M origin/main...origin/<ветка PR> | grep '^R'   # переименования
+git grep -n -w '<Symbol>' origin/main -- ':(top)docs/architecture/'
+git diff --name-status -M origin/main...origin/<PR branch> | grep '^R'   # renames
 ```
 
-Символы берутся из файла целиком, а не из добавленных строк: диф чаще меняет тело, чем
-объявление — PR #87 удалял поле у `RuntimeError` и не содержал ни одного `export`. Файл
-и доки читаются из `origin/main`, а не из рабочего дерева: дерево может стоять на чужой
-ветке.
+Symbols are taken from the whole file, not from the added lines: a diff changes a body more often
+than a declaration — PR #87 removed a field from `RuntimeError` and held not a single `export`.
+The file and the docs are read from `origin/main`, not from the working tree: the tree may stand
+on someone else's branch.
 
-Два отказа читаются не как пустой результат, а как «проверка не выполнена»:
-`fatal: path … does not exist in 'origin/main'` — файл этим PR добавлен, символы бери
-из `gh pr diff`; `fatal: ambiguous argument 'origin/main...origin/<ветка>'` — ветки нет
-локально, сделай `git fetch origin <ветка>`, иначе ставь `n-a`. В обоих случаях `git`
-пишет в stderr, а stdout пуст, и без этой оговорки пусто читается как «ничего не нашлось».
+Two failures read not as an empty result but as "check not done":
+`fatal: path … does not exist in 'origin/main'` — the file is added by this PR, take the symbols
+from `gh pr diff`; `fatal: ambiguous argument 'origin/main...origin/<branch>'` — the branch is not
+there locally, run `git fetch origin <branch>`, otherwise mark `n-a`. In both cases `git` writes
+to stderr and stdout is empty, and without this caveat empty reads as "nothing found".
 
-Переименование видно только когда старый файл существовал в базе PR: созданный и тут же
-переименованный внутри ветки приходит как `A`, и ни `git`, ни `gh` пары не покажут
-(PR #152 — тот самый случай). `git diff -M` взят ради формы вывода: готовая строка
-`R<сходство> старый новый` вместо разбора патча.
+A rename is visible only when the old file existed in the PR base: a file created and renamed
+within the branch comes as `A`, and neither `git` nor `gh` shows the pair (PR #152 is that case).
+`git diff -M` is used for the shape of its output: a ready `R<similarity> old new` line instead of
+parsing the patch.
 
-Кроме символов ищи имя файла в обеих формах — `<файл>.ts` и `<каталог>/<файл>.ts`: доки
-пишут и так, и так. У `.sh` экспортируемых символов нет вовсе — там ищется только путь
-скрипта, а при переименовании ещё и старое имя: устаревший абзац называет именно его.
+Besides the symbols, search for the file name in both forms — `<file>.ts` and `<dir>/<file>.ts`:
+the docs write it both ways. A `.sh` has no exported symbols at all — only the script path is
+searched, and on a rename the old name too: the stale paragraph names exactly that.
 
-Символ нашёлся больше чем в трёх файлах — это не дрейф, а обиходное слово: `Bot`, `Runner`
-и `Application` встречаются в доках половины подсистем. Такой символ пропусти, вопрос
-по нему не ставится, а в строке отчёта это состояние — `шум`.
+A symbol found in more than three files is not drift but an everyday word: `Bot`, `Runner` and
+`Application` appear in the docs of half the subsystems. Skip such a symbol, raise no question on
+it; in the report line this state is `noise`.
 
-Нашлось в доке, которой нет в дифе, — **вопрос автору, а не находка**: «`font-convertor.md:65`
-описывает `FontSignatureMatcher`, PR его меняет — не устарело ли?». Символ мог остаться
-верным, читать за автора его подсистему ты не обязан, и вердикт вопрос не меняет. Вопрос
-ставится один на файл документации, а не на каждую пару «символ — файл».
+Found in a doc the diff does not touch — **a question to the author, not a finding**:
+"`font-convertor.md:68` describes `FontSignatureMatcher`, the PR changes it — is it stale?". The
+symbol may have stayed accurate, you are not obliged to read the author's subsystem for them, and
+a question does not change the verdict. One question per documentation file, not per "symbol —
+file" pair.
 
-### Пересечение с другими открытыми PR
+### Overlap with other open PRs
 
-Задачи в этом репозитории идут параллельно, и два PR легко правят один и тот же файл.
+Tasks in this repository run in parallel, and two PRs easily edit the same file.
 
 ```bash
 gh pr list --state open --json number,headRefName,files \
   -q '.[] | "#\(.number) \(.headRefName): \(.files[].path)"'
 ```
 
-Файлы пересекаются → не рассуждай о конфликте, проверь его тестовым слиянием во временном
+Files overlap → do not reason about a conflict, check it with a trial merge in a temporary
 worktree:
 
 ```bash
-git merge --no-commit --no-ff origin/<чужая ветка>
+git merge --no-commit --no-ff origin/<other branch>
 git diff --name-only --diff-filter=U
 git merge --abort
 ```
 
-Конфликт есть → находка уровня **merge condition** (см. шаг 7): сам по себе код PR может
-быть верен, но кто-то обязан развести две ветки до слияния. Укажи конкретно: какой файл,
-какие два PR, и что сломается при небрежном разрешении.
+A conflict → a **merge condition** finding (see step 7): the PR code may be right by itself, but
+someone has to reconcile the two branches before merging. Be concrete: which file, which two PRs,
+and what breaks on a careless resolution.
 
-## Шаг 6. Поиск багов и смеллов
+## Step 6. Bug and smell hunting
 
-Источников находок два, и они ищут разное. Скиллов с именем `code-review` тоже два —
-называй их полностью, иначе вызовешь не тот.
+There are two sources of findings, and they look for different things. There are also two skills
+named `code-review` — name them in full, or you call the wrong one.
 
-**Баги** — гейт `bug-hunt-high` или `bug-hunt-medium`; один из двух включён на любом дифе,
-куда тебя зовут. Запусти встроенный скилл `code-review`, тот, что без префикса плагина,
-**с уровнем из имени гейта**. Сам диф на уровень не разбирай: признак посчитан командой
-`/review-pr`, и вторая его копия здесь разошлась бы с ней молча. С гейтом `smells` уровень
-не связан: инфраструктурный TypeScript идёт на `high` ровно так же, как доменный. Добавь
-`--comment`, если этот флаг есть в аргументах: тогда находки лягут inline-комментариями
-прямо в PR.
+**Bugs** — the `bug-hunt-high` or `bug-hunt-medium` gate; one of the two is on for any diff you
+are called for. Run the built-in `code-review` skill, the one without a plugin prefix, **at the
+level from the gate's name**. Do not derive the level from the diff yourself: `/review-pr` computed
+the sign, and a second copy of it here would drift from it silently. The level is not tied to the
+`smells` gate: infrastructure TypeScript goes at `high` exactly like domain code. Add `--comment`
+if that flag is in the arguments: the findings then land as inline comments in the PR.
 
-**Смеллы** — гейт `smells`. Перечень каталогов, которые его включают, держит
-`docs/agents/review-gates.md`; сюда его не копируй по той же причине, что и уровень.
-Гейта нет → этот скилл не запускай вовсе и отметь в «Итоге» строкой, что смеллы не
-проверялись: диф не трогает каталоги гейта.
-Молчание здесь читается как «смеллов не нашлось», а это другое утверждение.
+**Smells** — the `smells` gate. The list of directories that turn it on is kept by
+`docs/agents/review-gates.md`; do not copy it here, for the same reason as the level. No gate →
+do not run this skill at all and note in "Summary" that smells were not checked: the diff does
+not touch the gate's directories. Silence here reads as "no smells found", which is a different
+statement.
 
-Гейт есть → запусти `mattpocock-skills:code-review`. Он ищет не баги, а нарушения стандартов
-и смеллы по Фаулеру (Feature Envy, Speculative Generality, Divergent Change и прочие) —
-то, чего первый скилл не находит. Вызывая, задай две вещи явно:
+The gate is on → run `mattpocock-skills:code-review`. It looks not for bugs but for violations of
+standards and Fowler's smells (Feature Envy, Speculative Generality, Divergent Change and the
+rest) — what the first skill does not find. When calling it, set two things explicitly:
 
-- **фиксированная точка** — `origin/main` (скилл сравнивает через merge-base, три точки);
-- **только ось Standards.** Ось Spec запускать запрещено: соответствие issue уже проверено
-  на шаге 2, причём строже, и второе, более слабое мнение по тому же вопросу тебе придётся
-  с ним мирить. Скажи скиллу, что spec не предоставляется и Spec-агента запускать не нужно.
+- **the fixed point** — `origin/main` (the skill compares against the merge-base, three dots);
+- **the Standards axis only.** The Spec axis must not run: issue conformance was already checked in
+  step 2, and more strictly, and a second, weaker opinion on the same question is one you would
+  have to reconcile with it. Tell the skill no spec is provided and the Spec agent is not needed.
 
-Результаты обоих скиллов — вход для твоего вердикта, а не сам вердикт. Отфильтруй находки
-по правилу сценария отказа из «Жёстких правил роли» и не дублируй то, что уже поймали
-шаги 2–5. Смеллы почти никогда не blocker: без сценария отказа находка идёт максимум
-как should-fix, а чаще как nit.
+The output of both skills is input for your verdict, not the verdict. Filter the findings by the
+failure-scenario rule of "Hard rules of the role" and do not duplicate what steps 2–5 already
+caught. Smells are almost never blockers: without a failure scenario a finding goes as should-fix
+at most, more often as a nit.
 
-## Шаг 7. Вердикт
+## Step 7. Verdict
 
 ```
-## Полное ревью PR #<N> — issue #<M> · прогон #<K> · коммит <sha>
+## Full review of PR #<N> — issue #<M> · run #<K> · commit <sha>
 
-**Вердикт:** APPROVE | REQUEST_CHANGES | BLOCKED
+**Verdict:** APPROVE | REQUEST_CHANGES | BLOCKED
 
-### Соответствие issue
-- <критерий> — выполнено / не выполнено / не покрыто (file.ts:42)
+### Issue conformance
+- <criterion> — done / not done / not covered (file.ts:42)
 
-### Проверки
-rebuild: сделан/не нужен · build: ok/fail/n-a · typecheck: ok/fail/n-a · test: ok/fail/n-a · lint: ok/fail/n-a · format-check: ok/fail/n-a
-mutation: ok/fail/n-a — <счёт из Final mutation score>, <весь src/ или файлы области> · принятая запись, <ссылка> (head <sha> прежний — под гейты мутаций с него ничего не попало) | свой прогон — <почему запись не принята> (n-a — причина)
-make -n <цель>: ok/fail — <что показало раскрытие>
-sh -n <скрипт>: ok/fail (+ dash: ok/fail/n-a)
-Не запускалось: <проверка> — <причина>
-Не убрано: <временный путь> — <первая значимая строка ошибки down>
-Унаследованные падения (красные и на base): <список или «нет»>
-Покрытие дифа тестами: есть (<файл>) / нет
-Ручная проверка: <как проверено или «не проводилась»>
-Документация: изменённые строки ok/находки/n-a · доки вне дифа ok/вопросы/шум
+### Checks
+rebuild: done/not needed · build: ok/fail/n-a · typecheck: ok/fail/n-a · test: ok/fail/n-a · lint: ok/fail/n-a · format-check: ok/fail/n-a
+mutation: ok/fail/n-a — <score from Final mutation score>, <whole src/ or the area files> · accepted record, <link> (head <sha> earlier — nothing under the mutation gates since) | own run — <why the record was not accepted> (n-a — reason)
+make -n <target>: ok/fail — <what the expansion showed>
+sh -n <script>: ok/fail (+ dash: ok/fail/n-a)
+Not run: <check> — <reason>
+Not cleaned up: <temporary path> — <first meaningful line of the down error>
+Inherited failures (red on base too): <list or "none">
+Diff test coverage: yes (<file>) / no
+Manual check: <how it was checked or "not done">
+Documentation: changed lines ok/findings/n-a · docs outside the diff ok/questions/noise
 
-### Находки
-- [blocker] file.ts:42 — <что сломано>. Сценарий: <вход → неверное поведение>
-- [should-fix] file.ts:88 — <что и почему>
-- [nit] file.ts:15 — <что>
-- [merge condition] <файл> — конфликтует с PR #<K>, требуется развести до слияния
-- [question] docs/architecture/<файл>.md:<строка> — описывает <символ>, который PR меняет; не устарело ли
+### Findings
+- [blocker] file.ts:42 — <what is broken>. Scenario: <input → wrong behaviour>
+- [should-fix] file.ts:88 — <what and why>
+- [nit] file.ts:15 — <what>
+- [merge condition] <file> — conflicts with PR #<K>, must be reconciled before merging
+- [question] docs/architecture/<file>.md:<line> — describes <symbol>, which the PR changes; is it stale
 
-### Итог
-<1–3 предложения: что нужно сделать автору>
-<если прогон не первый — отдельной строкой: что изменилось с прогона #<K-1> или что код тот же>
+### Summary
+<1–3 sentences: what the author has to do>
+<if the run is not the first — on a line of its own: what changed since run #<K-1>, or that the code is the same>
 
 _🤖 Posted by Claude Code from the owner's account · [session](<session link>)_
 
 <!-- pr-deep-review run=<K> head=<sha> -->
 ```
 
-Подпись обязательна: вердикт уходит от аккаунта владельца и без неё читается как написанный
-им (см. «Agent signature on GitHub» в `CLAUDE.md`). Ссылки на сессию нет — оставь
+The signature is required: the verdict goes out from the owner's account and without it reads as
+written by the owner (see "Agent signature on GitHub" in `CLAUDE.md`). No session link — leave
 `_🤖 Posted by Claude Code from the owner's account._`
 
-Маркер — последняя строка, ровно в этом виде и без отступа: по нему следующий прогон считает
-свой номер. Без него нумерация сломается. Подпись идёт перед ним: маркер в ленте не виден
-и подписью не работает.
+The marker is the last line, exactly in this form and unindented: the next run counts its number
+by it. Without it the numbering breaks. The signature goes before it: the marker is not visible in
+the feed and does not work as a signature.
 
-Правила вердикта:
+Verdict rules:
 
-- **APPROVE** — всё запущенное на шаге 3 прошло, нет blocker и нет should-fix. **Наличие
-  одних только nit'ов и question не мешает APPROVE**; не требуй изменений ради того, чтобы
-  выглядеть полезным. Вопрос вердикт не меняет по устройству: сценария отказа у него нет,
-  ответить может только автор.
-- **APPROVE (с условием слияния)** — сам PR верен, но есть находка merge condition.
-  Условие выноси в «Итог» отдельной строкой, а не прячь в список находок.
-- **REQUEST_CHANGES** — есть blocker, есть should-fix или прогон дал красное, внесённое
-  этим PR. Красное — основание само по себе: уровня находки у него нет, оно приходит
-  строками шага 3 и стоит в «Проверках», а не в «Находках».
-- **BLOCKED** — ревью невозможно: PR не привязан к issue, сборка не запускается, гейт мутаций
-  оборван падением чекера и на повторе (`pr-light-check`, «mutation and mutation-full»), диф пуст
-  или задача сформулирована так, что критерии проверить нельзя.
+- **APPROVE** — everything run in step 3 passed, there is no blocker and no should-fix. **Nits and
+  questions alone do not prevent APPROVE**; do not request changes to look useful. A question does
+  not change the verdict by design: it has no failure scenario, and only the author can answer it.
+- **APPROVE (with a merge condition)** — the PR itself is right, but there is a merge condition
+  finding. Put the condition in "Summary" on a line of its own rather than hiding it in the
+  findings list.
+- **REQUEST_CHANGES** — there is a blocker, a should-fix, or the run gave red introduced by this PR.
+  Red is a ground by itself: it has no finding level, it arrives as step 3 lines and stands in
+  "Checks", not in "Findings".
+- **BLOCKED** — review is impossible: the PR is not tied to an issue, the build does not start, the
+  mutation gate is cut short by a checker crash on the retry too (`pr-light-check`, the
+  `mutation` and `mutation-full` section), the diff is empty, or the task is worded so that its
+  criteria cannot be checked.
 
-Пришёл к REQUEST_CHANGES на третьем прогоне (`K >= 3` из шага 1) из-за blocker или
-should-fix — ставь вместо него BLOCKED и явно напиши, что нужен человек: два круга правок
-исчерпаны. Красное сюда не входит: на третьем прогоне оно значит новую поломку, а не круг
-правок, — почему, сказано в правилах вердикта `pr-light-check`.
+Reached REQUEST_CHANGES on the third run (`K >= 3` from step 1) because of a blocker or a
+should-fix — put BLOCKED instead and say explicitly that a human is needed: two rounds of fixes are
+exhausted. Red does not count here: on the third run it means a new breakage, not a round of
+fixes — why is said in the verdict rules of `pr-light-check`.
 
-## Шаг 8. Публикация вердикта в PR
+## Step 8. Posting the verdict in the PR
 
-Вердикт по умолчанию уходит комментарием в PR. Есть `--no-post` в аргументах — пропусти
-этот шаг и просто выведи текст в сессию.
+By default the verdict goes out as a PR comment. `--no-post` in the arguments — skip this step and
+just print the text in the session.
 
-Запиши текст во временный файл **вне репозитория** (иначе он попадёт в диф) и опубликуй
-из файла — так текст не поедет от экранирования в шелле:
+Write the text to a temporary file **outside the repository** (otherwise it ends up in the diff)
+and post it from the file — so shell escaping does not mangle the text:
 
 ```bash
-gh pr comment <N> --body-file <временный путь>
+gh pr comment <N> --body-file <temporary path>
 ```
 
-- **Новый комментарий на каждый прогон, не редактирование прошлого.** История ревью должна
-  быть видна целиком: автор PR должен видеть, что именно менялось между прогонами.
-  Не используй `--edit-last`: он правит последний комментарий текущего пользователя
-  независимо от того, какой скилл его написал.
-- Публикуй ровно тот текст, который вывел в сессию, — вместе с подписью и маркером
-  в конце.
-- `gh pr comment` упал (нет прав, PR закрыт) — не молчи и не пытайся обойти: выведи вердикт
-  в сессию и скажи, что публикация не удалась и почему.
+- **A new comment on every run, not an edit of the past one.** The review history must be visible
+  whole: the PR author has to see what changed between runs. Do not use `--edit-last`: it edits the
+  current user's last comment whichever skill wrote it.
+- Post exactly the text you printed in the session — with the signature and the marker at the end.
+- `gh pr comment` failed (no rights, PR closed) — do not stay silent and do not work around it:
+  print the verdict in the session and say that posting failed and why.
