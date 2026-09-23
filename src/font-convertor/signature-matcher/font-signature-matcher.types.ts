@@ -1,38 +1,38 @@
 /**
- * Что домен пропускает перед сигнатурой, прежде чем сверять байты.
+ * What the domain skips before a signature, ahead of matching the bytes.
  */
 export enum Prefix {
-    /** UTF-8 BOM, если он есть. */
+    /** The UTF-8 BOM, if present. */
     Bom = "bom",
-    /** UTF-8 BOM и ведущие пробельные символы. */
+    /** The UTF-8 BOM and leading whitespace. */
     Indent = "indent",
 }
 
 /**
- * Класс байт: сигнатуре важно не само значение, а к какому множеству байт оно
- * принадлежит.
+ * A byte class: what matters to the signature is not the value itself but which set of bytes it
+ * belongs to.
  */
 export enum ByteClass {
     /**
-     * Первый байт после `<`, каким документ разметки вправе открываться: буква
-     * (корневой тег) или `!` (DOCTYPE, комментарий).
+     * The first byte after `<` a markup document may open with: a letter (the root tag) or `!`
+     * (a DOCTYPE, a comment).
      */
     MarkupStart = "markup-start",
-    /** Байт текста: не управляющий байт C0 или пробельный символ разметки. */
+    /** A text byte: not a C0 control byte, or markup whitespace. */
     Text = "text",
 }
 
 /**
- * Байт сигнатуры: постоянное значение или класс байт.
+ * A signature byte: a constant value or a byte class.
  */
 export type SignatureByte = number | ByteClass;
 
 /**
- * Сигнатура формата: байты, которые домен ждёт по смещению от конца префикса.
+ * A format signature: the bytes the domain expects at an offset from the end of the prefix.
  */
 export type Signature = {
     offset: number;
     bytes: Array<SignatureByte>;
-    /** Нет поля — сигнатура лежит по жёсткому смещению от начала файла. */
+    /** Without the field the signature lies at a fixed offset from the start of the file. */
     prefix?: Prefix;
 };

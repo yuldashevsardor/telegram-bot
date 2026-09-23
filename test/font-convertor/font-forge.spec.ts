@@ -28,8 +28,8 @@ describe("FontForge.convert", function () {
         await fs.rm(workDir, { recursive: true, force: true });
     });
 
-    // Сигнатуры у пары разные намеренно: у TTF и OTF она общая, и с ней тест прошёл бы, даже
-    // если бы движок просто скопировал исходник.
+    // The pair has different signatures on purpose: TTF and OTF share one, and with it the test
+    // would pass even if the engine just copied the source.
     it("converts a font with the engine", async function () {
         const matcher = new FontSignatureMatcher();
         const distPath = path.join(workDir, "result.woff");
@@ -39,7 +39,7 @@ describe("FontForge.convert", function () {
         expect(matcher.matches(await FileHelper.readHead(distPath, matcher.headLength), Extension.WOFF)).to.be.true;
     });
 
-    // Регистр расширения исходника задаёт тот, кто прислал файл, а список форматов движка строчный.
+    // The case of the source extension is set by whoever sent the file, and the engine's format list is lowercase.
     for (const extension of engineExtensions) {
         it(`reads ${extension} under an uppercase extension`, async function () {
             const matcher = new FontSignatureMatcher();
@@ -58,14 +58,14 @@ describe("FontForge.convert", function () {
 
         expect(error).to.be.instanceOf(ExtensionNotSupport);
         expect((error as ExtensionNotSupport).payload).to.deep.equal({ extension: Extension.EOT });
-        // Сообщение payload не заменяет: FontConvertorError.byError() берёт своим именно его, и в
-        // лог отказ конвертации уходит с ним.
+        // The payload does not replace the message: FontConvertorError.byError() takes the message
+        // as its own, and the conversion failure goes to the log with it.
         expect((error as ExtensionNotSupport).message).to.equal("Fontforge not support eot extension.");
     });
 
     it("does not give eot to the engine to write", async function () {
-        // На запись движок не падает, а молча кладёт под .eot чужой формат: проверка обязана
-        // сработать до запуска, и файла не должно появиться вовсе.
+        // On writing the engine does not fail but silently puts another format under .eot: the
+        // check has to fire before the launch, and no file may appear at all.
         const distPath = path.join(workDir, "result.eot");
 
         const error = await rejectionOf(() => fontForge.convert(fixture(Extension.TTF), distPath));

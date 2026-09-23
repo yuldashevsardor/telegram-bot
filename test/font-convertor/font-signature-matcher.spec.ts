@@ -6,7 +6,7 @@ import { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 const fontSignatureMatcher = new FontSignatureMatcher();
-// Начало настоящего документа: обрубок вроде `<svg` короче сигнатуры SVG.
+// The start of a real document: a stub like `<svg` is shorter than the SVG signature.
 const rootTag = '<svg xmlns="http://www.w3.org/2000/svg"';
 
 describe("FontSignatureMatcher.matches", function () {
@@ -35,15 +35,15 @@ describe("FontSignatureMatcher.matches", function () {
     });
 
     it("rejects a font collection under both sfnt extensions", function () {
-        // Контейнер у коллекции тот же, но шрифтов в ней несколько, и выбирать из них
-        // домен не берётся: под sfnt-именем она не проходит.
+        // A collection has the same container but several fonts, and the domain does not pick
+        // one of them: under an sfnt name it does not pass.
         expect(fontSignatureMatcher.matches(ascii("ttcf"), Extension.TTF)).to.be.false;
         expect(fontSignatureMatcher.matches(ascii("ttcf"), Extension.OTF)).to.be.false;
     });
 
     it("accepts either outline flavour under both sfnt extensions", function () {
-        // Расширение не диктует тип обводок: .otf с обводками TrueType и .ttf с CFF
-        // допускаются спецификацией, и движок открывает оба.
+        // The extension does not dictate the outline type: the specification allows .otf with
+        // TrueType outlines and .ttf with CFF, and the engine opens both.
         expect(fontSignatureMatcher.matches(head(Extension.TTF), Extension.OTF)).to.be.true;
         expect(fontSignatureMatcher.matches(head(Extension.OTF), Extension.TTF)).to.be.true;
     });
@@ -53,16 +53,16 @@ describe("FontSignatureMatcher.matches", function () {
     });
 
     it("accepts an svg whose document opens with a doctype or a comment", function () {
-        // Объявление XML необязательно, а доктайп и комментарий перед корневым тегом
-        // законны и встречаются в выводе редакторов; движок такие файлы открывает.
+        // The XML declaration is optional, and a doctype or a comment before the root tag is
+        // legal and shows up in editor output; the engine opens such files.
         expect(fontSignatureMatcher.matches(ascii('<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"'), Extension.SVG)).to.be.true;
         expect(fontSignatureMatcher.matches(ascii("<!-- made by an editor -->"), Extension.SVG)).to.be.true;
         expect(fontSignatureMatcher.matches(concat("  ", "<!DOCTYPE svg"), Extension.SVG)).to.be.true;
     });
 
     it("accepts an svg opening with a processing instruction whose target starts with xml", function () {
-        // Классом начала разметки инструкция обработки не покрыта: её пропускает
-        // сигнатура `<?xml`, поэтому проходит только таргет с таким началом.
+        // The markup-start class does not cover a processing instruction: the `<?xml`
+        // signature lets it through, so only a target with that beginning passes.
         expect(fontSignatureMatcher.matches(ascii('<?xml-stylesheet href="a.css"?>'), Extension.SVG)).to.be.true;
     });
 
@@ -71,8 +71,8 @@ describe("FontSignatureMatcher.matches", function () {
     });
 
     it("rejects an svg behind a damaged BOM", function () {
-        // BOM узнаётся по всем трём байтам: иначе байты, лишь начинающие его, пропускались бы
-        // перед объявлением XML как пролог.
+        // The BOM is recognised by all three bytes: otherwise bytes that merely begin it would be
+        // skipped before the XML declaration as a prologue.
         expect(fontSignatureMatcher.matches(concat([0xef, 0xbb, 0x3f], "<?xml version="), Extension.SVG)).to.be.false;
     });
 
@@ -82,14 +82,14 @@ describe("FontSignatureMatcher.matches", function () {
     });
 
     it("rejects an svg indented before the xml declaration", function () {
-        // Объявление XML обязано открывать документ, и движок такой файл не открывает:
-        // перед `<?xml` домен пропускает только BOM.
+        // The XML declaration has to open the document, and the engine does not open such a
+        // file: before `<?xml` the domain skips only the BOM.
         expect(fontSignatureMatcher.matches(concat("\n  ", "<?xml version="), Extension.SVG)).to.be.false;
     });
 
     it("accepts markup opening with a letter of either case", function () {
-        // Корневой тег SVG строчный, но разметкой остаётся и тег с префиксом пространства
-        // имён, а префикс бывает любого регистра. Буквы взяты с краёв обоих диапазонов.
+        // The SVG root tag is lowercase, but a tag with a namespace prefix is markup too, and a
+        // prefix can be of either case. The letters are taken from the edges of both ranges.
         for (const letter of ["A", "Z", "a", "z"]) {
             const markup = ascii(`<${letter}:svg xmlns:${letter}="http://www.w3.org/2000/svg"`);
 
@@ -98,36 +98,36 @@ describe("FontSignatureMatcher.matches", function () {
     });
 
     it("rejects text that opens with an angle bracket but not with markup", function () {
-        // Сигнатура ослаблена до «это разметка», но не до «первый байт — `<`»: за
-        // скобкой обязано идти начало тега, доктайпа или комментария. Входы длиннее
-        // сигнатуры, а хвост у них текстовый: отказ даёт второй байт, а не нехватка байт
-        // и не класс текста.
+        // The signature is relaxed to "this is markup", not to "the first byte is `<`": the
+        // bracket has to be followed by the start of a tag, a doctype or a comment. The inputs
+        // are longer than the signature and their tail is text: the rejection comes from the
+        // second byte, not from missing bytes or from the text class.
         expect(fontSignatureMatcher.matches(ascii("</svg> and more text"), Extension.SVG)).to.be.false;
         expect(fontSignatureMatcher.matches(concat("<", [0x00], "0123456789"), Extension.SVG)).to.be.false;
 
-        // Соседи диапазонов букв: имя тега ни один из них не открывает.
+        // The neighbours of the letter ranges: none of them opens a tag name.
         for (const char of ["@", "[", "`", "{"]) {
             expect(fontSignatureMatcher.matches(ascii(`<${char}svg xmlns="http://www.w3.org/2000/svg"`), Extension.SVG), char).to.be.false;
         }
     });
 
     it("rejects a binary head that opens like markup", function () {
-        // Ровно тот случай, из-за которого сигнатура требует хвост: размер файла в
-        // заголовке фикстуры EOT даёт `<m`, а дальше идут управляющие байты.
+        // Exactly the case the signature requires a tail for: the file size in the header of
+        // the EOT fixture gives `<m`, followed by control bytes.
         expect(fontSignatureMatcher.matches(head(Extension.EOT), Extension.SVG)).to.be.false;
-        // Та же пара, но байты свои: случай не зависит от того, чем открывается фикстура.
+        // The same pair with bytes of our own: the case does not depend on how the fixture opens.
         expect(fontSignatureMatcher.matches(concat("<m", new Uint8Array(10)), Extension.SVG)).to.be.false;
     });
 
     it("rejects an svg whose root tag starts beyond the prefix limit", function () {
-        // Предел пропуска конечен: иначе голова файла должна была бы расти вместе с
-        // отступом. Отступ в 17 пробелов за него уже выходит.
+        // The skip has a limit: otherwise the head of the file would have to grow with the
+        // indent. An indent of 17 spaces is already past it.
         expect(fontSignatureMatcher.matches(concat(" ".repeat(17), rootTag), Extension.SVG)).to.be.false;
     });
 
     it("measures the indent of an svg past the BOM, not together with it", function () {
-        // Иначе невидимый BOM укорачивал бы допустимый отступ, и один и тот же
-        // документ из разных редакторов проходил бы проверку по-разному.
+        // Otherwise an invisible BOM would shorten the allowed indent, and the same document
+        // from different editors would pass the check differently.
         const bom = [0xef, 0xbb, 0xbf];
 
         expect(fontSignatureMatcher.matches(concat(bom, " ".repeat(16), rootTag), Extension.SVG)).to.be.true;
@@ -135,16 +135,16 @@ describe("FontSignatureMatcher.matches", function () {
     });
 
     it("keeps the offsets of binary formats fixed", function () {
-        // Пропуск префикса заведён для текстового формата: у двоичных сдвиг головы
-        // превратил бы проверку в поиск маркера где попало.
+        // Skipping a prefix exists for the text format: for binary formats a shifted head would
+        // turn the check into a search for the marker anywhere.
         expect(fontSignatureMatcher.matches(concat("\n", "wOFF"), Extension.WOFF)).to.be.false;
         expect(fontSignatureMatcher.matches(concat([0xef, 0xbb, 0xbf], "OTTO"), Extension.OTF)).to.be.false;
         expect(fontSignatureMatcher.matches(concat("\n", head(Extension.EOT)), Extension.EOT)).to.be.false;
     });
 
     it("rejects arbitrary bytes named as a font", function () {
-        // Ровно тот случай, ради которого проверка и заведена: PostScript Type 1 под
-        // именем шрифта другого формата — так fontforge отвечает на просьбу сделать EOT.
+        // Exactly the case the check exists for: PostScript Type 1 under the name of a font of
+        // another format — that is how fontforge answers a request to make EOT.
         const type1 = new Uint8Array([0x80, 0x01, 0x79, 0x15, 0x25, 0x21]);
 
         for (const extension of Object.values(Extension)) {
@@ -154,9 +154,9 @@ describe("FontSignatureMatcher.matches", function () {
 
     it("rejects a file shorter than the signature", function () {
         expect(fontSignatureMatcher.matches(new Uint8Array([0x00, 0x01]), Extension.TTF)).to.be.false;
-        // У EOT маркер лежит по смещению 34, до него обрезанный заголовок не достаёт.
+        // The EOT marker lies at offset 34, which a truncated header does not reach.
         expect(fontSignatureMatcher.matches(head(Extension.EOT).subarray(0, 20), Extension.EOT)).to.be.false;
-        // Одной скобки не хватает ни на объявление XML, ни на начало разметки с хвостом.
+        // A single bracket is enough for neither the XML declaration nor a markup start with a tail.
         expect(fontSignatureMatcher.matches(ascii("<"), Extension.SVG)).to.be.false;
     });
 
@@ -176,7 +176,7 @@ describe("FontSignatureMatcher.matches", function () {
         return bytes;
     }
 
-    // TTF и OTF по содержимому неразличимы: контейнер sfnt у них общий.
+    // TTF and OTF are indistinguishable by content: they share the sfnt container.
     function foreignTo(extension: Extension): Array<Extension> {
         const sfnt = [Extension.TTF, Extension.OTF];
         const same = sfnt.includes(extension) ? sfnt : [extension];

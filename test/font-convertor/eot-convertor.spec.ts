@@ -13,8 +13,9 @@ const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
 type StepName = "fontForge" | "pack" | "unpack";
 
-// Пары с EOT проверяются на подставных движке и кодеке: интересен порядок шагов и судьба
-// промежуточного файла, а не то, что эти двое делают с байтами — на это у них свои спеки.
+// The EOT pairs run on a stub engine and a stub codec: what matters here is the order of the
+// steps and the fate of the intermediate file, not what the two do with the bytes — they have
+// their own specs for that.
 describe("Convertors of the eot pairs", function () {
     let workDir: string;
     let steps: Array<string>;
@@ -56,7 +57,7 @@ describe("Convertors of the eot pairs", function () {
     it("removes the intermediate font after a successful conversion", async function () {
         const result = await convert(Extension.SVG, Extension.EOT);
 
-        expect(await exists(`${result}.ttf`), "промежуточный sfnt остался").to.be.false;
+        expect(await exists(`${result}.ttf`), "the intermediate sfnt is left behind").to.be.false;
         expect(await exists(result)).to.be.true;
     });
 
@@ -65,8 +66,8 @@ describe("Convertors of the eot pairs", function () {
 
         const error = await rejectionOf(() => convert(Extension.OTF, Extension.EOT));
 
-        // Без сверки сообщения тест прошёл бы и при отказе ещё в validate(): тогда
-        // промежуточного файла не было бы вовсе.
+        // Without checking the message the test would pass on a rejection back in validate()
+        // too: then there would be no intermediate file at all.
         expect((error as Error).message).to.equal("pack failed");
         expect(await exists(path.join(workDir, `result.${Extension.EOT}.ttf`))).to.be.false;
     });
@@ -85,15 +86,15 @@ describe("Convertors of the eot pairs", function () {
 
         expect(error).to.not.be.instanceOf(RemoveFailed);
         expect((error as Error).message).to.equal("pack failed");
-        // Исходная ошибка та же и при удавшейся уборке: без этой проверки тест прошёл бы, даже
-        // если бы промежуточный путь удалить получилось.
-        expect(await exists(path.join(workDir, `result.${Extension.EOT}.ttf`)), "уборка промежуточного sfnt не упала").to.be.true;
+        // The original failure is the same when the removal succeeds: without this check the
+        // test would pass even if the intermediate path could be removed.
+        expect(await exists(path.join(workDir, `result.${Extension.EOT}.ttf`)), "the intermediate sfnt was removed").to.be.true;
     });
 
-    // Convertor.validate() каждая пара вызывает сама, а реализаций convert() у пар с EOT
-    // четыре: проход и отказ закреплены у каждой пары, ветви самой проверки гоняет
-    // convertor.spec.ts. Расширение результата держит только проход: отказ по занятому пути
-    // случается раньше его сверки.
+    // Each pair calls Convertor.validate() itself, and the EOT pairs have four implementations
+    // of convert(): a pass and a rejection are pinned for every pair, the branches of the check
+    // itself run in convertor.spec.ts. Only the pass covers the result extension: the rejection
+    // on an occupied path happens before that extension is checked.
     const eotPairs = new ConvertorFactory(fontForge(), new FontSignatureMatcher(), eotPacker())
         .getSupportedExtensions()
         .filter((extension) => extension !== Extension.EOT)
@@ -139,9 +140,10 @@ describe("Convertors of the eot pairs", function () {
         return path.join(workDir, `result.${extension}`);
     }
 
-    // Подставные шаги пишут файл по своему пути: без него не проверить, что промежуточный
-    // sfnt действительно убирают, а не просто не создают. Шаг unremovableOn оставляет каталог
-    // вместо файла, чтобы уборка упала: FileHelper.remove() удаляет только файлы.
+    // The stub steps write a file at their path: without it there is no telling that the
+    // intermediate sfnt is really removed rather than never created. The unremovableOn step
+    // leaves a directory instead of a file so that the removal fails: FileHelper.remove()
+    // removes files only.
     async function step(name: StepName, fromPath: string, toPath: string): Promise<void> {
         steps.push(`${name} ${fromPath} -> ${toPath}`);
 

@@ -9,7 +9,7 @@ import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 
 const convertorFactory = new ConvertorFactory({} as FontForge, new FontSignatureMatcher(), new EotPacker());
 
-// Имя класса пары строится так же, как имя его файла: <from>-to-<to>.ts.
+// A pair's class name is built the same way as its file name: <from>-to-<to>.ts.
 function convertorClassName(fromExtension: Extension, toExtension: Extension): string {
     const pascal = (extension: Extension): string => extension.charAt(0).toUpperCase() + extension.slice(1);
 
@@ -17,9 +17,9 @@ function convertorClassName(fromExtension: Extension, toExtension: Extension): s
 }
 
 describe("ConvertorFactory.getSupportedExtensions", function () {
-    // Порядок сверяется намеренно: в нём список видит пользователь в приветствии /start
-    // (StartConversation). Он складывается из порядка матрицы — формат попадает в список там, где
-    // встретился впервые, источником или целью, — и перестановка в матрице меняет приветствие.
+    // The order is checked on purpose: the user sees the list in this order in the /start
+    // welcome (StartConversation). It follows the order of the matrix — a format enters the list
+    // where it first appears, as a source or a target — so reordering the matrix changes the welcome.
     it("returns every extension of the conversion matrix in the order of its first appearance", function () {
         expect(convertorFactory.getSupportedExtensions()).to.deep.equal([
             Extension.WOFF,

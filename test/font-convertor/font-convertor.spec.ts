@@ -14,9 +14,9 @@ import { InvalidPath, PermissionDenied } from "app/shared/fs/file-helper.errors"
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 const datedWoffPath = /^\d{4}\/\d{1,2}\/\d{1,2}\/[a-z0-9]{15}\.woff$/;
 
-// Пары настоящие, движок подставной: выбор пары и её проверки входа здесь идут насквозь, а
-// что движок делает с байтами — предмет спеки пар. Права отнимаются chmod, поэтому спека не
-// для root (docs/architecture/testing.md).
+// The pairs are real, the engine is a stub: the choice of a pair and its input checks run here
+// end to end, while what the engine does with the bytes is the subject of the pair specs.
+// Permissions are taken away with chmod, so the spec is not for root (docs/architecture/testing.md).
 describe("FontConvertor", function () {
     let tempDir: string;
     let lockedDirs: Array<string>;
@@ -38,7 +38,7 @@ describe("FontConvertor", function () {
     });
 
     afterEach(async function () {
-        // Каталог без права чтения rm не обойдёт, поэтому права возвращаются до уборки.
+        // rm cannot walk a directory without the read permission, so permissions are restored first.
         for (const lockedDir of lockedDirs) {
             await fs.chmod(lockedDir, 0o700);
         }
@@ -54,7 +54,7 @@ describe("FontConvertor", function () {
     });
 
     it("keeps the case of the temp dir", async function () {
-        // Суффикс mkdtemp() бывает и строчным, поэтому заглавные в пути задаются явно.
+        // The mkdtemp() suffix can be all lowercase, so the uppercase letters in the path are set explicitly.
         const directory = path.join(tempDir, "Upper-Case");
         await fs.mkdir(directory);
 
@@ -84,15 +84,15 @@ describe("FontConvertor", function () {
                 new FontConvertor(factory, tempDir).convert({ originPath: originPath, extension: Extension.TTF }),
             );
 
-            // Класса мало: пары ttf → ttf нет, и без своей проверки отказ пришёл бы от фабрики,
-            // обёрнутый в тот же FontConvertorError.
+            // The class is not enough: there is no ttf → ttf pair, and without a check of its own
+            // the rejection would come from the factory, wrapped in the same FontConvertorError.
             expect(error).to.be.instanceOf(FontConvertorError);
             expect((error as FontConvertorError).message).to.equal("New and old font extension cannot be equal.");
             expect(engineCalls).to.be.empty;
         });
     }
 
-    // Ключи таблицы пар строчные, а регистр расширения задаёт тот, кто прислал файл.
+    // The keys of the pair table are lowercase, and the case of the extension is set by whoever sent the file.
     for (const filename of ["Font.TTF", "Font.tTf"]) {
         it(`converts a source named ${filename} as a lowercase one`, async function () {
             const originPath = await copyTtfFixture(filename);
@@ -103,9 +103,9 @@ describe("FontConvertor", function () {
         });
     }
 
-    // Расширение исходника берётся из имени файла и с Extension не сверяется: формат, которого нет
-    // в таблице пар даже источником, доходит до ConvertorFactory.get() как есть. Отказ обязан
-    // назвать пару, а не упасть TypeError на чтении таблицы.
+    // The source extension comes from the file name and is not checked against Extension: a
+    // format absent from the pair table even as a source reaches ConvertorFactory.get() as is.
+    // The rejection has to name the pair rather than fail with a TypeError reading the table.
     it("rejects a source in a format without pairs", async function () {
         const originPath = await copyTtfFixture("font.pfb");
 
@@ -131,9 +131,10 @@ describe("FontConvertor", function () {
         expect((error as FontConvertorError).cause).to.be.instanceOf(InvalidFontSignature);
     });
 
-    // Путь проверяет FileHelper.createDirectoriesByDate(), сами проверки закреплены её спекой.
-    // Здесь — что отказ выходит из convert() как есть: каталог создаётся до try, который
-    // заворачивает ошибки пары в FontConvertorError, и до движка дело не доходит.
+    // FileHelper.createDirectoriesByDate() checks the path, and its spec pins the checks
+    // themselves. Here — that the rejection leaves convert() as is: the directory is created
+    // before the try that wraps the pair's errors in FontConvertorError, and the engine is never
+    // reached.
     describe("rejects the temp dir", function () {
         it("when it does not exist", async function () {
             const directory = path.join(tempDir, "missing");
@@ -200,8 +201,9 @@ describe("FontConvertor", function () {
 });
 
 describe("ConvertorNotFound and InvalidFontSignature", function () {
-    // Фабрики проверяются напрямую: спека выше сверяет у ConvertorNotFound только payload, а
-    // спека Convertor сверяет отказ с ошибкой той же фабрики, и текст там сравнивается сам с собой.
+    // The factories are checked directly: the spec above compares only the payload of
+    // ConvertorNotFound, and the Convertor spec compares a rejection with an error from the same
+    // factory, so the text there is compared with itself.
     const cases = [
         {
             name: "ConvertorNotFound.byExtensions",

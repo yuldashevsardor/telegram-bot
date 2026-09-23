@@ -42,7 +42,7 @@ export class InvalidEot extends RuntimeError {
 }
 
 /**
- * Кодек умеет только конверт: сжатую и зашифрованную полезную нагрузку из него не достать.
+ * The codec handles only the envelope: a compressed or encrypted payload cannot be taken out of it.
  */
 export class UnsupportedEotFlags extends RuntimeError {
     public static byFlags(flags: number): UnsupportedEotFlags {

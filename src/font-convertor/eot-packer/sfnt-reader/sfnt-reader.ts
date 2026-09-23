@@ -10,16 +10,16 @@ type TableRecord = {
 const SFNT_HEADER_SIZE = 12;
 const TABLE_RECORD_SIZE = 16;
 
-// Поля, которые кодек читает из OS/2, кончаются на fsSelection (62), поэтому версии 0
-// хватает 64 байт: у старых шрифтов таблица бывает короче нынешних 78.
+// The fields the codec reads from OS/2 end at fsSelection (62), so version 0 needs only 64
+// bytes: in old fonts the table can be shorter than today's 78.
 const OS2_VERSION_0_SIZE = 64;
-// Диапазоны кодировок появляются с версии 1 и лежат сразу за таблицей версии 0.
+// The code page ranges appear in version 1 and lie right after the version 0 table.
 const OS2_CODE_PAGE_RANGE_OFFSET = 78;
-// fsSelection бит 0 — наклон. head.macStyle его дублирует (бит 1, а не 0: нулевой бит там
-// жирность), но канон для OpenType — OS/2, и наклон из него же берёт ttf2eot.
+// fsSelection bit 0 is the slant. head.macStyle duplicates it (bit 1, not 0: bit zero there is
+// bold), but OS/2 is canonical for OpenType, and ttf2eot takes the slant from it too.
 const OS2_FS_SELECTION_ITALIC = 0x0001;
 
-// head читается только ради checkSumAdjustment по смещению 8.
+// head is read only for checkSumAdjustment at offset 8.
 const HEAD_MIN_SIZE = 12;
 
 const NAME_HEADER_SIZE = 6;
@@ -29,14 +29,14 @@ const NAME_ID_STYLE = 2;
 const NAME_ID_FULL = 4;
 const NAME_ID_VERSION = 5;
 
-// Платформы таблицы name с кодировкой, которую кодек умеет прочитать: у Windows и Unicode
-// строки в UTF-16BE, у Macintosh однобайтовым MacRoman закодирован только encodingId 0 —
-// в остальных там национальные кодировки вроде Shift-JIS. Windows идёт первой: её записи
-// есть почти во всех шрифтах и именно их ждёт от EOT читатель на Windows.
+// The name table platforms whose encoding the codec can read: Windows and Unicode keep strings
+// in UTF-16BE, while on Macintosh only encodingId 0 is single-byte MacRoman — the others hold
+// national encodings such as Shift-JIS. Windows comes first: almost every font has its records,
+// and they are what a reader on Windows expects from EOT.
 //
-// Внутри платформы предпочитается английский язык — как и в ttf2eot, на который кодек
-// равняется: у Windows это 0x0409, у Macintosh и Unicode — 0. Без этого в конверт уехало
-// бы то имя, которое в таблице стоит раньше, а порядок записей шрифт не гарантирует.
+// Within a platform English is preferred — as in ttf2eot, which the codec follows: 0x0409 on
+// Windows, 0 on Macintosh and Unicode. Otherwise the envelope would get whichever name stands
+// earlier in the table, and a font does not guarantee the order of its records.
 const PLATFORM_UNICODE = 0;
 const PLATFORM_MACINTOSH = 1;
 const PLATFORM_WINDOWS = 3;
@@ -59,7 +59,7 @@ export class SfntReader {
     private readonly tables = new Map<string, TableRecord>();
 
     public constructor(private readonly bytes: Uint8Array) {
-        // Stryker disable next-line EqualityOperator: `<=` — эквивалентен: расходится только на 12 байтах заголовка без единой таблицы, а это не шрифт
+        // Stryker disable next-line EqualityOperator: `<=` is equivalent: it differs only on a 12-byte header without a single table, which is not a font
         if (bytes.length < SFNT_HEADER_SIZE) {
             throw InvalidSfnt.tooShort(bytes.length);
         }
@@ -77,7 +77,7 @@ export class SfntReader {
         for (let index = 0; index < tableCount; index++) {
             const record = SFNT_HEADER_SIZE + index * TABLE_RECORD_SIZE;
 
-            // Stryker disable next-line EqualityOperator: `>=` — эквивалентен: расходится только на файле, где за каталогом нет ни байта таблиц, а это не шрифт
+            // Stryker disable next-line EqualityOperator: `>=` is equivalent: it differs only on a file without a single table byte after the directory, which is not a font
             if (record + TABLE_RECORD_SIZE > bytes.length) {
                 throw InvalidSfnt.tooShort(bytes.length);
             }
@@ -92,15 +92,15 @@ export class SfntReader {
     }
 
     /**
-     * Разбирает каталог таблиц и ничего не возвращает: так проверяют, что перед нами sfnt.
+     * Parses the table directory and returns nothing: this is how a file is checked to be an sfnt.
      */
     public static validate(bytes: Uint8Array): void {
         new SfntReader(bytes);
     }
 
     public readMetadata(): SfntMetadata {
-        // Смещения полей внутри таблиц: OS/2 — usWeightClass 4, fsType 8, panose 32,
-        // ulUnicodeRange1..4 42, fsSelection 62, ulCodePageRange1..2 78 (с версии 1).
+        // Field offsets inside the tables: OS/2 — usWeightClass 4, fsType 8, panose 32,
+        // ulUnicodeRange1..4 42, fsSelection 62, ulCodePageRange1..2 78 (from version 1).
         const os2 = this.table("OS/2", OS2_VERSION_0_SIZE);
         const hasCodePageRange = this.view.getUint16(os2) >= 1;
 
@@ -143,10 +143,10 @@ export class SfntReader {
     }
 
     /**
-     * Имена конверта по nameID. Имена информационные, поэтому нечитаемая запись здесь не
-     * ошибка: её пропускают, а поле, для которого ничего не нашлось, останется пустым.
-     * Отвергать из-за такого шрифт целиком дороже — записи name режут субсеттеры, а
-     * таблицу целиком снимает `pyftsubset --drop-tables+=name`.
+     * The envelope names by nameID. The names are informational, so an unreadable record is not an
+     * error here: it is skipped, and a field nothing was found for stays empty. Rejecting the whole
+     * font over it costs more — subsetters cut name records, and
+     * `pyftsubset --drop-tables+=name` drops the whole table.
      */
     private readNames(): Map<number, string> {
         const names = new Map<number, string>();
@@ -156,35 +156,35 @@ export class SfntReader {
             return names;
         }
 
-        // Заголовок, записи и строки лежат внутри объявленной длины таблицы. За ней — соседняя
-        // таблица, и строка, которая туда заходит, уехала бы в конверт чужими байтами. Обрезанный
-        // файл кончается ещё раньше.
+        // The header, the records and the strings lie within the declared table length. Behind it
+        // is the neighbouring table, and a string reaching there would carry foreign bytes into the
+        // envelope. A truncated file ends even earlier.
         const nameEnd = Math.min(name.offset + name.length, this.bytes.length);
 
-        // Stryker disable next-line EqualityOperator: `>=` — эквивалентен: заголовок, который кончается ровно на конце таблицы или файла, не оставляет места ни одной записи
+        // Stryker disable next-line EqualityOperator: `>=` is equivalent: a header ending exactly at the end of the table or the file leaves no room for a single record
         if (name.offset + NAME_HEADER_SIZE > nameEnd) {
             return names;
         }
 
-        // Формат таблицы name: count 2, storageOffset 4, дальше записи по 12 байт —
+        // The name table format: count 2, storageOffset 4, then 12-byte records —
         // platformId 0, encodingId 2, languageId 4, nameId 6, length 8, stringOffset 10.
         const recordCount = this.view.getUint16(name.offset + 2);
         const storage = name.offset + this.view.getUint16(name.offset + 4);
-        // Записи лежат до хранилища строк. Завышенный счётчик — от обрезки или субсеттера с
-        // ошибкой — уводит их в строки и соседние таблицы, а там байты складываются в
-        // «записи» с мусорными именами и заслоняют настоящие имена следующих источников.
+        // The records lie before the string storage. An inflated count — from truncation or a
+        // buggy subsetter — leads them into the strings and the neighbouring tables, where bytes
+        // add up to "records" with garbage names that shadow the real names of the later sources.
         const recordsEnd = Math.min(storage, nameEnd);
         const wanted = [NAME_ID_FAMILY, NAME_ID_STYLE, NAME_ID_VERSION, NAME_ID_FULL];
 
         for (const source of NAME_SOURCES) {
-            // Английские записи проходятся первыми, поэтому один и тот же источник
-            // перебирается дважды: сначала со своим языком, потом с любым.
+            // English records are walked first, so each source is walked twice: first with its
+            // language, then with any.
             for (const languageId of [source.languageId, undefined]) {
                 for (let index = 0; index < recordCount; index++) {
                     const record = name.offset + NAME_HEADER_SIZE + index * NAME_RECORD_SIZE;
 
-                    // Дальше записи тоже за границей, и этот проход кончен. Остальные проходы
-                    // начинают с нулевой записи и уместившиеся ещё прочитают.
+                    // The records further on are past the boundary too, and this pass is over. The
+                    // other passes start from record zero and will still read the ones that fit.
                     if (record + NAME_RECORD_SIZE > recordsEnd) {
                         break;
                     }
@@ -224,8 +224,8 @@ export class SfntReader {
 
     private decodeName(bytes: Uint8Array, platformId: number): string {
         if (platformId === PLATFORM_MACINTOSH) {
-            // Однобайтовая кодировка платформы Macintosh — MacRoman, а не Latin-1:
-            // выше 0x7f они расходятся.
+            // The single-byte encoding of the Macintosh platform is MacRoman, not Latin-1: they
+            // differ above 0x7f.
             return new TextDecoder("macintosh").decode(bytes);
         }
 
