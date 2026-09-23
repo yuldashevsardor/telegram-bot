@@ -13,18 +13,19 @@ The threshold is `LOGGER_LEVEL`: that level and everything more severe is writte
 `WARNING` in production and `DEBUG` otherwise. An unknown value is an `InvalidConfigError`.
 
 Request correlation: `RequestContextMiddleware` (the first middleware, [`bot.md`](./bot.md)) runs
-the rest of the pipeline inside `requestContext.run(next)`. `AbstractLogger` takes a
-`RequestContext` as a constructor dependency and reads `getValues()` from it at the moment of the
-write — `PinoLogger` puts the values as fields of the record next to `message` and `payload`,
-`ConsoleLogger` prints them as `[key=value]` chips before the message. The logger is one per
-process and is never swapped, and reading the values lives in the common `AbstractLogger`, so
-correlation works on both adapters, in development too.
+the rest of the pipeline inside `requestContext.run(next)`. The common `AbstractLogger` takes a
+`RequestContext` as a constructor dependency, and each adapter reads `getValues()` from it itself
+at the moment of the write — `PinoLogger` puts the values as fields of the record next to `message`
+and `payload`, `ConsoleLogger` prints them as `[key=value]` chips before the message. The logger is
+one per process and is never swapped, and the dependency lives in the base class, so correlation
+works on both adapters, in development too.
 
 The scope of `run()` is the middleware chain and nothing else, so everything written outside it
-goes without a `requestId`. The drop in the base `Filter` ([`bot.md`](./bot.md)), which stands
-above the middleware, goes out that way. So does the `critical` about a failed update:
-`grammy.catch` → `Bot.handleError` is called not from `handleUpdate` but from the sink of
-`@grammyjs/runner` — on the already rejected promise of `handleUpdate`, when the scope is closed.
+goes without a `requestId`. The record the base `Filter` ([`bot.md`](./bot.md)), which stands
+above the middleware, writes when it drops an update goes out that way too. So does the `critical`
+about a failed update: `grammy.catch` → `Bot.handleError` is called not from `handleUpdate` but
+from the sink of `@grammyjs/runner` — on the already rejected promise of `handleUpdate`, when the
+scope is closed.
 
 `RequestContext` (`platform/request-context/request-context.ts`) is the only code that touches
 `AsyncLocalStorage`: the ALS itself is private, only operations on the scope go outside, and the
@@ -39,9 +40,9 @@ argument right there, before any container; it sits in the container
 `request-context.types.ts` next to it (`REQUEST_KEYS` with `as const`, `RequestStore` derived from
 it, values `unknown`). `getValues()` returns only the known keys: without that filter the log format
 would depend on what was put into the store along the way, and `as const` makes a typo in a key a
-compile error rather than silently lost correlation. Outside a scope `getRequestId()` is `null`, not
-an error: `Runner` has no scope of its own, so the logs of background tasks go without a
-`requestId`.
+compile error rather than silently lost correlation. Outside a scope `getValues()` is `{}` and
+`getRequestId()` is `null`, not an error: `Runner` has no scope of its own, so the logs of
+background tasks go without a `requestId`.
 
 Only `Logger` writes outwards. A direct `console.*` bypasses the level, the `requestId` and the
 `LOGGER_LEVEL` threshold, and in production the structured pino stream as well, so such a record is

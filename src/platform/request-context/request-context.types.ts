@@ -1,5 +1,5 @@
-// The keys of the values of the current update. Only RequestContext.getValues() hands them out,
-// so a value under a key missing from this list never reaches the log. as const is required: the
+// The keys of the values of the current update. Only RequestContext.getValues() hands them to the
+// log, so a value under a key missing from this list never reaches it. as const is required: the
 // store type is derived from here, and without it a typo in a key would compile and correlation
 // would be lost silently.
 export const REQUEST_KEYS = {

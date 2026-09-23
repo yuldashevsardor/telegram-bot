@@ -29,7 +29,7 @@ const pinoLevelNames: Record<Level, PinoLevel> = {
 export class PinoLogger extends AbstractLogger {
     private readonly pinoDefaultOptions: LoggerOptions<PinoLevel> = {
         customLevels: pinoLevels,
-        // Stryker disable next-line BooleanLiteral: `false` is equivalent: the standard pino levels get added, but PinoLogger writes and sets the threshold with its own five only, and the weights of the standard ones (10–60) do not match LevelSeverity — the records and the threshold stay the same
+        // Stryker disable next-line BooleanLiteral: `false` is equivalent: the standard pino levels without a custom namesake (trace, warn, fatal) get added, but PinoLogger writes and sets the threshold with its own five only, and the weights of the standard ones (10–60) do not match LevelSeverity — the records and the threshold stay the same
         useOnlyCustomLevels: true,
         level: pinoLevelNames[Level.DEBUG],
         formatters: {
