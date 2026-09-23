@@ -24,8 +24,8 @@ export class RequestContext {
         return typeof requestId === "string" ? requestId : null;
     }
 
-    // Only the known keys are returned: the store is untyped, and without the filter the log
-    // format would depend on what was put into the store along the way.
+    // Only the known keys are returned: nothing checks the keys of the store at runtime, and
+    // without the filter the log format would depend on what was put into the store along the way.
     public getValues(): RequestStore {
         const store = this.als.getStore();
 

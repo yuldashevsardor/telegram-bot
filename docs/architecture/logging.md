@@ -5,8 +5,9 @@ their weights `LevelSeverity` are in `logger.types.ts`, and the adapters sit nex
 to build is decided by `ApplicationContext` ([`application.md`](./application.md)) at start, by
 `isProduction` from the config ([`config.md`](./config.md)): `PinoLogger` in production,
 `ConsoleLogger` otherwise. Both take the threshold from the common `AbstractLogger` but apply it
-differently: `ConsoleLogger` checks `isEnabled`, while `PinoLogger` leaves filtering to pino and
-agrees with it only because the custom pino levels are built from the same `LevelSeverity`.
+differently: `ConsoleLogger` checks `isEnabled`, while `PinoLogger` leaves filtering to pino, and
+pino's cutoff matches the `AbstractLogger` threshold only because the custom pino levels are built
+from the same `LevelSeverity`.
 
 The threshold is `LOGGER_LEVEL`: that level and everything more severe is written; the default is
 `WARNING` in production and `DEBUG` otherwise. An unknown value is an `InvalidConfigError`.
@@ -20,8 +21,8 @@ process and is never swapped, and reading the values lives in the common `Abstra
 correlation works on both adapters, in development too.
 
 The scope of `run()` is the middleware chain and nothing else, so everything written outside it
-goes without a `requestId`. That is how the drop in the base `Filter` ([`bot.md`](./bot.md)), which
-stands above the middleware, is written. So is the `critical` about a failed update:
+goes without a `requestId`. The drop in the base `Filter` ([`bot.md`](./bot.md)), which stands
+above the middleware, goes out that way. So does the `critical` about a failed update:
 `grammy.catch` → `Bot.handleError` is called not from `handleUpdate` but from the sink of
 `@grammyjs/runner` — on the already rejected promise of `handleUpdate`, when the scope is closed.
 
@@ -46,7 +47,7 @@ Only `Logger` writes outwards. A direct `console.*` bypasses the level, the `req
 `LOGGER_LEVEL` threshold, and in production the structured pino stream as well, so such a record is
 lost when the logs are parsed, and an error from a `catch` turns into silence. There are two
 exceptions: `ConsoleLogger`, for which `console.*` is the implementation of the port, and the
-`fail()` fallback in `app.ts`, which is called before the context exists too
+`fail()` fallback in `app.ts`, which is also called before the context is created
 ([`application.md`](./application.md)). The rule is held by `no-console: "error"` in `.eslintrc.js`:
 the adapter is exempted through `overrides` together with its spec (which captures the records by
 replacing `console`), and the fallback by line-level `eslint-disable-next-line` rather than for the
