@@ -138,6 +138,20 @@ describe("EotPacker", function () {
             expect(hex(await unpack(legacy))).to.equal(hex(ttf));
         });
 
+        it("returns the font of a version 0x00020002 envelope, whose tail lies between the header and the font", async function () {
+            // The tail of this version (a signature, embedded EUDC) is not parsed, so the header
+            // walk ends before the font start. The gap has to pass: a check demanding that the
+            // header end exactly at the font would reject every such envelope.
+            const fontDataOffset = eot.length - ttf.length;
+            const tail = new Uint8Array(20);
+            const tailed = Uint8Array.from(Buffer.concat([eot.subarray(0, fontDataOffset), tail, ttf]));
+            const view = new DataView(tailed.buffer);
+            view.setUint32(EOT_SIZE_OFFSET, tailed.length, true);
+            view.setUint32(EOT_VERSION_OFFSET, 0x00020002, true);
+
+            expect(hex(await unpack(tailed))).to.equal(hex(ttf));
+        });
+
         it("rejects an envelope without the eot magic number", async function () {
             // The rest of the header is intact: without the marker check such an envelope would unpack.
             const unmarked = Uint8Array.from(eot);
