@@ -16,8 +16,8 @@ FontConvertor.convert({ originPath, extension })
 What bypasses the engine is the format itself, not a pair: there is neither `Extension.EOT` in
 `FontForge.supportedExtensions` nor `.eot` among the `fontforge` arguments (the engine does not
 read this envelope, and on writing silently corrupts the file — [invariant](./invariants.md)).
-`EotPacker` takes the envelope off and puts it on, and when an EOT pair needs the engine, it
-gets a plain sfnt:
+`EotPacker` takes the envelope off and puts it on, so when an EOT pair needs the engine, the
+engine reads or writes a plain sfnt, never the envelope:
 
 ```
 ttf → eot                    EotPacker.pack(SRC, DIST)

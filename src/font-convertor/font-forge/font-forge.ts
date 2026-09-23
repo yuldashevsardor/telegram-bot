@@ -9,7 +9,8 @@ import { configValue } from "app/shared/config-value";
 export class FontForge {
     // EOT is left out on purpose: the engine does not read its envelope, and on writing it
     // silently hands over PostScript Type 1 under a foreign extension. EotPacker takes the
-    // envelope off and puts it on, and when an EOT pair needs the engine, it gets a plain sfnt
+    // envelope off and puts it on, so when an EOT pair needs the engine, the engine reads or
+    // writes a plain sfnt, never the envelope
     // (issue https://github.com/yuldashevsardor/telegram-bot/issues/158).
     private readonly supportedExtensions = [Extension.OTF, Extension.TTF, Extension.WOFF, Extension.SVG, Extension.WOFF2];
     // The paths are read from sys.argv rather than substituted into the script text: under
