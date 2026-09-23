@@ -70,8 +70,9 @@ export class EotPacker {
         const eot = await FileHelper.read(eotPath);
         const font = this.readFontData(eot);
 
-        // The envelope may be consistent while holding no font: the header adds up, but the
-        // content is not a font. Next the file goes to the engine, so the check is here, not there.
+        // The envelope may add up while holding no font: the header is consistent, but the
+        // content is not a font. The unpacked file is either the result itself (eot → ttf) or goes
+        // on to the engine, so the check is here, where both routes pass.
         SfntReader.validate(font);
 
         await FileHelper.write(sfntPath, font);
@@ -168,7 +169,7 @@ export class EotPacker {
 
         // The font lies at the tail of the file, so its start is known without parsing the header.
         // The header is walked in full all the same: whether its variable blocks meet that start
-        // is the only integrity check of the envelope we have.
+        // is the only check we have that the variable part of the header is consistent.
         const fontDataOffset = eot.length - fontDataSize;
         const headerEnd = this.readHeaderEnd(eot, view, version);
 

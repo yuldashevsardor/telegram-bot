@@ -8,8 +8,8 @@ import { InvalidSfnt } from "app/font-convertor/eot-packer/sfnt-reader/sfnt-read
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
 // The layout of the table directory and of the name records the spec walks, and the values it
-// writes into the fixture's name records to set up a case: platforms, an encoding, name IDs and
-// a language.
+// finds the fixture's name records by and writes into them to set up a case: platforms, an
+// encoding, name IDs and a language.
 const TABLE_DIRECTORY_OFFSET = 12;
 const TABLE_RECORD_SIZE = 16;
 const NAME_RECORD_SIZE = 12;

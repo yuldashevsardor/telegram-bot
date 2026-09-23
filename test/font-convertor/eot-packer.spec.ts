@@ -154,7 +154,7 @@ describe("EotPacker", function () {
 
         it("rejects an envelope whose declared size does not match the file", async function () {
             // The size is edited in the header and the file stays whole. A truncated file would
-            // not hold the check: its font start moves too, and the rejection would come from
+            // not pin this check: its font start moves too, and the rejection would come from
             // matching the names against it.
             const misdeclared = Uint8Array.from(eot);
             new DataView(misdeclared.buffer).setUint32(EOT_SIZE_OFFSET, eot.length + 1, true);
