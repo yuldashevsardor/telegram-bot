@@ -23,8 +23,8 @@ module.exports = {
 
         // Only Logger writes outwards: console.* bypasses the level, the requestId and the
         // LOGGER_LEVEL threshold, and in production the structured pino stream. The exceptions are
-        // the ConsoleLogger adapter (below) and the fail() fallback in app.ts, for when the context
-        // has no parts yet or the write of the logger throws.
+        // the ConsoleLogger adapter (below) and the fail() fallback in app.ts; when the fallback
+        // writes to the console is in docs/architecture/logging.md.
         "no-console": "error",
         "no-restricted-imports": [
             "error",
