@@ -138,18 +138,25 @@ describe("EotPacker", function () {
             expect(hex(await unpack(legacy))).to.equal(hex(ttf));
         });
 
-        it("returns the font of a version 0x00020002 envelope, whose tail lies between the header and the font", async function () {
-            // The tail of this version (a signature, embedded EUDC) is not parsed, so the header
-            // walk ends before the font start. The gap has to pass: a check demanding that the
-            // header end exactly at the font would reject every such envelope.
+        it("returns the font of an envelope with a gap between the header and the font, in every version", async function () {
+            // Version 0x00020002 keeps its tail (a signature, embedded EUDC) there, and the tail is
+            // not parsed: the header walk ends before the font start. The gap has to pass, and in
+            // every version, not only in 0x00020002: the check does not tell versions apart.
+            //
+            // 20 bytes are the fixed fields of that tail with an empty signature and no EUDC font:
+            // RootStringCheckSum and EUDCCodePage (u32), Padding6 and SignatureSize (u16), EUDCFlags
+            // and EUDCFontSize (u32). Zero is a valid value for each of them.
             const fontDataOffset = eot.length - ttf.length;
             const tail = new Uint8Array(20);
-            const tailed = Uint8Array.from(Buffer.concat([eot.subarray(0, fontDataOffset), tail, ttf]));
-            const view = new DataView(tailed.buffer);
-            view.setUint32(EOT_SIZE_OFFSET, tailed.length, true);
-            view.setUint32(EOT_VERSION_OFFSET, 0x00020002, true);
 
-            expect(hex(await unpack(tailed))).to.equal(hex(ttf));
+            for (const version of [0x00010000, 0x00020001, 0x00020002]) {
+                const tailed = Uint8Array.from(Buffer.concat([eot.subarray(0, fontDataOffset), tail, ttf]));
+                const view = new DataView(tailed.buffer);
+                view.setUint32(EOT_SIZE_OFFSET, tailed.length, true);
+                view.setUint32(EOT_VERSION_OFFSET, version, true);
+
+                expect(hex(await unpack(tailed)), `0x${version.toString(16).padStart(8, "0")}`).to.equal(hex(ttf));
+            }
         });
 
         it("rejects an envelope without the eot magic number", async function () {
