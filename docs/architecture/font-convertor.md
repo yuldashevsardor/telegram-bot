@@ -16,7 +16,8 @@ FontConvertor.convert({ originPath, extension })
 What bypasses the engine is the format itself, not a pair: there is neither `Extension.EOT` in
 `FontForge.supportedExtensions` nor `.eot` among the `fontforge` arguments (the engine does not
 read this envelope, and on writing silently corrupts the file — [invariant](./invariants.md)).
-`EotPacker` takes the envelope off and puts it on, and the engine gets a plain sfnt:
+`EotPacker` takes the envelope off and puts it on, so when an EOT pair needs the engine, the
+engine reads or writes a plain sfnt, never the envelope:
 
 ```
 ttf → eot                    EotPacker.pack(SRC, DIST)
@@ -128,8 +129,9 @@ Known:
   ([`logging.md`](./logging.md)). The command is for debugging and does not go to production
   ([overview](./README.md)), so the input from the `test/` directory stays as it is.
 - The EOT envelope is not read through: the names are parsed, then the font is taken as the tail
-  of the file by `FontDataSize`. The tail of version `0x00020002` (a signature, embedded EUDC) is
-  not part of the integrity check.
+  of the file by `FontDataSize`. The bytes between the parsed header and the font are not checked,
+  in any version: only a header running past the font start is rejected. In version `0x00020002`
+  the tail (a signature, embedded EUDC) lies there.
 - An envelope built by `EotPacker` repeats the output of `ttf2eot` byte for byte, except for
   `fsType`: `ttf2eot` always writes zero, declaring any font free to install, while we carry
   `OS/2.fsType` over as is, following the specification. The byte-for-byte comparison test with
