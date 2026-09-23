@@ -16,8 +16,9 @@ export class RequestContext {
         return this.als.run({ [REQUEST_KEYS.REQUEST_ID]: uuid() }, fn);
     }
 
-    // A scope is opened only around the pipeline of an update, so the rest of the process runs
-    // without one: no value there is a normal case, hence null rather than an error.
+    // A scope covers only what stands below RequestContextMiddleware in the pipeline of an update;
+    // everything else, the steps above it included, runs without one: no value there is a normal
+    // case, hence null rather than an error.
     public getRequestId(): string | null {
         const requestId = this.als.getStore()?.[REQUEST_KEYS.REQUEST_ID];
 

@@ -16,8 +16,9 @@ Request correlation: `RequestContextMiddleware` (the first middleware, [`bot.md`
 the rest of the pipeline inside `requestContext.run(next)`. The common `AbstractLogger` takes a
 `RequestContext` as a constructor dependency, and each adapter reads `getValues()` from it itself
 at the moment of the write — `PinoLogger` puts the values as fields of the record next to `message`
-and `payload`, `ConsoleLogger` prints them as `[key=value]` chips before the message. The logger is
-one per process and is never swapped, so correlation works on both adapters, in development too.
+and `payload`, `ConsoleLogger` prints them as `[key=value]` chips before the message. It is this
+read that makes correlation work on both adapters, in development too; the logger itself is one per
+process and is never swapped.
 
 The scope of `run()` is what stands below `RequestContextMiddleware` in the pipeline and nothing
 else, so everything written outside it goes without a `requestId`. The filters, `sequentialize()`
@@ -41,8 +42,11 @@ argument right there, before any container; it sits in the container
 it, values `unknown`). `getValues()` returns only the known keys: without that filter the log format
 would depend on what was put into the store along the way, and `as const` makes a typo in a key a
 compile error rather than silently lost correlation. Outside a scope `getValues()` is `{}` and
-`getRequestId()` is `null`, not an error. `Runner` has no scope of its own, so its logs get `{}`
-from `getValues()` and go without a `requestId`.
+`getRequestId()` is `null`, not an error. The outbound queue's `Runner`
+(`telegram/outbound-queue/runner/runner.ts`) runs outside any scope: it calls `task.callback()` from
+its own `setTimeout` loop, not from the update that enqueued the task. So a failed API call is
+logged without a `requestId` even when an update made it — both the `error` about the failure and
+the one about dropping the task after the last retry.
 
 Only `Logger` writes outwards. A direct `console.*` bypasses the level, the `requestId` and the
 `LOGGER_LEVEL` threshold, and in production the structured pino stream as well, so such a record is
