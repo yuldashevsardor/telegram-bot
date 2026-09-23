@@ -168,8 +168,9 @@ export class EotPacker {
         }
 
         // The font lies at the tail of the file, so its start is known without parsing the header.
-        // The header is walked in full all the same: whether its variable blocks meet that start
-        // is the only check we have that the variable part of the header is consistent.
+        // The header is walked in full all the same: checking that its variable blocks do not run
+        // past that start is the only check we have that the variable part of the header is
+        // consistent.
         const fontDataOffset = eot.length - fontDataSize;
         const headerEnd = this.readHeaderEnd(eot, view, version);
 

@@ -6,8 +6,8 @@ import { SFNT_VERSIONS, sfntVersionBytes } from "app/font-convertor/sfnt-version
 
 @injectable()
 export class FontSignatureMatcher {
-    // EOT has no signature at the start of the file: the header opens with the font sizes, and
-    // the format marker (USHORT 0x504C, little-endian) lies at a fixed offset.
+    // EOT has no signature at the start of the file: the header opens with the file and font
+    // data sizes, and the format marker (USHORT 0x504C, little-endian) lies at a fixed offset.
     private static readonly EOT_MAGIC_OFFSET = 34;
 
     private static readonly UTF8_BOM = [0xef, 0xbb, 0xbf];
