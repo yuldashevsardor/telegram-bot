@@ -138,6 +138,29 @@ describe("EotPacker", function () {
             expect(hex(await unpack(legacy))).to.equal(hex(ttf));
         });
 
+        it("returns the font of an envelope with a gap between the header and the font, in every version", async function () {
+            // Version 0x00020002 keeps its tail (a signature, embedded EUDC) there, and the tail is
+            // not parsed: the header walk ends before the font start. The gap has to pass, and in
+            // every version, not only in 0x00020002: the check does not tell versions apart.
+            //
+            // 20 bytes are the fixed fields of that tail with an empty signature and no EUDC font:
+            // RootStringCheckSum and EUDCCodePage (u32), Padding6 and SignatureSize (u16), EUDCFlags
+            // and EUDCFontSize (u32). Zeros pass only because the tail is not read: a conforming
+            // writer puts 0x50475342 into RootStringCheckSum for an empty RootString. In version 1.0
+            // the gap is 24 bytes: the walk also stops before the fixture's Padding5 and RootStringSize.
+            const fontDataOffset = eot.length - ttf.length;
+            const tail = new Uint8Array(20);
+
+            for (const version of [0x00010000, 0x00020001, 0x00020002]) {
+                const tailed = Uint8Array.from(Buffer.concat([eot.subarray(0, fontDataOffset), tail, ttf]));
+                const view = new DataView(tailed.buffer);
+                view.setUint32(EOT_SIZE_OFFSET, tailed.length, true);
+                view.setUint32(EOT_VERSION_OFFSET, version, true);
+
+                expect(hex(await unpack(tailed)), `0x${version.toString(16).padStart(8, "0")}`).to.equal(hex(ttf));
+            }
+        });
+
         it("rejects an envelope without the eot magic number", async function () {
             // The rest of the header is intact: without the marker check such an envelope would unpack.
             const unmarked = Uint8Array.from(eot);
