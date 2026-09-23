@@ -44,9 +44,9 @@ would depend on what was put into the store along the way, and `as const` makes 
 compile error rather than silently lost correlation. Outside a scope `getValues()` is `{}` and
 `getRequestId()` is `null`, not an error. The outbound queue's `Runner`
 (`telegram/outbound-queue/runner/runner.ts`) runs outside any scope: it calls `task.callback()` from
-its own `setTimeout` loop, not from the update that enqueued the task. So a failed API call is
-logged without a `requestId` even when an update made it — both the `error` about the failure and
-the one about dropping the task after the last retry.
+its own `setTimeout` loop, not from the update that enqueued the task. So the two `error` records
+the `Runner` itself writes about a failed API call ([`outbound-queue.md`](./outbound-queue.md),
+"Errors") go without a `requestId` even when an update made the call.
 
 Only `Logger` writes outwards. A direct `console.*` bypasses the level, the `requestId` and the
 `LOGGER_LEVEL` threshold, and in production the structured pino stream as well, so such a record is
