@@ -16,8 +16,8 @@ export class RequestContext {
         return this.als.run({ [REQUEST_KEYS.REQUEST_ID]: uuid() }, fn);
     }
 
-    // Outside a scope there is no value, and that is a normal case rather than a misuse, hence
-    // null rather than an error.
+    // A scope is opened only around the pipeline of an update, so the rest of the process runs
+    // without one: no value there is a normal case, hence null rather than an error.
     public getRequestId(): string | null {
         const requestId = this.als.getStore()?.[REQUEST_KEYS.REQUEST_ID];
 

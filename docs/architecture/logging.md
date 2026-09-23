@@ -17,15 +17,15 @@ the rest of the pipeline inside `requestContext.run(next)`. The common `Abstract
 `RequestContext` as a constructor dependency, and each adapter reads `getValues()` from it itself
 at the moment of the write — `PinoLogger` puts the values as fields of the record next to `message`
 and `payload`, `ConsoleLogger` prints them as `[key=value]` chips before the message. The logger is
-one per process and is never swapped, and the values are read by the adapters, not by the base
-class, so correlation works on both, in development too.
+one per process and is never swapped, so correlation works on both adapters, in development too.
 
-The scope of `run()` is the middleware chain and nothing else, so everything written outside it
-goes without a `requestId`. The filters, `sequentialize()` and `session()` stand above the
-middleware ([`bot.md`](./bot.md)), so they run outside the scope, and the record the base `Filter`
-writes when it drops an update goes out that way too. So does the `critical` about a failed
-update: `grammy.catch` → `Bot.handleError` is called not from `handleUpdate` but from the sink of
-`@grammyjs/runner` — on the already rejected promise of `handleUpdate`, when the scope is closed.
+The scope of `run()` is what stands below `RequestContextMiddleware` in the pipeline and nothing
+else, so everything written outside it goes without a `requestId`. The filters, `sequentialize()`
+and `session()` stand above the middleware ([`bot.md`](./bot.md)), so they run outside the scope,
+and the record the base `Filter` writes when it drops an update goes out that way too. So does the
+`critical` about a failed update: `grammy.catch` → `Bot.handleError` is called not from
+`handleUpdate` but from the sink of `@grammyjs/runner` — on the already rejected promise of
+`handleUpdate`, when the scope is closed.
 
 `RequestContext` (`platform/request-context/request-context.ts`) is the only code that touches
 `AsyncLocalStorage`: the ALS itself is private, only operations on the scope go outside, and the
