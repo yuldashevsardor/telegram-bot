@@ -321,7 +321,7 @@ gh pr view <N> --json headRefOid -q .headRefOid
 
 1. запись покрывает head PR: `head=` маркера совпадает с head PR либо с того коммита не
    менялось ничего, что влияет на прогон, — разбор, команда и случай потерянного коммита
-   в `docs/agents/review-gates.md`, «Изменения, которые влияют на прогон мутаций»;
+   в `docs/agents/review-gates.md`, "Changes that affect the mutation run";
 2. `clean=yes`;
 3. прогон дошёл до отчёта (`score=` не `none`) и область та же: на `mutation-full` — `scope=full`,
    на `mutation` — `scope=files` и пустой вывод команды ниже. Полная запись на гейте `mutation` не

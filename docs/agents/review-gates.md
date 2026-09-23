@@ -1,66 +1,70 @@
-# Гейты ревью
+# Review gates
 
-Таблица, по которой изменённые файлы превращаются в список проверок. Применяет её команда
-`/review-pr` (шаг 4) к дифу PR и передаёт список включённых гейтов скиллу ревью. По ней же
-отвечают на второй вопрос — устарела ли запись мутационного прогона (ниже, «Изменения,
-которые влияют на прогон мутаций»); этот вопрос задают и автор, и ревьюер, и диф там другой.
-Поэтому таблица лежит отдельным документом, а не внутри маршрутизации: применяющих трое,
-а копия одна — расходиться нечему.
+The table that turns the changed files into a list of checks. The `/review-pr` command
+(step 4) applies it to the PR diff and hands the list of gates that are on to the review
+skill. The same table answers a second question — whether a mutation run record is stale
+(below, "Changes that affect the mutation run"); that question is asked by both the author and
+the reviewer, and the diff there is a different one. That is why the table is a document of
+its own and not part of the routing: three parties apply it, one copy exists, and nothing can
+drift apart.
 
-Второе применение маршрутизацией не становится: ни автор, ни скилл ревью не выбирают по
-таблице ни скилл, ни гейты прогона — это по-прежнему делает только `/review-pr`.
+The second use does not make routing out of it: neither the author nor the review skill picks
+a skill or the run's gates by the table — that is still done by `/review-pr` alone.
 
-## Таблица
+## The table
 
-Гейты накапливаются: один файл может включить несколько, а диф обычно попадает сразу
-в несколько строк.
+Gates accumulate: one file can turn on several, and a diff usually falls into several rows at
+once.
 
-| В дифе изменён | Включает |
+| Changed in the diff | Turns on |
 | --- | --- |
 | `package.json`, `package-lock.json`, `Dockerfile`, `.eslintrc.js`, `.prettierrc.js`, `.mocharc.json` | `rebuild` |
-| любой `.ts`, `tsconfig.json`, `tsconfig.check.json`, конфиг eslint или prettier | `build`, `typecheck`, `lint`, `format-check` |
-| любой `.ts`, `test/**`, `.mocharc.json` | `test` |
+| any `.ts`, `tsconfig.json`, `tsconfig.check.json`, an eslint or prettier config | `build`, `typecheck`, `lint`, `format-check` |
+| any `.ts`, `test/**`, `.mocharc.json` | `test` |
 | `Makefile` | `make-targets` |
 | `scripts/*.sh`, `.husky/*` | `scripts` |
-| любой `.ts` или `.sh` | `docs-sync` |
-| любой `.ts` | `bug-hunt-high` |
-| `.sh` и ни одного `.ts` | `bug-hunt-medium` |
-| `.ts` внутри `src/font-convertor/`, `src/shared/`, `src/telegram/outbound-queue/` | `smells` |
+| any `.ts` or `.sh` | `docs-sync` |
+| any `.ts` | `bug-hunt-high` |
+| `.sh` and not a single `.ts` | `bug-hunt-medium` |
+| `.ts` inside `src/font-convertor/`, `src/shared/`, `src/telegram/outbound-queue/` | `smells` |
 | `stryker.config.mjs`, `test/stryker-mocha-hook.cjs`, `test/mutation-record.ts`, `.mocharc.json`, `tsconfig.json`, `tsconfig.check.json` — not a comments-only diff | `mutation-full` |
-| любой `.ts` в `src/` или `test/`, если `mutation-full` не включён | `mutation` |
-| любой `*.md`, включая `docs/**` и `.claude/**` | `docs` |
+| any `.ts` in `src/` or `test/`, unless `mutation-full` is on | `mutation` |
+| any `*.md`, including `docs/**` and `.claude/**` | `docs` |
 
-`build` и `typecheck` включаются вместе и одна другую не заменяет: цели ходят по разным
-тиконфигам, и у `typecheck` набор файлов шире — что в него добавлено и зачем, сказано
-комментарием в `tsconfig.check.json`. Без второго гейта PR, меняющий только спеки,
-на типы не проверяется вовсе: `mocha` грузит их через `tsx`, а тот типы не проверяет
-(`docs/architecture/testing.md`).
+`build` and `typecheck` go on together and neither replaces the other: the targets use
+different tsconfigs, and `typecheck` covers a wider set of files — what is added to it and
+why is said in a comment in `tsconfig.check.json`. Without the second gate a PR that changes
+only specs would not be type-checked at all: `mocha` loads them through `tsx`, and `tsx` does
+not check types (`docs/architecture/testing.md`).
 
-`package.json` включает `rebuild` на любой правке, как в таблице: файл живёт в образе, а не
-монтируется, и на старом образе проверятся старые зависимости, скрипты и конфиг `nyc`.
-Остальные гейты по нему считай по содержанию правки, а не по имени — посмотри диф файла:
-тронут блок `scripts` — ещё и `make-targets`, тронут ключ `nyc` — ещё и `test`, там конфиг и
-порог покрытия, который гейт проверяет. Тронуты скрипт `mutation`, зависимости
-`@stryker-mutator/*` или `typescript` — ещё и `mutation-full`. То же по `package-lock.json`:
-сменилась версия `typescript` или `@stryker-mutator/*` — ещё и `mutation-full`, даже если
-`package.json` не тронут (`npm update` в пределах диапазона).
+`package.json` turns on `rebuild` on any change, as in the table: the file lives in the image
+rather than being mounted, and an old image would check the old dependencies, scripts and
+`nyc` config. The other gates for it are decided by the content of the change, not by the
+name — read the file's diff: the `scripts` block touched — `make-targets` too; the `nyc` key
+touched — `test` too, since that is where the config and the coverage threshold the gate
+checks live. The `mutation` script, the `@stryker-mutator/*` dependencies or `typescript`
+touched — `mutation-full` too. The same for `package-lock.json`: the version of `typescript`
+or `@stryker-mutator/*` changed — `mutation-full` too, even when `package.json` is untouched
+(`npm update` within the range).
 
-Смена версии рантайм-зависимости `mutation-full` не включает, и это решение о цене, а не
-недосмотр. Типы зависимостей идут в компиляцию чекера и решают, кто получит `CompileError`
-(`docs/architecture/testing.md`, "The type checker"): если обновление grammY сделает поле `from`
-обязательным, мутант `ctx.from?.language_code` в `src/telegram/locale/locale.ts` начнёт
-компилироваться, дойдёт до тестов и выживет — а красным станет у следующего PR, который тронет
-этот файл. Владелец (21.09.2026) выбрал ловить такого выжившего этим следующим PR: полный прогон
-стоит 15+ минут на круг ревью, и платить ими за каждое обновление зависимостей дороже.
+A new version of a runtime dependency does not turn on `mutation-full`, and that is a decision
+about price, not an oversight. The dependencies' types go into the checker's compilation and
+decide who gets `CompileError` (`docs/architecture/testing.md`, "The type checker"): if a grammY
+update made the `from` field required, the mutant `ctx.from?.language_code` in
+`src/telegram/locale/locale.ts` would start to compile, reach the tests and survive — and turn
+red on the next PR that touches that file. The owner (2026-09-21) chose to catch such a
+survivor with that next PR: a full run costs 15+ minutes per review round, and paying that for
+every dependency update costs more.
 
-`Makefile` по имени в строку `mutation-full` не вписан: `make up`, `make logs` и прочие цели
-прогона не касаются, а по имени файла любая их правка тянула бы полный прогон — минуты на
-каждый круг. Считай по нему, как по `package.json`, — по содержанию правки, посмотрев диф файла:
-тронут рецепт цели `mutation` или переменная, в него разворачивающаяся (`DC_APP_RUN`, `FILES`), —
-ещё и `mutation-full`. Рецепт и есть запуск: он задаёт `TSX_TSCONFIG_PATH=./tsconfig.check.json`,
-по которому чекер типов решает, какой мутант получает `CompileError`, `MUTATE` из `files` и саму
-команду обёртки `node --require tsx/cjs test/mutation-record.ts`. Правка любого из них меняет
-исход по каждому мутанту — тот же довод, по которому в строке стоят тиконфиги.
+The `Makefile` is not written by name into the `mutation-full` row: `make up`, `make logs` and
+the other targets do not touch the run, and by file name any change to them would pull a full
+run — minutes on every round. Decide by it as by `package.json`, by the content of the change,
+reading the file's diff: the recipe of the `mutation` target or a variable it expands
+(`DC_APP_RUN`, `FILES`) touched — `mutation-full` too. The recipe is the launch: it sets
+`TSX_TSCONFIG_PATH=./tsconfig.check.json`, by which the type checker decides which mutant gets
+`CompileError`, `MUTATE` from `files`, and the wrapper command itself,
+`node --require tsx/cjs test/mutation-record.ts`. Changing any of them changes the outcome of
+every mutant — the same argument that puts the tsconfigs in the row.
 
 A diff of the files in the `mutation-full` row that changes only comments leaves the gate off: read
 the diff, as with `package.json` and the `Makefile` above. A comment is neither an option the runner
@@ -79,76 +83,82 @@ in `src/` a comment can be the mark `// Stryker disable next-line …` that sile
 (`docs/architecture/testing.md`, "Working through survivors"), and a diff of that mark is exactly what the
 gate `mutation` has to see.
 
-`bug-hunt-*` и `smells` разведены намеренно, и границы у них разные. Баги ищутся везде, где
-есть исполняемый код: в `src/platform/`, `src/bootstrap/` и `src/telegram/` они дороже
-доменных, потому что падают в рантайме у пользователя. Смеллы Фаулера осмысленны только
-на коде, выражающем предметную область: адаптер вокруг grammY по своей природе Middle Man,
-`container.ts` — Divergent Change, а миграции — Duplicated Code, и переписать их нельзя,
-они append-only. На таком дифе ось Standards выдаёт заведомо отклоняемые замечания, а стоит полного прогона.
+`bug-hunt-*` and `smells` are kept apart on purpose, and their boundaries differ. Bugs are
+hunted wherever there is executable code: in `src/platform/`, `src/bootstrap/` and
+`src/telegram/` they cost more than in the domain, because they fail at runtime in front of
+the user. Fowler's smells make sense only on code that expresses the domain: an adapter around
+grammY is a Middle Man by nature, `container.ts` is Divergent Change, and migrations are
+Duplicated Code that cannot be rewritten, since they are append-only. On such a diff the
+Standards axis yields remarks bound to be rejected, at the cost of a full run.
 
-Признак `smells` — «код выражает правила, а не обслуживает чужой API», но считается он по
-каталогам: `/review-pr` видит только имена файлов и кода не читает. Поэтому
-`src/telegram/outbound-queue/` в перечне, хотя остальной `src/telegram/` — нет: там
-алгоритм очереди, а не обёртка над grammY. Перечень белый намеренно, и цена у этого есть:
-новый или переехавший модуль с правилами выпадает из гейта молча, пока его не допишут сюда.
-Дописывает тот PR, который модуль создаёт или переносит.
+The sign of `smells` is "the code expresses rules rather than serving someone else's API", but
+it is decided by directory: `/review-pr` sees only file names and does not read the code. That
+is why `src/telegram/outbound-queue/` is in the list while the rest of `src/telegram/` is not:
+it holds the queue's algorithm, not a wrapper around grammY. The list is an allowlist on
+purpose, and that has a price: a new or moved module with rules drops out of the gate silently
+until it is written in here. The PR that creates or moves the module writes it in.
 
-Уровень зашит в имя гейта: с ним скилл зовёт встроенный `code-review`. `bug-hunt-high`
-и `bug-hunt-medium` — пара строк таблицы, которая не накапливается: запуск один, и уровень
-у него один. На дифе из одних bash-скриптов расширенный охват `high` даёт неуверенные находки
-и лишний расход, а не баги. Считается уровень таблицей, а не скиллом, потому что признак
-«есть `.ts`» уже посчитан выбором глубины (`/review-pr`, шаг 3): вторая его копия
-разошлась бы с этой молча — оба файла остались бы связными, а граница уехала бы только
-в одном.
+The level is built into the gate's name: the skill calls the built-in `code-review` with it.
+`bug-hunt-high` and `bug-hunt-medium` are a pair of rows that does not accumulate: there is
+one run, and it has one level. On a diff made only of bash scripts the wider coverage of
+`high` brings uncertain findings and extra cost, not bugs. The level is decided by the table
+and not by the skill, because the sign "there is a `.ts`" is already computed by the choice of
+depth (`/review-pr`, step 3): a second copy of it would drift from this one silently — both
+files would still read coherently, and the boundary would move in only one of them.
 
-`mutation` и `mutation-full` — вторая такая пара: обе гоняют `make mutation` и различаются
-областью. `mutation` мутирует код, который тронул PR: выживший стоит на строке автора, а прогон
-идёт секунды. Область собирает `pr-light-check`, там и правило сборки: ей нужен код PR, а
-в таблице видны только имена файлов. `mutation-full` включают инструменты прогона, и мутируется
-весь `src/`: их правка меняет прогон каждого мутанта, а не строк дифа, а у PR, который правит
-одни инструменты, область из дифа пуста. Тиконфиги и `typescript` — тоже инструменты: по ним чекер
-типов решает, какой мутант получает `CompileError`, а какой идёт в тесты
-(`docs/architecture/testing.md`, "The type checker"). На остальных PR весь `src/` не гоняется: это минуты
-на каждый круг ради строк, которых PR не трогал.
+`mutation` and `mutation-full` are the second such pair: both run `make mutation` and differ
+in area. `mutation` mutates the code the PR touched: a survivor sits on the author's line, and
+the run takes seconds. The area is assembled by `pr-light-check`, which also holds the rule
+for it: it needs the PR's code, while the table sees only file names. `mutation-full` is
+turned on by the run's tools, and the whole of `src/` is mutated: changing them changes the run
+of every mutant, not of the diff's lines, and a PR that changes only the tools has an empty
+area from its diff. The tsconfigs and `typescript` are tools too: by them the type checker
+decides which mutant gets `CompileError` and which goes to the tests
+(`docs/architecture/testing.md`, "The type checker"). On other PRs the whole of `src/` is not
+run: that is minutes on every round for lines the PR did not touch.
 
-Гейт `rebuild` включён — образ пересобирается **до** остальных проверок: иначе новый код
-проверяется старыми зависимостями и старым конфигом, и зелёный результат ничего не значит.
+With the `rebuild` gate on, the image is rebuilt **before** the other checks: otherwise new
+code is checked against old dependencies and an old config, and a green result means nothing.
 
-`docs` и `docs-sync` смотрят на дрейф документации с двух сторон и потому включаются
-разными файлами: `docs` — правка текста, сверяются изменённые строки `*.md`; `docs-sync` —
-правка кода, сверяется документация, которую PR не тронул. Прогона `docs` не включает,
-поэтому диф из одной документации по-прежнему обходится без базы и контейнеров.
+`docs` and `docs-sync` look at documentation drift from two sides and so are turned on by
+different files: `docs` is a text change, the changed lines of `*.md` are checked; `docs-sync`
+is a code change, the documentation the PR did not touch is checked. `docs` turns on no run,
+so a documentation-only diff still gets by without the database and containers.
 
-## Изменения, которые влияют на прогон мутаций
+## Changes that affect the mutation run
 
-`make mutation` оставляет запись прогона, и ревью принимает её вместо своего прогона
-(`docs/architecture/testing.md`, "The run record"; условия приёма —
-`.claude/skills/pr-light-check/SKILL.md`, «Запись прогона автора»). Прогон шёл на одном
-коммите, а примеряют запись к другому, поэтому её годность — тот же разбор по таблице выше,
-только диф берётся между этими двумя коммитами. Включён хоть один из трёх гейтов — запись
-устарела:
+`make mutation` leaves a run record, and review accepts it in place of its own run
+(`docs/architecture/testing.md`, "The run record"; the acceptance conditions are in
+`.claude/skills/pr-light-check/SKILL.md`, the section on the author's run record). The run went
+on one commit and the record is measured against another, so whether it still holds is the
+same pass over the table above, only the diff is taken between those two commits. At least one
+of three gates on — the record is stale:
 
-- `mutation` — изменился код, который мутируется, или спеки, которые убивают мутантов;
-- `mutation-full` — изменились инструменты прогона, а они меняют исход по каждому мутанту,
-  а не по строкам дифа;
-- `rebuild` — прогон шёл в другом образе.
+- `mutation` — the mutated code changed, or the specs that kill the mutants;
+- `mutation-full` — the run's tools changed, and they change the outcome of every mutant, not
+  of the diff's lines;
+- `rebuild` — the run went in a different image.
 
-Ни одного из трёх — прогон не повторяется: ни автором перед пушем, ни ревьюером под гейтом.
-Иначе правка по ревью, тронувшая одну документацию, стоила бы кругу двух прогонов той же
-области, а полный прогон — это минуты (`docs/architecture/testing.md`, "The type checker").
+None of the three — the run is not repeated: neither by the author before the push nor by the
+reviewer under the gate. Otherwise a review fix that touched only documentation would cost the
+round two runs of the same area, and a full run is minutes
+(`docs/architecture/testing.md`, "The type checker").
 
-Диф здесь — между деревьями двух коммитов, а не от их merge-base; второй коммит — тот, к
-которому запись примеряют: у ревьюера head PR, у автора свой `HEAD` перед пушем.
+The diff here is between the trees of the two commits, not from their merge-base; the second
+commit is the one the record is measured against: the PR head for the reviewer, their own
+`HEAD` before the push for the author.
 
 ```bash
-git cat-file -e "<head записи>^{commit}" && git diff --name-only <head записи> <коммит>
+git cat-file -e "<record head>^{commit}" && git diff --name-only <record head> <commit>
 ```
 
-После rebase head записи уже не предок нового коммита, и диф от merge-base добавил бы к
-изменениям собственные правки ветки — запись не проходила бы никогда. `git cat-file` коммит
-записи не нашёл (его потерял force-push) — сравнивать не с чем, запись не годна.
+After a rebase the record's head is no longer an ancestor of the new commit, and a diff from
+the merge-base would add the branch's own changes to the changes — the record would never
+pass. `git cat-file` did not find the record's commit (a force-push lost it) — there is
+nothing to compare with, and the record does not hold.
 
-`rebuild` в тройке не лишний, хотя ревью и так не принимает запись, когда этот гейт включён у
-PR целиком (условие 4 правила приёма). Гейты PR считаются по `gh pr diff`, то есть от
-merge-base, и влитый в ветку `origin/main` этот merge-base двигает: пришедшая из `main`
-правка `Dockerfile` в дифе PR не видна, а образ меняет.
+`rebuild` is not redundant in the three, although review already refuses the record when that
+gate is on for the PR as a whole (condition 4 of the acceptance rule). The PR's gates are
+decided by `gh pr diff`, that is from the merge-base, and `origin/main` merged into the branch
+moves that merge-base: a `Dockerfile` change arriving from `main` is not visible in the PR
+diff, yet it changes the image.

@@ -1,17 +1,17 @@
-# Домен-доки
+# Domain docs
 
-Как агентским скиллам читать документацию этого репозитория. Раскладка single-context:
-глоссарий один, `CONTEXT.md` в корне.
+How agent skills read this repository's documentation. The layout is single-context: one
+glossary, `CONTEXT.md` at the root.
 
-До начала работы прочитайте `CONTEXT.md` (термины предметной области), файл затронутой
-подсистемы в `docs/architecture/` (устройство и рантайм) и ADR той области, которую
-правите. Маршрут «что читать под какую задачу» — в разделе «Документация» `CLAUDE.md`.
+Before starting, read `CONTEXT.md` (the domain terms), the file of the affected subsystem in
+`docs/architecture/` (structure and runtime) and the ADRs of the area you are changing. Which
+document to read for which task is routed by the documentation section of `CLAUDE.md`.
 
-ADR лежат в `docs/adr/`. Каталога пока нет: он создаётся при первом решении, которое
-трудно откатить; задним числом ADR не пишутся, об отсутствии каталога не сообщать. Когда
-каталог появится — вывод, противоречащий ADR, называйте вслух («Противоречит ADR-0007,
-но пересмотреть стоит, потому что…»), а не переписывайте решение молча.
+ADRs live in `docs/adr/`. The directory does not exist yet: it is created with the first
+decision that is hard to roll back; ADRs are not written after the fact, and the missing
+directory is not to be reported. Once it exists, a conclusion that contradicts an ADR is said
+out loud ("Contradicts ADR-0007, but worth reopening because…"), not rewritten silently.
 
-Доменное понятие (заголовок issue, имя теста, предложение по рефакторингу) называйте
-термином из `CONTEXT.md`, не синонимом. Понятия нет в глоссарии — либо вы придумываете
-язык, которого в проекте нет, либо это пробел для `domain-modeling`.
+Name a domain concept (an issue title, a test name, a refactoring proposal) with the term
+from `CONTEXT.md`, not a synonym. A concept missing from the glossary means either you are
+inventing language the project does not have, or it is a gap for `domain-modeling`.
