@@ -129,8 +129,9 @@ Known:
   ([`logging.md`](./logging.md)). The command is for debugging and does not go to production
   ([overview](./README.md)), so the input from the `test/` directory stays as it is.
 - The EOT envelope is not read through: the names are parsed, then the font is taken as the tail
-  of the file by `FontDataSize`. The tail of version `0x00020002` (a signature, embedded EUDC) is
-  not checked.
+  of the file by `FontDataSize`. The bytes between the parsed header and the font are not checked,
+  in any version: only a header running past the font start is rejected. In version `0x00020002`
+  the tail (a signature, embedded EUDC) lies there.
 - An envelope built by `EotPacker` repeats the output of `ttf2eot` byte for byte, except for
   `fsType`: `ttf2eot` always writes zero, declaring any font free to install, while we carry
   `OS/2.fsType` over as is, following the specification. The byte-for-byte comparison test with

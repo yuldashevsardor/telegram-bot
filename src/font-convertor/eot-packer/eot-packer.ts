@@ -5,7 +5,7 @@ import { SfntReader } from "app/font-convertor/eot-packer/sfnt-reader/sfnt-reade
 import type { SfntMetadata } from "app/font-convertor/eot-packer/sfnt-reader/sfnt-reader.types";
 
 // EOT is not an outline format of its own but an envelope: a header with metadata followed by
-// the untouched sfnt bytes. That is why an EOT pair bypasses the engine: it does not read this
+// the untouched sfnt bytes. That is why EOT bypasses the engine: the engine does not read this
 // envelope, and on writing it silently slips in PostScript Type 1
 // (issue https://github.com/yuldashevsardor/telegram-bot/issues/158).
 //
@@ -195,7 +195,7 @@ export class EotPacker {
             // Padding, the block size, the block itself.
             offset += 2;
 
-            // Stryker disable next-line EqualityOperator: `>=` is equivalent: a file ending with a block size is rejected by the next step or by the match against the font start, only the error changes
+            // Stryker disable next-line EqualityOperator: `>=` is equivalent: a file ending with a block size is rejected by the next step or by the check that the header does not run past the font start, only the error changes
             if (offset + 2 > eot.length) {
                 throw InvalidEot.tooShort(eot.length);
             }
