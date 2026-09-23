@@ -1,212 +1,215 @@
-# Архитектура
+# Architecture
 
-Каталог описывает код таким, какой он есть, включая известные проблемы: они помечены
-по месту ссылкой на issue. Найдя новую проблему, опишите её в файле подсистемы и
-заведите issue; сводного списка проблем в каталоге нет намеренно, он в трекере.
+The directory describes the code as it is, known problems included: they are marked in place
+with a link to the issue. Found a new problem — describe it in the file of its subsystem and
+file an issue; there is deliberately no summary list of problems here, it is the tracker.
 
-Рантайм-последовательности стоят в файлах своих подсистем: старт и остановка —
-[`application.md`](./application.md), входящий апдейт и команды — [`bot.md`](./bot.md),
-исходящий вызов — [`outbound-queue.md`](./outbound-queue.md), загрузка локалей —
+The runtime sequences live in the files of their subsystems: start and stop —
+[`application.md`](./application.md), an incoming update and the commands — [`bot.md`](./bot.md),
+an outgoing call — [`outbound-queue.md`](./outbound-queue.md), loading the locales —
 [`i18n.md`](./i18n.md).
 
-## Оглавление
+## Contents
 
-- [`application.md`](./application.md) — контейнер inversify, `ApplicationContext`, старт
-  и остановка процесса
-- [`bot.md`](./bot.md) — пайплайн апдейта, фильтры, middleware, очередь исходящих на
-  `ctx.api`, команды
-- [`outbound-queue.md`](./outbound-queue.md) — лимиты, партиции, цикл `Runner`, путь
-  исходящего вызова
-- [`font-convertor.md`](./font-convertor.md) — пары форматов, EOT-кодек, сигнатуры,
-  запуск движка
-- [`user.md`](./user.md) — сущность, репозиторий, наполнение контекста
-- [`logging.md`](./logging.md) — порт и адаптеры, пороги, корреляция запроса
-- [`i18n.md`](./i18n.md) — локали, бандлы Fluent, описания команд
-- [`storage.md`](./storage.md) — `Database`, миграции, заготовка миграции, когда у
-  хранилища заводится свой интерфейс
-- [`config.md`](./config.md) — `ConfigContainer` и таблица переменных окружения
-- [`testing.md`](./testing.md) — `mocha`, линтеры, покрытие, гейты, мутационное тестирование
-- [`invariants.md`](./invariants.md) — правила, которые компилятор не связывает:
-  нарушение компилируется и ломает поведение молча
+- [`application.md`](./application.md) — the inversify container, `ApplicationContext`, start
+  and stop of the process
+- [`bot.md`](./bot.md) — the update pipeline, filters, middleware, the outbound queue on
+  `ctx.api`, commands
+- [`outbound-queue.md`](./outbound-queue.md) — limits, partitions, the `Runner` loop, the path
+  of an outgoing call
+- [`font-convertor.md`](./font-convertor.md) — format pairs, the EOT codec, signatures, running
+  the engine
+- [`user.md`](./user.md) — the entity, the repository, filling the context
+- [`logging.md`](./logging.md) — the port and the adapters, thresholds, request correlation
+- [`i18n.md`](./i18n.md) — locales, Fluent bundles, command descriptions
+- [`storage.md`](./storage.md) — `Database`, migrations, the migration stub, when a storage gets
+  an interface of its own
+- [`config.md`](./config.md) — `ConfigContainer` and the table of environment variables
+- [`testing.md`](./testing.md) — `mocha`, linters, coverage, gates, mutation testing
+- [`invariants.md`](./invariants.md) — the rules the compiler does not tie together: a
+  violation compiles and breaks behaviour silently
 
-## Обзор
+## Overview
 
-Назначение — конвертация шрифтов между форматами (`src/font-convertor/`,
-[`font-convertor.md`](./font-convertor.md); предметная область —
-[`CONTEXT.md`](../../CONTEXT.md)). Telegram — способ доставки; `User`, сессии и миграции
-существуют ради Telegram-фронтенда.
+The purpose is converting fonts between formats (`src/font-convertor/`,
+[`font-convertor.md`](./font-convertor.md); the domain — [`CONTEXT.md`](../../CONTEXT.md)).
+Telegram is the delivery channel; `User`, sessions and migrations exist for the sake of the
+Telegram front end.
 
-Стек:
+Stack:
 
-- **grammY** + `@grammyjs/runner` (long polling, конкурентная обработка апдейтов)
+- **grammY** + `@grammyjs/runner` (long polling, concurrent processing of updates)
   + `@grammyjs/conversations`.
-- **inversify** — DI, биндинги вручную.
-- **PostgreSQL** — клиент `postgres` (porsager) в рантайме, `node-pg-migrate` для миграций.
-- **pino** в production, `console` в остальных режимах — за интерфейсом `Logger`.
-- **FontForge** — внешний CLI.
-- **Fluent** (`@moebius/fluent`) — i18n, локали `ru` (дефолтная) и `en`. Плагин
-  `@grammyjs/fluent` не используется: контекст наполняет свой middleware
+- **inversify** — DI, bindings by hand.
+- **PostgreSQL** — the `postgres` client (porsager) at runtime, `node-pg-migrate` for migrations.
+- **pino** in production, `console` in the other modes — behind the `Logger` interface.
+- **FontForge** — an external CLI.
+- **Fluent** (`@moebius/fluent`) — i18n, locales `ru` (the default) and `en`. The
+  `@grammyjs/fluent` plugin is not used: the context is filled by our own middleware
   ([`i18n.md`](./i18n.md)).
 
-Раскладка `src/` — по назначению, а не по техническим слоям (план перестройки —
-[#245](https://github.com/yuldashevsardor/telegram-bot/issues/245)). Модулей два:
-`font-convertor/` — единственный предметный, и `telegram/`, где собрано то, что существует
-ради Telegram (выше), — бот, `User` и очередь исходящих. Вокруг них три каталога по роли:
-`platform/` — адаптеры к внешнему миру, которые не импортируют ни одного модуля;
-`bootstrap/` — корень сборки, он знает все стороны разом, и в этом его работа; `shared/` —
-то, что берут все: базовая ошибка, сквозные типы, словарь токенов DI, `configValue` и
-утилиты.
+`src/` is laid out by purpose, not by technical layers (the restructuring —
+[#245](https://github.com/yuldashevsardor/telegram-bot/issues/245)). There are two modules:
+`font-convertor/`, the only domain one, and `telegram/`, which gathers what exists for the sake
+of Telegram (above) — the bot, `User` and the outbound queue. Around them stand three
+directories named by role: `platform/` — adapters to the outside world that import no module;
+`bootstrap/` — the composition root, it knows every side at once, and that is its job;
+`shared/` — what everyone takes: the base error, cross-cutting types, the DI token dictionary,
+`configValue` and utilities.
 
-Отдельного слоя между интерфейсом и реализацией нет, сколько бы реализаций ни было:
-интерфейс `Logger` и оба адаптера лежат в `platform/logger/`, `UserRepository` и
-`PgSqlUserRepository` — в `telegram/user/` ([`storage.md`](./storage.md)). По каталогам
-такая пара всё равно может разойтись, но уже не по слоям: `LimitResolver` объявлен в `telegram/outbound-queue/`, где
-его зовут, а `TelegramLimitResolver` лежит выше, в `telegram/`, потому что выбор лимита по
-chat ID — знание о Telegram, а не об очереди
-([`outbound-queue.md`](./outbound-queue.md)).
+There is no separate layer between an interface and its implementation, however many
+implementations there are: the `Logger` interface and both adapters lie in `platform/logger/`,
+`UserRepository` and `PgSqlUserRepository` — in `telegram/user/` ([`storage.md`](./storage.md)).
+Such a pair can still end up in different directories, but not by layer: `LimitResolver` is
+declared in `telegram/outbound-queue/`, where it is called, while `TelegramLimitResolver` lies
+higher, in `telegram/`, because picking a limit by chat ID is knowledge about Telegram, not about
+the queue ([`outbound-queue.md`](./outbound-queue.md)).
 
-Ошибки: наружу уходит только `RuntimeError` (`shared/errors.ts`) или его подкласс из
-`<модуль>.errors.ts` рядом с бросающим кодом (`<модуль>` — префикс имени файла, а не
-каталог); единственный подкласс вне `*.errors.ts` — `InvalidConfigError`, он лежит рядом
-с базовым. Ошибка, которая описывает контракт, а не дело одного файла, может лежать у
-контракта, а не рядом с бросающим кодом: `InvalidLogLevel` (недопустимый `Level`) — в
-`platform/logger/logger.errors.ts`, а бросает её `AbstractLogger`; `UpdateWithoutFrom` — в
-`telegram/bot/bot.errors.ts`, а бросает `fill-user-to-context.middleware.ts`;
-`UserNotFound` — в `telegram/user/user.errors.ts`, у сущности, а бросает
-`PgSqlUserRepository.getById()`: «пользователя нет» — словарь `User`, а не дело адаптера.
-Конструктор —
-`new RuntimeError(message, payloadOrCause)`: `Error` вторым аргументом уходит в
-стандартный `cause`, объект — в `payload`. `Error` в поле `cause` такого объекта
-переезжает в стандартный `cause` и в `payload` не остаётся: иначе сериализатор логов
-развернул бы одну и ту же ошибку дважды — по `payload.cause` и по `cause`. Детали
-собирают статические фабрики по месту (`ExtensionNotSupport.byExtension()`). Чужую
-ошибку без своих деталей оборачивает `byError()` — он берёт её message и кладёт её саму
-в `cause`; если нужен ещё и payload, ошибка передаётся полем `cause` внутри него
-(`UserService.create()`).
+Errors: only `RuntimeError` (`shared/errors.ts`) goes outwards, or its subclass from a
+`<module>.errors.ts` next to the throwing code (`<module>` is the file name prefix, not the
+directory); the only subclass outside `*.errors.ts` is `InvalidConfigError`, which lies next to
+the base. An error that describes a contract rather than the business of one file may lie at the
+contract instead of next to the throwing code: `InvalidLogLevel` (an invalid `Level`) is in
+`platform/logger/logger.errors.ts` and is thrown by `AbstractLogger`; `UpdateWithoutFrom` is in
+`telegram/bot/bot.errors.ts` and is thrown by `fill-user-to-context.middleware.ts`;
+`UserNotFound` is in `telegram/user/user.errors.ts`, at the entity, and is thrown by
+`PgSqlUserRepository.getById()`: "there is no such user" is the vocabulary of `User`, not the
+business of the adapter.
 
-Команды бота: `/start` — conversation с приветствием; `/font_generator` — отладочная
-конвертация фиксированного файла ([`font-convertor.md`](./font-convertor.md));
-`/bulk_messages` — нагрузочный инструмент, а не фича.
+The constructor is `new RuntimeError(message, payloadOrCause)`: an `Error` as the second argument
+goes to the standard `cause`, an object to `payload`. An `Error` in the `cause` field of such an
+object moves to the standard `cause` and does not stay in `payload`: otherwise the log serializer
+would expand one and the same error twice — by `payload.cause` and by `cause`. The details are
+collected by static factories in place (`ExtensionNotSupport.byExtension()`). A foreign error
+without details of its own is wrapped by `byError()` — it takes its message and puts the error
+itself into `cause`; if a payload is needed as well, the error is passed as the `cause` field
+inside it (`UserService.create()`).
 
-`/font_generator` и `/bulk_messages` — тестовые команды: они нужны только в разработке и
-до выкладки в прод снимаются. Продовые мерки к ним не применяются — привязка к среде
-разработчика (входной шрифт из тестовой фикстуры, захардкоженные chat ID и путь машины
-автора), отсутствие проверки прав, `container.get()` вместо внедрения зависимостей
-считаются свойством тестовой команды, а не дефектом, и чинить их не нужно. Единственное
-требование к такой команде — не уехать в прод. Тестов послабление не касается: пока команда
-есть, её спека держит поведение как есть, вместе с этой привязкой
-([`testing.md`](./testing.md), "Mutation testing"). Запрет на прямой `console.*`
-([`logging.md`](./logging.md)) под послабление не попадает: он держится линтером на весь
-репозиторий.
+Bot commands: `/start` — a conversation with a greeting; `/font_generator` — a debugging
+conversion of a fixed file ([`font-convertor.md`](./font-convertor.md)); `/bulk_messages` — a load
+tool, not a feature.
 
-## Карта директорий
+`/font_generator` and `/bulk_messages` are test commands: they are needed in development only
+and are removed before going to production. Production standards do not apply to them — the tie
+to the developer's environment (the input font from a test fixture, hardcoded chat IDs and a path
+of the author's machine), the absence of a permission check, `container.get()` instead of
+dependency injection count as a property of a test command, not a defect, and need no fixing. The
+only requirement on such a command is not to reach production. The relaxation does not cover the
+tests: as long as the command exists, its spec holds the behaviour as it is, that tie included
+([`testing.md`](./testing.md), "Mutation testing"). Nor does it cover the ban on a direct
+`console.*` ([`logging.md`](./logging.md)): the linter holds it over the whole repository.
+
+## Directory map
 
 ```
 src/
-  app.ts                    точка входа: new Application(), сигналы, fail()
-  font-convertor/           конвертация шрифтов (font-convertor.md)
-  telegram/                 grammY: команды, conversations, middleware, фильтры, сессия, локали (bot.md, i18n.md)
-    user/                   сущность, интерфейс репозитория, сервис, адаптер к PostgreSQL (user.md)
-    outbound-queue/         очередь исходящих по ключам, лимиты, цикл Runner (outbound-queue.md)
-  platform/                 адаптеры, не знающие модулей
+  app.ts                    entry point: new Application(), signals, fail()
+  font-convertor/           font conversion (font-convertor.md)
+  telegram/                 grammY: commands, conversations, middleware, filters, session, locales (bot.md, i18n.md)
+    user/                   the entity, the repository interface, the service, the PostgreSQL adapter (user.md)
+    outbound-queue/         the outbound queue by keys, limits, the Runner loop (outbound-queue.md)
+  platform/                 adapters that know no module
     database/               Database (storage.md)
-    logger/                 интерфейс Logger, enum Level, ConsoleLogger, PinoLogger (logging.md)
-    request-context/        RequestContext: область и значения запроса (logging.md)
-  bootstrap/                корень сборки, знает все стороны
-    application/            ApplicationContext и Application: сборка и жизненный цикл (application.md)
-    container/              inversify-контейнер (application.md)
-    config/                 ConfigContainer, форма ConfigValues, типы путей get() и алиас CC (config.md)
-      builder/              интерфейс ConfigBuilder и ConfigValuesBuilder: сборка и валидация ConfigValues (config.md)
-      parser/               ConfigParser: строгий разбор строк снимка источника (config.md)
-      storage/              ConfigStorage и WatchableConfigStorage, страж наблюдаемости (config-storage.helper.ts), источники: env и файл (config.md)
-  shared/                   RuntimeError, сквозные типы, словарь токенов DI, configValue (application.md);
+    logger/                 the Logger interface, the Level enum, ConsoleLogger, PinoLogger (logging.md)
+    request-context/        RequestContext: the scope and the values of a request (logging.md)
+  bootstrap/                the composition root, knows every side
+    application/            ApplicationContext and Application: assembly and lifecycle (application.md)
+    container/              the inversify container (application.md)
+    config/                 ConfigContainer, the shape of ConfigValues, the path types of get() and the CC alias (config.md)
+      builder/              the ConfigBuilder interface and ConfigValuesBuilder: building and validating ConfigValues (config.md)
+      parser/               ConfigParser: strict parsing of the strings of a source snapshot (config.md)
+      storage/              ConfigStorage and WatchableConfigStorage, the watchability guard (config-storage.helper.ts), sources: env and file (config.md)
+  shared/                   RuntimeError, cross-cutting types, the DI token dictionary, configValue (application.md);
                             NumberHelper, utils (sleep, withTimeout)
     fs/                     FileHelper
-    process/                ProcessHelper — запуск внешних процессов (invariants.md)
+    process/                ProcessHelper — running external processes (invariants.md)
     string/                 StringHelper
-test/                       mocha-спеки; путь спеки повторяет путь исходника не целиком —
-                            правило ниже;
-                            общий код спек — *.helper.ts рядом со спекой своего исходника, а у
-                            корневого хука — рядом с ним;
-                            coverage-hook.ts — хук make coverage, database-hook.ts — база на прогон,
-                            database.helper.ts — её имя для спек,
-                            stryker-mocha-hook.cjs — шим mocha 12 для make mutation,
-                            mutation-record.ts — обёртка make mutation, пишет запись прогона (testing.md)
-migrations/                 миграции, в common/ — общие shorthands и заготовка (storage.md)
-scripts/                    хостовые скрипты целей make; claude-worktree-guard — хук (testing.md)
+test/                       mocha specs; a spec path repeats the source path, though not in full —
+                            the rule is below;
+                            the shared code of the specs is *.helper.ts next to the spec of its
+                            source, and for the root hook — next to the hook;
+                            the root holds the mocha hooks and the wrappers of make coverage and
+                            make mutation (testing.md)
+migrations/                 migrations, common/ holds the shared shorthands and the stub (storage.md)
+scripts/                    host scripts of the make targets; claude-worktree-guard is a hook (testing.md)
 ```
 
-Подсистема — каталог, названный в карте выше; `convertor/`, `eot-packer/`, `font-forge/`,
-`signature-matcher/` и остальные каталоги внутри подсистем в карту не попадают. Каталог
-роли — подсистема, у которой имя роль, а не имя файла внутри: `platform/`, `shared/fs/`.
+A subsystem is a directory named in the map above; `convertor/`, `eot-packer/`, `font-forge/`,
+`signature-matcher/` and the other directories inside subsystems do not make it into the map. A
+role directory is a subsystem whose name is a role rather than the name of a file inside:
+`platform/`, `shared/fs/`.
 
-Каталог внутри подсистемы (у `shared/` правило своё, оно ниже) заводится хотя бы по одному
-из четырёх оснований — прячет, собирает, стоит вокруг одного брата, держит главный со
-спутниками, — иначе не заводится. Границу видимости объявляет только первое: каталог, из
-которого импортируют всё подряд, границы не объявляет, а только удлиняет путь импорта.
-Остальным трём граница видимости не нужна — «собирает» объявляет границу контракта (из
-`telegram/command/` наружу берут и базовый класс, и каждого брата), каталог со спутниками
-держит их при главном, видны они снаружи или нет (из `telegram/bot/` импортируют и `bot`,
-и `bot.types`, а из `signature-matcher/` — один `font-signature-matcher`), а каталог вокруг
-брата отделяет от прочих братьев того, у кого есть свои файлы или своя роль.
-Основание со спутниками стоит в правиле затем, чтобы место спутника не зависело от того, в
-какой половине дерева лежит главный: в `shared/` спутники уезжали в каталог всегда.
+A directory inside a subsystem (`shared/` has a rule of its own, below) is created on at least
+one of four grounds — it hides, it gathers, it stands around one sibling, it keeps a main file
+with its companions — otherwise it is not created. Only the first declares a visibility
+boundary: a directory everything is imported from declares no boundary and only makes the import
+path longer. The other three need no visibility boundary: "gathers" declares the boundary of a
+contract (from `telegram/command/` both the base class and every sibling are taken outwards), a
+directory with companions keeps them at the main file whether they are visible outside or not
+(from `telegram/bot/` both `bot` and `bot.types` are imported, from `signature-matcher/` only
+`font-signature-matcher`), and a directory around a sibling separates from the other siblings the
+one that has files or a role of its own. The companions ground is in the rule so that the place of
+a companion does not depend on which half of the tree its main file lies in: in `shared/` the
+companions always went off into a directory.
 
-**Прячет** — снаружи него импортируется ровно один его файл, остальные файлы каталога его
-внутренности: `eot-packer/eot-packer.ts`, `font-forge/font-forge.ts`,
-`convertor/convertor-factory.ts`. Имя каталога — префикс имени этого файла, чтобы путь
-импорта угадывался по имени класса.
+**Hides** — exactly one of its files is imported from outside, the other files of the directory
+are its internals: `eot-packer/eot-packer.ts`, `font-forge/font-forge.ts`,
+`convertor/convertor-factory.ts`. The directory name is the prefix of that file's name, so that
+the import path can be guessed from the class name.
 
-**Собирает** — однотипных братьев одного контракта, которых перечисляет один регистратор:
-`convertor/<from>/` перечисляет `convertor-factory.ts`, `command/`, `conversation/`,
-`filter/` и `middleware/` — `container.ts`, бандлы `.ftl` в каталогах `locale/` при
-командах и разговорах — обход в `createFluent()` (`telegram/locale/locale.ts`). Обход ищет
-файлы по расширению (`FileHelper.findFilesByExtensions()`), а не по имени каталога, поэтому
-одноимённый `telegram/locale/`, где лежит сам `locale.ts` со спутниками и ни одного `.ftl`,
-с каталогами бандлов не путается. Базовый класс контракта лежит при братьях
-(`command/command.ts`, `conversation/conversation-handler.ts`, `filter/filter.ts`,
-`middleware/middleware.ts`) или в родителе (`convertor/convertor.ts`). Имя каталога
-братьев — имя их контракта (`command/` при `command.ts`) или общий признак братьев
-(`convertor/eot/` — исходный формат).
+**Gathers** — same-kind siblings of one contract, enumerated by one registrar: `convertor/<from>/`
+is enumerated by `convertor-factory.ts`, `command/`, `conversation/`, `filter/` and `middleware/`
+by `container.ts`, the `.ftl` bundles in the `locale/` directories at commands and conversations
+by the walk in `createFluent()` (`telegram/locale/locale.ts`). The walk looks for files by
+extension (`FileHelper.findFilesByExtensions()`), not by directory name, so the namesake
+`telegram/locale/`, which holds `locale.ts` itself with its companions and not a single `.ftl`,
+is not confused with the bundle directories. The base class of the contract lies with the
+siblings (`command/command.ts`, `conversation/conversation-handler.ts`, `filter/filter.ts`,
+`middleware/middleware.ts`) or in the parent (`convertor/convertor.ts`). The name of a siblings
+directory is the name of their contract (`command/` at `command.ts`) or a feature the siblings
+share (`convertor/eot/` — the source format).
 
-**Стоит вокруг одного брата** — брат уезжает из каталога братьев в свой каталог, только
-когда у него есть свои файлы или своя роль среди братьев: `command/start/`,
-`command/bulk-messages/`, `command/font-generator/` и `conversation/start/` держат команду
-или разговор вместе с их бандлами `locale/`, а `middleware/mutation/` — роль внутри
-`middleware/`: middleware, подменяющий `ctx.api.raw` ([`bot.md`](./bot.md)), и файл в нём
-пока один. Брат без того и другого лежит в каталоге братьев плоско:
-`filter/has-session-key.filter.ts`, `middleware/request-log.middleware.ts`. Имя — префикс
-имени файла брата (`start/` при `start.command.ts`) или роль (`mutation/`).
+**Stands around one sibling** — a sibling leaves the siblings directory for a directory of its
+own only when it has files of its own or a role of its own among the siblings: `command/start/`,
+`command/bulk-messages/`, `command/font-generator/` and `conversation/start/` keep the command or
+the conversation together with their `locale/` bundles, while `middleware/mutation/` is a role
+inside `middleware/`: a middleware that replaces `ctx.api.raw` ([`bot.md`](./bot.md)), and there
+is only one file in it so far. A sibling with neither lies flat in the siblings directory:
+`filter/has-session-key.filter.ts`, `middleware/request-log.middleware.ts`. The name is the
+prefix of the sibling's file name (`start/` at `start.command.ts`) or the role (`mutation/`).
 
-**Держит главный со спутниками** — `*.types.ts` и `*.errors.ts` лежат в каталоге вместе со
-своим главным, а имя каталога — имя главного: `eot-packer/eot-packer.ts` со своим
-`*.errors.ts`, `signature-matcher/font-signature-matcher.ts` со своим `*.types.ts` (слово
-`font` вычеркнуто, абзацем ниже). Так же лежат спутники и в каталогах, которые карта
-называет сама: `font-convertor/font-convertor.*`, `platform/logger/logger.*`,
-`telegram/user/user.*` — имя каталога и там имя главного. Каталог со спутниками может стоять
-и внутри прячущего: `eot-packer/sfnt-reader/` держит `sfnt-reader.ts` со спутниками, а
-снаружи `eot-packer/` по-прежнему виден один `eot-packer.ts`.
+**Keeps a main file with its companions** — `*.types.ts` and `*.errors.ts` lie in the directory
+together with their main file, and the directory name is the name of the main file:
+`eot-packer/eot-packer.ts` with its `*.errors.ts`, `signature-matcher/font-signature-matcher.ts`
+with its `*.types.ts` (the word `font` is struck out, see the next paragraph). Companions lie the
+same way in the directories the map names itself: `font-convertor/font-convertor.*`,
+`platform/logger/logger.*`, `telegram/user/user.*` — the directory name there is the name of the
+main file as well. A directory with companions can also stand inside a hiding one:
+`eot-packer/sfnt-reader/` keeps `sfnt-reader.ts` with its companions, while from outside
+`eot-packer/` still only `eot-packer.ts` is visible.
 
-Имя каталога не повторяет слов, которые уже сказал путь над ним: из имени, которое даёт
-основание, они вычёркиваются — `bootstrap/config/container/` при `config-container.ts`,
-`bootstrap/config/storage/file/` при `config-file-storage.ts`,
-`telegram/user/pgsql-repository/` при `pgsql-user-repository.ts`. Файлы внутри имён не
-сокращают: файл по-прежнему называется по своему классу. Каталог, чьё имя правилу
-отвечает, — конечная точка своего главного: глубже тот не уезжает. Поэтому, если путь
-назвал все слова, имя каталога — последнее слово имени главного, но только когда каталог,
-где главный лежал бы без нового, правилу не отвечает: `convertor/` в `font-convertor/` без
-последнего слова остался бы без имени, а `config-storage.ts`, заведи он спутники, останется
-прямо в `storage/` — `storage/storage/`, как и `telegram/user/user/`, был бы лишним уровнем.
-Имён собственных вычёркивание не режет: `font-forge/` назван по программе FontForge.
+A directory name does not repeat words the path above it has already said: they are struck out of
+the name the ground gives — `bootstrap/config/container/` at `config-container.ts`,
+`bootstrap/config/storage/file/` at `config-file-storage.ts`,
+`telegram/user/pgsql-repository/` at `pgsql-user-repository.ts`. Files inside do not shorten
+their names: a file is still named after its class. A directory whose name meets the rule is the
+end point of its main file: the file does not move deeper. So if the path has named every word,
+the directory name is the last word of the main file's name, but only when the directory where
+the main file would lie without the new one does not meet the rule: `convertor/` in
+`font-convertor/` would be left without a name without the last word, while `config-storage.ts`,
+should it get companions, stays right in `storage/` — `storage/storage/`, like
+`telegram/user/user/`, would be an extra level. Striking out does not cut proper names:
+`font-forge/` is named after the FontForge program.
 
-Главные файлы со спутниками, чей каталог правилу не отвечает, печатает команда: она
-вычисляет по правилу имя каталога от пути над ним и сравнивает с настоящим, а затем так же
-проверяет каталог уровнем выше — отвечает правилу и он, значит каталог главного лишний. Так
-ловятся и главный со спутниками вне своего каталога (оставленный плоско в `telegram/`), и
-слово, которое путь уже назвал, и слово, которого нет в имени главного, и лишний уровень.
-Из вывода вычтены каталоги роли — любой каталог в `shared/`, имя у них своё, — и
-`font-forge/`; дерево правилу отвечает целиком, и вывод пуст. Прячущие каталоги без
-спутников команда не проверяет.
+The main files with companions whose directory does not meet the rule are printed by a command:
+it computes the directory name from the path above by the rule and compares it with the real
+one, then checks the directory one level up the same way — if that one meets the rule too, the
+main file's directory is an extra one. This catches a main file with companions outside its
+directory (left flat in `telegram/`), a word the path has already said, a word absent from the
+main file's name, and an extra level. Subtracted from the output are the role directories — any
+directory in `shared/`, their names are their own — and `font-forge/`; the tree meets the rule
+in full, and the output is empty. Hiding directories without companions are not checked by the
+command.
 
 ```bash
 find src -name '*.types.ts' -o -name '*.errors.ts' | while read -r f; do m="${f%.*.ts}"; \
@@ -218,57 +221,60 @@ find src -name '*.types.ts' -o -name '*.errors.ts' | while read -r f; do m="${f%
     | grep -vE '^src/(shared/[^/]+|font-convertor/font-forge)/' | sort -u
 ```
 
-Иначе файлы лежат плоско: части подсистемы группирует префикс имени файла, а файл без
-спутников каталога не заводит (`font-convertor/sfnt-version.ts`). Одному каталогу оснований
-не хватает: в `telegram/session/` лежат три файла разных ролей (`pgsql-storage.ts`,
-`session.helper.ts`, `session.types.ts`), ни один не прячет остальных, братьев одного
-контракта среди них нет. Имя каталога совпадает с префиксом `session.helper.ts` и
-`session.types.ts`, но главного со спутниками каталог не держит: `session.ts` в нём нет, и
-`session.types.ts` стоит без своего главного.
+Otherwise files lie flat: the parts of a subsystem are grouped by the file name prefix, and a file
+without companions does not get a directory (`font-convertor/sfnt-version.ts`). One directory
+lacks the grounds: `telegram/session/` holds three files of different roles (`pgsql-storage.ts`,
+`session.helper.ts`, `session.types.ts`), none of them hides the others, and there are no
+siblings of one contract among them. The directory name matches the prefix of
+`session.helper.ts` and `session.types.ts`, but the directory keeps no main file with companions:
+there is no `session.ts` in it, and `session.types.ts` stands without its main file.
 
-В `shared/` от правила остаётся одно намеренное расхождение — имя каталога: он назван по
-роли (`fs/`, `process/`, `string/`), а не именем главного файла. Утилита из одного файла
-лежит плоско в корне (`number-helper.ts`, `utils.ts`); корневые `errors.ts` и `types.ts` —
-самостоятельные файлы, а не спутники, и в каталог никого не уводят.
+In `shared/` one deliberate divergence from the rule remains — the directory name: it is named by
+role (`fs/`, `process/`, `string/`), not after the main file. A single-file utility lies flat in
+the root (`number-helper.ts`, `utils.ts`); the root `errors.ts` and `types.ts` are standalone
+files, not companions, and take nobody off into a directory.
 
-Какие файлы каталога видны снаружи, считает команда (`<путь>` — от `src/`; для каталога
-бандлов `locale/` неприменима, `.ftl` через алиас не импортируют):
+Which files of a directory are visible from outside is counted by a command (`<path>` is from
+`src/`; it does not apply to a `locale/` bundle directory, `.ftl` is not imported through the
+alias):
 
 ```bash
-grep -rHoE "app/<путь>/[A-Za-z0-9._-]+" src --include='*.ts' | grep -v "^src/<путь>/" \
-    | sed "s#.*app/<путь>/##" | sort -u
+grep -rHoE "app/<path>/[A-Za-z0-9._-]+" src --include='*.ts' | grep -v "^src/<path>/" \
+    | sed "s#.*app/<path>/##" | sort -u
 ```
 
-Путь спеки повторяет путь исходника, кроме одного: каталог внутри подсистемы, названный
-по своему главному файлу — его именем или префиксом, в том числе с вычеркнутыми словами
-пути, — в пути спеки не отражается (исключения — каталог братьев и каталог вокруг брата,
-абзацем ниже): файлы `convertor/`, `eot-packer/`, `font-forge/` и `signature-matcher/`
-проверяют спеки прямо из `test/font-convertor/`, `telegram/bot/bot.ts` —
-`test/telegram/bot.spec.ts`, а `bootstrap/config/container/config-container.ts` —
-`test/bootstrap/config/config-container.spec.ts`. Каталог самой подсистемы отражается, даже
-когда устроен так же: `platform/request-context/` держит главный со спутником, а спека лежит
-в `test/platform/request-context/`; так же `platform/logger/`, `platform/database/` и
-`telegram/user/`, а из подкаталогов `bootstrap/config/` — `builder/`, `parser/` и
-`storage/`, которые карта называет. Каталог, названный ролью, а не именем своего главного,
-под правило не попадает и без оговорки: `fs/` при `file-helper.ts`, `mutation/` при
-`telegram-call-api.middleware.ts`.
+A spec path repeats the source path except for one thing: a directory inside a subsystem named
+after its main file — by its name or its prefix, struck-out words of the path included — is not
+reflected in the spec path (the exceptions are a siblings directory and a directory around a
+sibling, see the next paragraph): the files of `convertor/`, `eot-packer/`, `font-forge/` and
+`signature-matcher/` are checked by specs right in `test/font-convertor/`, `telegram/bot/bot.ts`
+by `test/telegram/bot.spec.ts`, and `bootstrap/config/container/config-container.ts` by
+`test/bootstrap/config/config-container.spec.ts`. The directory of a subsystem itself is
+reflected even when it is built the same way: `platform/request-context/` keeps a main file with
+a companion, and its spec lies in `test/platform/request-context/`; the same goes for
+`platform/logger/`, `platform/database/` and `telegram/user/`, and of the subdirectories of
+`bootstrap/config/` — for `builder/`, `parser/` and `storage/`, which the map names. A directory
+named by a role rather than after its main file does not fall under the rule, no reservation
+needed: `fs/` at `file-helper.ts`, `mutation/` at `telegram-call-api.middleware.ts`.
 
-Каталог братьев и каталог вокруг брата из правила выпадают, но условия у них разные.
-Каталог вокруг брата отражается всегда, даже когда прячет свои бандлы `locale/`:
-`telegram/command/start/` (назван по `start.command.ts`) и `telegram/conversation/start/`
-стоят в пути спеки полностью. Каталог братьев отражается, только когда не прячет, —
-старшинство у «прячет»: `command/` (назван по `command.ts`), `conversation/`, `filter/` и
-`middleware/` отдают наружу и базовый класс, и братьев и отражаются, а `convertor/` держит
-каталоги братьев `<from>/`, но снаружи из него импортируют один `convertor-factory.ts`, и
-в пути спеки он не отражается. Каталог братьев внутри неотражаемого отразится без него:
-спека `convertor/eot/eot-to-ttf.ts` встала бы в `test/font-convertor/eot/` (спек у пар
-сейчас нет).
+A siblings directory and a directory around a sibling fall out of the rule, but on different
+conditions. A directory around a sibling is always reflected, even when it hides its `locale/`
+bundles: `telegram/command/start/` (named after `start.command.ts`) and
+`telegram/conversation/start/` stand in the spec path in full. A siblings directory is reflected
+only when it does not hide — "hides" takes precedence: `command/` (named after `command.ts`),
+`conversation/`, `filter/` and `middleware/` give outwards both the base class and the siblings
+and are reflected, while `convertor/` keeps the `<from>/` siblings directories, but from outside
+only `convertor-factory.ts` is imported from it, and it is not reflected in the spec path. A
+siblings directory inside a non-reflected one is reflected without it: a spec of
+`convertor/eot/eot-to-ttf.ts` would go into `test/font-convertor/eot/` (the pairs have no specs
+now).
 
-Расхождения печатает команда — любую спеку, чей путь не повторяет путь ни одного
-исходника с тем же именем. Намеренные исключения среди них — только спеки, чей путь короче
-пути исходника на неотражаемые каталоги; спека глубже исходника или в другой ветке дерева
-печатается так же и нарушает правило. Спеку, положенную внутрь неотражаемого каталога,
-команда не покажет: путь совпадёт с путём исходника, и правило нарушится молча.
+The divergences are printed by a command — every spec whose path repeats the path of no source
+with the same name. The only deliberate exceptions among them are specs whose path is shorter
+than the source path by non-reflected directories; a spec deeper than its source or in another
+branch of the tree is printed all the same and breaks the rule. A spec put inside a
+non-reflected directory is not shown by the command: its path matches the source path, and the
+rule is broken silently.
 
 ```bash
 find test -name '*.spec.ts' | while read -r s; do base=$(basename "$s" .spec.ts); \
@@ -277,15 +283,15 @@ find test -name '*.spec.ts' | while read -r s; do base=$(basename "$s" .spec.ts)
     || echo "$s | $(echo "$srcs" | tr '\n' ' ')"; done
 ```
 
-Импорты только через алиас `app/*` (`tsconfig.json` + `tsc-alias`), относительные
-запрещены ESLint-правилом `no-restricted-imports`. Спеки импортируют общий код из `test/`
-вторым алиасом, `test/*`: он объявлен только в `tsconfig.check.json`, и в сборке его нет
-(почему и чем это грозит — комментарий там же). Исключение — каталог `migrations/`:
-он лежит вне `src/`, алиас туда не ведёт, и правило снято на весь каталог через
-`overrides` в `.eslintrc.js`.
+Imports go only through the `app/*` alias (`tsconfig.json` + `tsc-alias`); relative ones are
+forbidden by the ESLint rule `no-restricted-imports`. The specs import the shared code from
+`test/` through a second alias, `test/*`: it is declared only in `tsconfig.check.json` and is
+absent from the build (why, and what that threatens — the comment right there). The exception is
+the `migrations/` directory: it lies outside `src/`, the alias does not lead there, and the rule
+is off for the whole directory through `overrides` in `.eslintrc.js`.
 
-Независимость домена (`CLAUDE.md`, «Style») линтер не проверяет. `font-convertor/` не
-импортирует ни `platform/`, ни `bootstrap/` напрямую, но независимость не полная:
-`shared/config-value.ts` берёт конфигурацию у `ApplicationContext`
-([`application.md`](./application.md)), то есть рантайм-зависимость от корня сборки в
-`shared/` одна и домен дотягивается через неё до `pino`.
+The independence of the domain (`CLAUDE.md`, "Style") is not checked by the linter.
+`font-convertor/` imports neither `platform/` nor `bootstrap/` directly, but the independence is
+not complete: `shared/config-value.ts` takes the configuration from `ApplicationContext`
+([`application.md`](./application.md)), that is, `shared/` has one runtime dependency on the
+composition root, and the domain reaches `pino` through it.
