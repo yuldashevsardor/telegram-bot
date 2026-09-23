@@ -52,8 +52,9 @@ Only `Logger` writes outwards. A direct `console.*` bypasses the level, the `req
 `LOGGER_LEVEL` threshold, and in production the structured pino stream as well, so such a record is
 lost when the logs are parsed, and an error from a `catch` turns into silence. There are two
 exceptions: `ConsoleLogger`, for which `console.*` is the implementation of the port, and the
-`fail()` fallback in `app.ts`, which is also called before the context is created
-([`application.md`](./application.md)). The rule is held by `no-console: "error"` in `.eslintrc.js`:
+`fail()` fallback in `app.ts`, for when the record cannot go through the logger: before
+`ApplicationContext` is assembled ([`application.md`](./application.md)), and when the write of the
+logger itself throws. The rule is held by `no-console: "error"` in `.eslintrc.js`:
 the adapter is exempted through `overrides` together with its spec (which captures the records by
 replacing `console`), and the fallback by line-level `eslint-disable-next-line` rather than for the
 whole file, so a third `console.*` in `app.ts` is caught by the linter.
