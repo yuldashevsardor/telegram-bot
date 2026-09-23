@@ -1,9 +1,9 @@
 #!/usr/bin/env sh
-# Аренда BOT_TOKEN из общего пула: один токен на рабочее дерево.
+# Leases a BOT_TOKEN from the shared pool: one token per worktree.
 #
-# Пул лежит в tmp/bot основного рабочего дерева — один на репозиторий,
-# независимо от того, из какого дерева вызван скрипт. Всё внутри tmp/ под
-# gitignore, а сам токен нигде не печатается: в вывод идёт только номер слота.
+# The pool lives in tmp/bot of the main worktree — one per repository, whichever
+# worktree the script is called from. Everything inside tmp/ is gitignored, and the
+# token itself is never printed: only the slot number goes to the output.
 set -eu
 
 die() {
@@ -11,10 +11,10 @@ die() {
     exit 1
 }
 
-# Общий каталог .git у всех деревьев один и лежит в основном; из worktree путь
-# к нему и есть единственный надёжный способ найти основное дерево.
+# All worktrees share one .git directory, and it lies in the main worktree; from a
+# worktree the path to it is the only reliable way to find the main worktree.
 main_tree() {
-    common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || die "не git-репозиторий: $PWD"
+    common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || die "not a git repository: $PWD"
     dirname "$common"
 }
 
@@ -26,25 +26,26 @@ TTL="${BOT_TOKEN_TTL:-7200}"
 
 usage() {
     cat >&2 <<'USAGE'
-Использование: scripts/bot-token.sh <acquire|renew|release|status|add>
+Usage: scripts/bot-token.sh <acquire|renew|release|status|add>
 
-  acquire   занять свободный слот за текущим рабочим деревом и записать
-            BOT_TOKEN в его .env; повторный вызов из того же дерева возвращает
-            тот же слот
-  renew     продлить аренду текущего дерева (вызывать перед запуском бота и
-            вообще перед долгими действиями); без аренды делает acquire, но в
-            основном дереве не трогает BOT_TOKEN, которого нет в пуле даже
-            закомментированным: там его вписывают руками. В дереве задачи .env
-            всегда копия основного, поэтому там слот занимается всегда
-  release   освободить слот текущего дерева
-  status    показать занятость слотов
-  add       дописать новый токен в конец пула и напечатать номер его слота;
-            токен вводится в ответ на приглашение и не попадает ни в вывод,
-            ни в аргументы процесса, ни в историю шелла
+  acquire   lease a free slot to the current worktree and write BOT_TOKEN
+            into its .env; a repeated call from the same worktree returns
+            the same slot
+  renew     extend the lease of the current worktree (call it before starting
+            the bot and before any long action); without a lease it does
+            acquire, but in the main worktree it leaves alone a BOT_TOKEN the
+            pool does not have even commented out: there it is written by hand.
+            In a task worktree .env is always a copy of the main one, so a slot
+            is always leased there
+  release   free the slot of the current worktree
+  status    show which slots are leased
+  add       append a new token to the end of the pool and print its slot
+            number; the token is typed at a prompt and ends up neither in the
+            output, nor in the process arguments, nor in the shell history
 
-Пул: tmp/bot/tokens основного рабочего дерева, по токену на строку.
-Переменные: BOT_TOKEN_POOL_DIR (переопределяет расположение пула),
-            BOT_TOKEN_TTL в секундах (по умолчанию 7200).
+Pool: tmp/bot/tokens of the main worktree, one token per line.
+Variables: BOT_TOKEN_POOL_DIR (overrides where the pool lives),
+           BOT_TOKEN_TTL in seconds (7200 by default).
 USAGE
     exit 1
 }
@@ -54,14 +55,14 @@ now() {
 }
 
 tree_root() {
-    git rev-parse --show-toplevel 2>/dev/null || die "не git-репозиторий: $PWD"
+    git rev-parse --show-toplevel 2>/dev/null || die "not a git repository: $PWD"
 }
 
 lock() {
     i=0
     while ! mkdir "$LOCK_DIR" 2>/dev/null; do
         i=$((i + 1))
-        [ "$i" -gt 100 ] && die "лок $LOCK_DIR не отпускают больше 10 секунд; если процесс мёртв — удалите каталог"
+        [ "$i" -gt 100 ] && die "lock $LOCK_DIR has been held for more than 10 seconds; if its process is dead, remove the directory"
         sleep 0.1
     done
     trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT INT TERM
@@ -76,9 +77,9 @@ field() {
     sed -n "s/^$2=//p" "$1" 2>/dev/null
 }
 
-# Аренда жива, пока существует её рабочее дерево и не истёк TTL. PID в файле
-# лежит справочно: у агентской сессии нет долгоживущего процесса, по которому
-# можно было бы судить о её жизни, поэтому владение привязано к дереву.
+# A lease is alive while its worktree exists and the TTL has not run out. The PID in
+# the file is for reference only: an agent session has no long-lived process to judge
+# its liveness by, so ownership is tied to the worktree.
 lease_alive() {
     [ -f "$1" ] || return 1
     tree=$(field "$1" tree)
@@ -91,7 +92,7 @@ lease_alive() {
 }
 
 slots() {
-    [ -f "$POOL_FILE" ] || die "нет файла пула $POOL_FILE — положите в него по одному токену от @BotFather на строку"
+    [ -f "$POOL_FILE" ] || die "no pool file $POOL_FILE — put tokens from @BotFather into it, one per line"
     awk 'NF && $0 !~ /^[[:space:]]*#/ { print NR }' "$POOL_FILE"
 }
 
@@ -109,10 +110,10 @@ write_lease() {
     printf 'tree=%s\nts=%s\npid=%s\n' "$2" "$(now)" "$$" > "$LEASE_DIR/$1"
 }
 
-# Пробельное значение — это тот же незаполненный BOT_TOKEN= из .env.dist, только с лишним
-# пробелом или с \r от редактора с CRLF; считать его вписанным руками токеном значило бы
-# оставить дерево без рабочего токена. Краевые пробелы самих строк пула это не ломает:
-# их сравнивает in_pool, уже по своим правилам.
+# A whitespace-only value is the same empty BOT_TOKEN= from .env.dist, just with a stray
+# space or a \r from a CRLF editor; taking it for a token written by hand would leave the
+# worktree without a working token. Edge whitespace of the pool lines themselves is not
+# affected: in_pool compares those by its own rules.
 env_token() {
     env_file="$1/.env"
     [ -f "$env_file" ] || return 0
@@ -127,11 +128,11 @@ env_token() {
     printf '%s' "$value"
 }
 
-# Своим пулу считается и токен из закомментированной строки: он выведен из оборота, но
-# принадлежит пулу, и дерево с ним надо переводить на свободный слот, а не оставлять на
-# отозванном токене. Разбор строки — как в cmd_add: за `#` токен только первое поле, в
-# активной строке токен — вся строка целиком, ровно её пишет в .env write_env.
-# Токен уходит в awk через окружение, а не аргументом: argv видно в ps.
+# A token from a commented-out line counts as the pool's too: it is out of circulation but
+# belongs to the pool, and a worktree holding it has to move to a free slot rather than stay
+# on a revoked token. The line is parsed as in cmd_add: after `#` the token is the first field
+# only, in an active line the token is the whole line, exactly what write_env writes to .env.
+# The token goes to awk through the environment, not as an argument: argv is visible in ps.
 in_pool() {
     [ -f "$POOL_FILE" ] || return 1
     BOT_TOKEN_CANDIDATE="$1" awk '
@@ -154,7 +155,7 @@ in_pool() {
 
 write_env() {
     env_file="$1/.env"
-    [ -f "$env_file" ] || die "нет $env_file — скопируйте его из основного рабочего дерева"
+    [ -f "$env_file" ] || die "no $env_file — copy it from the main worktree"
     tmp="$env_file.bot-token.$$"
     awk -v slot="$2" -v pool="$POOL_FILE" '
         BEGIN {
@@ -169,7 +170,7 @@ write_env() {
         END { if (!found) print "BOT_TOKEN=" token }
     ' "$env_file" > "$tmp" || {
         rm -f "$tmp"
-        die "в слоте $2 нет токена — проверьте $POOL_FILE"
+        die "slot $2 has no token — check $POOL_FILE"
     }
     mv "$tmp" "$env_file"
     chmod 600 "$env_file"
@@ -191,9 +192,9 @@ cmd_acquire() {
         write_lease "$mine" "$root"
     fi
     unlock
-    [ -n "$mine" ] || die "свободных слотов нет; кто их занял — scripts/bot-token.sh status"
+    [ -n "$mine" ] || die "no free slots; scripts/bot-token.sh status shows who holds them"
     write_env "$root" "$mine"
-    printf 'слот %s закреплён за %s, BOT_TOKEN записан в .env\n' "$mine" "$root"
+    printf 'slot %s leased to %s, BOT_TOKEN written to .env\n' "$mine" "$root"
 }
 
 cmd_renew() {
@@ -203,20 +204,21 @@ cmd_renew() {
     [ -n "$mine" ] && write_lease "$mine" "$root"
     unlock
     if [ -n "$mine" ]; then
-        printf 'слот %s продлён ещё на %s с\n' "$mine" "$TTL"
+        printf 'slot %s renewed for another %s s\n' "$mine" "$TTL"
         return
     fi
-    # Аренды нет — либо она протухла, либо дерево с пулом никогда и не работало. Занять
-    # слот и переписать .env нельзя ровно в одном случае: в основном дереве лежит токен,
-    # которого пул не знает. Там его вписывают руками — он принадлежит человеку, а не
-    # пулу, и молча подменять его на токен свободного слота нельзя.
+    # No lease — either it expired or the worktree never worked with the pool. Leasing a
+    # slot and rewriting .env is ruled out in exactly one case: the main worktree holds a
+    # token the pool does not know. There it is written by hand — it belongs to a person, not
+    # to the pool, and silently swapping it for the token of a free slot is not allowed.
     #
-    # В дерево задачи .env приезжает копией основного (scripts/worktree-init.sh), поэтому
-    # незнакомый пулу токен означает там унаследованный, а не свой: оставить дерево на
-    # нём — это второй long polling на один токен и 409 Conflict, ради чего пул и заведён.
+    # A task worktree gets .env as a copy of the main one (scripts/worktree-init.sh), so a
+    # token the pool does not know is inherited there, not its own: leaving the worktree on it
+    # means a second long polling on one token and a 409 Conflict, which the pool exists to
+    # prevent.
     token=$(env_token "$root")
     if [ "$root" = "$(main_tree)" ] && [ -n "$token" ] && ! in_pool "$token"; then
-        printf 'за %s слот не закреплён; BOT_TOKEN в .env не из пула и оставлен как есть\n' "$root" >&2
+        printf 'no slot is leased to %s; BOT_TOKEN in .env is not from the pool and is left as is\n' "$root" >&2
         return
     fi
     cmd_acquire
@@ -229,43 +231,43 @@ cmd_release() {
     [ -n "$mine" ] && rm -f "$LEASE_DIR/$mine"
     unlock
     if [ -z "$mine" ]; then
-        printf 'за %s слот не закреплён\n' "$root"
+        printf 'no slot is leased to %s\n' "$root"
         return
     fi
-    printf 'слот %s освобождён\n' "$mine"
+    printf 'slot %s released\n' "$mine"
 }
 
-# Пул append-only: слот — это номер строки, поэтому токен всегда дописывается в конец.
-# Вставка в середину или удаление строки сдвинет нумерацию, и живые аренды начнут
-# указывать на чужие токены.
+# The pool is append-only: a slot is a line number, so a token is always appended at the end.
+# Inserting in the middle or deleting a line would shift the numbering, and live leases would
+# start pointing at other tokens.
 #
-# Токен читается только со stdin: аргументом он был бы виден в таблице процессов любому
-# пользователю машины и осел бы в истории шелла.
+# The token is read from stdin only: as an argument it would be visible in the process table
+# to every user of the machine and would settle in the shell history.
 cmd_add() {
-    [ "$#" -eq 0 ] || die "токен не передаётся аргументом — он уже попал в argv и виден в ps, а вызов остался в истории шелла; считайте этот токен скомпрометированным, отзовите его у @BotFather и добавьте новый: scripts/bot-token.sh add спросит токен с приглашения"
+    [ "$#" -eq 0 ] || die "the token is not passed as an argument — it has already reached argv, visible in ps, and the call stays in the shell history; treat this token as compromised, revoke it at @BotFather and add a new one: scripts/bot-token.sh add asks for the token at a prompt"
 
-    # read возвращает ненулевой код и на строке без завершающего перевода строки, поэтому
-    # её результат оставляем как есть, а не затираем.
+    # read returns non-zero on a line without a trailing newline too, so what it read is
+    # kept rather than wiped.
     token=""
     if [ -t 0 ]; then
-        printf 'токен от @BotFather (ввод не отображается): ' >&2
+        printf 'token from @BotFather (input is hidden): ' >&2
         stty_state=$(stty -g)
-        # Без восстановления эха на любом выходе терминал остаётся без эха, и пользователю
-        # приходится вслепую набирать stty sane. Ловим и EXIT: die внутри блока не сигнал.
+        # Unless echo is restored on every exit, the terminal stays without echo and the user
+        # has to type stty sane blind. EXIT is trapped too: die inside the block is not a signal.
         trap 'stty "$stty_state" 2>/dev/null || true' EXIT
         trap 'stty "$stty_state" 2>/dev/null || true; exit 130' HUP INT QUIT TERM
         stty -echo
         IFS= read -r token || true
         stty "$stty_state"
-        # Снимаем до lock(): дальше свой обработчик EXIT ставит он.
+        # Cleared before lock(): from there on it sets its own EXIT handler.
         trap - EXIT HUP INT QUIT TERM
         printf '\n' >&2
     else
         IFS= read -r token || true
     fi
 
-    # Срезаем только края: пробел внутри токена означает, что вставили не то, и об этом
-    # лучше сказать, чем молча склеить строку.
+    # Only the edges are trimmed: whitespace inside the token means the wrong thing was
+    # pasted, and it is better to say so than to silently glue the line together.
     while :; do
         case "$token" in
             [[:space:]]*) token=${token#?} ;;
@@ -274,20 +276,21 @@ cmd_add() {
         esac
     done
 
-    [ -n "$token" ] || die "пустой ввод — в пул ничего не добавлено"
+    [ -n "$token" ] || die "empty input — nothing added to the pool"
     case "$token" in
-        *[[:space:]]*) die "в токене есть пробельные символы — он должен быть один и целиком" ;;
-        \#*) die "токен не может начинаться с # — такая строка считается комментарием" ;;
+        *[[:space:]]*) die "the token contains whitespace — it must be a single token, whole" ;;
+        \#*) die "a token cannot start with # — such a line counts as a comment" ;;
     esac
 
     lock
     [ -f "$POOL_FILE" ] || : > "$POOL_FILE"
     chmod 600 "$POOL_FILE"
-    # Закомментированная строка — тоже занятый токен: её раскомментируют, чтобы вернуть
-    # токен в оборот, и тогда два слота с одним токеном дадут 409 Conflict. За `#` обычно
-    # пишут ещё и причину вывода из оборота, поэтому токеном там считается только первое
-    # поле. В активной строке токен — вся строка целиком: ровно её пишет в .env write_env.
-    # Сам токен уходит в awk через окружение, а не аргументом: argv видно в ps.
+    # A commented-out line is a taken token too: it gets uncommented to put the token back into
+    # circulation, and then two slots with one token give a 409 Conflict. After `#` people
+    # usually also write why the token was retired, so only the first field counts as the token
+    # there. In an active line the token is the whole line: exactly what write_env writes to .env.
+    # The token itself goes to awk through the environment, not as an argument: argv is visible
+    # in ps.
     dup=$(BOT_TOKEN_CANDIDATE="$token" awk '
         BEGIN { candidate = ENVIRON["BOT_TOKEN_CANDIDATE"] }
         {
@@ -303,10 +306,9 @@ cmd_add() {
                 sub(/[[:space:]]+$/, "", line)
             }
             if (line == "" || line != candidate) next
-            # Пул с активной и закомментированной копией одного токена сам add не создаст,
-            # но правкой файла руками — запросто, и тогда совет «раскомментируйте» дал бы
-            # второй живой слот. Поэтому активное совпадение важнее, в каком бы порядке
-            # строки ни лежали.
+            # add never creates a pool with an active and a commented-out copy of one token,
+            # but a hand edit of the file easily does, and then the advice "uncomment it" would
+            # give a second live slot. So an active match wins, whatever order the lines are in.
             if (!commented) {
                 active = NR
                 active_raw = raw
@@ -325,17 +327,17 @@ cmd_add() {
         rest=${dup#* }
         case "$rest" in
             commented*)
-                die "этот токен уже лежит в пуле закомментированным, строка $line_no — раскомментируйте её, чтобы вернуть токен в оборот; второй слот с тем же токеном даст 409 Conflict"
+                die "this token is already in the pool, commented out, line $line_no — uncomment it to put the token back into circulation; a second slot with the same token would give a 409 Conflict"
                 ;;
             *padded)
-                die "такой токен в пуле уже есть, слот $line_no — два процесса на один токен получают от Telegram 409 Conflict; заодно поправьте строку $line_no: краевые пробелы вокруг токена acquire запишет в .env как есть"
+                die "this token is already in the pool, slot $line_no — two processes on one token get a 409 Conflict from Telegram; also fix line $line_no: acquire writes the whitespace around the token to .env as is"
                 ;;
             *)
-                die "такой токен в пуле уже есть, слот $line_no — два процесса на один токен получают от Telegram 409 Conflict"
+                die "this token is already in the pool, slot $line_no — two processes on one token get a 409 Conflict from Telegram"
                 ;;
         esac
     fi
-    # Без завершающего перевода строки дописанный токен склеился бы с последней строкой.
+    # Without a trailing newline the appended token would be glued to the last line.
     if [ -s "$POOL_FILE" ] && [ "$(tail -c 1 "$POOL_FILE" | wc -l)" -eq 0 ]; then
         printf '\n' >> "$POOL_FILE"
     fi
@@ -343,17 +345,17 @@ cmd_add() {
     slot=$(awk 'END { print NR }' "$POOL_FILE")
     unlock
 
-    printf 'токен добавлен в слот %s (%s)\n' "$slot" "$POOL_FILE"
+    printf 'token added to slot %s (%s)\n' "$slot" "$POOL_FILE"
 }
 
 cmd_status() {
     for slot in $(slots); do
         file="$LEASE_DIR/$slot"
         if lease_alive "$file"; then
-            printf 'слот %s: занят %s (обновлён %s с назад)\n' \
+            printf 'slot %s: leased to %s (renewed %s s ago)\n' \
                 "$slot" "$(field "$file" tree)" "$(($(now) - $(field "$file" ts)))"
         else
-            printf 'слот %s: свободен\n' "$slot"
+            printf 'slot %s: free\n' "$slot"
         fi
     done
 }

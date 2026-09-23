@@ -1,15 +1,15 @@
 #!/usr/bin/env sh
-# Сброс базы: гасит общий Postgres и стирает каталог, из которого он поднимется в
-# следующий раз.
+# Resets the database: takes the shared Postgres down and wipes the directory it will
+# start from next time.
 #
-# Данные общие для всех рабочих деревьев: в дереве задачи tmp/pgsql — симлинк на
-# основное дерево, поэтому цель, выглядящая локальной, стирает базу всех сессий
-# сразу. Отсюда два предохранителя: подтверждение и отказ работать, пока работают
-# контейнеры приложения других деревьев.
+# The data is shared by all worktrees: in a task worktree tmp/pgsql is a symlink to the
+# main worktree, so a target that looks local wipes the database of every session at
+# once. Hence two safeguards: a confirmation, and a refusal to run while application
+# containers of other worktrees are running.
 set -eu
 
-# Имя проекта базы и её сети зафиксированы в docker-compose.db.yml; здесь они нужны,
-# чтобы отличить чужие контейнеры приложения от контейнера самой базы.
+# The project name of the database and its network are fixed in docker-compose.db.yml;
+# they are needed here to tell other application containers from the database's own.
 COMPOSE_FILE="docker-compose.db.yml"
 DB_PROJECT="telegram-bot-db"
 DB_NETWORK="telegram-bot-db_default"
@@ -20,28 +20,28 @@ die() {
     exit 1
 }
 
-# Приводит путь к физическому виду: compose пишет в label логический $PWD, а
-# git rev-parse --show-toplevel отдаёт путь с разрешёнными симлинками. Без этого
-# дерево, лежащее по пути через симлинк, увидело бы собственный контейнер чужим.
+# Makes a path physical: compose writes the logical $PWD into the label, while
+# git rev-parse --show-toplevel returns the path with symlinks resolved. Without this
+# a worktree reached through a symlink would see its own container as another's.
 real_path() {
     (cd "$1" 2>/dev/null && pwd -P) || printf '%s' "$1"
 }
 
-# Ищем по сети базы: в ней сидят приложения всех деревьев — и поднятые боты, и
-# одноразовые контейнеры разовых целей (make migrate/build/test). Печатаем по строке
-# на контейнер: <состояние> <TAB> <имя> <TAB> <дерево>. Проверка best-effort —
-# контейнер, исчерпавший restart: on-failure, в docker ps уже не виден, хотя сессия
-# в том дереве работает.
+# Searched by the database network: the applications of all worktrees sit in it — both
+# running bots and the throwaway containers of one-off targets (make migrate/build/test).
+# Prints a line per container: <state> <TAB> <name> <TAB> <worktree>. The check is
+# best-effort — a container that has used up restart: on-failure is no longer visible in
+# docker ps, although the session in that worktree is at work.
 app_containers() {
-    # Единственная защита от необратимой потери данных не должна принимать сбой docker
-    # за «чужих деревьев нет»: код выхода конвейера — это код последней команды, поэтому
-    # статус docker ps проверяется отдельно.
+    # The only guard against irreversible data loss must not take a docker failure for
+    # "no other worktrees": the exit code of a pipeline is that of its last command, so the
+    # status of docker ps is checked separately.
     listing=$(docker ps --filter "network=$DB_NETWORK" \
         --format "{{.Label \"com.docker.compose.project\"}}$TAB{{.Label \"com.docker.compose.project.working_dir\"}}$TAB{{.Names}}") ||
-        die "не удалось опросить docker: нельзя убедиться, что другие деревья не работают"
+        die "could not query docker: there is no way to make sure other worktrees are not running"
 
-    # Поля режутся вручную, а не через IFS="$TAB" read: табуляция для read — пробельный
-    # разделитель, подряд идущие схлопываются, и строка с пустым label съезжает влево.
+    # Fields are cut by hand, not with IFS="$TAB" read: to read a tab is a whitespace
+    # separator, consecutive ones collapse, and a line with an empty label shifts left.
     printf '%s\n' "$listing" | while IFS= read -r line; do
         project=${line%%"$TAB"*}
         rest=${line#*"$TAB"}
@@ -50,85 +50,87 @@ app_containers() {
 
         [ -n "$project" ] && [ "$project" != "$DB_PROJECT" ] || continue
 
-        # Дерево удаляют через git worktree remove, а контейнер он не гасит, поэтому
-        # контейнер без каталога на диске — не работающая сессия, а мусор: блокировать
-        # им цель нельзя, иначе она остаётся заблокированной насовсем. Дерево, о котором
-        # ничего не известно, наоборот считается чужим: единственная защита от необратимой
-        # потери данных должна ошибаться в сторону отказа.
+        # A worktree is removed with git worktree remove, which does not take its container
+        # down, so a container without a directory on disk is not a working session but
+        # garbage: it must not block the target, or the target stays blocked for good. A
+        # worktree nothing is known about, on the contrary, counts as another's: the only
+        # guard against irreversible data loss must err on the side of refusing.
         if [ -z "$dir" ]; then
-            printf 'чужое%s%s%s%s\n' "$TAB" "$name" "$TAB" "дерево не указано"
+            printf 'alien%s%s%s%s\n' "$TAB" "$name" "$TAB" "worktree not given"
         elif [ ! -d "$dir" ]; then
-            printf 'брошен%s%s%s%s\n' "$TAB" "$name" "$TAB" "$dir"
+            printf 'stale%s%s%s%s\n' "$TAB" "$name" "$TAB" "$dir"
         elif [ "$(real_path "$dir")" = "$root" ]; then
-            printf 'своё%s%s%s%s\n' "$TAB" "$name" "$TAB" "$dir"
+            printf 'own%s%s%s%s\n' "$TAB" "$name" "$TAB" "$dir"
         else
-            printf 'чужое%s%s%s%s\n' "$TAB" "$name" "$TAB" "$dir"
+            printf 'alien%s%s%s%s\n' "$TAB" "$name" "$TAB" "$dir"
         fi
     done
 }
 
-# Postgres один на машину, и эта же цель его гасит, поэтому чужая сессия теряет базу
-# прямо посреди работы: её контейнер уходит в перезапуск на упавших миграциях, а данные
-# уже не вернуть. Поэтому по чужим деревьям — отказ, а не предупреждение.
+# There is one Postgres per machine, and this same target takes it down, so another session
+# loses the database right in the middle of its work: its container goes into restarts on
+# failed migrations, and the data is gone for good. Hence a refusal for other worktrees, not
+# a warning.
 check_containers() {
     rows=$(app_containers) || exit 1
-    alien=$(printf '%s\n' "$rows" | awk -F "$TAB" '$1 == "чужое" { print "  " $3 "  (контейнер " $2 ")" }')
+    alien=$(printf '%s\n' "$rows" | awk -F "$TAB" '$1 == "alien" { print "  " $3 "  (container " $2 ")" }')
 
     if [ "$1" = "verbose" ]; then
-        stale=$(printf '%s\n' "$rows" | awk -F "$TAB" '$1 == "брошен" { print "  " $2 "  (дерева " $3 " нет на диске)" }')
+        stale=$(printf '%s\n' "$rows" | awk -F "$TAB" '$1 == "stale" { print "  " $2 "  (worktree " $3 " is not on disk)" }')
         [ -z "$stale" ] ||
-            printf 'контейнеры удалённых деревьев — цель их не учитывает, уберите их docker rm -f <имя>:\n%s\n' "$stale" >&2
+            printf 'containers of removed worktrees — the target ignores them, remove them with docker rm -f <name>:\n%s\n' "$stale" >&2
 
-        mine=$(printf '%s\n' "$rows" | awk -F "$TAB" '$1 == "своё" { print "  " $2 }')
+        mine=$(printf '%s\n' "$rows" | awk -F "$TAB" '$1 == "own" { print "  " $2 }')
         [ -z "$mine" ] ||
-            printf 'в этом дереве работает контейнер приложения — после сброса он потеряет базу и умрёт на упавших миграциях:\n%s\n' "$mine" >&2
+            printf 'an application container of this worktree is running — after the reset it loses the database and dies on failed migrations:\n%s\n' "$mine" >&2
     fi
 
     [ -n "$alien" ] || return 0
-    printf 'работают контейнеры приложения других рабочих деревьев:\n%s\n' "$alien" >&2
-    die "погасите их (make app-down в этих деревьях либо docker rm -f <имя>) или дождитесь конца разовой команды и повторите"
+    printf 'application containers of other worktrees are running:\n%s\n' "$alien" >&2
+    die "take them down (make app-down in those worktrees or docker rm -f <name>) or wait for the one-off command to finish, and repeat"
 }
 
-root=$(git rev-parse --show-toplevel 2>/dev/null) || die "не git-репозиторий: $PWD"
+root=$(git rev-parse --show-toplevel 2>/dev/null) || die "not a git repository: $PWD"
 root=$(real_path "$root")
 cd "$root"
 
 data=$(cd tmp/pgsql 2>/dev/null && pwd -P || true)
 if [ -z "$data" ]; then
-    printf 'каталога tmp/pgsql нет — стирать нечего, база не тронута\n'
+    printf 'no tmp/pgsql directory — nothing to wipe, the database is untouched\n'
     exit 0
 fi
-# rm -rf по вычисленному пути: убеждаемся, что это каталог с ожидаемым именем, а не
-# что-то, куда увёл сломанный симлинк. Каталог кластера у работающего контейнера может
-# быть и другим — bind вморожен в него тем деревом, из которого делали db-up, — но
-# после down он пересоздаётся с этим путём, так что следующий старт будет из него.
-[ "$(basename "$data")" = "pgsql" ] || die "tmp/pgsql ведёт в неожиданное место: $data"
+# rm -rf on a computed path: make sure it is a directory with the expected name and not
+# wherever a broken symlink led. The cluster directory of a running container may be a
+# different one — the bind is frozen into it by the worktree db-up was run from — but after
+# down the container is recreated with this path, so the next start will be from it.
+[ "$(basename "$data")" = "pgsql" ] || die "tmp/pgsql leads to an unexpected place: $data"
 
 check_containers verbose
 
 if [ "${CONFIRM:-}" != "1" ]; then
-    [ -t 0 ] || die "неинтерактивный запуск: повторите как CONFIRM=1 make db-reset"
-    # Вопрос идёт в stderr, а не в stdout: tty проверяется у stdin, и при make db-reset
-    # > out.txt вопрос ушёл бы в файл, а терминал выглядел бы зависшим.
-    printf 'Стереть данные базы в %s? Она общая для всех рабочих деревьев. [y/N] ' "$data" >&2
-    # Ctrl-D — такая же осознанная отмена, как и «нет», и завершаться она должна так же.
+    [ -t 0 ] || die "non-interactive run: repeat as CONFIRM=1 make db-reset"
+    # The question goes to stderr, not stdout: the tty is checked on stdin, and with
+    # make db-reset > out.txt the question would go to the file and the terminal would look hung.
+    printf 'Wipe the database data in %s? It is shared by all worktrees. [y/N] ' "$data" >&2
+    # Ctrl-D is as deliberate a cancel as "no", and it must end the same way.
     read -r answer || answer=""
     case "$answer" in
-        y | Y | yes | Yes | да | Да) ;;
+        y | Y | yes | Yes) ;;
         *)
-            printf 'отменено\n'
+            printf 'cancelled\n'
             exit 0
             ;;
     esac
-    # Пауза у вопроса ничем не ограничена, и за это время в соседнем дереве могли
-    # поднять бота или запустить разовую цель, поэтому проверка повторяется.
+    # The pause at the question is unbounded, and meanwhile a neighbouring worktree may have
+    # brought up a bot or started a one-off target, so the check is repeated.
     check_containers quiet
 fi
 
 docker compose -f "$COMPOSE_FILE" down
 
-# Каталог удаляется целиком и создаётся заново, а не чистится изнутри: в дереве задачи
-# tmp/pgsql — симлинк, и удаление идёт по разыменованному пути, сам симлинк остаётся.
+# The directory is removed whole and created anew rather than emptied from inside: in a task
+# worktree tmp/pgsql is a symlink, the removal goes by the dereferenced path, and the symlink
+# itself stays.
 rm -rf "$data"
 mkdir -p "$data"
-printf 'данные базы удалены: %s\n' "$data"
+printf 'database data removed: %s\n' "$data"

@@ -1,20 +1,21 @@
 #!/usr/bin/env sh
-# Уборка рабочего дерева задачи после влития PR — парная worktree-init.sh: гасит
-# приложение этого дерева вместе с его образом и томом, удаляет само дерево, локальную
-# ветку и ветку на origin, а напоследок подтягивает main в основном дереве.
+# Cleans up a task worktree after its PR is merged — the counterpart of worktree-init.sh:
+# takes the application of this worktree down together with its image and volume, removes
+# the worktree itself, the local branch and the branch on origin, and finally fast-forwards
+# main in the main worktree.
 #
-# Момент уборки выбирает человек или агент, увидев, что PR влит: до влития дерево ещё
-# нужно. Скрипт лишь убеждается, что убирать уже безопасно, и делает все четыре шага
-# уборки разом, чтобы не забылся ни один — забытый оставляет мусор, который потом
-# читается наравне с работающей задачей. Мусора за собой не оставляют ещё два действия, и
-# каждое стоит здесь по своей причине — они у них в комментариях: подтягивание main идёт
-# последним, обновление общей origin/main — перед проверкой слитости, а повторяется внутри
-# самого подтягивания, перед ff-мержем.
+# The moment of cleanup is chosen by a person or an agent who sees the PR merged: until the
+# merge the worktree is still needed. The script only makes sure cleaning up is safe by now
+# and does all four cleanup steps at once so that none is forgotten — a forgotten one leaves
+# garbage that is later read as a task in progress. Two more actions leave no garbage behind,
+# and each stands where it does for its own reason, given in its comments: fast-forwarding
+# main goes last, updating the shared origin/main goes before the merged check and is repeated
+# inside the fast-forward itself, before the ff merge.
 set -eu
 
 COMPOSE_FILE="docker-compose.app.yml"
-# Своя ссылка: по ней уборка и проверяет слитость ветки, и подтягивает main в основном
-# дереве. Причина — у первого же fetch ниже.
+# A ref of its own: the cleanup both checks that the branch is merged and fast-forwards main
+# in the main worktree by it. The reason is at the first fetch below.
 CLEANUP_REF="refs/worktree-cleanup/main"
 
 die() {
@@ -23,303 +24,323 @@ die() {
 }
 
 main_tree() {
-    common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || die "не git-репозиторий: $PWD"
+    common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || die "not a git repository: $PWD"
     dirname "$common"
 }
 
-root=$(git rev-parse --show-toplevel 2>/dev/null) || die "не git-репозиторий: $PWD"
+root=$(git rev-parse --show-toplevel 2>/dev/null) || die "not a git repository: $PWD"
 main=$(main_tree)
 
-[ "$root" != "$main" ] || die "это основное рабочее дерево — убирать нужно дерево задачи"
+[ "$root" != "$main" ] || die "this is the main worktree — cleanup is for a task worktree"
 
 cd "$root"
 
-branch=$(git branch --show-current) || die "не удалось определить ветку дерева $root"
-[ -n "$branch" ] || die "дерево $root на detached HEAD — уберите его вручную, когда разберётесь с коммитами"
+branch=$(git branch --show-current) || die "could not determine the branch of worktree $root"
+[ -n "$branch" ] || die "worktree $root is on a detached HEAD — clean it up by hand once you have dealt with the commits"
 
 changes=$(git status --porcelain)
-[ -z "$changes" ] || die "в дереве $root есть незакоммиченные изменения — уборка их уничтожит:
+[ -z "$changes" ] || die "worktree $root has uncommitted changes — the cleanup would destroy them:
 $changes"
 
-# Слитость проверяется до всего остального: остальные шаги необратимы, а единственное,
-# что здесь можно потерять, — коммиты ветки, которых нет в main.
-# Идёт fetch в свою ссылку, а не в origin/main: каталог refs/remotes у всех деревьев
-# репозитория общий, и соседняя сессия, делающая свой fetch в этот же момент, держит
-# origin/main на запись. Тогда объекты и FETCH_HEAD приезжают, а запись ссылки отказывает —
-# и уборка вставала бы на ссылке, без которой ответить «влита ли ветка» было чем. Заодно
-# --refmap=: без него origin/main обновляется попутно, чем бы ни была названа ссылка
-# назначения, и отказ возвращается вместе с этим обновлением.
-# Ссылка переписывается каждым прогоном (`+` в refspec) и потому не удаляется: удаление —
-# ещё одна команда после необратимой уборки, а копится от неё ровно одна ссылка.
-# Общая она тоже — пер-worktree префиксы у git свои (refs/worktree/, refs/bisect/,
-# refs/rewritten/), и этот в них не входит, — так что две уборки, идущие одновременно, тот
-# же отказ по занятой ссылке воспроизведут. Окно у него другого порядка: эту ссылку пишут
-# две строки одной цели, а origin/main писал любой fetch любого дерева.
+# Merged is checked before anything else: the other steps are irreversible, and the only
+# thing that can be lost here is the branch's commits that main does not have.
+# The fetch goes into a ref of its own, not into origin/main: the refs/remotes directory is
+# shared by all worktrees of the repository, and a neighbouring session fetching at the same
+# moment holds origin/main for writing. Then the objects and FETCH_HEAD arrive but the ref
+# write is refused — and the cleanup would stop at a ref it did not need to answer "is the
+# branch merged". Hence also --refmap=: without it origin/main is updated along the way,
+# whatever the destination ref is called, and the refusal comes back with that update.
+# The ref is rewritten by every run (`+` in the refspec) and so is not deleted: deleting it
+# is one more command after the irreversible cleanup, and exactly one ref accumulates.
+# It is shared too — git has its own per-worktree prefixes (refs/worktree/, refs/bisect/,
+# refs/rewritten/), and this one is not among them — so two cleanups running at once
+# reproduce the same refusal on a held ref. Its window is of another order: this ref is
+# written by two lines of one target, while origin/main was written by any fetch of any
+# worktree.
 git fetch --quiet --refmap= origin "+refs/heads/main:$CLEANUP_REF" ||
-    die "не удалось получить main с origin в $CLEANUP_REF — без него нельзя убедиться,
-что ветка $branch уже влита.
-Причина выше: отказывают здесь и недоступный origin, и залипший .lock самой ссылки"
-# Самой уборке origin/main больше не нужна, но свежей её в основном дереве держать некому:
-# от неё ответвляет дерево задачи `git worktree add`, и её же читает stale_claude в
-# scripts/claude-worktree-guard.sh, своего fetch не делая, — оба берут то, что оставил
-# последний чей-нибудь fetch. Поэтому она обновляется здесь и отдельной командой: попроси
-# её тот же fetch, что выше, занятая соседом ссылка снова роняла бы уборку — ровно то, от
-# чего развязка ссылок и избавляет.
-# Копируется ссылка, привезённая фетчем выше, а не фетчится своя: второй поход в сеть
-# оставлял между собой и первым окно в один round-trip, и мерж, доехавший внутри него,
-# попадал в origin/main, но не в $CLEANUP_REF — проверка слитости ниже отказывала ветке,
-# которую общая ссылка уже показывала влитой. Расхождение копия снимает: обе ссылки
-# заведомо на одном коммите. Сам отказ она не отменяет — мерж, доехавший после фетча выше,
-# в $CLEANUP_REF по-прежнему не попадёт, — но тогда его не видно и в origin/main, и отказ
-# ничему не противоречит. Объекты привёз тот же fetch, так что origin/main встаёт на
-# коммит, который в репозитории уже есть.
-# Ехать она при этом может и назад: чужой fetch, успевший записать в неё мерж новее между
-# фетчем выше и этой строкой, копия отодвинет. Промежуток тут короткий — между двумя
-# строками нет ни одной команды, — а цена та же, что у любой устарелости общей ссылки, и
-# снимает её копия в конце уборки или ближайший чужой fetch.
-# -m: свою причину в reflog fetch писал сам, а update-ref без неё оставляет пустую строку.
-# Стоит команда до проверки слитости, а не после: проверка обрывает уборку, а самый частый
-# её отказ — squash-мерж — на свежесть origin/main влиять не должен, иначе следующее дерево
-# ответвится от старой точки как раз там, где уборку и так доделывают руками.
-# Отказ не роняет уборку — обновление ей не нужно, — но и не молчит: занятая соседом ссылка
-# проходит сама на следующей уборке, а вот `.lock`, оставшийся от убитого посреди записи git,
-# не пройдёт никогда, и git такие файлы сам не убирает. Молчащий отказ этих двух случаев не
-# различает: второй оставлял бы origin/main вечно старой, ничем себя не называя, — уборка
-# по-прежнему печатала бы «подтянут до main на origin» (про main, а не про эту ссылку), а
-# единственным следом остался бы `[ahead N]` в основном дереве, который сам себя не объясняет.
-if ! git update-ref -m "worktree-cleanup: main с origin перед проверкой слитости" \
+    die "could not fetch main from origin into $CLEANUP_REF — without it there is no way to
+make sure branch $branch is merged.
+The reason is above: both an unreachable origin and a stuck .lock of the ref itself fail here"
+# The cleanup itself no longer needs origin/main, but nobody else keeps it fresh in the main
+# worktree: `git worktree add` branches a task worktree off it, and stale_claude in
+# scripts/claude-worktree-guard.sh reads it without a fetch of its own — both take whatever
+# the last fetch by anyone left. So it is updated here, and by a separate command: asked of
+# the same fetch as above, a ref held by a neighbour would again take the cleanup down —
+# exactly what separating the refs saves it from.
+# The ref brought by the fetch above is copied rather than fetched anew: a second trip to the
+# network left a one-round-trip window between it and the first, and a merge landing inside
+# that window reached origin/main but not $CLEANUP_REF — the merged check below refused a
+# branch the shared ref already showed as merged. The copy removes that mismatch: both refs
+# are on the same commit by construction. It does not cancel the refusal itself — a merge
+# landing after the fetch above still does not reach $CLEANUP_REF — but then it is not
+# visible in origin/main either, and the refusal contradicts nothing. The objects came with
+# the same fetch, so origin/main moves to a commit the repository already has.
+# It may also move backwards: a newer merge written into it by another fetch between the
+# fetch above and this line is pushed back by the copy. The gap is short — there is no
+# command between the two lines — and the cost is the same as any staleness of the shared
+# ref; the copy at the end of the cleanup or the next fetch by anyone removes it.
+# -m: fetch wrote its own reason into the reflog, and update-ref without one leaves an empty
+# line.
+# The command stands before the merged check, not after: the check aborts the cleanup, and its
+# most frequent refusal — a squash merge — must not affect how fresh origin/main is, or the
+# next worktree would branch off an old point exactly where the cleanup is finished by hand
+# anyway.
+# A refusal does not take the cleanup down — it does not need the update — but it does not
+# keep quiet either: a ref held by a neighbour passes by itself at the next cleanup, while a
+# `.lock` left by a git killed mid-write never does, and git does not remove such files
+# itself. A silent refusal does not tell these two cases apart: the second would leave
+# origin/main old forever without naming itself — the cleanup would still print "fast-forwarded
+# to main on origin" (about main, not about this ref), and the only trace would be an
+# `[ahead N]` in the main worktree that does not explain itself.
+if ! git update-ref -m "worktree-cleanup: main from origin before the merged check" \
     refs/remotes/origin/main "$CLEANUP_REF"; then
-    printf 'origin/main в %s не обновлена: git update-ref отказал,
-причина выше — на уборку это не влияет.
-Ссылку мог занять fetch соседней сессии: тогда её обновит следующая уборка.
-Если отказ повторяется, удалите руками .lock, названный в причине: он остался от убитого git.\n' \
+    printf 'origin/main in %s not updated: git update-ref refused,
+the reason is above — the cleanup is not affected.
+A fetch by a neighbouring session may have held the ref: then the next cleanup updates it.
+If the refusal repeats, remove by hand the .lock named in the reason: a killed git left it.\n' \
         "$main" >&2
 fi
-git merge-base --is-ancestor "$branch" "$CLEANUP_REF" || die "ветка $branch не влита в main на origin — дерево ещё нужно.
-Если PR влит squash-мержем (коммитов ветки в main нет, есть только их результат),
-уберите дерево вручную:
+git merge-base --is-ancestor "$branch" "$CLEANUP_REF" || die "branch $branch is not merged into main on origin — the worktree is still needed.
+If the PR was merged with squash (main does not have the branch's commits, only their result),
+clean up the worktree by hand:
     git worktree remove '$root' && git branch -D '$branch' && git push origin --delete '$branch'"
 
-# Образ и том Compose именуются по каталогу дерева, и `git worktree remove` их не трогает:
-# после удаления каталога до них уже не добраться этой целью — имя проекта брать неоткуда.
-# Поэтому гасим до удаления и падаем, если не вышло, а не оставляем сироту молча.
+# Compose names the image and the volume after the worktree directory, and `git worktree
+# remove` does not touch them: once the directory is gone, this target cannot reach them —
+# there is nowhere to take the project name from. So they are taken down before the removal,
+# and a failure stops the script rather than leaving an orphan silently.
 docker compose -f "$COMPOSE_FILE" down --rmi local --volumes ||
-    die "не удалось погасить приложение дерева $root — запустите Docker и повторите: после удаления каталога его образ этой целью уже не убрать"
+    die "could not take down the application of worktree $root — start Docker and repeat: once the directory is removed, this target can no longer remove its image"
 
 cd "$main"
 
-# Своё сообщение, а не голый `fatal` от git: под `set -e` отказ оборвал бы скрипт молча, не
-# сказав, что приложение вместе с образом и томом уже снесено. Уборку отказ всё равно обрывает,
-# в отличие от отказов ниже: там дерево уже снесено и остаток доделывают руками, а здесь оно
-# может быть цело, и тогда удаление его ветки с подтягиванием main обещало бы убранное.
+# A message of its own, not a bare `fatal` from git: under `set -e` the refusal would end the
+# script silently, without saying that the application with its image and volume is already
+# gone. The refusal still aborts the cleanup, unlike the refusals below: there the worktree is
+# already gone and the rest is finished by hand, while here it may be intact, and then removing
+# its branch and fast-forwarding main would promise a cleanup that did not happen.
 if ! git worktree remove "$root"; then
-    # Отказать remove успевает и на полпути: он сносит содержимое, снимает регистрацию и лишь
-    # потом спотыкается об остаток, которого не смог удалить. Такой остаток берётся, например,
-    # из coverage или reports: они монтируются с хоста (docker-compose.app.yml), а контейнер
-    # работает от своего uid (Dockerfile, USER node), и на Linux-хосте созданное в них
-    # принадлежит ему. Проверка незакоммиченного выше остатка не видит: оба каталога
-    # в .gitignore.
-    # Живо дерево ровно тогда, когда повтору цели будет с чего начать: с этого же toplevel
-    # начинается скрипт. Сравнение, а не код выхода: из каталога с одним остатком rev-parse
-    # поднимется выше и вернёт чужой путь.
+    # remove can also fail halfway: it deletes the contents, unregisters the worktree and only
+    # then stumbles on a leftover it could not delete. Such a leftover comes, for example, from
+    # coverage or reports: they are mounted from the host (docker-compose.app.yml), the
+    # container runs under its own uid (Dockerfile, USER node), and on a Linux host whatever is
+    # created in them belongs to it. The uncommitted check above does not see the leftover: both
+    # directories are in .gitignore.
+    # The worktree is alive exactly when a repeat of the target has somewhere to start from:
+    # the script starts from this same toplevel. A comparison, not an exit code: from a
+    # directory holding only a leftover rev-parse climbs higher and returns another path.
     if [ "$(git -C "$root" rev-parse --show-toplevel 2>/dev/null || true)" = "$root" ]; then
-        # Про этот запуск, а не про состояние main: подтянуть его могла соседняя сессия,
-        # закончившая уборку минутой раньше, и «остался на коммите до мержа» было бы ложью.
-        # Переносы текста считаны по живому выводу, а не по исходнику: в него подставляются
-        # абсолютные пути, и ровный исходник даёт строку в полтора раза длиннее соседних.
-        die "не удалось удалить дерево $root — причина выше.
-Погашено приложение дерева вместе с образом и томом, больше ничего не сделано: ветка цела,
-main в $main этот запуск не подтягивал.
-Устраните причину и повторите make worktree-cleanup из этого дерева: повторное гашение уже
-погашенного приложения безвредно.
-Пока каталог дерева цел, за ним может числиться слот пула токенов — снимет его успешный
-повтор, а аренда и сама истекает: BOT_TOKEN_TTL (по умолчанию 2 часа) от последнего продления."
+        # About this run, not about the state of main: a neighbouring session that finished
+        # its cleanup a minute earlier may have fast-forwarded it, and "left on the commit
+        # before the merge" would be a lie.
+        # The line breaks are set by the live output, not by the source: absolute paths are
+        # substituted into it, and an even source gives a line half as long again as its
+        # neighbours.
+        die "could not remove worktree $root — the reason is above.
+The application of the worktree is down with its image and volume, nothing else is done: the
+branch is intact, and this run did not fast-forward main in $main.
+Remove the cause and repeat make worktree-cleanup from this worktree: taking down an
+application that is already down is harmless.
+While the worktree directory is intact, a token pool slot may still be leased to it — a
+successful repeat frees it, and the lease also expires by itself: BOT_TOKEN_TTL (2 hours by
+default) after the last renewal."
     fi
-    # Каталог мог и уцелеть, и нет: содержимое remove сносит раньше, чем админ-данные дерева,
-    # и споткнуться может на любом из двух. Звать удалять несуществующее незачем, поэтому
-    # строка про остаток стоит отдельно и только при живом каталоге. По тому же признаку
-    # условна и оговорка про слот пула токенов: без каталога аренду не удержать — lease_alive
-    # (scripts/bot-token.sh) требует [ -d "$tree" ], — и говорить о слоте нечего.
-    # Подтягивание main в рецепте идёт с оговоркой про ветку основного дерева, а не готовой
-    # командой, как ниже: там ветка уже известна (git branch --show-current), а здесь скрипт
-    # до неё не дошёл и не узнает, на чём основное дерево будет стоять в момент чтения.
+    # The directory may or may not have survived: remove deletes the contents before the
+    # worktree's admin data and may stumble on either. There is no point asking to delete what
+    # does not exist, so the line about the leftover stands apart and only while the directory
+    # is alive. The caveat about the token pool slot is conditional on the same sign: without
+    # the directory the lease cannot hold — lease_alive (scripts/bot-token.sh) requires
+    # [ -d "$tree" ] — and there is nothing to say about the slot.
+    # Fast-forwarding main in the recipe comes with a caveat about the branch of the main
+    # worktree rather than as a ready command, as below: there the branch is already known
+    # (git branch --show-current), while here the script never got to it and cannot know what
+    # the main worktree will be on when this is read.
     leftover=""
     slot=""
     if [ -d "$root" ]; then
-        leftover="    rm -rf '$root'   # об него git и споткнулся: rm может потребовать сначала разобраться с причиной
+        leftover="    rm -rf '$root'   # git stumbled on it: rm may need the cause dealt with first
 "
-        # Оговорка приклеена к концу последней строки сообщения и несёт свой перевод строки
-        # впереди: стой она отдельной строкой, пустая переменная оставила бы в выводе пустую.
+        # The caveat is glued to the end of the message's last line and carries its own newline
+        # in front: were it a separate line, an empty variable would leave an empty line in the
+        # output.
         slot="
-Пока каталог дерева цел, за ним может числиться слот пула токенов — снимет его первая строка
-рецепта; аренда и сама истекает: BOT_TOKEN_TTL (по умолчанию 2 часа) от последнего продления."
+While the worktree directory is intact, a token pool slot may still be leased to it — the
+first line of the recipe frees it; the lease also expires by itself: BOT_TOKEN_TTL (2 hours by
+default) after the last renewal."
     fi
-    die "дерево $root удалено не до конца — причина выше: git worktree его уже не знает.
-Погашено приложение дерева вместе с образом и томом. Повторять цель неоткуда — доделайте уборку
-руками:
+    die "worktree $root is not fully removed — the reason is above: git worktree no longer knows it.
+The application of the worktree is down with its image and volume. There is nowhere to repeat
+the target from — finish the cleanup by hand:
 $leftover    cd '$main'
     git branch -D '$branch'
     git push origin --delete '$branch'
     git fetch origin main && git merge --ff-only origin/main
-Последняя строка — для основного дерева, стоящего на main. Если оно на другой ветке или на
-detached HEAD, подтягивайте, не трогая выкаченное: git fetch origin main:main — иначе merge
---ff-only перенесёт не main, а то, что выкачено, и main останется позади.
-Ветки на origin может уже не быть: GitHub удаляет её сам при влитии PR, и тогда push откажет.$slot"
+The last line is for a main worktree that is on main. If it is on another branch or on a
+detached HEAD, fast-forward without touching what is checked out: git fetch origin main:main —
+otherwise merge --ff-only moves what is checked out rather than main, and main stays behind.
+The branch may already be gone from origin: GitHub deletes it itself when the PR is merged,
+and then push refuses.$slot"
 fi
 
-# Здесь -D, а не -d: слитость ветки с main на origin проверена выше, а -d доказательству
-# оттуда не верит — он считает ветку слитой только по HEAD и upstream, и штатным ходом
-# работы промахиваются оба. Локальный main основного дерева отстаёт (подтягивает его этот
-# же скрипт, но ниже), upstream после `push -u` — origin/<ветка>, которую GitHub удаляет
-# сам при влитии PR.
-# Отказ стоит условием, а не телом скрипта: в теле его поймал бы set -e и оборвал уборку
-# после необратимых шагов, а вместе с ней итоговую строку, подтягивание main и подсказку
-# про cd — притом что каталог сессии к этому моменту уже не существует.
+# -D here, not -d: the branch was checked above to be merged into main on origin, and -d does
+# not trust proof from there — it counts a branch as merged only by HEAD and the upstream, and
+# in the normal course of work both miss. The local main of the main worktree lags behind
+# (this same script fast-forwards it, but further down), and the upstream after `push -u` is
+# origin/<branch>, which GitHub deletes itself when the PR is merged.
+# The refusal is a condition, not the script body: in the body set -e would catch it and
+# abort the cleanup after the irreversible steps, and with it the summary line, the main
+# fast-forward and the cd hint — while the session's directory no longer exists by then.
 branch_left=""
 if git branch -D "$branch"; then
-    branch_where="удалена локально"
+    branch_where="deleted locally"
 else
-    # Про исход команды, а не про состояние ветки: состояние скрипт не проверял — в отличие
-    # от origin ниже, где есть ls-remote, — а отказ branch -D покрывает и «удалить не
-    # вышло», и «удалять было нечего»: у обоих исходов код 1.
-    branch_where="локально не удалена"
+    # About the outcome of the command, not the state of the branch: the script did not check
+    # the state — unlike origin below, where there is ls-remote — and a refusal of branch -D
+    # covers both "could not delete" and "nothing to delete": both outcomes exit with 1.
+    branch_where="not deleted locally"
     branch_left=1
-    # Каталог этого дерева уже снесён, и выполнять команду вызвавшему негде: подсказка
-    # про cd придёт только в конце, а до тех пор оболочка стоит в несуществующем каталоге.
-    printf "ветку %s удалить не удалось, причина выше.\nУдалите её сами из основного дерева: cd '%s' && git branch -D '%s'\n" \
+    # The directory of this worktree is already gone, and the caller has nowhere to run the
+    # command: the cd hint comes only at the end, and until then the shell sits in a directory
+    # that does not exist.
+    printf "could not delete branch %s, the reason is above.\nDelete it yourself from the main worktree: cd '%s' && git branch -D '%s'\n" \
         "$branch" "$main" "$branch" >&2
 fi
 
-# Ветки на origin может уже не быть: GitHub умеет удалять её сам при влитии PR.
-# Спрашивается полное имя рефа: шаблон ls-remote сопоставляется с хвостом имени по границе
-# слэша, поэтому по «$branch» нашлась бы и чужая ветка «что-то/$branch», а push потом
-# отказал бы про ветку, которой на origin не было.
-# Код выхода забирается в переменную, а не проверяется через `if !`: ls-remote различает
-# «ветки нет» (2) и «спросить не удалось» (128 — нет сети, нет прав, не разрешается хост)
-# только им, а `if !` эти исходы уравнивает и выдаёт недоступный origin за отсутствие
-# ветки. Окно между проверкой сети выше по скрипту и этой строкой — десятки секунд сноса
-# образа. По той же причине stderr не гасится: причину называет сам git.
+# The branch may already be gone from origin: GitHub can delete it itself when the PR is merged.
+# The full ref name is asked for: an ls-remote pattern matches the tail of a name at a slash
+# boundary, so "$branch" would also find another branch "something/$branch", and push would
+# then refuse about a branch origin never had.
+# The exit code is captured into a variable rather than tested with `if !`: ls-remote tells
+# "no such branch" (2) from "could not ask" (128 — no network, no access, the host does not
+# resolve) only by it, and `if !` equates these outcomes and passes an unreachable origin off
+# as a missing branch. The window between the network check further up and this line is tens
+# of seconds of image removal. For the same reason stderr is not silenced: git names the
+# reason itself.
 origin_left=""
 listed=0
 git ls-remote --exit-code --heads origin "refs/heads/$branch" >/dev/null || listed=$?
 if [ "$listed" -eq 2 ]; then
-    origin_where="на origin её уже не было"
+    origin_where="already gone from origin"
 elif [ "$listed" -ne 0 ]; then
-    # Про исход команды, а не про состояние ветки, по причине из комментария у branch -D
-    # выше: здесь состояние тоже не проверено — этого как раз и не удалось сделать.
-    origin_where="на origin не проверена"
+    # About the outcome of the command, not the state of the branch, for the reason in the
+    # comment at branch -D above: here the state is not checked either — that is exactly what
+    # could not be done.
+    origin_where="not checked on origin"
     origin_left=1
-    # Подсказка начинается с cd по причине из комментария у такой же подсказки выше.
-    # Проверять она отдельной командой не зовёт, хотя исход именно непроверенный: ответ
-    # на «осталась ли ветка» даёт сам push, и лишний ls-remote руками ничего к нему не
-    # добавит. Зато отказы push подсказка разбирает по сообщению, а не скопом: сюда
-    # приводит недоступный origin, и он же — самая вероятная причина следующего отказа,
-    # так что «push откажет — значит, ветки нет» выдало бы за убранное недоступную сеть.
-    # Отказ по отсутствию ветки — наоборот, штатный исход: её удаляет GitHub при влитии
-    # PR (комментарий выше), и не назвать его подсказка не может, иначе выполнивший её
-    # прочитает «remote ref does not exist» как незаконченную уборку. Прочие отказы
-    # подсказка не переводит в «ветка цела» по причине из комментария у branch -D выше:
-    # состояние ветки здесь так и остаётся непроверенным — отказал как раз тот, кто его
-    # проверяет. Сказано поэтому про origin, а не про уборку целиком: локальная ветка
-    # могла остаться неудалённой своим отказом выше.
-    printf "проверить ветку %s на origin не удалось, причина выше.
-Разберитесь с ней сами из основного дерева: cd '%s' && git push origin --delete '%s'
-Отказ «remote ref does not exist» значит, что ветки на origin уже нет: её удаляет GitHub при
-влитии PR, и с origin убрано всё. Отказ по любой другой причине — скорее всего по той же, что
-помешала проверке, — про ветку не говорит ничего: повторите команду, когда устраните причину.\n" \
+    # The hint starts with cd for the reason in the comment at the same hint above.
+    # It does not ask for a separate check, although the outcome is precisely unchecked: push
+    # itself answers "is the branch still there", and an extra ls-remote by hand adds nothing
+    # to it. Instead the hint sorts push refusals by message, not wholesale: an unreachable
+    # origin leads here, and it is also the likeliest cause of the next refusal, so "push
+    # refuses — hence no branch" would pass an unreachable network off as cleaned up.
+    # A refusal because the branch is missing is, on the contrary, a normal outcome: GitHub
+    # deletes it when the PR is merged (comment above), and the hint cannot leave it unnamed,
+    # or whoever follows it reads "remote ref does not exist" as an unfinished cleanup. Other
+    # refusals the hint does not turn into "the branch is intact", for the reason in the
+    # comment at branch -D above: the state of the branch stays unchecked here — it is the
+    # very thing that checks it that refused. Hence it speaks of origin, not of the whole
+    # cleanup: the local branch may have been left undeleted by its own refusal above.
+    printf "could not check branch %s on origin, the reason is above.
+Deal with it yourself from the main worktree: cd '%s' && git push origin --delete '%s'
+A \"remote ref does not exist\" refusal means the branch is already gone from origin: GitHub
+deletes it when the PR is merged, and everything on origin is cleaned up. A refusal for any
+other reason — most likely the same one that prevented the check — says nothing about the
+branch: repeat the command once the cause is removed.\n" \
         "$branch" "$main" "$branch" >&2
-# Отказ push стоит условием, а не телом if, по причине из комментария у branch -D выше.
-# Своё у него — причины отказа, к состоянию дерева не относящиеся: сеть, права, удаление
-# ветки кем-то между ls-remote и push.
+# The push refusal is a condition, not the body of the if, for the reason in the comment at
+# branch -D above. Its own are the causes of refusal unrelated to the state of the worktree:
+# the network, access, someone deleting the branch between ls-remote and push.
 elif git push origin --delete "$branch"; then
-    origin_where="удалена на origin"
+    origin_where="deleted on origin"
 else
-    # Про исход команды, а не про состояние ветки, по причине из комментария у branch -D
-    # выше; здесь к ней добавляется гонка из комментария над push: в ней он отказывает как
-    # раз потому, что ветки на origin уже нет.
-    origin_where="на origin не удалена"
+    # About the outcome of the command, not the state of the branch, for the reason in the
+    # comment at branch -D above; here the race from the comment over push adds to it: in that
+    # race push refuses precisely because the branch is already gone from origin.
+    origin_where="not deleted on origin"
     origin_left=1
-    # Подсказка начинается с cd по причине из комментария у такой же подсказки выше.
-    printf "ветку %s на origin удалить не удалось, причина выше.\nУдалите её сами из основного дерева: cd '%s' && git push origin --delete '%s'\n" \
+    # The hint starts with cd for the reason in the comment at the same hint above.
+    printf "could not delete branch %s on origin, the reason is above.\nDelete it yourself from the main worktree: cd '%s' && git push origin --delete '%s'\n" \
         "$branch" "$main" "$branch" >&2
 fi
 
-# «убрано» относится к дереву, а не к перечню за ним: ветка в обоих слотах может быть не
-# удалена, и общее «убрано: …» возглавило бы два отрицания.
-printf 'дерево %s убрано; ветка %s: %s, %s\n' "$root" "$branch" "$branch_where" "$origin_where"
+# "cleaned up" refers to the worktree, not to the list after it: the branch may be undeleted
+# in both slots, and a common "cleaned up: …" would head two negatives.
+printf 'worktree %s cleaned up; branch %s: %s, %s\n' "$root" "$branch" "$branch_where" "$origin_where"
 
-# Локальный main в основном дереве до сих пор стоит на коммите до мержа: подтягивать его
-# некому, а сессия стартует именно там и до создания своего дерева читает оттуда код и
-# доки. Здесь — единственный момент, который знает и про «PR влит», и про путь основного
-# дерева. Уборка выше уже необратима, поэтому неудача подтягивания только предупреждает:
-# ронять цель нечем, всё её дело сделано.
-# Только --ff-only: разошедшийся main значит коммиты прямо в основном дереве, а такое
-# молча склеивать нельзя.
-# Отказы git ниже скрипт не роняют по той же причине: падение съело бы подсказку про cd,
-# а уборка уже сделана.
-# Подсказка одна на оба отказа, потому что подтягивание — это fetch и merge вместе, чей бы
-# отказ ни привёл сюда: один merge доехал бы до ссылки, полученной ещё во время уборки, —
-# то самое устаревание, от которого стоит fetch ниже. Начинается она с cd по причине из
-# комментария у таких же подсказок выше.
-# Идёт подсказка через origin/main, хотя сам скрипт подтягивает не через неё: выполняют её
-# руками и позже, когда чужой fetch общую ссылку уже отпустил.
-retry="Устраните причину и подтяните main из основного дерева — уборка дерева задачи при этом уже сделана:
+# The local main in the main worktree still sits on the commit before the merge: nobody else
+# fast-forwards it, and a session starts right there and reads the code and the docs from it
+# until it creates its own worktree. This is the only moment that knows both "the PR is
+# merged" and the path of the main worktree. The cleanup above is already irreversible, so a
+# failed fast-forward only warns: there is no reason to fail the target, its whole job is done.
+# --ff-only only: a diverged main means commits made right in the main worktree, and those
+# must not be glued in silently.
+# Git refusals below do not take the script down for the same reason: failing would swallow
+# the cd hint, and the cleanup is already done.
+# The hint is one for both refusals, because fast-forwarding is fetch and merge together,
+# whichever refusal led here: a merge alone would reach only the ref fetched during the
+# cleanup — the very staleness the fetch below is there for. It starts with cd for the reason
+# in the comment at the same hints above.
+# The hint goes through origin/main, although the script itself does not: it is run by hand
+# and later, when another fetch has already released the shared ref.
+retry="Remove the cause and fast-forward main from the main worktree — the task worktree cleanup is already done:
     cd '$main' && git fetch origin main && git merge --ff-only origin/main"
 
 current=$(git branch --show-current) || current=""
 if [ "$current" != "main" ]; then
     if [ -n "$current" ]; then
-        on="на ветке $current"
+        on="is on branch $current"
     else
-        on="не на ветке main"
+        on="is not on branch main"
     fi
-    # Подсказка — fetch, а не merge: merge --ff-only на чужой ветке перенёс бы её саму, а
-    # на detached HEAD сдвинул бы HEAD, оставив main позади, — то есть сделал бы ровно то,
-    # от чего уберегает эта ветка. fetch обновляет main, не трогая выкаченное, и при
-    # расхождении отказывает.
-    printf 'main в %s не подтянут: основное дерево %s, а ветку в нём не переключают.\nПодтянуть, не трогая выкаченную ветку: git fetch origin main:main\n' \
+    # The hint is fetch, not merge: merge --ff-only on another branch would move that branch,
+    # and on a detached HEAD it would move HEAD and leave main behind — doing exactly what
+    # this branch of the if guards against. fetch updates main without touching what is
+    # checked out, and refuses if they diverged.
+    printf 'main in %s not fast-forwarded: the main worktree %s, and the branch there is not switched.\nTo fast-forward without touching the checked-out branch: git fetch origin main:main\n' \
         "$main" "$on" >&2
-# fetch повторяется, а вместе с ним и поход в сеть: между тем, что стоит у проверки
-# слитости, и этой строкой лежат снос образа, удаление дерева, локальной ветки и ветки на
-# origin — десятки секунд, за которые соседняя сессия успевает влить свой PR. По устаревшей
-# ссылке мерж сообщил бы об успехе, оставив main позади.
-# Ссылка и --refmap= — те же, что у проверки слитости, и по той же причине: комментарий там.
+# The fetch is repeated, and the trip to the network with it: between the one at the merged
+# check and this line lie the image removal and the removal of the worktree, the local branch
+# and the branch on origin — tens of seconds in which a neighbouring session manages to merge
+# its PR. On a stale ref the merge would report success and leave main behind.
+# The ref and --refmap= are the same as at the merged check, for the same reason: see the
+# comment there.
 elif ! git fetch --quiet --refmap= origin "+refs/heads/main:$CLEANUP_REF"; then
-    printf 'main в %s не подтянут: git fetch отказал, причина выше.\n%s\n' "$main" "$retry" >&2
+    printf 'main in %s not fast-forwarded: git fetch refused, the reason is above.\n%s\n' "$main" "$retry" >&2
 else
-    # Копия повторяется по свежей ссылке: первая осталась на коммите начала уборки, а
-    # хвостовой fetch выше привёз то, что на origin сейчас. Без неё origin/main отставала бы
-    # от подтянутого main на весь промежуток уборки — тот самый `[ahead N]` в
-    # git status -sb, — притом что сети для копии уже не нужно.
-    # Стоит она до ff-мержа, а не в ветке его успеха: свежесть ссылки от исхода мержа не
-    # зависит, а после отказавшего origin/main оставалась бы на коммите начала уборки — без
-    # чужих мержей, доехавших за её десятки секунд, и дерево следующей задачи ответвилось бы
-    # мимо них. Сам отказ говорит только про main, так что устаревшую origin/main не назвал
-    # бы никто.
-    # Промежуток, внутри которого чужой fetch успевает записать в общую ссылку мерж новее,
-    # чтобы копия отодвинула его назад, здесь такой же, как у первой: между фетчем и записью
-    # нет ни одной команды.
-    # Отказ здесь молчит, в отличие от первой копии: сказать он может только о ссылке,
-    # занятой соседом между двумя копиями, — залипший .lock отказал бы и первой, с её
-    # сообщением. Оставленный между ними назовёт первая копия следующей уборки, а до тех
-    # пор цена ровно та, что была до этой строки: origin/main на коммите начала уборки.
-    git update-ref -m "worktree-cleanup: main с origin после уборки" \
+    # The copy is repeated from the fresh ref: the first one stayed on the commit the cleanup
+    # started at, and the trailing fetch above brought what origin has now. Without it
+    # origin/main would lag behind the fast-forwarded main by the whole span of the cleanup —
+    # that very `[ahead N]` in git status -sb — while the copy needs no network any more.
+    # It stands before the ff merge, not in the branch of its success: how fresh the ref is
+    # does not depend on the merge outcome, and after a failed merge origin/main would stay on
+    # the commit the cleanup started at — missing other merges that landed in its tens of
+    # seconds, and the next task worktree would branch off past them. The refusal itself
+    # speaks only of main, so nobody would name the stale origin/main.
+    # The gap in which another fetch manages to write a newer merge into the shared ref, for
+    # the copy to push it back, is the same here as at the first copy: there is no command
+    # between the fetch and the write.
+    # A refusal here keeps quiet, unlike at the first copy: it can only be about a ref held by
+    # a neighbour between the two copies — a stuck .lock would have failed the first one too,
+    # with its message. One left between them is named by the first copy of the next cleanup,
+    # and until then the cost is exactly what it was before this line: origin/main on the
+    # commit the cleanup started at.
+    git update-ref -m "worktree-cleanup: main from origin after the cleanup" \
         refs/remotes/origin/main "$CLEANUP_REF" 2>/dev/null || true
     if git merge --ff-only --quiet "$CLEANUP_REF"; then
-        # «до main на origin», а не «до origin/main»: локальная origin/main могла остаться
-        # непереписанной — копия выше об отказе молчит.
-        printf 'main в %s подтянут до main на origin\n' "$main"
+        # "to main on origin", not "to origin/main": the local origin/main may have stayed
+        # unrewritten — the copy above keeps quiet about a refusal.
+        printf 'main in %s fast-forwarded to main on origin\n' "$main"
     else
-        # В stderr, как die() и как сам git: иначе «причина выше» обещает строку, которой в
-        # прочитанном потоке нет.
-        printf 'main в %s не подтянут: git merge --ff-only отказал, причина выше.\n%s\n' "$main" "$retry" >&2
+        # To stderr, like die() and git itself: otherwise "the reason is above" promises a line
+        # the stream being read does not have.
+        printf 'main in %s not fast-forwarded: git merge --ff-only refused, the reason is above.\n%s\n' "$main" "$retry" >&2
     fi
 fi
 
-printf "текущий каталог сессии удалён — перейдите в основное дерево: cd '%s'\n" "$main"
+printf "the session's current directory is removed — go to the main worktree: cd '%s'\n" "$main"
 
-# Ненулевой код отличает эти исходы от полной уборки: остаток ветки доделывают руками, а
-# вывод дочитывают не всегда. От кодов die() он не отличается — сколько уборки сделано,
-# говорит только вывод: die() выше бывает и до первого необратимого шага, и после сноса
-# образа с томом.
+# The non-zero code tells these outcomes from a full cleanup: the rest of the branch is
+# finished by hand, and the output is not always read to the end. It does not differ from the
+# codes of die() — how much of the cleanup is done only the output says: die() above happens
+# both before the first irreversible step and after the image and volume are removed.
 [ -z "$branch_left$origin_left" ] || exit 1
