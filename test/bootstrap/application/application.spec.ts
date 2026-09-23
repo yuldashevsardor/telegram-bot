@@ -20,8 +20,8 @@ type Log = {
 };
 
 describe("Application", function () {
-    // Порядок старта и остановки — то, что спека закрепляет, поэтому все подмены пишут свои
-    // вызовы в один общий список.
+    // The order of the start and of the stop is what the spec pins down, so every stub writes its
+    // calls into one shared list.
     const calls: string[] = [];
     const logs: Log[] = [];
 
@@ -98,11 +98,12 @@ describe("Application", function () {
         };
     }
 
-    // Application берёт контекст и глобальный container, а не зависимости через конструктор,
-    // поэтому подменяются они. Настоящий create() собрал бы конфиг из окружения процесса.
-    // Настоящий setup() связал бы под теми же символами настоящие классы, и резолв упал бы
-    // «Ambiguous match», а настоящий close() закрывал бы пул Database. Всё возвращается после
-    // спеки: контекст и контейнер общие на весь прогон mocha.
+    // Application takes the context and the global container rather than dependencies through the
+    // constructor, so those are what gets stubbed. The real create() would assemble the config from
+    // the environment of the process. The real setup() would bind the real classes under the same
+    // symbols, and the resolve would fail with "Ambiguous match", while the real close() would close
+    // the pool of Database. Everything is put back after the spec: the context and the container are
+    // shared by the whole mocha run.
     const originalCreate = ApplicationContext.create.bind(ApplicationContext);
     const originalSetup = container.setup.bind(container);
     const originalClose = container.close.bind(container);
@@ -112,9 +113,9 @@ describe("Application", function () {
             calls.push("context.create");
             await fillApplicationContext(configValues, logger);
 
-            // Снятие наблюдения считается отдельно от общего списка вызовов: настоящий
-            // контейнер с фейковым источником снимает его без следа, а порядок остановки
-            // закрепляют остальные тесты — им запись о конфигурации не нужна.
+            // Removing the watching is counted separately from the shared list of calls: the real
+            // container with a fake source removes it without a trace, and the order of the stop is
+            // pinned down by the other tests — they do not need a record about the configuration.
             ApplicationContext.getConfigContainer().unwatch = (): void => {
                 configUnwatches += 1;
             };
@@ -155,7 +156,8 @@ describe("Application", function () {
         resetApplicationContext();
     });
 
-    // Вызовы на пути к нужному состоянию сбрасываются: их закрепляют тесты setup() и run().
+    // The calls made on the way to the state needed are dropped: they are pinned down by the tests
+    // of setup() and run().
     async function setUp(): Promise<Application> {
         const application = new Application();
         await application.setup();
@@ -249,7 +251,8 @@ describe("Application", function () {
             expect(await caught(application.run())).to.be.instanceOf(RuntimeError);
         });
 
-        // Экземпляр одноразовый: контейнер после close() второй setup() не переживает.
+        // The instance is single-use: the container does not survive a second setup() after
+        // close().
         it("does nothing once the application has been stopped", async function () {
             const application = await setUp();
             await application.stop();
@@ -292,8 +295,8 @@ describe("Application", function () {
             expect(logs).to.deep.equal([{ level: "info", message: "Application is successfully started.", payload: undefined }]);
         });
 
-        // Отказ логирует только fail() в app.ts: второй critical на тот же отказ удвоил бы
-        // счётчик алертов.
+        // A failure is logged only by fail() in app.ts: a second critical on the same failure would
+        // double the alert count.
         it("stops the runner and rethrows without logging when the bot fails to start", async function () {
             const error = new Error("getMe failed");
             runBot = (): Promise<void> => Promise.reject(error);
@@ -316,9 +319,10 @@ describe("Application", function () {
             expect(calls).to.deep.equal(["runner.run", "bot.run"]);
         });
 
-        // Сегодня окна между runner.run() и концом bot.run() нет: в Bot.run() нет await. Этот тест
-        // и следующий держат поведение Application на случай, если await там появится; что тогда
-        // сделает настоящий Bot.stop() с ещё не запущенным ботом, подмена не проверяет.
+        // Today there is no window between runner.run() and the end of bot.run(): Bot.run() has no
+        // await. This test and the next one hold the behaviour of Application in case an await
+        // appears there; what the real Bot.stop() would then do with a bot that is not running yet
+        // is not something the stub checks.
         it("counts as running while the bot is starting, so a stop in between runs the full shutdown", async function () {
             const botStarted = Promise.withResolvers<void>();
             runBot = (): Promise<void> => botStarted.promise;
@@ -333,8 +337,8 @@ describe("Application", function () {
             expect(calls).to.deep.equal(["runner.run", "bot.run", "bot.stop", "taskQueue.isEmpty", "runner.stop", "container.close"]);
         });
 
-        // Отказ приходит, пока остановка ещё идёт: откат в ready дал бы повторному stop() начать
-        // вторую остановку, а конец первой всё равно поставит stopped.
+        // The failure arrives while the stop is still under way: a rollback into ready would let a
+        // repeated stop() start a second one, and the end of the first will set stopped anyway.
         it("stays stopping when the bot fails to start while a stop is in progress", async function () {
             const error = new Error("getMe failed");
             const botStarted = Promise.withResolvers<void>();
@@ -438,8 +442,8 @@ describe("Application", function () {
             expect(logs).to.deep.equal([]);
         });
 
-        // Так app.ts обрабатывает сигнал другого вида, пришедший во время остановки: второй
-        // stop(), вернувшийся раньше первого, дал бы process.exit(0) оборвать остановку.
+        // This is how app.ts handles a signal of the other kind that arrived during the stop: a
+        // second stop() returning before the first would let process.exit(0) cut the stop short.
         it("waits for the stop in progress instead of starting another one", async function () {
             const botStopped = Promise.withResolvers<void>();
             stopBot = (): Promise<void> => botStopped.promise;
@@ -454,8 +458,8 @@ describe("Application", function () {
             expect(logs.map(({ message }) => message)).to.deep.equal(["Stop application...", "Application is successfully stopped."]);
         });
 
-        // Сигнал посреди setup(): bootstrap() в app.ts после настройки зовёт run(), и тот не
-        // должен запустить приложение, которое уже останавливается.
+        // A signal in the middle of setup(): bootstrap() in app.ts calls run() after the setup, and
+        // that one must not start an application that is already stopping.
         it("waits for the setup in progress, then only closes the container while run() starts nothing", async function () {
             const check = Promise.withResolvers<void>();
             checkDatabase = (): Promise<void> => check.promise;
@@ -480,8 +484,9 @@ describe("Application", function () {
             expect(logs.map(({ message }) => message)).to.not.include("Application is successfully started.");
         });
 
-        // Отказ приходит в fail() из обоих путей app.ts с одной ошибкой; первый вызов завершает
-        // процесс, поэтому critical один, а код выхода — 1, а не exit(0) остановки.
+        // The failure comes to fail() from both paths of app.ts with one error; the first call ends
+        // the process, so there is one critical and the exit code is 1, not the exit(0) of the
+        // stop.
         it("rejects with the error of the setup in progress when it fails", async function () {
             const error = new Error("connection refused");
             const check = Promise.withResolvers<void>();
@@ -497,8 +502,9 @@ describe("Application", function () {
             expect(calls).to.deep.equal(["context.create", "container.setup", "database.check"]);
         });
 
-        // Без контекста у остановки нет ни логгера, ни срока: не дождись она сборки, упала бы TypeError
-        // на первом же логе, а не отдала отказ конфигурации, который fail() и должен напечатать.
+        // Without the context the stop has neither a logger nor a deadline: were it not to wait for
+        // the assembly, it would fail with a TypeError on the very first log instead of handing back
+        // the failure of the configuration, which is what fail() is to print.
         it("rejects with the config error when the context fails while the stop waits for it", async function () {
             configValues = { NODE_ENV: "prod" };
             const application = new Application();
@@ -534,8 +540,9 @@ describe("Application", function () {
             ]);
         });
 
-        // Наблюдение за конфигурацией снимается до общего срока и вне него: оставленный опрос
-        // пересобирал бы конфигурацию уже закрытого приложения и держал бы событийный цикл.
+        // The watching of the configuration is removed before the overall deadline and outside it: a
+        // poll left behind would rebuild the configuration of an application already closed and would
+        // hold the event loop.
         it("unwatches the config even when the shutdown timeout is over", async function () {
             configValues = {
                 GRACEFUL_SHUTDOWN_TIMEOUT: "20",
@@ -596,10 +603,11 @@ describe("Application", function () {
             ]);
         });
 
-        // Нулевой срок в docs/architecture/config.md — «не ждать»: ни витка ожидания с логом, ни паузы
-        // перед остановкой runner. Мутанта `timeLeft < 0` тест ловит, только если оба Date.now() в
-        // waitQueueToEmpty() пришлись на одну миллисекунду: сменись она между ними — и мутант тоже сразу
-        // уходит в предупреждение. Поэтому изредка он выживает, и дыры в тесте за этим нет.
+        // A zero deadline in docs/architecture/config.md means "do not wait": neither a turn of
+        // waiting with a log nor a pause before the runner is stopped. The test catches the mutant
+        // `timeLeft < 0` only if both Date.now() in waitQueueToEmpty() landed on the same
+        // millisecond: should it change between them, the mutant goes into the warning at once as
+        // well. That is why it survives now and then, and there is no hole in the test behind it.
         it("does not wait for the queue when its timeout is zero", async function () {
             configValues = { TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT: "0" };
             queueSize = (): number => 3;
@@ -619,7 +627,7 @@ describe("Application", function () {
             ]);
         });
 
-        // Брошенный шаг продолжает выполняться, пока его не оборвёт process.exit(0) в app.ts.
+        // The abandoned step goes on running until process.exit(0) in app.ts cuts it short.
         it("returns with a warning when the shutdown outlives the graceful shutdown timeout", async function () {
             configValues = {
                 GRACEFUL_SHUTDOWN_TIMEOUT: "20",

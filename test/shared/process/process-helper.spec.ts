@@ -6,7 +6,7 @@ import { ProcessHelper } from "app/shared/process/process-helper";
 import { ProcessFailed } from "app/shared/process/process-helper.errors";
 
 describe("ProcessHelper.run", function () {
-    it("передаёт аргумент с shell-метасимволами как данные, а не как команду", async function () {
+    it("passes an argument with shell metacharacters as data and not as a command", async function () {
         const argument = '$(echo injected); `echo injected`; "quoted" & rm -rf /';
 
         const result = await ProcessHelper.run("/bin/echo", [argument]);
@@ -14,13 +14,13 @@ describe("ProcessHelper.run", function () {
         expect(result.stdout.trim()).to.equal(argument);
     });
 
-    it("запускает процесс без аргументов, когда их не передали", async function () {
+    it("runs the process with no arguments when none were given", async function () {
         const result = await ProcessHelper.run("/bin/echo");
 
         expect(result.stdout).to.equal("\n");
     });
 
-    it("не даёт аргументу дописать команду: побочного файла не появляется", async function () {
+    it("does not let an argument extend the command: no side file appears", async function () {
         const basePath = await fs.mkdtemp(path.join(os.tmpdir(), "process-helper-"));
         const marker = path.join(basePath, "injected");
 
@@ -33,10 +33,10 @@ describe("ProcessHelper.run", function () {
         }
     });
 
-    it("бросает ProcessFailed с командой в payload, когда процесс завершился с ошибкой", async function () {
+    it("throws ProcessFailed with the command in payload when the process exited with an error", async function () {
         try {
             await ProcessHelper.run("/bin/sh", ["-c", "exit 3"]);
-            expect.fail("ожидалась ошибка ProcessFailed");
+            expect.fail("a ProcessFailed error was expected");
         } catch (error) {
             expect(error).to.be.instanceOf(ProcessFailed);
             expect((error as ProcessFailed).payload).to.deep.include({
@@ -47,10 +47,10 @@ describe("ProcessHelper.run", function () {
         }
     });
 
-    it("бросает ProcessFailed, когда исполняемого файла нет", async function () {
+    it("throws ProcessFailed when there is no such executable", async function () {
         try {
             await ProcessHelper.run("/nonexistent/binary");
-            expect.fail("ожидалась ошибка ProcessFailed");
+            expect.fail("a ProcessFailed error was expected");
         } catch (error) {
             expect(error).to.be.instanceOf(ProcessFailed);
         }
@@ -68,14 +68,14 @@ describe("ProcessHelper.run", function () {
 });
 
 describe("ProcessFailed.byCommand", function () {
-    it("кладёт пойманное не-Error значение под cause в payload и берёт запасное сообщение", function () {
-        // Значение подобрано так, чтобы не совпадать ни с file, ни с элементами args:
-        // иначе тест не отличит пойманное от аргумента команды.
+    it("puts a caught non-Error value under cause in payload and takes the fallback message", function () {
+        // The value is chosen so that it matches neither file nor any element of args: otherwise the
+        // test would not tell what was caught from an argument of the command.
         const error = ProcessFailed.byCommand("/bin/sh", ["-c", "exit 3"], "SIGKILL");
 
-        // Ключ от типа не зависит, глубина зависит: RuntimeError поднимает в нативный
-        // cause только Error, поэтому строка остаётся в payload — и сообщение берётся
-        // запасное, взять его у пойманного значения не у чего.
+        // The key does not depend on the type, the depth does: RuntimeError raises only an Error into
+        // the native cause, so the string stays in payload — and the message taken is the fallback,
+        // there being nothing to take it from in the caught value.
         expect(error.message).to.equal("Process /bin/sh failed.");
         expect(error.cause).to.be.undefined;
         expect(error.payload).to.deep.equal({ file: "/bin/sh", args: ["-c", "exit 3"], cause: "SIGKILL" });

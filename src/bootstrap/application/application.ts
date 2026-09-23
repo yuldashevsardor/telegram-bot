@@ -10,31 +10,33 @@ import type { Bot } from "app/telegram/bot/bot";
 import { sleep, withTimeout } from "app/shared/utils";
 import { RuntimeError } from "app/shared/errors";
 
-// Одно поле на весь жизненный цикл, а не флаг на шаг, поднятый в его конце: по такому флагу
-// идущий шаг не отличить от несделанного, и stop() от второго сигнала посреди остановки
-// прошёл бы её заново, параллельно первой. Идущий шаг хранит свой промис: его ждут повторный
-// вызов того же шага и stop() посреди setup().
+// One field for the whole lifecycle instead of a flag per step raised at the end of it: such a
+// flag does not tell a step under way from one never taken, and a stop() from a second signal in
+// the middle of the stop would go through it again, in parallel with the first. A step under way
+// keeps its own promise: it is awaited by a repeated call of the same step and by a stop() in the
+// middle of setup().
 type State =
     | { name: "created" }
-    // Остаётся и после отказа, повторный setup() отдаёт тот же отказ: процесс после него
-    // завершает fail() в app.ts, и повторять настройку некому. contextReady — первая часть настройки,
-    // сборка ApplicationContext: её отдельно ждёт stop(), которому нужны логгер и срок из конфига.
+    // Stays after a failure too, and a repeated setup() hands back the same failure: after one the
+    // process is ended by fail() in app.ts, and there is nobody to redo the setup. contextReady is the
+    // first part of the setup, the assembly of ApplicationContext: it is awaited separately by stop(),
+    // which needs the logger and the deadline from the config.
     | { name: "settingUp"; contextReady: Promise<void>; done: Promise<void> }
     | { name: "ready" }
     | { name: "running" }
-    // Остаётся и после отказа, повторный stop() отдаёт тот же отказ: процесс после него
-    // завершает fail() в app.ts.
+    // Stays after a failure too, and a repeated stop() hands back the same failure: after one the
+    // process is ended by fail() in app.ts.
     | { name: "stopping"; done: Promise<void> }
-    // Конечное, экземпляр одноразовый: контейнер-синглтон после close() второй setup() не
-    // переживает, а ApplicationContext один на процесс.
+    // Final, the instance is single-use: the singleton container does not survive a second setup()
+    // after close(), and there is one ApplicationContext per process.
     | { name: "stopped" };
 
 export class Application {
-    // Заполняются в createContext() и до её конца никем не читаются: assemble() и stop() её ждут.
+    // Filled in createContext() and read by nobody until it is over: assemble() and stop() await it.
     private cc!: CC;
     private logger!: Logger;
-    // Заполняются в assemble() и до её конца никем не читаются: run() идёт только из ready, а
-    // shutdown() трогает их только из running.
+    // Filled in assemble() and read by nobody until it is over: run() goes only from ready, and
+    // shutdown() touches them only from running.
     private taskQueue!: TaskQueue;
     private runner!: Runner;
     private bot!: Bot;
@@ -58,8 +60,9 @@ export class Application {
     }
 
     public async run(): Promise<void> {
-        // stop() посреди setup() дождался его и уже закрывает приложение, а bootstrap() в
-        // app.ts приходит сюда следом: отказ увёл бы его в fail() с кодом 1.
+        // A stop() in the middle of setup() has awaited it and is already closing the application,
+        // while bootstrap() in app.ts comes here right after: a failure would take it into fail()
+        // with code 1.
         if (this.state.name === "stopping" || this.state.name === "stopped") {
             return;
         }
@@ -72,10 +75,10 @@ export class Application {
             throw new RuntimeError("Application is not set up!");
         }
 
-        // Запущенным приложение считается с начала запуска: stop(), который застанет бот
-        // стартующим, проходит полную остановку, а не закрывает один контейнер. Остановит ли
-        // Bot.stop() бот, ещё не поднявший свой isRun, решает Bot: сейчас такой бот он
-        // пропускает, а окна нет только потому, что в Bot.run() нет await.
+        // The application counts as running from the beginning of the start: a stop() that catches
+        // the bot starting goes through the full shutdown instead of closing the container alone.
+        // Whether Bot.stop() stops a bot that has not raised its isRun yet is up to Bot: today it
+        // skips such a bot, and there is no window only because Bot.run() has no await.
         this.state = { name: "running" };
 
         try {
@@ -86,7 +89,8 @@ export class Application {
         } catch (error) {
             this.runner.stop();
 
-            // stop() во время запуска уже перевёл приложение в остановку, отменять её нельзя.
+            // A stop() during the start has already moved the application into the shutdown, and
+            // that cannot be cancelled.
             if (this.state.name === "running") {
                 this.state = { name: "ready" };
             }
@@ -100,14 +104,15 @@ export class Application {
             return;
         }
 
-        // Остановка берёт логгер и срок из контекста, поэтому посреди его сборки сперва ждёт её.
-        // Общий срок на это ожидание не распространяется: пока конфиг не собран, срока нет.
+        // The stop takes the logger and the deadline from the context, so in the middle of its
+        // assembly it waits for that first. The overall deadline does not cover that wait: until the
+        // config is assembled there is no deadline.
         if (this.state.name === "settingUp") {
             await this.state.contextReady;
         }
 
-        // Сигнал другого вида во время остановки снова зовёт stop() из app.ts. Вызов ждёт
-        // идущую остановку: вернись он сразу, его process.exit(0) оборвал бы её.
+        // A signal of the other kind during the stop calls stop() from app.ts again. The call waits
+        // for the stop under way: were it to return at once, its process.exit(0) would cut it short.
         if (this.state.name !== "stopping") {
             this.state = { name: "stopping", done: this.terminate(this.state) };
         }
@@ -142,7 +147,8 @@ export class Application {
 
         await this.bot.setup();
 
-        // stop() посреди настройки уже перевёл приложение в остановку, отменять её нельзя.
+        // A stop() in the middle of the setup has already moved the application into the shutdown,
+        // and that cannot be cancelled.
         if (this.state.name === "settingUp") {
             this.state = { name: "ready" };
         }
@@ -151,9 +157,10 @@ export class Application {
     private async terminate(from: State): Promise<void> {
         this.logger.info("Stop application...");
 
-        // Наблюдение за конфигурацией снимается до общего срока и вне него: по истечении срока
-        // terminate() возвращается, а оставленный опрос файла продолжал бы пересобирать
-        // конфигурацию уже закрытого приложения и держал бы событийный цикл.
+        // The watching of the configuration is removed before the overall deadline and outside it:
+        // once the deadline is over terminate() returns, and a poll of the file left behind would go
+        // on rebuilding the configuration of an application already closed and would hold the event
+        // loop.
         this.cc.unwatch();
 
         const timeout = this.cc.get("gracefulShutdown.timeout");
@@ -173,13 +180,14 @@ export class Application {
         this.logger.info("Application is successfully stopped.");
     }
 
-    // Свой срок есть у каждого шага, а общий — у остановки целиком: он больше их суммы
-    // (проверяется при сборке конфига), поэтому на остановку брокера и закрытие пула время
-    // остаётся даже тогда, когда бот и очередь выбрали своё до конца.
+    // Every step has a deadline of its own, and the stop as a whole has the overall one: it is
+    // greater than their sum (checked when the config is assembled), so there is time left for
+    // stopping the runner and closing the pool even when the bot and the queue used theirs up.
     private async shutdown(from: State): Promise<void> {
-        // Отказ настройки уходит и отсюда: gracefulStop() и bootstrap() в app.ts оба зовут
-        // fail() с одной ошибкой, первый вызов завершает процесс синхронно, и critical
-        // остаётся один. Проглоти его остановка, код выхода решала бы гонка exit(0) с exit(1).
+        // A failure of the setup leaves from here as well: gracefulStop() and bootstrap() in app.ts
+        // both call fail() with one error, the first call ends the process synchronously, and there
+        // stays one critical. Were the stop to swallow it, the exit code would be decided by a race
+        // between exit(0) and exit(1).
         if (from.name === "settingUp") {
             await from.done;
         }

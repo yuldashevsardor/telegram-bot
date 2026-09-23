@@ -2,7 +2,8 @@ import { expect } from "chai";
 import { configValue } from "app/shared/config-value";
 import { fillApplicationContext, resetApplicationContext } from "test/bootstrap/application/application-context.helper";
 
-// Спеке нужен только путь до контекста: обход пути и его отказы проверяет config-container.spec.ts.
+// The spec needs only the way to the context: the walk by the path and its failures are checked by
+// config-container.spec.ts.
 describe("configValue", function () {
     afterEach(function () {
         resetApplicationContext();

@@ -2,7 +2,7 @@ import { RuntimeError } from "app/shared/errors";
 import type { UnknownObject } from "app/shared/types";
 
 /**
- * Общая форма ошибок файловых операций: сообщение системы, если оно есть, и путь в payload.
+ * The common shape of file operation errors: the message of the system, if there is one, and the path in payload.
  */
 function byPathAndError<T extends RuntimeError>(
     error: new (message: string, payloadOrCause?: UnknownObject | Error) => T,

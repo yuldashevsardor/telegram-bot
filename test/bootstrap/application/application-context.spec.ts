@@ -15,15 +15,16 @@ import type { UnknownObject } from "app/shared/types";
 import { resetApplicationContext } from "test/bootstrap/application/application-context.helper";
 import { replace } from "test/bootstrap/config/storage/config-file-storage.helper";
 
-// Поля логгера защищённые, а проверить нужно именно их: порог пришёл из конфига, а контекст
-// запроса тот же, что отдаёт ApplicationContext, — с чужим корреляция сломалась бы молча.
+// The fields of the logger are protected, and they are exactly what has to be checked: the
+// threshold came from the config, and the request context is the same one ApplicationContext hands
+// out — with a foreign one correlation would break silently.
 type LoggerParts = {
     level: Level;
     requestContext: RequestContext;
 };
 
-// Правку файла конфигурация подхватывает опросом, поэтому спека ждёт не промис, а появление
-// результата.
+// An edit of the file is picked up by the configuration through polling, so the spec waits not for
+// a promise but for the result to appear.
 async function waitFor(done: () => boolean, reason: string, timeout = 2000): Promise<void> {
     const deadline = Date.now() + timeout;
 
@@ -36,12 +37,12 @@ async function waitFor(done: () => boolean, reason: string, timeout = 2000): Pro
     }
 }
 
-// Наблюдаемый файл правится помощником replace() — почему не плоским fs.writeFile, сказано в
-// config-file-storage.helper.ts. Записи до create() идут обычным fs.writeFile: наблюдение заводит
-// сам create(), и попадать опросу некуда.
+// The watched file is edited by the replace() helper — why not by a plain fs.writeFile is said in
+// config-file-storage.helper.ts. The writes before create() go through an ordinary fs.writeFile:
+// watching is started by create() itself, so there is nowhere for a poll to land.
 
-// create() собирает конфиг из окружения процесса, поэтому спека меняет process.env и после
-// каждого теста возвращает его и сбрасывает контекст.
+// create() assembles the config from the environment of the process, so the spec changes
+// process.env and after every test puts it back and resets the context.
 describe("ApplicationContext", function () {
     const originalEnv = new Map<string, string | undefined>();
 
@@ -63,25 +64,28 @@ describe("ApplicationContext", function () {
         }
     }
 
-    // Настоящий create() заводит наблюдение за файлом конфигурации, поэтому спека держит свой
-    // каталог: файла в рабочем каталоге прогона может не быть вовсе, а чужой подменять нельзя.
+    // The real create() starts watching the config file, so the spec keeps a directory of its own:
+    // the working directory of a run may hold no such file at all, and somebody else's must not be
+    // replaced.
     let directory: string;
     let filePath: string;
 
-    // Конфиг требует BOT_TOKEN, а окружение прогона держать настоящий токен не обязано.
+    // The config requires BOT_TOKEN, while the environment of a run does not have to hold a real
+    // token.
     beforeEach(async function () {
         directory = await fs.mkdtemp(path.join(os.tmpdir(), "application-context-"));
         filePath = path.join(directory, ".runtime.env");
 
-        // Опрос по умолчанию редкий: до конца теста он не сработает ни разу, а тесты, которым
-        // наблюдение нужно, задают свой интервал. Совсем выключить его нечем — минимум задан
-        // конфигурацией, — поэтому каждый тест гасит источник в afterEach: у mocha нет --exit.
+        // By default the poll is rare: it will not fire once before the end of the test, and the
+        // tests that need watching set an interval of their own. There is nothing to switch it off
+        // with — the minimum is set by the configuration — so every test kills the source in
+        // afterEach: mocha has no --exit.
         setEnv({ BOT_TOKEN: "test-token", CONFIG_FILE_PATH: filePath, CONFIG_FILE_WATCH_INTERVAL: "100000" });
     });
 
-    // Один хук, а не два: наблюдение обязано умереть раньше своего каталога, иначе опрос успевает
-    // застать исчезновение файла и пересобрать конфигурацию уже закончившегося теста — с вызовом
-    // слушателей и записью в лог.
+    // One hook and not two: watching has to die before its directory, otherwise a poll catches the
+    // disappearance of the file and rebuilds the configuration of a test that is already over — with
+    // a call of the listeners and a write into the log.
     afterEach(async function () {
         resetApplicationContext();
 
@@ -153,8 +157,8 @@ describe("ApplicationContext", function () {
         expect(ApplicationContext.getRequestContext()).to.equal(requestContext);
     });
 
-    // Сборка асинхронная: проверка готовых частей пропустила бы оба вызова, и второй собрал бы
-    // второй контекст поверх первого.
+    // The assembly is asynchronous: a check of the ready parts would let both calls through, and the
+    // second one would assemble a second context on top of the first.
     it("waits for the create() in progress instead of starting another one", async function () {
         setEnv({ NODE_ENV: "development" });
         const first = ApplicationContext.create();
@@ -197,8 +201,8 @@ describe("ApplicationContext", function () {
         expect(ApplicationContext.getConfigContainer().get("environment")).to.equal("production");
     });
 
-    // Заданная переменная окружения сильнее файла, а пустая уступает ему: менять на ходу можно
-    // то, чего в окружении нет.
+    // A variable that is set in the environment beats the file, and a blank one yields to it: what
+    // can be changed on the fly is what the environment does not hold.
     it("builds the config with the environment winning over the file", async function () {
         setEnv({ NODE_ENV: "development", LOGGER_LEVEL: "debug" });
         await fs.writeFile(filePath, "LOGGER_LEVEL=error\n");
@@ -215,8 +219,8 @@ describe("ApplicationContext", function () {
         expect(ApplicationContext.getConfigContainer().get("logger.level")).to.equal(Level.ERROR);
     });
 
-    // Наблюдение включает сам контекст: без него правка файла осталась бы незамеченной до
-    // перезапуска, и подписки не значили бы ничего.
+    // Watching is switched on by the context itself: without it an edit of the file would stay
+    // unnoticed until a restart, and the subscriptions would mean nothing.
     it("watches the file it was pointed at, so a change reaches the config by itself", async function () {
         setEnv({ NODE_ENV: "development", LOGGER_LEVEL: "", CONFIG_FILE_WATCH_INTERVAL: "100" });
 
@@ -230,16 +234,18 @@ describe("ApplicationContext", function () {
         });
 
         await replace(filePath, "LOGGER_LEVEL=error\n");
-        // Срок короткий намеренно: с интервалом по умолчанию (2000 мс) правка за него не
-        // доехала бы, то есть тест держит и сам интервал, а не только факт наблюдения.
+        // The deadline is short on purpose: with the default interval (2000 ms) the edit would not
+        // arrive within it, so the test holds the interval as well and not only the fact of
+        // watching.
         await waitFor(() => levels.length > 0, "the change of the file did not reach the config", 1500);
 
         expect(levels).to.deep.equal([Level.ERROR]);
         expect(cc.get("logger.level")).to.equal(Level.ERROR);
     });
 
-    // Путь по умолчанию — <корень приложения>/.runtime.env, и в контейнере туда смонтирован
-    // одноимённый файл с хоста; ошибка в нём означала бы, что приложение следит не за тем файлом.
+    // The default path is <application root>/.runtime.env, and inside the container a file of the
+    // same name from the host is mounted there; a mistake in it would mean the application watches
+    // the wrong file.
     it("falls back to .runtime.env in the working directory", async function () {
         setEnv({ NODE_ENV: "development", LOGGER_LEVEL: "" });
         unsetEnv("CONFIG_FILE_PATH");
@@ -260,9 +266,9 @@ describe("ApplicationContext", function () {
         expect(ApplicationContext.getConfigContainer().get("logger.level")).to.equal(Level.ERROR);
     });
 
-    // Наблюдение заводит init() контейнера, то есть до того, как контекст заполнен: упади сборка
-    // между ними, опрос остался бы работать, а дотянуться до него было бы нечем — ссылки на
-    // контейнер нигде нет.
+    // Watching is started by init() of the container, that is before the context is filled: were the
+    // assembly to fail between them, the poll would stay running and there would be nothing to reach
+    // it with — there is no reference to the container anywhere.
     it("unwatches the config file when the rest of the context fails to assemble", async function () {
         setEnv({ NODE_ENV: "development", CONFIG_FILE_WATCH_INTERVAL: "100" });
 
@@ -295,13 +301,14 @@ describe("ApplicationContext", function () {
         }
     });
 
-    // Отказ пересборки не валит процесс: приложение остаётся на прежних значениях, а причина
-    // уходит в лог — логгера у самой конфигурации нет, она собирается раньше него.
+    // A failed rebuild does not bring the process down: the application stays on the previous
+    // values, and the reason goes into the log — the configuration itself has no logger, it is
+    // assembled before one.
     it("logs a failed reload and keeps the previous values", async function () {
         this.timeout(6000);
 
-        // NODE_ENV снимается с окружения: заданная переменная сильнее файла, и подсунуть в файл
-        // недопустимое значение поверх неё нельзя.
+        // NODE_ENV is taken off the environment: a variable that is set beats the file, so a value
+        // that is not allowed cannot be slipped into the file on top of it.
         setEnv({ CONFIG_FILE_WATCH_INTERVAL: "100" });
         unsetEnv("NODE_ENV");
         await ApplicationContext.create();
@@ -334,8 +341,8 @@ describe("ApplicationContext", function () {
             .with.property("message", 'Config value "CONFIG_FILE_WATCH_INTERVAL" must be an integer');
     });
 
-    // Огромный интервал таймер Node превращает в 1 мс, то есть «раз в сутки» стало бы опросом на
-    // каждом витке цикла; отрицательный — тем же самым.
+    // A huge interval is turned by a Node timer into 1 ms, so "once a day" would become a poll on
+    // every turn of the loop; a negative one becomes the same thing.
     it("fails the start on an interval a timer cannot hold", async function () {
         setEnv({ NODE_ENV: "development", CONFIG_FILE_WATCH_INTERVAL: "2147483648" });
 
@@ -356,9 +363,9 @@ describe("ApplicationContext", function () {
         expect(negative).to.be.instanceOf(InvalidConfigError);
     });
 
-    // Пустая переменная и пробелы вокруг значения — то же, что её отсутствие: иначе путь с
-    // пробелом на конце уводил бы наблюдение на файл, которого нет, а интервал не разобрался бы
-    // вовсе.
+    // A blank variable, and spaces around a value, are the same as the variable not being set:
+    // otherwise a path with a trailing space would take watching to a file that does not exist, and
+    // an interval would not parse at all.
     it("treats a blank path and a padded value as if they were not set", async function () {
         setEnv({ NODE_ENV: "development", LOGGER_LEVEL: "", CONFIG_FILE_PATH: "   ", CONFIG_FILE_WATCH_INTERVAL: "  100  " });
 
@@ -378,13 +385,14 @@ describe("ApplicationContext", function () {
 
         expect(cc.get("logger.level")).to.equal(Level.ERROR);
 
-        // Интервал разобран как 100 мс, а не отброшен: правка доезжает задолго до умолчания.
+        // The interval was parsed as 100 ms and not dropped: the edit arrives long before the
+        // default would let it.
         await replace(path.join(directory, ".runtime.env"), "LOGGER_LEVEL=warning\n");
         await waitFor(() => cc.get("logger.level") === Level.WARNING, "the padded interval was not applied", 1500);
     });
 
-    // Верхнюю границу интервала приложение принимает: это наибольшая задержка, которую держит
-    // таймер Node, и на ней наблюдение ещё законно.
+    // The upper bound of the interval is accepted by the application: it is the longest delay a Node
+    // timer holds, and at it watching is still legitimate.
     it("accepts the longest interval a timer can hold", async function () {
         setEnv({ NODE_ENV: "development", CONFIG_FILE_WATCH_INTERVAL: "2147483647" });
 
@@ -393,8 +401,9 @@ describe("ApplicationContext", function () {
         expect(ApplicationContext.getConfigContainer().get("environment")).to.equal("development");
     });
 
-    // Пробельное значение — то же, что отсутствие: без обрезки оно стало бы нулём, то есть молча
-    // выключило бы наблюдение. Отсюда и срок теста: он должен покрывать интервал по умолчанию.
+    // A value of spaces is the same as none: without trimming it would become a zero, that is it
+    // would silently switch watching off. Hence the deadline of the test: it has to cover the default
+    // interval.
     it("watches with the default interval when the variable holds only spaces", async function () {
         this.timeout(8000);
 
@@ -411,8 +420,8 @@ describe("ApplicationContext", function () {
         );
     });
 
-    // Ниже сотни опрос не опускается: конфигурацию не правят чаще, а stat на каждый виток
-    // цикла не бесплатен.
+    // The poll does not go below a hundred: configuration is not edited more often, and a stat on
+    // every turn of the loop is not free.
     it("fails the start on an interval below the minimum", async function () {
         setEnv({ NODE_ENV: "development", CONFIG_FILE_WATCH_INTERVAL: "50" });
 

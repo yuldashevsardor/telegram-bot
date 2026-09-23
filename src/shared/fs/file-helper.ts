@@ -5,9 +5,9 @@ import dayjs from "dayjs";
 import { InvalidExtensions, InvalidPath, PermissionDenied, ReadFailed, RemoveFailed, WriteFailed } from "app/shared/fs/file-helper.errors";
 
 export class FileHelper {
-    // F_OK, а не R_OK: с R_OK существующий нечитаемый путь сходил бы за отсутствующий.
-    // Проверка «путь свободен» пропустила бы запись поверх такого файла, а проверка чтения,
-    // идущая следом за существованием, не срабатывала бы никогда.
+    // F_OK and not R_OK: with R_OK an existing unreadable path would pass for a missing one. A check
+    // of "the path is free" would then let a write over such a file through, and a check of
+    // readability that follows a check of existence would never fire.
     public static isExist(path: string): Promise<boolean> {
         return FileHelper.hasAccess(path, fsSync.constants.F_OK);
     }
@@ -34,7 +34,7 @@ export class FileHelper {
 
     public static async getFileExtension(filePath: string): Promise<string> {
         let extension = path.extname(filePath);
-        // Stryker disable next-line ConditionalExpression: `true` — эквивалентен: extname отдаёт пустую строку или расширение с точкой, а substring(1) пустой строки — пустая строка
+        // Stryker disable next-line ConditionalExpression: `true` is equivalent: extname hands back either an empty string or an extension with a dot, and substring(1) of an empty string is an empty string
         if (extension.charAt(0) === ".") {
             extension = extension.substring(1);
         }
@@ -59,7 +59,7 @@ export class FileHelper {
         }
 
         const dateTime = dayjs();
-        //  Т.к. начинается с 0
+        // dayjs counts months from 0, hence the +1
         const month = dateTime.month() + 1;
 
         const pathWithYear = path.join(basePath, dateTime.year().toString());
@@ -81,7 +81,7 @@ export class FileHelper {
     }
 
     /**
-     * Первые length байт файла. Файл короче — вернётся то, что есть.
+     * The first length bytes of the file. If the file is shorter, what there is comes back.
      */
     public static async readHead(path: string, length: number): Promise<Uint8Array> {
         const buffer = new Uint8Array(length);
@@ -105,7 +105,7 @@ export class FileHelper {
     }
 
     /**
-     * Файл целиком.
+     * The whole file.
      */
     public static async read(path: string): Promise<Uint8Array> {
         try {
@@ -126,7 +126,7 @@ export class FileHelper {
     }
 
     /**
-     * Удаляет файл; отсутствие пути ошибкой не считается.
+     * Removes the file; a missing path does not count as an error.
      */
     public static async remove(path: string): Promise<void> {
         try {
@@ -153,16 +153,16 @@ export class FileHelper {
             throw InvalidExtensions.empty(extensions);
         }
 
-        // Шаблон на расширение, а не один `**/*.{ttf,otf}`: скобки из одного элемента glob
-        // оставляет буквально, и `**/*.{ftl}` не нашёл бы ничего. Скрытые файлы и каталоги
-        // glob пропускает сам, опции для этого у него нет. Так же молча, без ошибки, он
-        // пропускает каталог, который не прочитать или которого нет, включая сам basePath:
-        // выпавшие файлы вызывающий заметит, только если проверит результат.
+        // A pattern per extension rather than one `**/*.{ttf,otf}`: braces around a single element
+        // are left by glob literally, and `**/*.{ftl}` would find nothing. Hidden files and
+        // directories are skipped by glob itself, and it has no option for that. Just as silently,
+        // with no error, it skips a directory that cannot be read or does not exist, including
+        // basePath itself: the caller notices the files that fell out only by checking the result.
         const searchPatterns = filteredExtensions.map((extension) => `**/*.${extension}`);
         const files: string[] = [];
 
         for await (const entry of fs.glob(searchPatterns, { cwd: basePath, withFileTypes: true })) {
-            // Каталог с подходящим именем glob тоже отдаёт.
+            // A directory whose name matches is handed back by glob as well.
             if (entry.isFile()) {
                 files.push(path.resolve(entry.parentPath, entry.name));
             }

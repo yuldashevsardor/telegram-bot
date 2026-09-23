@@ -16,8 +16,8 @@ type ContextParts = {
     } | null;
 };
 
-// Части кладутся в статическое поле мимо create(): тот собрал бы конфиг из настоящего окружения,
-// а шов для тестов менял бы публичную форму контекста.
+// The parts are put into the static field past create(): that one would assemble the config from
+// the real environment, and a seam for the tests would change the public shape of the context.
 const context = ApplicationContext as unknown as ContextParts;
 
 function createQuietLogger(requestContext: RequestContext): Logger {
@@ -27,11 +27,12 @@ function createQuietLogger(requestContext: RequestContext): Logger {
     return logger;
 }
 
-// Заполняет контекст целиком, как create(), но конфиг собирает из переданных переменных, а не из
-// окружения процесса. BOT_TOKEN конфиг требует, а окружение прогона держать настоящий токен не
-// обязано. Логгер по умолчанию пишет только critical: TaskQueue на конструировании заводит
-// интервалы с info-логом раз в 10 с, гасить их нечем, а в test-watch они копятся между прогонами
-// и писали бы в вывод mocha. Упавший конфиг, как и в create(), оставляет контекст пустым.
+// Fills the context whole, as create() does, but assembles the config from the given variables
+// rather than from the environment of the process. The config requires BOT_TOKEN, while the
+// environment of a run does not have to hold a real token. By default the logger writes only
+// critical: on construction TaskQueue starts intervals with an info log every 10 s, there is
+// nothing to stop them with, and under test-watch they pile up between runs and would write into
+// the output of mocha. A config that failed leaves the context empty, as in create().
 export async function fillApplicationContext(values: RawConfig = {}, logger?: Logger): Promise<void> {
     const cc = new ConfigContainer<ConfigValues>(
         { load: async (): Promise<RawConfig> => ({ BOT_TOKEN: "test-token", ...values }) },
@@ -44,12 +45,13 @@ export async function fillApplicationContext(values: RawConfig = {}, logger?: Lo
     context.parts = { cc: cc, logger: logger ?? createQuietLogger(requestContext), requestContext: requestContext };
 }
 
-// Контекст общий на весь прогон mocha: заполненным он молча отдал бы свой конфиг configValue() в
-// чужих спеках. Промис сборки не трогается: между сборками create() и так держит его пустым, а
-// идущую сборку сброс промиса не отменил бы — она заполнила бы контекст уже после сброса.
+// The context is shared by the whole mocha run: left filled, it would silently hand its config to
+// configValue() in other specs. The promise of the assembly is not touched: between assemblies
+// create() keeps it empty anyway, and resetting the promise would not cancel an assembly under way
+// — that one would fill the context after the reset.
 export function resetApplicationContext(): void {
-    // Наблюдение снимается до сброса ссылки: настоящий create() заводит опрос файла
-    // конфигурации, у mocha нет --exit, и оставленный опрос держал бы прогон до таймаута.
+    // Watching is removed before the reference is reset: the real create() starts a poll of the
+    // config file, mocha has no --exit, and a poll left behind would hold the run until the timeout.
     context.parts?.cc.unwatch();
 
     context.parts = null;

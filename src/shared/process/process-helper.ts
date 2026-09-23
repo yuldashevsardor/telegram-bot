@@ -6,9 +6,9 @@ import type { ProcessResult } from "app/shared/process/process-helper.types";
 const execFile = promisify(execFileOrigin);
 
 export class ProcessHelper {
-    // execFile, а не exec: аргументы уходят процессу массивом, минуя /bin/sh. Кавычки,
-    // $(...), ; и пробелы в них остаются данными, поэтому экранировать нечего — а с exec
-    // экранировать пришлось бы каждое подставленное значение.
+    // execFile and not exec: the arguments go to the process as an array, past /bin/sh. Quotes,
+    // $(...), ; and spaces inside them stay data, so there is nothing to escape — whereas with exec
+    // every substituted value would have to be escaped.
     public static async run(file: string, args: string[] = []): Promise<ProcessResult> {
         try {
             const { stdout, stderr } = await execFile(file, args);
