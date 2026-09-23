@@ -290,7 +290,7 @@ absent from the build (why, and what that threatens — the comment right there)
 the `migrations/` directory: it lies outside `src/`, the alias does not lead there, and the rule
 is off for the whole directory through `overrides` in `.eslintrc.js`.
 
-The independence of the domain (`CLAUDE.md`, the style section) is not checked by the linter.
+The independence of the domain (`CLAUDE.md`, "Style") is not checked by the linter.
 `font-convertor/` imports neither `platform/` nor `bootstrap/` directly, but the independence is
 not complete: `shared/config-value.ts` takes the configuration from `ApplicationContext`
 ([`application.md`](./application.md)), that is, `shared/` has one runtime dependency on the
