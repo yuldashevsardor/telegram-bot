@@ -46,7 +46,7 @@ gh pr list --state open --search "<N> in:body" --json number,title,headRefName
 
 Прогон мутаций — `make mutation files="<область>"` с тем же порогом, что у гейта ревью: без него
 о выжившем мутанте автор узнаёт только от ревьюера, кругом. Область собирается по правилу гейта
-`mutation` (`.claude/skills/pr-light-check/SKILL.md`, «mutation и mutation-full»), только
+`mutation` (`.claude/skills/pr-light-check/SKILL.md`, «mutation and mutation-full»), только
 кандидатов даёт `git diff --name-only origin/main...HEAD`, а не диф PR, и передаётся путями, а не
 глобом. Правка включила гейт `mutation-full` (`docs/agents/review-gates.md`) —
 `make mutation` без `files`. В `make check` прогон не входит: там он шёл бы на каждой правке.
@@ -54,7 +54,7 @@ gh pr list --state open --search "<N> in:body" --json number,title,headRefName
 Прогон оставляет запись — `reports/mutation/record.md`, формат в `docs/architecture/testing.md`,
 "The run record". После пуша опубликуй её в PR комментарием как есть, дописав в конец пустую
 строку и подпись из `CLAUDE.md`: по ней ревьюер принимает твой прогон вместо своего (условия —
-`.claude/skills/pr-light-check/SKILL.md`, «Запись прогона автора»). Первый прогон идёт до PR, и
+`.claude/skills/pr-light-check/SKILL.md`, «The author's run record»). Первый прогон идёт до PR, и
 его запись публикуется сразу после создания PR. Публикуется только запись прогона, который был:
 область пуста и цель не запускалась — публиковать нечего, а лежащий с прошлого круга `record.md`
 соврал бы про head. Пока прогон идёт, ничего другого не запускай, как ревьюер на `mutation-full`:
@@ -64,8 +64,8 @@ errors"), а твой прогон ревью переиспользует.
 Последняя запись в PR покрывает и следующий коммит, если изменения с её head прогона не
 касаются: тогда цель не запускается и новая запись не публикуется — ревью примет ту же
 (`docs/agents/review-gates.md`, "Changes that affect the mutation run"; последнюю запись
-и её `head=` достаёт команда из `.claude/skills/pr-light-check/SKILL.md`, «Запись прогона
-автора»). Годится и запись ревьюера: она лежит в том же треде, и правило у неё то же.
+и её `head=` достаёт команда из `.claude/skills/pr-light-check/SKILL.md`, «The author's run
+record»). Годится и запись ревьюера: она лежит в том же треде, и правило у неё то же.
 
 Same rule, one case worth naming: a merge of `origin/main` into the branch moves the head although
 you edited nothing, and what the merge brings goes through the same three gates. Measure the record
