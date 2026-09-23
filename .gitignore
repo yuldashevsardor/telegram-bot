@@ -25,7 +25,7 @@ coverage
 # nyc test coverage
 .nyc_output
 
-# StrykerJS: песочницы прогона и отчёт make mutation
+# StrykerJS: the run sandboxes; the report and the run record of make mutation
 .stryker-tmp
 /reports
 
@@ -75,7 +75,7 @@ typings/
 # dotenv environment variables FileHelper
 .env
 .env.test
-# Горячий файл конфигурации: локальные значения, описание — в .env.dist
+# The hot configuration file: local values, described in .env.dist
 .runtime.env
 
 # parcel-bundler cache (https://parceljs.org/)
@@ -109,8 +109,8 @@ dist
 # TernJS port FileHelper
 .tern-port
 
-# Finder заводит .DS_Store в каждом открытом каталоге, а неотслеживаемый файл даёт записи
-# прогона clean=no (docs/architecture/testing.md, "The run record").
+# Finder drops a .DS_Store into every directory it opens, and an untracked file gives the run
+# record clean=no (docs/architecture/testing.md, "The run record").
 .DS_Store
 
 /.idea
