@@ -17,18 +17,15 @@ the rest of the pipeline inside `requestContext.run(next)`. The common `Abstract
 `RequestContext` as a constructor dependency, and each adapter reads `getValues()` from it itself
 at the moment of the write — `PinoLogger` puts the values as fields of the record next to `message`
 and `payload`, `ConsoleLogger` prints them as `[key=value]` chips before the message. The logger is
-one per process and is never swapped, and both adapters call `getValues()`
-(`ConsoleLogger.collectFinalMessage()`, `PinoLogger.log()`), so correlation works on both, in
-development too.
+one per process and is never swapped, and the values are read by the adapters, not by the base
+class, so correlation works on both, in development too.
 
 The scope of `run()` is the middleware chain and nothing else, so everything written outside it
-goes without a `requestId`. `Bot.setup()` (`telegram/bot/bot.ts`) installs the filters,
-`sequentialize()` and `session()` before `setupMiddlewares()`, so all three run outside the scope.
-The record the base `Filter` ([`bot.md`](./bot.md)) writes when it drops an update goes out that
-way too. So does the `critical`
-about a failed update: `grammy.catch` → `Bot.handleError` is called not from `handleUpdate` but
-from the sink of `@grammyjs/runner` — on the already rejected promise of `handleUpdate`, when the
-scope is closed.
+goes without a `requestId`. The filters, `sequentialize()` and `session()` stand above the
+middleware ([`bot.md`](./bot.md)), so they run outside the scope, and the record the base `Filter`
+writes when it drops an update goes out that way too. So does the `critical` about a failed
+update: `grammy.catch` → `Bot.handleError` is called not from `handleUpdate` but from the sink of
+`@grammyjs/runner` — on the already rejected promise of `handleUpdate`, when the scope is closed.
 
 `RequestContext` (`platform/request-context/request-context.ts`) is the only code that touches
 `AsyncLocalStorage`: the ALS itself is private, only operations on the scope go outside, and the
@@ -44,8 +41,8 @@ argument right there, before any container; it sits in the container
 it, values `unknown`). `getValues()` returns only the known keys: without that filter the log format
 would depend on what was put into the store along the way, and `as const` makes a typo in a key a
 compile error rather than silently lost correlation. Outside a scope `getValues()` is `{}` and
-`getRequestId()` is `null`, not an error: `Runner` has no scope of its own, so the logs of
-background tasks go without a `requestId`.
+`getRequestId()` is `null`, not an error. `Runner` has no scope of its own, so its logs get `{}`
+from `getValues()` and go without a `requestId`.
 
 Only `Logger` writes outwards. A direct `console.*` bypasses the level, the `requestId` and the
 `LOGGER_LEVEL` threshold, and in production the structured pino stream as well, so such a record is
@@ -65,10 +62,10 @@ A caught error goes into the payload only under the `cause` key —
 factories (`RuntimeError.byError()`, `ReadFailed.byPath()`, `ProcessFailed.byCommand()`) keep the
 same rule. The payload key is part of the record's contract, not a detail of the call: errors are
 searched for in the logs by it, and a future ECS mapping
-([#128](https://github.com/yuldashevsardor/telegram-bot/issues/128)) will parse them by it, so a second
-key such as `error` would split that parsing in two silently — the record itself still looks whole.
-The type of the caught value does not affect the choice of key: there is no "`Error` under `cause`,
-the rest under `error`" branch in the factories or in the logger calls.
+([#128](https://github.com/yuldashevsardor/telegram-bot/issues/128)) will parse them by it, so a
+second key such as `error` would split that parsing in two silently — the record itself still
+looks whole. The type of the caught value does not affect the choice of key: there is no "`Error`
+under `cause`, the rest under `error`" branch in the factories or in the logger calls.
 
 The type decides not the key but the depth at which the value ends up in the record. The
 `RuntimeError` constructor lifts `payload.cause` into the native `cause` only if it is an `Error`; a
