@@ -11,9 +11,9 @@ async function bootstrap(): Promise<void> {
 }
 
 // The only direct console.* in src/ outside the logger adapter, and the decision is taken here
-// rather than at the call site: fail() serves both a failure before there is a logger (reading the
-// configuration in setup()) and one after it (the rest of the start, unhandledRejection,
-// uncaughtException, a failed stop), and the latter must go through the logger to keep the level.
+// rather than at the call site: any caller can reach fail() both before ApplicationContext is
+// filled (it is still being built or failed to build, so there is no logger) and after it, and then
+// the record must go through the logger (why — docs/architecture/logging.md).
 function fail(error: unknown): never {
     try {
         ApplicationContext.getLogger().critical("Fatal error, application is terminated.", { cause: error });
