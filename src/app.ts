@@ -10,10 +10,10 @@ async function bootstrap(): Promise<void> {
     await application.run();
 }
 
-// The only place outside the logger adapter with a direct console.*, and the decision is taken here
-// rather than at the call site: fail() serves both a failure of the configuration (which happens
-// before there is a logger) and unhandledRejection with uncaughtException — and those arrive with
-// the context alive, and must not lose the level and the requestId.
+// The only direct console.* in src/ outside the logger adapter, and the decision is taken here
+// rather than at the call site: fail() serves both a failure before there is a logger (reading the
+// configuration in setup()) and one after it (the rest of the start, unhandledRejection,
+// uncaughtException, a failed stop), and the latter must go through the logger to keep the level.
 function fail(error: unknown): never {
     try {
         ApplicationContext.getLogger().critical("Fatal error, application is terminated.", { cause: error });
