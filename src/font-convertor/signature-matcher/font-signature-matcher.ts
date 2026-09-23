@@ -6,49 +6,49 @@ import { SFNT_VERSIONS, sfntVersionBytes } from "app/font-convertor/sfnt-version
 
 @injectable()
 export class FontSignatureMatcher {
-    // У EOT нет сигнатуры в начале файла: заголовок открывается размерами шрифта, а
-    // маркер формата (USHORT 0x504C, little-endian) лежит по фиксированному смещению.
+    // EOT has no signature at the start of the file: the header opens with the font sizes, and
+    // the format marker (USHORT 0x504C, little-endian) lies at a fixed offset.
     private static readonly EOT_MAGIC_OFFSET = 34;
 
     private static readonly UTF8_BOM = [0xef, 0xbb, 0xbf];
-    // Пробельные символы XML: пробел, табуляция, перевод строки, возврат каретки.
+    // XML whitespace: space, tab, line feed, carriage return.
     private static readonly XML_WHITESPACE = [0x20, 0x09, 0x0a, 0x0d];
-    // Предел отступа, BOM сверх него: без предела голова файла росла бы вместе с отступом.
+    // The indent limit, the BOM on top of it: without a limit the file head would grow with the indent.
     private static readonly MAX_INDENT_LENGTH = 16;
 
-    // Чем документ разметки вправе открываться после `<`: буква корневого тега либо `!`
-    // DOCTYPE и комментария.
+    // What a markup document may open with after `<`: a letter of the root tag or the `!` of a
+    // DOCTYPE or a comment.
     private static readonly EXCLAMATION_MARK = 0x21;
     private static readonly LETTER_RANGES: Array<[number, number]> = [
         [0x41, 0x5a],
         [0x61, 0x7a],
     ];
-    // Граница управляющих байт C0: ниже неё лежит только управление, которого в тексте
-    // нет (пробельные символы разметки проверяются отдельно). Выше границы проходит и
-    // то, что текстом не является, — DEL и управляющие C1, — но отделить их не выйдет:
-    // старшие байты нужны целиком, в них живёт UTF-8.
+    // The boundary of the C0 control bytes: below it lie only controls, which text does not have
+    // (markup whitespace is checked separately). Above it passes what is not text as well — DEL
+    // and the C1 controls — but they cannot be separated out: the high bytes are needed whole,
+    // UTF-8 lives in them.
     private static readonly FIRST_NON_C0_BYTE = 0x20;
-    // Сколько байт текста сигнатура требует за началом разметки. Одного `<` с буквой
-    // мало: двоичная голова складывается в такую пару случайно — заголовок EOT
-    // открывается размером файла, и у фикстуры его младшие байты дают `<m`. Дальше у
-    // двоичного формата идут управляющие байты, у документа — текст.
+    // How many text bytes the signature requires after the markup start. A `<` with a letter is
+    // not enough: a binary head forms such a pair by chance — the EOT header opens with the file
+    // size, and in the fixture its low bytes give `<m`. After that a binary format has control
+    // bytes, a document has text.
     private static readonly MARKUP_TAIL_LENGTH = 10;
 
     private readonly signaturesByExtension: Record<Extension, Array<Signature>>;
 
     /**
-     * Сколько байт от начала файла нужно прочитать, чтобы проверить любой формат.
+     * How many bytes from the start of the file have to be read to check any format.
      */
     public readonly headLength: number;
 
     public constructor() {
-        // TTF и OTF лежат в одном контейнере sfnt, и по содержимому они неразличимы:
-        // версия sfnt называет тип обводок, а не расширение имени. Обводки любого типа
-        // законно встречаются под обоими расширениями, поэтому сигнатура здесь
-        // подтверждает контейнер, а какую пару конвертации запускать — решает расширение.
+        // TTF and OTF lie in the same sfnt container and are indistinguishable by content: the
+        // sfnt version names the outline type, not the extension of the name. Outlines of either
+        // type legally appear under both extensions, so here the signature confirms the container,
+        // and the extension decides which conversion pair runs.
         //
-        // Набор версий общий с кодеком: какие версии домен принимает и почему среди них
-        // нет коллекции ("ttcf"), сказано у `SFNT_VERSIONS`.
+        // The version set is shared with the codec: which versions the domain accepts and why the
+        // collection ("ttcf") is not among them is said at `SFNT_VERSIONS`.
         const sfnt: Array<Signature> = SFNT_VERSIONS.map((version) => ({ offset: 0, bytes: sfntVersionBytes(version) }));
 
         this.signaturesByExtension = {
@@ -57,22 +57,21 @@ export class FontSignatureMatcher {
             [Extension.WOFF]: [{ offset: 0, bytes: this.ascii("wOFF") }],
             [Extension.WOFF2]: [{ offset: 0, bytes: this.ascii("wOF2") }],
             [Extension.EOT]: [{ offset: FontSignatureMatcher.EOT_MAGIC_OFFSET, bytes: [0x4c, 0x50] }],
-            // SVG — единственный текстовый формат здесь, и его сигнатура слабее прочих:
-            // она говорит «это разметка», а не «это шрифт». Разбирать документ домен не
-            // станет, но и такой проверки хватает, чтобы двоичный мусор под именем
-            // *.svg не прошёл.
+            // SVG is the only text format here, and its signature is weaker than the others: it
+            // says "this is markup", not "this is a font". The domain will not parse the document,
+            // but even this check is enough to keep binary junk named *.svg out.
             //
-            // Поэтому вторая сигнатура ищет не корневой тег, а начало разметки вообще:
-            // перед корневым тегом законны и `<!DOCTYPE`, и комментарий, а перечислять
-            // прологи значило бы дописывать сигнатуру на каждый следующий.
+            // So the second signature looks not for the root tag but for the start of markup in
+            // general: `<!DOCTYPE` and a comment are both legal before the root tag, and
+            // enumerating prologues would mean extending the signature for each new one.
             //
-            // Первая сигнатура отдельно, потому что префикс у неё другой: объявление
-            // XML обязано открывать документ, поэтому перед `<?xml` допустим только BOM
-            // (fontforge файл с отступом перед объявлением не открывает), а перед любой
-            // другой разметкой пробелы законны. По той же причине `?` не входит в класс
-            // начала разметки: иначе отступ стал бы допустим и перед объявлением. Из-за
-            // этого инструкция обработки классом не покрыта — проходит только та, что
-            // начинается с `<?xml`, и только без отступа.
+            // The first signature stands apart because its prefix differs: the XML declaration has
+            // to open the document, so only a BOM is allowed before `<?xml` (fontforge does not open
+            // a file indented before the declaration), while whitespace is legal before any other
+            // markup. For the same reason `?` is not in the markup-start class: otherwise an indent
+            // would become allowed before the declaration too. Because of that the class does not
+            // cover a processing instruction — only one starting with `<?xml` passes, and only
+            // without an indent.
             [Extension.SVG]: [
                 { offset: 0, bytes: this.ascii("<?xml"), prefix: Prefix.Bom },
                 { offset: 0, bytes: [...this.ascii("<"), ByteClass.MarkupStart, ...this.markupTail()], prefix: Prefix.Indent },
@@ -83,7 +82,7 @@ export class FontSignatureMatcher {
     }
 
     /**
-     * Совпадает ли начало файла с сигнатурой формата.
+     * Whether the start of the file matches the format signature.
      */
     public matches(head: Uint8Array, extension: Extension): boolean {
         return this.signaturesByExtension[extension].some((signature) => {
@@ -94,8 +93,8 @@ export class FontSignatureMatcher {
     }
 
     private matchesByte(byte: number | undefined, expected: SignatureByte): boolean {
-        // Байта нет — файл короче сигнатуры. Эта ветка и есть проверка длины: отдельная
-        // проверка в `matches` сделала бы её недостижимой.
+        // No byte — the file is shorter than the signature. This branch is the length check: a
+        // separate check in `matches` would make it unreachable.
         if (byte === undefined) {
             return false;
         }
@@ -119,7 +118,7 @@ export class FontSignatureMatcher {
     }
 
     private isText(byte: number): boolean {
-        // Stryker disable next-line EqualityOperator: `>` — эквивалентен: на самом пороге лежит пробел, его пропускает и isXmlWhitespace
+        // Stryker disable next-line EqualityOperator: `>` is equivalent: the threshold itself is the space, which isXmlWhitespace lets through as well
         return byte >= FontSignatureMatcher.FIRST_NON_C0_BYTE || this.isXmlWhitespace(byte);
     }
 
@@ -140,9 +139,9 @@ export class FontSignatureMatcher {
             case Prefix.Bom:
                 return bomLength;
             case Prefix.Indent:
-                // Отступ считается за BOM, а не вместе с ним: общий бюджет означал бы,
-                // что невидимый BOM укорачивает допустимый отступ и один и тот же
-                // документ из разных редакторов проходит проверку по-разному.
+                // The indent is counted past the BOM, not together with it: a shared budget would
+                // mean that an invisible BOM shortens the allowed indent, and the same document
+                // from different editors passes the check differently.
                 return bomLength + this.indentLength(head, bomLength);
         }
     }
@@ -164,8 +163,8 @@ export class FontSignatureMatcher {
     private calculateHeadLength(): number {
         const signatures = Object.values(this.signaturesByExtension).flat();
 
-        // Пропущенный префикс сокращает полезную часть головы, поэтому к сигнатуре
-        // добавляется предельная длина её префикса.
+        // A skipped prefix shortens the useful part of the head, so the maximum length of its
+        // prefix is added to the signature.
         return signatures.reduce(
             (length, signature) => Math.max(length, this.maxPrefixLength(signature.prefix) + signature.offset + signature.bytes.length),
             0,
@@ -173,20 +172,20 @@ export class FontSignatureMatcher {
     }
 
     private maxPrefixLength(prefix?: Prefix): number {
-        // Пометки ниже об одном: headLength сейчас задаёт не SVG, а EOT — его маркер лежит
-        // дальше, чем кончается сигнатура SVG даже с предельным префиксом, поэтому неверная
-        // длина префикса итог не меняет. Станет сигнатура SVG длиннее EOT — пометки снять.
-        // Stryker disable next-line ConditionalExpression: `true` — эквивалентен, пока headLength задаёт EOT
+        // The marks below say one thing: headLength is set by EOT today, not by SVG — its marker
+        // lies further than the SVG signature ends even with the maximum prefix, so a wrong prefix
+        // length does not change the result. Once the SVG signature outgrows EOT, drop the marks.
+        // Stryker disable next-line ConditionalExpression: `true` is equivalent while EOT sets headLength
         if (prefix === undefined) {
             return 0;
         }
 
         switch (prefix) {
-            // Stryker disable next-line ConditionalExpression: провал в `Prefix.Indent` — эквивалентен, пока headLength задаёт EOT
+            // Stryker disable next-line ConditionalExpression: falling through to `Prefix.Indent` is equivalent while EOT sets headLength
             case Prefix.Bom:
                 return FontSignatureMatcher.UTF8_BOM.length;
             case Prefix.Indent:
-                // Stryker disable next-line ArithmeticOperator: `-` — эквивалентен, пока headLength задаёт EOT
+                // Stryker disable next-line ArithmeticOperator: `-` is equivalent while EOT sets headLength
                 return FontSignatureMatcher.UTF8_BOM.length + FontSignatureMatcher.MAX_INDENT_LENGTH;
         }
     }

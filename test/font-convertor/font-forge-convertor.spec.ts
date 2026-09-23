@@ -12,10 +12,10 @@ import { InvalidPath } from "app/shared/fs/file-helper.errors";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
-// Пары без EOT идут на настоящем fontforge из образа: у такой пары нет своей логики, кроме
-// проверки входа и вызова движка, и подставной движок подтвердил бы только вызов, а не то,
-// что пара достижима. Проверку каждая пара вызывает сама, поэтому и отказ закреплён у
-// каждой; ветви самой проверки гоняет convertor.spec.ts.
+// The pairs without EOT run on the real fontforge from the image: such a pair has no logic of
+// its own beyond the input check and the engine call, and a stub engine would confirm only the
+// call, not that the pair is reachable. Each pair calls the check itself, so a rejection is
+// pinned for each; the branches of the check itself run in convertor.spec.ts.
 describe("Convertors of the engine pairs", function () {
     const matcher = new FontSignatureMatcher();
     const factory = new ConvertorFactory(new FontForge("fontforge"), matcher, new EotPacker());
@@ -38,7 +38,7 @@ describe("Convertors of the engine pairs", function () {
                 await factory.get(fromExtension, toExtension).convert(path.join(fixtureDir, `test-font.${fromExtension}`), toPath);
 
                 const head = await FileHelper.readHead(toPath, matcher.headLength);
-                expect(matcher.matches(head, toExtension), "результат не в целевом формате").to.be.true;
+                expect(matcher.matches(head, toExtension), "the result is not in the target format").to.be.true;
             });
 
             it(`refuses to write ${fromExtension} to ${toExtension} over an existing file`, async function () {
@@ -52,7 +52,7 @@ describe("Convertors of the engine pairs", function () {
 
                 expect(error).to.be.instanceOf(InvalidPath);
                 expect((error as InvalidPath).message).to.equal(InvalidPath.isAlreadyExists(toPath).message);
-                expect(await fs.readFile(toPath), "движок записал поверх существующего файла").to.deep.equal(Buffer.from(existing));
+                expect(await fs.readFile(toPath), "the engine wrote over an existing file").to.deep.equal(Buffer.from(existing));
             });
         }
     }

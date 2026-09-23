@@ -13,10 +13,10 @@ import { InvalidFile, InvalidPath, PermissionDenied } from "app/shared/fs/file-h
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
-// Проверка входа у всех пар общая (Convertor.validate()), поэтому её ветви гоняются на одной
-// паре ttf → woff; что проверку вызывает каждая пара, закреплено в font-forge-convertor.spec.ts
-// и eot-convertor.spec.ts. Движок подставной: отказ обязан случиться раньше него. Права
-// отнимаются chmod, поэтому спека не для root (docs/architecture/testing.md).
+// Every pair shares the input check (Convertor.validate()), so its branches run on one pair,
+// ttf → woff; that each pair calls the check is pinned in font-forge-convertor.spec.ts and
+// eot-convertor.spec.ts. The engine is a stub: a rejection has to happen before it. Permissions
+// are taken away with chmod, so the spec is not for root (docs/architecture/testing.md).
 describe("Convertor.validate", function () {
     let workDir: string;
     let lockedDirs: Array<string>;
@@ -38,7 +38,7 @@ describe("Convertor.validate", function () {
     });
 
     afterEach(async function () {
-        // Каталог без права чтения rm не обойдёт, поэтому права возвращаются до уборки.
+        // rm cannot walk a directory without the read permission, so permissions are restored first.
         for (const lockedDir of lockedDirs) {
             await fs.chmod(lockedDir, 0o700);
         }
@@ -103,8 +103,8 @@ describe("Convertor.validate", function () {
         });
 
         it("when something is already there, even unreadable", async function () {
-            // Запрет перезаписи держится на FileHelper.isExist(): файл без права чтения для
-            // него всё равно существует.
+            // The ban on overwriting rests on FileHelper.isExist(): for it a file without the
+            // read permission still exists.
             const toPath = inWorkDir("result.woff");
             await fs.writeFile(toPath, Uint8Array.from([0]));
             await fs.chmod(toPath, 0o000);
@@ -149,7 +149,7 @@ describe("Convertor.validate", function () {
 
         expect(error).to.be.instanceOf(expected.constructor);
         expect((error as Error).message).to.equal(expected.message);
-        expect(engineCalls, "отвергнутый вход дошёл до движка").to.be.empty;
+        expect(engineCalls, "a rejected input reached the engine").to.be.empty;
     }
 
     async function lockedDir(mode: number): Promise<string> {

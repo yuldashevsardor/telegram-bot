@@ -4,8 +4,8 @@ import type { FontForge } from "app/font-convertor/font-forge/font-forge";
 import type { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-signature-matcher";
 
 /**
- * Пара, которой хватает одного кодека: исходник и результат отличаются только конвертом.
- * Движок в конструктор приходит всё равно — порядок параметров задан `ConvertorFactory`.
+ * A pair the codec alone is enough for: the source and the result differ only by the envelope.
+ * The engine still comes into the constructor — `ConvertorFactory` sets the order of parameters.
  */
 export abstract class EotConvertor extends Convertor {
     public constructor(_fontForge: FontForge, fontSignatureMatcher: FontSignatureMatcher, protected readonly eotPacker: EotPacker) {

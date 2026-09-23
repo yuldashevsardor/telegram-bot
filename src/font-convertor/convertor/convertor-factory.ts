@@ -43,9 +43,9 @@ type ConvertorMatrix = Partial<Record<Extension, Partial<Record<Extension, Conve
 
 @injectable()
 export class ConvertorFactory {
-    // Матрица пар — единственное место, где записано, что домен умеет: из неё выбирается
-    // конвертер, и из неё же выводится список поддерживаемых форматов. Формат, объявленный
-    // в Extension, но не встречающийся здесь, поддерживаемым не считается.
+    // The pair matrix is the only place that records what the domain can do: the convertor is
+    // picked from it, and the list of supported formats is derived from it. A format declared in
+    // Extension but absent here does not count as supported.
     private readonly convertors: ConvertorMatrix = {
         [Extension.WOFF]: {
             [Extension.EOT]: WoffToEot,
@@ -109,7 +109,7 @@ export class ConvertorFactory {
     }
 
     /**
-     * Форматы, участвующие хотя бы в одной паре конвертации.
+     * The formats taking part in at least one conversion pair.
      */
     public getSupportedExtensions(): Array<Extension> {
         const extensions = new Set<Extension>();

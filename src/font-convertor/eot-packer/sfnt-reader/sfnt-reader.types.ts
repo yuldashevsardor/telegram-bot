@@ -1,5 +1,5 @@
 /**
- * Поля sfnt, которые EOT дублирует в своём заголовке.
+ * The sfnt fields EOT duplicates in its header.
  */
 export type SfntMetadata = {
     panose: Uint8Array;

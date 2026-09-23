@@ -2,8 +2,8 @@ import { Extension } from "app/font-convertor/font-convertor.types";
 import { TwoStepEotConvertor } from "app/font-convertor/convertor/two-step-eot-convertor";
 
 /**
- * Пара «формат → EOT» для всего, кроме TTF: движок доводит шрифт до sfnt, конверт
- * надевается уже поверх.
+ * A "format → EOT" pair for every format but TTF: the engine brings the font to sfnt, and the
+ * envelope goes on top of that.
  */
 export abstract class ToEotConvertor extends TwoStepEotConvertor {
     protected toExtension: Extension = Extension.EOT;

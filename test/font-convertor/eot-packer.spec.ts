@@ -10,8 +10,8 @@ import { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
-// Поля заголовка EOT, которые спека читает и правит по отдельности, и длина его
-// фиксированной части — до FamilyNameSize.
+// The EOT header fields the spec reads and edits one by one, and the length of its fixed
+// part — up to FamilyNameSize.
 const EOT_SIZE_OFFSET = 0;
 const EOT_FONT_DATA_SIZE_OFFSET = 4;
 const EOT_VERSION_OFFSET = 8;
@@ -43,13 +43,13 @@ describe("EotPacker", function () {
 
     describe("pack", function () {
         it("wraps the font into the envelope ttf2eot produces for it", async function () {
-            // Фикстура EOT сделана сторонним ttf2eot из фикстуры TTF, поэтому побайтовое
-            // совпадение с ней — проверка на соответствие формату, а не самим себе.
+            // The EOT fixture was made by the third-party ttf2eot from the TTF fixture, so a
+            // byte-for-byte match with it checks conformance to the format, not to ourselves.
             //
-            // Расходимся с ttf2eot ровно в одном поле: fsType он всегда пишет нулём, то
-            // есть объявляет любой шрифт свободным для установки. По спецификации это
-            // поле повторяет OS/2.fsType, откуда мы его и берём, поэтому эталон
-            // сравнивается с подставленным настоящим значением.
+            // We differ from ttf2eot in exactly one field: it always writes fsType as zero, that
+            // is, declares any font free to install. By the specification this field repeats
+            // OS/2.fsType, which is where we take it from, so the reference is compared with the
+            // real value put in.
             const expected = Uint8Array.from(eot);
             new DataView(expected.buffer).setUint16(EOT_FS_TYPE_OFFSET, fontFsType(ttf), true);
 
@@ -57,8 +57,8 @@ describe("EotPacker", function () {
         });
 
         it("carries the embedding permissions of the font into the envelope", async function () {
-            // fsType по смещению 32 — то, что читатель EOT спросит, прежде чем ставить
-            // шрифт: у Roboto-Black там 8, «встраивать можно, устанавливать нельзя».
+            // fsType at offset 32 is what an EOT reader asks before installing the font:
+            // Roboto-Black has 8 there, "may be embedded, may not be installed".
             const packed = await pack(ttf);
 
             expect(new DataView(packed.buffer, packed.byteOffset).getUint16(EOT_FS_TYPE_OFFSET, true)).to.equal(fontFsType(ttf));
@@ -72,8 +72,8 @@ describe("EotPacker", function () {
         });
 
         it("carries the italic flag of the font into the envelope", async function () {
-            // Наклон — одно из полей, ради которых конверт вообще читает шрифт; байт
-            // Italic лежит в заголовке по смещению 27.
+            // The slant is one of the fields the envelope reads the font for at all; the Italic
+            // byte lies in the header at offset 27.
             const italic = Uint8Array.from(ttf);
             new DataView(italic.buffer).setUint16(os2Offset(ttf) + 62, 0x0001);
 
@@ -82,9 +82,9 @@ describe("EotPacker", function () {
         });
 
         it("puts each unicode and code page range into its own place in the header", async function () {
-            // У фикстуры UnicodeRange4 и CodePageRange2 нулевые, и сравнение с ttf2eot не
-            // заметило бы диапазон, записанный не на своё место: ноль лёг бы на ноль. В OS/2
-            // диапазоны лежат двумя кусками, в заголовке EOT — подряд.
+            // The fixture has UnicodeRange4 and CodePageRange2 at zero, and the comparison with
+            // ttf2eot would miss a range written to the wrong place: zero would land on zero. In
+            // OS/2 the ranges lie in two pieces, in the EOT header they are contiguous.
             const ranges = [0x0102_0304, 0x0506_0708, 0x090a_0b0c, 0x0d0e_0f10, 0x1112_1314, 0x1516_1718];
             const font = Uint8Array.from(ttf);
             const view = new DataView(font.buffer);
@@ -125,9 +125,10 @@ describe("EotPacker", function () {
         });
 
         it("returns the font of a version 1.0 envelope, which has no root string", async function () {
-            // У версии 1.0 заголовок кончается полным именем: блока RootString (Padding5 и
-            // RootStringSize, у фикстуры строка пустая) нет, и шрифт идёт сразу за именами.
-            // Прочитанный как 0x00020001, такой конверт залез бы пятым блоком в шрифт.
+            // In version 1.0 the header ends with the full name: there is no RootString block
+            // (Padding5 and RootStringSize, the fixture's string is empty), and the font follows
+            // the names directly. Read as 0x00020001, such an envelope would reach into the font
+            // with a fifth block.
             const rootStringStart = eot.length - ttf.length - 4;
             const legacy = Uint8Array.from(Buffer.concat([eot.subarray(0, rootStringStart), ttf]));
             const view = new DataView(legacy.buffer);
@@ -138,7 +139,7 @@ describe("EotPacker", function () {
         });
 
         it("rejects an envelope without the eot magic number", async function () {
-            // Остальной заголовок цел: без проверки маркера такой конверт распаковался бы.
+            // The rest of the header is intact: without the marker check such an envelope would unpack.
             const unmarked = Uint8Array.from(eot);
             new DataView(unmarked.buffer).setUint16(EOT_MAGIC_OFFSET, 0, true);
 
@@ -146,14 +147,15 @@ describe("EotPacker", function () {
         });
 
         it("rejects a file cut off inside the fixed part of the header", async function () {
-            // Обрубок не дотягивает даже до маркера формата по смещению 34: без проверки
-            // длины вместо InvalidEot вылетел бы RangeError из DataView.
+            // The fragment does not even reach the format marker at offset 34: without the length
+            // check a RangeError from DataView would fly out instead of InvalidEot.
             await expectRejects(() => unpack(eot.subarray(0, 20)), InvalidEot);
         });
 
         it("rejects an envelope whose declared size does not match the file", async function () {
-            // Размер правится в заголовке, а файл остаётся целым. Обрезанный файл проверку не
-            // держит: у него сдвигается и начало шрифта, и отказ пришёл бы от сверки имён с ним.
+            // The size is edited in the header and the file stays whole. A truncated file would
+            // not pin this check: its font start moves too, and the rejection would come from
+            // matching the names against it.
             const misdeclared = Uint8Array.from(eot);
             new DataView(misdeclared.buffer).setUint32(EOT_SIZE_OFFSET, eot.length + 1, true);
 
@@ -169,7 +171,7 @@ describe("EotPacker", function () {
 
         it("rejects an envelope with compressed font data", async function () {
             const compressed = Uint8Array.from(eot);
-            // TTEMBED_TTCOMPRESSED во Flags: полезная нагрузка перестаёт быть сырым sfnt.
+            // TTEMBED_TTCOMPRESSED in Flags: the payload stops being a raw sfnt.
             new DataView(compressed.buffer).setUint32(EOT_FLAGS_OFFSET, 0x00000004, true);
 
             await expectRejects(() => unpack(compressed), UnsupportedEotFlags);
@@ -183,9 +185,9 @@ describe("EotPacker", function () {
         });
 
         it("rejects an envelope whose font data does not fit behind the fixed part of the header", async function () {
-            // Шрифт на байт длиннее места за фиксированной частью. Сверяется payload, а не
-            // только класс: такое начало шрифта отвергла бы и проверка перекрытия с именами,
-            // тоже InvalidEot, но со своим payload.
+            // The font is one byte longer than the room behind the fixed part. The payload is
+            // compared, not just the class: such a font start would also be rejected by the
+            // overlap check against the names, InvalidEot too, but with its own payload.
             const oversized = Uint8Array.from(eot);
             const fontDataSize = oversized.length - EOT_HEADER_FIXED_SIZE + 1;
             new DataView(oversized.buffer).setUint32(EOT_FONT_DATA_SIZE_OFFSET, fontDataSize, true);
@@ -197,17 +199,17 @@ describe("EotPacker", function () {
 
         it("rejects an envelope whose name blocks run past the font data", async function () {
             const shifted = Uint8Array.from(eot);
-            // Раздутое имя семейства съедает начало шрифта — так выглядит конверт,
-            // собранный с ошибкой в раскладке заголовка.
+            // An inflated family name eats the start of the font — that is what an envelope
+            // assembled with a mistake in the header layout looks like.
             new DataView(shifted.buffer).setUint16(EOT_HEADER_FIXED_SIZE, 0x0400, true);
 
             await expectRejects(() => unpack(shifted), InvalidEot);
         });
 
         it("rejects an envelope whose root string runs past the font data", async function () {
-            // С версии 0x00020001 за именами идёт пятый блок, RootString, и с началом шрифта
-            // он сверяется так же. У фикстуры строка пустая, и её размер — последние два байта
-            // перед шрифтом.
+            // From version 0x00020001 the names are followed by a fifth block, RootString, and it
+            // is matched against the font start the same way. The fixture's string is empty, and
+            // its size is the last two bytes before the font.
             const rooted = Uint8Array.from(eot);
             new DataView(rooted.buffer).setUint16(eot.length - ttf.length - 2, 0x0400, true);
 
@@ -215,11 +217,12 @@ describe("EotPacker", function () {
         });
 
         it("rejects an envelope that ends inside a name size", async function () {
-            // Размеры в заголовке с длиной файла сходятся — шрифту отведены четыре байта, —
-            // но файл обрывается на первом байте StyleNameSize. Это уже не наезд на шрифт, а
-            // чтение за концом буфера: без своей проверки вылетел бы RangeError из DataView.
-            // Обрыв приходится на сам размер, а не на имя за ним: иначе проверку, сдвинутую
-            // на пару байт, тест не отличил бы.
+            // The sizes in the header agree with the file length — the font gets four bytes —
+            // but the file breaks off at the first byte of StyleNameSize. This is no longer an
+            // overlap with the font but a read past the end of the buffer: without its own check
+            // a RangeError from DataView would fly out. The break falls on the size itself, not on
+            // the name after it: otherwise the test could not tell a check shifted by a couple of
+            // bytes.
             const familyNameSize = new DataView(eot.buffer).getUint16(EOT_HEADER_FIXED_SIZE, true);
             const cut = Uint8Array.from(eot.subarray(0, EOT_HEADER_FIXED_SIZE + 2 + familyNameSize + 2 + 1));
             const view = new DataView(cut.buffer);
@@ -270,10 +273,10 @@ describe("EotPacker", function () {
 });
 
 describe("InvalidEot and UnsupportedEotFlags", function () {
-    // Фабрики проверяются напрямую: спеки unpack() выше держат класс отказа, а не текст — какая
-    // из проверок отвергла вход, не требование
+    // The factories are checked directly: the unpack() specs above pin the class of the
+    // rejection, not the text — which of the checks rejected the input is not a requirement
     // (docs/architecture/testing.md, "Working through survivors").
-    // Шестнадцатеричные значения взяты с ведущими нулями: поле печатается во всю ширину.
+    // The hexadecimal values have leading zeros: the field is printed at full width.
     const cases = [
         {
             name: "InvalidEot.tooShort",
@@ -344,14 +347,14 @@ function os2Offset(bytes: Uint8Array): number {
 }
 
 /**
- * fsType шрифта: в OS/2 он лежит по смещению 8.
+ * The font's fsType: in OS/2 it lies at offset 8.
  */
 function fontFsType(bytes: Uint8Array): number {
     return new DataView(bytes.buffer).getUint16(os2Offset(bytes) + 8);
 }
 
 /**
- * Смещение записи таблицы в каталоге sfnt: заголовок 12 байт, записи по 16.
+ * The offset of a table record in the sfnt directory: a 12-byte header, 16-byte records.
  */
 function tableRecord(bytes: Uint8Array, tag: string): number {
     const view = new DataView(bytes.buffer);

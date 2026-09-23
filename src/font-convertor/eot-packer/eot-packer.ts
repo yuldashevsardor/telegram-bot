@@ -4,17 +4,17 @@ import { InvalidEot, UnsupportedEotFlags } from "app/font-convertor/eot-packer/e
 import { SfntReader } from "app/font-convertor/eot-packer/sfnt-reader/sfnt-reader";
 import type { SfntMetadata } from "app/font-convertor/eot-packer/sfnt-reader/sfnt-reader.types";
 
-// EOT — не самостоятельный формат обводок, а конверт: заголовок с метаданными и следом
-// нетронутые байты sfnt. Поэтому пара с EOT идёт мимо движка: он этот конверт не читает,
-// а на запись молча подсовывает PostScript Type 1
+// EOT is not an outline format of its own but an envelope: a header with metadata followed by
+// the untouched sfnt bytes. That is why an EOT pair bypasses the engine: it does not read this
+// envelope, and on writing it silently slips in PostScript Type 1
 // (issue https://github.com/yuldashevsardor/telegram-bot/issues/158).
 //
-// Раскладка заголовка (все числа little-endian, в отличие от big-endian самого sfnt):
-//   0  EOTSize            u32     размер всего файла
-//   4  FontDataSize       u32     размер вложенного sfnt
+// The header layout (all numbers little-endian, unlike the big-endian sfnt itself):
+//   0  EOTSize            u32     the size of the whole file
+//   4  FontDataSize       u32     the size of the enclosed sfnt
 //   8  Version            u32
 //  12  Flags              u32
-//  16  FontPANOSE         10 байт
+//  16  FontPANOSE         10 bytes
 //  26  Charset            u8
 //  27  Italic             u8
 //  28  Weight             u32
@@ -25,17 +25,17 @@ import type { SfntMetadata } from "app/font-convertor/eot-packer/sfnt-reader/sfn
 //  60  CheckSumAdjustment u32
 //  64  Reserved1..4       4 × u32
 //  80  Padding1           u16
-//  82  FamilyNameSize     u16, дальше имя в UTF-16LE без нуля на конце
+//  82  FamilyNameSize     u16, then the name in UTF-16LE without a trailing zero
 //      Padding2 u16, StyleNameSize   u16, StyleName
 //      Padding3 u16, VersionNameSize u16, VersionName
 //      Padding4 u16, FullNameSize    u16, FullName
-//      Padding5 u16, RootStringSize  u16, RootString   — с версии 0x00020001
+//      Padding5 u16, RootStringSize  u16, RootString   — from version 0x00020001
 //      FontData
 const HEADER_FIXED_SIZE = 82;
 const MAGIC_OFFSET = 34;
 const MAGIC = 0x504c;
 
-// Пишем 0x00020001: версия, которую понимают все читатели EOT, и та же, что у ttf2eot.
+// 0x00020001 is written: the version every EOT reader understands, and the one ttf2eot writes.
 const VERSION_WRITTEN = 0x00020001;
 const VERSION_1_0 = 0x00010000;
 const VERSION_2_1 = 0x00020001;
@@ -44,7 +44,7 @@ const VERSIONS_READ = [VERSION_1_0, VERSION_2_1, VERSION_2_2];
 
 const CHARSET_DEFAULT = 0x01;
 
-// TTEMBED_TTCOMPRESSED и TTEMBED_XORENCRYPTDATA: полезная нагрузка не сырой sfnt.
+// TTEMBED_TTCOMPRESSED and TTEMBED_XORENCRYPTDATA: the payload is not a raw sfnt.
 const FLAG_COMPRESSED = 0x00000004;
 const FLAG_XOR_ENCRYPTED = 0x10000000;
 
@@ -54,7 +54,7 @@ const NAME_COUNT = 4;
 @injectable()
 export class EotPacker {
     /**
-     * Кладёт sfnt в конверт EOT.
+     * Puts an sfnt into an EOT envelope.
      */
     public async pack(sfntPath: string, eotPath: string): Promise<void> {
         const font = await FileHelper.read(sfntPath);
@@ -64,14 +64,15 @@ export class EotPacker {
     }
 
     /**
-     * Достаёт sfnt из конверта EOT.
+     * Takes an sfnt out of an EOT envelope.
      */
     public async unpack(eotPath: string, sfntPath: string): Promise<void> {
         const eot = await FileHelper.read(eotPath);
         const font = this.readFontData(eot);
 
-        // Конверт мог оказаться складным: заголовок сходится, а внутри не шрифт.
-        // Дальше файл уйдёт движку, поэтому проверяем здесь, а не там.
+        // The envelope may add up while holding no font: the header is consistent, but the
+        // content is not a font. The unpacked file is either the result itself (eot → ttf) or goes
+        // on to the engine, so the check is here, where both routes pass.
         SfntReader.validate(font);
 
         await FileHelper.write(sfntPath, font);
@@ -81,9 +82,9 @@ export class EotPacker {
         const names = [metadata.familyName, metadata.styleName, metadata.versionName, metadata.fullName].map((name) =>
             this.encodeName(name),
         );
-        // На каждое имя — свой размер (u16) и Padding следующего блока (u16); Padding1
-        // уже входит в HEADER_FIXED_SIZE. Хвост — RootStringSize пустой строки: сама
-        // строка не пишется, но поле в версии 0x00020001 обязательно.
+        // Each name gets its size (u16) and the Padding of the next block (u16); Padding1 is
+        // already part of HEADER_FIXED_SIZE. The tail is the RootStringSize of an empty string:
+        // the string itself is not written, but version 0x00020001 requires the field.
         const namesSize = names.reduce((size, name) => size + 4 + name.length, 0);
         const headerSize = HEADER_FIXED_SIZE + namesSize + 2;
 
@@ -93,7 +94,7 @@ export class EotPacker {
         view.setUint32(0, eot.length, true);
         view.setUint32(4, font.length, true);
         view.setUint32(8, VERSION_WRITTEN, true);
-        // Stryker disable next-line BooleanLiteral,CallExpression: `false` и удаление вызова — эквивалентны: ноль в любом порядке байтов — те же нулевые байты, а без записи поле остаётся нулём нового буфера
+        // Stryker disable next-line BooleanLiteral,CallExpression: `false` and removing the call are equivalent: zero in either byte order is the same zero bytes, and without the write the field stays the zero of a new buffer
         view.setUint32(12, 0, true);
         eot.set(metadata.panose.subarray(0, PANOSE_SIZE), 16);
         view.setUint8(26, CHARSET_DEFAULT);
@@ -102,12 +103,12 @@ export class EotPacker {
         view.setUint16(32, metadata.fsType, true);
         view.setUint16(MAGIC_OFFSET, MAGIC, true);
 
-        // Stryker disable next-line EqualityOperator: `<=` — эквивалентен: лишний проход пишет undefined, то есть ноль, в CodePageRange1, а его перезаписывает цикл ниже
+        // Stryker disable next-line EqualityOperator: `<=` is equivalent: the extra pass writes undefined, that is zero, into CodePageRange1, and the loop below overwrites it
         for (let index = 0; index < 4; index++) {
             view.setUint32(36 + index * 4, metadata.unicodeRange[index] as number, true);
         }
 
-        // Stryker disable next-line EqualityOperator: `<=` — эквивалентен: лишний проход пишет ноль в CheckSumAdjustment, а его перезаписывает строка ниже
+        // Stryker disable next-line EqualityOperator: `<=` is equivalent: the extra pass writes zero into CheckSumAdjustment, and the line below overwrites it
         for (let index = 0; index < 2; index++) {
             view.setUint32(52 + index * 4, metadata.codePageRange[index] as number, true);
         }
@@ -119,7 +120,7 @@ export class EotPacker {
         for (const name of names) {
             view.setUint16(offset, name.length, true);
             eot.set(name, offset + 2);
-            // Следом за именем — Padding следующего блока, он уже занулён.
+            // The name is followed by the Padding of the next block, which is already zero.
             offset += 2 + name.length + 2;
         }
 
@@ -129,7 +130,7 @@ export class EotPacker {
     }
 
     private readFontData(eot: Uint8Array): Uint8Array {
-        // Stryker disable next-line EqualityOperator: `<=` — эквивалентен: файл ровно в 82 байта отвергают и следующие проверки, меняется лишь ошибка
+        // Stryker disable next-line EqualityOperator: `<=` is equivalent: a file of exactly 82 bytes is rejected by the next checks too, only the error changes
         if (eot.length < HEADER_FIXED_SIZE) {
             throw InvalidEot.tooShort(eot.length);
         }
@@ -161,15 +162,14 @@ export class EotPacker {
 
         const fontDataSize = view.getUint32(4, true);
 
-        // Stryker disable next-line EqualityOperator: `>=` у FontDataSize — эквивалентен: шрифт, начатый сразу за фиксированной частью, отвергает разбор имён, меняется лишь ошибка
+        // Stryker disable next-line EqualityOperator: `>=` on FontDataSize is equivalent: a font starting right after the fixed part is rejected by the name parsing, only the error changes
         if (fontDataSize === 0 || fontDataSize > eot.length - HEADER_FIXED_SIZE) {
             throw InvalidEot.invalidFontDataSize(fontDataSize, eot.length);
         }
 
-        // Шрифт лежит в хвосте файла, поэтому его начало известно и без разбора
-        // заголовка. Заголовок всё равно проходим целиком: сойдутся ли его переменные
-        // блоки с этим началом — единственная проверка целостности конверта, которая у
-        // нас есть.
+        // The font lies at the tail of the file, so its start is known without parsing the header.
+        // The header is walked in full all the same: whether its variable blocks meet that start
+        // is the only check we have that the variable part of the header is consistent.
         const fontDataOffset = eot.length - fontDataSize;
         const headerEnd = this.readHeaderEnd(eot, view, version);
 
@@ -181,20 +181,20 @@ export class EotPacker {
     }
 
     /**
-     * Смещение сразу за именами конверта: у версии 1.0 их четыре, дальше добавляется
-     * RootString. Хвост версии 0x00020002 не разбирается — он лежит между заголовком и
-     * шрифтом и в проверку не входит.
+     * The offset right after the envelope names: version 1.0 has four of them, later versions add
+     * RootString. The tail of version 0x00020002 is not parsed — it lies between the header and
+     * the font and is not part of the check.
      */
     private readHeaderEnd(eot: Uint8Array, view: DataView, version: number): number {
-        // Цикл ждёт Padding в начале блока, а Padding1 уже входит в HEADER_FIXED_SIZE.
+        // The loop expects a Padding at the start of a block, and Padding1 is already part of HEADER_FIXED_SIZE.
         let offset = HEADER_FIXED_SIZE - 2;
         const blockCount = version === VERSION_1_0 ? NAME_COUNT : NAME_COUNT + 1;
 
         for (let index = 0; index < blockCount; index++) {
-            // Padding, размер блока, сам блок.
+            // Padding, the block size, the block itself.
             offset += 2;
 
-            // Stryker disable next-line EqualityOperator: `>=` — эквивалентен: файл, который кончается размером блока, отвергают следующий шаг или сверка с началом шрифта, меняется лишь ошибка
+            // Stryker disable next-line EqualityOperator: `>=` is equivalent: a file ending with a block size is rejected by the next step or by the match against the font start, only the error changes
             if (offset + 2 > eot.length) {
                 throw InvalidEot.tooShort(eot.length);
             }
