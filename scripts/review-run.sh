@@ -193,7 +193,9 @@ sweep() {
     ')
     [ -n "$listed" ] || [ -e "$1" ] || return 0
     pid=$(printf '%s\n' "$listed" | sed -n 's/^review-run pid \([0-9][0-9]*\)$/\1/p')
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    # The process is asked for its command, not just whether it lives: after a reboot the pid of a
+    # lock may belong to anything, and such a lock would hold the tree until that process ends.
+    if [ -n "$pid" ] && ps -p "$pid" -o command= 2>/dev/null | grep -q 'review-run\.sh'; then
         blocker="$1 is held by another review run (pid $pid)"
         return 1
     fi
@@ -275,10 +277,13 @@ red_item() {
     [ -s "$logs/excerpt.raw" ] || strip <"$3" |
         grep -vE '^[[:space:]]*$|^#[0-9]+ |^ *(Container|Image|Volume|Network) ' | tail -n 20 >"$logs/excerpt.raw"
     # A run of blank lines is squeezed into one, and the trailing ones go.
-    awk 'NF { if (blank) print ""; blank = 0; print; next } { blank = 1 }' "$logs/excerpt.raw" |
-        head -n 40 >"$logs/excerpt"
+    awk 'NF { if (blank) print ""; blank = 0; print; next } { blank = 1 }' "$logs/excerpt.raw" >"$logs/excerpt.all"
+    head -n 40 "$logs/excerpt.all" >"$logs/excerpt"
     say red "- $1 — $(first_line "$logs/excerpt")${4:+ [$4]}"
     sed 's/^/    /' "$logs/excerpt" >>"$logs/out.red"
+    if [ "$(grep -c '' "$logs/excerpt.all")" -gt 40 ]; then
+        say red "    … cut at forty lines, the whole log: $3"
+    fi
 }
 
 # One gate of the table: its command in the current directory, the tree of the PR or of the base.
@@ -401,13 +406,14 @@ accept_record() {
     # changed since. The diff is between the trees of the two commits, not from their merge-base:
     # after a rebase the head of the record is no longer an ancestor, and the branch's own changes
     # would count. A head that is not in the repository (a force-push lost it) has nothing to compare
-    # with.
+    # with. --no-renames: a move shows only its new path, and a file moved out of src/ would pass
+    # unseen.
     if [ "$rec_head" != "$head" ]; then
         if ! git cat-file -e "$rec_head^{commit}" 2>/dev/null; then
             reasons="$reasons; its head $rec_short is not in the repository"
         else
             stale=""
-            for file in $(git diff --name-only "$rec_head" "$head"); do
+            for file in $(git diff --no-renames --name-only "$rec_head" "$head"); do
                 # The rows rebuild, mutation-full and mutation of the table in
                 # docs/agents/review-gates.md, by file name. The table is the source, and a change of
                 # these rows there is made here too. The files whose row depends on the content of
@@ -465,6 +471,11 @@ mutation_red() {
             say red "- the accepted record — exit $gate_exit without a single survivor in it"
         fi
         return
+    fi
+    # Only the own run gets here with a cut list: an accepted record never has one.
+    more=$(sed -n 's/^- …and \([0-9][0-9]*\) more.*/\1/p' "$logs/gate-record.md")
+    if [ -n "$more" ]; then
+        say red "- the record names the survivors only up to its size limit: $more more are not named, and their files are neither repeated nor compared with the base; the whole report: $logs/gate-mutation.html"
     fi
     for file in $(sed -n 's/^[^`]*`\([^:`]*\):[0-9]*:[0-9]*`.*/\1/p' "$logs/gate-survivors" | LC_ALL=C sort -u); do
         grep -F "\`$file:" "$logs/gate-survivors" >"$logs/file-survivors"
@@ -582,6 +593,9 @@ mutation_gate() {
         gate_exit=$mutate_exit
         gate_score=$(sed -n '1s/.* score=\([^ ]*\) -->$/\1/p' reports/mutation/record.md 2>/dev/null)
         cp reports/mutation/record.md "$logs/gate-record.md" 2>/dev/null || : >"$logs/gate-record.md"
+        # The whole report outlives the tree: the record cuts its list of survivors at its size
+        # limit, and the rest is only here.
+        cp reports/mutation/mutation.html "$logs/gate-mutation.html" 2>/dev/null
         publish
         source="own run, $published — the record was not accepted: $refusal"
     fi
@@ -775,9 +789,11 @@ if [ -n "$on_targets" ]; then
     # one: make also prints the recipe itself, where MUTATION_DIRTY="$dirty" is not expanded yet. With
     # git that does not answer the head goes empty too, and that is expected: on an empty head the
     # wrapper sets clean=unknown itself (docs/architecture/testing.md, "The run record").
+    : >"$logs/probes.lines"
     probe() {
-        make mutation DC_APP_RUN=echo "$@" 2>>"$logs/probes.log" | strip |
-            sed -n 's/^env MUTATION_HEAD=[^ ]* MUTATION_DIRTY=\([^ ]*\) .*/\1/p'
+        make mutation DC_APP_RUN=echo "$@" 2>>"$logs/probes.log" | strip | grep '^env ' >"$logs/probe.line"
+        cat "$logs/probe.line" >>"$logs/probes.lines"
+        sed -n 's/.* MUTATION_DIRTY=\([^ ]*\).*/\1/p' "$logs/probe.line"
     }
     clean_count=$(probe)
     # The probe file is untracked and removed right after, so the tree stays the one that was sent;
@@ -791,6 +807,8 @@ if [ -n "$on_targets" ]; then
     else
         say checks "make mutation, the MUTATION_DIRTY substitution: fail — the clean tree gave \"$clean_count\" (0 expected), an untracked file \"$dirty_count\" (1 expected), git that does not answer \"$unknown_count\" (unknown expected)"
         say red "- make mutation DC_APP_RUN=echo — the substitution counts something other than what goes into the run record"
+        say material "The executed lines of the three probes of make mutation, in order (none — the recipe did not reach the launch):"
+        sed 's/^/    | /' "$logs/probes.lines" >>"$logs/out.material"
     fi
 fi
 
