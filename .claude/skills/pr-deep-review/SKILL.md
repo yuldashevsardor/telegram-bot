@@ -274,12 +274,12 @@ at most, more often as a nit.
 - <criterion> — done / not done / not covered (file.ts:42)
 
 ### Checks
-rebuild: done/not needed · build: ok/fail/n-a · typecheck: ok/fail/n-a · test: ok/fail/n-a · lint: ok/fail/n-a · format-check: ok/fail/n-a
+rebuild: done/not needed · build: ok/fail/n-a · typecheck: ok/fail/n-a · test: ok/fail/n-a · lint: ok/fail/n-a · format-check: ok/fail/n-a · python: ok/fail/n-a
 mutation: ok/fail/n-a — <score from Final mutation score>, <whole src/ or the area files> · accepted record, <link> (head <sha> earlier — nothing under the mutation gates since) | own run — <why the record was not accepted> (n-a — reason)
 make -n <target>: ok/fail — <what the expansion showed>
 sh -n <script>: ok/fail (+ dash: ok/fail/n-a)
 Not run: <check> — <reason>
-Not cleaned up: <temporary path> — <first meaningful line of the down error>
+Not cleaned up: <temporary path> — <the reason from the make review-tree-remove output>
 Inherited failures (red on base too): <list or "none">
 Diff test coverage: yes (<file>) / no
 Manual check: <how it was checked or "not done">

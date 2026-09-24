@@ -132,7 +132,13 @@ test/                       mocha specs; a spec path repeats the source path, th
                             make mutation (testing.md)
 migrations/                 migrations, common/ holds the shared shorthands and the stub (storage.md)
 scripts/                    host scripts of the make targets; claude-worktree-guard is a hook (testing.md)
+  review/                   the Python actions of the review skills, each with its test_*.py next to it (testing.md)
 ```
+
+File names are kebab-case (`CLAUDE.md`, "Style"), except the modules of `scripts/review/`: they
+use underscores (`tree_remove.py`), because Python cannot import a module whose name has a hyphen,
+and the specs import the module they check. The same holds for their specs: `unittest` finds them
+by the `test_*.py` pattern and imports them as modules too.
 
 A subsystem is a directory named in the map above; `convertor/`, `eot-packer/`, `font-forge/`,
 `signature-matcher/` and the other directories inside subsystems do not make it into the map. A

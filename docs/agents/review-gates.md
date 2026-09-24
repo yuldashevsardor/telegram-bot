@@ -23,6 +23,7 @@ once.
 | any `.ts`, `test/**`, `.mocharc.json` | `test` |
 | `Makefile` | `make-targets` |
 | `scripts/*.sh`, `.husky/*` | `scripts` |
+| `scripts/**/*.py` | `python` |
 | any `.ts` or `.sh` | `docs-sync` |
 | any `.ts` | `bug-hunt-high` |
 | `.sh` and not a single `.ts` | `bug-hunt-medium` |

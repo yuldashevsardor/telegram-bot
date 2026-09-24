@@ -115,5 +115,10 @@ dist
 
 /.idea
 
+# The bytecode cache of the Python actions of review (scripts/review): python3 writes it next to
+# the module on every import, and as an untracked file it would give the run record clean=no, like
+# .DS_Store above.
+__pycache__/
+
 # Build files
 /build

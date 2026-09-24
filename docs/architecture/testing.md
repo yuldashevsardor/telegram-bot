@@ -27,6 +27,12 @@
   development (the root [`README.md`](../../README.md), "The pre-commit hook"), and CI is not
   set up yet (issue
   [#116](https://github.com/yuldashevsardor/telegram-bot/issues/116)).
+- The actions of the review skills (`scripts/review/`) are Python run on the host, not in the
+  image: they drive `docker` and `git` from outside the containers. Python 3.9 syntax, the
+  version of `/usr/bin/python3` on macOS, and the standard library only, so the host needs no
+  `pip`. `make review-test` runs their specs with `unittest`, which replace the calls to
+  `docker` and `git`; `make check` does not run them, it runs in the container. No linter
+  checks them yet. In review they are the `python` gate (`docs/agents/review-gates.md`).
 - `.claude/settings.json` hangs `scripts/claude-worktree-guard.sh` on the session start and on a
   file edit: an edit in the main tree is rejected. Edits made through the shell the hook does
   not see. On the start it also compares `.claude` against `origin/main` (`stale_claude` in the
