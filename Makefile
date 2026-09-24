@@ -217,6 +217,12 @@ token-add: ## Append a token to the end of the pool (asks for the token, the inp
 	}
 	@$(BOT_TOKEN_SH) add
 
+help: ## Show this list
+	@awk 'BEGIN { FS = ":.*## " } \
+		/^## / { printf "\n%s\n", substr($$0, 4); next } \
+		/^[a-z][a-zA-Z0-9_-]*:.*## / { printf "  %-19s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+	@echo
+
 ## Review tooling
 
 # The actions of the review skills are Python on the host (docs/architecture/testing.md): they drive
@@ -227,12 +233,6 @@ review-test: ## Run the specs of the review actions (Python on the host, no Dock
 review-tree-remove: ## Remove a temporary review tree with its image and volume: make review-tree-remove path=../telegram-bot-review-7
 	@[ -n "$(path)" ] || { printf 'give it the tree: make review-tree-remove path=../telegram-bot-review-7\n' >&2; exit 1; }
 	python3 scripts/review/tree_remove.py '$(path)'
-
-help: ## Show this list
-	@awk 'BEGIN { FS = ":.*## " } \
-		/^## / { printf "\n%s\n", substr($$0, 4); next } \
-		/^[a-z][a-zA-Z0-9_-]*:.*## / { printf "  %-19s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
-	@echo
 
 .PHONY: up db-up app-up app-down db-down logs restart db-reset \
 	migrate migrate-create build typecheck test test-watch coverage \
