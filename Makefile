@@ -230,8 +230,8 @@ help: ## Show this list
 review-test: ## Run the specs of the review actions (Python on the host, no Docker)
 	cd scripts/review && python3 -m unittest discover -p 'test_*.py'
 
-review-tree-remove: ## Remove a temporary review tree with its image and volume: make review-tree-remove path=../telegram-bot-review-7
-	@[ -n "$(path)" ] || { printf 'give it the tree: make review-tree-remove path=../telegram-bot-review-7\n' >&2; exit 1; }
+review-tree-remove: ## Remove a temporary review tree <main worktree>-review-<PR> with its image and volume: make review-tree-remove path=<tree>
+	@[ -n "$(path)" ] || { printf 'give it the tree: make review-tree-remove path=<tree>\n' >&2; exit 1; }
 	python3 scripts/review/tree_remove.py '$(path)'
 
 .PHONY: up db-up app-up app-down db-down logs restart db-reset \

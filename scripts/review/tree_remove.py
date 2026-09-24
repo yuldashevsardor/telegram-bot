@@ -21,9 +21,11 @@ are not a matter of taste:
 
 The path is checked before anything runs, so that a wrong argument cannot take down the
 application of the main worktree or of a task worktree and remove it: a review tree is a
-worktree of this repository named `telegram-bot-review-*` right next to the main one. A task
-worktree lies there too, and nothing forbids naming a task `review-…`, so the name alone does
-not tell them apart; the `tmp/pgsql` symlink does: `scripts/worktree-init.sh` sets it in every
+worktree of this repository right next to the main one, named `<main>-review-*` after the
+main worktree's directory (`telegram-bot-review-556`). The prefix is not written down: renaming
+the directory of the main worktree would leave a literal behind, while the trees next to it
+follow its name. A task worktree lies there too, and nothing forbids naming a task `review-…`,
+so the name alone does not tell them apart; the `tmp/pgsql` symlink does: `scripts/worktree-init.sh` sets it in every
 task worktree, while a review tree gets only a copied `.env` and must never have it.
 """
 
@@ -33,7 +35,6 @@ import subprocess
 import sys
 from typing import Callable, List, Optional, Tuple
 
-PREFIX = "telegram-bot-review-"
 DOWN = [
     "docker",
     "compose",
@@ -85,8 +86,9 @@ def check_review_tree(path: str, run: Run) -> Tuple[str, str]:
         raise NotAReviewTree("it is not a worktree of this repository")
     if os.path.dirname(tree) != os.path.dirname(main):
         raise NotAReviewTree("it does not lie next to the main worktree " + main)
-    if not os.path.basename(tree).startswith(PREFIX):
-        raise NotAReviewTree("its name does not start with " + PREFIX)
+    prefix = os.path.basename(main) + "-review-"
+    if not os.path.basename(tree).startswith(prefix):
+        raise NotAReviewTree("its name does not start with " + prefix)
     if os.path.islink(os.path.join(tree, "tmp", "pgsql")):
         raise NotAReviewTree(
             "it has the tmp/pgsql symlink of make worktree-init, so it is a task worktree"

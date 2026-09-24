@@ -82,9 +82,10 @@ cp .env <temporary path>/.env
 cd <temporary path>
 ```
 
-The temporary path is `telegram-bot-review-<N>` next to the main worktree, whose path is the first
-line of `git worktree list`: the cleanup refuses a tree named or placed otherwise, so that a wrong
-argument cannot remove the main worktree or a task worktree.
+The temporary path is `<main>-review-<N>` next to the main worktree, where `<main>` is the name of
+its directory and its path is the first line of `git worktree list` (`telegram-bot-review-556`): the
+cleanup refuses a tree named or placed otherwise, so that a wrong argument cannot remove the main
+worktree or a task worktree.
 
 Step 2 runs whole from that directory, so the `cd` is required: the targets are listed in
 `allowed-tools` by exact match (`Bash(make coverage)`), and `make -C <path> coverage` does not fall
@@ -402,7 +403,7 @@ machine". The status of the repeat does not prove drift: under load a survivor h
 
 Red in `build`, `typecheck`, `test`, `lint`, `format-check` or the mutation gates — compare with the
 base if you doubt it was brought by this PR: create a worktree on `origin/main` at
-`telegram-bot-review-<N>-base` next to the main worktree, copy `.env` into it, move into it and run
+`<main>-review-<N>-base` next to the main worktree, copy `.env` into it, move into it and run
 **only the failed** command. That is a temporary tree too, and it is removed the same way.
 
 ## Step 3. Documentation drift

@@ -171,6 +171,22 @@ class RemoveTreeTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(run.calls[1], (tree_remove.DOWN, self.review))
 
+    def test_the_prefix_follows_the_name_of_the_main_worktree(self):
+        root = os.path.dirname(self.main)
+        main = os.path.join(root, "fonts")
+        review = os.path.join(root, "fonts-review-7")
+        for tree in (main, review):
+            os.makedirs(tree)
+
+        code, _ = self.remove(review, FakeRun([main, review]))
+        self.assertEqual(code, 0)
+
+        self.assertRefused(
+            self.review,
+            [main, self.review],
+            "its name does not start with fonts-review-",
+        )
+
 
 class MainTest(unittest.TestCase):
     def test_asks_for_exactly_one_path(self):
