@@ -230,6 +230,10 @@ help: ## Show this list
 review-test: ## Run the specs of the review actions (Python on the host, no Docker)
 	cd scripts/review && python3 -m unittest discover -p 'test_*.py'
 
+review-tree-create: ## Take the head of a PR into a temporary review tree <main worktree>-review-<PR>: make review-tree-create pr=<N>
+	@[ -n "$(pr)" ] || { printf 'give it the PR: make review-tree-create pr=<N>\n' >&2; exit 1; }
+	python3 scripts/review/tree_create.py '$(pr)'
+
 review-tree-remove: ## Remove a temporary review tree <main worktree>-review-<PR> with its image and volume: make review-tree-remove path=<tree>
 	@[ -n "$(path)" ] || { printf 'give it the tree: make review-tree-remove path=<tree>\n' >&2; exit 1; }
 	python3 scripts/review/tree_remove.py '$(path)'
@@ -238,4 +242,4 @@ review-tree-remove: ## Remove a temporary review tree <main worktree>-review-<PR
 	migrate migrate-create build typecheck test test-watch coverage \
 	lint lint-fix format-check format mutation check rebuild shell psql \
 	worktree-init worktree-cleanup token-acquire token-renew token-release token-status token-add \
-	review-test review-tree-remove help
+	review-test review-tree-create review-tree-remove help

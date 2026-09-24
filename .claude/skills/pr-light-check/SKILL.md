@@ -1,7 +1,7 @@
 ---
 name: pr-light-check
 description: Light Pull Request review — a mechanical run of the repository checks by the gates passed in, documentation drift in the changed lines and issue compliance, with a verdict and a PR comment. Run by the /review-pr command, and by the pr-deep-review skill as its mechanical part. Not for ordinary work on code and not for checking uncommitted edits.
-allowed-tools: Bash(gh:*), Bash(git:*), Bash(make db-up), Bash(make rebuild), Bash(make build), Bash(make typecheck), Bash(make coverage), Bash(make lint), Bash(make format-check), Bash(make mutation:*), Bash(make help), Bash(make token-status), Bash(make -n:*), Bash(sh -n:*), Bash(docker run:*), Bash(make review-test), Bash(make review-tree-remove:*), Bash(scripts/bot-token.sh), Bash(cd:*), Bash(ls:*), Bash(cp:*), Bash(touch mutation-dirty-probe), Bash(rm mutation-dirty-probe), Bash(grep:*), Bash(awk:*), Read, Grep, Glob, Write
+allowed-tools: Bash(gh:*), Bash(git:*), Bash(make rebuild), Bash(make build), Bash(make typecheck), Bash(make coverage), Bash(make lint), Bash(make format-check), Bash(make mutation:*), Bash(make help), Bash(make token-status), Bash(make -n:*), Bash(sh -n:*), Bash(docker run:*), Bash(make review-test), Bash(make review-tree-create:*), Bash(make review-tree-remove:*), Bash(scripts/bot-token.sh), Bash(cd:*), Bash(ls:*), Bash(cp:*), Bash(touch mutation-dirty-probe), Bash(rm mutation-dirty-probe), Bash(grep:*), Bash(awk:*), Read, Grep, Glob, Write
 ---
 
 You run the repository checks over the code of a Pull Request and decide whether it can be
@@ -54,55 +54,33 @@ no database, no containers. Building a project in which not a single line of exe
 changed costs minutes and cannot yield a single finding. Step 3 needs no checkout either: it reads
 the diff through `gh`.
 
-At least one run gate — first of all, still in the tree you were started in, you need the
-database up (the application's network is declared external and belongs to the database project)
-and a `.env`:
+At least one run gate — take the head of the PR into a temporary tree, calling the target from the
+tree you were started in:
 
 ```bash
-make db-up
-ls .env
+make review-tree-create pr=<N>
+cd <the path from its Tree: line>
 ```
 
-`make db-up` brings up the shared database and wipes nothing in it. No `.env` — stop the run, give
-the checks of step 2 `n-a` and say that `make worktree-init` is needed; do not run it yourself.
-Step 3 is still done in that case: `gh` is enough for it.
+The target checks `.env` here, brings up the shared database from here (it wipes nothing), takes the
+head from `gh`, removes a tree an interrupted earlier run left at the same path and creates a
+detached tree with a copy of `.env`. It prints `Tree: <path>` and `Head: <sha>`; what it runs, in
+which order and why is in the docstring of `scripts/review/tree_create.py`. The path is
+`<main>-review-<N>` next to the main worktree, where `<main>` is the name of its directory
+(`telegram-bot-review-556`): the cleanup refuses a tree named or placed otherwise, so that a wrong
+argument cannot remove the main worktree or a task worktree.
 
-Then the PR code:
+`Stopped: <reason>` in its output — stop the run and give the checks of step 2 `n-a` with that
+reason; step 3 is still done, `gh` is enough for it. `no .env` among the reasons means that
+`make worktree-init` is needed here: say so and do not run it yourself, it takes a slot of the token
+pool. A `Not cleaned up:` line above the stop — an earlier run's tree could not be removed — goes
+into the report as "Cleaning up the temporary trees" says. The stop `.env was not copied` names a
+tree this run did create: remove it there like any other.
 
-```bash
-gh pr checkout <N>
-```
-
-The working tree is taken by another session — do not switch the branch in it, create a separate
-worktree:
-
-```bash
-git worktree add <temporary path> <PR branch>
-cp .env <temporary path>/.env
-cd <temporary path>
-```
-
-The temporary path is `<main>-review-<N>` next to the main worktree, where `<main>` is the name of
-its directory and its path is the first line of `git worktree list` (`telegram-bot-review-556`): the
-cleanup refuses a tree named or placed otherwise, so that a wrong argument cannot remove the main
-worktree or a task worktree.
-
-Step 2 runs whole from that directory, so the `cd` is required: the targets are listed in
+Step 2 runs whole from the temporary tree, so the `cd` is required: the targets are listed in
 `allowed-tools` by exact match (`Bash(make coverage)`), and `make -C <path> coverage` does not fall
-under them. `.env` is copied rather than created by `make worktree-init`: that one takes a slot of
-the token pool, while the throwaway `build`/`test`/`lint` containers need no bot and do not read the
-token. The tree is removed by "Cleaning up the temporary trees", not by a bare
-`git worktree remove`.
-
-The temporary tree does not get in the application's way: `docker-compose.app.yml` has no `name`,
-and Compose takes the project name from the directory name. The database is the other way round.
-Its project name is fixed (`name: telegram-bot-db` in `docker-compose.db.yml`), and its data
-directory `./tmp/pgsql` leads into the main tree only through the symlink that
-`scripts/worktree-init.sh` sets. The temporary tree has no symlink, and `make db-up` from there
-recreates the shared container on an empty `tmp/pgsql`: every tree silently moves to a clean
-database without migrations, and the run on it is green and notices nothing. That is why the
-database is brought up before the move, and `make db-up` is never called from the temporary tree —
-neither here nor in "Red".
+under them. `make db-up` is never called from a temporary tree, neither here nor in "Red": there it
+recreates the shared database on an empty `tmp/pgsql` (the docstring above says how).
 
 ## Step 2. The run by gates
 
