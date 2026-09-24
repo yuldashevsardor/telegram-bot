@@ -1,7 +1,7 @@
 ---
 name: pr-light-check
 description: Light Pull Request review — a mechanical run of the repository checks by the gates passed in, documentation drift in the changed lines and issue compliance, with a verdict and a PR comment. Run by the /review-pr command, and by the pr-deep-review skill as its mechanical part. Not for ordinary work on code and not for checking uncommitted edits.
-allowed-tools: Bash(gh:*), Bash(git:*), Bash(make db-up), Bash(make rebuild), Bash(make build), Bash(make typecheck), Bash(make coverage), Bash(make lint), Bash(make format-check), Bash(make mutation:*), Bash(make help), Bash(make token-status), Bash(make -n:*), Bash(sh -n:*), Bash(docker run:*), Bash(docker compose -f docker-compose.app.yml down --rmi local --volumes), Bash(scripts/bot-token.sh), Bash(cd:*), Bash(ls:*), Bash(cp:*), Bash(touch mutation-dirty-probe), Bash(rm mutation-dirty-probe), Bash(grep:*), Bash(awk:*), Read, Grep, Glob, Write
+allowed-tools: Bash(gh:*), Bash(git:*), Bash(make db-up), Bash(make rebuild), Bash(make build), Bash(make typecheck), Bash(make coverage), Bash(make lint), Bash(make format-check), Bash(make mutation:*), Bash(make help), Bash(make token-status), Bash(make -n:*), Bash(sh -n:*), Bash(docker run:*), Bash(make review-test), Bash(make review-tree-remove:*), Bash(scripts/bot-token.sh), Bash(cd:*), Bash(ls:*), Bash(cp:*), Bash(touch mutation-dirty-probe), Bash(rm mutation-dirty-probe), Bash(grep:*), Bash(awk:*), Read, Grep, Glob, Write
 ---
 
 You run the repository checks over the code of a Pull Request and decide whether it can be
@@ -82,6 +82,11 @@ cp .env <temporary path>/.env
 cd <temporary path>
 ```
 
+The temporary path is `<main>-review-<N>` next to the main worktree, where `<main>` is the name of
+its directory and its path is the first line of `git worktree list` (`telegram-bot-review-556`): the
+cleanup refuses a tree named or placed otherwise, so that a wrong argument cannot remove the main
+worktree or a task worktree.
+
 Step 2 runs whole from that directory, so the `cd` is required: the targets are listed in
 `allowed-tools` by exact match (`Bash(make coverage)`), and `make -C <path> coverage` does not fall
 under them. `.env` is copied rather than created by `make worktree-init`: that one takes a slot of
@@ -113,6 +118,7 @@ Run only what the gates turned on. The order matters: `rebuild` goes first.
 | `format-check` | `make format-check` |
 | `make-targets` | `make help`, then `make -n <changed target>`; the `mutation` recipe touched — also the substitution (below) |
 | `scripts` | `sh -n <script>`, then a parse by dash |
+| `python` | `make review-test` |
 | `mutation` | `make mutation files="<area from the diff>"` |
 | `mutation-full` | `make mutation` |
 
@@ -396,9 +402,9 @@ machine". The status of the repeat does not prove drift: under load a survivor h
 `Timeout` and under `Killed` with the ordinary message of a spec, and review has no idle machine.
 
 Red in `build`, `typecheck`, `test`, `lint`, `format-check` or the mutation gates — compare with the
-base if you doubt it was brought by this PR: create a worktree on `origin/main`, copy `.env` into it,
-move into it and run **only the failed** command. That is a temporary tree too, and it is removed
-the same way.
+base if you doubt it was brought by this PR: create a worktree on `origin/main` at
+`<main>-review-<N>-base` next to the main worktree, copy `.env` into it, move into it and run
+**only the failed** command. That is a temporary tree too, and it is removed the same way.
 
 ## Step 3. Documentation drift
 
@@ -485,24 +491,19 @@ still makes it into the verdict. The run broke off earlier — the cleanup goes 
 each tree:
 
 ```bash
-cd <temporary path>
-docker compose -f docker-compose.app.yml down --rmi local --volumes
 cd <the tree you were started in>
-git worktree remove --force <temporary path>
+make review-tree-remove path=<temporary path>
 ```
 
-A bare `git worktree remove` is not enough. The gates of step 2 run in a throwaway container: it
-removes itself, but the `<directory>-app` image and the `<directory>_app-tmp` volume stay — Compose
-takes the project name from the directory. Remove the directory first and there is nowhere to take
-the project name from, so both are orphaned: the image weighs about a gigabyte in `docker images`.
-So `down` goes from the tree itself and before `remove`, as in `scripts/worktree-cleanup.sh`.
-`make worktree-cleanup` does not fit here: it requires a branch merged into `main` on origin and
-deletes it on origin, while the PR branch under review is still alive. `down` does not touch the
-shared database: it lives in a separate project, `telegram-bot-db`.
+The target is called from the tree you were started in, not from the temporary one: the `Makefile`
+there is the PR's code under review. It takes the tree's application down together with its image
+and volume and removes the tree; what it runs, in which order and why is in the docstring of
+`scripts/review/tree_remove.py`.
 
-`down` failed (Docker does not answer) — do not remove the tree: without the directory this command
-can no longer remove the image. Name the path in a "Not cleaned up" line of the report so that a
-human removes the tree.
+`Not cleaned up: <path> — <reason>` in its output — put the line into the report as it is, so that a
+human removes the tree: the application failed to go down and the tree is kept on purpose, or the
+tree was not removed. `Refused:` — the path is not a temporary review tree (step 1); nothing was
+removed.
 
 The price: the next review round of the same PR builds the image anew — the throwaway container
 rebuilds it only when there is no image (the comment on the `rebuild` target in the `Makefile`), and
@@ -564,12 +565,12 @@ Not checked: invariants, bugs, smells, overlaps with open PRs, documentation out
 - <criterion> — met / not met / not covered (file.ts:42)
 
 ### Run
-rebuild: done/not needed · build: ok/fail/n-a · typecheck: ok/fail/n-a · test: ok/fail/n-a · lint: ok/fail/n-a · format-check: ok/fail/n-a
+rebuild: done/not needed · build: ok/fail/n-a · typecheck: ok/fail/n-a · test: ok/fail/n-a · lint: ok/fail/n-a · format-check: ok/fail/n-a · python: ok/fail/n-a
 mutation: ok/fail/n-a — <score from Final mutation score>, <the whole src/ or the area files> · accepted record, <link> (head <sha> is earlier — nothing under the mutation gates came in since) | own run — <why the record was not accepted> (n-a — the reason)
 make -n <target>: ok/fail — <what the expansion showed>
 sh -n <script>: ok/fail (+ dash: ok/fail/n-a)
 Not run: <check> — <reason>
-Not cleaned up: <temporary path> — <the first meaningful line of the down error>
+Not cleaned up: <temporary path> — <the reason from the make review-tree-remove output>
 
 ### Documentation
 issue links: ok/findings/n-a · <file.md> "<quoted line>" — #<M> is closed, the paragraph presents it as a live problem

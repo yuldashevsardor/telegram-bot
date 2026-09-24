@@ -220,10 +220,22 @@ token-add: ## Append a token to the end of the pool (asks for the token, the inp
 help: ## Show this list
 	@awk 'BEGIN { FS = ":.*## " } \
 		/^## / { printf "\n%s\n", substr($$0, 4); next } \
-		/^[a-z][a-zA-Z0-9_-]*:.*## / { printf "  %-17s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+		/^[a-z][a-zA-Z0-9_-]*:.*## / { printf "  %-19s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 	@echo
+
+## Review tooling
+
+# The actions of the review skills are Python on the host (docs/architecture/testing.md): they drive
+# docker and git from outside the containers, and their specs replace both, so they take seconds.
+review-test: ## Run the specs of the review actions (Python on the host, no Docker)
+	cd scripts/review && python3 -m unittest discover -p 'test_*.py'
+
+review-tree-remove: ## Remove a temporary review tree <main worktree>-review-<PR> with its image and volume: make review-tree-remove path=<tree>
+	@[ -n "$(path)" ] || { printf 'give it the tree: make review-tree-remove path=<tree>\n' >&2; exit 1; }
+	python3 scripts/review/tree_remove.py '$(path)'
 
 .PHONY: up db-up app-up app-down db-down logs restart db-reset \
 	migrate migrate-create build typecheck test test-watch coverage \
 	lint lint-fix format-check format mutation check rebuild shell psql \
-	worktree-init worktree-cleanup token-acquire token-renew token-release token-status token-add help
+	worktree-init worktree-cleanup token-acquire token-renew token-release token-status token-add \
+	review-test review-tree-remove help
