@@ -43,10 +43,13 @@ are shortened only when the code has cancelled them.
   the worktree is the first step, before any edit:
 
   ```bash
-  git worktree add "$(git rev-parse --show-toplevel)/../telegram-bot-<task>" -b <branch> origin/main
+  git worktree add "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")-<task>" -b <branch> origin/main
   ```
 
-  The path must be absolute: git resolves a relative one from its own current directory.
+  The path must be absolute: git resolves a relative one from its own current directory. It is
+  built from the common git directory, not from `--show-toplevel`: run from a task worktree,
+  that one names the task worktree, and the new one would be named after it instead of after
+  the main worktree.
 - Code in the main worktree is not edited: a neighbouring session will switch the branch
   there and carry the uncommitted edits away.
 - After creating the worktree — `make worktree-init`; after the PR is merged (and only
