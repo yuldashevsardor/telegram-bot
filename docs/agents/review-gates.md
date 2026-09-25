@@ -26,7 +26,7 @@ once.
 | `scripts/**/*.py` | `python` |
 | any `.sh` or `.py`; any `.ts` — not a comments-only `.ts` diff | `docs-sync` |
 | any `.ts` — not a comments-only `.ts` diff | `bug-hunt-high` |
-| `.sh` or `.py`, and not a single `.ts` or a comments-only `.ts` diff | `bug-hunt-medium` |
+| `.sh` or `.py`, and either no `.ts` or only a comments-only `.ts` diff | `bug-hunt-medium` |
 | `.ts` inside `src/font-convertor/`, `src/shared/`, `src/telegram/outbound-queue/` — not a comments-only `.ts` diff | `smells` |
 | any `.ts` — a comments-only `.ts` diff | `comments` |
 | `stryker.config.mjs`, `test/stryker-mocha-hook.cjs`, `test/mutation-record.ts`, `.mocharc.json`, `tsconfig.json`, `tsconfig.check.json` — not a comments-only diff | `mutation-full` |
@@ -87,15 +87,18 @@ gate `mutation` has to see.
 
 A comments-only `.ts` diff turns off `bug-hunt-high`, `smells` and `docs-sync` and turns on
 `comments` instead: read the diff, as with the files of the `mutation-full` row. The `.ts` diff is
-every `.ts` hunk of the PR taken together: one changed line of code in any `.ts` and every row goes
-by name, the full review for the whole PR. The bug hunt and the smells look at what the code does,
-and a comment changes nothing it does. PRs #522, #523 and #524 changed comments in `.ts` and
-`*.md`, three rounds of the full review each, 5–6.5M tokens of review subagents per PR; of the
-findings in their nine verdicts none concerned behaviour, and all but one set the text of a
-comment, a doc or the PR body against the code. That is the check `comments` turns on
-(`.claude/skills/pr-light-check/SKILL.md`, step 3). Unlike a paragraph of `docs/`, a comment has the
-code it describes a few lines away, so checking it against the code costs little. `docs-sync` goes
-off too: it looks for documentation made false by a changed symbol, and a comment changes no
+every `.ts` of the PR taken together: one changed line of code in any `.ts` and every row goes by
+name, the full review for the whole PR. A `.ts` that is added, deleted, renamed, copied or changes
+mode is code too, whatever its hunks hold, and a rename has none: renaming a migration breaks the
+append-only rule that only the full review checks, and renaming `test/x.spec.ts` to `test/x.ts`
+drops its specs from the `.mocharc.json` glob while `test` stays green. The bug hunt and the smells
+look at what the code does, and a comment changes nothing it does. PRs #522, #523 and #524 changed
+comments in `.ts` and `*.md`, three rounds of the full review each, 5–6.5M tokens of review
+subagents per PR; of the findings in their nine verdicts none concerned behaviour, and all but one
+set the text of a comment, a doc or the PR body against the code. That is the check `comments` turns
+on (`.claude/skills/pr-light-check/SKILL.md`, step 3). Unlike a paragraph of `docs/`, a comment has
+the code it describes a few lines away, so checking it against the code costs little. `docs-sync`
+goes off too: it looks for documentation made false by a changed symbol, and a comment changes no
 symbol. What round 3 of #522 found outside the diff — the statement the PR corrected, still stale in
 the `.eslintrc.js` comment and in `docs/architecture/logging.md` — is the same claim in another
 place, and `comments` looks for it with the duplicate search.

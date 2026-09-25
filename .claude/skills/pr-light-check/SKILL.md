@@ -361,17 +361,23 @@ author.
 
 ### Changed comments
 
-The `comments` gate is on when every `.ts` hunk of the PR changes only comments; what counts as a
+The `comments` gate is on when every `.ts` of the PR changes only comments; what counts as a
 comment and why such a PR gets this check instead of the bug hunt is in `docs/agents/review-gates.md`.
-The `.ts` hunks come the way the `*.md` ones do, with two differences. The file name is taken from
-the `diff --git` line, not from `+++`: a deleted `.ts` has `+++ /dev/null`, and its removed lines
-are exactly the code the check below must not miss. And the `@@` headers are kept: they give the
-line numbers for the `<file.ts:line>` of the report and for reading the code around. The code is
-read at the PR head from git objects, not from the tree you were started in — it stands on another
-branch:
+The `.ts` hunks come the way the `*.md` ones do, with three differences:
+
+- the file name is taken from the `diff --git` line, not from `+++`, and the old name counts too: a
+  deleted `.ts` has `+++ /dev/null` and one renamed to `.js` has no `.ts` in its new name, and their
+  removed lines are exactly the code the check below must not miss;
+- the `@@` headers are kept: they give the line numbers for the `<file.ts:line>` of the report and
+  for reading the code around;
+- the file headers that make a `.ts` code whatever its hunks hold — added, deleted, renamed, copied,
+  a mode change — are printed too: a rename has no hunks and would not show up otherwise.
+
+The code is read at the PR head from git objects, not from the tree you were started in — it stands
+on another branch:
 
 ```bash
-gh pr diff <N> | awk '/^diff --git /{f=$NF; sub(/^b\//,"",f); ts=(f ~ /\.ts$/); h=1; next} /^@@/{h=0} ts && !h{print f"|"$0}'
+gh pr diff <N> | awk '/^diff --git /{f=$NF; sub(/^b\//,"",f); ts=(f ~ /\.ts$/ || $3 ~ /\.ts$/); h=1; next} /^@@/{h=0} ts && (!h || /^(new|deleted) file mode|^(old|new) mode|^(rename|copy) (from|to) /){print f"|"$0}'
 gh pr view <N> --json headRefOid -q .headRefOid
 git fetch -q origin pull/<N>/head
 git show <sha>:<file> | awk 'NR>=<from> && NR<=<to> {print NR": "$0}'
@@ -393,11 +399,11 @@ For every added comment, two checks:
 opened at the head: a comment read only against the context of its own hunk is not checked. A
 finding here counts as a documentation finding in step 5: a comment is documentation too.
 
-A `.ts` hunk that changes code — a line of code, a comment and code on the same line, a tool
-directive — means the table was applied wrong and the PR needed the full review. Put the line into
-the report; in the standalone mode the verdict is BLOCKED (step 5). The mechanical mode needs
-nothing more: the caller runs because the diff has executable code, and its bug hunt reads the whole
-diff.
+A `.ts` that changes code — a line of code, a comment and code on the same line, a tool directive,
+or one of the file headers above — means the table was applied wrong and the PR needed the full
+review. Put the line into the report; in the standalone mode the verdict is BLOCKED (step 5). The
+mechanical mode needs nothing more: the caller runs because the diff has executable code, and its bug
+hunt reads the whole diff.
 
 ## Cleaning up the temporary trees
 
@@ -526,7 +532,7 @@ a signature.
 - **BLOCKED** — there is nothing to judge by: the PR is not linked to an issue, or the run did not
   start (no Docker, no `.env`) and there is nothing to confirm it works with, or a mutation gate
   broke off on a checker crash on the repeat too or the area was not assembled (steps 1–2): nobody
-  checked the PR's mutants. Or the `comments` gate came with a `.ts` hunk that changes code
+  checked the PR's mutants. Or the `comments` gate came with a `.ts` that changes code
   (step 3): the bug hunt that code needed did not run.
 
 Red that is red on the base too does not change the verdict — put it on a separate line as

@@ -39,11 +39,11 @@ architecture invariants, smells and bug hunting have nothing to find there, and 
 and no search for the documentation a change made false. PR #559 had no `.ts` or `.sh`, passed the
 light check twice and was merged with a bug: no bug hunt ran on it.
 
-A `.ts` is a sign of depth only when it changes code. The diff has a `.ts` — read its `.ts` hunks
-(`gh pr diff <N>`): whether they change only comments, and why such a diff needs no bug hunt, is
-said in `docs/agents/review-gates.md`, the paragraph on the comments-only `.ts` diff. The light
-check does not leave such comments unread: the table turns on its gate `comments`, which checks
-them against the code.
+A `.ts` is a sign of depth only when it changes code. The diff has a `.ts` — read its `.ts` files in
+`gh pr diff <N>`, the file headers with the hunks: whether they change only comments, and why such a
+diff needs no bug hunt, is said in `docs/agents/review-gates.md`, the paragraph on the comments-only
+`.ts` diff. The light check does not leave such comments unread: the table turns on its gate
+`comments`, which checks them against the code.
 
 The boundary is drawn by price, not by importance. **Both** skills check issue compliance: it
 is not a sign of depth but a condition of any verdict. A green run on a PR that touches only the
