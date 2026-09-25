@@ -1,0 +1,25 @@
+<!-- mutation-record head=e810a6c94c4063d8c74248e37b3711404f63dda0 clean=yes scope=files exit=0 score=100.00 -->
+## `make mutation` run record
+
+- head: `e810a6c94c4063d8c74248e37b3711404f63dda0`
+- tree: clean
+- files: `src/font-convertor/eot-packer/eot-packer.ts src/font-convertor/font-forge/font-forge.ts src/font-convertor/signature-matcher/font-signature-matcher.ts`
+- started: 2026-09-23T14:12:31Z · duration: 2 min 8 s · exit code: 0
+- score (Final mutation score): 100.00
+- statuses: Killed 179 · Timeout 3 · Survived 0 · NoCoverage 0 · CompileError 56 · RuntimeError 0 · Ignored 19 · Pending 0
+
+<details><summary>Mutated files: 3</summary>
+
+```text
+src/font-convertor/eot-packer/eot-packer.ts
+src/font-convertor/font-forge/font-forge.ts
+src/font-convertor/signature-matcher/font-signature-matcher.ts
+```
+
+</details>
+
+### Survived and uncovered: 0
+
+
+_🤖 Posted by Claude Code from the owner's account._
+

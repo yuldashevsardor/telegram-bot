@@ -1,0 +1,117 @@
+<!-- mutation-record head=541d48a21e01f6ce97f3d2f766ef272a4d67f189 clean=yes scope=full exit=0 score=100.00 -->
+## `make mutation` run record
+
+- head: `541d48a21e01f6ce97f3d2f766ef272a4d67f189`
+- tree: clean
+- files: not passed, the whole `src/`
+- started: 2026-09-21T21:27:32Z · duration: 16 min 29 s · exit code: 0
+- score (Final mutation score): 100.00
+- statuses: Killed 1501 · Timeout 34 · Survived 0 · NoCoverage 0 · CompileError 635 · RuntimeError 0 · Ignored 48 · Pending 0
+
+<details><summary>Mutated files: 95</summary>
+
+```text
+src/bootstrap/application/application.ts
+src/bootstrap/application/context/application-context.ts
+src/bootstrap/config/builder/config-values-builder.ts
+src/bootstrap/config/container/config-container.ts
+src/bootstrap/config/parser/config-parser.ts
+src/bootstrap/config/storage/config-env-storage.ts
+src/bootstrap/config/storage/config-storage.helper.ts
+src/bootstrap/config/storage/file/config-file-storage.errors.ts
+src/bootstrap/config/storage/file/config-file-storage.ts
+src/bootstrap/container/container.ts
+src/font-convertor/convertor/convertor-factory.ts
+src/font-convertor/convertor/convertor.ts
+src/font-convertor/convertor/eot/eot-to-ttf.ts
+src/font-convertor/convertor/from-eot-convertor.ts
+src/font-convertor/convertor/otf/otf-to-svg.ts
+src/font-convertor/convertor/otf/otf-to-ttf.ts
+src/font-convertor/convertor/otf/otf-to-woff.ts
+src/font-convertor/convertor/otf/otf-to-woff2.ts
+src/font-convertor/convertor/svg/svg-to-otf.ts
+src/font-convertor/convertor/svg/svg-to-ttf.ts
+src/font-convertor/convertor/svg/svg-to-woff.ts
+src/font-convertor/convertor/svg/svg-to-woff2.ts
+src/font-convertor/convertor/to-eot-convertor.ts
+src/font-convertor/convertor/ttf/ttf-to-eot.ts
+src/font-convertor/convertor/ttf/ttf-to-otf.ts
+src/font-convertor/convertor/ttf/ttf-to-svg.ts
+src/font-convertor/convertor/ttf/ttf-to-woff.ts
+src/font-convertor/convertor/ttf/ttf-to-woff2.ts
+src/font-convertor/convertor/two-step-eot-convertor.ts
+src/font-convertor/convertor/woff/woff-to-otf.ts
+src/font-convertor/convertor/woff/woff-to-svg.ts
+src/font-convertor/convertor/woff/woff-to-ttf.ts
+src/font-convertor/convertor/woff/woff-to-woff2.ts
+src/font-convertor/convertor/woff2/woff2-to-otf.ts
+src/font-convertor/convertor/woff2/woff2-to-svg.ts
+src/font-convertor/convertor/woff2/woff2-to-ttf.ts
+src/font-convertor/convertor/woff2/woff2-to-woff.ts
+src/font-convertor/eot-packer/eot-packer.errors.ts
+src/font-convertor/eot-packer/eot-packer.ts
+src/font-convertor/eot-packer/sfnt-reader/sfnt-reader.errors.ts
+src/font-convertor/eot-packer/sfnt-reader/sfnt-reader.ts
+src/font-convertor/font-convertor.errors.ts
+src/font-convertor/font-convertor.ts
+src/font-convertor/font-forge/font-forge.errors.ts
+src/font-convertor/font-forge/font-forge.ts
+src/font-convertor/sfnt-version.ts
+src/font-convertor/signature-matcher/font-signature-matcher.ts
+src/platform/logger/abstract-logger.ts
+src/platform/logger/console-logger.ts
+src/platform/logger/logger.errors.ts
+src/platform/logger/logger.types.ts
+src/platform/logger/pino-logger.ts
+src/platform/request-context/request-context.ts
+src/shared/config-value.ts
+src/shared/errors.ts
+src/shared/fs/file-helper.errors.ts
+src/shared/fs/file-helper.ts
+src/shared/number-helper.ts
+src/shared/process/process-helper.errors.ts
+src/shared/process/process-helper.ts
+src/shared/string/string-helper.errors.ts
+src/shared/string/string-helper.ts
+src/shared/tokens.ts
+src/shared/utils.ts
+src/telegram/bot/bot.errors.ts
+src/telegram/bot/bot.ts
+src/telegram/command/bulk-messages/bulk-messages.command.ts
+src/telegram/command/command.ts
+src/telegram/command/font-generator/font-generator.command.ts
+src/telegram/command/start/start.command.ts
+src/telegram/conversation/conversation-handler.ts
+src/telegram/conversation/start/start.conversation.ts
+src/telegram/filter/filter.ts
+src/telegram/filter/has-session-key.filter.ts
+src/telegram/filter/is-private-chat.filter.ts
+src/telegram/locale/locale.errors.ts
+src/telegram/locale/locale.ts
+src/telegram/locale/locale.types.ts
+src/telegram/middleware/fill-user-to-context.middleware.ts
+src/telegram/middleware/middleware.ts
+src/telegram/middleware/mutation/telegram-call-api.middleware.ts
+src/telegram/middleware/request-context.middleware.ts
+src/telegram/middleware/request-log.middleware.ts
+src/telegram/middleware/response-time.middleware.ts
+src/telegram/outbound-queue/partition.ts
+src/telegram/outbound-queue/rate-limit/rate-limit.errors.ts
+src/telegram/outbound-queue/rate-limit/rate-limit.ts
+src/telegram/outbound-queue/runner/runner.ts
+src/telegram/outbound-queue/task-queue.ts
+src/telegram/session/session.helper.ts
+src/telegram/telegram-chat.ts
+src/telegram/telegram-limit-resolver.ts
+src/telegram/user/service/user-service.ts
+src/telegram/user/user.errors.ts
+src/telegram/user/user.ts
+```
+
+</details>
+
+### Survived and uncovered: 0
+
+
+_🤖 Posted by Claude Code from the owner's account._
+

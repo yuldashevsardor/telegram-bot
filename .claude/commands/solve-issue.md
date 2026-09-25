@@ -55,20 +55,21 @@ on the `mutation-full` gate (`docs/agents/review-gates.md`) — `make mutation` 
 The run leaves a record — `reports/mutation/record.md`, its format is in
 `docs/architecture/testing.md`, "The run record". After the push, post it in the PR as a comment
 as is, appending an empty line and the signature from `CLAUDE.md`: by it the reviewer accepts
-your run instead of its own (the conditions are in `.claude/skills/pr-light-check/SKILL.md`, "The
-author's run record"). The first run goes before the PR, and its record is posted right after the
-PR is created. Post only the record of a run that happened: the area is empty and the target did
-not run — there is nothing to post, and a `record.md` left over from the previous round would lie
-about the head. While the run goes, run nothing else, as the reviewer does on `mutation-full`:
+your run instead of its own (the conditions are in the docstring of
+`scripts/review/mutation_record.py`). The first run goes before the PR, and its record is posted
+right after the PR is created. Post only the record of a run that happened: the area is empty
+and the target did not run — there is nothing to post, and a `record.md` left over from the
+previous round would lie about the head. While the run goes, run nothing else, as the reviewer does on `mutation-full`:
 under load a mutant's status lies both ways (`docs/architecture/testing.md`, "Timeouts and
 errors"), and the review reuses your run.
 
 The last record in the PR also covers the next commit if the changes since its head do not
 affect the run: then the target does not run and no new record is posted — the review accepts
-the same one (`docs/agents/review-gates.md`, "Changes that affect the mutation run"; the command
-in `.claude/skills/pr-light-check/SKILL.md`, "The author's run record", fetches the last record
-and its `head=`). A record of the reviewer's serves as well: it lies in the same thread, and the
-same rule applies to it.
+the same one (`docs/agents/review-gates.md`, "Changes that affect the mutation run"). After the
+push, `make mutation-record pr=<PR> gate=<the gate> [area="<the area>"]` answers it: the PR head is
+then your `HEAD`, and when the record's head differs, the answer lists the files changed between
+the two for that table. A record of the reviewer's serves as well: it lies in the same thread,
+and the same rule applies to it.
 
 Same rule, one case worth naming: a merge of `origin/main` into the branch moves the head although
 you edited nothing, and what the merge brings goes through the three gates of that section. Measure
