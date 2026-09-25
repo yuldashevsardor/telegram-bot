@@ -8,8 +8,8 @@ physical() {
     ( cd "$1" 2>/dev/null && pwd -P )
 }
 
-# The directory of a file not yet on disk (Write of a new file) is taken as its nearest
-# existing ancestor: git only answers about a path that exists.
+# A file not yet on disk (Write of a new file) is taken at its nearest existing ancestor
+# directory: git only answers about a path that exists.
 existing_dir() {
     dir=$1
     while [ ! -d "$dir" ] && [ "$dir" != "/" ] && [ "$dir" != "." ]; do
@@ -32,24 +32,22 @@ in_main_tree() {
     printf '%s' "$main"
 }
 
-# Prints the .claude files that are newer on origin/main than in worktree $1. A session reads the
-# text of a command or a skill from disk once — on first use — and never re-reads it, so a stale
-# .claude feeds it an instruction main no longer has, and the session has no way to notice the
-# swap: the agent does not open the file itself.
+# Prints the .claude files that are newer on origin/main than in worktree $1. A session reads a
+# command or a skill once and never re-reads it, so a lagging .claude feeds it an instruction
+# main no longer has, unnoticed (docs/architecture/testing.md).
 stale_claude() {
     git -C "$1" rev-parse --verify --quiet origin/main >/dev/null 2>&1 || return 1
-    # Three dots, not two: the diff is taken from the fork point, so a .claude edit carried by
-    # this worktree's own PR does not count as lagging. An uncommitted edit drops out along with
-    # it — the trees of two commits are compared — and that is the same exception: both are made
-    # here, and the check looks for lagging behind main, not for any difference from it.
+    # Three dots, not two: the check looks for lagging behind main, not for any difference from
+    # it, so the diff starts at the fork point. A .claude edit made here does not count: neither
+    # one carried by this worktree's own PR nor an uncommitted one (two commit trees are
+    # compared).
     # For the same reason origin/main merged into the worktree turns the check off until main
-    # moves ahead — even if the merge left .claude old (git merge -s ours): nothing lags here,
-    # the branch chose the previous state itself.
-    # There is no fetch of its own: a stale origin/main understates the lag but never invents
-    # one, and going to the network on every session start costs more than a missed difference.
-    # The path is written as :(top).claude: git resolves a plain pathspec from the current
-    # directory, and a session is also started from a subdirectory of the worktree — then
-    # .claude would not be found and the difference would silently go unnamed.
+    # moves ahead, even if the merge kept the old .claude (git merge -s ours): nothing lags, the
+    # branch chose the previous state itself.
+    # No fetch of its own: a stale origin/main understates the lag but never invents one, and a
+    # trip to the network on every session start costs more than a missed difference.
+    # :(top) because git resolves a plain pathspec from the current directory. A session started
+    # in a subdirectory of the worktree would not find .claude and would silently name nothing.
     files=$(git -C "$1" diff --name-only HEAD...origin/main -- ':(top).claude' 2>/dev/null) || return 1
     [ -n "$files" ] || return 1
     printf '%s' "$files" | tr '\n' ' '

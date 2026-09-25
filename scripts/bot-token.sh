@@ -31,12 +31,12 @@ Usage: scripts/bot-token.sh <acquire|renew|release|status|add>
   acquire   lease a free slot to the current worktree and write BOT_TOKEN
             into its .env; a repeated call from the same worktree returns
             the same slot
-  renew     extend the lease of the current worktree (call it before starting
-            the bot and before any long action); without a lease it does
-            acquire, but in the main worktree it leaves alone a BOT_TOKEN the
-            pool does not have even commented out: there it is written by hand.
-            In a task worktree .env is always a copy of the main one, so a slot
-            is always leased there
+  renew     extend the lease of the current worktree; call it before starting
+            the bot and before any long action. Without a lease it does
+            acquire. The exception is a BOT_TOKEN in the main worktree that
+            the pool lacks, even commented out: it is written there by hand
+            and left alone. In a task worktree .env is always a copy of the
+            main one, so a slot is always leased there
   release   free the slot of the current worktree
   status    show which slots are leased
   add       append a new token to the end of the pool and print its slot
@@ -110,10 +110,10 @@ write_lease() {
     printf 'tree=%s\nts=%s\npid=%s\n' "$2" "$(now)" "$$" > "$LEASE_DIR/$1"
 }
 
-# A whitespace-only value is the same empty BOT_TOKEN= from .env.dist, just with a stray
-# space or a \r from a CRLF editor; taking it for a token written by hand would leave the
-# worktree without a working token. Edge whitespace of the pool lines themselves is not
-# affected: in_pool compares those by its own rules.
+# The value is trimmed at the edges. A whitespace-only one is the empty BOT_TOKEN= from
+# .env.dist with a stray space or a \r from a CRLF editor: taken for a token written by hand,
+# it would leave the worktree without a working token. The pool lines are not trimmed here:
+# in_pool compares them by its own rules.
 env_token() {
     env_file="$1/.env"
     [ -f "$env_file" ] || return 0
@@ -129,10 +129,8 @@ env_token() {
 }
 
 # A token from a commented-out line counts as the pool's too: it is out of circulation but
-# belongs to the pool, and a worktree holding it has to move to a free slot rather than stay
-# on a revoked token. The line is parsed as in cmd_add: after `#` the token is the first field
-# only, in an active line the token is the whole line, exactly what write_env writes to .env.
-# The token goes to awk through the environment, not as an argument: argv is visible in ps.
+# belongs to the pool, so a worktree holding it moves to a free slot rather than stay on a
+# revoked token. The lines are parsed, and the token reaches awk, as in cmd_add.
 in_pool() {
     [ -f "$POOL_FILE" ] || return 1
     BOT_TOKEN_CANDIDATE="$1" awk '
@@ -207,15 +205,15 @@ cmd_renew() {
         printf 'slot %s renewed for another %s s\n' "$mine" "$TTL"
         return
     fi
-    # No lease — either it expired or the worktree never worked with the pool. Leasing a
-    # slot and rewriting .env is ruled out in exactly one case: the main worktree holds a
-    # token the pool does not know. There it is written by hand — it belongs to a person, not
-    # to the pool, and silently swapping it for the token of a free slot is not allowed.
+    # No lease: it expired, or the worktree never worked with the pool. Leasing a slot and
+    # rewriting .env is ruled out in one case only: the main worktree holds a token the pool
+    # does not know. It is written there by hand and belongs to a person, not to the pool, so
+    # it must not be silently swapped for the token of a free slot.
     #
-    # A task worktree gets .env as a copy of the main one (scripts/worktree-init.sh), so a
-    # token the pool does not know is inherited there, not its own: leaving the worktree on it
-    # means a second long polling on one token and a 409 Conflict, which the pool exists to
-    # prevent.
+    # A task worktree has no such case: its .env is a copy of the main one
+    # (scripts/worktree-init.sh), so an unknown token there is inherited, not its own. Staying
+    # on it means a second long polling on one token and a 409 Conflict, which the pool exists
+    # to prevent.
     token=$(env_token "$root")
     if [ "$root" = "$(main_tree)" ] && [ -n "$token" ] && ! in_pool "$token"; then
         printf 'no slot is leased to %s; BOT_TOKEN in .env is not from the pool and is left as is\n' "$root" >&2
@@ -237,23 +235,22 @@ cmd_release() {
     printf 'slot %s released\n' "$mine"
 }
 
-# The pool is append-only: a slot is a line number, so a token is always appended at the end.
-# Inserting in the middle or deleting a line would shift the numbering, and live leases would
-# start pointing at other tokens.
+# The pool is append-only: a slot is a line number. Inserting or deleting a line would shift
+# the numbering, and live leases would point at other tokens.
 #
-# The token is read from stdin only: as an argument it would be visible in the process table
-# to every user of the machine and would settle in the shell history.
+# The token is read from stdin only: an argument is visible in the process table to every user
+# of the machine and settles in the shell history.
 cmd_add() {
-    [ "$#" -eq 0 ] || die "the token is not passed as an argument — it has already reached argv, visible in ps, and the call stays in the shell history; treat this token as compromised, revoke it at @BotFather and add a new one: scripts/bot-token.sh add asks for the token at a prompt"
+    [ "$#" -eq 0 ] || die "the token is not taken as an argument. It has already reached argv, visible in ps, and the call stays in the shell history: treat the token as compromised, revoke it at @BotFather and add a new one. scripts/bot-token.sh add asks for the token at a prompt"
 
-    # read returns non-zero on a line without a trailing newline too, so what it read is
+    # read also returns non-zero on a line without a trailing newline, so what it read is
     # kept rather than wiped.
     token=""
     if [ -t 0 ]; then
         printf 'token from @BotFather (input is hidden): ' >&2
         stty_state=$(stty -g)
-        # Unless echo is restored on every exit, the terminal stays without echo and the user
-        # has to type stty sane blind. EXIT is trapped too: die inside the block is not a signal.
+        # Echo is restored on every exit, or the terminal stays without it and the user types
+        # stty sane blind. EXIT is trapped too: die inside the block is not a signal.
         trap 'stty "$stty_state" 2>/dev/null || true' EXIT
         trap 'stty "$stty_state" 2>/dev/null || true; exit 130' HUP INT QUIT TERM
         stty -echo
@@ -285,12 +282,12 @@ cmd_add() {
     lock
     [ -f "$POOL_FILE" ] || : > "$POOL_FILE"
     chmod 600 "$POOL_FILE"
-    # A commented-out line is a taken token too: it gets uncommented to put the token back into
-    # circulation, and then two slots with one token give a 409 Conflict. After `#` people
-    # usually also write why the token was retired, so only the first field counts as the token
-    # there. In an active line the token is the whole line: exactly what write_env writes to .env.
-    # The token itself goes to awk through the environment, not as an argument: argv is visible
-    # in ps.
+    # A commented-out line is a taken token too: uncommented to put the token back into
+    # circulation, it would give two slots with one token and a 409 Conflict.
+    # After `#` only the first field counts as the token: people usually also write there why
+    # the token was retired. In an active line the token is the whole line, exactly what
+    # write_env writes to .env.
+    # The token goes to awk through the environment, not as an argument: argv is visible in ps.
     dup=$(BOT_TOKEN_CANDIDATE="$token" awk '
         BEGIN { candidate = ENVIRON["BOT_TOKEN_CANDIDATE"] }
         {
@@ -306,9 +303,9 @@ cmd_add() {
                 sub(/[[:space:]]+$/, "", line)
             }
             if (line == "" || line != candidate) next
-            # add never creates a pool with an active and a commented-out copy of one token,
-            # but a hand edit of the file easily does, and then the advice "uncomment it" would
-            # give a second live slot. So an active match wins, whatever order the lines are in.
+            # An active match wins, whatever order the lines are in. add never puts an active
+            # and a commented-out copy of one token into the pool, but a hand edit easily does,
+            # and then the advice "uncomment it" would give a second live slot.
             if (!commented) {
                 active = NR
                 active_raw = raw
