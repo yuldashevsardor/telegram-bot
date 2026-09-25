@@ -44,6 +44,14 @@ them apart.
   as dangerous until it is written in here.
 - **What was not run is not hushed up.** Every check a gate turned on and you did not perform goes
   into the report with the reason.
+- **The review's tools come from the tree you were started in, the gates run the PR's code.** A
+  target that runs an action of `scripts/review/` is called from the tree you were started in, never
+  from a temporary one: there the `Makefile` and `scripts/review/` are the PR's code under review.
+  Called from there, a PR would be reviewed by its own version of the action, and a PR opened
+  before an action was merged has no such target at all (a re-review of PR #524 got `No rule to
+  make target 'mutation-area'`). What an action reads of the PR it takes from the PR tree named in
+  its arguments or from the objects the trees share. `make review-test` is not such a target: it is
+  the `python` gate over the PR's specs.
 - **A temporary tree does not outlive the run.** Every one you created is removed by "Cleaning up
   the temporary trees" whatever the outcome: a red gate, BLOCKED and a stop halfway included.
 
@@ -77,9 +85,10 @@ pool. A `Not cleaned up:` line above the stop — an earlier run's tree could no
 into the report as "Cleaning up the temporary trees" says. The stop `.env was not copied` names a
 tree this run did create: remove it there like any other.
 
-Step 2 runs whole from the temporary tree, so the `cd` is required: the targets are listed in
+The gates of step 2 run from the temporary tree, so the `cd` is required: the targets are listed in
 `allowed-tools` by exact match (`Bash(make coverage)`), and `make -C <path> coverage` does not fall
-under them. `make db-up` is never called from a temporary tree, neither here nor in "Red": there it
+under them. The review actions among them are the exception of the hard rules: for them `cd` back
+to the tree you were started in, then into the PR tree again. `make db-up` is never called from a temporary tree, neither here nor in "Red": there it
 recreates the shared database on an empty `tmp/pgsql` (the docstring above says how).
 
 ## Step 2. The run by gates
@@ -97,8 +106,8 @@ Run only what the gates turned on. The order matters: `rebuild` goes first.
 | `make-targets` | `make help`, then `make -n <changed target>`; the `mutation` recipe touched — also the substitution (below) |
 | `scripts` | `sh -n <script>`, then a parse by dash |
 | `python` | `make review-test` |
-| `mutation` | `make mutation-area pr=<N>`, `make mutation-record …`, then `make mutation files="<its output>"` |
-| `mutation-full` | `make mutation-record …`, then `make mutation` |
+| `mutation` | `make mutation-area pr=<N> tree=<the PR tree>` and `make mutation-record …` from the tree you were started in, then `make mutation files="<its output>"` |
+| `mutation-full` | `make mutation-record …` from the tree you were started in, then `make mutation` |
 
 This is the allowlist. Also allowed are `make token-status` and `scripts/bot-token.sh` with no
 arguments — neither changes anything — and the probe file of the `mutation` substitution (below,
@@ -250,11 +259,19 @@ command, so the run goes to the background and the result is read on completion.
 start no other gates: the load would be created by the review itself, and under load a mutant's
 status lies both ways (`docs/architecture/testing.md`, "Timeouts and errors").
 
-`mutation` mutates the area from the diff. Assemble it in the PR tree:
+`mutation` mutates the area from the diff. Assemble it from the tree you were started in, naming
+the PR tree:
 
 ```bash
-make mutation-area pr=<N>
+cd <the tree you were started in>
+make mutation-area pr=<N> tree=<the PR tree>
+cd <the PR tree>
 ```
+
+`tree` is what makes the area the PR's: `git` and the container that reads the configs run there,
+so a source the PR adds stays in the area and the exclusions are those of the PR's
+`stryker.config.mjs`. Without it the target reads the files and the configs of the tree it is
+called from.
 
 The target prints the area one path per line and says on stderr why a changed file was left out:
 the rule, from the mirror of a spec to the exclusions of `stryker.config.mjs`, and the reason
@@ -284,7 +301,9 @@ hid it.
 
 `make mutation` writes a run record, and the author publishes it in the PR; the format is in
 `docs/architecture/testing.md`, "The run record". Check it before running the target: under
-`mutation-full` right away, under `mutation` once the area is assembled and not empty:
+`mutation-full` right away, under `mutation` once the area is assembled and not empty. The target
+is called from the tree you were started in, as `make mutation-area` is, and needs no `tree`: the
+PR head and the diff between two commits come from the objects the trees share.
 
 ```bash
 make mutation-record pr=<N> gate=mutation area="<the area>" [rebuild=1]
@@ -444,8 +463,7 @@ cd <the tree you were started in>
 make review-tree-remove path=<temporary path>
 ```
 
-The target is called from the tree you were started in, not from the temporary one: the `Makefile`
-there is the PR's code under review. It takes the tree's application down together with its image
+The target is called from the tree you were started in, by the hard rules. It takes the tree's application down together with its image
 and volume and removes the tree; what it runs, in which order and why is in the docstring of
 `scripts/review/tree_remove.py`.
 

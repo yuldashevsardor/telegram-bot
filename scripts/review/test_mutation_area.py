@@ -2,8 +2,10 @@ import io
 import json
 import os
 import subprocess
+import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from unittest import mock
 
 import mutation_area
 
@@ -48,10 +50,17 @@ IMPORTS = {
 }
 
 
-class FakeRun:
-    """Stands for subprocess.run: answers git, gh and the container from the tree above."""
+# The tree of a PR, other than the tree the action is called from.
+PR_TREE = "/review/telegram-bot-review-7"
 
-    def __init__(self, changed, **answers):
+
+class FakeRun:
+    """Stands for subprocess.run: answers git, gh and the container from the tree above.
+
+    `in_pr_tree` holds the answers that differ when a command runs in PR_TREE.
+    """
+
+    def __init__(self, changed, in_pr_tree=None, **answers):
         self.changed = "".join(file + "\n" for file in changed)
         self.answers = {
             "diff": (0, self.changed),
@@ -60,6 +69,7 @@ class FakeRun:
             "container": (0, " Container app-run Creating\n" + json.dumps(CONFIGS) + "\n"),
         }
         self.answers.update(answers)
+        self.in_pr_tree = in_pr_tree or {}
         self.calls = []
 
     def __call__(self, args, **kwargs):
@@ -67,7 +77,10 @@ class FakeRun:
         name = self.name(args)
         if name == "grep":
             return self.grep(args)
-        code, output = self.answers[name]
+        answers = dict(self.answers)
+        if kwargs.get("cwd") == PR_TREE:
+            answers.update(self.in_pr_tree)
+        code, output = answers[name]
         if code == 0:
             return subprocess.CompletedProcess(args, code, output, "")
         return subprocess.CompletedProcess(args, code, "", output)
@@ -95,10 +108,10 @@ class FakeRun:
 
 
 class MutationAreaTest(unittest.TestCase):
-    def area(self, run, pr=None):
+    def area(self, run, pr=None, tree=None):
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), redirect_stderr(err):
-            code = mutation_area.mutation_area(pr, DC_APP_RUN, run)
+            code = mutation_area.mutation_area(pr, tree, DC_APP_RUN, run)
         return code, out.getvalue().splitlines(), err.getvalue().splitlines()
 
     def test_a_source_goes_in_as_it_is(self):
@@ -122,6 +135,47 @@ class MutationAreaTest(unittest.TestCase):
 
         self.assertEqual(run.calls[0][0], ["gh", "pr", "diff", "7", "--name-only"])
         self.assertEqual((code, area), (0, ["src/shared/config-value.ts"]))
+
+    def test_without_a_tree_every_command_runs_in_the_current_tree(self):
+        run = FakeRun(["test/database.helper.ts"])
+
+        self.area(run, pr="7")
+
+        self.assertEqual(run.names(), ["gh", "ls-files", "container", "grep"])
+        self.assertEqual({kwargs["cwd"] for _, kwargs in run.calls}, {None})
+
+    def test_with_a_tree_every_command_runs_in_it(self):
+        for pr, diff in (("7", "gh"), (None, "diff")):
+            run = FakeRun(["test/database.helper.ts"])
+
+            self.area(run, pr=pr, tree=PR_TREE)
+
+            self.assertEqual(run.names(), [diff, "ls-files", "container", "grep"])
+            self.assertEqual({kwargs["cwd"] for _, kwargs in run.calls}, {PR_TREE})
+
+    def test_a_source_the_pr_adds_stays_in_the_area_of_its_tree(self):
+        added = "src/shared/added.ts"
+        run = FakeRun(
+            [added], in_pr_tree={"ls-files": (0, "".join(f + "\n" for f in TREE + [added]))}
+        )
+
+        self.assertEqual(self.area(run, pr="7", tree=PR_TREE), (0, [added], []))
+        self.assertEqual(
+            self.area(run, pr="7"),
+            (0, [], ["`{}` is left out: it is not in the tree".format(added)]),
+        )
+
+    def test_an_exclusion_only_in_the_stryker_config_of_the_tree_is_subtracted(self):
+        configs = dict(CONFIGS, excluded=CONFIGS["excluded"] + ["src/shared/config-value.ts"])
+        run = FakeRun(
+            ["src/shared/config-value.ts"], in_pr_tree={"container": (0, json.dumps(configs))}
+        )
+
+        self.assertEqual(
+            self.area(run, pr="7", tree=PR_TREE),
+            (0, [], ["`src/shared/config-value.ts` is left out: the Stryker config excludes it"]),
+        )
+        self.assertEqual(self.area(run, pr="7"), (0, ["src/shared/config-value.ts"], []))
 
     def test_a_spec_gives_its_mirror(self):
         code, area, notes = self.area(FakeRun(["test/shared/config-value.spec.ts"]))
@@ -318,17 +372,36 @@ class MainTest(unittest.TestCase):
             code = mutation_area.main(argv, environ)
         return code, err.getvalue().strip()
 
-    def test_refuses_anything_but_a_pr_number(self):
-        for argv in (["abc"], ["0"], ["7", "8"]):
+    def test_refuses_anything_but_a_pr_number_and_a_tree(self):
+        for argv in (["abc", ""], ["0", ""], ["7"], ["7", "", ""], []):
             self.assertEqual(
                 self.call(argv, {"DC_APP_RUN": DC_APP_RUN}),
-                (2, "usage: make mutation-area [pr=<N>]"),
+                (2, "usage: make mutation-area [pr=<N>] [tree=<path>]"),
             )
 
     def test_refuses_to_run_outside_make(self):
         self.assertEqual(
-            self.call([], {}), (2, "Stopped: no DC_APP_RUN — run it as make mutation-area")
+            self.call(["", ""], {}), (2, "Stopped: no DC_APP_RUN — run it as make mutation-area")
         )
+
+    def test_refuses_a_tree_that_is_not_a_directory(self):
+        self.assertEqual(
+            self.call(["7", "/nonexistent/tree"], {"DC_APP_RUN": DC_APP_RUN}),
+            (2, "Stopped: /nonexistent/tree is not a directory"),
+        )
+
+    def test_empty_arguments_mean_no_pr_and_no_tree(self):
+        with tempfile.TemporaryDirectory() as tree, mock.patch.object(
+            mutation_area, "mutation_area", return_value=0
+        ) as called:
+            for argv, expected in (
+                (["", ""], (None, None)),
+                (["7", ""], ("7", None)),
+                (["", tree], (None, tree)),
+                (["7", tree], ("7", tree)),
+            ):
+                self.assertEqual(self.call(argv, {"DC_APP_RUN": DC_APP_RUN}), (0, ""))
+                self.assertEqual(called.call_args.args, expected + (DC_APP_RUN,))
 
 
 if __name__ == "__main__":

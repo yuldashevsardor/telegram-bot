@@ -3,7 +3,8 @@
 The `mutation` gate of PR review (the pr-light-check skill) and the author's run before a push
 (.claude/commands/solve-issue.md) mutate the same area and differ only in where the changed files
 come from: `gh pr diff <N> --name-only` in the tree of the PR for the reviewer, `git diff
---name-only origin/main...HEAD` for the author. The rule runs in the current tree:
+--name-only origin/main...HEAD` for the author. The rule runs in the tree given as `tree`, or in
+the current one without it:
 
 - A source `src/**/*.ts` goes into the area as it is.
 - A spec gives its mirror (`test/a/b.spec.ts` -> `src/a/b.ts`). A change that weakened a spec
@@ -27,6 +28,15 @@ evaluated stryker.config.mjs), the spec glob (`.mocharc.json` is JSONC and is re
 loader, not as text) and the alias of the test code (`paths` of tsconfig.check.json) come from
 mutation-area-configs.mjs, run by `node` in the application container through `DC_APP_RUN` of the
 Makefile, so they are exactly what Stryker, mocha and tsc see.
+
+The reviewer calls the action from the tree the review started in and names the tree of the PR as
+`tree` (the pr-light-check skill says why the review's tools are taken from there). Everything that
+reads the PR's files runs in `tree`: `git` for the diff, the file list and the importers, and the
+container that reads the configs, since Compose resolves `docker-compose.app.yml` and the mounts
+from the directory it is run in. Called from the PR tree instead, the action would be the PR's own
+version, and a PR opened before the action was merged has no such target at all (#562). Called
+from another tree without `tree`, it would check the files and read the configs of that tree: a
+source the PR adds would be left out as "not in the tree".
 
 A `.ts` whose diff touches only comments stays in the area: in `src/` a comment can be a
 `// Stryker disable` mark, and the gate has to see it (docs/agents/review-gates.md, the `mutation`
@@ -72,27 +82,27 @@ def check(done: "subprocess.CompletedProcess[str]", what: str) -> None:
         raise Stop("{} — {}".format(what, reason(done)))
 
 
-def changed_files(pr: Optional[str], run: Run) -> List[str]:
+def changed_files(pr: Optional[str], tree: Optional[str], run: Run) -> List[str]:
     if pr is None:
         command = ["git", "diff", "--name-only", "origin/main...HEAD"]
     else:
         command = ["gh", "pr", "diff", pr, "--name-only"]
-    done = run(command, capture_output=True, text=True)
+    done = run(command, cwd=tree, capture_output=True, text=True)
     check(done, "{} failed".format(" ".join(command)))
     return [line for line in done.stdout.splitlines() if line]
 
 
-def tracked_files(run: Run) -> Set[str]:
-    done = run(["git", "ls-files"], capture_output=True, text=True)
+def tracked_files(tree: Optional[str], run: Run) -> Set[str]:
+    done = run(["git", "ls-files"], cwd=tree, capture_output=True, text=True)
     check(done, "git ls-files failed")
     return set(done.stdout.splitlines())
 
 
-def read_configs(changed: List[str], dc_app_run: str, run: Run) -> Configs:
+def read_configs(changed: List[str], tree: Optional[str], dc_app_run: str, run: Run) -> Configs:
     command = "{} node --input-type=module - {} < {}".format(
         dc_app_run, " ".join(shlex.quote(path) for path in changed), shlex.quote(CONFIGS_SCRIPT)
     )
-    done = run(["sh", "-c", command], capture_output=True, text=True)
+    done = run(["sh", "-c", command], cwd=tree, capture_output=True, text=True)
     check(done, "the configs were not read in the application container")
     # Compose writes its progress to stderr, but the last line is the only one the script prints.
     lines = [line for line in done.stdout.splitlines() if line.strip()]
@@ -105,7 +115,7 @@ def read_configs(changed: List[str], dc_app_run: str, run: Run) -> Configs:
         raise Stop("the application container answered with no configs — {}".format(failure))
 
 
-def importers(helper: str, aliases: List[List[str]], run: Run) -> List[str]:
+def importers(helper: str, aliases: List[List[str]], tree: Optional[str], run: Run) -> List[str]:
     """The `.ts` files under test/ importing the helper through an alias of tsconfig.check.json."""
     module = helper[: -len(".ts")]
     specifiers = [
@@ -122,7 +132,7 @@ def importers(helper: str, aliases: List[List[str]], run: Run) -> List[str]:
     for specifier in specifiers:
         command += ["-e", '"{}"'.format(specifier), "-e", "'{}'".format(specifier)]
     command += ["--", "test/*.ts"]
-    done = run(command, capture_output=True, text=True)
+    done = run(command, cwd=tree, capture_output=True, text=True)
     # git grep exits with 1 when nothing matched, which is an answer and not a failure.
     if done.returncode == 1 and not done.stderr.strip():
         return []
@@ -134,6 +144,7 @@ def assemble(
     changed: List[str],
     tracked: Set[str],
     configs: Configs,
+    tree: Optional[str],
     run: Run,
     notes: List[str],
 ) -> List[str]:
@@ -177,7 +188,7 @@ def assemble(
         if helper in searched:
             continue
         searched.add(helper)
-        found = importers(helper, configs.aliases, run)
+        found = importers(helper, configs.aliases, tree, run)
         if not found:
             notes.append("`{}` gives no area: no file under test/ imports it".format(helper))
         for file in found:
@@ -191,18 +202,20 @@ def assemble(
     return sorted(area - configs.excluded)
 
 
-def mutation_area(pr: Optional[str], dc_app_run: str, run: Run = subprocess.run) -> int:
+def mutation_area(
+    pr: Optional[str], tree: Optional[str], dc_app_run: str, run: Run = subprocess.run
+) -> int:
     notes: List[str] = []
     try:
         changed = [
             file
-            for file in changed_files(pr, run)
+            for file in changed_files(pr, tree, run)
             if file.endswith(".ts") and file.startswith(("src/", "test/"))
         ]
         if changed:
-            tracked = tracked_files(run)
-            configs = read_configs(changed, dc_app_run, run)
-            area = assemble(changed, tracked, configs, run, notes)
+            tracked = tracked_files(tree, run)
+            configs = read_configs(changed, tree, dc_app_run, run)
+            area = assemble(changed, tracked, configs, tree, run, notes)
         else:
             notes.append("the diff has no .ts under src/ or test/")
             area = []
@@ -220,14 +233,19 @@ def mutation_area(pr: Optional[str], dc_app_run: str, run: Run = subprocess.run)
 def main(argv: Optional[List[str]] = None, environ: Optional[Dict[str, str]] = None) -> int:
     args = sys.argv[1:] if argv is None else argv
     env = os.environ if environ is None else environ
-    if len(args) > 1 or (args and not PR_NUMBER.fullmatch(args[0])):
-        print("usage: make mutation-area [pr=<N>]", file=sys.stderr)
+    # The Makefile passes both arguments always, the ones not given as empty strings.
+    if len(args) != 2 or (args[0] and not PR_NUMBER.fullmatch(args[0])):
+        print("usage: make mutation-area [pr=<N>] [tree=<path>]", file=sys.stderr)
         return 2
+    pr, tree = args[0] or None, args[1] or None
     dc_app_run = env.get("DC_APP_RUN", "")
     if not dc_app_run:
         print("Stopped: no DC_APP_RUN — run it as make mutation-area", file=sys.stderr)
         return 2
-    return mutation_area(args[0] if args else None, dc_app_run)
+    if tree is not None and not os.path.isdir(tree):
+        print("Stopped: {} is not a directory".format(tree), file=sys.stderr)
+        return 2
+    return mutation_area(pr, tree, dc_app_run)
 
 
 if __name__ == "__main__":

@@ -109,7 +109,7 @@ files would still read coherently, and the boundary would move in only one of th
 
 `mutation` and `mutation-full` are the second such pair: both run `make mutation` and differ
 in area. `mutation` mutates the code the PR touched: a survivor sits on the author's line, and
-the run takes seconds. The area is assembled by `make mutation-area` in the PR tree
+the run takes seconds. The area is assembled by `make mutation-area` over the PR tree
 (`scripts/review/mutation_area.py` holds the rule): it needs the PR's code, while the table sees
 only file names. `mutation-full` is turned on by the run's tools, and the whole of `src/` is
 mutated: changing them changes the run of every mutant, not of the diff's lines, and a PR that

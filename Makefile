@@ -235,9 +235,10 @@ review-tree-create: ## Take the head of a PR into a temporary review tree <main 
 	python3 scripts/review/tree_create.py '$(pr)'
 
 # The recipe line is not echoed: stdout is the area itself, one path per line. DC_APP_RUN goes in
-# whole, so the action runs node in the same container make mutation does.
-mutation-area: ## The area of make mutation from the diff against origin/main, or from a PR's: make mutation-area [pr=<N>]
-	@DC_APP_RUN='$(DC_APP_RUN)' python3 scripts/review/mutation_area.py $(if $(pr),'$(pr)')
+# whole, so the action runs node in the same container make mutation does: the one of `tree` when it
+# is given. The two arguments go in a fixed order, the empty ones as empty strings.
+mutation-area: ## The area of make mutation from the diff against origin/main, or from a PR's: make mutation-area [pr=<N>] [tree=<path>]
+	@DC_APP_RUN='$(DC_APP_RUN)' python3 scripts/review/mutation_area.py '$(pr)' '$(tree)'
 
 # The recipe line is not echoed: stdout is the answer the skill reads. The four arguments go in a
 # fixed order, the empty ones as empty strings, and the area is joined into one line as for files.
