@@ -1,7 +1,7 @@
 ---
 name: pr-light-check
 description: Light Pull Request review — a mechanical run of the repository checks by the gates passed in, documentation drift in the changed lines and issue compliance, with a verdict and a PR comment. Run by the /review-pr command, and by the pr-deep-review skill as its mechanical part. Not for ordinary work on code and not for checking uncommitted edits.
-allowed-tools: Bash(gh:*), Bash(git:*), Bash(make rebuild), Bash(make build), Bash(make typecheck), Bash(make coverage), Bash(make lint), Bash(make format-check), Bash(make mutation:*), Bash(make help), Bash(make token-status), Bash(make -n:*), Bash(sh -n:*), Bash(docker run:*), Bash(make review-test), Bash(make review-tree-create:*), Bash(make review-tree-remove:*), Bash(scripts/bot-token.sh), Bash(cd:*), Bash(ls:*), Bash(cp:*), Bash(touch mutation-dirty-probe), Bash(rm mutation-dirty-probe), Bash(grep:*), Bash(awk:*), Read, Grep, Glob, Write
+allowed-tools: Bash(gh:*), Bash(git:*), Bash(make rebuild), Bash(make build), Bash(make typecheck), Bash(make coverage), Bash(make lint), Bash(make format-check), Bash(make mutation:*), Bash(make mutation-area:*), Bash(make help), Bash(make token-status), Bash(make -n:*), Bash(sh -n:*), Bash(docker run:*), Bash(make review-test), Bash(make review-tree-create:*), Bash(make review-tree-remove:*), Bash(scripts/bot-token.sh), Bash(cd:*), Bash(ls:*), Bash(cp:*), Bash(touch mutation-dirty-probe), Bash(rm mutation-dirty-probe), Bash(grep:*), Bash(awk:*), Read, Grep, Glob, Write
 ---
 
 You run the repository checks over the code of a Pull Request and decide whether it can be
@@ -97,7 +97,7 @@ Run only what the gates turned on. The order matters: `rebuild` goes first.
 | `make-targets` | `make help`, then `make -n <changed target>`; the `mutation` recipe touched — also the substitution (below) |
 | `scripts` | `sh -n <script>`, then a parse by dash |
 | `python` | `make review-test` |
-| `mutation` | `make mutation files="<area from the diff>"` |
+| `mutation` | `make mutation-area pr=<N>`, then `make mutation files="<its output>"` |
 | `mutation-full` | `make mutation` |
 
 This is the allowlist. Also allowed are `make token-status` and `scripts/bot-token.sh` with no
@@ -253,34 +253,17 @@ status lies both ways (`docs/architecture/testing.md`, "Timeouts and errors").
 `mutation` mutates the area from the diff. Assemble it in the PR tree:
 
 ```bash
-gh pr diff <N> --name-only \
-  | awk '/^src\/.+\.ts$/ {print; next} /^test\/.+\.spec\.ts$/ {sub(/^test\//, "src/"); sub(/\.spec\.ts$/, ".ts"); print}'
-git grep -l 'from "test/<helper path without .ts>"' -- 'test/*.ts'
-git ls-files -- <paths from the first two commands>
-git ls-files -- 'src/**/<spec name without .spec.ts>.ts'
+make mutation-area pr=<N>
 ```
 
-1. The first command gives the candidates: a source as it is, a spec as its mirror
-   (`test/a/b.spec.ts` → `src/a/b.ts`). A spec belongs in the area because a PR that weakened it
-   touches no sources, and without the mirror it would have nothing to mutate. A changed `.ts` in
-   `test/` that is not a spec is a helper: find the files importing it with the second command.
-   Specs from its output give mirrors, and helpers give the second command again, until nothing new
-   is left. `mocha` hooks (`*-hook.ts`) nobody imports, and they give no area. No candidates — the
-   area is empty right here (`n-a`, as below), assemble no further: `git ls-files --` with no paths
-   prints not nothing but every file of the repository.
-2. The third keeps only the files that exist in the PR tree. `--name-only` also yields deleted
-   files and the old paths of moves (PR #366), and a glob that found no `.ts` under `src/` stops the
-   run by a check in `stryker.config.mjs`.
-3. A spec's mirror is not in the output of the third — find the spec's source by file name with the
-   fourth command: not every spec lies as a mirror (the specs of `test/font-convertor/` are flat,
-   while the sources are laid out in directories). Not found that way either — the source is not in
-   the tree, and the spec gives no area.
-4. Subtract `src/app.ts` and the files of `DATABASE_ONLY_SOURCES` from `stryker.config.mjs` of the
-   PR tree. The config excludes them itself, but an area made of such files alone passes its check
-   and gives a run without a single mutant.
+The target prints the area one path per line and says on stderr why a changed file was left out:
+the rule, from the mirror of a spec to the exclusions of `stryker.config.mjs`, and the reason
+behind each of its steps are in the docstring of `scripts/review/mutation_area.py`. A non-zero exit
+code is not an empty area: the gate is `n-a` with the reason from the `Stopped:` line, and the
+verdict is BLOCKED, as on a checker crash — nobody checked the PR's mutants.
 
-The area is empty after the subtraction — do not run `make mutation`, give `n-a` with the reason
-"the area is empty": the PR edited, say, only the database specs (PR #372). A run with the score
+The area is empty — do not run `make mutation`, give `n-a` with the reason "the area is empty" and
+the lines of stderr: the PR edited, say, only the database specs (PR #372). A run with the score
 `NaN` is `n-a` too, not `ok`: not a single mutant of the area got into the score, and the green
 exit checked nothing.
 
@@ -585,8 +568,8 @@ a signature.
   issue criterion, or changes the issue did not ask for.
 - **BLOCKED** — there is nothing to judge by: the PR is not linked to an issue, or the run did not
   start (no Docker, no `.env`) and there is nothing to confirm it works with, or a mutation gate
-  broke off on a checker crash on the repeat too ("mutation and mutation-full"): nobody checked the
-  PR's mutants.
+  broke off on a checker crash on the repeat too or `make mutation-area` failed ("mutation and
+  mutation-full"): nobody checked the PR's mutants.
 
 Red that is red on the base too does not change the verdict — put it on a separate line as
 inherited.
