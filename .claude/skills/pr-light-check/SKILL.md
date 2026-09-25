@@ -173,10 +173,10 @@ the `clean=` field of the run record, on which condition 2 of its acceptance res
 `tree=…&&dirty=…||dirty=unknown` but does not run it, and a run under `mutation-full` goes on a
 clean tree, where `clean=yes` is expected anyway. So a recipe in which a failing `git` or a
 non-empty `git status` gives 0 looks sound under both gates, and records start arriving with
-`clean=yes` on an unchecked tree — review would accept a run that did not go on the PR's commit. The `mutation` recipe touched in the diff — run the substitution.
-`DC_APP_RUN` is a simple assignment in the `Makefile`, and overriding it from the command line
-replaces the container launch with `echo`: the real recipe runs and prints the counted values in a
-second.
+`clean=yes` on an unchecked tree — review would accept a run that did not go on the PR's commit.
+The `mutation` recipe touched in the diff — run the substitution. `DC_APP_RUN` is a simple
+assignment in the `Makefile`, and overriding it from the command line replaces the container
+launch with `echo`: the real recipe runs and prints the counted values in a second.
 
 ```bash
 # clean tree — MUTATION_DIRTY=0
@@ -292,20 +292,24 @@ make mutation-record pr=<N> gate=mutation-full [rebuild=1]
 ```
 
 `rebuild=1` goes in when the `rebuild` gate is on. The target takes the last comment of the PR
-that starts with the record's marker and checks the four conditions of acceptance; which they are
-and the reason behind each are in the docstring of `scripts/review/mutation_record.py`. The first
-line of its answer:
+that starts with the record's marker and was posted from the account `gh` works as, and checks the
+four conditions of acceptance; which they are and the reason behind each are in the docstring of
+`scripts/review/mutation_record.py`. The first line of its answer:
 
 - `accepted <link>` — the record replaces your run. The lines under it give the record's head,
-  `exit`, `score` and the survived and uncovered mutants.
+  `exit`, `score` and the survived and uncovered mutants. The `head:` line says `not the PR head`
+  when the record went on another commit with the same tree.
 - `accepted if the table turns on none of rebuild, mutation, mutation-full: <link>` — every other
-  condition holds, but the record's head is not the PR head, and the answer lists the files changed
-  between the two. Apply to that list the table of `docs/agents/review-gates.md`, "Changes that
-  affect the mutation run", as `/review-pr` applies it to the PR diff. A file of a row decided by
-  content (`package.json`, `package-lock.json`, the `Makefile`, a tool of the run with its
-  comments-only rule) — read its hunk with the command the answer gives. None of the three gates
-  on — the record is accepted as in the first line; one is on — run the target yourself.
-- `refused: <link>` — every reason follows on a line of its own; run the target yourself.
+  condition holds, but the record went on another commit whose tree differs, and the answer lists
+  the files changed between the two. Apply to that list the table of
+  `docs/agents/review-gates.md`, "Changes that affect the mutation run", as `/review-pr` applies
+  it to the PR diff. A file of a row decided by content (`package.json`, `package-lock.json`, the
+  `Makefile`, a tool of the run with its comments-only rule) — read its hunk with the command the
+  answer gives. None of the three gates on — the record is accepted as in the first line; one is
+  on — run the target yourself.
+- `refused: <link>` — every reason follows on a `- ` line of its own; run the target yourself. A
+  list of changed files under the reasons is not a reason: it is there because the heads differ,
+  and the table was not applied to it.
 - `Stopped: <reason>` on stderr with a non-zero exit code — `gh` or `git` failed and the record was
   not checked; run the target yourself and name the reason in the `mutation:` line.
 
@@ -320,9 +324,9 @@ not cost a round. Where the run came from and why the record was not accepted is
 `mutation:` line of the verdict (step 5). It says "accepted record" and gives the link rather than
 naming the author: the reviewer's record of the previous round lies in the same thread and is
 accepted on a par with the author's, and the author's comment cannot be told from it — the account
-is the same. A record accepted from another head — name its head there too and say that nothing
-under the mutation gates came in since: otherwise the verdict does not show that the run went on a
-commit other than the PR's.
+is the same. A record accepted from another head (its `head:` line says `not the PR head`) — name
+its head there too and say that nothing under the mutation gates came in since: otherwise the
+verdict does not show that the run went on a commit other than the PR's.
 
 Publish the record of your own run in the PR as soon as it finishes: a repeat from "Red" overwrites
 `reports/mutation/record.md`, and the cleanup deletes the temporary tree together with it. Copy the

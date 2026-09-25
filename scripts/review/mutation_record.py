@@ -6,9 +6,11 @@ gate `mutation` or `mutation-full` may take it instead of running the target its
 pr-light-check skill). The reviewer's record of an earlier round lies in the same thread and is
 taken on a par with the author's: the account is the same, and the two cannot be told apart.
 
-The record is the last comment of the PR that starts with the marker `<!-- mutation-record `. The
-wrapper always writes the marker as the first line, while a quote of it in a discussion would
-otherwise pass for a run.
+The record is the last comment of the PR that starts with the marker `<!-- mutation-record ` and
+was written by the account gh works as (`gh api user`). The wrapper always writes the marker as the
+first line, while a quote of it in a discussion would otherwise pass for a run. The author and the
+reviewer publish from that one account, and the repository is public: a marker any other account
+can type, and without the check a stranger's comment would stand in for a run that never happened.
 
 It is accepted when all four conditions hold:
 
@@ -47,9 +49,13 @@ The answer goes to stdout, and its first line is one of three:
 - `accepted <link>`: then the record's `exit`, `score` and survivors, from which the reviewer
   writes the gate's line; a red record still goes to the per-file repeat.
 - `accepted if the table turns on none of …: <link>`: the other conditions hold and the
-  heads differ; the changed files follow.
+  trees of the two heads differ; the changed files follow. Heads that differ over the same tree (a
+  rebase with nothing to replay, a re-push) change no file, and the answer is plain `accepted`:
+  its `head:` line then says `not the PR head`.
 - `refused: <link>` (or `refused: no record in the PR`): every reason at once, one per line, so
-  that one reading shows all that is wrong.
+  that one reading shows all that is wrong. When the trees of the heads differ, the changed files
+  follow the reasons as they do in the conditional answer, and they are not a reason: whether they
+  stale the record is the table's.
 
 A refused record is not a review finding: a process error must not cost a round. A failed `gh` or
 `git` is `Stopped:` on stderr with a non-zero exit code and never a refusal: the record was not
@@ -134,8 +140,18 @@ def parse(url: str, body: str) -> Optional[Record]:
     return Record(url, files=files, mutated=mutated, survivors=survivors, **marker.groupdict())
 
 
+def viewer(run: Run) -> str:
+    done = run(["gh", "api", "user", "-q", ".login"], capture_output=True, text=True)
+    check(done, "gh api user failed")
+    login = done.stdout.strip()
+    if not login:
+        raise Stop("gh api user named no login")
+    return login
+
+
 def last_record(pr: str, run: Run) -> Tuple[str, Optional[dict]]:
-    """The PR head and the last comment that starts with the marker, as gh gives them."""
+    """The PR head and the last comment of the viewer that starts with the marker."""
+    login = viewer(run)
     done = run(
         ["gh", "pr", "view", pr, "--json", "headRefOid,comments"],
         capture_output=True,
@@ -145,7 +161,11 @@ def last_record(pr: str, run: Run) -> Tuple[str, Optional[dict]]:
     try:
         view = json.loads(done.stdout)
         head = view["headRefOid"]
-        comments = [c for c in view["comments"] if c["body"].startswith(PREFIX)]
+        comments = [
+            c
+            for c in view["comments"]
+            if c["body"].startswith(PREFIX) and (c["author"] or {}).get("login") == login
+        ]
     except (ValueError, KeyError, TypeError) as failure:
         raise Stop("gh pr view {} gave no head and comments — {}".format(pr, failure))
     if not head:
@@ -259,12 +279,6 @@ def mutation_record(
         return 1
 
     if reasons:
-        if changed:
-            reasons.insert(
-                0,
-                "the record's head is not the PR head: whether the files changed since stale it "
-                "is not decided here",
-            )
         print("refused: {}".format(record.url))
         for line in reasons:
             print("- " + line)

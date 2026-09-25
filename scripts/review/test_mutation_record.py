@@ -85,12 +85,13 @@ def marker(record, **fields):
     return first + "\n" + rest
 
 
-def comment(body, url=URL_524):
-    return {"body": body, "url": url}
+def comment(body, url=URL_524, login="owner"):
+    return {"body": body, "url": url, "author": {"login": login}}
 
 
 class FakeRun:
-    """Stands for subprocess.run: answers gh with the PR and git with the commits it knows."""
+    """Stands for subprocess.run: answers gh with the viewer `owner` and the PR, and git with the
+    commits it knows."""
 
     def __init__(self, comments, head=HEAD_524, commits=(), changed="", **answers):
         self.view = json.dumps({"headRefOid": head, "comments": comments})
@@ -101,10 +102,12 @@ class FakeRun:
 
     def __call__(self, args, **kwargs):
         self.calls.append(args)
-        name = args[0] if args[0] == "gh" else args[1]
+        name = args[1] if args[0] != "gh" else "user" if args[1] == "api" else "gh"
         if name in self.answers:
             code, output = self.answers[name]
             return subprocess.CompletedProcess(args, code, output if code == 0 else "", output)
+        if name == "user":
+            return subprocess.CompletedProcess(args, 0, "owner\n", "")
         if name == "gh":
             return subprocess.CompletedProcess(args, 0, self.view, "")
         if name == "rev-parse":
@@ -174,12 +177,15 @@ class MutationRecordTest(unittest.TestCase):
         code, lines, _ = self.answer(run, gate="mutation-full", area=[], rebuild=True)
 
         self.assertEqual(code, 0)
-        self.assertEqual(lines[0], "refused: " + URL_502)
-        self.assertIn("- the rebuild gate is on: the run may have gone on an old image", lines)
-        self.assertIn(
-            "- the record's head is not the PR head: whether the files changed since stale it "
-            "is not decided here",
-            lines,
+        self.assertEqual(
+            lines[:3],
+            [
+                "refused: " + URL_502,
+                "- the rebuild gate is on: the run may have gone on an old image",
+                "changed between the record's head {} and the PR head {}:".format(
+                    RECORD_HEAD_502, HEAD_502
+                ),
+            ],
         )
         self.assertIn("  src/telegram/outbound-queue/task-queue.ts", lines)
         self.assertIn("  test/telegram/outbound-queue/task-queue.spec.ts", lines)
@@ -194,6 +200,22 @@ class MutationRecordTest(unittest.TestCase):
         _, lines, _ = self.answer(run)
 
         self.assertEqual(lines[0], "accepted " + URL_524)
+
+    def test_a_record_of_another_account_is_not_taken(self):
+        stranger = marker(PR_524, head=HEAD_502)
+        run = FakeRun([comment(PR_524), comment(stranger, "stranger", login="stranger")])
+
+        _, lines, _ = self.answer(run)
+
+        self.assertEqual(lines[0], "accepted " + URL_524)
+        self.assertEqual(run.calls[0], ["gh", "api", "user", "-q", ".login"])
+
+    def test_a_record_of_another_account_alone_is_no_record(self):
+        run = FakeRun([comment(PR_524, login="stranger")])
+
+        _, lines, _ = self.answer(run)
+
+        self.assertEqual(lines, ["refused: no record in the PR"])
 
     def test_a_quoted_marker_is_not_a_record(self):
         quote = "The record says:\n" + PR_524
@@ -248,7 +270,7 @@ class MutationRecordTest(unittest.TestCase):
 
         self.assertEqual(lines[0], "refused: " + URL_524)
         self.assertTrue(lines[1].startswith("- head=unknown: not a commit"))
-        self.assertEqual(len(run.calls), 1)
+        self.assertNotIn("git", [call[0] for call in run.calls])
 
     def test_condition_1_different_heads_leave_the_table_to_the_reviewer(self):
         run = FakeRun(
@@ -281,7 +303,10 @@ class MutationRecordTest(unittest.TestCase):
 
         _, lines, _ = self.answer(run)
 
-        self.assertEqual(lines[0], "accepted " + URL_524)
+        self.assertEqual(
+            lines[:2],
+            ["accepted " + URL_524, "head: {} — not the PR head {}".format(HEAD_524, HEAD_502)],
+        )
 
     def test_condition_2_a_dirty_or_unknown_tree_is_refused(self):
         for clean in ("no", "unknown"):
@@ -424,6 +449,14 @@ class MutationRecordTest(unittest.TestCase):
 
         self.assertEqual((code, lines), (1, []))
         self.assertIn("Stopped: gh pr view 524 failed — HTTP 502: Bad Gateway", err)
+
+    def test_a_failed_gh_api_user_stops_rather_than_refuses(self):
+        run = FakeRun([comment(PR_524)], user=(1, "HTTP 401: Bad credentials"))
+
+        code, lines, err = self.answer(run)
+
+        self.assertEqual((code, lines), (1, []))
+        self.assertIn("Stopped: gh api user failed — HTTP 401: Bad credentials", err)
 
     def test_a_git_that_did_not_run_stops_rather_than_refuses(self):
         run = FakeRun(

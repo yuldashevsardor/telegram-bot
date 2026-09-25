@@ -140,7 +140,7 @@ of three gates on — the record is stale:
   of the diff's lines;
 - `rebuild` — the run went in a different image.
 
-None of the three — the run is not repeated: neither by the author before the push nor by the
+None of the three — the run is not repeated: neither by the author after the push nor by the
 reviewer under the gate. Otherwise a review fix that touched only documentation would cost the
 round two runs of the same area, and a full run is minutes
 (`docs/architecture/testing.md`, "The type checker").

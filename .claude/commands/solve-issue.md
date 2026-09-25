@@ -59,17 +59,18 @@ your run instead of its own (the conditions are in the docstring of
 `scripts/review/mutation_record.py`). The first run goes before the PR, and its record is posted
 right after the PR is created. Post only the record of a run that happened: the area is empty
 and the target did not run — there is nothing to post, and a `record.md` left over from the
-previous round would lie about the head. While the run goes, run nothing else, as the reviewer does on `mutation-full`:
-under load a mutant's status lies both ways (`docs/architecture/testing.md`, "Timeouts and
-errors"), and the review reuses your run.
+previous round would lie about the head. While the run goes, run nothing else, as the reviewer
+does on `mutation-full`: under load a mutant's status lies both ways
+(`docs/architecture/testing.md`, "Timeouts and errors"), and the review reuses your run.
 
 The last record in the PR also covers the next commit if the changes since its head do not
 affect the run: then the target does not run and no new record is posted — the review accepts
-the same one (`docs/agents/review-gates.md`, "Changes that affect the mutation run"). After the
-push, `make mutation-record pr=<PR> gate=<the gate> [area="<the area>"]` answers it: the PR head is
-then your `HEAD`, and when the record's head differs, the answer lists the files changed between
-the two for that table. A record of the reviewer's serves as well: it lies in the same thread,
-and the same rule applies to it.
+the same one (`docs/agents/review-gates.md`, "Changes that affect the mutation run").
+`make mutation-record pr=<PR> gate=<the gate> [area="<the area>"]` answers it against the PR head,
+so once the PR exists the order is: push, `make mutation-record`, and only then the run and its
+record — on a refusal, or when the table turns on one of its three gates for the files the answer
+lists. A record of the reviewer's serves as well: it lies in the same thread, and the same rule
+applies to it.
 
 Same rule, one case worth naming: a merge of `origin/main` into the branch moves the head although
 you edited nothing, and what the merge brings goes through the three gates of that section. Measure
@@ -158,8 +159,8 @@ finding and your position to the owner and wait for the decision. That does not 
 A reply in the PR instead of a fix does not close the round: the next run counts findings over
 the cumulative diff and returns them word for word.
 
-Fixes go out like this: `make check`, a commit "Review fixes: …", a mutation run if one is needed
-(step 2), push, the run record in the PR, `R` + 1, step 3. If `R` is already 3 but an owner
+Fixes go out like this: `make check`, a commit "Review fixes: …", push, a mutation run if one is
+needed (step 2), the run record in the PR, `R` + 1, step 3. If `R` is already 3 but an owner
 comment needs a fix — step 3 all the same.
 
 The three-round limit guards against ping-pong between author and reviewer, so you do not get
@@ -188,8 +189,8 @@ the owner's answer allows a merge, a clean reviewer verdict does not.
   gh pr view <PR> --json mergeable,mergeStateStatus
   ```
 
-  A conflict — merge `origin/main` into the branch, resolve it, `make check`, a mutation run if
-  one is needed (step 2), push, the run record in the PR. The head changed, so a new review round
+  A conflict — merge `origin/main` into the branch, resolve it, `make check`, push, a mutation run
+  if one is needed (step 2), the run record in the PR. The head changed, so a new review round
   is needed (step 3), then this step again. No conflict:
 
   ```bash
