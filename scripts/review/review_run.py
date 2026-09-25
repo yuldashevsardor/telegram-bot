@@ -217,6 +217,7 @@ class ReviewRun:
         self.here = os.getcwd()
         self.report = Report()
         self.tree: Optional[str] = None
+        self.creating = False
 
     def make(self, args: List[str], cwd: str, log: str) -> "subprocess.CompletedProcess[str]":
         done = self.run(
@@ -236,6 +237,7 @@ class ReviewRun:
 
     def create_tree(self) -> Optional[str]:
         """Makes the tree; the reason it was not made otherwise."""
+        self.creating = True
         done = self.make(["review-tree-create", "pr=" + self.pr], self.here, "tree-create.log")
         stopped = None
         for line in (done.stdout or "").splitlines():
@@ -322,6 +324,7 @@ class ReviewRun:
             cwd=self.here,
             capture_output=True,
             text=True,
+            errors="replace",
         )
         with open(os.path.join(self.logs, "mutation-area.log"), "w", encoding="utf-8") as file:
             file.write(captured(done))
@@ -354,6 +357,7 @@ class ReviewRun:
             cwd=self.here,
             capture_output=True,
             text=True,
+            errors="replace",
         )
         with open(os.path.join(self.logs, "mutation-record.log"), "w", encoding="utf-8") as file:
             file.write(captured(done))
@@ -432,7 +436,9 @@ class ReviewRun:
             self.report.skip("the repeat on the files with survivors", OWN_RUN)
 
     def marks(self) -> None:
-        done = self.run(["gh", "pr", "diff", self.pr], capture_output=True, text=True)
+        done = self.run(
+            ["gh", "pr", "diff", self.pr], capture_output=True, text=True, errors="replace"
+        )
         if done.returncode != 0:
             self.report.skip("the new Stryker disable marks", "gh pr diff failed: " + reason(done))
             return
@@ -494,7 +500,9 @@ class ReviewRun:
                 self.report.skip(gate, why)
         if (self.on("mutation") or self.on("mutation-full")) and self.report.mutation is None:
             self.report.mutation = "mutation: n-a — {}".format(why)
-        if self.tree is None:
+        # Only a creation this run began can have left a tree it does not know of: whatever lies at
+        # the path otherwise is somebody else's, and the next review-tree-create removes a leftover.
+        if self.tree is None and self.creating:
             try:
                 path = review_tree_path(self.pr, self.run)
             except Stop:
@@ -561,7 +569,11 @@ def run_in_group(args: List[str], **kwargs: Any) -> "subprocess.CompletedProcess
         try:
             out, err = process.communicate()
         except BaseException:
-            os.killpg(process.pid, signal.SIGKILL)
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                # The group ended on its own just before the interrupt.
+                pass
             process.wait()
             raise
     return subprocess.CompletedProcess(args, process.returncode, out, err)

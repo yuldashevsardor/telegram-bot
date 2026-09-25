@@ -6,6 +6,7 @@ import tempfile
 import time
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from unittest import mock
 
 import review_run
 
@@ -94,9 +95,11 @@ class FakeRun:
         }
         self.answers.update(answers)
         self.calls = []
+        self.kwargs = []
 
     def __call__(self, args, cwd=None, **kwargs):
         self.calls.append((args, cwd))
+        self.kwargs.append((args, kwargs))
         if args[:3] == ["git", "worktree", "list"]:
             listing = "".join(
                 "worktree {}\nHEAD 0000000\nbranch refs/heads/x\n\n".format(tree)
@@ -211,6 +214,14 @@ class ReviewRunTest(unittest.TestCase):
             run.calls,
         )
         self.assertIn((["make", "review-tree-remove", "path=" + self.review], self.task), run.calls)
+
+    def test_every_output_is_decoded_whatever_bytes_the_pr_brings(self):
+        run = self.fake()
+
+        self.review_run("rebuild build test python mutation", run)
+
+        for args, kwargs in run.kwargs:
+            self.assertEqual(kwargs.get("errors"), "replace", args)
 
     def test_rebuild_goes_first_whatever_the_order_of_the_gates(self):
         run = self.fake()
@@ -586,6 +597,15 @@ class ReviewRunTest(unittest.TestCase):
         self.assertEqual(run.names(), ["review-tree-create", "review-tree-remove"])
         self.assertIn((["make", "review-tree-remove", "path=" + self.review], self.task), run.calls)
 
+    def test_an_interrupt_of_a_run_without_a_tree_leaves_the_path_alone(self):
+        os.makedirs(self.review)
+        run = self.fake(**{"mutation-record": KeyboardInterrupt()})
+
+        code, out = self.review_run("mutation-full make-targets", run)
+
+        self.assertEqual(code, 130)
+        self.assertEqual(run.names(), ["mutation-record"])
+
     def test_an_interrupt_before_any_tree_removes_nothing(self):
         run = self.fake(**{"review-tree-create": KeyboardInterrupt()})
 
@@ -656,6 +676,18 @@ class RunInGroupTest(unittest.TestCase):
                 break
             time.sleep(0.1)
         self.assertTrue(not done.stdout.strip() or done.stdout.strip().startswith("Z"), done.stdout)
+
+
+    def test_an_interrupt_after_the_group_ended_stays_an_interrupt(self):
+        def interrupt(signum, frame):
+            raise review_run.Interrupted()
+
+        previous = signal.signal(signal.SIGALRM, interrupt)
+        self.addCleanup(signal.signal, signal.SIGALRM, previous)
+        signal.setitimer(signal.ITIMER_REAL, 0.2)
+        with mock.patch.object(review_run.os, "killpg", side_effect=ProcessLookupError()):
+            with self.assertRaises(review_run.Interrupted):
+                review_run.run_in_group(["sleep", "1"], capture_output=True, text=True)
 
 
 class ExcerptTest(unittest.TestCase):

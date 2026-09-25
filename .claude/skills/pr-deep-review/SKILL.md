@@ -335,8 +335,8 @@ Verdict rules:
   "Checks", not in "Findings".
 - **BLOCKED** — review is impossible: the PR is not tied to an issue, the build does not start, the
   mutation gate is cut short by a checker crash on the retry too or its area could not be assembled
-  (`pr-light-check`, the `mutation` and `mutation-full` section), the diff is empty, or the task is worded so that its
-  criteria cannot be checked.
+  (`pr-light-check`, steps 1–2), the diff is empty, or the task is worded so that its criteria
+  cannot be checked.
 
 Reached REQUEST_CHANGES on the third run (`K >= 3` from step 1) because of a blocker or a
 should-fix — put BLOCKED instead and say explicitly that a human is needed: two rounds of fixes are
