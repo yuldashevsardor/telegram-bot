@@ -7,16 +7,15 @@ import { configValue } from "app/shared/config-value";
 
 @injectable()
 export class FontForge {
-    // EOT is left out on purpose: the engine does not read its envelope, and on writing it
-    // silently hands over PostScript Type 1 under a foreign extension. EotPacker takes the
-    // envelope off and puts it on, so when an EOT pair needs the engine, the engine reads or
-    // writes a plain sfnt, never the envelope
-    // (issue https://github.com/yuldashevsardor/telegram-bot/issues/158).
+    // EOT is left out on purpose: the engine does not read the envelope, and on writing it
+    // silently puts PostScript Type 1 under the .eot name (docs/architecture/invariants.md).
+    // EotPacker takes the envelope off and puts it on, so on an EOT route the engine reads or writes
+    // a plain sfnt, never the envelope (issue https://github.com/yuldashevsardor/telegram-bot/issues/158).
     private readonly supportedExtensions = [Extension.OTF, Extension.TTF, Extension.WOFF, Extension.SVG, Extension.WOFF2];
-    // The paths are read from sys.argv rather than substituted into the script text: under
+    // The paths are read from sys.argv, not substituted into the script text: substituted, a
+    // path would become Python code, a second level of interpretation after the shell. Under
     // fontforge -c, sys.argv is ["-c", ...the arguments after the script], and a path in it stays
-    // a string. Substitution would make it Python code — a second level of interpretation after
-    // the shell.
+    // a string.
     private readonly convertScript = "import fontforge, sys; font = fontforge.open(sys.argv[1]); font.generate(sys.argv[2])";
 
     public constructor(private readonly fontForgePath: string = configValue("fontForgePath")) {}

@@ -35,8 +35,8 @@ export abstract class Convertor {
             throw InvalidFile.byPathAndExtension(fromPath, extension, this.fromExtension);
         }
 
-        // The extension is set by whoever sent the file, so it alone is not enough: without this
-        // check arbitrary bytes named *.ttf would go to the engine.
+        // The sender sets the extension, so it alone proves nothing. Without this check arbitrary
+        // bytes named *.ttf would go to the engine.
         const head = await FileHelper.readHead(fromPath, this.fontSignatureMatcher.headLength);
 
         if (!this.fontSignatureMatcher.matches(head, this.fromExtension)) {

@@ -27,9 +27,9 @@ export abstract class TwoStepEotConvertor extends Convertor {
     }
 
     /**
-     * Runs both steps and removes the intermediate file — after a success and after a failure
-     * alike. The removal does not go through `finally`: there its own error would displace the
-     * original one, and the real reason for the failure would not survive even in `cause`.
+     * Runs both steps and removes the intermediate file after a success and after a failure
+     * alike. The removal is not in `finally`: there its own error would displace the original
+     * one, and the real reason for the failure would not survive even in `cause`.
      */
     protected async throughIntermediate(sfntPath: string, steps: () => Promise<void>): Promise<void> {
         let failure: unknown;

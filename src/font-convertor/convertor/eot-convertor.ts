@@ -5,7 +5,8 @@ import type { FontSignatureMatcher } from "app/font-convertor/signature-matcher/
 
 /**
  * A pair the codec alone is enough for: the source and the result differ only by the envelope.
- * The engine still comes into the constructor — `ConvertorFactory` sets the order of parameters.
+ * The constructor still takes the engine: `ConvertorFactory` sets the order of the parameters
+ * for every pair.
  */
 export abstract class EotConvertor extends Convertor {
     public constructor(_fontForge: FontForge, fontSignatureMatcher: FontSignatureMatcher, protected readonly eotPacker: EotPacker) {
