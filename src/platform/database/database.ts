@@ -18,11 +18,10 @@ export class Database {
             database: settings.database,
             username: settings.username,
             password: settings.password,
-            // debug in postgres is a callback and not a flag: with true the driver prints
-            // no query anywhere (the typeof === "function" check in its connection.js), it
-            // only makes the fields of a failed query's error enumerable — query and
-            // parameters among them — and from there they reach the payload of the log.
-            // Nothing goes out bypassing Logger.
+            // Not query logging: postgres takes debug as a callback (the typeof === "function"
+            // check in its connection.js), so with true the driver prints nothing and nothing
+            // bypasses Logger. true only makes the fields of a failed query's error enumerable,
+            // and so they reach the payload of the log (docs/architecture/storage.md).
             debug: !isProduction,
             max: settings.connection.max,
             idle_timeout: settings.connection.idleTimeout,

@@ -1,62 +1,80 @@
 # Storage
 
-`Database` (`platform/database/database.ts`) wraps `postgres`; the pool is created in the
-constructor and the connection is opened lazily, which is why `Application.setup()` calls
-`check()`. `debug: !isProduction` is not query logging: `debug` in postgres is a callback
-and not a flag, and the driver itself prints nothing; with `true` it only makes the fields
-of a failed query's error enumerable, `query` and `parameters` among them, and they end up
-in the `payload` of the log.
+`Database` (`platform/database/database.ts`) wraps `postgres`. The pool is created in the
+constructor, and the connection is opened lazily. That is why `Application.setup()` calls
+`check()`.
 
-Migrations are `node-pg-migrate` (`migrate.json`, the `migrations/` directory in the root);
-they are applied by the same container before the bot starts. Migrations are append-only
+`debug: !isProduction` is not query logging. In postgres `debug` is a callback, not a flag, and
+the driver itself prints nothing. With `true` it only makes the fields of a failed query's error
+enumerable, `query` and `parameters` among them. They end up in the `payload` of the log.
+
+## Migrations
+
+Migrations are `node-pg-migrate` (`migrate.json`, the `migrations/` directory in the root). The
+same container applies them before the bot starts. Migrations are append-only
 ([`invariants.md`](./invariants.md)).
 
-The directory lies outside `src/` deliberately: the application does not import migrations,
-`node-pg-migrate` loads them with its own jiti straight from the sources, and in `build/`
-they were dead weight. The `tsconfig-paths` key in `migrate.json` is an option of that jiti
-and not the npm package of the same name (the project does not depend on it).
-The checks see the directory all the same: it is listed in each of them separately — the
-`include` of `tsconfig.check.json`, the arguments of the `lint` and `format:check` npm
-scripts, its own `overrides` in `.eslintrc.js`.
+The directory lies outside `src/` on purpose. The application does not import migrations:
+`node-pg-migrate` loads them straight from the sources with its own jiti, and in `build/` they
+were dead weight. The `tsconfig-paths` key in `migrate.json` is an option of that jiti. It is not
+the npm package of the same name, and the project does not depend on that package.
 
-`common/template.ts` is the stub `migrate-create` builds a migration file from. It lies in
-a subdirectory, and that alone is enough for `node-pg-migrate` not to see it: it reads the
-migrations directory without recursion and skips subdirectories (which is also why no
-`ignore-pattern` is needed in `migrate.json`). Its `./common/utils` import is written not
-for its own place but for the directory it will be copied into.
+The checks still see the directory, because each of them lists it separately:
 
-It is excluded from the checks in one place — the `exclude` of `tsconfig.check.json`: that
-import does not resolve from where the stub lies. There is nowhere else to exclude it from:
-the `up`/`down` parameter is named `_pgm`, and such a name is let through by both
-`noUnusedParameters` and the eslint `argsIgnorePattern`, so the empty bodies of the stub
-need neither a placeholder inside it nor an exception for a freshly created migration — it
-passes `make check` right away, before the first line of a body is written. Once the body
-is written, `_pgm` is renamed to `pgm`. The `.ts` extension is mandatory: `node-pg-migrate`
-takes the extension of the file it creates from the name of the stub.
+- the `include` of `tsconfig.check.json`;
+- the arguments of the `lint` and `format:check` npm scripts;
+- its own `overrides` entry in `.eslintrc.js`.
 
-`sessions` is written by `PgsqlStorage` (`telegram/session/pgsql-storage.ts`) directly, with
-a positional `insert into sessions values (key, value)` — two values for four columns: a
-column added by a migration before `value` will be silently shifted by the query
+`common/template.ts` is the stub `migrate-create` builds a migration file from. Lying in a
+subdirectory is enough to hide it from `node-pg-migrate`: that reads the migrations directory
+without recursion and skips subdirectories. That is also why `migrate.json`
+needs no `ignore-pattern`. The stub's `./common/utils` import is written for the directory the
+stub is copied into, not for its own place.
+
+The checks exclude the stub in one place, the `exclude` of `tsconfig.check.json`, because that
+import does not resolve from where the stub lies.
+
+Nothing else needs an exclusion. The `up`/`down` parameter is named `_pgm`, and both
+`noUnusedParameters` and the eslint `argsIgnorePattern` let such a name through. So the empty
+bodies need no placeholder in the stub and no exception for a fresh migration: it passes
+`make check` right away, before the first line of a body is written. Once the body is written,
+`_pgm` is renamed to `pgm`.
+
+The stub's `.ts` extension is mandatory: `node-pg-migrate` takes the extension of the file it
+creates from the name of the stub.
+
+## Sessions
+
+`PgsqlStorage` (`telegram/session/pgsql-storage.ts`) writes `sessions` directly, with a
+positional `insert into sessions values (key, value)`: two values for four columns. So if a
+migration adds a column before `value`, the query silently shifts the values
 ([`invariants.md`](./invariants.md)).
 
-`PgsqlStorage` has no storage interface of its own, and that is deliberate: only `users`
-has one. There the interface is declared by the consumer itself — `UserRepository`
-(`telegram/user/user-repository.ts`) is written for the needs of `UserService`, which is
-also its caller. For the session the interface is set from outside: `PgsqlStorage`
-implements grammY's `StorageAdapter<SessionPayload>`, because that is exactly the type
-`session()` takes in `Bot.setupSession()`. An interface of our own would be a renaming of a
-foreign one that nobody calls and nothing can substitute.
+## When a storage gets an interface
 
-Hence the pattern for the next storage: an interface is introduced when a consumer dictates
-it and is not introduced when a library does. Both parts lie next to the consumer either
-way — `telegram/user/` and `telegram/session/` — and there is no separate layer for storage
-adapters: `PgSqlUserRepository` has a directory of its own with a companion
-(`telegram/user/pgsql-repository/`), but inside the subsystem of the consumer.
+`PgsqlStorage` has no storage interface of its own, on purpose. Only `users` has one:
 
-`User.id` is a JS `number` against a `bigint` in the database (the third migration widened
-the column from `int4`); that is exact up to `2^53 - 1`, and current Telegram IDs fit.
-Without a `types` setting the driver returns `bigint` as a string, so `UserRow.id` is a
-`string`, and `PgSqlUserRepository.rowToEntity()` turns it into a number. The
-`sql<UserRow[]>` type argument is only an assertion: the compiler does not check it against
-what arrives, and while `UserRow` said `number`, a string silently made it all the way into
-`User.id`.
+- For `users` the consumer declares the interface itself. `UserRepository`
+  (`telegram/user/user-repository.ts`) is written for the needs of `UserService`, which is also
+  its caller.
+- For the session a library sets the interface. `PgsqlStorage` implements grammY's
+  `StorageAdapter<SessionPayload>`, because that is exactly the type `session()` takes in
+  `Bot.setupSession()`. An interface of our own would only rename a foreign one: nobody would
+  call it, and nothing could substitute it.
+
+Hence the rule for the next storage: an interface is introduced when a consumer dictates it, and
+not when a library does.
+
+Either way the storage lies next to its consumer, in `telegram/user/` and `telegram/session/`.
+There is no separate layer for storage adapters. `PgSqlUserRepository` has a directory of its own
+with a companion (`telegram/user/pgsql-repository/`), but inside the subsystem of the consumer.
+
+## `User.id`
+
+`User.id` is a JS `number`, while the column is a `bigint`: the third migration widened it from
+`int4`. A `number` is exact up to `2^53 - 1`, and current Telegram IDs fit.
+
+Without a `types` setting the driver returns `bigint` as a string. So `UserRow.id` is a `string`,
+and `PgSqlUserRepository.rowToEntity()` turns it into a number. The `sql<UserRow[]>` type
+argument is only an assertion: the compiler does not check it against what arrives. While
+`UserRow` said `number`, a string silently made it all the way into `User.id`.

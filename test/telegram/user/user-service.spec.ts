@@ -19,9 +19,9 @@ const STORED: UserDto = {
     updatedTime: dayjs("2020-01-01T11:00:00Z"),
 };
 
-// The repository keeps a snapshot of the fields and not the object itself, the way a row in
-// the database does: otherwise an edit of an instance without save() would be visible through
-// getById() and the test would not tell it apart.
+// The repository keeps a snapshot of the fields, not the object itself, as a database row does.
+// Otherwise getById() would show an edit of an instance without save(), and the test could not
+// tell the two apart.
 class InMemoryUserRepository implements UserRepository {
     private readonly rows = new Map<number, UserDto>();
 
@@ -115,9 +115,9 @@ describe("UserService", function () {
             expect(toDto(user)).to.deep.equal(saved);
         });
 
-        // FillUserToContextMiddleware normally passes "" for a missing lastname and username
-        // and false in isBot: checking a field for truthiness instead of !== undefined would
-        // leave the previous values in the database.
+        // FillUserToContextMiddleware normally passes "" for a missing lastname and username,
+        // and false in isBot. A truthiness check instead of !== undefined would leave the
+        // previous values in the database.
         it("saves empty strings and false over the stored values", async function () {
             await repository.save(new User({ ...STORED, isBot: true }));
             const dto: EditUserDto = { firstname: "", lastname: "", username: "", isBot: false };
@@ -171,9 +171,8 @@ function toDto(user: User): UserDto {
     };
 }
 
-// A call that did not throw fails with the "call did not throw" message: thrown inside a try,
-// the AssertionError would be caught by its own catch, and the failure would read as an error
-// of the wrong class.
+// A call that did not throw fails with the "call did not throw" message. Thrown inside a try,
+// the AssertionError would be caught by its own catch and read as an error of the wrong class.
 function rejectionOf(call: () => Promise<unknown>): Promise<unknown> {
     return call().then(
         () => expect.fail("call did not throw"),
