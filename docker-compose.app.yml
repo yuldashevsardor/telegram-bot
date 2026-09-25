@@ -1,25 +1,25 @@
 # The application: an instance of its own in every worktree.
-# The project name is deliberately unset — Compose takes it from the directory name, so every
-# worktree gets a container, an image and volumes of its own, and `docker compose down` here takes
-# down only this application and leaves the shared database alone: it lives as a separate project.
+# The project name is unset on purpose: Compose takes it from the directory name. So every worktree
+# gets a container, an image and volumes of its own, and `docker compose down` here takes down only
+# this application: the shared database is a separate project.
 services:
     app:
         build:
             context: .
         restart: on-failure:5
-        # Longer than GRACEFUL_SHUTDOWN_TIMEOUT (.env), otherwise SIGKILL arrives before the
-        # application has finished stopping, and the whole graceful shutdown loses its point.
+        # Longer than GRACEFUL_SHUTDOWN_TIMEOUT (.env): otherwise SIGKILL arrives before the
+        # application has stopped, and the graceful shutdown loses its point.
         stop_grace_period: 20s
-        # The migrations run in the same container before the bot starts: the .ts migrations
-        # node-pg-migrate loads with its built-in jiti, no separate transpiler is needed. The
-        # database is brought up separately, so there is no waiting for its healthcheck: if the
-        # container started before the database, the migrations fail and restart: on-failure
-        # brings it back.
+        # The migrations run in the same container before the bot starts. node-pg-migrate loads
+        # the .ts migrations with its built-in jiti, so no separate transpiler is needed.
+        # Nothing waits for the healthcheck of the database: it is brought up separately. If the
+        # container starts before the database, the migrations fail, and restart: on-failure
+        # brings the container back.
         command: sh -c "npm run migrate -- up && exec npm run dev"
         env_file:
             - .env
         environment:
-            # The address of the database is its service name in the shared network;
+            # The address of the database is its service name in the shared network.
             # DATABASE_PORT in .env is the port published to the host, needed only for connecting
             # from outside the containers.
             DATABASE_HOST: pgsql
@@ -33,34 +33,32 @@ services:
             - ./tsconfig.json:/app/tsconfig.json
             - ./tsconfig.check.json:/app/tsconfig.check.json
             - ./migrate.json:/app/migrate.json
-            # The hot configuration file: the application polls .runtime.env and rebuilds the
-            # configuration when it is edited (docs/architecture/config.md). A bind-mount of a
-            # single file holds on to the inode, so an edit in place arrives while a save through
-            # a temporary file with a rename (vim by default) does not. The file is created by the
-            # make targets before compose runs: a path that does not exist Docker would create as
-            # a directory owned by root, and the application would fail reading the
-            # configuration.
+            # The hot configuration file: the application polls it and rebuilds the configuration
+            # on an edit (docs/architecture/config.md). The bind mount of a single file holds on
+            # to the inode: an edit in place arrives, a save through a temporary file with a
+            # rename (vim by default) does not. The make targets create the file before compose
+            # runs: Docker would create a missing path as a directory owned by root, and the
+            # application would fail reading the configuration.
             - ./.runtime.env:/app/.runtime.env
-            # Otherwise an edit of the Stryker config would silently not reach make mutation
-            # until make rebuild, the way it is with .mocharc.json.
+            # Otherwise an edit of the Stryker config would silently miss make mutation until
+            # make rebuild, as happens with .mocharc.json.
             - ./stryker.config.mjs:/app/stryker.config.mjs
-            # The migrations and their template lie outside src, so they are mounted separately:
-            # otherwise migrate would take their version from the image, and migrate-create would
+            # The migrations and their template lie outside src, so they are mounted separately.
+            # Otherwise migrate would take their version from the image, and migrate-create would
             # write the new file inside the container, where the host would never see it.
             - ./migrations:/app/migrations
-            # The nyc report has to outlive the throwaway container: without the mount lcov stays
-            # inside and disappears together with it. The directory is created by make coverage and
-            # make check.
+            # The nyc report has to outlive the throwaway container: without the mount lcov
+            # disappears together with it. make coverage and make check create the directory.
             - ./coverage:/app/coverage
-            # The same for the Stryker reports and the run record (reports/mutation). The
-            # directory is created by make mutation.
+            # The same for the Stryker reports and the run record (reports/mutation). make
+            # mutation creates the directory.
             - ./reports:/app/reports
             - app-tmp:/app/tmp
         networks:
             - db
 
 networks:
-    # The network of the project from docker-compose.db.yml; the database goes up before the
+    # The network of the project from docker-compose.db.yml: the database goes up before the
     # application.
     db:
         name: telegram-bot-db_default

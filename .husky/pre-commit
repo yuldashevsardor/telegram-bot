@@ -1,7 +1,7 @@
-# The hook is installed by package.json#prepare on `npm install` on the host, so it exists only in
-# host development. node can be invisible even where it is installed: git's hook environment is
-# minimal, and nvm is not initialised in it. Failing in that case is not an option — the commit
-# would be blocked for someone who does not even know about the hook.
+# package.json#prepare installs the hook on `npm install` on the host, so it exists only in host
+# development. node can be invisible even where it is installed: git's hook environment is minimal,
+# and nvm is not initialised in it. The hook must not fail then: it would block the commit of
+# someone who does not even know about the hook.
 if ! command -v npx > /dev/null 2>&1; then
     printf 'pre-commit: node is not available on the host, lint-staged skipped — the checks are up to make check\n' >&2
     exit 0
