@@ -165,8 +165,8 @@ check: ## Every check in a row, in one command
 
 # The throwaway container takes the ready image and builds one itself only when there is none. Only
 # part of the project is mounted (the list is in docker-compose.app.yml), the rest got into the
-# image at build time. So after an edit to a file that is not mounted (package.json, the lock file,
-# .mocharc.json, the linter configs) the image goes stale silently, and this target rebuilds it.
+# image at build time. So after an edit to a file that is not mounted (README.md, "Commands") the
+# image goes stale silently, and this target rebuilds it.
 rebuild: ## Rebuild this worktree's application image
 	$(DC_APP) build app
 
