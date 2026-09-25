@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import subprocess
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -224,17 +225,19 @@ class MutationAreaTest(unittest.TestCase):
 
         self.area(run)
 
-        args, kwargs = next(call for call in run.calls if call[0][0] == "sh")
+        args = next(args for args, _ in run.calls if args[0] == "sh")
         self.assertEqual(
             args,
             [
                 "sh",
                 "-c",
                 DC_APP_RUN
-                + " node --input-type=module - src/shared/config-value.ts 'test/a b.spec.ts'",
+                + " node --input-type=module - src/shared/config-value.ts 'test/a b.spec.ts'"
+                + " < "
+                + mutation_area.CONFIGS_SCRIPT,
             ],
         )
-        self.assertEqual(kwargs["input"], mutation_area.CONFIGS_SCRIPT)
+        self.assertTrue(os.path.isfile(mutation_area.CONFIGS_SCRIPT))
 
     def test_a_failed_git_diff_is_an_error_not_an_empty_area(self):
         code, area, notes = self.area(FakeRun([], diff=(128, "fatal: bad revision")))

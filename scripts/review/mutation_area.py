@@ -25,8 +25,8 @@ come from: `gh pr diff <N> --name-only` in the tree of the PR for the reviewer, 
 No list of the configs is copied here: the exclusions (the `!` entries of `mutate` in the
 evaluated stryker.config.mjs), the spec glob (`.mocharc.json` is JSONC and is read by mocha's own
 loader, not as text) and the alias of the test code (`paths` of tsconfig.check.json) come from
-`node` in the application container, through `DC_APP_RUN` of the Makefile, so they are exactly what
-Stryker, mocha and tsc see.
+mutation-area-configs.mjs, run by `node` in the application container through `DC_APP_RUN` of the
+Makefile, so they are exactly what Stryker, mocha and tsc see.
 
 A `.ts` whose diff touches only comments stays in the area: in `src/` a comment can be a
 `// Stryker disable` mark, and the gate has to see it (docs/agents/review-gates.md, the `mutation`
@@ -49,52 +49,11 @@ from tree_remove import Run, reason
 
 PR_NUMBER = re.compile(r"[1-9][0-9]*")
 
-# Runs in the container with the changed `.ts` paths as arguments. The spec glob is matched against
-# them as well as expanded over the tree: a deleted spec exists nowhere, and deleting a spec is the
-# strongest way to weaken it. MUTATE is dropped because the config turns it into positive globs of
-# `mutate`, while only the `!` entries are wanted.
-CONFIGS_SCRIPT = r"""
-import { globSync } from "node:fs";
-import { createRequire } from "node:module";
-import path from "node:path";
-import { pathToFileURL } from "node:url";
-
-const require = createRequire(path.join(process.cwd(), "noop.js"));
-const changed = process.argv.slice(2);
-
-delete process.env.MUTATE;
-const { default: stryker } = await import(pathToFileURL("stryker.config.mjs").href);
-const excluded = globSync(stryker.mutate.filter((p) => p.startsWith("!")).map((p) => p.slice(1)));
-
-const specGlobs = require("mocha/lib/cli/options.cjs").loadOptions([])._;
-const specs = [
-    ...globSync(specGlobs),
-    ...changed.filter((file) => specGlobs.some((glob) => path.matchesGlob(file, glob))),
-];
-
-const ts = require("typescript");
-const message = (d) => ts.flattenDiagnosticMessageText(d.messageText, "\n");
-const parsed = ts.getParsedCommandLineOfConfigFile("tsconfig.check.json", {}, {
-    ...ts.sys,
-    onUnRecoverableConfigFileDiagnostic: (d) => {
-        throw new Error(message(d));
-    },
-});
-if (parsed.errors.length > 0) {
-    throw new Error(parsed.errors.map(message).join("; "));
-}
-const base = parsed.options.pathsBasePath ?? parsed.options.baseUrl;
-const aliases = [];
-for (const [key, targets] of Object.entries(parsed.options.paths ?? {})) {
-    if (!key.endsWith("*")) continue;
-    for (const target of targets.filter((t) => t.endsWith("*"))) {
-        const dir = path.relative(process.cwd(), path.resolve(base, target.slice(0, -1)));
-        aliases.push({ prefix: key.slice(0, -1), dir: dir + "/" });
-    }
-}
-
-console.log(JSON.stringify({ excluded, specs, aliases }));
-"""
+# The configs are read by a node script in the application container (its header says why it goes
+# on stdin rather than by path).
+CONFIGS_SCRIPT = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "mutation-area-configs.mjs"
+)
 
 
 class Stop(Exception):
@@ -130,10 +89,10 @@ def tracked_files(run: Run) -> Set[str]:
 
 
 def read_configs(changed: List[str], dc_app_run: str, run: Run) -> Configs:
-    command = "{} node --input-type=module - {}".format(
-        dc_app_run, " ".join(shlex.quote(path) for path in changed)
+    command = "{} node --input-type=module - {} < {}".format(
+        dc_app_run, " ".join(shlex.quote(path) for path in changed), shlex.quote(CONFIGS_SCRIPT)
     )
-    done = run(["sh", "-c", command], input=CONFIGS_SCRIPT, capture_output=True, text=True)
+    done = run(["sh", "-c", command], capture_output=True, text=True)
     check(done, "the configs were not read in the application container")
     # Compose writes its progress to stderr, but the last line is the only one the script prints.
     lines = [line for line in done.stdout.splitlines() if line.strip()]
