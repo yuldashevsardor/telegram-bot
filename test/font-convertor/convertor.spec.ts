@@ -13,8 +13,8 @@ import { InvalidFile, InvalidPath, PermissionDenied } from "app/shared/fs/file-h
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
-// Every pair shares the input check (Convertor.validate()), so its branches run on one pair,
-// ttf → woff; that each pair calls the check is pinned in font-forge-convertor.spec.ts and
+// Every pair shares the input check, Convertor.validate(), so its branches run on one pair,
+// ttf → woff. That each pair calls the check is pinned in font-forge-convertor.spec.ts and
 // eot-convertor.spec.ts. The engine is a stub: a rejection has to happen before it. Permissions
 // are taken away with chmod, so the spec is not for root (docs/architecture/testing.md).
 describe("Convertor.validate", function () {

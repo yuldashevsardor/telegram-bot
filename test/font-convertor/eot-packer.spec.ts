@@ -10,8 +10,8 @@ import { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
-// The EOT header fields the spec reads and edits one by one, and the length of its fixed
-// part — up to FamilyNameSize.
+// The offsets of the EOT header fields the spec reads and edits one by one, and the length of the
+// fixed part of the header, up to FamilyNameSize.
 const EOT_SIZE_OFFSET = 0;
 const EOT_FONT_DATA_SIZE_OFFSET = 4;
 const EOT_VERSION_OFFSET = 8;
@@ -43,13 +43,13 @@ describe("EotPacker", function () {
 
     describe("pack", function () {
         it("wraps the font into the envelope ttf2eot produces for it", async function () {
-            // The EOT fixture was made by the third-party ttf2eot from the TTF fixture, so a
+            // The EOT fixture was made from the TTF fixture by the third-party ttf2eot. So a
             // byte-for-byte match with it checks conformance to the format, not to ourselves.
             //
-            // We differ from ttf2eot in exactly one field: it always writes fsType as zero, that
-            // is, declares any font free to install. By the specification this field repeats
-            // OS/2.fsType, which is where we take it from, so the reference is compared with the
-            // real value put in.
+            // We differ from ttf2eot in exactly one field, fsType. ttf2eot always writes zero
+            // there, declaring any font free to install. By the specification the field repeats
+            // OS/2.fsType, and we take it from there. So the real value is put into the reference
+            // before the comparison.
             const expected = Uint8Array.from(eot);
             new DataView(expected.buffer).setUint16(EOT_FS_TYPE_OFFSET, fontFsType(ttf), true);
 
@@ -57,8 +57,8 @@ describe("EotPacker", function () {
         });
 
         it("carries the embedding permissions of the font into the envelope", async function () {
-            // fsType at offset 32 is what an EOT reader asks before installing the font:
-            // Roboto-Black has 8 there, "may be embedded, may not be installed".
+            // An EOT reader checks fsType at offset 32 before installing the font. Roboto-Black
+            // has 8 there: "may be embedded, may not be installed".
             const packed = await pack(ttf);
 
             expect(new DataView(packed.buffer, packed.byteOffset).getUint16(EOT_FS_TYPE_OFFSET, true)).to.equal(fontFsType(ttf));
@@ -72,7 +72,7 @@ describe("EotPacker", function () {
         });
 
         it("carries the italic flag of the font into the envelope", async function () {
-            // The slant is one of the fields the envelope reads the font for at all; the Italic
+            // The slant is one of the fields the envelope reads the font for at all. The Italic
             // byte lies in the header at offset 27.
             const italic = Uint8Array.from(ttf);
             new DataView(italic.buffer).setUint16(os2Offset(ttf) + 62, 0x0001);
@@ -82,9 +82,9 @@ describe("EotPacker", function () {
         });
 
         it("puts each unicode and code page range into its own place in the header", async function () {
-            // The fixture has UnicodeRange4 and CodePageRange2 at zero, and the comparison with
-            // ttf2eot would miss a range written to the wrong place: zero would land on zero. In
-            // OS/2 the ranges lie in two pieces, in the EOT header they are contiguous.
+            // The comparison with ttf2eot would miss a range written to the wrong place: the
+            // fixture has UnicodeRange4 and CodePageRange2 at zero, and zero would land on zero.
+            // In OS/2 the ranges lie in two pieces, in the EOT header they are contiguous.
             const ranges = [0x0102_0304, 0x0506_0708, 0x090a_0b0c, 0x0d0e_0f10, 0x1112_1314, 0x1516_1718];
             const font = Uint8Array.from(ttf);
             const view = new DataView(font.buffer);
@@ -125,10 +125,10 @@ describe("EotPacker", function () {
         });
 
         it("returns the font of a version 1.0 envelope, which has no root string", async function () {
-            // In version 1.0 the header ends with the full name: there is no RootString block
-            // (Padding5 and RootStringSize, the fixture's string is empty), and the font follows
-            // the names directly. Read as 0x00020001, such an envelope would reach into the font
-            // with a fifth block.
+            // In version 1.0 the header ends with the full name, and the font follows the names
+            // directly. So the fixture's RootString block is cut out: Padding5 and RootStringSize,
+            // the string itself is empty. Read as 0x00020001, such an envelope would reach into the
+            // font with a fifth block.
             const rootStringStart = eot.length - ttf.length - 4;
             const legacy = Uint8Array.from(Buffer.concat([eot.subarray(0, rootStringStart), ttf]));
             const view = new DataView(legacy.buffer);
@@ -139,15 +139,16 @@ describe("EotPacker", function () {
         });
 
         it("returns the font of an envelope with a gap between the header and the font, in every version", async function () {
-            // Version 0x00020002 keeps its tail (a signature, embedded EUDC) there, and the tail is
-            // not parsed: the header walk ends before the font start. The gap has to pass, and in
-            // every version, not only in 0x00020002: the check does not tell versions apart.
+            // Version 0x00020002 keeps its tail (a signature, embedded EUDC) there. The tail is not
+            // parsed: the header walk ends before the font start. The gap has to pass in every
+            // version, not only in 0x00020002: the check does not tell versions apart.
             //
-            // 20 bytes are the fixed fields of that tail with an empty signature and no EUDC font:
-            // RootStringCheckSum and EUDCCodePage (u32), Padding6 and SignatureSize (u16), EUDCFlags
-            // and EUDCFontSize (u32). Zeros pass only because the tail is not read: a conforming
-            // writer puts 0x50475342 into RootStringCheckSum for an empty RootString. In version 1.0
-            // the gap is 24 bytes: the walk also stops before the fixture's Padding5 and RootStringSize.
+            // The 20 bytes are the fixed fields of that tail with an empty signature and no EUDC
+            // font: RootStringCheckSum and EUDCCodePage (u32), Padding6 and SignatureSize (u16),
+            // EUDCFlags and EUDCFontSize (u32). Zeros pass only because the tail is not read: a
+            // conforming writer puts 0x50475342 into RootStringCheckSum for an empty RootString.
+            // In version 1.0 the gap is 24 bytes: the walk also stops before the fixture's Padding5
+            // and RootStringSize.
             const fontDataOffset = eot.length - ttf.length;
             const tail = new Uint8Array(20);
 
@@ -170,8 +171,8 @@ describe("EotPacker", function () {
         });
 
         it("rejects a file cut off inside the fixed part of the header", async function () {
-            // The fragment does not even reach the format marker at offset 34: without the length
-            // check a RangeError from DataView would fly out instead of InvalidEot.
+            // The fragment does not even reach the format marker at offset 34. Without the length
+            // check, DataView would throw a RangeError instead of InvalidEot.
             await expectRejects(() => unpack(eot.subarray(0, 20)), InvalidEot);
         });
 
@@ -209,8 +210,8 @@ describe("EotPacker", function () {
 
         it("rejects an envelope whose font data does not fit behind the fixed part of the header", async function () {
             // The font is one byte longer than the room behind the fixed part. The payload is
-            // compared, not just the class: such a font start would also be rejected by the
-            // overlap check against the names, InvalidEot too, but with its own payload.
+            // compared, not just the class. The overlap check against the names would reject such
+            // a font start too, also with InvalidEot, but with its own payload.
             const oversized = Uint8Array.from(eot);
             const fontDataSize = oversized.length - EOT_HEADER_FIXED_SIZE + 1;
             new DataView(oversized.buffer).setUint32(EOT_FONT_DATA_SIZE_OFFSET, fontDataSize, true);
@@ -240,12 +241,11 @@ describe("EotPacker", function () {
         });
 
         it("rejects an envelope that ends inside a name size", async function () {
-            // The sizes in the header agree with the file length — the font gets four bytes —
-            // but the file breaks off at the first byte of StyleNameSize. This is no longer an
-            // overlap with the font but a read past the end of the buffer: without its own check
-            // a RangeError from DataView would fly out. The break falls on the size itself, not on
-            // the name after it: otherwise the test could not tell a check shifted by a couple of
-            // bytes.
+            // The file breaks off at the first byte of StyleNameSize, while the sizes in the header
+            // agree with the file length: the font gets four bytes. This is not an overlap with the
+            // font but a read past the end of the buffer. Without its own check, DataView would
+            // throw a RangeError. The break falls on the size itself, not on the name after it:
+            // otherwise the test could not tell a check shifted by a couple of bytes.
             const familyNameSize = new DataView(eot.buffer).getUint16(EOT_HEADER_FIXED_SIZE, true);
             const cut = Uint8Array.from(eot.subarray(0, EOT_HEADER_FIXED_SIZE + 2 + familyNameSize + 2 + 1));
             const view = new DataView(cut.buffer);
@@ -296,10 +296,10 @@ describe("EotPacker", function () {
 });
 
 describe("InvalidEot and UnsupportedEotFlags", function () {
-    // The factories are checked directly: the unpack() specs above pin the class of the
-    // rejection, not the text — which of the checks rejected the input is not a requirement
-    // (docs/architecture/testing.md, "Working through survivors").
-    // The hexadecimal values have leading zeros: the field is printed at full width.
+    // The factories are checked directly. The unpack() specs above pin the class of the
+    // rejection, not the text: which check rejected the input is not a requirement
+    // (docs/architecture/testing.md, "Working through survivors"). The hexadecimal values have
+    // leading zeros: the field is printed at full width.
     const cases = [
         {
             name: "InvalidEot.tooShort",
