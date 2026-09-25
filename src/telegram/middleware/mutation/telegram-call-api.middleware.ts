@@ -36,9 +36,9 @@ export class TelegramCallApiMiddleware extends Middleware {
     }
 
     private changeTelegramCallApi(api: Api): void {
-        // The raw kept from before the replacement at the end of this method: the actual send has
-        // to go through it and not through api.raw, where the Proxy will sit by then — its get
-        // gives back callApi again, and the queue task would loop onto itself instead of sending.
+        // The raw from before the replacement at the end of this method: the actual send goes
+        // through it. By then api.raw is the Proxy, whose get gives back callApi again, and the
+        // queue task would loop onto itself instead of sending.
         const originRaw = api.raw;
         const taskQueue = this.taskQueue;
 
@@ -48,11 +48,10 @@ export class TelegramCallApiMiddleware extends Middleware {
             },
         };
 
-        // The methods of RawApi differ in the type of their payload, so a lookup by a computed
-        // name does not type-check without a cast: the concrete method is known only at runtime.
-        // The arguments go to originRaw as they came: an empty payload for a parameterless method
-        // is supplied by originRaw itself, and one added here as well would take the place of the
-        // signal.
+        // The cast: the methods of RawApi differ in the type of their payload, and the concrete
+        // method is known only at runtime. The arguments go to originRaw as they came: originRaw
+        // supplies the empty payload of a parameterless method itself, and one added here would
+        // take the place of the signal.
         function callRawApi(method: RawApiMethod, args: unknown[]): Promise<unknown> {
             const call = originRaw[method] as (...args: unknown[]) => Promise<unknown>;
 
@@ -72,9 +71,9 @@ export class TelegramCallApiMiddleware extends Middleware {
                 return callRawApi(method, args);
             }
 
-            // The caller needs the result of a call that will happen later, inside the queue
-            // task, so the resolve and the reject of its promise are hoisted here and called from
-            // the callback below once the send has succeeded or failed.
+            // The caller needs the result of a call made later, inside the queue task. So the
+            // resolve and the reject of its promise are hoisted here, and the callback below
+            // calls one of them once the send has succeeded or failed.
             let messageResolve!: (value: unknown) => void;
             let messageReject!: (reason: unknown) => void;
 
@@ -85,8 +84,8 @@ export class TelegramCallApiMiddleware extends Middleware {
 
             const callback = async (): Promise<void> => {
                 try {
-                    // Await the actual call: without it an unsettled promise would leave this
-                    // scope and the broker would never see a refusal from Telegram.
+                    // Await the actual call: otherwise an unsettled promise leaves this scope,
+                    // and the broker never sees a refusal from Telegram.
                     messageResolve(await callRawApi(method, args));
                 } catch (error) {
                     // The caller is refused at once, the broker gets the same error for the ban and the retry.

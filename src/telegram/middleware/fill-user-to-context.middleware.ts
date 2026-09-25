@@ -20,8 +20,8 @@ export class FillUserToContextMiddleware extends Middleware {
 
     protected async handle(ctx: Context, next: NextFunction): Promise<void> {
         if (!ctx.from) {
-            // Updates without from are cut off by HasSessionKeyFilter; the check here is for
-            // the compiler and catches a broken order in Bot.setup().
+            // HasSessionKeyFilter cuts off updates without from. The check is for the compiler,
+            // and it catches a broken order in Bot.setup().
             throw UpdateWithoutFrom.byUpdate(ctx.update);
         }
 
@@ -46,12 +46,11 @@ export class FillUserToContextMiddleware extends Middleware {
             });
         }
 
-        // A function, not a field: an enumerable context property is cloned by the conversations
-        // plugin into the op log and into sessions (docs/architecture/invariants.md), and a clone
-        // of User is an empty object — everything in it sits in private fields. Functions the
-        // plugin does not clone but restores by binding to the live context, so inside a
-        // conversation getUser() gives the user of the current update, not a snapshot taken when
-        // the conversation was entered.
+        // A function, not a field: the conversations plugin clones enumerable context properties
+        // into the op log and sessions, and a clone of User is an empty object
+        // (docs/architecture/invariants.md). Functions it restores bound to the live context, so
+        // inside a conversation getUser() gives the user of the current update, not a snapshot
+        // taken when the conversation was entered.
         ctx.getUser = (): User => user;
 
         return next();

@@ -20,10 +20,10 @@ const ATTRIBUTE_LINE = /^\s+\.([a-zA-Z][\w-]*) *=/;
 
 // How a key gets into the code: ctx.t("key") and a command's descriptionKey. The parsing is
 // crude, over the text of the source: a key assembled from anything but a string literal
-// will not get here. The `\n` in DESCRIPTION_KEY is what holds it to a single line: without
-// it the abstract declaration (`descriptionKey: string;` in command.ts) would drag the match
-// to the first assignment further down the file and register a foreign string as the key.
-// TRANSLATE_CALL needs no such class — a double-quoted literal does not span lines.
+// will not get here. The `\n` in DESCRIPTION_KEY holds the match to a single line. Without it
+// the abstract `descriptionKey: string;` in command.ts would drag the match to the first
+// assignment further down and register a foreign string as the key. TRANSLATE_CALL needs no
+// such class: a double-quoted literal does not span lines.
 const TRANSLATE_CALL = /\.t\("([^"]+)"/g;
 const DESCRIPTION_KEY = /descriptionKey[^=\n]*= *"([^"]+)"/g;
 
@@ -283,12 +283,12 @@ describe("createFluentMiddleware", function () {
 
     // The shape of the properties is checked, not the values alone. The conversations plugin
     // writes into the op-log, and from there into the session, every own enumerable property
-    // of the context except the intrinsic ones: the `fluent` field (with `useFluent()` a
-    // `{ instance, useLocale, renegotiateLocale }` wrapper) must not be in the context, or
-    // the parsed bundles will travel into `sessions` as an empty shell again. Functions the
-    // plugin does not clone but restores bound to the live context, yet it remembers only
-    // the keys of own enumerable properties — a `t` hidden behind a descriptor or carried
-    // off onto the prototype would silently stop working inside a conversation.
+    // of the context except the intrinsic ones. So the `fluent` field (with `useFluent()` a
+    // `{ instance, useLocale, renegotiateLocale }` wrapper) must not be in the context, or the
+    // parsed bundles will travel into `sessions` as an empty shell again. Functions the plugin
+    // restores bound to the live context, but it remembers only the keys of own enumerable
+    // properties: a `t` behind a descriptor or on the prototype would silently stop working
+    // inside a conversation.
     it("keeps Fluent in the context as own enumerable functions", async function () {
         const ctx = await runMiddleware("ru");
 
