@@ -253,6 +253,9 @@ class ReviewRun:
                 left = re.search(r"make review-tree-remove path=(\S+)$", line)
                 if left:
                     self.tree = left.group(1)
+        # A creation that returned names the tree it left in its output, and the loop above has
+        # read it; only a cut one leaves a tree interrupted() has to look for.
+        self.creating = False
         if done.returncode == 0 and self.tree and self.report.head:
             return None
         return "the tree was not created: {}".format(stopped or reason(done))
@@ -500,8 +503,9 @@ class ReviewRun:
                 self.report.skip(gate, why)
         if (self.on("mutation") or self.on("mutation-full")) and self.report.mutation is None:
             self.report.mutation = "mutation: n-a — {}".format(why)
-        # Only a creation this run began can have left a tree it does not know of: whatever lies at
-        # the path otherwise is somebody else's, and the next review-tree-create removes a leftover.
+        # Only a creation this run began and the interrupt cut short can have left a tree it does not
+        # know of: whatever lies at the path otherwise is somebody else's, and the next
+        # review-tree-create removes a leftover.
         if self.tree is None and self.creating:
             try:
                 path = review_tree_path(self.pr, self.run)
