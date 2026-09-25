@@ -80,9 +80,10 @@ You do not run the checks yourself — they have one owner, the `pr-light-check`
 
 Call `pr-light-check` **in mechanical mode**: pass the PR number, the gates and the flags from
 the arguments (`--comment`, `--no-post`), and say plainly that you are the caller and need the run
-and the findings on the changed `*.md` lines (its step 3) — without issue conformance, without a
-verdict and without a verdict comment in the PR. Otherwise the PR gets two verdicts instead of
-one, and on the issue you get a second, weaker opinion you would have to reconcile with your own.
+and the findings on the changed `*.md` lines and comments (its step 3) — without issue
+conformance, without a verdict and without a verdict comment in the PR. Otherwise the PR gets two
+verdicts instead of one, and on the issue you get a second, weaker opinion you would have to
+reconcile with your own.
 `pr-light-check` publishes the record of its own mutation run in this mode too: it is a fact of
 the run, not a verdict, and `--no-post` cancels that publication only if the flag reached it.
 
@@ -91,9 +92,10 @@ the run, not a verdict, and `--no-post` cancels that publication only if the fla
 branch being the `HEAD` of your tree: the commands of step 5 compare against the PR branch by
 name, not against `HEAD`.
 
-Along with the run, `pr-light-check` returns the findings on the changed `*.md` lines (its step 3,
-the `docs` gate). Keep no checklist of your own for them and do not search for them again: the
-check has one owner, and why is said there.
+Along with the run, `pr-light-check` returns the findings on the changed `*.md` lines and, when the
+`.ts` of the diff changes only comments, on those comments (its step 3, the `docs` and `comments`
+gates). Keep no checklist of your own for them and do not search for them again: the check has
+one owner, and why is said there.
 
 Such findings are **should-fix**. The failure-scenario rule does not apply to them: it is written
 for code, where the failure shows on an input and a state, while a false line in documentation

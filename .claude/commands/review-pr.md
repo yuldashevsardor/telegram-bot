@@ -7,8 +7,9 @@ allowed-tools: Bash(gh pr view:*), Bash(gh pr diff:*), Read, Skill
 You are the review router. Arguments: `$ARGUMENTS`.
 
 Your job is to find out what changed in the PR and run one skill of the right depth. You
-check nothing yourself: you do not read the code, run commands or give a verdict. All the
-routing lives here; the skills are executors and have no routing of their own.
+check nothing yourself: you do not judge the code, run commands or give a verdict. You read the
+diff only where the gate table decides by its content. All the routing lives here; the skills are
+executors and have no routing of their own.
 
 ## Step 1. PR
 
@@ -27,7 +28,7 @@ The list is empty → say the diff is empty and stop.
 
 | The diff has | Skill |
 | --- | --- |
-| at least one `.ts`, `.sh` or `.py` | `pr-deep-review` |
+| at least one `.sh` or `.py`, or a `.ts` diff that is not comments only | `pr-deep-review` |
 | anything else | `pr-light-check` |
 
 `.ts`, `.sh` and `.py` are the only signs of depth. A change to the `Makefile`, `tsconfig.json`,
@@ -37,6 +38,12 @@ architecture invariants, smells and bug hunting have nothing to find there, and 
 (`scripts/review/`) drive `git` and `docker` on the host, and `pr-light-check` has no bug hunt
 and no search for the documentation a change made false. PR #559 had no `.ts` or `.sh`, passed the
 light check twice and was merged with a bug: no bug hunt ran on it.
+
+A `.ts` is a sign of depth only when it changes code. The diff has a `.ts` — read its `.ts` hunks
+(`gh pr diff <N>`): whether they change only comments, and why such a diff needs no bug hunt, is
+said in `docs/agents/review-gates.md`, the paragraph on the comments-only `.ts` diff. The light
+check does not leave such comments unread: the table turns on its gate `comments`, which checks
+them against the code.
 
 The boundary is drawn by price, not by importance. **Both** skills check issue compliance: it
 is not a sign of depth but a condition of any verdict. A green run on a PR that touches only the

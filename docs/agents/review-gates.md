@@ -24,10 +24,11 @@ once.
 | `Makefile` | `make-targets` |
 | `scripts/*.sh`, `.husky/*` | `scripts` |
 | `scripts/**/*.py` | `python` |
-| any `.ts`, `.sh` or `.py` | `docs-sync` |
-| any `.ts` | `bug-hunt-high` |
-| `.sh` or `.py` and not a single `.ts` | `bug-hunt-medium` |
-| `.ts` inside `src/font-convertor/`, `src/shared/`, `src/telegram/outbound-queue/` | `smells` |
+| any `.sh` or `.py`; any `.ts` — not a comments-only `.ts` diff | `docs-sync` |
+| any `.ts` — not a comments-only `.ts` diff | `bug-hunt-high` |
+| `.sh` or `.py`, and not a single `.ts` or a comments-only `.ts` diff | `bug-hunt-medium` |
+| `.ts` inside `src/font-convertor/`, `src/shared/`, `src/telegram/outbound-queue/` — not a comments-only `.ts` diff | `smells` |
+| any `.ts` — a comments-only `.ts` diff | `comments` |
 | `stryker.config.mjs`, `test/stryker-mocha-hook.cjs`, `test/mutation-record.ts`, `.mocharc.json`, `tsconfig.json`, `tsconfig.check.json` — not a comments-only diff | `mutation-full` |
 | any `.ts` in `src/` or `test/`, unless `mutation-full` is on | `mutation` |
 | any `*.md`, including `docs/**` and `.claude/**` | `docs` |
@@ -79,10 +80,37 @@ comments only is a statement about the content of the diff, not about lines that
 `.mocharc.json` and both tsconfigs are JSONC, and `"spec": "test/**/*.spec.ts"` carries `**` inside
 a string literal, so a grep for `//` or `*` decides nothing.
 
-Past this row the rule does not hold, which is why it stands here and not over the table as a whole:
-in `src/` a comment can be the mark `// Stryker disable next-line …` that silences a survivor
+The rule does not carry over to the `mutation` row, which is why it stands in this row and not in
+that one: in `src/` a comment can be the mark `// Stryker disable next-line …` that silences a survivor
 (`docs/architecture/testing.md`, "Working through survivors"), and a diff of that mark is exactly what the
 gate `mutation` has to see.
+
+A comments-only `.ts` diff turns off `bug-hunt-high`, `smells` and `docs-sync` and turns on
+`comments` instead: read the diff, as with the files of the `mutation-full` row. The `.ts` diff is
+every `.ts` hunk of the PR taken together: one changed line of code in any `.ts` and every row goes
+by name, the full review for the whole PR. The bug hunt and the smells look at what the code does,
+and a comment changes nothing it does. PRs #522, #523 and #524 changed comments in `.ts` and
+`*.md`, three rounds of the full review each, 5–6.5M tokens of review subagents per PR; of the
+findings in their nine verdicts none concerned behaviour, and all but one set the text of a
+comment, a doc or the PR body against the code. That is the check `comments` turns on
+(`.claude/skills/pr-light-check/SKILL.md`, step 3). Unlike a paragraph of `docs/`, a comment has the
+code it describes a few lines away, so checking it against the code costs little. `docs-sync` goes
+off too: it looks for documentation made false by a changed symbol, and a comment changes no
+symbol. What round 3 of #522 found outside the diff — the statement the PR corrected, still stale in
+the `.eslintrc.js` comment and in `docs/architecture/logging.md` — is the same claim in another
+place, and `comments` looks for it with the duplicate search.
+
+Comments only is read as for the `mutation-full` row: by the content of the diff, not by lines that
+look like comments. `//` inside a string or a template literal is not a comment, and a hunk that
+changes a comment and code on the same line is code. A tool directive is code too, and in `.ts`
+there are more of them than in the run's tools: `// Stryker disable …`, `// eslint-disable…`,
+`// @ts-expect-error`, `// @ts-ignore`, `/* istanbul ignore … */`, `// prettier-ignore`. Each is read
+by a gate, so a diff that touches one gets the full review. The gates that run the code stay on by
+name: `build`, `typecheck`, `lint`, `format-check` and `test` take seconds, and a directive the
+reading missed still changes their outcome. `mutation` stays too: its area run takes seconds, and a
+`Stryker disable` mark is what that gate has to see (the paragraph above).
+A `.sh` is not read this way: a comment there can be a shebang or a linter directive, and its
+comments-only diffs were not measured.
 
 `bug-hunt-*` and `smells` are kept apart on purpose, and their boundaries differ. Bugs are
 hunted wherever there is executable code: in `src/platform/`, `src/bootstrap/` and
@@ -95,8 +123,9 @@ rewritten, since they are append-only. On such a diff the Standards axis yields 
 be rejected, at the cost of a full run.
 
 The sign of `smells` is "the code expresses rules rather than serving someone else's API", but
-it is decided by directory: `/review-pr` sees only file names and does not read the code. That
-is why `src/telegram/outbound-queue/` is in the list while the rest of `src/telegram/` is not:
+it is decided by directory: `/review-pr` reads a diff only for signs a reading settles — a key of
+`package.json`, a comment against a line of code — and whether code expresses rules is a judgement,
+not such a sign. That is why `src/telegram/outbound-queue/` is in the list while the rest of `src/telegram/` is not:
 it holds the queue's algorithm, not a wrapper around grammY. The list is an allowlist on
 purpose, and that has a price: a new or moved module with rules drops out of the gate silently
 until it is written in here. The PR that creates or moves the module writes it in.
@@ -108,8 +137,8 @@ one run, and it has one level. On a diff made only of bash scripts the wider cov
 same kind of code: host tooling that drives `git`, `gh` and `docker` from outside the containers
 (`docs/architecture/testing.md`), not the domain. So a `.py` takes the level of the scripts, and a
 diff with `.py` and `.ts` together goes at `high` by its `.ts`. The level is decided by the table
-and not by the skill, because the sign "there is a `.ts`" is already computed by the choice of
-depth (`/review-pr`, step 3): a second copy of it would drift from this one silently — both
+and not by the skill, because the sign "there is a `.ts` that is not comments only" is already
+computed by the choice of depth (`/review-pr`, step 3): a second copy of it would drift from this one silently — both
 files would still read coherently, and the boundary would move in only one of them.
 
 `mutation` and `mutation-full` are the second such pair: both run `make mutation` and differ
