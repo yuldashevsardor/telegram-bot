@@ -51,8 +51,8 @@ class RecordingLogger implements Logger {
     }
 }
 
-// Records the pause of the queue but does not set it: otherwise the loop would really wait it out. What
-// is checked here is the duration Runner assigns; the pause itself is pinned by the TaskQueue spec.
+// Records the pause of the queue without setting it: otherwise the loop would really wait it out. This
+// spec checks the duration Runner assigns; the TaskQueue spec pins the pause itself.
 class RecordingQueue extends TaskQueue {
     public readonly bans: number[] = [];
     public readonly pushes: Array<{ task: Task; priority: Priority }> = [];
@@ -291,9 +291,9 @@ function tooManyRequests(parameters?: UnknownObject): UnknownObject {
     return parameters === undefined ? { error_code: 429 } : { error_code: 429, parameters: parameters };
 }
 
-// Waits for a number of events rather than for a predicate over it: with a monotonic counter strict
-// equality is false on an overshoot as well, so a predicate would sit out the deadline and report the
-// overshoot as a shortfall. The shape is explained at waitForSignals in
+// Waits for a number of events, not for a predicate over it. With a monotonic counter, strict equality
+// is false on an overshoot too, so a predicate would sit out the deadline and report the overshoot as a
+// shortfall. The shape is explained at waitForSignals in
 // test/bootstrap/config/storage/config-file-storage.spec.ts.
 async function waitForCount(counter: () => number, expected: number, subject: string): Promise<void> {
     const deadline = Date.now() + waitLimit;
