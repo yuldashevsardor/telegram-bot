@@ -363,11 +363,15 @@ author.
 
 The `comments` gate is on when every `.ts` hunk of the PR changes only comments; what counts as a
 comment and why such a PR gets this check instead of the bug hunt is in `docs/agents/review-gates.md`.
-The `.ts` hunks come the same way as the `*.md` ones; the code is read at the PR head from git
-objects, not from the tree you were started in — it stands on another branch:
+The `.ts` hunks come the way the `*.md` ones do, with two differences. The file name is taken from
+the `diff --git` line, not from `+++`: a deleted `.ts` has `+++ /dev/null`, and its removed lines
+are exactly the code the check below must not miss. And the `@@` headers are kept: they give the
+line numbers for the `<file.ts:line>` of the report and for reading the code around. The code is
+read at the PR head from git objects, not from the tree you were started in — it stands on another
+branch:
 
 ```bash
-gh pr diff <N> | awk '/^diff --git /{ts=0} /^\+\+\+ /{f=substr($0,7); ts=(f ~ /\.ts$/); next} ts && /^[-+ ]/{print f"|"$0}'
+gh pr diff <N> | awk '/^diff --git /{f=$NF; sub(/^b\//,"",f); ts=(f ~ /\.ts$/); h=1; next} /^@@/{h=0} ts && !h{print f"|"$0}'
 gh pr view <N> --json headRefOid -q .headRefOid
 git fetch -q origin pull/<N>/head
 git show <sha>:<file> | awk 'NR>=<from> && NR<=<to> {print NR": "$0}'
