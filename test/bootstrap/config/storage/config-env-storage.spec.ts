@@ -10,9 +10,9 @@ const KEY = "CONFIG_ENV_STORAGE_SPEC_VALUE";
 const FILE_KEY = "CONFIG_ENV_STORAGE_SPEC_FILE_VALUE";
 
 // dotenv looks for .env in the current directory of the process. The directory is changed and
-// changed back within one synchronous call: the body of load() up to the first await runs at once,
-// and there is no await in it, so the asynchronous code of neighbouring specs never sees a foreign
-// cwd.
+// changed back within one synchronous call, so the asynchronous code of neighbouring specs never
+// sees a foreign cwd. The call is synchronous because the body of load() up to the first await runs
+// at once, and there is no await in it.
 function loadIn(directory: string): Promise<RawConfig> {
     const cwd = process.cwd();
     process.chdir(directory);
