@@ -281,7 +281,9 @@ compare with the base if you doubt it was brought by this PR: create a worktree 
 
 ## Step 3. Documentation drift
 
-The `docs` gate is off — skip the step whole: the diff touches no `*.md`.
+The `docs` and `comments` gates are both off — skip the step whole: the diff touches no `*.md` and
+its `.ts` hunks, if any, change code. One of the two is off — skip its part: the `*.md` checks below
+belong to `docs`, "Changed comments" to `comments`.
 
 The rule for the moment of writing is the "Editing documentation" section of `CLAUDE.md`. Read it
 rather than retell it from memory: the checklist below gives the mechanics, the criteria live there.
@@ -291,9 +293,10 @@ are the second reader here, and your area is cheap — only the changed lines, n
 
 Of the rule's four checks, three are here: the issue link, the derivable list, the duplicate. The
 first — checking every statement against the code — the diff does not make cheaper: it takes
-opening the code under every paragraph and costs as much as a one-off cleanup of the corpus. It is
-not in this step, and the "Checked" line does not promise it. "Run, do not eyeball" does not apply
-to step 3: `ok` here means "read the added lines, no findings".
+opening the code under every paragraph and costs as much as a one-off cleanup of the corpus. For
+`*.md` it is not in this step, and the "Checked" line does not promise it; the changed comments get
+it (below), because the code a comment describes lies a few lines from it. "Run, do not eyeball"
+does not apply to step 3: for `*.md`, `ok` means "read the added lines, no findings".
 
 The `*.md` hunks with the file name on every line — both the added lines and the context around
 them come from here:
@@ -355,6 +358,52 @@ them than the whole output:
 A finding here is REQUEST_CHANGES by the rules of step 5, no weaker than a red run: a lie in the
 documentation lives until the next cleanup, and it costs the reader more than the edit costs the
 author.
+
+### Changed comments
+
+The `comments` gate is on when every `.ts` of the PR changes only comments; what counts as a
+comment and why such a PR gets this check instead of the bug hunt is in `docs/agents/review-gates.md`.
+The `.ts` hunks come the way the `*.md` ones do, with three differences:
+
+- the file name is taken from the `diff --git` line, not from `+++`, and the old name counts too: a
+  deleted `.ts` has `+++ /dev/null` and one renamed to `.js` has no `.ts` in its new name, and their
+  removed lines are exactly the code the check below must not miss;
+- the `@@` headers are kept: they give the line numbers for the `<file.ts:line>` of the report and
+  for reading the code around;
+- the file headers that make a `.ts` code whatever its hunks hold — added, deleted, renamed, copied,
+  a mode change — are printed too: a rename has no hunks and would not show up otherwise.
+
+The code is read at the PR head from git objects, not from the tree you were started in — it stands
+on another branch:
+
+```bash
+gh pr diff <N> | awk '/^diff --git /{f=$NF; sub(/^b\//,"",f); ts=(f ~ /\.ts$/ || $3 ~ /\.ts$/); h=1; next} /^@@/{h=0} ts && (!h || /^(new|deleted) file mode|^(old|new) mode|^(rename|copy) (from|to) /){print f"|"$0}'
+gh pr view <N> --json headRefOid -q .headRefOid
+git fetch -q origin pull/<N>/head
+git show <sha>:<file> | awk 'NR>=<from> && NR<=<to> {print NR": "$0}'
+git grep -n -w '<identifier>' <sha>
+```
+
+For every added comment, two checks:
+
+- **Against the code.** Open what the comment describes at the head: the declaration or the block
+  under it, the line it ends. A claim that reaches further — a caller, another module, "only",
+  "always", "never" — is checked where it points, with `git grep` at the head. The code does not bear
+  the claim out — a finding: quote the comment and say what the code does.
+- **The same claim elsewhere.** Search the key identifier of the comment at the head over the whole
+  tree, `*.md` and comments alike. A place that still says what the PR corrected, or contradicts the
+  new comment, is a finding: the PR fixed one copy and left the other one lying, and from then on
+  they drift apart unseen.
+
+`ok` in the `comments` line means that every claim of the added comments was set against code
+opened at the head: a comment read only against the context of its own hunk is not checked. A
+finding here counts as a documentation finding in step 5: a comment is documentation too.
+
+A `.ts` that changes code — a line of code, a comment and code on the same line, a tool directive,
+or one of the file headers above — means the table was applied wrong and the PR needed the full
+review. Put the line into the report; in the standalone mode the verdict is BLOCKED (step 5). The
+mechanical mode needs nothing more: the caller runs because the diff has executable code, and its bug
+hunt reads the whole diff.
 
 ## Cleaning up the temporary trees
 
@@ -431,7 +480,7 @@ marker is its own and does not mix with the `pr-deep-review` marker: those are s
 
 **Verdict:** APPROVE | REQUEST_CHANGES | BLOCKED
 
-Checked: the run + the changed documentation lines + issue compliance
+Checked: the run + the changed documentation lines + the changed comments against the code + issue compliance
 Not checked: invariants, bugs, smells, overlaps with open PRs, documentation outside the diff
 
 ### Issue compliance
@@ -448,6 +497,7 @@ Not cleaned up: <temporary path> — <the reason from the make review-tree-remov
 ### Documentation
 issue links: ok/findings/n-a · <file.md> "<quoted line>" — #<M> is closed, the paragraph presents it as a live problem
 lists and duplicates: ok/findings/n-a · <file.md> "<quoted line>" — <what prints the list or where the duplicate lies>
+comments: ok/findings/n-a · <file.ts:line> "<quoted comment>" — <what the code does | where the same claim still says otherwise | a changed line of code: the full review was needed>
 
 ### Red
 - <command> — <the first meaningful line of the error> [brought by this PR | red on the base too]
@@ -462,7 +512,8 @@ _🤖 Posted by Claude Code from the owner's account · [session](<session link>
 
 The "Not checked" line is required and must not be dropped: without it a green verdict reads as a
 full review, which it is not. The `docs` gate is off — move documentation from "Checked" to "Not
-checked"; not a single run gate — move the run the same way.
+checked", the `comments` gate is off — the comments; not a single run gate — move the run the same
+way.
 
 The signature is required: the verdict goes out from the owner's account and without it reads as
 written by the owner ("Agent signature on GitHub" in `CLAUDE.md`). No session link — leave
@@ -481,7 +532,8 @@ a signature.
 - **BLOCKED** — there is nothing to judge by: the PR is not linked to an issue, or the run did not
   start (no Docker, no `.env`) and there is nothing to confirm it works with, or a mutation gate
   broke off on a checker crash on the repeat too or the area was not assembled (steps 1–2): nobody
-  checked the PR's mutants.
+  checked the PR's mutants. Or the `comments` gate came with a `.ts` that changes code
+  (step 3): the bug hunt that code needed did not run.
 
 Red that is red on the base too does not change the verdict — put it on a separate line as
 inherited.
