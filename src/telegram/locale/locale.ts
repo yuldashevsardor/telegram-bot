@@ -11,18 +11,17 @@ export function isLocale(value: string): value is Locale {
     return (LOCALES as readonly string[]).includes(value);
 }
 
-// Telegram sends language_code as an IETF tag ("ru", "en-US", "pt-br"), while the bundles
-// are keyed by language. The region is dropped and an unknown language goes to the default
-// locale: otherwise Fluent would find no bundle and the user would get key names instead of
-// text.
+// Telegram sends language_code as an IETF tag ("ru", "en-US", "pt-br"), while the bundles are
+// keyed by language, so the region is dropped. An unknown language goes to the default locale:
+// Fluent would find no bundle for it, and the user would get key names instead of text.
 export function resolveLocale(languageCode: string | undefined): Locale {
     const language = languageCode?.split("-")[0]?.toLowerCase();
 
     return language !== undefined && isLocale(language) ? language : DEFAULT_LOCALE;
 }
 
-// The naming convention is `<something>.locale.<lang>.ftl`; the locale here is the single
-// source of truth about which bundle the file lands in.
+// The naming convention is `<something>.locale.<lang>.ftl`. This locale alone decides which
+// bundle the file lands in.
 export function localeFromFilePath(filePath: string): Locale {
     const nameParts = path.basename(filePath).split(".");
     const locale = nameParts.at(-2) ?? "";
@@ -48,7 +47,7 @@ export async function createFluent(localeDir: string): Promise<Fluent> {
 
     for (const [locale, localeFiles] of filesByLocale) {
         // Fluent would swallow a locale without files, and its users would silently end up
-        // in the default one; in build/ that is how every `.ftl` goes missing at once.
+        // in the default one. In build/ this is how every `.ftl` goes missing at once.
         if (localeFiles.length === 0) {
             throw MissingLocaleBundle.byLocale(locale, localeDir);
         }
@@ -57,15 +56,14 @@ export async function createFluent(localeDir: string): Promise<Fluent> {
             locales: locale,
             filePath: localeFiles,
             // No isolating: by default Fluent wraps every placeable in invisible
-            // U+2068/U+2069, and they travel into the text of the message. What travels
-            // through the placeables here is data the user copies (the path to the
-            // conversion result), and there are no right-to-left locales, which is what the
-            // isolation is there for.
+            // U+2068/U+2069, and they get into the message text. The placeables here carry
+            // data the user copies (the path to the conversion result). There are no
+            // right-to-left locales, and isolation exists for them.
             bundleOptions: { useIsolating: false },
-            // There is exactly one default bundle: Fluent appends it to the tail of the
-            // lookup chain, and on it a key missing from the user's locale returns text and
-            // not its own name. With `isDefault` on every bundle the default became the last
-            // one added, that is, the chain depended on the directory walk order.
+            // Exactly one default bundle: Fluent appends it to the tail of the lookup chain,
+            // and there a key missing from the user's locale returns text, not its own name.
+            // With `isDefault` on every bundle the default was the last one added, so the
+            // chain depended on the directory walk order.
             // Stryker disable next-line ConditionalExpression: `false` is equivalent while DEFAULT_LOCALE comes first in LOCALES: without a marked bundle Fluent makes the first added one the default (addTranslation in @moebius/fluent)
             isDefault: locale === DEFAULT_LOCALE,
         });
@@ -74,18 +72,14 @@ export async function createFluent(localeDir: string): Promise<Fluent> {
     return fluent;
 }
 
-// Plugs Fluent into the pipeline instead of `useFluent()` from `@grammyjs/fluent`: that one
-// puts `fluent`, `translate` and `t` into the context with a single `Object.assign`, and the
-// enumerable `fluent` field the conversations plugin clones on every `wait()` into the
-// op-log and into `sessions` (docs/architecture/invariants.md) — whole, together with the
-// parsed bundles, and on replay returns it as an empty shell (the `Set` of bundles and the
-// `Map` of messages collapse into `{}` on serialization).
-// The plugin does not make the property name configurable, so it is replaced entirely:
-// parsing the `.ftl` and translating stay with `@moebius/fluent`, and only three lines of
-// the plugin, the ones without `fluent`, are repeated here.
-// The instance lies in the context as a function: functions the conversations plugin does
-// not clone but restores bound to the live context, so `getFluent()` works on replay too,
-// inside a conversation. `ctx.t` lives there by the same mechanism.
+// Plugs Fluent into the pipeline instead of `useFluent()` from `@grammyjs/fluent`. Its
+// enumerable `fluent` field the conversations plugin clones into the op-log and `sessions` on
+// every `wait()`, and on replay returns it as an empty shell (docs/architecture/i18n.md).
+// The plugin does not make the property name configurable, so it is replaced entirely.
+// Parsing the `.ftl` and translating stay with `@moebius/fluent`; only the three lines of the
+// plugin without `fluent` are repeated here.
+// `getFluent()` and `ctx.t` are functions: those the conversations plugin does not clone but
+// restores bound to the live context, so both work on replay, inside a conversation.
 export function createFluentMiddleware(fluent: Fluent): MiddlewareFn<Context> {
     return (ctx, next) => {
         ctx.getFluent = (): Fluent => fluent;

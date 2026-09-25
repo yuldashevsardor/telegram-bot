@@ -23,13 +23,9 @@ import { createFluent, createFluentMiddleware } from "app/telegram/locale/locale
 import type { Locale } from "app/telegram/locale/locale.types";
 import { DEFAULT_LOCALE, LOCALES } from "app/telegram/locale/locale.types";
 
-// The getUpdates default is every type but chat_member and reactions. The bot serves only
-// commands and a conversation wait() in private chats, that is a single message type: the
-// rest would reach the filters and be dropped, having paid for the network, the middleware
-// and a user write. A file sent by a user is a message too, with a document inside:
-// allowed_updates lists update types, not the contents of a message, so accepting fonts does
-// not widen the list. The list is not a defence: Telegram applies it on its side, and updates
-// of the old types accumulated before the change can still arrive.
+// The bot serves only commands and a conversation wait() in private chats: a single message
+// type. The getUpdates default is every type but chat_member and reactions. What the rest would
+// cost, why a file does not widen the list and why it is not a defence: docs/architecture/bot.md.
 const ALLOWED_UPDATES: NonNullable<FetchOptions["allowed_updates"]> = ["message"];
 
 @injectable()
@@ -102,25 +98,21 @@ export class Bot {
             return;
         }
 
-        // Filters above everything else: both need no more than ctx.from and ctx.chat, while
-        // session() already reads the row on the way in and writes it back on the way out — a
-        // group update does have a session key, so, dropped below, it would still have left a
-        // row in the database; an update that is dropped needs the queue even less. The order
-        // inside the list matters: IsPrivateChat drops silently and does so without chat as
-        // well, so updates without a session key must be seen first by HasSessionKey with its
-        // warning.
+        // Filters first: they need no more than ctx.from and ctx.chat. A dropped update needs
+        // neither the queue nor the session row, and a group update does have a session key:
+        // dropped below session(), it would still leave a row (docs/architecture/invariants.md).
+        // HasSessionKey goes before IsPrivateChat: the latter drops updates without chat too,
+        // but silently, so those must meet the warning of HasSessionKey first.
         await this.setupFilters([this.hasSessionKeyFilter, this.isPrivateChatFilter]);
-        // sequentialize() strictly above session(): session() is not lazy — it reads the row
-        // before next() and writes it after the return, so only the middle of the chain would
-        // end up under the queue while the read and the write themselves stayed outside. Two
-        // updates of one user would then read the same state, and the second would write its
-        // own over the first — losing both requestCount and the conversation step, which
-        // conversations keeps in the same session.
+        // sequentialize() strictly above session(): session() reads the row before next() and
+        // writes it after, and below it the queue would cover neither end. Two updates of one
+        // user would read the same state, and the second would write over the first, losing
+        // requestCount and the conversation step (docs/architecture/invariants.md).
         await this.setupSequential();
         await this.setupSession();
         await this.setupMiddlewares();
-        // Fluent is needed by the commands too: their descriptions are translated by the same
-        // instance before they go to setMyCommands.
+        // The commands need Fluent too: the same instance translates their descriptions for
+        // setMyCommands.
         const fluent = await this.setupFlavor();
         await this.setupConversations();
         await this.setupCommands(fluent);
@@ -138,10 +130,10 @@ export class Bot {
         );
     }
 
-    // The queue key is the same getSessionKey that session() gets: what has to be serialized is
-    // exactly the updates of one sessions row. It protects the check-then-act in
-    // FillUserToContextMiddleware as well: the key carries from.id, and the filters above let
-    // through no chat of the user other than the private one.
+    // The key is the getSessionKey of session(): what must be serialized is the updates of one
+    // sessions row. The key carries from.id, so it also protects the check-then-act in
+    // FillUserToContextMiddleware: the filters above let through only the private chat of the
+    // user (docs/architecture/invariants.md).
     private async setupSequential(): Promise<void> {
         this.grammy.use(sequentialize<Context>(getSessionKey));
     }
@@ -168,12 +160,9 @@ export class Bot {
     }
 
     private async setupFlavor(): Promise<Fluent> {
-        // The directory comes from the running code (__dirname), not from rootDir: build/
-        // carries its own copies of the `.ftl` next to the code (a build step in package.json),
-        // and a path from cwd would send the built application to read locales from src/, which
-        // a deployment does not have. The bot lives in its own bot/ directory while the `.ftl`
-        // are spread over the whole telegram/ subsystem — next to the commands and the
-        // conversations, so the walk starts one level up.
+        // From the running code (__dirname), not from rootDir: build/ has its own copies of the
+        // `.ftl`, and a path from cwd would read them from src/, which a deployment does not
+        // have. The walk starts one level above bot/ (docs/architecture/i18n.md).
         const fluent = await createFluent(path.dirname(__dirname));
 
         this.grammy.use(createFluentMiddleware(fluent));

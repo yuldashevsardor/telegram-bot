@@ -14,10 +14,9 @@ export class RequestContextMiddleware extends Middleware {
         super();
     }
 
-    // The first of the middleware: everything logged inside the chain has to reach the log with
-    // a requestId. Outside the scope there is no request data — neither in the filters, which
-    // stand above the middleware, nor in grammy.catch, which is called once the pipeline promise
-    // has already been rejected.
+    // The first of the middleware: everything logged inside the chain has to carry a requestId.
+    // The filters above the middleware and grammy.catch run outside the scope and get no request
+    // data (docs/architecture/logging.md).
     public async handle(_context: Context, next: NextFunction): Promise<void> {
         return this.requestContext.run(next);
     }

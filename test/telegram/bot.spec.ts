@@ -421,7 +421,7 @@ describe("Bot", function () {
         });
 
         // The list of update types is ALLOWED_UPDATES in bot.ts: without it getUpdates would drag
-        // in everything the pipeline then drops.
+        // in every type the bot does not serve.
         it("polls only messages", async function () {
             const harness = await setUp();
 

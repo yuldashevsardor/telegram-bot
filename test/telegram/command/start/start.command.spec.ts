@@ -44,10 +44,9 @@ describe("StartCommand", function () {
         expect(entered[0]).to.equal(ctx);
     });
 
-    // Bot takes the description for the command menu by translating descriptionKey; a key without
-    // a translation Fluent gives back as `{key}`. A key missing in another locale Fluent silently
-    // takes from the default one, which "declares the same keys in every locale" in locale.spec.ts
-    // catches.
+    // Bot translates descriptionKey for the command menu, and Fluent gives back `{key}` for a key
+    // without a translation. A key missing in one locale only: locale.spec.ts, "declares the same
+    // keys in every locale".
     it("has a translated description for the command menu", async function () {
         const fluent = await createFluent(path.join(process.cwd(), "src", "telegram"));
         const { descriptionKey } = new StartCommand({} as StartConversation);
