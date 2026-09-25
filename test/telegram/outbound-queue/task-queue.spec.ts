@@ -13,12 +13,12 @@ const commonCooldown = commonLimit.interval / commonLimit.number;
 const keyLimit: Limit = { number: 100, interval: 1000 };
 const keyCooldown = keyLimit.interval / keyLimit.number;
 
-// A limit that does not cool down at all during a test: no delay in the run reaches its end. Given to
-// a key, it holds that key alone — the common limit is released within the same pause.
+// A limit that does not cool down during a test: no delay in the run reaches its end. Given to a key,
+// it holds only that key: the common limit is released within the same pause.
 const frozenLimit: Limit = { number: 1, interval: 60 * 1000 };
 
-// Nothing shuts down the log intervals of TaskQueue and they live until the end of the run, so the
-// default period is longer than any run, and only the tests of the log itself take a short one.
+// Nothing stops the log intervals of TaskQueue, and they live until the end of the run. So the default
+// period is longer than any run, and only the tests of the log itself take a short one.
 const silentLogInterval = 60 * 1000;
 const logInterval = 10;
 
@@ -51,9 +51,9 @@ describe("TaskQueue", function () {
     });
 
     it("puts a key that comes back with a new task behind the keys already waiting", async function () {
-        // An emptied bucket has to strip the key from the priority index: otherwise add() in push() leaves
-        // it in its old place, ahead of 222. The pause is needed for both keys to cool down: while the limit
-        // of 111 is busy, 222 would come out first even if the rule were broken.
+        // An emptied bucket must remove the key from the priority index. Otherwise add() in push() leaves
+        // it in its old place, ahead of 222. The pause lets both keys cool down: while the limit of 111 is
+        // busy, 222 would come out first even if the rule were broken.
         const queue = build();
         queue.push(task(111, "a1"), Priority.MEDIUM);
 
@@ -140,8 +140,8 @@ describe("TaskQueue", function () {
     });
 
     it("forgets at most a hundred idle partitions per pull", async function () {
-        // The head of idleKeys is held by a key that does not cool down: while it is there the cleanup
-        // stalls on it, and cooled down partitions pile up behind it however long the giving out lasts. A
+        // A key that does not cool down holds the head of idleKeys. While it is there, the cleanup stalls
+        // on it, and cooled-down partitions pile up behind it however long the queue gives out tasks. A
         // new task takes it out of idleKeys, and the next pull() stalls on the ceiling instead.
         const blocker = "blocker";
         const queue = build({ keyLimit: (key) => (key === blocker ? frozenLimit : keyLimit) });
@@ -210,10 +210,10 @@ describe("TaskQueue", function () {
         expect(logger.infos.filter(isBanLog)).to.be.empty;
 
         queue.ban(1);
-        // A log tick queued together with the wait may fire in the same millisecond as ban(1) and honestly
-        // catch the pause. So the records are counted from the point where a one-millisecond pause has
-        // certainly expired. The task count is logged before the pause, so a second record after that point
-        // means the pause check behind it has already run.
+        // A log tick queued together with the wait may fire in the same millisecond as ban(1) and rightly
+        // catch the pause. So the records are counted from a point where a one-millisecond pause has
+        // certainly expired. The task count is logged before the pause, so a second record after that
+        // point means the pause check behind it has already run.
         await delay(5);
         const expired = logger.infos.length;
         await waitFor(() => logger.infos.length >= expired + 2);

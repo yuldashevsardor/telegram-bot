@@ -29,10 +29,10 @@ export class Partition {
         this.count++;
     }
 
-    // The partition reserves by itself: the limit of a key exists only to give out its tasks, and
-    // splitting the take and the reservation into different calls would let a task be taken without
-    // occupying the slot. Both checks run before the take, so reserve() here does not throw
-    // RateLimitIsBusy: nothing asynchronous happens between the check and the reservation.
+    // take() reserves the limit of the key itself: the limit exists only to give out the tasks of
+    // the key. A separate reservation call would let a task be taken without occupying the slot.
+    // reserve() here does not throw RateLimitIsBusy: both checks run before the take, and nothing
+    // asynchronous happens between the check and the reservation.
     public take(priority: Priority): Task | null {
         if (!this.has(priority) || !this.isFree()) {
             return null;
@@ -56,9 +56,9 @@ export class Partition {
         return this.rateLimit.isFree();
     }
 
-    // An empty and cooled down partition is indistinguishable from a freshly created one, so it can
-    // be removed. While the cooldown lasts, the partition is the limit of the key: removing it would
-    // give out the next task of that key immediately, past the limit.
+    // An empty, cooled-down partition is no different from a new one, so it can be removed. While the
+    // cooldown lasts, the partition is the limit of the key: removing it would let the next task of
+    // that key out at once, past the limit.
     public isIdle(): boolean {
         return this.isEmpty() && this.isFree();
     }

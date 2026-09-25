@@ -11,9 +11,9 @@ export class TelegramLimitResolver implements LimitResolver {
     public constructor(private readonly limits: TelegramLimits = configValue("limits")) {}
 
     public resolve(task: Task): Limit {
-        // The partition key here is a chat ID; a non-numeric key never reaches the queue in the bot,
-        // but even it gets the private limit rather than an exception: Number("abc") gives NaN, and
-        // the comparison is false.
+        // The partition key here is a chat ID. The bot never queues a non-numeric key, but one would
+        // still get the private limit, not an exception: Number("abc") is NaN, and the comparison is
+        // false.
         return isGroupChat(Number(task.key)) ? this.limits.group : this.limits.private;
     }
 }
