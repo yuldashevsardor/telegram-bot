@@ -81,7 +81,7 @@ CONTAINER = [
     ("lint", "lint"),
     ("format-check", "format-check"),
 ]
-READING = ("docs", "docs-sync", "bug-hunt-high", "bug-hunt-medium", "smells")
+READING = ("docs", "docs-sync", "comments", "bug-hunt-high", "bug-hunt-medium", "smells")
 BY_SKILL = ("make-targets", "scripts")
 KNOWN = [gate for gate, _ in CONTAINER] + ["python", "mutation", "mutation-full"]
 

@@ -325,6 +325,16 @@ class ReviewRunTest(unittest.TestCase):
             "Logs: {}\n".format(self.logs),
         )
 
+    def test_the_reading_gates_run_nothing_and_give_no_line(self):
+        run = self.fake()
+
+        code, out = self.review_run(
+            "docs docs-sync comments bug-hunt-high bug-hunt-medium smells", run
+        )
+
+        self.assertEqual(run.calls, [])
+        self.assertEqual(out, "Checks\nLogs: {}\n".format(self.logs))
+
     def test_a_refused_record_leaves_the_gate_to_the_own_run(self):
         run = self.fake(
             **{
