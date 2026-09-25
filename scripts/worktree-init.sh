@@ -20,9 +20,9 @@ main=$(main_tree)
 
 cd "$root"
 
-# There is one database per machine, so its directory is shared: in a task worktree tmp/pgsql
-# is a symlink to the main worktree, and docker-compose.db.yml lands in the same cluster
-# whichever worktree brings it up. The rest of tmp/ is each worktree's own.
+# There is one database per machine, so its directory is shared. In a task worktree tmp/pgsql
+# is a symlink to the main worktree, and docker-compose.db.yml starts the same cluster from
+# any worktree. The rest of tmp/ is each worktree's own.
 mkdir -p "$main/tmp/pgsql"
 if [ -e tmp/pgsql ] && [ ! -L tmp/pgsql ]; then
     die "tmp/pgsql here is a plain directory; remove it if it holds no data you need, and repeat"
@@ -35,13 +35,13 @@ if [ ! -f .env ]; then
     chmod 600 .env
 fi
 
-# The hot configuration file is each worktree's own and starts empty: its values are what gets
-# edited on the fly, not what is inherited from the main worktree. It is created here for the same
-# reason the make targets create it — see the comment at DC_APP in the Makefile. Its permissions
-# are not narrowed to 600 as with .env: the file is mounted into the container and read there as
-# USER node, and on a Linux host that uid does not match the owner's — the application would fail
-# reading its own empty file. Nor are secrets kept in it: a set environment variable wins over it
-# anyway (docs/architecture/invariants.md).
+# The hot configuration file is each worktree's own and starts empty: it holds values edited on
+# the fly, not ones inherited from the main worktree. It is created here for the reason the make
+# targets create it: see the comment at DC_APP in the Makefile.
+# It is not narrowed to 600 like .env. The container mounts it and reads it as USER node, a uid
+# that on a Linux host is not the owner's, so the application would fail reading its own empty
+# file. Nor does it hold secrets: a set environment variable wins over it anyway
+# (docs/architecture/invariants.md).
 if [ ! -f .runtime.env ]; then
     touch .runtime.env
 fi
