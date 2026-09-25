@@ -58,14 +58,14 @@ describe("FontForge.convert", function () {
 
         expect(error).to.be.instanceOf(ExtensionNotSupport);
         expect((error as ExtensionNotSupport).payload).to.deep.equal({ extension: Extension.EOT });
-        // The payload does not replace the message: FontConvertorError.byError() takes the message
+        // The payload does not replace the message. FontConvertorError.byError() takes the message
         // as its own, and the conversion failure goes to the log with it.
         expect((error as ExtensionNotSupport).message).to.equal("Fontforge not support eot extension.");
     });
 
     it("does not give eot to the engine to write", async function () {
-        // On writing the engine does not fail but silently puts another format under .eot: the
-        // check has to fire before the launch, and no file may appear at all.
+        // The check has to fire before the launch, and no file may appear at all. On writing the
+        // engine does not fail but silently puts another format under .eot.
         const distPath = path.join(workDir, "result.eot");
 
         const error = await rejectionOf(() => fontForge.convert(fixture(Extension.TTF), distPath));

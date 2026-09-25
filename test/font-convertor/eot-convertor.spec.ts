@@ -13,9 +13,9 @@ const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
 type StepName = "fontForge" | "pack" | "unpack";
 
-// The EOT pairs run on a stub engine and a stub codec: what matters here is the order of the
-// steps and the fate of the intermediate file, not what the two do with the bytes — they have
-// their own specs for that.
+// The EOT pairs run on a stub engine and a stub codec. What matters here is the order of the
+// steps and the fate of the intermediate file. What the engine and the codec do with the bytes
+// is left to their own specs.
 describe("Convertors of the eot pairs", function () {
     let workDir: string;
     let steps: Array<string>;
@@ -66,8 +66,8 @@ describe("Convertors of the eot pairs", function () {
 
         const error = await rejectionOf(() => convert(Extension.OTF, Extension.EOT));
 
-        // Without checking the message the test would pass on a rejection back in validate()
-        // too: then there would be no intermediate file at all.
+        // Without checking the message the test would also pass on a rejection back in
+        // validate(), where no intermediate file is made at all.
         expect((error as Error).message).to.equal("pack failed");
         expect(await exists(path.join(workDir, `result.${Extension.EOT}.ttf`))).to.be.false;
     });
@@ -91,10 +91,10 @@ describe("Convertors of the eot pairs", function () {
         expect(await exists(path.join(workDir, `result.${Extension.EOT}.ttf`)), "the intermediate sfnt was removed").to.be.true;
     });
 
-    // Each pair calls Convertor.validate() itself, and the EOT pairs have four implementations
-    // of convert(): a pass and a rejection are pinned for every pair, the branches of the check
-    // itself run in convertor.spec.ts. Only the pass covers the result extension: the rejection
-    // on an occupied path happens before that extension is checked.
+    // A pass and a rejection are pinned for every pair: each pair calls Convertor.validate()
+    // itself, and the EOT pairs have four implementations of convert(). The branches of the check
+    // itself run in convertor.spec.ts. Only the pass covers the result extension: the rejection on
+    // an occupied path happens before that extension is checked.
     const eotPairs = new ConvertorFactory(fontForge(), new FontSignatureMatcher(), eotPacker())
         .getSupportedExtensions()
         .filter((extension) => extension !== Extension.EOT)
@@ -140,10 +140,9 @@ describe("Convertors of the eot pairs", function () {
         return path.join(workDir, `result.${extension}`);
     }
 
-    // The stub steps write a file at their path: without it there is no telling that the
-    // intermediate sfnt is really removed rather than never created. The unremovableOn step
-    // leaves a directory instead of a file so that the removal fails: FileHelper.remove()
-    // removes files only.
+    // A stub step writes a file at its result path. Without it a removed intermediate sfnt could
+    // not be told from one never created. The unremovableOn step leaves a directory instead of a
+    // file, so that the removal fails: FileHelper.remove() removes files only.
     async function step(name: StepName, fromPath: string, toPath: string): Promise<void> {
         steps.push(`${name} ${fromPath} -> ${toPath}`);
 

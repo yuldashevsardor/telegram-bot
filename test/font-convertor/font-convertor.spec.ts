@@ -14,8 +14,8 @@ import { InvalidPath, PermissionDenied } from "app/shared/fs/file-helper.errors"
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 const datedWoffPath = /^\d{4}\/\d{1,2}\/\d{1,2}\/[a-z0-9]{15}\.woff$/;
 
-// The pairs are real, the engine is a stub: the choice of a pair and its input checks run here
-// end to end, while what the engine does with the bytes is the subject of the pair specs.
+// The pairs are real, the engine is a stub. The choice of a pair and its input checks run here
+// end to end. What the engine does with the bytes is the subject of the pair specs.
 // Permissions are taken away with chmod, so the spec is not for root (docs/architecture/testing.md).
 describe("FontConvertor", function () {
     let tempDir: string;
@@ -84,7 +84,7 @@ describe("FontConvertor", function () {
                 new FontConvertor(factory, tempDir).convert({ originPath: originPath, extension: Extension.TTF }),
             );
 
-            // The class is not enough: there is no ttf → ttf pair, and without a check of its own
+            // The class is not enough. There is no ttf → ttf pair, so without a check of its own
             // the rejection would come from the factory, wrapped in the same FontConvertorError.
             expect(error).to.be.instanceOf(FontConvertorError);
             expect((error as FontConvertorError).message).to.equal("New and old font extension cannot be equal.");
@@ -103,9 +103,9 @@ describe("FontConvertor", function () {
         });
     }
 
-    // The source extension comes from the file name and is not checked against Extension: a
+    // The source extension comes from the file name and is not checked against Extension. So a
     // format absent from the pair table even as a source reaches ConvertorFactory.get() as is.
-    // The rejection has to name the pair rather than fail with a TypeError reading the table.
+    // The rejection has to name the pair, not fail with a TypeError while reading the table.
     it("rejects a source in a format without pairs", async function () {
         const originPath = await copyTtfFixture("font.pfb");
 
@@ -131,9 +131,9 @@ describe("FontConvertor", function () {
         expect((error as FontConvertorError).cause).to.be.instanceOf(InvalidFontSignature);
     });
 
-    // FileHelper.createDirectoriesByDate() checks the path, and its spec pins the checks
-    // themselves. Here — that the rejection leaves convert() as is: the directory is created
-    // before the try that wraps the pair's errors in FontConvertorError, and the engine is never
+    // FileHelper.createDirectoriesByDate() checks the path, and its own spec pins the checks.
+    // Here the spec pins that the rejection leaves convert() unwrapped: the directory is created
+    // before the try that wraps the pair's errors in FontConvertorError. The engine is never
     // reached.
     describe("rejects the temp dir", function () {
         it("when it does not exist", async function () {
@@ -201,8 +201,8 @@ describe("FontConvertor", function () {
 });
 
 describe("ConvertorNotFound and InvalidFontSignature", function () {
-    // The factories are checked directly: the spec above compares only the payload of
-    // ConvertorNotFound, and the Convertor spec compares a rejection with an error from the same
+    // The factories are checked directly. The spec above compares only the payload of
+    // ConvertorNotFound. The Convertor spec compares a rejection with an error from the same
     // factory, so the text there is compared with itself.
     const cases = [
         {

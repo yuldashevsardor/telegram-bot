@@ -12,10 +12,10 @@ import { InvalidPath } from "app/shared/fs/file-helper.errors";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
-// The pairs without EOT run on the real fontforge from the image: such a pair has no logic of
-// its own beyond the input check and the engine call, and a stub engine would confirm only the
-// call, not that the pair is reachable. Each pair calls the check itself, so a rejection is
-// pinned for each; the branches of the check itself run in convertor.spec.ts.
+// The pairs without EOT run on the real fontforge from the image. Such a pair has no logic of its
+// own beyond the input check and the engine call. A stub engine would confirm only the call, not
+// that the pair is reachable. Each pair calls the check itself, so a rejection is pinned for each.
+// The branches of the check itself run in convertor.spec.ts.
 describe("Convertors of the engine pairs", function () {
     const matcher = new FontSignatureMatcher();
     const factory = new ConvertorFactory(new FontForge("fontforge"), matcher, new EotPacker());
