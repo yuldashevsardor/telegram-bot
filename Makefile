@@ -245,6 +245,11 @@ mutation-area: ## The area of make mutation from the diff against origin/main, o
 mutation-record: ## Whether the last mutation run record of a PR replaces the reviewer's run: make mutation-record pr=<N> gate=mutation|mutation-full [area="<paths>"] [rebuild=1]
 	@python3 scripts/review/mutation_record.py '$(pr)' '$(gate)' '$(strip $(subst $(NEWLINE), ,$(area)))' '$(rebuild)'
 
+# The recipe line is not echoed: stdout is the report the skill reads. The three arguments go in a
+# fixed order, the empty ones as empty strings.
+review-run: ## The mechanical run of a PR review in one call, from the tree the review started in: make review-run pr=<N> gates="<gates>" [flags="--no-post"]
+	@python3 scripts/review/review_run.py '$(pr)' '$(strip $(gates))' '$(strip $(flags))'
+
 review-tree-remove: ## Remove a temporary review tree <main worktree>-review-<PR> with its image and volume: make review-tree-remove path=<tree>
 	@[ -n "$(path)" ] || { printf 'give it the tree: make review-tree-remove path=<tree>\n' >&2; exit 1; }
 	python3 scripts/review/tree_remove.py '$(path)'
@@ -253,4 +258,4 @@ review-tree-remove: ## Remove a temporary review tree <main worktree>-review-<PR
 	migrate migrate-create build typecheck test test-watch coverage \
 	lint lint-fix format-check format mutation check rebuild shell psql \
 	worktree-init worktree-cleanup token-acquire token-renew token-release token-status token-add \
-	review-test review-tree-create mutation-area mutation-record review-tree-remove help
+	review-test review-tree-create mutation-area mutation-record review-run review-tree-remove help
