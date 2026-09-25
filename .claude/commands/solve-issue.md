@@ -39,7 +39,8 @@ guessed answer turns into a review round over an unmet criterion.
 Then the "Workflow" of `CLAUDE.md`, with no exceptions:
 
 1. Choose the branch prefix before the first push: renaming the branch of an open PR closes it.
-2. The worktree `../telegram-bot-<task>` from `origin/main`, `make worktree-init` in it.
+2. The worktree `<main>-<task>` next to the main worktree, where `<main>` is the name of its
+   directory, from `origin/main`; `make worktree-init` in it.
 3. Edits, `make check`, `git status -sb`, commit, mutation run, push.
 4. A PR into `main` with the issue link — how to write it is in `docs/agents/issue-tracker.md`.
    Without the link the review gives BLOCKED. Right after it — the mutation run record in the PR
