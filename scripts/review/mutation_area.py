@@ -29,14 +29,12 @@ loader, not as text) and the alias of the test code (`paths` of tsconfig.check.j
 mutation-area-configs.mjs, run by `node` in the application container through `DC_APP_RUN` of the
 Makefile, so they are exactly what Stryker, mocha and tsc see.
 
-The reviewer calls the action from the tree the review started in and names the tree of the PR as
-`tree` (the pr-light-check skill says why the review's tools are taken from there). Everything that
-reads the PR's files runs in `tree`: `git` for the diff, the file list and the importers, and the
-container that reads the configs, since Compose resolves `docker-compose.app.yml` and the mounts
-from the directory it is run in. Called from the PR tree instead, the action would be the PR's own
-version, and a PR opened before the action was merged has no such target at all (#562). Called
-from another tree without `tree`, it would check the files and read the configs of that tree: a
-source the PR adds would be left out as "not in the tree".
+The reviewer calls the action from the tree the review started in (the pr-light-check skill says
+why) and names the tree of the PR as `tree`. Everything that reads the PR's files runs in `tree`:
+`git` for the diff, the file list and the importers, and the container that reads the configs,
+since Compose resolves `docker-compose.app.yml` and the mounts from the directory it is run in.
+Called from another tree without `tree`, the action would check the files and read the configs of
+that tree: a source the PR adds would be left out as "not in the tree".
 
 A `.ts` whose diff touches only comments stays in the area: in `src/` a comment can be a
 `// Stryker disable` mark, and the gate has to see it (docs/agents/review-gates.md, the `mutation`

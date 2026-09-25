@@ -88,8 +88,9 @@ tree this run did create: remove it there like any other.
 The gates of step 2 run from the temporary tree, so the `cd` is required: the targets are listed in
 `allowed-tools` by exact match (`Bash(make coverage)`), and `make -C <path> coverage` does not fall
 under them. The review actions among them are the exception of the hard rules: for them `cd` back
-to the tree you were started in, then into the PR tree again. `make db-up` is never called from a temporary tree, neither here nor in "Red": there it
-recreates the shared database on an empty `tmp/pgsql` (the docstring above says how).
+to the tree you were started in, then into the PR tree again. `make db-up` is never called from a
+temporary tree, neither here nor in "Red": there it recreates the shared database on an empty
+`tmp/pgsql` (the docstring above says how).
 
 ## Step 2. The run by gates
 
@@ -463,9 +464,9 @@ cd <the tree you were started in>
 make review-tree-remove path=<temporary path>
 ```
 
-The target is called from the tree you were started in, by the hard rules. It takes the tree's application down together with its image
-and volume and removes the tree; what it runs, in which order and why is in the docstring of
-`scripts/review/tree_remove.py`.
+The target is called from the tree you were started in, by the hard rules. It takes the tree's
+application down together with its image and volume and removes the tree; what it runs, in which
+order and why is in the docstring of `scripts/review/tree_remove.py`.
 
 `Not cleaned up: <path> — <reason>` in its output — put the line into the report as it is, so that a
 human removes the tree: the application failed to go down and the tree is kept on purpose, or the
