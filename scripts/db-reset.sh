@@ -8,8 +8,8 @@
 # worktrees are running.
 set -eu
 
-# Both names are fixed in docker-compose.db.yml. They tell the application containers of
-# other worktrees from the database's own.
+# The project name of the database and its network are fixed in docker-compose.db.yml. They
+# tell the application containers of other worktrees from the database's own.
 COMPOSE_FILE="docker-compose.db.yml"
 DB_PROJECT="telegram-bot-db"
 DB_NETWORK="telegram-bot-db_default"
