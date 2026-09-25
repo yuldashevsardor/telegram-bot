@@ -239,9 +239,6 @@ class ReviewRun:
         """Makes the tree; the reason it was not made otherwise."""
         self.creating = True
         done = self.make(["review-tree-create", "pr=" + self.pr], self.here, "tree-create.log")
-        # A creation that returned names the tree it left in its output; only a cut one leaves a
-        # tree interrupted() has to look for.
-        self.creating = False
         stopped = None
         for line in (done.stdout or "").splitlines():
             if line.startswith("Tree: "):
@@ -256,6 +253,9 @@ class ReviewRun:
                 left = re.search(r"make review-tree-remove path=(\S+)$", line)
                 if left:
                     self.tree = left.group(1)
+        # A creation that returned names the tree it left in its output, and the loop above has
+        # read it; only a cut one leaves a tree interrupted() has to look for.
+        self.creating = False
         if done.returncode == 0 and self.tree and self.report.head:
             return None
         return "the tree was not created: {}".format(stopped or reason(done))
