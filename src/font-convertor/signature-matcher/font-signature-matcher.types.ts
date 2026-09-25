@@ -1,5 +1,5 @@
 /**
- * What the domain skips before a signature, ahead of matching the bytes.
+ * What the domain skips before matching the bytes of a signature.
  */
 export enum Prefix {
     /** The UTF-8 BOM, if present. */
@@ -9,8 +9,7 @@ export enum Prefix {
 }
 
 /**
- * A byte class: what matters to the signature is not the value itself but which set of bytes it
- * belongs to.
+ * A byte class: the signature checks which set a byte belongs to, not its value.
  */
 export enum ByteClass {
     /**

@@ -7,13 +7,13 @@ import { SFNT_VERSIONS, sfntVersionBytes } from "app/font-convertor/sfnt-version
 @injectable()
 export class FontSignatureMatcher {
     // EOT has no signature at the start of the file: the header opens with the file and font
-    // data sizes, and the format marker (USHORT 0x504C, little-endian) lies at a fixed offset.
+    // data sizes. The format marker (USHORT 0x504C, little-endian) lies at a fixed offset.
     private static readonly EOT_MAGIC_OFFSET = 34;
 
     private static readonly UTF8_BOM = [0xef, 0xbb, 0xbf];
     // XML whitespace: space, tab, line feed, carriage return.
     private static readonly XML_WHITESPACE = [0x20, 0x09, 0x0a, 0x0d];
-    // The indent limit, the BOM on top of it: without a limit the file head would grow with the indent.
+    // The indent limit, not counting the BOM. Without a limit the file head would grow with the indent.
     private static readonly MAX_INDENT_LENGTH = 16;
 
     // What a markup document may open with after `<`: a letter of the root tag or the `!` of a
@@ -23,15 +23,15 @@ export class FontSignatureMatcher {
         [0x41, 0x5a],
         [0x61, 0x7a],
     ];
-    // The boundary of the C0 control bytes: below it lie only controls, which text does not have
-    // (markup whitespace is checked separately). Above it passes what is not text as well — DEL
-    // and the C1 controls — but they cannot be separated out: the high bytes are needed whole,
-    // UTF-8 lives in them.
+    // The boundary of the C0 control bytes. Below it lie only controls, which text does not have;
+    // markup whitespace is checked separately. Above it DEL and the C1 controls pass too, although
+    // they are not text. They cannot be separated out: the high bytes are needed whole, UTF-8
+    // lives in them.
     private static readonly FIRST_NON_C0_BYTE = 0x20;
     // How many text bytes the signature requires after the markup start. A `<` with a letter is
-    // not enough: a binary head forms such a pair by chance — the EOT header opens with the file
-    // size, and in the fixture its low bytes give `<m`. After that a binary format has control
-    // bytes, a document has text.
+    // not enough, because a binary head forms such a pair by chance: the EOT header opens with the
+    // file size, and in the fixture its low bytes give `<m`. After the pair a binary format has
+    // control bytes, a document has text.
     private static readonly MARKUP_TAIL_LENGTH = 10;
 
     private readonly signaturesByExtension: Record<Extension, Array<Signature>>;
@@ -42,13 +42,12 @@ export class FontSignatureMatcher {
     public readonly headLength: number;
 
     public constructor() {
-        // TTF and OTF lie in the same sfnt container and are indistinguishable by content: the
-        // sfnt version names the outline type, not the extension of the name. Outlines of either
-        // type legally appear under both extensions, so here the signature confirms the container,
-        // and the extension decides which conversion pair runs.
+        // TTF and OTF share the sfnt container and cannot be told apart by content, so the
+        // signature confirms the container, and the extension picks the conversion pair
+        // (docs/architecture/font-convertor.md, "Signatures").
         //
-        // The version set is shared with the codec: which versions the domain accepts and why the
-        // collection ("ttcf") is not among them is said at `SFNT_VERSIONS`.
+        // The version set is shared with the codec. Which versions the domain accepts, and why the
+        // collection ("ttcf") is not among them, is said at `SFNT_VERSIONS`.
         const sfnt: Array<Signature> = SFNT_VERSIONS.map((version) => ({ offset: 0, bytes: sfntVersionBytes(version) }));
 
         this.signaturesByExtension = {
@@ -57,21 +56,20 @@ export class FontSignatureMatcher {
             [Extension.WOFF]: [{ offset: 0, bytes: this.ascii("wOFF") }],
             [Extension.WOFF2]: [{ offset: 0, bytes: this.ascii("wOF2") }],
             [Extension.EOT]: [{ offset: FontSignatureMatcher.EOT_MAGIC_OFFSET, bytes: [0x4c, 0x50] }],
-            // SVG is the only text format here, and its signature is weaker than the others: it
-            // says "this is markup", not "this is a font". The domain will not parse the document,
-            // but even this check is enough to keep binary junk named *.svg out.
+            // SVG is the only text format here, and its signature is the weakest: it says "this is
+            // markup", not "this is a font". The domain does not parse the document, but this check
+            // is enough to keep binary junk named *.svg out.
             //
-            // So the second signature looks not for the root tag but for the start of markup in
-            // general: `<!DOCTYPE` and a comment are both legal before the root tag, and
-            // enumerating prologues would mean extending the signature for each new one.
+            // The second signature looks for any markup start, not for the root tag. A DOCTYPE or
+            // a comment may come first, and enumerating prologues would mean extending the
+            // signature for each new one.
             //
-            // The first signature stands apart because its prefix differs: the XML declaration has
-            // to open the document, so only a BOM is allowed before `<?xml` (fontforge does not open
-            // a file indented before the declaration), while whitespace is legal before any other
-            // markup. For the same reason `?` is not in the markup-start class: otherwise an indent
-            // would become allowed before the declaration too. Because of that the class does not
-            // cover a processing instruction — only one starting with `<?xml` passes, and only
-            // without an indent.
+            // `<?xml` has a signature of its own because its prefix differs: whitespace is legal
+            // before any other markup, but only a BOM before `<?xml`. The XML declaration has to
+            // open the document, and fontforge does not open a file indented before it. For the
+            // same reason `?` is not in the markup-start class: otherwise an indent would become
+            // allowed before the declaration too. So a processing instruction passes only if it
+            // starts with `<?xml` and has no indent.
             [Extension.SVG]: [
                 { offset: 0, bytes: this.ascii("<?xml"), prefix: Prefix.Bom },
                 { offset: 0, bytes: [...this.ascii("<"), ByteClass.MarkupStart, ...this.markupTail()], prefix: Prefix.Indent },
@@ -139,9 +137,9 @@ export class FontSignatureMatcher {
             case Prefix.Bom:
                 return bomLength;
             case Prefix.Indent:
-                // The indent is counted past the BOM, not together with it: a shared budget would
-                // mean that an invisible BOM shortens the allowed indent, and the same document
-                // from different editors passes the check differently.
+                // The indent is counted past the BOM, not together with it. With a shared budget an
+                // invisible BOM would shorten the allowed indent, and the same document saved by
+                // different editors would pass the check differently.
                 return bomLength + this.indentLength(head, bomLength);
         }
     }
@@ -172,9 +170,9 @@ export class FontSignatureMatcher {
     }
 
     private maxPrefixLength(prefix?: Prefix): number {
-        // The marks below say one thing: headLength is set by EOT today, not by SVG — its marker
-        // lies further than the SVG signature ends even with the maximum prefix, so a wrong prefix
-        // length does not change the result. Once the SVG signature outgrows EOT, drop the marks.
+        // The marks below rest on one fact: EOT sets headLength today, not SVG. The EOT marker lies
+        // further than the SVG signature ends even with the maximum prefix, so a wrong prefix length
+        // does not change the result. Once the SVG signature outgrows EOT, drop the marks.
         // Stryker disable next-line ConditionalExpression: `true` is equivalent while EOT sets headLength
         if (prefix === undefined) {
             return 0;

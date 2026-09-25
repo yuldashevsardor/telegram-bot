@@ -4,8 +4,8 @@ import { InvalidEot, UnsupportedEotFlags } from "app/font-convertor/eot-packer/e
 import { SfntReader } from "app/font-convertor/eot-packer/sfnt-reader/sfnt-reader";
 import type { SfntMetadata } from "app/font-convertor/eot-packer/sfnt-reader/sfnt-reader.types";
 
-// EOT is not an outline format of its own but an envelope: a header with metadata followed by
-// the untouched sfnt bytes. That is why EOT bypasses the engine: the engine does not read this
+// EOT is not an outline format of its own but an envelope: a header with metadata, then the
+// untouched sfnt bytes. That is why EOT bypasses the engine: the engine does not read this
 // envelope, and on writing it silently slips in PostScript Type 1
 // (issue https://github.com/yuldashevsardor/telegram-bot/issues/158).
 //
@@ -70,9 +70,9 @@ export class EotPacker {
         const eot = await FileHelper.read(eotPath);
         const font = this.readFontData(eot);
 
-        // The envelope may add up while holding no font: the header is consistent, but the
-        // content is not a font. The unpacked file is either the result itself (eot → ttf) or goes
-        // on to the engine, so the check is here, where both routes pass.
+        // A consistent header may still enclose something that is not a font. The check is here
+        // because both routes pass here: the unpacked file is either the result itself (eot → ttf)
+        // or the input of the engine.
         SfntReader.validate(font);
 
         await FileHelper.write(sfntPath, font);
@@ -83,8 +83,8 @@ export class EotPacker {
             this.encodeName(name),
         );
         // Each name gets its size (u16) and the Padding of the next block (u16); Padding1 is
-        // already part of HEADER_FIXED_SIZE. The tail is the RootStringSize of an empty string:
-        // the string itself is not written, but version 0x00020001 requires the field.
+        // already part of HEADER_FIXED_SIZE. The final 2 is the RootStringSize of an empty string:
+        // version 0x00020001 requires the field, while the string itself is not written.
         const namesSize = names.reduce((size, name) => size + 4 + name.length, 0);
         const headerSize = HEADER_FIXED_SIZE + namesSize + 2;
 
@@ -167,9 +167,9 @@ export class EotPacker {
             throw InvalidEot.invalidFontDataSize(fontDataSize, eot.length);
         }
 
-        // The font lies at the tail of the file, so its start is known without parsing the header.
-        // The header is walked in full all the same: that its variable blocks do not run past that
-        // start is how the variable part of the header is checked for consistency.
+        // The font is the tail of the file, so its start is known without parsing the header. The
+        // header is still walked in full: this is how its variable part is checked. Its blocks must
+        // not run past the font start.
         const fontDataOffset = eot.length - fontDataSize;
         const headerEnd = this.readHeaderEnd(eot, view, version);
 
@@ -182,7 +182,7 @@ export class EotPacker {
 
     /**
      * The offset right after the envelope names: version 1.0 has four of them, later versions add
-     * RootString. The tail of version 0x00020002 is not parsed — it lies between the header and
+     * RootString. The tail of version 0x00020002 is not parsed: it lies between the header and
      * the font and is not part of the check.
      */
     private readHeaderEnd(eot: Uint8Array, view: DataView, version: number): number {

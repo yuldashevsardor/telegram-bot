@@ -43,8 +43,8 @@ type ConvertorMatrix = Partial<Record<Extension, Partial<Record<Extension, Conve
 
 @injectable()
 export class ConvertorFactory {
-    // The pair matrix is the only place that records what the domain can do: the convertor is
-    // picked from it, and the list of supported formats is derived from it. A format declared in
+    // The only record of what the domain can do: get() picks the convertor from it, and
+    // getSupportedExtensions() derives the supported formats from it. A format declared in
     // Extension but absent here does not count as supported.
     private readonly convertors: ConvertorMatrix = {
         [Extension.WOFF]: {

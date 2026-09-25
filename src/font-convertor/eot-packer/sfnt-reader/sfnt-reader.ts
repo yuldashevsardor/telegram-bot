@@ -11,12 +11,12 @@ const SFNT_HEADER_SIZE = 12;
 const TABLE_RECORD_SIZE = 16;
 
 // The fields the codec reads from OS/2 end at fsSelection (62), so version 0 needs only 64
-// bytes: in old fonts the table can be shorter than today's 78.
+// bytes. In old fonts the table can be shorter than today's 78.
 const OS2_VERSION_0_SIZE = 64;
 // The code page ranges appear in version 1 and lie right after the version 0 table.
 const OS2_CODE_PAGE_RANGE_OFFSET = 78;
-// fsSelection bit 0 is the slant. head.macStyle duplicates it (bit 1, not 0: bit zero there is
-// bold), but OS/2 is canonical for OpenType, and ttf2eot takes the slant from it too.
+// fsSelection bit 0 is the slant. head.macStyle duplicates it in bit 1, not 0: bit 0 there is
+// bold. OS/2 is canonical for OpenType, and ttf2eot takes the slant from it too.
 const OS2_FS_SELECTION_ITALIC = 0x0001;
 
 // head is read only for checkSumAdjustment at offset 8.
@@ -29,12 +29,12 @@ const NAME_ID_STYLE = 2;
 const NAME_ID_FULL = 4;
 const NAME_ID_VERSION = 5;
 
-// The name table platforms whose encoding the codec can read: Windows and Unicode keep strings
-// in UTF-16BE, while on Macintosh only encodingId 0 is single-byte MacRoman — the others hold
-// national encodings such as Shift-JIS. Windows comes first: almost every font has its records,
-// and they are what a reader on Windows expects from EOT.
+// The name table platforms whose encoding the codec can read. Windows and Unicode keep strings
+// in UTF-16BE. On Macintosh only encodingId 0 is single-byte MacRoman; the others hold national
+// encodings such as Shift-JIS. Windows comes first: almost every font has its records, and they
+// are what a reader on Windows expects from EOT.
 //
-// Within a platform English is preferred — as in ttf2eot, which the codec follows: 0x0409 on
+// Within a platform English is preferred, as in ttf2eot, which the codec follows: 0x0409 on
 // Windows, 0 on Macintosh and Unicode. Otherwise the envelope would get whichever name stands
 // earlier in the table, and a font does not guarantee the order of its records.
 const PLATFORM_UNICODE = 0;
@@ -144,9 +144,9 @@ export class SfntReader {
 
     /**
      * The envelope names by nameID. The names are informational, so an unreadable record is not an
-     * error here: it is skipped, and a field nothing was found for stays empty. Rejecting the whole
-     * font over it costs more — subsetters cut name records, and
-     * `pyftsubset --drop-tables+=name` drops the whole table.
+     * error: it is skipped, and a field nothing was found for stays empty. Rejecting the whole font
+     * over it costs more: subsetters cut name records, and `pyftsubset --drop-tables+=name` drops
+     * the whole table.
      */
     private readNames(): Map<number, string> {
         const names = new Map<number, string>();
@@ -170,21 +170,21 @@ export class SfntReader {
         // platformId 0, encodingId 2, languageId 4, nameId 6, length 8, stringOffset 10.
         const recordCount = this.view.getUint16(name.offset + 2);
         const storage = name.offset + this.view.getUint16(name.offset + 4);
-        // The records lie before the string storage. An inflated count — from truncation or a
-        // buggy subsetter — leads them into the strings and the neighbouring tables, where bytes
-        // add up to "records" with garbage names that shadow the real names of the later sources.
+        // The records lie before the string storage. An inflated count, from truncation or a buggy
+        // subsetter, leads them into the strings and the neighbouring tables. There bytes add up to
+        // "records" with garbage names, which shadow the real names of the later sources.
         const recordsEnd = Math.min(storage, nameEnd);
         const wanted = [NAME_ID_FAMILY, NAME_ID_STYLE, NAME_ID_VERSION, NAME_ID_FULL];
 
         for (const source of NAME_SOURCES) {
-            // English records are walked first, so each source is walked twice: first with its
-            // language, then with any.
+            // Each source is walked twice, first with its language, then with any, so that English
+            // records come first.
             for (const languageId of [source.languageId, undefined]) {
                 for (let index = 0; index < recordCount; index++) {
                     const record = name.offset + NAME_HEADER_SIZE + index * NAME_RECORD_SIZE;
 
-                    // The records further on are past the boundary too, and this pass is over. The
-                    // other passes start from record zero and will still read the ones that fit.
+                    // The records further on are past the boundary too, so this pass is over. The
+                    // other passes start from record zero and still read the records that fit.
                     if (record + NAME_RECORD_SIZE > recordsEnd) {
                         break;
                     }
