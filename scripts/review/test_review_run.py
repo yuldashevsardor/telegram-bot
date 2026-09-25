@@ -3,6 +3,7 @@ import os
 import signal
 import subprocess
 import tempfile
+import time
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 
@@ -592,12 +593,69 @@ class ReviewRunTest(unittest.TestCase):
 
         self.assertEqual(run.names(), ["review-tree-create"])
 
+    def test_a_signal_after_the_interrupt_loses_neither_the_cleanup_nor_the_report(self):
+        run = self.fake(**{"review-tree-create": KeyboardInterrupt()})
+        listed = run.__call__
+
+        # A second Ctrl-C while interrupted() looks for the tree an interrupted creation left.
+        def signalled(args, cwd=None, **kwargs):
+            if args[0] == "git":
+                review_run.on_signal(signal.SIGINT, None)
+            return listed(args, cwd, **kwargs)
+
+        os.makedirs(self.review)
+
+        code, out = self.review_run("build", signalled)
+
+        self.assertEqual(code, 130)
+        self.assertEqual(run.names(), ["review-tree-create", "review-tree-remove"])
+        self.assertIn("Not run: build — the run was interrupted\n", out)
+        self.assertFalse(review_run.CLEANING["now"])
+
     def test_a_signal_is_an_interrupt_except_during_the_cleanup(self):
         with self.assertRaises(review_run.Interrupted):
             review_run.on_signal(signal.SIGTERM, None)
         review_run.CLEANING["now"] = True
         self.addCleanup(review_run.CLEANING.update, now=False)
         review_run.on_signal(signal.SIGTERM, None)
+
+
+class RunInGroupTest(unittest.TestCase):
+    def test_answers_as_subprocess_run(self):
+        done = review_run.run_in_group(
+            ["sh", "-c", "echo out; echo err >&2; exit 3"], capture_output=True, text=True
+        )
+
+        self.assertEqual((done.returncode, done.stdout, done.stderr), (3, "out\n", "err\n"))
+
+    def test_an_interrupt_ends_what_the_command_started(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pid_file = os.path.join(tmp, "pid")
+
+            def interrupt(signum, frame):
+                raise review_run.Interrupted()
+
+            previous = signal.signal(signal.SIGALRM, interrupt)
+            self.addCleanup(signal.signal, signal.SIGALRM, previous)
+            signal.setitimer(signal.ITIMER_REAL, 0.5)
+            with self.assertRaises(review_run.Interrupted):
+                review_run.run_in_group(
+                    ["sh", "-c", "sleep 30 & echo $! > {}; wait".format(pid_file)],
+                    capture_output=True,
+                    text=True,
+                )
+            with open(pid_file) as file:
+                pid = int(file.read())
+
+        # The orphan is reaped by init a moment after the kill; until then it is a zombie.
+        for _ in range(50):
+            done = subprocess.run(
+                ["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True
+            )
+            if not done.stdout.strip() or done.stdout.strip().startswith("Z"):
+                break
+            time.sleep(0.1)
+        self.assertTrue(not done.stdout.strip() or done.stdout.strip().startswith("Z"), done.stdout)
 
 
 class ExcerptTest(unittest.TestCase):

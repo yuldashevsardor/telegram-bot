@@ -87,8 +87,9 @@ one, and on the issue you get a second, weaker opinion you would have to reconci
 the run, not a verdict, and `--no-post` cancels that publication only if the flag reached it.
 
 `pr-light-check` runs the PR code in a temporary detached tree of the PR head, not in your tree:
-`make review-run` creates it and removes it when the gates are done. So do not rely on the PR branch being the `HEAD` of your tree: the commands of step 5 compare against
-the PR branch by name, not against `HEAD`.
+`make review-run` creates it and removes it when the gates are done. So do not rely on the PR
+branch being the `HEAD` of your tree: the commands of step 5 compare against the PR branch by
+name, not against `HEAD`.
 
 Along with the run, `pr-light-check` returns the findings on the changed `*.md` lines (its step 3,
 the `docs` gate). Keep no checklist of your own for them and do not search for them again: the

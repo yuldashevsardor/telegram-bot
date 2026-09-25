@@ -21,8 +21,9 @@ code under review. It runs, in this order:
    read: whether the reason on a mark holds is prose ("Working through survivors" in
    docs/architecture/testing.md), not a rule.
 5. `make review-tree-remove` whatever the outcome: a red gate, a stop and an interrupt included.
-   SIGTERM and SIGHUP are turned into an interrupt, and `subprocess.run` kills the gate it waits
-   for; the container of that gate `down --remove-orphans` takes down (tree_remove.py). SIGKILL cannot be
+   SIGTERM and SIGHUP are turned into an interrupt, and run_in_group kills the command it waits for
+   together with everything it started; the container of a gate `down --remove-orphans` takes
+   down (tree_remove.py). SIGKILL cannot be
    caught: the tree it leaves the next run removes (tree_create.py).
 
 Only the targets named above run. A gate the action does not know gives a `Not run` line and runs
@@ -63,7 +64,7 @@ import subprocess
 import sys
 import tempfile
 from collections import OrderedDict
-from typing import Dict, List, MutableMapping, Optional, Tuple
+from typing import Any, Dict, List, MutableMapping, Optional, Tuple
 
 from tree_create import review_tree_path, Stop
 from tree_remove import Run, reason
@@ -532,6 +533,8 @@ def new_marks(diff: str) -> List[str]:
 
 
 # The cleanup is not interrupted by a second signal: a tree half removed is worse than one left.
+# The flag covers this process from the interrupt to the printed report; the commands it runs are
+# kept out of reach of the terminal's Ctrl-C by run_in_group.
 CLEANING = {"now": False}
 
 
@@ -540,21 +543,46 @@ def on_signal(signum: int, frame: object) -> None:
         raise Interrupted()
 
 
-def review_run(pr: str, gates: List[str], logs: str, run: Run = subprocess.run) -> int:
+def run_in_group(args: List[str], **kwargs: Any) -> "subprocess.CompletedProcess[str]":
+    """subprocess.run in a process group of its own, which an interrupt ends whole.
+
+    subprocess.run kills only its direct child when the wait is interrupted, and a `make` killed
+    that way leaves its recipe running: `tree_create.py` would go on to add the tree after the
+    cleanup looked for it, and a gate's `docker compose` would keep its container. A group of its
+    own also keeps a second Ctrl-C of the terminal away from the cleanup: the signal goes to the
+    foreground group, and `make review-tree-remove` is not in it. stdin is closed, so that no
+    command waits for input or takes the terminal: the review has nobody to answer.
+    """
+    if kwargs.pop("capture_output", False):
+        kwargs["stdout"] = kwargs["stderr"] = subprocess.PIPE
+    with subprocess.Popen(
+        args, start_new_session=True, stdin=subprocess.DEVNULL, **kwargs
+    ) as process:
+        try:
+            out, err = process.communicate()
+        except BaseException:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait()
+            raise
+    return subprocess.CompletedProcess(args, process.returncode, out, err)
+
+
+def review_run(pr: str, gates: List[str], logs: str, run: Run = run_in_group) -> int:
     review = ReviewRun(pr, gates, logs, run)
     code = 0
     try:
-        review.execute()
-    except (KeyboardInterrupt, Interrupted):
-        code = 130
-        review.interrupted()
-    finally:
-        CLEANING["now"] = True
         try:
-            review.remove_tree()
+            review.execute()
+        except (KeyboardInterrupt, Interrupted):
+            CLEANING["now"] = True
+            code = 130
+            review.interrupted()
         finally:
-            CLEANING["now"] = False
-    review.report.print(logs)
+            CLEANING["now"] = True
+            review.remove_tree()
+        review.report.print(logs)
+    finally:
+        CLEANING["now"] = False
     return code
 
 
