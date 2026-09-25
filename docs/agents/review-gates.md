@@ -24,9 +24,9 @@ once.
 | `Makefile` | `make-targets` |
 | `scripts/*.sh`, `.husky/*` | `scripts` |
 | `scripts/**/*.py` | `python` |
-| any `.ts` or `.sh` | `docs-sync` |
+| any `.ts`, `.sh` or `.py` | `docs-sync` |
 | any `.ts` | `bug-hunt-high` |
-| `.sh` and not a single `.ts` | `bug-hunt-medium` |
+| `.sh` or `.py` and not a single `.ts` | `bug-hunt-medium` |
 | `.ts` inside `src/font-convertor/`, `src/shared/`, `src/telegram/outbound-queue/` | `smells` |
 | `stryker.config.mjs`, `test/stryker-mocha-hook.cjs`, `test/mutation-record.ts`, `.mocharc.json`, `tsconfig.json`, `tsconfig.check.json` — not a comments-only diff | `mutation-full` |
 | any `.ts` in `src/` or `test/`, unless `mutation-full` is on | `mutation` |
@@ -87,10 +87,12 @@ gate `mutation` has to see.
 `bug-hunt-*` and `smells` are kept apart on purpose, and their boundaries differ. Bugs are
 hunted wherever there is executable code: in `src/platform/`, `src/bootstrap/` and
 `src/telegram/` they cost more than in the domain, because they fail at runtime in front of
-the user. Fowler's smells make sense only on code that expresses the domain: an adapter around
-grammY is a Middle Man by nature, `container.ts` is Divergent Change, and migrations are
-Duplicated Code that cannot be rewritten, since they are append-only. On such a diff the
-Standards axis yields remarks bound to be rejected, at the cost of a full run.
+the user; in the shell scripts and the Python actions of the review skills (`scripts/review/`)
+they break the host tooling: a worktree, the shared database, a review round. Fowler's smells
+make sense only on code that expresses the domain: an adapter around grammY is a Middle Man by
+nature, `container.ts` is Divergent Change, and migrations are Duplicated Code that cannot be
+rewritten, since they are append-only. On such a diff the Standards axis yields remarks bound to
+be rejected, at the cost of a full run.
 
 The sign of `smells` is "the code expresses rules rather than serving someone else's API", but
 it is decided by directory: `/review-pr` sees only file names and does not read the code. That
@@ -102,7 +104,10 @@ until it is written in here. The PR that creates or moves the module writes it i
 The level is built into the gate's name: the skill calls the built-in `code-review` with it.
 `bug-hunt-high` and `bug-hunt-medium` are a pair of rows that does not accumulate: there is
 one run, and it has one level. On a diff made only of bash scripts the wider coverage of
-`high` brings uncertain findings and extra cost, not bugs. The level is decided by the table
+`high` brings uncertain findings and extra cost, not bugs. The Python of this repository is the
+same kind of code: host tooling that drives `git`, `gh` and `docker` from outside the containers
+(`docs/architecture/testing.md`), not the domain. So a `.py` takes the level of the scripts, and a
+diff with `.py` and `.ts` together goes at `high` by its `.ts`. The level is decided by the table
 and not by the skill, because the sign "there is a `.ts`" is already computed by the choice of
 depth (`/review-pr`, step 3): a second copy of it would drift from this one silently — both
 files would still read coherently, and the boundary would move in only one of them.

@@ -69,7 +69,7 @@ case "${1:-}" in
             notes=$(printf '%s' \
                 "The session started in the main worktree $main (branch $branch). " \
                 "By the CLAUDE.md rule a task is done in its own git worktree, and creating it " \
-                "is the first step, before any edit: git worktree add \"$main/../telegram-bot-<task>\" " \
+                "is the first step, before any edit: git worktree add \"$main-<task>\" " \
                 "-b <branch> origin/main, then make worktree-init in it. " \
                 "Edits of files in the main worktree are blocked by a hook.")
         fi
@@ -107,7 +107,7 @@ case "${1:-}" in
                 permissionDecisionReason: (
                     "\($file) lies in the main worktree \($main), where a neighbouring session may "
                     + "switch the branch at any moment. Create a task worktree and work in it: "
-                    + "git worktree add \"\($main)/../telegram-bot-<task>\" -b <branch> origin/main, "
+                    + "git worktree add \"\($main)-<task>\" -b <branch> origin/main, "
                     + "then make worktree-init in it."
                 )
             }
