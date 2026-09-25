@@ -86,9 +86,9 @@ one, and on the issue you get a second, weaker opinion you would have to reconci
 `pr-light-check` publishes the record of its own mutation run in this mode too: it is a fact of
 the run, not a verdict, and `--no-post` cancels that publication only if the flag reached it.
 
-`pr-light-check` fetches the PR code itself: `gh pr checkout`, or a separate worktree if the
-working tree is busy. So do not rely on the PR branch being the `HEAD` of your tree: the commands
-of step 5 compare against the PR branch by name, not against `HEAD`.
+`pr-light-check` runs the PR code in a temporary detached tree of the PR head, not in your tree. So
+do not rely on the PR branch being the `HEAD` of your tree: the commands of step 5 compare against
+the PR branch by name, not against `HEAD`.
 
 Along with the run, `pr-light-check` returns the findings on the changed `*.md` lines (its step 3,
 the `docs` gate). Keep no checklist of your own for them and do not search for them again: the
