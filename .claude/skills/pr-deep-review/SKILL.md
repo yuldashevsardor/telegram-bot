@@ -321,8 +321,8 @@ Verdict rules:
   Red is a ground by itself: it has no finding level, it arrives as step 3 lines and stands in
   "Checks", not in "Findings".
 - **BLOCKED** — review is impossible: the PR is not tied to an issue, the build does not start, the
-  mutation gate is cut short by a checker crash on the retry too (`pr-light-check`, the
-  `mutation` and `mutation-full` section), the diff is empty, or the task is worded so that its
+  mutation gate is cut short by a checker crash on the retry too or its area could not be assembled
+  (`pr-light-check`, the `mutation` and `mutation-full` section), the diff is empty, or the task is worded so that its
   criteria cannot be checked.
 
 Reached REQUEST_CHANGES on the third run (`K >= 3` from step 1) because of a blocker or a

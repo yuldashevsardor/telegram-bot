@@ -109,12 +109,12 @@ files would still read coherently, and the boundary would move in only one of th
 
 `mutation` and `mutation-full` are the second such pair: both run `make mutation` and differ
 in area. `mutation` mutates the code the PR touched: a survivor sits on the author's line, and
-the run takes seconds. The area is assembled by `pr-light-check`, which also holds the rule
-for it: it needs the PR's code, while the table sees only file names. `mutation-full` is
-turned on by the run's tools, and the whole of `src/` is mutated: changing them changes the run
-of every mutant, not of the diff's lines, and a PR that changes only the tools has an empty
-area from its diff. The tsconfigs and `typescript` are tools too: by them the type checker
-decides which mutant gets `CompileError` and which goes to the tests
+the run takes seconds. The area is assembled by `make mutation-area` in the PR tree
+(`scripts/review/mutation_area.py` holds the rule): it needs the PR's code, while the table sees
+only file names. `mutation-full` is turned on by the run's tools, and the whole of `src/` is
+mutated: changing them changes the run of every mutant, not of the diff's lines, and a PR that
+changes only the tools has an empty area from its diff. The tsconfigs and `typescript` are tools
+too: by them the type checker decides which mutant gets `CompileError` and which goes to the tests
 (`docs/architecture/testing.md`, "The type checker"). On other PRs the whole of `src/` is not
 run: that is minutes on every round for lines the PR did not touch.
 

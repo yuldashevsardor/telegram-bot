@@ -234,6 +234,11 @@ review-tree-create: ## Take the head of a PR into a temporary review tree <main 
 	@[ -n "$(pr)" ] || { printf 'give it the PR: make review-tree-create pr=<N>\n' >&2; exit 1; }
 	python3 scripts/review/tree_create.py '$(pr)'
 
+# The recipe line is not echoed: stdout is the area itself, one path per line. DC_APP_RUN goes in
+# whole, so the action runs node in the same container make mutation does.
+mutation-area: ## The area of make mutation from the diff against origin/main, or from a PR's: make mutation-area [pr=<N>]
+	@DC_APP_RUN='$(DC_APP_RUN)' python3 scripts/review/mutation_area.py $(if $(pr),'$(pr)')
+
 review-tree-remove: ## Remove a temporary review tree <main worktree>-review-<PR> with its image and volume: make review-tree-remove path=<tree>
 	@[ -n "$(path)" ] || { printf 'give it the tree: make review-tree-remove path=<tree>\n' >&2; exit 1; }
 	python3 scripts/review/tree_remove.py '$(path)'
@@ -242,4 +247,4 @@ review-tree-remove: ## Remove a temporary review tree <main worktree>-review-<PR
 	migrate migrate-create build typecheck test test-watch coverage \
 	lint lint-fix format-check format mutation check rebuild shell psql \
 	worktree-init worktree-cleanup token-acquire token-renew token-release token-status token-add \
-	review-test review-tree-create review-tree-remove help
+	review-test review-tree-create mutation-area review-tree-remove help

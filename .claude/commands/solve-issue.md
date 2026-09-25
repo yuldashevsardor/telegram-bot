@@ -47,11 +47,10 @@ Then the "Workflow" of `CLAUDE.md`, with no exceptions:
 
 The mutation run is `make mutation files="<area>"` with the same threshold as the review gate:
 without it the author learns of a survived mutant only from the reviewer, at the cost of a round.
-The area is assembled by the rule of the `mutation` gate (`.claude/skills/pr-light-check/SKILL.md`,
-"mutation and mutation-full"), except that the candidates come from
-`git diff --name-only origin/main...HEAD`, not from the PR diff, and it is passed as paths, not a
-glob. The change turned on the `mutation-full` gate (`docs/agents/review-gates.md`) — `make mutation`
-without `files`. The run is not part of `make check`: there it would go on every edit.
+The area is the output of `make mutation-area`: the rule of the `mutation` gate, with the
+candidates taken from `git diff --name-only origin/main...HEAD` instead of the PR diff. It is passed
+as paths, not a glob. An empty output is an empty area, and its stderr says why. The change turned
+on the `mutation-full` gate (`docs/agents/review-gates.md`) — `make mutation` without `files`. The run is not part of `make check`: there it would go on every edit.
 
 The run leaves a record — `reports/mutation/record.md`, its format is in
 `docs/architecture/testing.md`, "The run record". After the push, post it in the PR as a comment
