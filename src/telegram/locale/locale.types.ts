@@ -1,8 +1,8 @@
 import type { Fluent, TranslationContext } from "@moebius/fluent";
 
 // Explicit, not derived from the .ftl found on disk: the locale is taken from the file name,
-// and a typo in it would silently create a bundle for a language that does not exist and that
-// nobody is ever routed into.
+// and a typo in it would otherwise silently create a bundle for a language that does not exist
+// and that nobody is ever routed into.
 export const LOCALES = ["ru", "en"] as const;
 
 export type Locale = (typeof LOCALES)[number];

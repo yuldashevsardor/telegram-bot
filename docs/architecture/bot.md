@@ -75,9 +75,9 @@ Then `Bot.run()` starts `run(grammy)` from `@grammyjs/runner` with
 `runner.fetch.allowed_updates = ["message"]` (the `ALLOWED_UPDATES` constant in `bot.ts`).
 Commands and `conversation.wait()` in private chats need messages alone. The `getUpdates` default
 would also bring every type the bot does not serve. Each of those costs the network, and one that
-passes the filters also costs the middleware and a `users` write. The list names update types,
-not the contents of a message: a file arrives as the same `message` with a `document`, so
-accepting fonts does not widen the list.
+passes the filters also costs the `sessions` read and write, the middleware and a `users` write.
+The list names update types, not the contents of a message: a file arrives as the same `message`
+with a `document`, so accepting fonts does not widen the list.
 
 The list is not a security filter, so the filters stay where they are. Telegram applies the list
 on its side, and after the list changes, updates of the old types accumulated before can still
