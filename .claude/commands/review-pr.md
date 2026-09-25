@@ -35,7 +35,7 @@ The list is empty → say the diff is empty and stop.
 architecture invariants, smells and bug hunting have nothing to find there, and they cost a lot.
 `.py` is executable code like the other two: the actions of the review skills
 (`scripts/review/`) drive `git` and `docker` on the host, and `pr-light-check` has no bug hunt
-and no search for the documentation a change made false. PR #559 changed only `.py`, passed the
+and no search for the documentation a change made false. PR #559 had no `.ts` or `.sh`, passed the
 light check twice and was merged with a bug: no bug hunt ran on it.
 
 The boundary is drawn by price, not by importance. **Both** skills check issue compliance: it
