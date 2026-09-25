@@ -143,10 +143,13 @@ The file lies outside the repository, and the text ends with the signature from 
 | REQUEST_CHANGES | fix | stop |
 | BLOCKED | stop | stop |
 | APPROVE with a merge condition | stop | stop |
-| APPROVE with a `nit` or `question` | fix | step 7, name the rest |
+| APPROVE with a `nit` or `question` | step 7 | step 7 |
 | APPROVE without findings | step 7 | step 7 |
 
 The rows are checked top down, the first match wins.
+
+After an APPROVE, nits and questions are not fixed without asking, in any round: whether a nit is
+worth another round is the owner's call, and step 7 puts it to them with the price of each answer.
 
 **Fix** means fix everything:
 - every `blocker`, `should-fix` and `nit`;
@@ -157,6 +160,7 @@ The rows are checked top down, the first match wins.
 
 You disagree with a finding, or a `question` can be answered only in words — **stop**: put the
 finding and your position to the owner and wait for the decision. That does not use up a round.
+After an APPROVE that stop is step 7 itself: the finding and your position go into its report.
 A reply in the PR instead of a fix does not close the round: the next run counts findings over
 the cumulative diff and returns them word for word.
 
@@ -165,26 +169,44 @@ needed (step 2), the run record in the PR, `R` + 1, step 3. If `R` is already 3 
 comment needs a fix — step 3 all the same.
 
 The three-round limit guards against ping-pong between author and reviewer, so you do not get
-around it. A fourth round happens only on an owner comment. But on run `K >= 3` the review skills
-themselves turn a REQUEST_CHANGES over findings into BLOCKED. Then — stop, not a new round.
+around it. A fourth round happens only on an owner comment or on the owner's "Fix the nits" in
+step 7. But on run `K >= 3` the review skills themselves turn a REQUEST_CHANGES over findings into
+BLOCKED. Then — stop, not a new round.
 
 ## Step 7. "Can it be merged?"
 
-First a report to the owner: the PR, the number of rounds, the last verdict, the unfixed nits.
-When stopping — also the reason: what exactly needs deciding.
+First a report to the owner: the PR, the number of rounds, the last verdict, the unfixed nits and
+questions word for word, each with its `file:line`, and your position on those you disagree with
+or can answer only in words. When stopping — also the reason: what exactly needs deciding.
 
 Any question to the owner after the PR is opened — here, at a stop in step 6, on a disagreement
 with a finding — comes with the full links to the PR and the issue next to it, in the report
 right above the question. The owner goes to the PR to answer and should not have to look it up
 by number.
 
-After a clean round — AskUserQuestion "Can PR #<PR> be merged?" with the options "Merge" and
-"Left comments in the PR", worded in the session's language. Do not merge before the answer: only
-the owner's answer allows a merge, a clean reviewer verdict does not.
+After an APPROVE — AskUserQuestion "Can PR #<PR> be merged?", worded in the session's language.
+Do not merge before the answer: only the owner's answer allows a merge, a clean reviewer verdict
+does not. Without findings the options are "Merge" and "Left comments in the PR". With a `nit` or
+`question` there are four, and the description of each says what it costs, so that the owner
+chooses knowing the price:
 
+- "Fix the nits" — one more review round now;
+- "Merge, nits into an issue" — a full pipeline later (a session, `make check`, a mutation run, a
+  new series of review rounds, which finds nits in the new text), if the issue is taken at all;
+- "Merge" — nothing: the nits are dropped;
+- "Left comments in the PR" — as many rounds as the comments need.
+
+AskUserQuestion takes at most four options, so a new kind of answer replaces one of these rather
+than joining them.
+
+- **Fix the nits** → fix every nit and every question a change resolves, and send the fixes out as
+  step 6 says: the commit, the push, the mutation run if needed, `R` + 1, step 3. At `R` = 3 this
+  is a fourth round, and you open it rather than refuse: the limit guards against ping-pong
+  between author and reviewer, not against the owner, and this answer is the same kind of
+  decision as an owner comment.
 - **Left comments** → step 5, fixes, step 3.
-- **Merge** → step 5 once more: the owner may have written in the PR while thinking. There are
-  new comments — name them and ask again. None:
+- **Merge** and **Merge, nits into an issue** → step 5 once more: the owner may have written in the
+  PR while thinking. There are new comments — name them and ask again. None:
 
   ```bash
   gh pr view <PR> --json mergeable,mergeStateStatus
@@ -200,6 +222,13 @@ the owner's answer allows a merge, a clean reviewer verdict does not.
 
   Exactly `--merge`, not squash: `make worktree-cleanup` checks that the branch is an ancestor of
   `main` on origin and refuses after a squash.
+
+  After "Merge, nits into an issue" — file an issue as `docs/agents/issue-tracker.md` says: every
+  unfixed nit and question quoted word for word, each with its lines as they stand in `main` after
+  the merge (`git fetch origin`, then `git show origin/main:<path>`), and links to the PR and to
+  its verdict comment. The review numbered the lines against the PR head, and a merge commit
+  shifts them when `main` changed the same file in the meantime. The report of step 8 names the
+  new issue. After "Merge" the nits are dropped, and the report of step 8 names them as dropped.
 
 ## Step 8. Cleanup
 
