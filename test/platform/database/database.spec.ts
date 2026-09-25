@@ -68,8 +68,8 @@ describe("Database", function () {
         }
     });
 
-    // The claim of storage.md: debug in postgres prints nothing and only makes the fields
-    // of a failed query's error enumerable — that is how they reach the payload of the log.
+    // The claim of storage.md: debug in postgres prints nothing, it only makes the fields of a
+    // failed query's error enumerable.
     it("exposes the failed query as enumerable fields outside production", async function () {
         expect(await failedQueryKeys(false)).to.include.members(["query", "parameters"]);
     });
@@ -85,9 +85,9 @@ describe("Database", function () {
 });
 
 // The environment of the container with DATABASE_NAME replaced by the database of the run.
-// The database is created by test/database-hook.ts; why its name comes in a variable of
-// its own is there as well. The config requires BOT_TOKEN while the database does not need
-// it: without the substitution the spec would depend on the token in .env.
+// test/database-hook.ts creates that database and says why its name has a variable of its own.
+// The config requires BOT_TOKEN, which the database does not need: without the substitution
+// the spec would depend on the token in .env.
 function testDatabaseEnv(): RawConfig {
     return { ...process.env, BOT_TOKEN: "test-token", DATABASE_NAME: testDatabaseName() };
 }
@@ -103,7 +103,7 @@ async function failedQueryKeys(isProduction: boolean): Promise<string[]> {
         await database.sql`select * from missing_table where id = ${1}`;
         expect.fail("the query was expected to reject");
     } catch (error) {
-        // 42P01 — undefined_table; it also cuts off the AssertionError from expect.fail above.
+        // 42P01 is undefined_table. The check also stops the AssertionError of expect.fail above.
         expect(error).to.have.property("code", "42P01");
 
         return Object.keys(error as object);

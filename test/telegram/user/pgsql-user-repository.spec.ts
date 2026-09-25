@@ -10,9 +10,9 @@ import { UserNotFound } from "app/telegram/user/user.errors";
 import type { UserDto } from "app/telegram/user/user.types";
 import { testDatabaseName } from "test/database.helper";
 
-// Larger than 2^31 - 1: it does not fit into int4, so the spec holds the migration that
-// widened id to bigint as well. deep.equal is strict, so an id that came back as a string
-// (that is how the driver returns bigint) will not pass.
+// Larger than 2^31 - 1, so it does not fit into int4: the spec also holds the migration that
+// widened id to bigint. The driver returns bigint as a string, and the strict deep.equal fails
+// on an id that came back that way.
 const ID = 5_000_000_000;
 
 describe("PgSqlUserRepository", function () {
