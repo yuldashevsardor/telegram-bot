@@ -1,7 +1,7 @@
 ---
 name: pr-light-check
 description: Light Pull Request review — a mechanical run of the repository checks by the gates passed in, documentation drift in the changed lines and issue compliance, with a verdict and a PR comment. Run by the /review-pr command, and by the pr-deep-review skill as its mechanical part. Not for ordinary work on code and not for checking uncommitted edits.
-allowed-tools: Bash(gh:*), Bash(git:*), Bash(make rebuild), Bash(make build), Bash(make typecheck), Bash(make coverage), Bash(make lint), Bash(make format-check), Bash(make mutation:*), Bash(make mutation-area:*), Bash(make help), Bash(make token-status), Bash(make -n:*), Bash(sh -n:*), Bash(docker run:*), Bash(make review-test), Bash(make review-tree-create:*), Bash(make review-tree-remove:*), Bash(scripts/bot-token.sh), Bash(cd:*), Bash(ls:*), Bash(cp:*), Bash(touch mutation-dirty-probe), Bash(rm mutation-dirty-probe), Bash(grep:*), Bash(awk:*), Read, Grep, Glob, Write
+allowed-tools: Bash(gh:*), Bash(git:*), Bash(make rebuild), Bash(make build), Bash(make typecheck), Bash(make coverage), Bash(make lint), Bash(make format-check), Bash(make mutation:*), Bash(make mutation-area:*), Bash(make mutation-record:*), Bash(make help), Bash(make token-status), Bash(make -n:*), Bash(sh -n:*), Bash(docker run:*), Bash(make review-test), Bash(make review-tree-create:*), Bash(make review-tree-remove:*), Bash(scripts/bot-token.sh), Bash(cd:*), Bash(ls:*), Bash(cp:*), Bash(touch mutation-dirty-probe), Bash(rm mutation-dirty-probe), Bash(grep:*), Bash(awk:*), Read, Grep, Glob, Write
 ---
 
 You run the repository checks over the code of a Pull Request and decide whether it can be
@@ -97,8 +97,8 @@ Run only what the gates turned on. The order matters: `rebuild` goes first.
 | `make-targets` | `make help`, then `make -n <changed target>`; the `mutation` recipe touched — also the substitution (below) |
 | `scripts` | `sh -n <script>`, then a parse by dash |
 | `python` | `make review-test` |
-| `mutation` | `make mutation-area pr=<N>`, then `make mutation files="<its output>"` |
-| `mutation-full` | `make mutation` |
+| `mutation` | `make mutation-area pr=<N>`, `make mutation-record …`, then `make mutation files="<its output>"` |
+| `mutation-full` | `make mutation-record …`, then `make mutation` |
 
 This is the allowlist. Also allowed are `make token-status` and `scripts/bot-token.sh` with no
 arguments — neither changes anything — and the probe file of the `mutation` substitution (below,
@@ -168,15 +168,15 @@ comment (otherwise it does not get into `make help`), whether it is in `.PHONY`,
 itself rejects a missing required parameter (the example is `migrate-create`).
 
 The recipe of the `mutation` target is checked beyond the expansion. It counts `MUTATION_DIRTY` —
-the `clean=` field of the run record, on which condition 2 of its acceptance rests (below, "The
-author's run record"). `make -n` prints the chain `tree=…&&dirty=…||dirty=unknown` but does not run
-it, and a run under `mutation-full` goes on a clean tree, where `clean=yes` is expected anyway. So a
-recipe in which a failing `git` or a non-empty `git status` gives 0 looks sound under both gates,
-and records start arriving with `clean=yes` on an unchecked tree — review would accept a run that
-did not go on the PR's commit. The `mutation` recipe touched in the diff — run the substitution.
-`DC_APP_RUN` is a simple assignment in the `Makefile`, and overriding it from the command line
-replaces the container launch with `echo`: the real recipe runs and prints the counted values in a
-second.
+the `clean=` field of the run record, on which condition 2 of its acceptance rests
+(`scripts/review/mutation_record.py`). `make -n` prints the chain
+`tree=…&&dirty=…||dirty=unknown` but does not run it, and a run under `mutation-full` goes on a
+clean tree, where `clean=yes` is expected anyway. So a recipe in which a failing `git` or a
+non-empty `git status` gives 0 looks sound under both gates, and records start arriving with
+`clean=yes` on an unchecked tree — review would accept a run that did not go on the PR's commit.
+The `mutation` recipe touched in the diff — run the substitution. `DC_APP_RUN` is a simple
+assignment in the `Makefile`, and overriding it from the command line replaces the container
+launch with `echo`: the real recipe runs and prints the counted values in a second.
 
 ```bash
 # clean tree — MUTATION_DIRTY=0
@@ -284,61 +284,49 @@ hid it.
 
 `make mutation` writes a run record, and the author publishes it in the PR; the format is in
 `docs/architecture/testing.md`, "The run record". Check it before running the target: under
-`mutation-full` right away, under `mutation` once the area is assembled and not empty. The last
-record in the PR (the link to the comment and its first line, the marker; empty — there is no
-record) and the PR head:
+`mutation-full` right away, under `mutation` once the area is assembled and not empty:
 
 ```bash
-gh pr view <N> --json comments -q '[.comments[] | select(.body | test("^<!-- mutation-record "))] | last // empty | .url, (.body | split("\n")[0])'
-gh pr view <N> --json headRefOid -q .headRefOid
+make mutation-record pr=<N> gate=mutation area="<the area>" [rebuild=1]
+make mutation-record pr=<N> gate=mutation-full [rebuild=1]
 ```
 
-Only a comment that **starts** with the marker counts as a record: the wrapper always writes it as
-the first line, while a quote of the marker in a discussion would otherwise pass itself off as a
-run.
+`rebuild=1` goes in when the `rebuild` gate is on. The target takes the last comment of the PR
+that starts with the record's marker and was posted from the account `gh` works as, and checks the
+four conditions of acceptance; which they are and the reason behind each are in the docstring of
+`scripts/review/mutation_record.py`. The first line of its answer:
 
-The record is accepted if all of this holds:
-
-1. the record covers the PR head: the marker's `head=` equals the PR head, or nothing that affects
-   the run changed since that commit — the rule, the command and the case of a lost commit are in
-   `docs/agents/review-gates.md`, "Changes that affect the mutation run";
-2. `clean=yes`;
-3. the run reached the report (`score=` is not `none`) and the area is the same: under
-   `mutation-full` — `scope=full`, under `mutation` — `scope=files` and an empty output of the
-   command below. A full record is not accepted under the `mutation` gate even though its area
-   covers: the gate's outcome is the exit code of the whole run, and a survivor in a file the PR did
-   not touch would paint the gate red and send the reviewer to repeat the run outside the area,
-   while an area without mutants would give `ok` instead of `n-a`. Your own run of the area takes
-   seconds;
-4. the `rebuild` gate is off: the author's run might have gone on an old image.
-
-```bash
-gh pr view <N> --json comments -q '[.comments[] | select(.body | test("^<!-- mutation-record "))] | last // empty | .body | (split("\n")[] | select(test("^src/\\S+\\.ts$"))), (capture("\n- files: `(?<f>[^`]*)`").f | split(" ")[])' \
-  | awk -v area='<area files separated by spaces>' '{ seen[$0] } END { n = split(area, a, " "); for (i = 1; i <= n; i++) if (!(a[i] in seen)) print a[i] }'
-```
-
-The command prints the area files the record has neither among the mutated nor as a path in
-`files`. A path in `files` counts because a file without a single mutant never appears in the
-Stryker report (`docs/architecture/testing.md`, "The run record"): a file of types alone is visible
-in the record only as a named path. The same file that got into the author's run through a glob the
-command prints, and the record is not accepted.
+- `accepted <link>` — the record replaces your run. The lines under it give the record's head,
+  `exit`, `score` and the survived and uncovered mutants. The `head:` line says `not the PR head`
+  when the record went on another commit with the same tree.
+- `accepted if the table turns on none of rebuild, mutation, mutation-full: <link>` — every other
+  condition holds, but the record went on another commit whose tree differs, and the answer lists
+  the files changed between the two. Apply to that list the table of
+  `docs/agents/review-gates.md`, "Changes that affect the mutation run", as `/review-pr` applies
+  it to the PR diff. A file of a row decided by content (`package.json`, `package-lock.json`, the
+  `Makefile`, a tool of the run with its comments-only rule) — read its hunk with the command the
+  answer gives. None of the three gates on — the record is accepted as in the first line; one is
+  on — run the target yourself.
+- `refused: <link>` — every reason follows on a `- ` line of its own; run the target yourself. A
+  list of changed files under the reasons is not a reason: it is there because the heads differ,
+  and the table was not applied to it.
+- `Stopped: <reason>` on stderr with a non-zero exit code — `gh` or `git` failed and the record was
+  not checked; run the target yourself and name the reason in the `mutation:` line.
 
 An accepted record replaces only the run; the rest of the gate stays the same. The outcome is the
-record's `exit=` instead of the target's exit code, the score is `score=`, the survived and
-uncovered mutants are the record's list. The score `NaN` is `n-a`; a red record means a repeat on
-every file with survivors ("Red"); new `Stryker disable` marks in the diff are read together with
-their reason. The list of survivors in the record is cut off by an `…and N more` line — the record
-is not accepted: the rest lies only on the machine of the run, and there is nothing to repeat on
-every file with survivors.
+record's `exit` instead of the target's exit code, the score is its `score`, the survived and
+uncovered mutants are its list. The score `NaN` is `n-a`; a red record means a repeat on every
+file with survivors ("Red"); new `Stryker disable` marks in the diff are read together with their
+reason.
 
-Any condition not met — run the target yourself, as described above. Refusing the record is not a
-review finding and does not affect the verdict: a process error must not cost a round. Where the run
-came from and why the record was not accepted is told by the `mutation:` line of the verdict (step
-5). It says "accepted record" and gives the link rather than naming the author: the reviewer's record
-of the previous round lies in the same thread and is accepted on a par with the author's, and the
-author's comment cannot be told from it — the account is the same. A record accepted from an
-earlier head — name its `head=` there too and say that nothing under the mutation gates came in
-since: otherwise the verdict does not show that the run went on a commit other than the PR's.
+Refusing the record is not a review finding and does not affect the verdict: a process error must
+not cost a round. Where the run came from and why the record was not accepted is told by the
+`mutation:` line of the verdict (step 5). It says "accepted record" and gives the link rather than
+naming the author: the reviewer's record of the previous round lies in the same thread and is
+accepted on a par with the author's, and the author's comment cannot be told from it — the account
+is the same. A record accepted from another head (its `head:` line says `not the PR head`) — name
+its head there too and say that nothing under the mutation gates came in since: otherwise the
+verdict does not show that the run went on a commit other than the PR's.
 
 Publish the record of your own run in the PR as soon as it finishes: a repeat from "Red" overwrites
 `reports/mutation/record.md`, and the cleanup deletes the temporary tree together with it. Copy the

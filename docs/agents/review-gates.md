@@ -129,8 +129,8 @@ so a documentation-only diff still gets by without the database and containers.
 ## Changes that affect the mutation run
 
 `make mutation` leaves a run record, and review accepts it in place of its own run
-(`docs/architecture/testing.md`, "The run record"; the acceptance conditions are in
-`.claude/skills/pr-light-check/SKILL.md`, the section on the author's run record). The run went
+(`docs/architecture/testing.md`, "The run record"; the acceptance conditions are in the
+docstring of `scripts/review/mutation_record.py`, run by `make mutation-record`). The run went
 on one commit and the record is measured against another, so whether it still holds is the
 same pass over the table above, only the diff is taken between those two commits. At least one
 of three gates on — the record is stale:
@@ -140,23 +140,15 @@ of three gates on — the record is stale:
   of the diff's lines;
 - `rebuild` — the run went in a different image.
 
-None of the three — the run is not repeated: neither by the author before the push nor by the
+None of the three — the run is not repeated: neither by the author after the push nor by the
 reviewer under the gate. Otherwise a review fix that touched only documentation would cost the
 round two runs of the same area, and a full run is minutes
 (`docs/architecture/testing.md`, "The type checker").
 
-The diff here is between the trees of the two commits, not from their merge-base; the second
-commit is the one the record is measured against: the PR head for the reviewer, their own
-`HEAD` before the push for the author.
-
-```bash
-git cat-file -e "<record head>^{commit}" && git diff --name-only <record head> <commit>
-```
-
-After a rebase the record's head is no longer an ancestor of the new commit, and a diff from
-the merge-base would add the branch's own changes to the changes — the record would never
-pass. `git cat-file` did not find the record's commit (a force-push lost it) — there is
-nothing to compare with, and the record does not hold.
+The diff here is between the record's head and the PR head (for the author, their `HEAD` once
+pushed), and `make mutation-record` lists it. Why it is taken between the trees and not from the
+merge-base, and why a record whose commit a force-push lost does not hold, is said in condition 1
+of the docstring of `scripts/review/mutation_record.py`.
 
 `rebuild` is not redundant in the three, although review already refuses the record when that
 gate is on for the PR as a whole (condition 4 of the acceptance rule). The PR's gates are

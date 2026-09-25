@@ -185,9 +185,9 @@ the run is green having checked nothing.
 the run is over, whatever its outcome, the wrapper writes `reports/mutation/record.md` and exits
 with the exit code of Stryker. The record exists so that the reviewer does not repeat the run of
 the author of a PR: the author publishes it in the PR, and the review gate may accept it instead
-of a run of its own (the rules of acceptance are in the author run record section of
-`.claude/skills/pr-light-check/SKILL.md`). The first line of the record is a marker, invisible
-in the PR:
+of a run of its own (the rules of acceptance are in the docstring of
+`scripts/review/mutation_record.py`, run by `make mutation-record`). The first line of the record
+is a marker, invisible in the PR:
 
 ```
 <!-- mutation-record head=<sha> clean=<yes|no|unknown> scope=<full|files> exit=<code> score=<score|NaN|none> -->
