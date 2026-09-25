@@ -606,6 +606,24 @@ class ReviewRunTest(unittest.TestCase):
         self.assertEqual(code, 130)
         self.assertEqual(run.names(), ["mutation-record"])
 
+    def test_an_interrupt_after_a_stopped_creation_leaves_the_path_alone(self):
+        os.makedirs(self.review)
+        run = self.fake(
+            **{
+                "review-tree-create": (
+                    1,
+                    "Stopped: a tree of an earlier run is left at {}\n".format(self.review),
+                    "",
+                ),
+                "mutation-record": KeyboardInterrupt(),
+            }
+        )
+
+        code, out = self.review_run("build mutation-full", run)
+
+        self.assertEqual(code, 130)
+        self.assertEqual(run.names(), ["review-tree-create", "mutation-record"])
+
     def test_an_interrupt_before_any_tree_removes_nothing(self):
         run = self.fake(**{"review-tree-create": KeyboardInterrupt()})
 
@@ -676,7 +694,6 @@ class RunInGroupTest(unittest.TestCase):
                 break
             time.sleep(0.1)
         self.assertTrue(not done.stdout.strip() or done.stdout.strip().startswith("Z"), done.stdout)
-
 
     def test_an_interrupt_after_the_group_ended_stays_an_interrupt(self):
         def interrupt(signum, frame):

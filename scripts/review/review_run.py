@@ -239,6 +239,9 @@ class ReviewRun:
         """Makes the tree; the reason it was not made otherwise."""
         self.creating = True
         done = self.make(["review-tree-create", "pr=" + self.pr], self.here, "tree-create.log")
+        # A creation that returned names the tree it left in its output; only a cut one leaves a
+        # tree interrupted() has to look for.
+        self.creating = False
         stopped = None
         for line in (done.stdout or "").splitlines():
             if line.startswith("Tree: "):
@@ -500,8 +503,9 @@ class ReviewRun:
                 self.report.skip(gate, why)
         if (self.on("mutation") or self.on("mutation-full")) and self.report.mutation is None:
             self.report.mutation = "mutation: n-a — {}".format(why)
-        # Only a creation this run began can have left a tree it does not know of: whatever lies at
-        # the path otherwise is somebody else's, and the next review-tree-create removes a leftover.
+        # Only a creation this run began and the interrupt cut short can have left a tree it does not
+        # know of: whatever lies at the path otherwise is somebody else's, and the next
+        # review-tree-create removes a leftover.
         if self.tree is None and self.creating:
             try:
                 path = review_tree_path(self.pr, self.run)

@@ -106,9 +106,8 @@ metric is lower, `nyc` — after the specs have already gone green — prints
 
 The threshold is checked by any run of `npm run test:coverage`: `make coverage`, the `check` npm
 script under `make check` and the `test` gate of PR review, under which `make review-run` runs
-`make coverage` (why not `make test` is in the docstring of
-`scripts/review/review_run.py`). `npm test` and `make test` know
-nothing about the threshold, so CI (issue
+`make coverage` (why not `make test` is in the docstring of `scripts/review/review_run.py`).
+`npm test` and `make test` know nothing about the threshold, so CI (issue
 [#116](https://github.com/yuldashevsardor/telegram-bot/issues/116)) will get it only if it calls
 `npm run check` or `npm run test:coverage`.
 
