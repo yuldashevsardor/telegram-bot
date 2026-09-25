@@ -13,11 +13,9 @@ export type IntegerRange = {
     max?: number;
 };
 
-// Parsing the strings of a snapshot of the source into values. A default is substituted only for a
-// missing or blank variable; anything that is set but not allowed is an InvalidConfigError naming it
-// at startup. A separate class rather than private methods of the builder: a helper may have no call
-// site yet (getBoolean, getArray), and noUnusedLocals does not let a private method without calls
-// through.
+// Parses the strings of a source snapshot strictly (docs/architecture/config.md). A separate class
+// rather than private methods of the builder: noUnusedLocals rejects a private helper that has no
+// call site yet (getBoolean, getArray).
 export class ConfigParser {
     // The longest delay of a Node timer: a signed 32-bit integer.
     public static readonly MAX_TIMER_DELAY = 2 ** 31 - 1;
@@ -61,9 +59,9 @@ export class ConfigParser {
     }
 
     // The delay of a setTimeout or a setInterval, ms. Node turns a period below 1 ms or above
-    // 2^31 - 1 ms into 1 ms (on an overflow, with nothing but a warning): a huge value taken so that
-    // it would "never fire" would fire at once, and an interval log would be written on every turn of
-    // the event loop. A zero is allowed only where it means "do not wait".
+    // 2^31 - 1 ms into 1 ms, with nothing but a warning on an overflow. A "never fire" value would
+    // fire at once, and an interval log would be written on every turn of the event loop. A zero is
+    // allowed only where it means "do not wait".
     public getTimerDelay(name: string, defaultValue: number, { min = 1 }: { min?: number } = {}): number {
         return this.getInteger(name, defaultValue, { min: min, max: ConfigParser.MAX_TIMER_DELAY });
     }
@@ -109,9 +107,9 @@ export class ConfigParser {
         return found;
     }
 
-    // Elements are separated by a comma or a semicolon, and the spaces around them are dropped. Every
-    // element is checked by isElement: casting the result to the target type at the call site would
-    // let a junk element through. A blank element ("a,,b", a trailing comma) goes to the check too.
+    // Elements are separated by a comma or a semicolon, with the spaces around them dropped. Every
+    // element, a blank one ("a,,b", a trailing comma) included, goes through isElement: a cast at the
+    // call site would let a junk element through.
     public getArray<T extends string>(name: string, isElement: (value: string) => value is T, defaultValue: T[]): T[] {
         const value = this.getString(name, "");
 

@@ -12,22 +12,19 @@ import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage"
 import { isWatchableConfigStorage } from "app/bootstrap/config/storage/config-storage.helper";
 import { ConfigContainerIsNotInitialized } from "app/bootstrap/config/container/config-container.errors";
 
-// One state for the whole life cycle rather than flags: a set of flags allows combinations that do
-// not happen ("a rebuild is running, but watching has already been removed"), and every check would
-// have to enumerate them itself. idle means there is no watching: that is how the container lives
-// before init() and where it returns after unwatch(), so a late signal (the callback of the watcher
-// could have been queued before the stop) starts nothing. watching is set by init(), and only from
-// there does a signal take the container into reloading. again is a signal that arrived while a
-// rebuild was running: the file could have changed after the snapshot was read, so one more pass
-// follows it, and all the signals of one pass merge into that one — the snapshot is read whole and
-// will see the latest state of the source.
+// One state rather than flags: flags allow combinations that do not happen ("a rebuild is running,
+// but watching has already been removed"), and every check would have to enumerate them.
+// - idle: no watching, before init() and after unwatch(). A late signal (the watcher callback could
+//   have been queued before the stop) starts nothing.
+// - watching: set by init(); only from here does a signal start reloading.
+// - again: a signal during a rebuild. The file could have changed after the snapshot was read, so
+//   one more pass follows (docs/architecture/config.md, "Change subscriptions").
 type State = { name: "idle" } | { name: "watching" } | { name: "reloading"; again: boolean };
 
-// Keeps the values and serves them by path; where they come from and how they are validated is up
-// to the storage and the builder. The assembly was moved out of the constructor into init(): a
-// source may only be able to hand values over asynchronously (a vault), and a constructor cannot
-// wait. A watchable source reports changes, and on its signal the container rebuilds the values the
-// same way it did at startup — so the priority of the sources and the parsing stay in one place.
+// Keeps the values and serves them by path; the storage and the builder decide where they come
+// from and how they are validated. The assembly is in init(), not in the constructor: a source may
+// hand values over only asynchronously (a vault), and a constructor cannot wait. Rebuilds on a
+// signal: docs/architecture/config.md, "Change subscriptions".
 export class ConfigContainer<Values> {
     private values: Values | null = null;
 
@@ -43,9 +40,9 @@ export class ConfigContainer<Values> {
     public async init(): Promise<void> {
         this.values = this.builder.build(await this.storage.load());
 
-        // Watching is switched on right here rather than by a separate call: a separate one can be
-        // forgotten, and the configuration would silently stay on the values of the startup. A
-        // source that reports no changes (env, the fakes of the specs) is simply not watched.
+        // Watching starts here, not by a separate call: a separate call can be forgotten, and the
+        // configuration would silently stay on the startup values. A source that reports no changes
+        // (env, the fakes of the specs) is not watched.
         if (isWatchableConfigStorage(this.storage)) {
             this.storage.watch((): void => {
                 void this.reload();
@@ -55,11 +52,9 @@ export class ConfigContainer<Values> {
         }
     }
 
-    // Removes the watching: polling the file would hold the event loop, and a rebuild on an
-    // application that is shutting down is of no use to anyone. A rebuild that is already running is
-    // cancelled too: it is already reading the snapshot, and without the flag it would manage to
-    // replace the values under whoever reads them next (`Application.terminate()` takes the shutdown
-    // deadline one line below).
+    // Polling the file would hold the event loop, and a rebuild is of no use to an application that
+    // is shutting down. A running rebuild is cancelled too (docs/architecture/config.md, "Change
+    // subscriptions").
     public unwatch(): void {
         this.state = { name: "idle" };
 
@@ -86,18 +81,15 @@ export class ConfigContainer<Values> {
         return value as ValueByPath<Values, Path>;
     }
 
-    // A change of a nested value calls the listener too: a subscription to "limits" fires on an edit
-    // of "limits.common.number", because a changed leaf notifies all of its prefixes as well. However
-    // many values inside a subtree have changed, the listener of its path gets one call.
+    // A listener of a subtree fires on a change inside it too, once per rebuild
+    // (docs/architecture/config.md, "Change subscriptions").
     public onChange<Path extends Paths<Values> & string>(
         dottedPath: Path,
         listener: (newValue: ValueByPath<Values, Path>, oldValue: ValueByPath<Values, Path>) => void,
     ): Unsubscribe {
-        // It is kept erased to a string and to unknown, so the pair of values is cast here — for the
-        // same reason as the result of get(): the compiler checked the path but did not follow the
-        // walk along it. The result of the listener is returned rather than dropped: by its
-        // declaration it is void, but at runtime it can be the promise of an asynchronous listener,
-        // and catching its rejection is up to the caller (call()).
+        // The listener is kept erased to a string and to unknown, so the pair of values is cast here,
+        // as in get(). The result is returned, not dropped: an asynchronous listener returns a
+        // promise, and call() catches its rejection.
         const stored: ConfigChangeListener = (newValue, oldValue): void =>
             listener(newValue as ValueByPath<Values, Path>, oldValue as ValueByPath<Values, Path>);
 
@@ -126,9 +118,8 @@ export class ConfigContainer<Values> {
             return;
         }
 
-        // Not watching means there should be no signal: it is left over from watching that has just
-        // been removed, and there is no point in rebuilding the configuration for an application that
-        // is shutting down.
+        // Not watching: the signal is left over from watching that has just been removed, and the
+        // application is shutting down.
         if (this.state.name !== "watching") {
             return;
         }
@@ -144,8 +135,7 @@ export class ConfigContainer<Values> {
     }
 
     // The state of the pass comes as a parameter: an unwatch() in the middle of it replaces the
-    // field, and the mark about new signals has to be read from its own object rather than from
-    // somebody else's state.
+    // field, and the mark has to be read from the pass's own object.
     private async reloadUntilSettled(reloading: { again: boolean }): Promise<void> {
         try {
             do {
@@ -153,14 +143,11 @@ export class ConfigContainer<Values> {
 
                 await this.rebuild();
 
-                // The mark alone is not enough: it is left over from a signal that arrived before
-                // unwatch(), and another pass would go and read the snapshot for an application that
-                // is shutting down. The field is already taken by somebody else's state — so the
-                // pass is not ours and there is nothing to continue.
+                // The mark alone is not enough: it may be left by a signal from before unwatch().
+                // A field holding another state means the pass is no longer ours.
             } while (reloading.again && this.state === reloading);
         } finally {
-            // Watching could have been removed while the pass was running — the field is then
-            // already taken by the state of the stop, and the container must not be returned to
+            // An unwatch() during the pass replaced the field; the container must not go back to
             // watching.
             if (this.state === reloading) {
                 this.state = { name: "watching" };
@@ -168,17 +155,17 @@ export class ConfigContainer<Values> {
         }
     }
 
-    // The values are replaced whole and only after the assembly: a failure of the builder leaves the
-    // previous ones working rather than half of the new ones. They are replaced before the delivery —
-    // a get() inside a listener has to return the new value already. A failure goes to the error
-    // channel rather than outwards: above lies the callback of the watcher, there is nowhere to throw.
+    // The values are replaced whole, after the assembly: a failed build leaves the previous ones, not
+    // half of the new. They are replaced before the delivery, so a get() inside a listener already
+    // returns the new value. A failure goes to the error channel: above lies the watcher callback,
+    // with nowhere to throw to.
     private async rebuild(): Promise<void> {
         try {
             const previous = this.currentValues();
             const raw = await this.storage.load();
 
-            // Watching could have been removed while the snapshot was being read: the values must
-            // not be replaced under whoever is already shutting the application down.
+            // An unwatch() during the read: do not replace the values under whoever is shutting
+            // the application down.
             if (this.state.name !== "reloading") {
                 return;
             }
@@ -218,9 +205,8 @@ export class ConfigContainer<Values> {
 
     private call(listener: ConfigChangeListener, newValue: unknown, oldValue: unknown): void {
         try {
-            // A listener is declared as returning void, but the compiler lets an asynchronous
-            // function into such a type: without a catch its rejection would reach unhandledRejection
-            // and take the process down.
+            // The compiler lets an asynchronous function into a void listener: without a catch its
+            // rejection would reach unhandledRejection and take the process down.
             const result: unknown = listener(newValue, oldValue);
 
             if (result instanceof Promise) {
@@ -272,9 +258,9 @@ export class ConfigContainer<Values> {
         return this.values;
     }
 
-    // Leaves are compared: the builder creates new objects on every assembly, so comparing subtrees
-    // by reference would report a change of everything on every rebuild. The configuration is nested
-    // (limits.common.number), so the walk is recursive; only the raw snapshot of the source is flat.
+    // Leaves are compared, not subtrees (docs/architecture/config.md, "Change subscriptions"). The
+    // configuration is nested (limits.common.number), so the walk is recursive; only the raw
+    // snapshot of the source is flat.
     private collectChanges(previous: unknown, current: unknown, prefix: string, changed: Set<string>): void {
         if (this.isObject(previous) && this.isObject(current)) {
             for (const key of new Set([...Object.keys(previous), ...Object.keys(current)])) {
@@ -288,9 +274,8 @@ export class ConfigContainer<Values> {
             return;
         }
 
-        // The path and all of its prefixes: a subscription to a subtree has to fire on a change
-        // inside it. A set and not a list: two changed leaves of one subtree give its path once, so
-        // the listener of the subtree is called once as well.
+        // The path and all of its prefixes, so a subscription to a subtree fires on a change inside
+        // it. A set: two changed leaves of one subtree give its path once.
         let dottedPath = prefix;
 
         changed.add(dottedPath);
@@ -302,10 +287,9 @@ export class ConfigContainer<Values> {
         }
     }
 
-    // undefined means "there is no value at this path": either a step of the path ran into a leaf
-    // and there is nowhere further to go, or the key is not in the object. The value that was found is
-    // returned as is — what to do with it next is up to the caller: get() turns undefined into an
-    // InvalidConfigError, and the comparison treats it as a missing value.
+    // undefined means "no value at this path": a step ran into a leaf, or the key is not in the
+    // object. The caller decides: get() turns undefined into an InvalidConfigError, and the
+    // comparison treats it as a missing value.
     private valueAt(values: unknown, dottedPath: string): unknown {
         let current = values;
 
