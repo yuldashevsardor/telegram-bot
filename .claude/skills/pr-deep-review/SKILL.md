@@ -86,9 +86,10 @@ one, and on the issue you get a second, weaker opinion you would have to reconci
 `pr-light-check` publishes the record of its own mutation run in this mode too: it is a fact of
 the run, not a verdict, and `--no-post` cancels that publication only if the flag reached it.
 
-`pr-light-check` runs the PR code in a temporary detached tree of the PR head, not in your tree. So
-do not rely on the PR branch being the `HEAD` of your tree: the commands of step 5 compare against
-the PR branch by name, not against `HEAD`.
+`pr-light-check` runs the PR code in a temporary detached tree of the PR head, not in your tree:
+`make review-run` creates it and removes it when the gates are done. So do not rely on the PR
+branch being the `HEAD` of your tree: the commands of step 5 compare against the PR branch by
+name, not against `HEAD`.
 
 Along with the run, `pr-light-check` returns the findings on the changed `*.md` lines (its step 3,
 the `docs` gate). Keep no checklist of your own for them and do not search for them again: the
@@ -334,8 +335,8 @@ Verdict rules:
   "Checks", not in "Findings".
 - **BLOCKED** — review is impossible: the PR is not tied to an issue, the build does not start, the
   mutation gate is cut short by a checker crash on the retry too or its area could not be assembled
-  (`pr-light-check`, the `mutation` and `mutation-full` section), the diff is empty, or the task is worded so that its
-  criteria cannot be checked.
+  (`pr-light-check`, steps 1–2), the diff is empty, or the task is worded so that its criteria
+  cannot be checked.
 
 Reached REQUEST_CHANGES on the third run (`K >= 3` from step 1) because of a blocker or a
 should-fix — put BLOCKED instead and say explicitly that a human is needed: two rounds of fixes are
