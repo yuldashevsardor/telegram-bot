@@ -27,12 +27,16 @@ The list is empty → say the diff is empty and stop.
 
 | The diff has | Skill |
 | --- | --- |
-| at least one `.ts` or `.sh` | `pr-deep-review` |
+| at least one `.ts`, `.sh` or `.py` | `pr-deep-review` |
 | anything else | `pr-light-check` |
 
-`.ts` and `.sh` are the only sign of depth. A change to the `Makefile`, `tsconfig.json`,
+`.ts`, `.sh` and `.py` are the only signs of depth. A change to the `Makefile`, `tsconfig.json`,
 `package.json`, a compose file or the documentation does not by itself call for a full review:
 architecture invariants, smells and bug hunting have nothing to find there, and they cost a lot.
+`.py` is executable code like the other two: the actions of the review skills
+(`scripts/review/`) drive `git` and `docker` on the host, and `pr-light-check` has no bug hunt
+and no search for the documentation a change made false. PR #559 had no `.ts` or `.sh`, passed the
+light check twice and was merged with a bug: no bug hunt ran on it.
 
 The boundary is drawn by price, not by importance. **Both** skills check issue compliance: it
 is not a sign of depth but a condition of any verdict. A green run on a PR that touches only the

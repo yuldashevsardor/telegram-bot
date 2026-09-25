@@ -161,7 +161,7 @@ outside the changed lines is a leftover, not a finding: #385 translates it area 
 
 ### Documentation the diff left behind (the `docs-sync` gate)
 
-`docs-sync` is on for any `.ts` or `.sh`, that is on any diff you are called for.
+`docs-sync` is on for any `.ts`, `.sh` or `.py`, that is on any diff you are called for.
 
 `pr-light-check` checks the lines the PR wrote. This is the other direction: a paragraph written
 a year ago looks right and disagrees with the code this PR is changing. The route is set in
@@ -198,6 +198,18 @@ parsing the patch.
 Besides the symbols, search for the file name in both forms — `<file>.ts` and `<dir>/<file>.ts`:
 the docs write it both ways. A `.sh` has no exported symbols at all — only the script path is
 searched, and on a rename the old name too: the stale paragraph names exactly that.
+
+A `.py` has no `export` either, so the command above prints nothing for it. Search its module
+path in both forms (`<module>.py` and `scripts/review/<module>.py`) and its public functions —
+the top-level `def` whose name does not start with `_`:
+
+```bash
+git show origin/main:<changed file> | grep -oE '^def +[A-Za-z][A-Za-z0-9_]*'
+```
+
+The docs name these modules mostly by path, as the place where a rule is held (`holds the rule`,
+`the docstring of`); a function name is found less often, and `main` or `check` fall under the
+noise rule below.
 
 A symbol found in more than three files is not drift but an everyday word: `Bot`, `Runner` and
 `Application` appear in the docs of half the subsystems. Skip such a symbol, raise no question on
