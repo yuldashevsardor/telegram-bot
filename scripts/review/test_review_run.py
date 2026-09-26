@@ -320,7 +320,7 @@ class ReviewRunTest(unittest.TestCase):
         self.assertEqual(
             out,
             "Checks\n"
-            "Not run: make-targets, scripts — by SKILL.md\n"
+            "Not run: make-targets, scripts — by fallback.md\n"
             "Not run: lint-fix — the review run does not know this gate\n"
             "Logs: {}\n".format(self.logs),
         )
@@ -352,7 +352,7 @@ class ReviewRunTest(unittest.TestCase):
         self.assertIn(
             "Not run: mutation — the record was refused (clean=no: the run did not go on a clean"
             " tree of its commit; the rebuild gate is on: the run may have gone on an old image),"
-            " the own run by SKILL.md\n",
+            " the own run by fallback.md\n",
             out,
         )
         self.assertNotIn("mutation: ", out)
@@ -373,7 +373,7 @@ class ReviewRunTest(unittest.TestCase):
 
             code, out = self.review_run("mutation", run)
 
-            self.assertIn("Not run: mutation — {}, the own run by SKILL.md\n".format(line), out)
+            self.assertIn("Not run: mutation — {}, the own run by fallback.md\n".format(line), out)
 
     def test_a_record_from_an_earlier_head_says_so(self):
         answer = ACCEPTED.replace(
@@ -441,7 +441,7 @@ class ReviewRunTest(unittest.TestCase):
             out,
         )
         self.assertIn(
-            "Not run: the repeat on the files with survivors — the own run by SKILL.md\n", out
+            "Not run: the repeat on the files with survivors — the own run by fallback.md\n", out
         )
 
     def test_the_score_nan_is_not_ok(self):

@@ -208,7 +208,7 @@ rules of acceptance are in the docstring of `scripts/review/mutation_record.py`,
   reverse does not happen: with no `head` the wrapper sets `clean=unknown` as well, because review
   will not accept a record without a commit, and the cleanliness of the tree decides nothing in it.
 - That the substitutions yield exactly these values is checked by the review of a PR that touches
-  the recipe (`.claude/skills/pr-light-check/SKILL.md`, the `make-targets` gate). Expanding the
+  the recipe (`.claude/skills/pr-light-check/fallback.md`, the `make-targets` gate). Expanding the
   recipe is not enough: `make -n` does not execute the counting chain. Nor does a run under
   `mutation-full` show it: it goes on a clean tree, where `clean=yes` is expected anyway.
 - `scope=full` means `files` was not passed and the whole of `src/` was mutated.
