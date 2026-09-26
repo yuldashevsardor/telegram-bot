@@ -166,7 +166,7 @@ There is nothing to restart it with: the container does not survive a second `se
 2. `application.setup()`:
    - `ApplicationContext.create()` builds the configuration ([`config.md`](./config.md)).
      `ConfigEnvStorage.load()` calls `dotenv.config()`, once and explicitly. The values of the
-     watched file lie under the environment: a variable set there wins. Then the whole
+     watched file lie under the environment: a variable set there non-blank wins. Then the whole
      configuration is parsed and validated.
    - `init()` of the config container also switches on watching the file. An edit rebuilds the
      values, and the subscribers of its path get the new one (the application has none yet,
