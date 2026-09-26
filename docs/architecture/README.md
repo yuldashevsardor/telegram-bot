@@ -300,7 +300,7 @@ grep -rHoE "app/<path>/[A-Za-z0-9._-]+" src --include='*.ts' | grep -v "^src/<pa
 A spec path repeats the source path with one exception. A directory inside a subsystem named after
 its main file is not reflected in the spec path: named by the file's name or its prefix,
 struck-out words of the path included. A siblings directory and a directory around a sibling are
-exceptions to this, see the next paragraph. Examples:
+exceptions to this, see the paragraph on them below. Examples:
 
 - the files of `convertor/`, `eot-packer/`, `font-forge/` and `signature-matcher/` are checked by
   specs right in `test/font-convertor/`;

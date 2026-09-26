@@ -15,7 +15,7 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
 - **`sequentialize()` takes the `getSessionKey` key, as `session()` does.** The key is the pair
   `from.id` and `chat.id`, so the queue does not tie together updates of one user from different
   chats.
-- **The check-then-act in `FillUserToContextMiddleware` is protected only while
+- **The queue protects the check-then-act in `FillUserToContextMiddleware` only while
   `IsPrivateChatFilter` leaves the user a single chat.** Let group chats into the pipeline, and the
   first two updates of a new user will both see `existsById() === false`. The data is not corrupted
   (upsert), but the choice between the `create` and `edit` branches becomes unreliable.
