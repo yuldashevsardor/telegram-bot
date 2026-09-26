@@ -9,10 +9,9 @@ import { RuntimeError } from "app/shared/errors";
 // docker-compose.db.yml. Why this and not a transaction rolled back per test or testcontainers —
 // docs/architecture/testing.md, "The test database".
 //
-// The name of the database reaches the specs through TEST_DATABASE_NAME rather than by
-// substituting DATABASE_NAME: the hook is wired in .mocharc.json, which lives in the image, and
-// in a stale image it is not wired in. A spec without a variable of its own fails, while with a
-// substituted DATABASE_NAME it would silently truncate the shared database of running bots.
+// The name reaches the specs through TEST_DATABASE_NAME, not a substituted DATABASE_NAME: in a
+// stale image the hook is not wired in, and such a spec should fail rather than silently truncate
+// the shared database of running bots (same section).
 
 const TEST_DATABASE_NAME = "TEST_DATABASE_NAME";
 const HOOK_TIMEOUT_MS = 30_000;
@@ -36,8 +35,8 @@ function env(name: string): string {
 }
 
 // The superuser only creates and drops the database. The specs and the migrations go to it as
-// the application user, like the bot: that way the tables belong to it too, and the permissions
-// checked are the ones checked in production.
+// the application user, like the bot: then the tables belong to that user too, and the tests
+// check the same permissions as production.
 function connectAsSuperuser(): Sql {
     return postgres({
         host: env("DATABASE_HOST"),
@@ -71,7 +70,7 @@ async function createDatabase(name: string): Promise<void> {
 }
 
 // The migrations directory and table come from migrate.json, as for node-pg-migrate in the
-// container before the bot starts: the database of a run is assembled by the same set as the
+// container before the bot starts, so the database of a run is built from the same set as the
 // working one.
 async function migrate(name: string): Promise<void> {
     const config = JSON.parse(readFileSync("migrate.json", "utf8")) as MigrateConfig;

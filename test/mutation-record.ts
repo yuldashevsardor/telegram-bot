@@ -1,7 +1,7 @@
 // The make mutation wrapper: runs npm run mutation and, whatever its outcome, writes the run record.
-// The format and what the record is for — docs/architecture/testing.md, "The run record". The head and
-// the cleanliness of the tree are passed by the host (the mutation target in the Makefile): .git is not
-// mounted into the container.
+// The format and what the record is for — docs/architecture/testing.md, "The run record". The host
+// passes the head and the cleanliness of the tree (the mutation target in the Makefile), because .git
+// is not mounted into the container.
 import { spawn } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { constants } from "node:os";
@@ -70,7 +70,7 @@ function inline(text: string): string {
 function record(run: Run): string {
     const head = process.env["MUTATION_HEAD"] ?? "";
     // A number of paths or anything else: the recipe of the target writes unknown here when git did
-    // not answer, and Number("") is 0, that is "clean" for a tree nobody looked at.
+    // not answer. A bare Number() would not do: Number("") is 0, "clean" for a tree nobody looked at.
     const counted = process.env["MUTATION_DIRTY"] ?? "";
     const dirty = /^\d+$/.test(counted) ? Number(counted) : Number.NaN;
     const area = process.env["MUTATE"] ?? "";
@@ -181,9 +181,9 @@ function finish(exitCode: number): void {
 }
 
 // spawn, not ProcessHelper from app/shared/process: that one accumulates the output in memory and
-// treats a non-zero code as a refusal, while here the live output of Stryker over 15 minutes and its
-// exit code as a regular outcome are what is needed. The invariant about external processes
-// (docs/architecture/invariants.md) is honoured: the arguments are an array, there is no shell in the
+// treats a non-zero code as a refusal. Here the live output of Stryker over 15 minutes is needed, and
+// its exit code is a regular outcome. The invariant about external processes
+// (docs/architecture/invariants.md) holds: the arguments are an array, and there is no shell in the
 // chain.
 const child = spawn("npm", ["run", "mutation"], { stdio: "inherit" });
 

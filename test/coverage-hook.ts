@@ -3,15 +3,13 @@ import { dirname, resolve, sep } from "path";
 import { buildSync } from "esbuild";
 import { createInstrumenter } from "istanbul-lib-instrument";
 
-// The hook of the coverage run (npm run test:coverage): the files of src are instrumented in
-// their source TypeScript, before transpilation. The tsx output will not do: esbuild puts its own
-// helpers into it (__copyProps, __decorateClass, 0&&(module.exports=…)), and when mapping them
-// back through the source map istanbul attributes their branches to the lines of the source. The
-// hook transpiles by itself — tsx reads the file from disk, and the instrumented text cannot be
-// handed to it.
+// The hook of npm run test:coverage: it instruments the files of src in their source TypeScript,
+// before transpilation. Why not the tsx output — docs/architecture/testing.md, "Coverage". The hook
+// transpiles by itself because tsx reads the file from disk and cannot be handed the instrumented
+// text.
 //
-// Nothing from app/* may be imported here: the module would load before the hook is installed and
-// would drop out of the count.
+// Nothing from app/* may be imported here: that module would load before the hook is installed and
+// drop out of the count.
 
 type CompilableModule = NodeModule & { _compile(code: string, filename: string): void };
 
@@ -20,9 +18,9 @@ type CompilableModule = NodeModule & { _compile(code: string, filename: string):
 const SRC_DIR = resolve("src") + sep;
 const TSCONFIG = resolve(process.env["TSX_TSCONFIG_PATH"] ?? "tsconfig.json");
 
-// The parser plugins come from the config nyc passes to the child process: that way the files
-// loaded by the tests and the ones that were not (the all mode) are parsed alike. Without nyc
-// there is no typescript plugin, and parsing fails on the very first type annotation.
+// The parser plugins come from the config nyc passes to the child process, so the files the tests
+// load and the ones they do not (the all mode) are parsed alike. Without nyc there is no typescript
+// plugin, and parsing fails on the very first type annotation.
 const { parserPlugins = [] } = JSON.parse(process.env["NYC_CONFIG"] ?? "{}") as { parserPlugins?: string[] };
 const instrumenter = createInstrumenter({ esModules: true, produceSourceMap: true, parserPlugins });
 
@@ -31,10 +29,10 @@ function compileInstrumented(module: CompilableModule, filename: string): void {
     // esbuild stitches the istanbul map together with its own: otherwise the stack of a failed
     // test would point at the lines of the instrumented text rather than of the source.
     const map = Buffer.from(JSON.stringify(instrumenter.lastSourceMap())).toString("base64");
-    // The options the behaviour of the code depends on repeat tsx, and the tsconfig is the one it
-    // gets through TSX_TSCONFIG_PATH. The working directory is the directory of the file: esbuild
-    // writes the paths of the map relative to it, Node resolves them relative to the directory of
-    // the module, and with the project root the path in the stack would be doubled.
+    // The options the behaviour of the code depends on repeat tsx, with the tsconfig tsx gets through
+    // TSX_TSCONFIG_PATH. The working directory is the directory of the file: esbuild writes the paths
+    // of the map relative to it, and Node resolves them relative to the directory of the module. With
+    // the project root the path in the stack would be doubled.
     const [output] = buildSync({
         stdin: {
             contents: `${instrumented}\n//# sourceMappingURL=data:application/json;base64,${map}`,
