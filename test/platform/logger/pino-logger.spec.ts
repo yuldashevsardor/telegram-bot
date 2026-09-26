@@ -5,12 +5,12 @@ import { Level } from "app/platform/logger/logger.types";
 import { InvalidLogLevel } from "app/platform/logger/logger.errors";
 import { RequestContext } from "app/platform/request-context/request-context";
 
-// pino writes to process.stdout, so the records are captured by replacing write — the same way
-// the records of ConsoleLogger are captured by replacing console. The logger is built after the
-// replacement: pino picks its destination in the constructor.
-// The result of write is returned: otherwise a value from the request scope (the same requestId)
-// would have to be caught by assignment in a closure, and by the time of the check TypeScript
-// would have narrowed its type to the initial one.
+// pino writes to process.stdout, so the records are captured by replacing its write, as the
+// ConsoleLogger spec replaces console. The logger is built after the replacement: pino picks its
+// destination in the constructor.
+// The result of write is returned. Otherwise a value from the request scope, such as the
+// requestId, would have to be caught by assignment in a closure, and TypeScript would narrow its
+// type to the initial one by the time of the check.
 function capture<Result>(
     write: (logger: PinoLogger, requestContext: RequestContext) => Result,
     level: Level = Level.INFO,

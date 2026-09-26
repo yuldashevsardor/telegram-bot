@@ -54,9 +54,9 @@ describe("ConsoleLogger", function () {
         const parsed = logAndParsePayload({ cause: new RuntimeError("failed", { cause: new Error("boom") }) }) as { cause: UnknownObject };
         const asIs = logAndParsePayload({ cause: new RuntimeError("failed", { cause: "boom" }) }) as { cause: UnknownObject };
 
-        // The same call, a different type of the caught value — and the value ends up at a
-        // different depth of the record: the constructor lifted the Error into the native cause
-        // and the serializer parsed it, while the string stayed in payload and was copied as is.
+        // The same call with another type of the caught value puts it at another depth of the
+        // record. The constructor lifted the Error into the native cause, and the serializer
+        // parsed it. The string stayed in payload and was copied as is.
         expect(parsed.cause["cause"]).to.include({ name: "Error", message: "boom" });
         expect(asIs.cause["cause"]).to.be.undefined;
         expect((asIs.cause["payload"] as UnknownObject)["cause"]).to.equal("boom");

@@ -29,8 +29,8 @@ export class ConsoleLogger extends AbstractLogger {
         this.write(Level.DEBUG, "debug", message, payload);
     }
 
-    // The threshold is checked in one place, not in every method: there is no level above
-    // CRITICAL, and a check of its own in critical() would be an unreachable branch.
+    // The threshold is checked here once, not in every method. There is no level above CRITICAL,
+    // so a check of its own in critical() would be an unreachable branch.
     private write(level: Level, method: ConsoleMethod, message: string, payload?: UnknownObject): void {
         if (!this.isEnabled(level)) {
             return;
