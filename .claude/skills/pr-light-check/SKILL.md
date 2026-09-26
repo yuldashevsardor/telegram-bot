@@ -100,8 +100,8 @@ The `mutation:` line needs reading in three cases:
 - The record is accepted on condition 1: the run went on another commit whose tree differs.
   Apply to the files under "Yours to read" the table of `docs/agents/review-gates.md`, "Changes
   that affect the mutation run", as `/review-pr` applies it to the PR diff. A file of a row decided
-  by content (`package.json`, `package-lock.json`, the `Makefile`, a tool of the run with its
-  comments-only rule) — read its hunk with the command given under the list. None of the three
+  by content (`package.json`, `package-lock.json`, the `Makefile`, a tool of the run or a `.ts`
+  with their comments-only rule) — read its hunk with the command given under the list. None of the three
   gates on — the record is accepted: in the line, "if the table turns on none of …" becomes
   "nothing under the mutation gates came in since". One is on — your own run.
 - A new mark: its reason is checked against "Working through survivors" in

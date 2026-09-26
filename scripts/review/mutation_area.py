@@ -6,6 +6,8 @@ come from: `gh pr diff <N> --name-only` in the tree of the PR for the reviewer, 
 --name-only origin/main...HEAD` for the author. The rule runs in the tree given as `tree`, or in
 the current one without it:
 
+- A `.ts` whose diff changes only comments gives no area, whatever its kind: the run's outcome
+  does not depend on it (below).
 - A source `src/**/*.ts` goes into the area as it is.
 - A spec gives its mirror (`test/a/b.spec.ts` -> `src/a/b.ts`). A change that weakened a spec
   touches no source, and without the mirror it would have nothing to mutate.
@@ -36,9 +38,17 @@ since Compose resolves `docker-compose.app.yml` and the mounts from the director
 Called from another tree without `tree`, the action would check the files and read the configs of
 that tree: a source the PR adds would be left out as "not in the tree".
 
-A `.ts` whose diff touches only comments stays in the area: in `src/` a comment can be a
-`// Stryker disable` mark, and the gate has to see it (docs/agents/review-gates.md, the `mutation`
-row has no comments-only exemption).
+Comments only is the rule of docs/agents/review-gates.md, the paragraph on the comments-only `.ts`
+diff, applied here file by file: the table decides whether the gate is on, and the action which
+files of the diff give the area. Only a tool directive changes the status of a mutant: the
+`// Stryker disable` mark that silences a survivor, or a `@ts-` comment of a source or a spec, by
+which the type checker decides who gets `CompileError`. A reworded comment in a helper would
+otherwise mutate the mirrors of every spec importing it. The two versions are the blobs of `git diff --raw origin/main...HEAD` in the tree, the same
+range the author's candidates come from; a file this diff does not show as modified in place with
+its mode kept (added, deleted, renamed, a mode changed) is code. mutation-area-comments.mjs compares
+them in the application container by the syntax tree of the TypeScript parser, and its header says
+why not by the tokens of the text. Which of the comments is a directive is decided here (DIRECTIVE):
+a directive added, removed, reworded or moved to another token keeps the file in the area.
 
 The area goes to stdout one path per line; why a file was left out goes to stderr, so an empty area
 still says why it is empty. A failed `git`, `gh` or container run is an error with a non-zero exit
@@ -62,6 +72,12 @@ PR_NUMBER = re.compile(r"[1-9][0-9]*")
 CONFIGS_SCRIPT = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "mutation-area-configs.mjs"
 )
+COMMENTS_SCRIPT = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "mutation-area-comments.mjs"
+)
+# A comment a tool reads rather than a person: it opens with `///`, with `@` or with the name of a
+# tool (docs/agents/review-gates.md, the paragraph on the comments-only `.ts` diff).
+DIRECTIVE = re.compile(r"///|(?://|/\*+)[\s*]*(?:@|(?:stryker|eslint|istanbul|prettier)\b)", re.I)
 
 
 class Stop(Exception):
@@ -94,6 +110,62 @@ def tracked_files(tree: Optional[str], run: Run) -> Set[str]:
     done = run(["git", "ls-files"], cwd=tree, capture_output=True, text=True)
     check(done, "git ls-files failed")
     return set(done.stdout.splitlines())
+
+
+def comments_only_files(
+    changed: List[str], tree: Optional[str], dc_app_run: str, run: Run
+) -> Set[str]:
+    """The changed `.ts` whose diff against origin/main changes neither code nor a directive."""
+    command = [
+        "git", "diff", "--raw", "--no-renames", "--no-abbrev", "-z", "origin/main...HEAD", "--"
+    ] + changed
+    done = run(command, cwd=tree, capture_output=True, text=True)
+    check(done, "git diff --raw origin/main...HEAD failed")
+    # With -z every entry is ":<old mode> <new mode> <old blob> <new blob> <status>" and the path,
+    # each ended by NUL.
+    fields = done.stdout.split("\0")
+    blobs: Dict[str, List[str]] = {}
+    for meta, path in zip(fields[0::2], fields[1::2]):
+        old_mode, new_mode, old, new, status = meta.lstrip(":").split()
+        # An added, deleted or renamed `.ts`, or one whose mode changed, is code whatever its hunks
+        # hold; so is a changed file this diff does not name.
+        if status == "M" and old_mode == new_mode:
+            blobs[path] = [old, new]
+    if not blobs:
+        return set()
+
+    versions: Dict[str, Dict[str, str]] = {}
+    for path, pair in blobs.items():
+        texts = []
+        for blob in pair:
+            shown = run(["git", "cat-file", "blob", blob], cwd=tree, capture_output=True, text=True)
+            check(shown, "git cat-file blob {} of {} failed".format(blob, path))
+            texts.append(shown.stdout)
+        versions[path] = {"old": texts[0], "new": texts[1]}
+    command = '{} node --input-type=module -e "$(cat {})"'.format(
+        dc_app_run, shlex.quote(COMMENTS_SCRIPT)
+    )
+    done = run(
+        ["sh", "-c", command], cwd=tree, input=json.dumps(versions), capture_output=True, text=True
+    )
+    check(done, "the comments were not compared in the application container")
+    lines = [line for line in done.stdout.splitlines() if line.strip()]
+    try:
+        read = json.loads(lines[-1])
+        return {path for path in versions if comments_only(read[path])}
+    except (IndexError, ValueError, KeyError, TypeError) as failure:
+        raise Stop("the application container compared no comments — {}".format(failure))
+
+
+def comments_only(answer: dict) -> bool:
+    """Whether the code is the same and every directive stands, unchanged, before the same token."""
+    if answer["same"] is not True:
+        return False
+
+    def directives(comments: List[List[object]]) -> List[List[object]]:
+        return [[anchor, text] for anchor, text in comments if DIRECTIVE.match(str(text))]
+
+    return directives(answer["old"]) == directives(answer["new"])
 
 
 def read_configs(changed: List[str], tree: Optional[str], dc_app_run: str, run: Run) -> Configs:
@@ -211,12 +283,18 @@ def mutation_area(
             if file.endswith(".ts") and file.startswith(("src/", "test/"))
         ]
         if changed:
+            skipped = comments_only_files(changed, tree, dc_app_run, run)
+            for file in changed:
+                if file in skipped:
+                    notes.append("`{}` gives no area: its diff changes only comments".format(file))
+            changed = [file for file in changed if file not in skipped]
+        else:
+            notes.append("the diff has no .ts under src/ or test/")
+        area = []
+        if changed:
             tracked = tracked_files(tree, run)
             configs = read_configs(changed, tree, dc_app_run, run)
             area = assemble(changed, tracked, configs, tree, run, notes)
-        else:
-            notes.append("the diff has no .ts under src/ or test/")
-            area = []
     except Stop as stop:
         print("Stopped: {}".format(stop), file=sys.stderr)
         return 1

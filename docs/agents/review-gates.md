@@ -30,7 +30,7 @@ once.
 | `.ts` inside `src/font-convertor/`, `src/shared/`, `src/telegram/outbound-queue/` — not a comments-only `.ts` diff | `smells` |
 | any `.ts` — a comments-only `.ts` diff | `comments` |
 | `stryker.config.mjs`, `test/stryker-mocha-hook.cjs`, `test/mutation-record.ts`, `.mocharc.json`, `tsconfig.json`, `tsconfig.check.json` — not a comments-only diff | `mutation-full` |
-| any `.ts` in `src/` or `test/`, unless `mutation-full` is on | `mutation` |
+| any `.ts` in `src/` or `test/` — not a comments-only `.ts` diff, unless `mutation-full` is on | `mutation` |
 | any `*.md`, including `docs/**` and `.claude/**` | `docs` |
 
 `build` and `typecheck` go on together, and neither replaces the other. The targets use
@@ -88,14 +88,9 @@ Comments only is a statement about the content of the diff, not about lines that
 comments. `.mocharc.json` and both tsconfigs are JSONC, and `"spec": "test/**/*.spec.ts"`
 carries `**` inside a string literal, so a grep for `//` or `*` decides nothing.
 
-The rule stands in the `mutation-full` row and does not carry over to the `mutation` row. In
-`src/` a comment can be the mark `// Stryker disable next-line …` that silences a survivor
-(`docs/architecture/testing.md`, "Working through survivors"). A diff of that mark is exactly
-what the `mutation` gate has to see.
-
-A comments-only `.ts` diff turns off `bug-hunt-high`, `smells` and `docs-sync` and turns on
-`comments` instead. Read the diff, as with the files of the `mutation-full` row. The `.ts` diff
-is every `.ts` of the PR taken together: one changed line of code in any `.ts`, and every row
+A comments-only `.ts` diff turns off `bug-hunt-high`, `smells`, `docs-sync` and `mutation` and
+turns on `comments` instead. Read the diff, as with the files of the `mutation-full` row. The `.ts`
+diff is every `.ts` of the PR taken together: one changed line of code in any `.ts`, and every row
 goes by name, with the full review for the whole PR. A `.ts` that is added, deleted, renamed,
 copied or changes mode is code too, whatever its hunks hold, and a rename has no hunks.
 Renaming a migration breaks the append-only rule that only the full review checks. Renaming
@@ -119,16 +114,30 @@ search.
 Comments only is read as for the `mutation-full` row: by the content of the diff, not by lines
 that look like comments. `//` inside a string or a template literal is not a comment. A hunk
 that changes a comment and code on the same line is code. A tool directive is code too, and
-`.ts` has more of them than the run's tools do: `// Stryker disable …`, `// eslint-disable…`,
-`// @ts-expect-error`, `// @ts-ignore`, `/* istanbul ignore … */`, `// prettier-ignore`. Each
+`.ts` has more of them than the run's tools do. A directive is a comment that opens with `///`,
+with `@` or with the name of a tool (Stryker, eslint, istanbul, prettier):
+`// Stryker disable …`, `// Stryker restore …`, `// eslint-disable…`, `// @ts-expect-error`,
+`// @ts-ignore`, `/* istanbul ignore … */`, `// prettier-ignore`, `/// <reference … />`. Each
 is read by a gate, so a diff that touches one gets the full review.
+`scripts/review/mutation_area.py` holds the same rule as code (`DIRECTIVE`), and its specs check
+it against this list.
 
 The gates that run the code stay on by name. `build`, `typecheck`, `lint`, `format-check` and
-`test` take seconds, and a directive the reading missed still changes their outcome.
-`mutation` stays too: its area run takes seconds, and a `Stryker disable` mark is what that
-gate has to see (the paragraph on the `mutation` row above). A `.sh` is not read this way: a
-comment there can be a shebang or a linter directive, and its comments-only diffs were not
-measured.
+`test` take seconds, and a directive the reading missed still changes their outcome. A `.sh` is
+not read this way: a comment there can be a shebang or a linter directive, and its comments-only
+diffs were not measured.
+
+`mutation` runs code too, yet goes off, because its price is not seconds. Its area grows from the
+diff: a changed spec gives its mirror source, a changed helper the mirrors of every spec importing
+it, so a reworded comment in a shared helper mutates a sizeable part of `src/`. And only a
+directive changes the status of a mutant: the mark that silences a survivor
+(`docs/architecture/testing.md`, "Working through survivors"), which acts only in a mutated file,
+and the `@ts-` comments of a source or a spec, by which the type checker decides who gets
+`CompileError` ("The type checker" there). The price is paid again at every review fix that
+rewords a comment: without the exemption it makes the run record stale (below, "Changes that
+affect the mutation run"), and the author runs again. The same rule goes on inside the gate, file
+by file: when another `.ts` of the PR turns `mutation` on, a file whose own diff changes only
+comments gives no area. That part is `make mutation-area`'s, since the area is assembled there.
 
 `bug-hunt-*` and `smells` are kept apart on purpose, and their boundaries differ. Bugs are
 hunted wherever there is executable code. In `src/platform/`, `src/bootstrap/` and
@@ -166,12 +175,13 @@ boundary would move in only one of them.
 in area. `mutation` mutates the code the PR touched: a survivor sits on the author's line, and
 the run takes seconds. The area is assembled by `make mutation-area` over the PR tree
 (`scripts/review/mutation_area.py` holds the rule): it needs the PR's code, while the table
-sees only file names. `mutation-full` is turned on by the run's tools, and it mutates the whole
-of `src/`. Changing the tools changes the run of every mutant, not of the diff's lines, and a
-PR that changes only the tools has an empty area from its diff. The tsconfigs and `typescript`
-are tools too: by them the type checker decides which mutant gets `CompileError` and which goes
-to the tests (`docs/architecture/testing.md`, "The type checker"). On other PRs the whole of
-`src/` is not run: that is minutes on every round for lines the PR did not touch.
+sees only file names, and it leaves out a file whose diff changes only comments.
+`mutation-full` is turned on by the run's tools, and it mutates the whole of `src/`. Changing the
+tools changes the run of every mutant, not of the diff's lines, and a PR that changes only the
+tools has an empty area from its diff. The tsconfigs and `typescript` are tools too: by them the
+type checker decides which mutant gets `CompileError` and which goes to the tests
+(`docs/architecture/testing.md`, "The type checker"). On other PRs the whole of `src/` is not
+run: that is minutes on every round for lines the PR did not touch.
 
 With the `rebuild` gate on, the image is rebuilt **before** the other checks. Otherwise new
 code is checked against old dependencies and an old config, and a green result means nothing.
@@ -190,7 +200,8 @@ on one commit, and the record is measured against another. So whether it still h
 same pass over the table above, only with the diff taken between those two commits. At least
 one of three gates on — the record is stale:
 
-- `mutation` — the mutated code changed, or the specs that kill the mutants;
+- `mutation` — the mutated code changed, or the specs that kill the mutants; a comments-only
+  `.ts` diff between the two commits leaves it off, as it does in the PR diff;
 - `mutation-full` — the run's tools changed, and they change the outcome of every mutant, not
   of the diff's lines;
 - `rebuild` — the run went in a different image.

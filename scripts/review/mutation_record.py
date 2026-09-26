@@ -21,8 +21,10 @@ It is accepted when all four conditions hold:
    whether the record still holds is a pass of the table in docs/agents/review-gates.md ("Changes
    that affect the mutation run") over the files changed between the two commits, and that table is
    prose, not copied here: the action lists the files and leaves the pass to the reviewer, as
-   /review-pr applies the same table to the PR diff. The list is `git diff --no-renames
-   --name-only <record head> <PR head>`: between the trees and not from the merge-base, because
+   /review-pr applies the same table to the PR diff. The names do not decide every row: a `.ts`
+   whose diff changes only comments leaves `mutation` off, and the reviewer reads its hunk by the
+   command printed under the list. The list is `git diff --no-renames --name-only <record head>
+   <PR head>`: between the trees and not from the merge-base, because
    after a rebase the record's head is no longer an ancestor and a diff from the merge-base would
    add the branch's own changes; `--no-renames` because rename detection prints only the new path
    of a move, and the old one (a spec moved out of test/, a renamed tool of the run) matters to the
