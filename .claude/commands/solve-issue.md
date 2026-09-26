@@ -102,6 +102,32 @@ a record the review refuses costs the reviewer a run of its own and buys the bra
 
 ## Step 3. Review
 
+### Before the round: `origin/main`
+
+Before every round, the first one included, check whether `main` has moved under the PR in a way
+the round should see. From the root of the task worktree:
+
+```bash
+git fetch origin
+git merge-tree --write-tree HEAD origin/main >/dev/null; echo $?
+git diff --no-renames --name-only HEAD...origin/main -- $(git diff --no-renames --name-only origin/main...HEAD)
+```
+
+`merge-tree` exits with 1 on a conflict and with 0 on a clean merge. The last command prints the
+files of the PR diff that `main` changed since the branch's merge-base.
+
+- A conflict, or at least one file printed — `git merge origin/main`, resolve, `make check`, push,
+  then the record by "When the last record still holds" (step 2). Then the round.
+- Otherwise the round opens without a merge.
+
+A merge on every round would stale the record whenever `main` touched the mutated code, the run
+tools or the image: with neighbouring sessions moving `main` often, that is minutes of a run per
+round that buy nothing when `main` changed unrelated files. The check does not catch `main`
+changing a file the PR depends on without changing the PR's own files (a shared spec helper, an
+imported module): with no CI, nothing checks that combination.
+
+### The round
+
 Count the rounds yourself: `R` = 1, 2, 3. Every round is a new subagent: the Agent tool,
 `subagent_type: general-purpose`. The prompt is exactly this and nothing more:
 
@@ -244,9 +270,8 @@ than joining them.
   gh pr view <PR> --json mergeable,mergeStateStatus
   ```
 
-  A conflict — merge `origin/main` into the branch, resolve it, `make check`, push, a mutation run
-  if one is needed (step 2), the run record in the PR. The head changed, so a new review round
-  follows (step 3), then this step again. No conflict:
+  A conflict — step 3: its check before the round merges `origin/main`, and the moved head needs
+  a new review round. Then this step again. No conflict:
 
   ```bash
   gh pr merge <PR> --merge
