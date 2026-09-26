@@ -356,9 +356,9 @@ describe("ReadFailed, WriteFailed and RemoveFailed", function () {
         it(`${name} keeps a caught value that is not an Error under cause in the payload`, function () {
             const error = build("/x/y", "EACCES");
 
-            // The key does not depend on the type, the depth does: RuntimeError raises only an Error
-            // into the native cause, so the string stays in payload — and the message taken is the
-            // fallback, there being nothing to take it from in the caught value.
+            // The key is the same for any type, the depth is not: RuntimeError lifts only an Error
+            // into the native cause, so the string stays in payload. The message is the fallback,
+            // because the caught value has none.
             expect(error.message).to.equal(fallback);
             expect(error.cause).to.be.undefined;
             expect(error.payload).to.deep.equal({ path: "/x/y", cause: "EACCES" });

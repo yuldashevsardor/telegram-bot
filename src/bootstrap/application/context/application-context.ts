@@ -19,15 +19,8 @@ type Parts = {
     requestContext: RequestContext;
 };
 
-// What the application always needs: these objects exist before the container, because it cannot
-// be assembled without them. The list is deliberately short and is kept that way: the context is
-// known only to Application and Container.setup(), while the consumers get its parts from the
-// container — otherwise the context itself would start being injected, and it would become a
-// second DI.
-//
-// The class is static through and through: the parts lie on it rather than in an instance that
-// whoever called create() must not lose. A lost reference to an object would be impossible to
-// recover — the assembled logger and storage would stay in the process with no entrance to them.
+// What the container cannot be assembled without. Why the list stays short and the class is fully
+// static: docs/architecture/application.md, "Application".
 export class ApplicationContext {
     // The polling of the watched file, ms. Kept here rather than in ConfigValuesBuilder: both
     // variables of the file are needed before the assembled configuration.
@@ -35,24 +28,15 @@ export class ApplicationContext {
     private static readonly MIN_WATCH_INTERVAL = 100;
     private static readonly DEFAULT_CONFIG_FILE = ".runtime.env";
 
-    // One value rather than a field per part: whether the context is assembled is decided by
-    // create() and by the getters with one check, and a half-assembled context is not allowed by the
-    // type.
+    // One value rather than a field per part: create() and the getters decide readiness by one check,
+    // and the type allows no half-assembled context.
     private static parts: Parts | null = null;
     private static creating: Promise<void> | null = null;
 
-    // There is one context per process: a second one would break correlation silently — it would
-    // have a request storage of its own, and the logger would read a store other than the one the
-    // middleware opened. That is why a repeated create() is not an error but the same assembly: a
-    // call in the middle of it waits for that one instead of starting a second — the config is
-    // assembled asynchronously, and a single check of the ready parts would let both calls through.
-    //
-    // The promise lives only while the assembly is under way and is forgotten whatever the outcome:
-    // an assembly that failed does not stop the next create() from starting from scratch, and
-    // whether the context is assembled create() decides by the same parts the getters use. Were the
-    // promise to be kept after the assembly as well, there would be two signs of readiness, and a
-    // context that has been reset (that is how the specs reset it) would be neither reassembled by
-    // create() nor served by the getters.
+    // One context per process, so a repeated create() is the same assembly: a call in the middle of
+    // it waits for it. The config is assembled asynchronously, and a check of the ready parts alone
+    // would let both calls through. The promise is dropped whatever the outcome, so the parts stay
+    // the only sign of readiness. Why: docs/architecture/application.md, "Application".
     public static create(): Promise<void> {
         if (ApplicationContext.parts !== null) {
             return Promise.resolve();
@@ -87,16 +71,15 @@ export class ApplicationContext {
         return ApplicationContext.parts;
     }
 
-    // The config before the logger: the adapter and the threshold both come from it. So an error of
-    // the configuration happens before there is a logger, and it is printed by fail() through its
-    // console.error fallback.
+    // The config before the logger: the adapter and the threshold both come from it. So a
+    // configuration error comes before the logger, and fail() prints it through console.error.
     private static async assemble(): Promise<void> {
         const cc = new ConfigContainer<ConfigValues>(ApplicationContext.createStorage(), new ConfigValuesBuilder());
         await cc.init();
 
-        // Watching was switched on by init(), while the context is filled below: were the assembly
-        // to fail between them, the poll would stay running and become unreachable — there is no
-        // reference to the container anywhere, and the stop of the application would not get to it.
+        // init() has switched watching on, and fill() can still fail. Then no reference to the
+        // container is left anywhere, the stop of the application cannot reach it, and the poll
+        // would stay running.
         try {
             ApplicationContext.fill(cc);
         } catch (error) {
@@ -112,33 +95,27 @@ export class ApplicationContext {
 
         ApplicationContext.parts = { cc: cc, logger: logger, requestContext: requestContext };
 
-        // A failed rebuild is written by the logger: the configuration itself has no logger, it is
-        // assembled before one. Watching was switched on by init() already, but that opens no window
-        // without an addressee: from here up to the subscription the code is synchronous, and the
-        // callback of the watcher waits for its task in the queue. Watching is switched off by the
-        // stop of the application (`Application.terminate()`): a poll left behind would rebuild the
-        // configuration of an application that is already closing.
+        // The configuration has no logger of its own: it is assembled before one. Watching is on
+        // already, but no rebuild can fail unheard before this subscription
+        // (docs/architecture/application.md, "Application"). Application.terminate() switches
+        // watching off.
         cc.onError((error: unknown): void => {
             logger.error("Config reload failed, the previous values are kept.", { cause: error });
         });
     }
 
-    // The path of the file and the interval of its polling are needed before the assembled
-    // configuration, so they are read from the environment: the snapshot for ConfigParser is
-    // process.env itself. The environment and not .env: dotenv.config() is called by
-    // ConfigEnvStorage.load() inside init(), that is later. In the supported way of running they are
-    // the same thing — the variables from .env are put into the environment by Compose (env_file) —
-    // and outside it both are set as variables of the process.
+    // The path and the polling interval are read from process.env before the configuration exists
+    // (docs/architecture/config.md, "Watching the file"). Not from .env: ConfigEnvStorage.load()
+    // calls dotenv.config() later, inside init(). Under Compose the two are the same (env_file), and
+    // outside it both are set as variables of the process.
     private static createStorage(): ConfigStorage {
         const parser = new ConfigParser({ ...process.env });
 
         return new ConfigFileStorage(
             new ConfigEnvStorage(),
             parser.getString("CONFIG_FILE_PATH", path.join(process.cwd(), ApplicationContext.DEFAULT_CONFIG_FILE)),
-            // The lower bound is not one: polling is cheap but not free (a stat on every turn), and
-            // configuration is not edited more often than once a tenth of a second. A value that is
-            // not allowed fails the start instead of turning into the default — polling silently sped
-            // up looks like polling that works.
+            // Why the lower bound is 100 ms and a value not allowed fails the start:
+            // docs/architecture/config.md, "Watching the file".
             parser.getTimerDelay("CONFIG_FILE_WATCH_INTERVAL", ApplicationContext.DEFAULT_WATCH_INTERVAL, {
                 min: ApplicationContext.MIN_WATCH_INTERVAL,
             }),

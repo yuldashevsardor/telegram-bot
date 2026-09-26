@@ -10,25 +10,22 @@ import type { Bot } from "app/telegram/bot/bot";
 import { sleep, withTimeout } from "app/shared/utils";
 import { RuntimeError } from "app/shared/errors";
 
-// One field for the whole lifecycle instead of a flag per step raised at the end of it: such a
-// flag does not tell a step under way from one never taken, and a stop() from a second signal in
-// the middle of the stop would go through it again, in parallel with the first. A step under way
-// keeps its own promise: it is awaited by a repeated call of the same step and by a stop() in the
-// middle of setup().
+// One field for the whole lifecycle, not a flag per step raised at its end. Such a flag cannot tell
+// a step in progress from one never taken, so a stop() from a second signal during the stop would
+// run it again, in parallel with the first. A step in progress keeps its own promise here, for a
+// repeated call of the same step and for a stop() in the middle of setup() to await.
 type State =
     | { name: "created" }
-    // Stays after a failure too, and a repeated setup() hands back the same failure: after one the
-    // process is ended by fail() in app.ts, and there is nobody to redo the setup. contextReady is the
-    // first part of the setup, the assembly of ApplicationContext: it is awaited separately by stop(),
-    // which needs the logger and the deadline from the config.
+    // Kept after a failure too, and a repeated setup() gets the same failure: fail() in app.ts ends
+    // the process, and nobody redoes the setup. contextReady is the first part of the setup, the
+    // assembly of ApplicationContext; stop() awaits it alone for the logger and the deadline.
     | { name: "settingUp"; contextReady: Promise<void>; done: Promise<void> }
     | { name: "ready" }
     | { name: "running" }
-    // Stays after a failure too, and a repeated stop() hands back the same failure: after one the
-    // process is ended by fail() in app.ts.
+    // Kept after a failure too, and a repeated stop() gets the same failure: fail() in app.ts ends
+    // the process.
     | { name: "stopping"; done: Promise<void> }
-    // Final, the instance is single-use: the singleton container does not survive a second setup()
-    // after close(), and there is one ApplicationContext per process.
+    // Final: the instance is single-use (docs/architecture/application.md, "Application").
     | { name: "stopped" };
 
 export class Application {
@@ -60,9 +57,9 @@ export class Application {
     }
 
     public async run(): Promise<void> {
-        // A stop() in the middle of setup() has awaited it and is already closing the application,
-        // while bootstrap() in app.ts comes here right after: a failure would take it into fail()
-        // with code 1.
+        // A stop() in the middle of setup() has awaited it and is already closing the application.
+        // bootstrap() in app.ts comes here right after, and a throw would take it into fail() with
+        // code 1.
         if (this.state.name === "stopping" || this.state.name === "stopped") {
             return;
         }
@@ -75,10 +72,10 @@ export class Application {
             throw new RuntimeError("Application is not set up!");
         }
 
-        // The application counts as running from the beginning of the start: a stop() that catches
-        // the bot starting goes through the full shutdown instead of closing the container alone.
-        // Whether Bot.stop() stops a bot that has not raised its isRun yet is up to Bot: today it
-        // skips such a bot, and there is no window only because Bot.run() has no await.
+        // Running from the beginning of the start: a stop() that catches the bot starting goes
+        // through the full shutdown, not only the closing of the container. Whether Bot.stop() stops
+        // a bot that has not raised its isRun yet is up to Bot. Today it skips such a bot, and there
+        // is no window only because Bot.run() has no await.
         this.state = { name: "running" };
 
         try {
@@ -157,10 +154,9 @@ export class Application {
     private async terminate(from: State): Promise<void> {
         this.logger.info("Stop application...");
 
-        // The watching of the configuration is removed before the overall deadline and outside it:
-        // once the deadline is over terminate() returns, and a poll of the file left behind would go
-        // on rebuilding the configuration of an application already closed and would hold the event
-        // loop.
+        // Before the overall deadline and outside it: once the deadline is over terminate() returns,
+        // and a poll left behind would rebuild the configuration of a closed application and hold
+        // the event loop.
         this.cc.unwatch();
 
         const timeout = this.cc.get("gracefulShutdown.timeout");
@@ -180,14 +176,12 @@ export class Application {
         this.logger.info("Application is successfully stopped.");
     }
 
-    // Every step has a deadline of its own, and the stop as a whole has the overall one: it is
-    // greater than their sum (checked when the config is assembled), so there is time left for
-    // stopping the runner and closing the pool even when the bot and the queue used theirs up.
+    // Every step has a deadline of its own, and the whole stop has the overall one. The overall one
+    // is greater than their sum (checked when the config is assembled), so stopping the runner and
+    // closing the pool have time left even when the bot and the queue use theirs up.
     private async shutdown(from: State): Promise<void> {
-        // A failure of the setup leaves from here as well: gracefulStop() and bootstrap() in app.ts
-        // both call fail() with one error, the first call ends the process synchronously, and there
-        // stays one critical. Were the stop to swallow it, the exit code would be decided by a race
-        // between exit(0) and exit(1).
+        // A failure of the setup leaves from here as well (docs/architecture/application.md, "Stop",
+        // step 3). Swallowed, it would leave the exit code to a race between exit(0) and exit(1).
         if (from.name === "settingUp") {
             await from.done;
         }
