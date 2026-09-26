@@ -104,8 +104,8 @@ The `mutation:` line needs reading in three cases:
   Apply the table of `docs/agents/review-gates.md`, "Changes that affect the mutation run", to the
   files under "Yours to read", as `/review-pr` applies it to the PR diff.
   - Some rows are decided by content: `package.json`, `package-lock.json`, the `Makefile`, a tool
-    of the run with its comments-only rule. For a file of such a row, read its hunk with the
-    command given under the list.
+    of the run or a `.ts` with their comments-only rule. For a file of such a row, read its hunk
+    with the command given under the list.
   - None of the three gates on — the record is accepted. In the line, "if the table turns on none
     of …" becomes "nothing under the mutation gates came in since".
   - One is on — your own run.

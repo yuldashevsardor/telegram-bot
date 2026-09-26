@@ -6,10 +6,10 @@
 // container sees only the directories docker-compose.app.yml mounts, and scripts/ is not one of
 // them, while the copy in the image is as old as the last make rebuild.
 //
-// The arguments are the changed .ts paths. The spec glob is matched against them as well as
-// expanded over the tree: a deleted spec exists nowhere, and deleting a spec is the strongest way
-// to weaken it. MUTATE is dropped because the config turns it into positive globs of `mutate`,
-// while only the `!` entries are wanted.
+// The arguments are the changed .ts paths that change more than comments. The spec glob is
+// matched against them as well as expanded over the tree: a deleted spec exists nowhere, and
+// deleting a spec is the strongest way to weaken it. MUTATE is dropped because the config turns it
+// into positive globs of `mutate`, while only the `!` entries are wanted.
 import { globSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";

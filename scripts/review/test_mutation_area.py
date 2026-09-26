@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import re
 import subprocess
 import tempfile
 import unittest
@@ -50,6 +51,39 @@ IMPORTS = {
 }
 
 
+def raw(*entries):
+    """The output of `git diff --raw -z`: (path, status[, old mode, new mode]) per changed file."""
+    out = ""
+    for path, status, *modes in entries:
+        old_mode, new_mode = modes or ["100644", "100644"]
+        out += ":{} {} old-{} new-{} {}\0{}\0".format(old_mode, new_mode, path, path, status, path)
+    return out
+
+
+def versions(*paths):
+    """What `git cat-file blob` gives for the blobs raw() makes up."""
+    blobs = {}
+    for path in paths:
+        blobs["old-" + path] = "// old\n" + path
+        blobs["new-" + path] = "// new\n" + path
+    return blobs
+
+
+def compared(answers):
+    """The answer of the comments script: a path -> (old comments, new comments), or False."""
+    read = {}
+    for path, answer in answers.items():
+        if answer is False:
+            read[path] = {"same": False}
+        else:
+            read[path] = {"same": True, "old": answer[0], "new": answer[1]}
+    return (0, " Container app-run Creating\n" + json.dumps(read) + "\n")
+
+
+CONFIG_VALUE = "src/shared/config-value.ts"
+REWORDED = ([[0, "// Reads a value.", [0, 1]]], [[0, "// Reads a config value.", [0, 1]]])
+
+
 # The tree of a PR, other than the tree the action is called from.
 PR_TREE = "/review/telegram-bot-review-7"
 
@@ -60,14 +94,17 @@ class FakeRun:
     `in_pr_tree` holds the answers that differ when a command runs in PR_TREE.
     """
 
-    def __init__(self, changed, in_pr_tree=None, **answers):
+    def __init__(self, changed, in_pr_tree=None, blobs=None, **answers):
         self.changed = "".join(file + "\n" for file in changed)
         self.answers = {
             "diff": (0, self.changed),
             "gh": (0, self.changed),
+            "raw": (0, ""),
             "ls-files": (0, "".join(file + "\n" for file in TREE)),
             "container": (0, " Container app-run Creating\n" + json.dumps(CONFIGS) + "\n"),
         }
+        # The texts `git cat-file blob` gives by blob.
+        self.blobs = blobs or {}
         self.answers.update(answers)
         self.in_pr_tree = in_pr_tree or {}
         self.calls = []
@@ -77,6 +114,8 @@ class FakeRun:
         name = self.name(args)
         if name == "grep":
             return self.grep(args)
+        if name == "cat-file" and "cat-file" not in self.answers:
+            return subprocess.CompletedProcess(args, 0, self.blobs[args[3]], "")
         answers = dict(self.answers)
         if kwargs.get("cwd") == PR_TREE:
             answers.update(self.in_pr_tree)
@@ -100,7 +139,9 @@ class FakeRun:
         if args[0] == "gh":
             return "gh"
         if args[0] == "sh":
-            return "container"
+            return "comments" if mutation_area.COMMENTS_SCRIPT in args[2] else "container"
+        if args[1] == "diff" and "--raw" in args:
+            return "raw"
         return args[1]
 
     def names(self):
@@ -141,7 +182,7 @@ class MutationAreaTest(unittest.TestCase):
 
         self.area(run, pr="7")
 
-        self.assertEqual(run.names(), ["gh", "ls-files", "container", "grep"])
+        self.assertEqual(run.names(), ["gh", "raw", "ls-files", "container", "grep"])
         self.assertEqual({kwargs["cwd"] for _, kwargs in run.calls}, {None})
 
     def test_with_a_tree_every_command_runs_in_it(self):
@@ -150,7 +191,7 @@ class MutationAreaTest(unittest.TestCase):
 
             self.area(run, pr=pr, tree=PR_TREE)
 
-            self.assertEqual(run.names(), [diff, "ls-files", "container", "grep"])
+            self.assertEqual(run.names(), [diff, "raw", "ls-files", "container", "grep"])
             self.assertEqual({kwargs["cwd"] for _, kwargs in run.calls}, {PR_TREE})
 
     def test_a_source_the_pr_adds_stays_in_the_area_of_its_tree(self):
@@ -363,6 +404,205 @@ class MutationAreaTest(unittest.TestCase):
             ["Stopped: git grep for the importers of test/database.helper.ts failed — "
              "fatal: bad pathspec"],
         )
+
+    def test_a_source_whose_diff_changes_only_comments_gives_no_area(self):
+        packer = "src/font-convertor/eot-packer/eot-packer.ts"
+        run = FakeRun(
+            [CONFIG_VALUE, packer],
+            raw=(0, raw((CONFIG_VALUE, "M"), (packer, "M"))),
+            blobs=versions(CONFIG_VALUE, packer),
+            comments=compared({CONFIG_VALUE: REWORDED, packer: False}),
+        )
+
+        code, area, notes = self.area(run)
+
+        self.assertEqual((code, area), (0, [packer]))
+        self.assertEqual(
+            notes, ["`src/shared/config-value.ts` gives no area: its diff changes only comments"]
+        )
+
+    def test_a_spec_or_a_helper_whose_diff_changes_only_comments_is_not_followed(self):
+        spec, helper = "test/shared/config-value.spec.ts", "test/database.helper.ts"
+        run = FakeRun(
+            [spec, helper],
+            raw=(0, raw((spec, "M"), (helper, "M"))),
+            blobs=versions(spec, helper),
+            comments=compared({spec: REWORDED, helper: REWORDED}),
+        )
+
+        code, area, notes = self.area(run)
+
+        self.assertEqual((code, area), (0, []))
+        self.assertEqual(
+            notes,
+            [
+                "`{}` gives no area: its diff changes only comments".format(spec),
+                "`{}` gives no area: its diff changes only comments".format(helper),
+            ],
+        )
+        self.assertNotIn("container", run.names())
+        self.assertNotIn("grep", run.names())
+
+    def test_a_changed_or_moved_directive_keeps_the_file_in_the_area(self):
+        mark = "// Stryker disable next-line all: why"
+        for old, new in (
+            ([[3, mark, [3, 4]]], [[3, "// Stryker disable next-line all: another why", [3, 4]]]),
+            ([[3, mark, [3, 4]]], []),
+            ([], [[9, "// Stryker restore all", [9]]]),
+            ([[3, "// @ts-expect-error", [3]]], [[7, "// @ts-expect-error", [7]]]),
+            # A comment with a line break moved the token 4 off the line of the mark.
+            ([[3, mark, [3, 4, 5]]], [[3, mark, [3]]]),
+            # A block comment broken over the lines between the directive and its code.
+            ([[3, "// @ts-ignore", [3, 4], 1]], [[3, "// @ts-ignore", [3, 4], 2]]),
+            # A block comment between them turned into a line comment.
+            ([[3, "// @ts-ignore", [3, 4], 2, ["/* a */"]]],
+             [[3, "// @ts-ignore", [3, 4], 2, ["// a"]]]),
+            # TypeScript reads the directive on the last line of a block comment.
+            ([[3, "/* the cast\n   note */", [3]]], [[3, "/* the cast\n   @ts-ignore */", [3]]]),
+            ([[3, "/* istanbul ignore next */", [3]]], []),
+            ([[3, "/* eslint-disable no-console */", [3]]], []),
+            ([[3, "// prettier-ignore", [3]]], []),
+            ([[0, '/// <reference types="node" />', [0]]], []),
+            ([[3, "/**\n * @deprecated use another\n */", [3]]], []),
+        ):
+            run = FakeRun(
+                [CONFIG_VALUE],
+                raw=(0, raw((CONFIG_VALUE, "M"))),
+                blobs=versions(CONFIG_VALUE),
+                comments=compared({CONFIG_VALUE: (old, new)}),
+            )
+
+            self.assertEqual(self.area(run), (0, [CONFIG_VALUE], []), (old, new))
+
+    def test_a_directive_that_stands_unchanged_over_the_same_tokens_does_not_keep_the_file(self):
+        mark = [5, "// Stryker disable next-line all: why", [5, 6]]
+        run = FakeRun(
+            [CONFIG_VALUE],
+            raw=(0, raw((CONFIG_VALUE, "M"))),
+            blobs=versions(CONFIG_VALUE),
+            comments=compared({CONFIG_VALUE: ([REWORDED[0][0], mark], [REWORDED[1][0], mark])}),
+        )
+
+        self.assertEqual(self.area(run)[:2], (0, []))
+
+    def test_only_a_file_modified_in_place_with_its_mode_kept_is_compared(self):
+        added, deleted = "src/shared/added.ts", "src/shared/gone.ts"
+        packer = "src/font-convertor/eot-packer/eot-packer.ts"
+        run = FakeRun(
+            [CONFIG_VALUE, added, deleted, packer],
+            raw=(0, raw(
+                (added, "A", "000000", "100644"),
+                (deleted, "D", "100644", "000000"),
+                (CONFIG_VALUE, "M", "100644", "100755"),
+            )),
+        )
+
+        code, area, _ = self.area(run)
+
+        self.assertEqual((code, area), (0, [packer, CONFIG_VALUE]))
+        self.assertNotIn("cat-file", run.names())
+        self.assertNotIn("comments", run.names())
+
+    def test_the_versions_come_from_the_diff_against_origin_main_in_the_tree(self):
+        run = FakeRun(
+            [CONFIG_VALUE, "test/a b.spec.ts"],
+            raw=(0, raw((CONFIG_VALUE, "M"))),
+            blobs=versions(CONFIG_VALUE),
+            comments=compared({CONFIG_VALUE: False}),
+        )
+
+        self.area(run, pr="7", tree=PR_TREE)
+
+        by_name = {FakeRun.name(args): (args, kwargs) for args, kwargs in run.calls}
+        self.assertEqual(
+            by_name["raw"][0],
+            [
+                "git", "diff", "--raw", "--no-renames", "--no-abbrev", "-z", "origin/main...HEAD",
+                "--", CONFIG_VALUE, "test/a b.spec.ts",
+            ],
+        )
+        self.assertEqual(
+            [args for args, _ in run.calls if args[1:2] == ["cat-file"]],
+            [
+                ["git", "cat-file", "blob", "old-" + CONFIG_VALUE],
+                ["git", "cat-file", "blob", "new-" + CONFIG_VALUE],
+            ],
+        )
+        args, kwargs = by_name["comments"]
+        self.assertEqual(
+            args,
+            [
+                "sh",
+                "-c",
+                DC_APP_RUN + ' node --input-type=module -e "$(cat {})"'.format(
+                    mutation_area.COMMENTS_SCRIPT
+                ),
+            ],
+        )
+        self.assertEqual(
+            json.loads(kwargs["input"]),
+            {CONFIG_VALUE: {"old": "// old\n" + CONFIG_VALUE, "new": "// new\n" + CONFIG_VALUE}},
+        )
+        self.assertEqual({kwargs["cwd"] for _, kwargs in run.calls}, {PR_TREE})
+        self.assertTrue(os.path.isfile(mutation_area.COMMENTS_SCRIPT))
+
+    def test_a_failed_comparison_is_an_error_not_an_empty_area(self):
+        compared_run = dict(raw=(0, raw((CONFIG_VALUE, "M"))), blobs=versions(CONFIG_VALUE))
+        for answers, stop in (
+            (
+                {"raw": (128, "fatal: bad revision 'origin/main...HEAD'")},
+                "Stopped: git diff --raw origin/main...HEAD failed — "
+                "fatal: bad revision 'origin/main...HEAD'",
+            ),
+            (
+                dict(compared_run, **{"cat-file": (128, "fatal: Not a valid object name")}),
+                "Stopped: git cat-file blob old-{0} of {0} failed — "
+                "fatal: Not a valid object name".format(CONFIG_VALUE),
+            ),
+            (
+                dict(compared_run, comments=(1, "Error response from daemon: network not found")),
+                "Stopped: the comments were not compared in the application container — "
+                "Error response from daemon: network not found",
+            ),
+            (
+                dict(compared_run, comments=(0, "\n")),
+                "Stopped: the application container compared no comments — "
+                "list index out of range",
+            ),
+            (
+                dict(compared_run, comments=(0, "{}\n")),
+                "Stopped: the application container compared no comments — "
+                "'{}'".format(CONFIG_VALUE),
+            ),
+        ):
+            code, area, notes = self.area(FakeRun([CONFIG_VALUE], **answers))
+
+            self.assertEqual((code, area, notes), (1, [], [stop]))
+
+
+class DirectiveTest(unittest.TestCase):
+    def test_every_directive_the_gate_table_names_is_one(self):
+        path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "../../docs/agents/review-gates.md"
+        )
+        with open(path, encoding="utf-8") as file:
+            text = " ".join(file.read().split())
+        start = text.index("A tool directive is code too")
+        sentence = text[start : text.index("Each is read by a gate", start)]
+        named = [code for code in re.findall(r"`([^`]+)`", sentence) if code.startswith("/")]
+
+        self.assertGreaterEqual(len(named), 6, sentence)
+        for code in named:
+            self.assertTrue(mutation_area.is_directive(code), code)
+
+    def test_a_comment_for_a_person_is_not_one(self):
+        for comment in (
+            "// Reads a value: the eslint rule forbids a default here.",
+            "/* why it waits */",
+            "/**\n * Packs a font.\n * The source is read once.\n */",
+            "// see @ts-expect-error below",
+        ):
+            self.assertFalse(mutation_area.is_directive(comment), comment)
 
 
 class MainTest(unittest.TestCase):
