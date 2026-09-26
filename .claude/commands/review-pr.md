@@ -32,36 +32,36 @@ The list is empty → say the diff is empty and stop.
 | anything else | `pr-light-check` |
 
 `.ts`, `.sh` and `.py` are the only signs of depth. A change to the `Makefile`, `tsconfig.json`,
-`package.json`, a compose file or the documentation does not by itself call for a full review:
-architecture invariants, smells and bug hunting have nothing to find there, and they cost a lot.
-`.py` is executable code like the other two: the actions of the review skills
-(`scripts/review/`) drive `git` and `docker` on the host, and `pr-light-check` has no bug hunt
-and no search for the documentation a change made false. PR #559 had no `.ts` or `.sh`, passed the
-light check twice and was merged with a bug: no bug hunt ran on it.
+`package.json`, a compose file or the documentation does not by itself call for a full review.
+The architecture invariants, smells and bug hunting have nothing to find there, and they cost a
+lot.
 
-A `.ts` is a sign of depth only when it changes code. The diff has a `.ts` — read its `.ts` files in
-`gh pr diff <N>`, the file headers with the hunks: whether they change only comments, and why such a
-diff needs no bug hunt, is said in `docs/agents/review-gates.md`, the paragraph on the comments-only
-`.ts` diff. The light check does not leave such comments unread: the table turns on its gate
+`.py` is executable code like the other two. The actions of the review skills (`scripts/review/`)
+drive `git` and `docker` on the host. `pr-light-check` has neither a bug hunt nor a search for the
+documentation a change made false. PR #559 had no `.ts` or `.sh`, passed the light check twice and
+was merged with a bug: no bug hunt ran on it.
+
+A `.ts` is a sign of depth only when it changes code. When the diff has a `.ts`, read its `.ts`
+files in `gh pr diff <N>`, the file headers with the hunks. Whether they change only comments, and
+why such a diff needs no bug hunt, is in `docs/agents/review-gates.md`, the paragraph on the
+comments-only `.ts` diff. The light check still reads such comments: the table turns on its gate
 `comments`, which checks them against the code.
 
-The boundary is drawn by price, not by importance. **Both** skills check issue compliance: it
-is not a sign of depth but a condition of any verdict. A green run on a PR that touches only the
+The boundary is drawn by price, not by importance. Issue compliance is not a sign of depth but a
+condition of any verdict, so **both** skills check it. A green run on a PR that touches only the
 `Makefile` means only that nothing failed, not that what was asked for is done.
 
 ## Step 4. Gates
 
-Work out by the gate table (`docs/agents/review-gates.md`) which gates are on, and pass them to
-the skill as a list. The table and the reasoning behind its rows live there and not here,
-because routing is not its only user: the author and the reviewer apply the same table to a
-different diff to decide whether a mutation run record is stale. Here it is applied to the diff
-of step 2, and only here does it choose the gates that go to the skill.
+Work out by the gate table (`docs/agents/review-gates.md`) which gates are on for the diff of
+step 2. Pass them to the skill as a list. The table and the reasoning behind its rows live there
+and not here: routing is not the table's only user, and the top of that file says who else
+applies it.
 
 ## Step 5. Launch
 
 Call the chosen skill and pass it three things: the PR number, the list of gates that are on,
 and the flags from `$ARGUMENTS` (`--comment`, `--no-post`).
 
-The skill does the rest: the run, issue compliance, the verdict, the PR comment. Add no text of
-your own on top of its verdict and do not retell it: it has already printed its report to the
-session.
+The skill does the rest: the run, issue compliance, the verdict, the PR comment. It prints its
+report to the session itself. Add no text of your own on top of its verdict, and do not retell it.
