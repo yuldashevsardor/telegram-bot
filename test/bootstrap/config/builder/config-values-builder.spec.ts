@@ -167,7 +167,7 @@ describe("ConfigValuesBuilder", () => {
     });
 
     // The message names every bound of a variable, so a single value below the minimum is enough to
-    // check its whole range; that the bounds themselves pass is checked by config-parser.spec.ts.
+    // check its whole range. That the bounds themselves pass is checked by config-parser.spec.ts.
     const bounds: Array<{ name: string; below: string; range: string }> = [
         { name: "LIMIT_COMMON_NUMBER", below: "0", range: "at least 1" },
         { name: "LIMIT_COMMON_INTERVAL", below: "0", range: "at least 1" },

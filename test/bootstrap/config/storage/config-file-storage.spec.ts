@@ -8,11 +8,11 @@ import type { ConfigStorage } from "app/bootstrap/config/storage/config-storage"
 import type { RawConfig } from "app/bootstrap/config/container/config-container.types";
 import { change, replace } from "test/bootstrap/config/storage/config-file-storage.helper";
 
-// The polling interval in the spec is tens of milliseconds: the real one (2000) would stretch the
-// run into minutes, while single digits would make the "there was no signal" checks meaningless:
-// their windows are set by the interval (`sleep(INTERVAL * 4)` and `sleep(INTERVAL * 6)`) and would
-// come down to a few milliseconds. No margin is left for a poll to land in such a window, and a
-// check that passed would no longer mean that a poll was in it.
+// The polling interval in the spec is tens of milliseconds. The real one (2000) would stretch the
+// run into minutes. Single digits would make the "there was no signal" checks meaningless: their
+// windows are set by the interval (`sleep(INTERVAL * 4)` and `sleep(INTERVAL * 6)`) and would come
+// down to a few milliseconds. Such a window leaves no margin for a poll to land in it, and a check
+// that passed would no longer mean that a poll was in it.
 const INTERVAL = 25;
 
 function base(raw: RawConfig): ConfigStorage {
@@ -23,13 +23,14 @@ function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Waits for a number of signals rather than a predicate over it: the counter of signals only grows,
-// so an overshoot makes strict equality false forever, and the wait ends on the same deadline as a
-// shortfall. A message about a signal that never happened would then blame the watcher for a loss,
-// although there were more signals than expected, and the search would go the wrong way. Hence the
-// comparison of numbers: both the text and the actual and the expected printed next to it are true
-// in either direction. The text says nothing about time: an overshoot does not wait for the deadline
-// — the counter will not win it back, and the diagnosis is ready at once.
+// Waits for a number of signals and compares numbers rather than checking a predicate over them.
+// The counter of signals only grows, so after an overshoot strict equality stays false forever. A
+// predicate would then wait out the same deadline as on a shortfall. Its message about a signal
+// that never happened would blame the watcher for a loss, although there were more signals than
+// expected, and the search would go the wrong way. The comparison of numbers keeps both the text
+// and the actual and expected values printed next to it true in either direction. The text says
+// nothing about time, because an overshoot does not wait for the deadline. The counter will not
+// win it back, so the diagnosis is ready at once.
 async function waitForSignals(signals: () => number, expected: number, timeout = 1000): Promise<void> {
     const deadline = Date.now() + timeout;
     let actual = signals();
@@ -85,10 +86,10 @@ describe("ConfigFileStorage", () => {
         expect(raw["SHARED"]).to.equal("base");
     });
 
-    // A blank variable of the base source is "not set", not "set to blank": half of the variables in
-    // .env are declared blank, and were they to override the file, changing them on the fly would be
-    // impossible. dotenv keeps quoted spaces (unquoted ones it trims itself), and ConfigParser treats
-    // them as blank anyway.
+    // A blank variable of the base source is "not set", not "set to blank". Half of the variables in
+    // .env are declared blank, and were they to override the file, they could not be changed on the
+    // fly. Spaces count as blank too. dotenv keeps quoted spaces (unquoted ones it trims itself), and
+    // ConfigParser treats them as blank anyway.
     it("lets the file value through for a key the base source leaves blank", async () => {
         await fs.writeFile(filePath, "BLANK=file\nPADDED=file\nMISSING=file\n");
 
@@ -144,10 +145,10 @@ describe("ConfigFileStorage", () => {
         await replace(filePath, "A=1\n");
         await waitForSignals(() => signals, 1);
 
-        // The same length: the change is visible by the modification time, not by the size. The size
-        // is checked after the write, because the safeguard in change() is "not shorter": a literal
-        // lengthened during a later edit would pass it silently, slipping over to a check by size and
-        // leaving this line a lie.
+        // The same length, so the change is visible by the modification time, not by the size. The
+        // size is checked after the write, because the safeguard in change() is only "not shorter". A
+        // literal lengthened during a later edit would pass it silently. The spec would slip over to
+        // a check by size, and this comment would become a lie.
         await change(filePath, "A=2\n");
         expect((await fs.stat(filePath)).size).to.equal(Buffer.byteLength("A=1\n"));
         await waitForSignals(() => signals, 2);
@@ -185,13 +186,16 @@ describe("ConfigFileStorage", () => {
         expect((await watchable.load())["A"]).to.equal("3");
     });
 
-    // An edit that kept the modification time (an archiver, rsync --times) is visible by the size:
-    // otherwise such a file would stay unread until the next ordinary edit. The time is set
-    // explicitly for both states of the file: a natural modification time comes with nanoseconds,
-    // while one put back through Date is rounded to milliseconds, and the comparison of times would
-    // tell them apart on its own. The interval is a second on purpose: the write and the restoring of
-    // the time have to land in one poll, otherwise a poll between them would see the new time and the
-    // check would be about something else.
+    // An edit that kept the modification time (an archiver, rsync --times) is visible by the size.
+    // Otherwise such a file would stay unread until the next ordinary edit.
+    //
+    // The time is set explicitly for both states of the file. A natural modification time comes with
+    // nanoseconds, while one put back through Date is rounded to milliseconds, so the comparison of
+    // times would tell them apart on its own.
+    //
+    // The interval is a second on purpose: the write and the restoring of the time have to land in
+    // one poll. A poll between them would see the new time, and the check would be about something
+    // else.
     it("reports a change that kept the modification time", async function () {
         this.timeout(6000);
 
@@ -214,8 +218,8 @@ describe("ConfigFileStorage", () => {
         expect((await watchable.load())["A"]).to.equal("1234567890");
     });
 
-    // Watching that was removed is started again: otherwise there would be nothing to switch it off
-    // for a while and bring it back with.
+    // Watching that was removed can be started again. Otherwise it could not be switched off for a
+    // while and brought back.
     it("watches again after unwatch()", async () => {
         await fs.writeFile(filePath, "A=1\n");
 
@@ -260,8 +264,9 @@ describe("ConfigFileStorage", () => {
         expect(signals).to.equal(0);
     });
 
-    // A second watch() on top of the first would start a second poll of the same path, while
-    // unwatch() would remove both at once: the listener would silently stop receiving signals.
+    // A second watch() on top of the first would add a second listener to the poll of the same path,
+    // and every change would give two signals. unwatch() would then remove only the second listener:
+    // the first one would go on polling and signalling after the stop.
     it("keeps a single watch when watch() is called twice", async () => {
         await fs.writeFile(filePath, "A=1\n");
 
@@ -284,9 +289,8 @@ describe("ConfigFileStorage", () => {
     });
 
     // An unwatch() without a watch() is the ordinary shutdown path of an application that never got
-    // as far as watching. The source has no listener of its own then, and it is not entitled to
-    // remove other people's from the path: unwatchFile without a listener removes everyone watching
-    // it.
+    // as far as watching. The source has no listener of its own then. It is not entitled to remove
+    // other people's from the path, and unwatchFile without a listener removes everyone watching it.
     it("does nothing on unwatch() without watch()", async () => {
         await fs.writeFile(filePath, "A=1\n");
 
