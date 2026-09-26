@@ -77,8 +77,8 @@ export class PinoLogger extends AbstractLogger {
         this.pino[pinoLevelNames[level]]({
             ...this.requestContext.getValues(),
             message: message,
-            // Since 13.x serialize-error wraps any non-Error value into NonError, so a call
-            // without a payload would put "Non-error value: undefined" into every such record.
+            // Since 13.x serialize-error wraps any non-Error value into NonError. Every call
+            // without a payload would then put "Non-error value: undefined" into its record.
             payload: payload === undefined ? undefined : serializeError(payload),
         });
     }
