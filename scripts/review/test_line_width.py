@@ -171,8 +171,15 @@ class MainTest(unittest.TestCase):
         self.root = os.path.realpath(tmp.name)
         self.git("init", "-q")
         # A user config that changes the shape of the patch; the action must not depend on it.
-        for key, value in (("diff.noprefix", "true"), ("color.diff", "always")):
+        for key, value in (
+            ("diff.noprefix", "true"),
+            ("color.diff", "always"),
+            ("diff.interHunkContext", "3"),
+            ("diff.upper.textconv", "tr a-z A-Z"),
+        ):
             self.git("config", key, value)
+        os.makedirs(os.path.join(self.root, ".git", "info"), exist_ok=True)
+        self.write(os.path.join(".git", "info", "attributes"), "*.md diff=upper\n")
         self.write("old.md", LONG + "\n")
         self.write("файл.md", "text\n")
         self.write("moved.md", "text\n" + LONG + "\n")
@@ -219,6 +226,15 @@ class MainTest(unittest.TestCase):
             out, "new.py:2: 101\nold.md:3: 101\nscript.sh:2: 101\nфайл.md:2: 101\n"
         )
         self.assertIn("4 added line(s) past 100 columns", err)
+
+    def test_nearby_hunks_keep_their_numbers(self):
+        self.write("near.md", "a\nb\nc\nd\ne\n")
+        self.git("add", "near.md")
+        self.git("commit", "-q", "-m", "near")
+        self.git("update-ref", "refs/remotes/origin/main", "HEAD")
+        self.write("near.md", "A\nb\nc\n" + LONG + "\ne\n")
+        code, out, _ = self.run_main()
+        self.assertEqual((code, out), (1, "near.md:4: 101\n"))
 
     def test_a_rename_counts_only_what_it_changed(self):
         self.git("mv", "moved.md", "renamed.md")

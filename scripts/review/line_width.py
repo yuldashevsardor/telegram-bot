@@ -149,8 +149,11 @@ def main() -> int:
             raise GitError("origin/main is not there: git fetch origin") from None
         base = git(["merge-base", "origin/main", "HEAD"], root).strip()
         patch = git(
-            ["diff", "-U0", "--no-color", "--no-ext-diff", "--find-renames", "--diff-filter=d",
-             "--src-prefix=a/", "--dst-prefix=b/", base, "--"],
+            # Every flag that shapes the patch is given: a user config sets each of them
+            # otherwise, and diff.interHunkContext fuses hunks with context lines even under -U0.
+            ["diff", "-U0", "--inter-hunk-context=0", "--no-color", "--no-ext-diff",
+             "--no-textconv", "--find-renames", "--diff-filter=d", "--src-prefix=a/",
+             "--dst-prefix=b/", base, "--"],
             root,
         )
         untracked = git(["ls-files", "--others", "--exclude-standard", "-z"], root)
