@@ -114,13 +114,15 @@ search.
 Comments only is read as for the `mutation-full` row: by the content of the diff, not by lines
 that look like comments. `//` inside a string or a template literal is not a comment. A hunk
 that changes a comment and code on the same line is code. A tool directive is code too, and
-`.ts` has more of them than the run's tools do. A directive is a comment that opens with `///`,
-with `@` or with the name of a tool (Stryker, eslint, istanbul, prettier):
-`// Stryker disable …`, `// Stryker restore …`, `// eslint-disable…`, `// @ts-expect-error`,
-`// @ts-ignore`, `/* istanbul ignore … */`, `// prettier-ignore`, `/// <reference … />`. Each
-is read by a gate, so a diff that touches one gets the full review, and so does a comment whose
-line break moves code off the line a directive covers (the paragraph on `mutation` below).
-`scripts/review/mutation_area.py` holds the same rule as code (`DIRECTIVE`), and its specs check
+`.ts` has more of them than the run's tools do: `// Stryker disable …`, `// Stryker restore …`,
+`// eslint-disable…`, `// @ts-expect-error`, `// @ts-ignore`, `/* istanbul ignore … */`,
+`// prettier-ignore`, `/// <reference … />`. A directive is a comment any line of which opens
+with `///`, with `@` or with the name of a tool (Stryker, eslint, istanbul, prettier) past the
+comment marks: TypeScript reads `@ts-ignore` on the last line of a block comment too. Each is read
+by a gate, so a diff that touches one gets the full review. So does a comment that changes which
+line a directive covers: its line break moves code off that line, or a comment between the
+directive and its code changes (the paragraph on `mutation` below).
+`scripts/review/mutation_area.py` holds the same rule as code (`is_directive`), and its specs check
 it against this list.
 
 The gates that run the code stay on by name. `build`, `typecheck`, `lint`, `format-check` and

@@ -454,6 +454,11 @@ class MutationAreaTest(unittest.TestCase):
             ([[3, mark, [3, 4, 5]]], [[3, mark, [3]]]),
             # A block comment broken over the lines between the directive and its code.
             ([[3, "// @ts-ignore", [3, 4], 1]], [[3, "// @ts-ignore", [3, 4], 2]]),
+            # A block comment between them turned into a line comment.
+            ([[3, "// @ts-ignore", [3, 4], 2, ["/* a */"]]],
+             [[3, "// @ts-ignore", [3, 4], 2, ["// a"]]]),
+            # TypeScript reads the directive on the last line of a block comment.
+            ([[3, "/* the cast\n   note */", [3]]], [[3, "/* the cast\n   @ts-ignore */", [3]]]),
             ([[3, "/* istanbul ignore next */", [3]]], []),
             ([[3, "/* eslint-disable no-console */", [3]]], []),
             ([[3, "// prettier-ignore", [3]]], []),
@@ -588,16 +593,16 @@ class DirectiveTest(unittest.TestCase):
 
         self.assertGreaterEqual(len(named), 6, sentence)
         for code in named:
-            self.assertTrue(mutation_area.DIRECTIVE.match(code), code)
+            self.assertTrue(mutation_area.is_directive(code), code)
 
     def test_a_comment_for_a_person_is_not_one(self):
         for comment in (
             "// Reads a value: the eslint rule forbids a default here.",
             "/* why it waits */",
-            "/**\n * Packs a font.\n * @param font the source\n */",
+            "/**\n * Packs a font.\n * The source is read once.\n */",
             "// see @ts-expect-error below",
         ):
-            self.assertIsNone(mutation_area.DIRECTIVE.match(comment), comment)
+            self.assertFalse(mutation_area.is_directive(comment), comment)
 
 
 class MainTest(unittest.TestCase):

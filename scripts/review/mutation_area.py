@@ -50,9 +50,9 @@ in place with its mode kept (added, deleted, renamed, a mode changed) is code.
 mutation-area-comments.mjs compares them in the application container by the syntax tree of the
 TypeScript parser, and its header says why not by the tokens of the text. Which of the comments is
 a directive is decided here (DIRECTIVE). A directive added, removed, reworded, moved to another
-token, whose line got a token more or less, or whose distance in lines to that token changed keeps
-the file in the area: a directive acts by line, and a comment with a line break can move code off
-that line.
+token, whose line got a token more or less, whose distance in lines to that token changed, or with a
+changed comment between it and that token keeps the file in the area: a directive acts by line, and
+a comment can move code off that line or change which line the directive finds.
 
 The area goes to stdout one path per line; why a file was left out goes to stderr, so an empty area
 still says why it is empty. A failed `git`, `gh` or container run is an error with a non-zero exit
@@ -79,9 +79,11 @@ CONFIGS_SCRIPT = os.path.join(
 COMMENTS_SCRIPT = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "mutation-area-comments.mjs"
 )
-# A comment a tool reads rather than a person: it opens with `///`, with `@` or with the name of a
-# tool (docs/agents/review-gates.md, the paragraph on the comments-only `.ts` diff).
-DIRECTIVE = re.compile(r"///|(?://|/\*+)[\s*]*(?:@|(?:stryker|eslint|istanbul|prettier)\b)", re.I)
+# A line of a comment a tool reads rather than a person: it opens with `///`, with `@` or with the
+# name of a tool once the comment marks are set aside (docs/agents/review-gates.md, the paragraph on
+# the comments-only `.ts` diff). Every line is tried: TypeScript reads `@ts-ignore` on the last line
+# of a block comment.
+DIRECTIVE = re.compile(r"\s*(?:///|[/*\s]*(?:@|(?:stryker|eslint|istanbul|prettier)\b))", re.I)
 
 
 class Stop(Exception):
@@ -161,13 +163,17 @@ def comments_only_files(
         raise Stop("the application container compared no comments — {}".format(failure))
 
 
+def is_directive(comment: str) -> bool:
+    return any(DIRECTIVE.match(line) for line in comment.splitlines())
+
+
 def comments_only(answer: dict) -> bool:
     """Whether the code is the same and every directive stands, unchanged, over the same tokens."""
     if answer["same"] is not True:
         return False
 
     def directives(comments: List[List[object]]) -> List[List[object]]:
-        return [comment for comment in comments if DIRECTIVE.match(str(comment[1]))]
+        return [comment for comment in comments if is_directive(str(comment[1]))]
 
     return directives(answer["old"]) == directives(answer["new"])
 
