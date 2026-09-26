@@ -154,7 +154,8 @@ test/                       mocha specs; a spec path repeats the source path, th
                             make mutation (testing.md)
 migrations/                 migrations, common/ holds the shared shorthands and the stub (storage.md)
 scripts/                    host scripts of the make targets; claude-worktree-guard is a hook (testing.md)
-  review/                   the Python actions of the review skills, each with its test_*.py next to it (testing.md)
+  review/                   the Python actions of the review skills and the width check of make check,
+                            each with its test_*.py next to it (testing.md)
     records/                mutation run records as published in PRs, read by test_mutation_record.py
 ```
 

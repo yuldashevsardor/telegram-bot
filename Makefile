@@ -156,10 +156,13 @@ mutation: ## Mutation testing, report and run record in ./reports: make mutation
 		TSX_TSCONFIG_PATH=./tsconfig.check.json $(if $(FILES),MUTATE='$(FILES)') \
 		node --require tsx/cjs test/mutation-record.ts
 
-# A quick pass before a PR in one output: types, eslint, prettier, the tests with the coverage
-# threshold. A green check does not yet mean a green review: review runs the same checks gate by
-# gate and adds others, rebuild, build and mutation among them (docs/agents/review-gates.md).
+# A quick pass before a PR in one output: the width of the added lines of prose and host scripts,
+# then types, eslint, prettier, the tests with the coverage threshold. The width is checked on the
+# host (scripts/review/line_width.py): it needs git, and .git is not mounted into the container. A
+# green check does not yet mean a green review: review runs the container checks gate by gate and
+# adds others, rebuild, build and mutation among them (docs/agents/review-gates.md).
 check: ## Every check in a row, in one command
+	python3 scripts/review/line_width.py
 	@mkdir -p coverage
 	$(DC_APP_RUN) npm run check
 
@@ -225,6 +228,7 @@ help: ## Show this list
 
 # The actions of the review skills are Python on the host (docs/architecture/testing.md): they drive
 # docker and git from outside the containers, and their specs replace both, so they take seconds.
+# The width check of check lies with them, and its specs run git in a temporary repository.
 review-test: ## Run the specs of the review actions (Python on the host, no Docker)
 	cd scripts/review && python3 -m unittest discover -p 'test_*.py'
 
