@@ -122,8 +122,9 @@ The `mutation:` line needs reading in three cases:
 Refusing the record is not a review finding and does not affect the verdict: a process error must
 not cost a round. The `mutation:` line of the verdict (step 5, `standalone.md`) tells where the run
 came from and why the record was not accepted. It says "accepted record" and gives the link rather
-than naming the author. The reviewer's record of the previous round lies in the same thread and is accepted on a par
-with the author's, and the author's comment cannot be told from it: the account is the same.
+than naming the author. The reviewer's record of the previous round lies in the same thread and is
+accepted on a par with the author's, and the author's comment cannot be told from it: the account is
+the same.
 
 ## Step 2. The checks the run leaves to you
 

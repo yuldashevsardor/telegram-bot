@@ -131,7 +131,8 @@ comes out only if `readFile` itself lands in the same window. The next poll sees
 and rebuilds the values again, so they disagree with the file for no longer than the polling
 interval. The first subscriber that applies the value through `onChange()` is the one that will
 notice the disagreement ([invariant](./invariants.md)). The specs avoid the spurious signal: they
-edit a watched file in a single step (`test/bootstrap/config/storage/config-file-storage.helper.ts`).
+edit a watched file in a single step
+(`test/bootstrap/config/storage/config-file-storage.helper.ts`).
 
 The watched file is `.runtime.env` in the project root; `CONFIG_FILE_PATH` changes the path.
 `.runtime.env` is in `.gitignore` and `.dockerignore`, like `.env`. What is kept in it is described
