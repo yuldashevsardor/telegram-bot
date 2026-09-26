@@ -3,7 +3,6 @@ module.exports = {
     plugins: ["@typescript-eslint", "prettier", "eslint-plugin-import"],
     extends: ["eslint:recommended", "prettier", "plugin:@typescript-eslint/recommended"],
     rules: {
-        // Overwrite rules specified from the extended configs e.g.
         "@typescript-eslint/explicit-function-return-type": "warn",
         "@typescript-eslint/explicit-module-boundary-types": "warn",
         "@typescript-eslint/no-empty-interface": "off",
@@ -14,9 +13,9 @@ module.exports = {
         "@typescript-eslint/no-empty-function": "off",
         // A separate `import type` line rather than an inline `import { type X }`: the import
         // line shows whether the module is needed at runtime. consistent-type-imports catches a
-        // type brought in as a value but counts an inline `type` as a legitimate mark — the form
-        // is held by consistent-type-specifier-style. It also covers an import of inline types
-        // alone, so @typescript-eslint/no-import-type-side-effects is not on: it would be a
+        // type brought in as a value but accepts an inline `type` as a mark, so
+        // consistent-type-specifier-style holds the form. That rule also covers an import of
+        // inline types alone, so @typescript-eslint/no-import-type-side-effects is off as a
         // duplicate.
         "@typescript-eslint/consistent-type-imports": ["error", { fixStyle: "separate-type-imports" }],
         "import/consistent-type-specifier-style": ["error", "prefer-top-level"],
@@ -60,9 +59,9 @@ module.exports = {
             },
         },
         {
-            // The migrations live outside src, the app/* alias does not lead there, and they are
-            // loaded not by the build but by node-pg-migrate — the shared shorthands are imported
-            // by a relative path.
+            // The migrations live outside src, where the app/* alias does not lead, and
+            // node-pg-migrate loads them, not the build. So they import the shared shorthands by a
+            // relative path.
             files: ["migrations/**/*.ts"],
             rules: {
                 "no-restricted-imports": "off",
