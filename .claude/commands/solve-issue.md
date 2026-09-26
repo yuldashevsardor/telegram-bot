@@ -38,6 +38,10 @@ It is unclear what exactly is asked, or there is a fork the owner decides — as
 AskUserQuestion and wait for the answer. A guessed answer turns into a review round over an unmet
 criterion.
 
+The issue turns out bigger than one PR a review can take in — the same stop: propose a split into
+stages, each a PR of its own, and wait. The sign is parts that could each be merged alone. Delivered
+whole, such a PR can be closed as unmaintainable, and the work is redone in stages anyway (PR #551).
+
 Then the "Workflow" of `CLAUDE.md`, with no exceptions:
 
 1. Choose the branch prefix before the first push: renaming the branch of an open PR closes it.
