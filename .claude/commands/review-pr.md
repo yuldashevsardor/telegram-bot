@@ -63,5 +63,6 @@ applies it.
 Call the chosen skill and pass it three things: the PR number, the list of gates that are on,
 and the flags from `$ARGUMENTS` (`--comment`, `--no-post`).
 
-The skill does the rest: the run, issue compliance, the verdict, the PR comment. It prints its
-report to the session itself. Add no text of your own on top of its verdict, and do not retell it.
+The skill does the rest: the run, issue compliance, the verdict, the PR comment. Add no text of
+your own on top of its verdict, and do not retell it: the skill prints its report to the session
+itself.
