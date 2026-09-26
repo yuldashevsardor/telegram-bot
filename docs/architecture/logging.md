@@ -2,11 +2,8 @@
 
 ## The port and the adapters
 
-The logger lives entirely in `platform/logger/`:
-
-- the port is `logger.ts`;
-- the levels `Level` and their weights `LevelSeverity` are in `logger.types.ts`;
-- the adapters sit next to them.
+The logger lives entirely in `platform/logger/`. The port is `logger.ts`, the levels `Level` and
+their weights `LevelSeverity` are in `logger.types.ts`, and the adapters sit next to them.
 
 `ApplicationContext` ([`application.md`](./application.md)) picks the adapter at start by
 `isProduction` from the config ([`config.md`](./config.md)): `PinoLogger` in production,
@@ -105,11 +102,9 @@ A caught error goes into the payload only under the `cause` key:
 factories keep the same rule: `RuntimeError.byError()`, `ReadFailed.byPath()`,
 `ProcessFailed.byCommand()`.
 
-The payload key is part of the record's contract, not a detail of the call:
-
-- errors are searched for in the logs by it;
-- a future ECS mapping ([#128](https://github.com/yuldashevsardor/telegram-bot/issues/128)) will
-  parse them by it.
+The payload key is part of the record's contract, not a detail of the call. Errors are searched
+for in the logs by it, and a future ECS mapping
+([#128](https://github.com/yuldashevsardor/telegram-bot/issues/128)) will parse them by it.
 
 So a second key such as `error` would split that parsing in two silently, while the record itself
 still looks whole. The type of the caught value does not change the key: neither the factories nor
