@@ -46,7 +46,18 @@ Then the "Workflow" of `CLAUDE.md`, with no exceptions:
 
 1. Choose the branch prefix before the first push: renaming the branch of an open PR closes it.
 2. The worktree `<main>-<task>` next to the main worktree, where `<main>` is the name of its
-   directory, from `origin/main`; `make worktree-init` in it.
+   directory, from `origin/main`; `make worktree-init` in it. Right before `git worktree add`,
+   look for a neighbour who took the same issue:
+
+   ```bash
+   { git worktree list --porcelain | grep -E '^(worktree|branch) '; git ls-remote --heads origin | cut -f2; } | grep -E '[^0-9]<N>([^0-9]|$)'
+   ```
+
+   A printed line → do not create the worktree: stop and ask the owner. A session that took
+   the issue minutes ago has no PR yet, so step 1 does not see it: its only traces are a local
+   worktree and branch, and on GitHub not even the branch until its first push. The check runs
+   here and not only in step 1 because a neighbour can claim the issue in between, while the
+   owner answers a question. It narrows the window and does not close it.
 3. Edits, `make check`, `git status -sb`, commit, mutation run, push.
 4. A PR into `main` with the issue link; how to write it is in `docs/agents/issue-tracker.md`.
    Without the link the review gives BLOCKED. Right after the PR, post the mutation run record in
