@@ -81,7 +81,7 @@ def compared(answers):
 
 
 CONFIG_VALUE = "src/shared/config-value.ts"
-REWORDED = ([[0, "// Reads a value."]], [[0, "// Reads a config value."]])
+REWORDED = ([[0, "// Reads a value.", [0, 1]]], [[0, "// Reads a config value.", [0, 1]]])
 
 
 # The tree of a PR, other than the tree the action is called from.
@@ -444,17 +444,19 @@ class MutationAreaTest(unittest.TestCase):
         self.assertNotIn("grep", run.names())
 
     def test_a_changed_or_moved_directive_keeps_the_file_in_the_area(self):
+        mark = "// Stryker disable next-line all: why"
         for old, new in (
-            ([[3, "// Stryker disable next-line all: why"]],
-             [[3, "// Stryker disable next-line all: another why"]]),
-            ([[3, "// Stryker disable next-line all: why"]], []),
-            ([], [[9, "// Stryker restore all"]]),
-            ([[3, "// @ts-expect-error"]], [[7, "// @ts-expect-error"]]),
-            ([[3, "/* istanbul ignore next */"]], []),
-            ([[3, "/* eslint-disable no-console */"]], []),
-            ([[3, "// prettier-ignore"]], []),
-            ([[0, '/// <reference types="node" />']], []),
-            ([[3, "/**\n * @deprecated use another\n */"]], []),
+            ([[3, mark, [3, 4]]], [[3, "// Stryker disable next-line all: another why", [3, 4]]]),
+            ([[3, mark, [3, 4]]], []),
+            ([], [[9, "// Stryker restore all", [9]]]),
+            ([[3, "// @ts-expect-error", [3]]], [[7, "// @ts-expect-error", [7]]]),
+            # A comment with a line break moved the token 4 off the line of the mark.
+            ([[3, mark, [3, 4, 5]]], [[3, mark, [3]]]),
+            ([[3, "/* istanbul ignore next */", [3]]], []),
+            ([[3, "/* eslint-disable no-console */", [3]]], []),
+            ([[3, "// prettier-ignore", [3]]], []),
+            ([[0, '/// <reference types="node" />', [0]]], []),
+            ([[3, "/**\n * @deprecated use another\n */", [3]]], []),
         ):
             run = FakeRun(
                 [CONFIG_VALUE],
@@ -465,8 +467,8 @@ class MutationAreaTest(unittest.TestCase):
 
             self.assertEqual(self.area(run), (0, [CONFIG_VALUE], []), (old, new))
 
-    def test_a_directive_that_stands_unchanged_does_not_keep_the_file(self):
-        mark = [5, "// Stryker disable next-line all: why"]
+    def test_a_directive_that_stands_unchanged_over_the_same_tokens_does_not_keep_the_file(self):
+        mark = [5, "// Stryker disable next-line all: why", [5, 6]]
         run = FakeRun(
             [CONFIG_VALUE],
             raw=(0, raw((CONFIG_VALUE, "M"))),

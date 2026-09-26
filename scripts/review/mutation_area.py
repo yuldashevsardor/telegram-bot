@@ -42,13 +42,16 @@ Comments only is the rule of docs/agents/review-gates.md, the paragraph on the c
 diff, applied here file by file: the table decides whether the gate is on, and the action which
 files of the diff give the area. Only a tool directive changes the status of a mutant: the
 `// Stryker disable` mark that silences a survivor, or a `@ts-` comment of a source or a spec, by
-which the type checker decides who gets `CompileError`. A reworded comment in a helper would
-otherwise mutate the mirrors of every spec importing it. The two versions are the blobs of `git diff --raw origin/main...HEAD` in the tree, the same
-range the author's candidates come from; a file this diff does not show as modified in place with
-its mode kept (added, deleted, renamed, a mode changed) is code. mutation-area-comments.mjs compares
-them in the application container by the syntax tree of the TypeScript parser, and its header says
-why not by the tokens of the text. Which of the comments is a directive is decided here (DIRECTIVE):
-a directive added, removed, reworded or moved to another token keeps the file in the area.
+which the type checker decides who gets `CompileError`; and a comment changes it by moving code
+off the line a directive covers. A reworded comment in a helper would
+otherwise mutate the mirrors of every spec importing it. The two versions are the blobs of
+`git diff --raw origin/main...HEAD` in the tree, the same range the author's candidates come from;
+a file this diff does not show as modified in place with its mode kept (added, deleted, renamed, a
+mode changed) is code. mutation-area-comments.mjs compares them in the application container by
+the syntax tree of the TypeScript parser, and its header says why not by the tokens of the text.
+Which of the comments is a directive is decided here (DIRECTIVE). A directive added, removed,
+reworded, moved to another token, or whose line got a token more or less keeps the file in the
+area: a directive acts by line, and a comment with a line break can move code off that line.
 
 The area goes to stdout one path per line; why a file was left out goes to stderr, so an empty area
 still says why it is empty. A failed `git`, `gh` or container run is an error with a non-zero exit
@@ -158,12 +161,12 @@ def comments_only_files(
 
 
 def comments_only(answer: dict) -> bool:
-    """Whether the code is the same and every directive stands, unchanged, before the same token."""
+    """Whether the code is the same and every directive stands, unchanged, over the same tokens."""
     if answer["same"] is not True:
         return False
 
     def directives(comments: List[List[object]]) -> List[List[object]]:
-        return [[anchor, text] for anchor, text in comments if DIRECTIVE.match(str(text))]
+        return [comment for comment in comments if DIRECTIVE.match(str(comment[1]))]
 
     return directives(answer["old"]) == directives(answer["new"])
 

@@ -8,8 +8,8 @@
 //
 // The arguments are the changed .ts paths that change more than comments. The spec glob is
 // matched against them as well as expanded over the tree: a deleted spec exists nowhere, and
-// deleting a spec is the strongest way to weaken it. MUTATE is dropped because the config turns it into positive globs of `mutate`,
-// while only the `!` entries are wanted.
+// deleting a spec is the strongest way to weaken it. MUTATE is dropped because the config turns it
+// into positive globs of `mutate`, while only the `!` entries are wanted.
 import { globSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";

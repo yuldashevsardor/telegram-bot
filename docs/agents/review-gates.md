@@ -118,7 +118,8 @@ that changes a comment and code on the same line is code. A tool directive is co
 with `@` or with the name of a tool (Stryker, eslint, istanbul, prettier):
 `// Stryker disable …`, `// Stryker restore …`, `// eslint-disable…`, `// @ts-expect-error`,
 `// @ts-ignore`, `/* istanbul ignore … */`, `// prettier-ignore`, `/// <reference … />`. Each
-is read by a gate, so a diff that touches one gets the full review.
+is read by a gate, so a diff that touches one gets the full review, and so does a comment whose
+line break moves code off the line a directive covers (the paragraph on `mutation` below).
 `scripts/review/mutation_area.py` holds the same rule as code (`DIRECTIVE`), and its specs check
 it against this list.
 
@@ -133,11 +134,15 @@ it, so a reworded comment in a shared helper mutates a sizeable part of `src/`. 
 directive changes the status of a mutant: the mark that silences a survivor
 (`docs/architecture/testing.md`, "Working through survivors"), which acts only in a mutated file,
 and the `@ts-` comments of a source or a spec, by which the type checker decides who gets
-`CompileError` ("The type checker" there). The price is paid again at every review fix that
-rewords a comment: without the exemption it makes the run record stale (below, "Changes that
-affect the mutation run"), and the author runs again. The same rule goes on inside the gate, file
-by file: when another `.ts` of the PR turns `mutation` on, a file whose own diff changes only
-comments gives no area. That part is `make mutation-area`'s, since the area is assembled there.
+`CompileError` ("The type checker" there). A directive acts by line, and a comment changes a
+status too when its line break moves code off the line a directive covers:
+`// Stryker disable next-line` over a `for` header no longer reaches the `<` a comment pushed onto
+the next line. Such a diff is not comments only. The price is paid again at every review fix
+that rewords a comment: without the exemption it makes the run record stale (below, "Changes
+that affect the mutation run"), and the author runs again. The same rule goes on inside the
+gate, file by file: when another `.ts` of the PR turns `mutation` on, a file whose own diff
+changes only comments gives no area. That part is `make mutation-area`'s, since the area is
+assembled there.
 
 `bug-hunt-*` and `smells` are kept apart on purpose, and their boundaries differ. Bugs are
 hunted wherever there is executable code. In `src/platform/`, `src/bootstrap/` and
