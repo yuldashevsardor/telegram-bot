@@ -48,6 +48,11 @@ The gates of the reviewer's own reading run no command and are passed over. `mak
 `origin/main` are prose in fallback.md of the skill for now: each gives a `Not run` line that names
 that file.
 
+The gates come as one argument separated by commas, whitespace or both, and all three forms run
+the same gates: the list reaches the action from `/review-pr` through two skills, each passes it on
+in whatever form it writes, and a comma read as a part of a gate's name would leave every gate
+unknown and the run empty.
+
 The flags are the review's as they came. They change nothing yet: `--no-post` cancels the
 publication of the reviewer's own mutation run record, and that run is the skill's.
 
@@ -71,6 +76,7 @@ from tree_create import review_tree_path, Stop
 from tree_remove import Run, reason
 
 PR_NUMBER = re.compile(r"[1-9][0-9]*")
+GATE_SEPARATOR = re.compile(r"[,\s]+")
 FLAGS = ("--no-post", "--comment")
 
 # The container gates in the order they run, each with its target.
@@ -616,13 +622,21 @@ def forget_make(environ: MutableMapping[str, str]) -> None:
         environ.pop(name, None)
 
 
-USAGE = 'usage: make review-run pr=<N> gates="<gates>" [flags="--no-post"]'
+USAGE = (
+    'usage: make review-run pr=<N> gates="<gates separated by commas, spaces or both>" '
+    '[flags="--no-post"]'
+)
+
+
+def split_gates(text: str) -> List[str]:
+    """The gates of the argument in their order, without repeats and empty items."""
+    return list(OrderedDict.fromkeys(gate for gate in GATE_SEPARATOR.split(text) if gate))
 
 
 def main(argv: Optional[List[str]] = None) -> int:
     # The Makefile passes all three in a fixed order, the empty ones as empty strings.
     args = sys.argv[1:] if argv is None else argv
-    if len(args) != 3 or not PR_NUMBER.fullmatch(args[0]) or not args[1].split():
+    if len(args) != 3 or not PR_NUMBER.fullmatch(args[0]) or not split_gates(args[1]):
         print(USAGE, file=sys.stderr)
         return 2
     flags = args[2].split()
@@ -632,7 +646,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     forget_make(os.environ)
     for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         signal.signal(signum, on_signal)
-    gates = list(OrderedDict.fromkeys(args[1].split()))
+    gates = split_gates(args[1])
     logs = tempfile.mkdtemp(prefix="review-run-{}-".format(args[0]))
     return review_run(args[0], gates, logs)
 

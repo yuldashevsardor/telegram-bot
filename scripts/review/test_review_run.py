@@ -801,11 +801,22 @@ class MainTest(unittest.TestCase):
             ["x", "build", ""],
             ["0", "build", ""],
             ["7", " ", ""],
+            ["7", " , ", ""],
             ["7", "build", "--fix"],
         ):
             with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
                 raise SystemExit(review_run.main(args))
             self.assertEqual(raised.exception.code, 2, args)
+
+    def test_commas_whitespace_or_both_give_the_same_gates(self):
+        for gates in ("build,typecheck", "build, typecheck", "build typecheck", "build,,typecheck"):
+            with mock.patch.object(review_run, "forget_make"), mock.patch.object(
+                review_run.signal, "signal"
+            ), mock.patch.object(review_run.tempfile, "mkdtemp", return_value="/logs"):
+                with mock.patch.object(review_run, "review_run", return_value=0) as run:
+                    self.assertEqual(review_run.main(["7", gates, ""]), 0)
+
+            run.assert_called_once_with("7", ["build", "typecheck"], "/logs")
 
 
 if __name__ == "__main__":
