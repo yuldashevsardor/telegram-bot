@@ -243,19 +243,22 @@ Then stop: it is not a new round.
 
 ## Step 7. "Can it be merged?"
 
-First a report to the owner:
+First a report to the owner, as visible text before the question. An APPROVE without findings
+needs it too: a summary left in the reasoning never reaches the owner.
 
 - the PR, the number of rounds, the last verdict;
 - the unfixed nits and questions word for word, each with its `file:line`;
 - your position on those you disagree with or can answer only in words;
 - when stopping, the reason: what exactly needs deciding.
 
-Any question to the owner after the PR is opened comes with the full links to the PR and the
-issue, in the report right above the question. That holds here, at a stop in step 6 and on a
-disagreement with a finding. The owner goes to the PR to answer and should not have to look it up
-by number.
+Any AskUserQuestion to the owner after the PR is opened carries the full links to the PR and the
+issue in its question text, not only in the report: "Can PR #<PR> be merged? PR: <PR URL> ·
+issue: <issue URL>". That holds here, at a stop in step 6 and on a disagreement with a finding.
+The owner goes to the PR to answer and should not have to look it up by number. The question is
+the one part that always reaches the owner: a report that was skipped takes its links with it.
 
-After an APPROVE — AskUserQuestion "Can PR #<PR> be merged?", worded in the session's language.
+After an APPROVE — AskUserQuestion "Can PR #<PR> be merged?" with the links, worded in the
+session's language.
 Do not merge before the answer: only the owner's answer allows a merge, a clean reviewer verdict
 does not.
 
