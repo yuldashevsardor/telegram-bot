@@ -74,8 +74,11 @@ shared by every worktree, and a reset wipes it for the neighbouring sessions too
 ## Scope
 
 The minimal change for the task. Leave neighbouring code, the architecture and problems
-found along the way alone — report the problem or file an issue. New abstractions and
-multi-area refactoring only on explicit request. Follow the project's existing decisions.
+found along the way alone — report the problem or propose an issue. An issue is filed only on
+the owner's explicit go-ahead on that issue's text. The owner's "Merge, nits into an issue"
+answer in `/solve-issue` step 7 is such a go-ahead: the step itself fixes what the issue
+carries. New abstractions and multi-area refactoring only on explicit request. Follow the
+project's existing decisions.
 
 ## Style
 
