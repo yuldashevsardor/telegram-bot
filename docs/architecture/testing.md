@@ -31,6 +31,11 @@
   `make review-test` runs their specs with `unittest`; the specs replace the calls to `docker` and
   `git`. `make check` does not run them, because it runs in the container. No linter checks them
   yet. In review they are the `python` gate (`docs/agents/review-gates.md`).
+- New host tooling with logic — branching on a result, parsing a command's output — is Python by
+  the rules of the item above, with its spec. Shell stays for thin wrappers that run commands in a
+  row and pass the arguments on. A shell script has no specs: nothing runs its logic before a merge,
+  and the `scripts` gate of the review checks only its syntax with `sh -n`. `make review-test`
+  discovers specs only in `scripts/review/`, so a tool placed elsewhere widens the target.
 - `.claude/settings.json` hooks `scripts/claude-worktree-guard.sh` to the session start and to a
   file edit. The hook rejects an edit in the main tree; edits made through the shell it does not
   see. At the start it also compares `.claude` with `origin/main` (`stale_claude` in the script,
