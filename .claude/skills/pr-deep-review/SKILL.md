@@ -360,14 +360,14 @@ Verdict rules:
   - the PR is not tied to an issue;
   - the build does not start;
   - the mutation gate is cut short by a checker crash on the retry too, or its area could not be
-    assembled (`pr-light-check`, steps 1–2);
+    assembled (`pr-light-check`, step 1 of `SKILL.md` and step 2 of `fallback.md`);
   - the diff is empty;
   - the task is worded so that its criteria cannot be checked.
 
 Reached REQUEST_CHANGES on the third run (`K >= 3` from step 1) because of a blocker or a
 should-fix — put BLOCKED instead and say explicitly that a human is needed: two rounds of fixes are
 exhausted. Red does not count here: on the third run it means a new breakage, not a round of fixes.
-Why is said in the verdict rules of `pr-light-check`.
+Why is said in the verdict rules of `pr-light-check` (`standalone.md`).
 
 ## Step 8. Posting the verdict in the PR
 
