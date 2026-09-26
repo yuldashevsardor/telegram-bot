@@ -52,7 +52,7 @@ All further commands run in the task worktree.
 
 ### The mutation run
 
-Run `make mutation files="<area>"` before the push. It has the same threshold as the review gate:
+The mutation run is `make mutation files="<area>"`. It has the same threshold as the review gate:
 without it you learn of a survived mutant only from the reviewer, at the cost of a round. The run
 is not part of `make check`: there it would go on every edit.
 
