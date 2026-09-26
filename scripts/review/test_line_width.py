@@ -236,6 +236,24 @@ class MainTest(unittest.TestCase):
         code, out, _ = self.run_main()
         self.assertEqual((code, out), (1, "near.md:4: 101\n"))
 
+    def test_a_file_that_is_not_utf8(self):
+        with open(os.path.join(self.root, "font.afm"), "wb") as file:
+            file.write(b"caf\xe9\n")
+        self.git("add", "font.afm")
+        self.write("script.sh", "echo\n" + LONG + "\n")
+        code, out, _ = self.run_main()
+        self.assertEqual((code, out), (1, "script.sh:2: 101\n"))
+
+    def test_a_lone_carriage_return_is_no_line_break(self):
+        # Read as a break, `\r-z` would use up a count of the first hunk, and the second one would
+        # be taken for its continuation.
+        self.write("script.sh", "echo\na\nb\nc\n")
+        self.git("commit", "-q", "-am", "base")
+        self.git("update-ref", "refs/remotes/origin/main", "HEAD")
+        self.write("script.sh", "echo\nx\r-z\nshort\na\nb\nc\n" + LONG + "\n")
+        code, out, _ = self.run_main()
+        self.assertEqual((code, out), (1, "script.sh:7: 101\n"))
+
     def test_a_rename_counts_only_what_it_changed(self):
         self.git("mv", "moved.md", "renamed.md")
         self.write("renamed.md", "text\n" + LONG + "\nmore\n")

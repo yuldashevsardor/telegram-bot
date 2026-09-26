@@ -45,10 +45,14 @@ class GitError(Exception):
 
 
 def git(args: List[str], root: str = ".") -> str:
-    done = subprocess.run(["git"] + args, cwd=root, capture_output=True, text=True)
+    # Bytes, not text=True: the diff holds every file of the branch, and a text file that is not
+    # UTF-8 would raise instead of failing the check; text mode would also break a lone \r into a
+    # line and throw the hunk counts off.
+    done = subprocess.run(["git"] + args, cwd=root, capture_output=True)
     if done.returncode != 0:
-        raise GitError(f"git {' '.join(args)}: {done.stderr.strip()}")
-    return done.stdout
+        stderr = done.stderr.decode("utf-8", "replace").strip()
+        raise GitError(f"git {' '.join(args)}: {stderr}")
+    return done.stdout.decode("utf-8", "replace")
 
 
 def unquote(path: str) -> str:
