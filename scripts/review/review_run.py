@@ -17,8 +17,8 @@ code under review. It runs, in this order:
    (mutation_area.py), the author's record is checked by `make mutation-record`
    (mutation_record.py), both called here. An accepted record gives the `mutation:` line; a record accepted on condition 1
    hands the reviewer the files to apply the table to; a refused record leaves the gate to the
-   reviewer's own run of the skill's prose. The new `Stryker disable` marks go to the reviewer to
-   read: whether the reason on a mark holds is prose ("Working through survivors" in
+   reviewer's own run of the skill's fallback.md. The new `Stryker disable` marks go to the
+   reviewer to read: whether the reason on a mark holds is prose ("Working through survivors" in
    docs/architecture/testing.md), not a rule.
 5. `make review-tree-remove` whatever the outcome: a red gate, a stop and an interrupt included.
    SIGTERM and SIGHUP are turned into an interrupt, and run_in_group kills the command it waits for
@@ -45,7 +45,8 @@ whole, so anything red was brought by the PR.
 
 The gates of the reviewer's own reading run no command and are passed over. `make-targets`,
 `scripts`, the reviewer's own mutation run with its repeats, and the comparison of a red gate with
-`origin/main` are the skill's prose for now: each gives a `Not run` line that names it.
+`origin/main` are prose in fallback.md of the skill for now: each gives a `Not run` line that names
+that file.
 
 The flags are the review's as they came. They change nothing yet: `--no-post` cancels the
 publication of the reviewer's own mutation run record, and that run is the skill's.
@@ -85,8 +86,8 @@ READING = ("docs", "docs-sync", "comments", "bug-hunt-high", "bug-hunt-medium", 
 BY_SKILL = ("make-targets", "scripts")
 KNOWN = [gate for gate, _ in CONTAINER] + ["python", "mutation", "mutation-full"]
 
-BY_SKILL_REASON = "by SKILL.md"
-OWN_RUN = "the own run by SKILL.md"
+BY_SKILL_REASON = "by fallback.md"
+OWN_RUN = "the own run by fallback.md"
 
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 MEANINGFUL = re.compile(r"\b(error|fail|failed|failing|fatal|cannot|denied)\b", re.IGNORECASE)
