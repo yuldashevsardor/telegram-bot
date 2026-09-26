@@ -1,8 +1,7 @@
-// The configuration is taken from ApplicationContext and not from the DI container: it exists
-// before the container, so there is no point asking the container for it. That also removes the
-// import cycle the former @ConfigValue held, going for it to the module singleton container.
+// From ApplicationContext and not from the DI container (docs/architecture/application.md, "DI").
+// That also removes the import cycle of the former @ConfigValue, which went to the module singleton
+// container for the value.
 import { ApplicationContext } from "app/bootstrap/application/context/application-context";
-// Types only: the import is erased at build time.
 import type { ConfigPath, ConfigValue } from "app/bootstrap/config/container/config-container.types";
 
 // A configuration value by its dotted path; put as the default of a constructor parameter. Why a

@@ -38,8 +38,7 @@ export class Container extends InversifyContainer {
     private alreadySetup = false;
 
     // The context is assembled before the container, so everything bound below can already count on
-    // its parts. Beyond that the context itself appears nowhere — the consumers take the parts from
-    // the container one by one.
+    // its parts.
     public async setup(): Promise<void> {
         if (this.alreadySetup) {
             return;

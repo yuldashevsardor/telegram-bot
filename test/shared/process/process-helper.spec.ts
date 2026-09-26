@@ -73,9 +73,9 @@ describe("ProcessFailed.byCommand", function () {
         // test would not tell what was caught from an argument of the command.
         const error = ProcessFailed.byCommand("/bin/sh", ["-c", "exit 3"], "SIGKILL");
 
-        // The key does not depend on the type, the depth does: RuntimeError raises only an Error into
-        // the native cause, so the string stays in payload — and the message taken is the fallback,
-        // there being nothing to take it from in the caught value.
+        // The key is the same for any type, the depth is not: RuntimeError lifts only an Error into
+        // the native cause, so the string stays in payload. The message is the fallback, because the
+        // caught value has none.
         expect(error.message).to.equal("Process /bin/sh failed.");
         expect(error.cause).to.be.undefined;
         expect(error.payload).to.deep.equal({ file: "/bin/sh", args: ["-c", "exit 3"], cause: "SIGKILL" });

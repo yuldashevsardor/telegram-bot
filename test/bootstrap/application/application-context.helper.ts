@@ -27,12 +27,11 @@ function createQuietLogger(requestContext: RequestContext): Logger {
     return logger;
 }
 
-// Fills the context whole, as create() does, but assembles the config from the given variables
-// rather than from the environment of the process. The config requires BOT_TOKEN, while the
-// environment of a run does not have to hold a real token. By default the logger writes only
-// critical: on construction TaskQueue starts intervals with an info log every 10 s, there is
-// nothing to stop them with, and under test-watch they pile up between runs and would write into
-// the output of mocha. A config that failed leaves the context empty, as in create().
+// Fills the context whole, as create() does, but builds the config from the given variables, not
+// from the environment of the process: the config requires BOT_TOKEN, and a run need not have a
+// real one. A config that failed leaves the context empty, as in create(). By default the logger
+// writes only critical: TaskQueue starts intervals with an info log every 10 s on construction,
+// nothing stops them, and under test-watch they pile up between runs in the output of mocha.
 export async function fillApplicationContext(values: RawConfig = {}, logger?: Logger): Promise<void> {
     const cc = new ConfigContainer<ConfigValues>(
         { load: async (): Promise<RawConfig> => ({ BOT_TOKEN: "test-token", ...values }) },

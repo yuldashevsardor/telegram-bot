@@ -603,11 +603,10 @@ describe("Application", function () {
             ]);
         });
 
-        // A zero deadline in .env.dist means "do not wait": neither a turn of
-        // waiting with a log nor a pause before the runner is stopped. The test catches the mutant
-        // `timeLeft < 0` only if both Date.now() in waitQueueToEmpty() landed on the same
-        // millisecond: should it change between them, the mutant goes into the warning at once as
-        // well. That is why it survives now and then, and there is no hole in the test behind it.
+        // A zero deadline in .env.dist means "do not wait": no turn of waiting with a log and no pause
+        // before the runner is stopped. The test catches the mutant `timeLeft < 0` only when both
+        // Date.now() in waitQueueToEmpty() land on the same millisecond; otherwise the mutant also
+        // goes straight into the warning. So it survives now and then, with no hole in the test.
         it("does not wait for the queue when its timeout is zero", async function () {
             configValues = { TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT: "0" };
             queueSize = (): number => 3;

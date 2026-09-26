@@ -1,16 +1,15 @@
-// The single dictionary of DI tokens. It lies in shared/ and not in bootstrap/container/: no module
-// should go to another module for the name of its own dependency — that is what used to make the
-// domain import the registries of the infrastructure.
+// The single dictionary of DI tokens. It lies in shared/ and not in bootstrap/container/, so that
+// no module goes to another for the name of its own dependency. That used to make the domain import
+// the registries of the infrastructure.
 //
-// The string inside Symbol.for is a global key of the process: the same string in different branches
-// gives one and the same symbol, and a second bind under it fails the resolve with "Ambiguous
-// match". That is why the string is the full path in the dictionary with no separators:
-// Tokens.Font.Envelope.Packer → "FontEnvelopePacker". A path is unique in the object, so the string
-// is unique too: two joined paths coincide only if one name is split into branches in two ways
-// (Bot.UserService next to Bot.User.Service). With such a rule Symbol() would add nothing: the
-// dictionary is not loaded twice in a process, and the uniqueness of the strings is already held by
-// the path. The string is checked against the path, and the strings against each other, by
-// test/shared/tokens.spec.ts.
+// The string inside Symbol.for is a global key of the process. The same string in any branch gives
+// the same symbol, and a second bind under it fails the resolve with "Ambiguous match". So the
+// string is the full path with no separators: Tokens.Font.Envelope.Packer → "FontEnvelopePacker".
+// The path is unique in the object, and two joined paths coincide only if one name is split into
+// branches in two ways (Bot.UserService next to Bot.User.Service). Symbol() would add nothing: the
+// dictionary is loaded once per process, and the path already keeps the strings unique.
+// test/shared/tokens.spec.ts checks each string against its path, and the strings against each
+// other.
 export const Tokens = {
     Bootstrap: {
         ConfigContainer: Symbol.for("BootstrapConfigContainer"),
