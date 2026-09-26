@@ -163,7 +163,7 @@ the host, where node is not always present. Without the hook the checks are left
 ## Environment variables
 
 Every variable lives in `.env` (the template is `.env.dist`), and only `BOT_TOKEN` is
-mandatory. What the application reads is the table in `docs/architecture/config.md`.
+mandatory. What each variable does and which values it takes is in the comments of `.env.dist`.
 
 - `DATABASE_HOST`/`DATABASE_PORT` from `.env` are only for connecting from the host. Inside
   the compose network the address is set by `docker-compose.app.yml`. `DATABASE_PORT` is the

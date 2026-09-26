@@ -603,7 +603,7 @@ describe("Application", function () {
             ]);
         });
 
-        // A zero deadline in docs/architecture/config.md means "do not wait": neither a turn of
+        // A zero deadline in .env.dist means "do not wait": neither a turn of
         // waiting with a log nor a pause before the runner is stopped. The test catches the mutant
         // `timeLeft < 0` only if both Date.now() in waitQueueToEmpty() landed on the same
         // millisecond: should it change between them, the mutant goes into the warning at once as

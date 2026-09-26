@@ -24,7 +24,8 @@ an outgoing call — [`outbound-queue.md`](./outbound-queue.md), loading the loc
 - [`i18n.md`](./i18n.md) — locales, Fluent bundles, command descriptions
 - [`storage.md`](./storage.md) — `Database`, migrations, the migration stub, when a storage gets
   an interface of its own
-- [`config.md`](./config.md) — `ConfigContainer` and the table of environment variables
+- [`config.md`](./config.md) — `ConfigContainer`, its sources, watching the file, change
+  subscriptions
 - [`testing.md`](./testing.md) — `mocha`, linters, coverage, gates, mutation testing
 - [`invariants.md`](./invariants.md) — the rules the compiler does not tie together: a
   violation compiles and breaks behaviour silently

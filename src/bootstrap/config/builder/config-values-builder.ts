@@ -17,8 +17,8 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
     private static readonly LIMIT_RANGE: IntegerRange = { min: 1 };
 
     // The pool deadlines are in seconds: postgres.js multiplies them by 1000 for setTimeout, so the
-    // ceiling is the longest timer delay expressed in seconds. A zero switches the timer off there,
-    // while a negative value is truthy and would close the connection after 1 ms.
+    // ceiling is the longest timer delay in seconds. A zero switches the timer off there, while a
+    // negative value is truthy and would close the connection after 1 ms.
     private static readonly DATABASE_TIMER_RANGE: IntegerRange = {
         min: 0,
         max: Math.floor(ConfigParser.MAX_TIMER_DELAY / 1000),
@@ -104,11 +104,10 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
         };
     }
 
-    // The deadlines of the bot and of the queue are spent one after another inside the overall one,
-    // so the overall one has to cover their sum. The check goes no further than that: the application
-    // does not recompute the own deadlines of all its dependencies (sql.end() inside Database.close(),
-    // say, has 5 seconds of its own) — the overall deadline is simply taken with a margin instead of
-    // being derived from them.
+    // The bot and queue deadlines are spent one after another inside the overall one, so it has to
+    // cover their sum. The check goes no further: the own deadlines of the dependencies are not
+    // summed up (sql.end() inside Database.close() has 5 seconds of its own), and the overall
+    // deadline is taken with a margin instead.
     private static checkGracefulShutdown({ bot, taskQueue, gracefulShutdown }: ConfigValues): void {
         const parts = bot.gracefulShutdown.timeout + taskQueue.gracefulShutdown.timeout;
 
