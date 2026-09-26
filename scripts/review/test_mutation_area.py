@@ -452,6 +452,8 @@ class MutationAreaTest(unittest.TestCase):
             ([[3, "// @ts-expect-error", [3]]], [[7, "// @ts-expect-error", [7]]]),
             # A comment with a line break moved the token 4 off the line of the mark.
             ([[3, mark, [3, 4, 5]]], [[3, mark, [3]]]),
+            # A block comment broken over the lines between the directive and its code.
+            ([[3, "// @ts-ignore", [3, 4], 1]], [[3, "// @ts-ignore", [3, 4], 2]]),
             ([[3, "/* istanbul ignore next */", [3]]], []),
             ([[3, "/* eslint-disable no-console */", [3]]], []),
             ([[3, "// prettier-ignore", [3]]], []),

@@ -40,18 +40,19 @@ that tree: a source the PR adds would be left out as "not in the tree".
 
 Comments only is the rule of docs/agents/review-gates.md, the paragraph on the comments-only `.ts`
 diff, applied here file by file: the table decides whether the gate is on, and the action which
-files of the diff give the area. Only a tool directive changes the status of a mutant: the
+files of the diff give the area. The status of a mutant changes only through a tool directive: the
 `// Stryker disable` mark that silences a survivor, or a `@ts-` comment of a source or a spec, by
-which the type checker decides who gets `CompileError`; and a comment changes it by moving code
-off the line a directive covers. A reworded comment in a helper would
-otherwise mutate the mirrors of every spec importing it. The two versions are the blobs of
-`git diff --raw origin/main...HEAD` in the tree, the same range the author's candidates come from;
-a file this diff does not show as modified in place with its mode kept (added, deleted, renamed, a
-mode changed) is code. mutation-area-comments.mjs compares them in the application container by
-the syntax tree of the TypeScript parser, and its header says why not by the tokens of the text.
-Which of the comments is a directive is decided here (DIRECTIVE). A directive added, removed,
-reworded, moved to another token, or whose line got a token more or less keeps the file in the
-area: a directive acts by line, and a comment with a line break can move code off that line.
+which the type checker decides who gets `CompileError`. A comment reaches it by moving code off the
+line a directive covers. A reworded comment in a helper would otherwise mutate the mirrors of every
+spec importing it. The two versions are the blobs of `git diff --raw origin/main...HEAD` in the
+tree, the same range the author's candidates come from; a file this diff does not show as modified
+in place with its mode kept (added, deleted, renamed, a mode changed) is code.
+mutation-area-comments.mjs compares them in the application container by the syntax tree of the
+TypeScript parser, and its header says why not by the tokens of the text. Which of the comments is
+a directive is decided here (DIRECTIVE). A directive added, removed, reworded, moved to another
+token, whose line got a token more or less, or whose distance in lines to that token changed keeps
+the file in the area: a directive acts by line, and a comment with a line break can move code off
+that line.
 
 The area goes to stdout one path per line; why a file was left out goes to stderr, so an empty area
 still says why it is empty. A failed `git`, `gh` or container run is an error with a non-zero exit

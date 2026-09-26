@@ -130,12 +130,12 @@ diffs were not measured.
 
 `mutation` runs code too, yet goes off, because its price is not seconds. Its area grows from the
 diff: a changed spec gives its mirror source, a changed helper the mirrors of every spec importing
-it, so a reworded comment in a shared helper mutates a sizeable part of `src/`. And only a
-directive changes the status of a mutant: the mark that silences a survivor
+it, so a reworded comment in a shared helper mutates a sizeable part of `src/`. And the status
+of a mutant changes only through a directive: the mark that silences a survivor
 (`docs/architecture/testing.md`, "Working through survivors"), which acts only in a mutated file,
 and the `@ts-` comments of a source or a spec, by which the type checker decides who gets
-`CompileError` ("The type checker" there). A directive acts by line, and a comment changes a
-status too when its line break moves code off the line a directive covers:
+`CompileError` ("The type checker" there). A directive acts by line, and a comment reaches a
+status through it when its line break moves code off the line the directive covers:
 `// Stryker disable next-line` over a `for` header no longer reaches the `<` a comment pushed onto
 the next line. Such a diff is not comments only. The price is paid again at every review fix
 that rewords a comment: without the exemption it makes the run record stale (below, "Changes

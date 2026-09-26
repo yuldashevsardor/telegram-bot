@@ -1,15 +1,17 @@
 // Compares two versions of each changed .ts for scripts/review/mutation_area.py: whether their code
 // is the same once the comments are set aside, and, when it is, the comments of each version. The
 // input is a JSON object on stdin, {path: {old, new}}; the answer is one line of JSON,
-// {path: {same, old, new}}, where old and new are [anchor, text, reach] triples: the anchor is the
-// index of the token the comment stands before, and the reach lists the tokens on the line the
-// comment starts on and on the line of its anchor. Which comment is a tool directive is decided in
-// Python.
+// {path: {same, old, new}}, where old and new are [anchor, text, reach, gap] lists: the anchor is
+// the index of the token the comment stands before, the reach lists the tokens on the line the
+// comment starts on and on the line of its anchor, and the gap is the number of lines from the end
+// of the comment to its anchor. Which comment is a tool directive is decided in Python.
 //
-// The reach is there because a directive acts by line, not by token. `// Stryker disable
-// next-line` silences the mutants on the line of the node it leads, and `// @ts-expect-error` the
-// errors on the next line of code. A comment with a line break put inside that line moves part of
-// its code out of the directive's reach, with the tokens and the anchor unchanged.
+// The reach and the gap are there because a directive acts by line, not by token. `// Stryker
+// disable next-line` silences the mutants on the line of the node it leads. A comment with a line
+// break put inside that line moves part of its code out of the directive's reach, with the tokens
+// and the anchor unchanged. `// @ts-ignore` and `// @ts-expect-error` cover the next line of code,
+// and TypeScript finds it walking up over blank and `//` lines only: a block comment broken over
+// the lines between them detaches the directive, and only the gap shows it.
 //
 // It runs in the application container, where typescript is, and reaches it as the argument of
 // `node -e`: stdin carries the file versions (mutation-area-configs.mjs says why a script cannot
@@ -79,7 +81,8 @@ function read(text) {
             const anchor = starts.findIndex((start) => start >= range.end);
             const own = [line(range.pos), lines[anchor]];
             const reach = lines.flatMap((at, index) => (own.includes(at) ? [index] : []));
-            return [anchor, text.slice(range.pos, range.end), reach];
+            const gap = lines[anchor] - line(range.end);
+            return [anchor, text.slice(range.pos, range.end), reach, gap];
         });
     const broken = source.parseDiagnostics?.length > 0;
     return { shape: JSON.stringify(shape), comments, broken };
