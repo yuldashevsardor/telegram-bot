@@ -39,9 +39,9 @@ Everything written outside it goes without a `requestId`:
 - The filters, `sequentialize()` and `session()` stand above the middleware
   ([`bot.md`](./bot.md)), so they run outside the scope. That includes the record the base
   `Filter` writes when it drops an update.
-- The `critical` about a failed update goes out that way too. `grammy.catch` → `Bot.handleError` is called not from
-  `handleUpdate` but from the sink of `@grammyjs/runner`. It runs on the already rejected promise
-  of `handleUpdate`, when the scope is closed.
+- The `critical` about a failed update goes out that way too. `grammy.catch` → `Bot.handleError`
+  is called not from `handleUpdate` but from the sink of `@grammyjs/runner`. It runs on the
+  already rejected promise of `handleUpdate`, when the scope is closed.
 - The outbound queue's `Runner` (`telegram/outbound-queue/runner/runner.ts`) runs outside any
   scope. It calls `task.callback()` from its own `setTimeout` loop, not from the update that
   enqueued the task. So the two `error` records the `Runner` itself writes about a failed API call
