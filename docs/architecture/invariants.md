@@ -21,8 +21,9 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   (upsert), but the choice between the `create` and `edit` branches becomes unreliable.
 - **Filters are registered before `sequentialize()`, `session()` and the middleware.** Below them
   `RequestLogMiddleware` touches `ctx.session` without checking the key, and
-  `FillUserToContextMiddleware` throws `UpdateWithoutFrom` without `ctx.from`. Move `HasSessionKeyFilter` lower, and an update without a session key ends in a
-  `critical` from `Bot.handleError()` instead of the filter's `warning`.
+  `FillUserToContextMiddleware` throws `UpdateWithoutFrom` without `ctx.from`. Move
+  `HasSessionKeyFilter` lower, and an update without a session key ends in a `critical` from
+  `Bot.handleError()` instead of the filter's `warning`.
 - **A filter below `session()` drops the update after the write to the database.** `session()`
   reads the row on the way in and writes it on the way out, whether `ctx.session` was touched or
   not.
