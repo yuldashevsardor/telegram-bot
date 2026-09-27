@@ -2,8 +2,9 @@ import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import { expect } from "chai";
 import { InputFile } from "grammy";
-import { deserialize, QueuedFile, serialize } from "app/telegram/outbox/payload-codec/payload-codec";
+import { deserialize, serialize } from "app/telegram/outbox/payload-codec/payload-codec";
 import { InvalidFileMarker, ReservedFileKey, UnsupportedInputFile } from "app/telegram/outbox/payload-codec/payload-codec.errors";
+import { PathFile } from "app/telegram/path-file";
 
 describe("Outbox payload codec", function () {
     it("keeps a plain JSON payload through the round trip", function () {
@@ -19,44 +20,44 @@ describe("Outbox payload codec", function () {
         expect(roundTrip("sendMessage", payload)).to.deep.equal(payload);
     });
 
-    it("stores a queued file as a marker with its path and file name", function () {
-        const payload = { chat_id: 1, document: new QueuedFile("/data/fonts/result.woff2") };
+    it("stores a path file as a marker with its path and file name", function () {
+        const payload = { chat_id: 1, document: new PathFile("/data/fonts/result.woff2") };
 
         // The marker is the stored format: rows already in the table are read back by it.
         expect(serialize("sendDocument", payload)).to.deep.equal({
             chat_id: 1,
-            document: { $queuedFile: { path: "/data/fonts/result.woff2", filename: "result.woff2" } },
+            document: { $pathFile: { path: "/data/fonts/result.woff2", filename: "result.woff2" } },
         });
     });
 
-    it("rebuilds a queued file from its marker", function () {
-        const payload = { chat_id: 1, document: new QueuedFile("/data/fonts/result.woff2", "Font.woff2"), caption: "done" };
+    it("rebuilds a path file from its marker", function () {
+        const payload = { chat_id: 1, document: new PathFile("/data/fonts/result.woff2", "Font.woff2"), caption: "done" };
 
         const restored = roundTrip("sendDocument", payload);
 
-        expect(restored["document"]).to.be.instanceOf(QueuedFile);
-        expect((restored["document"] as QueuedFile).path).to.equal("/data/fonts/result.woff2");
-        expect((restored["document"] as QueuedFile).filename).to.equal("Font.woff2");
+        expect(restored["document"]).to.be.instanceOf(PathFile);
+        expect((restored["document"] as PathFile).path).to.equal("/data/fonts/result.woff2");
+        expect((restored["document"] as PathFile).filename).to.equal("Font.woff2");
         expect(restored["caption"]).to.equal("done");
         expect(serialize("sendDocument", restored)).to.deep.equal(serialize("sendDocument", payload));
     });
 
-    it("rebuilds queued files inside media[]", function () {
+    it("rebuilds path files inside media[]", function () {
         const payload = {
             chat_id: 1,
             media: [
-                { type: "document", media: new QueuedFile("/data/fonts/a.ttf") },
+                { type: "document", media: new PathFile("/data/fonts/a.ttf") },
                 { type: "document", media: "AgACAgIAAxkBAAI", caption: "by file_id" },
-                { type: "document", media: new QueuedFile("/data/fonts/b.otf"), thumbnail: new QueuedFile("/data/fonts/b.jpg") },
+                { type: "document", media: new PathFile("/data/fonts/b.otf"), thumbnail: new PathFile("/data/fonts/b.jpg") },
             ],
         };
 
         const restored = roundTrip("sendMediaGroup", payload);
         const media = restored["media"] as Array<Record<string, unknown>>;
 
-        expect(media[0]?.["media"]).to.be.instanceOf(QueuedFile);
+        expect(media[0]?.["media"]).to.be.instanceOf(PathFile);
         expect(media[1]).to.deep.equal(payload.media[1]);
-        expect(media[2]?.["thumbnail"]).to.be.instanceOf(QueuedFile);
+        expect(media[2]?.["thumbnail"]).to.be.instanceOf(PathFile);
         expect(serialize("sendMediaGroup", restored)).to.deep.equal(serialize("sendMediaGroup", payload));
     });
 
@@ -71,17 +72,17 @@ describe("Outbox payload codec", function () {
     });
 
     it("rejects an object that already carries the marker key, naming the method", function () {
-        const payload = { chat_id: 1, media: [{ type: "document", media: { $queuedFile: { path: "/etc/passwd" } } }] };
+        const payload = { chat_id: 1, media: [{ type: "document", media: { $pathFile: { path: "/etc/passwd" } } }] };
 
         expect(() => serialize("sendMediaGroup", payload))
-            .to.throw(ReservedFileKey, "sendMediaGroup got an object with the key $queuedFile")
-            .with.deep.property("payload", { method: "sendMediaGroup" });
+            .to.throw(ReservedFileKey, "sendMediaGroup got an object with the key $pathFile")
+            .with.deep.property("payload", { method: "sendMediaGroup", key: "$pathFile" });
     });
 
     it("rebuilds a marker without a file name, letting grammY take it from the path", function () {
-        const restored = deserialize({ document: { $queuedFile: { path: "/data/fonts/result.woff2" } } });
+        const restored = deserialize({ document: { $pathFile: { path: "/data/fonts/result.woff2" } } });
 
-        expect((restored["document"] as QueuedFile).filename).to.equal("result.woff2");
+        expect((restored["document"] as PathFile).filename).to.equal("result.woff2");
     });
 
     describe("rejects a malformed file marker", function () {
@@ -95,14 +96,14 @@ describe("Outbox payload codec", function () {
 
         for (const [name, marker] of markers) {
             it(`with ${name}`, function () {
-                expect(() => deserialize({ chat_id: 1, media: [{ media: { $queuedFile: marker } }] }))
+                expect(() => deserialize({ chat_id: 1, media: [{ media: { $pathFile: marker } }] }))
                     .to.throw(InvalidFileMarker, "file marker")
                     .with.deep.property("payload", { marker: marker });
             });
         }
     });
 
-    describe("rejects an InputFile that is not a QueuedFile, naming the method", function () {
+    describe("rejects an InputFile that is not a PathFile, naming the method", function () {
         const sources: Array<[string, () => ConstructorParameters<typeof InputFile>[0]]> = [
             ["a path", (): string => "/data/fonts/result.woff2"],
             ["a Buffer", (): Buffer => Buffer.from("font")],
@@ -140,7 +141,7 @@ describe("Outbox payload codec", function () {
             const payload = {
                 chat_id: 1,
                 media: [
-                    { type: "document", media: new QueuedFile("/data/fonts/a.ttf") },
+                    { type: "document", media: new PathFile("/data/fonts/a.ttf") },
                     { type: "document", media: new InputFile(Buffer.from("font")) },
                 ],
             };

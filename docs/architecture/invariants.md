@@ -121,7 +121,7 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
 
 ## The outbox
 
-- **Only a serializable payload enters the outbox; a file goes in only as a `QueuedFile`.** An
+- **Only a serializable payload enters the outbox; a file goes in only as a `PathFile`.** An
   `InputFile` from a `Buffer` or a stream compiles, as does a path passed to `new InputFile()`, and
   fails only at runtime. In arrays and plain objects `serialize()` rejects it with
   `UnsupportedInputFile` ([`outbox.md`](./outbox.md)). Inside a class instance or an object
@@ -133,7 +133,7 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   node. A file does not get there from grammY's own builders: `InputMediaBuilder`
   (`convenience/input_media.js`) returns plain objects, and a keyboard class such as
   `InlineKeyboard` carries no file.
-- **The path of a `QueuedFile` must be on storage visible to every sending node.** Any node
+- **The path of a `PathFile` must be on storage visible to every sending node.** Any node
   may claim the row, and it reads the file at the stored path. A path on the local disk of the
   node that queued it sends from that node and fails on every other one. A relative path is
   resolved against the working directory of the sending node, not of the queuing one.
