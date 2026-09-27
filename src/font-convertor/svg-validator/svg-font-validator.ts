@@ -14,6 +14,7 @@ import { FontRule } from "app/font-convertor/svg-validator/svg-font-validator.ty
 @injectable()
 export class SvgFontValidator {
     private static readonly SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+    private static readonly XLINK_NAMESPACE = "http://www.w3.org/1999/xlink";
     private static readonly SVG_ROOT = `{${SvgFontValidator.SVG_NAMESPACE}}svg`;
 
     // XML 1.0 §4.3.3 requires the BOM for UTF-16. Without one the file is read as UTF-8, and the
@@ -30,15 +31,20 @@ export class SvgFontValidator {
         "utf-16be": ["utf-16", "utf-16be"],
     };
 
-    // The SVG 1.1 DTD declares `xmlns` of `svg` #FIXED to the SVG namespace (Appendix A.3.3), so
-    // under this DOCTYPE a root without `xmlns` is still SVG. Font Awesome 4.7 is written this way.
+    // The SVG 1.1 DTD declares `xmlns` and `xmlns:xlink` of `svg` #FIXED (`SVG.xmlns.attrib`,
+    // Appendix A.3.3), so under this DOCTYPE a document may leave both out. Font Awesome 4.7 has no
+    // `xmlns`.
     private static readonly SVG11_DOCTYPE = /PUBLIC\s+["']-\/\/W3C\/\/DTD SVG 1\.1\/\/EN["']/;
+    private static readonly SVG11_DOCTYPE_NAMESPACES = new Map([
+        ["", SvgFontValidator.SVG_NAMESPACE],
+        ["xlink", SvgFontValidator.XLINK_NAMESPACE],
+    ]);
 
     // The attribute form of <number> (§4.2): unlike path data, `5.` is not a number here.
     private static readonly NUMBER = /^[+-]?(?:\d+|\d*\.\d+)(?:[Ee][+-]?\d+)?$/;
     // The attributes of type <number>: §20.3 for `font`, §20.4 for `glyph`; `missing-glyph` has the
     // attributes of `glyph` (§20.5).
-    private static readonly NUMERIC_ATTRIBUTES: Record<string, Array<string>> = {
+    private static readonly NUMERIC_ATTRIBUTES: Record<"font" | "glyph" | "missing-glyph", Array<string>> = {
         font: ["horiz-origin-x", "horiz-origin-y", "horiz-adv-x", "vert-origin-x", "vert-origin-y", "vert-adv-y"],
         glyph: ["horiz-adv-x", "vert-origin-x", "vert-origin-y", "vert-adv-y"],
         "missing-glyph": ["horiz-adv-x", "vert-origin-x", "vert-origin-y", "vert-adv-y"],
@@ -92,8 +98,9 @@ export class SvgFontValidator {
             xmlns: true,
             forceXMLVersion: true,
             defaultXMLVersion: "1.0",
+            // saxes does not read the DTD, so the prefixes it fixes are bound here.
             resolvePrefix: (prefix: string): string | undefined =>
-                prefix === "" && scan.svg11Doctype ? SvgFontValidator.SVG_NAMESPACE : undefined,
+                scan.svg11Doctype ? SvgFontValidator.SVG11_DOCTYPE_NAMESPACES.get(prefix) : undefined,
         });
         let line = 0;
 
@@ -158,37 +165,40 @@ export class SvgFontValidator {
                 break;
             case "glyph":
                 parent.hasGlyph = true;
-                this.checkNumbers(scan, element, tag);
+                this.checkNumbers(scan, element, tag, element.name);
+                this.checkAdvance(scan, element, tag, element.name);
                 break;
             case "missing-glyph":
-                this.checkNumbers(scan, element, tag);
+                this.checkNumbers(scan, element, tag, element.name);
+                this.checkAdvance(scan, element, tag, element.name);
                 break;
         }
     }
 
     private close(scan: Scan): void {
-        const element = scan.open.pop() as OpenElement;
+        const element = scan.open.pop();
 
-        if (element.name !== "font") {
+        if (element?.name !== "font") {
             return;
         }
 
         if (!element.hasFontFace) {
-            this.report(scan, FontRule.FontFaceRequired, element);
+            this.report(scan, FontRule.FontFaceRequired, element.name, element.line);
         }
 
         if (!element.hasGlyph) {
-            this.report(scan, FontRule.GlyphRequired, element);
+            this.report(scan, FontRule.GlyphRequired, element.name, element.line);
         }
     }
 
     private checkFont(scan: Scan, element: OpenElement, tag: SaxesTagNS): void {
         // `horiz-adv-x` of `font` is #REQUIRED in the DTD.
         if (this.attribute(tag, "horiz-adv-x") === undefined) {
-            this.report(scan, FontRule.AdvanceRequired, element);
+            this.report(scan, FontRule.AdvanceRequired, "font", element.line);
         }
 
-        this.checkNumbers(scan, element, tag);
+        this.checkNumbers(scan, element, tag, "font");
+        this.checkAdvance(scan, element, tag, "font");
     }
 
     private checkFontFace(scan: Scan, element: OpenElement, tag: SaxesTagNS): void {
@@ -197,29 +207,42 @@ export class SvgFontValidator {
         // Our rule: the specification defaults `units-per-em` to 1000 (§20.8.3), but fontforge does
         // not open a font without it.
         if (unitsPerEm === undefined) {
-            this.report(scan, FontRule.UnitsPerEmRequired, element);
+            this.report(scan, FontRule.UnitsPerEmRequired, "font-face", element.line);
         } else if (!SvgFontValidator.NUMBER.test(unitsPerEm)) {
-            this.report(scan, FontRule.Number, element, ["units-per-em", unitsPerEm]);
-        } else if (Number(unitsPerEm) <= 0) {
-            this.report(scan, FontRule.PositiveUnitsPerEm, element, ["units-per-em", unitsPerEm]);
+            this.report(scan, FontRule.Number, "font-face", element.line, ["units-per-em", unitsPerEm]);
+        } else if (this.sign(unitsPerEm) <= 0) {
+            this.report(scan, FontRule.PositiveUnitsPerEm, "font-face", element.line, ["units-per-em", unitsPerEm]);
         }
     }
 
-    private checkNumbers(scan: Scan, element: OpenElement, tag: SaxesTagNS): void {
-        for (const name of SvgFontValidator.NUMERIC_ATTRIBUTES[element.name as string] as Array<string>) {
-            const value = this.attribute(tag, name);
+    private checkNumbers(scan: Scan, element: OpenElement, tag: SaxesTagNS, name: "font" | "glyph" | "missing-glyph"): void {
+        for (const attribute of SvgFontValidator.NUMERIC_ATTRIBUTES[name]) {
+            const value = this.attribute(tag, attribute);
 
             if (value !== undefined && !SvgFontValidator.NUMBER.test(value)) {
-                this.report(scan, FontRule.Number, element, [name, value]);
+                this.report(scan, FontRule.Number, name, element.line, [attribute, value]);
             }
         }
+    }
 
+    private checkAdvance(scan: Scan, element: OpenElement, tag: SaxesTagNS, name: string): void {
         const advance = this.attribute(tag, "horiz-adv-x");
 
         // "Glyph widths are required to be non-negative" (§20.3, §20.4).
-        if (advance !== undefined && Number(advance) < 0) {
-            this.report(scan, FontRule.NonNegativeAdvance, element, ["horiz-adv-x", advance]);
+        if (advance !== undefined && this.sign(advance) < 0) {
+            this.report(scan, FontRule.NonNegativeAdvance, name, element.line, ["horiz-adv-x", advance]);
         }
+    }
+
+    // The sign is read off the text of a number: `Number()` takes `1e-999` to zero.
+    private sign(value: string): number {
+        const mantissa = value.replace(/[Ee].*/, "");
+
+        if (!/[1-9]/.test(mantissa)) {
+            return 0;
+        }
+
+        return mantissa.startsWith("-") ? -1 : 1;
     }
 
     private attribute(tag: SaxesTagNS, name: string): string | undefined {
@@ -228,7 +251,7 @@ export class SvgFontValidator {
         return tag.attributes[name]?.value;
     }
 
-    private report(scan: Scan, rule: FontRule, element: OpenElement, attribute?: [string, string]): void {
-        scan.violation ??= BrokenFont.byRule(rule, element.name as string, element.line, attribute);
+    private report(scan: Scan, rule: FontRule, name: string, line: number, attribute?: [string, string]): void {
+        scan.violation ??= BrokenFont.byRule(rule, name, line, attribute);
     }
 }

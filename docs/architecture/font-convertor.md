@@ -151,8 +151,9 @@ Of several broken rules, `BrokenFont` names the first the pass met.
   in both.
 - **Not SVG.** The root is `svg` in the SVG namespace. A root without `xmlns` still counts under
   the SVG 1.1 DOCTYPE (`-//W3C//DTD SVG 1.1//EN`): the DTD declares `xmlns` of `svg` `#FIXED` to
-  the SVG namespace (Appendix A.3.3), and Font Awesome 4.7 is written this way. The parser does not
-  read the DTD, so the validator binds the default namespace itself (`resolvePrefix`).
+  the SVG namespace (Appendix A.3.3), and Font Awesome 4.7 is written this way. It fixes
+  `xmlns:xlink` the same way. The parser does not read the DTD, so the validator binds both prefixes
+  itself (`resolvePrefix`).
 - **No font, broken font.** Only the fonts are checked against the specification, not the rest of
   the document. `font-face` and `glyph` count only as direct children of `font` in the SVG
   namespace, and only unprefixed attributes are attributes of these elements. The rules are

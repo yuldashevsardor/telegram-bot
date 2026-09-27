@@ -19,8 +19,8 @@ The runtime sequences live in the files of their subsystems:
   `ctx.api`, commands
 - [`outbound-queue.md`](./outbound-queue.md) — limits, partitions, the `Runner` loop, the path
   of an outgoing call
-- [`font-convertor.md`](./font-convertor.md) — format pairs, the EOT codec, signatures, running
-  the engine
+- [`font-convertor.md`](./font-convertor.md) — format pairs, the EOT codec, signatures, the SVG
+  validator, running the engine
 - [`user.md`](./user.md) — the entity, the repository, filling the context
 - [`logging.md`](./logging.md) — the port and the adapters, thresholds, request correlation
 - [`i18n.md`](./i18n.md) — locales, Fluent bundles, command descriptions

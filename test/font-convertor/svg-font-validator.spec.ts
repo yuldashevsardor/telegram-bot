@@ -18,6 +18,8 @@ const SVG11_DOCTYPE = '<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://ww
 const FONT_FACE = '<font-face units-per-em="1000"/>';
 const GLYPH = '<glyph horiz-adv-x="500"/>';
 const FONT = `<font horiz-adv-x="500">${FONT_FACE}${GLYPH}</font>`;
+// A font whose font-face points at a font file through xlink:href.
+const XLINK_FONT = `<font horiz-adv-x="500"><font-face units-per-em="1000"><font-face-src><font-face-uri xlink:href="f.svg#f"/></font-face-src></font-face>${GLYPH}</font>`;
 
 // An inline document: the font lies on line 2, the line the messages name.
 function inline(font: string): string {
@@ -84,6 +86,11 @@ describe("SvgFontValidator.validate", function () {
             await validate(`<!DOCTYPE svg PUBLIC  '-//W3C//DTD SVG 1.1//EN' 'svg11.dtd'><svg>${FONT}</svg>`);
         });
 
+        it("without xmlns:xlink under the SVG 1.1 DOCTYPE", async function () {
+            // The DTD fixes xmlns:xlink of svg the same way.
+            await validate(`${SVG11_DOCTYPE}<svg>${XLINK_FONT}</svg>`);
+        });
+
         it("with an encoding declaration naming the encoding it is read in", async function () {
             await validate(`<?xml version="1.0" encoding="UTF-8"?>${inline(FONT)}`);
             await validate(`<?xml version="1.0" encoding="utf-8"?>${inline(FONT)}`);
@@ -101,6 +108,13 @@ describe("SvgFontValidator.validate", function () {
 
         it("with a zero advance", async function () {
             await validate(inline(`<font horiz-adv-x="0">${FONT_FACE}<glyph horiz-adv-x="0"/></font>`));
+            await validate(inline(`<font horiz-adv-x="-0">${FONT_FACE}<glyph horiz-adv-x="-0.0e5"/></font>`));
+        });
+
+        it("with a units-per-em whose number rounds off its range", async function () {
+            // The sign is read off the text: as a double, 1e-999 is zero and 1e999 is Infinity.
+            await validate(inline(`<font horiz-adv-x="500"><font-face units-per-em="1e-999"/>${GLYPH}</font>`));
+            await validate(inline(`<font horiz-adv-x="500"><font-face units-per-em="1e999"/>${GLYPH}</font>`));
         });
 
         it("ignoring prefixed attributes and elements outside a font", async function () {
@@ -194,8 +208,12 @@ describe("SvgFontValidator.validate", function () {
             );
         });
 
+        it("to an undeclared xlink prefix outside the SVG 1.1 DOCTYPE", async function () {
+            await expectAnswer(inline(XLINK_FONT), NotXml, 'File is not XML: 2:107: unbound namespace prefix: "xlink".');
+        });
+
         it("to an unbound prefix under the SVG 1.1 DOCTYPE", async function () {
-            // The DOCTYPE binds the default namespace only.
+            // The DOCTYPE binds only the prefixes the DTD fixes.
             await expectAnswer(`${SVG11_DOCTYPE}<svg><x:font/></svg>`, NotXml, 'File is not XML: 1:112: unbound namespace prefix: "x".');
         });
 
@@ -332,6 +350,14 @@ describe("SvgFontValidator.validate", function () {
             });
         }
 
+        it("to a negative horiz-adv-x whose number rounds to zero", async function () {
+            await expectAnswer(
+                inline(`<font horiz-adv-x="-1e-999">${FONT_FACE}${GLYPH}</font>`),
+                BrokenFont,
+                'SVG font breaks a rule: horiz-adv-x is not negative (SVG 1.1, §20.3, §20.4). At line 2: <font> with horiz-adv-x="-1e-999".',
+            );
+        });
+
         it("to a font without a font-face child", async function () {
             const message = "SVG font breaks a rule: font has a font-face child (SVG 1.1, §20.3). At line 2: <font>.";
 
@@ -358,7 +384,7 @@ describe("SvgFontValidator.validate", function () {
         });
 
         it("to units-per-em that is not positive", async function () {
-            for (const value of ["0", "-1000"]) {
+            for (const value of ["0", "-1000", "-0", "0.0", "0e15"]) {
                 await expectAnswer(
                     inline(`<font horiz-adv-x="500"><font-face units-per-em="${value}"/>${GLYPH}</font>`),
                     BrokenFont,
