@@ -3,8 +3,7 @@ import type { Database, Sql } from "app/platform/database/database";
 import { Tokens } from "app/shared/tokens";
 import type { ClaimedOutboxMessage, ClaimedOutboxRow, OutboxJson, OutboxMessageInput } from "app/telegram/outbox/store/outbox-store.types";
 
-// The rows and the chat states of the outbox: the model is in docs/architecture/outbox.md. The
-// chat row is the lock of its chat: whoever changes the state of a chat locks its row first.
+// The rows and the chat states of the outbox: the model is in docs/architecture/outbox.md.
 @injectable()
 export class OutboxStore {
     private readonly sql: Sql;
@@ -20,54 +19,68 @@ export class OutboxStore {
         return id as number;
     }
 
-    // One statement: the rows and their chats commit together. The ids come back in the order of
-    // the input, which is the order of the messages inside a chat.
+    // The rows and their chats commit together. The ids come back in the order of the input, which
+    // is the order of the messages inside a chat. They are taken only once the chats are locked
+    // (docs/architecture/outbox.md, "The chat lock").
     public async enqueueBatch(messages: OutboxMessageInput[]): Promise<number[]> {
-        const rows = await this.sql<{ id: string }[]>`
-            with inserted as (
-                insert into telegram_outbox (chat_id, method, payload, priority)
-                select (message ->> 'chatId')::bigint,
-                       message ->> 'method',
-                       message -> 'payload',
-                       (message ->> 'priority')::smallint
-                from jsonb_array_elements(${this.sql.json(messages)}) with ordinality as input(message, position)
-                order by position
-                returning id, chat_id, priority
-            ),
-            heads as (
-                select distinct on (chat_id) chat_id, priority
-                from inserted
-                order by chat_id, id
-            ),
-            chats as (
-                -- Only an idle chat gets a new head. The conflicting row is locked even when the
-                -- condition fails, so an enqueue waits for a completion of the same chat.
-                insert into telegram_outbox_chats (chat_id, state, head_priority)
-                select chat_id, 'ready', priority
-                from heads
+        return this.sql.begin(async (sql) => {
+            // A new chat is created idle; an existing one is only locked: the update never passes
+            // its where, and the conflicting row is locked all the same. In chat_id order, so two
+            // batches lock the chats they share in the same order.
+            await sql`
+                insert into telegram_outbox_chats (chat_id, state)
+                select distinct (message ->> 'chatId')::bigint, 'idle'
+                from jsonb_array_elements(${sql.json(messages)}) as input(message)
+                order by 1
                 on conflict (chat_id) do update
-                set state = 'ready',
-                    head_priority = excluded.head_priority
-                where telegram_outbox_chats.state = 'idle'
-            )
-            select id
-            from inserted
-            order by id
-        `;
+                set state = excluded.state
+                where false
+            `;
 
-        return rows.map((row) => Number(row.id));
+            const rows = await sql<{ id: string }[]>`
+                with inserted as (
+                    insert into telegram_outbox (chat_id, method, payload, priority)
+                    select (message ->> 'chatId')::bigint,
+                           message ->> 'method',
+                           message -> 'payload',
+                           (message ->> 'priority')::smallint
+                    from jsonb_array_elements(${sql.json(messages)}) with ordinality as input(message, position)
+                    order by position
+                    returning id, chat_id, priority
+                ),
+                heads as (
+                    select distinct on (chat_id) chat_id, priority
+                    from inserted
+                    order by chat_id, id
+                ),
+                chats as (
+                    -- Only an idle chat gets a new head: any other one already has an older head.
+                    update telegram_outbox_chats
+                    set state = 'ready',
+                        head_priority = heads.priority
+                    from heads
+                    where telegram_outbox_chats.chat_id = heads.chat_id
+                      and telegram_outbox_chats.state = 'idle'
+                )
+                select id
+                from inserted
+                order by id
+            `;
+
+            return rows.map((row) => Number(row.id));
+        });
     }
 
     // One statement: up to limit ready chats and the head of each. A chat locked by another claimer
-    // is skipped, not waited for. The claimed chat moves to the back of the order, so the chats are
-    // served in turn.
+    // is skipped, not waited for. A claimed chat moves behind the chats of its priority, so they
+    // are served in turn.
     public async claim(limit: number): Promise<ClaimedOutboxMessage[]> {
         const rows = await this.sql<ClaimedOutboxRow[]>`
             with chats as (
                 select chat_id
                 from telegram_outbox_chats
                 where state = 'ready'
-                order by next_send_at
+                order by head_priority, next_send_at
                 limit ${limit}
                 for update skip locked
             ),
@@ -84,8 +97,7 @@ export class OutboxStore {
                 ) as head
             ),
             claimed as (
-                -- The head was read from the snapshot of the statement: a head completed since
-                -- then no longer passes the status check and is not taken twice.
+                -- The head comes from the snapshot of the statement (docs/architecture/outbox.md, "Claim").
                 update telegram_outbox
                 set status = 'processing'
                 from heads
@@ -114,9 +126,8 @@ export class OutboxStore {
         }));
     }
 
-    // false — the message is not processing, and nothing changed. Separate statements rather than
-    // one: each reads a fresh snapshot after the chat lock, so the next head includes a message
-    // enqueued while the lock was awaited.
+    // false — the message is not processing, and nothing changed. The statements are separate on
+    // purpose (docs/architecture/outbox.md, "The chat lock").
     public async markDone(id: number, response: OutboxJson): Promise<boolean> {
         return this.sql.begin(async (sql) => {
             await sql`

@@ -12,6 +12,9 @@ import { testDatabaseName } from "test/database.helper";
 const CHAT = 5_000_000_001;
 const OTHER_CHAT = -1_001_234_567_890;
 const RESPONSE = { message_id: 1 };
+// Longer than any wait of a passing run, shorter than the timeout of mocha: a hung wait fails with
+// its own message and stops before after() closes the clients.
+const WAIT_DEADLINE_MS = 5_000;
 
 type ChatRow = { state: string; head_priority: number | null };
 
@@ -160,6 +163,35 @@ describe("OutboxStore", function () {
         expect(await store.markDone(id + 1, RESPONSE)).to.equal(false);
     });
 
+    it("takes a chat with a higher-priority head first", async function () {
+        await store.enqueue(message(CHAT, "later", 2));
+        const urgent = await store.enqueue(message(OTHER_CHAT, "urgent", 0));
+
+        expect((await store.claim(1)).map(({ id }) => id)).to.deep.equal([urgent]);
+    });
+
+    // An id taken before the chat lock would let two overlapping enqueues of one chat commit in the
+    // order opposite to their ids, and the later id would be sent first. The enqueue of another chat
+    // stands in for the one that commits first.
+    it("takes the ids of an enqueue only once its chat is locked", async function () {
+        await store.enqueue(message(CHAT, "first"));
+
+        let waiting: Promise<number> = Promise.resolve(0);
+        let passing = 0;
+
+        await other.sql.begin(async (sql) => {
+            await sql`select chat_id from telegram_outbox_chats where chat_id = ${CHAT} for update`;
+
+            waiting = store.enqueue(message(CHAT, "waiting"));
+
+            await waitForLockWaiters(1);
+
+            passing = await store.enqueue(message(OTHER_CHAT, "passing"));
+        });
+
+        expect(await waiting).to.be.greaterThan(passing);
+    });
+
     it("skips a chat another claimer holds and takes the next one", async function () {
         await store.enqueue(message(CHAT, "held"));
         const free = await store.enqueue(message(OTHER_CHAT, "free"));
@@ -183,10 +215,17 @@ describe("OutboxStore", function () {
         const claimsByChat = new Map<number, number[]>();
         const inFlight = new Set<number>();
 
+        const deadline = Date.now() + WAIT_DEADLINE_MS;
+        let failed = false;
+
         // A chat leaves inFlight before markDone commits: the chat becomes claimable only after the
         // commit, so an overlap seen here is a real one.
-        const claimer = async (client: OutboxStore): Promise<void> => {
-            while (claims.length < ids.length) {
+        const claim = async (client: OutboxStore): Promise<void> => {
+            while (!failed && claims.length < ids.length) {
+                if (Date.now() > deadline) {
+                    expect.fail(`${claims.length} of ${ids.length} messages claimed by the deadline`);
+                }
+
                 const batch = await client.claim(2);
 
                 if (batch.length === 0) {
@@ -208,6 +247,13 @@ describe("OutboxStore", function () {
                 }
             }
         };
+
+        // A failed claimer stops the other one, which would otherwise keep going after the test.
+        const claimer = (client: OutboxStore): Promise<void> =>
+            claim(client).catch((error: unknown) => {
+                failed = true;
+                throw error;
+            });
 
         await Promise.all([claimer(store), claimer(new OutboxStore(other))]);
 
@@ -288,7 +334,13 @@ describe("OutboxStore", function () {
     }
 
     async function waitForLockWaiters(count: number): Promise<void> {
+        const deadline = Date.now() + WAIT_DEADLINE_MS;
+
         for (;;) {
+            if (Date.now() > deadline) {
+                expect.fail(`fewer than ${count} queries waited for a lock by the deadline`);
+            }
+
             const [row] = await database.sql<{ waiting: number }[]>`
                 select count(*)::int as waiting
                 from pg_stat_activity

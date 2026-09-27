@@ -43,6 +43,7 @@ export async function up(pgm: MigrationBuilder): Promise<void> {
             notNull: true,
             default: "pending",
             check: "status in ('pending', 'processing', 'done', 'failed', 'skipped')",
+            comment: "pending -> processing -> done / failed / skipped",
         },
         attempts: {
             type: "jsonb",
@@ -89,11 +90,13 @@ export async function up(pgm: MigrationBuilder): Promise<void> {
         chat_id: {
             type: "bigint",
             primaryKey: true,
+            comment: "The chat; its row is the lock of the chat",
         },
         state: {
             type: "text",
             notNull: true,
             check: "state in ('idle', 'ready', 'processing', 'blocked')",
+            comment: "idle: no active message; ready: the head can be claimed; processing: the head is claimed; blocked: a failed head",
         },
         next_send_at: {
             type: "timestampWithTimeZoneNotNullDefaultNow",
@@ -110,12 +113,12 @@ export async function up(pgm: MigrationBuilder): Promise<void> {
     pgm.createIndex(chats, ["head_priority", "next_send_at"], { name: "telegram_outbox_chats_ready_idx", where: "state = 'ready'" });
 
     pgm.createTable(botLimits, {
-        // Keeps the table at one row: a second insert breaks the primary key.
         id: {
             type: "boolean",
             primaryKey: true,
             default: true,
             check: "id",
+            comment: "Keeps the table at one row: a second insert breaks the primary key",
         },
         next_send_at: {
             type: "timestampWithTimeZoneNotNullDefaultNow",

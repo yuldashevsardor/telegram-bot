@@ -121,11 +121,12 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
 
 ## The outbox
 
-- **Whatever changes the state of an outbox chat locks the chat row first and reads the head in a
-  later statement**, as `OutboxStore.markDone()` does ([`outbox.md`](./outbox.md), "The chat
-  lock"). A single statement reads its snapshot before it waits for the lock. A message enqueued
-  meanwhile then stays `pending` in an `idle` chat and is never sent. The spec lines up only
-  `enqueue` against `markDone`: a new path that changes a chat state is checked by nothing.
+- **An outbox transaction that changes a chat state from what it reads — the chat state, the
+  next head — locks the chat row first and reads in a later statement**, as `OutboxStore.enqueue()`
+  and `markDone()` do. Why, and what breaks otherwise, is in [`outbox.md`](./outbox.md), "The
+  chat lock". `claim()` is the exception with a check of its own (same file, "Claim"). The spec
+  lines up only `enqueue` against `markDone`: a new path that changes a chat state is checked by
+  nothing.
 
 ## Storage: migrations, `sessions`, `User`
 
