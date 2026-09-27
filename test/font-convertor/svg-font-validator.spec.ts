@@ -8,6 +8,7 @@ import { SvgFontValidator } from "app/font-convertor/svg-validator/svg-font-vali
 import type { InvalidSvgFont } from "app/font-convertor/svg-validator/svg-font-validator.errors";
 import { BrokenFont, NoFont, NotSvg, NotXml } from "app/font-convertor/svg-validator/svg-font-validator.errors";
 import { FontRule } from "app/font-convertor/svg-validator/svg-font-validator.types";
+import { ReadFailed } from "app/shared/fs/file-helper.errors";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 const validator = new SvgFontValidator();
@@ -260,6 +261,16 @@ describe("SvgFontValidator.validate", function () {
             );
         });
 
+        it("quoting a long root cut to 64 characters", async function () {
+            const error = await expectAnswer(
+                `<x xmlns="urn:${"a".repeat(100)}"/>`,
+                NotSvg,
+                `File is not SVG: the root element is {urn:${"a".repeat(59)}…, expected ${SVG_ROOT}.`,
+            );
+
+            expect(error.payload).to.deep.equal({ root: `{urn:${"a".repeat(59)}…` });
+        });
+
         it("before no font and a broken font", async function () {
             await expectAnswer(
                 `<html><font xmlns="${SVG_NAMESPACE}"/></html>`,
@@ -340,6 +351,27 @@ describe("SvgFontValidator.validate", function () {
                         value,
                     )}.`,
                 );
+            }
+        });
+
+        it("quoting a long value cut to 64 characters", async function () {
+            const cases: Array<[string, string]> = [
+                ["x".repeat(64), "x".repeat(64)],
+                ["x".repeat(65), `${"x".repeat(64)}…`],
+                // The cut falls inside a surrogate pair: its half is not valid UTF-8 on the way out.
+                [`${"x".repeat(63)}😀x`, `${"x".repeat(63)}\uFFFD…`],
+            ];
+
+            for (const [value, quoted] of cases) {
+                const error = await expectAnswer(
+                    inline(`<font horiz-adv-x="500" horiz-origin-x="${value}">${FONT_FACE}${GLYPH}</font>`),
+                    BrokenFont,
+                    `SVG font breaks a rule: a numeric attribute is a <number> (SVG 1.1, §4.2). At line 2: <font> with horiz-origin-x=${JSON.stringify(
+                        quoted,
+                    )}.`,
+                );
+
+                expect(error.payload).to.include({ attribute: "horiz-origin-x", value: quoted });
             }
         });
 
@@ -443,6 +475,18 @@ describe("SvgFontValidator.validate", function () {
                 'SVG font breaks a rule: horiz-adv-x is not negative (SVG 1.1, §20.3, §20.4). At line 4: <glyph> with horiz-adv-x="-1".',
             );
         });
+    });
+
+    it("throws ReadFailed, not an answer, on a file that cannot be read", async function () {
+        try {
+            await validator.validate(path.join(workDir, `missing.${Extension.SVG}`));
+        } catch (error) {
+            expect(error).to.be.instanceOf(ReadFailed);
+
+            return;
+        }
+
+        expect.fail("validate did not throw ReadFailed");
     });
 
     async function validate(content: string | Uint8Array): Promise<void> {

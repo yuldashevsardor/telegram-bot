@@ -136,7 +136,7 @@ counted from the prefix's end.
 
 `SvgFontValidator` (`svg-validator/`) reads the whole file and checks it against W3C SVG 1.1
 Second Edition, chapter 20 "Fonts". SVG 2 removed SVG fonts, so 1.1 is the reference. It is to
-replace the SVG signature, which rejects real fonts and admits anything that opens with `<`. No
+replace the SVG signature, which rejects real fonts and admits any markup. No
 convertor calls it yet: the SVG pairs still check the signature alone.
 
 It answers with a subclass of `InvalidSvgFont`, in this order: `NotXml`, `NotSvg`, `NoFont`,
