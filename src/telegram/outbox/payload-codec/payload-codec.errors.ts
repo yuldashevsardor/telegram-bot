@@ -7,3 +7,11 @@ export class UnsupportedInputFile extends RuntimeError {
         });
     }
 }
+
+export class InvalidFileMarker extends RuntimeError {
+    public static byMarker(marker: unknown): InvalidFileMarker {
+        return new InvalidFileMarker("Stored payload has a file marker without a string path and an optional string file name.", {
+            marker: marker,
+        });
+    }
+}

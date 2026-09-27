@@ -3,7 +3,7 @@ import { Readable } from "node:stream";
 import { expect } from "chai";
 import { InputFile } from "grammy";
 import { deserialize, queueFile, serialize } from "app/telegram/outbox/payload-codec/payload-codec";
-import { UnsupportedInputFile } from "app/telegram/outbox/payload-codec/payload-codec.errors";
+import { InvalidFileMarker, UnsupportedInputFile } from "app/telegram/outbox/payload-codec/payload-codec.errors";
 
 describe("Outbox payload codec", function () {
     it("keeps a plain JSON payload through the round trip", function () {
@@ -67,6 +67,30 @@ describe("Outbox payload codec", function () {
 
         expect(serialized).to.have.property("message_thread_id", undefined);
         expect(serialized["date"]).to.equal(date);
+    });
+
+    it("rebuilds a marker without a file name, letting grammY take it from the path", function () {
+        const restored = deserialize({ document: { $queuedFile: { path: "/data/fonts/result.woff2" } } });
+
+        expect((restored["document"] as InputFile).filename).to.equal("result.woff2");
+    });
+
+    describe("rejects a malformed file marker", function () {
+        const markers: Array<[string, unknown]> = [
+            ["null", null],
+            ["a string", "/data/fonts/result.woff2"],
+            ["no path", { filename: "result.woff2" }],
+            ["a path that is not a string", { path: 42, filename: "result.woff2" }],
+            ["a file name that is not a string", { path: "/data/fonts/result.woff2", filename: 42 }],
+        ];
+
+        for (const [name, marker] of markers) {
+            it(`with ${name}`, function () {
+                expect(() => deserialize({ chat_id: 1, media: [{ media: { $queuedFile: marker } }] }))
+                    .to.throw(InvalidFileMarker, "file marker")
+                    .with.deep.property("payload", { marker: marker });
+            });
+        }
     });
 
     describe("rejects an InputFile not made by queueFile(), naming the method", function () {

@@ -17,8 +17,9 @@ included:
   JSON the same way grammY sends a payload;
 - a file made by `queueFile(path, filename?)` becomes the marker
   `{ "$queuedFile": { "path", "filename" } }`, and `deserialize()` rebuilds it through
-  `queueFile()`. The marker is the stored format: a change of its key leaves the rows already
-  written unreadable;
+  `queueFile()`; a marker without a string `path`, or with a `filename` that is not a string,
+  throws `InvalidFileMarker`. The marker is the stored format: a change of its key leaves the
+  rows already written unreadable;
 - any other `InputFile` throws `UnsupportedInputFile` with the method in the message and the
   payload: a `Buffer`, a stream or a supplier function lives only in the memory of this process.
 

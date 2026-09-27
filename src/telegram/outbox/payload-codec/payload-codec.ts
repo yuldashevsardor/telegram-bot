@@ -1,17 +1,10 @@
 import { InputFile } from "grammy";
-import { UnsupportedInputFile } from "app/telegram/outbox/payload-codec/payload-codec.errors";
+import { InvalidFileMarker, UnsupportedInputFile } from "app/telegram/outbox/payload-codec/payload-codec.errors";
 
 // The key of the object that stands for a file in a stored payload. It is part of the stored format:
 // rows written before a change of the key would not be read back. Bot API parameters are
 // snake_case, so no parameter of Telegram's own carries it.
 const FILE_KEY = "$queuedFile";
-
-type FileMarker = {
-    [FILE_KEY]: {
-        path: string;
-        filename?: string;
-    };
-};
 
 // grammY keeps the source of an InputFile private, so the path is remembered here, by the factory.
 const queuedFiles = new WeakMap<InputFile, string>();
@@ -76,8 +69,16 @@ export function deserialize(payload: Record<string, unknown>): Record<string, un
             return value;
         }
 
-        const { path, filename } = (value as FileMarker)[FILE_KEY];
+        const marker = value[FILE_KEY];
 
-        return queueFile(path, filename);
+        if (
+            !isPlainObject(marker) ||
+            typeof marker["path"] !== "string" ||
+            !(typeof marker["filename"] === "string" || marker["filename"] === undefined)
+        ) {
+            throw InvalidFileMarker.byMarker(marker);
+        }
+
+        return queueFile(marker["path"], marker["filename"]);
     }) as Record<string, unknown>;
 }
