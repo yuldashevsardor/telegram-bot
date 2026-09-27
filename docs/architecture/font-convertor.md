@@ -175,7 +175,9 @@ predefined ones.
 
 `saxes` is created with `forceXMLVersion`: by the fifth edition of XML 1.0 a document declaring
 another 1.x version is read as 1.0. Without an error handler it throws a bare `Error`; the handler
-wraps it into `NotXml`, and the encoding check reports through the same `parser.fail()`.
+turns it into `NotXml`, and the encoding check reports through the same `parser.fail()`. The
+`NotXml` keeps only the message, cut to 200 UTF-16 units, not the saxes error as its cause: that
+message quotes names from the file, and a cause reaches the log uncut.
 
 ## The pair table
 

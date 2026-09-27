@@ -196,7 +196,15 @@ describe("SvgFontValidator.validate", function () {
                 "File is not XML: 1:38: the encoding declaration names UTF-8, while the file is read as utf-16le.",
             );
 
-            expect(utf8Error.cause).to.be.instanceOf(Error);
+            expect(utf8Error.cause).to.equal(undefined);
+        });
+
+        it("quoting the parser message cut to 200 UTF-16 units", async function () {
+            const declared = "A".repeat(300);
+            const declaration = `<?xml version="1.0" encoding="${declared}"?>`;
+            const parserMessage = `1:${declaration.length}: the encoding declaration names ${declared}, while the file is read as utf-8.`;
+
+            await expectAnswer(`${declaration}${inline(FONT)}`, NotXml, `File is not XML: ${parserMessage.slice(0, 200)}…`);
         });
 
         it("to a reference XML 1.0 forbids, whatever version the document declares", async function () {
@@ -242,7 +250,7 @@ describe("SvgFontValidator.validate", function () {
                 `File is not SVG: the root element is {http://www.w3.org/1999/xhtml}html, expected ${SVG_ROOT}.`,
             );
 
-            expect(error.payload).to.deep.equal({ root: "{http://www.w3.org/1999/xhtml}html" });
+            expect(error.payload).to.deep.equal({ root: "{http://www.w3.org/1999/xhtml}html", rootLength: 34 });
         });
 
         it("to an svg root without xmlns and without the SVG 1.1 DOCTYPE", async function () {
@@ -261,14 +269,21 @@ describe("SvgFontValidator.validate", function () {
             );
         });
 
-        it("quoting a long root cut to 64 characters", async function () {
-            const error = await expectAnswer(
-                `<x xmlns="urn:${"a".repeat(100)}"/>`,
-                NotSvg,
-                `File is not SVG: the root element is {urn:${"a".repeat(59)}…, expected ${SVG_ROOT}.`,
-            );
+        it("quoting each part of a long root cut to 64 UTF-16 units", async function () {
+            // A long namespace must not cut off the local name.
+            const namespace = `urn:${"a".repeat(100)}`;
+            const local = "b".repeat(100);
+            const cases: Array<[string, string, number]> = [
+                [`<x xmlns="${namespace}"/>`, `{urn:${"a".repeat(59)}…x`, 107],
+                [`<${local} xmlns="urn:a"/>`, `{urn:a}${"b".repeat(64)}…`, 107],
+                [`<${local} xmlns="${namespace}"/>`, `{urn:${"a".repeat(59)}…${"b".repeat(64)}…`, 206],
+            ];
 
-            expect(error.payload).to.deep.equal({ root: `{urn:${"a".repeat(59)}…` });
+            for (const [document, quoted, rootLength] of cases) {
+                const error = await expectAnswer(document, NotSvg, `File is not SVG: the root element is ${quoted}, expected ${SVG_ROOT}.`);
+
+                expect(error.payload).to.deep.equal({ root: quoted, rootLength: rootLength });
+            }
         });
 
         it("before no font and a broken font", async function () {
@@ -302,8 +317,6 @@ describe("SvgFontValidator.validate", function () {
                 rule: FontRule.AdvanceRequired,
                 element: "font",
                 line: 2,
-                attribute: undefined,
-                value: undefined,
             });
         });
 
@@ -336,6 +349,7 @@ describe("SvgFontValidator.validate", function () {
                         line: 2,
                         attribute: attribute,
                         value: "5.",
+                        valueLength: 2,
                     });
                 });
             }
@@ -354,24 +368,22 @@ describe("SvgFontValidator.validate", function () {
             }
         });
 
-        it("quoting a long value cut to 64 characters", async function () {
-            const cases: Array<[string, string]> = [
-                ["x".repeat(64), "x".repeat(64)],
-                ["x".repeat(65), `${"x".repeat(64)}…`],
+        it("quoting a long value cut to 64 UTF-16 units, the mark outside the quotes", async function () {
+            const cases: Array<[string, string, string]> = [
+                ["x".repeat(64), `"${"x".repeat(64)}"`, "x".repeat(64)],
+                ["x".repeat(65), `"${"x".repeat(64)}"…`, `${"x".repeat(64)}…`],
                 // The cut falls inside a surrogate pair: its half is not valid UTF-8 on the way out.
-                [`${"x".repeat(63)}😀x`, `${"x".repeat(63)}\uFFFD…`],
+                [`${"x".repeat(63)}😀x`, `"${"x".repeat(63)}\uFFFD"…`, `${"x".repeat(63)}\uFFFD…`],
             ];
 
-            for (const [value, quoted] of cases) {
+            for (const [value, quoted, payloadValue] of cases) {
                 const error = await expectAnswer(
                     inline(`<font horiz-adv-x="500" horiz-origin-x="${value}">${FONT_FACE}${GLYPH}</font>`),
                     BrokenFont,
-                    `SVG font breaks a rule: a numeric attribute is a <number> (SVG 1.1, §4.2). At line 2: <font> with horiz-origin-x=${JSON.stringify(
-                        quoted,
-                    )}.`,
+                    `SVG font breaks a rule: a numeric attribute is a <number> (SVG 1.1, §4.2). At line 2: <font> with horiz-origin-x=${quoted}.`,
                 );
 
-                expect(error.payload).to.include({ attribute: "horiz-origin-x", value: quoted });
+                expect(error.payload).to.include({ value: payloadValue, valueLength: value.length });
             }
         });
 
@@ -478,15 +490,7 @@ describe("SvgFontValidator.validate", function () {
     });
 
     it("throws ReadFailed, not an answer, on a file that cannot be read", async function () {
-        try {
-            await validator.validate(path.join(workDir, `missing.${Extension.SVG}`));
-        } catch (error) {
-            expect(error).to.be.instanceOf(ReadFailed);
-
-            return;
-        }
-
-        expect.fail("validate did not throw ReadFailed");
+        await expectRejection(() => validator.validate(path.join(workDir, `missing.${Extension.SVG}`)), ReadFailed);
     });
 
     async function validate(content: string | Uint8Array): Promise<void> {
@@ -501,21 +505,29 @@ describe("SvgFontValidator.validate", function () {
         expected: new (...params: never) => T,
         message?: string,
     ): Promise<T> {
-        try {
-            await validate(content);
-        } catch (error) {
-            expect(error).to.be.instanceOf(expected);
-
-            if (message !== undefined) {
-                expect((error as T).message).to.equal(message);
-            }
-
-            return error as T;
-        }
-
-        return expect.fail(`validate did not throw ${expected.name}`);
+        return expectRejection(() => validate(content), expected, message);
     }
 });
+
+async function expectRejection<T extends Error>(
+    call: () => Promise<void>,
+    expected: new (...params: never) => T,
+    message?: string,
+): Promise<T> {
+    try {
+        await call();
+    } catch (error) {
+        expect(error).to.be.instanceOf(expected);
+
+        if (message !== undefined) {
+            expect((error as T).message).to.equal(message);
+        }
+
+        return error as T;
+    }
+
+    return expect.fail(`the call did not throw ${expected.name}`);
+}
 
 function concat(...parts: Array<Uint8Array | Array<number>>): Uint8Array {
     return Buffer.concat(parts.map((part) => Uint8Array.from(part)));
