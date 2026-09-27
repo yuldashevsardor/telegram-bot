@@ -19,7 +19,8 @@ included:
   `{ "$queuedFile": { "path", "filename" } }`, and `deserialize()` rebuilds it through
   `queueFile()`; a marker without a string `path`, or with a `filename` that is not a string,
   throws `InvalidFileMarker`. The marker is the stored format: a change of its key leaves the
-  rows already written unreadable;
+  rows already written unreadable. An object of the payload that already carries the key throws
+  `ReservedFileKey` in `serialize()`: `deserialize()` would read it as a file;
 - any other `InputFile` throws `UnsupportedInputFile` with the method in the message and the
   payload: a `Buffer`, a stream or a supplier function lives only in the memory of this process.
 

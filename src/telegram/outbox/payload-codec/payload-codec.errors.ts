@@ -10,8 +10,19 @@ export class UnsupportedInputFile extends RuntimeError {
 
 export class InvalidFileMarker extends RuntimeError {
     public static byMarker(marker: unknown): InvalidFileMarker {
-        return new InvalidFileMarker("Stored payload has a file marker without a string path and an optional string file name.", {
-            marker: marker,
+        return new InvalidFileMarker(
+            "Stored payload has a file marker whose path is not a string or whose file name is neither a string nor absent.",
+            {
+                marker: marker,
+            },
+        );
+    }
+}
+
+export class ReservedFileKey extends RuntimeError {
+    public static inMethod(method: string): ReservedFileKey {
+        return new ReservedFileKey(`${method} got an object with the key $queuedFile, which the outbox keeps for a file marker.`, {
+            method: method,
         });
     }
 }

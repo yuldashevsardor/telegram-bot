@@ -1,9 +1,10 @@
 import { InputFile } from "grammy";
-import { InvalidFileMarker, UnsupportedInputFile } from "app/telegram/outbox/payload-codec/payload-codec.errors";
+import { InvalidFileMarker, ReservedFileKey, UnsupportedInputFile } from "app/telegram/outbox/payload-codec/payload-codec.errors";
 
 // The key of the object that stands for a file in a stored payload. It is part of the stored format:
 // rows written before a change of the key would not be read back. Bot API parameters are
-// snake_case, so no parameter of Telegram's own carries it.
+// snake_case, so no parameter of Telegram's own carries it; serialize() rejects an object that
+// does, or deserialize() would read it as a file.
 const FILE_KEY = "$queuedFile";
 
 // The files queueFile() made, each with its path. serialize() needs the path to store the file, and
@@ -51,10 +52,15 @@ export function queueFile(path: string, filename?: string): InputFile {
 
 /**
  * Turns a Bot API payload into a value for the outbox row. A file made by queueFile() becomes a
- * marker with its path; any other InputFile throws, since its data lives only in this process.
+ * marker with its path; any other InputFile throws, since its data lives only in this process, and
+ * so does an object that already carries the marker key.
  */
 export function serialize(method: string, payload: object): Record<string, unknown> {
     return rebuild(payload, (value) => {
+        if (isPlainObject(value) && FILE_KEY in value) {
+            throw ReservedFileKey.inMethod(method);
+        }
+
         if (!(value instanceof InputFile)) {
             return value;
         }

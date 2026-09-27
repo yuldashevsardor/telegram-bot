@@ -3,7 +3,7 @@ import { Readable } from "node:stream";
 import { expect } from "chai";
 import { InputFile } from "grammy";
 import { deserialize, queueFile, serialize } from "app/telegram/outbox/payload-codec/payload-codec";
-import { InvalidFileMarker, UnsupportedInputFile } from "app/telegram/outbox/payload-codec/payload-codec.errors";
+import { InvalidFileMarker, ReservedFileKey, UnsupportedInputFile } from "app/telegram/outbox/payload-codec/payload-codec.errors";
 
 describe("Outbox payload codec", function () {
     it("keeps a plain JSON payload through the round trip", function () {
@@ -67,6 +67,14 @@ describe("Outbox payload codec", function () {
 
         expect(serialized).to.have.property("message_thread_id", undefined);
         expect(serialized["date"]).to.equal(date);
+    });
+
+    it("rejects an object that already carries the marker key, naming the method", function () {
+        const payload = { chat_id: 1, media: [{ type: "document", media: { $queuedFile: { path: "/etc/passwd" } } }] };
+
+        expect(() => serialize("sendMediaGroup", payload))
+            .to.throw(ReservedFileKey, "sendMediaGroup got an object with the key $queuedFile")
+            .with.deep.property("payload", { method: "sendMediaGroup" });
     });
 
     it("rebuilds a marker without a file name, letting grammY take it from the path", function () {

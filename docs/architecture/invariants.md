@@ -127,7 +127,10 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   `UnsupportedInputFile` ([`outbox.md`](./outbox.md)). Inside a class instance or an object
   without a prototype it is not seen, and the call fails a step later, still on the node that
   queues it: the row goes through `JSON.stringify`, which calls grammY's `InputFile.toJSON()`, and
-  that throws a bare `Error` naming no method. A file does not get there from grammY's own
+  that throws a bare `Error` naming no method. A file grammY has already sent fails silently
+  instead: grammY replaces its `toJSON()` with one that returns `attach://<id>` (`collectFiles()`
+  in `core/payload.js`), the row stores that string, and Telegram rejects the call on the sending
+  node. A file does not get there from grammY's own
   builders: `InputMediaBuilder` (`convenience/input_media.js`) returns plain objects, and a
   keyboard class such as `InlineKeyboard` carries no file.
 - **The path of a `queueFile()` file must be on storage visible to every sending node.** Any node
