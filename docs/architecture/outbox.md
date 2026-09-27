@@ -13,8 +13,8 @@ another node can rebuild enters the outbox. `serialize(method, payload)`
 (`payload-codec/payload-codec.ts`) walks the payload deeply, the `media[]` of `sendMediaGroup`
 included:
 
-- plain JSON is copied as is. So is any other value (`undefined`, a `Date`): the row goes through
-  JSON the same way grammY sends a payload;
+- arrays and plain objects are copied; any other value (`undefined`, a `Date`) is kept as is: the
+  row goes through JSON the same way grammY sends a payload;
 - a file made by `queueFile(path, filename?)` becomes the marker
   `{ "$queuedFile": { "path", "filename" } }`, and `deserialize()` rebuilds it through
   `queueFile()`; a marker without a string `path`, or with a `filename` that is not a string,

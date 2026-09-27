@@ -6,7 +6,10 @@ import { InvalidFileMarker, UnsupportedInputFile } from "app/telegram/outbox/pay
 // snake_case, so no parameter of Telegram's own carries it.
 const FILE_KEY = "$queuedFile";
 
-// grammY keeps the source of an InputFile private, so the path is remembered here, by the factory.
+// The files queueFile() made, each with its path. serialize() needs the path to store the file, and
+// an InputFile does not give it back: grammY keeps the source private. A file found here goes into
+// the row as its path; one not found here holds data only this process has, and is rejected. A
+// WeakMap, so the record does not keep a dropped file in memory.
 const queuedFiles = new WeakMap<InputFile, string>();
 
 // Copies arrays and plain objects, replacing whatever swap() returns in place of a value. Other
@@ -33,7 +36,11 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && Object.getPrototypeOf(value) === Object.prototype;
 }
 
-/** An InputFile the outbox can store: it is sent by another node, which reads the file at `path`. */
+/**
+ * Makes the file of a call that goes through the outbox, in place of `new InputFile(path)`. The
+ * call is stored in the database and may be sent by another node, so the file travels as its path,
+ * and the sending node reads it from there. serialize() accepts no other InputFile.
+ */
 export function queueFile(path: string, filename?: string): InputFile {
     const file = new InputFile(path, filename);
 
