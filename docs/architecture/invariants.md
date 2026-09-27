@@ -119,6 +119,17 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
 - **`Runner.run()`/`stop()` are synchronous.** `stop()` only lowers a flag and does not wait for a
   task the loop has already taken: `handleTasks()` does not await its call to Telegram.
 
+## The outbox
+
+- **Only a serializable payload enters the outbox; a file goes in only through `queueFile()`.** An
+  `InputFile` from a `Buffer` or a stream compiles, as does a path passed to `new InputFile()`, and
+  fails only at runtime, in `serialize()`, with `UnsupportedInputFile`
+  ([`outbox.md`](./outbox.md)).
+- **The path of a `queueFile()` file must be on storage visible to every sending node.** Any node
+  may claim the row, and it reads the file at the stored path. A path on the local disk of the
+  node that queued it sends from that node and fails on every other one. A relative path is
+  resolved against the working directory of the sending node, not of the queuing one.
+
 ## Storage: migrations, `sessions`, `User`
 
 - **Migrations are append-only.** `node-pg-migrate` tracks the applied ones by file name. Editing

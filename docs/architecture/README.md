@@ -19,6 +19,8 @@ The runtime sequences live in the files of their subsystems:
   `ctx.api`, commands
 - [`outbound-queue.md`](./outbound-queue.md) — limits, partitions, the `Runner` loop, the path
   of an outgoing call
+- [`outbox.md`](./outbox.md) — the outbox in PostgreSQL that replaces the outbound queue: the
+  payload codec
 - [`font-convertor.md`](./font-convertor.md) — format pairs, the EOT codec, signatures, running
   the engine
 - [`user.md`](./user.md) — the entity, the repository, filling the context
@@ -130,6 +132,7 @@ src/
   telegram/                 grammY: commands, conversations, middleware, filters, session, locales (bot.md, i18n.md)
     user/                   the entity, the repository interface, the service, the PostgreSQL adapter (user.md)
     outbound-queue/         the outbound queue by keys, limits, the Runner loop (outbound-queue.md)
+    outbox/                 the outbox of Bot API calls in PostgreSQL: the payload codec (outbox.md)
   platform/                 adapters that know no module
     database/               Database (storage.md)
     logger/                 the Logger interface, the Level enum, ConsoleLogger, PinoLogger (logging.md)
