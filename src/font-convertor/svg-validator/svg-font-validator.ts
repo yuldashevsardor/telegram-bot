@@ -3,7 +3,7 @@ import { SaxesParser } from "saxes";
 import type { SaxesTagNS, XMLDecl } from "saxes";
 import { FileHelper } from "app/shared/fs/file-helper";
 import { BrokenFont, NoFont, NotSvg, NotXml } from "app/font-convertor/svg-validator/svg-font-validator.errors";
-import type { Encoding, OpenElement, Scan } from "app/font-convertor/svg-validator/svg-font-validator.types";
+import type { Encoding, NumericElement, OpenElement, Scan } from "app/font-convertor/svg-validator/svg-font-validator.types";
 import { FontRule } from "app/font-convertor/svg-validator/svg-font-validator.types";
 
 /**
@@ -42,12 +42,13 @@ export class SvgFontValidator {
 
     // The attribute form of <number> (§4.2): unlike path data, `5.` is not a number here.
     private static readonly NUMBER = /^[+-]?(?:\d+|\d*\.\d+)(?:[Ee][+-]?\d+)?$/;
-    // The attributes of type <number>: §20.3 for `font`, §20.4 for `glyph`; `missing-glyph` has the
-    // attributes of `glyph` (§20.5).
-    private static readonly NUMERIC_ATTRIBUTES: Record<"font" | "glyph" | "missing-glyph", Array<string>> = {
-        font: ["horiz-origin-x", "horiz-origin-y", "horiz-adv-x", "vert-origin-x", "vert-origin-y", "vert-adv-y"],
-        glyph: ["horiz-adv-x", "vert-origin-x", "vert-origin-y", "vert-adv-y"],
-        "missing-glyph": ["horiz-adv-x", "vert-origin-x", "vert-origin-y", "vert-adv-y"],
+    // The attributes of type <number>: §20.4 for `glyph`, the same for `missing-glyph` (§20.5), and
+    // the glyph origin on top of them for `font` (§20.3).
+    private static readonly GLYPH_NUMERIC_ATTRIBUTES = ["horiz-adv-x", "vert-origin-x", "vert-origin-y", "vert-adv-y"];
+    private static readonly NUMERIC_ATTRIBUTES: Record<NumericElement, Array<string>> = {
+        font: ["horiz-origin-x", "horiz-origin-y", ...SvgFontValidator.GLYPH_NUMERIC_ATTRIBUTES],
+        glyph: SvgFontValidator.GLYPH_NUMERIC_ATTRIBUTES,
+        "missing-glyph": SvgFontValidator.GLYPH_NUMERIC_ATTRIBUTES,
     };
 
     /**
@@ -165,12 +166,10 @@ export class SvgFontValidator {
                 break;
             case "glyph":
                 parent.hasGlyph = true;
-                this.checkNumbers(scan, element, tag, element.name);
-                this.checkAdvance(scan, element, tag, element.name);
+                this.checkMetrics(scan, element, tag, "glyph");
                 break;
             case "missing-glyph":
-                this.checkNumbers(scan, element, tag, element.name);
-                this.checkAdvance(scan, element, tag, element.name);
+                this.checkMetrics(scan, element, tag, "missing-glyph");
                 break;
         }
     }
@@ -183,11 +182,11 @@ export class SvgFontValidator {
         }
 
         if (!element.hasFontFace) {
-            this.report(scan, FontRule.FontFaceRequired, element.name, element.line);
+            this.report(scan, FontRule.FontFaceRequired, "font", element.line);
         }
 
         if (!element.hasGlyph) {
-            this.report(scan, FontRule.GlyphRequired, element.name, element.line);
+            this.report(scan, FontRule.GlyphRequired, "font", element.line);
         }
     }
 
@@ -197,8 +196,7 @@ export class SvgFontValidator {
             this.report(scan, FontRule.AdvanceRequired, "font", element.line);
         }
 
-        this.checkNumbers(scan, element, tag, "font");
-        this.checkAdvance(scan, element, tag, "font");
+        this.checkMetrics(scan, element, tag, "font");
     }
 
     private checkFontFace(scan: Scan, element: OpenElement, tag: SaxesTagNS): void {
@@ -215,7 +213,10 @@ export class SvgFontValidator {
         }
     }
 
-    private checkNumbers(scan: Scan, element: OpenElement, tag: SaxesTagNS, name: "font" | "glyph" | "missing-glyph"): void {
+    /**
+     * Checks the metrics: every attribute of type <number>, and that `horiz-adv-x` is not negative.
+     */
+    private checkMetrics(scan: Scan, element: OpenElement, tag: SaxesTagNS, name: NumericElement): void {
         for (const attribute of SvgFontValidator.NUMERIC_ATTRIBUTES[name]) {
             const value = this.attribute(tag, attribute);
 
@@ -223,9 +224,7 @@ export class SvgFontValidator {
                 this.report(scan, FontRule.Number, name, element.line, [attribute, value]);
             }
         }
-    }
 
-    private checkAdvance(scan: Scan, element: OpenElement, tag: SaxesTagNS, name: string): void {
         const advance = this.attribute(tag, "horiz-adv-x");
 
         // "Glyph widths are required to be non-negative" (§20.3, §20.4).

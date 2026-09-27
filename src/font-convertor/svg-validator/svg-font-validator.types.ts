@@ -21,6 +21,11 @@ export enum FontRule {
 }
 
 /**
+ * The elements whose attributes of type <number> the validator checks.
+ */
+export type NumericElement = "font" | "glyph" | "missing-glyph";
+
+/**
  * An element the scan has opened and not closed yet.
  */
 export type OpenElement = {
@@ -39,7 +44,7 @@ export type OpenElement = {
  * document that is not XML is "not XML" even when its well-formed head already broke a font rule.
  */
 export type Scan = {
-    /** Whether the DOCTYPE is the SVG 1.1 one: it binds unprefixed names to the SVG namespace. */
+    /** Whether the DOCTYPE is the SVG 1.1 one: it binds the default namespace and `xlink`, as its DTD fixes them. */
     svg11Doctype: boolean;
     /** The root element in Clark notation, `{namespace}local`. */
     root: string | undefined;
