@@ -19,8 +19,8 @@ The runtime sequences live in the files of their subsystems:
   `ctx.api`, commands
 - [`outbound-queue.md`](./outbound-queue.md) — limits, partitions, the `Runner` loop, the path
   of an outgoing call
-- [`outbox.md`](./outbox.md) — the outbox in PostgreSQL: the tables, the chat states, the
-  enqueue, the claim and the chat lock
+- [`outbox.md`](./outbox.md) — the outbox in PostgreSQL being built to replace the outbound
+  queue: the tables, the chat states, the enqueue, the claim, the chat lock and the payload codec
 - [`font-convertor.md`](./font-convertor.md) — format pairs, the EOT codec, signatures, the SVG
   validator, running the engine
 - [`user.md`](./user.md) — the entity, the repository, filling the context
@@ -58,7 +58,7 @@ Stack:
 
 - `font-convertor/` — the only domain one;
 - `telegram/` — what exists for the sake of Telegram (above): the bot, `User`, the outbound
-  queue and the outbox.
+  queue and the outbox that is being built to replace it.
 
 Around them stand three directories named by role:
 
@@ -132,7 +132,7 @@ src/
   telegram/                 grammY: commands, conversations, middleware, filters, session, locales (bot.md, i18n.md)
     user/                   the entity, the repository interface, the service, the PostgreSQL adapter (user.md)
     outbound-queue/         the outbound queue by keys, limits, the Runner loop (outbound-queue.md)
-    outbox/                 the outbox in PostgreSQL: the store of the rows and the claim (outbox.md)
+    outbox/                 the future outbox of Bot API calls in PostgreSQL: the store and the claim, the payload codec (outbox.md)
   platform/                 adapters that know no module
     database/               Database (storage.md)
     logger/                 the Logger interface, the Level enum, ConsoleLogger, PinoLogger (logging.md)

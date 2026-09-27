@@ -1,11 +1,11 @@
-# Outbox
+# Outbox (telegram/outbox/)
 
-Outgoing Bot API calls as rows in PostgreSQL, so that any node can send them, the order inside a
-chat holds across nodes, and a node that dies loses nothing. The plan and the decisions are in the
-epic, [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618). Built so far: the tables
-and `OutboxStore` (`telegram/outbox/store/outbox-store.ts`), which enqueues, claims and marks
-done. Nothing calls the store yet: outgoing calls still go through the in-memory queue
-([`outbound-queue.md`](./outbound-queue.md)).
+The outbox is being built to replace the in-memory outbound queue
+([`outbound-queue.md`](./outbound-queue.md)): outgoing Bot API calls become rows in PostgreSQL,
+any node sends them, the order inside a chat holds across nodes, and a node that dies loses
+nothing (the plan is epic [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)).
+Nothing calls the directory yet: so far it holds the tables with `OutboxStore`
+(`store/outbox-store.ts`), which enqueues, claims and marks done, and the payload codec.
 
 ## Tables
 
@@ -96,7 +96,7 @@ The claim does not look at the limits or the pause yet: `next_send_at` only orde
    otherwise the method returns `false` and changes nothing;
 3. the chat goes to `ready` with the priority of the next head, or to `idle`.
 
-## Code
+## The store in code
 
 The store has no interface of its own: no consumer dictates one yet ([`storage.md`](./storage.md)).
 It is SQL through and through, so it is in `DATABASE_ONLY_SOURCES` of `stryker.config.mjs` and its
@@ -104,3 +104,28 @@ spec is in `DATABASE_SPECS` ([`testing.md`](./testing.md), "Mutation testing").
 
 The ids come back as numbers: the driver returns `bigint` as a string, and the store converts it,
 as `PgSqlUserRepository` does ([`storage.md`](./storage.md), "`User.id`").
+
+## The payload rule
+
+A row outlives the process that wrote it and is sent by whichever node claims it, so only what
+another node can rebuild enters the outbox. `serialize(method, payload)`
+(`payload-codec/payload-codec.ts`) walks the payload deeply, the `media[]` of `sendMediaGroup`
+included:
+
+- arrays and plain objects are copied; any other value (`undefined`, a `Date`) is kept as is: the
+  row goes through JSON the same way grammY sends a payload;
+- a `PathFile` (`new PathFile(path, filename?)`, `telegram/path-file.ts`, a subclass of
+  `InputFile`) becomes the marker `{ "$pathFile": { "path", "filename" } }`, and `deserialize()`
+  rebuilds it as a `PathFile`; a marker without a string `path`, or with a `filename` that is not
+  a string, throws `InvalidFileMarker`. The marker is the stored format: a change of its key leaves
+  the rows already written unreadable. An object of the payload that already carries the key
+  throws `ReservedFileKey` in `serialize()`: `deserialize()` would read it as a file;
+- any other `InputFile` throws `UnsupportedInputFile` with the method in the message and the
+  payload: a `Buffer`, a stream or a supplier function lives only in the memory of this process.
+
+grammY keeps the source of an `InputFile` private, so `PathFile` keeps the path in a public
+field of its own. That is why a path passed to `new InputFile()` is rejected too: the codec cannot
+read it.
+
+The node that sends the row reads the file at the stored path. The rules this puts on the path are
+in [`invariants.md`](./invariants.md), "The outbox".
