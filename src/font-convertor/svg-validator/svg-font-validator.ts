@@ -67,6 +67,9 @@ export class SvgFontValidator {
     }
 
     private encodingOf(bytes: Uint8Array): Encoding {
+        // A half-matching head is rejected under either decoder. UTF-8 never holds 0xFE or 0xFF, and
+        // read as UTF-16 such a head does not open with `<`, whitespace or a BOM.
+        // Stryker disable next-line LogicalOperator,ConditionalExpression: `||` and `true` for either comparison are equivalent: they change only the text of the NotXml that rejects a head with one byte of a BOM
         const mark = SvgFontValidator.BYTE_ORDER_MARKS.find(([first, second]) => bytes[0] === first && bytes[1] === second);
 
         return mark?.[2] ?? "utf-8";
