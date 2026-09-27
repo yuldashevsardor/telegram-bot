@@ -27,7 +27,7 @@ once.
 | any `.sh` or `.py`; any `.ts` — not a comments-only `.ts` diff | `docs-sync` |
 | any `.ts` — not a comments-only `.ts` diff | `bug-hunt-high` |
 | `.sh` or `.py`, and either no `.ts` or only a comments-only `.ts` diff | `bug-hunt-medium` |
-| `.ts` inside `src/font-convertor/`, `src/shared/`, `src/telegram/outbound-queue/` — not a comments-only `.ts` diff | `smells` |
+| `.ts` inside `src/font-convertor/`, `src/shared/`, `src/telegram/outbound-queue/`, `src/telegram/outbox/` — not a comments-only `.ts` diff | `smells` |
 | any `.ts` — a comments-only `.ts` diff | `comments` |
 | `stryker.config.mjs`, `test/stryker-mocha-hook.cjs`, `test/mutation-record.ts`, `.mocharc.json`, `tsconfig.json`, `tsconfig.check.json` — not a comments-only diff | `mutation-full` |
 | any `.ts` in `src/` or `test/` — not a comments-only `.ts` diff, unless `mutation-full` is on | `mutation` |
@@ -159,11 +159,11 @@ to be rejected, at the cost of a full run.
 The sign of `smells` is "the code expresses rules rather than serving someone else's API", but
 the gate is decided by directory. `/review-pr` reads a diff only for signs a reading settles,
 such as a key of `package.json` or a comment against a line of code. Whether code expresses
-rules is a judgement, not such a sign. That is why `src/telegram/outbound-queue/` is in the
-list while the rest of `src/telegram/` is not: it holds the queue's algorithm, not a wrapper
-around grammY. The list is an allowlist on purpose, and that has a price: a new or moved module
-with rules drops out of the gate silently until it is written in here. The PR that creates or
-moves the module writes it in.
+rules is a judgement, not such a sign. That is why `src/telegram/outbound-queue/` and
+`src/telegram/outbox/` are in the list while the rest of `src/telegram/` is not: they hold the
+algorithm of the queue and of the outbox, not a wrapper around grammY. The list is an allowlist
+on purpose, and that has a price: a new or moved module with rules drops out of the gate silently
+until it is written in here. The PR that creates or moves the module writes it in.
 
 The level is built into the gate's name: the skill calls the built-in `code-review` with it.
 `bug-hunt-high` and `bug-hunt-medium` are a pair of rows that does not accumulate: there is

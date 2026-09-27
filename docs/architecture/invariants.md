@@ -119,6 +119,25 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
 - **`Runner.run()`/`stop()` are synchronous.** `stop()` only lowers a flag and does not wait for a
   task the loop has already taken: `handleTasks()` does not await its call to Telegram.
 
+## The outbox
+
+- **Only a serializable payload enters the outbox; a file goes in only as a `PathFile`.** An
+  `InputFile` from a `Buffer` or a stream compiles, as does a path passed to `new InputFile()`, and
+  fails only at runtime. In arrays and plain objects `serialize()` rejects it with
+  `UnsupportedInputFile` ([`outbox.md`](./outbox.md)). Inside a class instance or an object
+  without a prototype it is not seen, and the call fails a step later, still on the node that
+  queues it: the row goes through `JSON.stringify`, which calls grammY's `InputFile.toJSON()`, and
+  that throws a bare `Error` naming no method. A file grammY has already sent fails silently
+  instead: grammY replaces its `toJSON()` with one that returns `attach://<id>` (`collectFiles()`
+  in `core/payload.js`), the row stores that string, and Telegram rejects the call on the sending
+  node. A file does not get there from grammY's own builders: `InputMediaBuilder`
+  (`convenience/input_media.js`) returns plain objects, and a keyboard class such as
+  `InlineKeyboard` carries no file.
+- **The path of a `PathFile` must be on storage visible to every sending node.** Any node
+  may claim the row, and it reads the file at the stored path. A path on the local disk of the
+  node that queued it sends from that node and fails on every other one. A relative path is
+  resolved against the working directory of the sending node, not of the queuing one.
+
 ## Storage: migrations, `sessions`, `User`
 
 - **Migrations are append-only.** `node-pg-migrate` tracks the applied ones by file name. Editing
