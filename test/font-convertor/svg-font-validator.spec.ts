@@ -212,6 +212,15 @@ describe("SvgFontValidator.validate", function () {
             await expectAnswer(inline(XLINK_FONT), NotXml, 'File is not XML: 2:107: unbound namespace prefix: "xlink".');
         });
 
+        it("to an xlink attribute repeated through another prefix under the SVG 1.1 DOCTYPE", async function () {
+            // The DOCTYPE binds xlink to the XLink namespace itself, so xl:href is the same attribute.
+            await expectAnswer(
+                `${SVG11_DOCTYPE}<svg><a xlink:href="a" xl:href="b" xmlns:xl="http://www.w3.org/1999/xlink"/></svg>`,
+                NotXml,
+                "File is not XML: 1:174: duplicate attribute: {http://www.w3.org/1999/xlink}href.",
+            );
+        });
+
         it("to an unbound prefix under the SVG 1.1 DOCTYPE", async function () {
             // The DOCTYPE binds only the prefixes the DTD fixes.
             await expectAnswer(`${SVG11_DOCTYPE}<svg><x:font/></svg>`, NotXml, 'File is not XML: 1:112: unbound namespace prefix: "x".');

@@ -236,7 +236,7 @@ export class SvgFontValidator {
 
     // The sign is read off the text of a number: `Number()` takes `1e-999` to zero.
     private sign(value: string): number {
-        const mantissa = value.replace(/[Ee].*/, "");
+        const mantissa = value.slice(0, value.search(/[Ee]|$/));
 
         if (!/[1-9]/.test(mantissa)) {
             return 0;
