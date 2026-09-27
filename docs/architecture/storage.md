@@ -43,6 +43,11 @@ bodies need no placeholder in the stub and no exception for a fresh migration: i
 The stub's `.ts` extension is mandatory: `node-pg-migrate` takes the extension of the file it
 creates from the name of the stub.
 
+`createTable` of `node-pg-migrate` 9 takes no storage parameters (its `TableOptions` has no such
+field). So a table's `fillfactor` and autovacuum settings go into the same migration as
+`alter table … set (…)` through `pgm.sql`, as the outbox tables do
+([`outbox.md`](./outbox.md)).
+
 ## Sessions
 
 `PgsqlStorage` (`telegram/session/pgsql-storage.ts`) writes `sessions` directly, with a

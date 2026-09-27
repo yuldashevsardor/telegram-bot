@@ -119,6 +119,14 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
 - **`Runner.run()`/`stop()` are synchronous.** `stop()` only lowers a flag and does not wait for a
   task the loop has already taken: `handleTasks()` does not await its call to Telegram.
 
+## The outbox
+
+- **Whatever changes the state of an outbox chat locks the chat row first and reads the head in a
+  later statement**, as `OutboxStore.markDone()` does ([`outbox.md`](./outbox.md), "The chat
+  lock"). A single statement reads its snapshot before it waits for the lock. A message enqueued
+  meanwhile then stays `pending` in an `idle` chat and is never sent. The spec lines up only
+  `enqueue` against `markDone`: a new path that changes a chat state is checked by nothing.
+
 ## Storage: migrations, `sessions`, `User`
 
 - **Migrations are append-only.** `node-pg-migrate` tracks the applied ones by file name. Editing
