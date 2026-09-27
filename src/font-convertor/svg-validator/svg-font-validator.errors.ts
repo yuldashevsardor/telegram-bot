@@ -1,0 +1,49 @@
+import { RuntimeError } from "app/shared/errors";
+import type { Encoding, FontRule } from "app/font-convertor/svg-validator/svg-font-validator.types";
+
+/**
+ * The file is not a valid SVG font. `SvgFontValidator` answers with one of the subclasses, and a
+ * caller tells them apart by `instanceof`.
+ */
+export class InvalidSvgFont extends RuntimeError {}
+
+export class NotXml extends InvalidSvgFont {
+    public static byEncoding(encoding: Encoding, cause: Error): NotXml {
+        return new NotXml(`File is not XML: its bytes are not valid ${encoding}.`, {
+            encoding: encoding,
+            cause: cause,
+        });
+    }
+
+    public static byParser(cause: Error): NotXml {
+        return new NotXml(`File is not XML: ${cause.message}`, cause);
+    }
+}
+
+export class NotSvg extends InvalidSvgFont {
+    public static byRoot(root: string, expected: string): NotSvg {
+        return new NotSvg(`File is not SVG: the root element is ${root}, expected ${expected}.`, {
+            root: root,
+        });
+    }
+}
+
+export class NoFont extends InvalidSvgFont {
+    public static inDocument(): NoFont {
+        return new NoFont("SVG has no font element in the SVG namespace.");
+    }
+}
+
+export class BrokenFont extends InvalidSvgFont {
+    public static byRule(rule: FontRule, element: string, line: number, attribute?: [string, string]): BrokenFont {
+        const where = attribute === undefined ? `<${element}>` : `<${element}> with ${attribute[0]}=${JSON.stringify(attribute[1])}`;
+
+        return new BrokenFont(`SVG font breaks a rule: ${rule}. At line ${line}: ${where}.`, {
+            rule: rule,
+            element: element,
+            line: line,
+            attribute: attribute?.[0],
+            value: attribute?.[1],
+        });
+    }
+}
