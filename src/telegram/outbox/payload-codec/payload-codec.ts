@@ -7,12 +7,6 @@ import { InvalidFileMarker, ReservedFileKey, UnsupportedInputFile } from "app/te
 // does, or deserialize() would read it as a file.
 const FILE_KEY = "$queuedFile";
 
-// The files queueFile() made, each with its path. serialize() needs the path to store the file, and
-// an InputFile does not give it back: grammY keeps the source private. A file found here goes into
-// the row as its path; one not found here holds data only this process has, and is rejected. A
-// WeakMap, so the record does not keep a dropped file in memory.
-const queuedFiles = new WeakMap<InputFile, string>();
-
 // Copies arrays and plain objects, replacing whatever swap() returns in place of a value. Other
 // values are kept as they are: the row is written through JSON, as grammY sends them.
 function rebuild(value: unknown, swap: (value: unknown) => unknown): unknown {
@@ -38,20 +32,23 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Makes the file of a call that goes through the outbox, in place of `new InputFile(path)`. The
- * call is stored in the database and may be sent by another node, so the file travels as its path,
- * and the sending node reads it from there. serialize() accepts no other InputFile.
+ * The file of a call that goes through the outbox, in place of `new InputFile(path)`. The call is
+ * stored in the database and may be sent by another node, so the file travels as its path, and the
+ * sending node reads it from there. serialize() accepts no other InputFile: grammY keeps the source
+ * of an InputFile private, so only this class can tell the codec its path.
  */
-export function queueFile(path: string, filename?: string): InputFile {
-    const file = new InputFile(path, filename);
+export class QueuedFile extends InputFile {
+    public readonly path: string;
 
-    queuedFiles.set(file, path);
+    public constructor(path: string, filename?: string) {
+        super(path, filename);
 
-    return file;
+        this.path = path;
+    }
 }
 
 /**
- * Turns a Bot API payload into a value for the outbox row. A file made by queueFile() becomes a
+ * Turns a Bot API payload into a value for the outbox row. A QueuedFile becomes a
  * marker with its path; any other InputFile throws, since its data lives only in this process, and
  * so does an object that already carries the marker key.
  */
@@ -65,17 +62,15 @@ export function serialize(method: string, payload: object): Record<string, unkno
             return value;
         }
 
-        const path = queuedFiles.get(value);
-
-        if (path === undefined) {
+        if (!(value instanceof QueuedFile)) {
             throw UnsupportedInputFile.inMethod(method);
         }
 
-        return { [FILE_KEY]: { path: path, filename: value.filename } };
+        return { [FILE_KEY]: { path: value.path, filename: value.filename } };
     }) as Record<string, unknown>;
 }
 
-/** Rebuilds the payload serialize() made, with a queueFile() file in place of each marker. */
+/** Rebuilds the payload serialize() made, with a QueuedFile in place of each marker. */
 export function deserialize(payload: Record<string, unknown>): Record<string, unknown> {
     return rebuild(payload, (value) => {
         if (!isPlainObject(value) || !(FILE_KEY in value)) {
@@ -92,6 +87,6 @@ export function deserialize(payload: Record<string, unknown>): Record<string, un
             throw InvalidFileMarker.byMarker(marker);
         }
 
-        return queueFile(marker["path"], marker["filename"]);
+        return new QueuedFile(marker["path"], marker["filename"]);
     }) as Record<string, unknown>;
 }

@@ -15,18 +15,18 @@ included:
 
 - arrays and plain objects are copied; any other value (`undefined`, a `Date`) is kept as is: the
   row goes through JSON the same way grammY sends a payload;
-- a file made by `queueFile(path, filename?)` becomes the marker
-  `{ "$queuedFile": { "path", "filename" } }`, and `deserialize()` rebuilds it through
-  `queueFile()`; a marker without a string `path`, or with a `filename` that is not a string,
+- a `QueuedFile` (`new QueuedFile(path, filename?)`, a subclass of `InputFile`) becomes the marker
+  `{ "$queuedFile": { "path", "filename" } }`, and `deserialize()` rebuilds it as a `QueuedFile`; a
+  marker without a string `path`, or with a `filename` that is not a string,
   throws `InvalidFileMarker`. The marker is the stored format: a change of its key leaves the
   rows already written unreadable. An object of the payload that already carries the key throws
   `ReservedFileKey` in `serialize()`: `deserialize()` would read it as a file;
 - any other `InputFile` throws `UnsupportedInputFile` with the method in the message and the
   payload: a `Buffer`, a stream or a supplier function lives only in the memory of this process.
 
-grammY keeps the source of an `InputFile` private, so `queueFile()` remembers the path itself, in
-a `WeakMap` keyed by the file. That is why a path passed to `new InputFile()` is rejected too: the
-codec cannot read it.
+grammY keeps the source of an `InputFile` private, so `QueuedFile` keeps the path in a public
+field of its own. That is why a path passed to `new InputFile()` is rejected too: the codec cannot
+read it.
 
 The node that sends the row reads the file at the stored path. The rules this puts on the path are
 in [`invariants.md`](./invariants.md), "The outbox".

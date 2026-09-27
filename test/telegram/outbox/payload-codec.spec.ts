@@ -2,7 +2,7 @@ import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import { expect } from "chai";
 import { InputFile } from "grammy";
-import { deserialize, queueFile, serialize } from "app/telegram/outbox/payload-codec/payload-codec";
+import { deserialize, QueuedFile, serialize } from "app/telegram/outbox/payload-codec/payload-codec";
 import { InvalidFileMarker, ReservedFileKey, UnsupportedInputFile } from "app/telegram/outbox/payload-codec/payload-codec.errors";
 
 describe("Outbox payload codec", function () {
@@ -20,7 +20,7 @@ describe("Outbox payload codec", function () {
     });
 
     it("stores a queued file as a marker with its path and file name", function () {
-        const payload = { chat_id: 1, document: queueFile("/data/fonts/result.woff2") };
+        const payload = { chat_id: 1, document: new QueuedFile("/data/fonts/result.woff2") };
 
         // The marker is the stored format: rows already in the table are read back by it.
         expect(serialize("sendDocument", payload)).to.deep.equal({
@@ -30,12 +30,13 @@ describe("Outbox payload codec", function () {
     });
 
     it("rebuilds a queued file from its marker", function () {
-        const payload = { chat_id: 1, document: queueFile("/data/fonts/result.woff2", "Font.woff2"), caption: "done" };
+        const payload = { chat_id: 1, document: new QueuedFile("/data/fonts/result.woff2", "Font.woff2"), caption: "done" };
 
         const restored = roundTrip("sendDocument", payload);
 
-        expect(restored["document"]).to.be.instanceOf(InputFile);
-        expect((restored["document"] as InputFile).filename).to.equal("Font.woff2");
+        expect(restored["document"]).to.be.instanceOf(QueuedFile);
+        expect((restored["document"] as QueuedFile).path).to.equal("/data/fonts/result.woff2");
+        expect((restored["document"] as QueuedFile).filename).to.equal("Font.woff2");
         expect(restored["caption"]).to.equal("done");
         expect(serialize("sendDocument", restored)).to.deep.equal(serialize("sendDocument", payload));
     });
@@ -44,18 +45,18 @@ describe("Outbox payload codec", function () {
         const payload = {
             chat_id: 1,
             media: [
-                { type: "document", media: queueFile("/data/fonts/a.ttf") },
+                { type: "document", media: new QueuedFile("/data/fonts/a.ttf") },
                 { type: "document", media: "AgACAgIAAxkBAAI", caption: "by file_id" },
-                { type: "document", media: queueFile("/data/fonts/b.otf"), thumbnail: queueFile("/data/fonts/b.jpg") },
+                { type: "document", media: new QueuedFile("/data/fonts/b.otf"), thumbnail: new QueuedFile("/data/fonts/b.jpg") },
             ],
         };
 
         const restored = roundTrip("sendMediaGroup", payload);
         const media = restored["media"] as Array<Record<string, unknown>>;
 
-        expect(media[0]?.["media"]).to.be.instanceOf(InputFile);
+        expect(media[0]?.["media"]).to.be.instanceOf(QueuedFile);
         expect(media[1]).to.deep.equal(payload.media[1]);
-        expect(media[2]?.["thumbnail"]).to.be.instanceOf(InputFile);
+        expect(media[2]?.["thumbnail"]).to.be.instanceOf(QueuedFile);
         expect(serialize("sendMediaGroup", restored)).to.deep.equal(serialize("sendMediaGroup", payload));
     });
 
@@ -80,7 +81,7 @@ describe("Outbox payload codec", function () {
     it("rebuilds a marker without a file name, letting grammY take it from the path", function () {
         const restored = deserialize({ document: { $queuedFile: { path: "/data/fonts/result.woff2" } } });
 
-        expect((restored["document"] as InputFile).filename).to.equal("result.woff2");
+        expect((restored["document"] as QueuedFile).filename).to.equal("result.woff2");
     });
 
     describe("rejects a malformed file marker", function () {
@@ -101,7 +102,7 @@ describe("Outbox payload codec", function () {
         }
     });
 
-    describe("rejects an InputFile not made by queueFile(), naming the method", function () {
+    describe("rejects an InputFile that is not a QueuedFile, naming the method", function () {
         const sources: Array<[string, () => ConstructorParameters<typeof InputFile>[0]]> = [
             ["a path", (): string => "/data/fonts/result.woff2"],
             ["a Buffer", (): Buffer => Buffer.from("font")],
@@ -139,7 +140,7 @@ describe("Outbox payload codec", function () {
             const payload = {
                 chat_id: 1,
                 media: [
-                    { type: "document", media: queueFile("/data/fonts/a.ttf") },
+                    { type: "document", media: new QueuedFile("/data/fonts/a.ttf") },
                     { type: "document", media: new InputFile(Buffer.from("font")) },
                 ],
             };
