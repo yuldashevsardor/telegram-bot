@@ -166,8 +166,8 @@ XML is parsed with `saxes` (XML 1.0 fifth edition and Namespaces in XML, non-val
 chosen by measurement, with expat as the reference: of 38 malformed documents it accepted none,
 while `@xmldom/xmldom` 0.9.12 accepted 6 even with every level it reports escalated (`&#0;`, a bare
 `&`, `]]>` in text, a control character, NUL, rebinding the `xml` prefix). Both reject a document
-that uses an entity declared in its own DOCTYPE; none of the 31 real SVG fonts checked for
-[#610](https://github.com/yuldashevsardor/telegram-bot/issues/610) does. The price:
+that uses an entity declared in its own DOCTYPE; none of the 26 distinct real SVG fonts checked
+for [#610](https://github.com/yuldashevsardor/telegram-bot/issues/610) does. The price:
 the repository of `saxes` is archived and the last release is 6.0.0 of 2021, so a bug found in it
 will not be fixed upstream. It loads no external files and expands no entities beyond the
 predefined ones.
