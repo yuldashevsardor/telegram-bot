@@ -45,8 +45,9 @@ pair class gets what it does not need:
   eight pairs. Their bodies live in `ToEotConvertor` and `FromEotConvertor`. The eight classes
   are empty except for declaring the missing extension.
 
-`EotPacker` (`eot-packer/`) is the only place where the domain parses the content of a font, not
-just its first bytes. The EOT header duplicates the metadata of the enclosed font. `SfntReader`
+`EotPacker` (`eot-packer/`) is the only place on the conversion path where the domain parses the
+content of a font, not just its first bytes (the SVG validator below is not on that path yet). The
+EOT header duplicates the metadata of the enclosed font. `SfntReader`
 takes it from the `OS/2`, `head` and `name` tables. The envelope holds four names, in UTF-16LE. The
 slant is taken from `OS/2.fsSelection`, not from `head.macStyle`, which duplicates it. `ttf2eot`
 does the same. Besides, in `macStyle` the slant is bit 1, and bit 1 of `fsSelection` means something
@@ -130,6 +131,51 @@ counted from the prefix's end.
   indent.
 - The maximum prefix length is built into `headLength`, because skipped bytes shorten the useful
   part of the head.
+
+## The SVG validator
+
+`SvgFontValidator` (`svg-validator/`) reads the whole file and checks it against W3C SVG 1.1
+Second Edition, chapter 20 "Fonts". SVG 2 removed SVG fonts, so 1.1 is the reference. It is to
+replace the SVG signature, which rejects real fonts and admits anything that opens with `<`. No
+convertor calls it yet: the SVG pairs still check the signature alone.
+
+It answers with a subclass of `InvalidSvgFont`, in this order: `NotXml`, `NotSvg`, `NoFont`,
+`BrokenFont`. The order holds because the answers are given after one full pass over the document:
+a file that breaks off halfway is "not XML" even if its well-formed head already broke a font rule.
+Of several broken rules, `BrokenFont` names the first the pass met.
+
+- **Not XML.** The decoder is picked by the BOM: `FF FE` and `FE FF` are UTF-16, anything else
+  UTF-8, since XML 1.0 §4.3.3 requires the BOM for UTF-16. `TextDecoder` runs with `fatal`, because
+  bytes outside the encoding are a fatal error in XML. An encoding declaration naming another
+  encoding than the one read is "not XML" too, even in an ASCII-only file that would read the same
+  in both.
+- **Not SVG.** The root is `svg` in the SVG namespace. A root without `xmlns` still counts under
+  the SVG 1.1 DOCTYPE (`-//W3C//DTD SVG 1.1//EN`): the DTD declares `xmlns` of `svg` `#FIXED` to
+  the SVG namespace (Appendix A.3.3), and Font Awesome 4.7 is written this way. It fixes
+  `xmlns:xlink` the same way. The parser does not read the DTD, so the validator binds both prefixes
+  itself (`resolvePrefix`).
+- **No font, broken font.** Only the fonts are checked against the specification, not the rest of
+  the document. `font-face` and `glyph` count only as direct children of `font` in the SVG
+  namespace, and only unprefixed attributes are attributes of these elements. The rules are
+  `FontRule` in `svg-font-validator.types.ts`; the text of each names its section. Two of them are
+  ours, not the specification's, and say so: `units-per-em` is required (the specification defaults
+  it to 1000, but fontforge does not open a font without it), and a font needs a `glyph` (the
+  specification allows none, but fontforge turns such a font into an empty one). The path data of
+  `d` is not checked yet ([#611](https://github.com/yuldashevsardor/telegram-bot/issues/611)).
+
+XML is parsed with `saxes` (XML 1.0 fifth edition and Namespaces in XML, non-validating). It was
+chosen by measurement, with expat as the reference: of 38 malformed documents it accepted none,
+while `@xmldom/xmldom` 0.9.12 accepted 6 even with every level it reports escalated (`&#0;`, a bare
+`&`, `]]>` in text, a control character, NUL, rebinding the `xml` prefix). Both reject a document
+that uses an entity declared in its own DOCTYPE; none of the 26 distinct real SVG fonts checked
+for [#610](https://github.com/yuldashevsardor/telegram-bot/issues/610) does. The price:
+the repository of `saxes` is archived and the last release is 6.0.0 of 2021, so a bug found in it
+will not be fixed upstream. It loads no external files and expands no entities beyond the
+predefined ones.
+
+`saxes` is created with `forceXMLVersion`: by the fifth edition of XML 1.0 a document declaring
+another 1.x version is read as 1.0. Without an error handler it throws a bare `Error`; the handler
+wraps it into `NotXml`, and the encoding check reports through the same `parser.fail()`.
 
 ## The pair table
 
