@@ -14,17 +14,17 @@ export class PgsqlStorage implements StorageAdapter<SessionPayload> {
 
     public async delete(key: string): Promise<void> {
         await this.sql`
-            delete
-            from sessions
-            where key = ${key}
+            DELETE
+            FROM sessions
+            WHERE key = ${key}
         `;
     }
 
     public async read(key: string): Promise<SessionPayload | undefined> {
         const rows = await this.sql<SessionRow[]>`
-            select *
-            from sessions
-            where key = ${key}
+            SELECT *
+            FROM sessions
+            WHERE key = ${key}
         `;
 
         const row = rows[0];
@@ -38,9 +38,9 @@ export class PgsqlStorage implements StorageAdapter<SessionPayload> {
 
     public async write(key: string, value: SessionPayload): Promise<void> {
         await this.sql`
-            insert into sessions
-            values (${key}, ${this.sql.json(value)}) on conflict (key) do
-            update set
+            INSERT INTO sessions
+            VALUES (${key}, ${this.sql.json(value)}) ON CONFLICT (key) DO
+            UPDATE SET
                 value = EXCLUDED.value,
                 updated_time = now()
         `;

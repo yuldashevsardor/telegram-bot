@@ -30,7 +30,7 @@ describe("PgSqlUserRepository", function () {
     });
 
     beforeEach(async function () {
-        await database.sql`truncate users`;
+        await database.sql`TRUNCATE users`;
     });
 
     after(async function () {
