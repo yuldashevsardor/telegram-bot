@@ -118,6 +118,14 @@ describe("SvgFontValidator.validate", function () {
             await validate(inline(`<font horiz-adv-x="500"><font-face units-per-em="1e999"/>${GLYPH}</font>`));
         });
 
+        it("with glyph outlines in path data, an empty one included", async function () {
+            await validate(
+                inline(
+                    `<font horiz-adv-x="500">${FONT_FACE}<missing-glyph d="M0 0h500v700h-500z"/><glyph d="M 100-200 L0.6.5"/><glyph d=""/></font>`,
+                ),
+            );
+        });
+
         it("ignoring prefixed attributes and elements outside a font", async function () {
             // Only unprefixed attributes are SVG attributes of these elements, and a glyph outside
             // a font is no part of it.
@@ -415,6 +423,30 @@ describe("SvgFontValidator.validate", function () {
                 'SVG font breaks a rule: horiz-adv-x is not negative (SVG 1.1, §20.3, §20.4). At line 2: <font> with horiz-adv-x="-1e-999".',
             );
         });
+
+        for (const element of ["glyph", "missing-glyph"]) {
+            it(`to d of ${element} that is not path data`, async function () {
+                const glyphs: Record<string, string> = {
+                    glyph: '<glyph d="L0 0"/>',
+                    "missing-glyph": `<missing-glyph d="L0 0"/>${GLYPH}`,
+                };
+
+                const error = await expectAnswer(
+                    inline(`<font horiz-adv-x="500">${FONT_FACE}${glyphs[element] as string}</font>`),
+                    BrokenFont,
+                    `SVG font breaks a rule: d of a glyph is path data (SVG 1.1, §8.3.9, §20.4). At line 2: <${element}> with d="L0 0".`,
+                );
+
+                expect(error.payload).to.deep.equal({
+                    rule: FontRule.PathData,
+                    element: element,
+                    line: 2,
+                    attribute: "d",
+                    value: "L0 0",
+                    valueLength: 4,
+                });
+            });
+        }
 
         it("to a font without a font-face child", async function () {
             const message = "SVG font breaks a rule: font has a font-face child (SVG 1.1, §20.3). At line 2: <font>.";

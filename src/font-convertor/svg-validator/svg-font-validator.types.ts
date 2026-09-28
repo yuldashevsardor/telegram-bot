@@ -17,6 +17,7 @@ export enum FontRule {
     FontFaceRequired = "font has a font-face child (SVG 1.1, §20.3)",
     UnitsPerEmRequired = "font-face has units-per-em (ours: fontforge does not open a font without it)",
     PositiveUnitsPerEm = "units-per-em is positive (SVG 1.1, §20.8.3)",
+    PathData = "d of a glyph is path data (SVG 1.1, §8.3.9, §20.4)",
     GlyphRequired = "font has a glyph child (ours: fontforge turns a font without glyphs into an empty one)",
 }
 
