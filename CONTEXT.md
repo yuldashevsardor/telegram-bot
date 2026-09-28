@@ -112,7 +112,7 @@ as the same bytes, but it does not tell styles apart and cannot select a font by
 
 **Glyphs and metrics**:
 Not part of the domain. From a font the service reads the format signature, the metadata for the
-envelope and, in an SVG, the rules of an SVG font, which reach the glyph advances too. It does not
-parse the outlines, so it can neither list the glyphs nor compare them before and after a
-conversion. The domain currently neither expresses nor checks whether glyphs and metrics
-survive a conversion.
+envelope and, in an SVG, the rules of an SVG font, which reach the glyph advances and the syntax of
+the outlines too. It does not interpret the outlines, so it can neither list the glyphs nor compare
+them before and after a conversion. The domain currently neither expresses nor checks whether glyphs
+and metrics survive a conversion.

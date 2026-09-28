@@ -8,7 +8,7 @@ import { Extension } from "app/font-convertor/font-convertor.types";
 import { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-signature-matcher";
 import { SvgFontValidator } from "app/font-convertor/svg-validator/svg-font-validator";
-import { FileHelper } from "app/shared/fs/file-helper";
+import { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
 import { InvalidPath } from "app/shared/fs/file-helper.errors";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
@@ -18,9 +18,8 @@ const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 // that the pair is reachable. Each pair calls the check itself, so a rejection is pinned for each.
 // The branches of the check itself run in convertor.spec.ts.
 describe("Convertors of the engine pairs", function () {
-    const matcher = new FontSignatureMatcher();
-    const validator = new SvgFontValidator();
-    const factory = new ConvertorFactory(new FontForge("fontforge"), matcher, validator, new EotPacker());
+    const resolver = new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator());
+    const factory = new ConvertorFactory(new FontForge("fontforge"), resolver, new EotPacker());
     const engineExtensions = factory.getSupportedExtensions().filter((extension) => extension !== Extension.EOT);
     let workDir: string;
 
@@ -39,7 +38,8 @@ describe("Convertors of the engine pairs", function () {
 
                 await factory.get(fromExtension, toExtension).convert(path.join(fixtureDir, `test-font.${fromExtension}`), toPath);
 
-                await expectFormat(toPath, toExtension);
+                // The result is checked by the validator a source of its format meets.
+                await resolver.get(toExtension).validate(toPath);
             });
 
             it(`refuses to write ${fromExtension} to ${toExtension} over an existing file`, async function () {
@@ -72,20 +72,8 @@ describe("Convertors of the engine pairs", function () {
 
             await factory.get(Extension.SVG, Extension.WOFF).convert(fromPath, toPath);
 
-            await expectFormat(toPath, Extension.WOFF);
+            await resolver.get(Extension.WOFF).validate(toPath);
         });
-    }
-
-    // SVG has no signature, so an SVG result is checked by the validator.
-    async function expectFormat(filePath: string, extension: Extension): Promise<void> {
-        if (extension === Extension.SVG) {
-            await validator.validate(filePath);
-
-            return;
-        }
-
-        const head = await FileHelper.readHead(filePath, matcher.headLength);
-        expect(matcher.matches(head, extension), "the result is not in the target format").to.be.true;
     }
 
     function rejectionOf(call: () => Promise<unknown>): Promise<unknown> {

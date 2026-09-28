@@ -8,9 +8,8 @@ FontConvertor.convert({ originPath, extension })
     directory)
   → ConvertorFactory.get(from, to): from the pair table, one class per pair,
     convertor/<from>/<from>-to-<to>.ts
-  → Convertor.validate(): the source exists and is readable, its extension matches, the start of
-    the file matches the format signature (an SVG source passes SvgFontValidator instead); the
-    result path does not exist
+  → Convertor.validate(): the source exists and is readable, its extension matches, the validator
+    of its format accepts it (FontValidatorResolver); the result path does not exist
   → FontForge.convert(): fontforge -c '<script>' SRC DIST through ProcessHelper.run
 ```
 
@@ -77,12 +76,15 @@ script text.
 
 ## Signatures
 
-The source format is checked twice: by the extension of the name and by the content. For five
-formats the content is the signature: the first `headLength` bytes of the file
-(`FontSignatureMatcher`, a singleton in the container). SVG has no signature: its first bytes could
-say at most "this is markup", not "this is a font", so the SVG validator below reads the whole
-document instead. The name is set by whoever sent the file, so the extension alone cannot be
-trusted. The code recognises the signatures itself, without an external tool. `file --mime-type`
+The source format is checked twice: by the extension of the name and by the content. The content
+is checked by a `FontValidator` (`validator/`), each of which knows one format.
+`FontValidatorResolver`, a singleton in the container, builds them once and gives a pair the one
+of its source format, so a pair holds the resolver and none of the checks. For five formats the
+validator is `SignatureFontValidator`: the first `headLength` bytes of the file against the
+signature (`FontSignatureMatcher`, a singleton in the container). SVG has no signature: its first
+bytes could say at most "this is markup", not "this is a font", so `SvgFontValidator` below reads
+the whole document instead. The name is set by whoever sent the file, so the extension alone cannot
+be trusted. The code recognises the signatures itself, without an external tool. `file --mime-type`
 gives no usable answer for three of the five formats: none at all for EOT, and for TTF and OTF the
 answer also depends on the libmagic version.
 
@@ -114,7 +116,7 @@ turn the check into a search for the marker anywhere.
 
 `SvgFontValidator` (`svg-validator/`, a singleton in the container) reads the whole file and checks
 it against W3C SVG 1.1 Second Edition, chapter 20 "Fonts". SVG 2 removed SVG fonts, so 1.1 is the
-reference. `Convertor.validate()` calls it for an SVG source in place of a signature, and its
+reference. `FontValidatorResolver` gives it out for an SVG source in place of a signature, and its
 answer leaves the pair unchanged: `FontConvertor` wraps it in `FontConvertorError` as the cause,
 like any failure of the pair. A rejected source never reaches the engine. The engine's SVG output
 is not checked: the validator sees only the source.

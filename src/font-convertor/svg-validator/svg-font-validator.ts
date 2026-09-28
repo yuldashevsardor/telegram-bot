@@ -6,6 +6,7 @@ import { isPathData } from "app/font-convertor/svg-validator/path-data";
 import { BrokenFont, NoFont, NotSvg, NotXml } from "app/font-convertor/svg-validator/svg-font-validator.errors";
 import type { Encoding, NumericElement, OpenElement, Scan } from "app/font-convertor/svg-validator/svg-font-validator.types";
 import { FontRule } from "app/font-convertor/svg-validator/svg-font-validator.types";
+import type { FontValidator } from "app/font-convertor/validator/font-validator";
 
 /**
  * Checks an SVG font against W3C SVG 1.1 Second Edition, chapter 20 "Fonts". SVG 2 removed SVG
@@ -13,7 +14,7 @@ import { FontRule } from "app/font-convertor/svg-validator/svg-font-validator.ty
  * document.
  */
 @injectable()
-export class SvgFontValidator {
+export class SvgFontValidator implements FontValidator {
     private static readonly SVG_NAMESPACE = "http://www.w3.org/2000/svg";
     private static readonly XLINK_NAMESPACE = "http://www.w3.org/1999/xlink";
     private static readonly SVG_ROOT = `{${SvgFontValidator.SVG_NAMESPACE}}svg`;

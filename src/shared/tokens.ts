@@ -20,9 +20,9 @@ export const Tokens = {
         Database: Symbol.for("PlatformDatabase"),
     },
     // The branches inside Font are named after the notions of the subject area (CONTEXT.md): the
-    // format signature, the envelope, the conversion engine, and SVG, the one format confirmed by
-    // validation instead of a signature. A second engine or a second codec of the envelope will lie
-    // next to its own notion, and not a single @inject will move because of it.
+    // format signature, the envelope, the conversion engine, and the validator that confirms the
+    // format of a source. A second engine or a second codec of the envelope will lie next to its own
+    // notion, and not a single @inject will move because of it.
     Font: {
         Convertor: {
             Convertor: Symbol.for("FontConvertorConvertor"),
@@ -31,8 +31,9 @@ export const Tokens = {
         Signature: {
             Matcher: Symbol.for("FontSignatureMatcher"),
         },
-        Svg: {
-            Validator: Symbol.for("FontSvgValidator"),
+        Validator: {
+            Resolver: Symbol.for("FontValidatorResolver"),
+            Svg: Symbol.for("FontValidatorSvg"),
         },
         Envelope: {
             Packer: Symbol.for("FontEnvelopePacker"),

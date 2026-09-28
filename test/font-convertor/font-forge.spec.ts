@@ -9,6 +9,7 @@ import { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { ExecuteError, ExtensionNotSupport } from "app/font-convertor/font-forge/font-forge.errors";
 import { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-signature-matcher";
 import { SvgFontValidator } from "app/font-convertor/svg-validator/svg-font-validator";
+import { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
 import { FileHelper } from "app/shared/fs/file-helper";
 import { ProcessFailed } from "app/shared/process/process-helper.errors";
 
@@ -16,7 +17,11 @@ const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
 describe("FontForge.convert", function () {
     const fontForge = new FontForge("fontforge");
-    const engineExtensions = new ConvertorFactory(fontForge, new FontSignatureMatcher(), new SvgFontValidator(), new EotPacker())
+    const engineExtensions = new ConvertorFactory(
+        fontForge,
+        new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator()),
+        new EotPacker(),
+    )
         .getSupportedExtensions()
         .filter((extension) => extension !== Extension.EOT);
     let workDir: string;

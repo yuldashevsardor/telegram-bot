@@ -34,16 +34,10 @@ import { Woff2ToSvg } from "app/font-convertor/convertor/woff2/woff2-to-svg";
 import { TtfToSvg } from "app/font-convertor/convertor/ttf/ttf-to-svg";
 import { OtfToSvg } from "app/font-convertor/convertor/otf/otf-to-svg";
 import { EotToSvg } from "app/font-convertor/convertor/eot/eot-to-svg";
-import type { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-signature-matcher";
-import type { SvgFontValidator } from "app/font-convertor/svg-validator/svg-font-validator";
+import type { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
 import type { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 
-type ConvertorConstructor = new (
-    fontForge: FontForge,
-    fontSignatureMatcher: FontSignatureMatcher,
-    svgFontValidator: SvgFontValidator,
-    eotPacker: EotPacker,
-) => Convertor;
+type ConvertorConstructor = new (fontForge: FontForge, fontValidatorResolver: FontValidatorResolver, eotPacker: EotPacker) => Convertor;
 
 type ConvertorMatrix = Partial<Record<Extension, Partial<Record<Extension, ConvertorConstructor>>>>;
 
@@ -99,9 +93,7 @@ export class ConvertorFactory {
 
     public constructor(
         @inject<FontForge>(Tokens.Font.Engine.FontForge) private readonly fontForge: FontForge,
-        @inject<FontSignatureMatcher>(Tokens.Font.Signature.Matcher)
-        private readonly fontSignatureMatcher: FontSignatureMatcher,
-        @inject<SvgFontValidator>(Tokens.Font.Svg.Validator) private readonly svgFontValidator: SvgFontValidator,
+        @inject<FontValidatorResolver>(Tokens.Font.Validator.Resolver) private readonly fontValidatorResolver: FontValidatorResolver,
         @inject<EotPacker>(Tokens.Font.Envelope.Packer) private readonly eotPacker: EotPacker,
     ) {}
 
@@ -112,7 +104,7 @@ export class ConvertorFactory {
             throw ConvertorNotFound.byExtensions(fromExtension, toExtension);
         }
 
-        return new convertor(this.fontForge, this.fontSignatureMatcher, this.svgFontValidator, this.eotPacker);
+        return new convertor(this.fontForge, this.fontValidatorResolver, this.eotPacker);
     }
 
     /**
