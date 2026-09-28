@@ -7,6 +7,7 @@ import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-signature-matcher";
+import { SvgFontValidator } from "app/font-convertor/svg-validator/svg-font-validator";
 import { FileHelper } from "app/shared/fs/file-helper";
 import { InvalidPath } from "app/shared/fs/file-helper.errors";
 
@@ -18,7 +19,8 @@ const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 // The branches of the check itself run in convertor.spec.ts.
 describe("Convertors of the engine pairs", function () {
     const matcher = new FontSignatureMatcher();
-    const factory = new ConvertorFactory(new FontForge("fontforge"), matcher, new EotPacker());
+    const validator = new SvgFontValidator();
+    const factory = new ConvertorFactory(new FontForge("fontforge"), matcher, validator, new EotPacker());
     const engineExtensions = factory.getSupportedExtensions().filter((extension) => extension !== Extension.EOT);
     let workDir: string;
 
@@ -37,8 +39,7 @@ describe("Convertors of the engine pairs", function () {
 
                 await factory.get(fromExtension, toExtension).convert(path.join(fixtureDir, `test-font.${fromExtension}`), toPath);
 
-                const head = await FileHelper.readHead(toPath, matcher.headLength);
-                expect(matcher.matches(head, toExtension), "the result is not in the target format").to.be.true;
+                await expectFormat(toPath, toExtension);
             });
 
             it(`refuses to write ${fromExtension} to ${toExtension} over an existing file`, async function () {
@@ -55,6 +56,36 @@ describe("Convertors of the engine pairs", function () {
                 expect(await fs.readFile(toPath), "the engine wrote over an existing file").to.deep.equal(Buffer.from(existing));
             });
         }
+    }
+
+    // The signature let a processing instruction open the document only without an indent and with a
+    // target starting with `xml`, although the engine converts every one of these. The validator
+    // lets them through as the XML they are.
+    for (const prologue of ['\n<?xml-stylesheet href="a.css"?>', "<?sodipodi-namespace?>", "  <?xmlfoo bar?>"]) {
+        it(`converts svg opening with ${JSON.stringify(prologue)}`, async function () {
+            const fixtureText = await fs.readFile(path.join(fixtureDir, `test-font.${Extension.SVG}`), "utf8");
+            // The XML declaration has to open the document, so it gives way to the prologue.
+            const fixtureBody = fixtureText.slice(fixtureText.indexOf("?>") + "?>".length);
+            const fromPath = path.join(workDir, `source.${Extension.SVG}`);
+            const toPath = path.join(workDir, `result.${Extension.WOFF}`);
+            await fs.writeFile(fromPath, prologue + fixtureBody);
+
+            await factory.get(Extension.SVG, Extension.WOFF).convert(fromPath, toPath);
+
+            await expectFormat(toPath, Extension.WOFF);
+        });
+    }
+
+    // SVG has no signature, so an SVG result is checked by the validator.
+    async function expectFormat(filePath: string, extension: Extension): Promise<void> {
+        if (extension === Extension.SVG) {
+            await validator.validate(filePath);
+
+            return;
+        }
+
+        const head = await FileHelper.readHead(filePath, matcher.headLength);
+        expect(matcher.matches(head, extension), "the result is not in the target format").to.be.true;
     }
 
     function rejectionOf(call: () => Promise<unknown>): Promise<unknown> {

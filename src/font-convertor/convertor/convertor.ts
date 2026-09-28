@@ -1,15 +1,19 @@
 import { InvalidFile, InvalidPath, PermissionDenied } from "app/shared/fs/file-helper.errors";
 import path from "path";
-import type { Extension } from "app/font-convertor/font-convertor.types";
+import { Extension } from "app/font-convertor/font-convertor.types";
 import { InvalidFontSignature } from "app/font-convertor/font-convertor.errors";
 import type { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-signature-matcher";
+import type { SvgFontValidator } from "app/font-convertor/svg-validator/svg-font-validator";
 import { FileHelper } from "app/shared/fs/file-helper";
 
 export abstract class Convertor {
     protected abstract fromExtension: Extension;
     protected abstract toExtension: Extension;
 
-    protected constructor(private readonly fontSignatureMatcher: FontSignatureMatcher) {}
+    protected constructor(
+        private readonly fontSignatureMatcher: FontSignatureMatcher,
+        private readonly svgFontValidator: SvgFontValidator,
+    ) {}
 
     protected async validate(fromPath: string, toPath: string): Promise<void> {
         await this.validateFromPath(fromPath);
@@ -37,6 +41,18 @@ export abstract class Convertor {
 
         // The sender sets the extension, so it alone proves nothing. Without this check arbitrary
         // bytes named *.ttf would go to the engine.
+        await this.validateContent(fromPath);
+    }
+
+    private async validateContent(fromPath: string): Promise<void> {
+        // SVG is text, and its first bytes say at most "this is markup", not "this is a font". So
+        // the validator reads the whole document instead, and its error goes out as is.
+        if (this.fromExtension === Extension.SVG) {
+            await this.svgFontValidator.validate(fromPath);
+
+            return;
+        }
+
         const head = await FileHelper.readHead(fromPath, this.fontSignatureMatcher.headLength);
 
         if (!this.fontSignatureMatcher.matches(head, this.fromExtension)) {

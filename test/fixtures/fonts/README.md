@@ -23,7 +23,7 @@ fontforge -c 'import fontforge, sys; font = fontforge.open(sys.argv[1]); font.ge
 ```
 
 A re-run will not give the bytes that lie here: fontforge writes its version and build date into
-the headers. So a replacement is checked by the format signature, not by a hash, and by a
+the headers. So a replacement is checked by the signs of its format below, not by a hash, and by a
 `make test` run. `font-forge-convertor.spec.ts` converts every fixture except EOT with the real
 fontforge into every other format except EOT. So a replacement the engine cannot open fails the
 spec even with a correct signature.
@@ -46,8 +46,9 @@ byte-for-byte test is the only check in the repository of the envelope against t
 than against itself. Do not rebuild this file with our own code: the check would become a
 tautology.
 
-The format of each file is checked by its signature. The `FontSignatureMatcher` spec rests on
-that too, so a replacement is best checked by the same signs:
+The format of each file but SVG is checked by its signature. The `FontSignatureMatcher` spec rests
+on that too, so a replacement is best checked by the same signs. SVG has no signature: its sign is
+that `SvgFontValidator` accepts it.
 
 | file | sign |
 |---|---|
@@ -56,4 +57,4 @@ that too, so a replacement is best checked by the same signs:
 | `test-font.woff` | `wOFF` |
 | `test-font.woff2` | `wOF2` |
 | `test-font.eot` | `0x504C` at offset 34, `EOTSize` in the first four bytes equals the file size |
-| `test-font.svg` | `<?xml` — the XML declaration; the signature also accepts other markup, see `docs/architecture/font-convertor.md` |
+| `test-font.svg` | `SvgFontValidator` accepts it, see `docs/architecture/font-convertor.md`, "The SVG validator" |

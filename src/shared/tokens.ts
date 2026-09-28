@@ -30,6 +30,9 @@ export const Tokens = {
         Signature: {
             Matcher: Symbol.for("FontSignatureMatcher"),
         },
+        Svg: {
+            Validator: Symbol.for("FontSvgValidator"),
+        },
         Envelope: {
             Packer: Symbol.for("FontEnvelopePacker"),
         },
