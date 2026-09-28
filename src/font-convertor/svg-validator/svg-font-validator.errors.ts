@@ -1,11 +1,12 @@
 import { RuntimeError } from "app/shared/errors";
 import type { Encoding, FontRule } from "app/font-convertor/svg-validator/svg-font-validator.types";
 
-// Text from the file may be of any length, while the error carries it into the log. Each piece of
+// Text from the file may be of any length, while the error carries it into the log. A quote from
 // it is cut on its own to the first limit: a root keeps that much of its namespace and as much of
 // its local name, and the message of `BrokenFont` escapes the kept value with `JSON.stringify`,
-// which makes a control character six units long. A parser message is cut to the second limit:
-// saxes quotes names from the file in it, and `checkEncoding` the declared encoding.
+// which at most doubles it: of what the parser lets through as XML 1.0, it escapes only tab, LF,
+// CR, `"` and `\`, each as two units. A parser message is cut to the second limit: saxes quotes
+// names from the file in it, and `checkEncoding` the declared encoding.
 const MAX_QUOTED_LENGTH = 64;
 const MAX_PARSER_MESSAGE_LENGTH = 200;
 
