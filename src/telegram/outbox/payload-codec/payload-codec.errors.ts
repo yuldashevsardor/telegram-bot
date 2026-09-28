@@ -1,17 +1,17 @@
 import { RuntimeError } from "app/shared/errors";
 
 // Where a value sits in the payload, for the messages: `media.2.thumbnail`.
-function describe(path: readonly string[]): string {
-    return path.length === 0 ? "the root" : path.join(".");
+function describe(place: readonly string[]): string {
+    return place.length === 0 ? "the root" : place.join(".");
 }
 
 export class UnsupportedInputFile extends RuntimeError {
-    public static inMethod(method: string, path: readonly string[]): UnsupportedInputFile {
+    public static inMethod(method: string, place: readonly string[]): UnsupportedInputFile {
         return new UnsupportedInputFile(
-            `${method} got an InputFile that is not a PathFile at ${describe(path)}: the outbox stores a file only by its path.`,
+            `${method} got an InputFile that is not a PathFile at ${describe(place)}: the outbox stores a file only by its path.`,
             {
                 method: method,
-                path: describe(path),
+                place: describe(place),
             },
         );
     }
@@ -26,41 +26,51 @@ export class InvalidFileMarker extends RuntimeError {
 }
 
 export class ReservedFileKey extends RuntimeError {
-    public static inMethod(method: string, key: string, path: readonly string[]): ReservedFileKey {
+    public static inMethod(method: string, key: string, place: readonly string[]): ReservedFileKey {
         return new ReservedFileKey(
-            `${method} got an object with the key ${key} at ${describe(path)}, which the outbox keeps for a file marker.`,
+            `${method} got an object with the key ${key} at ${describe(place)}, which the outbox keeps for a file marker.`,
             {
                 method: method,
                 key: key,
-                path: describe(path),
+                place: describe(place),
             },
         );
     }
 }
 
 export class UnstorableString extends RuntimeError {
-    public static inMethod(method: string, path: readonly string[]): UnstorableString {
+    public static inMethod(method: string, place: readonly string[]): UnstorableString {
         return new UnstorableString(
             `${method} got a string or a key at ${describe(
-                path,
+                place,
             )} that PostgreSQL does not store in jsonb: U+0000 or a lone UTF-16 surrogate.`,
             {
                 method: method,
-                path: describe(path),
+                place: describe(place),
             },
         );
     }
 }
 
 export class UnsupportedValue extends RuntimeError {
-    public static inMethod(method: string, path: readonly string[]): UnsupportedValue {
+    public static inMethod(method: string, place: readonly string[]): UnsupportedValue {
         return new UnsupportedValue(
             `${method} got a value at ${describe(
-                path,
+                place,
             )} that the outbox does not store: it takes JSON values, grammY's keyboards and a PathFile.`,
             {
                 method: method,
-                path: describe(path),
+                place: describe(place),
+            },
+        );
+    }
+
+    public static asPayload(method: string): UnsupportedValue {
+        return new UnsupportedValue(
+            `${method} got a value at ${describe([])} that is not a plain object: a Bot API payload always is one.`,
+            {
+                method: method,
+                place: describe([]),
             },
         );
     }
