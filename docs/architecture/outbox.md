@@ -122,8 +122,7 @@ else, so no part of the payload reaches the row unchecked:
 - a function becomes `undefined`, which JSON writes as it writes any `undefined` (a field left
   out, `null` in an array): `InlineQueryResultBuilder` returns plain objects that keep its builder
   methods (`.text()`, `.location()`) as fields (`inputMessageMethods()` in grammY's
-  `convenience/inline_query.js`). A function as the whole payload throws `UnsupportedValue`: it
-  would leave no payload at all;
+  `convenience/inline_query.js`);
 - grammY's `InlineKeyboard` and `Keyboard` are walked as plain objects: they are classes with data
   fields only, which JSON writes as they are. Of the classes grammY exports, they are the only
   ones meant for a payload besides `InputFile`: `InputMediaBuilder` and `InlineQueryResultBuilder`
@@ -145,7 +144,9 @@ else, so no part of the payload reaches the row unchecked:
 - any other value throws `UnsupportedValue`: another class instance, a `Date`, an object without
   a prototype, a `bigint`, a symbol. A payload grammY builds holds none of them. A payload of
   plain objects that refers back to itself is not caught: the walk overflows the stack with a
-  `RangeError`.
+  `RangeError`;
+- a payload that is not a plain object throws `UnsupportedValue` before the walk: an array, a
+  `PathFile`, a keyboard or a function, taken inside a payload, is never a Bot API payload itself.
 
 An error of `serialize()` names the method and where the value sits in the payload
 (`media.1.thumbnail`), in the message and in `payload`.

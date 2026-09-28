@@ -120,13 +120,15 @@ function readMarker(marker: object): PathFile {
 /**
  * Turns a Bot API payload into a value for the outbox row. A PathFile becomes a marker with its
  * path. Any other InputFile throws, since its data lives only in this process, and so do an object
- * that already carries the marker key, a string or a key jsonb does not store, and a value the
- * codec does not take. Every error names the method and where in the payload the value sits.
+ * that already carries the marker key, a string or a key jsonb does not store, a value the codec
+ * does not take and a payload that is not a plain object. Every error names the method and where
+ * in the payload the value sits.
  */
 export function serialize(method: string, payload: object): Record<string, unknown> {
-    // store() drops a function as a field or an item; as the root it would leave no payload at all.
-    if (typeof payload === "function") {
-        throw UnsupportedValue.inMethod(method, []);
+    // store() takes an array, a PathFile and a keyboard inside a payload and drops a function there,
+    // but a Bot API payload itself is always a plain object.
+    if (Object.getPrototypeOf(payload) !== Object.prototype) {
+        throw UnsupportedValue.asPayload(method);
     }
 
     return store(payload, method, []) as Record<string, unknown>;

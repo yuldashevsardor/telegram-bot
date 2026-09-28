@@ -110,18 +110,26 @@ describe("Outbox payload codec", function () {
                     .with.deep.property("payload", { method: "sendMessage", place: "entities.0" });
             });
         }
+    });
 
-        it("as the root", function () {
-            expect(() => serialize("sendMessage", new Holder(1)))
-                .to.throw(UnsupportedValue)
-                .with.deep.property("payload", { method: "sendMessage", place: "the root" });
-        });
+    describe("rejects a payload that is not a plain object", function () {
+        const payloads: Array<[string, () => object]> = [
+            ["an array", (): object => [{ chat_id: 1 }]],
+            ["a path file", (): object => new PathFile("/data/fonts/result.woff2")],
+            ["an InputFile", (): object => new InputFile(Buffer.from("font"))],
+            ["a keyboard", (): object => new InlineKeyboard().text("ok", "ok")],
+            ["a function", (): object => (): void => {}],
+            ["a class instance", (): object => new Holder(1)],
+            ["an object without a prototype", (): object => Object.create(null) as object],
+        ];
 
-        it("such as a function as the root", function () {
-            expect(() => serialize("sendMessage", (): void => {}))
-                .to.throw(UnsupportedValue, "sendMessage got a value at the root that the outbox does not store")
-                .with.deep.property("payload", { method: "sendMessage", place: "the root" });
-        });
+        for (const [name, payload] of payloads) {
+            it(`such as ${name}`, function () {
+                expect(() => serialize("sendMessage", payload()))
+                    .to.throw(UnsupportedValue, "sendMessage got a payload that is not a plain object: a Bot API payload always is one.")
+                    .with.deep.property("payload", { method: "sendMessage", place: "the root" });
+            });
+        }
     });
 
     describe("rejects an object that already carries the marker key, naming the method and the place", function () {
@@ -220,7 +228,10 @@ describe("Outbox payload codec", function () {
                 const payload = { chat_id: 1, document: new InputFile(source()) };
 
                 expect(() => serialize("sendDocument", payload))
-                    .to.throw(UnsupportedInputFile, "sendDocument got an InputFile that is not a PathFile at document")
+                    .to.throw(
+                        UnsupportedInputFile,
+                        "sendDocument got an InputFile that is not a PathFile at document: the outbox stores a file only by its path.",
+                    )
                     .with.deep.property("payload", { method: "sendDocument", place: "document" });
             });
         }
@@ -248,15 +259,6 @@ describe("Outbox payload codec", function () {
             expect(() => serialize("sendMediaGroup", payload))
                 .to.throw(UnsupportedInputFile, "sendMediaGroup")
                 .with.deep.property("payload", { method: "sendMediaGroup", place: "media.1.thumbnail" });
-        });
-
-        it("as the root", function () {
-            expect(() => serialize("sendDocument", new InputFile(Buffer.from("font"))))
-                .to.throw(
-                    UnsupportedInputFile,
-                    "sendDocument got an InputFile that is not a PathFile at the root: the outbox stores a file only by its path.",
-                )
-                .with.deep.property("payload", { method: "sendDocument", place: "the root" });
         });
     });
 });
