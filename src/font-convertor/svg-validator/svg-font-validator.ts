@@ -220,7 +220,7 @@ export class SvgFontValidator {
         }
     }
 
-    private checkGlyph(scan: Scan, element: OpenElement, tag: SaxesTagNS, name: "glyph" | "missing-glyph"): void {
+    private checkGlyph(scan: Scan, element: OpenElement, tag: SaxesTagNS, name: Exclude<NumericElement, "font">): void {
         this.checkMetrics(scan, element, tag, name);
 
         const outline = this.attribute(tag, "d");

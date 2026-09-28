@@ -54,8 +54,9 @@ const EXPONENTS = ["e", "E"];
 const FLAGS = ["0", "1"];
 
 /**
- * Reads the text once from the start. A number is read greedily, as the specification's own
- * examples read it: "M 100-200" is 100 and -200, "M 0.6.5" is 0.6 and .5.
+ * Reads the text once from the start. A number is read greedily: §8.3.9 says the processing of the
+ * BNF "must consume as much of a given BNF production as possible", so "M 100-200" is 100 and -200,
+ * and "M 0.6.5" is 0.6 and .5.
  */
 class PathDataReader {
     private position = 0;
