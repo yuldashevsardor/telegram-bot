@@ -44,8 +44,13 @@ export class SvgFontValidator {
     private static readonly NUMBER = /^[+-]?(?:\d+|\d*\.\d+)(?:[Ee][+-]?\d+)?$/;
     // The attributes of type <number>: §20.4 for `glyph`, the same for `missing-glyph` (§20.5), and
     // the glyph origin on top of them for `font` (§20.3).
-    private static readonly GLYPH_NUMERIC_ATTRIBUTES = ["horiz-adv-x", "vert-origin-x", "vert-origin-y", "vert-adv-y"];
-    private static readonly NUMERIC_ATTRIBUTES: Record<NumericElement, Array<string>> = {
+    private static readonly GLYPH_NUMERIC_ATTRIBUTES: ReadonlyArray<string> = [
+        "horiz-adv-x",
+        "vert-origin-x",
+        "vert-origin-y",
+        "vert-adv-y",
+    ];
+    private static readonly NUMERIC_ATTRIBUTES: Record<NumericElement, ReadonlyArray<string>> = {
         font: ["horiz-origin-x", "horiz-origin-y", ...SvgFontValidator.GLYPH_NUMERIC_ATTRIBUTES],
         glyph: SvgFontValidator.GLYPH_NUMERIC_ATTRIBUTES,
         "missing-glyph": SvgFontValidator.GLYPH_NUMERIC_ATTRIBUTES,
@@ -53,7 +58,8 @@ export class SvgFontValidator {
 
     /**
      * Throws when the file is not a valid SVG font. The answers go in this order, each a subclass
-     * of `InvalidSvgFont`: `NotXml`, `NotSvg`, `NoFont`, `BrokenFont`.
+     * of `InvalidSvgFont`: `NotXml`, `NotSvg`, `NoFont`, `BrokenFont`. A file that cannot be read
+     * throws `ReadFailed` of `FileHelper` instead: an I/O failure, not a verdict on the font.
      */
     public async validate(path: string): Promise<void> {
         const bytes = await FileHelper.read(path);
