@@ -59,7 +59,7 @@ describe("PgSqlUserRepository", function () {
         expect(snapshot(await repository.getById(ID))).to.deep.equal(snapshot(user));
     });
 
-    // The upsert updates the columns listed in update set; created_time is not in the list.
+    // The upsert updates the columns listed in UPDATE SET; created_time is not in the list.
     it("updates a saved user and keeps its created_time", async function () {
         const original = buildUser();
 
