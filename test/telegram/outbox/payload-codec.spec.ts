@@ -252,7 +252,10 @@ describe("Outbox payload codec", function () {
 
         it("as the root", function () {
             expect(() => serialize("sendDocument", new InputFile(Buffer.from("font"))))
-                .to.throw(UnsupportedInputFile, "sendDocument got an InputFile that is not a PathFile at the root")
+                .to.throw(
+                    UnsupportedInputFile,
+                    "sendDocument got an InputFile that is not a PathFile at the root: the outbox stores a file only by its path.",
+                )
                 .with.deep.property("payload", { method: "sendDocument", place: "the root" });
         });
     });

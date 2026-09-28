@@ -8,7 +8,7 @@ function describe(place: readonly string[]): string {
 export class UnsupportedInputFile extends RuntimeError {
     public static inMethod(method: string, place: readonly string[]): UnsupportedInputFile {
         return new UnsupportedInputFile(
-            `${method} got an InputFile that is not a PathFile at ${describe(place)}: the outbox stores a file only by its place.`,
+            `${method} got an InputFile that is not a PathFile at ${describe(place)}: the outbox stores a file only by its path.`,
             {
                 method: method,
                 place: describe(place),

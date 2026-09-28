@@ -13,10 +13,11 @@ another node can rebuild enters the outbox. `serialize(method, payload)`
 (`payload-codec/payload-codec.ts`) takes only what it knows how to store and throws on anything
 else, so no part of the payload reaches the row unchecked:
 
-- strings, numbers, booleans, `null` and `undefined` pass to JSON, which writes an `undefined`
-  field by leaving it out and a `NaN` as `null`, as when grammY sends the call itself. A `null`
-  field stays in the row, although grammY leaves it out of a call it sends (`str()` in grammY's
-  `core/payload.js`): it is left out when the row is sent. Arrays and plain objects are walked;
+- strings, numbers, booleans, `null` and `undefined` pass to JSON. An `undefined` field is left
+  out of the row. A `null` field stays in it, and grammY drops it when the row is sent, as it does
+  when it sends the call itself (`str()` in grammY's `core/payload.js`). A `NaN` field is written
+  as `null`, so it is left out of the sent call, while grammY sending the call itself writes it
+  as `null`. Arrays and plain objects are walked;
 - a function becomes `undefined`, which JSON writes as it writes any `undefined` (a field left
   out, `null` in an array): `InlineQueryResultBuilder` returns plain objects that keep its builder
   methods (`.text()`, `.location()`) as fields (`inputMessageMethods()` in grammY's
