@@ -144,20 +144,20 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
 
 - **Migrations are append-only.** `node-pg-migrate` tracks the applied ones by file name. Editing
   an old file makes fresh databases diverge from existing ones.
-- **The column order of `sessions`** is tied to the positional `insert` in `PgsqlStorage.write()`.
+- **The column order of `sessions`** is tied to the positional `INSERT` in `PgsqlStorage.write()`.
   A column inserted before `value` is caught by `test/telegram/session/pgsql-storage.spec.ts`: the
   specs run on a database built by the migrations, and what was written stops reading back.
 - **A new user field from `ctx.from` requires a synchronous edit of:**
   - `user.types.ts`, both `Pick`s in `service/user-service.types.ts` and `user.ts`;
   - a migration;
-  - `UserRow` in `pgsql-user-repository.types.ts`, the mappers and the `update set` column list in
+  - `UserRow` in `pgsql-user-repository.types.ts`, the mappers and the `UPDATE SET` column list in
     `pgsql-user-repository.ts`;
   - the branches in `UserService.create()`/`edit()`;
   - both literals in `fill-user-to-context.middleware.ts`.
 
   A forgotten migration shows up as an SQL error at runtime. Everything that goes through
   `EditUserDto` (`Partial<Pick<...>>`) is silent: its `Pick`, the `edit()` literal in the
-  middleware, the branch in `edit()`, and the `update set` column list. The field is then written
+  middleware, the branch in `edit()`, and the `UPDATE SET` column list. The field is then written
   on creation and never updated.
 
 ## Locales

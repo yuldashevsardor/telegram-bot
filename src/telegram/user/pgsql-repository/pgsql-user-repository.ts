@@ -17,17 +17,17 @@ export class PgSqlUserRepository implements UserRepository {
 
     public async delete(id: number): Promise<void> {
         await this.sql`
-            delete
-            from users
-            where id = ${id}
+            DELETE
+            FROM users
+            WHERE id = ${id}
         `;
     }
 
     public async existsById(id: number): Promise<boolean> {
         const rows = await this.sql`
-            select id
-            from users
-            where id = ${id}
+            SELECT id
+            FROM users
+            WHERE id = ${id}
         `;
 
         return rows.length !== 0;
@@ -35,9 +35,9 @@ export class PgSqlUserRepository implements UserRepository {
 
     public async getById(id: number): Promise<User> {
         const rows = await this.sql<UserRow[]>`
-            select *
-            from users
-            where id = ${id} limit 1
+            SELECT *
+            FROM users
+            WHERE id = ${id} LIMIT 1
         `;
 
         const row = rows[0];
@@ -53,9 +53,9 @@ export class PgSqlUserRepository implements UserRepository {
         const row = PgSqlUserRepository.entityToRow(user);
 
         await this.sql`
-            insert into users ${this.sql(row)} on conflict (id)
-            do
-            update set ${this.sql(row, "first_name", "last_name", "username", "is_bot", "last_active_time", "updated_time")}
+            INSERT INTO users ${this.sql(row)} ON CONFLICT (id)
+            DO
+            UPDATE SET ${this.sql(row, "first_name", "last_name", "username", "is_bot", "last_active_time", "updated_time")}
         `;
     }
 

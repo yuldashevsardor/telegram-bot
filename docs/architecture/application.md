@@ -179,7 +179,7 @@ There is nothing to restart it with: the container does not survive a second `se
      ([`logging.md`](./logging.md)).
    - `container.setup()` only binds; the classes are not instantiated yet (above).
    - `Database.check()` is the first resolve of `Database`, so its constructor runs here as well
-     ([`storage.md`](./storage.md)). Its `select 1` fails the start here and not on the first
+     ([`storage.md`](./storage.md)). Its `SELECT 1` fails the start here and not on the first
      update.
    - `container.get()` for `TaskQueue`, `Runner` and `Bot`. All the handlers of the pipeline are
      instantiated together with `Bot`, before its constructor ([`bot.md`](./bot.md)).

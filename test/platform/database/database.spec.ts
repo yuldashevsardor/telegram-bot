@@ -20,7 +20,7 @@ describe("Database", function () {
         }
 
         try {
-            const [row] = await database.sql<{ name: string }[]>`select current_database() as name`;
+            const [row] = await database.sql<{ name: string }[]>`SELECT current_database() AS name`;
 
             expect(row?.name).to.equal(testDatabaseName());
         } finally {
@@ -100,7 +100,7 @@ async function failedQueryKeys(isProduction: boolean): Promise<string[]> {
     const database = new Database(settings(), isProduction);
 
     try {
-        await database.sql`select * from missing_table where id = ${1}`;
+        await database.sql`SELECT * FROM missing_table WHERE id = ${1}`;
         expect.fail("the query was expected to reject");
     } catch (error) {
         // 42P01 is undefined_table. The check also stops the AssertionError of expect.fail above.

@@ -55,10 +55,10 @@ lock.
 
 `push()` is `pushBatch()` of one message. The batch is a transaction:
 
-1. the chats of the batch that have no row yet are inserted `idle` (`on conflict do nothing`);
-2. every chat of the batch is locked, `select … for update` in `chat_id` order, so two batches
+1. the chats of the batch that have no row yet are inserted `idle` (`ON CONFLICT DO NOTHING`);
+2. every chat of the batch is locked, `SELECT … FOR UPDATE` in `chat_id` order, so two batches
    lock the chats they share in the same order;
-3. the messages go in as one `jsonb` array and are inserted `order by` their position in it, so
+3. the messages go in as one `jsonb` array and are inserted `ORDER BY` their position in it, so
    the ids grow in the order of the input;
 4. every `idle` chat of the batch becomes `ready`; a chat in any other state already has an older
    head.
@@ -67,9 +67,9 @@ lock.
 
 `pull(limit)` is one statement, atomic without a transaction:
 
-1. up to `limit` `ready` chats with the head of each (`join lateral`), by the priority of the head
-   and then by `next_attempt_at`, `for update of chats skip locked`: a chat another puller holds is
-   skipped, not waited for;
+1. up to `limit` `ready` chats with the head of each (`CROSS JOIN LATERAL`), by the priority of
+   the head and then by `next_attempt_at`, `FOR UPDATE OF chats SKIP LOCKED`: a chat another
+   puller holds is skipped, not waited for;
 2. the head goes to `processing`, but only if it is still `pending`;
 3. the chats whose head was pulled go to `processing`, and `next_attempt_at` moves to `now()`.
 

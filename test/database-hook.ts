@@ -54,7 +54,7 @@ async function createDatabase(name: string): Promise<void> {
     const sql = connectAsSuperuser();
 
     try {
-        await sql`create database ${sql(name)} with owner ${sql(owner)}`;
+        await sql`CREATE DATABASE ${sql(name)} WITH OWNER ${sql(owner)}`;
     } catch (error) {
         // A refusal is not only about connectivity (a password, a role), so the reason goes into cause
         // and the hint about make db-up is conditional.
@@ -96,7 +96,7 @@ async function dropDatabase(name: string): Promise<void> {
     try {
         // force tears down the connections a spec did not close: without it the drop would fail and
         // the database would be left hanging in the shared Postgres.
-        await sql`drop database ${sql(name)} with (force)`;
+        await sql`DROP DATABASE ${sql(name)} WITH (FORCE)`;
     } finally {
         await sql.end();
     }
