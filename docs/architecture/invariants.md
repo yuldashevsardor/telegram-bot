@@ -132,20 +132,13 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   or the chat silently drops out of every query.
 - **Only a serializable payload enters the outbox; a file goes in only as a `PathFile`.** An
   `InputFile` from a `Buffer` or a stream compiles, as does a path passed to `new InputFile()`, and
-  fails only at runtime. In arrays and plain objects `serialize()` rejects it with
-  `UnsupportedInputFile` ([`outbox.md`](./outbox.md)). Inside a class instance or an object
-  without a prototype it is not seen, and the call fails a step later, still on the node that
-  queues it: the row goes through `JSON.stringify`, which calls grammY's `InputFile.toJSON()`, and
-  that throws a bare `Error` naming no method. A file grammY has already sent fails silently
-  instead: grammY replaces its `toJSON()` with one that returns `attach://<id>` (`collectFiles()`
-  in `core/payload.js`), the row stores that string, and Telegram rejects the call on the sending
-  node. A file does not get there from grammY's own builders: `InputMediaBuilder`
-  (`convenience/input_media.js`) returns plain objects, and a keyboard class such as
-  `InlineKeyboard` carries no file.
+  fails only at runtime: `serialize()` rejects it on the node that queues the call
+  ([`outbox.md`](./outbox.md)).
 - **The path of a `PathFile` must be on storage visible to every sending node.** Any node
   may claim the row, and it reads the file at the stored path. A path on the local disk of the
-  node that queued it sends from that node and fails on every other one. A relative path is
-  resolved against the working directory of the sending node, not of the queuing one.
+  node that queued it sends from that node and fails on every other one. The code does not check
+  this; it only rejects a relative path (`RelativeFilePath`), which each node would resolve
+  against its own working directory.
 
 ## Storage: migrations, `sessions`, `User`
 

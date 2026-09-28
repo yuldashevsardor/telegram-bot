@@ -111,19 +111,41 @@ as `PgSqlUserRepository` does ([`storage.md`](./storage.md), "`User.id`").
 
 A row outlives the process that wrote it and is sent by whichever node claims it, so only what
 another node can rebuild enters the outbox. `serialize(method, payload)`
-(`payload-codec/payload-codec.ts`) walks the payload deeply, the `media[]` of `sendMediaGroup`
-included:
+(`payload-codec/payload-codec.ts`) takes only what it knows how to store and throws on anything
+else, so no part of the payload reaches the row unchecked:
 
-- arrays and plain objects are copied; any other value (`undefined`, a `Date`) is kept as is: the
-  row goes through JSON the same way grammY sends a payload;
-- a `PathFile` (`new PathFile(path, filename?)`, `telegram/path-file.ts`, a subclass of
-  `InputFile`) becomes the marker `{ "$pathFile": { "path", "filename" } }`, and `deserialize()`
-  rebuilds it as a `PathFile`; a marker without a string `path`, or with a `filename` that is not
-  a string, throws `InvalidFileMarker`. The marker is the stored format: a change of its key leaves
-  the rows already written unreadable. An object of the payload that already carries the key
-  throws `ReservedFileKey` in `serialize()`: `deserialize()` would read it as a file;
-- any other `InputFile` throws `UnsupportedInputFile` with the method in the message and the
-  payload: a `Buffer`, a stream or a supplier function lives only in the memory of this process.
+- strings, numbers, booleans, `null` and `undefined` pass to JSON, which writes them as it does
+  when grammY sends the call itself: an `undefined` field is left out, a `NaN` becomes `null`;
+  arrays and plain objects are walked;
+- a function becomes `undefined`, which JSON writes as it writes any `undefined` (a field left
+  out, `null` in an array): `InlineQueryResultBuilder` returns plain objects that keep its builder
+  methods (`.text()`, `.location()`) as fields (`inputMessageMethods()` in grammY's
+  `convenience/inline_query.js`);
+- grammY's `InlineKeyboard` and `Keyboard` are walked as plain objects: they are classes with data
+  fields only, which JSON writes as they are. Of the classes grammY exports, they are the only
+  ones meant for a payload besides `InputFile`: `InputMediaBuilder` and `InlineQueryResultBuilder`
+  build plain objects (`convenience/input_media.js`, `convenience/inline_query.js`);
+- a `PathFile` (`new PathFile(path, filename?)`, `telegram/path-file/path-file.ts`, a subclass of
+  `InputFile`) becomes the marker `{ "$pathFile": { "path", "filename" } }`; `deserialize()`
+  rebuilds it as a `PathFile`. The marker is the stored format: a change of its key leaves the rows
+  already written unreadable. A marker `serialize()` would not write is a corrupted row and throws
+  `InvalidFileMarker` (the conditions are in `readMarker()`);
+- any other `InputFile` throws `UnsupportedInputFile`: a `Buffer`, a stream or a supplier function
+  lives only in the memory of this process. The check is by class, so a file grammY has already
+  sent is rejected too, although grammY has replaced its `toJSON()` with one returning
+  `attach://<id>` (`collectFiles()` in grammY's `core/payload.js`);
+- an object that already carries the marker key throws `ReservedFileKey`: `deserialize()` would
+  read it as a file;
+- a string or a key that PostgreSQL does not accept in `jsonb` throws `UnstorableString`: U+0000
+  or a lone UTF-16 surrogate (a caption cut through an emoji). The path and the file name of a
+  `PathFile` are checked too;
+- any other value throws `UnsupportedValue`: another class instance, a `Date`, an object without
+  a prototype, a `bigint`, a symbol. A payload grammY builds holds none of them. A payload of
+  plain objects that refers back to itself is not caught: the walk overflows the stack with a
+  `RangeError`.
+
+An error of `serialize()` names the method and where the value sits in the payload
+(`media.1.thumbnail`), in the message and in `payload`.
 
 grammY keeps the source of an `InputFile` private, so `PathFile` keeps the path in a public
 field of its own. That is why a path passed to `new InputFile()` is rejected too: the codec cannot
