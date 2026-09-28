@@ -434,7 +434,7 @@ describe("SvgFontValidator.validate", function () {
                 const error = await expectAnswer(
                     inline(`<font horiz-adv-x="500">${FONT_FACE}${glyphs[element] as string}</font>`),
                     BrokenFont,
-                    `SVG font breaks a rule: d of a glyph is path data (SVG 1.1, §8.3.9, §20.4). At line 2: <${element}> with d="L0 0".`,
+                    `SVG font breaks a rule: d of a glyph or missing-glyph is path data (SVG 1.1, §8.3.9, §20.4, §20.5). At line 2: <${element}> with d="L0 0".`,
                 );
 
                 expect(error.payload).to.deep.equal({

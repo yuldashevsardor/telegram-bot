@@ -3,23 +3,23 @@
  * arc) or a flag, a single `0` or `1` (the arc flags).
  */
 enum Parameter {
-    Coordinate,
+    Signed,
     NonNegative,
     Flag,
 }
 
-const PAIR = [Parameter.Coordinate, Parameter.Coordinate];
+const PAIR = [Parameter.Signed, Parameter.Signed];
 // The grammar joins the rotation and the first flag by comma-wsp, not comma-wsp?. A flag digit right
 // after the rotation is read into the rotation, so the difference never decides anything, and
 // encoding it would leave a mutant that no input kills.
 const ARC = [
     Parameter.NonNegative,
     Parameter.NonNegative,
-    Parameter.Coordinate,
+    Parameter.Signed,
     Parameter.Flag,
     Parameter.Flag,
-    Parameter.Coordinate,
-    Parameter.Coordinate,
+    Parameter.Signed,
+    Parameter.Signed,
 ];
 
 // The arguments of one repetition of each command. Closepath takes none and does not repeat.
@@ -30,10 +30,10 @@ const COMMANDS: ReadonlyMap<string, ReadonlyArray<Parameter>> = new Map([
     ["z", []],
     ["L", PAIR],
     ["l", PAIR],
-    ["H", [Parameter.Coordinate]],
-    ["h", [Parameter.Coordinate]],
-    ["V", [Parameter.Coordinate]],
-    ["v", [Parameter.Coordinate]],
+    ["H", [Parameter.Signed]],
+    ["h", [Parameter.Signed]],
+    ["V", [Parameter.Signed]],
+    ["v", [Parameter.Signed]],
     ["C", [...PAIR, ...PAIR, ...PAIR]],
     ["c", [...PAIR, ...PAIR, ...PAIR]],
     ["S", [...PAIR, ...PAIR]],
@@ -139,7 +139,7 @@ class PathDataReader {
 
     private readArgument(parameter: Parameter): boolean {
         switch (parameter) {
-            case Parameter.Coordinate:
+            case Parameter.Signed:
                 this.skipOne(SIGNS);
 
                 return this.readUnsignedNumber();
