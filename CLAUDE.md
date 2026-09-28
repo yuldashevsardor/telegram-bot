@@ -104,7 +104,24 @@ project's existing decisions.
 - The second argument of `RuntimeError` is either the original error (it goes to `cause`) or
   a details object (it goes to `payload`). When both are needed, the error goes into the
   object as its `cause` field.
-- Comments only about the non-obvious: why, not what.
+- Readability first, performance second. The first version of the code is the most direct one
+  a reader can follow top to bottom. An optimisation is a separate decision, made when a
+  measurement or a known load demands it.
+- A name is plain and fits the case at hand: a variable says what the value is in this place
+  (`sourceFontPath`, not `path`, `data`, `result`, `tmp`).
+- A quantity carries its unit in the name: `timeoutMs`, `maxSizeBytes`, not `timeout`, `size`.
+- A boolean reads as a question: `isValid`, `hasGlyphs`, `shouldRetry`.
+- No magic numbers: `10 * 1024 * 1024` becomes a named constant with its unit in the name.
+- Early exit instead of nesting: errors and edge cases leave first through `return` or
+  `throw`, then the main path follows. No more than two levels of nested `if`.
+- No clever one-liners: a nested ternary or a long `reduce` chain becomes a plain `if` or a
+  loop.
+- No boolean flag arguments: `convert(file, true)` says nothing at the call site. A separate
+  function or an options object with a named field instead.
+- A test name describes the behaviour: "rejects an SVG without a `<font>` element", not
+  "test validate 2".
+- Comments only about the non-obvious: why, not what. An optimisation that makes the code less
+  obvious carries one: what was slow and why the plain form did not fit.
 - SQL keywords are upper case (`SELECT`, `ON CONFLICT`, `ANY`); function names (`now()`) and
   identifiers are lower case. The queries written before the rule are still lower case.
 

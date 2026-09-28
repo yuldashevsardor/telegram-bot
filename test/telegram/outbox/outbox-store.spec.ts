@@ -216,12 +216,12 @@ describe("OutboxStore", function () {
         const inFlight = new Set<number>();
 
         const deadline = Date.now() + WAIT_DEADLINE_MS;
-        let failed = false;
+        let hasFailed = false;
 
         // A chat leaves inFlight before markAsDone commits: the chat can be pulled only after the
         // commit, so an overlap seen here is a real one.
         const pull = async (client: OutboxStore): Promise<void> => {
-            while (!failed && pulls.length < ids.length) {
+            while (!hasFailed && pulls.length < ids.length) {
                 if (Date.now() > deadline) {
                     expect.fail(`${pulls.length} of ${ids.length} messages pulled by the deadline`);
                 }
@@ -251,7 +251,7 @@ describe("OutboxStore", function () {
         // A failed puller stops the other one, which would otherwise keep going after the test.
         const puller = (client: OutboxStore): Promise<void> =>
             pull(client).catch((error: unknown) => {
-                failed = true;
+                hasFailed = true;
                 throw error;
             });
 

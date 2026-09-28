@@ -1,18 +1,22 @@
 import { RuntimeError } from "app/shared/errors";
 import type { Encoding, FontRule } from "app/font-convertor/svg-validator/svg-font-validator.types";
 
-// Text from the file may be of any length, while the error carries it into the log. A quote is
-// cut to the first limit. A parser message is cut to the second: saxes quotes names from the file
-// in it, and `checkEncoding` the declared encoding.
+// Text from the file may be of any length, while the error carries it into the log. A quote from
+// it is cut on its own to the first limit: a root keeps that much of its namespace and as much of
+// its local name, and the message of `BrokenFont` escapes the kept value with `JSON.stringify`,
+// which at most doubles it: of what the parser lets through as XML 1.0, it escapes only tab, LF,
+// CR, `"` and `\`, each as two units. A parser message is cut to the second limit: saxes quotes
+// names from the file in it, and `checkEncoding` the declared encoding.
 const MAX_QUOTED_LENGTH = 64;
 const MAX_PARSER_MESSAGE_LENGTH = 200;
 
 /**
- * Cuts `text` to `maxLength` UTF-16 units and puts `…` after the kept part as `show` renders it. A
- * surrogate pair cut in half becomes U+FFFD: a lone surrogate is not valid UTF-8 on the way out.
+ * Keeps the first `maxLength` UTF-16 units of `text` and returns them with the mark of the cut: `…`
+ * when anything was cut, or an empty string. A surrogate pair cut in half becomes U+FFFD: a lone
+ * surrogate is not valid UTF-8 on the way out.
  */
-function clip(text: string, maxLength: number, show = (shown: string): string => shown): string {
-    return text.length > maxLength ? `${show(text.slice(0, maxLength).toWellFormed())}…` : show(text);
+function clip(text: string, maxLength: number): [kept: string, mark: string] {
+    return text.length > maxLength ? [text.slice(0, maxLength).toWellFormed(), "…"] : [text, ""];
 }
 
 /**
@@ -34,18 +38,21 @@ export class NotXml extends InvalidSvgFont {
      * would print that message uncut.
      */
     public static byParser(error: Error): NotXml {
-        return new NotXml(`File is not XML: ${clip(error.message, MAX_PARSER_MESSAGE_LENGTH)}`);
+        return new NotXml(`File is not XML: ${clip(error.message, MAX_PARSER_MESSAGE_LENGTH).join("")}`);
     }
 }
 
 export class NotSvg extends InvalidSvgFont {
     /**
      * `root` is in Clark notation, `{namespace}local`. An NCName holds no `}`, so the local name
-     * follows the last one. Each part is cut on its own: a long namespace must not cut off the name.
+     * follows the last one. The namespace and the local name are cut each on its own, so that a long
+     * namespace does not cut off the name, and the braces are kept, so that the quote stays in Clark
+     * notation.
      */
     public static byRoot(root: string, expected: string): NotSvg {
-        const end = root.lastIndexOf("}") + 1;
-        const quoted = `${clip(root.slice(0, end), MAX_QUOTED_LENGTH)}${clip(root.slice(end), MAX_QUOTED_LENGTH)}`;
+        const end = root.lastIndexOf("}");
+        const namespace = clip(root.slice(1, end), MAX_QUOTED_LENGTH).join("");
+        const quoted = `{${namespace}}${clip(root.slice(end + 1), MAX_QUOTED_LENGTH).join("")}`;
 
         return new NotSvg(`File is not SVG: the root element is ${quoted}, expected ${expected}.`, {
             root: quoted,
@@ -62,8 +69,10 @@ export class NoFont extends InvalidSvgFont {
 
 export class BrokenFont extends InvalidSvgFont {
     /**
-     * A cut value ends with `…` outside the quotes in the message; in the payload `valueLength`,
-     * the length before the cut, tells it apart from a value that ends with `…` itself.
+     * A cut value ends with `…`. In the payload that makes it one unit longer than an uncut value
+     * can be, and `valueLength`, the length before the cut, says the same: either tells it apart
+     * from a value that ends with `…` itself. In the message the value is escaped by
+     * `JSON.stringify`, which can make it longer, so there the mark stands outside the quotes.
      */
     public static byRule(rule: FontRule, element: string, line: number, attribute?: [string, string]): BrokenFont {
         const at = `SVG font breaks a rule: ${rule}. At line ${line}: <${element}>`;
@@ -73,13 +82,14 @@ export class BrokenFont extends InvalidSvgFont {
         }
 
         const [name, value] = attribute;
+        const [kept, mark] = clip(value, MAX_QUOTED_LENGTH);
 
-        return new BrokenFont(`${at} with ${name}=${clip(value, MAX_QUOTED_LENGTH, JSON.stringify)}.`, {
+        return new BrokenFont(`${at} with ${name}=${JSON.stringify(kept)}${mark}.`, {
             rule: rule,
             element: element,
             line: line,
             attribute: name,
-            value: clip(value, MAX_QUOTED_LENGTH),
+            value: `${kept}${mark}`,
             valueLength: value.length,
         });
     }
