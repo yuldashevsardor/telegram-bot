@@ -33,6 +33,7 @@ import { PgSqlUserRepository } from "app/telegram/user/pgsql-repository/pgsql-us
 import { UserService } from "app/telegram/user/service/user-service";
 import { TelegramCallApiMiddleware } from "app/telegram/middleware/mutation/telegram-call-api.middleware";
 import { StartConversation } from "app/telegram/conversation/start/start.conversation";
+import { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 
 export class Container extends InversifyContainer {
     private alreadySetup = false;
@@ -84,6 +85,9 @@ export class Container extends InversifyContainer {
         this.bind<LimitResolver>(Tokens.Bot.OutboundQueue.LimitResolver).to(TelegramLimitResolver).inSingletonScope();
         this.bind<TaskQueue>(Tokens.Bot.OutboundQueue.TaskQueue).to(TaskQueue).inSingletonScope();
         this.bind<Runner>(Tokens.Bot.OutboundQueue.Runner).to(Runner).inSingletonScope();
+
+        // Outbox
+        this.bind<OutboxStore>(Tokens.Bot.Outbox.Store).to(OutboxStore).inSingletonScope();
 
         // User
         this.bind<UserRepository>(Tokens.Bot.User.Repository).to(PgSqlUserRepository).inSingletonScope();

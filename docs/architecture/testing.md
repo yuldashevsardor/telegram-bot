@@ -296,10 +296,11 @@ So the `require` in the Stryker config carries no hook, and the database specs a
 Stryker run until it is written into the list.
 
 The code whose behaviour only those specs check (`DATABASE_ONLY_SOURCES`) is taken out of `mutate`.
-Without those specs 43 of its 46 mutants would stay survived or uncovered, while with the hook 2
-survive. The list holds exact paths. A path that is not in the tree stops any `make mutation` with
-the message `file … from DATABASE_ONLY_SOURCES is missing`. Otherwise the exclusion would match
-nothing, and a moved or renamed file would give false survivors.
+When the list held `database.ts`, `pgsql-storage.ts` and `pgsql-user-repository.ts`, 43 of their 46
+mutants stayed survived or uncovered without those specs, while with the hook 2 survived. The
+list holds exact paths. A path that is not in the tree stops any `make mutation` with the message
+`file … from DATABASE_ONLY_SOURCES is missing`. Otherwise the exclusion would match nothing, and a
+moved or renamed file would give false survivors.
 
 **The type checker.** `tsx` does not check types, so without a checker a mutant that breaks the
 types would go into the tests like any other and, not killed by them, would survive.
