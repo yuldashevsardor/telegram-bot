@@ -13,11 +13,12 @@ another node can rebuild enters the outbox. `serialize(method, payload)`
 (`payload-codec/payload-codec.ts`) walks the payload the way `JSON.stringify` walks it when the
 row is written, so no part of the payload reaches the row unchecked:
 
-- `toJSON()` is called where JSON calls it, with the same key, and what it returns is walked in
-  turn: a `Date` comes out as its string. A boxed primitive (`new String()`) is unwrapped, as JSON
-  unwraps it. Any other object — an array, a plain object, a class
-  instance such as grammY's `InlineKeyboard`, an object without a prototype — is copied by its own
-  enumerable keys. A value that is not an object (`undefined`) is kept as is and left to JSON;
+- `toJSON()` is called where JSON calls it, and what it returns is walked in turn: a `Date` comes
+  out as its string. JSON also passes `toJSON()` the key of the value; the codec does not, as
+  nothing in a Bot API payload reads it. A boxed primitive (`new String()`) is unwrapped, as JSON
+  unwraps it. Any other object — an array, a plain object, a class instance such as grammY's
+  `InlineKeyboard`, an object without a prototype — is copied by its own enumerable keys. A value
+  that is not an object (`undefined`) is kept as is and left to JSON;
 - a `PathFile` (`new PathFile(path, filename?)`, `telegram/path-file/path-file.ts`, a subclass of
   `InputFile`) is taken before its `toJSON()` and becomes the marker
   `{ "$pathFile": { "path", "filename" } }`; `deserialize()` rebuilds it as a `PathFile`. The

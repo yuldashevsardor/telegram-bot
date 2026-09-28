@@ -18,17 +18,23 @@ const FILE_KEY = "$pathFile";
 
 // Walks the payload the way JSON.stringify will when the row is written, so that nothing reaches
 // the row unchecked: a value is taken by its JSON form (see toJson()), and any other object, a class
-// instance or one without a prototype included, is read by its own enumerable keys. A value that is
-// not an object is kept as is and left to JSON (undefined, a function).
-function store(value: unknown, method: string, path: readonly string[], ancestors: readonly object[]): unknown {
-    const json = toJson(value, path.at(-1) ?? "");
+// instance or one without a prototype included, is read by its own enumerable keys. Of the values
+// that are not objects, a string is checked and a bigint throws; the rest are kept as they are and
+// left to JSON (undefined, a function).
+//
+// `enclosing` holds the objects the walk is inside of, from the root down: meeting one of them again
+// means the payload refers back to itself, and the walk would never end. An object met twice in
+// different branches (`entities: [e, e]`) is not a cycle, so this is the chain down to the value,
+// not every object seen.
+function store(value: unknown, method: string, path: readonly string[], enclosing: readonly object[]): unknown {
+    const json = toJson(value);
 
     if (json instanceof InputFile) {
         if (!(json instanceof PathFile)) {
             throw UnsupportedInputFile.inMethod(method, path);
         }
 
-        return { [FILE_KEY]: store({ path: json.path, filename: json.filename }, method, path, ancestors) };
+        return { [FILE_KEY]: store({ path: json.path, filename: json.filename }, method, path, enclosing) };
     }
 
     if (typeof json === "string" && !isStorable(json)) {
@@ -44,11 +50,11 @@ function store(value: unknown, method: string, path: readonly string[], ancestor
         return json;
     }
 
-    if (ancestors.includes(json)) {
+    if (enclosing.includes(json)) {
         throw CyclicPayload.inMethod(method, path);
     }
 
-    const inside = [...ancestors, json];
+    const inside = [...enclosing, json];
 
     if (Array.isArray(json)) {
         return json.map((item: unknown, index) => store(item, method, [...path, String(index)], inside));
@@ -72,8 +78,8 @@ function store(value: unknown, method: string, path: readonly string[], ancestor
 // What JSON.stringify writes in place of a value: what its toJSON() returns, then a boxed primitive
 // unwrapped. An InputFile is taken as it is: its toJSON() throws, or, once grammY has sent the file,
 // returns an attach:// string that means nothing on another node.
-function toJson(value: unknown, key: string): unknown {
-    const json = value instanceof InputFile || !hasToJson(value) ? value : value.toJSON(key);
+function toJson(value: unknown): unknown {
+    const json = value instanceof InputFile || !hasToJson(value) ? value : value.toJSON();
 
     if (json instanceof String || json instanceof Number || json instanceof Boolean || json instanceof BigInt) {
         return json.valueOf();
@@ -82,7 +88,7 @@ function toJson(value: unknown, key: string): unknown {
     return json;
 }
 
-function hasToJson(value: unknown): value is { toJSON(key: string): unknown } {
+function hasToJson(value: unknown): value is { toJSON(): unknown } {
     return typeof value === "object" && value !== null && typeof (value as { toJSON?: unknown }).toJSON === "function";
 }
 
@@ -135,8 +141,9 @@ function readMarker(marker: object): PathFile {
 /**
  * Turns a Bot API payload into a value for the outbox row. A PathFile becomes a marker with its
  * path. Any other InputFile throws, since its data lives only in this process, and so do an object
- * that already carries the marker key, a string or a key jsonb does not store, and a payload that refers
- * back to itself. Every error names the method and where in the payload the value sits.
+ * that already carries the marker key, a string or a key jsonb does not store, a bigint, and a
+ * payload that refers back to itself. Every error names the method and where in the payload the
+ * value sits.
  */
 export function serialize(method: string, payload: object): Record<string, unknown> {
     return store(payload, method, [], []) as Record<string, unknown>;

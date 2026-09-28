@@ -77,18 +77,6 @@ describe("Outbox payload codec", function () {
         expect(serialized["date"]).to.equal("1970-01-01T00:00:00.000Z");
     });
 
-    it("passes toJSON() the key of the value, as JSON does", function () {
-        const payload = { chat_id: 1, caption: { toJSON: (key: string): string => `at ${key}` } };
-
-        expect(serialize("sendDocument", payload)).to.deep.equal({ chat_id: 1, caption: "at caption" });
-    });
-
-    it("calls toJSON() of the root with an empty key, as JSON does", function () {
-        const payload = { toJSON: (key: string): object => ({ chat_id: 1, text: `key "${key}"` }) };
-
-        expect(serialize("sendMessage", payload)).to.deep.equal({ chat_id: 1, text: 'key ""' });
-    });
-
     it("walks what toJSON() returns", function () {
         const payload = { chat_id: 1, media: { toJSON: (): object => ({ document: new InputFile(Buffer.from("font")) }) } };
 
