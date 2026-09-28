@@ -2,6 +2,7 @@ import { injectable } from "inversify";
 import { SaxesParser } from "saxes";
 import type { SaxesTagNS, XMLDecl } from "saxes";
 import { FileHelper } from "app/shared/fs/file-helper";
+import { isPathData } from "app/font-convertor/svg-validator/path-data";
 import { BrokenFont, NoFont, NotSvg, NotXml } from "app/font-convertor/svg-validator/svg-font-validator.errors";
 import type { Encoding, NumericElement, OpenElement, Scan } from "app/font-convertor/svg-validator/svg-font-validator.types";
 import { FontRule } from "app/font-convertor/svg-validator/svg-font-validator.types";
@@ -9,7 +10,7 @@ import { FontRule } from "app/font-convertor/svg-validator/svg-font-validator.ty
 /**
  * Checks an SVG font against W3C SVG 1.1 Second Edition, chapter 20 "Fonts". SVG 2 removed SVG
  * fonts, so 1.1 is the reference. Only the fonts are checked against it, not the rest of the
- * document. The path data of `d` is not checked yet (#611).
+ * document.
  */
 @injectable()
 export class SvgFontValidator {
@@ -172,10 +173,10 @@ export class SvgFontValidator {
                 break;
             case "glyph":
                 parent.hasGlyph = true;
-                this.checkMetrics(scan, element, tag, "glyph");
+                this.checkGlyph(scan, element, tag, "glyph");
                 break;
             case "missing-glyph":
-                this.checkMetrics(scan, element, tag, "missing-glyph");
+                this.checkGlyph(scan, element, tag, "missing-glyph");
                 break;
         }
     }
@@ -216,6 +217,16 @@ export class SvgFontValidator {
             this.report(scan, FontRule.Number, "font-face", element.line, ["units-per-em", unitsPerEm]);
         } else if (this.sign(unitsPerEm) <= 0) {
             this.report(scan, FontRule.PositiveUnitsPerEm, "font-face", element.line, ["units-per-em", unitsPerEm]);
+        }
+    }
+
+    private checkGlyph(scan: Scan, element: OpenElement, tag: SaxesTagNS, name: Exclude<NumericElement, "font">): void {
+        this.checkMetrics(scan, element, tag, name);
+
+        const outline = this.attribute(tag, "d");
+
+        if (outline !== undefined && !isPathData(outline)) {
+            this.report(scan, FontRule.PathData, name, element.line, ["d", outline]);
         }
     }
 
