@@ -269,14 +269,19 @@ describe("SvgFontValidator.validate", function () {
             );
         });
 
-        it("quoting each part of a long root cut to 64 UTF-16 units", async function () {
-            // A long namespace must not cut off the local name.
+        it("quoting the namespace and the local name of a root each cut to 64 UTF-16 units", async function () {
+            // A long namespace must not cut off the local name, and the braces stay around the namespace.
             const namespace = `urn:${"a".repeat(100)}`;
             const local = "b".repeat(100);
             const cases: Array<[string, string, number]> = [
-                [`<x xmlns="${namespace}"/>`, `{urn:${"a".repeat(59)}…x`, 107],
+                [`<x xmlns="${namespace}"/>`, `{urn:${"a".repeat(60)}…}x`, 107],
                 [`<${local} xmlns="urn:a"/>`, `{urn:a}${"b".repeat(64)}…`, 107],
-                [`<${local} xmlns="${namespace}"/>`, `{urn:${"a".repeat(59)}…${"b".repeat(64)}…`, 206],
+                [`<${local} xmlns="${namespace}"/>`, `{urn:${"a".repeat(60)}…}${"b".repeat(64)}…`, 206],
+                // The limit applies to the namespace alone, not counting the braces.
+                [`<x xmlns="urn:${"a".repeat(60)}"/>`, `{urn:${"a".repeat(60)}}x`, 67],
+                [`<x xmlns="urn:${"a".repeat(61)}"/>`, `{urn:${"a".repeat(60)}…}x`, 68],
+                // A namespace may hold `}`, a local name may not: the name follows the last one.
+                [`<x xmlns="urn:}${"a".repeat(100)}"/>`, `{urn:}${"a".repeat(59)}…}x`, 108],
             ];
 
             for (const [document, quoted, rootLength] of cases) {
