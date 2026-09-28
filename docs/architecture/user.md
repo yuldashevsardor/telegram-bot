@@ -5,7 +5,7 @@
 - the `User` entity: its fields are private, and its setters bump `updatedTime`;
 - the `UserRepository` interface;
 - `UserService.create()`/`edit()`, which wrap failures into `UserCreateError`/`UserEditError`;
-- the `PgSqlUserRepository` adapter: its `save()` is an upsert, `on conflict (id) do update`.
+- the `PgSqlUserRepository` adapter: its `save()` is an upsert, `ON CONFLICT (id) DO UPDATE`.
 
 `User` is not a user of the service but a snapshot of a Telegram profile. That is why the module
 lies in the Telegram directory:

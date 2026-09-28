@@ -123,7 +123,7 @@ project's existing decisions.
 - Comments only about the non-obvious: why, not what. An optimisation that makes the code less
   obvious carries one: what was slow and why the plain form did not fit.
 - SQL keywords are upper case (`SELECT`, `ON CONFLICT`, `ANY`); function names (`now()`) and
-  identifiers are lower case. The queries written before the rule are still lower case.
+  identifiers are lower case.
 
 ## Invariants
 

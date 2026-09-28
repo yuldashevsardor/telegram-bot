@@ -63,7 +63,7 @@ Specs that go to PostgreSQL use a database of their own per run, inside the shar
   `node-pg-migrate`. The migrations directory and table come from `migrate.json`, as for the
   container before the bot starts.
 - The specs and the migrations go to the database as the application user, like the bot.
-- After the run the hook drops the database with `drop database … with (force)`. A run killed
+- After the run the hook drops the database with `DROP DATABASE … WITH (FORCE)`. A run killed
   before `afterAll` leaves its database behind; `\l telegram_bot_test_*` in `make psql` shows it.
 
 A run does not collide with a bot from another tree: the bot has `DATABASE_NAME`, the run has a

@@ -62,8 +62,8 @@ not import the container.
 
 One update costs the database:
 
-- on `sessions`, a `select` on the way in and an upsert after the chain, if it did not fail;
-- on `users`, one `select` (`existsById`) for a new user or two (`existsById` + `getById`) for an
+- on `sessions`, a `SELECT` on the way in and an upsert after the chain, if it did not fail;
+- on `users`, one `SELECT` (`existsById`) for a new user or two (`existsById` + `getById`) for an
   existing one, plus an upsert ([`user.md`](./user.md)).
 
 An update dropped at steps 1-2 costs no query at all.
