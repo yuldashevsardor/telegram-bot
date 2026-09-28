@@ -1,15 +1,14 @@
 import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import { expect } from "chai";
-import { InlineKeyboard, InputFile } from "grammy";
+import { InlineKeyboard, InputFile, Keyboard } from "grammy";
 import { deserialize, serialize } from "app/telegram/outbox/payload-codec/payload-codec";
 import {
-    CyclicPayload,
     InvalidFileMarker,
     ReservedFileKey,
     UnstorableString,
-    UnsupportedBigInt,
     UnsupportedInputFile,
+    UnsupportedValue,
 } from "app/telegram/outbox/payload-codec/payload-codec.errors";
 import { PathFile } from "app/telegram/path-file/path-file";
 
@@ -68,68 +67,48 @@ describe("Outbox payload codec", function () {
         expect(serialize("sendMediaGroup", restored)).to.deep.equal(serialize("sendMediaGroup", payload));
     });
 
-    it("keeps undefined as it is and takes a value with toJSON() by its JSON form", function () {
-        const payload = { chat_id: 1, text: "hello", message_thread_id: undefined, date: new Date(0) };
-
-        const serialized = serialize("sendMessage", payload);
+    it("keeps undefined as it is", function () {
+        const serialized = serialize("sendMessage", { chat_id: 1, text: "hello", message_thread_id: undefined });
 
         expect(serialized).to.have.property("message_thread_id", undefined);
-        expect(serialized["date"]).to.equal("1970-01-01T00:00:00.000Z");
     });
 
-    it("walks what toJSON() returns", function () {
-        const payload = { chat_id: 1, media: { toJSON: (): object => ({ document: new InputFile(Buffer.from("font")) }) } };
+    it("stores grammY's keyboards by their fields, as JSON does", function () {
+        const inline = new InlineKeyboard().text("ok", "ok");
+        const reply = new Keyboard().text("yes").resized().oneTime();
 
-        expect(() => serialize("sendDocument", payload))
-            .to.throw(UnsupportedInputFile)
-            .with.deep.property("payload", { method: "sendDocument", path: "media.document" });
+        const serialized = serialize("sendMessage", { chat_id: 1, reply_markup: inline, keyboard: reply });
+
+        expect(serialized["reply_markup"]).to.deep.equal(JSON.parse(JSON.stringify(inline)));
+        expect(serialized["keyboard"]).to.deep.equal(JSON.parse(JSON.stringify(reply)));
     });
 
-    it("unwraps a boxed primitive, as JSON does", function () {
-        const payload = {
-            chat_id: 1,
-            text: new String("hi"),
-            offset: new Number(1),
-            protect_content: new Boolean(false),
-        };
+    describe("rejects a value it does not take, naming the method and the place", function () {
+        const values: Array<[string, () => unknown]> = [
+            ["a Date", (): unknown => new Date(0)],
+            ["a Map", (): unknown => new Map()],
+            ["a class instance", (): unknown => new Holder(1)],
+            ["a class instance hiding a file", (): unknown => new Holder(new InputFile(Buffer.from("font")))],
+            ["an object without a prototype", (): unknown => Object.create(null) as object],
+            ["a boxed string", (): unknown => new String("hi")],
+            ["a bigint", (): unknown => 1n],
+            ["a function", (): unknown => (): void => {}],
+            ["a symbol", (): unknown => Symbol("s")],
+        ];
 
-        expect(serialize("sendMessage", payload)).to.deep.equal({ chat_id: 1, text: "hi", offset: 1, protect_content: false });
-    });
+        for (const [name, value] of values) {
+            it(`such as ${name}`, function () {
+                expect(() => serialize("sendMessage", { chat_id: 1, entities: [value()] }))
+                    .to.throw(UnsupportedValue, "sendMessage got a value at entities.0 that the outbox does not store")
+                    .with.deep.property("payload", { method: "sendMessage", path: "entities.0" });
+            });
+        }
 
-    for (const [name, big] of [
-        ["a bigint", 1n],
-        ["a boxed bigint", Object(1n) as object],
-    ] as Array<[string, unknown]>) {
-        it(`rejects ${name}, which JSON cannot write`, function () {
-            expect(() => serialize("sendMessage", { chat_id: 1, offset: big }))
-                .to.throw(UnsupportedBigInt, "sendMessage got a bigint at offset")
-                .with.deep.property("payload", { method: "sendMessage", path: "offset" });
+        it("as the root", function () {
+            expect(() => serialize("sendMessage", new Holder(1)))
+                .to.throw(UnsupportedValue)
+                .with.deep.property("payload", { method: "sendMessage", path: "the root" });
         });
-    }
-
-    it("takes a file toJSON() returns as a file", function () {
-        const stored = serialize("sendDocument", { chat_id: 1, document: { toJSON: (): InputFile => new PathFile("/data/a.ttf") } });
-
-        expect(stored["document"]).to.deep.equal({ $pathFile: { path: "/data/a.ttf", filename: "a.ttf" } });
-        expect(() => serialize("sendDocument", { chat_id: 1, document: { toJSON: (): InputFile => new InputFile(Buffer.from("font")) } }))
-            .to.throw(UnsupportedInputFile)
-            .with.deep.property("payload", { method: "sendDocument", path: "document" });
-    });
-
-    it("stores a class instance by its own keys, as JSON does", function () {
-        const keyboard = new InlineKeyboard().text("ok", "ok");
-
-        const serialized = serialize("sendMessage", { chat_id: 1, reply_markup: keyboard });
-
-        expect(serialized["reply_markup"]).to.deep.equal(JSON.parse(JSON.stringify(keyboard)));
-    });
-
-    it("stores an object shared by two places of the payload in both", function () {
-        const entity = { type: "bold", offset: 0, length: 5 };
-
-        const serialized = serialize("sendMessage", { chat_id: 1, entities: [entity, entity] });
-
-        expect(serialized["entities"]).to.deep.equal([entity, entity]);
     });
 
     describe("rejects an object that already carries the marker key, naming the method and the place", function () {
@@ -140,16 +119,6 @@ describe("Outbox payload codec", function () {
                 "media.0.media",
             ],
             ["at the root", (): object => ({ chat_id: 1, $pathFile: { path: "/etc/passwd" } }), "the root"],
-            [
-                "in a class instance",
-                (): object => ({ chat_id: 1, media: new Holder({ $pathFile: { path: "/etc/passwd" } }) }),
-                "media.item",
-            ],
-            [
-                "in an object without a prototype",
-                (): object => Object.assign(Object.create(null) as object, { $pathFile: { path: "/etc/passwd" } }),
-                "the root",
-            ],
         ];
 
         for (const [name, payload, path] of payloads) {
@@ -165,8 +134,6 @@ describe("Outbox payload codec", function () {
         const payloads: Array<[string, () => object, string]> = [
             ["U+0000 in a string", (): object => ({ chat_id: 1, caption: "Font\u0000Name" }), "caption"],
             ["U+0000 in a key", (): object => ({ chat_id: 1, reply_markup: { "a\u0000b": 1 } }), "reply_markup.a\u0000b"],
-            ["U+0000 in what toJSON() returns", (): object => ({ chat_id: 1, caption: { toJSON: (): string => "\u0000" } }), "caption"],
-            ["U+0000 in a boxed string", (): object => ({ chat_id: 1, caption: new String("\u0000") }), "caption"],
             [
                 "U+0000 in the path of a path file",
                 (): object => ({ chat_id: 1, document: new PathFile("/data/a\u0000.ttf", "a.ttf") }),
@@ -191,26 +158,6 @@ describe("Outbox payload codec", function () {
 
         it("but keeps a surrogate pair", function () {
             expect(serialize("sendMessage", { chat_id: 1, text: "ok 😀" })).to.deep.equal({ chat_id: 1, text: "ok 😀" });
-        });
-    });
-
-    describe("rejects a payload that refers back to itself", function () {
-        it("through an object", function () {
-            const payload: Record<string, unknown> = { chat_id: 1 };
-            payload["reply_markup"] = { self: payload };
-
-            expect(() => serialize("sendMessage", payload))
-                .to.throw(CyclicPayload, "sendMessage got a payload that refers back to itself at reply_markup.self")
-                .with.deep.property("payload", { method: "sendMessage", path: "reply_markup.self" });
-        });
-
-        it("through an array", function () {
-            const media: unknown[] = [];
-            media.push(media);
-
-            expect(() => serialize("sendMediaGroup", { chat_id: 1, media: media }))
-                .to.throw(CyclicPayload)
-                .with.deep.property("payload", { method: "sendMediaGroup", path: "media.0" });
         });
     });
 
@@ -288,22 +235,6 @@ describe("Outbox payload codec", function () {
             expect(() => serialize("sendMediaGroup", payload))
                 .to.throw(UnsupportedInputFile, "sendMediaGroup")
                 .with.deep.property("payload", { method: "sendMediaGroup", path: "media.1.thumbnail" });
-        });
-
-        it("inside a class instance", function () {
-            const payload = { chat_id: 1, document: new Holder(new InputFile(Buffer.from("font"))) };
-
-            expect(() => serialize("sendDocument", payload))
-                .to.throw(UnsupportedInputFile)
-                .with.deep.property("payload", { method: "sendDocument", path: "document.item" });
-        });
-
-        it("inside an object without a prototype", function () {
-            const payload = Object.assign(Object.create(null) as object, { chat_id: 1, document: new InputFile(Buffer.from("font")) });
-
-            expect(() => serialize("sendDocument", payload))
-                .to.throw(UnsupportedInputFile)
-                .with.deep.property("payload", { method: "sendDocument", path: "document" });
         });
 
         it("as the root", function () {

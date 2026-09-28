@@ -1,13 +1,12 @@
 import { isAbsolute } from "node:path";
-import { InputFile } from "grammy";
+import { InlineKeyboard, InputFile, Keyboard } from "grammy";
 import { PathFile } from "app/telegram/path-file/path-file";
 import {
-    CyclicPayload,
     InvalidFileMarker,
     ReservedFileKey,
     UnstorableString,
-    UnsupportedBigInt,
     UnsupportedInputFile,
+    UnsupportedValue,
 } from "app/telegram/outbox/payload-codec/payload-codec.errors";
 
 // The key of the object that stands for a file in a stored payload. It is part of the stored format:
@@ -16,52 +15,43 @@ import {
 // does, or deserialize() would read it as a file.
 const FILE_KEY = "$pathFile";
 
-// Walks the payload the way JSON.stringify will when the row is written, so that nothing reaches
-// the row unchecked: a value is taken by its JSON form (see toJson()), and any other object, a class
-// instance or one without a prototype included, is read by its own enumerable keys. Of the values
-// that are not objects, a string is checked and a bigint throws; the rest are kept as they are and
-// left to JSON (undefined, a function).
-//
-// `enclosing` holds the objects the walk is inside of, from the root down: meeting one of them again
-// means the payload refers back to itself, and the walk would never end. An object met twice in
-// different branches (`entities: [e, e]`) is not a cycle, so this is the chain down to the value,
-// not every object seen.
-function store(value: unknown, method: string, path: readonly string[], enclosing: readonly object[]): unknown {
-    const json = toJson(value);
-
-    if (json instanceof InputFile) {
-        if (!(json instanceof PathFile)) {
+// Takes only what it knows how to store: the JSON values, grammY's keyboards and a PathFile. Anything
+// else, such as a class instance, a Date or a bigint, throws: a Bot API payload grammY builds holds
+// none of it. grammY's keyboards are classes with nothing but data fields, which JSON writes as
+// they are.
+function store(value: unknown, method: string, path: readonly string[]): unknown {
+    if (value instanceof InputFile) {
+        if (!(value instanceof PathFile)) {
             throw UnsupportedInputFile.inMethod(method, path);
         }
 
-        return { [FILE_KEY]: store({ path: json.path, filename: json.filename }, method, path, enclosing) };
+        return { [FILE_KEY]: store({ path: value.path, filename: value.filename }, method, path) };
     }
 
-    if (typeof json === "string" && !isStorable(json)) {
-        throw UnstorableString.inMethod(method, path);
+    if (typeof value === "string") {
+        if (!isStorable(value)) {
+            throw UnstorableString.inMethod(method, path);
+        }
+
+        return value;
     }
 
-    // JSON.stringify throws a TypeError on it that names neither the method nor the place.
-    if (typeof json === "bigint") {
-        throw UnsupportedBigInt.inMethod(method, path);
+    if (value === null || value === undefined || typeof value === "number" || typeof value === "boolean") {
+        return value;
     }
 
-    if (typeof json !== "object" || json === null) {
-        return json;
+    if (Array.isArray(value)) {
+        return value.map((item: unknown, index) => store(item, method, [...path, String(index)]));
     }
 
-    if (enclosing.includes(json)) {
-        throw CyclicPayload.inMethod(method, path);
-    }
-
-    const inside = [...enclosing, json];
-
-    if (Array.isArray(json)) {
-        return json.map((item: unknown, index) => store(item, method, [...path, String(index)], inside));
+    // Only a plain object has Object.prototype as its prototype: a bigint, a symbol or a function,
+    // not taken above, throws here too.
+    if (Object.getPrototypeOf(value) !== Object.prototype && !(value instanceof InlineKeyboard) && !(value instanceof Keyboard)) {
+        throw UnsupportedValue.inMethod(method, path);
     }
 
     return Object.fromEntries(
-        Object.entries(json).map(([key, item]) => {
+        Object.entries(value as object).map(([key, item]) => {
             if (key === FILE_KEY) {
                 throw ReservedFileKey.inMethod(method, FILE_KEY, path);
             }
@@ -70,26 +60,9 @@ function store(value: unknown, method: string, path: readonly string[], enclosin
                 throw UnstorableString.inMethod(method, [...path, key]);
             }
 
-            return [key, store(item, method, [...path, key], inside)];
+            return [key, store(item, method, [...path, key])];
         }),
     );
-}
-
-// What JSON.stringify writes in place of a value: what its toJSON() returns, then a boxed primitive
-// unwrapped. An InputFile is taken as it is: its toJSON() throws, or, once grammY has sent the file,
-// returns an attach:// string that means nothing on another node.
-function toJson(value: unknown): unknown {
-    const json = value instanceof InputFile || !hasToJson(value) ? value : value.toJSON();
-
-    if (json instanceof String || json instanceof Number || json instanceof Boolean || json instanceof BigInt) {
-        return json.valueOf();
-    }
-
-    return json;
-}
-
-function hasToJson(value: unknown): value is { toJSON(): unknown } {
-    return typeof value === "object" && value !== null && typeof (value as { toJSON?: unknown }).toJSON === "function";
 }
 
 // PostgreSQL rejects U+0000 and a lone UTF-16 surrogate anywhere in a jsonb value, keys included.
@@ -141,12 +114,11 @@ function readMarker(marker: object): PathFile {
 /**
  * Turns a Bot API payload into a value for the outbox row. A PathFile becomes a marker with its
  * path. Any other InputFile throws, since its data lives only in this process, and so do an object
- * that already carries the marker key, a string or a key jsonb does not store, a bigint, and a
- * payload that refers back to itself. Every error names the method and where in the payload the
- * value sits.
+ * that already carries the marker key, a string or a key jsonb does not store, and a value the
+ * codec does not take. Every error names the method and where in the payload the value sits.
  */
 export function serialize(method: string, payload: object): Record<string, unknown> {
-    return store(payload, method, [], []) as Record<string, unknown>;
+    return store(payload, method, []) as Record<string, unknown>;
 }
 
 /** Rebuilds the payload serialize() made, with a PathFile in place of each marker. */

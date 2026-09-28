@@ -52,20 +52,16 @@ export class UnstorableString extends RuntimeError {
     }
 }
 
-export class UnsupportedBigInt extends RuntimeError {
-    public static inMethod(method: string, path: readonly string[]): UnsupportedBigInt {
-        return new UnsupportedBigInt(`${method} got a bigint at ${describe(path)}, which JSON cannot write.`, {
-            method: method,
-            path: describe(path),
-        });
-    }
-}
-
-export class CyclicPayload extends RuntimeError {
-    public static inMethod(method: string, path: readonly string[]): CyclicPayload {
-        return new CyclicPayload(`${method} got a payload that refers back to itself at ${describe(path)}.`, {
-            method: method,
-            path: describe(path),
-        });
+export class UnsupportedValue extends RuntimeError {
+    public static inMethod(method: string, path: readonly string[]): UnsupportedValue {
+        return new UnsupportedValue(
+            `${method} got a value at ${describe(
+                path,
+            )} that the outbox does not store: it takes JSON values, grammY's keyboards and a PathFile.`,
+            {
+                method: method,
+                path: describe(path),
+            },
+        );
     }
 }

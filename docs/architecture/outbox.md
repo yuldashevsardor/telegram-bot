@@ -10,32 +10,32 @@ yet: so far it holds the payload codec alone.
 
 A row outlives the process that wrote it and is sent by whichever node claims it, so only what
 another node can rebuild enters the outbox. `serialize(method, payload)`
-(`payload-codec/payload-codec.ts`) walks the payload the way `JSON.stringify` walks it when the
-row is written, so no part of the payload reaches the row unchecked:
+(`payload-codec/payload-codec.ts`) takes only what it knows how to store and throws on anything
+else, so no part of the payload reaches the row unchecked:
 
-- `toJSON()` is called where JSON calls it, and what it returns is walked in turn: a `Date` comes
-  out as its string. JSON also passes `toJSON()` the key of the value; the codec does not, as
-  nothing in a Bot API payload reads it. A boxed primitive (`new String()`) is unwrapped, as JSON
-  unwraps it. Any other object — an array, a plain object, a class instance such as grammY's
-  `InlineKeyboard`, an object without a prototype — is copied by its own enumerable keys. A value
-  that is not an object (`undefined`) is kept as is and left to JSON;
+- strings, numbers, booleans, `null` and `undefined` are kept; arrays and plain objects are walked;
+- grammY's `InlineKeyboard` and `Keyboard` are walked as plain objects: they are classes with data
+  fields only, which JSON writes as they are. Of the classes grammY exports, they are the only
+  ones meant for a payload besides `InputFile`: `InputMediaBuilder` and `InlineQueryResultBuilder`
+  return plain objects (`convenience/input_media.js`, `convenience/inline_query.js`);
 - a `PathFile` (`new PathFile(path, filename?)`, `telegram/path-file/path-file.ts`, a subclass of
-  `InputFile`) is taken before its `toJSON()` and becomes the marker
-  `{ "$pathFile": { "path", "filename" } }`; `deserialize()` rebuilds it as a `PathFile`. The
-  marker is the stored format: a change of its key leaves the rows already written unreadable. A
-  marker `serialize()` would not write is a corrupted row and throws `InvalidFileMarker` (the
-  conditions are in `readMarker()`);
+  `InputFile`) becomes the marker `{ "$pathFile": { "path", "filename" } }`; `deserialize()`
+  rebuilds it as a `PathFile`. The marker is the stored format: a change of its key leaves the rows
+  already written unreadable. A marker `serialize()` would not write is a corrupted row and throws
+  `InvalidFileMarker` (the conditions are in `readMarker()`);
 - any other `InputFile` throws `UnsupportedInputFile`: a `Buffer`, a stream or a supplier function
-  lives only in the memory of this process. It is taken before its `toJSON()` too, so a file
-  grammY has already sent, whose `toJSON()` grammY replaced with one returning `attach://<id>`,
-  is rejected rather than stored as that string;
+  lives only in the memory of this process. The check is by class, so a file grammY has already
+  sent is rejected too, although grammY has replaced its `toJSON()` with one returning
+  `attach://<id>` (`collectFiles()` in grammY's `core/payload.js`);
 - an object that already carries the marker key throws `ReservedFileKey`: `deserialize()` would
   read it as a file;
 - a string or a key that PostgreSQL does not accept in `jsonb` throws `UnstorableString`: U+0000
   or a lone UTF-16 surrogate (a caption cut through an emoji). The path and the file name of a
   `PathFile` are checked too;
-- a `bigint`, boxed or not, throws `UnsupportedBigInt`: JSON cannot write it;
-- a payload that refers back to itself throws `CyclicPayload`.
+- any other value throws `UnsupportedValue`: another class instance, a `Date`, an object without
+  a prototype, a `bigint`, a function. A payload grammY builds holds none of them. A payload of
+  plain objects that refers back to itself is not caught: the walk overflows the stack with a
+  `RangeError`.
 
 An error of `serialize()` names the method and where the value sits in the payload
 (`media.1.thumbnail`), in the message and in `payload`.

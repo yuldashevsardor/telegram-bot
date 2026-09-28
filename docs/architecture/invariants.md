@@ -123,8 +123,8 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
 
 - **Only a serializable payload enters the outbox; a file goes in only as a `PathFile`.** An
   `InputFile` from a `Buffer` or a stream compiles, as does a path passed to `new InputFile()`, and
-  fails only at runtime: `serialize()` rejects it with `UnsupportedInputFile` wherever it sits in
-  the payload ([`outbox.md`](./outbox.md)), on the node that queues the call.
+  fails only at runtime: `serialize()` rejects it on the node that queues the call
+  ([`outbox.md`](./outbox.md)).
 - **The path of a `PathFile` must be on storage visible to every sending node.** Any node
   may claim the row, and it reads the file at the stored path. A path on the local disk of the
   node that queued it sends from that node and fails on every other one. The code does not check
