@@ -52,6 +52,15 @@ export class UnstorableString extends RuntimeError {
     }
 }
 
+export class UnsupportedBigInt extends RuntimeError {
+    public static inMethod(method: string, path: readonly string[]): UnsupportedBigInt {
+        return new UnsupportedBigInt(`${method} got a bigint at ${describe(path)}, which JSON cannot write.`, {
+            method: method,
+            path: describe(path),
+        });
+    }
+}
+
 export class CyclicPayload extends RuntimeError {
     public static inMethod(method: string, path: readonly string[]): CyclicPayload {
         return new CyclicPayload(`${method} got a payload that refers back to itself at ${describe(path)}.`, {

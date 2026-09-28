@@ -8,6 +8,7 @@ import {
     InvalidFileMarker,
     ReservedFileKey,
     UnstorableString,
+    UnsupportedBigInt,
     UnsupportedInputFile,
 } from "app/telegram/outbox/payload-codec/payload-codec.errors";
 import { PathFile } from "app/telegram/path-file/path-file";
@@ -102,11 +103,21 @@ describe("Outbox payload codec", function () {
             text: new String("hi"),
             offset: new Number(1),
             protect_content: new Boolean(false),
-            big: Object(1n) as object,
         };
 
-        expect(serialize("sendMessage", payload)).to.deep.equal({ chat_id: 1, text: "hi", offset: 1, protect_content: false, big: 1n });
+        expect(serialize("sendMessage", payload)).to.deep.equal({ chat_id: 1, text: "hi", offset: 1, protect_content: false });
     });
+
+    for (const [name, big] of [
+        ["a bigint", 1n],
+        ["a boxed bigint", Object(1n) as object],
+    ] as Array<[string, unknown]>) {
+        it(`rejects ${name}, which JSON cannot write`, function () {
+            expect(() => serialize("sendMessage", { chat_id: 1, offset: big }))
+                .to.throw(UnsupportedBigInt, "sendMessage got a bigint at offset")
+                .with.deep.property("payload", { method: "sendMessage", path: "offset" });
+        });
+    }
 
     it("takes a file toJSON() returns as a file", function () {
         const stored = serialize("sendDocument", { chat_id: 1, document: { toJSON: (): InputFile => new PathFile("/data/a.ttf") } });

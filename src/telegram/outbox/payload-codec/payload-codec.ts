@@ -6,6 +6,7 @@ import {
     InvalidFileMarker,
     ReservedFileKey,
     UnstorableString,
+    UnsupportedBigInt,
     UnsupportedInputFile,
 } from "app/telegram/outbox/payload-codec/payload-codec.errors";
 
@@ -32,6 +33,11 @@ function store(value: unknown, method: string, path: readonly string[], ancestor
 
     if (typeof json === "string" && !isStorable(json)) {
         throw UnstorableString.inMethod(method, path);
+    }
+
+    // JSON.stringify throws a TypeError on it that names neither the method nor the place.
+    if (typeof json === "bigint") {
+        throw UnsupportedBigInt.inMethod(method, path);
     }
 
     if (typeof json !== "object" || json === null) {
@@ -102,8 +108,9 @@ function restore(value: unknown): unknown {
     return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, restore(item)]));
 }
 
-// serialize() writes the marker key alone, with a path it has checked to be absolute: anything else
-// is a corrupted row, and a key beside the marker would be lost with the object it is in.
+// serialize() writes the marker key alone, with the path of a PathFile, which is absolute:
+// anything else is a corrupted row, and a key beside the marker would be lost with the object it
+// is in.
 function readMarker(marker: object): PathFile {
     const file = (marker as Record<string, unknown>)[FILE_KEY];
 

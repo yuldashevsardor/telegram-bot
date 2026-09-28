@@ -33,6 +33,7 @@ row is written, so no part of the payload reaches the row unchecked:
 - a string or a key that PostgreSQL does not accept in `jsonb` throws `UnstorableString`: U+0000
   or a lone UTF-16 surrogate (a caption cut through an emoji). The path and the file name of a
   `PathFile` are checked too;
+- a `bigint`, boxed or not, throws `UnsupportedBigInt`: JSON cannot write it;
 - a payload that refers back to itself throws `CyclicPayload`.
 
 An error of `serialize()` names the method and where the value sits in the payload
@@ -40,7 +41,7 @@ An error of `serialize()` names the method and where the value sits in the paylo
 
 grammY keeps the source of an `InputFile` private, so `PathFile` keeps the path in a public
 field of its own. That is why a path passed to `new InputFile()` is rejected too: the codec cannot
-read it. `PathFile` itself rejects a relative path with `RelativeFilePath`.
+read it.
 
 The node that sends the row reads the file at the stored path. The rules this puts on the path are
 in [`invariants.md`](./invariants.md), "The outbox".
