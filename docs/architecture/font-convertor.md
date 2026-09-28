@@ -140,8 +140,11 @@ Of several broken rules, `BrokenFont` names the first the pass met.
   `FontRule` in `svg-font-validator.types.ts`; the text of each names its section. Two of them are
   ours, not the specification's, and say so: `units-per-em` is required (the specification defaults
   it to 1000, but fontforge does not open a font without it), and a font needs a `glyph` (the
-  specification allows none, but fontforge turns such a font into an empty one). The path data of
-  `d` is not checked yet ([#611](https://github.com/yuldashevsardor/telegram-bot/issues/611)).
+  specification allows none, but fontforge turns such a font into an empty one). The outline, `d`
+  of `glyph` and `missing-glyph`, is checked by `isPathData()` (`path-data.ts`) against the path
+  data grammar of §8.3.9, which §20.4 gives it. Numbers there are read greedily, as §8.3.9
+  requires ("must consume as much of a given BNF production as possible"), and `1.` is a number,
+  unlike in the other attributes.
 
 XML is parsed with `saxes` (XML 1.0 fifth edition and Namespaces in XML, non-validating). It was
 chosen by measurement, with expat as the reference: of 38 malformed documents it accepted none,
