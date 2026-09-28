@@ -72,9 +72,8 @@ in its name. They do not necessarily start at the first byte. In EOT the marker 
 offset inside the header. The signature is the second sign of the format: the extension and the
 signature have to agree, otherwise the font is not admitted to conversion. A signature does not tell
 every pair of formats apart. TTF and OTF lie in a shared container and are indistinguishable by
-content. SVG has no signature: its first bytes could say only that it is markup, not that it is a
-font, so its format is confirmed by validating the whole document against the SVG font rules. How
-the check works is in `docs/architecture/font-convertor.md`.
+content. SVG has no signature: its format is confirmed by validating the document. How the check
+works is in `docs/architecture/font-convertor.md`.
 _Avoid_: MIME type, magic bytes, content type.
 
 ### Files

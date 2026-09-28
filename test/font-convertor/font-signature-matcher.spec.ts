@@ -109,7 +109,7 @@ describe("FontSignatureMatcher.matches", function () {
 });
 
 describe("FontSignatureMatcher.headLength", function () {
-    it("covers the signature of every format", async function () {
+    it("covers the signature of every signed format", async function () {
         for (const extension of signedExtensions) {
             const bytes = await readHead(`test-font.${extension}`);
 

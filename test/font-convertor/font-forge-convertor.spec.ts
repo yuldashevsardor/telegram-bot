@@ -64,6 +64,7 @@ describe("Convertors of the engine pairs", function () {
         it(`converts svg opening with ${JSON.stringify(prologue)}`, async function () {
             const fixtureText = await fs.readFile(path.join(fixtureDir, `test-font.${Extension.SVG}`), "utf8");
             // The XML declaration has to open the document, so it gives way to the prologue.
+            expect(fixtureText, "the svg fixture does not open with the XML declaration").to.match(/^<\?xml /);
             const fixtureBody = fixtureText.slice(fixtureText.indexOf("?>") + "?>".length);
             const fromPath = path.join(workDir, `source.${Extension.SVG}`);
             const toPath = path.join(workDir, `result.${Extension.WOFF}`);
