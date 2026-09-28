@@ -50,14 +50,13 @@ function store(value: unknown, method: string, place: readonly string[]): unknow
         return value.map((item: unknown, index) => store(item, method, [...place, String(index)]));
     }
 
-    // Only a plain object has Object.prototype as its prototype: a bigint or a symbol, not taken
-    // above, throws here too.
-    if (Object.getPrototypeOf(value) !== Object.prototype && !(value instanceof InlineKeyboard) && !(value instanceof Keyboard)) {
+    // A bigint or a symbol, not taken above, throws here too.
+    if (!isPlainObject(value) && !(value instanceof InlineKeyboard) && !(value instanceof Keyboard)) {
         throw UnsupportedValue.inMethod(method, place);
     }
 
     return Object.fromEntries(
-        Object.entries(value as object).map(([key, item]) => {
+        Object.entries(value).map(([key, item]) => {
             if (key === FILE_KEY) {
                 throw ReservedFileKey.inMethod(method, FILE_KEY, place);
             }
@@ -69,6 +68,11 @@ function store(value: unknown, method: string, place: readonly string[]): unknow
             return [key, store(item, method, [...place, key])];
         }),
     );
+}
+
+// Only a plain object has Object.prototype as its prototype.
+function isPlainObject(value: unknown): value is object {
+    return typeof value === "object" && value !== null && Object.getPrototypeOf(value) === Object.prototype;
 }
 
 // PostgreSQL rejects U+0000 and a lone UTF-16 surrogate anywhere in a jsonb value, keys included.
@@ -126,9 +130,11 @@ function readMarker(marker: object): PathFile {
  */
 export function serialize(method: string, payload: object): Record<string, unknown> {
     // store() takes an array, a PathFile and a keyboard inside a payload and drops a function there,
-    // but a Bot API payload itself is always a plain object.
-    if (Object.getPrototypeOf(payload) !== Object.prototype) {
-        throw UnsupportedValue.asPayload(method);
+    // but a Bot API payload itself is a plain object. A transformer gets undefined for a method
+    // called without arguments (api.raw.getUpdates()): ApiClient swaps it for {} only after the
+    // transformers, so a caller in a transformer passes {} in its place.
+    if (!isPlainObject(payload)) {
+        throw UnsupportedValue.atRoot(method);
     }
 
     return store(payload, method, []) as Record<string, unknown>;

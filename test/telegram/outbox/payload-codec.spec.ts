@@ -121,6 +121,9 @@ describe("Outbox payload codec", function () {
             ["a function", (): object => (): void => {}],
             ["a class instance", (): object => new Holder(1)],
             ["an object without a prototype", (): object => Object.create(null) as object],
+            // A transformer gets undefined for a method called without arguments, whatever its type says.
+            ["undefined", (): object => undefined as unknown as object],
+            ["null", (): object => null as unknown as object],
         ];
 
         for (const [name, payload] of payloads) {
@@ -128,7 +131,7 @@ describe("Outbox payload codec", function () {
                 expect(() => serialize("sendMessage", payload()))
                     .to.throw(
                         UnsupportedValue,
-                        "sendMessage got a value at the root that is not a plain object: a Bot API payload always is one.",
+                        "sendMessage got a value at the root that is not a plain object: the outbox stores a payload only as one.",
                     )
                     .with.deep.property("payload", { method: "sendMessage", place: "the root" });
             });
