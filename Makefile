@@ -221,7 +221,7 @@ token-add: ## Append a token to the end of the pool (asks for the token, the inp
 help: ## Show this list
 	@awk 'BEGIN { FS = ":.*## " } \
 		/^## / { printf "\n%s\n", substr($$0, 4); next } \
-		/^[a-z][a-zA-Z0-9_-]*:.*## / { printf "  %-19s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+		/^[a-z][a-zA-Z0-9_-]*:.*## / { printf "  %-20s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 	@echo
 
 ## Review tooling
@@ -247,6 +247,14 @@ mutation-area: ## The area of make mutation from the diff against origin/main, o
 mutation-record: ## Whether the last mutation run record of a PR replaces the reviewer's run: make mutation-record pr=<N> gate=mutation|mutation-full [area="<paths>"] [rebuild=1]
 	@python3 scripts/review/mutation_record.py '$(pr)' '$(gate)' '$(strip $(subst $(NEWLINE), ,$(area)))' '$(rebuild)'
 
+# The recipe lines are not echoed: stdout is the answer. The mode and the numbers go in a fixed
+# order, the empty ones as empty strings.
+mutation-full-record: ## Record an issue and its PR in the batch of the deferred full mutation run: make mutation-full-record issue=<N> pr=<N>
+	@python3 scripts/review/mutation_batch.py record '$(issue)' '$(pr)'
+
+mutation-full-check: ## Whether the issue a PR closes is recorded in a batch of the full mutation run: make mutation-full-check pr=<N>
+	@python3 scripts/review/mutation_batch.py check '$(pr)'
+
 # The recipe line is not echoed: stdout is the report the skill reads. The three arguments go in a
 # fixed order, the empty ones as empty strings.
 review-run: ## The mechanical run of a PR review in one call, from the tree the review started in: make review-run pr=<N> gates="<gates>" [flags="--no-post"]
@@ -260,4 +268,5 @@ review-tree-remove: ## Remove a temporary review tree <main worktree>-review-<PR
 	migrate migrate-create build typecheck test test-watch coverage \
 	lint lint-fix format-check format mutation check rebuild shell psql \
 	worktree-init worktree-cleanup token-acquire token-renew token-release token-status token-add \
-	review-test review-tree-create mutation-area mutation-record review-run review-tree-remove help
+	review-test review-tree-create mutation-area mutation-record mutation-full-record \
+	mutation-full-check review-run review-tree-remove help
