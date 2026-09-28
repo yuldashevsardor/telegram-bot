@@ -182,8 +182,10 @@ from the file, and a cause reaches the log uncut.
 Text from the file reaches the log through the answers, so each piece of it is cut
 (`svg-font-validator.errors.ts`): the saxes message to `MAX_PARSER_MESSAGE_LENGTH` UTF-16 units, the
 namespace and the local name of a `NotSvg` root and the attribute value of a `BrokenFont` each to
-`MAX_QUOTED_LENGTH`. A cut piece ends with `…`. The payload keeps the length before the cut
-(`rootLength`, `valueLength`), which tells a cut piece from one that ends with `…` itself.
+`MAX_QUOTED_LENGTH`. A cut piece ends with `…`, which makes it one unit longer than an uncut piece
+can be: that, not the text, tells it from a piece that ends with `…` itself. The payload keeps the
+length before the cut: `valueLength` of the value, and `rootLength` of the whole root, which does
+not say which of its two pieces was cut.
 
 ## The pair table
 
