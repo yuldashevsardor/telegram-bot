@@ -19,18 +19,18 @@ const FILE_KEY = "$pathFile";
 // function is dropped, as JSON drops it. Anything else, such as a class instance, a Date or a
 // bigint, throws: a Bot API payload grammY builds holds none of it. grammY's keyboards are classes
 // with nothing but data fields, which JSON writes as they are.
-function store(value: unknown, method: string, path: readonly string[]): unknown {
+function store(value: unknown, method: string, place: readonly string[]): unknown {
     if (value instanceof InputFile) {
         if (!(value instanceof PathFile)) {
-            throw UnsupportedInputFile.inMethod(method, path);
+            throw UnsupportedInputFile.inMethod(method, place);
         }
 
-        return { [FILE_KEY]: store({ path: value.path, filename: value.filename }, method, path) };
+        return { [FILE_KEY]: store({ path: value.path, filename: value.filename }, method, place) };
     }
 
     if (typeof value === "string") {
         if (!isStorable(value)) {
-            throw UnstorableString.inMethod(method, path);
+            throw UnstorableString.inMethod(method, place);
         }
 
         return value;
@@ -47,26 +47,26 @@ function store(value: unknown, method: string, path: readonly string[]): unknown
     }
 
     if (Array.isArray(value)) {
-        return value.map((item: unknown, index) => store(item, method, [...path, String(index)]));
+        return value.map((item: unknown, index) => store(item, method, [...place, String(index)]));
     }
 
     // Only a plain object has Object.prototype as its prototype: a bigint or a symbol, not taken
     // above, throws here too.
     if (Object.getPrototypeOf(value) !== Object.prototype && !(value instanceof InlineKeyboard) && !(value instanceof Keyboard)) {
-        throw UnsupportedValue.inMethod(method, path);
+        throw UnsupportedValue.inMethod(method, place);
     }
 
     return Object.fromEntries(
         Object.entries(value as object).map(([key, item]) => {
             if (key === FILE_KEY) {
-                throw ReservedFileKey.inMethod(method, FILE_KEY, path);
+                throw ReservedFileKey.inMethod(method, FILE_KEY, place);
             }
 
             if (!isStorable(key)) {
-                throw UnstorableString.inMethod(method, [...path, key]);
+                throw UnstorableString.inMethod(method, [...place, key]);
             }
 
-            return [key, store(item, method, [...path, key])];
+            return [key, store(item, method, [...place, key])];
         }),
     );
 }
@@ -108,13 +108,13 @@ function readMarker(marker: object): PathFile {
         throw InvalidFileMarker.byMarker(marker);
     }
 
-    const { path, filename } = file as Record<string, unknown>;
+    const { path: filePath, filename } = file as Record<string, unknown>;
 
-    if (typeof path !== "string" || !isAbsolute(path) || !(typeof filename === "string" || filename === undefined)) {
+    if (typeof filePath !== "string" || !isAbsolute(filePath) || !(typeof filename === "string" || filename === undefined)) {
         throw InvalidFileMarker.byMarker(marker);
     }
 
-    return new PathFile(path, filename);
+    return new PathFile(filePath, filename);
 }
 
 /**
@@ -124,6 +124,11 @@ function readMarker(marker: object): PathFile {
  * codec does not take. Every error names the method and where in the payload the value sits.
  */
 export function serialize(method: string, payload: object): Record<string, unknown> {
+    // store() drops a function as a field or an item; as the root it would leave no payload at all.
+    if (typeof payload === "function") {
+        throw UnsupportedValue.inMethod(method, []);
+    }
+
     return store(payload, method, []) as Record<string, unknown>;
 }
 

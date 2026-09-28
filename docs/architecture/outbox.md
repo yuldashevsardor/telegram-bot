@@ -13,13 +13,15 @@ another node can rebuild enters the outbox. `serialize(method, payload)`
 (`payload-codec/payload-codec.ts`) takes only what it knows how to store and throws on anything
 else, so no part of the payload reaches the row unchecked:
 
-- strings, numbers, booleans, `null` and `undefined` pass to JSON, which writes them as it does
-  when grammY sends the call itself: an `undefined` field is left out, a `NaN` becomes `null`;
-  arrays and plain objects are walked;
+- strings, numbers, booleans, `null` and `undefined` pass to JSON, which writes an `undefined`
+  field by leaving it out and a `NaN` as `null`, as when grammY sends the call itself. A `null`
+  field stays in the row, although grammY leaves it out of a call it sends (`str()` in grammY's
+  `core/payload.js`): it is left out when the row is sent. Arrays and plain objects are walked;
 - a function becomes `undefined`, which JSON writes as it writes any `undefined` (a field left
   out, `null` in an array): `InlineQueryResultBuilder` returns plain objects that keep its builder
   methods (`.text()`, `.location()`) as fields (`inputMessageMethods()` in grammY's
-  `convenience/inline_query.js`);
+  `convenience/inline_query.js`). A function as the whole payload throws `UnsupportedValue`: it
+  would leave no payload at all;
 - grammY's `InlineKeyboard` and `Keyboard` are walked as plain objects: they are classes with data
   fields only, which JSON writes as they are. Of the classes grammY exports, they are the only
   ones meant for a payload besides `InputFile`: `InputMediaBuilder` and `InlineQueryResultBuilder`

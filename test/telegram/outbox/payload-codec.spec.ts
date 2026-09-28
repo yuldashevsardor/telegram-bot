@@ -107,14 +107,20 @@ describe("Outbox payload codec", function () {
             it(`such as ${name}`, function () {
                 expect(() => serialize("sendMessage", { chat_id: 1, entities: [value()] }))
                     .to.throw(UnsupportedValue, "sendMessage got a value at entities.0 that the outbox does not store")
-                    .with.deep.property("payload", { method: "sendMessage", path: "entities.0" });
+                    .with.deep.property("payload", { method: "sendMessage", place: "entities.0" });
             });
         }
 
         it("as the root", function () {
             expect(() => serialize("sendMessage", new Holder(1)))
                 .to.throw(UnsupportedValue)
-                .with.deep.property("payload", { method: "sendMessage", path: "the root" });
+                .with.deep.property("payload", { method: "sendMessage", place: "the root" });
+        });
+
+        it("such as a function as the root", function () {
+            expect(() => serialize("sendMessage", (): void => {}))
+                .to.throw(UnsupportedValue, "sendMessage got a value at the root that the outbox does not store")
+                .with.deep.property("payload", { method: "sendMessage", place: "the root" });
         });
     });
 
@@ -128,11 +134,11 @@ describe("Outbox payload codec", function () {
             ["at the root", (): object => ({ chat_id: 1, $pathFile: { path: "/etc/passwd" } }), "the root"],
         ];
 
-        for (const [name, payload, path] of payloads) {
+        for (const [name, payload, place] of payloads) {
             it(name, function () {
                 expect(() => serialize("sendMediaGroup", payload()))
-                    .to.throw(ReservedFileKey, `sendMediaGroup got an object with the key $pathFile at ${path}`)
-                    .with.deep.property("payload", { method: "sendMediaGroup", key: "$pathFile", path: path });
+                    .to.throw(ReservedFileKey, `sendMediaGroup got an object with the key $pathFile at ${place}`)
+                    .with.deep.property("payload", { method: "sendMediaGroup", key: "$pathFile", place: place });
             });
         }
     });
@@ -155,11 +161,11 @@ describe("Outbox payload codec", function () {
             ["a lone surrogate in a key", (): object => ({ chat_id: 1, reply_markup: { "\udc00": 1 } }), "reply_markup.\udc00"],
         ];
 
-        for (const [name, payload, path] of payloads) {
+        for (const [name, payload, place] of payloads) {
             it(`with ${name}`, function () {
                 expect(() => serialize("sendDocument", payload()))
-                    .to.throw(UnstorableString, `sendDocument got a string or a key at ${path} that PostgreSQL does not store in jsonb`)
-                    .with.deep.property("payload", { method: "sendDocument", path: path });
+                    .to.throw(UnstorableString, `sendDocument got a string or a key at ${place} that PostgreSQL does not store in jsonb`)
+                    .with.deep.property("payload", { method: "sendDocument", place: place });
             });
         }
 
@@ -215,7 +221,7 @@ describe("Outbox payload codec", function () {
 
                 expect(() => serialize("sendDocument", payload))
                     .to.throw(UnsupportedInputFile, "sendDocument got an InputFile that is not a PathFile at document")
-                    .with.deep.property("payload", { method: "sendDocument", path: "document" });
+                    .with.deep.property("payload", { method: "sendDocument", place: "document" });
             });
         }
 
@@ -241,13 +247,13 @@ describe("Outbox payload codec", function () {
 
             expect(() => serialize("sendMediaGroup", payload))
                 .to.throw(UnsupportedInputFile, "sendMediaGroup")
-                .with.deep.property("payload", { method: "sendMediaGroup", path: "media.1.thumbnail" });
+                .with.deep.property("payload", { method: "sendMediaGroup", place: "media.1.thumbnail" });
         });
 
         it("as the root", function () {
             expect(() => serialize("sendDocument", new InputFile(Buffer.from("font"))))
                 .to.throw(UnsupportedInputFile, "sendDocument got an InputFile that is not a PathFile at the root")
-                .with.deep.property("payload", { method: "sendDocument", path: "the root" });
+                .with.deep.property("payload", { method: "sendDocument", place: "the root" });
         });
     });
 });
