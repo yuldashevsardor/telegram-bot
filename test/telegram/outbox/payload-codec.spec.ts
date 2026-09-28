@@ -1,10 +1,16 @@
 import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import { expect } from "chai";
-import { InputFile } from "grammy";
+import { InlineKeyboard, InputFile } from "grammy";
 import { deserialize, serialize } from "app/telegram/outbox/payload-codec/payload-codec";
-import { InvalidFileMarker, ReservedFileKey, UnsupportedInputFile } from "app/telegram/outbox/payload-codec/payload-codec.errors";
-import { PathFile } from "app/telegram/path-file";
+import {
+    CyclicPayload,
+    InvalidFileMarker,
+    NulCharacter,
+    ReservedFileKey,
+    UnsupportedInputFile,
+} from "app/telegram/outbox/payload-codec/payload-codec.errors";
+import { PathFile } from "app/telegram/path-file/path-file";
 
 describe("Outbox payload codec", function () {
     it("keeps a plain JSON payload through the round trip", function () {
@@ -61,22 +67,114 @@ describe("Outbox payload codec", function () {
         expect(serialize("sendMediaGroup", restored)).to.deep.equal(serialize("sendMediaGroup", payload));
     });
 
-    it("keeps undefined and values with a JSON form of their own as they are", function () {
-        const date = new Date(0);
-        const payload = { chat_id: 1, text: "hello", message_thread_id: undefined, date: date };
+    it("keeps undefined as it is and takes a value with toJSON() by its JSON form", function () {
+        const payload = { chat_id: 1, text: "hello", message_thread_id: undefined, date: new Date(0) };
 
         const serialized = serialize("sendMessage", payload);
 
         expect(serialized).to.have.property("message_thread_id", undefined);
-        expect(serialized["date"]).to.equal(date);
+        expect(serialized["date"]).to.equal("1970-01-01T00:00:00.000Z");
     });
 
-    it("rejects an object that already carries the marker key, naming the method", function () {
-        const payload = { chat_id: 1, media: [{ type: "document", media: { $pathFile: { path: "/etc/passwd" } } }] };
+    it("passes toJSON() the key of the value, as JSON does", function () {
+        const payload = { chat_id: 1, caption: { toJSON: (key: string): string => `at ${key}` } };
 
-        expect(() => serialize("sendMediaGroup", payload))
-            .to.throw(ReservedFileKey, "sendMediaGroup got an object with the key $pathFile")
-            .with.deep.property("payload", { method: "sendMediaGroup", key: "$pathFile" });
+        expect(serialize("sendDocument", payload)).to.deep.equal({ chat_id: 1, caption: "at caption" });
+    });
+
+    it("calls toJSON() of the root with an empty key, as JSON does", function () {
+        const payload = { toJSON: (key: string): object => ({ chat_id: 1, text: `key "${key}"` }) };
+
+        expect(serialize("sendMessage", payload)).to.deep.equal({ chat_id: 1, text: 'key ""' });
+    });
+
+    it("walks what toJSON() returns", function () {
+        const payload = { chat_id: 1, media: { toJSON: (): object => ({ document: new InputFile(Buffer.from("font")) }) } };
+
+        expect(() => serialize("sendDocument", payload))
+            .to.throw(UnsupportedInputFile)
+            .with.deep.property("payload", { method: "sendDocument", path: "media.document" });
+    });
+
+    it("stores a class instance by its own keys, as JSON does", function () {
+        const keyboard = new InlineKeyboard().text("ok", "ok");
+
+        const serialized = serialize("sendMessage", { chat_id: 1, reply_markup: keyboard });
+
+        expect(serialized["reply_markup"]).to.deep.equal(JSON.parse(JSON.stringify(keyboard)));
+    });
+
+    it("stores an object shared by two places of the payload in both", function () {
+        const entity = { type: "bold", offset: 0, length: 5 };
+
+        const serialized = serialize("sendMessage", { chat_id: 1, entities: [entity, entity] });
+
+        expect(serialized["entities"]).to.deep.equal([entity, entity]);
+    });
+
+    describe("rejects an object that already carries the marker key, naming the method and the place", function () {
+        const payloads: Array<[string, () => object, string]> = [
+            [
+                "in media[]",
+                (): object => ({ chat_id: 1, media: [{ type: "document", media: { $pathFile: { path: "/etc/passwd" } } }] }),
+                "media.0.media",
+            ],
+            ["at the root", (): object => ({ chat_id: 1, $pathFile: { path: "/etc/passwd" } }), "the root"],
+            [
+                "in a class instance",
+                (): object => ({ chat_id: 1, media: new Holder({ $pathFile: { path: "/etc/passwd" } }) }),
+                "media.item",
+            ],
+            [
+                "in an object without a prototype",
+                (): object => Object.assign(Object.create(null) as object, { $pathFile: { path: "/etc/passwd" } }),
+                "the root",
+            ],
+        ];
+
+        for (const [name, payload, path] of payloads) {
+            it(name, function () {
+                expect(() => serialize("sendMediaGroup", payload()))
+                    .to.throw(ReservedFileKey, `sendMediaGroup got an object with the key $pathFile at ${path}`)
+                    .with.deep.property("payload", { method: "sendMediaGroup", key: "$pathFile", path: path });
+            });
+        }
+    });
+
+    describe("rejects U+0000, which jsonb does not store", function () {
+        const payloads: Array<[string, () => object, string]> = [
+            ["in a string", (): object => ({ chat_id: 1, caption: "Font\u0000Name" }), "caption"],
+            ["in a key", (): object => ({ chat_id: 1, reply_markup: { "a\u0000b": 1 } }), "reply_markup.a\u0000b"],
+            ["in what toJSON() returns", (): object => ({ chat_id: 1, caption: { toJSON: (): string => "\u0000" } }), "caption"],
+        ];
+
+        for (const [name, payload, path] of payloads) {
+            it(name, function () {
+                expect(() => serialize("sendDocument", payload()))
+                    .to.throw(NulCharacter, "sendDocument got a string or a key with U+0000")
+                    .with.deep.property("payload", { method: "sendDocument", path: path });
+            });
+        }
+    });
+
+    describe("rejects a payload that refers back to itself", function () {
+        it("through an object", function () {
+            const payload: Record<string, unknown> = { chat_id: 1 };
+            payload["reply_markup"] = { self: payload };
+
+            expect(() => serialize("sendMessage", payload))
+                .to.throw(CyclicPayload, "sendMessage got a payload that refers back to itself at reply_markup.self")
+                .with.deep.property("payload", { method: "sendMessage", path: "reply_markup.self" });
+        });
+
+        it("through an array", function () {
+            const media: unknown[] = [];
+            media.push(media);
+
+            expect(() => serialize("sendMediaGroup", { chat_id: 1, media: media }))
+                .to.throw(CyclicPayload)
+                .with.deep.property("payload", { method: "sendMediaGroup", path: "media.0" });
+        });
     });
 
     it("rebuilds a marker without a file name, letting grammY take it from the path", function () {
@@ -87,23 +185,27 @@ describe("Outbox payload codec", function () {
 
     describe("rejects a malformed file marker", function () {
         const markers: Array<[string, unknown]> = [
-            ["null", null],
-            ["a string", "/data/fonts/result.woff2"],
-            ["no path", { filename: "result.woff2" }],
-            ["a path that is not a string", { path: 42, filename: "result.woff2" }],
-            ["a file name that is not a string", { path: "/data/fonts/result.woff2", filename: 42 }],
+            ["null", { $pathFile: null }],
+            ["a string", { $pathFile: "/data/fonts/result.woff2" }],
+            ["no path", { $pathFile: { filename: "result.woff2" } }],
+            ["a path that is not a string", { $pathFile: { path: 42, filename: "result.woff2" } }],
+            ["an empty path", { $pathFile: { path: "" } }],
+            ["a relative path", { $pathFile: { path: "fonts/result.woff2" } }],
+            ["a file name that is not a string", { $pathFile: { path: "/data/fonts/result.woff2", filename: 42 } }],
+            ["a field other than path and file name", { $pathFile: { path: "/data/fonts/result.woff2", size: 1 } }],
+            ["a key beside the marker key", { $pathFile: { path: "/data/fonts/result.woff2" }, caption: "c" }],
         ];
 
         for (const [name, marker] of markers) {
             it(`with ${name}`, function () {
-                expect(() => deserialize({ chat_id: 1, media: [{ media: { $pathFile: marker } }] }))
+                expect(() => deserialize({ chat_id: 1, media: [{ media: marker }] }))
                     .to.throw(InvalidFileMarker, "file marker")
                     .with.deep.property("payload", { marker: marker });
             });
         }
     });
 
-    describe("rejects an InputFile that is not a PathFile, naming the method", function () {
+    describe("rejects an InputFile that is not a PathFile, naming the method and the place", function () {
         const sources: Array<[string, () => ConstructorParameters<typeof InputFile>[0]]> = [
             ["a path", (): string => "/data/fonts/result.woff2"],
             ["a Buffer", (): Buffer => Buffer.from("font")],
@@ -121,8 +223,8 @@ describe("Outbox payload codec", function () {
                 const payload = { chat_id: 1, document: new InputFile(source()) };
 
                 expect(() => serialize("sendDocument", payload))
-                    .to.throw(UnsupportedInputFile, "sendDocument")
-                    .with.deep.property("payload", { method: "sendDocument" });
+                    .to.throw(UnsupportedInputFile, "sendDocument got an InputFile that is not a PathFile at document")
+                    .with.deep.property("payload", { method: "sendDocument", path: "document" });
             });
         }
 
@@ -142,14 +244,42 @@ describe("Outbox payload codec", function () {
                 chat_id: 1,
                 media: [
                     { type: "document", media: new PathFile("/data/fonts/a.ttf") },
-                    { type: "document", media: new InputFile(Buffer.from("font")) },
+                    { type: "document", media: new PathFile("/data/fonts/b.ttf"), thumbnail: new InputFile(Buffer.from("jpg")) },
                 ],
             };
 
-            expect(() => serialize("sendMediaGroup", payload)).to.throw(UnsupportedInputFile, "sendMediaGroup");
+            expect(() => serialize("sendMediaGroup", payload))
+                .to.throw(UnsupportedInputFile, "sendMediaGroup")
+                .with.deep.property("payload", { method: "sendMediaGroup", path: "media.1.thumbnail" });
+        });
+
+        it("inside a class instance", function () {
+            const payload = { chat_id: 1, document: new Holder(new InputFile(Buffer.from("font"))) };
+
+            expect(() => serialize("sendDocument", payload))
+                .to.throw(UnsupportedInputFile)
+                .with.deep.property("payload", { method: "sendDocument", path: "document.item" });
+        });
+
+        it("inside an object without a prototype", function () {
+            const payload = Object.assign(Object.create(null) as object, { chat_id: 1, document: new InputFile(Buffer.from("font")) });
+
+            expect(() => serialize("sendDocument", payload))
+                .to.throw(UnsupportedInputFile)
+                .with.deep.property("payload", { method: "sendDocument", path: "document" });
+        });
+
+        it("as the root", function () {
+            expect(() => serialize("sendDocument", new InputFile(Buffer.from("font"))))
+                .to.throw(UnsupportedInputFile, "sendDocument got an InputFile that is not a PathFile at the root")
+                .with.deep.property("payload", { method: "sendDocument", path: "the root" });
         });
     });
 });
+
+class Holder {
+    public constructor(public readonly item: unknown) {}
+}
 
 // The row is written and read through JSON, so the round trip goes through it as well.
 function roundTrip(method: string, payload: object): Record<string, unknown> {
