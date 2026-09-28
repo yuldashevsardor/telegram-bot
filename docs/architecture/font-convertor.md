@@ -187,8 +187,8 @@ can be: that, not the text, tells it from a piece that ends with `…` itself. T
 piece of the payload and of the `NotXml` and `NotSvg` messages. The `BrokenFont` message escapes the
 kept value with `JSON.stringify`, which can make it longer, so there the `…` stands outside the
 quotes, where the escaped value cannot reach. The payload also keeps the length before the cut:
-`valueLength` of the value, which says the same as the length of `value`, and `rootLength` of the
-whole root, which does not say which of its two pieces was cut.
+`valueLength` of the value, which, like the length of `value`, tells a cut value, and `rootLength`
+of the whole root, which does not say which of its two pieces was cut.
 
 ## The pair table
 
