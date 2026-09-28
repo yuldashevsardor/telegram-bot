@@ -16,9 +16,10 @@ else, so no part of the payload reaches the row unchecked:
 - strings, numbers, booleans, `null` and `undefined` pass to JSON, which writes them as it does
   when grammY sends the call itself: an `undefined` field is left out, a `NaN` becomes `null`;
   arrays and plain objects are walked;
-- a function becomes `undefined`, so JSON leaves it out: `InlineQueryResultBuilder` returns plain
-  objects that keep its builder methods (`.text()`, `.location()`) as fields
-  (`inputMessageMethods()` in grammY's `convenience/inline_query.js`);
+- a function becomes `undefined`, which JSON writes as it writes any `undefined` (a field left
+  out, `null` in an array): `InlineQueryResultBuilder` returns plain objects that keep its builder
+  methods (`.text()`, `.location()`) as fields (`inputMessageMethods()` in grammY's
+  `convenience/inline_query.js`);
 - grammY's `InlineKeyboard` and `Keyboard` are walked as plain objects: they are classes with data
   fields only, which JSON writes as they are. Of the classes grammY exports, they are the only
   ones meant for a payload besides `InputFile`: `InputMediaBuilder` and `InlineQueryResultBuilder`

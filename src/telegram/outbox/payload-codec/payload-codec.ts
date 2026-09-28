@@ -15,10 +15,10 @@ import {
 // does, or deserialize() would read it as a file.
 const FILE_KEY = "$pathFile";
 
-// Takes only what it knows how to store: the JSON values, grammY's keyboards and a PathFile. Anything
-// else, such as a class instance, a Date or a bigint, throws: a Bot API payload grammY builds holds
-// none of it. grammY's keyboards are classes with nothing but data fields, which JSON writes as
-// they are.
+// Takes only what it knows how to store: the JSON values, grammY's keyboards and a PathFile; a
+// function is dropped, as JSON drops it. Anything else, such as a class instance, a Date or a
+// bigint, throws: a Bot API payload grammY builds holds none of it. grammY's keyboards are classes
+// with nothing but data fields, which JSON writes as they are.
 function store(value: unknown, method: string, path: readonly string[]): unknown {
     if (value instanceof InputFile) {
         if (!(value instanceof PathFile)) {
@@ -50,8 +50,8 @@ function store(value: unknown, method: string, path: readonly string[]): unknown
         return value.map((item: unknown, index) => store(item, method, [...path, String(index)]));
     }
 
-    // Only a plain object has Object.prototype as its prototype: a bigint, a symbol or a function,
-    // not taken above, throws here too.
+    // Only a plain object has Object.prototype as its prototype: a bigint or a symbol, not taken
+    // above, throws here too.
     if (Object.getPrototypeOf(value) !== Object.prototype && !(value instanceof InlineKeyboard) && !(value instanceof Keyboard)) {
         throw UnsupportedValue.inMethod(method, path);
     }
