@@ -105,6 +105,8 @@ project's existing decisions.
   a details object (it goes to `payload`). When both are needed, the error goes into the
   object as its `cause` field.
 - Comments only about the non-obvious: why, not what.
+- SQL keywords are upper case (`SELECT`, `ON CONFLICT`, `ANY`); function names (`now()`) and
+  identifiers are lower case. The queries written before the rule are still lower case.
 
 ## Invariants
 

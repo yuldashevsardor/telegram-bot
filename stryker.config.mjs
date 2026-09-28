@@ -19,6 +19,7 @@ const DATABASE_SPECS = [
 const DATABASE_ONLY_SOURCES = [
     "src/platform/database/database.ts",
     "src/telegram/outbox/store/outbox-store.ts",
+    "src/telegram/outbox/store/outbox-store.types.ts",
     "src/telegram/session/pgsql-storage.ts",
     "src/telegram/user/pgsql-repository/pgsql-user-repository.ts",
 ];

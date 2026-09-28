@@ -1,8 +1,8 @@
 import type { ColumnDefinitions, MigrationBuilder } from "node-pg-migrate";
 import { commonShorthands } from "./common/utils";
 
-// The outbox of Telegram calls: the tables, the columns and the indexes of all its stages at once,
-// so that the later stages need no migration of their own (docs/architecture/outbox.md).
+// The outbox of Telegram calls: the tables and the columns of all its stages at once, so that the
+// later stages need no migration of their own (docs/architecture/outbox.md).
 
 const outbox = "telegram_outbox";
 const chats = "telegram_outbox_chats";
@@ -34,16 +34,14 @@ export async function up(pgm: MigrationBuilder): Promise<void> {
             comment: "Bot API method parameters",
         },
         priority: {
-            type: "smallint",
+            type: "integer",
             notNull: true,
             comment: "A lower value goes first",
         },
         status: {
             type: "text",
             notNull: true,
-            default: "pending",
-            check: "status in ('pending', 'processing', 'done', 'failed', 'skipped')",
-            comment: "pending -> processing -> done / failed / skipped",
+            comment: "OutboxStatus: pending -> processing -> done / failed / skipped",
         },
         attempts: {
             type: "jsonb",
@@ -67,7 +65,10 @@ export async function up(pgm: MigrationBuilder): Promise<void> {
             comment: "The Telegram response handed to the awaiting caller",
         },
         created_at: {
-            type: "timestampWithTimeZoneNotNullDefaultNow",
+            type: "createdAt",
+        },
+        updated_at: {
+            type: "updatedAt",
         },
         finished_at: {
             type: "timestamptz",
@@ -75,16 +76,6 @@ export async function up(pgm: MigrationBuilder): Promise<void> {
             comment: "The final outcome, for the cleanup",
         },
     });
-
-    // The head of a chat: its first message by id among the active ones.
-    pgm.createIndex(outbox, ["chat_id", "id"], {
-        name: "telegram_outbox_head_idx",
-        where: "status in ('pending', 'processing', 'failed')",
-    });
-    // The claims of dead nodes.
-    pgm.createIndex(outbox, "locked_until", { name: "telegram_outbox_lease_idx", where: "status = 'processing'" });
-    // The cleanup of finished rows.
-    pgm.createIndex(outbox, "finished_at", { name: "telegram_outbox_cleanup_idx", where: "status in ('done', 'skipped')" });
 
     pgm.createTable(chats, {
         chat_id: {
@@ -95,30 +86,25 @@ export async function up(pgm: MigrationBuilder): Promise<void> {
         state: {
             type: "text",
             notNull: true,
-            check: "state in ('idle', 'ready', 'processing', 'blocked')",
-            comment: "idle: no active message; ready: the head can be claimed; processing: the head is claimed; blocked: a failed head",
+            comment: "OutboxChatState: idle, ready, processing, blocked",
         },
         next_send_at: {
             type: "timestampWithTimeZoneNotNullDefaultNow",
             comment: "The chat limit and the retry delay",
         },
-        head_priority: {
-            type: "smallint",
-            notNull: false,
-            comment: "The priority of the head; null while the chat has no active message",
+        created_at: {
+            type: "createdAt",
+        },
+        updated_at: {
+            type: "updatedAt",
         },
     });
 
-    // What the claim walks.
-    pgm.createIndex(chats, ["head_priority", "next_send_at"], { name: "telegram_outbox_chats_ready_idx", where: "state = 'ready'" });
-
     pgm.createTable(botLimits, {
         id: {
-            type: "boolean",
+            type: "integer",
             primaryKey: true,
-            default: true,
-            check: "id",
-            comment: "Keeps the table at one row: a second insert breaks the primary key",
+            comment: "The table holds one row, id = 1",
         },
         next_send_at: {
             type: "timestampWithTimeZoneNotNullDefaultNow",
@@ -129,36 +115,15 @@ export async function up(pgm: MigrationBuilder): Promise<void> {
             notNull: false,
             comment: "The shared pause after a 429",
         },
+        created_at: {
+            type: "createdAt",
+        },
+        updated_at: {
+            type: "updatedAt",
+        },
     });
 
-    pgm.sql(`insert into ${botLimits} default values`);
-
-    // A message rewrites its row about three times and its chat row as often, and the bot row is
-    // rewritten on every claim. By default autovacuum waits for dead versions to reach 20% of a
-    // table, and a full page puts the new version of a row on another page. The numbers are a
-    // starting point, not a measurement.
-    pgm.sql(`
-        alter table ${outbox} set (
-            fillfactor = 90,
-            autovacuum_vacuum_scale_factor = 0.01,
-            autovacuum_analyze_scale_factor = 0.01
-        )
-    `);
-    pgm.sql(`
-        alter table ${chats} set (
-            fillfactor = 50,
-            autovacuum_vacuum_scale_factor = 0,
-            autovacuum_vacuum_threshold = 1000,
-            autovacuum_analyze_scale_factor = 0.05
-        )
-    `);
-    pgm.sql(`
-        alter table ${botLimits} set (
-            fillfactor = 10,
-            autovacuum_vacuum_scale_factor = 0,
-            autovacuum_vacuum_threshold = 100
-        )
-    `);
+    pgm.sql(`INSERT INTO ${botLimits} (id) VALUES (1)`);
 }
 
 export async function down(pgm: MigrationBuilder): Promise<void> {

@@ -5,96 +5,96 @@ The outbox is being built to replace the in-memory outbound queue
 any node sends them, the order inside a chat holds across nodes, and a node that dies loses
 nothing (the plan is epic [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)).
 Nothing calls the directory yet: so far it holds the tables with `OutboxStore`
-(`store/outbox-store.ts`), which enqueues, claims and marks done, and the payload codec.
+(`store/outbox-store.ts`), which pushes, pulls and marks done, and the payload codec.
 
 ## Tables
 
 One migration, `1790546834232_telegram-outbox-tables.ts`, creates the three tables with every
-column and index the outbox needs, including those only later stages use (`attempts`,
-`locked_until`, `lock_token`, `telegram_bot_limits`). The columns, the allowed values of `status`
-and `state` and what they mean are in its `createTable` calls and `comment`s. Of the statuses and
-states, nothing sets `failed`, `skipped` and `blocked` yet, and `done` rows are not deleted yet.
+column the outbox needs, including those only later stages use (`attempts`, `locked_until`,
+`lock_token`, `telegram_bot_limits`). The columns and what they mean are in its `createTable`
+calls and `comment`s. There are no indexes besides the primary keys yet: they will be picked once
+the queries of every stage are settled.
+
+The database does not check the values of `status` and `state`: the store writes them only
+through the `OutboxStatus` and `OutboxChatState` enums (`store/outbox-store.types.ts`). Of these,
+nothing sets `failed`, `skipped` and `blocked` yet, and `done` rows are not deleted yet.
+`telegram_bot_limits` holds one row, `id = 1`, inserted by the migration; nothing but the code
+keeps it single.
 
 The **head** of a chat is its first message by `id` among the active statuses (`pending`,
-`processing`, `failed`). The partial index `telegram_outbox_head_idx` over `(chat_id, id)` has the
-same predicate, and the queries of the store repeat it word for word: a query whose condition does
-not imply the predicate cannot use the index.
-
-The hot tables get their own `fillfactor` and autovacuum thresholds in the migration (how a
-migration sets them is in [`storage.md`](./storage.md), "Migrations"). The numbers are a starting
-point, not a measurement.
+`processing`, `failed`). The priority of a chat is the priority of its head, read from the head
+itself when needed: the chat row keeps no copy.
 
 ## Chat states
 
 | state | who sets it |
 |---|---|
-| `idle` | `enqueue` of a new chat, for the moment before its messages are inserted; `markDone` of the last active message |
-| `ready` | `enqueue` into an `idle` chat; `markDone` when a message is left |
-| `processing` | `claim` |
-
-`head_priority` is the priority of the head, not of the latest message: `enqueue` sets it only
-when the chat was `idle`, and `markDone` sets it to the priority of the next head, or `null` when
-there is none.
+| `idle` | `push` of a new chat, for the moment before its messages are inserted; `markAsDone` of the last active message |
+| `ready` | `push` into an `idle` chat; `markAsDone` when a message is left |
+| `processing` | `pull` |
 
 ## The chat lock
 
-The chat row is the lock of its chat. `enqueue` and `markDone` lock the rows of their chats first
+The chat row is the lock of its chat. `push` and `markAsDone` lock the rows of their chats first
 and read what their change depends on — the chat state, the next head — in a later statement of
 the same transaction ([invariant](./invariants.md)). Under `read committed` every statement reads
 a fresh snapshot, so a statement that runs after the lock sees what the previous holder of the lock
 committed. A single statement reads its snapshot before it waits for the lock. A completion written
-that way leaves a chat `idle` with a message enqueued meanwhile: a message that is never sent. An
-enqueue written that way takes its ids before the lock, and two enqueues of one chat can commit in
-the order opposite to their ids: the later message is sent first.
+that way leaves a chat `idle` with a message pushed meanwhile: a message that is never sent. A push
+written that way takes its ids before the lock, and two pushes of one chat can commit in the order
+opposite to their ids: the later message is sent first.
 
-So an enqueue and a completion of one chat are serialized in either order: the one that locks
-second sees what the first committed. `test/telegram/outbox/outbox-store.spec.ts` lines the calls
-up behind a lock held by a third client and pins both orders, and the ids of an enqueue taken after
-its lock.
+So a push and a completion of one chat are serialized in either order: the one that locks second
+sees what the first committed. `test/telegram/outbox/outbox-store.spec.ts` lines the calls up
+behind a lock held by a third client and pins both orders, and the ids of a push taken after its
+lock.
 
-`claim` is the exception: it locks and reads the head in one statement, see below.
+`pull` is the exception: it locks and reads the head in one statement, see below.
 
-## Enqueue
+## Push
 
-`enqueue()` is `enqueueBatch()` of one message. The batch is a transaction of two statements:
+`push()` is `pushBatch()` of one message. The batch is a transaction:
 
-1. the chats of the batch are locked in `chat_id` order, so two batches lock the chats they share
-   in the same order. A new chat is inserted `idle`. An existing one is locked by
-   `on conflict do update … where false`: the conflicting row is locked even though the update
-   never happens, and the row gets no new version;
-2. the messages go in as one `jsonb` array and are inserted `order by` their position in it, so
-   the ids grow in the order of the input. Every `idle` chat of the batch becomes `ready` with the
-   priority of its first new message; a chat in any other state already has an older head.
+1. the chats of the batch that have no row yet are inserted `idle` (`on conflict do nothing`);
+2. every chat of the batch is locked, `select … for update` in `chat_id` order, so two batches
+   lock the chats they share in the same order;
+3. the messages go in as one `jsonb` array and are inserted `order by` their position in it, so
+   the ids grow in the order of the input;
+4. every `idle` chat of the batch becomes `ready`; a chat in any other state already has an older
+   head.
 
-## Claim
+## Pull
 
-`claim(limit)` is one statement:
+`pull(limit)` is one statement, atomic without a transaction:
 
-1. up to `limit` `ready` chats by `(head_priority, next_send_at)`, `for update skip locked`: a chat
-   another claimer holds is skipped, not waited for;
-2. `join lateral` the head of each chat;
-3. the head goes to `processing`, but only if it is still `pending`;
-4. the chats whose head was claimed go to `processing`, and `next_send_at` moves to `now()`.
+1. up to `limit` `ready` chats with the head of each (`join lateral`), by the priority of the head
+   and then by `next_send_at`, `for update of chats skip locked`: a chat another puller holds is
+   skipped, not waited for;
+2. the head goes to `processing`, but only if it is still `pending`;
+3. the chats whose head was pulled go to `processing`, and `next_send_at` moves to `now()`.
 
-Step 4 is what serves the chats of one priority in turn: a chat just served goes behind the chats
+Step 3 is what serves the chats of one priority in turn: a chat just served goes behind the chats
 that waited. Only one head per chat is taken, and a `processing` chat is not `ready`, so a chat
 never has two messages in `processing`.
 
-Step 2 reads the head from the snapshot of the statement, taken before the lock of step 1. A chat
-completed and made `ready` again after the snapshot passes step 1 (the lock rereads the newest row
-version), while step 2 still sees the old head, already `done` by then. The check of step 3 turns
-that head away: the chat is left `ready` for the next claim instead of sending the head twice.
+Step 1 reads the head from the snapshot of the statement, taken before the lock. A chat completed
+and made `ready` again after the snapshot still passes the lock (the lock rereads the newest row
+version), while the head read with it is the old one, already `done` by then. The check of step 2
+turns that head away: the chat is left `ready` for the next pull instead of sending the head twice.
 
-The claim does not look at the limits or the pause yet: `next_send_at` only orders the chats.
+The pull does not look at the limits or the pause yet: `next_send_at` only orders the chats.
 
-## Mark done
+## Mark as done
 
-`markDone(id, response)` is a transaction of three statements:
+`markAsDone(messageId, response)`, where `messageId` is `telegram_outbox.id`, is a transaction:
 
 1. lock the chat row of the message;
 2. the message goes to `done` with the response and `finished_at`, only from `processing`;
-   otherwise the method returns `false` and changes nothing;
-3. the chat goes to `ready` with the priority of the next head, or to `idle`.
+   otherwise, a missing message included, the method returns `false` and changes nothing;
+3. read the next head of the chat;
+4. the chat goes to `ready` if there is one, or to `idle`.
+
+Every update of the store sets `updated_at = now()` itself; there is no trigger.
 
 ## The store in code
 
