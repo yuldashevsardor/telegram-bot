@@ -6,8 +6,8 @@ import { deserialize, serialize } from "app/telegram/outbox/payload-codec/payloa
 import {
     CyclicPayload,
     InvalidFileMarker,
-    NulCharacter,
     ReservedFileKey,
+    UnstorableString,
     UnsupportedInputFile,
 } from "app/telegram/outbox/payload-codec/payload-codec.errors";
 import { PathFile } from "app/telegram/path-file/path-file";
@@ -96,6 +96,27 @@ describe("Outbox payload codec", function () {
             .with.deep.property("payload", { method: "sendDocument", path: "media.document" });
     });
 
+    it("unwraps a boxed primitive, as JSON does", function () {
+        const payload = {
+            chat_id: 1,
+            text: new String("hi"),
+            offset: new Number(1),
+            protect_content: new Boolean(false),
+            big: Object(1n) as object,
+        };
+
+        expect(serialize("sendMessage", payload)).to.deep.equal({ chat_id: 1, text: "hi", offset: 1, protect_content: false, big: 1n });
+    });
+
+    it("takes a file toJSON() returns as a file", function () {
+        const stored = serialize("sendDocument", { chat_id: 1, document: { toJSON: (): InputFile => new PathFile("/data/a.ttf") } });
+
+        expect(stored["document"]).to.deep.equal({ $pathFile: { path: "/data/a.ttf", filename: "a.ttf" } });
+        expect(() => serialize("sendDocument", { chat_id: 1, document: { toJSON: (): InputFile => new InputFile(Buffer.from("font")) } }))
+            .to.throw(UnsupportedInputFile)
+            .with.deep.property("payload", { method: "sendDocument", path: "document" });
+    });
+
     it("stores a class instance by its own keys, as JSON does", function () {
         const keyboard = new InlineKeyboard().text("ok", "ok");
 
@@ -141,20 +162,37 @@ describe("Outbox payload codec", function () {
         }
     });
 
-    describe("rejects U+0000, which jsonb does not store", function () {
+    describe("rejects a string jsonb does not store", function () {
         const payloads: Array<[string, () => object, string]> = [
-            ["in a string", (): object => ({ chat_id: 1, caption: "Font\u0000Name" }), "caption"],
-            ["in a key", (): object => ({ chat_id: 1, reply_markup: { "a\u0000b": 1 } }), "reply_markup.a\u0000b"],
-            ["in what toJSON() returns", (): object => ({ chat_id: 1, caption: { toJSON: (): string => "\u0000" } }), "caption"],
+            ["U+0000 in a string", (): object => ({ chat_id: 1, caption: "Font\u0000Name" }), "caption"],
+            ["U+0000 in a key", (): object => ({ chat_id: 1, reply_markup: { "a\u0000b": 1 } }), "reply_markup.a\u0000b"],
+            ["U+0000 in what toJSON() returns", (): object => ({ chat_id: 1, caption: { toJSON: (): string => "\u0000" } }), "caption"],
+            ["U+0000 in a boxed string", (): object => ({ chat_id: 1, caption: new String("\u0000") }), "caption"],
+            [
+                "U+0000 in the path of a path file",
+                (): object => ({ chat_id: 1, document: new PathFile("/data/a\u0000.ttf", "a.ttf") }),
+                "document.path",
+            ],
+            [
+                "U+0000 in the file name of a path file",
+                (): object => ({ chat_id: 1, document: new PathFile("/data/a.ttf", "Font\u0000.ttf") }),
+                "document.filename",
+            ],
+            ["a lone surrogate in a string", (): object => ({ chat_id: 1, caption: "cut \ud83d" }), "caption"],
+            ["a lone surrogate in a key", (): object => ({ chat_id: 1, reply_markup: { "\udc00": 1 } }), "reply_markup.\udc00"],
         ];
 
         for (const [name, payload, path] of payloads) {
-            it(name, function () {
+            it(`with ${name}`, function () {
                 expect(() => serialize("sendDocument", payload()))
-                    .to.throw(NulCharacter, "sendDocument got a string or a key with U+0000")
+                    .to.throw(UnstorableString, `sendDocument got a string or a key at ${path} that PostgreSQL does not store in jsonb`)
                     .with.deep.property("payload", { method: "sendDocument", path: path });
             });
         }
+
+        it("but keeps a surrogate pair", function () {
+            expect(serialize("sendMessage", { chat_id: 1, text: "ok 😀" })).to.deep.equal({ chat_id: 1, text: "ok 😀" });
+        });
     });
 
     describe("rejects a payload that refers back to itself", function () {

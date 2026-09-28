@@ -4,8 +4,8 @@ import { PathFile } from "app/telegram/path-file/path-file";
 import {
     CyclicPayload,
     InvalidFileMarker,
-    NulCharacter,
     ReservedFileKey,
+    UnstorableString,
     UnsupportedInputFile,
 } from "app/telegram/outbox/payload-codec/payload-codec.errors";
 
@@ -15,27 +15,23 @@ import {
 // does, or deserialize() would read it as a file.
 const FILE_KEY = "$pathFile";
 
-// PostgreSQL rejects it anywhere in a jsonb value, keys included.
-const NUL = "\u0000";
-
 // Walks the payload the way JSON.stringify will when the row is written, so that nothing reaches
-// the row unchecked: toJSON() is called where JSON calls it, and any other object, a class instance
-// or one without a prototype included, is read by its own enumerable keys. Only an InputFile is
-// looked at before its toJSON(), which throws. A value that is not an object is kept as is and left
-// to JSON (undefined, a function).
+// the row unchecked: a value is taken by its JSON form (see toJson()), and any other object, a class
+// instance or one without a prototype included, is read by its own enumerable keys. A value that is
+// not an object is kept as is and left to JSON (undefined, a function).
 function store(value: unknown, method: string, path: readonly string[], ancestors: readonly object[]): unknown {
-    if (value instanceof InputFile) {
-        if (!(value instanceof PathFile)) {
+    const json = toJson(value, path.at(-1) ?? "");
+
+    if (json instanceof InputFile) {
+        if (!(json instanceof PathFile)) {
             throw UnsupportedInputFile.inMethod(method, path);
         }
 
-        return { [FILE_KEY]: { path: value.path, filename: value.filename } };
+        return { [FILE_KEY]: store({ path: json.path, filename: json.filename }, method, path, ancestors) };
     }
 
-    const json = hasToJson(value) ? value.toJSON(path.at(-1) ?? "") : value;
-
-    if (typeof json === "string" && json.includes(NUL)) {
-        throw NulCharacter.inMethod(method, path);
+    if (typeof json === "string" && !isStorable(json)) {
+        throw UnstorableString.inMethod(method, path);
     }
 
     if (typeof json !== "object" || json === null) {
@@ -58,8 +54,8 @@ function store(value: unknown, method: string, path: readonly string[], ancestor
                 throw ReservedFileKey.inMethod(method, FILE_KEY, path);
             }
 
-            if (key.includes(NUL)) {
-                throw NulCharacter.inMethod(method, [...path, key]);
+            if (!isStorable(key)) {
+                throw UnstorableString.inMethod(method, [...path, key]);
             }
 
             return [key, store(item, method, [...path, key], inside)];
@@ -67,8 +63,26 @@ function store(value: unknown, method: string, path: readonly string[], ancestor
     );
 }
 
+// What JSON.stringify writes in place of a value: what its toJSON() returns, then a boxed primitive
+// unwrapped. An InputFile is taken as it is: its toJSON() throws, or, once grammY has sent the file,
+// returns an attach:// string that means nothing on another node.
+function toJson(value: unknown, key: string): unknown {
+    const json = value instanceof InputFile || !hasToJson(value) ? value : value.toJSON(key);
+
+    if (json instanceof String || json instanceof Number || json instanceof Boolean || json instanceof BigInt) {
+        return json.valueOf();
+    }
+
+    return json;
+}
+
 function hasToJson(value: unknown): value is { toJSON(key: string): unknown } {
     return typeof value === "object" && value !== null && typeof (value as { toJSON?: unknown }).toJSON === "function";
+}
+
+// PostgreSQL rejects U+0000 and a lone UTF-16 surrogate anywhere in a jsonb value, keys included.
+function isStorable(text: string): boolean {
+    return !text.includes("\u0000") && text.isWellFormed();
 }
 
 // The row comes back from JSON, so only arrays and plain objects are walked.
@@ -114,7 +128,7 @@ function readMarker(marker: object): PathFile {
 /**
  * Turns a Bot API payload into a value for the outbox row. A PathFile becomes a marker with its
  * path. Any other InputFile throws, since its data lives only in this process, and so do an object
- * that already carries the marker key, a string or a key with U+0000, and a payload that refers
+ * that already carries the marker key, a string or a key jsonb does not store, and a payload that refers
  * back to itself. Every error names the method and where in the payload the value sits.
  */
 export function serialize(method: string, payload: object): Record<string, unknown> {

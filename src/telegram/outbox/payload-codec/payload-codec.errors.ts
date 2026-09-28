@@ -19,12 +19,9 @@ export class UnsupportedInputFile extends RuntimeError {
 
 export class InvalidFileMarker extends RuntimeError {
     public static byMarker(marker: unknown): InvalidFileMarker {
-        return new InvalidFileMarker(
-            "Stored payload has a malformed file marker: keys beside the marker key, fields other than path and filename, a path that is not an absolute path string, or a file name that is neither a string nor absent.",
-            {
-                marker: marker,
-            },
-        );
+        return new InvalidFileMarker("Stored payload has a file marker that serialize() does not write.", {
+            marker: marker,
+        });
     }
 }
 
@@ -41,10 +38,12 @@ export class ReservedFileKey extends RuntimeError {
     }
 }
 
-export class NulCharacter extends RuntimeError {
-    public static inMethod(method: string, path: readonly string[]): NulCharacter {
-        return new NulCharacter(
-            `${method} got a string or a key with U+0000 at ${describe(path)}, which PostgreSQL does not store in jsonb.`,
+export class UnstorableString extends RuntimeError {
+    public static inMethod(method: string, path: readonly string[]): UnstorableString {
+        return new UnstorableString(
+            `${method} got a string or a key at ${describe(
+                path,
+            )} that PostgreSQL does not store in jsonb: U+0000 or a lone UTF-16 surrogate.`,
             {
                 method: method,
                 path: describe(path),
