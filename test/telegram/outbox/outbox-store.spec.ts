@@ -7,6 +7,7 @@ import { Database } from "app/platform/database/database";
 import { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxMessageInput } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxChatState, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
+import { OutboxMessageNotProcessing } from "app/telegram/outbox/store/outbox-store.errors";
 import { sleep } from "app/shared/utils";
 import { testDatabaseName } from "test/database.helper";
 
@@ -147,15 +148,19 @@ describe("OutboxStore", function () {
     it("refuses to mark done a message that is not processing and changes nothing", async function () {
         const id = await store.push(message(CHAT, "text"));
 
-        expect(await store.markAsDone(id, RESPONSE)).to.equal(false);
+        await expectNotProcessing(id);
         expect(await statuses()).to.deep.equal([OutboxStatus.Pending]);
         expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Ready });
 
         await store.pull(10);
         await store.markAsDone(id, RESPONSE);
 
-        expect(await store.markAsDone(id, RESPONSE)).to.equal(false);
-        expect(await store.markAsDone(id + 1, RESPONSE)).to.equal(false);
+        await expectNotProcessing(id);
+        expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Idle });
+    });
+
+    it("refuses to mark done a message that does not exist", async function () {
+        await expectNotProcessing(404);
     });
 
     it("takes a chat with a higher-priority head first", async function () {
@@ -238,7 +243,7 @@ describe("OutboxStore", function () {
                 for (const pulled of batch) {
                     await sleep(Math.random() * 3);
                     inFlight.delete(pulled.chatId);
-                    expect(await client.markAsDone(pulled.id, RESPONSE)).to.equal(true);
+                    await client.markAsDone(pulled.id, RESPONSE);
                 }
             }
         };
@@ -294,7 +299,7 @@ describe("OutboxStore", function () {
             pushed = await store.push(message(CHAT, "pushed", 4));
         };
         const complete = async (): Promise<void> => {
-            expect(await store.markAsDone(processing, RESPONSE)).to.equal(true);
+            await store.markAsDone(processing, RESPONSE);
         };
 
         it("leaves the chat ready with the new head when the push locks the chat first", async function () {
@@ -320,6 +325,16 @@ describe("OutboxStore", function () {
         `;
 
         return row;
+    }
+
+    async function expectNotProcessing(messageId: number): Promise<void> {
+        const error = await store.markAsDone(messageId, RESPONSE).then(
+            () => expect.fail("markAsDone() was expected to reject"),
+            (reason: unknown) => reason,
+        );
+
+        expect(error).to.be.instanceOf(OutboxMessageNotProcessing);
+        expect((error as OutboxMessageNotProcessing).payload).to.deep.equal({ messageId });
     }
 
     async function statuses(): Promise<string[]> {

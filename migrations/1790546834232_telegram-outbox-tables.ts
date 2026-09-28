@@ -49,16 +49,6 @@ export async function up(pgm: MigrationBuilder): Promise<void> {
             default: pgm.func("'[]'::jsonb"),
             comment: "An array of {started_at, finished_at, worker: {host, pid, worker_id}, error}",
         },
-        locked_until: {
-            type: "timestamptz",
-            notNull: false,
-            comment: "Until when the node that claimed the message holds it",
-        },
-        lock_token: {
-            type: "uuid",
-            notNull: false,
-            comment: "The token of the current claim: a late write of a node presumed dead does not match it",
-        },
         response: {
             type: "jsonb",
             notNull: false,
@@ -88,9 +78,20 @@ export async function up(pgm: MigrationBuilder): Promise<void> {
             notNull: true,
             comment: "OutboxChatState: idle, ready, processing, blocked",
         },
-        next_send_at: {
+        next_attempt_at: {
             type: "timestampWithTimeZoneNotNullDefaultNow",
-            comment: "The chat limit and the retry delay",
+            comment:
+                "When the chat may be pulled next; for now it only orders the chats in turn, the chat limit and the retry delay will rework it",
+        },
+        locked_until: {
+            type: "timestamptz",
+            notNull: false,
+            comment: "Until when the node that pulled the head of the chat holds it",
+        },
+        lock_token: {
+            type: "uuid",
+            notNull: false,
+            comment: "The token of the current pull: a late write of a node presumed dead does not match it",
         },
         created_at: {
             type: "createdAt",

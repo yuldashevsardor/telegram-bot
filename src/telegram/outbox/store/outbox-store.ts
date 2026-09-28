@@ -3,6 +3,7 @@ import type { Database, Sql } from "app/platform/database/database";
 import { Tokens } from "app/shared/tokens";
 import type { ClaimedOutboxMessage, ClaimedOutboxRow, OutboxJson, OutboxMessageInput } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxChatState, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
+import { OutboxMessageNotProcessing } from "app/telegram/outbox/store/outbox-store.errors";
 
 // The OID of bigint: the chat ids go to the database as a bigint[] parameter.
 const BIGINT = 20;
@@ -92,7 +93,7 @@ export class OutboxStore {
                     LIMIT 1
                 ) AS head
                 WHERE chats.state = ${OutboxChatState.Ready}
-                ORDER BY head.priority, chats.next_send_at
+                ORDER BY head.priority, chats.next_attempt_at
                 LIMIT ${limit}
                 FOR UPDATE OF chats SKIP LOCKED
             ),
@@ -109,7 +110,7 @@ export class OutboxStore {
             moved AS (
                 UPDATE telegram_outbox_chats
                 SET state = ${OutboxChatState.Processing},
-                    next_send_at = now(),
+                    next_attempt_at = now(),
                     updated_at = now()
                 FROM pulled
                 WHERE telegram_outbox_chats.chat_id = pulled.chat_id
@@ -128,17 +129,21 @@ export class OutboxStore {
         }));
     }
 
-    // messageId is telegram_outbox.id. false: the message is not processing (or does not exist), and
-    // nothing changed. The statements are separate on purpose (docs/architecture/outbox.md, "The
-    // chat lock").
-    public async markAsDone(messageId: number, response: OutboxJson): Promise<boolean> {
-        return this.sql.begin(async (sql) => {
-            await sql`
+    // messageId is telegram_outbox.id. A message that is missing or not processing throws
+    // OutboxMessageNotProcessing, and nothing changes. The statements are separate on purpose
+    // (docs/architecture/outbox.md, "The chat lock").
+    public async markAsDone(messageId: number, response: OutboxJson): Promise<void> {
+        await this.sql.begin(async (sql) => {
+            const [chat] = await sql`
                 SELECT chat_id
                 FROM telegram_outbox_chats
                 WHERE chat_id = (SELECT chat_id FROM telegram_outbox WHERE id = ${messageId})
                 FOR UPDATE
             `;
+
+            if (chat === undefined) {
+                throw OutboxMessageNotProcessing.byId(messageId);
+            }
 
             const [done] = await sql<{ chat_id: string }[]>`
                 UPDATE telegram_outbox
@@ -152,7 +157,7 @@ export class OutboxStore {
             `;
 
             if (done === undefined) {
-                return false;
+                throw OutboxMessageNotProcessing.byId(messageId);
             }
 
             const [next] = await sql`
@@ -169,8 +174,6 @@ export class OutboxStore {
                     updated_at = now()
                 WHERE chat_id = ${done.chat_id}
             `;
-
-            return true;
         });
     }
 }

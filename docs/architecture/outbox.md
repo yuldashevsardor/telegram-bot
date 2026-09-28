@@ -10,10 +10,10 @@ Nothing calls the directory yet: so far it holds the tables with `OutboxStore`
 ## Tables
 
 One migration, `1790546834232_telegram-outbox-tables.ts`, creates the three tables with every
-column the outbox needs, including those only later stages use (`attempts`, `locked_until`,
-`lock_token`, `telegram_bot_limits`). The columns and what they mean are in its `createTable`
-calls and `comment`s. There are no indexes besides the primary keys yet: they will be picked once
-the queries of every stage are settled.
+column the outbox needs, including those only later stages use (`attempts`, the lease of a pulled
+chat in `locked_until` and `lock_token`, `telegram_bot_limits`). The columns and what they mean
+are in its `createTable` calls and `comment`s. There are no indexes besides the primary keys yet:
+they will be picked once the queries of every stage are settled.
 
 The database does not check the values of `status` and `state`: the store writes them only
 through the `OutboxStatus` and `OutboxChatState` enums (`store/outbox-store.types.ts`). Of these,
@@ -68,10 +68,10 @@ lock.
 `pull(limit)` is one statement, atomic without a transaction:
 
 1. up to `limit` `ready` chats with the head of each (`join lateral`), by the priority of the head
-   and then by `next_send_at`, `for update of chats skip locked`: a chat another puller holds is
+   and then by `next_attempt_at`, `for update of chats skip locked`: a chat another puller holds is
    skipped, not waited for;
 2. the head goes to `processing`, but only if it is still `pending`;
-3. the chats whose head was pulled go to `processing`, and `next_send_at` moves to `now()`.
+3. the chats whose head was pulled go to `processing`, and `next_attempt_at` moves to `now()`.
 
 Step 3 is what serves the chats of one priority in turn: a chat just served goes behind the chats
 that waited. Only one head per chat is taken, and a `processing` chat is not `ready`, so a chat
@@ -82,7 +82,8 @@ and made `ready` again after the snapshot still passes the lock (the lock reread
 version), while the head read with it is the old one, already `done` by then. The check of step 2
 turns that head away: the chat is left `ready` for the next pull instead of sending the head twice.
 
-The pull does not look at the limits or the pause yet: `next_send_at` only orders the chats.
+The pull does not look at the limits or the pause yet: `next_attempt_at` only orders the chats.
+The chat limit and the retry delay will rework it.
 
 ## Mark as done
 
@@ -90,7 +91,8 @@ The pull does not look at the limits or the pause yet: `next_send_at` only order
 
 1. lock the chat row of the message;
 2. the message goes to `done` with the response and `finished_at`, only from `processing`;
-   otherwise, a missing message included, the method returns `false` and changes nothing;
+   otherwise, a missing message included, the method throws `OutboxMessageNotProcessing` and
+   changes nothing: the message was taken by another puller, which should not happen;
 3. read the next head of the chat;
 4. the chat goes to `ready` if there is one, or to `idle`.
 

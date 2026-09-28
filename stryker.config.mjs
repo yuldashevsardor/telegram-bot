@@ -18,6 +18,7 @@ const DATABASE_SPECS = [
 // and stay uncovered because the tests do not run, not because they are weak.
 const DATABASE_ONLY_SOURCES = [
     "src/platform/database/database.ts",
+    "src/telegram/outbox/store/outbox-store.errors.ts",
     "src/telegram/outbox/store/outbox-store.ts",
     "src/telegram/outbox/store/outbox-store.types.ts",
     "src/telegram/session/pgsql-storage.ts",
