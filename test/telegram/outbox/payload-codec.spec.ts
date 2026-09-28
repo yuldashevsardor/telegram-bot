@@ -1,7 +1,7 @@
 import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import { expect } from "chai";
-import { InlineKeyboard, InputFile, Keyboard } from "grammy";
+import { InlineKeyboard, InlineQueryResultBuilder, InputFile, Keyboard } from "grammy";
 import { deserialize, serialize } from "app/telegram/outbox/payload-codec/payload-codec";
 import {
     InvalidFileMarker,
@@ -83,6 +83,14 @@ describe("Outbox payload codec", function () {
         expect(serialized["keyboard"]).to.deep.equal(JSON.parse(JSON.stringify(reply)));
     });
 
+    it("drops the builder methods an inline query result keeps, as JSON does", function () {
+        const result = InlineQueryResultBuilder.photo("id0", "https://example.com/a.jpg");
+
+        const stored = JSON.parse(JSON.stringify(serialize("answerInlineQuery", { inline_query_id: "q", results: [result] })));
+
+        expect(stored).to.deep.equal({ inline_query_id: "q", results: [JSON.parse(JSON.stringify(result))] });
+    });
+
     describe("rejects a value it does not take, naming the method and the place", function () {
         const values: Array<[string, () => unknown]> = [
             ["a Date", (): unknown => new Date(0)],
@@ -92,7 +100,6 @@ describe("Outbox payload codec", function () {
             ["an object without a prototype", (): unknown => Object.create(null) as object],
             ["a boxed string", (): unknown => new String("hi")],
             ["a bigint", (): unknown => 1n],
-            ["a function", (): unknown => (): void => {}],
             ["a symbol", (): unknown => Symbol("s")],
         ];
 

@@ -36,6 +36,12 @@ function store(value: unknown, method: string, path: readonly string[]): unknown
         return value;
     }
 
+    // InlineQueryResultBuilder leaves its builder methods on a result as fields. JSON drops a
+    // function, as when grammY sends the call itself, so the codec drops it too.
+    if (typeof value === "function") {
+        return undefined;
+    }
+
     if (value === null || value === undefined || typeof value === "number" || typeof value === "boolean") {
         return value;
     }

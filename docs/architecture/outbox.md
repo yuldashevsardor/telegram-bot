@@ -13,11 +13,16 @@ another node can rebuild enters the outbox. `serialize(method, payload)`
 (`payload-codec/payload-codec.ts`) takes only what it knows how to store and throws on anything
 else, so no part of the payload reaches the row unchecked:
 
-- strings, numbers, booleans, `null` and `undefined` are kept; arrays and plain objects are walked;
+- strings, numbers, booleans, `null` and `undefined` pass to JSON, which writes them as it does
+  when grammY sends the call itself: an `undefined` field is left out, a `NaN` becomes `null`;
+  arrays and plain objects are walked;
+- a function becomes `undefined`, so JSON leaves it out: `InlineQueryResultBuilder` returns plain
+  objects that keep its builder methods (`.text()`, `.location()`) as fields
+  (`inputMessageMethods()` in grammY's `convenience/inline_query.js`);
 - grammY's `InlineKeyboard` and `Keyboard` are walked as plain objects: they are classes with data
   fields only, which JSON writes as they are. Of the classes grammY exports, they are the only
   ones meant for a payload besides `InputFile`: `InputMediaBuilder` and `InlineQueryResultBuilder`
-  return plain objects (`convenience/input_media.js`, `convenience/inline_query.js`);
+  build plain objects (`convenience/input_media.js`, `convenience/inline_query.js`);
 - a `PathFile` (`new PathFile(path, filename?)`, `telegram/path-file/path-file.ts`, a subclass of
   `InputFile`) becomes the marker `{ "$pathFile": { "path", "filename" } }`; `deserialize()`
   rebuilds it as a `PathFile`. The marker is the stored format: a change of its key leaves the rows
@@ -33,7 +38,7 @@ else, so no part of the payload reaches the row unchecked:
   or a lone UTF-16 surrogate (a caption cut through an emoji). The path and the file name of a
   `PathFile` are checked too;
 - any other value throws `UnsupportedValue`: another class instance, a `Date`, an object without
-  a prototype, a `bigint`, a function. A payload grammY builds holds none of them. A payload of
+  a prototype, a `bigint`, a symbol. A payload grammY builds holds none of them. A payload of
   plain objects that refers back to itself is not caught: the walk overflows the stack with a
   `RangeError`.
 
