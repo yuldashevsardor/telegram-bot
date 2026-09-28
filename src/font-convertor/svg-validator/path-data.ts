@@ -70,7 +70,7 @@ class PathDataReader {
             return true;
         }
 
-        if (!MOVETO.includes(this.next())) {
+        if (!MOVETO.includes(this.current())) {
             return false;
         }
 
@@ -87,7 +87,7 @@ class PathDataReader {
     }
 
     private readCommand(): boolean {
-        const parameters = COMMANDS.get(this.next());
+        const parameters = COMMANDS.get(this.current());
 
         if (parameters === undefined) {
             return false;
@@ -105,21 +105,22 @@ class PathDataReader {
             if (!this.readArguments(parameters)) {
                 return false;
             }
-        } while (this.hasMoreArguments());
+        } while (this.skipToNextArguments());
 
         return true;
     }
 
     /**
-     * Skips the separator after the arguments of a command. A comma separates arguments alone, so
-     * more of them must follow it; without one they end at the next command or the end.
+     * Skips the separator after the arguments of a command and says whether more arguments of it
+     * follow. A comma separates arguments alone, so more of them must follow it; without one they
+     * end at the next command or the end.
      */
-    private hasMoreArguments(): boolean {
+    private skipToNextArguments(): boolean {
         if (this.skipSeparator()) {
             return true;
         }
 
-        return !this.isAtEnd() && !COMMANDS.has(this.next());
+        return !this.isAtEnd() && !COMMANDS.has(this.current());
     }
 
     private readArguments(parameters: ReadonlyArray<Parameter>): boolean {
@@ -198,9 +199,9 @@ class PathDataReader {
         return this.position - start;
     }
 
-    // Past the end `next()` is an empty string, which no list holds.
+    // Past the end `current()` is an empty string, which no list holds.
     private skipOne(characters: ReadonlyArray<string>): boolean {
-        if (!characters.includes(this.next())) {
+        if (!characters.includes(this.current())) {
             return false;
         }
 
@@ -209,7 +210,7 @@ class PathDataReader {
         return true;
     }
 
-    private next(): string {
+    private current(): string {
         return this.text.charAt(this.position);
     }
 

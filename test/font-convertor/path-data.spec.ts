@@ -85,7 +85,7 @@ describe("isPathData", function () {
                 "M0,,0",
                 "M0 0,,1 1",
             ],
-            "whitespace other than space, tab, carriage return and line feed": ["M0\f0", "M0 0", " M0 0"],
+            "whitespace other than space, tab, carriage return and line feed": ["M0\f0", "M0\u00a00", "\u00a0M0 0"],
             "an unknown letter": ["M0 0 B1 1", "M0 0 R1 1", "M0 0 e1 1"],
             "a malformed number": ["M. 0", "M1e 0", "M1e+ 0", "M1E- 0", "Me1 0", "M+-1 0", "M- 1 0", "M0 ..5"],
             "a signed radius": ["M0 0 A-1 1 0 0 0 5 5", "M0 0 A1 +1 0 0 0 5 5"],
