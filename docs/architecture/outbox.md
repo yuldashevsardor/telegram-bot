@@ -67,9 +67,9 @@ lock.
 
 `pull(limit)` is one statement, atomic without a transaction:
 
-1. up to `limit` `ready` chats with the head of each (`JOIN LATERAL`), by the priority of the head
-   and then by `next_attempt_at`, `FOR UPDATE OF chats SKIP LOCKED`: a chat another puller holds is
-   skipped, not waited for;
+1. up to `limit` `ready` chats with the head of each (`CROSS JOIN LATERAL`), by the priority of
+   the head and then by `next_attempt_at`, `FOR UPDATE OF chats SKIP LOCKED`: a chat another
+   puller holds is skipped, not waited for;
 2. the head goes to `processing`, but only if it is still `pending`;
 3. the chats whose head was pulled go to `processing`, and `next_attempt_at` moves to `now()`.
 

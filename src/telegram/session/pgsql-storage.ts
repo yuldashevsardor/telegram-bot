@@ -41,7 +41,7 @@ export class PgsqlStorage implements StorageAdapter<SessionPayload> {
             INSERT INTO sessions
             VALUES (${key}, ${this.sql.json(value)}) ON CONFLICT (key) DO
             UPDATE SET
-                value = EXCLUDED.value,
+                value = excluded.value,
                 updated_time = now()
         `;
     }
