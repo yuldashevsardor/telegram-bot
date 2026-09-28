@@ -132,10 +132,10 @@ else, so no part of the payload reaches the row unchecked:
   rebuilds it as a `PathFile`. The marker is the stored format: a change of its key leaves the rows
   already written unreadable. A marker `serialize()` would not write is a corrupted row and throws
   `InvalidFileMarker` (the conditions are in `readMarker()`);
-- any other `InputFile` throws `UnsupportedInputFile`: a `Buffer`, a stream or a supplier function
-  lives only in the memory of this process. The check is by class, so a file grammY has already
-  sent is rejected too, although grammY has replaced its `toJSON()` with one returning
-  `attach://<id>` (`collectFiles()` in grammY's `core/payload.js`);
+- any other `InputFile` inside a payload throws `UnsupportedInputFile`: a `Buffer`, a stream or a
+  supplier function lives only in the memory of this process. The check is by class, so a file
+  grammY has already sent is rejected too, although grammY has replaced its `toJSON()` with one
+  returning `attach://<id>` (`collectFiles()` in grammY's `core/payload.js`);
 - an object that already carries the marker key throws `ReservedFileKey`: `deserialize()` would
   read it as a file;
 - a string or a key that PostgreSQL does not accept in `jsonb` throws `UnstorableString`: U+0000
@@ -145,8 +145,9 @@ else, so no part of the payload reaches the row unchecked:
   a prototype, a `bigint`, a symbol. A payload grammY builds holds none of them. A payload of
   plain objects that refers back to itself is not caught: the walk overflows the stack with a
   `RangeError`;
-- a payload that is not a plain object throws `UnsupportedValue` before the walk: an array, a
-  `PathFile`, a keyboard or a function, taken inside a payload, is never a Bot API payload itself.
+- a payload that is not a plain object throws `UnsupportedValue` before the walk: an array, an
+  `InputFile`, a keyboard or a function is never a Bot API payload itself, although the walk takes
+  an array, a `PathFile` and a keyboard inside one and drops a function there.
 
 An error of `serialize()` names the method and where the value sits in the payload
 (`media.1.thumbnail`), in the message and in `payload`.

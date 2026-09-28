@@ -126,7 +126,10 @@ describe("Outbox payload codec", function () {
         for (const [name, payload] of payloads) {
             it(`such as ${name}`, function () {
                 expect(() => serialize("sendMessage", payload()))
-                    .to.throw(UnsupportedValue, "sendMessage got a payload that is not a plain object: a Bot API payload always is one.")
+                    .to.throw(
+                        UnsupportedValue,
+                        "sendMessage got a value at the root that is not a plain object: a Bot API payload always is one.",
+                    )
                     .with.deep.property("payload", { method: "sendMessage", place: "the root" });
             });
         }

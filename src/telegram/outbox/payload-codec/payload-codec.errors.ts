@@ -66,9 +66,12 @@ export class UnsupportedValue extends RuntimeError {
     }
 
     public static asPayload(method: string): UnsupportedValue {
-        return new UnsupportedValue(`${method} got a payload that is not a plain object: a Bot API payload always is one.`, {
-            method: method,
-            place: describe([]),
-        });
+        return new UnsupportedValue(
+            `${method} got a value at ${describe([])} that is not a plain object: a Bot API payload always is one.`,
+            {
+                method: method,
+                place: describe([]),
+            },
+        );
     }
 }
