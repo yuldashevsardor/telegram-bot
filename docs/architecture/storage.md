@@ -46,7 +46,7 @@ creates from the name of the stub.
 ## Sessions
 
 `PgsqlStorage` (`telegram/session/pgsql-storage.ts`) writes `sessions` directly, with a
-positional `insert into sessions values (key, value)`: two values for four columns. So if a
+positional `INSERT INTO sessions VALUES (key, value)`: two values for four columns. So if a
 migration adds a column before `value`, the query silently shifts the values
 ([`invariants.md`](./invariants.md)).
 

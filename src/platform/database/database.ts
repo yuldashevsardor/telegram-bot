@@ -30,7 +30,7 @@ export class Database {
     }
 
     public async check(): Promise<void> {
-        await this.sql`select 1`;
+        await this.sql`SELECT 1`;
     }
 
     public async close(): Promise<void> {

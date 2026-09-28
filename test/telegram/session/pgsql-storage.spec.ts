@@ -22,7 +22,7 @@ describe("PgsqlStorage", function () {
     });
 
     beforeEach(async function () {
-        await database.sql`truncate sessions`;
+        await database.sql`TRUNCATE sessions`;
     });
 
     after(async function () {
@@ -55,17 +55,17 @@ describe("PgsqlStorage", function () {
         await storage.write(KEY, { requestCount: 1 });
 
         const [first] = await database.sql<{ created: string }[]>`
-            select created_time::text as created
-            from sessions
-            where key = ${KEY}
+            SELECT created_time::text AS created
+            FROM sessions
+            WHERE key = ${KEY}
         `;
 
         await storage.write(KEY, { requestCount: 2 });
 
         const [second] = await database.sql<{ created: string; moved: boolean }[]>`
-            select created_time::text as created, updated_time > created_time as moved
-            from sessions
-            where key = ${KEY}
+            SELECT created_time::text AS created, updated_time > created_time AS moved
+            FROM sessions
+            WHERE key = ${KEY}
         `;
 
         expect(second?.created).to.equal(first?.created);
