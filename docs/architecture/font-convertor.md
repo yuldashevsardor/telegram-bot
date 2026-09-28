@@ -136,7 +136,7 @@ counted from the prefix's end.
 
 `SvgFontValidator` (`svg-validator/`) reads the whole file and checks it against W3C SVG 1.1
 Second Edition, chapter 20 "Fonts". SVG 2 removed SVG fonts, so 1.1 is the reference. It is to
-replace the SVG signature, which rejects real fonts and admits anything that opens with `<`. No
+replace the SVG signature, which rejects real fonts and admits any markup. No
 convertor calls it yet: the SVG pairs still check the signature alone.
 
 It answers with a subclass of `InvalidSvgFont`, in this order: `NotXml`, `NotSvg`, `NoFont`,
@@ -175,7 +175,9 @@ predefined ones.
 
 `saxes` is created with `forceXMLVersion`: by the fifth edition of XML 1.0 a document declaring
 another 1.x version is read as 1.0. Without an error handler it throws a bare `Error`; the handler
-wraps it into `NotXml`, and the encoding check reports through the same `parser.fail()`.
+turns it into `NotXml`, and the encoding check reports through the same `parser.fail()`. The
+`NotXml` keeps only the message, cut to 200 UTF-16 units, not the saxes error as its cause: that
+message quotes names from the file, and a cause reaches the log uncut.
 
 ## The pair table
 
