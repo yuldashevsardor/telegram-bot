@@ -269,7 +269,7 @@ describe("SvgFontValidator.validate", function () {
             );
         });
 
-        it("quoting each part of a long root cut to 64 UTF-16 units", async function () {
+        it("quoting the namespace and the local name of a root each cut to 64 UTF-16 units", async function () {
             // A long namespace must not cut off the local name, and the braces stay around the namespace.
             const namespace = `urn:${"a".repeat(100)}`;
             const local = "b".repeat(100);

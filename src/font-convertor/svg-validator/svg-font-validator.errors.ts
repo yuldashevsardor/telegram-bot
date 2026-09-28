@@ -68,8 +68,10 @@ export class NoFont extends InvalidSvgFont {
 
 export class BrokenFont extends InvalidSvgFont {
     /**
-     * A cut value ends with `…` outside the quotes in the message; in the payload `valueLength`,
-     * the length before the cut, tells it apart from a value that ends with `…` itself.
+     * A cut value ends with `…`. In the payload that makes it one unit longer than an uncut value
+     * can be, and `valueLength`, the length before the cut, says the same: either tells it apart
+     * from a value that ends with `…` itself. In the message the value is escaped by
+     * `JSON.stringify`, which can make it longer, so there the mark stands outside the quotes.
      */
     public static byRule(rule: FontRule, element: string, line: number, attribute?: [string, string]): BrokenFont {
         const at = `SVG font breaks a rule: ${rule}. At line ${line}: <${element}>`;
