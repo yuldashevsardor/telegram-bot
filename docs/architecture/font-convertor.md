@@ -176,8 +176,14 @@ predefined ones.
 `saxes` is created with `forceXMLVersion`: by the fifth edition of XML 1.0 a document declaring
 another 1.x version is read as 1.0. Without an error handler it throws a bare `Error`; the handler
 turns it into `NotXml`, and the encoding check reports through the same `parser.fail()`. The
-`NotXml` keeps only the message, cut to 200 UTF-16 units, not the saxes error as its cause: that
-message quotes names from the file, and a cause reaches the log uncut.
+`NotXml` keeps only the message, cut, not the saxes error as its cause: that message quotes names
+from the file, and a cause reaches the log uncut.
+
+Text from the file reaches the log through the answers, so each piece of it is cut
+(`svg-font-validator.errors.ts`): the saxes message to `MAX_PARSER_MESSAGE_LENGTH` UTF-16 units, the
+namespace and the local name of a `NotSvg` root and the attribute value of a `BrokenFont` each to
+`MAX_QUOTED_LENGTH`. A cut piece ends with `…`. The payload keeps the length before the cut
+(`rootLength`, `valueLength`), which tells a cut piece from one that ends with `…` itself.
 
 ## The pair table
 
