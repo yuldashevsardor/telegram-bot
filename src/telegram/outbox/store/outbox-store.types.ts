@@ -1,0 +1,49 @@
+import type postgres from "postgres";
+
+// The values of telegram_outbox.status: the database does not check them, so they are written only
+// through this enum.
+export enum OutboxStatus {
+    Pending = "pending",
+    Processing = "processing",
+    Done = "done",
+    Failed = "failed",
+    Skipped = "skipped",
+}
+
+// The values of telegram_outbox_chats.state, written only through this enum as well.
+export enum OutboxChatState {
+    // No active message.
+    Idle = "idle",
+    // The head is pending and can be pulled.
+    Ready = "ready",
+    // The head is pulled.
+    Processing = "processing",
+    // The head failed.
+    Blocked = "blocked",
+}
+
+// Only what survives JSON goes into a jsonb column: the driver serializes the value itself.
+export type OutboxJson = postgres.JSONValue;
+
+export type OutboxPayload = { readonly [key: string]: OutboxJson };
+
+// A Bot API call to push. A lower priority goes first.
+export type OutboxMessageInput = {
+    chatId: number;
+    method: string;
+    payload: OutboxPayload;
+    priority: number;
+};
+
+export type ClaimedOutboxMessage = OutboxMessageInput & {
+    id: number;
+};
+
+// A pulled row as postgres returns it: without a types setting bigint comes back as a string.
+export type ClaimedOutboxRow = {
+    id: string;
+    chat_id: string;
+    method: string;
+    payload: OutboxPayload;
+    priority: number;
+};
