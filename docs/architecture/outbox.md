@@ -15,9 +15,9 @@ else, so no part of the payload reaches the row unchecked:
 
 - strings, numbers, booleans, `null` and `undefined` pass to JSON. An `undefined` field is left
   out of the row. A `null` field stays in it, and grammY drops it when the row is sent, as it does
-  when it sends the call itself (`str()` in grammY's `core/payload.js`). A `NaN` field is written
-  as `null`, so it is left out of the sent call, while grammY sending the call itself writes it
-  as `null`. Arrays and plain objects are walked;
+  when it sends the call itself (`str()` and `payloadToMultipartItr()` in grammY's
+  `core/payload.js`). A `NaN`, `Infinity` or `-Infinity` field is written as `null`, so it is left
+  out of the sent call too. Arrays and plain objects are walked;
 - a function becomes `undefined`, which JSON writes as it writes any `undefined` (a field left
   out, `null` in an array): `InlineQueryResultBuilder` returns plain objects that keep its builder
   methods (`.text()`, `.location()`) as fields (`inputMessageMethods()` in grammY's
