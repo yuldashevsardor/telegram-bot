@@ -112,7 +112,8 @@ Not part of the domain. The service copies the weight and the slant from the fon
 as the same bytes, but it does not tell styles apart and cannot select a font by one.
 
 **Glyphs and metrics**:
-Not part of the domain. From a font the service reads the format signature and the metadata for the
-envelope but does not parse the outlines, so it can neither list the glyphs nor compare them before
-and after a conversion. The domain currently neither expresses nor checks whether glyphs and metrics
+Not part of the domain. From a font the service reads the format signature, the metadata for the
+envelope and, in an SVG, the rules of an SVG font, which reach the glyph advances too. It does not
+parse the outlines, so it can neither list the glyphs nor compare them before and after a
+conversion. The domain currently neither expresses nor checks whether glyphs and metrics
 survive a conversion.

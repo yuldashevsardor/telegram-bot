@@ -58,9 +58,8 @@ describe("Convertors of the engine pairs", function () {
         }
     }
 
-    // The signature let a processing instruction open the document only without an indent and with a
-    // target starting with `xml`, although the engine converts every one of these. The validator
-    // lets them through as the XML they are.
+    // A processing instruction may open a document without an XML declaration, after an indent and
+    // with any target, and the engine converts every one of these: the validator has to admit them.
     for (const prologue of ['\n<?xml-stylesheet href="a.css"?>', "<?sodipodi-namespace?>", "  <?xmlfoo bar?>"]) {
         it(`converts svg opening with ${JSON.stringify(prologue)}`, async function () {
             const fixtureText = await fs.readFile(path.join(fixtureDir, `test-font.${Extension.SVG}`), "utf8");

@@ -181,6 +181,9 @@ not count as supported.
 
 - Temporary files are not deleted (issue
   [#37](https://github.com/yuldashevsardor/telegram-bot/issues/37)).
+- An SVG source is read, decoded and parsed whole, synchronously, on the event loop of the bot, and
+  the domain sets no limit on its size. The other formats read `headLength` bytes. Nothing measured
+  the cost yet.
 - `/font_generator` converts the fixed `test/fixtures/fonts/test-font.woff` into
   EOT/OTF/TTF/WOFF2. It answers with the **path** to the file as text; the file itself is not
   sent. A caught conversion error is written at `error` level through `Logger`
