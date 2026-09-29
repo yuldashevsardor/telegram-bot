@@ -16,7 +16,12 @@ import type {
 } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxChannel, OutboxChatState, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
 import type { FinishedMessageSource } from "app/telegram/outbox/result-waiter/outbox-result-waiter.types";
-import { InvalidPauseDuration, OutboxMessageNotProcessing } from "app/telegram/outbox/store/outbox-store.errors";
+import {
+    BotLimitsRowMissing,
+    InvalidPauseDuration,
+    InvalidPullLimit,
+    OutboxMessageNotProcessing,
+} from "app/telegram/outbox/store/outbox-store.errors";
 
 // The OID of bigint: the chat ids go to the database as a bigint[] parameter.
 const BIGINT = 20;
@@ -112,18 +117,24 @@ export class OutboxStore implements FinishedMessageSource {
     // behind the chats of the same priority, so they are served in turn. The messages come back by
     // priority, so a caller that sends them in order sends the urgent first.
     public async pull(limit: number): Promise<OutboxPullResult> {
+        if (!Number.isSafeInteger(limit) || limit < 1) {
+            throw InvalidPullLimit.of(limit);
+        }
+
         const commonLimit = this.limits.common;
         const commonCooldownMs = this.cooldownMs(commonLimit);
 
-        const [row] = await this.sql<OutboxPullResultRow[]>`
+        const pullRows = await this.sql<OutboxPullResultRow[]>`
             WITH bot AS (
                 -- The slots of the common limit come due one per cooldown from next_send_at, and an
-                -- idle bot saves up no more than number of them.
+                -- idle bot saves up no more than number of them. The config bounds number only from
+                -- below, so it is not cast to integer, which overflows above 2^31 - 1. The budget is at
+                -- most limit, which fits a bigint.
                 SELECT least(
-                           ${limit}::integer,
-                           ${commonLimit.number}::integer,
+                           ${limit}::bigint,
+                           ${commonLimit.number}::double precision,
                            floor(extract(epoch FROM now() - next_send_at) * ${MS_PER_SECOND} / ${commonCooldownMs}::double precision) + 1
-                       )::integer AS budget
+                       )::bigint AS budget
                 FROM telegram_bot_limits
                 WHERE id = ${BOT_LIMITS_ID}
                   AND next_send_at <= now()
@@ -213,11 +224,17 @@ export class OutboxStore implements FinishedMessageSource {
                        FROM ready
                        CROSS JOIN bot_after
                        WHERE ready.ready_at IS NOT NULL
-                   ) AS next_pull_in_ms
+                   ) AS next_pull_in_ms,
+                   EXISTS (SELECT 1 FROM bot_after) AS has_bot_limits
         `;
 
         // A statement without FROM returns exactly one row.
-        const pullRow = row as OutboxPullResultRow;
+        const pullRow = pullRows[0] as OutboxPullResultRow;
+
+        // Without the row nothing is pulled and nextPullInMs is null, as if no chat were ready.
+        if (!pullRow.has_bot_limits) {
+            throw BotLimitsRowMissing.create();
+        }
 
         return {
             messages: pullRow.messages.map((message) => ({
@@ -241,19 +258,24 @@ export class OutboxStore implements FinishedMessageSource {
             throw InvalidPauseDuration.of(durationMs);
         }
 
-        await this.sql`
+        const [updatedRow] = await this.sql`
             UPDATE telegram_bot_limits
             SET paused_until = greatest(paused_until, pause.ends_at),
                 next_send_at = greatest(next_send_at, paused_until, pause.ends_at),
                 updated_at = now()
             FROM (SELECT now() + ${durationMs}::double precision * interval '1 millisecond' AS ends_at) AS pause
             WHERE id = ${BOT_LIMITS_ID}
+            RETURNING id
         `;
+
+        if (updatedRow === undefined) {
+            throw BotLimitsRowMissing.create();
+        }
     }
 
     // The time a limit leaves between two messages, as the in-memory queue spaces them. LIMIT_*_NUMBER
     // is at least 1, so the cooldown is finite.
-    private cooldownMs(limit: TelegramLimits["common"]): number {
+    private cooldownMs(limit: TelegramLimits[keyof TelegramLimits]): number {
         return limit.interval / limit.number;
     }
 
