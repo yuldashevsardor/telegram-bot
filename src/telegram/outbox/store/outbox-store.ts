@@ -112,8 +112,9 @@ export class OutboxStore {
         const pullRows = await this.sql<OutboxPullResultRow[]>`
             WITH bot AS (
                 -- The slots of the common limit come due one per cooldown from next_send_at, and an
-                -- idle bot saves up no more than number of them. The config does not bound number from
-                -- above, so it is not cast to an integer type, and the budget is at most limit.
+                -- idle bot saves up no more than number of them. The config bounds number only from
+                -- below, so it is not cast to integer, which overflows above 2^31 - 1. The budget is at
+                -- most limit, which fits a bigint.
                 SELECT least(
                            ${limit}::bigint,
                            ${commonLimit.number}::double precision,
@@ -242,7 +243,7 @@ export class OutboxStore {
             throw InvalidPauseDuration.of(durationMs);
         }
 
-        const [paused] = await this.sql`
+        const [updatedRow] = await this.sql`
             UPDATE telegram_bot_limits
             SET paused_until = greatest(paused_until, pause.ends_at),
                 next_send_at = greatest(next_send_at, paused_until, pause.ends_at),
@@ -252,7 +253,7 @@ export class OutboxStore {
             RETURNING id
         `;
 
-        if (paused === undefined) {
+        if (updatedRow === undefined) {
             throw BotLimitsRowMissing.create();
         }
     }

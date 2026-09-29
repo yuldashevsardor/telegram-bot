@@ -114,7 +114,8 @@ describe("OutboxStore", function () {
         ]);
     });
 
-    for (const limit of [0, -1, 2.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    // 2 ** 53 is the first integer above Number.MAX_SAFE_INTEGER.
+    for (const limit of [0, -1, 2.5, Number.NaN, Number.POSITIVE_INFINITY, 2 ** 53]) {
         it(`refuses a pull of ${limit} messages and pulls nothing`, async function () {
             await store.push(message(CHAT, "text"));
 
@@ -130,11 +131,11 @@ describe("OutboxStore", function () {
     }
 
     it("takes a limit and a common number beyond a 32-bit integer", async function () {
-        const beyondInteger = 2 ** 31;
-        const wide = new OutboxStore(database, { ...NO_LIMITS, common: { number: beyondInteger, interval: 1 } });
-        const id = await wide.push(message(CHAT, "text"));
+        const aboveInt32 = 2 ** 31;
+        const bigLimitStore = new OutboxStore(database, { ...NO_LIMITS, common: { number: aboveInt32, interval: 1 } });
+        const id = await bigLimitStore.push(message(CHAT, "text"));
 
-        expect((await wide.pull(beyondInteger)).messages.map((pulled) => pulled.id)).to.deep.equal([id]);
+        expect((await bigLimitStore.pull(aboveInt32)).messages.map((pulled) => pulled.id)).to.deep.equal([id]);
     });
 
     it("never keeps two messages of a chat in processing", async function () {
@@ -571,14 +572,15 @@ describe("OutboxStore", function () {
     });
 
     describe("without the row of the bot limits", function () {
+        // The deleted row goes back as it was, so the spec does not repeat its id.
+        let deletedRows: Record<string, unknown>[];
+
         beforeEach(async function () {
-            await database.sql`DELETE FROM telegram_bot_limits`;
+            deletedRows = [...(await database.sql<Record<string, unknown>[]>`DELETE FROM telegram_bot_limits RETURNING *`)];
         });
 
-        // The migration inserts the row with the defaults of its columns, and the outer beforeEach
-        // of the next spec sets the rest.
         afterEach(async function () {
-            await database.sql`INSERT INTO telegram_bot_limits (id) VALUES (1) ON CONFLICT DO NOTHING`;
+            await database.sql`INSERT INTO telegram_bot_limits ${database.sql(deletedRows)}`;
         });
 
         it("refuses a pull instead of reporting that no chat is ready", async function () {

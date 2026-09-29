@@ -69,8 +69,8 @@ lock.
 
 ## Pull
 
-`pull(limit)` throws `InvalidPullLimit` on a `limit` that is not a whole number from 1. Otherwise
-it is one statement, atomic without a transaction:
+`pull(limit)` throws `InvalidPullLimit` on a `limit` that is not a whole number from 1 to
+`Number.MAX_SAFE_INTEGER`. Otherwise it is one statement, atomic without a transaction:
 
 1. the bot row, `FOR UPDATE SKIP LOCKED`, if the pause is over, `next_send_at` has passed and a
    chat is ready to be pulled; it gives the budget of the pull (see "Limits"). No row — a pause, a
@@ -138,9 +138,9 @@ to wait for, only a push or a completion brings a message then. A ready chat lef
 or skipped as locked no longer holds the answer back: the bot's time decides it, the cooldowns the
 pull has just spent, or zero if it pulled nothing.
 
-The answer is not capped. A long pause or a long chat interval gives more than the 2^31 - 1 ms a
-Node timer takes (`ConfigParser.MAX_TIMER_DELAY`), and Node turns a longer delay into 1 ms, so a
-caller that sleeps on the answer caps it first.
+The answer is not capped. A long pause or a long interval of a limit, common or chat, gives more
+than the 2^31 - 1 ms a Node timer takes (`ConfigParser.MAX_TIMER_DELAY`), and Node turns a longer
+delay into 1 ms, so a caller that sleeps on the answer caps it first.
 
 The times are the database's (`now()`), and so is the answer: a duration counted from the pull,
 not a moment. The rule is in [`invariants.md`](./invariants.md), "The outbox".
