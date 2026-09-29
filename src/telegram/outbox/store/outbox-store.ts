@@ -5,7 +5,7 @@ import type { TelegramLimits } from "app/bootstrap/config/config-values";
 import { configValue } from "app/shared/config-value";
 import type { OutboxJson, OutboxMessageInput, OutboxPull, OutboxPullRow } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxChatState, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
-import { OutboxMessageNotProcessing } from "app/telegram/outbox/store/outbox-store.errors";
+import { InvalidPauseDuration, OutboxMessageNotProcessing } from "app/telegram/outbox/store/outbox-store.errors";
 
 // The OID of bigint: the chat ids go to the database as a bigint[] parameter.
 const BIGINT = 20;
@@ -207,11 +207,18 @@ export class OutboxStore {
     }
 
     // Stops the pull on every node until now() + durationMs by the database clock. A pause is never
-    // shortened: a 429 that asks for less than the pause left changes nothing.
+    // shortened: a 429 that asks for less than the pause left changes nothing. The common limit
+    // starts over from the end of the pause, so the pull does not resume with a burst of saved slots.
+    // An infinite duration would stop the outbox for good, and greatest() would keep it.
     public async pause(durationMs: number): Promise<void> {
+        if (!Number.isFinite(durationMs) || durationMs < 0) {
+            throw InvalidPauseDuration.of(durationMs);
+        }
+
         await this.sql`
             UPDATE telegram_bot_limits
             SET paused_until = greatest(paused_until, now() + ${durationMs}::double precision * interval '1 millisecond'),
+                next_send_at = greatest(next_send_at, paused_until, now() + ${durationMs}::double precision * interval '1 millisecond'),
                 updated_at = now()
             WHERE id = ${BOT_LIMITS_ID}
         `;

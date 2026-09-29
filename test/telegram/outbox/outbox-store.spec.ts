@@ -5,7 +5,7 @@ import { Database } from "app/platform/database/database";
 import { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxMessageInput } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxChatState, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
-import { OutboxMessageNotProcessing } from "app/telegram/outbox/store/outbox-store.errors";
+import { InvalidPauseDuration, OutboxMessageNotProcessing } from "app/telegram/outbox/store/outbox-store.errors";
 import { sleep } from "app/shared/utils";
 import { testDatabaseSettings } from "test/database.helper";
 
@@ -21,6 +21,7 @@ const SPEC_TIMEOUT_MS = 10_000;
 // microsecond of a timestamp, and a common limit no pull reaches.
 const NO_LIMIT: TelegramLimits["common"] = { number: 1_000_000, interval: 1 };
 const NO_LIMITS: TelegramLimits = { common: NO_LIMIT, private: NO_LIMIT, group: NO_LIMIT };
+const MS_PER_SECOND = 1000;
 
 type ChatRow = { state: string };
 
@@ -47,12 +48,12 @@ describe("OutboxStore", function () {
 
     beforeEach(async function () {
         await database.sql`TRUNCATE telegram_outbox, telegram_outbox_chats RESTART IDENTITY`;
-        // The common limit has saved up its full number of slots, and there is no pause.
+        // The common limit has saved up its full number of slots, and there is no pause. The table
+        // holds one row.
         await database.sql`
             UPDATE telegram_bot_limits
             SET next_send_at = now() - interval '1 hour',
                 paused_until = NULL
-            WHERE id = 1
         `;
     });
 
@@ -320,6 +321,12 @@ describe("OutboxStore", function () {
         const COMMON_INTERVAL_MS = 3 * COMMON_COOLDOWN_MS;
         const COMMON_LIMITS: TelegramLimits = { ...NO_LIMITS, common: { number: 3, interval: COMMON_INTERVAL_MS } };
         const PAUSE_MS = 60_000;
+        // A pause shorter than the pause asked for, which must not shorten it.
+        const SHORTER_PAUSE_MS = PAUSE_MS / 2;
+        // A pause that is over by the time the spec sleeps SHORT_PAUSE_MS twice.
+        const SHORT_PAUSE_MS = 5;
+        // How much of a long pause or interval the calls between its start and the pull may use up.
+        const ELAPSED_TOLERANCE_MS = 1_000;
 
         it("gives a chat no message before its interval has passed", async function () {
             const limited = new OutboxStore(database, CHAT_LIMITS);
@@ -346,7 +353,7 @@ describe("OutboxStore", function () {
 
             // Both columns are now() of the pull.
             const rows = await database.sql<{ chat_id: string; moved_ms: number }[]>`
-                SELECT chat_id, extract(epoch FROM next_attempt_at - updated_at)::double precision * 1000 AS moved_ms
+                SELECT chat_id, extract(epoch FROM next_attempt_at - updated_at)::double precision * ${MS_PER_SECOND} AS moved_ms
                 FROM telegram_outbox_chats
                 ORDER BY chat_id
             `;
@@ -390,10 +397,11 @@ describe("OutboxStore", function () {
             const limited = new OutboxStore(database, COMMON_LIMITS);
 
             await limited.pushBatch([1, 2, 3, 4, 5].map((chatId) => message(chatId, "text")));
-            // Two slots have come due: at next_send_at and a cooldown later.
-            await database.sql`UPDATE telegram_bot_limits SET next_send_at = now() - ${
-                COMMON_COOLDOWN_MS * 1.5
-            }::double precision * interval '1 millisecond'`;
+            // Two slots have come due: at next_send_at and a cooldown later; the third is half a
+            // cooldown away.
+            const twoSlotsAgoMs = COMMON_COOLDOWN_MS + COMMON_COOLDOWN_MS / 2;
+
+            await database.sql`UPDATE telegram_bot_limits SET next_send_at = now() - ${twoSlotsAgoMs}::double precision * interval '1 millisecond'`;
 
             expect((await limited.pull(10)).messages).to.have.lengthOf(2);
         });
@@ -405,28 +413,51 @@ describe("OutboxStore", function () {
             const paused = await new OutboxStore(other, NO_LIMITS).pull(10);
 
             expect(paused.messages).to.deep.equal([]);
-            expect(paused.nextPullInMs).to.be.within(PAUSE_MS - 1_000, PAUSE_MS);
+            expect(paused.nextPullInMs).to.be.within(PAUSE_MS - ELAPSED_TOLERANCE_MS, PAUSE_MS);
             expect((await store.pull(10)).messages).to.deep.equal([]);
         });
 
         it("lets the pull through once the pause is over", async function () {
             const id = await store.push(message(CHAT, "text"));
 
-            await store.pause(1);
-            await sleep(10);
+            await store.pause(SHORT_PAUSE_MS);
+            await sleep(2 * SHORT_PAUSE_MS);
 
             expect((await store.pull(10)).messages.map((pulled) => pulled.id)).to.deep.equal([id]);
         });
+
+        it("resumes the pull after a pause with one slot of the common limit, not a burst", async function () {
+            const limited = new OutboxStore(database, COMMON_LIMITS);
+
+            await limited.pushBatch([1, 2, 3, 4, 5].map((chatId) => message(chatId, "text")));
+            await limited.pause(SHORT_PAUSE_MS);
+            await sleep(2 * SHORT_PAUSE_MS);
+
+            expect((await limited.pull(10)).messages).to.have.lengthOf(1);
+        });
+
+        for (const durationMs of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+            it(`refuses a pause of ${durationMs} ms and changes nothing`, async function () {
+                const error = await store.pause(durationMs).then(
+                    () => expect.fail("pause() was expected to reject"),
+                    (reason: unknown) => reason,
+                );
+
+                expect(error).to.be.instanceOf(InvalidPauseDuration);
+                expect((error as InvalidPauseDuration).payload).to.deep.equal({ durationMs });
+                expect(await pausedUntil()).to.equal(null);
+            });
+        }
 
         it("never shortens a pause, only lengthens it", async function () {
             await store.pause(PAUSE_MS);
             const paused = await pausedUntil();
 
-            await store.pause(1_000);
+            await store.pause(SHORTER_PAUSE_MS);
             expect(await pausedUntil()).to.deep.equal(paused);
 
             await store.pause(2 * PAUSE_MS);
-            expect((await pausedUntil()).getTime()).to.be.greaterThan(paused.getTime());
+            expect((await pausedUntil())?.getTime()).to.be.greaterThan(paused?.getTime() as number);
         });
 
         it("reports no next pull when no chat is ready", async function () {
@@ -437,10 +468,12 @@ describe("OutboxStore", function () {
             expect((await store.pull(10)).nextPullInMs).to.equal(null);
         });
 
-        it("reports the next pull at once when a ready chat was left out by the limit of the pull", async function () {
-            await store.pushBatch([message(CHAT, "a"), message(OTHER_CHAT, "b")]);
+        it("reports the next pull by the common cooldown when a ready chat was left out by the limit of the pull", async function () {
+            const limited = new OutboxStore(database, COMMON_LIMITS);
 
-            expect((await store.pull(1)).nextPullInMs).to.equal(0);
+            await limited.pushBatch([message(CHAT, "a"), message(OTHER_CHAT, "b")]);
+
+            expect((await limited.pull(1)).nextPullInMs).to.equal(COMMON_COOLDOWN_MS);
         });
 
         it("reports the next pull by the nearest chat that waits for its interval", async function () {
@@ -461,23 +494,23 @@ describe("OutboxStore", function () {
             await limited.pushBatch([message(CHAT, "a1"), message(CHAT, "a2")]);
             await limited.pause(PAUSE_MS);
 
-            expect((await limited.pull(10)).nextPullInMs).to.be.within(PAUSE_MS - 1_000, PAUSE_MS);
+            expect((await limited.pull(10)).nextPullInMs).to.be.within(PAUSE_MS - ELAPSED_TOLERANCE_MS, PAUSE_MS);
         });
 
         // Both columns are now() of the last pull that took messages.
         async function nextSendAfterUpdateMs(): Promise<number> {
             const [row] = await database.sql<{ moved_ms: number }[]>`
-                SELECT extract(epoch FROM next_send_at - updated_at)::double precision * 1000 AS moved_ms
+                SELECT extract(epoch FROM next_send_at - updated_at)::double precision * ${MS_PER_SECOND} AS moved_ms
                 FROM telegram_bot_limits
             `;
 
             return (row as { moved_ms: number }).moved_ms;
         }
 
-        async function pausedUntil(): Promise<Date> {
-            const [row] = await database.sql<{ paused_until: Date }[]>`SELECT paused_until FROM telegram_bot_limits`;
+        async function pausedUntil(): Promise<Date | null> {
+            const [row] = await database.sql<{ paused_until: Date | null }[]>`SELECT paused_until FROM telegram_bot_limits`;
 
-            return (row as { paused_until: Date }).paused_until;
+            return (row as { paused_until: Date | null }).paused_until;
         }
     });
 

@@ -95,7 +95,8 @@ turns that head away: the chat is left `ready` for the next pull instead of send
 
 The lock of step 1 makes the pulls of all the nodes take turns: two pulls that read the same
 `next_send_at` would both spend it. The pull that finds the row locked gets no messages and a
-`nextPullInMs` from the row as it was before the other pull.
+`nextPullInMs` from the row as it was before the other pull, often zero: a caller that pulls again
+at once spins until the other pull commits.
 
 ## Limits
 
@@ -118,13 +119,18 @@ queue takes ([`outbound-queue.md`](./outbound-queue.md)). A limit of `number` me
   `number` would be followed by a slot every cooldown: nearly twice the limit in one interval.
 - **The pause.** `pause(durationMs)` sets `paused_until` to `now()` plus the duration, never
   earlier than it is (`greatest`): a 429 that asks for less than the pause left changes nothing.
-  The pause stops the pull on every node, since every pull reads the same row.
+  The pause stops the pull on every node, since every pull reads the same row. It moves
+  `next_send_at` to its end as well, so the slots come due from there one by one: the first pull
+  after a 429 gets one message, not a burst of `number`. A duration that is negative, `NaN` or
+  infinite throws `InvalidPauseDuration`: an infinite pause would never end, and `greatest` would
+  keep it.
 
 `nextPullInMs` is the later of the nearest `next_attempt_at` among the `ready` chats not pulled by
 this pull and the bot's own time — `next_send_at` after the pull, or `paused_until` if later —
 counted from `now()` and never below zero. It is `null` when no chat is `ready`: there is no time
-to wait for, only a push or a completion brings a message then. A chat left out by `limit` or
-skipped as locked makes it zero.
+to wait for, only a push or a completion brings a message then. A ready chat left out by `limit`
+or skipped as locked no longer holds the answer back: the bot's time decides it, the cooldowns the
+pull has just spent, or zero if it pulled nothing.
 
 The times are the database's (`now()`), and so is the answer: a duration counted from the pull,
 not a moment. The rule is in [`invariants.md`](./invariants.md), "The outbox".

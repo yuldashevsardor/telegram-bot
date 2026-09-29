@@ -42,8 +42,8 @@ export type PulledOutboxMessage = OutboxMessageInput & {
 // What a pull gives out: the messages, and when the next pull can give out one.
 export type OutboxPull = {
     messages: PulledOutboxMessage[];
-    // Counted by the database clock from the pull. null: no chat is ready, so only a push brings a
-    // message.
+    // Counted by the database clock from the pull. null: no chat is ready, so only a push or a
+    // completion brings a message.
     nextPullInMs: number | null;
 };
 
