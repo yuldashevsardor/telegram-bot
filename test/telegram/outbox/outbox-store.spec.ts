@@ -782,7 +782,7 @@ describe("OutboxStore", function () {
             expect(await chat(CHAT)).to.equal(undefined);
             expect(logger.warnings).to.deep.equal([
                 {
-                    message: "Outbox completion with a stale lock token changed nothing.",
+                    message: "Outbox completion of a chat the cleanup removed changed nothing.",
                     payload: { messageId: pulled.id, lockToken: pulled.lockToken, cause: UNEXPECTED },
                 },
             ]);

@@ -35,7 +35,10 @@ A `failed` message is not active. The status says what happened to the message, 
 chat says whether the chat waits: a failed message that blocks its chat holds it through `blocked`,
 and one that does not block lets the next message of the chat become the head. To unblock a chat
 by hand, its failed message goes back to `pending`, and its `id` makes it the head again, or goes
-to `skipped` ([#631](https://github.com/yuldashevsardor/telegram-bot/issues/631)).
+to `skipped` ([#631](https://github.com/yuldashevsardor/telegram-bot/issues/631)). A failed message
+that did not block its chat goes out again only if its chat is made `ready` too, and its chat row
+is inserted first if the cleanup has removed it: the chat of such a message may be `idle`, and no
+pull reaches a message without a `ready` chat row (see "Cleanup").
 
 ## Chat states
 
@@ -199,8 +202,9 @@ is read off its body. Each is a transaction through the private `complete()`:
 1. lock the chat row of the message; a missing message throws `OutboxMessageNotLeased`;
 2. the fence: a `lockToken` that is not the chat's changes nothing and is logged as a warning, with
    the error the completion carried. The lease has passed to another pull, or an earlier
-   completion of the same pull has ended it. A message whose chat row is missing is fenced the
-   same way: the cleanup removed the chat once it went `idle`, and an `idle` chat holds no lease;
+   completion of the same pull has ended it. A message whose chat row is missing changes nothing
+   either and is logged with a warning of its own: the cleanup removed the chat once it went
+   `idle`, and an `idle` chat holds no lease;
 3. the message leaves `processing`. A message that is not `processing` under the chat's own token
    is another message of the chat, and the method throws `OutboxMessageNotLeased`;
 4. the chat state, and the end of the lease.
@@ -281,18 +285,19 @@ that gets a full batch calls again. Nothing calls them yet: the timers are the s
   message is never deleted: it waits for a person to unblock its chat or look at it. A message
   without `finished_at` is not deleted either, so whatever sets `skipped` sets `finished_at` too.
   The retention is added to `finished_at` rather than taken off `now()`: the config takes a
-  retention up to `Number.MAX_SAFE_INTEGER` ms, and `now()` minus that falls below 4713 BC, the
-  earliest timestamp PostgreSQL has.
+  retention up to `Number.MAX_SAFE_INTEGER` ms (`RETENTION_RANGE` of `ConfigValuesBuilder`), and
+  `now()` minus that falls below 4713 BC, the earliest timestamp PostgreSQL has.
 - `deleteIdleChats()` deletes the `idle` chats whose `next_attempt_at` has passed. It locks them
   `FOR UPDATE` in `chat_id` order, as a push does, and the lock rechecks the state on the newest
   version of the row, so a chat a push has made `ready` meanwhile is left alone; a push that comes
   after the removal inserts the chat again (see "The chat lock"). A chat whose limit has not passed
   keeps its row: a push recreates the chat with `next_attempt_at` of `now()`, so a removed row would
   let the next message out before the limit. The messages of a removed chat stay; a late
-  completion of one of them is fenced (see "Completions").
+  completion of one of them is fenced (see "Completions"). A removed chat may still hold a `failed`
+  message that did not block it: putting it back by hand needs the chat row again (see "Tables").
 
-A caller still waiting for a `done` message the cleanup deleted finds no row and times out, as if
-the message were never sent. Nothing checks that the retention outlasts `OUTBOX_RESULT_TIMEOUT`.
+How the retention must relate to the wait for a result is in [`invariants.md`](./invariants.md),
+"The outbox".
 
 ## The store in code
 

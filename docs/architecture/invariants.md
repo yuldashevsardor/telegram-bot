@@ -149,6 +149,10 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   node, and it goes out twice; the late completion of the first node is fenced off and changes
   nothing. `OUTBOX_LEASE_DURATION` of `.env.dist` says which call timeout its default
   covers. Nothing checks the two against each other.
+- **The retention of a `done` message must outlast `OUTBOX_RESULT_TIMEOUT`.** A caller still
+  waiting for a message the cleanup has deleted finds no row and times out as if the message were
+  never sent, and may send it again ([`outbox.md`](./outbox.md), "Cleanup"). Nothing checks the two
+  variables against each other.
 - **The outbox goes by the database clock only.** `next_attempt_at`, `next_send_at` and
   `paused_until` are written and compared with `now()` of PostgreSQL: `pause()` takes a duration,
   and `pull()` answers with a duration, not a moment ([`outbox.md`](./outbox.md), "Limits"). A

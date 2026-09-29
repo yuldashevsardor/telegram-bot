@@ -414,9 +414,9 @@ export class OutboxStore {
     // "The chat lock"). A missing message throws OutboxMessageNotLeased. A lock token that is not
     // the chat's changes nothing and is logged with the error the completion carried: the lease has
     // passed to another pull, or the chat was released by an earlier completion. A chat row that is
-    // missing while its message is there is fenced the same way: deleteIdleChats() removed the chat
-    // once it went idle, so no lease is left. Returns the chat of an applied completion, null for a
-    // fenced one.
+    // missing while its message is there changes nothing either and is logged apart:
+    // deleteIdleChats() removed the chat once it went idle, so no lease is left. Returns the chat of
+    // an applied completion, null for a fenced one.
     private async complete(
         lease: OutboxLease,
         attemptError: OutboxAttemptError | null,
@@ -431,11 +431,21 @@ export class OutboxStore {
                 FOR UPDATE
             `;
 
-            if (chat === undefined && !(await this.hasMessage(sql, lease.id))) {
-                throw OutboxMessageNotLeased.byId(lease.id);
+            if (chat === undefined) {
+                if (!(await this.hasMessage(sql, lease.id))) {
+                    throw OutboxMessageNotLeased.byId(lease.id);
+                }
+
+                this.logger.warning("Outbox completion of a chat the cleanup removed changed nothing.", {
+                    messageId: lease.id,
+                    lockToken: lease.lockToken,
+                    cause: attemptError,
+                });
+
+                return null;
             }
 
-            if (chat === undefined || chat.lock_token !== lease.lockToken) {
+            if (chat.lock_token !== lease.lockToken) {
                 this.logger.warning("Outbox completion with a stale lock token changed nothing.", {
                     messageId: lease.id,
                     lockToken: lease.lockToken,
