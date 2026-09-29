@@ -8,18 +8,6 @@ const LAST_SERVER_ERROR = 599;
 
 const CHAT_NOT_FOUND_DESCRIPTION = "Bad Request: chat not found";
 
-// The shape of parameters comes from the answer, not from the type, so retry_after is parsed
-// without relying on it.
-function readRetryAfterSeconds(error: GrammyError): number {
-    const retryAfterSeconds = Number(error.parameters.retry_after);
-
-    if (!Number.isFinite(retryAfterSeconds) || retryAfterSeconds <= 0) {
-        return DEFAULT_RETRY_AFTER_SECONDS;
-    }
-
-    return retryAfterSeconds;
-}
-
 // The Bot API always sends retry_after with a 429. If it is missing or unreadable, the pause must
 // still be non-zero, or the outbox would retry at once and run into the same 429. The outbound
 // queue has a constant of the same name and parses retry_after the same way; the outbox keeps its
@@ -30,7 +18,7 @@ export const DEFAULT_RETRY_AFTER_SECONDS = 1;
 export enum BotApiFailureKind {
     // A network error or a Telegram 5xx: the same call may pass later.
     Transient = "transient",
-    // A 429: the whole outbox waits retryAfterSeconds.
+    // A 429: Telegram asks to wait retryAfterSeconds before the next call.
     Flood = "flood",
     // The chat cannot get the message at all: a 403, or a 400 "chat not found".
     Undeliverable = "undeliverable",
@@ -54,7 +42,15 @@ export function classifyBotApiFailure(error: unknown): BotApiFailure {
     }
 
     if (error.error_code === TOO_MANY_REQUESTS) {
-        return { kind: BotApiFailureKind.Flood, retryAfterSeconds: readRetryAfterSeconds(error) };
+        // The shape of parameters comes from the answer, not from the type, so retry_after is
+        // parsed without relying on it.
+        const retryAfterSeconds = Number(error.parameters.retry_after);
+
+        if (!Number.isFinite(retryAfterSeconds) || retryAfterSeconds <= 0) {
+            return { kind: BotApiFailureKind.Flood, retryAfterSeconds: DEFAULT_RETRY_AFTER_SECONDS };
+        }
+
+        return { kind: BotApiFailureKind.Flood, retryAfterSeconds };
     }
 
     if (error.error_code >= FIRST_SERVER_ERROR && error.error_code <= LAST_SERVER_ERROR) {
