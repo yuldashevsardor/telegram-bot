@@ -45,6 +45,8 @@ export type OpenElement = {
  * document that is not XML is "not XML" even when its well-formed head already broke a font rule.
  */
 export type Scan = {
+    /** Not learned but given: the file the pass reads, which a broken rule met in the pass names. */
+    fontPath: string;
     /** Whether the DOCTYPE is the SVG 1.1 one: it binds the default namespace and `xlink`, as its DTD fixes them. */
     svg11Doctype: boolean;
     /** The root element in Clark notation, `{namespace}local`. */
