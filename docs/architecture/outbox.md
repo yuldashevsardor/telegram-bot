@@ -125,9 +125,9 @@ so mutation testing reaches them.
 (`telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.ts`) sorts a failed Bot
 API call into the four classes of the epic
 ([#618](https://github.com/yuldashevsardor/telegram-bot/issues/618), "Error classes"), the
-`TelegramBotApiFailureKind` values. Which error falls into which class is
-read off the branches of the method. What the code does not say is why three of them are drawn
-where they are:
+`TelegramBotApiFailureKind` values. Which error falls into which class is read off the branches
+of the method. What the code does not say is why two boundaries are drawn where they are, and why
+one failure is not classified at all:
 
 - Every 403 is `Undeliverable`, not only the bot blocked or kicked: a 403 is Telegram refusing the
   bot this chat, and a retry does not change that.

@@ -95,6 +95,8 @@ export class Container extends InversifyContainer {
         // Outbox
         this.bind<OutboxStore>(Tokens.Bot.Outbox.Store).to(OutboxStore).inSingletonScope();
         this.bind<RetryDelay>(Tokens.Bot.Outbox.RetryDelay).to(RetryDelay).inSingletonScope();
+
+        // Bot API failures
         this.bind<TelegramBotApiFailureClassifier>(Tokens.Bot.ApiFailureClassifier).to(TelegramBotApiFailureClassifier).inSingletonScope();
 
         // User
