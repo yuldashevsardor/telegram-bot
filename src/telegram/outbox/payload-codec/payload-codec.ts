@@ -56,7 +56,7 @@ function store(value: unknown, method: string, place: readonly string[]): unknow
     }
 
     return Object.fromEntries(
-        Object.entries(value).map(([key, item]) => {
+        Object.entries(value as object).map(([key, item]) => {
             if (key === FILE_KEY) {
                 throw ReservedFileKey.inMethod(method, FILE_KEY, place);
             }
@@ -71,7 +71,7 @@ function store(value: unknown, method: string, place: readonly string[]): unknow
 }
 
 // Only a plain object has Object.prototype as its prototype.
-function isPlainObject(value: unknown): value is object {
+function isPlainObject(value: unknown): boolean {
     return typeof value === "object" && value !== null && Object.getPrototypeOf(value) === Object.prototype;
 }
 
@@ -128,11 +128,10 @@ function readMarker(marker: object): PathFile {
  * does not take and a payload that is not a plain object. Every error names the method and where
  * in the payload the value sits.
  */
-export function serialize(method: string, payload: object): Record<string, unknown> {
+export function serialize(method: string, payload: object | undefined): Record<string, unknown> {
     // store() takes an array, a PathFile and a keyboard inside a payload and drops a function there,
-    // but a Bot API payload itself is a plain object. A transformer gets undefined for a method
-    // called without arguments (api.raw.getUpdates()): ApiClient swaps it for {} only after the
-    // transformers, so a caller in a transformer passes {} in its place.
+    // but a Bot API payload itself is a plain object. Why undefined arrives here and throws too:
+    // docs/architecture/outbox.md, "The payload rule".
     if (!isPlainObject(payload)) {
         throw UnsupportedValue.atRoot(method);
     }

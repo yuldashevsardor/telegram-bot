@@ -113,7 +113,7 @@ describe("Outbox payload codec", function () {
     });
 
     describe("rejects a payload that is not a plain object", function () {
-        const payloads: Array<[string, () => object]> = [
+        const payloads: Array<[string, () => object | undefined]> = [
             ["an array", (): object => [{ chat_id: 1 }]],
             ["a path file", (): object => new PathFile("/data/fonts/result.woff2")],
             ["an InputFile", (): object => new InputFile(Buffer.from("font"))],
@@ -121,8 +121,7 @@ describe("Outbox payload codec", function () {
             ["a function", (): object => (): void => {}],
             ["a class instance", (): object => new Holder(1)],
             ["an object without a prototype", (): object => Object.create(null) as object],
-            // A transformer gets undefined for a method called without arguments, whatever its type says.
-            ["undefined", (): object => undefined as unknown as object],
+            ["undefined", (): undefined => undefined],
             ["null", (): object => null as unknown as object],
         ];
 
