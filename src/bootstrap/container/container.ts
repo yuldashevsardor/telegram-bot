@@ -63,6 +63,8 @@ export class Container extends InversifyContainer {
             return;
         }
 
+        // Before the database: a pending wait would poll the closed pool until its timeout.
+        this.get<OutboxResultWaiter>(Tokens.Bot.Outbox.ResultWaiter).stop();
         await this.get<Database>(Tokens.Platform.Database).close();
 
         // Stryker disable next-line BooleanLiteral: `true` differs only on a repeated close(), where sql.end() hands back the same promise of completion, and on a setup() after close(), which does not work with either value: the container is single-use

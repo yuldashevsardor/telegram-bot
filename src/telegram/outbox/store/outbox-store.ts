@@ -8,13 +8,12 @@ import { MS_PER_SECOND } from "app/shared/time";
 import type {
     FinishedOutboxMessage,
     FinishedOutboxRow,
-    FinishedOutboxStatus,
     OutboxJson,
     OutboxMessageInput,
     OutboxPullResult,
     OutboxPullResultRow,
 } from "app/telegram/outbox/store/outbox-store.types";
-import { OutboxChannel, OutboxChatState, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
+import { FINISHED_STATUSES, OutboxChannel, OutboxChatState, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
 import type { FinishedMessageSource } from "app/telegram/outbox/result-waiter/outbox-result-waiter.types";
 import {
     BotLimitsRowMissing,
@@ -28,8 +27,6 @@ const BIGINT = 20;
 
 // The statuses a chat head can be in: its first message by id among them.
 const ACTIVE_STATUSES = [OutboxStatus.Pending, OutboxStatus.Processing, OutboxStatus.Failed];
-
-const FINISHED_STATUSES: FinishedOutboxStatus[] = [OutboxStatus.Done, OutboxStatus.Failed, OutboxStatus.Skipped];
 
 // The single row of telegram_bot_limits.
 const BOT_LIMITS_ID = 1;
@@ -330,19 +327,16 @@ export class OutboxStore implements FinishedMessageSource {
     }
 
     public async findFinished(messageIds: number[]): Promise<FinishedOutboxMessage[]> {
-        // IN takes no empty list.
-        if (messageIds.length === 0) {
-            return [];
-        }
-
-        // A list, not sql.array() as in pushBatch(): postgres.js takes the OID of an array type from
-        // the types it loads on connecting. As the first query of a new client, which the first poll
-        // of the waiter often is, sql.array() here failed with "cannot cast type bigint to bigint[]";
-        // pushBatch() in its transaction did not.
+        // The ids go as one jsonb array, not sql.array() as in pushBatch(): postgres.js takes the OID
+        // of an array type from the types it loads on connecting. As the first query of a new client,
+        // which the first poll of the waiter often is, sql.array() here failed with "cannot cast type
+        // bigint to bigint[]"; pushBatch() in its transaction did not. Nor a list of parameters: every
+        // number of ids would be a text of its own, and a prepared statement of its own on every
+        // connection.
         const rows = await this.sql<FinishedOutboxRow[]>`
             SELECT id, status, response
             FROM telegram_outbox
-            WHERE id IN ${this.sql(messageIds)}
+            WHERE id IN (SELECT jsonb_array_elements_text(${this.sql.json(messageIds)})::bigint)
               AND status IN ${this.sql(FINISHED_STATUSES)}
         `;
 

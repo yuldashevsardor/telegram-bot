@@ -202,8 +202,7 @@ A second wait for an id still waited for gets the same promise.
 
 `stop()` rejects every pending wait with `OutboxResultWaiterStopped` and clears the timers: a node
 that shuts down neither polls its closed database nor is held up by a wait until its timeout.
-Nothing calls it yet: the waits have no caller yet either. The listening ends with
-`Database.close()`.
+`Container.close()` calls it before it closes the database, which ends the listening.
 
 ## The store in code
 

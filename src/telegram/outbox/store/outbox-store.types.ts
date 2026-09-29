@@ -12,7 +12,9 @@ export enum OutboxStatus {
 
 // The statuses that give the caller of a message its outcome and end its wait. A failed message
 // may still be retried by hand later, but its caller has had its answer.
-export type FinishedOutboxStatus = OutboxStatus.Done | OutboxStatus.Failed | OutboxStatus.Skipped;
+export const FINISHED_STATUSES = [OutboxStatus.Done, OutboxStatus.Failed, OutboxStatus.Skipped] as const;
+
+export type FinishedOutboxStatus = (typeof FINISHED_STATUSES)[number];
 
 // The PostgreSQL channels of the outbox. The payload of a Finished notification is the message id
 // alone: NOTIFY carries at most 8000 bytes, less than a Telegram response can take.

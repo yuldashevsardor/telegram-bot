@@ -19,6 +19,7 @@ const QUIET_MS = 50;
 // A timeout two sleeps of 60% of it are measured against: wide enough to hold under the load of a
 // mutation run.
 const SHORT_TIMEOUT_MS = 200;
+const SHORT_TIMEOUT_SHARE_MS = SHORT_TIMEOUT_MS * 0.6;
 
 const MESSAGE: FinishedOutboxMessage = { id: 7, status: OutboxStatus.Done, response: { message_id: 1 } };
 const OTHER_MESSAGE: FinishedOutboxMessage = { id: 8, status: OutboxStatus.Failed, response: null };
@@ -236,10 +237,10 @@ describe("OutboxResultWaiter", function () {
         const first = waiter.wait(MESSAGE.id);
         source.notify(MESSAGE.id);
         await first;
-        await sleep(SHORT_TIMEOUT_MS * 0.6);
+        await sleep(SHORT_TIMEOUT_SHARE_MS);
         const second = waiter.wait(MESSAGE.id);
         // Past the timeout of the first wait, within the timeout of the second.
-        await sleep(SHORT_TIMEOUT_MS * 0.6);
+        await sleep(SHORT_TIMEOUT_SHARE_MS);
         source.notify(MESSAGE.id);
 
         expect(await second).to.deep.equal(MESSAGE);
@@ -323,6 +324,40 @@ describe("OutboxResultWaiter", function () {
 
         expect(await result).to.deep.equal(MESSAGE);
         expect(source.lookups).to.have.length(2);
+    });
+
+    it("polls once when the listening starts", async function () {
+        const source = new FakeSource();
+        const waiter = build(source);
+
+        const result = waiter.wait(MESSAGE.id);
+        source.listenStarted();
+        await sleep(QUIET_MS);
+
+        expect(source.lookups).to.have.length(1);
+
+        source.finish(MESSAGE);
+        source.notify(MESSAGE.id);
+        await result;
+    });
+
+    it("polls only once more after a running poll when the listening starts meanwhile", async function () {
+        const source = new FakeSource();
+        const waiter = build(source);
+        const lookup = source.holdLookups();
+
+        const result = waiter.wait(MESSAGE.id);
+        source.listenStarted();
+        await waitFor(() => source.lookups.length === 1);
+        source.listenStarted();
+        lookup.resolve();
+        await sleep(QUIET_MS);
+
+        expect(source.lookups).to.have.length(2);
+
+        source.finish(MESSAGE);
+        source.notify(MESSAGE.id);
+        await result;
     });
 
     it("rejects every pending wait with OutboxResultWaiterStopped on stop()", async function () {

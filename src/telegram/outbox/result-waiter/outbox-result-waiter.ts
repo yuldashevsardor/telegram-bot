@@ -77,7 +77,7 @@ export class OutboxResultWaiter {
         this.source
             .listenForFinished(
                 (messageId) => void this.onFinished(messageId),
-                () => void this.pollAfterRunningOne(),
+                () => void this.pollOnListenStart(),
             )
             .catch((error: unknown) => {
                 this.logger.warning("Listening for finished outbox messages failed, the waits rely on the poll.", { cause: error });
@@ -86,7 +86,7 @@ export class OutboxResultWaiter {
 
     // A poll that runs when the listening starts may have read the table before the LISTEN, and so
     // miss a message finished in between: a fresh one follows it.
-    private async pollAfterRunningOne(): Promise<void> {
+    private async pollOnListenStart(): Promise<void> {
         if (this.isPolling) {
             this.shouldPollAgain = true;
 
