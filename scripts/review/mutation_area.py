@@ -3,8 +3,10 @@
 The `mutation` gate of PR review (the pr-light-check skill) and the author's run before a push
 (.claude/commands/solve-issue.md) mutate the same area and differ only in where the changed files
 come from: `gh pr diff <N> --name-only` in the tree of the PR for the reviewer, `git diff
---name-only origin/main...HEAD` for the author. The rule runs in the tree given as `tree`, or in
-the current one without it:
+--name-only origin/main...HEAD` for the author. mutation_record.py asks the same rule a third
+question: which files the change between the head of a run record and the PR head reaches (its
+condition 1). It calls `area_of` with the files changed between the two commits and their range.
+The rule runs in the tree given as `tree`, or in the current one without it:
 
 - A `.ts` whose diff changes only comments gives no area, whatever its kind: the run's outcome
   does not depend on it (below).
@@ -46,9 +48,10 @@ files of the diff give the area. The status of a mutant changes only through a t
 `// Stryker disable` mark that silences a survivor, or a `@ts-` comment of a source or a spec, by
 which the type checker decides who gets `CompileError`. A comment reaches it by moving code off the
 line a directive covers. A reworded comment in a helper would otherwise mutate the mirrors of every
-spec importing it. The two versions are the blobs of `git diff --raw origin/main...HEAD` in the
-tree, the same range the author's candidates come from; a file this diff does not show as modified
-in place with its mode kept (added, deleted, renamed, a mode changed) is code.
+spec importing it. The two versions are the blobs of `git diff --raw` over the caller's range in
+the tree: `origin/main...HEAD`, the range the author's candidates come from, or the two commits of
+mutation_record.py. A file this diff does not show as modified in place with its mode kept (added,
+deleted, renamed, a mode changed) is code.
 mutation-area-comments.mjs compares them in the application container by the syntax tree of the
 TypeScript parser, and its header says why not by the tokens of the text. Which of the comments is
 a directive is decided here (DIRECTIVE). A directive added, removed, reworded, moved to another
@@ -72,6 +75,8 @@ from typing import Dict, List, NamedTuple, Optional, Set
 from tree_remove import Run, reason
 
 PR_NUMBER = re.compile(r"[1-9][0-9]*")
+# The range of the author's candidates and of the versions compared for comments only.
+AGAINST_MAIN = "origin/main...HEAD"
 
 # The configs are read by a node script in the application container (its header says why it goes
 # on stdin rather than by path).
@@ -114,7 +119,7 @@ def check(done: "subprocess.CompletedProcess[str]", what: str) -> None:
 
 def changed_files(pr: Optional[str], tree: Optional[str], run: Run) -> List[str]:
     if pr is None:
-        command = ["git", "diff", "--name-only", "origin/main...HEAD"]
+        command = ["git", "diff", "--name-only", AGAINST_MAIN]
     else:
         command = ["gh", "pr", "diff", pr, "--name-only"]
     done = run(command, cwd=tree, capture_output=True, text=True)
@@ -129,14 +134,12 @@ def tracked_files(tree: Optional[str], run: Run) -> Set[str]:
 
 
 def comments_only_files(
-    changed: List[str], tree: Optional[str], dc_app_run: str, run: Run
+    changed: List[str], revisions: List[str], tree: Optional[str], dc_app_run: str, run: Run
 ) -> Set[str]:
-    """The changed `.ts` whose diff against origin/main changes neither code nor a directive."""
-    command = [
-        "git", "diff", "--raw", "--no-renames", "--no-abbrev", "-z", "origin/main...HEAD", "--"
-    ] + changed
-    done = run(command, cwd=tree, capture_output=True, text=True)
-    check(done, "git diff --raw origin/main...HEAD failed")
+    """The changed `.ts` whose diff over `revisions` changes neither code nor a directive."""
+    command = ["git", "diff", "--raw", "--no-renames", "--no-abbrev", "-z"] + revisions + ["--"]
+    done = run(command + changed, cwd=tree, capture_output=True, text=True)
+    check(done, "git diff --raw {} failed".format(" ".join(revisions)))
     # With -z every entry is ":<old mode> <new mode> <old blob> <new blob> <status>" and the path,
     # each ended by NUL.
     fields = done.stdout.split("\0")
@@ -294,35 +297,46 @@ def assemble(
     return sorted(area - configs.excluded - set(FULL_RUN_ONLY))
 
 
+def area_of(
+    changed: List[str],
+    revisions: List[str],
+    tree: Optional[str],
+    dc_app_run: str,
+    run: Run,
+    notes: List[str],
+) -> List[str]:
+    """The area the changed files give; their versions come from `git diff` over `revisions`."""
+    candidates = [
+        file for file in changed if file.endswith(".ts") and file.startswith(("src/", "test/"))
+    ]
+    if not candidates:
+        notes.append("the diff has no .ts under src/ or test/")
+        return []
+    skipped = comments_only_files(candidates, revisions, tree, dc_app_run, run)
+    for file in candidates:
+        if file in skipped:
+            notes.append("`{}` gives no area: its diff changes only comments".format(file))
+    candidates = [file for file in candidates if file not in skipped]
+    if not candidates:
+        return []
+    tracked = tracked_files(tree, run)
+    for file in FULL_RUN_ONLY:
+        if file not in tracked:
+            raise Stop(
+                "{} from FULL_RUN_ONLY is not in the tree — write its new path into "
+                "scripts/review/mutation_area.py".format(file)
+            )
+    configs = read_configs(candidates, tree, dc_app_run, run)
+    return assemble(candidates, tracked, configs, tree, run, notes)
+
+
 def mutation_area(
     pr: Optional[str], tree: Optional[str], dc_app_run: str, run: Run = subprocess.run
 ) -> int:
     notes: List[str] = []
     try:
-        changed = [
-            file
-            for file in changed_files(pr, tree, run)
-            if file.endswith(".ts") and file.startswith(("src/", "test/"))
-        ]
-        if changed:
-            skipped = comments_only_files(changed, tree, dc_app_run, run)
-            for file in changed:
-                if file in skipped:
-                    notes.append("`{}` gives no area: its diff changes only comments".format(file))
-            changed = [file for file in changed if file not in skipped]
-        else:
-            notes.append("the diff has no .ts under src/ or test/")
-        area = []
-        if changed:
-            tracked = tracked_files(tree, run)
-            for file in FULL_RUN_ONLY:
-                if file not in tracked:
-                    raise Stop(
-                        "{} from FULL_RUN_ONLY is not in the tree — write its new path into "
-                        "scripts/review/mutation_area.py".format(file)
-                    )
-            configs = read_configs(changed, tree, dc_app_run, run)
-            area = assemble(changed, tracked, configs, tree, run, notes)
+        changed = changed_files(pr, tree, run)
+        area = area_of(changed, [AGAINST_MAIN], tree, dc_app_run, run, notes)
     except Stop as stop:
         print("Stopped: {}".format(stop), file=sys.stderr)
         return 1

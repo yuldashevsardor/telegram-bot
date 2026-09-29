@@ -216,6 +216,7 @@ class ReviewRunTest(unittest.TestCase):
                     "pr=7",
                     "area=" + " ".join(AREA),
                     "rebuild=1",
+                    "tree=" + self.review,
                 ],
                 self.task,
             ),
@@ -399,7 +400,7 @@ class ReviewRunTest(unittest.TestCase):
 
     def test_a_record_accepted_on_condition_hands_the_files_to_the_reviewer(self):
         answer = (
-            "accepted if the table turns on none of rebuild, mutation, mutation-full: {url}\n"
+            "accepted if the table turns on none of rebuild, mutation-full: {url}\n"
             "changed between the record's head 541d48a21e01 and the PR head {head}:\n"
             "  docs/architecture/testing.md\n"
             "  Makefile\n"
@@ -415,14 +416,15 @@ class ReviewRunTest(unittest.TestCase):
 
         self.assertIn(
             "mutation: ok — 100.00, {} · accepted record, {} (head 541d48a is earlier — if the"
-            " table turns on none of rebuild, mutation, mutation-full for the files under"
+            " table turns on none of rebuild, mutation-full for the files under"
             ' "Yours to read")\n'.format(" ".join(AREA), URL),
             out,
         )
         self.assertIn(
             "Yours to read\n"
-            'Condition 1 of the record — apply the table of docs/agents/review-gates.md, "Changes'
-            ' that affect the mutation run", to these files:\n'
+            "Condition 1 of the record — apply the rebuild and mutation-full rows of the table of"
+            ' docs/agents/review-gates.md, "Changes that affect the mutation run", to these'
+            " files:\n"
             "  changed between the record's head 541d48a21e01 and the PR head {head}:\n"
             "  docs/architecture/testing.md\n"
             "  Makefile\n"

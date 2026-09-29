@@ -14,9 +14,10 @@ code under review. It runs, in this order:
    would give a green that checked nothing, or `Missing script` on a script the PR adds.
 3. The `python` gate, `make review-test` in the tree of the PR: the gate checks the PR's specs.
 4. The `mutation` gate. The area comes from `make mutation-area pr=<N> tree=<the tree>`
-   (mutation_area.py), the author's record is checked by `make mutation-record`
+   (mutation_area.py), the author's record is checked by `make mutation-record` with the same tree
    (mutation_record.py), both called here. An accepted record gives the `mutation:` line; a record
-   accepted on condition 1 hands the reviewer the files to apply the table to; a refused record
+   accepted on condition 1 hands the reviewer the files to apply the `rebuild` and `mutation-full`
+   rows of the table to; a refused record
    leaves the gate to the reviewer's own run of the skill's fallback.md. The new `Stryker disable`
    marks go to the reviewer to read: whether the reason on a mark holds is prose ("Working through
    survivors" in docs/architecture/testing.md), not a rule.
@@ -171,7 +172,8 @@ class Report:
                 print("  " + line)
         if self.changed:
             print(
-                "Condition 1 of the record — apply the table of docs/agents/review-gates.md, "
+                "Condition 1 of the record — apply the rebuild and mutation-full rows of the "
+                "table of docs/agents/review-gates.md, "
                 '"Changes that affect the mutation run", to these files:'
             )
             for line in self.changed:
@@ -369,6 +371,7 @@ class ReviewRun:
                 "pr=" + self.pr,
                 "area=" + " ".join(area),
                 "rebuild=" + ("1" if self.on("rebuild") else ""),
+                "tree=" + (self.tree or ""),
             ],
             cwd=self.here,
             capture_output=True,
@@ -432,7 +435,7 @@ class ReviewRun:
             earlier = head.split(" ", 1)[0][:7]
             if conditional:
                 line += (
-                    " (head {} is earlier — if the table turns on none of rebuild, mutation, "
+                    " (head {} is earlier — if the table turns on none of rebuild, "
                     'mutation-full for the files under "Yours to read")'.format(earlier)
                 )
             else:

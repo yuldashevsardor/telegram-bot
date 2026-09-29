@@ -116,7 +116,7 @@ The run is yours in two cases:
 
 - the `Not run` line of the `mutation` gate ends in `the own run by fallback.md`: the record was
   refused or not checked;
-- a record accepted on condition 1, and the table turns on one of its three gates.
+- a record accepted on condition 1, and the table turns on `rebuild` or `mutation-full`.
 
 Run the target in the PR tree: `make mutation files="<the Area: line>"`. Which threshold it checks
 and why a run without mutants is green is in `docs/architecture/testing.md`, "Threshold".

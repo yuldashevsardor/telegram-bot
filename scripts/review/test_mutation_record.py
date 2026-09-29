@@ -2,10 +2,15 @@ import io
 import json
 import os
 import subprocess
+import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from unittest import mock
 
+import mutation_area
 import mutation_record
+
+DC_APP_RUN = "docker compose -f docker-compose.app.yml run --rm app"
 
 RECORDS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "records")
 
@@ -89,20 +94,59 @@ def comment(body, url=URL_524, login="owner"):
     return {"body": body, "url": url, "author": {"login": login}}
 
 
+# The tree of the PR head the rule of mutation_area.py reads when the heads differ: the area of PR
+# #524, a source outside it, their specs and a helper of a spec on each side.
+EOT_PACKER, FONT_FORGE, SIGNATURE_MATCHER = AREA_524
+TELEGRAM_CHAT = "src/telegram/telegram-chat.ts"
+TREE = AREA_524 + mutation_area.FULL_RUN_ONLY + [
+    TELEGRAM_CHAT,
+    "test/font-convertor/eot-packer.spec.ts",
+    "test/font-convertor/font-forge.spec.ts",
+    "test/font-convertor/font-convertor.helper.ts",
+    "test/telegram/telegram-chat.spec.ts",
+    "test/telegram/telegram.helper.ts",
+]
+CONFIGS = {
+    "excluded": [],
+    "specs": [file for file in TREE if file.endswith(".spec.ts")],
+    "aliases": [{"prefix": "app/", "dir": "src/"}, {"prefix": "test/", "dir": "test/"}],
+}
+# Who imports whom through the test/* alias: the specifier -> the importing files.
+IMPORTS = {
+    "test/font-convertor/font-convertor.helper": ["test/font-convertor/font-forge.spec.ts"],
+    "test/telegram/telegram.helper": ["test/telegram/telegram-chat.spec.ts"],
+}
+PR_TREE = "/review/telegram-bot-review-524"
+
+
 class FakeRun:
-    """Stands for subprocess.run: answers gh with the viewer `owner` and the PR, and git with the
-    commits it knows."""
+    """Stands for subprocess.run: answers gh with the viewer `owner` and the PR, git with the
+    commits it knows and, for the rule of mutation_area.py, with the tree above standing at the PR
+    head."""
 
     def __init__(self, comments, head=HEAD_524, commits=(), changed="", **answers):
         self.view = json.dumps({"headRefOid": head, "comments": comments})
+        self.head = head
         self.commits = set(commits)
         self.changed = changed
-        self.answers = answers
+        self.answers = {
+            "tree-head": (0, head + "\n"),
+            "raw": (0, ""),
+            "ls-files": (0, "".join(file + "\n" for file in TREE)),
+            "configs": (0, " Container app-run Creating\n" + json.dumps(CONFIGS) + "\n"),
+        }
+        self.answers.update(answers)
         self.calls = []
+        self.cwds = {}
 
     def __call__(self, args, **kwargs):
         self.calls.append(args)
-        name = args[1] if args[0] != "gh" else "user" if args[1] == "api" else "gh"
+        name = self.name(args)
+        self.cwds.setdefault(name, set()).add(kwargs.get("cwd"))
+        if name == "grep" and name not in self.answers:
+            return self.grep(args)
+        if name == "cat-file":
+            return subprocess.CompletedProcess(args, 0, "// " + args[-1], "")
         if name in self.answers:
             code, output = self.answers[name]
             return subprocess.CompletedProcess(args, code, output if code == 0 else "", output)
@@ -114,6 +158,25 @@ class FakeRun:
             known = args[-1][: -len("^{commit}")] in self.commits
             return subprocess.CompletedProcess(args, 0 if known else 1, "", "")
         return subprocess.CompletedProcess(args, 0, self.changed, "")
+
+    @staticmethod
+    def name(args):
+        if args[0] == "gh":
+            return "user" if args[1] == "api" else "gh"
+        if args[0] == "sh":
+            return "compared" if mutation_area.COMMENTS_SCRIPT in args[2] else "configs"
+        if args[1] == "diff" and "--raw" in args:
+            return "raw"
+        if args[1:] == ["rev-parse", "HEAD"]:
+            return "tree-head"
+        return args[1]
+
+    def grep(self, args):
+        specifiers = [args[i + 1].strip("\"'") for i, arg in enumerate(args) if arg == "-e"]
+        found = sorted({file for spec in specifiers for file in IMPORTS.get(spec, [])})
+        if not found:
+            return subprocess.CompletedProcess(args, 1, "", "")
+        return subprocess.CompletedProcess(args, 0, "".join(f + "\n" for f in found), "")
 
 
 class ParseTest(unittest.TestCase):
@@ -145,10 +208,10 @@ class ParseTest(unittest.TestCase):
 
 
 class MutationRecordTest(unittest.TestCase):
-    def answer(self, run, area=AREA_524, rebuild=False):
+    def answer(self, run, area=AREA_524, rebuild=False, tree=None):
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), redirect_stderr(err):
-            code = mutation_record.mutation_record("524", area, rebuild, run)
+            code = mutation_record.mutation_record("524", area, rebuild, tree, DC_APP_RUN, run)
         return code, out.getvalue().splitlines(), err.getvalue()
 
     def test_the_record_of_pr_524_is_accepted(self):
@@ -195,6 +258,32 @@ class MutationRecordTest(unittest.TestCase):
         self.assertIn(
             ["git", "diff", "--no-renames", "--name-only", RECORD_HEAD_502, HEAD_502], run.calls
         )
+
+    def test_condition_1_a_record_refused_on_other_conditions_asks_neither_tree_nor_container(
+        self,
+    ):
+        run = FakeRun(
+            [comment(marker(PR_524, clean="no"))],
+            head=HEAD_502,
+            commits=[HEAD_524],
+            changed=EOT_PACKER + "\n",
+            configs=(1, "Cannot connect to the Docker daemon"),
+        )
+
+        code, lines, _ = self.answer(run)
+
+        self.assertEqual(
+            (code, lines[:2]),
+            (
+                0,
+                [
+                    "refused: " + URL_524,
+                    "- clean=no: the run did not go on a clean tree of its commit",
+                ],
+            ),
+        )
+        self.assertNotIn("tree-head", run.cwds)
+        self.assertNotIn("configs", run.cwds)
 
     def test_the_last_record_counts(self):
         older = marker(PR_524, clean="no")
@@ -286,8 +375,7 @@ class MutationRecordTest(unittest.TestCase):
         self.assertEqual(
             lines,
             [
-                "accepted if the table turns on none of rebuild, mutation, mutation-full: "
-                + URL_524,
+                "accepted if the table turns on none of rebuild, mutation-full: " + URL_524,
                 "changed between the record's head {} and the PR head {}:".format(
                     HEAD_524, HEAD_502
                 ),
@@ -300,6 +388,141 @@ class MutationRecordTest(unittest.TestCase):
                 "survivors: 0",
             ],
         )
+
+    def test_condition_1_a_merge_that_brings_ts_outside_the_area_leaves_the_record_accepted(self):
+        changed = "".join(
+            file + "\n"
+            for file in (
+                TELEGRAM_CHAT,
+                "test/telegram/telegram-chat.spec.ts",
+                "test/telegram/telegram.helper.ts",
+            )
+        )
+        run = FakeRun([comment(PR_524)], head=HEAD_502, commits=[HEAD_524], changed=changed)
+
+        code, lines, _ = self.answer(run)
+
+        self.assertEqual(
+            (code, lines[0]),
+            (0, "accepted if the table turns on none of rebuild, mutation-full: " + URL_524),
+        )
+        self.assertIn("  " + TELEGRAM_CHAT, lines)
+
+    def test_condition_1_a_file_of_the_area_its_spec_or_a_helper_of_its_spec_stales_the_record(
+        self,
+    ):
+        for changed, reached in (
+            (EOT_PACKER, EOT_PACKER),
+            ("test/font-convertor/eot-packer.spec.ts", EOT_PACKER),
+            ("test/font-convertor/font-convertor.helper.ts", FONT_FORGE),
+        ):
+            run = FakeRun(
+                [comment(PR_524)],
+                head=HEAD_502,
+                commits=[HEAD_524],
+                changed=TELEGRAM_CHAT + "\n" + changed + "\n",
+            )
+
+            code, lines, _ = self.answer(run)
+
+            self.assertEqual(
+                (code, lines[:3]),
+                (
+                    0,
+                    [
+                        "refused: " + URL_524,
+                        "- the change since head={} reaches files of the record's area: "
+                        "{}".format(HEAD_524, reached),
+                        "changed between the record's head {} and the PR head {}:".format(
+                            HEAD_524, HEAD_502
+                        ),
+                    ],
+                ),
+                changed,
+            )
+
+    def test_condition_1_a_file_of_the_record_outside_the_gates_area_stales_it_too(self):
+        run = FakeRun(
+            [comment(PR_524)], head=HEAD_502, commits=[HEAD_524], changed=SIGNATURE_MATCHER + "\n"
+        )
+
+        _, lines, _ = self.answer(run, area=[EOT_PACKER])
+
+        self.assertEqual(
+            lines[1],
+            "- the change since head={} reaches files of the record's area: {}".format(
+                HEAD_524, SIGNATURE_MATCHER
+            ),
+        )
+
+    def test_condition_1_a_comments_only_change_of_a_file_of_the_area_leaves_the_record(self):
+        run = FakeRun(
+            [comment(PR_524)],
+            head=HEAD_502,
+            commits=[HEAD_524],
+            changed=EOT_PACKER + "\n",
+            raw=(0, ":100644 100644 old new M\0{}\0".format(EOT_PACKER)),
+            compared=(0, json.dumps({EOT_PACKER: {"same": True, "old": [], "new": []}}) + "\n"),
+        )
+
+        _, lines, _ = self.answer(run)
+
+        self.assertEqual(
+            lines[0], "accepted if the table turns on none of rebuild, mutation-full: " + URL_524
+        )
+        self.assertIn(
+            [
+                "git", "diff", "--raw", "--no-renames", "--no-abbrev", "-z", HEAD_524, HEAD_502,
+                "--", EOT_PACKER,
+            ],
+            run.calls,
+        )
+
+    def test_condition_1_the_files_a_change_reaches_are_read_in_the_tree(self):
+        run = FakeRun(
+            [comment(PR_524)],
+            head=HEAD_502,
+            commits=[HEAD_524],
+            changed="test/font-convertor/font-convertor.helper.ts\n",
+        )
+
+        self.answer(run, tree=PR_TREE)
+
+        for name in ("tree-head", "raw", "ls-files", "configs", "grep"):
+            self.assertEqual(run.cwds[name], {PR_TREE}, name)
+
+    def test_condition_1_a_tree_that_is_not_at_the_pr_head_stops(self):
+        run = FakeRun(
+            [comment(PR_524)],
+            head=HEAD_502,
+            commits=[HEAD_524],
+            changed=EOT_PACKER + "\n",
+            **{"tree-head": (0, HEAD_524 + "\n")}
+        )
+
+        code, lines, err = self.answer(run, tree=PR_TREE)
+
+        self.assertEqual((code, lines), (1, []))
+        self.assertIn(
+            "Stopped: the tree {} is at {}, not at the PR head {}".format(
+                PR_TREE, HEAD_524, HEAD_502
+            ),
+            err,
+        )
+
+    def test_condition_1_a_failed_container_stops_rather_than_refuses(self):
+        run = FakeRun(
+            [comment(PR_524)],
+            head=HEAD_502,
+            commits=[HEAD_524],
+            changed=EOT_PACKER + "\n",
+            configs=(1, "Cannot connect to the Docker daemon"),
+        )
+
+        code, lines, err = self.answer(run)
+
+        self.assertEqual((code, lines), (1, []))
+        self.assertIn("Stopped: the configs were not read in the application container", err)
 
     def test_condition_1_different_heads_with_the_same_tree_are_accepted(self):
         run = FakeRun([comment(PR_524)], head=HEAD_502, commits=[HEAD_524], changed="")
@@ -472,24 +695,50 @@ class MutationRecordTest(unittest.TestCase):
 
 
 class MainTest(unittest.TestCase):
-    def usage(self, *args):
+    def usage(self, *args, environ=None):
         err = io.StringIO()
         with redirect_stderr(err):
-            code = mutation_record.main(list(args))
+            code = mutation_record.main(list(args), environ or {"DC_APP_RUN": DC_APP_RUN})
         return code, err.getvalue()
 
     def test_the_arguments_are_checked(self):
         for args in (
-            ("524", "src/a.ts"),
-            ("0", "src/a.ts", ""),
-            ("524", "", ""),
-            ("524", "src/a.ts", "yes"),
-            ("524", "mutation", "src/a.ts", ""),
+            ("524", "src/a.ts", ""),
+            ("0", "src/a.ts", "", ""),
+            ("524", "", "", ""),
+            ("524", "src/a.ts", "yes", ""),
+            ("524", "mutation", "src/a.ts", "", ""),
         ):
             code, err = self.usage(*args)
 
             self.assertEqual(code, 2, args)
             self.assertIn("usage: make mutation-record", err)
+
+    def test_refuses_to_run_outside_make(self):
+        self.assertEqual(
+            self.usage("524", "src/a.ts", "", "", environ={"PATH": "/bin"}),
+            (2, "Stopped: no DC_APP_RUN — run it as make mutation-record\n"),
+        )
+
+    def test_refuses_a_tree_that_is_not_a_directory(self):
+        self.assertEqual(
+            self.usage("524", "src/a.ts", "", "/nonexistent/tree"),
+            (2, "Stopped: /nonexistent/tree is not a directory\n"),
+        )
+
+    def test_the_arguments_reach_the_check(self):
+        with tempfile.TemporaryDirectory() as tree, mock.patch.object(
+            mutation_record, "mutation_record", return_value=0
+        ) as called:
+            for args, expected in (
+                (
+                    ("524", "src/a.ts src/b.ts", "", ""),
+                    ("524", ["src/a.ts", "src/b.ts"], False, None),
+                ),
+                (("524", "src/a.ts", "1", tree), ("524", ["src/a.ts"], True, tree)),
+            ):
+                self.assertEqual(self.usage(*args), (0, ""))
+                self.assertEqual(called.call_args.args, expected + (DC_APP_RUN,))
 
 
 if __name__ == "__main__":
