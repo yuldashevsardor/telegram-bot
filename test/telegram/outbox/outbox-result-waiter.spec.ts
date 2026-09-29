@@ -11,8 +11,10 @@ import { OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
 
 // The waiter over the real reader and database is checked in outbox-finished-message-reader.spec.ts.
 
-// Longer than any passing test takes, shorter than the timeout of mocha: a timer of this length
-// never fires in a passing test, and a wait that is never settled fails with its own error.
+// The timeout of mocha for this spec.
+const SPEC_TIMEOUT_MS = 2_000;
+// Longer than any passing test takes, shorter than SPEC_TIMEOUT_MS: a timer of this length never
+// fires in a passing test, and a wait that is never settled fails with its own error.
 const NEVER_MS = 1_000;
 const SOON_MS = 10;
 // How long a test waits for something that must not happen.
@@ -26,7 +28,7 @@ const MESSAGE: FinishedOutboxMessage = { id: 7, status: OutboxStatus.Done, respo
 const OTHER_MESSAGE: FinishedOutboxMessage = { id: 8, status: OutboxStatus.Failed, response: null };
 
 describe("OutboxResultWaiter", function () {
-    this.timeout(2_000);
+    this.timeout(SPEC_TIMEOUT_MS);
 
     it("resolves a wait by the notification of its message", async function () {
         const reader = new FakeReader();
@@ -529,7 +531,7 @@ function activeTimerCount(): number {
     return process.getActiveResourcesInfo().filter((resource) => resource === "Timeout").length;
 }
 
-// The deadline is shorter than the timeout of mocha, so a condition never met fails here.
+// The deadline is shorter than SPEC_TIMEOUT_MS, so a condition never met fails here.
 async function waitFor(condition: () => boolean): Promise<void> {
     const deadline = Date.now() + NEVER_MS;
 

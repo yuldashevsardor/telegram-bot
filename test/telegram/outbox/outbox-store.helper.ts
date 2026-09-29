@@ -15,10 +15,10 @@ export async function listenTo(database: Database, channel: OutboxChannel): Prom
     return payloads;
 }
 
-export async function waitUntil(condition: () => boolean, failure: string): Promise<void> {
+export async function waitUntil(condition: () => boolean | Promise<boolean>, failure: string): Promise<void> {
     const deadline = Date.now() + NOTIFICATION_DEADLINE_MS;
 
-    while (!condition()) {
+    while (!(await condition())) {
         if (Date.now() > deadline) {
             expect.fail(failure);
         }

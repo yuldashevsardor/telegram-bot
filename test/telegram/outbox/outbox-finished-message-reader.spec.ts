@@ -4,7 +4,6 @@ import type { TelegramLimits } from "app/bootstrap/config/config-values";
 import { Database } from "app/platform/database/database";
 import type { DatabaseSettings } from "app/platform/database/database.types";
 import type { Logger } from "app/platform/logger/logger";
-import { sleep } from "app/shared/utils";
 import { OutboxFinishedMessageReader } from "app/telegram/outbox/outbox-finished-message-reader";
 import { OutboxResultWaiter } from "app/telegram/outbox/result-waiter/outbox-result-waiter";
 import { OutboxResultTimeout } from "app/telegram/outbox/result-waiter/outbox-result-waiter.errors";
@@ -234,13 +233,7 @@ describe("OutboxFinishedMessageReader", function () {
 
     // The LISTEN connections of the finished channel open in the database of the run.
     async function waitForListeners(count: number): Promise<void> {
-        const deadline = Date.now() + NOTIFICATION_DEADLINE_MS;
-
-        for (;;) {
-            if (Date.now() > deadline) {
-                expect.fail(`the finished channel did not get to ${count} listeners by the deadline`);
-            }
-
+        await waitUntil(async () => {
             const [row] = await observer.sql<{ listeners: number }[]>`
                 SELECT count(*)::int AS listeners
                 FROM pg_stat_activity
@@ -248,12 +241,8 @@ describe("OutboxFinishedMessageReader", function () {
                   AND query = ${LISTEN_FINISHED_QUERY}
             `;
 
-            if (row !== undefined && row.listeners === count) {
-                return;
-            }
-
-            await sleep(5);
-        }
+            return row !== undefined && row.listeners === count;
+        }, `the finished channel did not get to ${count} listeners by the deadline`);
     }
 });
 

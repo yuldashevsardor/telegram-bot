@@ -4,7 +4,7 @@ The outbox is being built to replace the in-memory outbound queue
 ([`outbound-queue.md`](./outbound-queue.md)): outgoing Bot API calls become rows in PostgreSQL,
 any node sends them, the order inside a chat holds across nodes, and a node that dies loses
 nothing (the plan is epic [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)).
-Nothing calls the directory yet: so far it holds the tables with `OutboxStore`
+No sender or caller uses the directory yet: so far it holds the tables with `OutboxStore`
 (`store/outbox-store.ts`), which pushes, pulls within the limits, pauses and marks done,
 `OutboxResultWaiter`, which waits for the outcome of a message, with
 `OutboxFinishedMessageReader`, the payload codec and the retry delay. The error
