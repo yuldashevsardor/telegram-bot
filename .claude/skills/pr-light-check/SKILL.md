@@ -132,8 +132,9 @@ The `mutation-full` gate runs no mutants: its full run goes once per batch of re
 
 - `ok — recorded: …` — the issue the PR closes is recorded in a batch.
 - `fail — not recorded: …` — red brought by this PR, and it stands in `Red` too.
-- `n-a — the batch was not checked` — the verdict is BLOCKED, as with an area that was not
-  assembled: nobody checked that the change reaches a full run.
+- `n-a` with any reason (the batch was not checked, the run was interrupted) — the verdict is
+  BLOCKED, as with an area that was not assembled: nobody checked that the change reaches a full
+  run.
 
 ## Step 2. The checks the run leaves to you
 

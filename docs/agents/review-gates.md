@@ -191,7 +191,7 @@ gets `CompileError` and which goes to the tests (`docs/architecture/testing.md`,
 checker"). The gate runs no mutants in the PR, though: the whole of `src/` takes 15+ minutes, and
 the PR would pay that on every review round. The issue the PR closes is recorded in a batch
 instead, and the whole of `src/` runs once per batch. The author records it after the PR is created
-(`make mutation-full-record issue=<N> pr=<N>`), and the review checks the record
+(`make mutation-full-record issue=<M> pr=<N>`), and the review checks the record
 (`make mutation-full-check pr=<N>`): an issue that is not recorded is red. How a batch is kept is
 in the docstring of `scripts/review/mutation_batch.py`. The PR's own `.ts` still go through
 `mutation`: the batch runs after the merge, and a survivor on the author's line is cheaper to
