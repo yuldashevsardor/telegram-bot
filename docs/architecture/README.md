@@ -207,7 +207,8 @@ the import path can be guessed from the class name.
 **Gathers** — same-kind siblings of one contract, enumerated by one registrar:
 
 - `convertor/<from>/` — by `convertor-factory.ts`;
-- `validator/` — by `font-validator-resolver.ts`;
+- `validator/` — by `font-validator-resolver.ts`; `woff/` is not given out by it yet, since no
+  convertor takes the WOFF validator;
 - `command/`, `conversation/`, `filter/` and `middleware/` — by `container.ts`;
 - the `.ftl` bundles in the `locale/` directories at commands and conversations — by the walk in
   `createFluent()` (`telegram/locale/locale.ts`).
