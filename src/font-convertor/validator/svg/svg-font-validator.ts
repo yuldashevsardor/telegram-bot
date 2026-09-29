@@ -66,18 +66,20 @@ export class SvgFontValidator implements FontValidator {
     public async validate(fontPath: string): Promise<void> {
         const bytes = await FileHelper.read(fontPath);
         const encoding = this.encodingOf(bytes);
-        const scan = this.scan(this.decode(bytes, encoding), encoding);
+        const scan = this.scan(fontPath, this.decode(fontPath, bytes, encoding), encoding);
 
         if (scan.root !== SvgFontValidator.SVG_ROOT) {
-            throw NotSvg.byRoot(String(scan.root), SvgFontValidator.SVG_ROOT);
+            throw NotSvg.byRoot(fontPath, String(scan.root), SvgFontValidator.SVG_ROOT);
         }
 
         if (!scan.hasFont) {
-            throw NoFont.inDocument();
+            throw NoFont.inDocument(fontPath);
         }
 
         if (scan.violation !== undefined) {
-            throw scan.violation;
+            const { rule, element, line, attribute } = scan.violation;
+
+            throw BrokenFont.byRule(fontPath, rule, element, line, attribute);
         }
     }
 
@@ -90,17 +92,17 @@ export class SvgFontValidator implements FontValidator {
         return mark?.[2] ?? "utf-8";
     }
 
-    private decode(bytes: Uint8Array, encoding: Encoding): string {
+    private decode(fontPath: string, bytes: Uint8Array, encoding: Encoding): string {
         // `fatal`: bytes that are not in the encoding are a fatal error in XML (§4.3.3). The decoder
         // drops the BOM of its own encoding.
         try {
             return new TextDecoder(encoding, { fatal: true }).decode(bytes);
         } catch (error) {
-            throw NotXml.byEncoding(encoding, error as Error);
+            throw NotXml.byEncoding(fontPath, encoding, error as Error);
         }
     }
 
-    private scan(text: string, encoding: Encoding): Scan {
+    private scan(fontPath: string, text: string, encoding: Encoding): Scan {
         const scan: Scan = { svg11Doctype: false, root: undefined, hasFont: false, violation: undefined, open: [] };
         // XML 1.0 fifth edition: a document declaring another 1.x version is read as 1.0.
         const parser = new SaxesParser({
@@ -115,7 +117,7 @@ export class SvgFontValidator implements FontValidator {
 
         // Without a handler saxes throws its own bare Error on the first error.
         parser.on("error", (error) => {
-            throw NotXml.byParser(error);
+            throw NotXml.byParser(fontPath, error);
         });
         parser.on("xmldecl", (declaration) => this.checkEncoding(parser, declaration, encoding));
         parser.on("doctype", (doctype) => {
@@ -269,6 +271,6 @@ export class SvgFontValidator implements FontValidator {
     }
 
     private report(scan: Scan, rule: FontRule, name: string, line: number, attribute?: [string, string]): void {
-        scan.violation ??= BrokenFont.byRule(rule, name, line, attribute);
+        scan.violation ??= { rule: rule, element: name, line: line, attribute: attribute };
     }
 }
