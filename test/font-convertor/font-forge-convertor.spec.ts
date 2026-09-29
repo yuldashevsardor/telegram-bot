@@ -76,12 +76,13 @@ describe("Convertors of the engine pairs", function () {
         });
     }
 
-    // The classes of source the validator admits beyond the fixture, each made from the fixture. If
-    // the engine failed on one, the domain would accept a source and then fail in the engine.
+    // Some of the classes of source the validator admits beyond the fixture, each made from the
+    // fixture. If the engine failed on one, the domain would accept a source and then fail in the
+    // engine.
     const svgNamespaceDeclaration = 'xmlns="http://www.w3.org/2000/svg"';
     const svgSources: Array<{ name: string; fromFixture: (fixtureText: string) => Uint8Array }> = [
-        { name: "in UTF-16LE with a BOM", fromFixture: (fixtureText) => Buffer.from("﻿" + fixtureText, "utf16le") },
-        { name: "in UTF-16BE with a BOM", fromFixture: (fixtureText) => Buffer.from("﻿" + fixtureText, "utf16le").swap16() },
+        { name: "in UTF-16LE with a BOM", fromFixture: (fixtureText) => Buffer.from("\uFEFF" + fixtureText, "utf16le") },
+        { name: "in UTF-16BE with a BOM", fromFixture: (fixtureText) => Buffer.from("\uFEFF" + fixtureText, "utf16le").swap16() },
         {
             name: "with the SVG namespace under a prefix",
             fromFixture: (fixtureText): Uint8Array => {
@@ -108,21 +109,21 @@ describe("Convertors of the engine pairs", function () {
     ];
 
     for (const svgSource of svgSources) {
-        it(`converts svg ${svgSource.name} with every glyph of the fixture`, async function () {
+        it(`converts svg ${svgSource.name} into the font the fixture converts into`, async function () {
             const fixturePath = path.join(fixtureDir, `test-font.${Extension.SVG}`);
             const fromPath = path.join(workDir, `source.${Extension.SVG}`);
             const toPath = path.join(workDir, `result.${Extension.TTF}`);
             const fixtureResultPath = path.join(workDir, `fixture-result.${Extension.TTF}`);
             await fs.writeFile(fromPath, svgSource.fromFixture(await fs.readFile(fixturePath, "utf8")));
+            // The engine stamps the result with the modification time of the source. With the
+            // fixture's time the result has to repeat the fixture's byte for byte.
+            const fixtureStat = await fs.stat(fixturePath);
+            await fs.utimes(fromPath, fixtureStat.atime, fixtureStat.mtime);
 
             await factory.get(Extension.SVG, Extension.TTF).convert(fromPath, toPath);
 
-            await resolver.get(Extension.TTF).validate(toPath);
-            // The engine stamps the result with the modification time of the source, so its bytes
-            // differ from those of the fixture's result. The size does not, while a font that lost
-            // glyphs on the way would be smaller.
             await factory.get(Extension.SVG, Extension.TTF).convert(fixturePath, fixtureResultPath);
-            expect((await fs.stat(toPath)).size).to.equal((await fs.stat(fixtureResultPath)).size);
+            expect(await fs.readFile(toPath)).to.deep.equal(await fs.readFile(fixtureResultPath));
         });
     }
 
