@@ -141,7 +141,7 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   a pause written by a node whose clock is behind ends early for every node, and the next call gets
   a 429 again. Nothing checks this; a `Date` passed into the outbox SQL compiles.
 - **A transaction that moves an outbox message into `done`, `failed` or `skipped` calls
-  `OutboxResultNotifier.notify()` with its `sql`**, as `markAsDone()` does. Without the
+  `OutboxStore.notifyFinished()` with its `sql`**, as `markAsDone()` does. Without the
   notification a caller waiting on another node learns the outcome only from the poll, up to
   `OUTBOX_RESULT_POLL_INTERVAL` later ([`outbox.md`](./outbox.md), "Waiting for the result"). The
   specs check only `markAsDone()`.

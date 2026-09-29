@@ -4,10 +4,10 @@ import { Tokens } from "app/shared/tokens";
 import type { FinishedOutboxMessage, FinishedOutboxRow } from "app/telegram/outbox/store/outbox-store.types";
 import { FINISHED_STATUSES, OutboxChannel } from "app/telegram/outbox/store/outbox-store.types";
 
-// What the waiter reads about the outcomes of the messages: the notifications of OutboxResultNotifier
-// and the rows (docs/architecture/outbox.md, "Waiting for the result").
+// What the waiter reads about the messages that have their outcome: the notifications that
+// OutboxStore sends on it, and the rows (docs/architecture/outbox.md, "Waiting for the result").
 @injectable()
-export class OutboxResultReader {
+export class OutboxFinishedMessageReader {
     private readonly sql: Sql;
 
     public constructor(@inject<Database>(Tokens.Platform.Database) database: Database) {
@@ -15,7 +15,7 @@ export class OutboxResultReader {
     }
 
     // The messages among messageIds that are in a final status.
-    public async findFinished(messageIds: number[]): Promise<FinishedOutboxMessage[]> {
+    public async find(messageIds: number[]): Promise<FinishedOutboxMessage[]> {
         // The ids go as one jsonb array, not sql.array() as in OutboxStore.pushBatch(): postgres.js
         // takes the OID of an array type from the types it loads on connecting. As the first query of
         // a new client, which the first poll of the waiter often is, sql.array() here failed with
@@ -37,7 +37,7 @@ export class OutboxResultReader {
     // notification sent while the connection was down is lost. Resolves once the listening starts.
     // LISTEN takes a connection of its own, outside the pool, until Database.close()
     // (docs/architecture/storage.md).
-    public async listenForFinished(onFinished: (messageId: number) => void, onListen: () => void): Promise<void> {
+    public async listen(onFinished: (messageId: number) => void, onListen: () => void): Promise<void> {
         await this.sql.listen(OutboxChannel.Finished, (payload) => onFinished(Number(payload)), onListen);
     }
 }

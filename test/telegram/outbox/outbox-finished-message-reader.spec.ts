@@ -5,8 +5,7 @@ import { Database } from "app/platform/database/database";
 import type { DatabaseSettings } from "app/platform/database/database.types";
 import type { Logger } from "app/platform/logger/logger";
 import { sleep } from "app/shared/utils";
-import { OutboxResultNotifier } from "app/telegram/outbox/outbox-result-notifier";
-import { OutboxResultReader } from "app/telegram/outbox/outbox-result-reader";
+import { OutboxFinishedMessageReader } from "app/telegram/outbox/outbox-finished-message-reader";
 import { OutboxResultWaiter } from "app/telegram/outbox/result-waiter/outbox-result-waiter";
 import { OutboxResultTimeout } from "app/telegram/outbox/result-waiter/outbox-result-waiter.errors";
 import type { OutboxResultWaiterSettings } from "app/telegram/outbox/result-waiter/outbox-result-waiter.types";
@@ -14,7 +13,7 @@ import { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { FinishedOutboxMessage, OutboxMessageInput } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxChannel, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
 import { testDatabaseSettings } from "test/database.helper";
-import { NOTIFICATION_DEADLINE_MS, waitUntil } from "test/telegram/outbox/outbox-result-notifier.helper";
+import { NOTIFICATION_DEADLINE_MS, waitUntil } from "test/telegram/outbox/outbox-store.helper";
 
 const CHAT = 5_000_000_001;
 const RESPONSE = { message_id: 1 };
@@ -31,7 +30,7 @@ const SHORT_WAIT_TIMEOUT_MS = 50;
 // The statement postgres.js sends to listen on the finished channel, as pg_stat_activity shows it.
 const LISTEN_FINISHED_QUERY = `listen "${OutboxChannel.Finished}"`;
 
-describe("OutboxResultReader", function () {
+describe("OutboxFinishedMessageReader", function () {
     this.timeout(SPEC_TIMEOUT_MS);
 
     let settings: DatabaseSettings;
@@ -39,15 +38,15 @@ describe("OutboxResultReader", function () {
     // The client of waitForListeners(), apart from the pools it counts.
     let observer: Database;
     let store: OutboxStore;
-    let reader: OutboxResultReader;
+    let reader: OutboxFinishedMessageReader;
 
     before(async function () {
         settings = await testDatabaseSettings();
 
         database = new Database(settings, false);
         observer = new Database(settings, false);
-        store = new OutboxStore(database, new OutboxResultNotifier(), NO_LIMITS);
-        reader = new OutboxResultReader(database);
+        store = new OutboxStore(database, NO_LIMITS);
+        reader = new OutboxFinishedMessageReader(database);
     });
 
     beforeEach(async function () {
@@ -81,7 +80,7 @@ describe("OutboxResultReader", function () {
         it("hands the id of a finished message to the listener and tells it the listening started", async function () {
             const finishedIds: number[] = [];
             let listenCount = 0;
-            await new OutboxResultReader(listener).listenForFinished(
+            await new OutboxFinishedMessageReader(listener).listen(
                 (messageId) => finishedIds.push(messageId),
                 () => (listenCount += 1),
             );
@@ -96,7 +95,7 @@ describe("OutboxResultReader", function () {
         });
 
         it("ends the listening with close() of the database", async function () {
-            await new OutboxResultReader(listener).listenForFinished(
+            await new OutboxFinishedMessageReader(listener).listen(
                 () => {},
                 () => {},
             );
@@ -120,7 +119,7 @@ describe("OutboxResultReader", function () {
         await setStatus(skipped, OutboxStatus.Skipped, null);
         await setStatus(notAsked, OutboxStatus.Done, RESPONSE);
 
-        const finished = await reader.findFinished([done, failed, skipped, pending]);
+        const finished = await reader.find([done, failed, skipped, pending]);
 
         expect([...finished].sort((a, b) => a.id - b.id)).to.deep.equal([
             { id: done, status: OutboxStatus.Done, response: RESPONSE },
@@ -130,7 +129,7 @@ describe("OutboxResultReader", function () {
     });
 
     it("finds no finished message for no ids", async function () {
-        expect(await reader.findFinished([])).to.deep.equal([]);
+        expect(await reader.find([])).to.deep.equal([]);
     });
 
     describe("OutboxResultWaiter on the database", function () {
@@ -263,22 +262,22 @@ function message(chatId: number, text: string, priority = 0): OutboxMessageInput
 }
 
 // The real reader with a record of what the waiter does with it.
-class RecordingReader extends OutboxResultReader {
+class RecordingReader extends OutboxFinishedMessageReader {
     public startedLookups = 0;
     public completedLookups = 0;
     public listenCount = 0;
     public readonly notifiedIds: number[] = [];
 
-    public override async findFinished(messageIds: number[]): Promise<FinishedOutboxMessage[]> {
+    public override async find(messageIds: number[]): Promise<FinishedOutboxMessage[]> {
         this.startedLookups += 1;
-        const finished = await super.findFinished(messageIds);
+        const finished = await super.find(messageIds);
         this.completedLookups += 1;
 
         return finished;
     }
 
-    public override listenForFinished(onFinished: (messageId: number) => void, onListen: () => void): Promise<void> {
-        return super.listenForFinished(
+    public override listen(onFinished: (messageId: number) => void, onListen: () => void): Promise<void> {
+        return super.listen(
             (messageId) => {
                 this.notifiedIds.push(messageId);
                 onFinished(messageId);

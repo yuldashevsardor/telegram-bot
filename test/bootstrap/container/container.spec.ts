@@ -68,7 +68,7 @@ describe("Container", () => {
         const closable = new Container();
         await closable.setup();
         const calls: string[] = [];
-        closable.rebind(Tokens.Bot.Outbox.ResultWaiter).toConstantValue({ stop: () => calls.push("waiter") });
+        closable.rebind(Tokens.Bot.Outbox.Result.Waiter).toConstantValue({ stop: () => calls.push("waiter") });
         closable.rebind(Tokens.Platform.Database).toConstantValue({ close: async () => calls.push("database") });
 
         await closable.close();

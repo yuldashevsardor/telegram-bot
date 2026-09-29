@@ -1,4 +1,5 @@
 import { inject, injectable } from "inversify";
+import type { TransactionSql } from "postgres";
 import type { Database, Sql } from "app/platform/database/database";
 import { Tokens } from "app/shared/tokens";
 import type { TelegramLimits } from "app/bootstrap/config/config-values";
@@ -6,7 +7,6 @@ import { configValue } from "app/shared/config-value";
 import { MS_PER_SECOND } from "app/shared/time";
 import type { OutboxJson, OutboxMessageInput, OutboxPullResult, OutboxPullResultRow } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxChannel, OutboxChatState, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
-import type { OutboxResultNotifier } from "app/telegram/outbox/outbox-result-notifier";
 import {
     BotLimitsRowMissing,
     InvalidPauseDuration,
@@ -34,7 +34,6 @@ export class OutboxStore {
 
     public constructor(
         @inject<Database>(Tokens.Platform.Database) database: Database,
-        @inject<OutboxResultNotifier>(Tokens.Bot.Outbox.ResultNotifier) private readonly resultNotifier: OutboxResultNotifier,
         private readonly limits: TelegramLimits = configValue("limits"),
     ) {
         this.sql = database.sql;
@@ -317,7 +316,17 @@ export class OutboxStore {
                 WHERE chat_id = ${done.chat_id}
             `;
 
-            await this.resultNotifier.notify(sql, messageId);
+            await this.notifyFinished(sql, messageId);
         });
+    }
+
+    // Every transaction that moves a message into done, failed or skipped calls it: a caller waiting on
+    // another node learns of the outcome only from the poll otherwise (docs/architecture/invariants.md).
+    // The notification goes through sql of that transaction, so PostgreSQL delivers it on commit and
+    // the waiter that reads the row on it sees the outcome. Not sql.notify() of postgres.js: it runs
+    // on the pool whatever sql it is called on (notify() in its src/index.js), so inside a transaction
+    // it would notify before the commit, and even for a transaction that rolls back.
+    private async notifyFinished(sql: TransactionSql, messageId: number): Promise<void> {
+        await sql`SELECT pg_notify(${OutboxChannel.Finished}, ${String(messageId)})`;
     }
 }

@@ -5,11 +5,11 @@ import { sleep } from "app/shared/utils";
 import { OutboxResultWaiter } from "app/telegram/outbox/result-waiter/outbox-result-waiter";
 import { OutboxResultTimeout, OutboxResultWaiterStopped } from "app/telegram/outbox/result-waiter/outbox-result-waiter.errors";
 import type { OutboxResultWaiterSettings } from "app/telegram/outbox/result-waiter/outbox-result-waiter.types";
-import type { OutboxResultReader } from "app/telegram/outbox/outbox-result-reader";
+import type { OutboxFinishedMessageReader } from "app/telegram/outbox/outbox-finished-message-reader";
 import type { FinishedOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
 
-// The waiter over the real reader and database is checked in outbox-result-reader.spec.ts.
+// The waiter over the real reader and database is checked in outbox-finished-message-reader.spec.ts.
 
 // Longer than any passing test takes, shorter than the timeout of mocha: a timer of this length
 // never fires in a passing test, and a wait that is never settled fails with its own error.
@@ -427,7 +427,7 @@ describe("OutboxResultWaiter", function () {
 
 // The reader as the waiter uses it: the finished messages are set by the test, and so are the
 // notifications and the start of the listening.
-class FakeReader implements Pick<OutboxResultReader, "findFinished" | "listenForFinished"> {
+class FakeReader implements Pick<OutboxFinishedMessageReader, "find" | "listen"> {
     public readonly lookups: number[][] = [];
     public listenCount = 0;
     public listenError: Error | undefined;
@@ -438,7 +438,7 @@ class FakeReader implements Pick<OutboxResultReader, "findFinished" | "listenFor
     private onListen: (() => void) | undefined;
     private heldLookup: Promise<void> | undefined;
 
-    public async findFinished(messageIds: number[]): Promise<FinishedOutboxMessage[]> {
+    public async find(messageIds: number[]): Promise<FinishedOutboxMessage[]> {
         this.lookups.push(messageIds);
         // Read when the lookup starts, as a query reads its snapshot: a message finished while the
         // lookup is held is not in its answer.
@@ -452,7 +452,7 @@ class FakeReader implements Pick<OutboxResultReader, "findFinished" | "listenFor
         return finishedMessages;
     }
 
-    public async listenForFinished(onFinished: (messageId: number) => void, onListen: () => void): Promise<void> {
+    public async listen(onFinished: (messageId: number) => void, onListen: () => void): Promise<void> {
         this.listenCount += 1;
 
         if (this.listenError !== undefined) {
@@ -507,7 +507,7 @@ function build(
 ): OutboxResultWaiter {
     // The waiter calls only the two methods FakeReader has; the private field of the class is not one
     // of them.
-    return new OutboxResultWaiter(reader as unknown as OutboxResultReader, logger, {
+    return new OutboxResultWaiter(reader as unknown as OutboxFinishedMessageReader, logger, {
         timeoutMs: NEVER_MS,
         pollIntervalMs: NEVER_MS,
         ...settings,

@@ -6,8 +6,8 @@ any node sends them, the order inside a chat holds across nodes, and a node that
 nothing (the plan is epic [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)).
 Nothing calls the directory yet: so far it holds the tables with `OutboxStore`
 (`store/outbox-store.ts`), which pushes, pulls within the limits, pauses and marks done,
-`OutboxResultWaiter`, which waits for the outcome of a message, with `OutboxResultNotifier` and
-`OutboxResultReader` on either side of it, the payload codec and the retry delay. The error
+`OutboxResultWaiter`, which waits for the outcome of a message, with
+`OutboxFinishedMessageReader`, the payload codec and the retry delay. The error
 classes of a failed call, which the outbox will act on, lie outside it, in
 `telegram/bot-api-failure-classifier/`.
 
@@ -174,22 +174,23 @@ message once it is `done`, `failed` or `skipped`: its id, status and `response`.
 resolves too: the caller reads the status.
 
 - **The notification.** A transaction that moves a message into one of those statuses sends
-  `pg_notify` on `telegram_outbox_finished` with the message id as the payload, through
-  `OutboxResultNotifier.notify()` (`outbox-result-notifier.ts`, [invariant](./invariants.md)). The
-  id alone: NOTIFY carries at most 8000 bytes, less than a Telegram response can take. Every
-  listening node hears every id; the waiter reads the row of an id it waits for with
-  `OutboxResultReader.findFinished()` (`outbox-result-reader.ts`) and ignores the rest. PostgreSQL
-  delivers a notification on commit, so the row read on it has the outcome. The notifier sends it
-  with `pg_notify` through the `sql` of the transaction, not with `sql.notify()` of postgres.js:
-  that one runs on the pool whatever `sql` it is called on (`notify()` in its `src/index.js`), so
-  inside a transaction it would notify before the commit.
+  `pg_notify` on `telegram_outbox_finished` with the message id as the payload
+  ([invariant](./invariants.md)). The id alone: NOTIFY carries at most 8000 bytes, less than a
+  Telegram response can take. Every listening node hears every id; the waiter reads the row of an
+  id it waits for with `OutboxFinishedMessageReader.find()` (`outbox-finished-message-reader.ts`)
+  and ignores the rest. PostgreSQL delivers a notification on commit, so the row read on it has the
+  outcome. The store sends it with `pg_notify` through the `sql` of the transaction, not with
+  `sql.notify()` of postgres.js: that one runs on the pool whatever `sql` it is called on
+  (`notify()` in its `src/index.js`), so inside a transaction it would notify before the commit,
+  and even for a transaction that rolls back. No spec pins this: `pg_notify` is the last statement
+  before the commit, and nothing outside the store can hold the transaction open between them.
 - **The listening** starts once, with the first wait, through `sql.listen()` on a connection of
   its own ([`storage.md`](./storage.md), "LISTEN"). A failed start is logged at `warning` and is
   not repeated: postgres.js keeps the listener of a failed `LISTEN` and subscribes it again when
   its listening connection closes, so a second call would add a second listener, and every
   notification would be read twice (`listen()` in postgres.js `src/index.js`).
 - **The poll.** A notification sent while the listening connection is down, or before it is up,
-  reaches no one. So one `findFinished()` query looks up every id waited for: every
+  reaches no one. So one `find()` query looks up every id waited for: every
   `OUTBOX_RESULT_POLL_INTERVAL` ms while any is waited for, and each time the listening starts,
   the first time and after postgres.js opens the connection again. A tick that comes while the
   previous poll still runs is skipped. A start of the listening is not: the running poll may have
@@ -209,10 +210,9 @@ A second wait for an id still waited for gets the same promise.
 that shuts down neither polls its closed database nor is held up by a wait until its timeout.
 `Container.close()` calls it before it closes the database, which ends the listening.
 
-The store and the waiter do not depend on each other. The store takes `OutboxResultNotifier`, the
-waiter takes `OutboxResultReader`, and neither gets a method it does not call. So the waiter has no
-SQL: mutation testing reaches it through a fake reader, and `outbox-result-reader.spec.ts` runs it
-over the real one.
+The waiter does not depend on the store: it takes `OutboxFinishedMessageReader`, which only reads.
+So the waiter has no SQL: mutation testing reaches it through a fake reader, and
+`outbox-finished-message-reader.spec.ts` runs it over the real one.
 
 ## The store in code
 

@@ -37,8 +37,7 @@ import { TelegramCallApiMiddleware } from "app/telegram/middleware/mutation/tele
 import { StartConversation } from "app/telegram/conversation/start/start.conversation";
 import { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
-import { OutboxResultNotifier } from "app/telegram/outbox/outbox-result-notifier";
-import { OutboxResultReader } from "app/telegram/outbox/outbox-result-reader";
+import { OutboxFinishedMessageReader } from "app/telegram/outbox/outbox-finished-message-reader";
 import { OutboxResultWaiter } from "app/telegram/outbox/result-waiter/outbox-result-waiter";
 import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 
@@ -66,7 +65,7 @@ export class Container extends InversifyContainer {
         }
 
         // Before the database: a pending wait would poll the closed pool until its timeout.
-        this.get<OutboxResultWaiter>(Tokens.Bot.Outbox.ResultWaiter).stop();
+        this.get<OutboxResultWaiter>(Tokens.Bot.Outbox.Result.Waiter).stop();
         await this.get<Database>(Tokens.Platform.Database).close();
 
         // Stryker disable next-line BooleanLiteral: `true` differs only on a repeated close(), where sql.end() hands back the same promise of completion, and on a setup() after close(), which does not work with either value: the container is single-use
@@ -100,9 +99,8 @@ export class Container extends InversifyContainer {
         // Outbox
         this.bind<OutboxStore>(Tokens.Bot.Outbox.Store).to(OutboxStore).inSingletonScope();
         this.bind<OutboxRetryDelay>(Tokens.Bot.Outbox.RetryDelay).to(OutboxRetryDelay).inSingletonScope();
-        this.bind<OutboxResultNotifier>(Tokens.Bot.Outbox.ResultNotifier).to(OutboxResultNotifier).inSingletonScope();
-        this.bind<OutboxResultReader>(Tokens.Bot.Outbox.ResultReader).to(OutboxResultReader).inSingletonScope();
-        this.bind<OutboxResultWaiter>(Tokens.Bot.Outbox.ResultWaiter).to(OutboxResultWaiter).inSingletonScope();
+        this.bind<OutboxFinishedMessageReader>(Tokens.Bot.Outbox.Result.Reader).to(OutboxFinishedMessageReader).inSingletonScope();
+        this.bind<OutboxResultWaiter>(Tokens.Bot.Outbox.Result.Waiter).to(OutboxResultWaiter).inSingletonScope();
 
         // Bot API failures
         this.bind<TelegramBotApiFailureClassifier>(Tokens.Bot.ApiFailureClassifier).to(TelegramBotApiFailureClassifier).inSingletonScope();

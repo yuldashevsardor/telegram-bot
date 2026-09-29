@@ -15,7 +15,7 @@ enumerable, `query` and `parameters` among them. They end up in the `payload` of
 than the limit. The outbox waiter listens this way ([`outbox.md`](./outbox.md), "Waiting for the
 result"). postgres.js opens the connection again by itself when it is lost, and `Database.close()`
 ends it together with the pool (`end()` in postgres.js `src/index.js`);
-`outbox-result-reader.spec.ts` checks both.
+`outbox-finished-message-reader.spec.ts` checks both.
 
 ## Migrations
 
