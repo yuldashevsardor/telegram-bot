@@ -38,6 +38,7 @@ import { StartConversation } from "app/telegram/conversation/start/start.convers
 import { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import { RetryDelay } from "app/telegram/outbox/retry-delay/retry-delay";
 import { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-handler";
+import { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
 import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 
 export class Container extends InversifyContainer {
@@ -97,6 +98,7 @@ export class Container extends InversifyContainer {
         this.bind<OutboxStore>(Tokens.Bot.Outbox.Store).to(OutboxStore).inSingletonScope();
         this.bind<RetryDelay>(Tokens.Bot.Outbox.RetryDelay).to(RetryDelay).inSingletonScope();
         this.bind<OutboxFailureHandler>(Tokens.Bot.Outbox.FailureHandler).to(OutboxFailureHandler).inSingletonScope();
+        this.bind<OutboxErrorSerializer>(Tokens.Bot.Outbox.ErrorSerializer).to(OutboxErrorSerializer).inSingletonScope();
 
         // Bot API failures
         this.bind<TelegramBotApiFailureClassifier>(Tokens.Bot.ApiFailureClassifier).to(TelegramBotApiFailureClassifier).inSingletonScope();

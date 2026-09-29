@@ -1,5 +1,4 @@
 import type postgres from "postgres";
-import type { ErrorObject } from "serialize-error";
 import type { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 
 // The values of telegram_outbox.status: the database does not check them, so they are written only
@@ -44,29 +43,37 @@ export type OutboxWorker = {
     workerId: string;
 };
 
-// The error an attempt is closed with: the caught error serialized whole, as the logger writes it
-// (serializeError), and its class. The class decides whether the attempt counts towards the limit.
-export type OutboxAttemptError = ErrorObject & { kind: TelegramBotApiFailureKind };
+// A JSON object, as a jsonb column takes it.
+export type OutboxJsonObject = { [field: string]: OutboxJson };
 
-// One attempt of a message, as telegram_outbox.attempts keeps it. The pull opens it; a completion
-// closes it with finished_at and error, null for a success.
+// The error an attempt ends with: the caught error as OutboxErrorSerializer writes it, and its class.
+export type OutboxAttemptError = OutboxJsonObject & { kind: TelegramBotApiFailureKind };
+
+// One attempt of a message, as telegram_outbox.attempts keeps it: a completion appends it whole,
+// finished_at is set by the database. error is null for a success.
 export type OutboxAttempt = {
     started_at: string;
     worker: { host: string; pid: number; worker_id: string };
-    finished_at: string | null;
+    finished_at: string;
     error: OutboxAttemptError | null;
 };
 
 // What a completion of a pulled message is fenced by: the message and the token of the pull that
-// leased its chat. The attempts are those the pull returned: while the lease holds, nothing else
-// writes them. A pulled message is a lease itself.
+// leased its chat. The start of the attempt and its worker come from the pull too: the completion
+// writes the attempt. A pulled message is a lease itself.
 export type OutboxLease = {
     id: number;
     lockToken: string;
-    attempts: OutboxAttempt[];
+    // now() of the pull, by the database clock.
+    startedAt: string;
+    worker: OutboxWorker;
 };
 
-export type PulledOutboxMessage = OutboxMessageInput & OutboxLease;
+export type PulledOutboxMessage = OutboxMessageInput &
+    OutboxLease & {
+        // The attempts the message has made before this one, whatever they ended with.
+        earlierAttempts: number;
+    };
 
 // What a pull gives out: the messages, and when the next pull can give out one.
 export type OutboxPullResult = {
@@ -89,7 +96,8 @@ export type PulledOutboxRow = {
     method: string;
     payload: OutboxPayload;
     priority: number;
-    attempts: OutboxAttempt[];
+    started_at: string;
+    earlier_attempts: number;
 };
 
 // The single row of a pull as postgres returns it.

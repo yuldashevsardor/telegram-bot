@@ -119,8 +119,8 @@ export class OutboxStore {
     // for, and so is the bot row: one puller at a time spends the common limit. A pulled chat moves
     // behind the chats of the same priority, so they are served in turn. The messages come back by
     // priority, so a caller that sends them in order sends the urgent first. The pulled chats are
-    // leased to the caller for leaseDurationMs under the token of this pull, and each pulled message
-    // gets an open attempt of the worker.
+    // leased to the caller for leaseDurationMs under the token of this pull. Each pulled message
+    // carries the start of its attempt and the worker, which its completion writes.
     public async pull(limit: number, worker: OutboxWorker): Promise<OutboxPullResult> {
         if (!Number.isSafeInteger(limit) || limit < 1) {
             throw InvalidPullLimit.of(limit);
@@ -178,17 +178,13 @@ export class OutboxStore {
                 -- The head comes from the snapshot of the statement (docs/architecture/outbox.md, "Pull").
                 UPDATE telegram_outbox
                 SET status = ${OutboxStatus.Processing},
-                    attempts = attempts || jsonb_build_array(jsonb_build_object(
-                        'started_at', now(),
-                        'worker', ${this.sql.json({ host: worker.host, pid: worker.pid, worker_id: worker.workerId })}::jsonb,
-                        'finished_at', NULL,
-                        'error', NULL
-                    )),
                     updated_at = now()
                 FROM heads
                 WHERE telegram_outbox.id = heads.id
                   AND telegram_outbox.status = ${OutboxStatus.Pending}
-                RETURNING telegram_outbox.id, telegram_outbox.chat_id, method, payload, priority, attempts
+                RETURNING telegram_outbox.id, telegram_outbox.chat_id, method, payload, priority,
+                          now() AS started_at,
+                          jsonb_array_length(attempts) AS earlier_attempts
             ),
             moved AS (
                 -- A negative chat id is a group, as isGroupChat() has it.
@@ -260,7 +256,9 @@ export class OutboxStore {
                 payload: message.payload,
                 priority: message.priority,
                 lockToken: lockToken,
-                attempts: message.attempts,
+                startedAt: message.started_at,
+                worker: worker,
+                earlierAttempts: message.earlier_attempts,
             })),
             nextPullInMs: pullRow.next_pull_in_ms,
         };
@@ -314,7 +312,7 @@ export class OutboxStore {
                 sql`
                     UPDATE telegram_outbox
                     SET status = ${OutboxStatus.Pending},
-                        attempts = ${this.closedAttempts(sql, lease, attemptError)},
+                        attempts = ${this.withAttempt(sql, lease, attemptError)},
                         updated_at = now()
                     WHERE id = ${lease.id}
                       AND status = ${OutboxStatus.Processing}
@@ -407,7 +405,7 @@ export class OutboxStore {
             sql`
                 UPDATE telegram_outbox
                 SET status = ${status},
-                    attempts = ${this.closedAttempts(sql, lease, attemptError)},
+                    attempts = ${this.withAttempt(sql, lease, attemptError)},
                     response = ${response === null ? null : sql.json(response)},
                     finished_at = now(),
                     updated_at = now()
@@ -428,19 +426,16 @@ export class OutboxStore {
         }
     }
 
-    // The attempts of the lease with the last one, opened by the pull, closed with the error, null for
-    // a success. The attempts of the lease are the stored ones: only the holder of the lease writes
-    // them. finished_at alone is set in SQL, since the outbox goes by the database clock
-    // (docs/architecture/invariants.md, "The outbox").
-    private closedAttempts(sql: TransactionSql, lease: OutboxLease, attemptError: OutboxAttemptError | null): PendingQuery<Row[]> {
-        const earlierAttempts = lease.attempts.slice(0, -1);
-        // The pull opened it, so a pulled message has at least one attempt.
-        const openAttempt = lease.attempts[lease.attempts.length - 1] as OutboxAttempt;
-        const attempts: OutboxAttempt[] = [...earlierAttempts, { ...openAttempt, error: attemptError }];
+    // The attempts with this one appended: its start and worker from the pull, its error, null for a
+    // success, and its end by the database clock, as its start.
+    private withAttempt(sql: TransactionSql, lease: OutboxLease, attemptError: OutboxAttemptError | null): PendingQuery<Row[]> {
+        const attempt: Omit<OutboxAttempt, "finished_at"> = {
+            started_at: lease.startedAt,
+            worker: { host: lease.worker.host, pid: lease.worker.pid, worker_id: lease.worker.workerId },
+            error: attemptError,
+        };
 
-        // A serialized error types its cause as unknown, which sql.json() does not take, so the
-        // attempts go as JSON text. The text cast keeps postgres from encoding that text once more.
-        return sql`jsonb_set(${JSON.stringify(attempts)}::text::jsonb, '{-1,finished_at}', to_jsonb(now()))`;
+        return sql`attempts || jsonb_build_array(${sql.json(attempt)}::jsonb || jsonb_build_object('finished_at', now()))`;
     }
 
     // The chat goes on: ready while it has a message left, idle otherwise. The active messages are

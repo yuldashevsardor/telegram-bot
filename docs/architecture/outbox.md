@@ -88,15 +88,15 @@ lock.
    (`CROSS JOIN LATERAL`), by the priority of the head, then by `next_attempt_at`, then by
    `chat_id`, `FOR UPDATE OF chats SKIP LOCKED`: a chat another puller holds is skipped, not
    waited for;
-3. the head goes to `processing`, but only if it is still `pending`, and an open attempt is
-   appended to its `attempts`: `started_at`, the `worker` passed to the pull, and `finished_at` and
-   `error` of `null`;
+3. the head goes to `processing`, but only if it is still `pending`; its `attempts` stay as they
+   are, the completion writes the attempt (see "Completions");
 4. the chats whose head was pulled go to `processing`, `next_attempt_at` moves to `now()` plus the
    chat limit, and the chat is leased to the pull (see "The lease");
 5. `next_send_at` of the bot moves by the messages pulled;
 6. the answer: the pulled messages, by priority, then by `id`, so a caller that sends them in
-   order sends the urgent first, each with the `lockToken` of the pull and its `attempts`, the open
-   one last; and `nextPullInMs`, when the next pull can give out a message.
+   order sends the urgent first, each with the `lockToken` of the pull, `startedAt` (`now()` of the
+   pull), the `worker` passed to the pull and `earlierAttempts`, the length of its `attempts`; and
+   `nextPullInMs`, when the next pull can give out a message.
 
 Step 4 is what serves the chats of one priority in turn: a chat just served goes behind the chats
 that waited. The chats of one kind — private or group — in one pull get the same
@@ -182,9 +182,9 @@ one.
 ## Completions
 
 A pulled message is completed by one of the four public methods of the store after `pull()`, each
-taking the pulled message as its lease (`OutboxLease`: `id`, `lockToken` and `attempts`). What each
-does to the message and the chat is read off its body. Each is a transaction through the private
-`complete()`:
+taking the pulled message as its lease (`OutboxLease`: `id`, `lockToken`, `startedAt`, `worker`).
+What each does to the message and the chat is read off its body. Each is a transaction through the
+private `complete()`:
 
 1. lock the chat row of the message; a missing message throws `OutboxMessageNotLeased`;
 2. the fence: a `lockToken` that is not the chat's changes nothing and is logged as a warning, with
@@ -194,12 +194,11 @@ does to the message and the chat is read off its body. Each is a transaction thr
    is another message of the chat, and the method throws `OutboxMessageNotLeased`;
 4. the chat state, and the end of the lease.
 
-The attempts are written back from the lease, not read again: the last one, the one the pull
-opened, is closed in the code with its error, `null` for `done`, and the whole array replaces the
-stored one. That is safe because only the holder of the lease writes the attempts of its message,
-and the fence of step 2 has just checked that the lease is still held. `finished_at` of the attempt
-alone is set in SQL, since the outbox goes by the database clock
-([`invariants.md`](./invariants.md), "The outbox").
+Step 3 appends the attempt to `attempts`, whole: `started_at` and `worker` from the lease, the
+error, `null` for `done`, and `finished_at` of `now()`. Both times are the database's. Nothing is
+written into `attempts` before the completion, so a node that dies while it sends leaves no trace
+of the attempt; the recovery of its lease appends one
+([#672](https://github.com/yuldashevsardor/telegram-bot/issues/672)).
 
 A retried message stays the head of its chat, so its chat waits with it: the messages behind it
 are not pulled before it, while the other chats are.
@@ -244,21 +243,15 @@ one failure is not classified at all:
 
 `OutboxFailureHandler.handle(message, error)` (`outbox-failure-handler.ts`) classifies the error
 and completes the message by its class; which completion each class gets is read off the branches
-of `applyOutcome()` and `retryOrBlock()`. The attempt keeps the error serialized as the logger
-does it (`serializeError`), with its class in `kind`, but for two things: the payload of a
-`GrammyError`, a copy of the row's own, and the bot token, which the fetch error inside an
-`HttpError` carries in the URL of the call. What `serialize()` leaves out and why is in its
-comment.
+of `applyOutcome()` and `retryOrBlock()`. The error goes into the attempt as
+`OutboxErrorSerializer` (`outbox-error-serializer.ts`) writes it, with its class in `kind`; what the
+serializer leaves out and why is in the comment of `serialize()`.
 
-The attempts that count towards `OUTBOX_MAX_ATTEMPTS` are counted by `countFailures()` from the
-attempts of the pulled message: those closed with an error whose `kind` is not `flood`. Two kinds
-of attempt fall outside the count or stay in it for good:
-
-- an attempt left open by a node that died has no `error`, so it never counts: a message that
-  kills the node sending it is not stopped by `OUTBOX_MAX_ATTEMPTS`;
-- the count covers the whole history of the message. A message that blocked its chat after its
-  last counted attempt and was put back to `pending` by hand blocks the chat again on its next
-  transient failure, with no retry.
+Every attempt counts towards `OUTBOX_MAX_ATTEMPTS`, a flood included: the attempt being handled is
+`earlierAttempts + 1`. The limit is checked on a transient failure only, so a flood never blocks a
+chat by itself, but it brings the block of the next transient failure nearer. The count covers the
+whole history of the message: a message that blocked its chat and was put back to `pending` by hand
+blocks the chat again on its next transient failure, with no retry.
 
 A `retry_after` that `pause()` refuses (see "Limits") throws out of `handle()` before the retry,
 and the message stays `processing` until its lease is recovered.

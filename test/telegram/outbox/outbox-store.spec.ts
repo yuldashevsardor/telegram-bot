@@ -250,14 +250,14 @@ describe("OutboxStore", function () {
     });
 
     it("refuses to mark done a message that does not exist", async function () {
-        await expectNotLeased({ id: 404, lockToken: OTHER_TOKEN, attempts: [] });
+        await expectNotLeased(lease(404, OTHER_TOKEN));
     });
 
     it("refuses a lease of its chat that names another message of the chat and changes nothing", async function () {
         const [, second] = await store.pushBatch([message(CHAT, "first"), message(CHAT, "second")]);
         const pulled = await pullOne();
 
-        await expectNotLeased({ id: second as number, lockToken: pulled.lockToken, attempts: pulled.attempts });
+        await expectNotLeased(lease(second as number, pulled.lockToken));
         expect(await statuses()).to.deep.equal([OutboxStatus.Processing, OutboxStatus.Pending]);
         expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Processing });
     });
@@ -665,25 +665,22 @@ describe("OutboxStore", function () {
             expect((await pullOne()).lockToken).not.to.equal(first.lockToken);
         });
 
-        it("opens an attempt of the worker on a pull and closes it without an error when the message is done", async function () {
+        it("writes no attempt on a pull and one of the worker, without an error, when the message is done", async function () {
             await store.push(message(CHAT, "text"));
             const pulled = await pullOne();
 
-            const [opened] = await attempts(pulled.id);
-
-            expect(pulled.attempts).to.deep.equal([opened]);
-            expect(opened).to.deep.include({
-                worker: { host: WORKER.host, pid: WORKER.pid, worker_id: WORKER.workerId },
-                finished_at: null,
-                error: null,
-            });
+            expect(await attempts(pulled.id)).to.deep.equal([]);
+            expect(pulled.earlierAttempts).to.equal(0);
 
             await store.markAsDone(pulled, RESPONSE);
-            const [closed] = await attempts(pulled.id);
+            const [attempt] = await attempts(pulled.id);
 
-            expect(closed?.finished_at).to.be.a("string");
-            expect(closed?.error).to.equal(null);
-            expect(closed?.started_at).to.equal(opened?.started_at);
+            expect(attempt).to.deep.include({
+                started_at: pulled.startedAt,
+                worker: { host: WORKER.host, pid: WORKER.pid, worker_id: WORKER.workerId },
+                error: null,
+            });
+            expect((attempt?.finished_at as string) >= pulled.startedAt).to.equal(true);
         });
 
         it("ends the lease with the completion", async function () {
@@ -708,15 +705,13 @@ describe("OutboxStore", function () {
             expect((history[0]?.finished_at as string) <= (history[1]?.started_at as string)).to.equal(true);
         });
 
-        it("gives out the attempts of a message with its pull, the open one last", async function () {
+        it("gives out the number of earlier attempts with a pull, whatever they ended with", async function () {
             await store.push(message(CHAT, "text"));
 
             await store.retry(await pullOne(), TRANSIENT, 0);
             await store.retry(await pullOne(), FLOOD, 0);
-            const third = await pullOne();
 
-            expect(third.attempts.map(({ error }) => error)).to.deep.equal([TRANSIENT, FLOOD, null]);
-            expect(third.attempts[2]?.finished_at).to.equal(null);
+            expect((await pullOne()).earlierAttempts).to.equal(2);
         });
     });
 
@@ -735,9 +730,7 @@ describe("OutboxStore", function () {
 
             expect(await statuses()).to.deep.equal([OutboxStatus.Processing]);
             expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Processing });
-            expect(await attempts(pulled.id))
-                .to.have.lengthOf(1)
-                .and.to.satisfy((history: OutboxAttempt[]) => history[0]?.finished_at === null);
+            expect(await attempts(pulled.id)).to.deep.equal([]);
             expect(logger.warnings).to.deep.equal(
                 [null, TRANSIENT, UNDELIVERABLE, UNEXPECTED].map((cause) => ({
                     message: "Outbox completion with a stale lock token changed nothing.",
@@ -762,7 +755,7 @@ describe("OutboxStore", function () {
         it("changes nothing for a token no pull gave out", async function () {
             const id = await store.push(message(CHAT, "text"));
 
-            await store.markAsDone({ id, lockToken: OTHER_TOKEN, attempts: [] }, RESPONSE);
+            await store.markAsDone(lease(id, OTHER_TOKEN), RESPONSE);
 
             expect(await statuses()).to.deep.equal([OutboxStatus.Pending]);
             expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Ready });
@@ -964,6 +957,11 @@ describe("OutboxStore", function () {
 
         expect(error).to.be.instanceOf(OutboxMessageNotLeased);
         expect((error as OutboxMessageNotLeased).payload).to.deep.equal({ messageId: lease.id });
+    }
+
+    // A lease the spec makes up rather than takes from a pull.
+    function lease(id: number, lockToken: string): OutboxLease {
+        return { id, lockToken, startedAt: "2026-09-29T10:00:00.000000+00:00", worker: WORKER };
     }
 
     // The only message a pull gives out.
