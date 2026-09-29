@@ -14,6 +14,14 @@ type PendingResult = {
     timeoutTimer: NodeJS.Timeout;
 };
 
+enum PollState {
+    Idle,
+    Running,
+    // A start of the listening came while the poll runs: the running poll may have read the table
+    // before the LISTEN, so one more poll follows it.
+    RunningAndRepeat,
+}
+
 // Waits on this node for the outcome of an outbox message, whichever node sends it: a notification
 // settles a wait at once, and a poll settles the waits whose notification was lost
 // (docs/architecture/outbox.md, "Waiting for the result").
@@ -21,9 +29,7 @@ type PendingResult = {
 export class OutboxResultWaiter {
     private readonly pendingResults = new Map<number, PendingResult>();
     private hasStartedListening = false;
-    private isPolling = false;
-    // A poll asked for while another one runs, which the running one may predate.
-    private shouldPollAgain = false;
+    private pollState = PollState.Idle;
     private pollTimer: NodeJS.Timeout | undefined;
 
     public constructor(
@@ -85,11 +91,9 @@ export class OutboxResultWaiter {
             });
     }
 
-    // A poll that runs when the listening starts may have read the table before the LISTEN, and so
-    // miss a message finished in between: a fresh one follows it.
     private async pollOnListenStart(): Promise<void> {
-        if (this.isPolling) {
-            this.shouldPollAgain = true;
+        if (this.pollState !== PollState.Idle) {
+            this.pollState = PollState.RunningAndRepeat;
 
             return;
         }
@@ -118,22 +122,30 @@ export class OutboxResultWaiter {
     // One query for every id waited for. A tick that comes while the previous poll is still running
     // is skipped, so a slow database does not pile the polls up.
     private async poll(): Promise<void> {
-        if (this.isPolling || this.pendingResults.size === 0) {
+        if (this.pollState !== PollState.Idle || this.pendingResults.size === 0) {
             return;
         }
 
-        this.isPolling = true;
+        this.pollState = PollState.Running;
+        let shouldPollAgain: boolean;
 
         try {
             await this.settleFinished([...this.pendingResults.keys()]);
         } finally {
-            this.isPolling = false;
+            shouldPollAgain = this.endPoll();
         }
 
-        if (this.shouldPollAgain) {
-            this.shouldPollAgain = false;
+        if (shouldPollAgain) {
             await this.poll();
         }
+    }
+
+    // Back to Idle; true if a start of the listening has asked for one more poll meanwhile.
+    private endPoll(): boolean {
+        const shouldPollAgain = this.pollState === PollState.RunningAndRepeat;
+        this.pollState = PollState.Idle;
+
+        return shouldPollAgain;
     }
 
     // A failed read is left to the next poll.
