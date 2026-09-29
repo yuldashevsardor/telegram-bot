@@ -2,10 +2,11 @@ import { injectable } from "inversify";
 import { SaxesParser } from "saxes";
 import type { SaxesTagNS, XMLDecl } from "saxes";
 import { FileHelper } from "app/shared/fs/file-helper";
-import { isPathData } from "app/font-convertor/svg-validator/path-data";
-import { BrokenFont, NoFont, NotSvg, NotXml } from "app/font-convertor/svg-validator/svg-font-validator.errors";
-import type { Encoding, NumericElement, OpenElement, Scan } from "app/font-convertor/svg-validator/svg-font-validator.types";
-import { FontRule } from "app/font-convertor/svg-validator/svg-font-validator.types";
+import { isPathData } from "app/font-convertor/validator/svg/path-data";
+import { BrokenFont, NoFont, NotSvg, NotXml } from "app/font-convertor/validator/svg/svg-font-validator.errors";
+import type { Encoding, NumericElement, OpenElement, Scan } from "app/font-convertor/validator/svg/svg-font-validator.types";
+import { FontRule } from "app/font-convertor/validator/svg/svg-font-validator.types";
+import type { FontValidator } from "app/font-convertor/validator/font-validator";
 
 /**
  * Checks an SVG font against W3C SVG 1.1 Second Edition, chapter 20 "Fonts". SVG 2 removed SVG
@@ -13,7 +14,7 @@ import { FontRule } from "app/font-convertor/svg-validator/svg-font-validator.ty
  * document.
  */
 @injectable()
-export class SvgFontValidator {
+export class SvgFontValidator implements FontValidator {
     private static readonly SVG_NAMESPACE = "http://www.w3.org/2000/svg";
     private static readonly XLINK_NAMESPACE = "http://www.w3.org/1999/xlink";
     private static readonly SVG_ROOT = `{${SvgFontValidator.SVG_NAMESPACE}}svg`;
@@ -62,8 +63,8 @@ export class SvgFontValidator {
      * of `InvalidSvgFont`: `NotXml`, `NotSvg`, `NoFont`, `BrokenFont`. A file that cannot be read
      * throws `ReadFailed` of `FileHelper` instead: an I/O failure, not a verdict on the font.
      */
-    public async validate(path: string): Promise<void> {
-        const bytes = await FileHelper.read(path);
+    public async validate(fontPath: string): Promise<void> {
+        const bytes = await FileHelper.read(fontPath);
         const encoding = this.encodingOf(bytes);
         const scan = this.scan(this.decode(bytes, encoding), encoding);
 

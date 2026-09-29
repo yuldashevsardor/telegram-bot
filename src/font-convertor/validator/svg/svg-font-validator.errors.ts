@@ -1,5 +1,5 @@
 import { RuntimeError } from "app/shared/errors";
-import type { Encoding, FontRule } from "app/font-convertor/svg-validator/svg-font-validator.types";
+import type { Encoding, FontRule } from "app/font-convertor/validator/svg/svg-font-validator.types";
 
 // Text from the file may be of any length, while the error carries it into the log. A quote from
 // it is cut on its own to the first limit: a root keeps that much of its namespace and as much of

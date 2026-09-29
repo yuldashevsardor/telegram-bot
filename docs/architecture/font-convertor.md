@@ -8,8 +8,8 @@ FontConvertor.convert({ originPath, extension })
     directory)
   → ConvertorFactory.get(from, to): from the pair table, one class per pair,
     convertor/<from>/<from>-to-<to>.ts
-  → Convertor.validate(): the source exists and is readable, its extension matches, the start of
-    the file matches the format signature; the result path does not exist
+  → Convertor.validate(): the source exists and is readable, its extension matches, the validator
+    of its format accepts it (FontValidatorResolver); the result path does not exist
   → FontForge.convert(): fontforge -c '<script>' SRC DIST through ProcessHelper.run
 ```
 
@@ -45,13 +45,12 @@ pair class gets what it does not need:
   eight pairs. Their bodies live in `ToEotConvertor` and `FromEotConvertor`. The eight classes
   are empty except for declaring the missing extension.
 
-`EotPacker` (`eot-packer/`) is the only place on the conversion path where the domain parses the
-content of a font, not just its first bytes (the SVG validator below is not on that path yet). The
-EOT header duplicates the metadata of the enclosed font. `SfntReader`
-takes it from the `OS/2`, `head` and `name` tables. The envelope holds four names, in UTF-16LE. The
-slant is taken from `OS/2.fsSelection`, not from `head.macStyle`, which duplicates it. `ttf2eot`
-does the same. Besides, in `macStyle` the slant is bit 1, and bit 1 of `fsSelection` means something
-else.
+`EotPacker` (`eot-packer/`) is one of the two places on the conversion path where the domain parses
+the content of a font, not just its first bytes; the other is the SVG validator below. The EOT
+header duplicates the metadata of the enclosed font. `SfntReader` takes it from the `OS/2`, `head`
+and `name` tables. The envelope holds four names, in UTF-16LE. The slant is taken from
+`OS/2.fsSelection`, not from `head.macStyle`, which duplicates it. `ttf2eot` does the same. Besides,
+in `macStyle` the slant is bit 1, and bit 1 of `fsSelection` means something else.
 
 Names are read from the Windows platform, failing that from Unicode, then from Macintosh. On
 Macintosh only `encodingId 0` is read: only that one is single-byte MacRoman, the other records hold
@@ -77,12 +76,18 @@ script text.
 
 ## Signatures
 
-The source format is checked twice: by the extension of the name and by the signature. The signature
-is the first `headLength` bytes of the file (`FontSignatureMatcher`, a singleton in the container).
-The name is set by whoever sent the file, so the extension alone cannot be trusted. The code
-recognises the signatures itself, without an external tool. `file --mime-type` gives no usable
-answer for three of the six formats: none at all for EOT, and for TTF and OTF the answer also
-depends on the libmagic version.
+The source format is checked twice: by the extension of the name and by the content. The content
+is checked by a `FontValidator` (`validator/`), each of which knows one format.
+`FontValidatorResolver`, a singleton in the container, holds one validator per format and gives a
+pair the one of its source format, so a pair holds the resolver and none of the checks. It builds
+the signature validators itself; the SVG one comes from the container. For five formats the
+validator is `SignatureFontValidator`: the first `headLength` bytes of the file against the
+signature (`FontSignatureMatcher`, a singleton in the container). SVG has no signature: its first
+bytes could say at most "this is markup", not "this is a font", so `SvgFontValidator` below reads
+the whole document instead. The name is set by whoever sent the file, so the extension alone cannot
+be trusted. The code recognises the signatures itself, without an external tool. `file --mime-type`
+gives no usable answer for three of the five formats: none at all for EOT, and for TTF and OTF the
+answer also depends on the libmagic version.
 
 The signature does not tell TTF from OTF. Both use the sfnt container, and the sfnt version names
 the outline type, not the extension. Outlines of either type are legal under both names. So both
@@ -105,39 +110,17 @@ two lists, because a divergence breaks behaviour rather than the build. A versio
 signature reaches the codec and fails there with `InvalidSfnt`. A version known only to the codec
 does not get past the input.
 
-The signatures differ in strictness too. The SVG one only tells markup from binary junk: it says
-"this is markup", not "this is a font". That is why it does not look for the root tag. A doctype or
-a comment may legally stand before the root tag, and enumerating those prologues would mean
-extending the signature for each new one. Instead the signature is described by a byte class: `<`,
-then a letter of the root tag or the `!` of a doctype or a comment, then text.
-
-A processing instruction is not in the class. Only the separate `<?xml` signature lets one through,
-and that signature is an enumeration, not a class. So what passes is the XML declaration and an
-instruction whose target starts the same way. The text in the class is not decoration: a markup
-start alone is not enough. The EOT header opens with the file size, and in the fixture its low bytes
-form `<m`. Without the text a binary head would pass as a document.
-
-Not every offset is fixed. For the binary formats the offset is rigid from the start of the file.
-SVG markup may legally be preceded by a prefix: each signature declares which one, and the bytes are
-counted from the prefix's end.
-
-- Before `<?xml` only a UTF-8 BOM is allowed. The XML declaration has to open the document, and
-  the engine does not open a file indented before it.
-- Before any other markup, a BOM and leading whitespace are allowed. For the same reason `?` is
-  not in the markup-start class: otherwise an indent would become allowed before the declaration
-  too.
-- The indent has a limit, otherwise the file head would grow with it. The limit is counted past
-  the BOM, not together with it: with a shared budget an invisible BOM would shorten the allowed
-  indent.
-- The maximum prefix length is built into `headLength`, because skipped bytes shorten the useful
-  part of the head.
+Every offset is counted from the start of the file. A prefix is not skipped: a shifted head would
+turn the check into a search for the marker anywhere.
 
 ## The SVG validator
 
-`SvgFontValidator` (`svg-validator/`) reads the whole file and checks it against W3C SVG 1.1
-Second Edition, chapter 20 "Fonts". SVG 2 removed SVG fonts, so 1.1 is the reference. It is to
-replace the SVG signature, which rejects real fonts and admits any markup. No
-convertor calls it yet: the SVG pairs still check the signature alone.
+`SvgFontValidator` (`validator/svg/`, a singleton in the container) reads the whole file and checks
+it against W3C SVG 1.1 Second Edition, chapter 20 "Fonts". SVG 2 removed SVG fonts, so 1.1 is the
+reference. `FontValidatorResolver` gives it out for an SVG source in place of a signature, and its
+answer leaves the pair unchanged: `FontConvertor` wraps it in `FontConvertorError` as the cause,
+like any failure of the pair. A rejected source never reaches the engine. The engine's SVG output
+is not checked: the validator sees only the source.
 
 It answers with a subclass of `InvalidSvgFont`, in this order: `NotXml`, `NotSvg`, `NoFont`,
 `BrokenFont`. The order holds because the answers are given after one full pass over the document:
@@ -204,6 +187,9 @@ not count as supported.
 
 - Temporary files are not deleted (issue
   [#37](https://github.com/yuldashevsardor/telegram-bot/issues/37)).
+- An SVG source is read, decoded and parsed whole, synchronously, on the event loop of the bot, and
+  the domain sets no limit on its size. The other formats read `headLength` bytes. Nothing measured
+  the cost yet.
 - `/font_generator` converts the fixed `test/fixtures/fonts/test-font.woff` into
   EOT/OTF/TTF/WOFF2. It answers with the **path** to the file as text; the file itself is not
   sent. A caught conversion error is written at `error` level through `Logger`

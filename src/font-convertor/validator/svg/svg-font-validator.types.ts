@@ -1,4 +1,4 @@
-import type { BrokenFont } from "app/font-convertor/svg-validator/svg-font-validator.errors";
+import type { BrokenFont } from "app/font-convertor/validator/svg/svg-font-validator.errors";
 
 /**
  * The encodings a file is read in: UTF-8, or UTF-16 of either byte order with a BOM. The values are

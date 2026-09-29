@@ -9,18 +9,23 @@ import { InvalidFontSignature } from "app/font-convertor/font-convertor.errors";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import type { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-signature-matcher";
+import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
+import { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
+import { NoFont } from "app/font-convertor/validator/svg/svg-font-validator.errors";
 import { InvalidFile, InvalidPath, PermissionDenied } from "app/shared/fs/file-helper.errors";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
 // Every pair shares the input check, Convertor.validate(), so its branches run on one pair,
-// ttf → woff. That each pair calls the check is pinned in font-forge-convertor.spec.ts and
-// eot-convertor.spec.ts. The engine is a stub: a rejection has to happen before it. Permissions
-// are taken away with chmod, so the spec is not for root (docs/architecture/testing.md).
+// ttf → woff, and the SVG branch on svg → woff. That each pair calls the check is pinned in
+// font-forge-convertor.spec.ts and eot-convertor.spec.ts. The engine is a stub: a rejection has to
+// happen before it. Permissions are taken away with chmod, so the spec is not for root
+// (docs/architecture/testing.md).
 describe("Convertor.validate", function () {
     let workDir: string;
     let lockedDirs: Array<string>;
     let engineCalls: Array<string>;
+    let factory: ConvertorFactory;
     let convertor: Convertor;
 
     beforeEach(async function () {
@@ -34,7 +39,12 @@ describe("Convertor.validate", function () {
             },
         } as FontForge;
 
-        convertor = new ConvertorFactory(fontForge, new FontSignatureMatcher(), new EotPacker()).get(Extension.TTF, Extension.WOFF);
+        factory = new ConvertorFactory(
+            fontForge,
+            new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator()),
+            new EotPacker(),
+        );
+        convertor = factory.get(Extension.TTF, Extension.WOFF);
     });
 
     afterEach(async function () {
@@ -91,6 +101,15 @@ describe("Convertor.validate", function () {
             await fs.writeFile(fromPath, Uint8Array.from([1, 2, 3, 4]));
 
             await expectRejection(fromPath, inWorkDir("result.woff"), InvalidFontSignature.byPathAndExtension(fromPath, Extension.TTF));
+        });
+
+        it("when it is an svg the validator rejects", async function () {
+            // SVG has no signature: the validator reads the whole document, and its error goes out as is.
+            const fromPath = inWorkDir("no-font.svg");
+            await fs.writeFile(fromPath, '<svg xmlns="http://www.w3.org/2000/svg"/>');
+            convertor = factory.get(Extension.SVG, Extension.WOFF);
+
+            await expectRejection(fromPath, inWorkDir("result.woff"), NoFont.inDocument());
         });
     });
 
