@@ -148,9 +148,10 @@ else, so no part of the payload reaches the row unchecked:
 - a payload that is not a plain object throws `UnsupportedValue` before the walk: an array, an
   `InputFile`, a keyboard or a function is never a Bot API payload itself, although the walk takes
   an array, a `PathFile` and a keyboard inside one and drops a function there. `undefined` throws
-  too, although a transformer gets it for a method called without arguments
-  (`api.raw.getUpdates()`): grammY's `ApiClient` swaps it for `{}` only after the transformers
-  (`core/client.js`), so a caller in a transformer passes `{}` in its place.
+  too, although a transformer gets it for a raw call without arguments to a method that has
+  parameters (`api.raw.getUpdates()`; `api.getUpdates()` passes `{}`, `core/api.js`): grammY's
+  `ApiClient` swaps it for `{}` only after the transformers (`core/client.js`), so a caller in a
+  transformer passes `{}` in its place.
 
 An error of `serialize()` names the method and where the value sits in the payload
 (`media.1.thumbnail`), in the message and in `payload`.
