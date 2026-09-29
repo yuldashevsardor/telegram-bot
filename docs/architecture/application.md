@@ -90,7 +90,8 @@ value it found to `ValueByPath`, and `onChange()` casts the pair of values it ha
 ([`config.md`](./config.md)). The reason is the same for both: the compiler cannot follow a walk
 by dots. The walk itself needs no cast, because it narrows the type with a guard.
 
-The container is single-use per process. `Container.close()` closes the Postgres pool and resets
+The container is single-use per process. `Container.close()` stops the outbox result waiter
+([`outbox.md`](./outbox.md), "Waiting for the result"), closes the Postgres pool and resets
 `alreadySetup`, but keeps the bindings. A repeated `setup()` would pass silently, and the
 duplicates would fail the very first resolve with "Ambiguous match". That includes the resolve of
 `Database` inside `close()` itself.
@@ -251,8 +252,8 @@ for the database or for `setMyCommands`: a temporary network failure at this mom
    - `runner.stop()` only lowers a flag, and the loop leaves on its next iteration
      ([`outbound-queue.md`](./outbound-queue.md)). `Runner.run()` and `Runner.stop()` are
      synchronous ([invariant](./invariants.md)).
-5. `container.close()` → `Database.close()` → `sql.end({ timeout: 5 })`
-   ([`storage.md`](./storage.md)).
+5. `container.close()` → `OutboxResultWaiter.stop()`, then `Database.close()` →
+   `sql.end({ timeout: 5 })` ([`storage.md`](./storage.md)).
 
 The overall deadline has to be greater than the sum of the two individual ones, and
 `ConfigValuesBuilder` checks that. It also has to be smaller than the container's
