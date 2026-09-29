@@ -302,11 +302,11 @@ and why one failure is not classified at all:
   call: its own timeout, a connection reset while the answer is on its way. The Bot API has no
   idempotency key, so the retry can deliver the message twice. The outbox delivers at least once
   anyway (see "The lease"), and a duplicate costs less than a lost message or a blocked chat.
-- The exception is a file the call could not open, the file of a `PathFile` gone or not readable:
-  `Unexpected` at once, since every retry would read the same missing file. The sign is the error
-  of the file stream, which grammY passes on inside the `HttpError` as it is and which names the
-  file in `path` (`isFileSystemError()`). A file that opens but fails on reading, a directory, gives
-  an error without the path and stays `Transient`.
+- The exception is a file that is gone, the file of a `PathFile`: `Unexpected` at once, since every
+  retry would look for the same missing file. The sign is `ENOENT` on the error of the file stream,
+  which grammY passes on inside the `HttpError` as it is (`isMissingFile()`). Any other
+  file-system error stays `Transient`: out of descriptors (`EMFILE`) or a hiccup of shared storage
+  (`EIO`) may pass on a retry.
 - A lost database connection is not a Bot API error and is not classified here: the outcome of
   such a send cannot be written anyway. The recovery of an expired lease is to take such a message
   back (see "The lease").
@@ -321,8 +321,17 @@ serializer leaves out and why is in the comment of `serialize()`.
 
 An `Unauthorized` failure pauses the outbox as a flood does, for `UNAUTHORIZED_PAUSE_SECONDS`, and
 returns the message to `pending`: sending resumes by itself once a node restarted with a new token
-finds the pause over. Why the pause is that long is in the comment of the constant. Its attempt
-counts as a flood's does.
+finds the pause over. Why the pause is that long is in the comment of the constant. No chat is
+blocked, so the handler logs the refused token as an error itself.
+
+Its attempt counts as a flood's does, but a token outage is not bounded as a `retry_after` is. The
+first pull after each pause takes one message (see "Limits"), and the retry keeps the
+`next_attempt_at` its chat got from that pull, so the probes go round the waiting chats, one per
+pause. A head collects `OUTBOX_MAX_ATTEMPTS` of them after that many rounds, about as many pauses
+times the number of waiting chats. After the restart, its first transient failure then blocks its
+chat with no retry. That is accepted: a revoked token is an incident fixed by hand anyway, the
+chats it leaves blocked are unblocked in the same pass, and leaving a 401 out of the count would
+move a count by `kind` into the SQL of `pull()`.
 
 Every attempt counts towards `OUTBOX_MAX_ATTEMPTS`, a flood included: the attempt being handled is
 `earlierAttempts + 1`. The limit is checked on a transient failure only, so a flood never blocks a

@@ -2,6 +2,7 @@ import { inject, injectable } from "inversify";
 import { Tokens } from "app/shared/tokens";
 import { configValue } from "app/shared/config-value";
 import { MS_PER_SECOND } from "app/shared/time";
+import type { Logger } from "app/platform/logger/logger";
 import type { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 import type { TelegramBotApiFailure } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
@@ -29,6 +30,7 @@ export class OutboxFailureHandler {
         private readonly classifier: TelegramBotApiFailureClassifier,
         @inject<OutboxRetryDelay>(Tokens.Bot.Outbox.RetryDelay) private readonly retryDelay: OutboxRetryDelay,
         @inject<OutboxErrorSerializer>(Tokens.Bot.Outbox.ErrorSerializer) private readonly errorSerializer: OutboxErrorSerializer,
+        @inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger,
         private readonly maxAttempts: number = configValue("outbox.maxAttempts"),
     ) {}
 
@@ -51,7 +53,7 @@ export class OutboxFailureHandler {
             case TelegramBotApiFailureKind.Undeliverable:
                 return this.store.markAsFailed(message, attemptError);
             case TelegramBotApiFailureKind.Unauthorized:
-                return this.pauseAndRetry(message, UNAUTHORIZED_PAUSE_SECONDS, attemptError);
+                return this.pauseForRefusedToken(message, attemptError);
             case TelegramBotApiFailureKind.Unexpected:
                 return this.store.markAsFailedAndBlockChat(message, attemptError);
         }
@@ -62,6 +64,17 @@ export class OutboxFailureHandler {
     private async pauseAndRetry(message: PulledOutboxMessage, pauseSeconds: number, attemptError: OutboxAttemptError): Promise<void> {
         await this.store.pause(pauseSeconds * MS_PER_SECOND);
         await this.store.retry(message, attemptError, PAUSED_RETRY_DELAY_MS);
+    }
+
+    // Nothing else shows a revoked token: no chat is blocked, the sending only stops.
+    private async pauseForRefusedToken(message: PulledOutboxMessage, attemptError: OutboxAttemptError): Promise<void> {
+        this.logger.error("The Bot API refuses the bot token: the outbox is paused.", {
+            messageId: message.id,
+            pauseSeconds: UNAUTHORIZED_PAUSE_SECONDS,
+            cause: attemptError,
+        });
+
+        await this.pauseAndRetry(message, UNAUTHORIZED_PAUSE_SECONDS, attemptError);
     }
 
     // What counts and when the limit is checked: docs/architecture/outbox.md, "Outcomes".

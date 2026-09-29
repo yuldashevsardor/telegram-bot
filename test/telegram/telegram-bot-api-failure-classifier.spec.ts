@@ -27,7 +27,8 @@ describe("TelegramBotApiFailureClassifier", function () {
     });
 
     it("takes a failed connection of grammY's own client for transient", async function () {
-        const error = await callError(new Api(TOKEN, { apiRoot: UNREACHABLE_API_ROOT }), (api) => api.sendMessage(1, "hello"));
+        const api = new Api(TOKEN, { apiRoot: UNREACHABLE_API_ROOT });
+        const error = await callError(() => api.sendMessage(1, "hello"));
 
         expect(classifier.classify(error)).to.deep.equal({ kind: TelegramBotApiFailureKind.Transient });
     });
@@ -36,7 +37,7 @@ describe("TelegramBotApiFailureClassifier", function () {
     // accepts (docs/architecture/outbox.md, "Error classes").
     it("takes a timeout of grammY for transient", async function () {
         const api = new Api(TOKEN, { fetch: neverAnswers(), timeoutSeconds: SHORT_TIMEOUT_SECONDS });
-        const error = await callError(api, (client) => client.sendMessage(1, "hello"));
+        const error = await callError(() => api.sendMessage(1, "hello"));
 
         expect(classifier.classify(error)).to.deep.equal({ kind: TelegramBotApiFailureKind.Transient });
     });
@@ -44,14 +45,26 @@ describe("TelegramBotApiFailureClassifier", function () {
     it("takes a file that is gone for unexpected, with no retry", async function () {
         const missingFilePath = join(tmpdir(), `missing-${randomUUID()}.ttf`);
         const api = new Api(TOKEN, { fetch: readsTheBody() });
-        const error = await callError(api, (client) => client.sendDocument(1, new PathFile(missingFilePath)));
+        const error = await callError(() => api.sendDocument(1, new PathFile(missingFilePath)));
 
         expect(classifier.classify(error)).to.deep.equal({ kind: TelegramBotApiFailureKind.Unexpected });
     });
 
-    it("keeps a file that opens but cannot be read transient: its error names no file", async function () {
+    it("keeps a file that opens but cannot be read transient", async function () {
         const api = new Api(TOKEN, { fetch: readsTheBody() });
-        const error = await callError(api, (client) => client.sendDocument(1, new PathFile(tmpdir())));
+        const error = await callError(() => api.sendDocument(1, new PathFile(tmpdir())));
+
+        expect(classifier.classify(error)).to.deep.equal({ kind: TelegramBotApiFailureKind.Transient });
+    });
+
+    // A retry may open the file once descriptors are freed.
+    it("keeps a file that cannot be opened for a while transient", function () {
+        const outOfDescriptors = Object.assign(new Error("EMFILE: too many open files, open '/fonts/a.ttf'"), {
+            code: "EMFILE",
+            syscall: "open",
+            path: "/fonts/a.ttf",
+        });
+        const error = new HttpError("Network request for 'sendDocument' failed!", outOfDescriptors);
 
         expect(classifier.classify(error)).to.deep.equal({ kind: TelegramBotApiFailureKind.Transient });
     });
@@ -169,9 +182,9 @@ describe("TelegramBotApiFailureClassifier", function () {
 });
 
 // The error grammY's own client throws for the call.
-async function callError(api: Api, call: (client: Api) => Promise<unknown>): Promise<unknown> {
+async function callError(call: () => Promise<unknown>): Promise<unknown> {
     try {
-        await call(api);
+        await call();
     } catch (error) {
         return error;
     }

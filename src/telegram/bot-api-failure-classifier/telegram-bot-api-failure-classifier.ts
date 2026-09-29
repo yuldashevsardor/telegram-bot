@@ -16,6 +16,8 @@ const UNREACHABLE_CHAT_DESCRIPTIONS: ReadonlySet<string> = new Set([
     "Bad Request: user not found",
 ]);
 
+const MISSING_FILE_CODE = "ENOENT";
+
 // The Bot API always sends retry_after with a 429. If it is missing or unreadable, the pause must
 // still be non-zero, or the caller would retry at once and run into the same 429. The outbound
 // queue has a constant of the same name and parses retry_after the same way; the classifier keeps
@@ -29,7 +31,7 @@ export class TelegramBotApiFailureClassifier {
     public classify(error: unknown): TelegramBotApiFailure {
         if (error instanceof HttpError) {
             // A retry reads the same missing file: no backoff helps it.
-            if (this.isFileSystemError(error.error)) {
+            if (this.isMissingFile(error.error)) {
                 return { kind: TelegramBotApiFailureKind.Unexpected };
             }
 
@@ -77,10 +79,11 @@ export class TelegramBotApiFailureClassifier {
         return error.parameters.migrate_to_chat_id !== undefined || UNREACHABLE_CHAT_DESCRIPTIONS.has(error.description);
     }
 
-    // A Node file-system error names the file it failed on: the file of a PathFile is gone or not
-    // readable. grammY passes the error of the file stream on as it is, while node-fetch wraps a
-    // network error into its FetchError without the path, and the timeout of grammY is a bare Error.
-    private isFileSystemError(cause: unknown): boolean {
-        return typeof cause === "object" && cause !== null && "path" in cause;
+    // The file of a PathFile is gone: grammY passes the error of the file stream on as it is. A
+    // network error comes wrapped into node-fetch's FetchError with the code of its socket, never
+    // ENOENT over TCP, and the timeout of grammY is a bare Error without a code. Other file-system
+    // errors may pass on a retry (EMFILE, EIO on shared storage) and stay transient.
+    private isMissingFile(cause: unknown): boolean {
+        return typeof cause === "object" && cause !== null && "code" in cause && cause.code === MISSING_FILE_CODE;
     }
 }
