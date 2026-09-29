@@ -81,6 +81,6 @@ export class TelegramBotApiFailureClassifier {
     // readable. grammY passes the error of the file stream on as it is, while node-fetch wraps a
     // network error into its FetchError without the path, and the timeout of grammY is a bare Error.
     private isFileSystemError(cause: unknown): boolean {
-        return typeof cause === "object" && cause !== null && "path" in cause && typeof cause.path === "string";
+        return typeof cause === "object" && cause !== null && "path" in cause;
     }
 }
