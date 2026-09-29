@@ -110,13 +110,13 @@ become two lists, because a divergence breaks behaviour rather than the build. A
 to the signature reaches the codec and fails there with `InvalidSfnt`. A version known only to the
 codec does not get past the input.
 
+Every offset is counted from the start of the file. A prefix is not skipped: a shifted head would
+turn the check into a search for the marker anywhere.
+
 `SfntReader` reads its tables through `SfntTableDirectory` (`font-convertor/sfnt-table-directory/`),
 which checks the header size and the version and holds the table records by tag. It lies outside
 `eot-packer/` because the codec is not meant to be its only reader: a second parse of the same
 directory would be a second copy of one format rule.
-
-Every offset is counted from the start of the file. A prefix is not skipped: a shifted head would
-turn the check into a search for the marker anywhere.
 
 ## The SVG validator
 

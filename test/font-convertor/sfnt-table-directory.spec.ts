@@ -61,8 +61,8 @@ describe("SfntTableDirectory", function () {
     it("reads no more table records than the directory declares", function () {
         // post is the last record of the fixture. With the count one less, its sixteen bytes are
         // no longer a record, while the records before it still are.
-        const view = new DataView(ttf.buffer);
-        const directory = new SfntTableDirectory(patch(ttf, (copy) => copy.setUint16(4, view.getUint16(4) - 1)));
+        const fixtureTableCount = new DataView(ttf.buffer, ttf.byteOffset, ttf.byteLength).getUint16(4);
+        const directory = new SfntTableDirectory(patch(ttf, (view) => view.setUint16(4, fixtureTableCount - 1)));
 
         expect(directory.find("post"), "the record past the count").to.equal(undefined);
         expect(directory.find("name"), "the last record within the count").to.not.equal(undefined);
