@@ -4,7 +4,7 @@ import type { ApiError, ResponseParameters } from "grammy/types";
 import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
-import { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-handler";
+import { OutboxFailureHandler, UNAUTHORIZED_PAUSE_SECONDS } from "app/telegram/outbox/outbox-failure-handler";
 import { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxAttemptError, OutboxJsonObject, OutboxLease, PulledOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
@@ -104,6 +104,18 @@ describe("OutboxFailureHandler", function () {
             { method: "pause", durationMs: 7_000 },
             { method: "retry", lease: message, error: attemptError(TelegramBotApiFailureKind.Flood), delayMs: 0 },
         ]);
+    });
+
+    it("pauses the outbox for a 401 before the message goes back to pending, even on the last attempt", async function () {
+        const message = pulledAfter(MAX_ATTEMPTS - 1);
+
+        await handler.handle(message, telegramError(401, "Unauthorized"));
+
+        expect(store.calls).to.deep.equal([
+            { method: "pause", durationMs: UNAUTHORIZED_PAUSE_SECONDS * 1_000 },
+            { method: "retry", lease: message, error: attemptError(TelegramBotApiFailureKind.Unauthorized), delayMs: 0 },
+        ]);
+        expect(UNAUTHORIZED_PAUSE_SECONDS).to.be.above(0);
     });
 
     it("fails an undeliverable message without blocking its chat", async function () {

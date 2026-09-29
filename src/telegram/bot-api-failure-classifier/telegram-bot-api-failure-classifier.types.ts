@@ -6,6 +6,9 @@ export enum TelegramBotApiFailureKind {
     Flood = "flood",
     // The chat cannot get the message at all: a retry would fail the same way.
     Undeliverable = "undeliverable",
+    // A 401: Telegram does not know the token, revoked in BotFather. Every call of the bot fails the
+    // same way until the process is restarted with a new one.
+    Unauthorized = "unauthorized",
     // Anything else, a bug included: nothing says a retry would help.
     Unexpected = "unexpected",
 }
