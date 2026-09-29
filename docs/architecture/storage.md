@@ -14,8 +14,8 @@ enumerable, `query` and `parameters` among them. They end up in the `payload` of
 `DATABASE_CONNECTION_LIMIT` does not count it: a node that listens holds up to one connection more
 than the limit. The outbox waiter listens this way ([`outbox.md`](./outbox.md), "Waiting for the
 result"). postgres.js opens the connection again by itself when it is lost, and `Database.close()`
-ends it together with the pool (`end()` in postgres.js `src/index.js`); `outbox-store.spec.ts`
-checks both.
+ends it together with the pool (`end()` in postgres.js `src/index.js`);
+`outbox-result-reader.spec.ts` checks both.
 
 ## Migrations
 
@@ -61,15 +61,11 @@ migration adds a column before `value`, the query silently shifts the values
 
 ## When a storage gets an interface
 
-`PgsqlStorage` has no storage interface of its own, on purpose. `users` and the outbox store have
-one:
+`PgsqlStorage` has no storage interface of its own, on purpose. Only `users` has one:
 
 - For `users` the consumer declares the interface itself. `UserRepository`
   (`telegram/user/user-repository.ts`) is written for the needs of `UserService`, which is also
   its caller.
-- `OutboxStore` implements `FinishedMessageSource`
-  (`telegram/outbox/result-waiter/outbox-result-waiter.types.ts`), written for the needs of
-  `OutboxResultWaiter`, its caller ([`outbox.md`](./outbox.md), "The store in code").
 - For the session a library sets the interface. `PgsqlStorage` implements grammY's
   `StorageAdapter<SessionPayload>`, because that is exactly the type `session()` takes in
   `Bot.setupSession()`. An interface of our own would only rename a foreign one: nobody would

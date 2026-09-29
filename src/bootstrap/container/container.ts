@@ -36,7 +36,9 @@ import { UserService } from "app/telegram/user/service/user-service";
 import { TelegramCallApiMiddleware } from "app/telegram/middleware/mutation/telegram-call-api.middleware";
 import { StartConversation } from "app/telegram/conversation/start/start.conversation";
 import { OutboxStore } from "app/telegram/outbox/store/outbox-store";
-import { RetryDelay } from "app/telegram/outbox/retry-delay/retry-delay";
+import { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
+import { OutboxResultNotifier } from "app/telegram/outbox/outbox-result-notifier";
+import { OutboxResultReader } from "app/telegram/outbox/outbox-result-reader";
 import { OutboxResultWaiter } from "app/telegram/outbox/result-waiter/outbox-result-waiter";
 import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 
@@ -97,7 +99,9 @@ export class Container extends InversifyContainer {
 
         // Outbox
         this.bind<OutboxStore>(Tokens.Bot.Outbox.Store).to(OutboxStore).inSingletonScope();
-        this.bind<RetryDelay>(Tokens.Bot.Outbox.RetryDelay).to(RetryDelay).inSingletonScope();
+        this.bind<OutboxRetryDelay>(Tokens.Bot.Outbox.RetryDelay).to(OutboxRetryDelay).inSingletonScope();
+        this.bind<OutboxResultNotifier>(Tokens.Bot.Outbox.ResultNotifier).to(OutboxResultNotifier).inSingletonScope();
+        this.bind<OutboxResultReader>(Tokens.Bot.Outbox.ResultReader).to(OutboxResultReader).inSingletonScope();
         this.bind<OutboxResultWaiter>(Tokens.Bot.Outbox.ResultWaiter).to(OutboxResultWaiter).inSingletonScope();
 
         // Bot API failures

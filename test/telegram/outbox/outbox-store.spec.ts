@@ -12,16 +12,13 @@ import {
     InvalidPullLimit,
     OutboxMessageNotProcessing,
 } from "app/telegram/outbox/store/outbox-store.errors";
-import type { FinishedOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxChannel } from "app/telegram/outbox/store/outbox-store.types";
-import { OutboxResultWaiter } from "app/telegram/outbox/result-waiter/outbox-result-waiter";
-import { OutboxResultTimeout } from "app/telegram/outbox/result-waiter/outbox-result-waiter.errors";
-import type { FinishedMessageSource, OutboxResultWaiterSettings } from "app/telegram/outbox/result-waiter/outbox-result-waiter.types";
+import { OutboxResultNotifier } from "app/telegram/outbox/outbox-result-notifier";
 import type { DatabaseSettings } from "app/platform/database/database.types";
-import type { Logger } from "app/platform/logger/logger";
 import { MS_PER_SECOND } from "app/shared/time";
 import { sleep } from "app/shared/utils";
 import { testDatabaseSettings } from "test/database.helper";
+import { listenTo, waitUntil } from "test/telegram/outbox/outbox-result-notifier.helper";
 
 const CHAT = 5_000_000_001;
 const OTHER_CHAT = -1_001_234_567_890;
@@ -35,10 +32,8 @@ const SPEC_TIMEOUT_MS = 10_000;
 // microsecond of a timestamp, and a common limit no pull reaches.
 const NO_LIMIT: TelegramLimits["common"] = { number: 1_000_000, interval: 1 };
 const NO_LIMITS: TelegramLimits = { common: NO_LIMIT, private: NO_LIMIT, group: NO_LIMIT };
-// The poll of the waiter specs that rely on it: many polls within a test.
-const FAST_POLL_MS = 20;
-// The timeout of the waiter spec that times out: over long before WAIT_DEADLINE_MS.
-const SHORT_WAIT_TIMEOUT_MS = 50;
+// The store takes the notifier as it is: the notifications are checked in the notifier's spec.
+const RESULT_NOTIFIER = new OutboxResultNotifier();
 
 type ChatRow = { state: string };
 
@@ -61,7 +56,7 @@ describe("OutboxStore", function () {
         database = new Database(settings, false);
         other = new Database(settings, false);
         observer = new Database(settings, false);
-        store = new OutboxStore(database, NO_LIMITS);
+        store = new OutboxStore(database, RESULT_NOTIFIER, NO_LIMITS);
     });
 
     beforeEach(async function () {
@@ -144,7 +139,7 @@ describe("OutboxStore", function () {
 
     it("takes a limit and a common number beyond a 32-bit integer", async function () {
         const aboveInt32 = 2 ** 31;
-        const bigLimitStore = new OutboxStore(database, { ...NO_LIMITS, common: { number: aboveInt32, interval: 1 } });
+        const bigLimitStore = new OutboxStore(database, RESULT_NOTIFIER, { ...NO_LIMITS, common: { number: aboveInt32, interval: 1 } });
         // Two chats, so a budget cut down to one message would show.
         const ids = await bigLimitStore.pushBatch([message(CHAT, "a"), message(OTHER_CHAT, "b")]);
 
@@ -364,7 +359,7 @@ describe("OutboxStore", function () {
                 throw error;
             });
 
-        await Promise.all([puller(store), puller(new OutboxStore(other, NO_LIMITS))]);
+        await Promise.all([puller(store), puller(new OutboxStore(other, RESULT_NOTIFIER, NO_LIMITS))]);
 
         expect([...pulls].sort((a, b) => a - b)).to.deep.equal(ids);
 
@@ -398,7 +393,7 @@ describe("OutboxStore", function () {
         const ELAPSED_TOLERANCE_MS = 1_000;
 
         it("gives a chat no message before its interval has passed", async function () {
-            const limited = new OutboxStore(database, CHAT_LIMITS);
+            const limited = new OutboxStore(database, RESULT_NOTIFIER, CHAT_LIMITS);
             const [first, second] = await limited.pushBatch([message(CHAT, "first"), message(CHAT, "second")]);
 
             await limited.pull(10);
@@ -415,7 +410,7 @@ describe("OutboxStore", function () {
         });
 
         it("moves a pulled chat by the interval of a private chat or a group, by the sign of its id", async function () {
-            const limited = new OutboxStore(database, CHAT_LIMITS);
+            const limited = new OutboxStore(database, RESULT_NOTIFIER, CHAT_LIMITS);
 
             await limited.pushBatch([message(CHAT, "private"), message(OTHER_CHAT, "group")]);
             await limited.pull(10);
@@ -434,7 +429,7 @@ describe("OutboxStore", function () {
         });
 
         it("gives a batch no more messages than the common limit allows now", async function () {
-            const limited = new OutboxStore(database, COMMON_LIMITS);
+            const limited = new OutboxStore(database, RESULT_NOTIFIER, COMMON_LIMITS);
 
             await limited.pushBatch(MANY_CHAT_IDS.map((chatId) => message(chatId, "text")));
 
@@ -449,7 +444,7 @@ describe("OutboxStore", function () {
         // Slots saved up and spent at once must not come due again inside the same interval: after a
         // burst of the whole limit a slot a cooldown later would put number + 1 messages in it.
         it("holds the next message back a cooldown per message of the batch, from the pull", async function () {
-            const limited = new OutboxStore(database, COMMON_LIMITS);
+            const limited = new OutboxStore(database, RESULT_NOTIFIER, COMMON_LIMITS);
 
             await limited.pushBatch(MANY_CHAT_IDS.map((chatId) => message(chatId, "text")));
             await limited.pull(10);
@@ -463,7 +458,7 @@ describe("OutboxStore", function () {
         });
 
         it("gives out only the slots of the common limit that have come due", async function () {
-            const limited = new OutboxStore(database, COMMON_LIMITS);
+            const limited = new OutboxStore(database, RESULT_NOTIFIER, COMMON_LIMITS);
 
             await limited.pushBatch(MANY_CHAT_IDS.map((chatId) => message(chatId, "text")));
             // Two slots have come due: at next_send_at and a cooldown later; the third is half a
@@ -479,7 +474,7 @@ describe("OutboxStore", function () {
             await store.push(message(CHAT, "text"));
             await store.pause(PAUSE_MS);
 
-            const paused = await new OutboxStore(other, NO_LIMITS).pull(10);
+            const paused = await new OutboxStore(other, RESULT_NOTIFIER, NO_LIMITS).pull(10);
 
             expect(paused.messages).to.deep.equal([]);
             expect(paused.nextPullInMs).to.be.within(PAUSE_MS - ELAPSED_TOLERANCE_MS, PAUSE_MS);
@@ -496,7 +491,7 @@ describe("OutboxStore", function () {
         });
 
         it("resumes the pull after a pause with one slot of the common limit, not a burst", async function () {
-            const limited = new OutboxStore(database, COMMON_LIMITS);
+            const limited = new OutboxStore(database, RESULT_NOTIFIER, COMMON_LIMITS);
 
             await limited.pushBatch(MANY_CHAT_IDS.map((chatId) => message(chatId, "text")));
             await limited.pause(SHORT_PAUSE_MS);
@@ -539,7 +534,7 @@ describe("OutboxStore", function () {
         });
 
         it("reports the next pull by the common cooldown when a ready chat was left out by the limit of the pull", async function () {
-            const limited = new OutboxStore(database, COMMON_LIMITS);
+            const limited = new OutboxStore(database, RESULT_NOTIFIER, COMMON_LIMITS);
 
             await limited.pushBatch([message(CHAT, "a"), message(OTHER_CHAT, "b")]);
 
@@ -547,7 +542,7 @@ describe("OutboxStore", function () {
         });
 
         it("reports the next pull by the nearest chat that waits for its interval", async function () {
-            const limited = new OutboxStore(database, CHAT_LIMITS);
+            const limited = new OutboxStore(database, RESULT_NOTIFIER, CHAT_LIMITS);
 
             await limited.pushBatch([message(CHAT, "a1"), message(CHAT, "a2"), message(OTHER_CHAT, "b1"), message(OTHER_CHAT, "b2")]);
 
@@ -559,7 +554,7 @@ describe("OutboxStore", function () {
         });
 
         it("reports the next pull by the pause when it ends after the chats are ready", async function () {
-            const limited = new OutboxStore(database, CHAT_LIMITS);
+            const limited = new OutboxStore(database, RESULT_NOTIFIER, CHAT_LIMITS);
 
             await limited.pushBatch([message(CHAT, "a1"), message(CHAT, "a2")]);
             await limited.pause(PAUSE_MS);
@@ -690,7 +685,7 @@ describe("OutboxStore", function () {
         });
 
         it("notifies the ready channel when a push commits", async function () {
-            const payloads = await listen(listener, OutboxChannel.Ready);
+            const payloads = await listenTo(listener, OutboxChannel.Ready);
 
             await store.pushBatch([message(CHAT, "first"), message(OTHER_CHAT, "second")]);
 
@@ -699,7 +694,7 @@ describe("OutboxStore", function () {
         });
 
         it("notifies the finished channel with the id of a message marked as done", async function () {
-            const payloads = await listen(listener, OutboxChannel.Finished);
+            const payloads = await listenTo(listener, OutboxChannel.Finished);
             const id = await store.push(message(CHAT, "first"));
             await store.pull(10);
 
@@ -708,148 +703,11 @@ describe("OutboxStore", function () {
             await waitUntil(() => payloads.length > 0, "no finished notification came");
             expect(payloads).to.deep.equal([String(id)]);
         });
-
-        it("hands the id of a finished message to the listener and tells it the listening started", async function () {
-            const finishedIds: number[] = [];
-            let listenCount = 0;
-            await new OutboxStore(listener, NO_LIMITS).listenForFinished(
-                (messageId) => finishedIds.push(messageId),
-                () => (listenCount += 1),
-            );
-            const id = await store.push(message(CHAT, "first"));
-            await store.pull(10);
-
-            await store.markAsDone(id, RESPONSE);
-
-            await waitUntil(() => finishedIds.length > 0, "no finished message came");
-            expect(finishedIds).to.deep.equal([id]);
-            expect(listenCount).to.equal(1);
-        });
-
-        it("ends the listening with close() of the database", async function () {
-            await listen(listener, OutboxChannel.Finished);
-            await waitForListeners(1);
-
-            await listener.close();
-
-            await waitForListeners(0);
-        });
-    });
-
-    it("finds the finished messages among the ids given", async function () {
-        const done = await store.push(message(CHAT, "done"));
-        const failed = await store.push(message(CHAT, "failed"));
-        const skipped = await store.push(message(CHAT, "skipped"));
-        const pending = await store.push(message(CHAT, "pending"));
-        const notAsked = await store.push(message(CHAT, "not asked"));
-        // Nothing but markAsDone writes a final status yet, and it takes a pulled head.
-        await setStatus(done, OutboxStatus.Done, RESPONSE);
-        await setStatus(failed, OutboxStatus.Failed, null);
-        await setStatus(skipped, OutboxStatus.Skipped, null);
-        await setStatus(notAsked, OutboxStatus.Done, RESPONSE);
-
-        const finished = await store.findFinished([done, failed, skipped, pending]);
-
-        expect([...finished].sort((a, b) => a.id - b.id)).to.deep.equal([
-            { id: done, status: OutboxStatus.Done, response: RESPONSE },
-            { id: failed, status: OutboxStatus.Failed, response: null },
-            { id: skipped, status: OutboxStatus.Skipped, response: null },
-        ]);
-    });
-
-    it("finds no finished message for no ids", async function () {
-        expect(await store.findFinished([])).to.deep.equal([]);
-    });
-
-    describe("OutboxResultWaiter on the database", function () {
-        // The waiter listens through a client of its own, closed at the end of the test.
-        let waiterDatabase: Database;
-        let source: RecordingSource;
-
-        beforeEach(function () {
-            waiterDatabase = new Database(settings, false);
-            source = new RecordingSource(new OutboxStore(waiterDatabase, NO_LIMITS));
-        });
-
-        afterEach(async function () {
-            await waiterDatabase.close();
-        });
-
-        // A poll that never comes in a passing test: only a notification can settle the wait.
-        const NO_POLL: OutboxResultWaiterSettings = { timeoutMs: WAIT_DEADLINE_MS, pollIntervalMs: SPEC_TIMEOUT_MS };
-
-        it("settles a wait by the notification of markAsDone", async function () {
-            const waiter = new OutboxResultWaiter(source, silentLogger(), NO_POLL);
-            const id = await store.push(message(CHAT, "first"));
-            await store.pull(10);
-
-            const result = waiter.wait(id);
-            // The poll made when the listening started has found nothing: what settles the wait
-            // from here on is the notification.
-            await waitUntil(() => source.completedLookups === 1, "the listening did not start");
-            await store.markAsDone(id, RESPONSE);
-
-            expect(await result).to.deep.equal({ id: id, status: OutboxStatus.Done, response: RESPONSE });
-        });
-
-        it("settles a wait by the poll when the message finishes without a notification", async function () {
-            const waiter = new OutboxResultWaiter(source, silentLogger(), { timeoutMs: WAIT_DEADLINE_MS, pollIntervalMs: FAST_POLL_MS });
-            const id = await store.push(message(CHAT, "first"));
-
-            const result = waiter.wait(id);
-            await setStatus(id, OutboxStatus.Done, RESPONSE);
-
-            expect(await result).to.deep.equal({ id: id, status: OutboxStatus.Done, response: RESPONSE });
-        });
-
-        it("rejects a wait on timeout and does not read its message when it finishes", async function () {
-            const waiter = new OutboxResultWaiter(source, silentLogger(), {
-                timeoutMs: SHORT_WAIT_TIMEOUT_MS,
-                pollIntervalMs: SPEC_TIMEOUT_MS,
-            });
-            const id = await store.push(message(CHAT, "first"));
-            await store.pull(10);
-
-            const error = await waiter.wait(id).then(
-                () => expect.fail("the wait was expected to time out"),
-                (reason: unknown) => reason,
-            );
-            // A notification sent before the listening starts would go nowhere.
-            await waitUntil(() => source.listenCount === 1, "the listening did not start");
-            const lookupCount = source.startedLookups;
-            await store.markAsDone(id, RESPONSE);
-            await waitUntil(() => source.notifiedIds.includes(id), "no finished notification came");
-
-            expect(error).to.be.instanceOf(OutboxResultTimeout);
-            expect(source.startedLookups).to.equal(lookupCount);
-        });
-
-        // postgres.js listens again on a new connection; the poll it triggers catches a message
-        // finished in between, whose notification went nowhere.
-        it("listens again after its connection is lost", async function () {
-            const waiter = new OutboxResultWaiter(source, silentLogger(), NO_POLL);
-            const id = await store.push(message(CHAT, "first"));
-            await store.pull(10);
-
-            const result = waiter.wait(id);
-            await waitUntil(() => source.completedLookups === 1, "the listening did not start");
-            await observer.sql`
-                SELECT pg_terminate_backend(pid)
-                FROM pg_stat_activity
-                WHERE datname = current_database()
-                  AND query = ${LISTEN_FINISHED_QUERY}
-            `;
-            await waitUntil(() => source.listenCount === 2, "the listening did not start again");
-            await waitUntil(() => source.completedLookups === 2, "no poll followed the new listening");
-            await store.markAsDone(id, RESPONSE);
-
-            expect(await result).to.deep.equal({ id: id, status: OutboxStatus.Done, response: RESPONSE });
-        });
     });
 
     // A store whose statements run in the given transaction.
     function storeOn(transaction: TransactionSql): OutboxStore {
-        return new OutboxStore({ sql: transaction } as unknown as Database, NO_LIMITS);
+        return new OutboxStore({ sql: transaction } as unknown as Database, RESULT_NOTIFIER, NO_LIMITS);
     }
 
     async function chat(chatId: number): Promise<ChatRow | undefined> {
@@ -876,39 +734,6 @@ describe("OutboxStore", function () {
         const rows = await database.sql<{ status: string }[]>`SELECT status FROM telegram_outbox ORDER BY id`;
 
         return rows.map((row) => row.status);
-    }
-
-    async function setStatus(messageId: number, status: OutboxStatus, response: typeof RESPONSE | null): Promise<void> {
-        await database.sql`
-            UPDATE telegram_outbox
-            SET status = ${status},
-                response = ${response === null ? null : database.sql.json(response)}
-            WHERE id = ${messageId}
-        `;
-    }
-
-    // The LISTEN connections of the finished channel open in the database of the run.
-    async function waitForListeners(count: number): Promise<void> {
-        const deadline = Date.now() + WAIT_DEADLINE_MS;
-
-        for (;;) {
-            if (Date.now() > deadline) {
-                expect.fail(`the finished channel did not get to ${count} listeners by the deadline`);
-            }
-
-            const [row] = await observer.sql<{ listeners: number }[]>`
-                SELECT count(*)::int AS listeners
-                FROM pg_stat_activity
-                WHERE datname = current_database()
-                  AND query = ${LISTEN_FINISHED_QUERY}
-            `;
-
-            if (row !== undefined && row.listeners === count) {
-                return;
-            }
-
-            await sleep(5);
-        }
     }
 
     async function waitForLockWaiters(count: number): Promise<void> {
@@ -953,64 +778,4 @@ async function drain(store: OutboxStore): Promise<number[]> {
         ids.push(pulled.id);
         await store.markAsDone(pulled.id, RESPONSE);
     }
-}
-
-// The statement postgres.js sends to listen on the finished channel, as pg_stat_activity shows it.
-const LISTEN_FINISHED_QUERY = `listen "${OutboxChannel.Finished}"`;
-
-// The payloads of the notifications of a channel, from the moment the listening starts.
-async function listen(database: Database, channel: OutboxChannel): Promise<string[]> {
-    const payloads: string[] = [];
-    await database.sql.listen(channel, (payload) => payloads.push(payload));
-
-    return payloads;
-}
-
-async function waitUntil(condition: () => boolean, failure: string): Promise<void> {
-    const deadline = Date.now() + WAIT_DEADLINE_MS;
-
-    while (!condition()) {
-        if (Date.now() > deadline) {
-            expect.fail(failure);
-        }
-
-        await sleep(5);
-    }
-}
-
-// The real store with a record of what the waiter does with it.
-class RecordingSource implements FinishedMessageSource {
-    public startedLookups = 0;
-    public completedLookups = 0;
-    public listenCount = 0;
-    public readonly notifiedIds: number[] = [];
-
-    public constructor(private readonly store: OutboxStore) {}
-
-    public async findFinished(messageIds: number[]): Promise<FinishedOutboxMessage[]> {
-        this.startedLookups += 1;
-        const finished = await this.store.findFinished(messageIds);
-        this.completedLookups += 1;
-
-        return finished;
-    }
-
-    public listenForFinished(onFinished: (messageId: number) => void, onListen: () => void): Promise<void> {
-        return this.store.listenForFinished(
-            (messageId) => {
-                this.notifiedIds.push(messageId);
-                onFinished(messageId);
-            },
-            () => {
-                this.listenCount += 1;
-                onListen();
-            },
-        );
-    }
-}
-
-function silentLogger(): Logger {
-    const ignore = (): void => {};
-
-    return { critical: ignore, error: ignore, warning: ignore, info: ignore, debug: ignore };
 }

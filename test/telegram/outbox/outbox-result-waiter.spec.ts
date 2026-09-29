@@ -4,11 +4,12 @@ import type { UnknownObject } from "app/shared/types";
 import { sleep } from "app/shared/utils";
 import { OutboxResultWaiter } from "app/telegram/outbox/result-waiter/outbox-result-waiter";
 import { OutboxResultTimeout, OutboxResultWaiterStopped } from "app/telegram/outbox/result-waiter/outbox-result-waiter.errors";
-import type { FinishedMessageSource, OutboxResultWaiterSettings } from "app/telegram/outbox/result-waiter/outbox-result-waiter.types";
+import type { OutboxResultWaiterSettings } from "app/telegram/outbox/result-waiter/outbox-result-waiter.types";
+import type { OutboxResultReader } from "app/telegram/outbox/outbox-result-reader";
 import type { FinishedOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
 
-// The waiter over the real store and database is checked in outbox-store.spec.ts.
+// The waiter over the real reader and database is checked in outbox-result-reader.spec.ts.
 
 // Longer than any passing test takes, shorter than the timeout of mocha: a timer of this length
 // never fires in a passing test, and a wait that is never settled fails with its own error.
@@ -28,61 +29,61 @@ describe("OutboxResultWaiter", function () {
     this.timeout(2_000);
 
     it("resolves a wait by the notification of its message", async function () {
-        const source = new FakeSource();
-        const waiter = build(source);
+        const reader = new FakeReader();
+        const waiter = build(reader);
 
         const result = waiter.wait(MESSAGE.id);
-        source.finish(MESSAGE);
-        source.notify(MESSAGE.id);
+        reader.finish(MESSAGE);
+        reader.notify(MESSAGE.id);
 
         expect(await result).to.deep.equal(MESSAGE);
-        expect(source.lookups).to.deep.equal([[MESSAGE.id]]);
+        expect(reader.lookups).to.deep.equal([[MESSAGE.id]]);
     });
 
     it("does not read a message nobody waits for on this node", async function () {
-        const source = new FakeSource();
-        const waiter = build(source);
+        const reader = new FakeReader();
+        const waiter = build(reader);
 
         const result = waiter.wait(MESSAGE.id);
-        source.notify(OTHER_MESSAGE.id);
+        reader.notify(OTHER_MESSAGE.id);
         await sleep(QUIET_MS);
 
-        expect(source.lookups).to.be.empty;
+        expect(reader.lookups).to.be.empty;
 
-        source.finish(MESSAGE);
-        source.notify(MESSAGE.id);
+        reader.finish(MESSAGE);
+        reader.notify(MESSAGE.id);
         await result;
     });
 
     it("resolves a wait by the poll when no notification comes", async function () {
-        const source = new FakeSource();
-        const waiter = build(source, { pollIntervalMs: SOON_MS });
+        const reader = new FakeReader();
+        const waiter = build(reader, { pollIntervalMs: SOON_MS });
 
         const result = waiter.wait(MESSAGE.id);
-        source.finish(MESSAGE);
+        reader.finish(MESSAGE);
 
         expect(await result).to.deep.equal(MESSAGE);
     });
 
     it("polls every id waited for in one lookup", async function () {
-        const source = new FakeSource();
-        const waiter = build(source, { pollIntervalMs: SOON_MS });
+        const reader = new FakeReader();
+        const waiter = build(reader, { pollIntervalMs: SOON_MS });
 
         const results = Promise.all([waiter.wait(MESSAGE.id), waiter.wait(OTHER_MESSAGE.id)]);
-        source.finish(MESSAGE);
-        source.finish(OTHER_MESSAGE);
+        reader.finish(MESSAGE);
+        reader.finish(OTHER_MESSAGE);
 
         expect(await results).to.deep.equal([MESSAGE, OTHER_MESSAGE]);
-        expect(source.lookups[0]).to.deep.equal([MESSAGE.id, OTHER_MESSAGE.id]);
+        expect(reader.lookups[0]).to.deep.equal([MESSAGE.id, OTHER_MESSAGE.id]);
     });
 
     it("keeps waiting for a message the poll finds unfinished", async function () {
-        const source = new FakeSource();
-        const waiter = build(source, { pollIntervalMs: SOON_MS });
+        const reader = new FakeReader();
+        const waiter = build(reader, { pollIntervalMs: SOON_MS });
 
         const result = waiter.wait(MESSAGE.id);
-        await waitFor(() => source.lookups.length >= 2);
-        source.finish(MESSAGE);
+        await waitFor(() => reader.lookups.length >= 2);
+        reader.finish(MESSAGE);
 
         expect(await result).to.deep.equal(MESSAGE);
     });
@@ -90,58 +91,58 @@ describe("OutboxResultWaiter", function () {
     // A message finished while the listening was being set up or restored has sent its
     // notification to nobody.
     it("polls when the listening starts", async function () {
-        const source = new FakeSource();
-        const waiter = build(source);
+        const reader = new FakeReader();
+        const waiter = build(reader);
 
         const result = waiter.wait(MESSAGE.id);
-        source.finish(MESSAGE);
-        source.listenStarted();
+        reader.finish(MESSAGE);
+        reader.listenStarted();
 
         expect(await result).to.deep.equal(MESSAGE);
     });
 
     it("does not poll when nothing is waited for", async function () {
-        const source = new FakeSource();
-        const waiter = build(source);
+        const reader = new FakeReader();
+        const waiter = build(reader);
 
         const result = waiter.wait(MESSAGE.id);
-        source.finish(MESSAGE);
-        source.notify(MESSAGE.id);
+        reader.finish(MESSAGE);
+        reader.notify(MESSAGE.id);
         await result;
-        const lookupCount = source.lookups.length;
+        const lookupCount = reader.lookups.length;
 
-        source.listenStarted();
+        reader.listenStarted();
         await sleep(QUIET_MS);
 
-        expect(source.lookups).to.have.length(lookupCount);
+        expect(reader.lookups).to.have.length(lookupCount);
     });
 
     it("keeps polling for a message after another one is settled", async function () {
-        const source = new FakeSource();
-        const waiter = build(source, { pollIntervalMs: SOON_MS });
+        const reader = new FakeReader();
+        const waiter = build(reader, { pollIntervalMs: SOON_MS });
 
         const pending = waiter.wait(OTHER_MESSAGE.id);
         const settled = waiter.wait(MESSAGE.id);
-        source.finish(MESSAGE);
-        source.notify(MESSAGE.id);
+        reader.finish(MESSAGE);
+        reader.notify(MESSAGE.id);
         await settled;
-        source.finish(OTHER_MESSAGE);
+        reader.finish(OTHER_MESSAGE);
 
         expect(await pending).to.deep.equal(OTHER_MESSAGE);
     });
 
     it("leaves no timer behind once every wait is settled", async function () {
-        const source = new FakeSource();
-        const waiter = build(source);
+        const reader = new FakeReader();
+        const waiter = build(reader);
         // mocha starts the timer of the test once the synchronous part of the test has returned.
         await Promise.resolve();
         const timerCount = activeTimerCount();
 
         const results = Promise.all([waiter.wait(MESSAGE.id), waiter.wait(OTHER_MESSAGE.id)]);
-        source.finish(MESSAGE);
-        source.finish(OTHER_MESSAGE);
-        source.notify(MESSAGE.id);
-        source.notify(OTHER_MESSAGE.id);
+        reader.finish(MESSAGE);
+        reader.finish(OTHER_MESSAGE);
+        reader.notify(MESSAGE.id);
+        reader.notify(OTHER_MESSAGE.id);
         await results;
 
         // At most: a timer of another spec may expire meanwhile, while a timer left by the waiter keeps
@@ -150,25 +151,25 @@ describe("OutboxResultWaiter", function () {
     });
 
     it("skips a poll while the previous one is still running", async function () {
-        const source = new FakeSource();
-        const waiter = build(source, { pollIntervalMs: SOON_MS });
-        const lookup = source.holdLookups();
+        const reader = new FakeReader();
+        const waiter = build(reader, { pollIntervalMs: SOON_MS });
+        const lookup = reader.holdLookups();
 
         const result = waiter.wait(MESSAGE.id);
-        await waitFor(() => source.lookups.length === 1);
+        await waitFor(() => reader.lookups.length === 1);
         await sleep(QUIET_MS);
 
-        expect(source.lookups).to.have.length(1);
+        expect(reader.lookups).to.have.length(1);
 
-        source.finish(MESSAGE);
+        reader.finish(MESSAGE);
         lookup.resolve();
 
         expect(await result).to.deep.equal(MESSAGE);
     });
 
     it("rejects a wait with OutboxResultTimeout after timeoutMs", async function () {
-        const source = new FakeSource();
-        const waiter = build(source, { timeoutMs: SOON_MS });
+        const reader = new FakeReader();
+        const waiter = build(reader, { timeoutMs: SOON_MS });
 
         const error = await rejection(waiter.wait(MESSAGE.id));
 
@@ -178,48 +179,48 @@ describe("OutboxResultWaiter", function () {
     });
 
     it("forgets a message whose wait has timed out", async function () {
-        const source = new FakeSource();
-        const waiter = build(source, { timeoutMs: SOON_MS, pollIntervalMs: SOON_MS });
+        const reader = new FakeReader();
+        const waiter = build(reader, { timeoutMs: SOON_MS, pollIntervalMs: SOON_MS });
 
         await rejection(waiter.wait(MESSAGE.id));
-        const lookupCount = source.lookups.length;
-        source.notify(MESSAGE.id);
+        const lookupCount = reader.lookups.length;
+        reader.notify(MESSAGE.id);
         await sleep(QUIET_MS);
 
-        expect(source.lookups).to.have.length(lookupCount);
+        expect(reader.lookups).to.have.length(lookupCount);
     });
 
     it("waits anew for a message whose wait has timed out", async function () {
-        const source = new FakeSource();
-        const waiter = build(source, { timeoutMs: SOON_MS });
+        const reader = new FakeReader();
+        const waiter = build(reader, { timeoutMs: SOON_MS });
 
         await rejection(waiter.wait(MESSAGE.id));
-        source.finish(MESSAGE);
+        reader.finish(MESSAGE);
         const result = waiter.wait(MESSAGE.id);
-        source.notify(MESSAGE.id);
+        reader.notify(MESSAGE.id);
 
         expect(await result).to.deep.equal(MESSAGE);
     });
 
     it("leaves alone a message a lookup finds after its wait has timed out", async function () {
-        const source = new FakeSource();
+        const reader = new FakeReader();
         // The poll starts its lookup before the timeout.
-        const waiter = build(source, { timeoutMs: QUIET_MS, pollIntervalMs: SOON_MS });
-        const lookup = source.holdLookups();
-        source.finish(MESSAGE);
+        const waiter = build(reader, { timeoutMs: QUIET_MS, pollIntervalMs: SOON_MS });
+        const lookup = reader.holdLookups();
+        reader.finish(MESSAGE);
 
         const result = waiter.wait(MESSAGE.id);
-        await waitFor(() => source.lookups.length === 1);
+        await waitFor(() => reader.lookups.length === 1);
         const error = await rejection(result);
         lookup.resolve();
         await sleep(QUIET_MS);
 
         expect(error).to.be.instanceOf(OutboxResultTimeout);
-        expect(source.lookups).to.have.length(1);
+        expect(reader.lookups).to.have.length(1);
     });
 
     it("gives a second wait for the same message the same promise", function () {
-        const waiter = build(new FakeSource(), { timeoutMs: SOON_MS });
+        const waiter = build(new FakeReader(), { timeoutMs: SOON_MS });
 
         const first = waiter.wait(MESSAGE.id);
         const second = waiter.wait(MESSAGE.id);
@@ -230,58 +231,58 @@ describe("OutboxResultWaiter", function () {
     });
 
     it("does not let the timeout of a settled wait end a later wait for the same message", async function () {
-        const source = new FakeSource();
-        const waiter = build(source, { timeoutMs: SHORT_TIMEOUT_MS });
-        source.finish(MESSAGE);
+        const reader = new FakeReader();
+        const waiter = build(reader, { timeoutMs: SHORT_TIMEOUT_MS });
+        reader.finish(MESSAGE);
 
         const first = waiter.wait(MESSAGE.id);
-        source.notify(MESSAGE.id);
+        reader.notify(MESSAGE.id);
         await first;
         await sleep(SHORT_TIMEOUT_SHARE_MS);
         const second = waiter.wait(MESSAGE.id);
         // Past the timeout of the first wait, within the timeout of the second.
         await sleep(SHORT_TIMEOUT_SHARE_MS);
-        source.notify(MESSAGE.id);
+        reader.notify(MESSAGE.id);
 
         expect(await second).to.deep.equal(MESSAGE);
     });
 
     it("keeps the timeout of a message running after another message is settled", async function () {
-        const source = new FakeSource();
-        const waiter = build(source, { timeoutMs: QUIET_MS });
+        const reader = new FakeReader();
+        const waiter = build(reader, { timeoutMs: QUIET_MS });
 
         const pending = waiter.wait(OTHER_MESSAGE.id);
         const settled = waiter.wait(MESSAGE.id);
-        source.finish(MESSAGE);
-        source.notify(MESSAGE.id);
+        reader.finish(MESSAGE);
+        reader.notify(MESSAGE.id);
         await settled;
 
         expect(await rejection(pending)).to.be.instanceOf(OutboxResultTimeout);
     });
 
     it("listens once for all the waits", async function () {
-        const source = new FakeSource();
-        const waiter = build(source);
+        const reader = new FakeReader();
+        const waiter = build(reader);
 
         const results = Promise.all([waiter.wait(MESSAGE.id), waiter.wait(OTHER_MESSAGE.id)]);
-        source.finish(MESSAGE);
-        source.finish(OTHER_MESSAGE);
-        source.notify(MESSAGE.id);
-        source.notify(OTHER_MESSAGE.id);
+        reader.finish(MESSAGE);
+        reader.finish(OTHER_MESSAGE);
+        reader.notify(MESSAGE.id);
+        reader.notify(OTHER_MESSAGE.id);
         await results;
 
-        expect(source.listenCount).to.equal(1);
+        expect(reader.listenCount).to.equal(1);
     });
 
     it("logs a failed start of the listening and leaves the waits to the poll", async function () {
-        const source = new FakeSource();
+        const reader = new FakeReader();
         const logger = new RecordingLogger();
-        const waiter = build(source, { pollIntervalMs: SOON_MS }, logger);
+        const waiter = build(reader, { pollIntervalMs: SOON_MS }, logger);
         const listenError = new Error("connection refused");
-        source.listenError = listenError;
+        reader.listenError = listenError;
 
         const result = waiter.wait(MESSAGE.id);
-        source.finish(MESSAGE);
+        reader.finish(MESSAGE);
 
         expect(await result).to.deep.equal(MESSAGE);
         expect(logger.warnings).to.deep.equal([
@@ -295,73 +296,73 @@ describe("OutboxResultWaiter", function () {
     // postgres.js keeps the listener of a failed LISTEN and subscribes it again itself: a second
     // call would leave two listeners, and every notification would be read twice.
     it("does not start the listening again after a failed start", async function () {
-        const source = new FakeSource();
-        const waiter = build(source, { pollIntervalMs: SOON_MS });
-        source.listenError = new Error("connection refused");
+        const reader = new FakeReader();
+        const waiter = build(reader, { pollIntervalMs: SOON_MS });
+        reader.listenError = new Error("connection refused");
 
         const first = waiter.wait(MESSAGE.id);
-        source.finish(MESSAGE);
+        reader.finish(MESSAGE);
         await first;
         const second = waiter.wait(OTHER_MESSAGE.id);
-        source.finish(OTHER_MESSAGE);
+        reader.finish(OTHER_MESSAGE);
         await second;
 
-        expect(source.listenCount).to.equal(1);
+        expect(reader.listenCount).to.equal(1);
     });
 
     it("polls again once a running poll ends when the listening starts meanwhile", async function () {
-        const source = new FakeSource();
-        const waiter = build(source);
-        const lookup = source.holdLookups();
+        const reader = new FakeReader();
+        const waiter = build(reader);
+        const lookup = reader.holdLookups();
 
         const result = waiter.wait(MESSAGE.id);
-        source.listenStarted();
-        await waitFor(() => source.lookups.length === 1);
+        reader.listenStarted();
+        await waitFor(() => reader.lookups.length === 1);
         // Finished after the running lookup has read, and notified while nobody listened.
-        source.finish(MESSAGE);
-        source.listenStarted();
+        reader.finish(MESSAGE);
+        reader.listenStarted();
         lookup.resolve();
 
         expect(await result).to.deep.equal(MESSAGE);
-        expect(source.lookups).to.have.length(2);
+        expect(reader.lookups).to.have.length(2);
     });
 
     it("polls once when the listening starts", async function () {
-        const source = new FakeSource();
-        const waiter = build(source);
+        const reader = new FakeReader();
+        const waiter = build(reader);
 
         const result = waiter.wait(MESSAGE.id);
-        source.listenStarted();
+        reader.listenStarted();
         await sleep(QUIET_MS);
 
-        expect(source.lookups).to.have.length(1);
+        expect(reader.lookups).to.have.length(1);
 
-        source.finish(MESSAGE);
-        source.notify(MESSAGE.id);
+        reader.finish(MESSAGE);
+        reader.notify(MESSAGE.id);
         await result;
     });
 
     it("polls only once more after a running poll when the listening starts meanwhile", async function () {
-        const source = new FakeSource();
-        const waiter = build(source);
-        const lookup = source.holdLookups();
+        const reader = new FakeReader();
+        const waiter = build(reader);
+        const lookup = reader.holdLookups();
 
         const result = waiter.wait(MESSAGE.id);
-        source.listenStarted();
-        await waitFor(() => source.lookups.length === 1);
-        source.listenStarted();
+        reader.listenStarted();
+        await waitFor(() => reader.lookups.length === 1);
+        reader.listenStarted();
         lookup.resolve();
         await sleep(QUIET_MS);
 
-        expect(source.lookups).to.have.length(2);
+        expect(reader.lookups).to.have.length(2);
 
-        source.finish(MESSAGE);
-        source.notify(MESSAGE.id);
+        reader.finish(MESSAGE);
+        reader.notify(MESSAGE.id);
         await result;
     });
 
     it("rejects every pending wait with OutboxResultWaiterStopped on stop()", async function () {
-        const waiter = build(new FakeSource());
+        const waiter = build(new FakeReader());
 
         const first = waiter.wait(MESSAGE.id);
         const second = waiter.wait(OTHER_MESSAGE.id);
@@ -377,7 +378,7 @@ describe("OutboxResultWaiter", function () {
     });
 
     it("leaves no timer behind after stop()", async function () {
-        const waiter = build(new FakeSource());
+        const waiter = build(new FakeReader());
         // mocha starts the timer of the test once the synchronous part of the test has returned.
         await Promise.resolve();
         const timerCount = activeTimerCount();
@@ -391,30 +392,30 @@ describe("OutboxResultWaiter", function () {
     });
 
     it("waits anew for a message after stop()", async function () {
-        const source = new FakeSource();
-        const waiter = build(source);
+        const reader = new FakeReader();
+        const waiter = build(reader);
 
         const stopped = waiter.wait(MESSAGE.id);
         waiter.stop();
         await rejection(stopped);
-        source.finish(MESSAGE);
+        reader.finish(MESSAGE);
         const result = waiter.wait(MESSAGE.id);
-        source.notify(MESSAGE.id);
+        reader.notify(MESSAGE.id);
 
         expect(await result).to.deep.equal(MESSAGE);
     });
 
     it("logs a failed lookup and settles the wait by the next poll", async function () {
-        const source = new FakeSource();
+        const reader = new FakeReader();
         const logger = new RecordingLogger();
-        const waiter = build(source, { pollIntervalMs: SOON_MS }, logger);
+        const waiter = build(reader, { pollIntervalMs: SOON_MS }, logger);
         const lookupError = new Error("connection lost");
-        source.lookupError = lookupError;
+        reader.lookupError = lookupError;
 
         const result = waiter.wait(MESSAGE.id);
-        await waitFor(() => source.lookups.length >= 1);
-        source.lookupError = undefined;
-        source.finish(MESSAGE);
+        await waitFor(() => reader.lookups.length >= 1);
+        reader.lookupError = undefined;
+        reader.finish(MESSAGE);
 
         expect(await result).to.deep.equal(MESSAGE);
         expect(logger.warnings[0]).to.deep.equal({
@@ -424,9 +425,9 @@ describe("OutboxResultWaiter", function () {
     });
 });
 
-// The store as the waiter sees it: the finished messages are set by the test, and so are the
+// The reader as the waiter uses it: the finished messages are set by the test, and so are the
 // notifications and the start of the listening.
-class FakeSource implements FinishedMessageSource {
+class FakeReader implements Pick<OutboxResultReader, "findFinished" | "listenForFinished"> {
     public readonly lookups: number[][] = [];
     public listenCount = 0;
     public listenError: Error | undefined;
@@ -500,11 +501,17 @@ class RecordingLogger implements Logger {
 }
 
 function build(
-    source: FakeSource,
+    reader: FakeReader,
     settings: Partial<OutboxResultWaiterSettings> = {},
     logger: Logger = new RecordingLogger(),
 ): OutboxResultWaiter {
-    return new OutboxResultWaiter(source, logger, { timeoutMs: NEVER_MS, pollIntervalMs: NEVER_MS, ...settings });
+    // The waiter calls only the two methods FakeReader has; the private field of the class is not one
+    // of them.
+    return new OutboxResultWaiter(reader as unknown as OutboxResultReader, logger, {
+        timeoutMs: NEVER_MS,
+        pollIntervalMs: NEVER_MS,
+        ...settings,
+    });
 }
 
 async function rejection(promise: Promise<unknown>): Promise<unknown> {

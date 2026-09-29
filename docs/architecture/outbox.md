@@ -6,9 +6,10 @@ any node sends them, the order inside a chat holds across nodes, and a node that
 nothing (the plan is epic [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)).
 Nothing calls the directory yet: so far it holds the tables with `OutboxStore`
 (`store/outbox-store.ts`), which pushes, pulls within the limits, pauses and marks done,
-`OutboxResultWaiter`, which waits for the outcome of a message, the payload codec and the retry
-delay. The error classes of a failed call, which the outbox will act on, lie
-outside it, in `telegram/bot-api-failure-classifier/`.
+`OutboxResultWaiter`, which waits for the outcome of a message, with `OutboxResultNotifier` and
+`OutboxResultReader` on either side of it, the payload codec and the retry delay. The error
+classes of a failed call, which the outbox will act on, lie outside it, in
+`telegram/bot-api-failure-classifier/`.
 
 ## Tables
 
@@ -173,11 +174,15 @@ message once it is `done`, `failed` or `skipped`: its id, status and `response`.
 resolves too: the caller reads the status.
 
 - **The notification.** A transaction that moves a message into one of those statuses sends
-  `pg_notify` on `telegram_outbox_finished` with the message id as the payload
-  ([invariant](./invariants.md)). The id alone: NOTIFY carries at most 8000 bytes, less than a
-  Telegram response can take. Every listening node hears every id; the waiter reads the row of an
-  id it waits for with `findFinished()` and ignores the rest. PostgreSQL delivers a notification on
-  commit, so the row read on it has the outcome.
+  `pg_notify` on `telegram_outbox_finished` with the message id as the payload, through
+  `OutboxResultNotifier.notify()` (`outbox-result-notifier.ts`, [invariant](./invariants.md)). The
+  id alone: NOTIFY carries at most 8000 bytes, less than a Telegram response can take. Every
+  listening node hears every id; the waiter reads the row of an id it waits for with
+  `OutboxResultReader.findFinished()` (`outbox-result-reader.ts`) and ignores the rest. PostgreSQL
+  delivers a notification on commit, so the row read on it has the outcome. The notifier sends it
+  with `pg_notify` through the `sql` of the transaction, not with `sql.notify()` of postgres.js:
+  that one runs on the pool whatever `sql` it is called on (`notify()` in its `src/index.js`), so
+  inside a transaction it would notify before the commit.
 - **The listening** starts once, with the first wait, through `sql.listen()` on a connection of
   its own ([`storage.md`](./storage.md), "LISTEN"). A failed start is logged at `warning` and is
   not repeated: postgres.js keeps the listener of a failed `LISTEN` and subscribes it again when
@@ -204,12 +209,14 @@ A second wait for an id still waited for gets the same promise.
 that shuts down neither polls its closed database nor is held up by a wait until its timeout.
 `Container.close()` calls it before it closes the database, which ends the listening.
 
+The store and the waiter do not depend on each other. The store takes `OutboxResultNotifier`, the
+waiter takes `OutboxResultReader`, and neither gets a method it does not call. So the waiter has no
+SQL: mutation testing reaches it through a fake reader, and `outbox-result-reader.spec.ts` runs it
+over the real one.
+
 ## The store in code
 
-The store implements one interface, `FinishedMessageSource` (`outbox-result-waiter.types.ts`),
-which the waiter dictates. So the waiter has no SQL: mutation testing reaches it through a fake
-source, and `outbox-store.spec.ts` runs it over the real store. Beyond that the store has no
-interface: no other consumer dictates one yet ([`storage.md`](./storage.md)).
+The store has no interface of its own: no consumer dictates one yet ([`storage.md`](./storage.md)).
 It is SQL through and through, so it is in `DATABASE_ONLY_SOURCES` of `stryker.config.mjs` and its
 spec is in `DATABASE_SPECS` ([`testing.md`](./testing.md), "Mutation testing").
 
@@ -242,10 +249,10 @@ one failure is not classified at all:
 
 ### Retry delay
 
-`RetryDelay.computeMs()` (`retry-delay/retry-delay.ts`) is how long a message waits before its
-retry after a transient failure. The step, its cap, the jitter and why the jitter takes the upper
-half of the step are in the comment above the method. The first step, the cap and the multiplier
-come from the `OUTBOX_RETRY_` variables of `.env.dist`.
+`OutboxRetryDelay.computeMs()` (`retry-delay/outbox-retry-delay.ts`) is how long a message waits
+before its retry after a transient failure. The step, its cap, the jitter and why the jitter takes
+the upper half of the step are in the comment above the method. The first step, the cap and the
+multiplier come from the `OUTBOX_RETRY_` variables of `.env.dist`.
 
 ## The payload rule
 

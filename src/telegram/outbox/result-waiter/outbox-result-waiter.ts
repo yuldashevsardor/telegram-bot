@@ -3,7 +3,8 @@ import type { Logger } from "app/platform/logger/logger";
 import { Tokens } from "app/shared/tokens";
 import { configValue } from "app/shared/config-value";
 import type { FinishedOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
-import type { FinishedMessageSource, OutboxResultWaiterSettings } from "app/telegram/outbox/result-waiter/outbox-result-waiter.types";
+import type { OutboxResultReader } from "app/telegram/outbox/outbox-result-reader";
+import type { OutboxResultWaiterSettings } from "app/telegram/outbox/result-waiter/outbox-result-waiter.types";
 import { OutboxResultTimeout, OutboxResultWaiterStopped } from "app/telegram/outbox/result-waiter/outbox-result-waiter.errors";
 
 type PendingResult = {
@@ -26,7 +27,7 @@ export class OutboxResultWaiter {
     private pollTimer: NodeJS.Timeout | undefined;
 
     public constructor(
-        @inject<FinishedMessageSource>(Tokens.Bot.Outbox.Store) private readonly source: FinishedMessageSource,
+        @inject<OutboxResultReader>(Tokens.Bot.Outbox.ResultReader) private readonly reader: OutboxResultReader,
         @inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger,
         private readonly settings: OutboxResultWaiterSettings = configValue("outbox.resultWaiter"),
     ) {}
@@ -74,7 +75,7 @@ export class OutboxResultWaiter {
 
         this.hasStartedListening = true;
 
-        this.source
+        this.reader
             .listenForFinished(
                 (messageId) => void this.onFinished(messageId),
                 () => void this.pollOnListenStart(),
@@ -140,7 +141,7 @@ export class OutboxResultWaiter {
         let finishedMessages: FinishedOutboxMessage[];
 
         try {
-            finishedMessages = await this.source.findFinished(messageIds);
+            finishedMessages = await this.reader.findFinished(messageIds);
         } catch (error) {
             this.logger.warning("Reading finished outbox messages failed, the next poll tries again.", {
                 messageIds: messageIds,
