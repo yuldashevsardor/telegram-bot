@@ -412,7 +412,7 @@ Indistinguishable by what is required, not byte by byte:
   (`eot-packer.spec.ts`).
 - The same holds if the mutant differs only on a file the domain is not obliged to let through:
   twelve bytes of an sfnt header without a single table, which one version lets through and the
-  other rejects (the constructor of `SfntReader`).
+  other rejects (the constructor of `SfntTableDirectory`).
 - The same goes for a deadline: `<=` instead of `<` against `Date.now()` in `RateLimit.isFree()`
   moves the end of the cooldown by a millisecond, while both variants honour the limit "`number`
   calls per `interval`".
