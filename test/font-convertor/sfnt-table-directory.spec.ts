@@ -14,6 +14,7 @@ const HEAD_LENGTH = 54;
 const HEAD_MAGIC_NUMBER_OFFSET = 12;
 const HEAD_MAGIC_NUMBER = 0x5f0f3cf5;
 const COLLECTION_VERSION = 0x74746366;
+const ENVELOPE_PREFIX_BYTES = 8;
 
 describe("SfntTableDirectory", function () {
     let ttf: Uint8Array;
@@ -45,9 +46,9 @@ describe("SfntTableDirectory", function () {
     it("reads a font that lies inside a larger buffer", function () {
         // An EOT envelope hands its font over as a view into the envelope bytes, so the font does
         // not start at the beginning of its buffer.
-        const envelope = Uint8Array.from(Buffer.concat([Buffer.alloc(8), ttf]));
+        const envelope = Uint8Array.from(Buffer.concat([Buffer.alloc(ENVELOPE_PREFIX_BYTES), ttf]));
 
-        expectHeadRecord(envelope.subarray(8));
+        expectHeadRecord(envelope.subarray(ENVELOPE_PREFIX_BYTES));
     });
 
     for (const version of SFNT_VERSIONS) {
@@ -110,12 +111,7 @@ describe("SfntTableDirectory", function () {
     }
 
     function expectThrows(call: () => unknown): void {
-        try {
-            call();
-            expect.fail("call did not throw InvalidSfnt");
-        } catch (error) {
-            expect(error).to.be.instanceOf(InvalidSfnt);
-        }
+        expect(call).to.throw(InvalidSfnt);
     }
 });
 
