@@ -96,4 +96,5 @@ export type PulledOutboxRow = {
 export type OutboxPullResultRow = {
     messages: PulledOutboxRow[];
     next_pull_in_ms: number | null;
+    has_bot_limits: boolean;
 };

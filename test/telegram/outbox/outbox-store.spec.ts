@@ -16,7 +16,12 @@ import type {
     PulledOutboxMessage,
 } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxChatState, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
-import { InvalidPauseDuration, OutboxMessageNotProcessing } from "app/telegram/outbox/store/outbox-store.errors";
+import {
+    BotLimitsRowMissing,
+    InvalidPauseDuration,
+    InvalidPullLimit,
+    OutboxMessageNotProcessing,
+} from "app/telegram/outbox/store/outbox-store.errors";
 import { MS_PER_SECOND } from "app/shared/time";
 import { sleep } from "app/shared/utils";
 import { testDatabaseSettings } from "test/database.helper";
@@ -160,6 +165,36 @@ describe("OutboxStore", function () {
             payload: { photo: "file-id", caption: null },
             priority: 3,
         });
+    });
+
+    // 2 ** 53 is the first integer above Number.MAX_SAFE_INTEGER.
+    for (const limit of [0, -1, 2.5, Number.NaN, Number.POSITIVE_INFINITY, 2 ** 53]) {
+        it(`refuses a pull of ${limit} messages and pulls nothing`, async function () {
+            await store.push(message(CHAT, "text"));
+
+            const error = await store.pull(limit, WORKER).then(
+                () => expect.fail("pull() was expected to reject"),
+                (reason: unknown) => reason,
+            );
+
+            expect(error).to.be.instanceOf(InvalidPullLimit);
+            expect((error as InvalidPullLimit).payload).to.deep.equal({ limit });
+            expect(await statuses()).to.deep.equal([OutboxStatus.Pending]);
+        });
+    }
+
+    it("takes a limit and a common number beyond a 32-bit integer", async function () {
+        const aboveInt32 = 2 ** 31;
+        const bigLimitStore = new OutboxStore(
+            database,
+            logger,
+            { ...NO_LIMITS, common: { number: aboveInt32, interval: 1 } },
+            LEASE_DURATION_MS,
+        );
+        // Two chats, so a budget cut down to one message would show.
+        const ids = await bigLimitStore.pushBatch([message(CHAT, "a"), message(OTHER_CHAT, "b")]);
+
+        expect((await bigLimitStore.pull(aboveInt32, WORKER)).messages.map((pulled) => pulled.id)).to.deep.equal(ids);
     });
 
     it("never keeps two messages of a chat in processing", async function () {
@@ -811,6 +846,45 @@ describe("OutboxStore", function () {
                     payload: { chatId: CHAT, messageId: pulled.id, cause: UNEXPECTED },
                 },
             ]);
+        });
+    });
+
+    describe("without the row of the bot limits", function () {
+        // The deleted row goes back as it was, so the spec does not repeat its id.
+        let deletedRows: Record<string, unknown>[] = [];
+
+        beforeEach(async function () {
+            deletedRows = [...(await database.sql<Record<string, unknown>[]>`DELETE FROM telegram_bot_limits RETURNING *`)];
+        });
+
+        // A row lost before this block is not put back: an insert of nothing would throw an error of
+        // its own over the cause, while the later pulls throw BotLimitsRowMissing, which names it.
+        afterEach(async function () {
+            if (deletedRows.length > 0) {
+                await database.sql`INSERT INTO telegram_bot_limits ${database.sql(deletedRows)} ON CONFLICT DO NOTHING`;
+            }
+
+            deletedRows = [];
+        });
+
+        it("refuses a pull instead of reporting that no chat is ready", async function () {
+            await store.push(message(CHAT, "text"));
+
+            const error = await store.pull(10, WORKER).then(
+                () => expect.fail("pull() was expected to reject"),
+                (reason: unknown) => reason,
+            );
+
+            expect(error).to.be.instanceOf(BotLimitsRowMissing);
+        });
+
+        it("refuses a pause instead of changing nothing", async function () {
+            const error = await store.pause(1).then(
+                () => expect.fail("pause() was expected to reject"),
+                (reason: unknown) => reason,
+            );
+
+            expect(error).to.be.instanceOf(BotLimitsRowMissing);
         });
     });
 

@@ -14,8 +14,9 @@ export type LoggerConfig = {
 };
 
 // The bot limits by scope: a common one over all outgoing traffic and one each for a private
-// chat and a group. Which one a partition gets is decided by TelegramLimitResolver, not by the
-// queue itself.
+// chat and a group. Which one a partition of the in-memory queue gets is decided by
+// TelegramLimitResolver, not by the queue itself; the outbox pull picks it in its SQL
+// (docs/architecture/outbox.md, "Limits").
 export type TelegramLimits = {
     common: Limit;
     private: Limit;

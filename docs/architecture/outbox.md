@@ -23,7 +23,8 @@ The database does not check the values of `status` and `state`: the store writes
 through the `OutboxStatus` and `OutboxChatState` enums (`store/outbox-store.types.ts`). Of these,
 nothing sets `skipped` yet, and `done` rows are not deleted yet.
 `telegram_bot_limits` holds one row, `id = 1`, inserted by the migration; nothing but the code
-keeps it single.
+keeps it single. Without the row `pull()` and `pause()` throw `BotLimitsRowMissing`: the pull
+would otherwise answer as if no chat were ready, and the pause would change nothing.
 
 The **head** of a chat is its first message by `id` among the active statuses (`pending`,
 `processing`). The priority of a chat is the priority of its head, read from the head itself when
@@ -76,7 +77,8 @@ lock.
 
 ## Pull
 
-`pull(limit)` is one statement, atomic without a transaction:
+`pull(limit, worker)` throws `InvalidPullLimit` on a `limit` that is not a whole number from 1 to
+`Number.MAX_SAFE_INTEGER`. Otherwise it is one statement, atomic without a transaction:
 
 1. the bot row, `FOR UPDATE SKIP LOCKED`, if the pause is over, `next_send_at` has passed and a
    chat is ready to be pulled; it gives the budget of the pull (see "Limits"). No row — a pause, a
@@ -135,6 +137,10 @@ queue takes ([`outbound-queue.md`](./outbound-queue.md)). A limit of `number` me
   the next one back for the whole `interval`. So no window of `interval` gets more than `number`
   messages, as with the in-memory queue. Counted from the slots saved up instead, a burst of
   `number` would be followed by a slot every cooldown: nearly twice the limit in one interval.
+  The cooldown counts from the pull, not from the slot, and `nextPullInMs` rounds it up to a whole
+  millisecond, so both the rounding and the latency of the caller come off the rate. With a limit
+  of 30 per 1000 ms the answer is 34 ms, and a caller that pulls 3 ms after it sends a message every
+  37 ms: about 10% under the limit.
 - **The pause.** `pause(durationMs)` sets `paused_until` to `now()` plus the duration, never
   earlier than it is (`greatest`): a 429 that asks for less than the pause left changes nothing.
   The pause stops the pull on every node, since every pull reads the same row. It moves
@@ -149,6 +155,10 @@ counted from `now()` and never below zero. It is `null` when no chat is `ready`:
 to wait for, only a push or a completion brings a message then. A ready chat left out by `limit`
 or skipped as locked no longer holds the answer back: the bot's time decides it, the cooldowns the
 pull has just spent, or zero if it pulled nothing.
+
+The answer is not capped. A long pause or a long interval of a limit, common or chat, gives more
+than a Node timer takes (`ConfigParser.MAX_TIMER_DELAY`; what Node does with more is in
+[`config.md`](./config.md)), so a caller that sleeps on the answer caps it first.
 
 The times are the database's (`now()`), and so is the answer: a duration counted from the pull,
 not a moment. The rule is in [`invariants.md`](./invariants.md), "The outbox".
