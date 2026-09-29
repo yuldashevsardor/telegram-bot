@@ -32,6 +32,8 @@ import { listenTo, waitUntil } from "test/telegram/outbox/outbox-store.helper";
 
 const CHAT = 5_000_000_001;
 const OTHER_CHAT = -1_001_234_567_890;
+// A chat left ready while the others are leased.
+const READY_CHAT = 5_000_000_002;
 const RESPONSE = { message_id: 1 };
 // Longer than any wait of a passing run, shorter than SPEC_TIMEOUT_MS: a hung wait fails with its
 // own message and stops before after() closes the clients.
@@ -806,7 +808,7 @@ describe("OutboxStore", function () {
             const longLeasing = new OutboxStore(database, logger, NO_LIMITS, LEASE_DURATION_MS);
             await longLeasing.push(message(OTHER_CHAT, "leased"));
             await longLeasing.pull(10, WORKER);
-            await store.push(message(OTHER_CHAT - 1, "ready"));
+            await store.push(message(READY_CHAT, "ready"));
             await sleep(SHORT_LEASE_MS * 2);
 
             expect((await store.findExpiredLeases()).map(({ id }) => id)).to.deep.equal([expired.id]);

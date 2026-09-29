@@ -18,9 +18,9 @@ One migration, `1790546834232_telegram-outbox-tables.ts`, creates the three tabl
 column the outbox needs. The columns and what they mean are in its `createTable` calls and
 `comment`s; the comment of `next_attempt_at` is replaced by
 `1790666223510_telegram-outbox-chat-limit-comment.ts` and then, with that of `status`, by
-`1790682156623_telegram-outbox-retry-comments.ts`; the comment of `attempts` is replaced by
-`1790716587328_telegram-outbox-attempt-worker-comment.ts`. There are no indexes besides the primary
-keys yet: they will be picked once the queries of every stage are settled.
+`1790682156623_telegram-outbox-retry-comments.ts`; those of `attempts` and `lock_token` are
+replaced by `1790716587328_telegram-outbox-attempt-worker-comment.ts`. There are no indexes
+besides the primary keys yet: they will be picked once the queries of every stage are settled.
 
 The database does not check the values of `status` and `state`: the store writes them only
 through the `OutboxStatus` and `OutboxChatState` enums (`store/outbox-store.types.ts`). Of these,

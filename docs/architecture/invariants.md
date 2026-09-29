@@ -136,17 +136,17 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   [`outbox.md`](./outbox.md), "The chat lock". `pull()` is the exception with a check of its own
   (same file, "Pull"). The spec lines up only `push()` and `markAsDone()`: a new path that changes a
   chat state outside `complete()` is checked by nothing.
-- **The lease of a pulled chat must outlast the send of its message, unless the lease is
-  extended.** Every chat of a pull is leased from the pull, so a caller that sends the messages of
-  one pull one call after another needs the lease to cover them all, not the longest single call.
-  A lease that ends while its message is still being sent lets the recovery of expired leases
-  (`OutboxFailureHandler.recoverExpiredLeases()`, [`outbox.md`](./outbox.md), "Lease recovery")
-  hand the message to another node, and it goes out twice; the late completion of the first node
-  is fenced off and changes nothing. `OUTBOX_LEASE_DURATION` of `.env.dist` says which call
-  timeout its default covers. Nothing checks the two against each other. An extension may extend
-  only a lease that has not passed: the recovery tells its lease by the token, not by
-  `locked_until`, and takes back the message of a passed lease its node has just extended
-  ([`outbox.md`](./outbox.md), "Lease recovery"). Nothing extends a lease yet.
+- **The lease of a pulled chat must outlast the send of its message, unless the lease is extended.**
+  Every chat of a pull is leased from the pull, so a caller that sends the messages of one pull one
+  call after another needs the lease to cover them all, not the longest single call. A lease that
+  ends while its message is still being sent lets the recovery of expired leases
+  (`OutboxFailureHandler.recoverExpiredLeases()`) hand the message to another node, and it goes out
+  twice; the late completion of the first node is fenced off and changes nothing.
+  `OUTBOX_LEASE_DURATION` of `.env.dist` says which call timeout its default covers. Nothing checks
+  the two against each other. An extension may extend only a lease that has not passed: the recovery
+  tells its lease by the token, not by `locked_until`, and takes back the message of a passed lease
+  its node has just extended ([`outbox.md`](./outbox.md), "Lease recovery"). Nothing extends a lease
+  yet.
 - **The outbox goes by the database clock only.** `next_attempt_at`, `next_send_at` and
   `paused_until` are written and compared with `now()` of PostgreSQL: `pause()` takes a duration,
   and `pull()` answers with a duration, not a moment ([`outbox.md`](./outbox.md), "Limits"). A

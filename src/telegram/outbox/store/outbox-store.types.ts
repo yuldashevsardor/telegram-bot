@@ -74,9 +74,9 @@ export type OutboxAttempt = {
     error: OutboxAttemptError | null;
 };
 
-// What a completion of a pulled message is fenced by: the message and the token of the pull that
-// leased its chat. The start of the attempt and its worker come from the pull too: the completion
-// writes the attempt. A pulled message is a lease itself.
+// What a completion of a leased message is fenced by: the message and the token of the pull that
+// leased its chat. The start of the attempt and its worker go with it: the completion writes the
+// attempt. A pulled message is a lease itself, and so is an expired lease the recovery reads.
 export type OutboxLease = {
     id: number;
     lockToken: string;
