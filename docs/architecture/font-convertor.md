@@ -78,8 +78,9 @@ script text.
 
 The source format is checked twice: by the extension of the name and by the content. The content
 is checked by a `FontValidator` (`validator/`), each of which knows one format.
-`FontValidatorResolver`, a singleton in the container, builds them once and gives a pair the one
-of its source format, so a pair holds the resolver and none of the checks. For five formats the
+`FontValidatorResolver`, a singleton in the container, holds one validator per format and gives a
+pair the one of its source format, so a pair holds the resolver and none of the checks. It builds
+the signature validators itself; the SVG one comes from the container. For five formats the
 validator is `SignatureFontValidator`: the first `headLength` bytes of the file against the
 signature (`FontSignatureMatcher`, a singleton in the container). SVG has no signature: its first
 bytes could say at most "this is markup", not "this is a font", so `SvgFontValidator` below reads
