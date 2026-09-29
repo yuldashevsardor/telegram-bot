@@ -29,6 +29,8 @@ function inline(font: string): string {
 
 describe("SvgFontValidator.validate", function () {
     let workDir: string;
+    // The file every inline document is written to: each answer names it in its payload.
+    let fontPath: string;
     let fixture: string;
     // The fixture with neither the XML declaration nor its line break: a document for the prologues.
     let bare: string;
@@ -40,6 +42,7 @@ describe("SvgFontValidator.validate", function () {
 
     beforeEach(async function () {
         workDir = await fs.mkdtemp(path.join(os.tmpdir(), "svg-font-validator-"));
+        fontPath = path.join(workDir, `font.${Extension.SVG}`);
     });
 
     afterEach(async function () {
@@ -168,7 +171,7 @@ describe("SvgFontValidator.validate", function () {
                 "File is not XML: its bytes are not valid utf-8.",
             );
 
-            expect(error.payload).to.deep.equal({ encoding: "utf-8" });
+            expect(error.payload).to.deep.equal({ path: fontPath, encoding: "utf-8" });
             expect(error.cause).to.be.instanceOf(TypeError);
         });
 
@@ -258,7 +261,7 @@ describe("SvgFontValidator.validate", function () {
                 `File is not SVG: the root element is {http://www.w3.org/1999/xhtml}html, expected ${SVG_ROOT}.`,
             );
 
-            expect(error.payload).to.deep.equal({ root: "{http://www.w3.org/1999/xhtml}html", rootLength: 34 });
+            expect(error.payload).to.deep.equal({ path: fontPath, root: "{http://www.w3.org/1999/xhtml}html", rootLength: 34 });
         });
 
         it("to an svg root without xmlns and without the SVG 1.1 DOCTYPE", async function () {
@@ -295,7 +298,7 @@ describe("SvgFontValidator.validate", function () {
             for (const [document, quoted, rootLength] of cases) {
                 const error = await expectAnswer(document, NotSvg, `File is not SVG: the root element is ${quoted}, expected ${SVG_ROOT}.`);
 
-                expect(error.payload).to.deep.equal({ root: quoted, rootLength: rootLength });
+                expect(error.payload).to.deep.equal({ path: fontPath, root: quoted, rootLength: rootLength });
             }
         });
 
@@ -327,6 +330,7 @@ describe("SvgFontValidator.validate", function () {
             );
 
             expect(error.payload).to.deep.equal({
+                path: fontPath,
                 rule: FontRule.AdvanceRequired,
                 element: "font",
                 line: 2,
@@ -357,6 +361,7 @@ describe("SvgFontValidator.validate", function () {
                     );
 
                     expect(error.payload).to.deep.equal({
+                        path: fontPath,
                         rule: FontRule.Number,
                         element: element,
                         line: 2,
@@ -438,6 +443,7 @@ describe("SvgFontValidator.validate", function () {
                 );
 
                 expect(error.payload).to.deep.equal({
+                    path: fontPath,
                     rule: FontRule.PathData,
                     element: element,
                     line: 2,
@@ -531,18 +537,24 @@ describe("SvgFontValidator.validate", function () {
     });
 
     async function validate(content: string | Uint8Array): Promise<void> {
-        const filePath = path.join(workDir, `font.${Extension.SVG}`);
-
-        await fs.writeFile(filePath, content);
-        await validator.validate(filePath);
+        await fs.writeFile(fontPath, content);
+        await validator.validate(fontPath);
     }
 
+    /**
+     * Checks, besides the class and the message, that the answer names the rejected file, as every
+     * answer of the validator does.
+     */
     async function expectAnswer<T extends InvalidSvgFont>(
         content: string | Uint8Array,
         expected: new (...params: never) => T,
         message?: string,
     ): Promise<T> {
-        return expectRejection(() => validate(content), expected, message);
+        const error = await expectRejection(() => validate(content), expected, message);
+
+        expect(error.payload).to.include({ path: fontPath });
+
+        return error;
     }
 });
 
