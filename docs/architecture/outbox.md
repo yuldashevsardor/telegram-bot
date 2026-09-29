@@ -12,7 +12,7 @@ payload codec.
 
 One migration, `1790546834232_telegram-outbox-tables.ts`, creates the three tables with every
 column the outbox needs, including those only later stages use (`attempts`, the lease of a pulled
-chat in `locked_until` and `lock_token`, `telegram_bot_limits`). The columns and what they mean
+chat in `locked_until` and `lock_token`). The columns and what they mean
 are in its `createTable` calls and `comment`s; the comment of `next_attempt_at` is replaced by
 `1790666223510_telegram-outbox-chat-limit-comment.ts`. There are no indexes besides the primary
 keys yet: they will be picked once the queries of every stage are settled.
@@ -69,9 +69,10 @@ lock.
 
 `pull(limit)` is one statement, atomic without a transaction:
 
-1. the bot row, `FOR UPDATE SKIP LOCKED`, if the pause is over and `next_send_at` has passed; it
-   gives the budget of the pull (see "Limits"). No row — a pause, a spent common limit or another
-   puller holding the row — means a budget of zero;
+1. the bot row, `FOR UPDATE SKIP LOCKED`, if the pause is over, `next_send_at` has passed and a
+   chat is ready to be pulled; it gives the budget of the pull (see "Limits"). No row — a pause, a
+   spent common limit, nothing to pull or another puller holding the row — means a budget of zero.
+   A pull with nothing to take does not lock the row, so it does not hold back a pull that has;
 2. up to the budget of `ready` chats whose `next_attempt_at` has passed, with the head of each
    (`CROSS JOIN LATERAL`), by the priority of the head, then by `next_attempt_at`, then by
    `chat_id`, `FOR UPDATE OF chats SKIP LOCKED`: a chat another puller holds is skipped, not
@@ -122,8 +123,8 @@ queue takes ([`outbound-queue.md`](./outbound-queue.md)). A limit of `number` me
   The pause stops the pull on every node, since every pull reads the same row. It moves
   `next_send_at` to its end as well, so the slots come due from there one by one: the first pull
   after a 429 gets one message, not a burst of `number`. A duration that is negative, `NaN` or
-  infinite throws `InvalidPauseDuration`: an infinite pause would never end, and `greatest` would
-  keep it.
+  above `Number.MAX_SAFE_INTEGER` throws `InvalidPauseDuration`: an infinite pause would never end,
+  and `greatest` would keep it, while `1e17` ms overflows the interval PostgreSQL adds to `now()`.
 
 `nextPullInMs` is the later of the nearest `next_attempt_at` among the `ready` chats not pulled by
 this pull and the bot's own time — `next_send_at` after the pull, or `paused_until` if later —

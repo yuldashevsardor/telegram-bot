@@ -3,6 +3,7 @@ import type { Database, Sql } from "app/platform/database/database";
 import { Tokens } from "app/shared/tokens";
 import type { TelegramLimits } from "app/bootstrap/config/config-values";
 import { configValue } from "app/shared/config-value";
+import { MS_PER_SECOND } from "app/shared/time";
 import type { OutboxJson, OutboxMessageInput, OutboxPull, OutboxPullRow } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxChatState, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
 import { InvalidPauseDuration, OutboxMessageNotProcessing } from "app/telegram/outbox/store/outbox-store.errors";
@@ -16,13 +17,9 @@ const ACTIVE_STATUSES = [OutboxStatus.Pending, OutboxStatus.Processing, OutboxSt
 // The single row of telegram_bot_limits.
 const BOT_LIMITS_ID = 1;
 
-const MS_PER_SECOND = 1000;
-
-// The time a limit leaves between two messages, as the in-memory queue spaces them. LIMIT_*_NUMBER is
-// at least 1, so the cooldown is finite.
-function cooldownMs(limit: TelegramLimits["common"]): number {
-    return limit.interval / limit.number;
-}
+// The longest pause PostgreSQL can still add to now(), some 285 000 years: 1e17 ms overflows the
+// interval.
+const MAX_PAUSE_MS = Number.MAX_SAFE_INTEGER;
 
 // The rows and the chat states of the outbox: the model is in docs/architecture/outbox.md.
 @injectable()
@@ -101,7 +98,7 @@ export class OutboxStore {
     // priority, so a caller that sends them in order sends the urgent first.
     public async pull(limit: number): Promise<OutboxPull> {
         const common = this.limits.common;
-        const commonCooldownMs = cooldownMs(common);
+        const commonCooldownMs = this.cooldownMs(common);
 
         const [row] = await this.sql<OutboxPullRow[]>`
             WITH bot AS (
@@ -116,6 +113,13 @@ export class OutboxStore {
                 WHERE id = ${BOT_LIMITS_ID}
                   AND next_send_at <= now()
                   AND (paused_until IS NULL OR paused_until <= now())
+                  -- A pull with nothing to take leaves the row to the pulls that have something.
+                  AND EXISTS (
+                      SELECT 1
+                      FROM telegram_outbox_chats
+                      WHERE state = ${OutboxChatState.Ready}
+                        AND next_attempt_at <= now()
+                  )
                 FOR UPDATE SKIP LOCKED
             ),
             heads AS (
@@ -151,8 +155,8 @@ export class OutboxStore {
                 UPDATE telegram_outbox_chats
                 SET state = ${OutboxChatState.Processing},
                     next_attempt_at = now() + CASE
-                        WHEN telegram_outbox_chats.chat_id < 0 THEN ${cooldownMs(this.limits.group)}::double precision
-                        ELSE ${cooldownMs(this.limits.private)}::double precision
+                        WHEN telegram_outbox_chats.chat_id < 0 THEN ${this.cooldownMs(this.limits.group)}::double precision
+                        ELSE ${this.cooldownMs(this.limits.private)}::double precision
                     END * interval '1 millisecond',
                     updated_at = now()
                 FROM pulled
@@ -183,10 +187,7 @@ export class OutboxStore {
             )
             SELECT (
                        SELECT coalesce(
-                           jsonb_agg(
-                               jsonb_build_object('id', id, 'chatId', chat_id, 'method', method, 'payload', payload, 'priority', priority)
-                               ORDER BY priority, id
-                           ),
+                           jsonb_agg(to_jsonb(pulled) ORDER BY priority, id),
                            '[]'::jsonb
                        )
                        FROM pulled
@@ -203,7 +204,16 @@ export class OutboxStore {
         // A statement without FROM returns exactly one row.
         const pullRow = row as OutboxPullRow;
 
-        return { messages: pullRow.messages, nextPullInMs: pullRow.next_pull_in_ms };
+        return {
+            messages: pullRow.messages.map((message) => ({
+                id: message.id,
+                chatId: message.chat_id,
+                method: message.method,
+                payload: message.payload,
+                priority: message.priority,
+            })),
+            nextPullInMs: pullRow.next_pull_in_ms,
+        };
     }
 
     // Stops the pull on every node until now() + durationMs by the database clock. A pause is never
@@ -211,17 +221,25 @@ export class OutboxStore {
     // starts over from the end of the pause, so the pull does not resume with a burst of saved slots.
     // An infinite duration would stop the outbox for good, and greatest() would keep it.
     public async pause(durationMs: number): Promise<void> {
-        if (!Number.isFinite(durationMs) || durationMs < 0) {
+        // NaN passes both comparisons, so it needs isNaN(); an infinity fails one of them.
+        if (Number.isNaN(durationMs) || durationMs < 0 || durationMs > MAX_PAUSE_MS) {
             throw InvalidPauseDuration.of(durationMs);
         }
 
         await this.sql`
             UPDATE telegram_bot_limits
-            SET paused_until = greatest(paused_until, now() + ${durationMs}::double precision * interval '1 millisecond'),
-                next_send_at = greatest(next_send_at, paused_until, now() + ${durationMs}::double precision * interval '1 millisecond'),
+            SET paused_until = greatest(paused_until, pause.ends_at),
+                next_send_at = greatest(next_send_at, paused_until, pause.ends_at),
                 updated_at = now()
+            FROM (SELECT now() + ${durationMs}::double precision * interval '1 millisecond' AS ends_at) AS pause
             WHERE id = ${BOT_LIMITS_ID}
         `;
+    }
+
+    // The time a limit leaves between two messages, as the in-memory queue spaces them. LIMIT_*_NUMBER
+    // is at least 1, so the cooldown is finite.
+    private cooldownMs(limit: TelegramLimits["common"]): number {
+        return limit.interval / limit.number;
     }
 
     // messageId is telegram_outbox.id. A message that is missing or not processing throws

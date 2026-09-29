@@ -6,6 +6,7 @@ import { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxMessageInput } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxChatState, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
 import { InvalidPauseDuration, OutboxMessageNotProcessing } from "app/telegram/outbox/store/outbox-store.errors";
+import { MS_PER_SECOND } from "app/shared/time";
 import { sleep } from "app/shared/utils";
 import { testDatabaseSettings } from "test/database.helper";
 
@@ -21,7 +22,6 @@ const SPEC_TIMEOUT_MS = 10_000;
 // microsecond of a timestamp, and a common limit no pull reaches.
 const NO_LIMIT: TelegramLimits["common"] = { number: 1_000_000, interval: 1 };
 const NO_LIMITS: TelegramLimits = { common: NO_LIMIT, private: NO_LIMIT, group: NO_LIMIT };
-const MS_PER_SECOND = 1000;
 
 type ChatRow = { state: string };
 
@@ -193,7 +193,8 @@ describe("OutboxStore", function () {
         expect((await store.pull(10)).messages.map(({ id }) => id)).to.deep.equal([urgent, later]);
     });
 
-    // The chats of one pull get the same next_attempt_at, the time of the statement. Without the
+    // The chats of one pull get the same next_attempt_at: with NO_LIMITS the cooldown of a private
+    // chat and of a group is a nanosecond, so both round to the time of the statement. Without the
     // chat_id key their next turn follows the order PostgreSQL meets the tied rows in, which tends to
     // be the order of completion: the spec completes them in both orders, and one of them fails then.
     for (const completedFirst of [CHAT, OTHER_CHAT]) {
@@ -319,7 +320,10 @@ describe("OutboxStore", function () {
         // Three messages a 3 s interval, a second apart.
         const COMMON_COOLDOWN_MS = 1_000;
         const COMMON_INTERVAL_MS = 3 * COMMON_COOLDOWN_MS;
-        const COMMON_LIMITS: TelegramLimits = { ...NO_LIMITS, common: { number: 3, interval: COMMON_INTERVAL_MS } };
+        const COMMON_NUMBER = 3;
+        const COMMON_LIMITS: TelegramLimits = { ...NO_LIMITS, common: { number: COMMON_NUMBER, interval: COMMON_INTERVAL_MS } };
+        // More ready chats than the common limit gives out at once.
+        const MANY_CHATS = Array.from({ length: COMMON_NUMBER + 2 }, (_, index) => index + 1);
         const PAUSE_MS = 60_000;
         // A pause shorter than the pause asked for, which must not shorten it.
         const SHORTER_PAUSE_MS = PAUSE_MS / 2;
@@ -367,9 +371,9 @@ describe("OutboxStore", function () {
         it("gives a batch no more messages than the common limit allows now", async function () {
             const limited = new OutboxStore(database, COMMON_LIMITS);
 
-            await limited.pushBatch([1, 2, 3, 4, 5].map((chatId) => message(chatId, "text")));
+            await limited.pushBatch(MANY_CHATS.map((chatId) => message(chatId, "text")));
 
-            expect((await limited.pull(10)).messages).to.have.lengthOf(3);
+            expect((await limited.pull(10)).messages).to.have.lengthOf(COMMON_NUMBER);
 
             const spent = await limited.pull(10);
 
@@ -382,7 +386,7 @@ describe("OutboxStore", function () {
         it("holds the next message back a cooldown per message of the batch, from the pull", async function () {
             const limited = new OutboxStore(database, COMMON_LIMITS);
 
-            await limited.pushBatch([1, 2, 3, 4, 5].map((chatId) => message(chatId, "text")));
+            await limited.pushBatch(MANY_CHATS.map((chatId) => message(chatId, "text")));
             await limited.pull(10);
 
             expect(await nextSendAfterUpdateMs()).to.equal(COMMON_INTERVAL_MS);
@@ -396,7 +400,7 @@ describe("OutboxStore", function () {
         it("gives out only the slots of the common limit that have come due", async function () {
             const limited = new OutboxStore(database, COMMON_LIMITS);
 
-            await limited.pushBatch([1, 2, 3, 4, 5].map((chatId) => message(chatId, "text")));
+            await limited.pushBatch(MANY_CHATS.map((chatId) => message(chatId, "text")));
             // Two slots have come due: at next_send_at and a cooldown later; the third is half a
             // cooldown away.
             const twoSlotsAgoMs = COMMON_COOLDOWN_MS + COMMON_COOLDOWN_MS / 2;
@@ -429,14 +433,15 @@ describe("OutboxStore", function () {
         it("resumes the pull after a pause with one slot of the common limit, not a burst", async function () {
             const limited = new OutboxStore(database, COMMON_LIMITS);
 
-            await limited.pushBatch([1, 2, 3, 4, 5].map((chatId) => message(chatId, "text")));
+            await limited.pushBatch(MANY_CHATS.map((chatId) => message(chatId, "text")));
             await limited.pause(SHORT_PAUSE_MS);
             await sleep(2 * SHORT_PAUSE_MS);
 
             expect((await limited.pull(10)).messages).to.have.lengthOf(1);
         });
 
-        for (const durationMs of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+        // 1e17 ms is finite, but overflows the interval PostgreSQL adds to now().
+        for (const durationMs of [-1, Number.NaN, Number.POSITIVE_INFINITY, 1e17]) {
             it(`refuses a pause of ${durationMs} ms and changes nothing`, async function () {
                 const error = await store.pause(durationMs).then(
                     () => expect.fail("pause() was expected to reject"),

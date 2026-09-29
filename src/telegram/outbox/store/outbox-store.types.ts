@@ -47,9 +47,17 @@ export type OutboxPull = {
     nextPullInMs: number | null;
 };
 
-// The single row of a pull as postgres returns it. The messages come as jsonb, where a bigint is a
-// number, not a string.
+// A pulled row as the pull returns it inside jsonb, where a bigint is a number, not a string.
+export type PulledOutboxRow = {
+    id: number;
+    chat_id: number;
+    method: string;
+    payload: OutboxPayload;
+    priority: number;
+};
+
+// The single row of a pull as postgres returns it.
 export type OutboxPullRow = {
-    messages: PulledOutboxMessage[];
+    messages: PulledOutboxRow[];
     next_pull_in_ms: number | null;
 };

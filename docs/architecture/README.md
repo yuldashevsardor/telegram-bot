@@ -146,7 +146,7 @@ src/
       parser/               ConfigParser: strict parsing of the strings of a source snapshot (config.md)
       storage/              ConfigStorage and WatchableConfigStorage, the watchability guard (config-storage.helper.ts), sources: env and file (config.md)
   shared/                   RuntimeError, cross-cutting types, the DI token dictionary, configValue (application.md);
-                            NumberHelper, utils (sleep, withTimeout)
+                            NumberHelper, utils (sleep, withTimeout), time units (time.ts)
     fs/                     FileHelper
     process/                ProcessHelper — running external processes (invariants.md)
     string/                 StringHelper
