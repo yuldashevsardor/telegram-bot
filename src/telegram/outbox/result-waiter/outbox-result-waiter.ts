@@ -4,11 +4,12 @@ import { Tokens } from "app/shared/tokens";
 import { configValue } from "app/shared/config-value";
 import type { FinishedOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
 import type { FinishedMessageSource, OutboxResultWaiterSettings } from "app/telegram/outbox/result-waiter/outbox-result-waiter.types";
-import { OutboxResultTimeout } from "app/telegram/outbox/result-waiter/outbox-result-waiter.errors";
+import { OutboxResultTimeout, OutboxResultWaiterStopped } from "app/telegram/outbox/result-waiter/outbox-result-waiter.errors";
 
 type PendingResult = {
     promise: Promise<FinishedOutboxMessage>;
     resolve: (message: FinishedOutboxMessage) => void;
+    reject: (error: Error) => void;
     timeoutTimer: NodeJS.Timeout;
 };
 
@@ -18,8 +19,10 @@ type PendingResult = {
 @injectable()
 export class OutboxResultWaiter {
     private readonly pendingResults = new Map<number, PendingResult>();
-    private isListening = false;
+    private hasStartedListening = false;
     private isPolling = false;
+    // A poll asked for while another one runs, which the running one may predate.
+    private shouldPollAgain = false;
     private pollTimer: NodeJS.Timeout | undefined;
 
     public constructor(
@@ -44,31 +47,53 @@ export class OutboxResultWaiter {
             reject(OutboxResultTimeout.of(messageId, this.settings.timeoutMs));
         }, this.settings.timeoutMs);
 
-        this.pendingResults.set(messageId, { promise: promise, resolve: resolve, timeoutTimer: timeoutTimer });
+        this.pendingResults.set(messageId, { promise: promise, resolve: resolve, reject: reject, timeoutTimer: timeoutTimer });
         this.listen();
         this.startPolling();
 
         return promise;
     }
 
-    // Started by the first wait. A failed start leaves the waits to the poll, and the next wait tries
-    // again.
+    // Rejects every pending wait with OutboxResultWaiterStopped and clears the timers, so a node
+    // that shuts down neither polls a closed database nor is held up by a wait. The listening ends
+    // with Database.close(). A wait started afterwards works as before.
+    public stop(): void {
+        for (const [messageId, pendingResult] of this.pendingResults) {
+            this.forget(messageId);
+            pendingResult.reject(OutboxResultWaiterStopped.of(messageId));
+        }
+    }
+
+    // Started once, by the first wait. postgres.js keeps the listener of a failed LISTEN and
+    // subscribes it again when its listening connection closes, so a second call would add a second
+    // listener rather than retry (listen() in postgres.js src/index.js). Until then the poll serves.
     private listen(): void {
-        if (this.isListening) {
+        if (this.hasStartedListening) {
             return;
         }
 
-        this.isListening = true;
+        this.hasStartedListening = true;
 
         this.source
             .listenForFinished(
                 (messageId) => void this.onFinished(messageId),
-                () => void this.poll(),
+                () => void this.pollAfterRunningOne(),
             )
             .catch((error: unknown) => {
-                this.isListening = false;
                 this.logger.warning("Listening for finished outbox messages failed, the waits rely on the poll.", { cause: error });
             });
+    }
+
+    // A poll that runs when the listening starts may have read the table before the LISTEN, and so
+    // miss a message finished in between: a fresh one follows it.
+    private async pollAfterRunningOne(): Promise<void> {
+        if (this.isPolling) {
+            this.shouldPollAgain = true;
+
+            return;
+        }
+
+        await this.poll();
     }
 
     // Every node hears every message; only the ones waited for here are read.
@@ -102,6 +127,11 @@ export class OutboxResultWaiter {
             await this.settleFinished([...this.pendingResults.keys()]);
         } finally {
             this.isPolling = false;
+        }
+
+        if (this.shouldPollAgain) {
+            this.shouldPollAgain = false;
+            await this.poll();
         }
     }
 

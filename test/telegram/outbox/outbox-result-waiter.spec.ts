@@ -3,7 +3,7 @@ import type { Logger } from "app/platform/logger/logger";
 import type { UnknownObject } from "app/shared/types";
 import { sleep } from "app/shared/utils";
 import { OutboxResultWaiter } from "app/telegram/outbox/result-waiter/outbox-result-waiter";
-import { OutboxResultTimeout } from "app/telegram/outbox/result-waiter/outbox-result-waiter.errors";
+import { OutboxResultTimeout, OutboxResultWaiterStopped } from "app/telegram/outbox/result-waiter/outbox-result-waiter.errors";
 import type { FinishedMessageSource, OutboxResultWaiterSettings } from "app/telegram/outbox/result-waiter/outbox-result-waiter.types";
 import type { FinishedOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
@@ -205,11 +205,11 @@ describe("OutboxResultWaiter", function () {
         // The poll starts its lookup before the timeout.
         const waiter = build(source, { timeoutMs: QUIET_MS, pollIntervalMs: SOON_MS });
         const lookup = source.holdLookups();
+        source.finish(MESSAGE);
 
         const result = waiter.wait(MESSAGE.id);
         await waitFor(() => source.lookups.length === 1);
         const error = await rejection(result);
-        source.finish(MESSAGE);
         lookup.resolve();
         await sleep(QUIET_MS);
 
@@ -258,7 +258,7 @@ describe("OutboxResultWaiter", function () {
         expect(await rejection(pending)).to.be.instanceOf(OutboxResultTimeout);
     });
 
-    it("listens once for every wait", async function () {
+    it("listens once for all the waits", async function () {
         const source = new FakeSource();
         const waiter = build(source);
 
@@ -272,30 +272,101 @@ describe("OutboxResultWaiter", function () {
         expect(source.listenCount).to.equal(1);
     });
 
-    it("leaves the waits to the poll and listens again on the next wait when listening fails", async function () {
+    it("logs a failed start of the listening and leaves the waits to the poll", async function () {
         const source = new FakeSource();
         const logger = new RecordingLogger();
         const waiter = build(source, { pollIntervalMs: SOON_MS }, logger);
         const listenError = new Error("connection refused");
         source.listenError = listenError;
 
-        const first = waiter.wait(MESSAGE.id);
+        const result = waiter.wait(MESSAGE.id);
         source.finish(MESSAGE);
 
-        expect(await first).to.deep.equal(MESSAGE);
+        expect(await result).to.deep.equal(MESSAGE);
         expect(logger.warnings).to.deep.equal([
             {
                 message: "Listening for finished outbox messages failed, the waits rely on the poll.",
                 payload: { cause: listenError },
             },
         ]);
+    });
 
-        source.listenError = undefined;
+    // postgres.js keeps the listener of a failed LISTEN and subscribes it again itself: a second
+    // call would leave two listeners, and every notification would be read twice.
+    it("does not start the listening again after a failed start", async function () {
+        const source = new FakeSource();
+        const waiter = build(source, { pollIntervalMs: SOON_MS });
+        source.listenError = new Error("connection refused");
+
+        const first = waiter.wait(MESSAGE.id);
+        source.finish(MESSAGE);
+        await first;
         const second = waiter.wait(OTHER_MESSAGE.id);
         source.finish(OTHER_MESSAGE);
         await second;
 
-        expect(source.listenCount).to.equal(2);
+        expect(source.listenCount).to.equal(1);
+    });
+
+    it("polls again once a running poll ends when the listening starts meanwhile", async function () {
+        const source = new FakeSource();
+        const waiter = build(source);
+        const lookup = source.holdLookups();
+
+        const result = waiter.wait(MESSAGE.id);
+        source.listenStarted();
+        await waitFor(() => source.lookups.length === 1);
+        // Finished after the running lookup has read, and notified while nobody listened.
+        source.finish(MESSAGE);
+        source.listenStarted();
+        lookup.resolve();
+
+        expect(await result).to.deep.equal(MESSAGE);
+        expect(source.lookups).to.have.length(2);
+    });
+
+    it("rejects every pending wait with OutboxResultWaiterStopped on stop()", async function () {
+        const waiter = build(new FakeSource());
+
+        const first = waiter.wait(MESSAGE.id);
+        const second = waiter.wait(OTHER_MESSAGE.id);
+        waiter.stop();
+        const errors = [await rejection(first), await rejection(second)];
+
+        expect(errors.map((error) => (error as OutboxResultWaiterStopped).payload)).to.deep.equal([
+            { messageId: MESSAGE.id },
+            { messageId: OTHER_MESSAGE.id },
+        ]);
+        expect(errors[0]).to.be.instanceOf(OutboxResultWaiterStopped);
+        expect((errors[0] as OutboxResultWaiterStopped).message).to.equal(`The wait for outbox message ${MESSAGE.id} was stopped.`);
+    });
+
+    it("leaves no timer behind after stop()", async function () {
+        const waiter = build(new FakeSource());
+        // mocha starts the timer of the test once the synchronous part of the test has returned.
+        await Promise.resolve();
+        const timerCount = activeTimerCount();
+
+        const results = [waiter.wait(MESSAGE.id), waiter.wait(OTHER_MESSAGE.id)];
+        waiter.stop();
+        await Promise.all(results.map(rejection));
+
+        // At most: a timer of another spec may expire meanwhile.
+        expect(activeTimerCount()).to.be.at.most(timerCount);
+    });
+
+    it("waits anew for a message after stop()", async function () {
+        const source = new FakeSource();
+        const waiter = build(source);
+
+        const stopped = waiter.wait(MESSAGE.id);
+        waiter.stop();
+        await rejection(stopped);
+        source.finish(MESSAGE);
+        const result = waiter.wait(MESSAGE.id);
+        source.notify(MESSAGE.id);
+
+        expect(await result).to.deep.equal(MESSAGE);
     });
 
     it("logs a failed lookup and settles the wait by the next poll", async function () {
@@ -333,13 +404,16 @@ class FakeSource implements FinishedMessageSource {
 
     public async findFinished(messageIds: number[]): Promise<FinishedOutboxMessage[]> {
         this.lookups.push(messageIds);
+        // Read when the lookup starts, as a query reads its snapshot: a message finished while the
+        // lookup is held is not in its answer.
+        const finishedMessages = messageIds.flatMap((messageId) => this.finished.get(messageId) ?? []);
         await this.heldLookup;
 
         if (this.lookupError !== undefined) {
             throw this.lookupError;
         }
 
-        return messageIds.flatMap((messageId) => this.finished.get(messageId) ?? []);
+        return finishedMessages;
     }
 
     public async listenForFinished(onFinished: (messageId: number) => void, onListen: () => void): Promise<void> {

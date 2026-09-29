@@ -168,20 +168,32 @@ resolves too: the caller reads the status.
   Telegram response can take. Every listening node hears every id; the waiter reads the row of an
   id it waits for with `findFinished()` and ignores the rest. PostgreSQL delivers a notification on
   commit, so the row read on it has the outcome.
-- **The listening** starts with the first wait, through `sql.listen()` on a connection of its own
-  ([`storage.md`](./storage.md), "LISTEN"). A failed start is logged at `warning`, and the next wait
-  tries again.
+- **The listening** starts once, with the first wait, through `sql.listen()` on a connection of
+  its own ([`storage.md`](./storage.md), "LISTEN"). A failed start is logged at `warning` and is
+  not repeated: postgres.js keeps the listener of a failed `LISTEN` and subscribes it again when
+  its listening connection closes, so a second call would add a second listener, and every
+  notification would be read twice (`listen()` in postgres.js `src/index.js`).
 - **The poll.** A notification sent while the listening connection is down, or before it is up,
   reaches no one. So one `findFinished()` query looks up every id waited for: every
-  `OUTBOX_RESULT_POLL_INTERVAL` ms while any is waited for, and at once each time the listening
-  starts, the first time and after postgres.js opens the connection again. A tick that comes while
-  the previous poll still runs is skipped. A failed lookup is logged at `warning` and left to the
-  next poll.
+  `OUTBOX_RESULT_POLL_INTERVAL` ms while any is waited for, and each time the listening starts,
+  the first time and after postgres.js opens the connection again. A tick that comes while the
+  previous poll still runs is skipped. A start of the listening is not: the running poll may have
+  read the table before the `LISTEN`, so a new poll follows it. A failed lookup is logged at
+  `warning` and left to the next poll.
+- **A message finished before its wait.** Its notification finds no one waiting for its id, so the
+  first poll finds it, up to `OUTBOX_RESULT_POLL_INTERVAL` ms late. The caller waits right after
+  `push()` returns, while the message still has to be pulled and sent, so the window is narrow, and
+  no lookup is spent on every wait to close it.
 - **The timeout.** A wait rejects with `OutboxResultTimeout` after `OUTBOX_RESULT_TIMEOUT` ms and
   the id is forgotten: a later notification or poll leaves it alone. The message stays in the outbox
   and may still be sent.
 
 A second wait for an id still waited for gets the same promise.
+
+`stop()` rejects every pending wait with `OutboxResultWaiterStopped` and clears the timers: a node
+that shuts down neither polls its closed database nor is held up by a wait until its timeout.
+Nothing calls it yet: the waits have no caller yet either. The listening ends with
+`Database.close()`.
 
 ## The store in code
 

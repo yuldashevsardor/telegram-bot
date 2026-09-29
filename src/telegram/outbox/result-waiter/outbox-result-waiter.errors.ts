@@ -8,3 +8,11 @@ export class OutboxResultTimeout extends RuntimeError {
         });
     }
 }
+
+export class OutboxResultWaiterStopped extends RuntimeError {
+    public static of(messageId: number): OutboxResultWaiterStopped {
+        return new OutboxResultWaiterStopped(`The wait for outbox message ${messageId} was stopped.`, {
+            messageId: messageId,
+        });
+    }
+}

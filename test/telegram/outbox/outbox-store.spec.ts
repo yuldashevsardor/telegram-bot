@@ -30,6 +30,10 @@ const SPEC_TIMEOUT_MS = 10_000;
 // microsecond of a timestamp, and a common limit no pull reaches.
 const NO_LIMIT: TelegramLimits["common"] = { number: 1_000_000, interval: 1 };
 const NO_LIMITS: TelegramLimits = { common: NO_LIMIT, private: NO_LIMIT, group: NO_LIMIT };
+// The poll of the waiter specs that rely on it: many polls within a test.
+const FAST_POLL_MS = 20;
+// The timeout of the waiter spec that times out: over long before WAIT_DEADLINE_MS.
+const SHORT_WAIT_TIMEOUT_MS = 50;
 
 type ChatRow = { state: string };
 
@@ -720,7 +724,7 @@ describe("OutboxStore", function () {
         });
 
         it("settles a wait by the poll when the message finishes without a notification", async function () {
-            const waiter = new OutboxResultWaiter(source, silentLogger(), { timeoutMs: WAIT_DEADLINE_MS, pollIntervalMs: 20 });
+            const waiter = new OutboxResultWaiter(source, silentLogger(), { timeoutMs: WAIT_DEADLINE_MS, pollIntervalMs: FAST_POLL_MS });
             const id = await store.push(message(CHAT, "first"));
 
             const result = waiter.wait(id);
@@ -730,7 +734,10 @@ describe("OutboxStore", function () {
         });
 
         it("rejects a wait on timeout and does not read its message when it finishes", async function () {
-            const waiter = new OutboxResultWaiter(source, silentLogger(), { timeoutMs: 50, pollIntervalMs: SPEC_TIMEOUT_MS });
+            const waiter = new OutboxResultWaiter(source, silentLogger(), {
+                timeoutMs: SHORT_WAIT_TIMEOUT_MS,
+                pollIntervalMs: SPEC_TIMEOUT_MS,
+            });
             const id = await store.push(message(CHAT, "first"));
             await store.pull(10);
 

@@ -61,11 +61,15 @@ migration adds a column before `value`, the query silently shifts the values
 
 ## When a storage gets an interface
 
-`PgsqlStorage` has no storage interface of its own, on purpose. Only `users` has one:
+`PgsqlStorage` has no storage interface of its own, on purpose. `users` and the outbox store have
+one:
 
 - For `users` the consumer declares the interface itself. `UserRepository`
   (`telegram/user/user-repository.ts`) is written for the needs of `UserService`, which is also
   its caller.
+- `OutboxStore` implements `FinishedMessageSource`
+  (`telegram/outbox/result-waiter/outbox-result-waiter.types.ts`), written for the needs of
+  `OutboxResultWaiter`, its caller ([`outbox.md`](./outbox.md), "The store in code").
 - For the session a library sets the interface. `PgsqlStorage` implements grammY's
   `StorageAdapter<SessionPayload>`, because that is exactly the type `session()` takes in
   `Bot.setupSession()`. An interface of our own would only rename a foreign one: nobody would

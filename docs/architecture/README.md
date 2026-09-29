@@ -21,14 +21,14 @@ The runtime sequences live in the files of their subsystems:
   of an outgoing call
 - [`outbox.md`](./outbox.md) — the outbox in PostgreSQL being built to replace the outbound
   queue: the tables, the chat states, push, pull, the limits and the pause, the chat lock, the
-  failure classes, the retry delay and the payload codec
+  failure classes, the retry delay, waiting for the result and the payload codec
 - [`font-convertor.md`](./font-convertor.md) — format pairs, the EOT codec, signatures, the SVG
   validator, running the engine
 - [`user.md`](./user.md) — the entity, the repository, filling the context
 - [`logging.md`](./logging.md) — the port and the adapters, thresholds, request correlation
 - [`i18n.md`](./i18n.md) — locales, Fluent bundles, command descriptions
-- [`storage.md`](./storage.md) — `Database`, migrations, the migration stub, when a storage gets
-  an interface of its own
+- [`storage.md`](./storage.md) — `Database`, the LISTEN connection, migrations, the migration stub,
+  when a storage gets an interface of its own
 - [`config.md`](./config.md) — `ConfigContainer`, its sources, watching the file, change
   subscriptions
 - [`testing.md`](./testing.md) — `mocha`, linters, coverage, gates, mutation testing
