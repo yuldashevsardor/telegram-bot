@@ -5,8 +5,8 @@ The outbox is being built to replace the in-memory outbound queue
 any node sends them, the order inside a chat holds across nodes, and a node that dies loses
 nothing (the plan is epic [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)).
 Nothing calls the directory yet: so far it holds the tables with `OutboxStore`
-(`store/outbox-store.ts`), which pushes, pulls and marks done, the payload codec, and the two pure
-functions of the failure model: the error classes and the retry delay.
+(`store/outbox-store.ts`), which pushes, pulls and marks done, the payload codec, and the two
+decisions of the failure model that need no database: the error classes and the retry delay.
 
 ## Tables
 
@@ -115,15 +115,15 @@ as `PgSqlUserRepository` does ([`storage.md`](./storage.md), "`User.id`").
 
 ## Failures
 
-Nothing acts on a failure yet: the store has no path out of `processing` besides `markAsDone`.
-The two decisions that need no database are pure functions, so mutation testing reaches them.
+Nothing acts on a failure yet. The two decisions that need no database are classes without SQL,
+so mutation testing reaches them.
 
 ### Error classes
 
-`classifyBotApiFailure(error)` (`bot-api-failure.ts`) sorts a failed Bot API call into the four
-classes of the epic ([#618](https://github.com/yuldashevsardor/telegram-bot/issues/618), "Error
-classes"), the `BotApiFailureKind` values. Which error falls into which class is read off the
-branches of the function. What the code does not say is why three of them are drawn where they
+`BotApiFailureClassifier.classify(error)` (`bot-api-failure.ts`) sorts a failed Bot API call into
+the four classes of the epic ([#618](https://github.com/yuldashevsardor/telegram-bot/issues/618),
+"Error classes"), the `BotApiFailureKind` values. Which error falls into which class is read off
+the branches of the method. What the code does not say is why three of them are drawn where they
 are:
 
 - Every 403 is `Undeliverable`, not only the bot blocked or kicked: a 403 is Telegram refusing the
@@ -137,9 +137,10 @@ are:
 
 ### Retry delay
 
-`computeRetryDelayMs()` (`retry-delay.ts`) is how long a message waits before its retry after a
+`RetryDelay.computeMs()` (`retry-delay.ts`) is how long a message waits before its retry after a
 transient failure. The step, its cap, the jitter and why the jitter takes the upper half of the
-step are in the comment above the function.
+step are in the comment above the method. The first step, the cap and the multiplier come from
+the `OUTBOX_RETRY_` variables of `.env.dist`.
 
 ## The payload rule
 

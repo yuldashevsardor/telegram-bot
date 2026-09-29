@@ -41,6 +41,7 @@ describe("ConfigValuesBuilder", () => {
             group: { number: 20, interval: 60000 },
         });
         expect(result.runner).to.deep.equal({ sleepInterval: { min: 10, max: 1000 }, maxRetries: 3 });
+        expect(result.outbox).to.deep.equal({ retryDelay: { firstDelayMs: 1000, maxDelayMs: 60000, multiplier: 2 } });
         expect(result.bot).to.deep.equal({ token: "token", gracefulShutdown: { timeout: 3000 } });
         expect(result.taskQueue).to.deep.equal({ logInterval: 10000, gracefulShutdown: { timeout: 5000, interval: 500 } });
         expect(result.gracefulShutdown).to.deep.equal({ timeout: 15000 });
@@ -70,6 +71,9 @@ describe("ConfigValuesBuilder", () => {
             RUNNER_SLEEP_INTERVAL_MIN: "11",
             RUNNER_SLEEP_INTERVAL_MAX: "1003",
             RUNNER_MAX_RETRIES: "5",
+            OUTBOX_RETRY_FIRST_DELAY: "1004",
+            OUTBOX_RETRY_MAX_DELAY: "60002",
+            OUTBOX_RETRY_DELAY_MULTIPLIER: "3",
             BOT_TOKEN: "own-token",
             BOT_GRACEFUL_SHUTDOWN_TIMEOUT: "3001",
             TASK_QUEUE_LOG_INTERVAL: "10001",
@@ -97,6 +101,7 @@ describe("ConfigValuesBuilder", () => {
             group: { number: 21, interval: 60001 },
         });
         expect(result.runner).to.deep.equal({ sleepInterval: { min: 11, max: 1003 }, maxRetries: 5 });
+        expect(result.outbox).to.deep.equal({ retryDelay: { firstDelayMs: 1004, maxDelayMs: 60002, multiplier: 3 } });
         expect(result.bot).to.deep.equal({ token: "own-token", gracefulShutdown: { timeout: 3001 } });
         expect(result.taskQueue).to.deep.equal({ logInterval: 10001, gracefulShutdown: { timeout: 5001, interval: 501 } });
         expect(result.gracefulShutdown).to.deep.equal({ timeout: 15001 });
@@ -178,6 +183,9 @@ describe("ConfigValuesBuilder", () => {
         { name: "RUNNER_SLEEP_INTERVAL_MIN", below: "0", range: "between 1 and 2147483647" },
         { name: "RUNNER_SLEEP_INTERVAL_MAX", below: "0", range: "between 1 and 2147483647" },
         { name: "RUNNER_MAX_RETRIES", below: "-1", range: "at least 0" },
+        { name: "OUTBOX_RETRY_FIRST_DELAY", below: "0", range: "between 1 and 2147483647" },
+        { name: "OUTBOX_RETRY_MAX_DELAY", below: "0", range: "between 1 and 2147483647" },
+        { name: "OUTBOX_RETRY_DELAY_MULTIPLIER", below: "0", range: "at least 1" },
         { name: "BOT_GRACEFUL_SHUTDOWN_TIMEOUT", below: "-1", range: "between 0 and 2147483647" },
         { name: "TASK_QUEUE_LOG_INTERVAL", below: "0", range: "between 1 and 2147483647" },
         { name: "TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT", below: "-1", range: "between 0 and 2147483647" },
@@ -224,6 +232,19 @@ describe("ConfigValuesBuilder", () => {
         const result = config({ RUNNER_SLEEP_INTERVAL_MIN: "25", RUNNER_SLEEP_INTERVAL_MAX: "25" });
 
         expect(result.runner.sleepInterval).to.deep.equal({ min: 25, max: 25 });
+    });
+
+    it("rejects an outbox retry delay cap below the first step", () => {
+        const error = rejection({ OUTBOX_RETRY_FIRST_DELAY: "5000", OUTBOX_RETRY_MAX_DELAY: "4999" });
+
+        expect(error.message).to.equal("OUTBOX_RETRY_MAX_DELAY must not be less than OUTBOX_RETRY_FIRST_DELAY");
+        expect(error.payload).to.deep.equal({ firstDelay: 5000, maxDelay: 4999 });
+    });
+
+    it("accepts an outbox retry delay cap equal to the first step and a multiplier of 1", () => {
+        const result = config({ OUTBOX_RETRY_FIRST_DELAY: "5000", OUTBOX_RETRY_MAX_DELAY: "5000", OUTBOX_RETRY_DELAY_MULTIPLIER: "1" });
+
+        expect(result.outbox.retryDelay).to.deep.equal({ firstDelayMs: 5000, maxDelayMs: 5000, multiplier: 1 });
     });
 
     it("rejects a shutdown timeout that does not cover the bot and the task queue", () => {

@@ -4,6 +4,7 @@ import { InvalidConfigError } from "app/shared/errors";
 import { ConfigParser } from "app/bootstrap/config/parser/config-parser";
 import type { IntegerRange } from "app/bootstrap/config/parser/config-parser";
 import type { RunnerSettings } from "app/telegram/outbound-queue/runner/runner.types";
+import type { RetryDelaySettings } from "app/telegram/outbox/retry-delay";
 import type { DatabaseSettings } from "app/platform/database/database.types";
 import type { RawConfig } from "app/bootstrap/config/container/config-container.types";
 import type { ConfigBuilder } from "app/bootstrap/config/builder/config-builder";
@@ -56,6 +57,10 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
 
             runner: ConfigValuesBuilder.getRunner(parser),
 
+            outbox: {
+                retryDelay: ConfigValuesBuilder.getOutboxRetryDelay(parser),
+            },
+
             bot: {
                 token: parser.getString("BOT_TOKEN"),
                 gracefulShutdown: {
@@ -102,6 +107,22 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
             sleepInterval: { min: min, max: max },
             maxRetries: maxRetries,
         };
+    }
+
+    // A cap below the first step would make every step the cap, and the growth would never show.
+    private static getOutboxRetryDelay(parser: ConfigParser): RetryDelaySettings {
+        const firstDelayMs = parser.getTimerDelay("OUTBOX_RETRY_FIRST_DELAY", 1000);
+        const maxDelayMs = parser.getTimerDelay("OUTBOX_RETRY_MAX_DELAY", 60 * 1000);
+        const multiplier = parser.getInteger("OUTBOX_RETRY_DELAY_MULTIPLIER", 2, { min: 1 });
+
+        if (maxDelayMs < firstDelayMs) {
+            throw new InvalidConfigError("OUTBOX_RETRY_MAX_DELAY must not be less than OUTBOX_RETRY_FIRST_DELAY", {
+                firstDelay: firstDelayMs,
+                maxDelay: maxDelayMs,
+            });
+        }
+
+        return { firstDelayMs: firstDelayMs, maxDelayMs: maxDelayMs, multiplier: multiplier };
     }
 
     // The bot and queue deadlines are spent one after another inside the overall one, so it has to

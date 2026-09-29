@@ -1,9 +1,9 @@
+import { constants as httpStatus } from "node:http2";
 import { GrammyError, HttpError } from "grammy";
+import { injectable } from "inversify";
 
-const BAD_REQUEST = 400;
-const FORBIDDEN = 403;
-const TOO_MANY_REQUESTS = 429;
-const FIRST_SERVER_ERROR = 500;
+// The error_code of the Bot API repeats the HTTP status of its answer, so Node's HTTP status
+// constants name it. They stop at 511 and have no name for the end of the 5xx range.
 const LAST_SERVER_ERROR = 599;
 
 const CHAT_NOT_FOUND_DESCRIPTION = "Bad Request: chat not found";
@@ -30,40 +30,43 @@ export type BotApiFailure =
     | { kind: BotApiFailureKind.Flood; retryAfterSeconds: number }
     | { kind: Exclude<BotApiFailureKind, BotApiFailureKind.Flood> };
 
-// grammY throws an HttpError when the request does not reach Telegram or its answer does not come
-// back, and a GrammyError when Telegram answers ok: false.
-export function classifyBotApiFailure(error: unknown): BotApiFailure {
-    if (error instanceof HttpError) {
-        return { kind: BotApiFailureKind.Transient };
-    }
-
-    if (!(error instanceof GrammyError)) {
-        return { kind: BotApiFailureKind.Unexpected };
-    }
-
-    if (error.error_code === TOO_MANY_REQUESTS) {
-        // The shape of parameters comes from the answer, not from the type, so retry_after is
-        // parsed without relying on it.
-        const retryAfterSeconds = Number(error.parameters.retry_after);
-
-        if (!Number.isFinite(retryAfterSeconds) || retryAfterSeconds <= 0) {
-            return { kind: BotApiFailureKind.Flood, retryAfterSeconds: DEFAULT_RETRY_AFTER_SECONDS };
+@injectable()
+export class BotApiFailureClassifier {
+    // grammY throws an HttpError when the request does not reach Telegram or its answer does not
+    // come back, and a GrammyError when Telegram answers ok: false.
+    public classify(error: unknown): BotApiFailure {
+        if (error instanceof HttpError) {
+            return { kind: BotApiFailureKind.Transient };
         }
 
-        return { kind: BotApiFailureKind.Flood, retryAfterSeconds };
-    }
+        if (!(error instanceof GrammyError)) {
+            return { kind: BotApiFailureKind.Unexpected };
+        }
 
-    if (error.error_code >= FIRST_SERVER_ERROR && error.error_code <= LAST_SERVER_ERROR) {
-        return { kind: BotApiFailureKind.Transient };
-    }
+        if (error.error_code === httpStatus.HTTP_STATUS_TOO_MANY_REQUESTS) {
+            // The shape of parameters comes from the answer, not from the type, so retry_after is
+            // parsed without relying on it.
+            const retryAfterSeconds = Number(error.parameters.retry_after);
 
-    if (error.error_code === FORBIDDEN) {
-        return { kind: BotApiFailureKind.Undeliverable };
-    }
+            if (!Number.isFinite(retryAfterSeconds) || retryAfterSeconds <= 0) {
+                return { kind: BotApiFailureKind.Flood, retryAfterSeconds: DEFAULT_RETRY_AFTER_SECONDS };
+            }
 
-    if (error.error_code === BAD_REQUEST && error.description === CHAT_NOT_FOUND_DESCRIPTION) {
-        return { kind: BotApiFailureKind.Undeliverable };
-    }
+            return { kind: BotApiFailureKind.Flood, retryAfterSeconds };
+        }
 
-    return { kind: BotApiFailureKind.Unexpected };
+        if (error.error_code >= httpStatus.HTTP_STATUS_INTERNAL_SERVER_ERROR && error.error_code <= LAST_SERVER_ERROR) {
+            return { kind: BotApiFailureKind.Transient };
+        }
+
+        if (error.error_code === httpStatus.HTTP_STATUS_FORBIDDEN) {
+            return { kind: BotApiFailureKind.Undeliverable };
+        }
+
+        if (error.error_code === httpStatus.HTTP_STATUS_BAD_REQUEST && error.description === CHAT_NOT_FOUND_DESCRIPTION) {
+            return { kind: BotApiFailureKind.Undeliverable };
+        }
+
+        return { kind: BotApiFailureKind.Unexpected };
+    }
 }
