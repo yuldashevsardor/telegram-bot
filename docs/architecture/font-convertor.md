@@ -114,7 +114,7 @@ turn the check into a search for the marker anywhere.
 
 ## The SVG validator
 
-`SvgFontValidator` (`svg-validator/`, a singleton in the container) reads the whole file and checks
+`SvgFontValidator` (`validator/svg/`, a singleton in the container) reads the whole file and checks
 it against W3C SVG 1.1 Second Edition, chapter 20 "Fonts". SVG 2 removed SVG fonts, so 1.1 is the
 reference. `FontValidatorResolver` gives it out for an SVG source in place of a signature, and its
 answer leaves the pair unchanged: `FontConvertor` wraps it in `FontConvertorError` as the cause,

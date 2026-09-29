@@ -7,7 +7,7 @@ import type { SignedExtension } from "app/font-convertor/signature-matcher/font-
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 const fontSignatureMatcher = new FontSignatureMatcher();
-const signedExtensions = Object.values(Extension).filter((extension): extension is SignedExtension => extension !== Extension.SVG);
+const signedExtensions: Array<SignedExtension> = [Extension.TTF, Extension.OTF, Extension.WOFF, Extension.WOFF2, Extension.EOT];
 
 describe("FontSignatureMatcher.matches", function () {
     const heads = new Map<Extension, Uint8Array>();

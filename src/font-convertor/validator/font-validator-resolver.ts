@@ -1,7 +1,7 @@
 import { inject, injectable } from "inversify";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import type { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-signature-matcher";
-import type { SvgFontValidator } from "app/font-convertor/svg-validator/svg-font-validator";
+import type { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
 import type { FontValidator } from "app/font-convertor/validator/font-validator";
 import { SignatureFontValidator } from "app/font-convertor/validator/signature-font-validator";
 import { Tokens } from "app/shared/tokens";

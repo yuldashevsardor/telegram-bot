@@ -5,7 +5,7 @@ import { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory
 import { ConvertorNotFound } from "app/font-convertor/font-convertor.errors";
 import type { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-signature-matcher";
-import { SvgFontValidator } from "app/font-convertor/svg-validator/svg-font-validator";
+import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
 import { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
 import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 

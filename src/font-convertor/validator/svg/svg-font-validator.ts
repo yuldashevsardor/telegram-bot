@@ -2,10 +2,10 @@ import { injectable } from "inversify";
 import { SaxesParser } from "saxes";
 import type { SaxesTagNS, XMLDecl } from "saxes";
 import { FileHelper } from "app/shared/fs/file-helper";
-import { isPathData } from "app/font-convertor/svg-validator/path-data";
-import { BrokenFont, NoFont, NotSvg, NotXml } from "app/font-convertor/svg-validator/svg-font-validator.errors";
-import type { Encoding, NumericElement, OpenElement, Scan } from "app/font-convertor/svg-validator/svg-font-validator.types";
-import { FontRule } from "app/font-convertor/svg-validator/svg-font-validator.types";
+import { isPathData } from "app/font-convertor/validator/svg/path-data";
+import { BrokenFont, NoFont, NotSvg, NotXml } from "app/font-convertor/validator/svg/svg-font-validator.errors";
+import type { Encoding, NumericElement, OpenElement, Scan } from "app/font-convertor/validator/svg/svg-font-validator.types";
+import { FontRule } from "app/font-convertor/validator/svg/svg-font-validator.types";
 import type { FontValidator } from "app/font-convertor/validator/font-validator";
 
 /**
@@ -63,8 +63,8 @@ export class SvgFontValidator implements FontValidator {
      * of `InvalidSvgFont`: `NotXml`, `NotSvg`, `NoFont`, `BrokenFont`. A file that cannot be read
      * throws `ReadFailed` of `FileHelper` instead: an I/O failure, not a verdict on the font.
      */
-    public async validate(path: string): Promise<void> {
-        const bytes = await FileHelper.read(path);
+    public async validate(fontPath: string): Promise<void> {
+        const bytes = await FileHelper.read(fontPath);
         const encoding = this.encodingOf(bytes);
         const scan = this.scan(this.decode(bytes, encoding), encoding);
 
