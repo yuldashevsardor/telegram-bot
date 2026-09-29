@@ -319,8 +319,9 @@ export class OutboxStore {
     }
 
     // The message fails, and its chat is blocked until it is unblocked by hand: the messages behind
-    // it wait, new ones are still pushed.
-    public async markAsFailedAndBlockChat(lease: OutboxLease, error: OutboxAttemptError): Promise<void> {
+    // it wait, new ones are still pushed. cause is the caught error, logged with the block: the
+    // attempt keeps only its message.
+    public async markAsFailedAndBlockChat(lease: OutboxLease, error: OutboxAttemptError, cause: unknown): Promise<void> {
         const chatId = await this.complete(lease, async (sql, lockedChatId) => {
             await this.finishMessage(sql, lease, { status: OutboxStatus.Failed, error: error, response: null });
             await this.setChatState(sql, lockedChatId, OutboxChatState.Blocked);
@@ -331,6 +332,7 @@ export class OutboxStore {
                 chatId: Number(chatId),
                 messageId: lease.id,
                 failure: error,
+                cause: cause,
             });
         }
     }

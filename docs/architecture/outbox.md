@@ -176,7 +176,7 @@ A pulled message is completed by one of four methods, each taking the pulled mes
 | `markAsDone(lease, response)` | `done`, with `response` | goes on: `ready` if a message is left, `idle` otherwise |
 | `retry(lease, error, delayMs)` | back to `pending` | `ready`, `next_attempt_at` at `now()` plus `delayMs` or where the chat limit put it, whichever is later |
 | `markAsFailed(lease, error)` | `failed` | goes on, as after `markAsDone` |
-| `markAsFailedAndBlockChat(lease, error)` | `failed` | `blocked`, logged at `error` |
+| `markAsFailedAndBlockChat(lease, error, cause)` | `failed` | `blocked`, logged at `error` with `cause`, the caught error |
 
 Each is a transaction through the private `complete()`:
 
@@ -242,8 +242,8 @@ one failure is not classified at all:
 
 `OutboxFailureHandler.handle(message, error)` (`outbox-failure-handler.ts`) classifies the error
 and completes the message by its class; which completion each class gets is read off the branches
-of `complete()` and `retryOrBlock()`. What the code does not show: a `retry_after` that `pause()`
-refuses (see "Limits") throws out of `handle()` before the retry, and the message stays
+of `applyOutcome()` and `retryOrBlock()`. What the code does not show: a `retry_after` that
+`pause()` refuses (see "Limits") throws out of `handle()` before the retry, and the message stays
 `processing` until its lease is recovered.
 
 ### Retry delay

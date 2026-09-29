@@ -45,6 +45,8 @@ const UNEXPECTED: OutboxAttemptError = { kind: TelegramBotApiFailureKind.Unexpec
 const ELAPSED_TOLERANCE_MS = 1_000;
 // A token no pull gave out.
 const OTHER_TOKEN = "00000000-0000-4000-8000-000000000000";
+// The error caught from the call that blocked a chat.
+const BLOCK_CAUSE = new Error("Bad Request: message text is empty");
 // Longer than any spec runs: a chat retried with it is not pulled again by the spec.
 const LONG_RETRY_DELAY_MS = 60_000;
 
@@ -682,7 +684,7 @@ describe("OutboxStore", function () {
             await store.markAsDone(pulled, RESPONSE);
             await store.retry(pulled, TRANSIENT, 0);
             await store.markAsFailed(pulled, UNDELIVERABLE);
-            await store.markAsFailedAndBlockChat(pulled, UNEXPECTED);
+            await store.markAsFailedAndBlockChat(pulled, UNEXPECTED, BLOCK_CAUSE);
 
             expect(await statuses()).to.deep.equal([OutboxStatus.Processing]);
             expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Processing });
@@ -703,7 +705,7 @@ describe("OutboxStore", function () {
             const pulled = await pullOne();
 
             await store.markAsDone(pulled, RESPONSE);
-            await store.markAsFailedAndBlockChat(pulled, UNEXPECTED);
+            await store.markAsFailedAndBlockChat(pulled, UNEXPECTED, BLOCK_CAUSE);
 
             expect(await statuses()).to.deep.equal([OutboxStatus.Done, OutboxStatus.Pending]);
             expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Ready });
@@ -781,7 +783,7 @@ describe("OutboxStore", function () {
             await store.pushBatch([message(CHAT, "failed"), message(CHAT, "behind")]);
             const pulled = await pullOne();
 
-            await store.markAsFailedAndBlockChat(pulled, UNEXPECTED);
+            await store.markAsFailedAndBlockChat(pulled, UNEXPECTED, BLOCK_CAUSE);
             await store.push(message(CHAT, "new"));
 
             const [attempt] = await attempts(pulled.id);
@@ -794,7 +796,7 @@ describe("OutboxStore", function () {
             expect(logger.errors).to.deep.equal([
                 {
                     message: "Outbox chat is blocked by a failed message.",
-                    payload: { chatId: CHAT, messageId: pulled.id, failure: UNEXPECTED },
+                    payload: { chatId: CHAT, messageId: pulled.id, failure: UNEXPECTED, cause: BLOCK_CAUSE },
                 },
             ]);
         });

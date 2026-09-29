@@ -44,7 +44,7 @@ describe("ConfigValuesBuilder", () => {
         expect(result.outbox).to.deep.equal({
             retryDelay: { firstDelayMs: 1000, maxDelayMs: 60000, multiplier: 2 },
             leaseDurationMs: 600000,
-            maxAttempts: 5,
+            maxAttempts: 10,
         });
         expect(result.bot).to.deep.equal({ token: "token", gracefulShutdown: { timeout: 3000 } });
         expect(result.taskQueue).to.deep.equal({ logInterval: 10000, gracefulShutdown: { timeout: 5000, interval: 500 } });
@@ -79,7 +79,7 @@ describe("ConfigValuesBuilder", () => {
             OUTBOX_RETRY_MAX_DELAY: "60002",
             OUTBOX_RETRY_DELAY_MULTIPLIER: "3",
             OUTBOX_LEASE_DURATION: "600001",
-            OUTBOX_MAX_ATTEMPTS: "6",
+            OUTBOX_MAX_ATTEMPTS: "11",
             BOT_TOKEN: "own-token",
             BOT_GRACEFUL_SHUTDOWN_TIMEOUT: "3001",
             TASK_QUEUE_LOG_INTERVAL: "10001",
@@ -110,7 +110,7 @@ describe("ConfigValuesBuilder", () => {
         expect(result.outbox).to.deep.equal({
             retryDelay: { firstDelayMs: 1004, maxDelayMs: 60002, multiplier: 3 },
             leaseDurationMs: 600001,
-            maxAttempts: 6,
+            maxAttempts: 11,
         });
         expect(result.bot).to.deep.equal({ token: "own-token", gracefulShutdown: { timeout: 3001 } });
         expect(result.taskQueue).to.deep.equal({ logInterval: 10001, gracefulShutdown: { timeout: 5001, interval: 501 } });

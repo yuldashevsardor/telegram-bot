@@ -1,5 +1,4 @@
 import { inject, injectable } from "inversify";
-import type { Logger } from "app/platform/logger/logger";
 import { Tokens } from "app/shared/tokens";
 import { configValue } from "app/shared/config-value";
 import { MS_PER_SECOND } from "app/shared/time";
@@ -18,7 +17,6 @@ export class OutboxFailureHandler {
         @inject<TelegramBotApiFailureClassifier>(Tokens.Bot.ApiFailureClassifier)
         private readonly classifier: TelegramBotApiFailureClassifier,
         @inject<RetryDelay>(Tokens.Bot.Outbox.RetryDelay) private readonly retryDelay: RetryDelay,
-        @inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger,
         private readonly maxAttempts: number = configValue("outbox.maxAttempts"),
     ) {}
 
@@ -29,26 +27,27 @@ export class OutboxFailureHandler {
             message: error instanceof Error ? error.message : String(error),
         };
 
-        // The attempt keeps the message only; the class that takes in bugs gets its stack logged.
-        if (failure.kind === TelegramBotApiFailureKind.Unexpected) {
-            this.logger.error("Outbox send failed with an unexpected error.", { messageId: message.id, cause: error });
-        }
-
-        await this.complete(message, failure, attemptError);
+        await this.applyOutcome(message, failure, attemptError, error);
     }
 
     // Not async on purpose: a switch that misses a kind leaves the end of the function reachable,
     // and a function returning a Promise without undefined in it does not compile then.
-    private complete(message: PulledOutboxMessage, failure: TelegramBotApiFailure, attemptError: OutboxAttemptError): Promise<void> {
+    // The attempt keeps the message of the error only, so a blocked chat gets the error itself logged.
+    private applyOutcome(
+        message: PulledOutboxMessage,
+        failure: TelegramBotApiFailure,
+        attemptError: OutboxAttemptError,
+        error: unknown,
+    ): Promise<void> {
         switch (failure.kind) {
             case TelegramBotApiFailureKind.Transient:
-                return this.retryOrBlock(message, attemptError);
+                return this.retryOrBlock(message, attemptError, error);
             case TelegramBotApiFailureKind.Flood:
                 return this.pauseAndRetry(message, failure.retryAfterSeconds, attemptError);
             case TelegramBotApiFailureKind.Undeliverable:
                 return this.store.markAsFailed(message, attemptError);
             case TelegramBotApiFailureKind.Unexpected:
-                return this.store.markAsFailedAndBlockChat(message, attemptError);
+                return this.store.markAsFailedAndBlockChat(message, attemptError, error);
         }
     }
 
@@ -59,11 +58,11 @@ export class OutboxFailureHandler {
         await this.store.retry(message, attemptError, 0);
     }
 
-    private async retryOrBlock(message: PulledOutboxMessage, attemptError: OutboxAttemptError): Promise<void> {
+    private async retryOrBlock(message: PulledOutboxMessage, attemptError: OutboxAttemptError, error: unknown): Promise<void> {
         const countedAttempts = message.countedFailures + 1;
 
         if (countedAttempts >= this.maxAttempts) {
-            await this.store.markAsFailedAndBlockChat(message, attemptError);
+            await this.store.markAsFailedAndBlockChat(message, attemptError, error);
             return;
         }
 

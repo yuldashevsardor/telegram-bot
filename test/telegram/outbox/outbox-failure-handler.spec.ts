@@ -1,8 +1,6 @@
 import { expect } from "chai";
 import { GrammyError, HttpError } from "grammy";
 import type { ApiError, ResponseParameters } from "grammy/types";
-import type { Logger } from "app/platform/logger/logger";
-import type { UnknownObject } from "app/shared/types";
 import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-handler";
@@ -18,7 +16,8 @@ const RETRY_DELAY = new RetryDelay({ firstDelayMs: FIRST_DELAY_MS, maxDelayMs: 6
 
 type StoreCall =
     | { method: "retry"; lease: OutboxLease; error: OutboxAttemptError; delayMs: number }
-    | { method: "markAsFailed" | "markAsFailedAndBlockChat"; lease: OutboxLease; error: OutboxAttemptError }
+    | { method: "markAsFailed"; lease: OutboxLease; error: OutboxAttemptError }
+    | { method: "markAsFailedAndBlockChat"; lease: OutboxLease; error: OutboxAttemptError; cause: unknown }
     | { method: "pause"; durationMs: number };
 
 // Records what the handler asks of the store: which outcome is written is decided here, how it is
@@ -34,8 +33,8 @@ class RecordingStore {
         this.calls.push({ method: "markAsFailed", lease, error });
     }
 
-    public async markAsFailedAndBlockChat(lease: OutboxLease, error: OutboxAttemptError): Promise<void> {
-        this.calls.push({ method: "markAsFailedAndBlockChat", lease, error });
+    public async markAsFailedAndBlockChat(lease: OutboxLease, error: OutboxAttemptError, cause: unknown): Promise<void> {
+        this.calls.push({ method: "markAsFailedAndBlockChat", lease, error, cause });
     }
 
     public async pause(durationMs: number): Promise<void> {
@@ -43,37 +42,13 @@ class RecordingStore {
     }
 }
 
-class RecordingLogger implements Logger {
-    public readonly errors: Array<{ message: string; payload: UnknownObject | undefined }> = [];
-
-    public critical(): void {}
-
-    public error(message: string, payload?: UnknownObject): void {
-        this.errors.push({ message: message, payload: payload });
-    }
-
-    public warning(): void {}
-
-    public info(): void {}
-
-    public debug(): void {}
-}
-
 describe("OutboxFailureHandler", function () {
     let store: RecordingStore;
-    let logger: RecordingLogger;
     let handler: OutboxFailureHandler;
 
     beforeEach(function () {
         store = new RecordingStore();
-        logger = new RecordingLogger();
-        handler = new OutboxFailureHandler(
-            store as unknown as OutboxStore,
-            new TelegramBotApiFailureClassifier(),
-            RETRY_DELAY,
-            logger,
-            MAX_ATTEMPTS,
-        );
+        handler = handlerAllowing(MAX_ATTEMPTS);
     });
 
     it("retries a transient failure after the delay of its counted attempt", async function () {
@@ -104,20 +79,13 @@ describe("OutboxFailureHandler", function () {
                 method: "markAsFailedAndBlockChat",
                 lease: message,
                 error: { kind: TelegramBotApiFailureKind.Transient, message: error.message },
+                cause: error,
             },
         ]);
     });
 
     it("blocks the chat on the first transient failure when one attempt is allowed", async function () {
-        const single = new OutboxFailureHandler(
-            store as unknown as OutboxStore,
-            new TelegramBotApiFailureClassifier(),
-            RETRY_DELAY,
-            logger,
-            1,
-        );
-
-        await single.handle(pulled(0), networkError());
+        await handlerAllowing(1).handle(pulled(0), networkError());
 
         expect(store.calls.map((call) => call.method)).to.deep.equal(["markAsFailedAndBlockChat"]);
     });
@@ -155,7 +123,7 @@ describe("OutboxFailureHandler", function () {
         ]);
     });
 
-    it("fails an unexpected failure and blocks its chat", async function () {
+    it("fails an unexpected failure and blocks its chat with the error as the cause", async function () {
         const message = pulled(0);
         const error = telegramError(400, "Bad Request: message text is empty");
 
@@ -166,20 +134,9 @@ describe("OutboxFailureHandler", function () {
                 method: "markAsFailedAndBlockChat",
                 lease: message,
                 error: { kind: TelegramBotApiFailureKind.Unexpected, message: error.message },
+                cause: error,
             },
         ]);
-        expect(logger.errors).to.deep.equal([
-            { message: "Outbox send failed with an unexpected error.", payload: { messageId: message.id, cause: error } },
-        ]);
-    });
-
-    it("logs the error of no class but the unexpected one", async function () {
-        await handler.handle(pulled(0), networkError());
-        await handler.handle(pulled(MAX_ATTEMPTS - 1), networkError());
-        await handler.handle(pulled(0), telegramError(429, "Too Many Requests: retry after 7", { retry_after: 7 }));
-        await handler.handle(pulled(0), telegramError(403, "Forbidden: bot was blocked by the user"));
-
-        expect(logger.errors).to.deep.equal([]);
     });
 
     it("records a thrown value that is not an Error as its string", async function () {
@@ -190,9 +147,14 @@ describe("OutboxFailureHandler", function () {
                 method: "markAsFailedAndBlockChat",
                 lease: pulled(0),
                 error: { kind: TelegramBotApiFailureKind.Unexpected, message: "socket closed" },
+                cause: "socket closed",
             },
         ]);
     });
+
+    function handlerAllowing(maxAttempts: number): OutboxFailureHandler {
+        return new OutboxFailureHandler(store as unknown as OutboxStore, new TelegramBotApiFailureClassifier(), RETRY_DELAY, maxAttempts);
+    }
 });
 
 function pulled(countedFailures: number): PulledOutboxMessage {

@@ -60,7 +60,7 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
             outbox: {
                 retryDelay: ConfigValuesBuilder.getOutboxRetryDelay(parser),
                 leaseDurationMs: parser.getTimerDelay("OUTBOX_LEASE_DURATION", 10 * 60 * 1000),
-                maxAttempts: parser.getInteger("OUTBOX_MAX_ATTEMPTS", 5, { min: 1 }),
+                maxAttempts: parser.getInteger("OUTBOX_MAX_ATTEMPTS", 10, { min: 1 }),
             },
 
             bot: {
