@@ -7,8 +7,8 @@ import { SignatureFontValidator } from "app/font-convertor/validator/signature-f
 import { Tokens } from "app/shared/tokens";
 
 /**
- * Gives out the validator of a format. The validators are built once, here, and every pair takes
- * the one of its source format.
+ * Gives out the validator of a format. The validators are made once: the signature ones here, the
+ * SVG one by the container. Every pair takes the one of its source format.
  */
 @injectable()
 export class FontValidatorResolver {

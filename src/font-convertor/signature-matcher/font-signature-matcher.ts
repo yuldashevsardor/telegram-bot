@@ -12,7 +12,7 @@ export class FontSignatureMatcher {
     private readonly signaturesByExtension: Record<SignedExtension, Array<Signature>>;
 
     /**
-     * How many bytes from the start of the file have to be read to check any format.
+     * How many bytes from the start of the file have to be read to check any signed format.
      */
     public readonly headLength: number;
 
