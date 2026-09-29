@@ -3,7 +3,7 @@ import fs from "fs/promises";
 import path from "path";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { SfntReader } from "app/font-convertor/eot-packer/sfnt-reader/sfnt-reader";
-import { InvalidSfnt } from "app/font-convertor/eot-packer/sfnt-reader/sfnt-reader.errors";
+import { InvalidSfnt } from "app/font-convertor/sfnt-table-directory/sfnt-table-directory.errors";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 

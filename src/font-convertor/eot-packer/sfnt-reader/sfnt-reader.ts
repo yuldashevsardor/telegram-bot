@@ -1,14 +1,6 @@
-import { InvalidSfnt } from "app/font-convertor/eot-packer/sfnt-reader/sfnt-reader.errors";
 import type { SfntMetadata } from "app/font-convertor/eot-packer/sfnt-reader/sfnt-reader.types";
-import { SFNT_VERSIONS } from "app/font-convertor/sfnt-version";
-
-type TableRecord = {
-    offset: number;
-    length: number;
-};
-
-const SFNT_HEADER_SIZE = 12;
-const TABLE_RECORD_SIZE = 16;
+import { SfntTableDirectory } from "app/font-convertor/sfnt-table-directory/sfnt-table-directory";
+import { InvalidSfnt } from "app/font-convertor/sfnt-table-directory/sfnt-table-directory.errors";
 
 // The fields the codec reads from OS/2 end at fsSelection (62), so version 0 needs only 64
 // bytes. In old fonts the table can be shorter than today's 78.
@@ -56,39 +48,11 @@ const NAME_SOURCES: Array<NameSource> = [
 
 export class SfntReader {
     private readonly view: DataView;
-    private readonly tables = new Map<string, TableRecord>();
+    private readonly directory: SfntTableDirectory;
 
     public constructor(private readonly bytes: Uint8Array) {
-        // Stryker disable next-line EqualityOperator: `<=` is equivalent: it differs only on a 12-byte header without a single table, which is not a font
-        if (bytes.length < SFNT_HEADER_SIZE) {
-            throw InvalidSfnt.tooShort(bytes.length);
-        }
-
+        this.directory = new SfntTableDirectory(bytes);
         this.view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-
-        const version = this.view.getUint32(0);
-
-        if (!SFNT_VERSIONS.includes(version)) {
-            throw InvalidSfnt.unknownVersion(version);
-        }
-
-        const tableCount = this.view.getUint16(4);
-
-        for (let index = 0; index < tableCount; index++) {
-            const record = SFNT_HEADER_SIZE + index * TABLE_RECORD_SIZE;
-
-            // Stryker disable next-line EqualityOperator: `>=` is equivalent: it differs only on a file without a single table byte after the directory, which is not a font
-            if (record + TABLE_RECORD_SIZE > bytes.length) {
-                throw InvalidSfnt.tooShort(bytes.length);
-            }
-
-            const tag = String.fromCharCode(...bytes.subarray(record, record + 4));
-
-            this.tables.set(tag, {
-                offset: this.view.getUint32(record + 8),
-                length: this.view.getUint32(record + 12),
-            });
-        }
     }
 
     /**
@@ -129,7 +93,7 @@ export class SfntReader {
     }
 
     private table(tag: string, minLength: number): number {
-        const record = this.tables.get(tag);
+        const record = this.directory.find(tag);
 
         if (record === undefined) {
             throw InvalidSfnt.tableNotFound(tag);
@@ -150,7 +114,7 @@ export class SfntReader {
      */
     private readNames(): Map<number, string> {
         const names = new Map<number, string>();
-        const name = this.tables.get("name");
+        const name = this.directory.find("name");
 
         if (name === undefined) {
             return names;

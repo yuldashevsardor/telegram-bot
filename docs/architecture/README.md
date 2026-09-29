@@ -241,7 +241,7 @@ with its `*.types.ts` (the word `font` is struck out, see the next paragraph). C
 same way in the directories the map names itself: `font-convertor/font-convertor.*`,
 `platform/logger/logger.*`, `telegram/user/user.*`. The directory name there is the name of the
 main file as well. A directory with companions can also stand inside a hiding one:
-`eot-packer/sfnt-reader/` keeps `sfnt-reader.ts` with its companions, while from outside
+`eot-packer/sfnt-reader/` keeps `sfnt-reader.ts` with its `*.types.ts`, while from outside
 `eot-packer/` still only `eot-packer.ts` is visible.
 
 A directory name does not repeat words the path above it has already said. They are struck out of
