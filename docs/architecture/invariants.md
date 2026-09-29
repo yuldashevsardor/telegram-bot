@@ -122,11 +122,11 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
 ## The outbox
 
 - **An outbox transaction that changes a chat state from what it reads — the chat state, the
-  next head — locks the chat row first and reads in a later statement**, as `OutboxStore.push()`
-  and `markAsDone()` do. Why, and what breaks otherwise, is in [`outbox.md`](./outbox.md), "The
-  chat lock". `pull()` is the exception with a check of its own (same file, "Pull"). The spec
-  lines up only `push` against `markAsDone`: a new path that changes a chat state is checked by
-  nothing.
+  active messages left — locks the chat row first and reads in a later statement**, as
+  `OutboxStore.push()` and `markAsDone()` do. Why, and what breaks otherwise, is in
+  [`outbox.md`](./outbox.md), "The chat lock". `pull()` is the exception with a check of its own
+  (same file, "Pull"). The spec lines up only these two methods: a new path that changes a chat
+  state is checked by nothing.
 - **`status` and `state` of the outbox tables are written only through `OutboxStatus` and
   `OutboxChatState`.** The database has no check on them: a mistyped value is stored, and the row
   or the chat silently drops out of every query.

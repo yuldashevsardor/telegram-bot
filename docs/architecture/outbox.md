@@ -36,13 +36,13 @@ itself when needed: the chat row keeps no copy.
 ## The chat lock
 
 The chat row is the lock of its chat. `push` and `markAsDone` lock the rows of their chats first
-and read what their change depends on — the chat state, the next head — in a later statement of
-the same transaction ([invariant](./invariants.md)). Under `read committed` every statement reads
-a fresh snapshot, so a statement that runs after the lock sees what the previous holder of the lock
-committed. A single statement reads its snapshot before it waits for the lock. A completion written
-that way leaves a chat `idle` with a message pushed meanwhile: a message that is never sent. A push
-written that way takes its ids before the lock, and two pushes of one chat can commit in the order
-opposite to their ids: the later message is sent first.
+and read what their change depends on — the chat state, the active messages left — in a later
+statement of the same transaction ([invariant](./invariants.md)). Under `read committed` every
+statement reads a fresh snapshot, so a statement that runs after the lock sees what the previous
+holder of the lock committed. A single statement reads its snapshot before it waits for the lock.
+A completion written that way leaves a chat `idle` with a message pushed meanwhile: a message that
+is never sent. A push written that way takes its ids before the lock, and two pushes of one chat
+can commit in the order opposite to their ids: the later message is sent first.
 
 So a push and a completion of one chat are serialized in either order: the one that locks second
 sees what the first committed. `test/telegram/outbox/outbox-store.spec.ts` lines the calls up
@@ -68,14 +68,18 @@ lock.
 `pull(limit)` is one statement, atomic without a transaction:
 
 1. up to `limit` `ready` chats with the head of each (`CROSS JOIN LATERAL`), by the priority of
-   the head and then by `next_attempt_at`, `FOR UPDATE OF chats SKIP LOCKED`: a chat another
-   puller holds is skipped, not waited for;
+   the head, then by `next_attempt_at`, then by `chat_id`, `FOR UPDATE OF chats SKIP LOCKED`: a
+   chat another puller holds is skipped, not waited for;
 2. the head goes to `processing`, but only if it is still `pending`;
 3. the chats whose head was pulled go to `processing`, and `next_attempt_at` moves to `now()`.
 
+The pulled messages come back by priority, then by `id`, so a caller that sends them in order
+sends the urgent first.
+
 Step 3 is what serves the chats of one priority in turn: a chat just served goes behind the chats
-that waited. Only one head per chat is taken, and a `processing` chat is not `ready`, so a chat
-never has two messages in `processing`.
+that waited. The chats of one pull get the same `next_attempt_at`, the time of the statement, so
+`chat_id` decides their next turn. Only one head per chat is taken, and a `processing` chat is not
+`ready`, so a chat never has two messages in `processing`.
 
 Step 1 reads the head from the snapshot of the statement, taken before the lock. A chat completed
 and made `ready` again after the snapshot still passes the lock (the lock rereads the newest row
@@ -92,9 +96,10 @@ The chat limit and the retry delay will rework it.
 1. lock the chat row of the message;
 2. the message goes to `done` with the response and `finished_at`, only from `processing`;
    otherwise, a missing message included, the method throws `OutboxMessageNotProcessing` and
-   changes nothing: the message was taken by another puller, which should not happen;
-3. read the next head of the chat;
-4. the chat goes to `ready` if there is one, or to `idle`.
+   changes nothing. Nothing but `markAsDone` takes a message out of `processing`, so the cause is
+   a wrong id, a message not pulled yet or a second completion of the same message;
+3. check whether the chat has an active message left;
+4. the chat goes to `ready` if it has, or to `idle`.
 
 Every update of the store sets `updated_at = now()` itself; there is no trigger.
 

@@ -1,10 +1,8 @@
 import "reflect-metadata";
 import { expect } from "chai";
-import { ConfigValuesBuilder } from "app/bootstrap/config/builder/config-values-builder";
-import { ConfigEnvStorage } from "app/bootstrap/config/storage/config-env-storage";
 import { Database } from "app/platform/database/database";
 import { PgsqlStorage } from "app/telegram/session/pgsql-storage";
-import { testDatabaseName } from "test/database.helper";
+import { testDatabaseSettings } from "test/database.helper";
 
 const KEY = "42:42";
 
@@ -13,11 +11,7 @@ describe("PgsqlStorage", function () {
     let storage: PgsqlStorage;
 
     before(async function () {
-        const env = await new ConfigEnvStorage().load();
-        // The config demands BOT_TOKEN while the spec needs only the database: without the stub it would depend on the token in .env.
-        const settings = new ConfigValuesBuilder().build({ ...env, BOT_TOKEN: "test-token" }).database;
-
-        database = new Database({ ...settings, database: testDatabaseName() }, false);
+        database = new Database(await testDatabaseSettings(), false);
         storage = new PgsqlStorage(database);
     });
 

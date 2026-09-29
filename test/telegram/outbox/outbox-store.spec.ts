@@ -1,40 +1,42 @@
 import "reflect-metadata";
 import { expect } from "chai";
-import { ConfigValuesBuilder } from "app/bootstrap/config/builder/config-values-builder";
-import { ConfigEnvStorage } from "app/bootstrap/config/storage/config-env-storage";
-import type { DatabaseSettings } from "app/platform/database/database.types";
 import { Database } from "app/platform/database/database";
 import { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxMessageInput } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxChatState, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxMessageNotProcessing } from "app/telegram/outbox/store/outbox-store.errors";
 import { sleep } from "app/shared/utils";
-import { testDatabaseName } from "test/database.helper";
+import { testDatabaseSettings } from "test/database.helper";
 
 const CHAT = 5_000_000_001;
 const OTHER_CHAT = -1_001_234_567_890;
 const RESPONSE = { message_id: 1 };
-// Longer than any wait of a passing run, shorter than the timeout of mocha: a hung wait fails with
-// its own message and stops before after() closes the clients.
+// Longer than any wait of a passing run, shorter than SPEC_TIMEOUT_MS: a hung wait fails with its
+// own message and stops before after() closes the clients.
 const WAIT_DEADLINE_MS = 5_000;
+// The default timeout of mocha, 2 s, is shorter than the deadline and would fail a hung wait first.
+const SPEC_TIMEOUT_MS = 10_000;
 
 type ChatRow = { state: string };
 
 describe("OutboxStore", function () {
-    let settings: DatabaseSettings;
+    this.timeout(SPEC_TIMEOUT_MS);
+
     let database: Database;
     // A second postgres() client: a puller on another node, or a transaction held open.
     let other: Database;
+    // The client of waitForLockWaiters(). Store calls waiting for a lock hold connections of
+    // database, and a poll through the same pool would queue behind them at a small
+    // DATABASE_CONNECTION_LIMIT, hanging past the deadline instead of failing on it.
+    let observer: Database;
     let store: OutboxStore;
 
     before(async function () {
-        const env = await new ConfigEnvStorage().load();
-        // The config requires BOT_TOKEN while the spec needs only the database: without
-        // the substitution it would depend on the token in .env.
-        settings = { ...new ConfigValuesBuilder().build({ ...env, BOT_TOKEN: "test-token" }).database, database: testDatabaseName() };
+        const settings = await testDatabaseSettings();
 
         database = new Database(settings, false);
         other = new Database(settings, false);
+        observer = new Database(settings, false);
         store = new OutboxStore(database);
     });
 
@@ -46,6 +48,7 @@ describe("OutboxStore", function () {
         // A failed before does not get to assign the clients, and a failure in after would hide its cause.
         await database?.close();
         await other?.close();
+        await observer?.close();
     });
 
     it("keeps the single row of the bot limits", async function () {
@@ -169,6 +172,33 @@ describe("OutboxStore", function () {
 
         expect((await store.pull(1)).map(({ id }) => id)).to.deep.equal([urgent]);
     });
+
+    it("returns the pulled messages by priority, not by id", async function () {
+        const later = await store.push(message(CHAT, "later", 2));
+        const urgent = await store.push(message(OTHER_CHAT, "urgent", 0));
+
+        expect((await store.pull(10)).map(({ id }) => id)).to.deep.equal([urgent, later]);
+    });
+
+    // The chats of one pull get the same next_attempt_at, the time of the statement. Without the
+    // chat_id key their next turn follows the order PostgreSQL meets the tied rows in, which tends to
+    // be the order of completion: the spec completes them in both orders, and one of them fails then.
+    for (const completedFirst of [CHAT, OTHER_CHAT]) {
+        it(`takes the chats served in one pull by chat_id in the next turn, chat ${completedFirst} completed first`, async function () {
+            await store.pushBatch([message(CHAT, "a1"), message(CHAT, "a2")]);
+            await store.pushBatch([message(OTHER_CHAT, "b1"), message(OTHER_CHAT, "b2")]);
+
+            const pulled = await store.pull(10);
+            const first = pulled.filter(({ chatId }) => chatId === completedFirst);
+            const rest = pulled.filter(({ chatId }) => chatId !== completedFirst);
+
+            for (const { id } of [...first, ...rest]) {
+                await store.markAsDone(id, RESPONSE);
+            }
+
+            expect((await store.pull(1)).map(({ chatId }) => chatId)).to.deep.equal([OTHER_CHAT]);
+        });
+    }
 
     // An id taken before the chat lock would let two overlapping pushes of one chat commit in the
     // order opposite to their ids, and the later id would be sent first. The push of another chat
@@ -351,7 +381,7 @@ describe("OutboxStore", function () {
                 expect.fail(`fewer than ${count} queries waited for a lock by the deadline`);
             }
 
-            const [row] = await database.sql<{ waiting: number }[]>`
+            const [row] = await observer.sql<{ waiting: number }[]>`
                 SELECT count(*)::int AS waiting
                 FROM pg_stat_activity
                 WHERE datname = current_database()

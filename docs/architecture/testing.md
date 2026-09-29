@@ -74,7 +74,8 @@ because of stale images. `.mocharc.json` is not mounted from the host, so in a s
 is not wired in, while the specs from the mounted `test/` still run. Without a variable of its own
 such a spec fails. With `DATABASE_NAME` it would have truncated the tables of the shared database
 of running bots. Specs read the variable through the shared `testDatabaseName()` from
-`test/database.helper.ts`.
+`test/database.helper.ts`; `testDatabaseSettings()` there gives the database settings of the config
+pointed at it.
 
 Each spec truncates its own table in its `beforeEach`. A root `beforeEach` would go to the database
 before every test of the run, although only a handful of them touch it.

@@ -1,14 +1,12 @@
 import "reflect-metadata";
 import { expect } from "chai";
 import dayjs from "dayjs";
-import { ConfigValuesBuilder } from "app/bootstrap/config/builder/config-values-builder";
-import { ConfigEnvStorage } from "app/bootstrap/config/storage/config-env-storage";
 import { Database } from "app/platform/database/database";
 import { PgSqlUserRepository } from "app/telegram/user/pgsql-repository/pgsql-user-repository";
 import { User } from "app/telegram/user/user";
 import { UserNotFound } from "app/telegram/user/user.errors";
 import type { UserDto } from "app/telegram/user/user.types";
-import { testDatabaseName } from "test/database.helper";
+import { testDatabaseSettings } from "test/database.helper";
 
 // Larger than 2^31 - 1, so it does not fit into int4: the spec also holds the migration that
 // widened id to bigint. The driver returns bigint as a string, and the strict deep.equal fails
@@ -20,12 +18,7 @@ describe("PgSqlUserRepository", function () {
     let repository: PgSqlUserRepository;
 
     before(async function () {
-        const env = await new ConfigEnvStorage().load();
-        // The config requires BOT_TOKEN while the spec needs only the database: without
-        // the substitution it would depend on the token in .env.
-        const settings = new ConfigValuesBuilder().build({ ...env, BOT_TOKEN: "test-token" }).database;
-
-        database = new Database({ ...settings, database: testDatabaseName() }, false);
+        database = new Database(await testDatabaseSettings(), false);
         repository = new PgSqlUserRepository(database);
     });
 

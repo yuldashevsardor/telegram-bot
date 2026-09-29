@@ -1,7 +1,7 @@
 import { inject, injectable } from "inversify";
 import type { Database, Sql } from "app/platform/database/database";
 import { Tokens } from "app/shared/tokens";
-import type { ClaimedOutboxMessage, ClaimedOutboxRow, OutboxJson, OutboxMessageInput } from "app/telegram/outbox/store/outbox-store.types";
+import type { OutboxJson, OutboxMessageInput, PulledOutboxMessage, PulledOutboxRow } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxChatState, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxMessageNotProcessing } from "app/telegram/outbox/store/outbox-store.errors";
 
@@ -31,10 +31,11 @@ export class OutboxStore {
     // is the order of the messages inside a chat. They are taken only once the chats are locked
     // (docs/architecture/outbox.md, "The chat lock").
     public async pushBatch(messages: OutboxMessageInput[]): Promise<number[]> {
-        // In chat_id order, so two batches lock the chats they share in the same order.
-        const chatIds = [...new Set(messages.map((message) => message.chatId))].sort((a, b) => a - b);
+        const chatIds = [...new Set(messages.map((message) => message.chatId))];
 
         return this.sql.begin(async (sql) => {
+            // Both statements go in chat_id order, so two batches wait for the chats they share in
+            // the same order.
             await sql`
                 INSERT INTO telegram_outbox_chats (chat_id, state)
                 SELECT chat_id, ${OutboxChatState.Idle}
@@ -79,8 +80,9 @@ export class OutboxStore {
     // One statement, so it is atomic without a transaction: up to limit ready chats by the priority
     // of their head, and the head of each. A chat locked by another puller is skipped, not waited
     // for. A pulled chat moves behind the chats of the same priority, so they are served in turn.
-    public async pull(limit: number): Promise<ClaimedOutboxMessage[]> {
-        const rows = await this.sql<ClaimedOutboxRow[]>`
+    // The messages come back by priority, so a caller that sends them in order sends the urgent first.
+    public async pull(limit: number): Promise<PulledOutboxMessage[]> {
+        const rows = await this.sql<PulledOutboxRow[]>`
             WITH heads AS (
                 SELECT chats.chat_id, head.id
                 FROM telegram_outbox_chats AS chats
@@ -93,7 +95,7 @@ export class OutboxStore {
                     LIMIT 1
                 ) AS head
                 WHERE chats.state = ${OutboxChatState.Ready}
-                ORDER BY head.priority, chats.next_attempt_at
+                ORDER BY head.priority, chats.next_attempt_at, chats.chat_id
                 LIMIT ${limit}
                 FOR UPDATE OF chats SKIP LOCKED
             ),
@@ -117,7 +119,7 @@ export class OutboxStore {
             )
             SELECT *
             FROM pulled
-            ORDER BY id
+            ORDER BY priority, id
         `;
 
         return rows.map((row) => ({
@@ -160,7 +162,7 @@ export class OutboxStore {
                 throw OutboxMessageNotProcessing.byId(messageId);
             }
 
-            const [next] = await sql`
+            const [remainingMessage] = await sql`
                 SELECT id
                 FROM telegram_outbox
                 WHERE chat_id = ${done.chat_id}
@@ -170,7 +172,7 @@ export class OutboxStore {
 
             await sql`
                 UPDATE telegram_outbox_chats
-                SET state = ${next === undefined ? OutboxChatState.Idle : OutboxChatState.Ready},
+                SET state = ${remainingMessage === undefined ? OutboxChatState.Idle : OutboxChatState.Ready},
                     updated_at = now()
                 WHERE chat_id = ${done.chat_id}
             `;

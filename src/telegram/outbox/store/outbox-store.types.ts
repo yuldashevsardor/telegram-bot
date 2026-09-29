@@ -35,12 +35,12 @@ export type OutboxMessageInput = {
     priority: number;
 };
 
-export type ClaimedOutboxMessage = OutboxMessageInput & {
+export type PulledOutboxMessage = OutboxMessageInput & {
     id: number;
 };
 
 // A pulled row as postgres returns it: without a types setting bigint comes back as a string.
-export type ClaimedOutboxRow = {
+export type PulledOutboxRow = {
     id: string;
     chat_id: string;
     method: string;
