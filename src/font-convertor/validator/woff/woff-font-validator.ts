@@ -3,7 +3,7 @@ import { promisify } from "util";
 import { inflate as inflateOrigin } from "zlib";
 import { SFNT_VERSIONS } from "app/font-convertor/sfnt-version";
 import { BrokenWoff, NotWoff } from "app/font-convertor/validator/woff/woff-font-validator.errors";
-import type { Block, TableEntry, Woff, WoffHeader } from "app/font-convertor/validator/woff/woff-font-validator.types";
+import type { Block, ExpectedEnd, GapEnd, TableEntry, Woff, WoffHeader } from "app/font-convertor/validator/woff/woff-font-validator.types";
 import { BlockKind, WoffRule } from "app/font-convertor/validator/woff/woff-font-validator.types";
 import type { FontValidator } from "app/font-convertor/validator/font-validator";
 import { FileHelper } from "app/shared/fs/file-helper";
@@ -42,10 +42,32 @@ export class WoffFontValidator implements FontValidator {
     private static readonly SIGNATURE = 0x774f4646;
     private static readonly HEADER_SIZE_BYTES = 44;
     private static readonly DIRECTORY_ENTRY_SIZE_BYTES = 20;
+    // The offsets of the header fields (§4). majorVersion and minorVersion, at 20 and 22, are not
+    // read: they "have no effect on font loading".
+    private static readonly HEADER_FIELD_OFFSETS = {
+        signature: 0,
+        flavor: 4,
+        length: 8,
+        numTables: 12,
+        reserved: 14,
+        totalSfntSize: 16,
+        metaOffset: 24,
+        metaLength: 28,
+        metaOrigLength: 32,
+        privOffset: 36,
+        privLength: 40,
+    };
+    // The offsets of the fields in a table directory entry (§5).
+    private static readonly ENTRY_FIELD_OFFSETS = { tag: 0, offset: 4, compLength: 8, origLength: 12, origChecksum: 16 };
     private static readonly SFNT_HEADER_SIZE_BYTES = 12;
     private static readonly SFNT_TABLE_RECORD_SIZE_BYTES = 16;
     // Tables are aligned and padded to it (§5), and the private block is aligned (§8).
     private static readonly ALIGNMENT_BYTES = 4;
+    // The blocks that start on that boundary, with the rule each breaks off it.
+    private static readonly ALIGNMENT_RULES: ReadonlyMap<BlockKind, WoffRule> = new Map([
+        [BlockKind.Table, WoffRule.TableAlignment],
+        [BlockKind.Private, WoffRule.PrivateAlignment],
+    ]);
     private static readonly HEAD_TAG = "head";
     private static readonly CHECKSUM_ADJUSTMENT_OFFSET = 8;
     private static readonly CHECKSUM_ADJUSTMENT_END = 12;
@@ -71,7 +93,7 @@ export class WoffFontValidator implements FontValidator {
             throw NotWoff.bySize(fontPath, bytes.length, WoffFontValidator.HEADER_SIZE_BYTES);
         }
 
-        const signature = view.getUint32(0);
+        const signature = view.getUint32(WoffFontValidator.HEADER_FIELD_OFFSETS.signature);
 
         if (signature !== WoffFontValidator.SIGNATURE) {
             throw NotWoff.bySignature(fontPath, this.hex(signature), `${this.hex(WoffFontValidator.SIGNATURE)} ("wOFF")`);
@@ -93,19 +115,19 @@ export class WoffFontValidator implements FontValidator {
     }
 
     private readHeader(view: DataView): WoffHeader {
-        // The offsets of the fields in the header (§4). majorVersion and minorVersion, at 20 and 22,
-        // are not read: they "have no effect on font loading".
+        const fields = WoffFontValidator.HEADER_FIELD_OFFSETS;
+
         return {
-            flavor: view.getUint32(4),
-            length: view.getUint32(8),
-            numTables: view.getUint16(12),
-            reserved: view.getUint16(14),
-            totalSfntSize: view.getUint32(16),
-            metaOffset: view.getUint32(24),
-            metaLength: view.getUint32(28),
-            metaOrigLength: view.getUint32(32),
-            privOffset: view.getUint32(36),
-            privLength: view.getUint32(40),
+            flavor: view.getUint32(fields.flavor),
+            length: view.getUint32(fields.length),
+            numTables: view.getUint16(fields.numTables),
+            reserved: view.getUint16(fields.reserved),
+            totalSfntSize: view.getUint32(fields.totalSfntSize),
+            metaOffset: view.getUint32(fields.metaOffset),
+            metaLength: view.getUint32(fields.metaLength),
+            metaOrigLength: view.getUint32(fields.metaOrigLength),
+            privOffset: view.getUint32(fields.privOffset),
+            privLength: view.getUint32(fields.privLength),
         };
     }
 
@@ -173,13 +195,14 @@ export class WoffFontValidator implements FontValidator {
         for (let index = 0; index < numTables; index++) {
             const entryOffset = WoffFontValidator.HEADER_SIZE_BYTES + index * WoffFontValidator.DIRECTORY_ENTRY_SIZE_BYTES;
 
-            // The offsets of the fields in an entry (§5).
+            const fields = WoffFontValidator.ENTRY_FIELD_OFFSETS;
+
             entries.push({
-                tag: this.tag(view, entryOffset),
-                offset: view.getUint32(entryOffset + 4),
-                compLength: view.getUint32(entryOffset + 8),
-                origLength: view.getUint32(entryOffset + 12),
-                origChecksum: view.getUint32(entryOffset + 16),
+                tag: this.tag(view, entryOffset + fields.tag),
+                offset: view.getUint32(entryOffset + fields.offset),
+                compLength: view.getUint32(entryOffset + fields.compLength),
+                origLength: view.getUint32(entryOffset + fields.origLength),
+                origChecksum: view.getUint32(entryOffset + fields.origChecksum),
             });
         }
 
@@ -310,19 +333,11 @@ export class WoffFontValidator implements FontValidator {
                 });
             }
 
-            if (block.kind === BlockKind.Table && block.offset % WoffFontValidator.ALIGNMENT_BYTES !== 0) {
-                throw BrokenWoff.byRule(woff.path, {
-                    rule: WoffRule.TableAlignment,
-                    at: block.name,
-                    field: "offset",
-                    value: block.offset,
-                    expected: `a multiple of ${WoffFontValidator.ALIGNMENT_BYTES}`,
-                });
-            }
+            const alignmentRule = WoffFontValidator.ALIGNMENT_RULES.get(block.kind);
 
-            if (block.kind === BlockKind.Private && block.offset % WoffFontValidator.ALIGNMENT_BYTES !== 0) {
+            if (alignmentRule !== undefined && block.offset % WoffFontValidator.ALIGNMENT_BYTES !== 0) {
                 throw BrokenWoff.byRule(woff.path, {
-                    rule: WoffRule.PrivateAlignment,
+                    rule: alignmentRule,
                     at: block.name,
                     field: "offset",
                     value: block.offset,
@@ -363,48 +378,52 @@ export class WoffFontValidator implements FontValidator {
                 });
             }
 
-            this.checkGap(woff, previous, block);
+            // Every block starts on a 4-byte boundary after what precedes it: the tables and the
+            // metadata right after the padded tables (§5, §7), the private block by §8.
+            this.checkGap(woff, previous, { at: block.name, field: "offset", offset: block.offset }, this.paddedEnd(previous));
             previous = block;
         }
 
-        this.checkGap(woff, previous, undefined);
+        const fileEnd: GapEnd = { at: "the file", field: "size", offset: woff.bytes.length };
+
+        // A table is padded, the last one too (§5). No padding follows the metadata when it is last
+        // (§7), and the private block ends the file (§8).
+        if (previous.kind === BlockKind.Table) {
+            this.checkGap(woff, previous, fileEnd, this.paddedEnd(previous));
+        } else {
+            this.checkGap(woff, previous, fileEnd, this.end(previous));
+        }
     }
 
     /**
-     * The gap from the end of `previous` to what follows it: the next block, or the end of the file
-     * when `next` is `undefined`. A table is padded to a 4-byte boundary, the last one too (§5), and
-     * the private block starts on one, after the metadata as well (§8). Nothing else is padded: no
-     * padding follows the metadata when it is last (§7), and the private block ends the file (§8).
+     * The gap from the end of `previous` to `next`, the next block or the end of the file, which is
+     * to lie at `expected`: shorter, it lacks padding; longer, it holds extraneous data. What lies
+     * in it is padding, all zero bytes.
      */
-    private checkGap(woff: Woff, previous: Block, next: Block | undefined): void {
+    private checkGap(woff: Woff, previous: Block, next: GapEnd, expected: ExpectedEnd): void {
         const previousEnd = previous.offset + previous.length;
-        const nextStart = next?.offset ?? woff.bytes.length;
-        const isAligned = previous.kind === BlockKind.Table || next !== undefined;
-        const expectedStart = isAligned ? this.padded(previousEnd) : previousEnd;
 
-        if (nextStart < expectedStart) {
+        if (next.offset < expected.offset) {
             throw BrokenWoff.byRule(woff.path, {
                 rule: WoffRule.Padding,
                 at: previous.name,
                 field: "padding length",
-                value: nextStart - previousEnd,
-                expected: `${expectedStart - previousEnd}`,
+                value: next.offset - previousEnd,
+                expected: `${expected.offset - previousEnd}`,
             });
         }
 
-        if (nextStart > expectedStart) {
+        if (next.offset > expected.offset) {
             throw BrokenWoff.byRule(woff.path, {
                 rule: WoffRule.NoExtraneousData,
-                at: next?.name ?? "the file",
-                field: next === undefined ? "size" : "offset",
-                value: nextStart,
-                expected: isAligned
-                    ? `${expectedStart}, the end of ${previous.name} padded to 4 bytes`
-                    : `${expectedStart}, the end of ${previous.name}`,
+                at: next.at,
+                field: next.field,
+                value: next.offset,
+                expected: `${expected.offset}, ${expected.description}`,
             });
         }
 
-        const padding = woff.bytes.subarray(previousEnd, nextStart);
+        const padding = woff.bytes.subarray(previousEnd, next.offset);
 
         if (padding.some((byte) => byte !== 0)) {
             throw BrokenWoff.byRule(woff.path, {
@@ -415,6 +434,14 @@ export class WoffFontValidator implements FontValidator {
                 expected: this.hexBytes(new Uint8Array(padding.length)),
             });
         }
+    }
+
+    private paddedEnd(block: Block): ExpectedEnd {
+        return { offset: this.padded(block.offset + block.length), description: `the end of ${block.name} padded to 4 bytes` };
+    }
+
+    private end(block: Block): ExpectedEnd {
+        return { offset: block.offset + block.length, description: `the end of ${block.name}` };
     }
 
     private async checkTable(woff: Woff, entry: TableEntry): Promise<void> {

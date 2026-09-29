@@ -88,6 +88,26 @@ export type Block = {
 };
 
 /**
+ * What a gap between blocks ends at: the next block, or the end of the file.
+ */
+export type GapEnd = {
+    /** How a message names it: `the file`, `table "cmap"`. */
+    at: string;
+    /** The field whose value is the end: `offset` of a block, `size` of the file. */
+    field: string;
+    offset: number;
+};
+
+/**
+ * Where a gap is to end: the end of the block before it, padded or not.
+ */
+export type ExpectedEnd = {
+    offset: number;
+    /** What the offset is, for a message: `the end of table "hmtx" padded to 4 bytes`. */
+    description: string;
+};
+
+/**
  * A file that passed the signature, with its header and table directory read.
  */
 export type Woff = {
