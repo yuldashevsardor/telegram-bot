@@ -242,10 +242,10 @@ review-tree-create: ## Take the head of a PR into a temporary review tree <main 
 mutation-area: ## The area of make mutation from the diff against origin/main, or from a PR's: make mutation-area [pr=<N>] [tree=<path>]
 	@DC_APP_RUN='$(DC_APP_RUN)' python3 scripts/review/mutation_area.py '$(pr)' '$(tree)'
 
-# The recipe line is not echoed: stdout is the answer the skill reads. The three arguments go in a
+# The recipe line is not echoed: stdout is the answer the skill reads. The four arguments go in a
 # fixed order, the empty ones as empty strings, and the area is joined into one line as for files.
-mutation-record: ## Whether the last mutation run record of a PR replaces the reviewer's run: make mutation-record pr=<N> area="<paths>" [rebuild=1]
-	@python3 scripts/review/mutation_record.py '$(pr)' '$(strip $(subst $(NEWLINE), ,$(area)))' '$(rebuild)'
+mutation-record: ## Whether the last mutation run record of a PR replaces the reviewer's run: make mutation-record pr=<N> area="<paths>" [rebuild=1] [tree=<path>]
+	@DC_APP_RUN='$(DC_APP_RUN)' python3 scripts/review/mutation_record.py '$(pr)' '$(strip $(subst $(NEWLINE), ,$(area)))' '$(rebuild)' '$(tree)'
 
 # The recipe lines are not echoed: stdout is the answer. The mode and the numbers go in a fixed
 # order, the empty ones as empty strings.

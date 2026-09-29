@@ -115,12 +115,14 @@ exists, the order is:
 
 1. push;
 2. `make mutation-record`;
-3. the run and its record, only on a refusal, or when the table turns on one of its three gates
-   for the files the answer lists.
+3. the run and its record, only on a refusal, or when the table turns on `rebuild` or
+   `mutation-full` for the files the answer lists. The `mutation` row the answer decides itself:
+   a change that reaches the record's area is a reason of the refusal.
 
 A merge of `origin/main` into the branch is the same rule. It moves the head although you edited
-nothing, and what the merge brings goes through the same three gates. Measure the record against
-the new `HEAD` before the next round, and run again if one of the gates turns on. A round opened on
+nothing, and what the merge brings goes through the same three gates: a `.ts` of someone else's
+that reaches no file of the record's area leaves it in force. Measure the record against the new
+`HEAD` before the next round, and run again if one of the gates turns on. A round opened on
 a record the review refuses costs the reviewer a run of its own and buys the branch nothing.
 
 ## Step 3. Review
