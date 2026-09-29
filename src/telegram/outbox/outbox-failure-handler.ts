@@ -16,6 +16,10 @@ import type { OutboxAttemptError, PulledOutboxMessage } from "app/telegram/outbo
 // tried meanwhile, one attempt of one message per pause.
 export const UNAUTHORIZED_PAUSE_SECONDS = 60;
 
+// A retry after a pause, a flood's or a 401's, adds no delay of its own: the pause already stops
+// the pull.
+const PAUSED_RETRY_DELAY_MS = 0;
+
 // The outcome of a failed send, by the class of its error (docs/architecture/outbox.md, "Failures").
 @injectable()
 export class OutboxFailureHandler {
@@ -54,10 +58,10 @@ export class OutboxFailureHandler {
     }
 
     // The pause goes first: back in pending before it, the message could be pulled again into the
-    // same 429 or 401. The retry adds no delay of its own.
+    // same 429 or 401.
     private async pauseAndRetry(message: PulledOutboxMessage, pauseSeconds: number, attemptError: OutboxAttemptError): Promise<void> {
         await this.store.pause(pauseSeconds * MS_PER_SECOND);
-        await this.store.retry(message, attemptError, 0);
+        await this.store.retry(message, attemptError, PAUSED_RETRY_DELAY_MS);
     }
 
     // What counts and when the limit is checked: docs/architecture/outbox.md, "Outcomes".
