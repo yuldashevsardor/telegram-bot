@@ -58,7 +58,8 @@ Not checked: invariants, bugs, smells, overlaps with open PRs, documentation out
 
 ### Run
 rebuild: done/not needed · build: ok/fail/n-a · typecheck: ok/fail/n-a · test: ok/fail/n-a · lint: ok/fail/n-a · format-check: ok/fail/n-a · python: ok/fail/n-a
-mutation: ok/fail/n-a — <score from Final mutation score>, <the whole src/ or the area files> · accepted record, <link> (head <sha> is earlier — nothing under the mutation gates came in since) | own run — <why the record was not accepted> (n-a — the reason)
+mutation: ok/fail/n-a — <score from Final mutation score>, <the area files> · accepted record, <link> (head <sha> is earlier — nothing under the mutation gates came in since) | own run — <why the record was not accepted> (n-a — the reason)
+mutation-full: ok/fail/n-a — recorded: issue #<M> — <link> | not recorded: <why> (n-a — the reason)
 make -n <target>: ok/fail — <what the expansion showed>
 sh -n <script>: ok/fail (+ dash: ok/fail/n-a)
 Not run: <check> — <reason>
@@ -102,6 +103,8 @@ _🤖 Posted by Claude Code from the owner's account · [session](<session link>
   - the run did not start (no Docker, no `.env`), and there is nothing to confirm it works with;
   - a mutation gate broke off on a checker crash on the repeat too, or its area was not assembled
     (steps 1–2): nobody checked the PR's mutants;
+  - the batch of `mutation-full` was not checked (step 1): nobody checked that the change reaches a
+    full run;
   - the `comments` gate came with a `.ts` that changes code (step 3): the bug hunt that code needed
     did not run.
 

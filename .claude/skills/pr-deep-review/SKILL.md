@@ -311,7 +311,8 @@ The output of both skills is input for your verdict, not the verdict.
 
 ### Checks
 rebuild: done/not needed · build: ok/fail/n-a · typecheck: ok/fail/n-a · test: ok/fail/n-a · lint: ok/fail/n-a · format-check: ok/fail/n-a · python: ok/fail/n-a
-mutation: ok/fail/n-a — <score from Final mutation score>, <whole src/ or the area files> · accepted record, <link> (head <sha> earlier — nothing under the mutation gates since) | own run — <why the record was not accepted> (n-a — reason)
+mutation: ok/fail/n-a — <score from Final mutation score>, <the area files> · accepted record, <link> (head <sha> earlier — nothing under the mutation gates since) | own run — <why the record was not accepted> (n-a — reason)
+mutation-full: ok/fail/n-a — recorded: issue #<M> — <link> | not recorded: <why> (n-a — reason)
 make -n <target>: ok/fail — <what the expansion showed>
 sh -n <script>: ok/fail (+ dash: ok/fail/n-a)
 Not run: <check> — <reason>
@@ -361,6 +362,7 @@ Verdict rules:
   - the build does not start;
   - the mutation gate is cut short by a checker crash on the retry too, or its area could not be
     assembled (`pr-light-check`, step 1 of `SKILL.md` and step 2 of `fallback.md`);
+  - the batch of `mutation-full` could not be checked (`pr-light-check`, step 1 of `SKILL.md`);
   - the diff is empty;
   - the task is worded so that its criteria cannot be checked.
 

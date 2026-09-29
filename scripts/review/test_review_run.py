@@ -22,6 +22,8 @@ exit: 0
 score: 100.00
 survivors: 0
 """.format(url=URL, head=HEAD)
+BATCH_URL = "https://github.com/yuldashevsardor/telegram-bot/issues/662#issuecomment-5812345678"
+RECORDED = "recorded: issue #655 — {}\n".format(BATCH_URL)
 
 COMPOSE = (
     "{ [ -e .runtime.env ] || touch .runtime.env; } && docker compose -f docker-compose.app.yml "
@@ -90,6 +92,7 @@ class FakeRun:
             "review-tree-remove": (0, "Cleaned up: {}\n".format(review), ""),
             "mutation-area": (0, "\n".join(AREA) + "\n", ""),
             "mutation-record": (0, ACCEPTED, ""),
+            "mutation-full-check": (0, RECORDED, ""),
             "gh-diff": (0, "", ""),
             "coverage": (0, GREEN_SPECS, ""),
         }
@@ -189,11 +192,17 @@ class ReviewRunTest(unittest.TestCase):
     def test_the_gates_run_in_the_tree_of_the_pr_and_the_actions_here(self):
         run = self.fake()
 
-        self.review_run("rebuild build test python mutation", run)
+        self.review_run("rebuild build test python mutation mutation-full", run)
 
         for gate in ("rebuild", "build", "coverage", "review-test"):
             self.assertEqual(self.cwd_of(run, gate), [self.review], gate)
-        actions = ("review-tree-create", "mutation-area", "mutation-record", "review-tree-remove")
+        actions = (
+            "review-tree-create",
+            "mutation-area",
+            "mutation-record",
+            "mutation-full-check",
+            "review-tree-remove",
+        )
         for action in actions:
             self.assertEqual(self.cwd_of(run, action), [self.task], action)
         self.assertIn(
@@ -205,7 +214,6 @@ class ReviewRunTest(unittest.TestCase):
                     "make",
                     "mutation-record",
                     "pr=7",
-                    "gate=mutation",
                     "area=" + " ".join(AREA),
                     "rebuild=1",
                 ],
@@ -475,28 +483,80 @@ class ReviewRunTest(unittest.TestCase):
             self.assertIn("mutation: n-a — {}\n".format(line), out)
             self.assertNotIn("mutation-record", run.names())
 
-    def test_mutation_full_checks_the_record_without_a_tree(self):
+    def test_mutation_full_checks_the_batch_without_a_tree(self):
         run = self.fake()
 
         code, out = self.review_run("mutation-full docs", run)
 
-        self.assertEqual(run.names(), ["mutation-record", "gh-diff"])
-        self.assertIn(
-            (
-                ["make", "mutation-record", "pr=7", "gate=mutation-full", "area=", "rebuild="],
-                self.task,
+        self.assertEqual(run.names(), ["mutation-full-check"])
+        self.assertIn((["make", "mutation-full-check", "pr=7"], self.task), run.calls)
+        self.assertEqual(
+            out,
+            "Checks\nmutation-full: ok — recorded: issue #655 — {}\nLogs: {}\n".format(
+                BATCH_URL, self.logs
             ),
-            run.calls,
         )
-        self.assertIn("mutation: ok — 100.00, the whole src/ · accepted record, ", out)
 
-    def test_mutation_full_takes_the_place_of_mutation(self):
+    def test_mutation_full_leaves_mutation_its_own_area(self):
         run = self.fake()
 
-        self.review_run("build mutation mutation-full", run)
+        code, out = self.review_run("build mutation mutation-full", run)
 
-        self.assertNotIn("mutation-area", run.names())
-        self.assertIn("gate=mutation-full", run.calls[run.names().index("mutation-record")][0])
+        self.assertEqual(
+            run.names(),
+            [
+                "review-tree-create",
+                "build",
+                "mutation-area",
+                "mutation-record",
+                "gh-diff",
+                "mutation-full-check",
+                "review-tree-remove",
+            ],
+        )
+        self.assertIn(
+            "mutation: ok — 100.00, {} · accepted record, {}\n"
+            "mutation-full: ok — recorded: issue #655 — {}\n".format(
+                " ".join(AREA), URL, BATCH_URL
+            ),
+            out,
+        )
+
+    def test_an_issue_missing_from_the_batches_is_red(self):
+        for answer in (
+            "not recorded: no batch records #657, the issues PR #7 closes",
+            "not recorded: PR #7 closes no issue",
+        ):
+            run = self.fake(**{"mutation-full-check": (0, answer + "\n", "")})
+
+            code, out = self.review_run("mutation-full", run)
+
+            self.assertIn("mutation-full: fail — {}\n".format(answer), out)
+            self.assertIn("Red\n- make mutation-full-check — {}\n".format(answer), out)
+
+    def test_an_unanswered_batch_check_is_n_a(self):
+        run = self.fake(
+            **{"mutation-full-check": (1, "", "Stopped: gh api of the issues failed — HTTP 502\n")}
+        )
+
+        code, out = self.review_run("mutation-full", run)
+
+        self.assertIn(
+            "mutation-full: n-a — the batch was not checked: gh api of the issues failed — HTTP"
+            " 502\n",
+            out,
+        )
+        self.assertNotIn("Red", out)
+
+    def test_neither_a_failed_rebuild_nor_a_stopped_tree_takes_the_batch_check_away(self):
+        stopped = (1, "Stopped: a tree of an earlier run is left at {}\n".format(self.review), "")
+        for answers in ({"rebuild": (1, RED_BUILD, "")}, {"review-tree-create": stopped}):
+            run = self.fake(**answers)
+
+            code, out = self.review_run("rebuild mutation mutation-full", run)
+
+            self.assertIn("mutation-full-check", run.names())
+            self.assertIn("mutation-full: ok — recorded: issue #655", out)
 
     def test_the_new_stryker_marks_go_to_the_reviewer(self):
         diff = (
@@ -609,12 +669,13 @@ class ReviewRunTest(unittest.TestCase):
 
     def test_an_interrupt_of_a_run_without_a_tree_leaves_the_path_alone(self):
         os.makedirs(self.review)
-        run = self.fake(**{"mutation-record": KeyboardInterrupt()})
+        run = self.fake(**{"mutation-full-check": KeyboardInterrupt()})
 
         code, out = self.review_run("mutation-full make-targets", run)
 
         self.assertEqual(code, 130)
-        self.assertEqual(run.names(), ["mutation-record"])
+        self.assertEqual(run.names(), ["mutation-full-check"])
+        self.assertIn("mutation-full: n-a — the run was interrupted\n", out)
 
     def test_an_interrupt_after_a_stopped_creation_leaves_the_path_alone(self):
         os.makedirs(self.review)
@@ -625,14 +686,14 @@ class ReviewRunTest(unittest.TestCase):
                     "Stopped: a tree of an earlier run is left at {}\n".format(self.review),
                     "",
                 ),
-                "mutation-record": KeyboardInterrupt(),
+                "mutation-full-check": KeyboardInterrupt(),
             }
         )
 
         code, out = self.review_run("build mutation-full", run)
 
         self.assertEqual(code, 130)
-        self.assertEqual(run.names(), ["review-tree-create", "mutation-record"])
+        self.assertEqual(run.names(), ["review-tree-create", "mutation-full-check"])
 
     def test_an_interrupt_before_any_tree_removes_nothing(self):
         run = self.fake(**{"review-tree-create": KeyboardInterrupt()})

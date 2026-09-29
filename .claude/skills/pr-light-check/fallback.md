@@ -61,7 +61,7 @@ the `clean=` field of the run record, and condition 2 of the record's acceptance
 (`scripts/review/mutation_record.py`). A broken count hides from both gates:
 
 - `make -n` prints the chain `tree=…&&dirty=…||dirty=unknown` but does not run it;
-- a run under `mutation-full` goes on a clean tree, where `clean=yes` is expected anyway.
+- a run in review goes on a clean tree of the PR head, where `clean=yes` is expected anyway.
 
 So a recipe in which a failing `git` or a non-empty `git status` gives 0 looks sound, and records
 start arriving with `clean=yes` on an unchecked tree. Review would then accept a run that did not go
@@ -114,13 +114,12 @@ nothing to do with it.
 
 The run is yours in two cases:
 
-- the `Not run` line of a mutation gate ends in `the own run by fallback.md`: the record was refused
-  or not checked;
+- the `Not run` line of the `mutation` gate ends in `the own run by fallback.md`: the record was
+  refused or not checked;
 - a record accepted on condition 1, and the table turns on one of its three gates.
 
-Run the target in the PR tree: `make mutation files="<the Area: line>"` under `mutation`,
-`make mutation` under `mutation-full`. Which threshold it checks and why a run without mutants is
-green is in `docs/architecture/testing.md`, "Threshold".
+Run the target in the PR tree: `make mutation files="<the Area: line>"`. Which threshold it checks
+and why a run without mutants is green is in `docs/architecture/testing.md`, "Threshold".
 
 - The outcome of the gate is the target's exit code. The score comes from the
   `Final mutation score` line.
@@ -152,10 +151,8 @@ crash on a mutant does not break the run off.
 - It broke off with `Something went wrong in the initial test run` — the initial test run failed,
   not the checker. Read the gate as usual, by the exit code.
 
-`mutation-full` mutates the whole of `src/`. That takes minutes, longer than the limit of a single
-command, so run it in the background and read the result on completion. While it runs, start no
-other gates. The load would come from the review itself, and under load a mutant's status lies both
-ways (`docs/architecture/testing.md`, "Timeouts and errors").
+While the run goes, start no other gates. The load would come from the review itself, and under
+load a mutant's status lies both ways (`docs/architecture/testing.md`, "Timeouts and errors").
 
 Publish the record of your own run in the PR as soon as it finishes. A repeat from "Red" overwrites
 `reports/mutation/record.md`, and the cleanup deletes the temporary tree together with it.
@@ -170,9 +167,11 @@ The records of repeats are not published: the gate's record stays the last in th
 
 ### Red
 
-Red in `make -n` and `sh -n` is unambiguous by itself.
+Red in `make -n` and `sh -n` is unambiguous by itself. So is red in `make mutation-full-check`: no
+batch of the full run records the issue the PR closes, and the author records it with
+`make mutation-full-record issue=<M> pr=<N>`.
 
-Red in `mutation` and `mutation-full`, of your own run or of an accepted record — repeat on every
+Red in `mutation`, of your own run or of an accepted record — repeat on every
 file with survivors: `make mutation files="<file>"`. The threshold of 100 has no margin, and on a
 loaded machine a mutant's status lies both ways (`docs/architecture/testing.md`, "Timeouts and
 errors"). The whole area needs no repeat: the mutants of other files do not affect the status of
@@ -187,8 +186,8 @@ A repeat refines the red but does not turn it green: the gate is `fail` whatever
 The status of the repeat does not prove drift: under load a survivor hides both under `Timeout`
 and under `Killed` with the ordinary message of a spec, and review has no idle machine.
 
-Red in `build`, `typecheck`, `test`, `lint`, `format-check`, `python` or the mutation gates, and you
-doubt this PR brought it — compare with the base:
+Red in `build`, `typecheck`, `test`, `lint`, `format-check`, `python` or `mutation`, and you doubt
+this PR brought it — compare with the base:
 
 1. Create a worktree on `origin/main` at `<main>-review-<N>-base` next to the main worktree.
 2. Copy `.env` into it and move into it.
