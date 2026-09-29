@@ -41,10 +41,7 @@ describe("ConfigValuesBuilder", () => {
             group: { number: 20, interval: 60000 },
         });
         expect(result.runner).to.deep.equal({ sleepInterval: { min: 10, max: 1000 }, maxRetries: 3 });
-        expect(result.outbox).to.deep.equal({
-            retryDelay: { firstDelayMs: 1000, maxDelayMs: 60000, multiplier: 2 },
-            resultWaiter: { timeoutMs: 60000, pollIntervalMs: 1000 },
-        });
+        expect(result.outbox).to.deep.equal({ retryDelay: { firstDelayMs: 1000, maxDelayMs: 60000, multiplier: 2 } });
         expect(result.bot).to.deep.equal({ token: "token", gracefulShutdown: { timeout: 3000 } });
         expect(result.taskQueue).to.deep.equal({ logInterval: 10000, gracefulShutdown: { timeout: 5000, interval: 500 } });
         expect(result.gracefulShutdown).to.deep.equal({ timeout: 15000 });
@@ -77,8 +74,6 @@ describe("ConfigValuesBuilder", () => {
             OUTBOX_RETRY_FIRST_DELAY: "1004",
             OUTBOX_RETRY_MAX_DELAY: "60002",
             OUTBOX_RETRY_DELAY_MULTIPLIER: "3",
-            OUTBOX_RESULT_TIMEOUT: "60003",
-            OUTBOX_RESULT_POLL_INTERVAL: "1005",
             BOT_TOKEN: "own-token",
             BOT_GRACEFUL_SHUTDOWN_TIMEOUT: "3001",
             TASK_QUEUE_LOG_INTERVAL: "10001",
@@ -106,10 +101,7 @@ describe("ConfigValuesBuilder", () => {
             group: { number: 21, interval: 60001 },
         });
         expect(result.runner).to.deep.equal({ sleepInterval: { min: 11, max: 1003 }, maxRetries: 5 });
-        expect(result.outbox).to.deep.equal({
-            retryDelay: { firstDelayMs: 1004, maxDelayMs: 60002, multiplier: 3 },
-            resultWaiter: { timeoutMs: 60003, pollIntervalMs: 1005 },
-        });
+        expect(result.outbox).to.deep.equal({ retryDelay: { firstDelayMs: 1004, maxDelayMs: 60002, multiplier: 3 } });
         expect(result.bot).to.deep.equal({ token: "own-token", gracefulShutdown: { timeout: 3001 } });
         expect(result.taskQueue).to.deep.equal({ logInterval: 10001, gracefulShutdown: { timeout: 5001, interval: 501 } });
         expect(result.gracefulShutdown).to.deep.equal({ timeout: 15001 });
@@ -194,8 +186,6 @@ describe("ConfigValuesBuilder", () => {
         { name: "OUTBOX_RETRY_FIRST_DELAY", below: "0", range: "between 1 and 2147483647" },
         { name: "OUTBOX_RETRY_MAX_DELAY", below: "0", range: "between 1 and 2147483647" },
         { name: "OUTBOX_RETRY_DELAY_MULTIPLIER", below: "0", range: "at least 1" },
-        { name: "OUTBOX_RESULT_TIMEOUT", below: "0", range: "between 1 and 2147483647" },
-        { name: "OUTBOX_RESULT_POLL_INTERVAL", below: "0", range: "between 1 and 2147483647" },
         { name: "BOT_GRACEFUL_SHUTDOWN_TIMEOUT", below: "-1", range: "between 0 and 2147483647" },
         { name: "TASK_QUEUE_LOG_INTERVAL", below: "0", range: "between 1 and 2147483647" },
         { name: "TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT", below: "-1", range: "between 0 and 2147483647" },

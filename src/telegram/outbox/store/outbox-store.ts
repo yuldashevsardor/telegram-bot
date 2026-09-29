@@ -1,20 +1,11 @@
 import { inject, injectable } from "inversify";
-import type { TransactionSql } from "postgres";
 import type { Database, Sql } from "app/platform/database/database";
 import { Tokens } from "app/shared/tokens";
 import type { TelegramLimits } from "app/bootstrap/config/config-values";
 import { configValue } from "app/shared/config-value";
 import { MS_PER_SECOND } from "app/shared/time";
-import type {
-    FinishedOutboxMessage,
-    FinishedOutboxRow,
-    OutboxJson,
-    OutboxMessageInput,
-    OutboxPullResult,
-    OutboxPullResultRow,
-} from "app/telegram/outbox/store/outbox-store.types";
-import { FINISHED_STATUSES, OutboxChannel, OutboxChatState, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
-import type { FinishedMessageSource } from "app/telegram/outbox/result-waiter/outbox-result-waiter.types";
+import type { OutboxJson, OutboxMessageInput, OutboxPullResult, OutboxPullResultRow } from "app/telegram/outbox/store/outbox-store.types";
+import { OutboxChatState, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
 import {
     BotLimitsRowMissing,
     InvalidPauseDuration,
@@ -37,7 +28,7 @@ const MAX_PAUSE_MS = Number.MAX_SAFE_INTEGER;
 
 // The rows and the chat states of the outbox: the model is in docs/architecture/outbox.md.
 @injectable()
-export class OutboxStore implements FinishedMessageSource {
+export class OutboxStore {
     private readonly sql: Sql;
 
     public constructor(
@@ -99,9 +90,6 @@ export class OutboxStore implements FinishedMessageSource {
                 WHERE chat_id = ANY(${sql.array(chatIds, BIGINT)}::bigint[])
                   AND state = ${OutboxChatState.Idle}
             `;
-
-            // Delivered on commit, so a sender that wakes up on it sees the rows.
-            await sql`SELECT pg_notify(${OutboxChannel.Ready}, '')`;
 
             return rows.map((row) => Number(row.id)).sort((a, b) => a - b);
         });
@@ -321,38 +309,6 @@ export class OutboxStore implements FinishedMessageSource {
                     updated_at = now()
                 WHERE chat_id = ${done.chat_id}
             `;
-
-            await this.notifyFinished(sql, messageId);
         });
-    }
-
-    public async findFinished(messageIds: number[]): Promise<FinishedOutboxMessage[]> {
-        // The ids go as one jsonb array, not sql.array() as in pushBatch(): postgres.js takes the OID
-        // of an array type from the types it loads on connecting. As the first query of a new client,
-        // which the first poll of the waiter often is, sql.array() here failed with "cannot cast type
-        // bigint to bigint[]"; pushBatch() in its transaction did not. Nor a list of parameters: every
-        // number of ids would be a text of its own, and a prepared statement of its own on every
-        // connection.
-        const rows = await this.sql<FinishedOutboxRow[]>`
-            SELECT id, status, response
-            FROM telegram_outbox
-            WHERE id IN (SELECT jsonb_array_elements_text(${this.sql.json(messageIds)})::bigint)
-              AND status IN ${this.sql(FINISHED_STATUSES)}
-        `;
-
-        return rows.map((row) => ({ id: Number(row.id), status: row.status, response: row.response }));
-    }
-
-    // LISTEN takes a connection of its own, outside the pool, until Database.close()
-    // (docs/architecture/storage.md).
-    public async listenForFinished(onFinished: (messageId: number) => void, onListen: () => void): Promise<void> {
-        await this.sql.listen(OutboxChannel.Finished, (payload) => onFinished(Number(payload)), onListen);
-    }
-
-    // Every transaction that moves a message into a final status calls it: a caller waiting on
-    // another node learns of the outcome only from the poll otherwise (docs/architecture/invariants.md).
-    // Delivered on commit, so the waiter that reads the row on it sees the outcome.
-    private async notifyFinished(sql: TransactionSql, messageId: number): Promise<void> {
-        await sql`SELECT pg_notify(${OutboxChannel.Finished}, ${String(messageId)})`;
     }
 }
