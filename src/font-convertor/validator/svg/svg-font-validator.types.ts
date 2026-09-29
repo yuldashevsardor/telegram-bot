@@ -1,5 +1,3 @@
-import type { BrokenFont } from "app/font-convertor/validator/svg/svg-font-validator.errors";
-
 /**
  * The encodings a file is read in: UTF-8, or UTF-16 of either byte order with a BOM. The values are
  * `TextDecoder` labels.
@@ -41,18 +39,27 @@ export type OpenElement = {
 };
 
 /**
+ * A broken rule the pass met: what `BrokenFont` is built from once the pass is over.
+ */
+export type Violation = {
+    rule: FontRule;
+    element: string;
+    line: number;
+    /** The attribute that breaks the rule, as a name and a value; `undefined` for a rule of the element itself. */
+    attribute: [string, string] | undefined;
+};
+
+/**
  * What one pass over the document learned. The answers are given after the pass, because a
  * document that is not XML is "not XML" even when its well-formed head already broke a font rule.
  */
 export type Scan = {
-    /** Not learned but given: the file the pass reads, which a broken rule met in the pass names. */
-    fontPath: string;
     /** Whether the DOCTYPE is the SVG 1.1 one: it binds the default namespace and `xlink`, as its DTD fixes them. */
     svg11Doctype: boolean;
     /** The root element in Clark notation, `{namespace}local`. */
     root: string | undefined;
     hasFont: boolean;
     /** The first broken rule the pass met. */
-    violation: BrokenFont | undefined;
+    violation: Violation | undefined;
     open: Array<OpenElement>;
 };

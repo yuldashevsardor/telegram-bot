@@ -77,7 +77,9 @@ export class SvgFontValidator implements FontValidator {
         }
 
         if (scan.violation !== undefined) {
-            throw scan.violation;
+            const { rule, element, line, attribute } = scan.violation;
+
+            throw BrokenFont.byRule(fontPath, rule, element, line, attribute);
         }
     }
 
@@ -101,7 +103,7 @@ export class SvgFontValidator implements FontValidator {
     }
 
     private scan(fontPath: string, text: string, encoding: Encoding): Scan {
-        const scan: Scan = { fontPath: fontPath, svg11Doctype: false, root: undefined, hasFont: false, violation: undefined, open: [] };
+        const scan: Scan = { svg11Doctype: false, root: undefined, hasFont: false, violation: undefined, open: [] };
         // XML 1.0 fifth edition: a document declaring another 1.x version is read as 1.0.
         const parser = new SaxesParser({
             xmlns: true,
@@ -269,6 +271,6 @@ export class SvgFontValidator implements FontValidator {
     }
 
     private report(scan: Scan, rule: FontRule, name: string, line: number, attribute?: [string, string]): void {
-        scan.violation ??= BrokenFont.byRule(scan.fontPath, rule, name, line, attribute);
+        scan.violation ??= { rule: rule, element: name, line: line, attribute: attribute };
     }
 }
