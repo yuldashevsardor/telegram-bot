@@ -52,8 +52,7 @@ export class OutboxFailureHandler {
         await this.store.retry(message, attemptError, 0);
     }
 
-    // Every attempt counts, a flood included; the limit is checked on a transient failure only, so a
-    // flood never blocks the chat by itself.
+    // What counts and when the limit is checked: docs/architecture/outbox.md, "Outcomes".
     private async retryOrBlock(message: PulledOutboxMessage, attemptError: OutboxAttemptError): Promise<void> {
         const countedAttempts = message.earlierAttempts + 1;
 
