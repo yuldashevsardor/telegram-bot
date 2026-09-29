@@ -143,8 +143,24 @@ describe("WoffFontValidator.validate", function () {
         it("of exactly 32 MiB of totalSfntSize", async function () {
             const layout = withLargeTable(fixtureLayout, MAX_SFNT_SIZE_BYTES);
 
-            expect(sfntSize(layout)).to.equal(MAX_SFNT_SIZE_BYTES);
+            expect(sfntSizeBytes(layout)).to.equal(MAX_SFNT_SIZE_BYTES);
             await validate(build(layout));
+        });
+
+        it("with an empty table at the offset of the next one, whatever its tag", async function () {
+            // An empty table takes no bytes: it overlaps nothing, whether its tag sorts before hmtx or after it.
+            for (const tag of ["0000", "zzzz"]) {
+                const tables = fixtureLayout.tables.toSpliced(-1, 0, {
+                    tag: tag,
+                    stored: new Uint8Array(0),
+                    origLength: 0,
+                    origChecksum: 0,
+                });
+                const built = build({ ...fixtureLayout, tables: tables });
+
+                expect(readUint32(built, entryOf(built, tag) + OFFSET)).to.equal(readUint32(built, entryOf(built, "hmtx") + OFFSET));
+                await validate(built);
+            }
         });
     });
 
@@ -165,7 +181,9 @@ describe("WoffFontValidator.validate", function () {
             await expectAnswer(ttf, NotWoff, 'File is not WOFF: its signature is 0x00010000, expected 0x774f4646 ("wOFF").');
             await expectAnswer(woff2, NotWoff, 'File is not WOFF: its signature is 0x774f4632, expected 0x774f4646 ("wOFF").');
         });
+    });
 
+    describe("rejects a broken header", function () {
         it("goes on to the header fields in a file of the header alone", async function () {
             await expectBroken(
                 fixture.subarray(0, HEADER_SIZE_BYTES),
@@ -173,9 +191,7 @@ describe("WoffFontValidator.validate", function () {
                 "At the header: length is 67316, expected 44, the file size.",
             );
         });
-    });
 
-    describe("rejects a broken header", function () {
         it("whose flavor is a collection or unknown", async function () {
             const expected = "expected one of 0x00010000, 0x74727565, 0x4f54544f.";
 
@@ -761,7 +777,7 @@ function build(layout: Layout): Uint8Array {
     head.setUint32(FLAVOR, layout.flavor);
     head.setUint32(LENGTH, offset);
     head.setUint16(NUM_TABLES, layout.tables.length);
-    head.setUint32(TOTAL_SFNT_SIZE, sfntSize(layout));
+    head.setUint32(TOTAL_SFNT_SIZE, sfntSizeBytes(layout));
     // majorVersion 1, minorVersion 0: what fontforge wrote into the fixture.
     head.setUint16(20, 1);
     head.setUint32(META_OFFSET, metaOffset);
@@ -786,7 +802,7 @@ function build(layout: Layout): Uint8Array {
     return concat(new Uint8Array(head.buffer), ...directory, ...chunks);
 }
 
-function sfntSize(layout: Layout): number {
+function sfntSizeBytes(layout: Layout): number {
     const tablesSize = layout.tables.reduce((size, table) => size + Math.ceil(table.origLength / 4) * 4, 0);
 
     return SFNT_HEADER_SIZE_BYTES + SFNT_TABLE_RECORD_SIZE_BYTES * layout.tables.length + tablesSize;
@@ -847,10 +863,10 @@ function withStoredTable(layout: Layout, tag: string, replace: (table: StoredTab
 }
 
 /**
- * The layout with one more table of zeros, "zzzz", that makes totalSfntSize exactly `sfntSize`.
+ * The layout with one more table of zeros, "zzzz", that makes totalSfntSize exactly `targetSfntSizeBytes`.
  */
-function withLargeTable(layout: Layout, targetSfntSize: number): Layout {
-    const origLength = targetSfntSize - sfntSize(layout) - SFNT_TABLE_RECORD_SIZE_BYTES;
+function withLargeTable(layout: Layout, targetSfntSizeBytes: number): Layout {
+    const origLength = targetSfntSizeBytes - sfntSizeBytes(layout) - SFNT_TABLE_RECORD_SIZE_BYTES;
 
     return { ...layout, tables: [...layout.tables, compressed("zzzz", new Uint8Array(origLength), 0)] };
 }

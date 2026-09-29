@@ -11,7 +11,7 @@ export enum WoffRule {
     BlockAbsence = "an absent metadata or private block has offset and length 0, and absent metadata has metaOrigLength 0 (WOFF 1.0, §4)",
     AscendingTags = "the table directory lists the tags in ascending order, each once (WOFF 1.0, §5)",
     TableAlignment = "a table starts on a 4-byte boundary (WOFF 1.0, §5)",
-    Padding = "a table is padded to a 4-byte boundary with 0 to 3 zero bytes, the last one too (WOFF 1.0, §3, §5)",
+    Padding = "a table is padded to a 4-byte boundary, the last one too, and so is the metadata followed by the private block; the padding is 0 to 3 zero bytes (WOFF 1.0, §3, §5, §8)",
     BlockInFile = "no table, metadata or private block runs past the end of the file (WOFF 1.0, §3, §4, §5)",
     NoOverlap = "no two blocks overlap, nor a block and the table directory (WOFF 1.0, §3, §4, §5)",
     NoExtraneousData = "the tables follow the table directory in one run, then the metadata, then the private block, which ends the file; nothing lies between or after them but padding, and no padding follows the metadata when it is last (WOFF 1.0, §3, §6, §7, §8)",

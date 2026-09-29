@@ -4,11 +4,12 @@
  * ("ttcf") is not here: it holds several fonts, and which one to take is not the domain's call
  * (issue https://github.com/yuldashevsardor/telegram-bot/issues/181).
  *
- * One set serves two checks. `FontSignatureMatcher` matches the first four bytes of a source
+ * One set serves three checks. `FontSignatureMatcher` matches the first four bytes of a source
  * under an sfnt extension against it. `SfntReader` checks the version before parsing the table
- * directory, and files that never passed the signature reach it too. The set must not become two
- * lists: a divergence breaks behaviour, not the build (docs/architecture/font-convertor.md,
- * "Signatures").
+ * directory, and files that never passed the signature reach it too. `WoffFontValidator` checks
+ * the flavor of a WOFF against it: the flavor is the version of the enclosed sfnt. The set must
+ * not become several lists: a divergence breaks behaviour, not the build
+ * (docs/architecture/font-convertor.md, "Signatures").
  */
 export const SFNT_VERSIONS: ReadonlyArray<number> = [0x00010000, 0x74727565, 0x4f54544f];
 

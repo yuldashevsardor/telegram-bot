@@ -109,7 +109,7 @@ export class WoffFontValidator implements FontValidator {
         };
     }
 
-    private checkHeader(fontPath: string, header: WoffHeader, fileSize: number): void {
+    private checkHeader(fontPath: string, header: WoffHeader, fileSizeBytes: number): void {
         const at = "the header";
 
         if (!SFNT_VERSIONS.includes(header.flavor)) {
@@ -124,13 +124,13 @@ export class WoffFontValidator implements FontValidator {
             });
         }
 
-        if (header.length !== fileSize) {
+        if (header.length !== fileSizeBytes) {
             throw BrokenWoff.byRule(fontPath, {
                 rule: WoffRule.Length,
                 at: at,
                 field: "length",
                 value: header.length,
-                expected: `${fileSize}, the file size`,
+                expected: `${fileSizeBytes}, the file size`,
             });
         }
 
@@ -156,12 +156,12 @@ export class WoffFontValidator implements FontValidator {
 
         const directoryEnd = this.directoryEnd(header.numTables);
 
-        if (fileSize < directoryEnd) {
+        if (fileSizeBytes < directoryEnd) {
             throw BrokenWoff.byRule(fontPath, {
                 rule: WoffRule.DirectoryInFile,
                 at: "the file",
                 field: "size",
-                value: fileSize,
+                value: fileSizeBytes,
                 expected: `at least ${directoryEnd} for ${header.numTables} directory entries`,
             });
         }
@@ -171,15 +171,15 @@ export class WoffFontValidator implements FontValidator {
         const entries: Array<TableEntry> = [];
 
         for (let index = 0; index < numTables; index++) {
-            const entry = WoffFontValidator.HEADER_SIZE_BYTES + index * WoffFontValidator.DIRECTORY_ENTRY_SIZE_BYTES;
+            const entryOffset = WoffFontValidator.HEADER_SIZE_BYTES + index * WoffFontValidator.DIRECTORY_ENTRY_SIZE_BYTES;
 
             // The offsets of the fields in an entry (§5).
             entries.push({
-                tag: this.tag(view, entry),
-                offset: view.getUint32(entry + 4),
-                compLength: view.getUint32(entry + 8),
-                origLength: view.getUint32(entry + 12),
-                origChecksum: view.getUint32(entry + 16),
+                tag: this.tag(view, entryOffset),
+                offset: view.getUint32(entryOffset + 4),
+                compLength: view.getUint32(entryOffset + 8),
+                origLength: view.getUint32(entryOffset + 12),
+                origChecksum: view.getUint32(entryOffset + 16),
             });
         }
 
@@ -191,7 +191,7 @@ export class WoffFontValidator implements FontValidator {
      * cap after that, so the cap stands on a field the directory has confirmed.
      */
     private checkDirectory({ path, header, entries }: Woff): void {
-        let sfntSize = WoffFontValidator.SFNT_HEADER_SIZE_BYTES + WoffFontValidator.SFNT_TABLE_RECORD_SIZE_BYTES * header.numTables;
+        let sfntSizeBytes = WoffFontValidator.SFNT_HEADER_SIZE_BYTES + WoffFontValidator.SFNT_TABLE_RECORD_SIZE_BYTES * header.numTables;
         let previous: TableEntry | undefined;
 
         for (const entry of entries) {
@@ -215,19 +215,19 @@ export class WoffFontValidator implements FontValidator {
                 });
             }
 
-            sfntSize += this.padded(entry.origLength);
+            sfntSizeBytes += this.padded(entry.origLength);
             previous = entry;
         }
 
         const at = "the header";
 
-        if (header.totalSfntSize !== sfntSize) {
+        if (header.totalSfntSize !== sfntSizeBytes) {
             throw BrokenWoff.byRule(path, {
                 rule: WoffRule.TotalSfntSize,
                 at: at,
                 field: "totalSfntSize",
                 value: header.totalSfntSize,
-                expected: `${sfntSize}`,
+                expected: `${sfntSizeBytes}`,
             });
         }
 
@@ -289,19 +289,23 @@ export class WoffFontValidator implements FontValidator {
      * Then one walk in the order of the offsets, from the end of the directory to the end of the
      * file, checks what lies between them: no overlap, the kinds in the order of §3, and nothing
      * but zero padding in the gaps.
+     *
+     * An empty table (compLength 0) takes no bytes, so it overlaps nothing and leaves no gap: the
+     * walk skips it. Walked, such a table at the offset of another one would count as inside that
+     * table or before it depending on the order of the directory, that is on its tag.
      */
     private checkLayout(woff: Woff): void {
         const blocks = this.blocks(woff);
-        const fileSize = woff.bytes.length;
+        const fileSizeBytes = woff.bytes.length;
 
         for (const block of blocks) {
-            if (block.offset + block.length > fileSize) {
+            if (block.offset + block.length > fileSizeBytes) {
                 throw BrokenWoff.byRule(woff.path, {
                     rule: WoffRule.BlockInFile,
                     at: block.name,
                     field: "end",
                     value: block.offset + block.length,
-                    expected: `at most ${fileSize}, the file size`,
+                    expected: `at most ${fileSizeBytes}, the file size`,
                 });
             }
 
@@ -333,7 +337,9 @@ export class WoffFontValidator implements FontValidator {
             length: this.directoryEnd(woff.header.numTables),
         };
 
-        for (const block of blocks.toSorted((left, right) => left.offset - right.offset)) {
+        const blocksByOffset = blocks.filter((block) => block.length > 0).toSorted((left, right) => left.offset - right.offset);
+
+        for (const block of blocksByOffset) {
             const previousEnd = previous.offset + previous.length;
 
             if (block.offset < previousEnd) {
