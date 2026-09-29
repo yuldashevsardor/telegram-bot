@@ -21,13 +21,14 @@ function clip(text: string, maxLength: number): [kept: string, mark: string] {
 
 /**
  * The file is not a valid SVG font. `SvgFontValidator` answers with one of the subclasses, and a
- * caller tells them apart by `instanceof`.
+ * caller tells them apart by `instanceof`. The payload of each names the file in `path`.
  */
 export class InvalidSvgFont extends RuntimeError {}
 
 export class NotXml extends InvalidSvgFont {
-    public static byEncoding(encoding: Encoding, cause: Error): NotXml {
+    public static byEncoding(fontPath: string, encoding: Encoding, cause: Error): NotXml {
         return new NotXml(`File is not XML: its bytes are not valid ${encoding}.`, {
+            path: fontPath,
             encoding: encoding,
             cause: cause,
         });
@@ -37,8 +38,8 @@ export class NotXml extends InvalidSvgFont {
      * The saxes error is not kept as the cause: it carries nothing but its message, and the log
      * would print that message uncut.
      */
-    public static byParser(error: Error): NotXml {
-        return new NotXml(`File is not XML: ${clip(error.message, MAX_PARSER_MESSAGE_LENGTH).join("")}`);
+    public static byParser(fontPath: string, error: Error): NotXml {
+        return new NotXml(`File is not XML: ${clip(error.message, MAX_PARSER_MESSAGE_LENGTH).join("")}`, { path: fontPath });
     }
 }
 
@@ -49,12 +50,13 @@ export class NotSvg extends InvalidSvgFont {
      * namespace does not cut off the name, and the braces are kept, so that the quote stays in Clark
      * notation.
      */
-    public static byRoot(root: string, expected: string): NotSvg {
+    public static byRoot(fontPath: string, root: string, expected: string): NotSvg {
         const end = root.lastIndexOf("}");
         const namespace = clip(root.slice(1, end), MAX_QUOTED_LENGTH).join("");
         const quoted = `{${namespace}}${clip(root.slice(end + 1), MAX_QUOTED_LENGTH).join("")}`;
 
         return new NotSvg(`File is not SVG: the root element is ${quoted}, expected ${expected}.`, {
+            path: fontPath,
             root: quoted,
             rootLength: root.length,
         });
@@ -62,8 +64,8 @@ export class NotSvg extends InvalidSvgFont {
 }
 
 export class NoFont extends InvalidSvgFont {
-    public static inDocument(): NoFont {
-        return new NoFont("SVG has no font element in the SVG namespace.");
+    public static inDocument(fontPath: string): NoFont {
+        return new NoFont("SVG has no font element in the SVG namespace.", { path: fontPath });
     }
 }
 
@@ -74,17 +76,18 @@ export class BrokenFont extends InvalidSvgFont {
      * from a value that ends with `…` itself. In the message the value is escaped by
      * `JSON.stringify`, which can make it longer, so there the mark stands outside the quotes.
      */
-    public static byRule(rule: FontRule, element: string, line: number, attribute?: [string, string]): BrokenFont {
+    public static byRule(fontPath: string, rule: FontRule, element: string, line: number, attribute?: [string, string]): BrokenFont {
         const at = `SVG font breaks a rule: ${rule}. At line ${line}: <${element}>`;
 
         if (attribute === undefined) {
-            return new BrokenFont(`${at}.`, { rule: rule, element: element, line: line });
+            return new BrokenFont(`${at}.`, { path: fontPath, rule: rule, element: element, line: line });
         }
 
         const [name, value] = attribute;
         const [kept, mark] = clip(value, MAX_QUOTED_LENGTH);
 
         return new BrokenFont(`${at} with ${name}=${JSON.stringify(kept)}${mark}.`, {
+            path: fontPath,
             rule: rule,
             element: element,
             line: line,

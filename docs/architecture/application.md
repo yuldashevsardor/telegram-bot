@@ -67,7 +67,7 @@ This rests on `emitDecoratorMetadata` being off ([invariant](./invariants.md)). 
 parameter without `@inject` only through the emitted `design:paramtypes`. Without them it takes
 the constructor to be described in full by its `@inject`s and never reaches the default. The flag
 was switched off for another reason: nobody read the metadata. But switching it back on breaks the
-resolve of all eight such classes, and only in the build.
+resolve of every such class, and only in the build.
 
 Two properties follow:
 

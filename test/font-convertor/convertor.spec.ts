@@ -109,7 +109,7 @@ describe("Convertor.validate", function () {
             await fs.writeFile(fromPath, '<svg xmlns="http://www.w3.org/2000/svg"/>');
             convertor = factory.get(Extension.SVG, Extension.WOFF);
 
-            await expectRejection(fromPath, inWorkDir("result.woff"), NoFont.inDocument());
+            await expectRejection(fromPath, inWorkDir("result.woff"), NoFont.inDocument(fromPath));
         });
     });
 

@@ -36,6 +36,8 @@ import { UserService } from "app/telegram/user/service/user-service";
 import { TelegramCallApiMiddleware } from "app/telegram/middleware/mutation/telegram-call-api.middleware";
 import { StartConversation } from "app/telegram/conversation/start/start.conversation";
 import { OutboxStore } from "app/telegram/outbox/store/outbox-store";
+import { RetryDelay } from "app/telegram/outbox/retry-delay/retry-delay";
+import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 
 export class Container extends InversifyContainer {
     private alreadySetup = false;
@@ -92,6 +94,10 @@ export class Container extends InversifyContainer {
 
         // Outbox
         this.bind<OutboxStore>(Tokens.Bot.Outbox.Store).to(OutboxStore).inSingletonScope();
+        this.bind<RetryDelay>(Tokens.Bot.Outbox.RetryDelay).to(RetryDelay).inSingletonScope();
+
+        // Bot API failures
+        this.bind<TelegramBotApiFailureClassifier>(Tokens.Bot.ApiFailureClassifier).to(TelegramBotApiFailureClassifier).inSingletonScope();
 
         // User
         this.bind<UserRepository>(Tokens.Bot.User.Repository).to(PgSqlUserRepository).inSingletonScope();

@@ -125,7 +125,9 @@ is not checked: the validator sees only the source.
 It answers with a subclass of `InvalidSvgFont`, in this order: `NotXml`, `NotSvg`, `NoFont`,
 `BrokenFont`. The order holds because the answers are given after one full pass over the document:
 a file that breaks off halfway is "not XML" even if its well-formed head already broke a font rule.
-Of several broken rules, `BrokenFont` names the first the pass met.
+Of several broken rules, `BrokenFont` names the first the pass met. Every answer names the source
+in `path` of its payload, as `InvalidFontSignature` does for a signed format, so that the log says
+which file was rejected.
 
 - **Not XML.** The decoder is picked by the BOM: `FF FE` and `FE FF` are UTF-16, anything else
   UTF-8, since XML 1.0 §4.3.3 requires the BOM for UTF-16. `TextDecoder` runs with `fatal`, because
@@ -170,9 +172,10 @@ Text from the file reaches the log through the answers, so each piece of it is c
 namespace and the local name of a `NotSvg` root and the attribute value of a `BrokenFont` each to
 `MAX_QUOTED_LENGTH`. A cut piece ends with `…`, which makes it one unit longer than an uncut piece
 can be: that, not the text, tells it from a piece that ends with `…` itself. This holds for every
-piece of the payload and of the `NotXml` and `NotSvg` messages. The `BrokenFont` message escapes the
-kept value with `JSON.stringify`, which can make it longer, so there the `…` stands outside the
-quotes, where the escaped value cannot reach. The payload also keeps the length before the cut:
+piece quoted from the file, in the payload and in the `NotXml` and `NotSvg` messages; `path` is not
+text from the file and is not cut. The `BrokenFont` message escapes the kept value with
+`JSON.stringify`, which can make it longer, so there the `…` stands outside the quotes, where the
+escaped value cannot reach. The payload also keeps the length before the cut:
 `valueLength` of the value, which, like the length of `value`, tells a cut value, and `rootLength`
 of the whole root, which does not say which of its two pieces was cut.
 
