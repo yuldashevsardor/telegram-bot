@@ -357,9 +357,9 @@ and its failure gives no line of its own with the prefix. All that stays in the 
 
 **Timeouts and errors.** The runner creates Mocha with `timeout: 0`. Stryker itself catches a hung
 mutant and counts it as `Timeout`, which is "detected", on a par with `Killed`. The mutants of
-`TelegramCallApiMiddleware`, of `withTimeout()`/`sleep()`, of the loop in `FontSignatureMatcher`
-and of the fontforge launch hang for real: an eternal promise, an endless loop, a process waiting
-for input. `timeoutMS` is left at the default; why is in the config.
+`TelegramCallApiMiddleware`, of `withTimeout()`/`sleep()` and of the fontforge launch hang for
+real: an eternal promise, a process waiting for input. `timeoutMS` is left at the default; why is
+in the config.
 
 On a loaded machine (a neighbouring session running a mutation run of its own) a healthy but slow
 test does not fit into the deadline, and the status lies:

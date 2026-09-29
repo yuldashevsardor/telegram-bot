@@ -188,8 +188,8 @@ boundary:
 - "Gathers" declares the boundary of a contract: from `telegram/command/` both the base class and
   every sibling are taken outwards.
 - A directory with companions keeps them at the main file whether they are visible outside or not.
-  From `telegram/bot/` both `bot` and `bot.types` are imported, from `signature-matcher/` only
-  `font-signature-matcher`.
+  From `telegram/bot/` both `bot` and `bot.types` are imported, from `font-forge/` only
+  `font-forge`.
 - A directory around a sibling separates from the other siblings the one that has files or a role
   of its own.
 
@@ -205,6 +205,7 @@ the import path can be guessed from the class name.
 **Gathers** — same-kind siblings of one contract, enumerated by one registrar:
 
 - `convertor/<from>/` — by `convertor-factory.ts`;
+- `validator/` — by `font-validator-resolver.ts`;
 - `command/`, `conversation/`, `filter/` and `middleware/` — by `container.ts`;
 - the `.ftl` bundles in the `locale/` directories at commands and conversations — by the walk in
   `createFluent()` (`telegram/locale/locale.ts`).
@@ -214,9 +215,10 @@ name. So it does not confuse the bundle directories with the namesake `telegram/
 holds `locale.ts` itself with its companions and not a single `.ftl`.
 
 The base class of the contract lies with the siblings (`command/command.ts`,
-`conversation/conversation-handler.ts`, `filter/filter.ts`, `middleware/middleware.ts`) or in the
-parent (`convertor/convertor.ts`). A siblings directory is named after their contract (`command/`
-at `command.ts`) or after a feature the siblings share (`convertor/eot/` — the source format).
+`conversation/conversation-handler.ts`, `filter/filter.ts`, `middleware/middleware.ts`,
+`validator/font-validator.ts`) or in the parent (`convertor/convertor.ts`). A siblings directory is
+named after their contract (`command/` at `command.ts`) or after a feature the siblings share
+(`convertor/eot/` — the source format).
 
 **Stands around one sibling** — a sibling leaves the siblings directory for a directory of its
 own only when it has files of its own or a role of its own among the siblings:
@@ -224,7 +226,8 @@ own only when it has files of its own or a role of its own among the siblings:
 - `command/start/`, `command/bulk-messages/`, `command/font-generator/` and `conversation/start/`
   keep the command or the conversation together with their `locale/` bundles;
 - `middleware/mutation/` is a role inside `middleware/`: a middleware that replaces `ctx.api.raw`
-  ([`bot.md`](./bot.md)). There is only one file in it so far.
+  ([`bot.md`](./bot.md)). There is only one file in it so far;
+- `validator/svg/` keeps `SvgFontValidator` together with its companions and its path data parser.
 
 A sibling with neither lies flat in the siblings directory: `filter/has-session-key.filter.ts`,
 `middleware/request-log.middleware.ts`. The name is the prefix of the sibling's file name

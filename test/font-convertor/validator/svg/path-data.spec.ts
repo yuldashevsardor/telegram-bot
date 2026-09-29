@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { isPathData } from "app/font-convertor/svg-validator/path-data";
+import { isPathData } from "app/font-convertor/validator/svg/path-data";
 
 describe("isPathData", function () {
     describe("accepts", function () {

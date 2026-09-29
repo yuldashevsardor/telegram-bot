@@ -7,7 +7,8 @@ import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-signature-matcher";
-import { FileHelper } from "app/shared/fs/file-helper";
+import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
+import { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
 import { InvalidPath } from "app/shared/fs/file-helper.errors";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
@@ -17,8 +18,8 @@ const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 // that the pair is reachable. Each pair calls the check itself, so a rejection is pinned for each.
 // The branches of the check itself run in convertor.spec.ts.
 describe("Convertors of the engine pairs", function () {
-    const matcher = new FontSignatureMatcher();
-    const factory = new ConvertorFactory(new FontForge("fontforge"), matcher, new EotPacker());
+    const resolver = new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator());
+    const factory = new ConvertorFactory(new FontForge("fontforge"), resolver, new EotPacker());
     const engineExtensions = factory.getSupportedExtensions().filter((extension) => extension !== Extension.EOT);
     let workDir: string;
 
@@ -37,8 +38,8 @@ describe("Convertors of the engine pairs", function () {
 
                 await factory.get(fromExtension, toExtension).convert(path.join(fixtureDir, `test-font.${fromExtension}`), toPath);
 
-                const head = await FileHelper.readHead(toPath, matcher.headLength);
-                expect(matcher.matches(head, toExtension), "the result is not in the target format").to.be.true;
+                // The result is checked by the validator a source of its format meets.
+                await resolver.get(toExtension).validate(toPath);
             });
 
             it(`refuses to write ${fromExtension} to ${toExtension} over an existing file`, async function () {
@@ -55,6 +56,24 @@ describe("Convertors of the engine pairs", function () {
                 expect(await fs.readFile(toPath), "the engine wrote over an existing file").to.deep.equal(Buffer.from(existing));
             });
         }
+    }
+
+    // A processing instruction may open a document without an XML declaration, after an indent and
+    // with any target, and the engine converts every one of these: the validator has to admit them.
+    for (const prologue of ['\n<?xml-stylesheet href="a.css"?>', "<?sodipodi-namespace?>", "  <?xmlfoo bar?>"]) {
+        it(`converts svg opening with ${JSON.stringify(prologue)}`, async function () {
+            const fixtureText = await fs.readFile(path.join(fixtureDir, `test-font.${Extension.SVG}`), "utf8");
+            // The XML declaration has to open the document, so it gives way to the prologue.
+            expect(fixtureText, "the svg fixture does not open with the XML declaration").to.match(/^<\?xml /);
+            const fixtureBody = fixtureText.slice(fixtureText.indexOf("?>") + "?>".length);
+            const fromPath = path.join(workDir, `source.${Extension.SVG}`);
+            const toPath = path.join(workDir, `result.${Extension.WOFF}`);
+            await fs.writeFile(fromPath, prologue + fixtureBody);
+
+            await factory.get(Extension.SVG, Extension.WOFF).convert(fromPath, toPath);
+
+            await resolver.get(Extension.WOFF).validate(toPath);
+        });
     }
 
     function rejectionOf(call: () => Promise<unknown>): Promise<unknown> {

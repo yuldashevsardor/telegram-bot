@@ -3,7 +3,7 @@ import type { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { FileHelper } from "app/shared/fs/file-helper";
 import type { FontForge } from "app/font-convertor/font-forge/font-forge";
-import type { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-signature-matcher";
+import type { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
 
 /**
  * An EOT pair that needs both: the codec takes the envelope off or puts it on, the engine moves
@@ -12,10 +12,10 @@ import type { FontSignatureMatcher } from "app/font-convertor/signature-matcher/
 export abstract class TwoStepEotConvertor extends Convertor {
     public constructor(
         protected readonly fontForge: FontForge,
-        fontSignatureMatcher: FontSignatureMatcher,
+        fontValidatorResolver: FontValidatorResolver,
         protected readonly eotPacker: EotPacker,
     ) {
-        super(fontSignatureMatcher);
+        super(fontValidatorResolver);
     }
 
     /**

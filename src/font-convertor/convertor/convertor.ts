@@ -1,15 +1,14 @@
 import { InvalidFile, InvalidPath, PermissionDenied } from "app/shared/fs/file-helper.errors";
 import path from "path";
 import type { Extension } from "app/font-convertor/font-convertor.types";
-import { InvalidFontSignature } from "app/font-convertor/font-convertor.errors";
-import type { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-signature-matcher";
+import type { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
 import { FileHelper } from "app/shared/fs/file-helper";
 
 export abstract class Convertor {
     protected abstract fromExtension: Extension;
     protected abstract toExtension: Extension;
 
-    protected constructor(private readonly fontSignatureMatcher: FontSignatureMatcher) {}
+    protected constructor(private readonly fontValidatorResolver: FontValidatorResolver) {}
 
     protected async validate(fromPath: string, toPath: string): Promise<void> {
         await this.validateFromPath(fromPath);
@@ -37,11 +36,7 @@ export abstract class Convertor {
 
         // The sender sets the extension, so it alone proves nothing. Without this check arbitrary
         // bytes named *.ttf would go to the engine.
-        const head = await FileHelper.readHead(fromPath, this.fontSignatureMatcher.headLength);
-
-        if (!this.fontSignatureMatcher.matches(head, this.fromExtension)) {
-            throw InvalidFontSignature.byPathAndExtension(fromPath, this.fromExtension);
-        }
+        await this.fontValidatorResolver.get(this.fromExtension).validate(fromPath);
     }
 
     private async validateToPath(toPath: string): Promise<void> {
