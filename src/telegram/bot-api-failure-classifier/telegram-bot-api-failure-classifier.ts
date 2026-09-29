@@ -1,8 +1,8 @@
 import { constants as httpStatus } from "node:http2";
 import { GrammyError, HttpError } from "grammy";
 import { injectable } from "inversify";
-import { TelegramBotApiFailureKind } from "app/telegram/api-failure-classifier/api-failure-classifier.types";
-import type { TelegramBotApiFailure } from "app/telegram/api-failure-classifier/api-failure-classifier.types";
+import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
+import type { TelegramBotApiFailure } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 
 // The error_code of the Bot API repeats the HTTP status of its answer, so Node's HTTP status
 // constants name it. They stop at 511 and have no name for the end of the 5xx range.

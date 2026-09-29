@@ -15,7 +15,7 @@ const ROUNDING_TOLERANCE_MS = 0.001;
 // The steps of SETTINGS by counted attempt, from the first: doubled until the cap stops them.
 const STEPS_MS = [1000, 2000, 4000, 8000, 16_000, 30_000, 30_000, 30_000];
 
-describe("Outbox retry delay", function () {
+describe("RetryDelay", function () {
     it("takes the first step after the first counted attempt", function () {
         expect(new RetryDelay(SETTINGS, () => 0.5).computeMs(1)).to.equal(750);
     });

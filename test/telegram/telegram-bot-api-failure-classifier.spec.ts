@@ -1,8 +1,11 @@
 import { expect } from "chai";
 import { GrammyError, HttpError } from "grammy";
 import type { ApiError, ResponseParameters } from "grammy/types";
-import { DEFAULT_RETRY_AFTER_SECONDS, TelegramBotApiFailureClassifier } from "app/telegram/api-failure-classifier/api-failure-classifier";
-import { TelegramBotApiFailureKind } from "app/telegram/api-failure-classifier/api-failure-classifier.types";
+import {
+    DEFAULT_RETRY_AFTER_SECONDS,
+    TelegramBotApiFailureClassifier,
+} from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
+import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 
 describe("TelegramBotApiFailureClassifier", function () {
     const classifier = new TelegramBotApiFailureClassifier();

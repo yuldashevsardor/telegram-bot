@@ -7,7 +7,7 @@ nothing (the plan is epic [#618](https://github.com/yuldashevsardor/telegram-bot
 Nothing calls the directory yet: so far it holds the tables with `OutboxStore`
 (`store/outbox-store.ts`), which pushes, pulls and marks done, the payload codec and the retry
 delay. The error classes of a failed call, which the outbox will act on, lie outside it, in
-`telegram/api-failure-classifier/`.
+`telegram/bot-api-failure-classifier/`.
 
 ## Tables
 
@@ -122,9 +122,10 @@ so mutation testing reaches them.
 ### Error classes
 
 `TelegramBotApiFailureClassifier.classify(error)`
-(`telegram/api-failure-classifier/api-failure-classifier.ts`) sorts a failed Bot API call into the
-four classes of the epic ([#618](https://github.com/yuldashevsardor/telegram-bot/issues/618),
-"Error classes"), the `TelegramBotApiFailureKind` values. Which error falls into which class is
+(`telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.ts`) sorts a failed Bot
+API call into the four classes of the epic
+([#618](https://github.com/yuldashevsardor/telegram-bot/issues/618), "Error classes"), the
+`TelegramBotApiFailureKind` values. Which error falls into which class is
 read off the branches of the method. What the code does not say is why three of them are drawn
 where they are:
 
