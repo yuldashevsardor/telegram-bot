@@ -9,6 +9,7 @@ import { MS_PER_SECOND } from "app/shared/time";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import type {
     OutboxAttemptError,
+    OutboxFinalOutcome,
     OutboxJson,
     OutboxLease,
     OutboxMessageInput,
@@ -277,7 +278,7 @@ export class OutboxStore {
     // The message is sent: the response goes to the row, and the chat goes on to its next message.
     public async markAsDone(lease: OutboxLease, response: OutboxJson): Promise<void> {
         await this.complete(lease, async (sql, chatId) => {
-            await this.finishMessage(sql, lease, OutboxStatus.Done, null, response);
+            await this.finishMessage(sql, lease, { status: OutboxStatus.Done, error: null, response: response });
             await this.releaseChat(sql, chatId);
         });
     }
@@ -299,12 +300,10 @@ export class OutboxStore {
                 `,
             );
 
+            await this.setChatState(sql, chatId, OutboxChatState.Ready);
             await sql`
                 UPDATE telegram_outbox_chats
-                SET state = ${OutboxChatState.Ready},
-                    next_attempt_at = greatest(next_attempt_at, now() + ${delayMs}::double precision * interval '1 millisecond'),
-                    locked_until = NULL,
-                    lock_token = NULL,
+                SET next_attempt_at = greatest(next_attempt_at, now() + ${delayMs}::double precision * interval '1 millisecond'),
                     updated_at = now()
                 WHERE chat_id = ${chatId}
             `;
@@ -314,7 +313,7 @@ export class OutboxStore {
     // The message cannot be delivered, and its chat goes on to its next message.
     public async markAsFailed(lease: OutboxLease, error: OutboxAttemptError): Promise<void> {
         await this.complete(lease, async (sql, chatId) => {
-            await this.finishMessage(sql, lease, OutboxStatus.Failed, error, null);
+            await this.finishMessage(sql, lease, { status: OutboxStatus.Failed, error: error, response: null });
             await this.releaseChat(sql, chatId);
         });
     }
@@ -323,7 +322,7 @@ export class OutboxStore {
     // it wait, new ones are still pushed.
     public async markAsFailedAndBlockChat(lease: OutboxLease, error: OutboxAttemptError): Promise<void> {
         const chatId = await this.complete(lease, async (sql, lockedChatId) => {
-            await this.finishMessage(sql, lease, OutboxStatus.Failed, error, null);
+            await this.finishMessage(sql, lease, { status: OutboxStatus.Failed, error: error, response: null });
             await this.setChatState(sql, lockedChatId, OutboxChatState.Blocked);
         });
 
@@ -370,13 +369,9 @@ export class OutboxStore {
     }
 
     // The final outcome of a message, with the end of its attempt. finished_at is for the cleanup.
-    private async finishMessage(
-        sql: TransactionSql,
-        lease: OutboxLease,
-        status: OutboxStatus.Done | OutboxStatus.Failed,
-        error: OutboxAttemptError | null,
-        response: OutboxJson | null,
-    ): Promise<void> {
+    private async finishMessage(sql: TransactionSql, lease: OutboxLease, outcome: OutboxFinalOutcome): Promise<void> {
+        const { status, error, response } = outcome;
+
         await this.updateProcessingMessage(
             lease,
             sql`

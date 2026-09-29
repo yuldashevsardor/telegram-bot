@@ -1,6 +1,8 @@
 import { expect } from "chai";
 import { GrammyError, HttpError } from "grammy";
 import type { ApiError, ResponseParameters } from "grammy/types";
+import type { Logger } from "app/platform/logger/logger";
+import type { UnknownObject } from "app/shared/types";
 import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-handler";
@@ -41,16 +43,35 @@ class RecordingStore {
     }
 }
 
+class RecordingLogger implements Logger {
+    public readonly errors: Array<{ message: string; payload: UnknownObject | undefined }> = [];
+
+    public critical(): void {}
+
+    public error(message: string, payload?: UnknownObject): void {
+        this.errors.push({ message: message, payload: payload });
+    }
+
+    public warning(): void {}
+
+    public info(): void {}
+
+    public debug(): void {}
+}
+
 describe("OutboxFailureHandler", function () {
     let store: RecordingStore;
+    let logger: RecordingLogger;
     let handler: OutboxFailureHandler;
 
     beforeEach(function () {
         store = new RecordingStore();
+        logger = new RecordingLogger();
         handler = new OutboxFailureHandler(
             store as unknown as OutboxStore,
             new TelegramBotApiFailureClassifier(),
             RETRY_DELAY,
+            logger,
             MAX_ATTEMPTS,
         );
     });
@@ -88,7 +109,13 @@ describe("OutboxFailureHandler", function () {
     });
 
     it("blocks the chat on the first transient failure when one attempt is allowed", async function () {
-        const single = new OutboxFailureHandler(store as unknown as OutboxStore, new TelegramBotApiFailureClassifier(), RETRY_DELAY, 1);
+        const single = new OutboxFailureHandler(
+            store as unknown as OutboxStore,
+            new TelegramBotApiFailureClassifier(),
+            RETRY_DELAY,
+            logger,
+            1,
+        );
 
         await single.handle(pulled(0), networkError());
 
@@ -141,6 +168,18 @@ describe("OutboxFailureHandler", function () {
                 error: { kind: TelegramBotApiFailureKind.Unexpected, message: error.message },
             },
         ]);
+        expect(logger.errors).to.deep.equal([
+            { message: "Outbox send failed with an unexpected error.", payload: { messageId: message.id, cause: error } },
+        ]);
+    });
+
+    it("logs the error of no class but the unexpected one", async function () {
+        await handler.handle(pulled(0), networkError());
+        await handler.handle(pulled(MAX_ATTEMPTS - 1), networkError());
+        await handler.handle(pulled(0), telegramError(429, "Too Many Requests: retry after 7", { retry_after: 7 }));
+        await handler.handle(pulled(0), telegramError(403, "Forbidden: bot was blocked by the user"));
+
+        expect(logger.errors).to.deep.equal([]);
     });
 
     it("records a thrown value that is not an Error as its string", async function () {

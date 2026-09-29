@@ -71,6 +71,12 @@ export type OutboxPullResult = {
     nextPullInMs: number | null;
 };
 
+// How a message leaves the outbox: sent with Telegram's response, or failed with the error of its
+// last attempt.
+export type OutboxFinalOutcome =
+    | { status: OutboxStatus.Done; error: null; response: OutboxJson }
+    | { status: OutboxStatus.Failed; error: OutboxAttemptError; response: null };
+
 // A pulled row as the pull returns it inside jsonb, where a bigint is a number, not a string.
 export type PulledOutboxRow = {
     id: number;

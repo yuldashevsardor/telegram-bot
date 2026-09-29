@@ -193,7 +193,14 @@ A retried message stays the head of its chat, so its chat waits with it: the mes
 are not pulled before it, while the other chats are.
 
 `countedFailures` of a pulled message is the number of its closed attempts whose error `kind` is
-not `flood`, read by the pull.
+not `flood`, read by the pull. Two kinds of attempt fall outside the count or stay in it for
+good:
+
+- an attempt left open by a node that died has no `error`, so it never counts: a message that
+  kills the node sending it is not stopped by `OUTBOX_MAX_ATTEMPTS`;
+- the count covers the whole history of the message. A message that blocked its chat after its
+  last counted attempt and was put back to `pending` by hand blocks the chat again on its next
+  transient failure, with no retry.
 
 Every update of the store sets `updated_at = now()` itself; there is no trigger.
 
@@ -229,22 +236,15 @@ one failure is not classified at all:
   `Unexpected` and blocks the chat: the safe side.
 - A lost database connection is not a Bot API error and is not classified here: the outcome of
   such a send cannot be written anyway. The recovery of an expired lease is to take such a message
-  back; it is not written yet ([#672](https://github.com/yuldashevsardor/telegram-bot/issues/672)).
+  back (see "The lease").
 
 ### Outcomes
 
-`OutboxFailureHandler.handle(message, error)` classifies the error and completes the message by its
-class, with the error's `message` in the attempt:
-
-- `Transient` — `retry()` after `RetryDelay.computeMs()` of the attempt it counts,
-  `countedFailures + 1`. The attempt that reaches `maxAttempts` (`OUTBOX_MAX_ATTEMPTS`) fails the
-  message and blocks the chat instead;
-- `Flood` — `pause()` for `retryAfterSeconds`, then `retry()` with no delay of its own: the
-  attempt does not count. The pause goes first, or the message would be back in `pending` before
-  it and could be pulled into the same 429. A `retry_after` that `pause()` refuses throws out of
-  `handle()` and leaves the message `processing` until its lease is recovered;
-- `Undeliverable` — `markAsFailed()`: the chat goes on;
-- `Unexpected` — `markAsFailedAndBlockChat()`.
+`OutboxFailureHandler.handle(message, error)` (`outbox-failure-handler.ts`) classifies the error
+and completes the message by its class; which completion each class gets is read off the branches
+of `complete()` and `retryOrBlock()`. What the code does not show: a `retry_after` that `pause()`
+refuses (see "Limits") throws out of `handle()` before the retry, and the message stays
+`processing` until its lease is recovered.
 
 ### Retry delay
 
