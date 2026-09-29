@@ -6,7 +6,6 @@ import { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxMessageInput } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxChatState, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxMessageNotProcessing } from "app/telegram/outbox/store/outbox-store.errors";
-import type { Limit } from "app/telegram/outbound-queue/rate-limit/rate-limit.types";
 import { sleep } from "app/shared/utils";
 import { testDatabaseSettings } from "test/database.helper";
 
@@ -20,7 +19,7 @@ const WAIT_DEADLINE_MS = 5_000;
 const SPEC_TIMEOUT_MS = 10_000;
 // The limits of the specs that are not about the limits: a cooldown of a nanosecond, below the
 // microsecond of a timestamp, and a common limit no pull reaches.
-const NO_LIMIT: Limit = { number: 1_000_000, interval: 1 };
+const NO_LIMIT: TelegramLimits["common"] = { number: 1_000_000, interval: 1 };
 const NO_LIMITS: TelegramLimits = { common: NO_LIMIT, private: NO_LIMIT, group: NO_LIMIT };
 
 type ChatRow = { state: string };
@@ -316,9 +315,10 @@ describe("OutboxStore", function () {
             private: { number: 1, interval: PRIVATE_COOLDOWN_MS },
             group: { number: 2, interval: 2 * GROUP_COOLDOWN_MS },
         };
-        // Three messages at once, then one a second.
+        // Three messages a 3 s interval, a second apart.
         const COMMON_COOLDOWN_MS = 1_000;
-        const COMMON_LIMITS: TelegramLimits = { ...NO_LIMITS, common: { number: 3, interval: 3 * COMMON_COOLDOWN_MS } };
+        const COMMON_INTERVAL_MS = 3 * COMMON_COOLDOWN_MS;
+        const COMMON_LIMITS: TelegramLimits = { ...NO_LIMITS, common: { number: 3, interval: COMMON_INTERVAL_MS } };
         const PAUSE_MS = 60_000;
 
         it("gives a chat no message before its interval has passed", async function () {
@@ -367,7 +367,23 @@ describe("OutboxStore", function () {
             const spent = await limited.pull(10);
 
             expect(spent.messages).to.deep.equal([]);
-            expect(spent.nextPullInMs).to.be.within(1, COMMON_COOLDOWN_MS);
+            expect(spent.nextPullInMs).to.be.within(COMMON_INTERVAL_MS - COMMON_COOLDOWN_MS, COMMON_INTERVAL_MS);
+        });
+
+        // Slots saved up and spent at once must not come due again inside the same interval: after a
+        // burst of the whole limit a slot a cooldown later would put number + 1 messages in it.
+        it("holds the next message back a cooldown per message of the batch, from the pull", async function () {
+            const limited = new OutboxStore(database, COMMON_LIMITS);
+
+            await limited.pushBatch([1, 2, 3, 4, 5].map((chatId) => message(chatId, "text")));
+            await limited.pull(10);
+
+            expect(await nextSendAfterUpdateMs()).to.equal(COMMON_INTERVAL_MS);
+
+            await database.sql`UPDATE telegram_bot_limits SET next_send_at = now()`;
+            await limited.pull(10);
+
+            expect(await nextSendAfterUpdateMs()).to.equal(COMMON_COOLDOWN_MS);
         });
 
         it("gives out only the slots of the common limit that have come due", async function () {
@@ -447,6 +463,16 @@ describe("OutboxStore", function () {
 
             expect((await limited.pull(10)).nextPullInMs).to.be.within(PAUSE_MS - 1_000, PAUSE_MS);
         });
+
+        // Both columns are now() of the last pull that took messages.
+        async function nextSendAfterUpdateMs(): Promise<number> {
+            const [row] = await database.sql<{ moved_ms: number }[]>`
+                SELECT extract(epoch FROM next_send_at - updated_at)::double precision * 1000 AS moved_ms
+                FROM telegram_bot_limits
+            `;
+
+            return (row as { moved_ms: number }).moved_ms;
+        }
 
         async function pausedUntil(): Promise<Date> {
             const [row] = await database.sql<{ paused_until: Date }[]>`SELECT paused_until FROM telegram_bot_limits`;

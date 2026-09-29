@@ -106,12 +106,16 @@ queue takes ([`outbound-queue.md`](./outbound-queue.md)). A limit of `number` me
 - **The chat limit.** A pull moves `next_attempt_at` of a chat to `now()` plus the cooldown of the
   group limit for a negative `chat_id` and of the private one otherwise (the rule of
   `isGroupChat()`, written in the SQL). A chat is not pulled before that. A chat that goes `idle`
-  and gets a new message keeps the time, so an idle spell does not shorten it.
-- **The common limit.** The slots of the bot come due one per cooldown from `next_send_at`, and a
-  bot that has sent nothing for a while saves up no more than `number` of them: a pull gives out at
-  most `number` messages at once, then one per cooldown. The budget of a pull is the slots due
-  now, capped by `limit`. The pull moves `next_send_at` by one cooldown per message it pulled,
-  from the earliest slot still saved up, so the slots it did not use stay due.
+  and gets a new message keeps the time, so an idle spell does not shorten it. The cooldown counts
+  from the pull, not from the send: a head that waits after the pull spends the cooldown of its
+  chat, so the caller sends right after the pull.
+- **The common limit.** The slots of the bot come due one per cooldown from `next_send_at`, up to
+  `number` of them for a bot that has sent nothing for a while. The budget of a pull is the slots
+  due now, capped by `limit`. The pull moves `next_send_at` to `now()` plus one cooldown per
+  message it pulled: the slots it did not use are dropped, and a batch of the whole `number` holds
+  the next one back for the whole `interval`. So no window of `interval` gets more than `number`
+  messages, as with the in-memory queue. Counted from the slots saved up instead, a burst of
+  `number` would be followed by a slot every cooldown: nearly twice the limit in one interval.
 - **The pause.** `pause(durationMs)` sets `paused_until` to `now()` plus the duration, never
   earlier than it is (`greatest`): a 429 that asks for less than the pause left changes nothing.
   The pause stops the pull on every node, since every pull reads the same row.

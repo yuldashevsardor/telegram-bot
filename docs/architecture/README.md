@@ -20,7 +20,8 @@ The runtime sequences live in the files of their subsystems:
 - [`outbound-queue.md`](./outbound-queue.md) — limits, partitions, the `Runner` loop, the path
   of an outgoing call
 - [`outbox.md`](./outbox.md) — the outbox in PostgreSQL being built to replace the outbound
-  queue: the tables, the chat states, push, pull, the chat lock and the payload codec
+  queue: the tables, the chat states, push, pull, the limits and the pause, the chat lock and the
+  payload codec
 - [`font-convertor.md`](./font-convertor.md) — format pairs, the EOT codec, signatures, the SVG
   validator, running the engine
 - [`user.md`](./user.md) — the entity, the repository, filling the context

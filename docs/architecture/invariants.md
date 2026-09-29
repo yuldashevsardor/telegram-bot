@@ -134,9 +134,11 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   a pause written by a node whose clock is behind ends early for every node, and the next call gets
   a 429 again. Nothing checks this; a `Date` passed into the outbox SQL compiles.
 - **`LIMIT_*_NUMBER > 0` holds for the outbox as well** (the config checks it). The pull spaces
-  the messages by `interval / number` in SQL. A zero gives an infinite cooldown, which PostgreSQL
-  accepts: `next_attempt_at` of the chat, or `next_send_at` of the whole bot for the common limit,
-  becomes `infinity`, and nothing is pulled from it again.
+  the messages by `interval / number` in SQL, and a zero gives an infinite cooldown. For a private
+  or group limit PostgreSQL accepts it: `next_attempt_at` of a pulled chat becomes `infinity`, and
+  the chat is never pulled again. For the common limit the budget is zero: nothing is pulled,
+  `next_send_at` stays in the past, and `nextPullInMs` is 0 while a chat is ready, so a worker
+  pulls again without a pause.
 - **`status` and `state` of the outbox tables are written only through `OutboxStatus` and
   `OutboxChatState`.** The database has no check on them: a mistyped value is stored, and the row
   or the chat silently drops out of every query.

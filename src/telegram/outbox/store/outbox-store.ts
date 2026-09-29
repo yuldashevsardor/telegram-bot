@@ -3,7 +3,6 @@ import type { Database, Sql } from "app/platform/database/database";
 import { Tokens } from "app/shared/tokens";
 import type { TelegramLimits } from "app/bootstrap/config/config-values";
 import { configValue } from "app/shared/config-value";
-import type { Limit } from "app/telegram/outbound-queue/rate-limit/rate-limit.types";
 import type { OutboxJson, OutboxMessageInput, OutboxPull, OutboxPullRow } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxChatState, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxMessageNotProcessing } from "app/telegram/outbox/store/outbox-store.errors";
@@ -14,9 +13,14 @@ const BIGINT = 20;
 // The statuses a chat head can be in: its first message by id among them.
 const ACTIVE_STATUSES = [OutboxStatus.Pending, OutboxStatus.Processing, OutboxStatus.Failed];
 
+// The single row of telegram_bot_limits.
+const BOT_LIMITS_ID = 1;
+
+const MS_PER_SECOND = 1000;
+
 // The time a limit leaves between two messages, as the in-memory queue spaces them. LIMIT_*_NUMBER is
 // at least 1, so the cooldown is finite.
-function cooldownMs(limit: Limit): number {
+function cooldownMs(limit: TelegramLimits["common"]): number {
     return limit.interval / limit.number;
 }
 
@@ -98,21 +102,18 @@ export class OutboxStore {
     public async pull(limit: number): Promise<OutboxPull> {
         const common = this.limits.common;
         const commonCooldownMs = cooldownMs(common);
-        // How far back an idle bot saves up slots: number of them, a cooldown apart.
-        const savedSlotsSpanMs = (common.number - 1) * commonCooldownMs;
 
         const [row] = await this.sql<OutboxPullRow[]>`
             WITH bot AS (
                 -- The slots of the common limit come due one per cooldown from next_send_at, and an
                 -- idle bot saves up no more than number of them.
-                SELECT greatest(next_send_at, now() - ${savedSlotsSpanMs}::double precision * interval '1 millisecond') AS first_slot_at,
-                       least(
+                SELECT least(
                            ${limit}::integer,
                            ${common.number}::integer,
-                           floor(extract(epoch FROM now() - next_send_at) * 1000 / ${commonCooldownMs}::double precision) + 1
+                           floor(extract(epoch FROM now() - next_send_at) * ${MS_PER_SECOND} / ${commonCooldownMs}::double precision) + 1
                        )::integer AS budget
                 FROM telegram_bot_limits
-                WHERE id = 1
+                WHERE id = ${BOT_LIMITS_ID}
                   AND next_send_at <= now()
                   AND (paused_until IS NULL OR paused_until <= now())
                 FOR UPDATE SKIP LOCKED
@@ -158,22 +159,20 @@ export class OutboxStore {
                 WHERE telegram_outbox_chats.chat_id = pulled.chat_id
             ),
             spent AS (
+                -- From now(), not from the slots saved up: a batch holds the next one back by a
+                -- cooldown per message, so no interval gets more than number messages.
                 UPDATE telegram_bot_limits
-                SET next_send_at = bot.first_slot_at + (SELECT count(*) FROM pulled) * ${commonCooldownMs}::double precision * interval '1 millisecond',
+                SET next_send_at = now() + (SELECT count(*) FROM pulled) * ${commonCooldownMs}::double precision * interval '1 millisecond',
                     updated_at = now()
-                FROM bot
-                WHERE telegram_bot_limits.id = 1
+                WHERE id = ${BOT_LIMITS_ID}
                   AND EXISTS (SELECT 1 FROM pulled)
-                RETURNING telegram_bot_limits.next_send_at, telegram_bot_limits.paused_until
+                RETURNING next_send_at
             ),
+            -- The row as it is after this pull; the snapshot when nothing was pulled.
             bot_after AS (
-                SELECT next_send_at, paused_until
-                FROM spent
-                UNION ALL
-                SELECT next_send_at, paused_until
+                SELECT coalesce((SELECT next_send_at FROM spent), next_send_at) AS next_send_at, paused_until
                 FROM telegram_bot_limits
-                WHERE id = 1
-                  AND NOT EXISTS (SELECT 1 FROM spent)
+                WHERE id = ${BOT_LIMITS_ID}
             ),
             -- The chats pulled here are processing now; the rest of the ready ones wait for their time.
             ready AS (
@@ -194,7 +193,7 @@ export class OutboxStore {
                    ) AS messages,
                    (
                        -- greatest() skips a NULL paused_until.
-                       SELECT ceil(greatest(extract(epoch FROM greatest(ready.ready_at, bot_after.next_send_at, bot_after.paused_until) - now()) * 1000, 0))::double precision
+                       SELECT ceil(greatest(extract(epoch FROM greatest(ready.ready_at, bot_after.next_send_at, bot_after.paused_until) - now()) * ${MS_PER_SECOND}, 0))::double precision
                        FROM ready
                        CROSS JOIN bot_after
                        WHERE ready.ready_at IS NOT NULL
@@ -214,7 +213,7 @@ export class OutboxStore {
             UPDATE telegram_bot_limits
             SET paused_until = greatest(paused_until, now() + ${durationMs}::double precision * interval '1 millisecond'),
                 updated_at = now()
-            WHERE id = 1
+            WHERE id = ${BOT_LIMITS_ID}
         `;
     }
 
