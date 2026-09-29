@@ -244,8 +244,10 @@ merge into `main` every hour, so a merge of `origin/main` into a branch almost a
 someone else's `.ts`, and by the name alone the author ran the whole area again although none of
 its files changed: PR #693 ran its area twice in a row after two merges of `main`, 8 min 33 s the
 first time. The accepted cost: code outside the area that the area's code calls (a shared helper
-`main` changed, say) can change a mutant's status and still leave the record in force. That code
-went through the `mutation` gate of its own PR, and the next run of the area picks up the rest.
+`main` changed, say) can change a mutant's status and still leave the record in force, and so can
+a spec that kills the area's mutants without being the mirror of an area file (an integration
+spec). That code went through the `mutation` gate of its own PR, and the next run of the area
+picks up the rest.
 
 The diff here is between the record's head and the PR head (for the author, their `HEAD` once
 pushed). `make mutation-record` lists it and decides the `mutation` row itself: it refuses the

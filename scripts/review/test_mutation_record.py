@@ -243,12 +243,9 @@ class MutationRecordTest(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertEqual(
-            lines[:5],
+            lines[:4],
             [
                 "refused: " + URL_502,
-                "- the change since head={} reaches files of the record's area: {}".format(
-                    RECORD_HEAD_502, TELEGRAM_CHAT
-                ),
                 "- scope=full under the mutation gate: the record's area is not the gate's",
                 "- the rebuild gate is on: the run may have gone on an old image",
                 "changed between the record's head {} and the PR head {}:".format(
@@ -261,6 +258,32 @@ class MutationRecordTest(unittest.TestCase):
         self.assertIn(
             ["git", "diff", "--no-renames", "--name-only", RECORD_HEAD_502, HEAD_502], run.calls
         )
+
+    def test_condition_1_a_record_refused_on_other_conditions_asks_neither_tree_nor_container(
+        self,
+    ):
+        run = FakeRun(
+            [comment(marker(PR_524, clean="no"))],
+            head=HEAD_502,
+            commits=[HEAD_524],
+            changed=EOT_PACKER + "\n",
+            configs=(1, "Cannot connect to the Docker daemon"),
+        )
+
+        code, lines, _ = self.answer(run)
+
+        self.assertEqual(
+            (code, lines[:2]),
+            (
+                0,
+                [
+                    "refused: " + URL_524,
+                    "- clean=no: the run did not go on a clean tree of its commit",
+                ],
+            ),
+        )
+        self.assertNotIn("tree-head", run.cwds)
+        self.assertNotIn("configs", run.cwds)
 
     def test_the_last_record_counts(self):
         older = marker(PR_524, clean="no")

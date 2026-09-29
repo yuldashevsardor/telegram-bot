@@ -25,8 +25,10 @@ It is accepted when all four conditions hold:
    and the range of the two commits, reaches a file of the record's area (a path of `files` or a
    mutated file), and the reason names the files. The rule reads the configs, the file list and the
    importers from a tree, so the action runs it in `tree`, which has to stand at the PR head, and
-   in the application container through `DC_APP_RUN`. The `rebuild` and `mutation-full` rows stay
-   prose, not copied here: the action lists the files and leaves those rows to the reader, as
+   in the application container through `DC_APP_RUN`. A record the other conditions already refuse
+   is not measured so: with Docker down its reasons would give way to `Stopped:`. The `rebuild` and
+   `mutation-full` rows stay prose, not copied here: the action lists the files and leaves those
+   rows to the reader, as
    /review-pr applies the same table to the PR diff. Some of their rows are decided by content, not
    by name, and the reader reads a hunk by the command printed under the list. The list is `git diff
    --no-renames --name-only <record head> <PR head>`: between the trees and not from the merge-base,
@@ -311,7 +313,8 @@ def mutation_record(
                 )
             else:
                 changed = changed_between(record.head, pr_head, run)
-        if changed:
+        # Condition 1 of the docstring: a record already refused is not measured by the reach.
+        if changed and not reasons:
             stale = reached(record, changed, pr_head, tree, dc_app_run, run)
             if stale:
                 reasons.insert(
