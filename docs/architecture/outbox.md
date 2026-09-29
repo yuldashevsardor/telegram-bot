@@ -5,7 +5,8 @@ The outbox is being built to replace the in-memory outbound queue
 any node sends them, the order inside a chat holds across nodes, and a node that dies loses
 nothing (the plan is epic [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)).
 Nothing calls the directory yet: so far it holds the tables with `OutboxStore`
-(`store/outbox-store.ts`), which pushes, pulls and marks done, and the payload codec.
+(`store/outbox-store.ts`), which pushes, pulls and marks done, the payload codec, and the two pure
+functions of the failure model: the error classes and the retry delay.
 
 ## Tables
 
@@ -111,6 +112,45 @@ spec is in `DATABASE_SPECS` ([`testing.md`](./testing.md), "Mutation testing").
 
 The ids come back as numbers: the driver returns `bigint` as a string, and the store converts it,
 as `PgSqlUserRepository` does ([`storage.md`](./storage.md), "`User.id`").
+
+## Failures
+
+Nothing acts on a failure yet: the store has no path out of `processing` besides `markAsDone`.
+The two decisions that need no database are pure functions, so mutation testing reaches them.
+
+### Error classes
+
+`classifyBotApiFailure(error)` (`bot-api-failure.ts`) sorts a failed Bot API call into the classes
+of the epic ([#618](https://github.com/yuldashevsardor/telegram-bot/issues/618), "Error
+classes"), which also says what the outbox does with each:
+
+| `BotApiFailureKind` | the error |
+|---|---|
+| `Transient` | grammY's `HttpError` (the request did not reach Telegram or the answer did not come back); a `GrammyError` with a code from 500 to 599 |
+| `Flood` | a `GrammyError` 429; the result carries `retryAfterSeconds` |
+| `Undeliverable` | a `GrammyError` 403, whatever its description; a `GrammyError` 400 whose description is exactly `Bad Request: chat not found` |
+| `Unexpected` | any other `GrammyError`, and anything that is not a grammY error |
+
+A 429 whose `retry_after` is missing, not a finite number or not positive gets
+`DEFAULT_RETRY_AFTER_SECONDS`: a zero pause would retry at once into the same 429.
+
+Every 403 is `Undeliverable`, not only the bot blocked or kicked: a 403 is Telegram refusing the
+bot this chat, and a retry does not change that. A 400 is matched by its description, because 400
+is also the code of a malformed call, which is a bug and must block the chat. A description
+Telegram rewords falls to `Unexpected` and blocks the chat: the safe side.
+
+A lost database connection is not a Bot API error and is not classified here: the outcome of such
+a send cannot be written anyway, and the recovery of an expired lease takes the message back.
+
+### Retry delay
+
+`computeRetryDelayMs(countedAttempts, settings, random)` (`retry-delay.ts`) is how long a message
+waits before its retry after a transient failure. `countedAttempts` counts the attempts that count
+towards `maxAttempts`, the failed one included, so it starts at 1; a 429 is not counted. The step
+is `firstDelayMs` doubled with every further counted attempt and capped by `maxDelayMs`. The delay
+is a random point of the upper half of the step, the capped steps included, so chats that failed
+together in a Telegram outage do not come back at the same moment, and a retry never comes sooner
+than half the step. `random` defaults to `Math.random`; the spec passes a fixed one.
 
 ## The payload rule
 
