@@ -561,8 +561,8 @@ export class WoffFontValidator implements FontValidator {
      * Rounded up to a multiple of `unitBytes`. Not with a bit mask: the operands of JavaScript
      * bitwise operators are 32-bit signed, and a length read from the file may be up to 2^32 - 1.
      */
-    private padded(length: number, unitBytes: number): number {
-        return Math.ceil(length / unitBytes) * unitBytes;
+    private padded(lengthBytes: number, unitBytes: number): number {
+        return Math.ceil(lengthBytes / unitBytes) * unitBytes;
     }
 
     private tag(view: DataView, offset: number): string {
