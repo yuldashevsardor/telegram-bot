@@ -738,21 +738,32 @@ function parse(woff: Uint8Array): Layout {
  * follows it (§7, §8).
  */
 function build(layout: Layout): Uint8Array {
-    const order = (layout.order ?? ["tables", "metadata", "private"]).filter(
-        (section) => section === "tables" || (section === "metadata" ? layout.metadata : layout.privateData) !== undefined,
-    );
+    const order: Array<Section> = [];
+
+    for (const section of layout.order ?? ["tables", "metadata", "private"]) {
+        if (section === "metadata" && layout.metadata === undefined) {
+            continue;
+        }
+
+        if (section === "private" && layout.privateData === undefined) {
+            continue;
+        }
+
+        order.push(section);
+    }
+
     const chunks: Array<Uint8Array> = [];
     const tableOffsets = new Map<StoredTable, number>();
     let offset = HEADER_SIZE_BYTES + ENTRY_SIZE_BYTES * layout.tables.length;
     let metaOffset = 0;
     let privOffset = 0;
 
-    const append = (bytes: Uint8Array, isPadded: boolean): void => {
-        const padding = isPadded ? (4 - (bytes.length % 4)) % 4 : 0;
-
-        chunks.push(bytes, new Uint8Array(padding));
-        offset += bytes.length + padding;
+    const append = (bytes: Uint8Array): void => {
+        chunks.push(bytes);
+        offset += bytes.length;
     };
+    // Every section starts on a 4-byte boundary, so padding to one pads the section just appended.
+    const pad = (): void => append(new Uint8Array((4 - (offset % 4)) % 4));
 
     order.forEach((section, index) => {
         const isLast = index === order.length - 1;
@@ -760,14 +771,19 @@ function build(layout: Layout): Uint8Array {
         if (section === "tables") {
             for (const table of layout.tables) {
                 tableOffsets.set(table, offset);
-                append(table.stored, true);
+                append(table.stored);
+                pad();
             }
         } else if (section === "metadata" && layout.metadata !== undefined) {
             metaOffset = offset;
-            append(layout.metadata.stored, !isLast);
+            append(layout.metadata.stored);
         } else if (section === "private" && layout.privateData !== undefined) {
             privOffset = offset;
-            append(layout.privateData, !isLast);
+            append(layout.privateData);
+        }
+
+        if (section !== "tables" && !isLast) {
+            pad();
         }
     });
 
@@ -888,14 +904,14 @@ function metadata(): { stored: Uint8Array; origLength: number } {
  * that pointed past the removed bytes and sets length to the new size.
  */
 function splice(woff: Uint8Array, position: number, removeCount: number, inserted: Uint8Array): Uint8Array {
-    const result = concat(woff.subarray(0, position), inserted, woff.subarray(position + removeCount));
+    const spliced = concat(woff.subarray(0, position), inserted, woff.subarray(position + removeCount));
     const delta = inserted.length - removeCount;
     const offsetFields = [
         META_OFFSET,
         PRIV_OFFSET,
         ...Array.from({ length: readUint16(woff, NUM_TABLES) }, (_, index) => entryAt(index) + OFFSET),
     ];
-    let moved = result;
+    let moved = spliced;
 
     for (const field of offsetFields) {
         const offset = readUint32(moved, field);
@@ -905,7 +921,7 @@ function splice(woff: Uint8Array, position: number, removeCount: number, inserte
         }
     }
 
-    return withUint32(moved, LENGTH, result.length);
+    return withUint32(moved, LENGTH, spliced.length);
 }
 
 function entryAt(index: number): number {
