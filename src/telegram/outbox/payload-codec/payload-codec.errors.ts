@@ -1,8 +1,10 @@
 import { RuntimeError } from "app/shared/errors";
 
+const ROOT_PLACE = "the root";
+
 // Where a value sits in the payload, for the messages: `media.2.thumbnail`.
 function describe(place: readonly string[]): string {
-    return place.length === 0 ? "the root" : place.join(".");
+    return place.length === 0 ? ROOT_PLACE : place.join(".");
 }
 
 export class UnsupportedInputFile extends RuntimeError {
@@ -65,12 +67,12 @@ export class UnsupportedValue extends RuntimeError {
         );
     }
 
-    public static asPayload(method: string): UnsupportedValue {
+    public static atRoot(method: string): UnsupportedValue {
         return new UnsupportedValue(
-            `${method} got a value at ${describe([])} that is not a plain object: a Bot API payload always is one.`,
+            `${method} got a value at ${ROOT_PLACE} that is not a plain object: the outbox stores a payload only as one.`,
             {
                 method: method,
-                place: describe([]),
+                place: ROOT_PLACE,
             },
         );
     }

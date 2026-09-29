@@ -50,9 +50,8 @@ function store(value: unknown, method: string, place: readonly string[]): unknow
         return value.map((item: unknown, index) => store(item, method, [...place, String(index)]));
     }
 
-    // Only a plain object has Object.prototype as its prototype: a bigint or a symbol, not taken
-    // above, throws here too.
-    if (Object.getPrototypeOf(value) !== Object.prototype && !(value instanceof InlineKeyboard) && !(value instanceof Keyboard)) {
+    // A bigint or a symbol, not taken above, throws here too.
+    if (!isPlainObject(value) && !(value instanceof InlineKeyboard) && !(value instanceof Keyboard)) {
         throw UnsupportedValue.inMethod(method, place);
     }
 
@@ -69,6 +68,11 @@ function store(value: unknown, method: string, place: readonly string[]): unknow
             return [key, store(item, method, [...place, key])];
         }),
     );
+}
+
+// Only a plain object has Object.prototype as its prototype.
+function isPlainObject(value: unknown): boolean {
+    return typeof value === "object" && value !== null && Object.getPrototypeOf(value) === Object.prototype;
 }
 
 // PostgreSQL rejects U+0000 and a lone UTF-16 surrogate anywhere in a jsonb value, keys included.
@@ -124,11 +128,12 @@ function readMarker(marker: object): PathFile {
  * does not take and a payload that is not a plain object. Every error names the method and where
  * in the payload the value sits.
  */
-export function serialize(method: string, payload: object): Record<string, unknown> {
+export function serialize(method: string, payload: object | undefined): Record<string, unknown> {
     // store() takes an array, a PathFile and a keyboard inside a payload and drops a function there,
-    // but a Bot API payload itself is always a plain object.
-    if (Object.getPrototypeOf(payload) !== Object.prototype) {
-        throw UnsupportedValue.asPayload(method);
+    // but a Bot API payload itself is a plain object. Why undefined arrives here and throws too:
+    // docs/architecture/outbox.md, "The payload rule".
+    if (!isPlainObject(payload)) {
+        throw UnsupportedValue.atRoot(method);
     }
 
     return store(payload, method, []) as Record<string, unknown>;
