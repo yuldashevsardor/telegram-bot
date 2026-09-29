@@ -65,9 +65,9 @@ migration adds a column before `value`, the query silently shifts the values
 Hence the rule for the next storage: an interface is introduced when a consumer dictates it, and
 not when a library does.
 
-Either way the storage lies next to its consumer, in `telegram/user/` and `telegram/session/`.
-There is no separate layer for storage adapters. `PgSqlUserRepository` has a directory of its own
-with a companion (`telegram/user/pgsql-repository/`), but inside the subsystem of the consumer.
+Either way a storage lies in the subsystem of its consumer: there is no separate layer for
+storage adapters. `PgSqlUserRepository` has a directory of its own with a companion
+(`telegram/user/pgsql-repository/`), but inside the subsystem of the consumer.
 
 ## `User.id`
 
