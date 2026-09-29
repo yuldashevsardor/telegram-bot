@@ -4,11 +4,12 @@ The outbox is being built to replace the in-memory outbound queue
 ([`outbound-queue.md`](./outbound-queue.md)): outgoing Bot API calls become rows in PostgreSQL,
 any node sends them, the order inside a chat holds across nodes, and a node that dies loses
 nothing (the plan is epic [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)).
-Nothing calls the directory yet: so far it holds the tables with `OutboxStore`
+No sender or caller uses the directory yet: so far it holds the tables with `OutboxStore`
 (`store/outbox-store.ts`), which pushes, pulls within the limits, pauses and completes a pulled
 message, `OutboxFailureHandler` (`outbox-failure-handler.ts`), which picks the outcome of a failed
-send, the payload codec and the retry delay. The error classes of a failed call lie outside it, in
-`telegram/bot-api-failure-classifier/`.
+send, `OutboxResultWaiter`, which waits for the outcome of a message, with
+`OutboxFinishedMessageReader`, the payload codec and the retry delay. The error classes of a failed
+call lie outside it, in `telegram/bot-api-failure-classifier/`.
 
 ## Tables
 
@@ -73,7 +74,9 @@ lock.
 3. the messages go in as one `jsonb` array and are inserted `ORDER BY` their position in it, so
    the ids grow in the order of the input;
 4. every `idle` chat of the batch becomes `ready`; a chat in any other state already has an older
-   head.
+   head;
+5. `pg_notify` on `telegram_outbox_ready` with an empty payload, delivered on commit, so that an
+   idle sender wakes up at once. Nothing listens on the channel yet: the sender is not written.
 
 ## Pull
 
@@ -193,6 +196,10 @@ is read off its body. Each is a transaction through the private `complete()`:
    is another message of the chat, and the method throws `OutboxMessageNotLeased`;
 4. the chat state, and the end of the lease.
 
+A completion into `done` or `failed` goes through the private `finishMessage()`, which also sends
+`pg_notify` of the id on `telegram_outbox_finished` in the same transaction (see "Waiting for the
+result").
+
 Step 3 appends the attempt to `attempts`, whole: `started_at` and `worker` from the lease, the
 error, `null` for `done`, and `finished_at` of `now()`. Both times are the database's. Nothing is
 written into `attempts` before the completion, so a node that dies while it sends leaves no trace
@@ -203,6 +210,54 @@ A retried message stays the head of its chat, so its chat waits with it: the mes
 are not pulled before it, while the other chats are.
 
 Every update of the store sets `updated_at = now()` itself; there is no trigger.
+
+## Waiting for the result
+
+The node that pushes a message waits for its outcome, while any node may send it.
+`OutboxResultWaiter.wait(messageId)` (`result-waiter/outbox-result-waiter.ts`) resolves with the
+message once it is `done`, `failed` or `skipped`: its id, status and `response`. A failed message
+resolves too: the caller reads the status.
+
+- **The notification.** A transaction that moves a message into one of those statuses sends
+  `pg_notify` on `telegram_outbox_finished` with the message id as the payload
+  ([invariant](./invariants.md)). The id alone: NOTIFY carries at most 8000 bytes, less than a
+  Telegram response can take. Every listening node hears every id; the waiter reads the row of an
+  id it waits for with `OutboxFinishedMessageReader.find()` (`outbox-finished-message-reader.ts`)
+  and ignores the rest. PostgreSQL delivers a notification on commit, so the row read on it has the
+  outcome. The store sends it with `pg_notify` through the `sql` of the transaction, not with
+  `sql.notify()` of postgres.js: that one runs on the pool whatever `sql` it is called on
+  (`notify()` in its `src/index.js`), so inside a transaction it would notify before the commit,
+  and even for a transaction that rolls back. No spec pins this: `pg_notify` is the last statement
+  before the commit, and nothing outside the store can hold the transaction open between them.
+- **The listening** starts once, with the first wait, through `sql.listen()` on a connection of
+  its own ([`storage.md`](./storage.md), "LISTEN"). A failed start is logged at `warning` and is
+  not repeated: postgres.js keeps the listener of a failed `LISTEN` and subscribes it again when
+  its listening connection closes, so a second call would add a second listener, and every
+  notification would be read twice (`listen()` in postgres.js `src/index.js`).
+- **The poll.** A notification sent while the listening connection is down, or before it is up,
+  reaches no one. So one `find()` query looks up every id waited for: every
+  `OUTBOX_RESULT_POLL_INTERVAL` ms while any is waited for, and each time the listening starts,
+  the first time and after postgres.js opens the connection again. A tick that comes while the
+  previous poll still runs is skipped. A start of the listening is not: the running poll may have
+  read the table before the `LISTEN`, so a new poll follows it. A failed lookup is logged at
+  `warning` and left to the next poll.
+- **A message finished before its wait.** Its notification finds no one waiting for its id, so the
+  first poll finds it, up to `OUTBOX_RESULT_POLL_INTERVAL` ms late. The caller waits right after
+  `push()` returns, while the message still has to be pulled and sent, so the window is narrow, and
+  no lookup is spent on every wait to close it.
+- **The timeout.** A wait rejects with `OutboxResultTimeout` after `OUTBOX_RESULT_TIMEOUT` ms and
+  the id is forgotten: a later notification or poll leaves it alone. The message stays in the outbox
+  and may still be sent.
+
+A second wait for an id still waited for gets the same promise.
+
+`stop()` rejects every pending wait with `OutboxResultWaiterStopped` and clears the timers: a node
+that shuts down neither polls its closed database nor is held up by a wait until its timeout.
+`Container.close()` calls it before it closes the database, which ends the listening.
+
+The waiter does not depend on the store: it takes `OutboxFinishedMessageReader`, which only reads.
+So the waiter has no SQL: mutation testing reaches it through a fake reader, and
+`outbox-finished-message-reader.spec.ts` runs it over the real one.
 
 ## The store in code
 
@@ -260,10 +315,10 @@ and the message stays `processing` until its lease is recovered.
 
 ### Retry delay
 
-`RetryDelay.computeMs()` (`retry-delay/retry-delay.ts`) is how long a message waits before its
-retry after a transient failure. The step, its cap, the jitter and why the jitter takes the upper
-half of the step are in the comment above the method. The first step, the cap and the multiplier
-come from the `OUTBOX_RETRY_` variables of `.env.dist`.
+`OutboxRetryDelay.computeMs()` (`retry-delay/outbox-retry-delay.ts`) is how long a message waits
+before its retry after a transient failure. The step, its cap, the jitter and why the jitter takes
+the upper half of the step are in the comment above the method. The first step, the cap and the
+multiplier come from the `OUTBOX_RETRY_` variables of `.env.dist`.
 
 ## The payload rule
 

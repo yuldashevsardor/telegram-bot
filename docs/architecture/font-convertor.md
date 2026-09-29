@@ -104,12 +104,13 @@ This does not make the version check of the codec redundant. The signature sees 
 under its own extension. Two more files pass through the codec that the signature never saw: the
 intermediate sfnt from the engine on packing, and the envelope content on unpacking. The two checks
 differ: the signature compares the first bytes of the head, the codec parses the table directory.
-But the two checks share one set of versions, `SFNT_VERSIONS` in `font-convertor/sfnt-version.ts`.
-The signature takes bytes from it, the codec reads the same values as numbers. The set must not
-become two lists, because a divergence breaks behaviour rather than the build. A version known only
-to the signature reaches the codec and fails there with `InvalidSfnt`. A version known only to the
-codec does not get past the input. `WoffFontValidator` (`validator/woff/`) reads the same set: the
-flavor of a WOFF is the version of the sfnt it carries. No convertor calls that validator yet.
+But they share one set of versions with a third check, `SFNT_VERSIONS` in
+`font-convertor/sfnt-version.ts`. The signature takes bytes from it, the codec reads the same values
+as numbers, and `WoffFontValidator` (`validator/woff/`) checks the flavor of a WOFF against it: the
+flavor is the version of the sfnt it carries. No convertor calls that validator yet. The set must
+not become several lists, because a divergence breaks behaviour rather than the build. A version
+known only to the signature reaches the codec and fails there with `InvalidSfnt`. A version known
+only to the codec does not get past the input.
 
 Every offset is counted from the start of the file. A prefix is not skipped: a shifted head would
 turn the check into a search for the marker anywhere.

@@ -43,6 +43,7 @@ describe("ConfigValuesBuilder", () => {
         expect(result.runner).to.deep.equal({ sleepInterval: { min: 10, max: 1000 }, maxRetries: 3 });
         expect(result.outbox).to.deep.equal({
             retryDelay: { firstDelayMs: 1000, maxDelayMs: 60000, multiplier: 2 },
+            resultWaiter: { timeoutMs: 60000, pollIntervalMs: 1000 },
             leaseDurationMs: 600000,
             maxAttempts: 10,
         });
@@ -78,6 +79,8 @@ describe("ConfigValuesBuilder", () => {
             OUTBOX_RETRY_FIRST_DELAY: "1004",
             OUTBOX_RETRY_MAX_DELAY: "60002",
             OUTBOX_RETRY_DELAY_MULTIPLIER: "3",
+            OUTBOX_RESULT_TIMEOUT: "60003",
+            OUTBOX_RESULT_POLL_INTERVAL: "1005",
             OUTBOX_LEASE_DURATION: "600001",
             OUTBOX_MAX_ATTEMPTS: "11",
             BOT_TOKEN: "own-token",
@@ -109,6 +112,7 @@ describe("ConfigValuesBuilder", () => {
         expect(result.runner).to.deep.equal({ sleepInterval: { min: 11, max: 1003 }, maxRetries: 5 });
         expect(result.outbox).to.deep.equal({
             retryDelay: { firstDelayMs: 1004, maxDelayMs: 60002, multiplier: 3 },
+            resultWaiter: { timeoutMs: 60003, pollIntervalMs: 1005 },
             leaseDurationMs: 600001,
             maxAttempts: 11,
         });
@@ -196,6 +200,8 @@ describe("ConfigValuesBuilder", () => {
         { name: "OUTBOX_RETRY_FIRST_DELAY", below: "0", range: "between 1 and 2147483647" },
         { name: "OUTBOX_RETRY_MAX_DELAY", below: "0", range: "between 1 and 2147483647" },
         { name: "OUTBOX_RETRY_DELAY_MULTIPLIER", below: "0", range: "at least 1" },
+        { name: "OUTBOX_RESULT_TIMEOUT", below: "0", range: "between 1 and 2147483647" },
+        { name: "OUTBOX_RESULT_POLL_INTERVAL", below: "0", range: "between 1 and 2147483647" },
         { name: "OUTBOX_LEASE_DURATION", below: "0", range: "between 1 and 2147483647" },
         { name: "OUTBOX_MAX_ATTEMPTS", below: "0", range: "at least 1" },
         { name: "BOT_GRACEFUL_SHUTDOWN_TIMEOUT", below: "-1", range: "between 0 and 2147483647" },

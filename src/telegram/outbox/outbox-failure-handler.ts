@@ -6,7 +6,7 @@ import type { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failu
 import type { TelegramBotApiFailure } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import type { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
-import type { RetryDelay } from "app/telegram/outbox/retry-delay/retry-delay";
+import type { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxAttemptError, PulledOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
 
@@ -20,7 +20,7 @@ export class OutboxFailureHandler {
         @inject<OutboxStore>(Tokens.Bot.Outbox.Store) private readonly store: OutboxStore,
         @inject<TelegramBotApiFailureClassifier>(Tokens.Bot.ApiFailureClassifier)
         private readonly classifier: TelegramBotApiFailureClassifier,
-        @inject<RetryDelay>(Tokens.Bot.Outbox.RetryDelay) private readonly retryDelay: RetryDelay,
+        @inject<OutboxRetryDelay>(Tokens.Bot.Outbox.RetryDelay) private readonly retryDelay: OutboxRetryDelay,
         @inject<OutboxErrorSerializer>(Tokens.Bot.Outbox.ErrorSerializer) private readonly errorSerializer: OutboxErrorSerializer,
         private readonly maxAttempts: number = configValue("outbox.maxAttempts"),
     ) {}

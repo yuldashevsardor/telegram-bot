@@ -5,7 +5,7 @@ import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-cl
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
 import { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-handler";
-import { RetryDelay } from "app/telegram/outbox/retry-delay/retry-delay";
+import { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxAttemptError, OutboxJsonObject, OutboxLease, PulledOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
 
@@ -13,7 +13,7 @@ const MAX_ATTEMPTS = 3;
 const FIRST_DELAY_MS = 1_000;
 const MULTIPLIER = 2;
 // random() of 0 takes the lower end of the step: half of it.
-const RETRY_DELAY = new RetryDelay({ firstDelayMs: FIRST_DELAY_MS, maxDelayMs: 60_000, multiplier: MULTIPLIER }, () => 0);
+const RETRY_DELAY = new OutboxRetryDelay({ firstDelayMs: FIRST_DELAY_MS, maxDelayMs: 60_000, multiplier: MULTIPLIER }, () => 0);
 // What the serializer of these specs turns any error into; its own spec pins what the real one does.
 const SERIALIZED: OutboxJsonObject = { name: "Error", message: "serialized", kind: "overwritten" };
 

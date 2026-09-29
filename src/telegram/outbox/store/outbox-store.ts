@@ -18,7 +18,7 @@ import type {
     OutboxPullResultRow,
     OutboxWorker,
 } from "app/telegram/outbox/store/outbox-store.types";
-import { OutboxChatState, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
+import { OutboxChannel, OutboxChatState, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
 import {
     BotLimitsRowMissing,
     InvalidPauseDuration,
@@ -108,6 +108,11 @@ export class OutboxStore {
                 WHERE chat_id = ANY(${sql.array(chatIds, BIGINT)}::bigint[])
                   AND state = ${OutboxChatState.Idle}
             `;
+
+            // Delivered on commit, so a sender that wakes up on it sees the rows. No ids in it: the
+            // sender takes what it pulls, not what was pushed, and a batch of ids could outgrow the
+            // 8000 bytes of a NOTIFY payload.
+            await sql`SELECT pg_notify(${OutboxChannel.Ready}, '')`;
 
             return rows.map((row) => Number(row.id)).sort((a, b) => a - b);
         });
@@ -418,6 +423,18 @@ export class OutboxStore {
                 RETURNING id
             `,
         );
+
+        await this.notifyFinished(sql, lease.id);
+    }
+
+    // Every transaction that moves a message into done, failed or skipped calls it: a caller waiting on
+    // another node learns of the outcome only from the poll otherwise (docs/architecture/invariants.md).
+    // The notification goes through sql of that transaction, so PostgreSQL delivers it on commit and
+    // the waiter that reads the row on it sees the outcome. Not sql.notify() of postgres.js: it runs
+    // on the pool whatever sql it is called on (notify() in its src/index.js), so inside a transaction
+    // it would notify before the commit, and even for a transaction that rolls back.
+    private async notifyFinished(sql: TransactionSql, messageId: number): Promise<void> {
+        await sql`SELECT pg_notify(${OutboxChannel.Finished}, ${String(messageId)})`;
     }
 
     // The token is the chat's, so the chat is processing with one message: another message of the

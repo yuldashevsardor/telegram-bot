@@ -150,6 +150,12 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   moment taken from the clock of a node compares with `now()` through the skew of the two clocks:
   a pause written by a node whose clock is behind ends early for every node, and the next call gets
   a 429 again. Nothing checks this; a `Date` passed into the outbox SQL compiles.
+- **A transaction that moves an outbox message into `done`, `failed` or `skipped` calls
+  `OutboxStore.notifyFinished()` with its `sql`**, as `finishMessage()` does for `markAsDone()`,
+  `markAsFailed()` and `markAsFailedAndBlockChat()`. Without the notification a caller waiting on
+  another node learns the outcome only from the poll, up to `OUTBOX_RESULT_POLL_INTERVAL` later
+  ([`outbox.md`](./outbox.md), "Waiting for the result"). A new path to a final status that skips
+  `finishMessage()` is checked by nothing.
 - **`status` and `state` of the outbox tables are written only through `OutboxStatus` and
   `OutboxChatState`.** The database has no check on them: a mistyped value is stored, and the row
   or the chat silently drops out of every query.

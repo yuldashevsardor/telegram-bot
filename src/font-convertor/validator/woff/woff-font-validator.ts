@@ -71,6 +71,7 @@ export class WoffFontValidator implements FontValidator {
     private static readonly HEAD_TAG = "head";
     private static readonly CHECKSUM_ADJUSTMENT_OFFSET = 8;
     private static readonly CHECKSUM_ADJUSTMENT_END = 12;
+    private static readonly CHECKSUM_WORD_SIZE_BYTES = 4;
     // Checked on the header field before any table is inflated. That is enough: rule 6 ties the
     // field to the sum of origLength, and a table never inflates past its origLength.
     // A 589 168-byte WOFF with a 512 MiB table of zeros took the process to 1090 MB RSS on
@@ -238,7 +239,7 @@ export class WoffFontValidator implements FontValidator {
                 });
             }
 
-            sfntSizeBytes += this.padded(entry.origLength);
+            sfntSizeBytes += this.padded(entry.origLength, WoffFontValidator.ALIGNMENT_BYTES);
             previous = entry;
         }
 
@@ -323,12 +324,14 @@ export class WoffFontValidator implements FontValidator {
         const fileSizeBytes = woff.bytes.length;
 
         for (const block of blocks) {
-            if (block.offset + block.length > fileSizeBytes) {
+            const blockEnd = this.endOffset(block);
+
+            if (blockEnd > fileSizeBytes) {
                 throw BrokenWoff.byRule(woff.path, {
                     rule: WoffRule.BlockInFile,
                     at: block.name,
                     field: "end",
-                    value: block.offset + block.length,
+                    value: blockEnd,
                     expected: `at most ${fileSizeBytes}, the file size`,
                 });
             }
@@ -356,7 +359,7 @@ export class WoffFontValidator implements FontValidator {
         const blocksByOffset = blocks.filter((block) => block.length > 0).toSorted((left, right) => left.offset - right.offset);
 
         for (const block of blocksByOffset) {
-            const previousEnd = previous.offset + previous.length;
+            const previousEnd = this.endOffset(previous);
 
             if (block.offset < previousEnd) {
                 throw BrokenWoff.byRule(woff.path, {
@@ -380,7 +383,7 @@ export class WoffFontValidator implements FontValidator {
 
             // Every block starts on a 4-byte boundary after what precedes it: the tables and the
             // metadata right after the padded tables (§5, §7), the private block by §8.
-            this.checkGap(woff, previous, { at: block.name, field: "offset", offset: block.offset }, this.paddedEnd(previous));
+            this.checkGap(woff, previous, { at: block.name, field: "offset", offset: block.offset }, this.expectedPaddedEnd(previous));
             previous = block;
         }
 
@@ -389,9 +392,9 @@ export class WoffFontValidator implements FontValidator {
         // A table is padded, the last one too (§5). No padding follows the metadata when it is last
         // (§7), and the private block ends the file (§8).
         if (previous.kind === BlockKind.Table) {
-            this.checkGap(woff, previous, fileEnd, this.paddedEnd(previous));
+            this.checkGap(woff, previous, fileEnd, this.expectedPaddedEnd(previous));
         } else {
-            this.checkGap(woff, previous, fileEnd, this.end(previous));
+            this.checkGap(woff, previous, fileEnd, this.expectedEnd(previous));
         }
     }
 
@@ -401,7 +404,7 @@ export class WoffFontValidator implements FontValidator {
      * in it is padding, all zero bytes.
      */
     private checkGap(woff: Woff, previous: Block, next: GapEnd, expected: ExpectedEnd): void {
-        const previousEnd = previous.offset + previous.length;
+        const previousEnd = this.endOffset(previous);
 
         if (next.offset < expected.offset) {
             throw BrokenWoff.byRule(woff.path, {
@@ -436,12 +439,19 @@ export class WoffFontValidator implements FontValidator {
         }
     }
 
-    private paddedEnd(block: Block): ExpectedEnd {
-        return { offset: this.padded(block.offset + block.length), description: `the end of ${block.name} padded to 4 bytes` };
+    private expectedPaddedEnd(block: Block): ExpectedEnd {
+        return {
+            offset: this.padded(this.endOffset(block), WoffFontValidator.ALIGNMENT_BYTES),
+            description: `the end of ${block.name} padded to ${WoffFontValidator.ALIGNMENT_BYTES} bytes`,
+        };
     }
 
-    private end(block: Block): ExpectedEnd {
-        return { offset: block.offset + block.length, description: `the end of ${block.name}` };
+    private expectedEnd(block: Block): ExpectedEnd {
+        return { offset: this.endOffset(block), description: `the end of ${block.name}` };
+    }
+
+    private endOffset(block: Block): number {
+        return block.offset + block.length;
     }
 
     private async checkTable(woff: Woff, entry: TableEntry): Promise<void> {
@@ -505,7 +515,7 @@ export class WoffFontValidator implements FontValidator {
      * there, so it cannot be part of the table's own.
      */
     private checksum(tag: string, table: Uint8Array): number {
-        const padded = new Uint8Array(this.padded(table.length));
+        const padded = new Uint8Array(this.padded(table.length, WoffFontValidator.CHECKSUM_WORD_SIZE_BYTES));
 
         padded.set(table);
 
@@ -516,7 +526,7 @@ export class WoffFontValidator implements FontValidator {
         const view = new DataView(padded.buffer);
         let sum = 0;
 
-        for (let offset = 0; offset < padded.length; offset += 4) {
+        for (let offset = 0; offset < padded.length; offset += WoffFontValidator.CHECKSUM_WORD_SIZE_BYTES) {
             sum = (sum + view.getUint32(offset)) >>> 0;
         }
 
@@ -548,11 +558,11 @@ export class WoffFontValidator implements FontValidator {
     }
 
     /**
-     * Rounded up to the alignment. Not with a bit mask: the operands of JavaScript bitwise
-     * operators are 32-bit signed, and a length read from the file may be up to 2^32 - 1.
+     * Rounded up to a multiple of `unitBytes`. Not with a bit mask: the operands of JavaScript
+     * bitwise operators are 32-bit signed, and a length read from the file may be up to 2^32 - 1.
      */
-    private padded(length: number): number {
-        return Math.ceil(length / WoffFontValidator.ALIGNMENT_BYTES) * WoffFontValidator.ALIGNMENT_BYTES;
+    private padded(lengthBytes: number, unitBytes: number): number {
+        return Math.ceil(lengthBytes / unitBytes) * unitBytes;
     }
 
     private tag(view: DataView, offset: number): string {
