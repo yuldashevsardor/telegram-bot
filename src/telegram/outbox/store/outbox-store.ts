@@ -346,6 +346,10 @@ export class OutboxStore {
             await this.setChatState(sql, lockedChatId, OutboxChatState.Blocked);
         });
 
+        // A fenced completion blocked nothing, so it logs no error: an alert on this record would
+        // fire for a chat that is not blocked. Its failure is in the stale-token warning. The outcome
+        // of the message is the completion that holds the chat: of the next pull, or the earlier one
+        // that ended the lease; a block of theirs logs this record.
         if (chatId === null) {
             return;
         }
