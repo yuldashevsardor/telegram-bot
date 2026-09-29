@@ -15,6 +15,7 @@ const MULTIPLIER = 2;
 // random() of 0 takes the lower end of the step: half of it.
 const RETRY_DELAY = new RetryDelay({ firstDelayMs: FIRST_DELAY_MS, maxDelayMs: 60_000, multiplier: MULTIPLIER }, () => 0);
 const WORKER = { host: "node-1", pid: 101, worker_id: "worker-1" };
+const BOT_TOKEN = "123456:secret-bot-token";
 
 type StoreCall =
     | { method: "retry"; lease: OutboxLease; error: OutboxAttemptError; delayMs: number }
@@ -155,6 +156,30 @@ describe("OutboxFailureHandler", function () {
         });
     });
 
+    it("keeps the bot token out of the attempt, the error an HttpError wraps included", async function () {
+        const fetchError = new Error(
+            `request to https://api.telegram.org/bot${BOT_TOKEN}/sendMessage failed, reason: getaddrinfo ENOTFOUND`,
+        );
+
+        await handler.handle(pulledAfter([]), new HttpError("Network request for 'sendMessage' failed!", fetchError));
+
+        const serialized = JSON.stringify(store.calls[0]);
+
+        expect(serialized).not.to.include(BOT_TOKEN);
+        expect(serialized).to.include("https://api.telegram.org/bot***/sendMessage");
+    });
+
+    it("leaves the payload of the call out of the attempt", async function () {
+        const answer: ApiError = { ok: false, error_code: 400, description: "Bad Request: message text is empty" };
+
+        await handler.handle(
+            pulledAfter([]),
+            new GrammyError("Call to 'sendMessage' failed!", answer, "sendMessage", { chat_id: 1, text: "" }),
+        );
+
+        expect(store.calls[0]).to.have.property("error").that.not.to.have.property("payload");
+    });
+
     it("keeps a thrown value that is not an Error as a serialized one", async function () {
         await handler.handle(pulledAfter([]), "socket closed");
 
@@ -168,7 +193,13 @@ describe("OutboxFailureHandler", function () {
     });
 
     function handlerAllowing(maxAttempts: number): OutboxFailureHandler {
-        return new OutboxFailureHandler(store as unknown as OutboxStore, new TelegramBotApiFailureClassifier(), RETRY_DELAY, maxAttempts);
+        return new OutboxFailureHandler(
+            store as unknown as OutboxStore,
+            new TelegramBotApiFailureClassifier(),
+            RETRY_DELAY,
+            maxAttempts,
+            BOT_TOKEN,
+        );
     }
 });
 
@@ -194,8 +225,13 @@ function pulledAfter(earlierKinds: TelegramBotApiFailureKind[]): PulledOutboxMes
     };
 }
 
+// The attempt error of an error that carries neither the token nor a payload of its call.
 function attemptError(error: unknown, kind: TelegramBotApiFailureKind): OutboxAttemptError {
-    return Object.assign(serializeError(error), { kind });
+    const serialized = serializeError(error);
+
+    delete serialized["payload"];
+
+    return Object.assign(serialized, { kind });
 }
 
 function networkError(): HttpError {

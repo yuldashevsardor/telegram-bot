@@ -20,7 +20,7 @@ import {
     BotLimitsRowMissing,
     InvalidPauseDuration,
     InvalidPullLimit,
-    OutboxMessageNotProcessing,
+    OutboxMessageNotLeased,
 } from "app/telegram/outbox/store/outbox-store.errors";
 import { MS_PER_SECOND } from "app/shared/time";
 import { sleep } from "app/shared/utils";
@@ -250,14 +250,14 @@ describe("OutboxStore", function () {
     });
 
     it("refuses to mark done a message that does not exist", async function () {
-        await expectNotProcessing({ id: 404, lockToken: OTHER_TOKEN, attempts: [] });
+        await expectNotLeased({ id: 404, lockToken: OTHER_TOKEN, attempts: [] });
     });
 
     it("refuses a lease of its chat that names another message of the chat and changes nothing", async function () {
         const [, second] = await store.pushBatch([message(CHAT, "first"), message(CHAT, "second")]);
         const pulled = await pullOne();
 
-        await expectNotProcessing({ id: second as number, lockToken: pulled.lockToken, attempts: pulled.attempts });
+        await expectNotLeased({ id: second as number, lockToken: pulled.lockToken, attempts: pulled.attempts });
         expect(await statuses()).to.deep.equal([OutboxStatus.Processing, OutboxStatus.Pending]);
         expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Processing });
     });
@@ -956,14 +956,14 @@ describe("OutboxStore", function () {
         return row;
     }
 
-    async function expectNotProcessing(lease: OutboxLease): Promise<void> {
+    async function expectNotLeased(lease: OutboxLease): Promise<void> {
         const error = await store.markAsDone(lease, RESPONSE).then(
             () => expect.fail("markAsDone() was expected to reject"),
             (reason: unknown) => reason,
         );
 
-        expect(error).to.be.instanceOf(OutboxMessageNotProcessing);
-        expect((error as OutboxMessageNotProcessing).payload).to.deep.equal({ messageId: lease.id });
+        expect(error).to.be.instanceOf(OutboxMessageNotLeased);
+        expect((error as OutboxMessageNotLeased).payload).to.deep.equal({ messageId: lease.id });
     }
 
     // The only message a pull gives out.

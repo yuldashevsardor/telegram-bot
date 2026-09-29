@@ -186,12 +186,12 @@ taking the pulled message as its lease (`OutboxLease`: `id`, `lockToken` and `at
 does to the message and the chat is read off its body. Each is a transaction through the private
 `complete()`:
 
-1. lock the chat row of the message; a missing message throws `OutboxMessageNotProcessing`;
+1. lock the chat row of the message; a missing message throws `OutboxMessageNotLeased`;
 2. the fence: a `lockToken` that is not the chat's changes nothing and is logged as a warning, with
    the error the completion carried. The lease has passed to another pull, or an earlier
    completion of the same pull has ended it;
 3. the message leaves `processing`. A message that is not `processing` under the chat's own token
-   is another message of the chat, and the method throws `OutboxMessageNotProcessing`;
+   is another message of the chat, and the method throws `OutboxMessageNotLeased`;
 4. the chat state, and the end of the lease.
 
 The attempts are written back from the lease, not read again: the last one, the one the pull
@@ -244,8 +244,11 @@ one failure is not classified at all:
 
 `OutboxFailureHandler.handle(message, error)` (`outbox-failure-handler.ts`) classifies the error
 and completes the message by its class; which completion each class gets is read off the branches
-of `applyOutcome()` and `retryOrBlock()`. The attempt keeps the error whole, serialized as the
-logger does it (`serializeError`), with its class in `kind`.
+of `applyOutcome()` and `retryOrBlock()`. The attempt keeps the error serialized as the logger
+does it (`serializeError`), with its class in `kind`, but for two things: the payload of a
+`GrammyError`, a copy of the row's own, and the bot token, which the fetch error inside an
+`HttpError` carries in the URL of the call. What `serialize()` leaves out and why is in its
+comment.
 
 The attempts that count towards `OUTBOX_MAX_ATTEMPTS` are counted by `countFailures()` from the
 attempts of the pulled message: those closed with an error whose `kind` is not `flood`. Two kinds

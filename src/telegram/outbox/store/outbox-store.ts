@@ -23,7 +23,7 @@ import {
     BotLimitsRowMissing,
     InvalidPauseDuration,
     InvalidPullLimit,
-    OutboxMessageNotProcessing,
+    OutboxMessageNotLeased,
 } from "app/telegram/outbox/store/outbox-store.errors";
 
 // The OID of bigint: the chat ids go to the database as a bigint[] parameter.
@@ -360,7 +360,7 @@ export class OutboxStore {
     }
 
     // Every completion: the lock of the chat, then the fence, then the writes (docs/architecture/outbox.md,
-    // "The chat lock"). A missing message throws OutboxMessageNotProcessing. A lock token that is not
+    // "The chat lock"). A missing message throws OutboxMessageNotLeased. A lock token that is not
     // the chat's changes nothing and is logged with the error the completion carried: the lease has
     // passed to another pull, or the chat was released by an earlier completion. Returns the chat of
     // an applied completion, null for a fenced one.
@@ -379,7 +379,7 @@ export class OutboxStore {
             `;
 
             if (chat === undefined) {
-                throw OutboxMessageNotProcessing.byId(lease.id);
+                throw OutboxMessageNotLeased.byId(lease.id);
             }
 
             if (chat.lock_token !== lease.lockToken) {
@@ -424,7 +424,7 @@ export class OutboxStore {
         const [updated] = await update;
 
         if (updated === undefined) {
-            throw OutboxMessageNotProcessing.byId(lease.id);
+            throw OutboxMessageNotLeased.byId(lease.id);
         }
     }
 

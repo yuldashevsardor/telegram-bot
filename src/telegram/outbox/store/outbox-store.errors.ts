@@ -24,9 +24,9 @@ export class InvalidPauseDuration extends RuntimeError {
     }
 }
 
-export class OutboxMessageNotProcessing extends RuntimeError {
-    public static byId(messageId: number): OutboxMessageNotProcessing {
-        return new OutboxMessageNotProcessing(
+export class OutboxMessageNotLeased extends RuntimeError {
+    public static byId(messageId: number): OutboxMessageNotLeased {
+        return new OutboxMessageNotLeased(
             `Outbox message ${messageId} is not the message its lease holds: the id is missing or names another message of the leased chat.`,
             {
                 messageId: messageId,

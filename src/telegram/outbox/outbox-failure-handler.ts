@@ -1,4 +1,6 @@
+import { GrammyError } from "grammy";
 import { inject, injectable } from "inversify";
+import type { ErrorObject } from "serialize-error";
 import { serializeError } from "serialize-error";
 import { Tokens } from "app/shared/tokens";
 import { configValue } from "app/shared/config-value";
@@ -10,6 +12,9 @@ import type { RetryDelay } from "app/telegram/outbox/retry-delay/retry-delay";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxAttemptError, PulledOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
 
+// What the bot token is replaced with in an attempt.
+const REDACTED_TOKEN = "***";
+
 // The outcome of a failed send, by the class of its error (docs/architecture/outbox.md, "Failures").
 @injectable()
 export class OutboxFailureHandler {
@@ -19,17 +24,35 @@ export class OutboxFailureHandler {
         private readonly classifier: TelegramBotApiFailureClassifier,
         @inject<RetryDelay>(Tokens.Bot.Outbox.RetryDelay) private readonly retryDelay: RetryDelay,
         private readonly maxAttempts: number = configValue("outbox.maxAttempts"),
+        private readonly botToken: string = configValue("bot.token"),
     ) {}
 
     public async handle(message: PulledOutboxMessage, error: unknown): Promise<void> {
         const failure = this.classifier.classify(error);
-        // The whole error, not only its message: the stack, and the fields of the answer that grammY
-        // keeps on its errors (error_code, description, parameters, method, payload). serializeError
-        // wraps a value that is not an Error into NonError. The kind is written over a field of the
-        // same name; the serialized object is a fresh one.
-        const attemptError: OutboxAttemptError = Object.assign(serializeError(error), { kind: failure.kind });
+        // The kind is written over a field of the same name; the serialized object is a fresh one.
+        const attemptError: OutboxAttemptError = Object.assign(this.serialize(error), { kind: failure.kind });
 
         await this.applyOutcome(message, failure, attemptError);
+    }
+
+    // The whole error, not only its message: the stack, the fields of the answer that grammY keeps on
+    // its errors (error_code, description, parameters, method) and the error an HttpError wraps.
+    // serializeError wraps a value that is not an Error into NonError. Two things stay out:
+    // - the payload of a GrammyError: a copy of the call, which the row already holds, and which
+    //   every attempt of a long 429 would repeat;
+    // - the bot token: the fetch error an HttpError wraps names the URL of the call, and the URL
+    //   carries the token. grammY keeps it out of its own message, the serialized fields bring it
+    //   back. It is replaced wherever it shows.
+    private serialize(error: unknown): ErrorObject {
+        const serialized = serializeError(error);
+
+        if (error instanceof GrammyError) {
+            delete serialized["payload"];
+        }
+
+        const redactedJson = JSON.stringify(serialized).replaceAll(this.botToken, REDACTED_TOKEN);
+
+        return JSON.parse(redactedJson) as ErrorObject;
     }
 
     // Not async on purpose: a switch that misses a kind leaves the end of the function reachable,
