@@ -127,6 +127,16 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   [`outbox.md`](./outbox.md), "The chat lock". `pull()` is the exception with a check of its own
   (same file, "Pull"). The spec lines up only these two methods: a new path that changes a chat
   state is checked by nothing.
+- **The outbox goes by the database clock only.** `next_attempt_at`, `next_send_at` and
+  `paused_until` are written and compared with `now()` of PostgreSQL: `pause()` takes a duration,
+  and `pull()` answers with a duration, not a moment ([`outbox.md`](./outbox.md), "Limits"). A
+  moment taken from the clock of a node compares with `now()` through the skew of the two clocks:
+  a pause written by a node whose clock is behind ends early for every node, and the next call gets
+  a 429 again. Nothing checks this; a `Date` passed into the outbox SQL compiles.
+- **`LIMIT_*_NUMBER > 0` holds for the outbox as well** (the config checks it). The pull spaces
+  the messages by `interval / number` in SQL. A zero gives an infinite cooldown, which PostgreSQL
+  accepts: `next_attempt_at` of the chat, or `next_send_at` of the whole bot for the common limit,
+  becomes `infinity`, and nothing is pulled from it again.
 - **`status` and `state` of the outbox tables are written only through `OutboxStatus` and
   `OutboxChatState`.** The database has no check on them: a mistyped value is stored, and the row
   or the chat silently drops out of every query.

@@ -1,7 +1,10 @@
 import { inject, injectable } from "inversify";
 import type { Database, Sql } from "app/platform/database/database";
 import { Tokens } from "app/shared/tokens";
-import type { OutboxJson, OutboxMessageInput, PulledOutboxMessage, PulledOutboxRow } from "app/telegram/outbox/store/outbox-store.types";
+import type { TelegramLimits } from "app/bootstrap/config/config-values";
+import { configValue } from "app/shared/config-value";
+import type { Limit } from "app/telegram/outbound-queue/rate-limit/rate-limit.types";
+import type { OutboxJson, OutboxMessageInput, OutboxPull, OutboxPullRow } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxChatState, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxMessageNotProcessing } from "app/telegram/outbox/store/outbox-store.errors";
 
@@ -11,12 +14,21 @@ const BIGINT = 20;
 // The statuses a chat head can be in: its first message by id among them.
 const ACTIVE_STATUSES = [OutboxStatus.Pending, OutboxStatus.Processing, OutboxStatus.Failed];
 
+// The time a limit leaves between two messages, as the in-memory queue spaces them. LIMIT_*_NUMBER is
+// at least 1, so the cooldown is finite.
+function cooldownMs(limit: Limit): number {
+    return limit.interval / limit.number;
+}
+
 // The rows and the chat states of the outbox: the model is in docs/architecture/outbox.md.
 @injectable()
 export class OutboxStore {
     private readonly sql: Sql;
 
-    public constructor(@inject<Database>(Tokens.Platform.Database) database: Database) {
+    public constructor(
+        @inject<Database>(Tokens.Platform.Database) database: Database,
+        private readonly limits: TelegramLimits = configValue("limits"),
+    ) {
         this.sql = database.sql;
     }
 
@@ -78,12 +90,34 @@ export class OutboxStore {
     }
 
     // One statement, so it is atomic without a transaction: up to limit ready chats by the priority
-    // of their head, and the head of each. A chat locked by another puller is skipped, not waited
-    // for. A pulled chat moves behind the chats of the same priority, so they are served in turn.
-    // The messages come back by priority, so a caller that sends them in order sends the urgent first.
-    public async pull(limit: number): Promise<PulledOutboxMessage[]> {
-        const rows = await this.sql<PulledOutboxRow[]>`
-            WITH heads AS (
+    // of their head, and the head of each, within the common limit, the chat limit and the pause
+    // (docs/architecture/outbox.md, "Pull"). A chat locked by another puller is skipped, not waited
+    // for, and so is the bot row: one puller at a time spends the common limit. A pulled chat moves
+    // behind the chats of the same priority, so they are served in turn. The messages come back by
+    // priority, so a caller that sends them in order sends the urgent first.
+    public async pull(limit: number): Promise<OutboxPull> {
+        const common = this.limits.common;
+        const commonCooldownMs = cooldownMs(common);
+        // How far back an idle bot saves up slots: number of them, a cooldown apart.
+        const savedSlotsSpanMs = (common.number - 1) * commonCooldownMs;
+
+        const [row] = await this.sql<OutboxPullRow[]>`
+            WITH bot AS (
+                -- The slots of the common limit come due one per cooldown from next_send_at, and an
+                -- idle bot saves up no more than number of them.
+                SELECT greatest(next_send_at, now() - ${savedSlotsSpanMs}::double precision * interval '1 millisecond') AS first_slot_at,
+                       least(
+                           ${limit}::integer,
+                           ${common.number}::integer,
+                           floor(extract(epoch FROM now() - next_send_at) * 1000 / ${commonCooldownMs}::double precision) + 1
+                       )::integer AS budget
+                FROM telegram_bot_limits
+                WHERE id = 1
+                  AND next_send_at <= now()
+                  AND (paused_until IS NULL OR paused_until <= now())
+                FOR UPDATE SKIP LOCKED
+            ),
+            heads AS (
                 SELECT chats.chat_id, head.id
                 FROM telegram_outbox_chats AS chats
                 CROSS JOIN LATERAL (
@@ -95,8 +129,10 @@ export class OutboxStore {
                     LIMIT 1
                 ) AS head
                 WHERE chats.state = ${OutboxChatState.Ready}
+                  AND chats.next_attempt_at <= now()
                 ORDER BY head.priority, chats.next_attempt_at, chats.chat_id
-                LIMIT ${limit}
+                -- No bot row: a pause, a spent limit or another puller. NULL would lift the limit.
+                LIMIT coalesce((SELECT budget FROM bot), 0)
                 FOR UPDATE OF chats SKIP LOCKED
             ),
             pulled AS (
@@ -110,25 +146,76 @@ export class OutboxStore {
                 RETURNING telegram_outbox.id, telegram_outbox.chat_id, method, payload, priority
             ),
             moved AS (
+                -- A negative chat id is a group, as isGroupChat() has it.
                 UPDATE telegram_outbox_chats
                 SET state = ${OutboxChatState.Processing},
-                    next_attempt_at = now(),
+                    next_attempt_at = now() + CASE
+                        WHEN telegram_outbox_chats.chat_id < 0 THEN ${cooldownMs(this.limits.group)}::double precision
+                        ELSE ${cooldownMs(this.limits.private)}::double precision
+                    END * interval '1 millisecond',
                     updated_at = now()
                 FROM pulled
                 WHERE telegram_outbox_chats.chat_id = pulled.chat_id
+            ),
+            spent AS (
+                UPDATE telegram_bot_limits
+                SET next_send_at = bot.first_slot_at + (SELECT count(*) FROM pulled) * ${commonCooldownMs}::double precision * interval '1 millisecond',
+                    updated_at = now()
+                FROM bot
+                WHERE telegram_bot_limits.id = 1
+                  AND EXISTS (SELECT 1 FROM pulled)
+                RETURNING telegram_bot_limits.next_send_at, telegram_bot_limits.paused_until
+            ),
+            bot_after AS (
+                SELECT next_send_at, paused_until
+                FROM spent
+                UNION ALL
+                SELECT next_send_at, paused_until
+                FROM telegram_bot_limits
+                WHERE id = 1
+                  AND NOT EXISTS (SELECT 1 FROM spent)
+            ),
+            -- The chats pulled here are processing now; the rest of the ready ones wait for their time.
+            ready AS (
+                SELECT min(next_attempt_at) AS ready_at
+                FROM telegram_outbox_chats
+                WHERE state = ${OutboxChatState.Ready}
+                  AND chat_id NOT IN (SELECT chat_id FROM pulled)
             )
-            SELECT *
-            FROM pulled
-            ORDER BY priority, id
+            SELECT (
+                       SELECT coalesce(
+                           jsonb_agg(
+                               jsonb_build_object('id', id, 'chatId', chat_id, 'method', method, 'payload', payload, 'priority', priority)
+                               ORDER BY priority, id
+                           ),
+                           '[]'::jsonb
+                       )
+                       FROM pulled
+                   ) AS messages,
+                   (
+                       -- greatest() skips a NULL paused_until.
+                       SELECT ceil(greatest(extract(epoch FROM greatest(ready.ready_at, bot_after.next_send_at, bot_after.paused_until) - now()) * 1000, 0))::double precision
+                       FROM ready
+                       CROSS JOIN bot_after
+                       WHERE ready.ready_at IS NOT NULL
+                   ) AS next_pull_in_ms
         `;
 
-        return rows.map((row) => ({
-            id: Number(row.id),
-            chatId: Number(row.chat_id),
-            method: row.method,
-            payload: row.payload,
-            priority: row.priority,
-        }));
+        // A statement without FROM returns exactly one row.
+        const pullRow = row as OutboxPullRow;
+
+        return { messages: pullRow.messages, nextPullInMs: pullRow.next_pull_in_ms };
+    }
+
+    // Stops the pull on every node until now() + durationMs by the database clock. A pause is never
+    // shortened: a 429 that asks for less than the pause left changes nothing.
+    public async pause(durationMs: number): Promise<void> {
+        await this.sql`
+            UPDATE telegram_bot_limits
+            SET paused_until = greatest(paused_until, now() + ${durationMs}::double precision * interval '1 millisecond'),
+                updated_at = now()
+            WHERE id = 1
+        `;
     }
 
     // messageId is telegram_outbox.id. A message that is missing or not processing throws

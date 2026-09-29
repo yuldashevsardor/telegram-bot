@@ -39,11 +39,17 @@ export type PulledOutboxMessage = OutboxMessageInput & {
     id: number;
 };
 
-// A pulled row as postgres returns it: without a types setting bigint comes back as a string.
-export type PulledOutboxRow = {
-    id: string;
-    chat_id: string;
-    method: string;
-    payload: OutboxPayload;
-    priority: number;
+// What a pull gives out: the messages, and when the next pull can give out one.
+export type OutboxPull = {
+    messages: PulledOutboxMessage[];
+    // Counted by the database clock from the pull. null: no chat is ready, so only a push brings a
+    // message.
+    nextPullInMs: number | null;
+};
+
+// The single row of a pull as postgres returns it. The messages come as jsonb, where a bigint is a
+// number, not a string.
+export type OutboxPullRow = {
+    messages: PulledOutboxMessage[];
+    next_pull_in_ms: number | null;
 };
