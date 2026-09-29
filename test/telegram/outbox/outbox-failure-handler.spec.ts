@@ -1,23 +1,24 @@
 import { expect } from "chai";
 import { GrammyError, HttpError } from "grammy";
 import type { ApiError, ResponseParameters } from "grammy/types";
+import { serializeError } from "serialize-error";
 import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-handler";
 import { RetryDelay } from "app/telegram/outbox/retry-delay/retry-delay";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
-import type { OutboxAttemptError, OutboxLease, PulledOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
+import type { OutboxAttempt, OutboxAttemptError, OutboxLease, PulledOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
 
 const MAX_ATTEMPTS = 3;
 const FIRST_DELAY_MS = 1_000;
 const MULTIPLIER = 2;
 // random() of 0 takes the lower end of the step: half of it.
 const RETRY_DELAY = new RetryDelay({ firstDelayMs: FIRST_DELAY_MS, maxDelayMs: 60_000, multiplier: MULTIPLIER }, () => 0);
+const WORKER = { host: "node-1", pid: 101, worker_id: "worker-1" };
 
 type StoreCall =
     | { method: "retry"; lease: OutboxLease; error: OutboxAttemptError; delayMs: number }
-    | { method: "markAsFailed"; lease: OutboxLease; error: OutboxAttemptError }
-    | { method: "markAsFailedAndBlockChat"; lease: OutboxLease; error: OutboxAttemptError; cause: unknown }
+    | { method: "markAsFailed" | "markAsFailedAndBlockChat"; lease: OutboxLease; error: OutboxAttemptError }
     | { method: "pause"; durationMs: number };
 
 // Records what the handler asks of the store: which outcome is written is decided here, how it is
@@ -33,8 +34,8 @@ class RecordingStore {
         this.calls.push({ method: "markAsFailed", lease, error });
     }
 
-    public async markAsFailedAndBlockChat(lease: OutboxLease, error: OutboxAttemptError, cause: unknown): Promise<void> {
-        this.calls.push({ method: "markAsFailedAndBlockChat", lease, error, cause });
+    public async markAsFailedAndBlockChat(lease: OutboxLease, error: OutboxAttemptError): Promise<void> {
+        this.calls.push({ method: "markAsFailedAndBlockChat", lease, error });
     }
 
     public async pause(durationMs: number): Promise<void> {
@@ -52,7 +53,7 @@ describe("OutboxFailureHandler", function () {
     });
 
     it("retries a transient failure after the delay of its counted attempt", async function () {
-        const message = pulled(1);
+        const message = pulledAfter([TelegramBotApiFailureKind.Transient]);
         const error = networkError();
 
         await handler.handle(message, error);
@@ -62,14 +63,14 @@ describe("OutboxFailureHandler", function () {
             {
                 method: "retry",
                 lease: message,
-                error: { kind: TelegramBotApiFailureKind.Transient, message: error.message },
+                error: attemptError(error, TelegramBotApiFailureKind.Transient),
                 delayMs: (FIRST_DELAY_MS * MULTIPLIER) / 2,
             },
         ]);
     });
 
     it("fails a transient failure of the last counted attempt and blocks its chat", async function () {
-        const message = pulled(MAX_ATTEMPTS - 1);
+        const message = pulledAfter([TelegramBotApiFailureKind.Transient, TelegramBotApiFailureKind.Transient]);
         const error = networkError();
 
         await handler.handle(message, error);
@@ -78,20 +79,31 @@ describe("OutboxFailureHandler", function () {
             {
                 method: "markAsFailedAndBlockChat",
                 lease: message,
-                error: { kind: TelegramBotApiFailureKind.Transient, message: error.message },
-                cause: error,
+                error: attemptError(error, TelegramBotApiFailureKind.Transient),
             },
         ]);
     });
 
+    it("does not count a flood of an earlier attempt towards the limit", async function () {
+        const message = pulledAfter([
+            TelegramBotApiFailureKind.Flood,
+            TelegramBotApiFailureKind.Transient,
+            TelegramBotApiFailureKind.Flood,
+        ]);
+
+        await handler.handle(message, networkError());
+
+        expect(store.calls.map((call) => call.method)).to.deep.equal(["retry"]);
+    });
+
     it("blocks the chat on the first transient failure when one attempt is allowed", async function () {
-        await handlerAllowing(1).handle(pulled(0), networkError());
+        await handlerAllowing(1).handle(pulledAfter([]), networkError());
 
         expect(store.calls.map((call) => call.method)).to.deep.equal(["markAsFailedAndBlockChat"]);
     });
 
     it("pauses the outbox for a flood before the message goes back to pending", async function () {
-        const message = pulled(MAX_ATTEMPTS - 1);
+        const message = pulledAfter([TelegramBotApiFailureKind.Transient, TelegramBotApiFailureKind.Transient]);
         const error = telegramError(429, "Too Many Requests: retry after 7", { retry_after: 7 });
 
         await handler.handle(message, error);
@@ -99,57 +111,60 @@ describe("OutboxFailureHandler", function () {
         // The last counted attempt does not block on a flood: a flood does not count.
         expect(store.calls).to.deep.equal([
             { method: "pause", durationMs: 7_000 },
-            {
-                method: "retry",
-                lease: message,
-                error: { kind: TelegramBotApiFailureKind.Flood, message: error.message },
-                delayMs: 0,
-            },
+            { method: "retry", lease: message, error: attemptError(error, TelegramBotApiFailureKind.Flood), delayMs: 0 },
         ]);
     });
 
     it("fails an undeliverable message without blocking its chat", async function () {
-        const message = pulled(0);
+        const message = pulledAfter([]);
         const error = telegramError(403, "Forbidden: bot was blocked by the user");
 
         await handler.handle(message, error);
 
         expect(store.calls).to.deep.equal([
-            {
-                method: "markAsFailed",
-                lease: message,
-                error: { kind: TelegramBotApiFailureKind.Undeliverable, message: error.message },
-            },
+            { method: "markAsFailed", lease: message, error: attemptError(error, TelegramBotApiFailureKind.Undeliverable) },
         ]);
     });
 
-    it("fails an unexpected failure and blocks its chat with the error as the cause", async function () {
-        const message = pulled(0);
+    it("fails an unexpected failure and blocks its chat", async function () {
+        const message = pulledAfter([]);
         const error = telegramError(400, "Bad Request: message text is empty");
 
         await handler.handle(message, error);
 
         expect(store.calls).to.deep.equal([
-            {
-                method: "markAsFailedAndBlockChat",
-                lease: message,
-                error: { kind: TelegramBotApiFailureKind.Unexpected, message: error.message },
-                cause: error,
-            },
+            { method: "markAsFailedAndBlockChat", lease: message, error: attemptError(error, TelegramBotApiFailureKind.Unexpected) },
         ]);
     });
 
-    it("records a thrown value that is not an Error as its string", async function () {
-        await handler.handle(pulled(0), "socket closed");
+    it("keeps the whole error in the attempt: the stack and the fields of the answer", async function () {
+        const error = telegramError(400, "Bad Request: message text is empty");
 
-        expect(store.calls).to.deep.equal([
-            {
-                method: "markAsFailedAndBlockChat",
-                lease: pulled(0),
-                error: { kind: TelegramBotApiFailureKind.Unexpected, message: "socket closed" },
-                cause: "socket closed",
-            },
-        ]);
+        await handler.handle(pulledAfter([]), error);
+
+        const [call] = store.calls;
+
+        expect(call).to.have.property("error").that.deep.includes({
+            kind: TelegramBotApiFailureKind.Unexpected,
+            name: "GrammyError",
+            message: error.message,
+            stack: error.stack,
+            error_code: 400,
+            description: "Bad Request: message text is empty",
+            method: "sendMessage",
+        });
+    });
+
+    it("keeps a thrown value that is not an Error as a serialized one", async function () {
+        await handler.handle(pulledAfter([]), "socket closed");
+
+        const [call] = store.calls;
+
+        expect(call).to.have.property("error").that.deep.includes({
+            kind: TelegramBotApiFailureKind.Unexpected,
+            name: "NonError",
+            message: "Non-error value: socket closed",
+        });
     });
 
     function handlerAllowing(maxAttempts: number): OutboxFailureHandler {
@@ -157,7 +172,17 @@ describe("OutboxFailureHandler", function () {
     }
 });
 
-function pulled(countedFailures: number): PulledOutboxMessage {
+// A pulled message whose earlier attempts failed with the given kinds, and the open attempt of this
+// send last.
+function pulledAfter(earlierKinds: TelegramBotApiFailureKind[]): PulledOutboxMessage {
+    const earlierAttempts: OutboxAttempt[] = earlierKinds.map((kind) => ({
+        started_at: "2026-09-29T10:00:00.000000+00:00",
+        worker: WORKER,
+        finished_at: "2026-09-29T10:00:01.000000+00:00",
+        error: { kind, message: "earlier failure" },
+    }));
+    const openAttempt: OutboxAttempt = { started_at: "2026-09-29T10:01:00.000000+00:00", worker: WORKER, finished_at: null, error: null };
+
     return {
         id: 7,
         lockToken: "5b0c2f4e-8a4f-4d0e-9f1a-2d6c3b7e9a10",
@@ -165,8 +190,12 @@ function pulled(countedFailures: number): PulledOutboxMessage {
         method: "sendMessage",
         payload: { text: "text" },
         priority: 0,
-        countedFailures,
+        attempts: [...earlierAttempts, openAttempt],
     };
+}
+
+function attemptError(error: unknown, kind: TelegramBotApiFailureKind): OutboxAttemptError {
+    return Object.assign(serializeError(error), { kind });
 }
 
 function networkError(): HttpError {

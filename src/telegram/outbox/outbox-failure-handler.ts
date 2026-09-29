@@ -1,4 +1,5 @@
 import { inject, injectable } from "inversify";
+import { serializeError } from "serialize-error";
 import { Tokens } from "app/shared/tokens";
 import { configValue } from "app/shared/config-value";
 import { MS_PER_SECOND } from "app/shared/time";
@@ -22,32 +23,27 @@ export class OutboxFailureHandler {
 
     public async handle(message: PulledOutboxMessage, error: unknown): Promise<void> {
         const failure = this.classifier.classify(error);
-        const attemptError: OutboxAttemptError = {
-            kind: failure.kind,
-            message: error instanceof Error ? error.message : String(error),
-        };
+        // The whole error, not only its message: the stack, and the fields of the answer that grammY
+        // keeps on its errors (error_code, description, parameters, method, payload). serializeError
+        // wraps a value that is not an Error into NonError. The kind is written over a field of the
+        // same name; the serialized object is a fresh one.
+        const attemptError: OutboxAttemptError = Object.assign(serializeError(error), { kind: failure.kind });
 
-        await this.applyOutcome(message, failure, attemptError, error);
+        await this.applyOutcome(message, failure, attemptError);
     }
 
     // Not async on purpose: a switch that misses a kind leaves the end of the function reachable,
     // and a function returning a Promise without undefined in it does not compile then.
-    // The attempt keeps the message of the error only, so a blocked chat gets the error itself logged.
-    private applyOutcome(
-        message: PulledOutboxMessage,
-        failure: TelegramBotApiFailure,
-        attemptError: OutboxAttemptError,
-        error: unknown,
-    ): Promise<void> {
+    private applyOutcome(message: PulledOutboxMessage, failure: TelegramBotApiFailure, attemptError: OutboxAttemptError): Promise<void> {
         switch (failure.kind) {
             case TelegramBotApiFailureKind.Transient:
-                return this.retryOrBlock(message, attemptError, error);
+                return this.retryOrBlock(message, attemptError);
             case TelegramBotApiFailureKind.Flood:
                 return this.pauseAndRetry(message, failure.retryAfterSeconds, attemptError);
             case TelegramBotApiFailureKind.Undeliverable:
                 return this.store.markAsFailed(message, attemptError);
             case TelegramBotApiFailureKind.Unexpected:
-                return this.store.markAsFailedAndBlockChat(message, attemptError, error);
+                return this.store.markAsFailedAndBlockChat(message, attemptError);
         }
     }
 
@@ -58,14 +54,28 @@ export class OutboxFailureHandler {
         await this.store.retry(message, attemptError, 0);
     }
 
-    private async retryOrBlock(message: PulledOutboxMessage, attemptError: OutboxAttemptError, error: unknown): Promise<void> {
-        const countedAttempts = message.countedFailures + 1;
+    private async retryOrBlock(message: PulledOutboxMessage, attemptError: OutboxAttemptError): Promise<void> {
+        // This attempt counts too.
+        const countedAttempts = this.countFailures(message) + 1;
 
         if (countedAttempts >= this.maxAttempts) {
-            await this.store.markAsFailedAndBlockChat(message, attemptError, error);
-            return;
+            await this.store.markAsFailedAndBlockChat(message, attemptError);
+        } else {
+            await this.store.retry(message, attemptError, this.retryDelay.computeMs(countedAttempts));
+        }
+    }
+
+    // The earlier attempts that failed and count towards the limit: a flood does not count. The last
+    // attempt is the open one of this send, with no error yet.
+    private countFailures(message: PulledOutboxMessage): number {
+        let failures = 0;
+
+        for (const attempt of message.attempts) {
+            if (attempt.error !== null && attempt.error.kind !== TelegramBotApiFailureKind.Flood) {
+                failures += 1;
+            }
         }
 
-        await this.store.retry(message, attemptError, this.retryDelay.computeMs(countedAttempts));
+        return failures;
     }
 }

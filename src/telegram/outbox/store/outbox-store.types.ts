@@ -1,4 +1,5 @@
 import type postgres from "postgres";
+import type { ErrorObject } from "serialize-error";
 import type { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 
 // The values of telegram_outbox.status: the database does not check them, so they are written only
@@ -43,25 +44,29 @@ export type OutboxWorker = {
     workerId: string;
 };
 
+// The error an attempt is closed with: the caught error serialized whole, as the logger writes it
+// (serializeError), and its class. The class decides whether the attempt counts towards the limit.
+export type OutboxAttemptError = ErrorObject & { kind: TelegramBotApiFailureKind };
+
+// One attempt of a message, as telegram_outbox.attempts keeps it. The pull opens it; a completion
+// closes it with finished_at and error, null for a success.
+export type OutboxAttempt = {
+    started_at: string;
+    worker: { host: string; pid: number; worker_id: string };
+    finished_at: string | null;
+    error: OutboxAttemptError | null;
+};
+
 // What a completion of a pulled message is fenced by: the message and the token of the pull that
-// leased its chat. A pulled message is a lease itself.
+// leased its chat. The attempts are those the pull returned: while the lease holds, nothing else
+// writes them. A pulled message is a lease itself.
 export type OutboxLease = {
     id: number;
     lockToken: string;
+    attempts: OutboxAttempt[];
 };
 
-export type PulledOutboxMessage = OutboxMessageInput &
-    OutboxLease & {
-        // The failed attempts before this one that count towards the limit: a flood does not count.
-        countedFailures: number;
-    };
-
-// The error an attempt is closed with. The kind decides whether the attempt counts towards the
-// limit of attempts.
-export type OutboxAttemptError = {
-    kind: TelegramBotApiFailureKind;
-    message: string;
-};
+export type PulledOutboxMessage = OutboxMessageInput & OutboxLease;
 
 // What a pull gives out: the messages, and when the next pull can give out one.
 export type OutboxPullResult = {
@@ -74,8 +79,8 @@ export type OutboxPullResult = {
 // How a message leaves the outbox: sent with Telegram's response, or failed with the error of its
 // last attempt.
 export type OutboxFinalOutcome =
-    | { status: OutboxStatus.Done; error: null; response: OutboxJson }
-    | { status: OutboxStatus.Failed; error: OutboxAttemptError; response: null };
+    | { status: OutboxStatus.Done; attemptError: null; response: OutboxJson }
+    | { status: OutboxStatus.Failed; attemptError: OutboxAttemptError; response: null };
 
 // A pulled row as the pull returns it inside jsonb, where a bigint is a number, not a string.
 export type PulledOutboxRow = {
@@ -84,8 +89,7 @@ export type PulledOutboxRow = {
     method: string;
     payload: OutboxPayload;
     priority: number;
-    lock_token: string;
-    counted_failures: number;
+    attempts: OutboxAttempt[];
 };
 
 // The single row of a pull as postgres returns it.

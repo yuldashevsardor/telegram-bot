@@ -87,13 +87,14 @@ lock.
    `chat_id`, `FOR UPDATE OF chats SKIP LOCKED`: a chat another puller holds is skipped, not
    waited for;
 3. the head goes to `processing`, but only if it is still `pending`, and an open attempt is
-   appended to its `attempts`: `started_at` and the `worker` passed to the pull;
+   appended to its `attempts`: `started_at`, the `worker` passed to the pull, and `finished_at` and
+   `error` of `null`;
 4. the chats whose head was pulled go to `processing`, `next_attempt_at` moves to `now()` plus the
    chat limit, and the chat is leased to the pull (see "The lease");
 5. `next_send_at` of the bot moves by the messages pulled;
 6. the answer: the pulled messages, by priority, then by `id`, so a caller that sends them in
-   order sends the urgent first, each with the `lockToken` of its chat and `countedFailures`; and
-   `nextPullInMs`, when the next pull can give out a message.
+   order sends the urgent first, each with the `lockToken` of the pull and its `attempts`, the open
+   one last; and `nextPullInMs`, when the next pull can give out a message.
 
 Step 4 is what serves the chats of one priority in turn: a chat just served goes behind the chats
 that waited. The chats of one kind — private or group — in one pull get the same
@@ -155,11 +156,13 @@ not a moment. The rule is in [`invariants.md`](./invariants.md), "The outbox".
 ## The lease
 
 A pull leases each chat it pulled: `locked_until` is `now()` plus `leaseDurationMs`
-(`OUTBOX_LEASE_DURATION`), and `lock_token` is a fresh `gen_random_uuid()` per chat, returned with
-its message as `lockToken`. The completion ends the lease: both columns go back to `NULL`. Nothing
-reads `locked_until` yet: the recovery of a chat whose lease has passed is
-[#672](https://github.com/yuldashevsardor/telegram-bot/issues/672). How long the lease must be is in
-[`invariants.md`](./invariants.md), "The outbox".
+(`OUTBOX_LEASE_DURATION`), and `lock_token` is the token of the pull, a `randomUUID()` the code
+makes before the statement and returns with every message as `lockToken`. One token for the chats of
+a pull is enough: the fence compares the token of one chat row, and a chat is leased to one pull at
+a time, so the token only has to tell that pull from the next pull of the same chat. The completion
+ends the lease: both columns go back to `NULL`. Nothing reads `locked_until` yet: the recovery of a
+chat whose lease has passed is [#672](https://github.com/yuldashevsardor/telegram-bot/issues/672).
+How long the lease must be is in [`invariants.md`](./invariants.md), "The outbox".
 
 The delivery is at least once. A node that dies after Telegram took the call and before its
 completion commits leaves the message `processing`; once the lease is recovered, the message goes
@@ -168,39 +171,28 @@ one.
 
 ## Completions
 
-A pulled message is completed by one of four methods, each taking the pulled message as its lease
-(`OutboxLease`: `id` and `lockToken`):
-
-| method | the message | the chat |
-|---|---|---|
-| `markAsDone(lease, response)` | `done`, with `response` | goes on: `ready` if a message is left, `idle` otherwise |
-| `retry(lease, error, delayMs)` | back to `pending` | `ready`, `next_attempt_at` at `now()` plus `delayMs` or where the chat limit put it, whichever is later |
-| `markAsFailed(lease, error)` | `failed` | goes on, as after `markAsDone` |
-| `markAsFailedAndBlockChat(lease, error, cause)` | `failed` | `blocked`, logged at `error` with `cause`, the caught error |
-
-Each is a transaction through the private `complete()`:
+A pulled message is completed by one of the four public methods of the store after `pull()`, each
+taking the pulled message as its lease (`OutboxLease`: `id`, `lockToken` and `attempts`). What each
+does to the message and the chat is read off its body. Each is a transaction through the private
+`complete()`:
 
 1. lock the chat row of the message; a missing message throws `OutboxMessageNotProcessing`;
-2. the fence: a `lockToken` that is not the chat's changes nothing and is logged as a warning. The
-   lease has passed to another pull, or an earlier completion of the same pull has ended it;
-3. the message leaves `processing`, and the last attempt, the one the pull opened, gets
-   `finished_at` and `error`: `null` for `done`, `{kind, message}` otherwise. A message that is not
-   `processing` under the chat's own token is another message of the chat, and the method throws
-   `OutboxMessageNotProcessing`. `done` and `failed` get `finished_at` of the row, for the cleanup;
+2. the fence: a `lockToken` that is not the chat's changes nothing and is logged as a warning, with
+   the error the completion carried. The lease has passed to another pull, or an earlier
+   completion of the same pull has ended it;
+3. the message leaves `processing`. A message that is not `processing` under the chat's own token
+   is another message of the chat, and the method throws `OutboxMessageNotProcessing`;
 4. the chat state, and the end of the lease.
+
+The attempts are written back from the lease, not read again: the last one, the one the pull
+opened, is closed in the code with its error, `null` for `done`, and the whole array replaces the
+stored one. That is safe because only the holder of the lease writes the attempts of its message,
+and the fence of step 2 has just checked that the lease is still held. `finished_at` of the attempt
+alone is set in SQL, since the outbox goes by the database clock
+([`invariants.md`](./invariants.md), "The outbox").
 
 A retried message stays the head of its chat, so its chat waits with it: the messages behind it
 are not pulled before it, while the other chats are.
-
-`countedFailures` of a pulled message is the number of its closed attempts whose error `kind` is
-not `flood`, read by the pull. Two kinds of attempt fall outside the count or stay in it for
-good:
-
-- an attempt left open by a node that died has no `error`, so it never counts: a message that
-  kills the node sending it is not stopped by `OUTBOX_MAX_ATTEMPTS`;
-- the count covers the whole history of the message. A message that blocked its chat after its
-  last counted attempt and was put back to `pending` by hand blocks the chat again on its next
-  transient failure, with no retry.
 
 Every update of the store sets `updated_at = now()` itself; there is no trigger.
 
@@ -242,9 +234,21 @@ one failure is not classified at all:
 
 `OutboxFailureHandler.handle(message, error)` (`outbox-failure-handler.ts`) classifies the error
 and completes the message by its class; which completion each class gets is read off the branches
-of `applyOutcome()` and `retryOrBlock()`. What the code does not show: a `retry_after` that
-`pause()` refuses (see "Limits") throws out of `handle()` before the retry, and the message stays
-`processing` until its lease is recovered.
+of `applyOutcome()` and `retryOrBlock()`. The attempt keeps the error whole, serialized as the
+logger does it (`serializeError`), with its class in `kind`.
+
+The attempts that count towards `OUTBOX_MAX_ATTEMPTS` are counted by `countFailures()` from the
+attempts of the pulled message: those closed with an error whose `kind` is not `flood`. Two kinds
+of attempt fall outside the count or stay in it for good:
+
+- an attempt left open by a node that died has no `error`, so it never counts: a message that
+  kills the node sending it is not stopped by `OUTBOX_MAX_ATTEMPTS`;
+- the count covers the whole history of the message. A message that blocked its chat after its
+  last counted attempt and was put back to `pending` by hand blocks the chat again on its next
+  transient failure, with no retry.
+
+A `retry_after` that `pause()` refuses (see "Limits") throws out of `handle()` before the retry,
+and the message stays `processing` until its lease is recovered.
 
 ### Retry delay
 
