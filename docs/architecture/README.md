@@ -133,7 +133,7 @@ src/
   telegram/                 grammY: commands, conversations, middleware, filters, session, locales (bot.md, i18n.md)
     user/                   the entity, the repository interface, the service, the PostgreSQL adapter (user.md)
     outbound-queue/         the outbound queue by keys, limits, the Runner loop (outbound-queue.md)
-    outbox/                 the future outbox of Bot API calls in PostgreSQL: the store (push, pull), the payload codec and the retry delay (outbox.md)
+    outbox/                 the future outbox of Bot API calls in PostgreSQL: the store (push, pull), the result waiter, the payload codec and the retry delay (outbox.md)
   platform/                 adapters that know no module
     database/               Database (storage.md)
     logger/                 the Logger interface, the Level enum, ConsoleLogger, PinoLogger (logging.md)

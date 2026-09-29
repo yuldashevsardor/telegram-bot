@@ -4,6 +4,7 @@ import type { RunnerSettings } from "app/telegram/outbound-queue/runner/runner.t
 import type { DatabaseSettings } from "app/platform/database/database.types";
 import type { BotSettings } from "app/telegram/bot/bot.types";
 import type { RetryDelaySettings } from "app/telegram/outbox/retry-delay/retry-delay.types";
+import type { OutboxResultWaiterSettings } from "app/telegram/outbox/result-waiter/outbox-result-waiter.types";
 
 export const Environments = ["production", "development", "testing"] as const;
 
@@ -36,6 +37,7 @@ export type ConfigValues = {
 
     outbox: {
         retryDelay: RetryDelaySettings;
+        resultWaiter: OutboxResultWaiterSettings;
     };
 
     bot: BotSettings;
