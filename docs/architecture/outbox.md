@@ -5,9 +5,9 @@ The outbox is being built to replace the in-memory outbound queue
 any node sends them, the order inside a chat holds across nodes, and a node that dies loses
 nothing (the plan is epic [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)).
 No sender or caller uses the directory yet: so far it holds the tables with `OutboxStore`
-(`store/outbox-store.ts`), which pushes, pulls within the limits, pauses and completes a pulled
-message, `OutboxFailureHandler` (`outbox-failure-handler.ts`), which picks the outcome of a failed
-send, `OutboxResultWaiter`, which waits for the outcome of a message, with
+(`store/outbox-store.ts`), which pushes, pulls within the limits, pauses, completes a pulled
+message and cleans up, `OutboxFailureHandler` (`outbox-failure-handler.ts`), which picks the
+outcome of a failed send, `OutboxResultWaiter`, which waits for the outcome of a message, with
 `OutboxFinishedMessageReader`, the payload codec and the retry delay. The error classes of a failed
 call lie outside it, in `telegram/bot-api-failure-classifier/`.
 
@@ -22,7 +22,7 @@ keys yet: they will be picked once the queries of every stage are settled.
 
 The database does not check the values of `status` and `state`: the store writes them only
 through the `OutboxStatus` and `OutboxChatState` enums (`store/outbox-store.types.ts`). Of these,
-nothing sets `skipped` yet, and `done` rows are not deleted yet.
+nothing sets `skipped` yet.
 `telegram_bot_limits` holds one row, `id = 1`, inserted by the migration; nothing but the code
 keeps it single. Without the row `pull()` and `pause()` throw `BotLimitsRowMissing`: the pull
 would otherwise answer as if no chat were ready, and the pause would change nothing.
@@ -46,6 +46,9 @@ to `skipped` ([#631](https://github.com/yuldashevsardor/telegram-bot/issues/631)
 | `processing` | `pull` |
 | `blocked` | `markAsFailedAndBlockChat`; `push` leaves it as it is |
 
+An `idle` chat whose `next_attempt_at` has passed loses its row to `deleteIdleChats()` (see
+"Cleanup"); the next `push` inserts it again as a new chat.
+
 ## The chat lock
 
 The chat row is the lock of its chat. `push` and every completion lock the rows of their chats
@@ -62,20 +65,25 @@ sees what the first committed. `test/telegram/outbox/outbox-store.spec.ts` lines
 behind a lock held by a third client and pins both orders, and the ids of a push taken after its
 lock.
 
+A push that inserts the chat row locks it in the same statement: an `idle` chat can be deleted by
+the cleanup at any moment, and a push that inserted the row with `ON CONFLICT DO NOTHING` and
+locked it in the next statement would find it gone and put its messages in without a chat, where
+no pull reaches them. The spec lines the push and the removal up the same way, in both orders.
+
 `pull` is the exception: it locks and reads the head in one statement, see below.
 
 ## Push
 
 `push()` is `pushBatch()` of one message. The batch is a transaction:
 
-1. the chats of the batch that have no row yet are inserted `idle` (`ON CONFLICT DO NOTHING`);
-2. every chat of the batch is locked, `SELECT … FOR UPDATE` in `chat_id` order, so two batches
-   lock the chats they share in the same order;
-3. the messages go in as one `jsonb` array and are inserted `ORDER BY` their position in it, so
+1. every chat of the batch is inserted `idle` or, if it has a row, locked: one statement,
+   `ON CONFLICT DO UPDATE` with an update that changes nothing (see "The chat lock"). The rows go in
+   `chat_id` order, so two batches lock the chats they share in the same order;
+2. the messages go in as one `jsonb` array and are inserted `ORDER BY` their position in it, so
    the ids grow in the order of the input;
-4. every `idle` chat of the batch becomes `ready`; a chat in any other state already has an older
+3. every `idle` chat of the batch becomes `ready`; a chat in any other state already has an older
    head;
-5. `pg_notify` on `telegram_outbox_ready` with an empty payload, delivered on commit, so that an
+4. `pg_notify` on `telegram_outbox_ready` with an empty payload, delivered on commit, so that an
    idle sender wakes up at once. Nothing listens on the channel yet: the sender is not written.
 
 ## Pull
@@ -191,7 +199,8 @@ is read off its body. Each is a transaction through the private `complete()`:
 1. lock the chat row of the message; a missing message throws `OutboxMessageNotLeased`;
 2. the fence: a `lockToken` that is not the chat's changes nothing and is logged as a warning, with
    the error the completion carried. The lease has passed to another pull, or an earlier
-   completion of the same pull has ended it;
+   completion of the same pull has ended it. A message whose chat row is missing is fenced the
+   same way: the cleanup removed the chat once it went `idle`, and an `idle` chat holds no lease;
 3. the message leaves `processing`. A message that is not `processing` under the chat's own token
    is another message of the chat, and the method throws `OutboxMessageNotLeased`;
 4. the chat state, and the end of the lease.
@@ -209,7 +218,8 @@ of the attempt; the recovery of its lease appends one
 A retried message stays the head of its chat, so its chat waits with it: the messages behind it
 are not pulled before it, while the other chats are.
 
-Every update of the store sets `updated_at = now()` itself; there is no trigger.
+Every update of the store sets `updated_at = now()` itself; there is no trigger. The update of the
+push's upsert is the exception: it changes nothing and is there only for its lock.
 
 ## Waiting for the result
 
@@ -258,6 +268,31 @@ that shuts down neither polls its closed database nor is held up by a wait until
 The waiter does not depend on the store: it takes `OutboxFinishedMessageReader`, which only reads.
 So the waiter has no SQL: mutation testing reaches it through a fake reader, and
 `outbox-finished-message-reader.spec.ts` runs it over the real one.
+
+## Cleanup
+
+Two methods of the store keep the tables from growing without bound. Each deletes one batch of at
+most `OUTBOX_CLEANUP_BATCH_SIZE` rows in one statement and returns how many it deleted, so a caller
+that gets a full batch calls again. Nothing calls them yet: the timers are the sending loop's
+([#624](https://github.com/yuldashevsardor/telegram-bot/issues/624)).
+
+- `deleteFinishedMessages()` deletes the `done` messages whose `finished_at` is older than
+  `OUTBOX_DONE_RETENTION`, and the `skipped` ones older than `OUTBOX_SKIPPED_RETENTION`. A `failed`
+  message is never deleted: it waits for a person to unblock its chat or look at it. A message
+  without `finished_at` is not deleted either, so whatever sets `skipped` sets `finished_at` too.
+  The retention is added to `finished_at` rather than taken off `now()`: the config takes a
+  retention up to `Number.MAX_SAFE_INTEGER` ms, and `now()` minus that falls below 4713 BC, the
+  earliest timestamp PostgreSQL has.
+- `deleteIdleChats()` deletes the `idle` chats whose `next_attempt_at` has passed. It locks them
+  `FOR UPDATE` in `chat_id` order, as a push does, and the lock rechecks the state on the newest
+  version of the row, so a chat a push has made `ready` meanwhile is left alone; a push that comes
+  after the removal inserts the chat again (see "The chat lock"). A chat whose limit has not passed
+  keeps its row: a push recreates the chat with `next_attempt_at` of `now()`, so a removed row would
+  let the next message out before the limit. The messages of a removed chat stay; a late
+  completion of one of them is fenced (see "Completions").
+
+A caller still waiting for a `done` message the cleanup deleted finds no row and times out, as if
+the message were never sent. Nothing checks that the retention outlasts `OUTBOX_RESULT_TIMEOUT`.
 
 ## The store in code
 

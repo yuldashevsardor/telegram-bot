@@ -136,6 +136,11 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   [`outbox.md`](./outbox.md), "The chat lock". `pull()` is the exception with a check of its own
   (same file, "Pull"). The spec lines up only `push()` and `markAsDone()`: a new path that changes a
   chat state outside `complete()` is checked by nothing.
+- **A statement that makes sure a chat row exists also locks it**, as the `ON CONFLICT DO UPDATE`
+  of `OutboxStore.push()` does. The cleanup deletes an `idle` chat at any moment, so a row found
+  by one statement and locked by the next may be gone in between, and messages inserted without
+  their chat row are never pulled ([`outbox.md`](./outbox.md), "The chat lock"). The spec lines up
+  only `push()` against the removal.
 - **The lease of a pulled chat must outlast the send of its message, unless the lease is
   extended.** Every chat of a pull is leased from the pull, so a caller that sends the messages of
   one pull one call after another needs the lease to cover them all, not the longest single call.

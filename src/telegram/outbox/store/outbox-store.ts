@@ -10,6 +10,7 @@ import { MS_PER_SECOND } from "app/shared/time";
 import type {
     OutboxAttempt,
     OutboxAttemptError,
+    OutboxCleanupSettings,
     OutboxFinalOutcome,
     OutboxJson,
     OutboxLease,
@@ -51,6 +52,7 @@ export class OutboxStore {
         @inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger,
         private readonly limits: TelegramLimits = configValue("limits"),
         private readonly leaseDurationMs: number = configValue("outbox.leaseDurationMs"),
+        private readonly cleanup: OutboxCleanupSettings = configValue("outbox.cleanup"),
     ) {
         this.sql = database.sql;
     }
@@ -69,22 +71,18 @@ export class OutboxStore {
         const chatIds = [...new Set(messages.map((message) => message.chatId))];
 
         return this.sql.begin(async (sql) => {
-            // Both statements go in chat_id order, so two batches wait for the chats they share in
-            // the same order.
+            // Inserts the chat row or locks the one there, in one statement: with DO NOTHING and a
+            // separate lock, deleteIdleChats() could remove an idle chat between the two, and the
+            // messages would go in without their chat row, never to be pulled. The update changes
+            // nothing, it is there for its lock. The rows go in chat_id order, so two batches wait
+            // for the chats they share in the same order.
             await sql`
                 INSERT INTO telegram_outbox_chats (chat_id, state)
                 SELECT chat_id, ${OutboxChatState.Idle}
                 FROM unnest(${sql.array(chatIds, BIGINT)}::bigint[]) AS input(chat_id)
                 ORDER BY chat_id
-                ON CONFLICT (chat_id) DO NOTHING
-            `;
-
-            await sql`
-                SELECT chat_id
-                FROM telegram_outbox_chats
-                WHERE chat_id = ANY(${sql.array(chatIds, BIGINT)}::bigint[])
-                ORDER BY chat_id
-                FOR UPDATE
+                ON CONFLICT (chat_id) DO UPDATE
+                SET state = telegram_outbox_chats.state
             `;
 
             const rows = await sql<{ id: string }[]>`
@@ -362,11 +360,60 @@ export class OutboxStore {
         });
     }
 
+    // One batch of the done and skipped messages whose retention has passed since their end; the
+    // number deleted. A caller that gets a full batch calls again. A failed message is never deleted:
+    // it waits for a person. A message without finished_at is never deleted either.
+    public async deleteFinishedMessages(): Promise<number> {
+        // finished_at plus the retention, not now() minus it: a long retention would take now()
+        // below the earliest timestamp PostgreSQL has, 4713 BC, while the sum stays below its
+        // latest for any retention the config takes.
+        const deletedRows = await this.sql`
+            DELETE FROM telegram_outbox
+            WHERE id IN (
+                SELECT id
+                FROM telegram_outbox
+                WHERE (status = ${OutboxStatus.Done}
+                       AND finished_at + ${this.cleanup.doneRetentionMs}::double precision * interval '1 millisecond' < now())
+                   OR (status = ${OutboxStatus.Skipped}
+                       AND finished_at + ${this.cleanup.skippedRetentionMs}::double precision * interval '1 millisecond' < now())
+                LIMIT ${this.cleanup.batchSize}
+            )
+            RETURNING id
+        `;
+
+        return deletedRows.length;
+    }
+
+    // One batch of the idle chats whose chat limit has passed; the number deleted. A caller that gets
+    // a full batch calls again. A push recreates the row of its chat, idle, with next_attempt_at of
+    // now(): a chat whose limit has not passed keeps its row, so an idle spell does not shorten the
+    // limit. The lock rechecks the state on the newest version of the row, so a chat that a push or a
+    // completion has changed meanwhile is left alone; the order of chat_id is that of push().
+    public async deleteIdleChats(): Promise<number> {
+        const deletedRows = await this.sql`
+            DELETE FROM telegram_outbox_chats
+            WHERE chat_id IN (
+                SELECT chat_id
+                FROM telegram_outbox_chats
+                WHERE state = ${OutboxChatState.Idle}
+                  AND next_attempt_at <= now()
+                ORDER BY chat_id
+                LIMIT ${this.cleanup.batchSize}
+                FOR UPDATE
+            )
+            RETURNING chat_id
+        `;
+
+        return deletedRows.length;
+    }
+
     // Every completion: the lock of the chat, then the fence, then the writes (docs/architecture/outbox.md,
     // "The chat lock"). A missing message throws OutboxMessageNotLeased. A lock token that is not
     // the chat's changes nothing and is logged with the error the completion carried: the lease has
-    // passed to another pull, or the chat was released by an earlier completion. Returns the chat of
-    // an applied completion, null for a fenced one.
+    // passed to another pull, or the chat was released by an earlier completion. A chat row that is
+    // missing while its message is there is fenced the same way: deleteIdleChats() removed the chat
+    // once it went idle, so no lease is left. Returns the chat of an applied completion, null for a
+    // fenced one.
     private async complete(
         lease: OutboxLease,
         attemptError: OutboxAttemptError | null,
@@ -381,11 +428,11 @@ export class OutboxStore {
                 FOR UPDATE
             `;
 
-            if (chat === undefined) {
+            if (chat === undefined && !(await this.hasMessage(sql, lease.id))) {
                 throw OutboxMessageNotLeased.byId(lease.id);
             }
 
-            if (chat.lock_token !== lease.lockToken) {
+            if (chat === undefined || chat.lock_token !== lease.lockToken) {
                 this.logger.warning("Outbox completion with a stale lock token changed nothing.", {
                     messageId: lease.id,
                     lockToken: lease.lockToken,
@@ -399,6 +446,12 @@ export class OutboxStore {
 
             return chat.chat_id;
         });
+    }
+
+    private async hasMessage(sql: TransactionSql, messageId: number): Promise<boolean> {
+        const [message] = await sql`SELECT id FROM telegram_outbox WHERE id = ${messageId}`;
+
+        return message !== undefined;
     }
 
     // The final outcome of a message, with the end of its attempt. finished_at is for the cleanup.

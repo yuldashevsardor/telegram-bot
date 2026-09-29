@@ -65,6 +65,11 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
                 },
                 leaseDurationMs: parser.getTimerDelay("OUTBOX_LEASE_DURATION", 10 * 60 * 1000),
                 maxAttempts: parser.getInteger("OUTBOX_MAX_ATTEMPTS", 10, { min: 1 }),
+                cleanup: {
+                    doneRetentionMs: parser.getInteger("OUTBOX_DONE_RETENTION", 7 * 24 * 60 * 60 * 1000, { min: 1 }),
+                    skippedRetentionMs: parser.getInteger("OUTBOX_SKIPPED_RETENTION", 30 * 24 * 60 * 60 * 1000, { min: 1 }),
+                    batchSize: parser.getInteger("OUTBOX_CLEANUP_BATCH_SIZE", 1000, { min: 1 }),
+                },
             },
 
             bot: {
