@@ -80,15 +80,19 @@ describe("Convertors of the engine pairs", function () {
     // fixture. If the engine failed on one, the domain would accept a source and then fail in the
     // engine.
     const svgNamespaceDeclaration = 'xmlns="http://www.w3.org/2000/svg"';
+    const svgDoctype = /<!DOCTYPE[^>]*>\s*/;
     const svgSources: Array<{ name: string; fromFixture: (fixtureText: string) => Uint8Array }> = [
         { name: "in UTF-16LE with a BOM", fromFixture: (fixtureText) => Buffer.from("\uFEFF" + fixtureText, "utf16le") },
         { name: "in UTF-16BE with a BOM", fromFixture: (fixtureText) => Buffer.from("\uFEFF" + fixtureText, "utf16le").swap16() },
         {
-            name: "with the SVG namespace under a prefix",
+            name: "with the SVG namespace under a prefix and no DOCTYPE",
             fromFixture: (fixtureText): Uint8Array => {
                 expect(fixtureText, "the svg fixture does not declare the default namespace").to.include(svgNamespaceDeclaration);
-                // Every start and end tag gets the prefix; `<?` and `<!` do not open a tag.
+                expect(fixtureText, "the svg fixture has no DOCTYPE").to.match(svgDoctype);
+                // Every start and end tag gets the prefix; `<?` and `<!` do not open a tag. Without
+                // the DOCTYPE only the declaration binds the prefix.
                 const prefixedText = fixtureText
+                    .replace(svgDoctype, "")
                     .replace(/<(\/?)(?=[A-Za-z])/g, "<$1s:")
                     .replace(svgNamespaceDeclaration, 'xmlns:s="http://www.w3.org/2000/svg"');
 
@@ -108,17 +112,23 @@ describe("Convertors of the engine pairs", function () {
         },
     ];
 
+    const sourceModifiedAt = new Date("2020-01-01T00:00:00Z");
+
     for (const svgSource of svgSources) {
         it(`converts svg ${svgSource.name} into the font the fixture converts into`, async function () {
-            const fixturePath = path.join(fixtureDir, `test-font.${Extension.SVG}`);
+            const fixtureText = await fs.readFile(path.join(fixtureDir, `test-font.${Extension.SVG}`), "utf8");
+            const fixturePath = path.join(workDir, `fixture.${Extension.SVG}`);
             const fromPath = path.join(workDir, `source.${Extension.SVG}`);
             const toPath = path.join(workDir, `result.${Extension.TTF}`);
             const fixtureResultPath = path.join(workDir, `fixture-result.${Extension.TTF}`);
-            await fs.writeFile(fromPath, svgSource.fromFixture(await fs.readFile(fixturePath, "utf8")));
-            // The engine stamps the result with the modification time of the source. With the
-            // fixture's time the result has to repeat the fixture's byte for byte.
-            const fixtureStat = await fs.stat(fixturePath);
-            await fs.utimes(fromPath, fixtureStat.atime, fixtureStat.mtime);
+            await fs.writeFile(fixturePath, fixtureText);
+            await fs.writeFile(fromPath, svgSource.fromFixture(fixtureText));
+            // The engine stamps the result with the modification time of the source, in whole
+            // seconds. With one time on both sources the result has to repeat the fixture's byte
+            // for byte. The time is set, not copied from the checkout: a Date copied from a stat
+            // rounds to the millisecond and can move into the next second.
+            await fs.utimes(fixturePath, sourceModifiedAt, sourceModifiedAt);
+            await fs.utimes(fromPath, sourceModifiedAt, sourceModifiedAt);
 
             await factory.get(Extension.SVG, Extension.TTF).convert(fromPath, toPath);
 
