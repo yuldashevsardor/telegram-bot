@@ -238,7 +238,7 @@ describe("ConfigValuesBuilder", () => {
         const error = rejection({ OUTBOX_RETRY_FIRST_DELAY: "5000", OUTBOX_RETRY_MAX_DELAY: "4999" });
 
         expect(error.message).to.equal("OUTBOX_RETRY_MAX_DELAY must not be less than OUTBOX_RETRY_FIRST_DELAY");
-        expect(error.payload).to.deep.equal({ firstDelay: 5000, maxDelay: 4999 });
+        expect(error.payload).to.deep.equal({ firstDelayMs: 5000, maxDelayMs: 4999 });
     });
 
     it("accepts an outbox retry delay cap equal to the first step and a multiplier of 1", () => {

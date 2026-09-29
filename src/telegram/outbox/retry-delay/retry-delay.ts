@@ -1,14 +1,6 @@
 import { injectable } from "inversify";
 import { configValue } from "app/shared/config-value";
-
-export type RetryDelaySettings = {
-    // The step after the first counted attempt.
-    firstDelayMs: number;
-    // The cap of the step: the growth stops here.
-    maxDelayMs: number;
-    // How many times each further counted attempt multiplies the step.
-    multiplier: number;
-};
+import type { RetryDelaySettings } from "app/telegram/outbox/retry-delay/retry-delay.types";
 
 // How long a message waits before its retry after a transient failure.
 @injectable()
@@ -23,7 +15,8 @@ export class RetryDelay {
     // attempt, capped by maxDelayMs. The delay is a random point of the upper half of the step, the
     // capped steps included: the chats that failed together, as in a Telegram outage, spread their
     // retries out instead of coming back at the same moment, and a retry never comes sooner than
-    // half the step. random returns a number in [0, 1), as Math.random does.
+    // half the step. random returns a number in [0, 1), as Math.random does, so the delay is a
+    // fraction of a millisecond as a rule: the caller rounds it if it needs whole milliseconds.
     public computeMs(countedAttempts: number): number {
         const exponentialStepMs = this.settings.firstDelayMs * this.settings.multiplier ** (countedAttempts - 1);
         const stepMs = Math.min(exponentialStepMs, this.settings.maxDelayMs);

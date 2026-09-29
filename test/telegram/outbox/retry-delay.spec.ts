@@ -1,6 +1,6 @@
 import { expect } from "chai";
-import { RetryDelay } from "app/telegram/outbox/retry-delay";
-import type { RetryDelaySettings } from "app/telegram/outbox/retry-delay";
+import { RetryDelay } from "app/telegram/outbox/retry-delay/retry-delay";
+import type { RetryDelaySettings } from "app/telegram/outbox/retry-delay/retry-delay.types";
 
 const SETTINGS: RetryDelaySettings = { firstDelayMs: 1000, maxDelayMs: 30_000, multiplier: 2 };
 

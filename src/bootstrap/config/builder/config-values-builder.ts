@@ -4,7 +4,7 @@ import { InvalidConfigError } from "app/shared/errors";
 import { ConfigParser } from "app/bootstrap/config/parser/config-parser";
 import type { IntegerRange } from "app/bootstrap/config/parser/config-parser";
 import type { RunnerSettings } from "app/telegram/outbound-queue/runner/runner.types";
-import type { RetryDelaySettings } from "app/telegram/outbox/retry-delay";
+import type { RetryDelaySettings } from "app/telegram/outbox/retry-delay/retry-delay.types";
 import type { DatabaseSettings } from "app/platform/database/database.types";
 import type { RawConfig } from "app/bootstrap/config/container/config-container.types";
 import type { ConfigBuilder } from "app/bootstrap/config/builder/config-builder";
@@ -117,8 +117,8 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
 
         if (maxDelayMs < firstDelayMs) {
             throw new InvalidConfigError("OUTBOX_RETRY_MAX_DELAY must not be less than OUTBOX_RETRY_FIRST_DELAY", {
-                firstDelay: firstDelayMs,
-                maxDelay: maxDelayMs,
+                firstDelayMs: firstDelayMs,
+                maxDelayMs: maxDelayMs,
             });
         }
 
