@@ -10,9 +10,11 @@ const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
 // The spec checks a record against the table it points to rather than against a second parse of
 // the directory: head is 54 bytes long by the standard and carries a fixed magic number at 12.
-const HEAD_LENGTH = 54;
+const HEAD_LENGTH_BYTES = 54;
 const HEAD_MAGIC_NUMBER_OFFSET = 12;
 const HEAD_MAGIC_NUMBER = 0x5f0f3cf5;
+const VERSION_OFFSET = 0;
+const TABLE_COUNT_OFFSET = 4;
 const COLLECTION_VERSION = 0x74746366;
 const ENVELOPE_PREFIX_BYTES = 8;
 
@@ -53,7 +55,7 @@ describe("SfntTableDirectory", function () {
 
     for (const version of SFNT_VERSIONS) {
         it(`accepts the sfnt version 0x${version.toString(16).padStart(8, "0")}`, function () {
-            const directory = new SfntTableDirectory(patch(ttf, (view) => view.setUint32(0, version)));
+            const directory = new SfntTableDirectory(patch(ttf, (view) => view.setUint32(VERSION_OFFSET, version)));
 
             expect(directory.find("head")).to.not.equal(undefined);
         });
@@ -62,8 +64,8 @@ describe("SfntTableDirectory", function () {
     it("reads no more table records than the directory declares", function () {
         // post is the last record of the fixture. With the count one less, its sixteen bytes are
         // no longer a record, while the records before it still are.
-        const fixtureTableCount = new DataView(ttf.buffer, ttf.byteOffset, ttf.byteLength).getUint16(4);
-        const directory = new SfntTableDirectory(patch(ttf, (view) => view.setUint16(4, fixtureTableCount - 1)));
+        const fixtureTableCount = new DataView(ttf.buffer, ttf.byteOffset, ttf.byteLength).getUint16(TABLE_COUNT_OFFSET);
+        const directory = new SfntTableDirectory(patch(ttf, (view) => view.setUint16(TABLE_COUNT_OFFSET, fixtureTableCount - 1)));
 
         expect(directory.find("post"), "the record past the count").to.equal(undefined);
         expect(directory.find("name"), "the last record within the count").to.not.equal(undefined);
@@ -82,11 +84,11 @@ describe("SfntTableDirectory", function () {
     });
 
     it("rejects a font collection", function () {
-        expectThrows(() => new SfntTableDirectory(patch(ttf, (view) => view.setUint32(0, COLLECTION_VERSION))));
+        expectThrows(() => new SfntTableDirectory(patch(ttf, (view) => view.setUint32(VERSION_OFFSET, COLLECTION_VERSION))));
     });
 
     it("rejects a table directory that does not fit into the file", function () {
-        expectThrows(() => new SfntTableDirectory(patch(ttf, (view) => view.setUint16(4, 0xffff))));
+        expectThrows(() => new SfntTableDirectory(patch(ttf, (view) => view.setUint16(TABLE_COUNT_OFFSET, 0xffff))));
     });
 
     function expectHeadRecord(bytes: Uint8Array): void {
@@ -98,7 +100,7 @@ describe("SfntTableDirectory", function () {
 
         const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 
-        expect(head.length).to.equal(HEAD_LENGTH);
+        expect(head.length).to.equal(HEAD_LENGTH_BYTES);
         expect(view.getUint32(head.offset + HEAD_MAGIC_NUMBER_OFFSET)).to.equal(HEAD_MAGIC_NUMBER);
     }
 
