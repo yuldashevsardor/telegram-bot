@@ -38,7 +38,7 @@ const ORIG_LENGTH = 12;
 const ORIG_CHECKSUM = 16;
 
 // The fixture: flavor OTTO, 11 tables, 67 316 bytes, no metadata and no private block.
-const FIXTURE_SIZE = 67316;
+const FIXTURE_SIZE_BYTES = 67316;
 
 /**
  * A table as a WOFF stores it: compressed when `stored` is shorter than `origLength`.
@@ -166,7 +166,7 @@ describe("WoffFontValidator.validate", function () {
             await expectAnswer(woff2, NotWoff, 'File is not WOFF: its signature is 0x774f4632, expected 0x774f4646 ("wOFF").');
         });
 
-        it("reads a file of the header alone as WOFF", async function () {
+        it("goes on to the header fields in a file of the header alone", async function () {
             await expectBroken(
                 fixture.subarray(0, HEADER_SIZE_BYTES),
                 WoffRule.Length,
@@ -194,12 +194,12 @@ describe("WoffFontValidator.validate", function () {
         it("whose length is not the file size", async function () {
             // W3C header-length-001/002.
             await expectBroken(
-                withUint32(fixture, LENGTH, FIXTURE_SIZE - 4),
+                withUint32(fixture, LENGTH, FIXTURE_SIZE_BYTES - 4),
                 WoffRule.Length,
                 "At the header: length is 67312, expected 67316, the file size.",
             );
             await expectBroken(
-                withUint32(fixture, LENGTH, FIXTURE_SIZE + 4),
+                withUint32(fixture, LENGTH, FIXTURE_SIZE_BYTES + 4),
                 WoffRule.Length,
                 "At the header: length is 67320, expected 67316, the file size.",
             );
@@ -229,7 +229,7 @@ describe("WoffFontValidator.validate", function () {
             );
         });
 
-        it("reads a file that holds the whole directory on to the tables", async function () {
+        it("goes on to the tables in a file that holds the whole directory", async function () {
             const truncated = withUint32(fixture.subarray(0, 264), LENGTH, 264);
 
             await expectBroken(truncated, WoffRule.BlockInFile, 'At table "CFF ": end is 64425, expected at most 264, the file size.');
@@ -279,7 +279,7 @@ describe("WoffFontValidator.validate", function () {
                 "At the header: metaLength is 1, expected 0, as metaOffset is 0.",
             );
             await expectBroken(
-                withUint32(fixture, META_OFFSET, FIXTURE_SIZE),
+                withUint32(fixture, META_OFFSET, FIXTURE_SIZE_BYTES),
                 WoffRule.BlockAbsence,
                 "At the header: metaOffset is 67316, expected 0, as metaLength is 0.",
             );
@@ -298,7 +298,7 @@ describe("WoffFontValidator.validate", function () {
                 "At the header: privLength is 1, expected 0, as privOffset is 0.",
             );
             await expectBroken(
-                withUint32(fixture, PRIV_OFFSET, FIXTURE_SIZE),
+                withUint32(fixture, PRIV_OFFSET, FIXTURE_SIZE_BYTES),
                 WoffRule.BlockAbsence,
                 "At the header: privOffset is 67316, expected 0, as privLength is 0.",
             );
@@ -336,7 +336,7 @@ describe("WoffFontValidator.validate", function () {
             const hmtx = entryOf(fixture, "hmtx");
 
             await expectBroken(
-                withUint32(fixture, hmtx + OFFSET, FIXTURE_SIZE + 4),
+                withUint32(fixture, hmtx + OFFSET, FIXTURE_SIZE_BYTES + 4),
                 WoffRule.BlockInFile,
                 'At table "hmtx": end is 70145, expected at most 67316, the file size.',
             );
@@ -405,12 +405,12 @@ describe("WoffFontValidator.validate", function () {
             const withBoth = build({ ...fixtureLayout, metadata: metadata(), privateData: Uint8Array.from([1, 2, 3, 4, 5]) });
 
             await expectBroken(
-                withUint32(withMetadata, META_OFFSET, FIXTURE_SIZE - 4),
+                withUint32(withMetadata, META_OFFSET, FIXTURE_SIZE_BYTES - 4),
                 WoffRule.NoOverlap,
                 'At the metadata block: offset is 67312, expected at least 67313, the end of table "hmtx".',
             );
             await expectBroken(
-                withUint32(withPrivate, PRIV_OFFSET, FIXTURE_SIZE - 4),
+                withUint32(withPrivate, PRIV_OFFSET, FIXTURE_SIZE_BYTES - 4),
                 WoffRule.NoOverlap,
                 'At the private block: offset is 67312, expected at least 67313, the end of table "hmtx".',
             );
@@ -440,17 +440,17 @@ describe("WoffFontValidator.validate", function () {
                 'At table "hhea": offset is 320, expected 316, the end of table "head" padded to 4 bytes.',
             );
             await expectBroken(
-                splice(fixture, FIXTURE_SIZE, 0, zeros),
+                splice(fixture, FIXTURE_SIZE_BYTES, 0, zeros),
                 WoffRule.NoExtraneousData,
                 'At the file: size is 67320, expected 67316, the end of table "hmtx" padded to 4 bytes.',
             );
             await expectBroken(
-                splice(withMetadata, FIXTURE_SIZE, 0, zeros),
+                splice(withMetadata, FIXTURE_SIZE_BYTES, 0, zeros),
                 WoffRule.NoExtraneousData,
                 'At the metadata block: offset is 67320, expected 67316, the end of table "hmtx" padded to 4 bytes.',
             );
             await expectBroken(
-                splice(withPrivate, FIXTURE_SIZE, 0, zeros),
+                splice(withPrivate, FIXTURE_SIZE_BYTES, 0, zeros),
                 WoffRule.NoExtraneousData,
                 'At the private block: offset is 67320, expected 67316, the end of table "hmtx" padded to 4 bytes.',
             );
