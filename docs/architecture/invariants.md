@@ -111,11 +111,18 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   directory. The start then fails with `ConfigFileUnreadable`, and the directory has to be removed
   with sudo. The file is created by `DC_APP` in the `Makefile` and by `scripts/worktree-init.sh`.
   Running `docker compose` by hand, past `make`, has no such safeguard.
+- **`LIMIT_*_NUMBER > 0`** (the config checks it). The in-memory queue and the outbox pull both
+  space the messages by `interval / number`, and a zero gives an infinite cooldown:
+  - in the queue `reserveDuration = Infinity`: the slot is taken forever and the partition is
+    never removed ([`outbound-queue.md`](./outbound-queue.md));
+  - in the outbox, for a private or group limit, `next_attempt_at` of a pulled chat becomes
+    `infinity`, which PostgreSQL accepts, and the chat is never pulled again;
+  - in the outbox, for the common limit, the budget is zero: nothing is pulled, `next_send_at`
+    stays in the past, and `nextPullInMs` is 0 while a chat is ready, so a worker pulls again
+    without a pause ([`outbox.md`](./outbox.md), "Limits").
 
 ## The outbound queue
 
-- **`LIMIT_*_NUMBER > 0`** (the config checks it). Zero → `reserveDuration = Infinity` → the slot
-  is taken forever and the partition is never removed ([`outbound-queue.md`](./outbound-queue.md)).
 - **`Runner.run()`/`stop()` are synchronous.** `stop()` only lowers a flag and does not wait for a
   task the loop has already taken: `handleTasks()` does not await its call to Telegram.
 
@@ -127,6 +134,12 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   [`outbox.md`](./outbox.md), "The chat lock". `pull()` is the exception with a check of its own
   (same file, "Pull"). The spec lines up only these two methods: a new path that changes a chat
   state is checked by nothing.
+- **The outbox goes by the database clock only.** `next_attempt_at`, `next_send_at` and
+  `paused_until` are written and compared with `now()` of PostgreSQL: `pause()` takes a duration,
+  and `pull()` answers with a duration, not a moment ([`outbox.md`](./outbox.md), "Limits"). A
+  moment taken from the clock of a node compares with `now()` through the skew of the two clocks:
+  a pause written by a node whose clock is behind ends early for every node, and the next call gets
+  a 429 again. Nothing checks this; a `Date` passed into the outbox SQL compiles.
 - **`status` and `state` of the outbox tables are written only through `OutboxStatus` and
   `OutboxChatState`.** The database has no check on them: a mistyped value is stored, and the row
   or the chat silently drops out of every query.

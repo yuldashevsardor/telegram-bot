@@ -5,17 +5,18 @@ The outbox is being built to replace the in-memory outbound queue
 any node sends them, the order inside a chat holds across nodes, and a node that dies loses
 nothing (the plan is epic [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)).
 Nothing calls the directory yet: so far it holds the tables with `OutboxStore`
-(`store/outbox-store.ts`), which pushes, pulls and marks done, the payload codec and the retry
-delay. The error classes of a failed call, which the outbox will act on, lie outside it, in
-`telegram/bot-api-failure-classifier/`.
+(`store/outbox-store.ts`), which pushes, pulls within the limits, pauses and marks done, the payload
+codec and the retry delay. The error classes of a failed call, which the outbox will act on, lie
+outside it, in `telegram/bot-api-failure-classifier/`.
 
 ## Tables
 
 One migration, `1790546834232_telegram-outbox-tables.ts`, creates the three tables with every
 column the outbox needs, including those only later stages use (`attempts`, the lease of a pulled
-chat in `locked_until` and `lock_token`, `telegram_bot_limits`). The columns and what they mean
-are in its `createTable` calls and `comment`s. There are no indexes besides the primary keys yet:
-they will be picked once the queries of every stage are settled.
+chat in `locked_until` and `lock_token`). The columns and what they mean
+are in its `createTable` calls and `comment`s; the comment of `next_attempt_at` is replaced by
+`1790666223510_telegram-outbox-chat-limit-comment.ts`. There are no indexes besides the primary
+keys yet: they will be picked once the queries of every stage are settled.
 
 The database does not check the values of `status` and `state`: the store writes them only
 through the `OutboxStatus` and `OutboxChatState` enums (`store/outbox-store.types.ts`). Of these,
@@ -69,27 +70,72 @@ lock.
 
 `pull(limit)` is one statement, atomic without a transaction:
 
-1. up to `limit` `ready` chats with the head of each (`CROSS JOIN LATERAL`), by the priority of
-   the head, then by `next_attempt_at`, then by `chat_id`, `FOR UPDATE OF chats SKIP LOCKED`: a
-   chat another puller holds is skipped, not waited for;
-2. the head goes to `processing`, but only if it is still `pending`;
-3. the chats whose head was pulled go to `processing`, and `next_attempt_at` moves to `now()`.
+1. the bot row, `FOR UPDATE SKIP LOCKED`, if the pause is over, `next_send_at` has passed and a
+   chat is ready to be pulled; it gives the budget of the pull (see "Limits"). No row — a pause, a
+   spent common limit, nothing to pull or another puller holding the row — means a budget of zero.
+   A pull with nothing to take does not lock the row, so it does not hold back a pull that has;
+2. up to the budget of `ready` chats whose `next_attempt_at` has passed, with the head of each
+   (`CROSS JOIN LATERAL`), by the priority of the head, then by `next_attempt_at`, then by
+   `chat_id`, `FOR UPDATE OF chats SKIP LOCKED`: a chat another puller holds is skipped, not
+   waited for;
+3. the head goes to `processing`, but only if it is still `pending`;
+4. the chats whose head was pulled go to `processing`, and `next_attempt_at` moves to `now()`
+   plus the chat limit;
+5. `next_send_at` of the bot moves by the messages pulled;
+6. the answer: the pulled messages, by priority, then by `id`, so a caller that sends them in
+   order sends the urgent first; and `nextPullInMs`, when the next pull can give out a message.
 
-The pulled messages come back by priority, then by `id`, so a caller that sends them in order
-sends the urgent first.
+Step 4 is what serves the chats of one priority in turn: a chat just served goes behind the chats
+that waited. The chats of one kind — private or group — in one pull get the same
+`next_attempt_at`, so `chat_id` decides their next turn. Only one head per chat is taken, and a
+`processing` chat is not `ready`, so a chat never has two messages in `processing`.
 
-Step 3 is what serves the chats of one priority in turn: a chat just served goes behind the chats
-that waited. The chats of one pull get the same `next_attempt_at`, the time of the statement, so
-`chat_id` decides their next turn. Only one head per chat is taken, and a `processing` chat is not
-`ready`, so a chat never has two messages in `processing`.
-
-Step 1 reads the head from the snapshot of the statement, taken before the lock. A chat completed
+Step 2 reads the head from the snapshot of the statement, taken before the lock. A chat completed
 and made `ready` again after the snapshot still passes the lock (the lock rereads the newest row
-version), while the head read with it is the old one, already `done` by then. The check of step 2
+version), while the head read with it is the old one, already `done` by then. The check of step 3
 turns that head away: the chat is left `ready` for the next pull instead of sending the head twice.
 
-The pull does not look at the limits or the pause yet: `next_attempt_at` only orders the chats.
-The chat limit and the retry delay will rework it.
+The lock of step 1 makes the pulls of all the nodes take turns: two pulls that read the same
+`next_send_at` would both spend it. The pull that finds the row locked gets no messages and a
+`nextPullInMs` from the row as it was before the other pull, often zero: a caller that pulls again
+at once spins until the other pull commits.
+
+## Limits
+
+The limits are `limits.*` of the configuration (`TelegramLimits`), the same values the in-memory
+queue takes ([`outbound-queue.md`](./outbound-queue.md)). A limit of `number` messages per
+`interval` ms spaces the messages by its cooldown, `interval / number`.
+
+- **The chat limit.** A pull moves `next_attempt_at` of a chat to `now()` plus the cooldown of the
+  group limit for a negative `chat_id` and of the private one otherwise (the rule of
+  `isGroupChat()`, written in the SQL). A chat is not pulled before that. A chat that goes `idle`
+  and gets a new message keeps the time, so an idle spell does not shorten it. The cooldown counts
+  from the pull, not from the send: a head that waits after the pull spends the cooldown of its
+  chat, so the caller sends right after the pull.
+- **The common limit.** The slots of the bot come due one per cooldown from `next_send_at`, up to
+  `number` of them for a bot that has sent nothing for a while. The budget of a pull is the slots
+  due now, capped by `limit`. The pull moves `next_send_at` to `now()` plus one cooldown per
+  message it pulled: the slots it did not use are dropped, and a batch of the whole `number` holds
+  the next one back for the whole `interval`. So no window of `interval` gets more than `number`
+  messages, as with the in-memory queue. Counted from the slots saved up instead, a burst of
+  `number` would be followed by a slot every cooldown: nearly twice the limit in one interval.
+- **The pause.** `pause(durationMs)` sets `paused_until` to `now()` plus the duration, never
+  earlier than it is (`greatest`): a 429 that asks for less than the pause left changes nothing.
+  The pause stops the pull on every node, since every pull reads the same row. It moves
+  `next_send_at` to its end as well, so the slots come due from there one by one: the first pull
+  after a 429 gets one message, not a burst of `number`. A duration that is negative, `NaN` or
+  above `Number.MAX_SAFE_INTEGER` throws `InvalidPauseDuration`: an infinite pause would never end,
+  and `greatest` would keep it, while `1e17` ms overflows the interval PostgreSQL adds to `now()`.
+
+`nextPullInMs` is the later of the nearest `next_attempt_at` among the `ready` chats not pulled by
+this pull and the bot's own time — `next_send_at` after the pull, or `paused_until` if later —
+counted from `now()` and never below zero. It is `null` when no chat is `ready`: there is no time
+to wait for, only a push or a completion brings a message then. A ready chat left out by `limit`
+or skipped as locked no longer holds the answer back: the bot's time decides it, the cooldowns the
+pull has just spent, or zero if it pulled nothing.
+
+The times are the database's (`now()`), and so is the answer: a duration counted from the pull,
+not a moment. The rule is in [`invariants.md`](./invariants.md), "The outbox".
 
 ## Mark as done
 

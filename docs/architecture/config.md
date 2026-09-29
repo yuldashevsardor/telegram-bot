@@ -55,9 +55,9 @@ imports the settings types of every side (the list is the imports of the file), 
 belongs to the composition root. Config keeps no copies of those types on purpose. The shape of
 the settings is declared where it is consumed. A copy would have to be fixed twice, and neither
 the compiler nor the tests would catch a drift in an optional field. The one exception is
-`TelegramLimits`: it is declared in `config-values.ts`, and its consumer
-`telegram/telegram-limit-resolver.ts` imports it from the composition root, so the arrow points
-backwards.
+`TelegramLimits`: it is declared in `config-values.ts`, and its consumers in `telegram/`
+(`git grep -l TelegramLimits src/telegram`) import it from the composition root, so the arrow
+points backwards.
 
 The files of `storage/` import from outside their directory only `dotenv`, `fs` with
 `fs/promises`, the `RawConfig` type and `RuntimeError` for their own error. They are the mechanics

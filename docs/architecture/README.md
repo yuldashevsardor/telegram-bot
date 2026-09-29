@@ -20,8 +20,8 @@ The runtime sequences live in the files of their subsystems:
 - [`outbound-queue.md`](./outbound-queue.md) — limits, partitions, the `Runner` loop, the path
   of an outgoing call
 - [`outbox.md`](./outbox.md) — the outbox in PostgreSQL being built to replace the outbound
-  queue: the tables, the chat states, push, pull, the chat lock, the failure classes, the retry
-  delay and the payload codec
+  queue: the tables, the chat states, push, pull, the limits and the pause, the chat lock, the
+  failure classes, the retry delay and the payload codec
 - [`font-convertor.md`](./font-convertor.md) — format pairs, the EOT codec, signatures, the SVG
   validator, running the engine
 - [`user.md`](./user.md) — the entity, the repository, filling the context
@@ -146,7 +146,7 @@ src/
       parser/               ConfigParser: strict parsing of the strings of a source snapshot (config.md)
       storage/              ConfigStorage and WatchableConfigStorage, the watchability guard (config-storage.helper.ts), sources: env and file (config.md)
   shared/                   RuntimeError, cross-cutting types, the DI token dictionary, configValue (application.md);
-                            NumberHelper, utils (sleep, withTimeout)
+                            NumberHelper, utils (sleep, withTimeout), time units (time.ts)
     fs/                     FileHelper
     process/                ProcessHelper — running external processes (invariants.md)
     string/                 StringHelper
