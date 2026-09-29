@@ -7,7 +7,8 @@ const TABLE_RECORD_SIZE = 16;
 
 /**
  * The table directory of an sfnt font: the header and the table records by tag. The EOT codec reads
- * its tables through it, so a font has one parse of the directory rather than a copy per reader.
+ * its tables through it, so the domain has one implementation of the parse rather than a copy per
+ * reader.
  */
 export class SfntTableDirectory {
     private readonly records = new Map<string, SfntTableRecord>();
@@ -28,18 +29,18 @@ export class SfntTableDirectory {
         const tableCount = view.getUint16(4);
 
         for (let index = 0; index < tableCount; index++) {
-            const record = SFNT_HEADER_SIZE + index * TABLE_RECORD_SIZE;
+            const recordOffset = SFNT_HEADER_SIZE + index * TABLE_RECORD_SIZE;
 
             // Stryker disable next-line EqualityOperator: `>=` is equivalent: it differs only on a file without a single table byte after the directory, which is not a font
-            if (record + TABLE_RECORD_SIZE > bytes.length) {
+            if (recordOffset + TABLE_RECORD_SIZE > bytes.length) {
                 throw InvalidSfnt.tooShort(bytes.length);
             }
 
-            const tag = String.fromCharCode(...bytes.subarray(record, record + 4));
+            const tag = String.fromCharCode(...bytes.subarray(recordOffset, recordOffset + 4));
 
             this.records.set(tag, {
-                offset: view.getUint32(record + 8),
-                length: view.getUint32(record + 12),
+                offset: view.getUint32(recordOffset + 8),
+                length: view.getUint32(recordOffset + 12),
             });
         }
     }
