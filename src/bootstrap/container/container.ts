@@ -38,6 +38,7 @@ import { TelegramCallApiMiddleware } from "app/telegram/middleware/mutation/tele
 import { StartConversation } from "app/telegram/conversation/start/start.conversation";
 import { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import { RetryDelay } from "app/telegram/outbox/retry-delay/retry-delay";
+import { OutboxResultWaiter } from "app/telegram/outbox/result-waiter/outbox-result-waiter";
 import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 
 export class Container extends InversifyContainer {
@@ -63,6 +64,8 @@ export class Container extends InversifyContainer {
             return;
         }
 
+        // Before the database: a pending wait would poll the closed pool until its timeout.
+        this.get<OutboxResultWaiter>(Tokens.Bot.Outbox.ResultWaiter).stop();
         await this.get<Database>(Tokens.Platform.Database).close();
 
         // Stryker disable next-line BooleanLiteral: `true` differs only on a repeated close(), where sql.end() hands back the same promise of completion, and on a setup() after close(), which does not work with either value: the container is single-use
@@ -97,6 +100,7 @@ export class Container extends InversifyContainer {
         // Outbox
         this.bind<OutboxStore>(Tokens.Bot.Outbox.Store).to(OutboxStore).inSingletonScope();
         this.bind<RetryDelay>(Tokens.Bot.Outbox.RetryDelay).to(RetryDelay).inSingletonScope();
+        this.bind<OutboxResultWaiter>(Tokens.Bot.Outbox.ResultWaiter).to(OutboxResultWaiter).inSingletonScope();
 
         // Bot API failures
         this.bind<TelegramBotApiFailureClassifier>(Tokens.Bot.ApiFailureClassifier).to(TelegramBotApiFailureClassifier).inSingletonScope();
