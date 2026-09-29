@@ -24,6 +24,8 @@ the current one without it:
 - The exclusions of the mutation run are subtracted. The Stryker config excludes those files
   itself, but an area made of them alone passes its check of the `files` globs and gives a run
   without a single mutant.
+- The bindings and the tokens (`FULL_RUN_ONLY`) are subtracted as well, and only the full run
+  mutates them. A path of that list missing from the tree stops the action.
 
 No list of the configs is copied here: the exclusions (the `!` entries of `mutate` in the
 evaluated stryker.config.mjs), the spec glob (`.mocharc.json` is JSONC and is read by mocha's own
@@ -84,6 +86,10 @@ COMMENTS_SCRIPT = os.path.join(
 # the comments-only `.ts` diff). Every line is tried: TypeScript reads `@ts-ignore` on the last line
 # of a block comment.
 DIRECTIVE = re.compile(r"\s*(?:///|[/*\s]*(?:@|(?:stryker|eslint|istanbul|prettier)\b))", re.I)
+# Left to the batch of the full run; why and at what price — docs/agents/review-gates.md, the
+# paragraph on FULL_RUN_ONLY. A missing path stops the action, as a missing DATABASE_ONLY_SOURCES
+# entry stops `make mutation`: a moved file would otherwise come back into the area silently.
+FULL_RUN_ONLY = ["src/bootstrap/container/container.ts", "src/shared/tokens.ts"]
 
 
 class Stop(Exception):
@@ -279,7 +285,9 @@ def assemble(
 
     for file in sorted(area & configs.excluded):
         notes.append("`{}` is left out: the Stryker config excludes it".format(file))
-    return sorted(area - configs.excluded)
+    for file in sorted(area & set(FULL_RUN_ONLY)):
+        notes.append("`{}` is left out: only the full run mutates it".format(file))
+    return sorted(area - configs.excluded - set(FULL_RUN_ONLY))
 
 
 def mutation_area(
@@ -303,6 +311,12 @@ def mutation_area(
         area = []
         if changed:
             tracked = tracked_files(tree, run)
+            for file in FULL_RUN_ONLY:
+                if file not in tracked:
+                    raise Stop(
+                        "{} from FULL_RUN_ONLY is not in the tree — write its new path into "
+                        "scripts/review/mutation_area.py".format(file)
+                    )
             configs = read_configs(changed, tree, dc_app_run, run)
             area = assemble(changed, tracked, configs, tree, run, notes)
     except Stop as stop:
