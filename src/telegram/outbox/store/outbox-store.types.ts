@@ -10,21 +10,6 @@ export enum OutboxStatus {
     Skipped = "skipped",
 }
 
-// The statuses that give the caller of a message its outcome and end its wait. A failed message
-// may still be retried by hand later, but its caller has had its answer.
-export const FINISHED_STATUSES = [OutboxStatus.Done, OutboxStatus.Failed, OutboxStatus.Skipped] as const;
-
-export type FinishedOutboxStatus = (typeof FINISHED_STATUSES)[number];
-
-// The PostgreSQL channels of the outbox. The payload of a Finished notification is the message id
-// alone: NOTIFY carries at most 8000 bytes, less than a Telegram response can take.
-export enum OutboxChannel {
-    // A push: an idle sender can pull.
-    Ready = "telegram_outbox_ready",
-    // A message reached a final status.
-    Finished = "telegram_outbox_finished",
-}
-
 // The values of telegram_outbox_chats.state, written only through this enum as well.
 export enum OutboxChatState {
     // No active message.
@@ -76,18 +61,4 @@ export type OutboxPullResultRow = {
     messages: PulledOutboxRow[];
     next_pull_in_ms: number | null;
     has_bot_limits: boolean;
-};
-
-// A message in a final status, as the caller waiting for it gets it.
-export type FinishedOutboxMessage = {
-    id: number;
-    status: FinishedOutboxStatus;
-    response: OutboxJson | null;
-};
-
-// A finished message as postgres returns it: a bigint comes as a string.
-export type FinishedOutboxRow = {
-    id: string;
-    status: FinishedOutboxStatus;
-    response: OutboxJson | null;
 };
