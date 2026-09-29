@@ -25,8 +25,8 @@ fontforge -c 'import fontforge, sys; font = fontforge.open(sys.argv[1]); font.ge
 A re-run will not give the bytes that lie here: fontforge writes its version and build date into
 the headers. So a replacement is checked by the signs of its format below, not by a hash, and by a
 `make test` run. `font-forge-convertor.spec.ts` converts every fixture except EOT with the real
-fontforge into every other format except EOT. So a replacement the engine cannot open fails the
-spec even with a correct signature.
+fontforge into every other format except EOT, and the EOT fixture into SVG. So a replacement the
+engine cannot open fails the spec even with a correct signature.
 
 `test-font.eot` cannot be made with this command. fontforge does not know the `.eot` extension
 and silently writes PostScript Type 1 instead of EOT. That is exactly how two fixtures of the
