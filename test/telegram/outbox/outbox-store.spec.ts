@@ -22,9 +22,12 @@ import {
     InvalidPullLimit,
     OutboxMessageNotLeased,
 } from "app/telegram/outbox/store/outbox-store.errors";
+import { OutboxChannel } from "app/telegram/outbox/store/outbox-store.types";
+import type { DatabaseSettings } from "app/platform/database/database.types";
 import { MS_PER_SECOND } from "app/shared/time";
 import { sleep } from "app/shared/utils";
 import { testDatabaseSettings } from "test/database.helper";
+import { listenTo, waitUntil } from "test/telegram/outbox/outbox-store.helper";
 
 const CHAT = 5_000_000_001;
 const OTHER_CHAT = -1_001_234_567_890;
@@ -88,9 +91,10 @@ describe("OutboxStore", function () {
     let observer: Database;
     let logger: RecordingLogger;
     let store: OutboxStore;
+    let settings: DatabaseSettings;
 
     before(async function () {
-        const settings = await testDatabaseSettings();
+        settings = await testDatabaseSettings();
 
         database = new Database(settings, false);
         other = new Database(settings, false);
@@ -931,6 +935,72 @@ describe("OutboxStore", function () {
 
             expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Ready });
             expect((await store.pull(10, WORKER)).messages.map(({ id }) => id)).to.deep.equal([pushed]);
+        });
+    });
+
+    describe("notifications", function () {
+        // A client of its own per test: closed at the end, it takes its LISTEN connection along, so
+        // the next test counts only its own.
+        let listener: Database;
+
+        beforeEach(function () {
+            listener = new Database(settings, false);
+        });
+
+        afterEach(async function () {
+            await listener.close();
+        });
+
+        it("notifies the ready channel when a push commits", async function () {
+            const payloads = await listenTo(listener, OutboxChannel.Ready);
+
+            await store.pushBatch([message(CHAT, "first"), message(OTHER_CHAT, "second")]);
+
+            await waitUntil(() => payloads.length > 0, "no ready notification came");
+            expect(payloads).to.deep.equal([""]);
+        });
+
+        it("notifies the finished channel with the id of a message marked as done", async function () {
+            const payloads = await listenTo(listener, OutboxChannel.Finished);
+            const id = await store.push(message(CHAT, "first"));
+
+            await store.markAsDone(await pullOne(), RESPONSE);
+
+            await waitUntil(() => payloads.length > 0, "no finished notification came");
+            expect(payloads).to.deep.equal([String(id)]);
+        });
+
+        it("notifies the finished channel with the id of a message marked as failed", async function () {
+            const payloads = await listenTo(listener, OutboxChannel.Finished);
+            const id = await store.push(message(CHAT, "first"));
+
+            await store.markAsFailed(await pullOne(), UNDELIVERABLE);
+
+            await waitUntil(() => payloads.length > 0, "no finished notification came");
+            expect(payloads).to.deep.equal([String(id)]);
+        });
+
+        it("notifies the finished channel with the id of a message failed with its chat blocked", async function () {
+            const payloads = await listenTo(listener, OutboxChannel.Finished);
+            const id = await store.push(message(CHAT, "first"));
+
+            await store.markAsFailedAndBlockChat(await pullOne(), UNDELIVERABLE);
+
+            await waitUntil(() => payloads.length > 0, "no finished notification came");
+            expect(payloads).to.deep.equal([String(id)]);
+        });
+
+        it("does not notify the finished channel of a retry", async function () {
+            const payloads = await listenTo(listener, OutboxChannel.Finished);
+            await store.push(message(CHAT, "first"));
+            const done = await store.push(message(OTHER_CHAT, "second"));
+            const [retried, finished] = (await store.pull(10, WORKER)).messages;
+
+            await store.retry(retried as PulledOutboxMessage, UNDELIVERABLE, 0);
+            await store.markAsDone(finished as PulledOutboxMessage, RESPONSE);
+
+            await waitUntil(() => payloads.length > 0, "no finished notification came");
+            expect(payloads).to.deep.equal([String(done)]);
         });
     });
 

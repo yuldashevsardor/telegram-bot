@@ -1,4 +1,4 @@
-export type RetryDelaySettings = {
+export type OutboxRetryDelaySettings = {
     // The step after the first counted attempt.
     firstDelayMs: number;
     // The cap of the step: the growth stops here.

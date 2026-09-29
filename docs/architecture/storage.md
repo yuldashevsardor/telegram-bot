@@ -8,6 +8,15 @@ constructor, and the connection is opened lazily. That is why `Application.setup
 the driver itself prints nothing. With `true` it only makes the fields of a failed query's error
 enumerable, `query` and `parameters` among them. They end up in the `payload` of the log.
 
+## LISTEN
+
+`sql.listen()` of postgres.js opens a connection of its own, outside the pool, so
+`DATABASE_CONNECTION_LIMIT` does not count it: a node that listens holds up to one connection more
+than the limit. The outbox waiter listens this way ([`outbox.md`](./outbox.md), "Waiting for the
+result"). postgres.js opens the connection again by itself when it is lost, and `Database.close()`
+ends it together with the pool (`end()` in postgres.js `src/index.js`);
+`outbox-finished-message-reader.spec.ts` checks both.
+
 ## Migrations
 
 Migrations are `node-pg-migrate` (`migrate.json`, the `migrations/` directory in the root). The
