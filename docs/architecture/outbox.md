@@ -305,9 +305,10 @@ Every attempt counts towards `OUTBOX_MAX_ATTEMPTS`, a flood included: the attemp
 `earlierAttempts + 1`. The limit is checked on a transient failure only, so a flood never blocks a
 chat by itself, but the floods before a transient failure bring its block nearer and lengthen its
 retry delay, which grows with the same number: after five floods the first transient failure waits
-16 to 32 s instead of 0.5 to 1 s at the defaults. The count covers the whole history of the
-message: a message that blocked its chat and was put back to `pending` by hand blocks the chat again
-on its next transient failure, with no retry.
+16 to 32 s instead of 0.5 to 1 s, at the `.env.dist` defaults of `OUTBOX_RETRY_FIRST_DELAY`,
+`OUTBOX_RETRY_MAX_DELAY` and `OUTBOX_RETRY_DELAY_MULTIPLIER`. The count covers the whole history of
+the message: a message that blocked its chat and was put back to `pending` by hand blocks the chat
+again on its next transient failure, with no retry.
 
 A `retry_after` that `pause()` refuses (see "Limits") throws out of `handle()` before the retry,
 and the message stays `processing` until its lease is recovered.
