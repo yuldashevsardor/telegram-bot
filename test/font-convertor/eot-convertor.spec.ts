@@ -7,6 +7,8 @@ import type { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import type { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-signature-matcher";
+import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
+import { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
 import { InvalidPath, RemoveFailed } from "app/shared/fs/file-helper.errors";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
@@ -28,7 +30,11 @@ describe("Convertors of the eot pairs", function () {
         steps = [];
         failOn = undefined;
         unremovableOn = undefined;
-        factory = new ConvertorFactory(fontForge(), new FontSignatureMatcher(), eotPacker());
+        factory = new ConvertorFactory(
+            fontForge(),
+            new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator()),
+            eotPacker(),
+        );
     });
 
     afterEach(async function () {
@@ -95,7 +101,11 @@ describe("Convertors of the eot pairs", function () {
     // itself, and the EOT pairs have four implementations of convert(). The branches of the check
     // itself run in convertor.spec.ts. Only the pass covers the result extension: the rejection on
     // an occupied path happens before that extension is checked.
-    const eotPairs = new ConvertorFactory(fontForge(), new FontSignatureMatcher(), eotPacker())
+    const eotPairs = new ConvertorFactory(
+        fontForge(),
+        new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator()),
+        eotPacker(),
+    )
         .getSupportedExtensions()
         .filter((extension) => extension !== Extension.EOT)
         .flatMap(
