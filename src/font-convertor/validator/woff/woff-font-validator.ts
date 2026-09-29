@@ -290,9 +290,10 @@ export class WoffFontValidator implements FontValidator {
      * file, checks what lies between them: no overlap, the kinds in the order of §3, and nothing
      * but zero padding in the gaps.
      *
-     * An empty table (compLength 0) takes no bytes, so it overlaps nothing and leaves no gap: the
-     * walk skips it. Walked, such a table at the offset of another one would count as inside that
-     * table or before it depending on the order of the directory, that is on its tag.
+     * An empty block takes no bytes, so it overlaps nothing and leaves no gap: the walk skips it.
+     * That is an absent metadata or private block, or a table of compLength 0. Walked, such a table
+     * at the offset of another one would count as inside that table or before it depending on the
+     * order of the directory, that is on its tag.
      */
     private checkLayout(woff: Woff): void {
         const blocks = this.blocks(woff);
@@ -496,25 +497,23 @@ export class WoffFontValidator implements FontValidator {
     }
 
     /**
-     * The tables, then the metadata and the private block when the header points to them.
+     * The tables, then the metadata and the private block. An absent block is among them too: by
+     * the time the layout is checked, rule 7 has made its offset and length 0, and an empty block
+     * lies inside the file, on a 4-byte boundary, and is skipped by the walk.
      */
     private blocks({ header, entries }: Woff): Array<Block> {
-        const blocks: Array<Block> = entries.map((entry) => ({
+        const tables: Array<Block> = entries.map((entry) => ({
             kind: BlockKind.Table,
             name: this.tableName(entry),
             offset: entry.offset,
             length: entry.compLength,
         }));
 
-        if (header.metaOffset !== 0) {
-            blocks.push({ kind: BlockKind.Metadata, name: "the metadata block", offset: header.metaOffset, length: header.metaLength });
-        }
-
-        if (header.privOffset !== 0) {
-            blocks.push({ kind: BlockKind.Private, name: "the private block", offset: header.privOffset, length: header.privLength });
-        }
-
-        return blocks;
+        return [
+            ...tables,
+            { kind: BlockKind.Metadata, name: "the metadata block", offset: header.metaOffset, length: header.metaLength },
+            { kind: BlockKind.Private, name: "the private block", offset: header.privOffset, length: header.privLength },
+        ];
     }
 
     private directoryEnd(numTables: number): number {
