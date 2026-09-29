@@ -80,7 +80,7 @@ export type OutboxAttempt = {
 export type OutboxLease = {
     id: number;
     lockToken: string;
-    // now() of the pull, by the database clock.
+    // now() of the pull, by the database clock; derived for an expired lease (ExpiredOutboxLease).
     startedAt: string;
     // null for an expired lease.
     worker: OutboxWorker | null;

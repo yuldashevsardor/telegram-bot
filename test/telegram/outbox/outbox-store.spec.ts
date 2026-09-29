@@ -53,7 +53,7 @@ const UNDELIVERABLE: OutboxAttemptError = {
 const UNEXPECTED: OutboxAttemptError = { kind: TelegramBotApiFailureKind.Unexpected, message: "Bad Request: message text is empty" };
 // How much of a long pause, interval or delay the calls between its start and the pull may use up.
 const ELAPSED_TOLERANCE_MS = 1_000;
-const LEASE_EXPIRED: OutboxAttemptError = { kind: TelegramBotApiFailureKind.Transient, message: "The lease of the chat passed" };
+const EXPIRED_LEASE_ERROR: OutboxAttemptError = { kind: TelegramBotApiFailureKind.Transient, message: "The lease of the chat passed" };
 // A lease that passes while the spec sleeps twice as long.
 const SHORT_LEASE_MS = 10;
 // A token no pull gave out.
@@ -776,6 +776,19 @@ describe("OutboxStore", function () {
             store = new OutboxStore(database, logger, NO_LIMITS, SHORT_LEASE_MS);
         });
 
+        // The only message of CHAT, pulled and left until its lease passes, and the lease the
+        // recovery reads for it.
+        async function pullAndExpire(): Promise<{ pulled: PulledOutboxMessage; expired: ExpiredOutboxLease }> {
+            await store.push(message(CHAT, "text"));
+            const pulled = await pullOne();
+            await sleep(SHORT_LEASE_MS * 2);
+            const expiredLeases = await store.findExpiredLeases();
+
+            expect(expiredLeases).to.have.lengthOf(1);
+
+            return { pulled, expired: expiredLeases[0] as ExpiredOutboxLease };
+        }
+
         it("finds a chat whose lease has passed with its message, the start of the pull and no worker", async function () {
             await store.pushBatch([message(CHAT, "head"), message(CHAT, "behind")]);
             await store.retry(await pullOne(), TRANSIENT, 0);
@@ -800,49 +813,40 @@ describe("OutboxStore", function () {
         });
 
         it("takes the message of an expired lease back to pending with an attempt that has no worker", async function () {
-            await store.push(message(CHAT, "text"));
-            const pulled = await pullOne();
-            await sleep(SHORT_LEASE_MS * 2);
-            const [expired] = await store.findExpiredLeases();
+            const { pulled, expired } = await pullAndExpire();
 
-            await store.retry(expired as ExpiredOutboxLease, LEASE_EXPIRED, 0);
+            await store.retry(expired, EXPIRED_LEASE_ERROR, 0);
 
             const [attempt] = await attempts(pulled.id);
 
             expect(await statuses()).to.deep.equal([OutboxStatus.Pending]);
             expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Ready });
-            expect(attempt).to.deep.include({ started_at: pulled.startedAt, worker: null, error: LEASE_EXPIRED });
+            expect(attempt).to.deep.include({ started_at: pulled.startedAt, worker: null, error: EXPIRED_LEASE_ERROR });
             expect((await pullOne()).earlierAttempts).to.equal(1);
         });
 
         it("fails the message of an expired lease and blocks its chat", async function () {
-            await store.push(message(CHAT, "text"));
-            const pulled = await pullOne();
-            await sleep(SHORT_LEASE_MS * 2);
-            const [expired] = await store.findExpiredLeases();
+            const { pulled, expired } = await pullAndExpire();
 
-            await store.markAsFailedAndBlockChat(expired as ExpiredOutboxLease, LEASE_EXPIRED);
+            await store.markAsFailedAndBlockChat(expired, EXPIRED_LEASE_ERROR);
 
             const [attempt] = await attempts(pulled.id);
 
             expect(await statuses()).to.deep.equal([OutboxStatus.Failed]);
             expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Blocked });
-            expect(attempt).to.deep.include({ worker: null, error: LEASE_EXPIRED });
+            expect(attempt).to.deep.include({ worker: null, error: EXPIRED_LEASE_ERROR });
         });
 
         it("changes nothing on a completion of the node presumed dead or a second recovery", async function () {
-            await store.push(message(CHAT, "text"));
-            const pulled = await pullOne();
-            await sleep(SHORT_LEASE_MS * 2);
-            const [expired] = await store.findExpiredLeases();
+            const { pulled, expired } = await pullAndExpire();
 
-            await store.retry(expired as ExpiredOutboxLease, LEASE_EXPIRED, LONG_RETRY_DELAY_MS);
+            await store.retry(expired, EXPIRED_LEASE_ERROR, LONG_RETRY_DELAY_MS);
             await store.markAsDone(pulled, RESPONSE);
-            await store.retry(expired as ExpiredOutboxLease, LEASE_EXPIRED, 0);
+            await store.retry(expired, EXPIRED_LEASE_ERROR, 0);
 
             expect(await statuses()).to.deep.equal([OutboxStatus.Pending]);
             expect(await attempts(pulled.id)).to.have.lengthOf(1);
-            expect(logger.warnings.map(({ payload }) => payload?.["cause"])).to.deep.equal([null, LEASE_EXPIRED]);
+            expect(logger.warnings.map(({ payload }) => payload?.["cause"])).to.deep.equal([null, EXPIRED_LEASE_ERROR]);
         });
     });
 

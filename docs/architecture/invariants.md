@@ -143,7 +143,10 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   (`OutboxFailureHandler.recoverExpiredLeases()`, [`outbox.md`](./outbox.md), "Lease recovery")
   hand the message to another node, and it goes out twice; the late completion of the first node
   is fenced off and changes nothing. `OUTBOX_LEASE_DURATION` of `.env.dist` says which call
-  timeout its default covers. Nothing checks the two against each other.
+  timeout its default covers. Nothing checks the two against each other. An extension may extend
+  only a lease that has not passed: the recovery tells its lease by the token, not by
+  `locked_until`, and takes back the message of a passed lease its node has just extended
+  ([`outbox.md`](./outbox.md), "Lease recovery"). Nothing extends a lease yet.
 - **The outbox goes by the database clock only.** `next_attempt_at`, `next_send_at` and
   `paused_until` are written and compared with `now()` of PostgreSQL: `pause()` takes a duration,
   and `pull()` answers with a duration, not a moment ([`outbox.md`](./outbox.md), "Limits"). A

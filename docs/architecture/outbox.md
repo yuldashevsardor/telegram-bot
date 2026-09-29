@@ -186,8 +186,9 @@ one.
 
 ## Completions
 
-A pulled message is completed by one of the four public methods of the store after `pull()`, each
-taking the pulled message as its lease (`OutboxLease`). What each does to the message and the chat
+A leased message is completed by one of the four public methods of the store, each taking an
+`OutboxLease`: the message given out by `pull()`, or an expired lease read by `findExpiredLeases()`
+(see "Lease recovery"). What each does to the message and the chat
 is read off its body. Each is a transaction through the private `complete()`:
 
 1. lock the chat row of the message; a missing message throws `OutboxMessageNotLeased`;
@@ -316,8 +317,7 @@ and the message stays `processing` until its lease is recovered.
 ### Lease recovery
 
 `OutboxFailureHandler.recoverExpiredLeases()` takes back the messages of the chats whose lease has
-passed: the node that pulled them is presumed dead. Nothing calls it yet: the sending loop will, on
-a timer ([#624](https://github.com/yuldashevsardor/telegram-bot/issues/624)).
+passed: the node that pulled them is presumed dead. The sending loop is to call it on a timer.
 
 1. `OutboxStore.findExpiredLeases()` reads every chat whose `locked_until` is behind `now()`, with
    its `processing` message, as a lease under the chat's own `lock_token`. It reads without a lock
@@ -325,16 +325,17 @@ a timer ([#624](https://github.com/yuldashevsardor/telegram-bot/issues/624)).
 2. Each lease is a transient failure, completed as one: the message goes back to `pending` with the
    retry delay of its attempt, or, on the last attempt of `OUTBOX_MAX_ATTEMPTS`, fails and blocks
    its chat (see "Outcomes"). The completion appends an attempt with the error `OutboxLeaseExpired`
-   of class `transient`.
+   of class `transient`. The leases are completed one after another, and a completion that throws
+   ends the call: the leases after it wait for the next one.
 
 The recovery completes the message as the node that pulled it would: through the same fenced
 completions, under the token of that pull (see "Completions"). So whichever comes first, the
 recovery or the late completion of the node presumed dead, changes the message, and the other one
 is fenced off and logged as a stale lock token. So is a second recovery of the same lease by
-another node that read it before the first recovery committed. The fence checks the token, not
-`locked_until`: a lease that has passed keeps its token until a completion, and it is safe only
-while a passed lease is never extended. Nothing extends a lease yet; an extension must keep to
-this, or the recovery takes back a message whose node has just extended its lease.
+another node that read it before the first recovery committed: the read claims nothing, so with
+several nodes recovering at once, one expired lease can give each of the others such a warning.
+The fence checks the token, not `locked_until`, so a lease that has passed must never be extended
+([`invariants.md`](./invariants.md), "The outbox").
 
 The appended attempt has `worker: null`: the pull keeps the worker nowhere but in the answer it
 gave out. Its `started_at` is `locked_until` minus `OUTBOX_LEASE_DURATION`, in the form the pull

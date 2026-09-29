@@ -8,7 +8,7 @@ import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifi
 import type { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
 import type { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
-import type { ExpiredOutboxLease, OutboxAttemptError, PulledOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
+import type { OutboxAttemptError, OutboxLease, PulledOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
 
 // The error of the attempt an expired lease closes: the node that made it reported nothing.
 const LEASE_EXPIRED: OutboxAttemptError = {
@@ -71,13 +71,13 @@ export class OutboxFailureHandler {
     }
 
     // What counts and when the limit is checked: docs/architecture/outbox.md, "Outcomes".
-    private async retryOrBlock(message: PulledOutboxMessage | ExpiredOutboxLease, attemptError: OutboxAttemptError): Promise<void> {
-        const countedAttempts = message.earlierAttempts + 1;
+    private async retryOrBlock(lease: OutboxLease & { earlierAttempts: number }, attemptError: OutboxAttemptError): Promise<void> {
+        const countedAttempts = lease.earlierAttempts + 1;
 
         if (countedAttempts >= this.maxAttempts) {
-            await this.store.markAsFailedAndBlockChat(message, attemptError);
+            await this.store.markAsFailedAndBlockChat(lease, attemptError);
         } else {
-            await this.store.retry(message, attemptError, this.retryDelay.computeMs(countedAttempts));
+            await this.store.retry(lease, attemptError, this.retryDelay.computeMs(countedAttempts));
         }
     }
 }
