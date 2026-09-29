@@ -1,4 +1,5 @@
 import type postgres from "postgres";
+import type { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 
 // The values of telegram_outbox.status: the database does not check them, so they are written only
 // through this enum.
@@ -18,7 +19,7 @@ export enum OutboxChatState {
     Ready = "ready",
     // The head is pulled.
     Processing = "processing",
-    // The head failed.
+    // A failed message stopped the chat until it is unblocked by hand.
     Blocked = "blocked",
 }
 
@@ -35,8 +36,31 @@ export type OutboxMessageInput = {
     priority: number;
 };
 
-export type PulledOutboxMessage = OutboxMessageInput & {
+// Who pulled a message, written into its attempt: the node and the worker on it.
+export type OutboxWorker = {
+    host: string;
+    pid: number;
+    workerId: string;
+};
+
+// What a completion of a pulled message is fenced by: the message and the token of the pull that
+// leased its chat. A pulled message is a lease itself.
+export type OutboxLease = {
     id: number;
+    lockToken: string;
+};
+
+export type PulledOutboxMessage = OutboxMessageInput &
+    OutboxLease & {
+        // The failed attempts before this one that count towards the limit: a flood does not count.
+        countedFailures: number;
+    };
+
+// The error an attempt is closed with. The kind decides whether the attempt counts towards the
+// limit of attempts.
+export type OutboxAttemptError = {
+    kind: TelegramBotApiFailureKind;
+    message: string;
 };
 
 // What a pull gives out: the messages, and when the next pull can give out one.
@@ -54,6 +78,8 @@ export type PulledOutboxRow = {
     method: string;
     payload: OutboxPayload;
     priority: number;
+    lock_token: string;
+    counted_failures: number;
 };
 
 // The single row of a pull as postgres returns it.

@@ -53,6 +53,7 @@ export const Tokens = {
         Outbox: {
             Store: Symbol.for("BotOutboxStore"),
             RetryDelay: Symbol.for("BotOutboxRetryDelay"),
+            FailureHandler: Symbol.for("BotOutboxFailureHandler"),
         },
         ApiFailureClassifier: Symbol.for("BotApiFailureClassifier"),
         User: {

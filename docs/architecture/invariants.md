@@ -129,11 +129,18 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
 ## The outbox
 
 - **An outbox transaction that changes a chat state from what it reads — the chat state, the
-  active messages left — locks the chat row first and reads in a later statement**, as
-  `OutboxStore.push()` and `markAsDone()` do. Why, and what breaks otherwise, is in
-  [`outbox.md`](./outbox.md), "The chat lock". `pull()` is the exception with a check of its own
-  (same file, "Pull"). The spec lines up only these two methods: a new path that changes a chat
-  state is checked by nothing.
+  active messages left, the lock token — locks the chat row first and reads in a later
+  statement**, as `OutboxStore.push()` and the completions do; every completion goes through the
+  private `complete()`. Why, and what breaks otherwise, is in [`outbox.md`](./outbox.md), "The
+  chat lock". `pull()` is the exception with a check of its own (same file, "Pull"). The spec lines
+  up only `push()` and `markAsDone()`: a new path that changes a chat state outside `complete()` is
+  checked by nothing.
+- **The lease of a pulled chat must outlast the longest Bot API call, unless the lease is
+  extended.** A lease that ends while its message is still being sent lets the recovery of expired
+  leases ([#672](https://github.com/yuldashevsardor/telegram-bot/issues/672)) hand the message to
+  another node, and it goes out twice; the late completion of the first node is fenced off and
+  changes nothing. `OUTBOX_LEASE_DURATION` of `.env.dist` says which call timeout its default
+  covers. Nothing checks the two against each other.
 - **The outbox goes by the database clock only.** `next_attempt_at`, `next_send_at` and
   `paused_until` are written and compared with `now()` of PostgreSQL: `pause()` takes a duration,
   and `pull()` answers with a duration, not a moment ([`outbox.md`](./outbox.md), "Limits"). A
