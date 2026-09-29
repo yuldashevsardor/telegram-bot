@@ -185,6 +185,14 @@ assembled by `make mutation-area` over the PR tree (`scripts/review/mutation_are
 rule): it needs the PR's code, while the table sees only file names, and it leaves out a file whose
 diff changes only comments.
 
+The action also leaves `src/bootstrap/container/container.ts` and `src/shared/tokens.ts` to the
+batch of the full run (`FULL_RUN_ONLY` there), though `stryker.config.mjs` mutates them: a change
+of them or of their specs gives no area from them. Every new injectable class adds a token and a
+binding, so the two sit in the area of almost every feature PR, while the specs in `make check`
+already check a binding added or a token named. What the area run would add is a rerun of the
+mutants of lines the PR did not write, on every push. The price: a survivor in the bindings or the
+tokens shows only in a batch run, possibly weeks after the PR that made it.
+
 `mutation-full` is turned on by the run's tools. Changing the tools changes the run of every
 mutant, not of the diff's lines, and a PR that changes only the tools has an empty area from its
 diff. The tsconfigs and `typescript` are tools too: by them the type checker decides which mutant

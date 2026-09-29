@@ -98,7 +98,7 @@ def comment(body, url=URL_524, login="owner"):
 # #524, a source outside it, their specs and a helper of a spec on each side.
 EOT_PACKER, FONT_FORGE, SIGNATURE_MATCHER = AREA_524
 TELEGRAM_CHAT = "src/telegram/telegram-chat.ts"
-TREE = AREA_524 + [
+TREE = AREA_524 + mutation_area.FULL_RUN_ONLY + [
     TELEGRAM_CHAT,
     "test/font-convertor/eot-packer.spec.ts",
     "test/font-convertor/font-forge.spec.ts",

@@ -18,7 +18,11 @@ TREE = [
     "src/font-convertor/eot-packer/eot-packer.ts",
     "src/platform/database/database.ts",
     "src/telegram/session/pgsql-storage.ts",
+    "src/bootstrap/container/container.ts",
+    "src/shared/tokens.ts",
     "test/shared/config-value.spec.ts",
+    "test/bootstrap/container/container.spec.ts",
+    "test/shared/tokens.spec.ts",
     "test/font-convertor/eot-packer.spec.ts",
     "test/font-convertor/orphan.spec.ts",
     "test/platform/database/database.spec.ts",
@@ -305,6 +309,46 @@ class MutationAreaTest(unittest.TestCase):
 
         self.assertEqual((code, area), (0, ["src/shared/config-value.ts"]))
         self.assertEqual(notes, ["`src/app.ts` is left out: the Stryker config excludes it"])
+
+    def test_the_bindings_and_the_tokens_are_left_to_the_full_run(self):
+        run = FakeRun(
+            [
+                "src/bootstrap/container/container.ts",
+                "src/shared/tokens.ts",
+                "test/bootstrap/container/container.spec.ts",
+                "test/shared/tokens.spec.ts",
+                "src/shared/config-value.ts",
+            ]
+        )
+
+        code, area, notes = self.area(run)
+
+        self.assertEqual((code, area), (0, ["src/shared/config-value.ts"]))
+        self.assertEqual(
+            notes,
+            [
+                "`src/bootstrap/container/container.ts` is left out: only the full run mutates it",
+                "`src/shared/tokens.ts` is left out: only the full run mutates it",
+            ],
+        )
+
+    def test_a_full_run_only_path_missing_from_the_tree_stops_the_action(self):
+        moved = [file for file in TREE if file != "src/shared/tokens.ts"]
+        run = FakeRun(
+            ["src/shared/config-value.ts"],
+            **{"ls-files": (0, "".join(file + "\n" for file in moved))}
+        )
+
+        code, area, notes = self.area(run)
+
+        self.assertEqual((code, area), (1, []))
+        self.assertEqual(
+            notes,
+            [
+                "Stopped: src/shared/tokens.ts from FULL_RUN_ONLY is not in the tree — write its "
+                "new path into scripts/review/mutation_area.py"
+            ],
+        )
 
     def test_a_diff_without_ts_under_src_or_test_asks_no_container(self):
         run = FakeRun(["README.md", "migrations/1-init.ts", "scripts/review/tree_create.py"])
