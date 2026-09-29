@@ -5,7 +5,9 @@ The outbox is being built to replace the in-memory outbound queue
 any node sends them, the order inside a chat holds across nodes, and a node that dies loses
 nothing (the plan is epic [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)).
 Nothing calls the directory yet: so far it holds the tables with `OutboxStore`
-(`store/outbox-store.ts`), which pushes, pulls and marks done, and the payload codec.
+(`store/outbox-store.ts`), which pushes, pulls and marks done, the payload codec and the retry
+delay. The error classes of a failed call, which the outbox will act on, lie outside it, in
+`telegram/bot-api-failure-classifier/`.
 
 ## Tables
 
@@ -111,6 +113,37 @@ spec is in `DATABASE_SPECS` ([`testing.md`](./testing.md), "Mutation testing").
 
 The ids come back as numbers: the driver returns `bigint` as a string, and the store converts it,
 as `PgSqlUserRepository` does ([`storage.md`](./storage.md), "`User.id`").
+
+## Failures
+
+Nothing acts on a failure yet. The two decisions that need no database are classes without SQL,
+so mutation testing reaches them.
+
+### Error classes
+
+`TelegramBotApiFailureClassifier.classify(error)`
+(`telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.ts`) sorts a failed Bot
+API call into the four classes of the epic
+([#618](https://github.com/yuldashevsardor/telegram-bot/issues/618), "Error classes"), the
+`TelegramBotApiFailureKind` values. Which error falls into which class is read off the branches
+of the method. What the code does not say is why two boundaries are drawn where they are, and why
+one failure is not classified at all:
+
+- Every 403 is `Undeliverable`, not only the bot blocked or kicked: a 403 is Telegram refusing the
+  bot this chat, and a retry does not change that.
+- A 400 is `Undeliverable` only by its description, because 400 is also the code of a malformed
+  call, which is a bug and must block the chat. A description Telegram rewords falls to
+  `Unexpected` and blocks the chat: the safe side.
+- A lost database connection is not a Bot API error and is not classified here: the outcome of
+  such a send cannot be written anyway. The recovery of an expired lease is to take such a message
+  back; it is not written yet ([#672](https://github.com/yuldashevsardor/telegram-bot/issues/672)).
+
+### Retry delay
+
+`RetryDelay.computeMs()` (`retry-delay/retry-delay.ts`) is how long a message waits before its
+retry after a transient failure. The step, its cap, the jitter and why the jitter takes the upper
+half of the step are in the comment above the method. The first step, the cap and the multiplier
+come from the `OUTBOX_RETRY_` variables of `.env.dist`.
 
 ## The payload rule
 
