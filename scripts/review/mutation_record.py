@@ -20,23 +20,21 @@ It is accepted when all four conditions hold:
    `unknown`) leaves nothing to compare with, and the record is refused. `git rev-parse --verify
    --quiet` tells a missing commit (exit code 1) from a git that did not run. When the heads differ,
    whether the record still holds is a pass of the table in docs/agents/review-gates.md ("Changes
-   that affect the mutation run") over the files changed between the two commits. Its `mutation`
-   row is decided here: the record is refused when the rule of mutation_area.py, given those files
-   and the range of the two commits, reaches a file of the record's area (a path of `files` or a
-   mutated file), and the reason names the files. The rule reads the configs, the file list and the
-   importers from a tree, so the action runs it in `tree`, which has to stand at the PR head, and
-   in the application container through `DC_APP_RUN`. A record the other conditions already refuse
-   is not measured so: with Docker down its reasons would give way to `Stopped:`. The `rebuild` and
+   that affect the mutation run") over the files changed between the two commits. Its `mutation` row
+   is decided here: the record is refused when the rule of mutation_area.py, given those files and
+   the range of the two commits, reaches a file of the record's area (a path of `files` or a mutated
+   file), and the reason names the files. The rule reads the configs, the file list and the
+   importers from a tree, so the action runs it in `tree`, which has to stand at the PR head, and in
+   the application container through `DC_APP_RUN`. A record the other conditions already refuse is
+   not measured so: with Docker down its reasons would give way to `Stopped:`. The `rebuild` and
    `mutation-full` rows stay prose, not copied here: the action lists the files and leaves those
-   rows to the reader, as
-   /review-pr applies the same table to the PR diff. Some of their rows are decided by content, not
-   by name, and the reader reads a hunk by the command printed under the list. The list is `git diff
-   --no-renames --name-only <record head> <PR head>`: between the trees and not from the merge-base,
-   because
-   after a rebase the record's head is no longer an ancestor and a diff from the merge-base would
-   add the branch's own changes; `--no-renames` because rename detection prints only the new path
-   of a move, and the old one (a spec moved out of test/, a renamed tool of the run) matters to the
-   table as much.
+   rows to the reader, as /review-pr applies the same table to the PR diff. Some of their rows are
+   decided by content, not by name, and the reader reads a hunk by the command printed under the
+   list. The list is `git diff --no-renames --name-only <record head> <PR head>`: between the trees
+   and not from the merge-base, because after a rebase the record's head is no longer an ancestor
+   and a diff from the merge-base would add the branch's own changes; `--no-renames` because rename
+   detection prints only the new path of a move, and the old one (a spec moved out of test/, a
+   renamed tool of the run) matters to the table as much.
 2. `clean=yes`: a run on a dirty tree checked something other than the commit.
 3. The run reached the report and its area is the gate's:
    - `score` is not `none`: without the report there are no mutants to judge by.
