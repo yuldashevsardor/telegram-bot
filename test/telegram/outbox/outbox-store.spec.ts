@@ -180,18 +180,25 @@ describe("OutboxStore", function () {
         expect((await store.pull(10)).map(({ id }) => id)).to.deep.equal([urgent, later]);
     });
 
-    // The chats of one pull get the same next_attempt_at, the time of the statement. CHAT is
-    // completed first, so without the chat_id key it would likely come first too.
-    it("takes the chats served in one pull by chat_id in the next turn", async function () {
-        await store.pushBatch([message(CHAT, "a1"), message(CHAT, "a2")]);
-        await store.pushBatch([message(OTHER_CHAT, "b1"), message(OTHER_CHAT, "b2")]);
+    // The chats of one pull get the same next_attempt_at, the time of the statement. Without the
+    // chat_id key their next turn follows the order PostgreSQL meets the tied rows in, which tends to
+    // be the order of completion: the spec completes them in both orders, and one of them fails then.
+    for (const completedFirst of [CHAT, OTHER_CHAT]) {
+        it(`takes the chats served in one pull by chat_id in the next turn, chat ${completedFirst} completed first`, async function () {
+            await store.pushBatch([message(CHAT, "a1"), message(CHAT, "a2")]);
+            await store.pushBatch([message(OTHER_CHAT, "b1"), message(OTHER_CHAT, "b2")]);
 
-        for (const pulled of await store.pull(10)) {
-            await store.markAsDone(pulled.id, RESPONSE);
-        }
+            const pulled = await store.pull(10);
+            const first = pulled.filter(({ chatId }) => chatId === completedFirst);
+            const rest = pulled.filter(({ chatId }) => chatId !== completedFirst);
 
-        expect((await store.pull(1)).map(({ chatId }) => chatId)).to.deep.equal([OTHER_CHAT]);
-    });
+            for (const { id } of [...first, ...rest]) {
+                await store.markAsDone(id, RESPONSE);
+            }
+
+            expect((await store.pull(1)).map(({ chatId }) => chatId)).to.deep.equal([OTHER_CHAT]);
+        });
+    }
 
     // An id taken before the chat lock would let two overlapping pushes of one chat commit in the
     // order opposite to their ids, and the later id would be sent first. The push of another chat

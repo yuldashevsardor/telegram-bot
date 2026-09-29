@@ -162,7 +162,7 @@ export class OutboxStore {
                 throw OutboxMessageNotProcessing.byId(messageId);
             }
 
-            const [remaining] = await sql`
+            const [remainingMessage] = await sql`
                 SELECT id
                 FROM telegram_outbox
                 WHERE chat_id = ${done.chat_id}
@@ -172,7 +172,7 @@ export class OutboxStore {
 
             await sql`
                 UPDATE telegram_outbox_chats
-                SET state = ${remaining === undefined ? OutboxChatState.Idle : OutboxChatState.Ready},
+                SET state = ${remainingMessage === undefined ? OutboxChatState.Idle : OutboxChatState.Ready},
                     updated_at = now()
                 WHERE chat_id = ${done.chat_id}
             `;

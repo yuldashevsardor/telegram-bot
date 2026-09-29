@@ -97,7 +97,7 @@ The chat limit and the retry delay will rework it.
 2. the message goes to `done` with the response and `finished_at`, only from `processing`;
    otherwise, a missing message included, the method throws `OutboxMessageNotProcessing` and
    changes nothing. Nothing but `markAsDone` takes a message out of `processing`, so the cause is
-   a wrong id or a second completion of the same message;
+   a wrong id, a message not pulled yet or a second completion of the same message;
 3. check whether the chat has an active message left;
 4. the chat goes to `ready` if it has, or to `idle`.
 

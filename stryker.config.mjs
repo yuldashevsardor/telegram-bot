@@ -6,7 +6,7 @@ import { existsSync, globSync } from "node:fs";
 // The specs that need the database. Stryker runs the specs without test/database-hook.ts, and
 // without the hook they fail on reading TEST_DATABASE_NAME, so they are excluded. A new spec of
 // that kind fails the first Stryker run until it is written in here. To find them:
-// grep -rln testDatabaseName test --include='*.spec.ts'.
+// grep -rln test/database.helper test --include='*.spec.ts'.
 const DATABASE_SPECS = [
     "test/platform/database/database.spec.ts",
     "test/telegram/outbox/outbox-store.spec.ts",
