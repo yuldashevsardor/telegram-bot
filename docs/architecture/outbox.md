@@ -303,10 +303,11 @@ and why one failure is not classified at all:
   idempotency key, so the retry can deliver the message twice. The outbox delivers at least once
   anyway (see "The lease"), and a duplicate costs less than a lost message or a blocked chat.
 - The exception is a file that is gone, the file of a `PathFile`: `Unexpected` at once, since every
-  retry would look for the same missing file. The sign is `ENOENT` on the error of the file stream,
-  which grammY passes on inside the `HttpError` as it is (`isMissingFile()`). Any other
-  file-system error stays `Transient`: out of descriptors (`EMFILE`) or a hiccup of shared storage
-  (`EIO`) may pass on a retry.
+  retry would look for the same missing file. The sign is `ENOENT` of `open` on the error of the
+  file stream, which grammY passes on inside the `HttpError` as it is (`isMissingFile()`). The
+  code alone is not enough: node-fetch copies it from a network error, a resolver's `ENOENT`
+  included, but not the syscall. Any other file-system error stays `Transient`: out of descriptors
+  (`EMFILE`) or a hiccup of shared storage (`EIO`) may pass on a retry.
 - A lost database connection is not a Bot API error and is not classified here: the outcome of
   such a send cannot be written anyway. The recovery of an expired lease is to take such a message
   back (see "The lease").

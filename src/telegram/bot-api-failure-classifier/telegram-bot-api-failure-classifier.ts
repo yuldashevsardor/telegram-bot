@@ -17,6 +17,7 @@ const UNREACHABLE_CHAT_DESCRIPTIONS: ReadonlySet<string> = new Set([
 ]);
 
 const MISSING_FILE_CODE = "ENOENT";
+const FILE_OPEN_SYSCALL = "open";
 
 // The Bot API always sends retry_after with a 429. If it is missing or unreadable, the pause must
 // still be non-zero, or the caller would retry at once and run into the same 429. The outbound
@@ -73,17 +74,23 @@ export class TelegramBotApiFailureClassifier {
         return { kind: TelegramBotApiFailureKind.Unexpected };
     }
 
-    // A group upgraded to a supergroup answers with the id of the supergroup in migrate_to_chat_id:
-    // the old id takes no messages any more, and the message is not resent to the new one.
+    // An exact description of UNREACHABLE_CHAT_DESCRIPTIONS, or a group upgraded to a supergroup,
+    // which answers with the id of the supergroup in migrate_to_chat_id: the old id takes no
+    // messages any more, and the message is not resent to the new one.
     private isUnreachableChat(error: GrammyError): boolean {
         return error.parameters.migrate_to_chat_id !== undefined || UNREACHABLE_CHAT_DESCRIPTIONS.has(error.description);
     }
 
-    // The file of a PathFile is gone: grammY passes the error of the file stream on as it is. A
-    // network error comes wrapped into node-fetch's FetchError with the code of its socket, never
-    // ENOENT over TCP, and the timeout of grammY is a bare Error without a code. Other file-system
-    // errors may pass on a retry (EMFILE, EIO on shared storage) and stay transient.
+    // The file of a PathFile is gone: grammY passes the error of the file stream on as it is, a raw
+    // Node error of open(). A network error comes wrapped into node-fetch's FetchError, which copies
+    // the code of the system error (a resolver can fail with ENOENT) but not its syscall, and the
+    // timeout of grammY is a bare Error. Other file-system errors may pass on a retry (EMFILE, EIO
+    // on shared storage) and stay transient.
     private isMissingFile(cause: unknown): boolean {
-        return typeof cause === "object" && cause !== null && "code" in cause && cause.code === MISSING_FILE_CODE;
+        if (typeof cause !== "object" || cause === null || !("code" in cause) || !("syscall" in cause)) {
+            return false;
+        }
+
+        return cause.code === MISSING_FILE_CODE && cause.syscall === FILE_OPEN_SYSCALL;
     }
 }

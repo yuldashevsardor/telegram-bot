@@ -50,6 +50,18 @@ describe("TelegramBotApiFailureClassifier", function () {
         expect(classifier.classify(error)).to.deep.equal({ kind: TelegramBotApiFailureKind.Unexpected });
     });
 
+    // node-fetch copies the code of the system error onto its FetchError, but not the syscall.
+    it("keeps a network error with the code of a missing file transient", function () {
+        const resolverFailure = Object.assign(new Error("request to https://api.telegram.org failed, reason: getaddrinfo ENOENT"), {
+            type: "system",
+            code: "ENOENT",
+            errno: "ENOENT",
+        });
+        const error = new HttpError("Network request for 'sendMessage' failed!", resolverFailure);
+
+        expect(classifier.classify(error)).to.deep.equal({ kind: TelegramBotApiFailureKind.Transient });
+    });
+
     it("keeps a file that opens but cannot be read transient", async function () {
         const api = new Api(TOKEN, { fetch: readsTheBody() });
         const error = await callError(() => api.sendDocument(1, new PathFile(tmpdir())));
