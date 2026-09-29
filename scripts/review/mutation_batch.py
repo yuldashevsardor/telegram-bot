@@ -55,7 +55,7 @@ BATCH_TITLE = re.compile(r"Full mutation run (?P<n>[1-9][0-9]*)")
 RECORD_MARKER = re.compile(
     r"<!-- mutation-batch-record issue=(?P<issue>[1-9][0-9]*) pr=(?P<pr>[1-9][0-9]*) -->"
 )
-# `gh issue create` and `gh issue comment` print the URL of what they made; it ends in its number.
+# `gh issue create` prints the URL of the issue it made; the URL ends in the issue number.
 CREATED_ISSUE = re.compile(r"/issues/(?P<number>[1-9][0-9]*)\s*$")
 LOCK_FILE_NAME = "mutation-batch.lock"
 TEMPLATES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")
