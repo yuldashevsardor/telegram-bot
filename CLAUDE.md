@@ -98,6 +98,16 @@ project's existing decisions.
   for laying out the specs and the commands that check it. In `shared/` a directory is named by
   its role instead (`fs/`, `string/`).
 - The domain does not depend on grammY, PostgreSQL or pino. The linter does not check this.
+- Code is written as classes. Logic without state, such as a classifier, a calculator or a
+  codec, is a class as well: `@injectable()`, bound under its token in `Tokens` and injected
+  with `@inject` where it is used. Testability is no reason for a function: a spec creates a
+  class that needs no database with `new`. A plain function is allowed in three cases only:
+  - a type guard or a predicate over one value (`isLocale(value): value is Locale`,
+    `isGroupChat(chatId)`);
+  - a small utility in `shared/` that knows nothing about the domain or any module (`sleep`,
+    `withTimeout`), and `configValue`, which constructor default parameters call outside the
+    container;
+  - the entrypoint `src/app.ts`: it has no container to be injected from.
 - A bare `Error` is not thrown outwards. Throw at least `RuntimeError` from
   `app/shared/errors`, better a subclass of your own in `<module>.errors.ts` next to the
   throwing code.
