@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { expect } from "chai";
 import type { TelegramLimits } from "app/bootstrap/config/config-values";
+import type { TransactionSql } from "postgres";
 import { Database } from "app/platform/database/database";
 import { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxMessageInput } from "app/telegram/outbox/store/outbox-store.types";
@@ -236,6 +237,28 @@ describe("OutboxStore", function () {
         expect(await waiting).to.be.greaterThan(passing);
     });
 
+    // A pull inside a transaction of the other client keeps what it locked until the commit, as a
+    // pull on another node does for the length of its statement.
+    it("gives out nothing while another pull holds the bot row", async function () {
+        await store.pushBatch([message(CHAT, "held"), message(OTHER_CHAT, "waiting")]);
+
+        await other.sql.begin(async (sql) => {
+            expect((await storeOn(sql).pull(1)).messages).to.have.lengthOf(1);
+
+            expect((await store.pull(10)).messages).to.deep.equal([]);
+        });
+    });
+
+    it("leaves the bot row to other pulls when it has no chat to pull", async function () {
+        await other.sql.begin(async (sql) => {
+            expect((await storeOn(sql).pull(10)).messages).to.deep.equal([]);
+
+            const id = await store.push(message(CHAT, "text"));
+
+            expect((await store.pull(10)).messages.map((pulled) => pulled.id)).to.deep.equal([id]);
+        });
+    });
+
     it("skips a chat another puller holds and takes the next one", async function () {
         await store.push(message(CHAT, "held"));
         const free = await store.push(message(OTHER_CHAT, "free"));
@@ -323,7 +346,7 @@ describe("OutboxStore", function () {
         const COMMON_NUMBER = 3;
         const COMMON_LIMITS: TelegramLimits = { ...NO_LIMITS, common: { number: COMMON_NUMBER, interval: COMMON_INTERVAL_MS } };
         // More ready chats than the common limit gives out at once.
-        const MANY_CHATS = Array.from({ length: COMMON_NUMBER + 2 }, (_, index) => index + 1);
+        const MANY_CHAT_IDS = Array.from({ length: COMMON_NUMBER + 2 }, (_, index) => index + 1);
         const PAUSE_MS = 60_000;
         // A pause shorter than the pause asked for, which must not shorten it.
         const SHORTER_PAUSE_MS = PAUSE_MS / 2;
@@ -371,7 +394,7 @@ describe("OutboxStore", function () {
         it("gives a batch no more messages than the common limit allows now", async function () {
             const limited = new OutboxStore(database, COMMON_LIMITS);
 
-            await limited.pushBatch(MANY_CHATS.map((chatId) => message(chatId, "text")));
+            await limited.pushBatch(MANY_CHAT_IDS.map((chatId) => message(chatId, "text")));
 
             expect((await limited.pull(10)).messages).to.have.lengthOf(COMMON_NUMBER);
 
@@ -386,7 +409,7 @@ describe("OutboxStore", function () {
         it("holds the next message back a cooldown per message of the batch, from the pull", async function () {
             const limited = new OutboxStore(database, COMMON_LIMITS);
 
-            await limited.pushBatch(MANY_CHATS.map((chatId) => message(chatId, "text")));
+            await limited.pushBatch(MANY_CHAT_IDS.map((chatId) => message(chatId, "text")));
             await limited.pull(10);
 
             expect(await nextSendAfterUpdateMs()).to.equal(COMMON_INTERVAL_MS);
@@ -400,7 +423,7 @@ describe("OutboxStore", function () {
         it("gives out only the slots of the common limit that have come due", async function () {
             const limited = new OutboxStore(database, COMMON_LIMITS);
 
-            await limited.pushBatch(MANY_CHATS.map((chatId) => message(chatId, "text")));
+            await limited.pushBatch(MANY_CHAT_IDS.map((chatId) => message(chatId, "text")));
             // Two slots have come due: at next_send_at and a cooldown later; the third is half a
             // cooldown away.
             const twoSlotsAgoMs = COMMON_COOLDOWN_MS + COMMON_COOLDOWN_MS / 2;
@@ -433,7 +456,7 @@ describe("OutboxStore", function () {
         it("resumes the pull after a pause with one slot of the common limit, not a burst", async function () {
             const limited = new OutboxStore(database, COMMON_LIMITS);
 
-            await limited.pushBatch(MANY_CHATS.map((chatId) => message(chatId, "text")));
+            await limited.pushBatch(MANY_CHAT_IDS.map((chatId) => message(chatId, "text")));
             await limited.pause(SHORT_PAUSE_MS);
             await sleep(2 * SHORT_PAUSE_MS);
 
@@ -571,6 +594,11 @@ describe("OutboxStore", function () {
             expect((await store.pull(10)).messages.map(({ id }) => id)).to.deep.equal([pushed]);
         });
     });
+
+    // A store whose statements run in the given transaction.
+    function storeOn(transaction: TransactionSql): OutboxStore {
+        return new OutboxStore({ sql: transaction } as unknown as Database, NO_LIMITS);
+    }
 
     async function chat(chatId: number): Promise<ChatRow | undefined> {
         const [row] = await database.sql<ChatRow[]>`

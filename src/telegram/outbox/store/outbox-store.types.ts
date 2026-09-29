@@ -40,7 +40,7 @@ export type PulledOutboxMessage = OutboxMessageInput & {
 };
 
 // What a pull gives out: the messages, and when the next pull can give out one.
-export type OutboxPull = {
+export type OutboxPullResult = {
     messages: PulledOutboxMessage[];
     // Counted by the database clock from the pull. null: no chat is ready, so only a push or a
     // completion brings a message.
@@ -57,7 +57,7 @@ export type PulledOutboxRow = {
 };
 
 // The single row of a pull as postgres returns it.
-export type OutboxPullRow = {
+export type OutboxPullResultRow = {
     messages: PulledOutboxRow[];
     next_pull_in_ms: number | null;
 };

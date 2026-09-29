@@ -4,7 +4,7 @@ import { Tokens } from "app/shared/tokens";
 import type { TelegramLimits } from "app/bootstrap/config/config-values";
 import { configValue } from "app/shared/config-value";
 import { MS_PER_SECOND } from "app/shared/time";
-import type { OutboxJson, OutboxMessageInput, OutboxPull, OutboxPullRow } from "app/telegram/outbox/store/outbox-store.types";
+import type { OutboxJson, OutboxMessageInput, OutboxPullResult, OutboxPullResultRow } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxChatState, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
 import { InvalidPauseDuration, OutboxMessageNotProcessing } from "app/telegram/outbox/store/outbox-store.errors";
 
@@ -96,17 +96,17 @@ export class OutboxStore {
     // for, and so is the bot row: one puller at a time spends the common limit. A pulled chat moves
     // behind the chats of the same priority, so they are served in turn. The messages come back by
     // priority, so a caller that sends them in order sends the urgent first.
-    public async pull(limit: number): Promise<OutboxPull> {
-        const common = this.limits.common;
-        const commonCooldownMs = this.cooldownMs(common);
+    public async pull(limit: number): Promise<OutboxPullResult> {
+        const commonLimit = this.limits.common;
+        const commonCooldownMs = this.cooldownMs(commonLimit);
 
-        const [row] = await this.sql<OutboxPullRow[]>`
+        const [row] = await this.sql<OutboxPullResultRow[]>`
             WITH bot AS (
                 -- The slots of the common limit come due one per cooldown from next_send_at, and an
                 -- idle bot saves up no more than number of them.
                 SELECT least(
                            ${limit}::integer,
-                           ${common.number}::integer,
+                           ${commonLimit.number}::integer,
                            floor(extract(epoch FROM now() - next_send_at) * ${MS_PER_SECOND} / ${commonCooldownMs}::double precision) + 1
                        )::integer AS budget
                 FROM telegram_bot_limits
@@ -202,7 +202,7 @@ export class OutboxStore {
         `;
 
         // A statement without FROM returns exactly one row.
-        const pullRow = row as OutboxPullRow;
+        const pullRow = row as OutboxPullResultRow;
 
         return {
             messages: pullRow.messages.map((message) => ({
