@@ -30,7 +30,7 @@ once.
 | `.ts` inside `src/font-convertor/`, `src/shared/`, `src/telegram/outbound-queue/`, `src/telegram/outbox/` — not a comments-only `.ts` diff | `smells` |
 | any `.ts` — a comments-only `.ts` diff | `comments` |
 | `stryker.config.mjs`, `test/stryker-mocha-hook.cjs`, `test/mutation-record.ts`, `.mocharc.json`, `tsconfig.json`, `tsconfig.check.json` — not a comments-only diff | `mutation-full` |
-| any `.ts` in `src/` or `test/` — not a comments-only `.ts` diff, unless `mutation-full` is on | `mutation` |
+| any `.ts` in `src/` or `test/` — not a comments-only `.ts` diff | `mutation` |
 | any `*.md`, including `docs/**` and `.claude/**` | `docs` |
 
 `build` and `typecheck` go on together, and neither replaces the other. The targets use
@@ -59,14 +59,14 @@ decide who gets `CompileError` (`docs/architecture/testing.md`, "The type checke
 grammY update made the `from` field required: the mutant `ctx.from?.language_code` in
 `src/telegram/locale/locale.ts` would start to compile, reach the tests and survive. It would
 turn red on the next PR that touches that file. The owner (2026-09-21) chose to catch such a
-survivor with that next PR: a full run costs 15+ minutes per review round, and paying that for
-every dependency update costs more.
+survivor with that next PR: a full run then cost 15+ minutes per review round, and paying that for
+every dependency update cost more.
 
 The `Makefile` is not written into the `mutation-full` row by name. `make up`, `make logs` and
-the other targets do not touch the run, and by file name any change to them would pull a full
-run: minutes on every round. Decide by the content of the change, as with `package.json`, and
-read the file's diff: the recipe of the `mutation` target or a variable it expands
-(`DC_APP_RUN`, `FILES`) touched — `mutation-full` too. The recipe is the launch. It sets
+the other targets do not touch the run, and by file name any change to them would take a place in
+a batch of the full run (below) for nothing. Decide by the content of the change, as with
+`package.json`, and read the file's diff: the recipe of the `mutation` target or a variable it
+expands (`DC_APP_RUN`, `FILES`) touched — `mutation-full` too. The recipe is the launch. It sets
 `TSX_TSCONFIG_PATH=./tsconfig.check.json`, by which the type checker decides which mutant gets
 `CompileError`. It sets `MUTATE` from `files`. It holds the wrapper command itself,
 `node --require tsx/cjs test/mutation-record.ts`. Changing any of them changes the outcome of
@@ -76,8 +76,8 @@ A comments-only diff of the files in the `mutation-full` row leaves the gate off
 diff, as with `package.json` and the `Makefile` above. A comment is neither an option the
 runner reads nor an input of the type checker. None of these files is mutated either: `mutate`
 in `stryker.config.mjs` admits only globs that hit a `.ts` under `src/`, and checks that. So a
-comment changes the outcome of no mutant, while the gate costs the whole `src/`: minutes on
-every round. The gate still goes on for:
+comment changes the outcome of no mutant, while the gate takes a place in a batch of the full
+run. The gate still goes on for:
 
 - a changed option, path, glob, argument or string literal;
 - a hunk that touches a comment and code on the same line;
@@ -178,17 +178,27 @@ comments only" is already computed by the choice of depth (`/review-pr`, step 3)
 of it would drift from this one silently: both files would still read coherently, and the
 boundary would move in only one of them.
 
-`mutation` and `mutation-full` are the second such pair: both run `make mutation` and differ
-in area. `mutation` mutates the code the PR touched: a survivor sits on the author's line, and
-the run takes seconds. The area is assembled by `make mutation-area` over the PR tree
-(`scripts/review/mutation_area.py` holds the rule): it needs the PR's code, while the table
-sees only file names, and it leaves out a file whose diff changes only comments.
-`mutation-full` is turned on by the run's tools, and it mutates the whole of `src/`. Changing the
-tools changes the run of every mutant, not of the diff's lines, and a PR that changes only the
-tools has an empty area from its diff. The tsconfigs and `typescript` are tools too: by them the
-type checker decides which mutant gets `CompileError` and which goes to the tests
-(`docs/architecture/testing.md`, "The type checker"). On other PRs the whole of `src/` is not
-run: that is minutes on every round for lines the PR did not touch.
+`mutation` and `mutation-full` are a pair too, but they accumulate. `mutation` mutates the code
+the PR touched: a survivor sits on the author's line, and the run takes seconds. The area is
+assembled by `make mutation-area` over the PR tree (`scripts/review/mutation_area.py` holds the
+rule): it needs the PR's code, while the table sees only file names, and it leaves out a file whose
+diff changes only comments.
+
+`mutation-full` is turned on by the run's tools. Changing the tools changes the run of every
+mutant, not of the diff's lines, and a PR that changes only the tools has an empty area from its
+diff. The tsconfigs and `typescript` are tools too: by them the type checker decides which mutant
+gets `CompileError` and which goes to the tests (`docs/architecture/testing.md`, "The type
+checker"). The gate runs no mutants in the PR, though: the whole of `src/` takes 15+ minutes, and
+the PR would pay that on every review round. The issue the PR closes is recorded in a batch
+instead, and the whole of `src/` runs once per batch. The author records it after the PR is created
+(`make mutation-full-record issue=<N> pr=<N>`), and the review checks the record
+(`make mutation-full-check pr=<N>`): an issue that is not recorded is red. How a batch is kept is
+in the docstring of `scripts/review/mutation_batch.py`. The PR's own `.ts` still go through
+`mutation`: the batch runs after the merge, and a survivor on the author's line is cheaper to
+catch in the PR.
+
+The price of the batch: a PR that changes only the tools has an empty area and runs no mutants at
+all. If it breaks the run itself (a Stryker update, say), that shows only in the batch run.
 
 With the `rebuild` gate on, the image is rebuilt **before** the other checks. Otherwise new
 code is checked against old dependencies and an old config, and a green result means nothing.
@@ -215,8 +225,7 @@ one of three gates on — the record is stale:
 
 None of the three — the run is not repeated: neither by the author after the push nor by the
 reviewer under the gate. Otherwise a review fix that touched only documentation would cost the
-round two runs of the same area, and a full run is minutes
-(`docs/architecture/testing.md`, "The type checker").
+round two runs of the same area.
 
 The diff here is between the record's head and the PR head (for the author, their `HEAD` once
 pushed), and `make mutation-record` lists it. Condition 1 of the docstring of

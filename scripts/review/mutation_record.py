@@ -1,10 +1,11 @@
 """Decides whether the last mutation run record in a PR replaces the reviewer's own run.
 
 `make mutation` writes a run record (test/mutation-record.ts writes it, the format is in
-docs/architecture/testing.md, "The run record"), the author publishes it in the PR, and a review
-gate `mutation` or `mutation-full` may take it instead of running the target itself (the
-pr-light-check skill). The reviewer's record of an earlier round lies in the same thread and is
-taken on a par with the author's: the account is the same, and the two cannot be told apart.
+docs/architecture/testing.md, "The run record"), the author publishes it in the PR, and the review
+gate `mutation` may take it instead of running the target itself (the pr-light-check skill). The
+`mutation-full` gate takes no record: it runs no mutants in review (mutation_batch.py). The
+reviewer's record of an earlier round lies in the same thread and is taken on a par with the
+author's: the account is the same, and the two cannot be told apart.
 
 The record is the last comment of the PR that starts with the marker `<!-- mutation-record ` and
 was written by the account gh works as (`gh api user`). The wrapper always writes the marker as the
@@ -32,16 +33,14 @@ It is accepted when all four conditions hold:
 2. `clean=yes`: a run on a dirty tree checked something other than the commit.
 3. The run reached the report and its area is the gate's:
    - `score` is not `none`: without the report there are no mutants to judge by.
-   - The scope matches the gate: `scope=full` under `mutation-full`, `scope=files` under
-     `mutation`. A full record is not taken under `mutation` although its area covers: the outcome
-     is the exit code of the whole run, so a survivor in a file the PR did not touch would paint
-     the gate red, and an area without mutants would give `ok` instead of `n-a`. The reviewer's own
-     run of the area takes seconds.
-   - Under `mutation`, every file of the area is in the record, among the mutated files or as a
-     path in `files`. The second counts because a file without a single mutant never gets into the
-     Stryker report: a file of types alone is visible in the record only as a named path. A file
-     that got into the run through a glob and has no mutants is visible nowhere, and the record is
-     refused.
+   - `scope=files`. A full record is not taken although its area covers: the outcome is the exit
+     code of the whole run, so a survivor in a file the PR did not touch would paint the gate red,
+     and an area without mutants would give `ok` instead of `n-a`. The reviewer's own run of the
+     area takes seconds.
+   - Every file of the area is in the record, among the mutated files or as a path in `files`. The
+     second counts because a file without a single mutant never gets into the Stryker report: a
+     file of types alone is visible in the record only as a named path. A file that got into the
+     run through a glob and has no mutants is visible nowhere, and the record is refused.
    - The list of survivors is not cut off by the wrapper's `…and N more` line: the rest lies only on
      the machine of the run, and a red gate is repeated on every file with survivors.
 4. The `rebuild` gate is off: the author's run may have gone on an old image.
@@ -73,8 +72,7 @@ from typing import List, NamedTuple, Optional, Tuple
 from tree_remove import Run, reason
 
 PR_NUMBER = re.compile(r"[1-9][0-9]*")
-GATES = ("mutation", "mutation-full")
-SCOPES = {"mutation": "files", "mutation-full": "full"}
+SCOPE = "files"
 # The gates of the table that stale a record (docs/agents/review-gates.md, "Changes that affect the
 # mutation run"). The names only: which files turn them on is the table's.
 STALING = "rebuild, mutation, mutation-full"
@@ -197,9 +195,7 @@ def changed_between(old: str, new: str, run: Run) -> List[str]:
     return [line for line in done.stdout.splitlines() if line]
 
 
-def reasons_against(
-    record: Record, gate: str, area: List[str], rebuild: bool
-) -> List[str]:
+def reasons_against(record: Record, area: List[str], rebuild: bool) -> List[str]:
     """Conditions 2-4; condition 1 needs git and is decided by the caller."""
     reasons = []
     if record.clean != "yes":
@@ -208,21 +204,20 @@ def reasons_against(
         )
     if record.score == "none":
         reasons.append("score=none: the run broke off before the report")
-    if record.scope != SCOPES[gate]:
+    if record.scope != SCOPE:
         reasons.append(
-            "scope={} under the {} gate: the record's area is not the gate's".format(
-                record.scope, gate
+            "scope={} under the mutation gate: the record's area is not the gate's".format(
+                record.scope
             )
         )
-    if gate == "mutation":
-        seen = set(record.files) | set(record.mutated)
-        missing = [file for file in area if file not in seen]
-        if missing:
-            reasons.append(
-                "the record has neither among the mutated files nor in files: {}".format(
-                    " ".join(missing)
-                )
+    seen = set(record.files) | set(record.mutated)
+    missing = [file for file in area if file not in seen]
+    if missing:
+        reasons.append(
+            "the record has neither among the mutated files nor in files: {}".format(
+                " ".join(missing)
             )
+        )
     if any(CUT_OFF.match(line) for line in record.survivors):
         reasons.append(
             "the list of survivors is cut off: the rest lies only on the machine of the run"
@@ -252,9 +247,7 @@ def print_run(record: Record, pr_head: str) -> None:
         print(line)
 
 
-def mutation_record(
-    pr: str, gate: str, area: List[str], rebuild: bool, run: Run = subprocess.run
-) -> int:
+def mutation_record(pr: str, area: List[str], rebuild: bool, run: Run = subprocess.run) -> int:
     try:
         pr_head, comment = last_record(pr, run)
         if comment is None:
@@ -265,7 +258,7 @@ def mutation_record(
             print("refused: {}".format(comment["url"]))
             print("- the marker is not the wrapper's: {}".format(comment["body"].splitlines()[0]))
             return 0
-        reasons = reasons_against(record, gate, area, rebuild)
+        reasons = reasons_against(record, area, rebuild)
         changed: Optional[List[str]] = None
         if record.head != pr_head:
             if record.head == "unknown" or not is_commit(record.head, run):
@@ -297,29 +290,20 @@ def mutation_record(
     return 0
 
 
-USAGE = (
-    "usage: make mutation-record pr=<N> gate=mutation|mutation-full "
-    '[area="<paths>"] [rebuild=1]\n'
-    "area is required under mutation and not taken under mutation-full"
-)
+USAGE = 'usage: make mutation-record pr=<N> area="<paths>" [rebuild=1]'
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    # The make target passes all four in a fixed order, the empty ones as empty strings.
+    # The make target passes all three in a fixed order, the empty ones as empty strings.
     args = sys.argv[1:] if argv is None else argv
-    if len(args) != 4:
+    if len(args) != 3:
         print(USAGE, file=sys.stderr)
         return 2
-    pr, gate, area, rebuild = args[0], args[1], args[2].split(), args[3]
-    if (
-        not PR_NUMBER.fullmatch(pr)
-        or gate not in GATES
-        or bool(area) != (gate == "mutation")
-        or rebuild not in ("", "1")
-    ):
+    pr, area, rebuild = args[0], args[1].split(), args[2]
+    if not PR_NUMBER.fullmatch(pr) or not area or rebuild not in ("", "1"):
         print(USAGE, file=sys.stderr)
         return 2
-    return mutation_record(pr, gate, area, rebuild == "1")
+    return mutation_record(pr, area, rebuild == "1")
 
 
 if __name__ == "__main__":

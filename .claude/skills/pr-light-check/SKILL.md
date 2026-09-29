@@ -74,12 +74,13 @@ make review-run pr=<N> gates="<the gates>" [flags="--no-post"]
 
 The target takes minutes, longer than the limit of one command. Run it in the background, do step 3
 while it goes and read the report on completion. It takes the head of the PR into a temporary tree,
-runs the gates it knows there, checks the author's mutation run record and removes the tree whatever
-the outcome. What it runs, in which order and why is in the docstring of
-`scripts/review/review_run.py`. The report:
+runs the gates it knows there, checks the author's mutation run record, checks under `mutation-full`
+that the PR's issue is recorded in a batch, and removes the tree whatever the outcome. What it runs,
+in which order and why is in the docstring of `scripts/review/review_run.py`. The report:
 
 - `Head:` — the commit the gates ran on.
-- `Checks` — the gates line and the `mutation:` line go into the verdict as they are.
+- `Checks` — the gates line and the `mutation:` and `mutation-full:` lines go into the verdict as
+  they are.
 - `Not run: <checks> — <reason>` — into the report as it is.
   - A reason that ends in `by fallback.md` leaves the check to you (step 2).
   - `the tree was not created` with `no .env` among the reasons means that `make worktree-init` is
@@ -125,6 +126,14 @@ came from and why the record was not accepted. It says "accepted record" and giv
 than naming the author. The reviewer's record of the previous round lies in the same thread and is
 accepted on a par with the author's, and the author's comment cannot be told from it: the account is
 the same.
+
+The `mutation-full` gate runs no mutants: its full run goes once per batch of recorded issues
+(`docs/agents/review-gates.md`, the paragraph on `mutation` and `mutation-full`). Its line:
+
+- `ok — recorded: …` — the issue the PR closes is recorded in a batch.
+- `fail — not recorded: …` — red brought by this PR, and it stands in `Red` too.
+- `n-a — the batch was not checked` — the verdict is BLOCKED, as with an area that was not
+  assembled: nobody checked that the change reaches a full run.
 
 ## Step 2. The checks the run leaves to you
 

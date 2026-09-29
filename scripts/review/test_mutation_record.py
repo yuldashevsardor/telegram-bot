@@ -145,10 +145,10 @@ class ParseTest(unittest.TestCase):
 
 
 class MutationRecordTest(unittest.TestCase):
-    def answer(self, run, gate="mutation", area=AREA_524, rebuild=False):
+    def answer(self, run, area=AREA_524, rebuild=False):
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), redirect_stderr(err):
-            code = mutation_record.mutation_record("524", gate, area, rebuild, run)
+            code = mutation_record.mutation_record("524", area, rebuild, run)
         return code, out.getvalue().splitlines(), err.getvalue()
 
     def test_the_record_of_pr_524_is_accepted(self):
@@ -166,7 +166,7 @@ class MutationRecordTest(unittest.TestCase):
             ],
         )
 
-    def test_the_author_record_of_pr_502_is_refused_for_the_reasons_of_its_review(self):
+    def test_the_full_record_of_pr_502_is_refused_under_the_mutation_gate(self):
         run = FakeRun(
             [comment(PR_502, URL_502)],
             head=HEAD_502,
@@ -174,13 +174,16 @@ class MutationRecordTest(unittest.TestCase):
             changed=CHANGED_502,
         )
 
-        code, lines, _ = self.answer(run, gate="mutation-full", area=[], rebuild=True)
+        code, lines, _ = self.answer(
+            run, area=["src/telegram/outbound-queue/task-queue.ts"], rebuild=True
+        )
 
         self.assertEqual(code, 0)
         self.assertEqual(
-            lines[:3],
+            lines[:4],
             [
                 "refused: " + URL_502,
+                "- scope=full under the mutation gate: the record's area is not the gate's",
                 "- the rebuild gate is on: the run may have gone on an old image",
                 "changed between the record's head {} and the PR head {}:".format(
                     RECORD_HEAD_502, HEAD_502
@@ -327,22 +330,11 @@ class MutationRecordTest(unittest.TestCase):
             lines, ["refused: " + URL_524, "- score=none: the run broke off before the report"]
         )
 
-    def test_condition_3_a_full_record_is_not_taken_under_mutation(self):
+    def test_condition_3_a_full_record_is_not_taken(self):
         _, lines, _ = self.answer(FakeRun([comment(marker(PR_524, scope="full"))]))
 
         self.assertIn(
             "- scope=full under the mutation gate: the record's area is not the gate's", lines
-        )
-
-    def test_condition_3_a_files_record_is_not_taken_under_mutation_full(self):
-        _, lines, _ = self.answer(FakeRun([comment(PR_524)]), gate="mutation-full", area=[])
-
-        self.assertEqual(
-            lines,
-            [
-                "refused: " + URL_524,
-                "- scope=files under the mutation-full gate: the record's area is not the gate's",
-            ],
         )
 
     def test_condition_3_a_file_of_the_area_missing_from_the_record_is_refused(self):
@@ -488,12 +480,11 @@ class MainTest(unittest.TestCase):
 
     def test_the_arguments_are_checked(self):
         for args in (
-            ("524", "mutation", "src/a.ts"),
-            ("0", "mutation", "src/a.ts", ""),
-            ("524", "full", "", ""),
-            ("524", "mutation", "", ""),
-            ("524", "mutation-full", "src/a.ts", ""),
-            ("524", "mutation-full", "", "yes"),
+            ("524", "src/a.ts"),
+            ("0", "src/a.ts", ""),
+            ("524", "", ""),
+            ("524", "src/a.ts", "yes"),
+            ("524", "mutation", "src/a.ts", ""),
         ):
             code, err = self.usage(*args)
 

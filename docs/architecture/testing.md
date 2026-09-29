@@ -181,11 +181,11 @@ mutant in the area, and Stryker prints `Final mutation score <score> under break
 and exits with an error. Why 100 and not 99 is in a comment there.
 
 Any `make mutation` checks the threshold: working through an area, the run of the author before a
-PR (`.claude/commands/solve-issue.md`), and the `mutation` and `mutation-full` gates of PR review
-(`docs/agents/review-gates.md`). Under those gates `pr-light-check` runs the target over the area of
-the diff or over the whole of `src/`, or else accepts the run record of the author ("The run
-record" below). While the area holds a survivor nobody has worked through, a run over it stays red.
-That is a sign of unfinished work, not a failure.
+PR (`.claude/commands/solve-issue.md`), the `mutation` gate of PR review and the full run of a
+batch (`docs/agents/review-gates.md`, the paragraph on `mutation` and `mutation-full`). Under the
+gate `pr-light-check` runs the target over the area of the diff, or else accepts the run record of
+the author ("The run record" below). While the area holds a survivor nobody has worked through, a
+run over it stays red. That is a sign of unfinished work, not a failure.
 
 An area without a single mutant in the score is invisible to the threshold: the run is green having
 checked nothing. Such an area has no code, only errors (`CompileError`, `RuntimeError`), or only
@@ -213,8 +213,8 @@ rules of acceptance are in the docstring of `scripts/review/mutation_record.py`,
   will not accept a record without a commit, and the cleanliness of the tree decides nothing in it.
 - That the substitutions yield exactly these values is checked by the review of a PR that touches
   the recipe (`.claude/skills/pr-light-check/fallback.md`, the `make-targets` gate). Expanding the
-  recipe is not enough: `make -n` does not execute the counting chain. Nor does a run under
-  `mutation-full` show it: it goes on a clean tree, where `clean=yes` is expected anyway.
+  recipe is not enough: `make -n` does not execute the counting chain. Nor does a run in review
+  show it: it goes on a clean tree of the PR head, where `clean=yes` is expected anyway.
 - `scope=full` means `files` was not passed and the whole of `src/` was mutated.
 - `exit` is the exit code of `npm run mutation`, or `128 + the signal number` if that died from a
   signal. When Stryker itself dies from a signal (OOM), npm outlives it and returns an ordinary

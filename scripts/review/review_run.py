@@ -10,16 +10,20 @@ code under review. It runs, in this order:
 2. The container gates, each a plain `make` call in the tree of the PR. `rebuild` goes first: the
    throwaway container takes the ready image, and without a rebuild new code is checked against old
    dependencies and an old config, and a green result means nothing. For the same reason a failed
-   `rebuild` stops the other container gates, the mutation gates among them: on the old image they
+   `rebuild` stops the other container gates, the `mutation` gate among them: on the old image they
    would give a green that checked nothing, or `Missing script` on a script the PR adds.
 3. The `python` gate, `make review-test` in the tree of the PR: the gate checks the PR's specs.
-4. The mutation gates. The area comes from `make mutation-area pr=<N> tree=<the tree>`
+4. The `mutation` gate. The area comes from `make mutation-area pr=<N> tree=<the tree>`
    (mutation_area.py), the author's record is checked by `make mutation-record`
-   (mutation_record.py), both called here. An accepted record gives the `mutation:` line; a record accepted on condition 1
-   hands the reviewer the files to apply the table to; a refused record leaves the gate to the
-   reviewer's own run of the skill's fallback.md. The new `Stryker disable` marks go to the
-   reviewer to read: whether the reason on a mark holds is prose ("Working through survivors" in
-   docs/architecture/testing.md), not a rule.
+   (mutation_record.py), both called here. An accepted record gives the `mutation:` line; a record
+   accepted on condition 1 hands the reviewer the files to apply the table to; a refused record
+   leaves the gate to the reviewer's own run of the skill's fallback.md. The new `Stryker disable`
+   marks go to the reviewer to read: whether the reason on a mark holds is prose ("Working through
+   survivors" in docs/architecture/testing.md), not a rule.
+   The `mutation-full` gate runs no mutants: `make mutation-full-check pr=<N>` (mutation_batch.py)
+   says whether the issue the PR closes is recorded in a batch of the deferred full run, and not
+   recorded is red. The check asks GitHub and not the code: it needs no tree, and neither a tree
+   that was not created nor a failed `rebuild` takes it away.
 5. `make review-tree-remove` whatever the outcome: a red gate, a stop and an interrupt included.
    SIGTERM and SIGHUP are turned into an interrupt, and run_in_group kills the command it waits for
    together with everything it started; the container of a gate `down --remove-orphans` takes
@@ -128,6 +132,7 @@ class Report:
         self.head: Optional[str] = None
         self.checks: "OrderedDict[str, str]" = OrderedDict()
         self.mutation: Optional[str] = None
+        self.mutation_full: Optional[str] = None
         self.area: List[str] = []
         self.not_run: "OrderedDict[str, List[str]]" = OrderedDict()
         self.not_cleaned: List[str] = []
@@ -146,6 +151,8 @@ class Report:
             print(" · ".join("{}: {}".format(gate, state) for gate, state in self.checks.items()))
         if self.mutation:
             print(self.mutation)
+        if self.mutation_full:
+            print(self.mutation_full)
         for why, checks in self.not_run.items():
             print("Not run: {} — {}".format(", ".join(checks), why))
         for line in self.not_cleaned:
@@ -354,13 +361,12 @@ class ReviewRun:
         self.report.area = area
         return area
 
-    def record(self, gate: str, area: List[str]) -> None:
+    def record(self, area: List[str]) -> None:
         done = self.run(
             [
                 "make",
                 "mutation-record",
                 "pr=" + self.pr,
-                "gate=" + gate,
                 "area=" + " ".join(area),
                 "rebuild=" + ("1" if self.on("rebuild") else ""),
             ],
@@ -419,8 +425,9 @@ class ReviewRun:
             state = "ok"
         else:
             state = "fail"
-        where = "the whole src/" if gate == "mutation-full" else " ".join(area)
-        line = "mutation: {} — {}, {} · accepted record, {}".format(state, score, where, url)
+        line = "mutation: {} — {}, {} · accepted record, {}".format(
+            state, score, " ".join(area), url
+        )
         if "not the PR head" in head:
             earlier = head.split(" ", 1)[0][:7]
             if conditional:
@@ -454,19 +461,44 @@ class ReviewRun:
             return
         self.report.marks = new_marks(done.stdout or "")
 
-    def mutation_gate(self, gate: str, stopped: Optional[str]) -> None:
-        area: List[str] = []
-        if gate == "mutation":
-            # The area is read from the tree of the PR; the record of mutation-full needs no tree.
-            if stopped:
-                self.report.mutation = "mutation: n-a — {}".format(stopped)
-                return
-            found = self.area()
-            if found is None:
-                return
-            area = found
-        self.record(gate, area)
+    def mutation_gate(self, stopped: Optional[str]) -> None:
+        # The area is read from the tree of the PR.
+        if stopped:
+            self.report.mutation = "mutation: n-a — {}".format(stopped)
+            return
+        area = self.area()
+        if area is None:
+            return
+        self.record(area)
         self.marks()
+
+    def batch(self) -> None:
+        done = self.run(
+            ["make", "mutation-full-check", "pr=" + self.pr],
+            cwd=self.here,
+            capture_output=True,
+            text=True,
+            errors="replace",
+        )
+        log = os.path.join(self.logs, "mutation-full-check.log")
+        with open(log, "w", encoding="utf-8") as file:
+            file.write(captured(done))
+        answer = next((line for line in (done.stdout or "").splitlines() if line.strip()), "")
+        if done.returncode != 0 or not answer:
+            stopped = [
+                line[len("Stopped: ") :]
+                for line in (done.stderr or "").splitlines()
+                if line.startswith("Stopped: ")
+            ]
+            self.report.mutation_full = "mutation-full: n-a — the batch was not checked: {}".format(
+                stopped[-1] if stopped else reason(done)
+            )
+            return
+        if answer.startswith("recorded: "):
+            self.report.mutation_full = "mutation-full: ok — " + answer
+            return
+        self.report.mutation_full = "mutation-full: fail — " + answer
+        self.report.red.append("- make mutation-full-check — " + answer)
 
     def execute(self) -> None:
         for gate in self.gates:
@@ -474,13 +506,12 @@ class ReviewRun:
                 self.report.skip(gate, BY_SKILL_REASON)
             elif gate not in KNOWN and gate not in READING:
                 self.report.skip(gate, "the review run does not know this gate")
-        # The table turns mutation on unless mutation-full is: the whole of src/ covers any area.
-        mutation = next((g for g in ("mutation-full", "mutation") if self.on(g)), None)
+        mutation = self.on("mutation")
         in_tree = [gate for gate, _ in CONTAINER if self.on(gate)]
         if self.on("python"):
             in_tree.append("python")
         stopped = None
-        if in_tree or mutation == "mutation":
+        if in_tree or mutation:
             if not self.on("rebuild"):
                 self.report.checks["rebuild"] = "not needed"
             stopped = self.create_tree()
@@ -492,12 +523,13 @@ class ReviewRun:
             self.container_gates()
             if self.on("python"):
                 self.python_gate()
-            if self.report.checks.get("rebuild") == "fail":
-                if mutation:
-                    self.report.mutation = "mutation: n-a — rebuild failed"
-                return
-        if mutation:
-            self.mutation_gate(mutation, stopped)
+        if self.report.checks.get("rebuild") == "fail":
+            if mutation:
+                self.report.mutation = "mutation: n-a — rebuild failed"
+        elif mutation:
+            self.mutation_gate(stopped)
+        if self.on("mutation-full"):
+            self.batch()
 
     def interrupted(self) -> None:
         """Gives every gate without a line n-a and finds the tree an interrupted creation left."""
@@ -508,8 +540,10 @@ class ReviewRun:
             if self.on(gate) and gate not in self.report.checks:
                 self.report.checks[gate] = "n-a"
                 self.report.skip(gate, why)
-        if (self.on("mutation") or self.on("mutation-full")) and self.report.mutation is None:
+        if self.on("mutation") and self.report.mutation is None:
             self.report.mutation = "mutation: n-a — {}".format(why)
+        if self.on("mutation-full") and self.report.mutation_full is None:
+            self.report.mutation_full = "mutation-full: n-a — {}".format(why)
         # Only a creation this run began and the interrupt cut short can have left a tree it does not
         # know of: whatever lies at the path otherwise is somebody else's, and the next
         # review-tree-create removes a leftover.

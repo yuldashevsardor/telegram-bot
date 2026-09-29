@@ -61,7 +61,7 @@ Then the "Workflow" of `CLAUDE.md`, with no exceptions:
 3. Edits, `make check`, `git status -sb`, commit, mutation run, push.
 4. A PR into `main` with the issue link; how to write it is in `docs/agents/issue-tracker.md`.
    Without the link the review gives BLOCKED. Right after the PR, post the mutation run record in
-   it (below).
+   it, and record the issue in a batch if the change turned on `mutation-full` (below).
 
 All further commands run in the task worktree.
 
@@ -75,12 +75,20 @@ is not part of `make check`: there it would go on every edit.
   the candidates from `git diff --name-only origin/main...HEAD` instead of the PR diff.
 - Pass the area as paths, not as a glob.
 - An empty output is an empty area. Its stderr says why.
-- The change turned on the `mutation-full` gate (`docs/agents/review-gates.md`) — run
-  `make mutation` without `files`.
 
-While the run goes, run nothing else; the reviewer does the same on `mutation-full`. Under load a
-mutant's status lies both ways (`docs/architecture/testing.md`, "Timeouts and errors"), and the
-review reuses your run.
+While the run goes, run nothing else; the reviewer does the same. Under load a mutant's status lies
+both ways (`docs/architecture/testing.md`, "Timeouts and errors"), and the review reuses your run.
+
+The change turned on the `mutation-full` gate (`docs/agents/review-gates.md`) — the run above stays
+as it is, and the whole of `src/` is not run. Record the issue in a batch of the deferred full run
+once the PR exists, after the push that turned the gate on:
+
+```bash
+make mutation-full-record issue=<N> pr=<PR>
+```
+
+A repeat call records nothing twice. Without the record the review gives red: it checks the batch,
+not a run.
 
 ### The run record
 
@@ -102,8 +110,8 @@ affect the run. Then the target does not run and no new record is posted: the re
 same one (`docs/agents/review-gates.md`, "Changes that affect the mutation run"). A record of the
 reviewer's serves as well: it lies in the same thread, and the same rule applies to it.
 
-`make mutation-record pr=<PR> gate=<the gate> [area="<the area>"]` answers this against the PR
-head. So once the PR exists, the order is:
+`make mutation-record pr=<PR> area="<the area>"` answers this against the PR head. So once the PR
+exists, the order is:
 
 1. push;
 2. `make mutation-record`;
