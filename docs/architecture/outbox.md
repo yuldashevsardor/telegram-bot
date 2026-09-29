@@ -120,37 +120,26 @@ The two decisions that need no database are pure functions, so mutation testing 
 
 ### Error classes
 
-`classifyBotApiFailure(error)` (`bot-api-failure.ts`) sorts a failed Bot API call into the classes
-of the epic ([#618](https://github.com/yuldashevsardor/telegram-bot/issues/618), "Error
-classes"), which also says what the outbox does with each:
+`classifyBotApiFailure(error)` (`bot-api-failure.ts`) sorts a failed Bot API call into the four
+classes of the epic ([#618](https://github.com/yuldashevsardor/telegram-bot/issues/618), "Error
+classes"), the `BotApiFailureKind` values. Which error falls into which class is read off the
+branches of the function. What the code does not say is why three of them are drawn where they
+are:
 
-| `BotApiFailureKind` | the error |
-|---|---|
-| `Transient` | grammY's `HttpError` (the request did not reach Telegram or the answer did not come back); a `GrammyError` with a code from 500 to 599 |
-| `Flood` | a `GrammyError` 429; the result carries `retryAfterSeconds` |
-| `Undeliverable` | a `GrammyError` 403, whatever its description; a `GrammyError` 400 whose description is exactly `Bad Request: chat not found` |
-| `Unexpected` | any other `GrammyError`, and anything that is not a grammY error |
-
-A 429 whose `retry_after` is missing, not a finite number or not positive gets
-`DEFAULT_RETRY_AFTER_SECONDS`: a zero pause would retry at once into the same 429.
-
-Every 403 is `Undeliverable`, not only the bot blocked or kicked: a 403 is Telegram refusing the
-bot this chat, and a retry does not change that. A 400 is matched by its description, because 400
-is also the code of a malformed call, which is a bug and must block the chat. A description
-Telegram rewords falls to `Unexpected` and blocks the chat: the safe side.
-
-A lost database connection is not a Bot API error and is not classified here: the outcome of such
-a send cannot be written anyway, and the recovery of an expired lease takes the message back.
+- Every 403 is `Undeliverable`, not only the bot blocked or kicked: a 403 is Telegram refusing the
+  bot this chat, and a retry does not change that.
+- A 400 is `Undeliverable` only by its description, because 400 is also the code of a malformed
+  call, which is a bug and must block the chat. A description Telegram rewords falls to
+  `Unexpected` and blocks the chat: the safe side.
+- A lost database connection is not a Bot API error and is not classified here: the outcome of
+  such a send cannot be written anyway. The recovery of an expired lease is to take such a message
+  back; it is not written yet ([#672](https://github.com/yuldashevsardor/telegram-bot/issues/672)).
 
 ### Retry delay
 
-`computeRetryDelayMs(countedAttempts, settings, random)` (`retry-delay.ts`) is how long a message
-waits before its retry after a transient failure. `countedAttempts` counts the attempts that count
-towards `maxAttempts`, the failed one included, so it starts at 1; a 429 is not counted. The step
-is `firstDelayMs` doubled with every further counted attempt and capped by `maxDelayMs`. The delay
-is a random point of the upper half of the step, the capped steps included, so chats that failed
-together in a Telegram outage do not come back at the same moment, and a retry never comes sooner
-than half the step. `random` defaults to `Math.random`; the spec passes a fixed one.
+`computeRetryDelayMs()` (`retry-delay.ts`) is how long a message waits before its retry after a
+transient failure. The step, its cap, the jitter and why the jitter takes the upper half of the
+step are in the comment above the function.
 
 ## The payload rule
 

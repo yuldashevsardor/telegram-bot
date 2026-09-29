@@ -1,9 +1,5 @@
 import { GrammyError, HttpError } from "grammy";
 
-// The Bot API always sends retry_after with a 429. If it is missing or unreadable, the pause must
-// still be non-zero, or the outbox would retry at once and run into the same 429.
-const DEFAULT_RETRY_AFTER_SECONDS = 1;
-
 const BAD_REQUEST = 400;
 const FORBIDDEN = 403;
 const TOO_MANY_REQUESTS = 429;
@@ -23,6 +19,12 @@ function readRetryAfterSeconds(error: GrammyError): number {
 
     return retryAfterSeconds;
 }
+
+// The Bot API always sends retry_after with a 429. If it is missing or unreadable, the pause must
+// still be non-zero, or the outbox would retry at once and run into the same 429. The outbound
+// queue has a constant of the same name and parses retry_after the same way; the outbox keeps its
+// own because it replaces that queue, and the queue's copy goes with it.
+export const DEFAULT_RETRY_AFTER_SECONDS = 1;
 
 // The classes of a failed Bot API call. What the outbox does with each is decided by its caller.
 export enum BotApiFailureKind {
@@ -69,5 +71,3 @@ export function classifyBotApiFailure(error: unknown): BotApiFailure {
 
     return { kind: BotApiFailureKind.Unexpected };
 }
-
-export { DEFAULT_RETRY_AFTER_SECONDS };
