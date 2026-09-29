@@ -13,13 +13,6 @@ import { InvalidPath } from "app/shared/fs/file-helper.errors";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
-const UTF8_BOM = Uint8Array.from([0xef, 0xbb, 0xbf]);
-const UTF16LE_BOM = Uint8Array.from([0xff, 0xfe]);
-const UTF16BE_BOM = Uint8Array.from([0xfe, 0xff]);
-const XML_DECLARATION_LINE = /^<\?xml [^>]*>\n/;
-const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
-const SVG_XMLNS = ` xmlns="${SVG_NAMESPACE}"`;
-
 // The pairs without EOT run on the real fontforge from the image. Such a pair has no logic of its
 // own beyond the input check and the engine call. A stub engine would confirm only the call, not
 // that the pair is reachable. Each pair calls the check itself, so a rejection is pinned for each.
@@ -76,59 +69,17 @@ describe("Convertors of the engine pairs", function () {
         await resolver.get(Extension.SVG).validate(toPath);
     });
 
-    // The validator decides which SVG files are fonts, and the engine has to convert every one it
-    // admits. The variants of the fixture are the ones the validator spec accepts, built the same way.
-    describe("converts an svg SvgFontValidator accepts", function () {
-        let fixtureText: string;
-
-        before(async function () {
-            fixtureText = await fs.readFile(path.join(fixtureDir, `test-font.${Extension.SVG}`), "utf8");
-            // Without these a variant that removes them would be the fixture itself.
-            expect(fixtureText, "the svg fixture does not open with the XML declaration").to.match(XML_DECLARATION_LINE);
-            expect(fixtureText, "the svg fixture has no xmlns").to.include(SVG_XMLNS);
-        });
-
-        // The prologues of #196: a comment or a processing instruction may open a document without
-        // an XML declaration, a processing instruction also after an indent and with any target.
-        const prologues = ["<!-- editor -->", '\n<?xml-stylesheet href="a.css"?>', "<?sodipodi-namespace?>", "  <?xmlfoo bar?>"];
-        const variants: Array<{ description: string; build: (text: string) => string | Uint8Array }> = [
-            { description: "with a UTF-8 BOM", build: (text) => Buffer.concat([UTF8_BOM, Buffer.from(text, "utf8")]) },
-            { description: "in UTF-16LE with a BOM", build: (text) => Buffer.concat([UTF16LE_BOM, Buffer.from(text, "utf16le")]) },
-            {
-                description: "in UTF-16BE with a BOM",
-                build: (text) => Buffer.concat([UTF16BE_BOM, Buffer.from(text, "utf16le").swap16()]),
-            },
-            { description: "without the XML declaration", build: withoutDeclaration },
-            ...prologues.map((prologue) => ({
-                description: `opening with ${JSON.stringify(prologue)}`,
-                build: (text: string) => prologue + withoutDeclaration(text),
-            })),
-            { description: "in the SVG namespace bound to a prefix", build: withNamespacePrefix },
-            // The SVG 1.1 DTD fixes xmlns of svg to the SVG namespace.
-            { description: "without xmlns under the SVG 1.1 DOCTYPE", build: (text) => text.replace(SVG_XMLNS, "") },
-        ];
-
-        for (const variant of variants) {
-            for (const toExtension of nonSvgExtensions) {
-                it(`${variant.description} to ${toExtension}`, async function () {
-                    const fromPath = path.join(workDir, `source.${Extension.SVG}`);
-                    const toPath = path.join(workDir, `result.${toExtension}`);
-                    await fs.writeFile(fromPath, variant.build(fixtureText));
-
-                    await factory.get(Extension.SVG, toExtension).convert(fromPath, toPath);
-
-                    await resolver.get(toExtension).validate(toPath);
-                });
-            }
-        }
-    });
-
     // Some of the classes of source the validator admits beyond the fixture, each made from the
     // fixture. If the engine failed on one, the domain would accept a source and then fail in the
     // engine.
     const svgNamespaceDeclaration = 'xmlns="http://www.w3.org/2000/svg"';
     const svgDoctype = /<!DOCTYPE[^>]*>\s*/;
+    const xmlDeclarationLine = /^<\?xml [^>]*>\n/;
+    // The prologues of #196: a comment or a processing instruction may open a document without an
+    // XML declaration, a processing instruction also after an indent and with any target.
+    const prologues = ["<!-- editor -->", '\n<?xml-stylesheet href="a.css"?>', "<?sodipodi-namespace?>", "  <?xmlfoo bar?>"];
     const svgSources: Array<{ name: string; fromFixture: (fixtureText: string) => Uint8Array }> = [
+        { name: "with a UTF-8 BOM", fromFixture: (fixtureText) => Buffer.from("\uFEFF" + fixtureText) },
         { name: "in UTF-16LE with a BOM", fromFixture: (fixtureText) => Buffer.from("\uFEFF" + fixtureText, "utf16le") },
         { name: "in UTF-16BE with a BOM", fromFixture: (fixtureText) => Buffer.from("\uFEFF" + fixtureText, "utf16le").swap16() },
         {
@@ -157,6 +108,11 @@ describe("Convertors of the engine pairs", function () {
                 return Buffer.from(unboundText);
             },
         },
+        { name: "without the XML declaration", fromFixture: (fixtureText) => Buffer.from(withoutDeclaration(fixtureText)) },
+        ...prologues.map((prologue) => ({
+            name: `opening with ${JSON.stringify(prologue)}`,
+            fromFixture: (fixtureText: string) => Buffer.from(prologue + withoutDeclaration(fixtureText)),
+        })),
     ];
 
     const sourceModifiedAt = new Date("2020-01-01T00:00:00Z");
@@ -182,6 +138,27 @@ describe("Convertors of the engine pairs", function () {
             await factory.get(Extension.SVG, Extension.TTF).convert(fixturePath, fixtureResultPath);
             expect(await fs.readFile(toPath)).to.deep.equal(await fs.readFile(fixtureResultPath));
         });
+
+        // Every pair from SVG, EOT included, checks the source itself, so each has to take it. The
+        // result is checked by the validator of its format.
+        for (const toExtension of nonSvgExtensions) {
+            it(`converts svg ${svgSource.name} to ${toExtension}`, async function () {
+                const fixtureText = await fs.readFile(path.join(fixtureDir, `test-font.${Extension.SVG}`), "utf8");
+                const fromPath = path.join(workDir, `source.${Extension.SVG}`);
+                const toPath = path.join(workDir, `result.${toExtension}`);
+                await fs.writeFile(fromPath, svgSource.fromFixture(fixtureText));
+
+                await factory.get(Extension.SVG, toExtension).convert(fromPath, toPath);
+
+                await resolver.get(toExtension).validate(toPath);
+            });
+        }
+    }
+
+    function withoutDeclaration(fixtureText: string): string {
+        expect(fixtureText, "the svg fixture does not open with the XML declaration").to.match(xmlDeclarationLine);
+
+        return fixtureText.replace(xmlDeclarationLine, "");
     }
 
     function rejectionOf(call: () => Promise<unknown>): Promise<unknown> {
@@ -191,13 +168,3 @@ describe("Convertors of the engine pairs", function () {
         );
     }
 });
-
-function withoutDeclaration(fixtureText: string): string {
-    return fixtureText.replace(XML_DECLARATION_LINE, "");
-}
-
-// Every element of the fixture moves into the prefix s. An opening "<" is followed by a name only in
-// a tag: the DOCTYPE and the XML declaration open with "<!" and "<?", and no text holds a "<".
-function withNamespacePrefix(fixtureText: string): string {
-    return fixtureText.replace(/<(\/?)(?=[a-z])/g, "<$1s:").replace(SVG_XMLNS, ` xmlns:s="${SVG_NAMESPACE}"`);
-}
