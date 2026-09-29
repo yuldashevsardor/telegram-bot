@@ -5,9 +5,9 @@
  * (issue https://github.com/yuldashevsardor/telegram-bot/issues/181).
  *
  * One set serves two checks. `FontSignatureMatcher` matches the first four bytes of a source
- * under an sfnt extension against it. `SfntReader` checks the version before parsing the table
- * directory, and files that never passed the signature reach it too. The set must not become two
- * lists: a divergence breaks behaviour, not the build (docs/architecture/font-convertor.md,
+ * under an sfnt extension against it. `SfntTableDirectory` checks the version before parsing the
+ * table directory, and files that never passed the signature reach it too. The set must not become
+ * two lists: a divergence breaks behaviour, not the build (docs/architecture/font-convertor.md,
  * "Signatures").
  */
 export const SFNT_VERSIONS: ReadonlyArray<number> = [0x00010000, 0x74727565, 0x4f54544f];
