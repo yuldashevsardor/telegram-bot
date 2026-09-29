@@ -57,8 +57,8 @@ export class WoffFontValidator implements FontValidator {
         privOffset: 36,
         privLength: 40,
     };
-    // The offsets of the fields in a table directory entry (§5).
-    private static readonly ENTRY_FIELD_OFFSETS = { tag: 0, offset: 4, compLength: 8, origLength: 12, origChecksum: 16 };
+    // The offsets of the fields in a table directory entry (§5), after the tag that opens it.
+    private static readonly ENTRY_FIELD_OFFSETS = { offset: 4, compLength: 8, origLength: 12, origChecksum: 16 };
     private static readonly SFNT_HEADER_SIZE_BYTES = 12;
     private static readonly SFNT_TABLE_RECORD_SIZE_BYTES = 16;
     // Tables are aligned and padded to it (§5), and the private block is aligned (§8).
@@ -198,7 +198,7 @@ export class WoffFontValidator implements FontValidator {
             const fields = WoffFontValidator.ENTRY_FIELD_OFFSETS;
 
             entries.push({
-                tag: this.tag(view, entryOffset + fields.tag),
+                tag: this.tag(view, entryOffset),
                 offset: view.getUint32(entryOffset + fields.offset),
                 compLength: view.getUint32(entryOffset + fields.compLength),
                 origLength: view.getUint32(entryOffset + fields.origLength),
