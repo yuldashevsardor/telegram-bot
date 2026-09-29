@@ -105,13 +105,15 @@ The `mutation:` line needs reading in three cases:
   - The score `NaN` is `n-a` too: not a single mutant of the area got into the score, and the
     green exit checked nothing.
 - **The record is accepted on condition 1**: the run went on another commit whose tree differs.
-  Apply the table of `docs/agents/review-gates.md`, "Changes that affect the mutation run", to the
-  files under "Yours to read", as `/review-pr` applies it to the PR diff.
-  - Some rows are decided by content: `package.json`, `package-lock.json`, the `Makefile`, a tool
-    of the run or a `.ts` with their comments-only rule. For a file of such a row, read its hunk
-    with the command given under the list.
-  - None of the three gates on — the record is accepted. In the line, "if the table turns on none
-    of …" becomes "nothing under the mutation gates came in since".
+  Apply the `rebuild` and `mutation-full` rows of the table of `docs/agents/review-gates.md`,
+  "Changes that affect the mutation run", to the files under "Yours to read", as `/review-pr`
+  applies the table to the PR diff. The `mutation` row is decided already: a change that reaches
+  the record's area refuses it.
+  - Some rows are decided by content: `package.json`, `package-lock.json`, the `Makefile` or a tool
+    of the run with their comments-only rule. For a file of such a row, read its hunk with the
+    command given under the list.
+  - Neither gate on — the record is accepted. In the line, "if the table turns on none of …"
+    becomes "nothing under the mutation gates came in since".
   - One is on — your own run.
 - **A new mark.** Check its reason against "Working through survivors" in
   `docs/architecture/testing.md`: the mutant is equivalent, or the behaviour is not required and an
@@ -143,7 +145,7 @@ Read `fallback.md` next to this file when the report of step 1 has any of:
 - a `Not run` line whose reason ends in `by fallback.md`;
 - a `Red` section;
 - a `Not cleaned up:` or `Refused:` line;
-- a record accepted on condition 1 for which the table turns on one of its three gates.
+- a record accepted on condition 1 for which the table turns on `rebuild` or `mutation-full`.
 
 Its step 2 has a section for each such check, and its "Cleaning up the temporary trees" removes the
 trees that step creates. A report with none of them needs nothing from it.

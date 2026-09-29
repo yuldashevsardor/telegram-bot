@@ -21,7 +21,7 @@ export const Tokens = {
     },
     // The branches inside Font are named after the notions of the subject area (CONTEXT.md): the
     // format signature, the envelope, the conversion engine. `Validator` is the one role among them:
-    // the check of a source format, by the signature or, for SVG, by validating the document. A second
+    // the check of a source format, by the signature or by validating the whole file. A second
     // engine or a second codec of the envelope will lie next to its own notion, and not a single
     // @inject will move because of it.
     Font: {
@@ -35,6 +35,7 @@ export const Tokens = {
         Validator: {
             Resolver: Symbol.for("FontValidatorResolver"),
             Svg: Symbol.for("FontValidatorSvg"),
+            Woff: Symbol.for("FontValidatorWoff"),
         },
         Envelope: {
             Packer: Symbol.for("FontEnvelopePacker"),
@@ -57,6 +58,8 @@ export const Tokens = {
                 Waiter: Symbol.for("BotOutboxResultWaiter"),
                 Reader: Symbol.for("BotOutboxResultReader"),
             },
+            FailureHandler: Symbol.for("BotOutboxFailureHandler"),
+            ErrorSerializer: Symbol.for("BotOutboxErrorSerializer"),
         },
         ApiFailureClassifier: Symbol.for("BotApiFailureClassifier"),
         User: {

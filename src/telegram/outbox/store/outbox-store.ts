@@ -1,24 +1,38 @@
+import { randomUUID } from "node:crypto";
 import { inject, injectable } from "inversify";
-import type { TransactionSql } from "postgres";
+import type { PendingQuery, Row, TransactionSql } from "postgres";
 import type { Database, Sql } from "app/platform/database/database";
+import type { Logger } from "app/platform/logger/logger";
 import { Tokens } from "app/shared/tokens";
 import type { TelegramLimits } from "app/bootstrap/config/config-values";
 import { configValue } from "app/shared/config-value";
 import { MS_PER_SECOND } from "app/shared/time";
-import type { OutboxJson, OutboxMessageInput, OutboxPullResult, OutboxPullResultRow } from "app/telegram/outbox/store/outbox-store.types";
+import type {
+    OutboxAttempt,
+    OutboxAttemptError,
+    OutboxFinalOutcome,
+    OutboxJson,
+    OutboxLease,
+    OutboxMessageInput,
+    OutboxPullResult,
+    OutboxPullResultRow,
+    OutboxWorker,
+} from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxChannel, OutboxChatState, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
 import {
     BotLimitsRowMissing,
     InvalidPauseDuration,
     InvalidPullLimit,
-    OutboxMessageNotProcessing,
+    OutboxMessageNotLeased,
 } from "app/telegram/outbox/store/outbox-store.errors";
 
 // The OID of bigint: the chat ids go to the database as a bigint[] parameter.
 const BIGINT = 20;
 
-// The statuses a chat head can be in: its first message by id among them.
-const ACTIVE_STATUSES = [OutboxStatus.Pending, OutboxStatus.Processing, OutboxStatus.Failed];
+// The statuses a chat head can be in: its first message by id among them. A failed message is not
+// among them: the chat it blocks is held by its state, and one that does not block lets the next
+// message through.
+const ACTIVE_STATUSES = [OutboxStatus.Pending, OutboxStatus.Processing];
 
 // The single row of telegram_bot_limits.
 const BOT_LIMITS_ID = 1;
@@ -34,7 +48,9 @@ export class OutboxStore {
 
     public constructor(
         @inject<Database>(Tokens.Platform.Database) database: Database,
+        @inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger,
         private readonly limits: TelegramLimits = configValue("limits"),
+        private readonly leaseDurationMs: number = configValue("outbox.leaseDurationMs"),
     ) {
         this.sql = database.sql;
     }
@@ -83,7 +99,8 @@ export class OutboxStore {
                 RETURNING id
             `;
 
-            // An idle chat gets its first message; a chat in any other state already has an older head.
+            // An idle chat gets its first message. A ready or processing chat already has an older
+            // head, and a blocked one stays blocked.
             await sql`
                 UPDATE telegram_outbox_chats
                 SET state = ${OutboxChatState.Ready},
@@ -106,12 +123,17 @@ export class OutboxStore {
     // (docs/architecture/outbox.md, "Pull"). A chat locked by another puller is skipped, not waited
     // for, and so is the bot row: one puller at a time spends the common limit. A pulled chat moves
     // behind the chats of the same priority, so they are served in turn. The messages come back by
-    // priority, so a caller that sends them in order sends the urgent first.
-    public async pull(limit: number): Promise<OutboxPullResult> {
+    // priority, so a caller that sends them in order sends the urgent first. The pulled chats are
+    // leased to the caller for leaseDurationMs under the token of this pull. Each pulled message
+    // carries the start of its attempt and the worker, which its completion writes.
+    public async pull(limit: number, worker: OutboxWorker): Promise<OutboxPullResult> {
         if (!Number.isSafeInteger(limit) || limit < 1) {
             throw InvalidPullLimit.of(limit);
         }
 
+        // One token per pull is enough: a chat is leased to one pull at a time, and the token only
+        // has to tell that pull from the next one of the same chat.
+        const lockToken = randomUUID();
         const commonLimit = this.limits.common;
         const commonCooldownMs = this.cooldownMs(commonLimit);
 
@@ -165,7 +187,9 @@ export class OutboxStore {
                 FROM heads
                 WHERE telegram_outbox.id = heads.id
                   AND telegram_outbox.status = ${OutboxStatus.Pending}
-                RETURNING telegram_outbox.id, telegram_outbox.chat_id, method, payload, priority
+                RETURNING telegram_outbox.id, telegram_outbox.chat_id, method, payload, priority,
+                          now() AS started_at,
+                          jsonb_array_length(attempts) AS earlier_attempts
             ),
             moved AS (
                 -- A negative chat id is a group, as isGroupChat() has it.
@@ -175,6 +199,8 @@ export class OutboxStore {
                         WHEN telegram_outbox_chats.chat_id < 0 THEN ${this.cooldownMs(this.limits.group)}::double precision
                         ELSE ${this.cooldownMs(this.limits.private)}::double precision
                     END * interval '1 millisecond',
+                    locked_until = now() + ${this.leaseDurationMs}::double precision * interval '1 millisecond',
+                    lock_token = ${lockToken},
                     updated_at = now()
                 FROM pulled
                 WHERE telegram_outbox_chats.chat_id = pulled.chat_id
@@ -234,6 +260,10 @@ export class OutboxStore {
                 method: message.method,
                 payload: message.payload,
                 priority: message.priority,
+                lockToken: lockToken,
+                startedAt: message.started_at,
+                worker: worker,
+                earlierAttempts: message.earlier_attempts,
             })),
             nextPullInMs: pullRow.next_pull_in_ms,
         };
@@ -270,54 +300,127 @@ export class OutboxStore {
         return limit.interval / limit.number;
     }
 
-    // messageId is telegram_outbox.id. A message that is missing or not processing throws
-    // OutboxMessageNotProcessing, and nothing changes. The statements are separate on purpose
-    // (docs/architecture/outbox.md, "The chat lock").
-    public async markAsDone(messageId: number, response: OutboxJson): Promise<void> {
-        await this.sql.begin(async (sql) => {
-            const [chat] = await sql`
-                SELECT chat_id
+    // The message is sent: the response goes to the row, and the chat goes on to its next message.
+    public async markAsDone(lease: OutboxLease, response: OutboxJson): Promise<void> {
+        await this.complete(lease, null, async (sql, chatId) => {
+            await this.finishMessage(sql, lease, { status: OutboxStatus.Done, attemptError: null, response: response });
+            await this.releaseChat(sql, chatId);
+        });
+    }
+
+    // The message goes back to pending, and its chat waits delayMs or its chat limit, whichever is
+    // later: the message stays the head, so it holds its chat.
+    public async retry(lease: OutboxLease, attemptError: OutboxAttemptError, delayMs: number): Promise<void> {
+        await this.complete(lease, attemptError, async (sql, chatId) => {
+            await this.updateProcessingMessage(
+                lease,
+                sql`
+                    UPDATE telegram_outbox
+                    SET status = ${OutboxStatus.Pending},
+                        attempts = ${this.withAttempt(sql, lease, attemptError)},
+                        updated_at = now()
+                    WHERE id = ${lease.id}
+                      AND status = ${OutboxStatus.Processing}
+                    RETURNING id
+                `,
+            );
+
+            await this.setChatState(sql, chatId, OutboxChatState.Ready);
+            await sql`
+                UPDATE telegram_outbox_chats
+                SET next_attempt_at = greatest(next_attempt_at, now() + ${delayMs}::double precision * interval '1 millisecond'),
+                    updated_at = now()
+                WHERE chat_id = ${chatId}
+            `;
+        });
+    }
+
+    // The message cannot be delivered, and its chat goes on to its next message.
+    public async markAsFailed(lease: OutboxLease, attemptError: OutboxAttemptError): Promise<void> {
+        await this.complete(lease, attemptError, async (sql, chatId) => {
+            await this.finishMessage(sql, lease, { status: OutboxStatus.Failed, attemptError: attemptError, response: null });
+            await this.releaseChat(sql, chatId);
+        });
+    }
+
+    // The message fails, and its chat is blocked until it is unblocked by hand: the messages behind
+    // it wait, new ones are still pushed.
+    public async markAsFailedAndBlockChat(lease: OutboxLease, attemptError: OutboxAttemptError): Promise<void> {
+        const chatId = await this.complete(lease, attemptError, async (sql, lockedChatId) => {
+            await this.finishMessage(sql, lease, { status: OutboxStatus.Failed, attemptError: attemptError, response: null });
+            await this.setChatState(sql, lockedChatId, OutboxChatState.Blocked);
+        });
+
+        if (chatId === null) {
+            return;
+        }
+
+        this.logger.error("Outbox chat is blocked by a failed message.", {
+            chatId: Number(chatId),
+            messageId: lease.id,
+            cause: attemptError,
+        });
+    }
+
+    // Every completion: the lock of the chat, then the fence, then the writes (docs/architecture/outbox.md,
+    // "The chat lock"). A missing message throws OutboxMessageNotLeased. A lock token that is not
+    // the chat's changes nothing and is logged with the error the completion carried: the lease has
+    // passed to another pull, or the chat was released by an earlier completion. Returns the chat of
+    // an applied completion, null for a fenced one.
+    private async complete(
+        lease: OutboxLease,
+        attemptError: OutboxAttemptError | null,
+        write: (sql: TransactionSql, chatId: string) => Promise<void>,
+    ): Promise<string | null> {
+        return this.sql.begin(async (sql) => {
+            // The lock reads the token of the row it locks in its newest committed version.
+            const [chat] = await sql<{ chat_id: string; lock_token: string | null }[]>`
+                SELECT chat_id, lock_token
                 FROM telegram_outbox_chats
-                WHERE chat_id = (SELECT chat_id FROM telegram_outbox WHERE id = ${messageId})
+                WHERE chat_id = (SELECT chat_id FROM telegram_outbox WHERE id = ${lease.id})
                 FOR UPDATE
             `;
 
             if (chat === undefined) {
-                throw OutboxMessageNotProcessing.byId(messageId);
+                throw OutboxMessageNotLeased.byId(lease.id);
             }
 
-            const [done] = await sql<{ chat_id: string }[]>`
+            if (chat.lock_token !== lease.lockToken) {
+                this.logger.warning("Outbox completion with a stale lock token changed nothing.", {
+                    messageId: lease.id,
+                    lockToken: lease.lockToken,
+                    cause: attemptError,
+                });
+
+                return null;
+            }
+
+            await write(sql, chat.chat_id);
+
+            return chat.chat_id;
+        });
+    }
+
+    // The final outcome of a message, with the end of its attempt. finished_at is for the cleanup.
+    private async finishMessage(sql: TransactionSql, lease: OutboxLease, outcome: OutboxFinalOutcome): Promise<void> {
+        const { status, attemptError, response } = outcome;
+
+        await this.updateProcessingMessage(
+            lease,
+            sql`
                 UPDATE telegram_outbox
-                SET status = ${OutboxStatus.Done},
-                    response = ${sql.json(response)},
+                SET status = ${status},
+                    attempts = ${this.withAttempt(sql, lease, attemptError)},
+                    response = ${response === null ? null : sql.json(response)},
                     finished_at = now(),
                     updated_at = now()
-                WHERE id = ${messageId}
+                WHERE id = ${lease.id}
                   AND status = ${OutboxStatus.Processing}
-                RETURNING chat_id
-            `;
+                RETURNING id
+            `,
+        );
 
-            if (done === undefined) {
-                throw OutboxMessageNotProcessing.byId(messageId);
-            }
-
-            const [remainingMessage] = await sql`
-                SELECT id
-                FROM telegram_outbox
-                WHERE chat_id = ${done.chat_id}
-                  AND status IN ${sql(ACTIVE_STATUSES)}
-                LIMIT 1
-            `;
-
-            await sql`
-                UPDATE telegram_outbox_chats
-                SET state = ${remainingMessage === undefined ? OutboxChatState.Idle : OutboxChatState.Ready},
-                    updated_at = now()
-                WHERE chat_id = ${done.chat_id}
-            `;
-
-            await this.notifyFinished(sql, messageId);
-        });
+        await this.notifyFinished(sql, lease.id);
     }
 
     // Every transaction that moves a message into done, failed or skipped calls it: a caller waiting on
@@ -328,5 +431,53 @@ export class OutboxStore {
     // it would notify before the commit, and even for a transaction that rolls back.
     private async notifyFinished(sql: TransactionSql, messageId: number): Promise<void> {
         await sql`SELECT pg_notify(${OutboxChannel.Finished}, ${String(messageId)})`;
+    }
+
+    // The token is the chat's, so the chat is processing with one message: another message of the
+    // chat is a wrong id.
+    private async updateProcessingMessage(lease: OutboxLease, update: PendingQuery<Row[]>): Promise<void> {
+        const [updated] = await update;
+
+        if (updated === undefined) {
+            throw OutboxMessageNotLeased.byId(lease.id);
+        }
+    }
+
+    // The attempts with this one appended: its start and worker from the pull, its error, null for a
+    // success, and its end by the database clock, as its start.
+    private withAttempt(sql: TransactionSql, lease: OutboxLease, attemptError: OutboxAttemptError | null): PendingQuery<Row[]> {
+        const attempt: Omit<OutboxAttempt, "finished_at"> = {
+            started_at: lease.startedAt,
+            worker: { host: lease.worker.host, pid: lease.worker.pid, worker_id: lease.worker.workerId },
+            error: attemptError,
+        };
+
+        return sql`attempts || jsonb_build_array(${sql.json(attempt)}::jsonb || jsonb_build_object('finished_at', now()))`;
+    }
+
+    // The chat goes on: ready while it has a message left, idle otherwise. The active messages are
+    // read after the lock, so a message pushed meanwhile is seen.
+    private async releaseChat(sql: TransactionSql, chatId: string): Promise<void> {
+        const [remainingMessage] = await sql`
+            SELECT id
+            FROM telegram_outbox
+            WHERE chat_id = ${chatId}
+              AND status IN ${sql(ACTIVE_STATUSES)}
+            LIMIT 1
+        `;
+
+        await this.setChatState(sql, chatId, remainingMessage === undefined ? OutboxChatState.Idle : OutboxChatState.Ready);
+    }
+
+    // The lease ends with the completion: a late completion of the same pull finds no token.
+    private async setChatState(sql: TransactionSql, chatId: string, state: OutboxChatState): Promise<void> {
+        await sql`
+            UPDATE telegram_outbox_chats
+            SET state = ${state},
+                locked_until = NULL,
+                lock_token = NULL,
+                updated_at = now()
+            WHERE chat_id = ${chatId}
+        `;
     }
 }

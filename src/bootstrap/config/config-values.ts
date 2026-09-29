@@ -39,6 +39,10 @@ export type ConfigValues = {
     outbox: {
         retryDelay: OutboxRetryDelaySettings;
         resultWaiter: OutboxResultWaiterSettings;
+        // How long a pulled chat stays with the node that pulled it.
+        leaseDurationMs: number;
+        // The attempts of a message that count towards the limit, the last one included.
+        maxAttempts: number;
     };
 
     bot: BotSettings;

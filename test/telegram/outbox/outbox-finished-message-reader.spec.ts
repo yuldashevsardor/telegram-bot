@@ -9,7 +9,12 @@ import { OutboxResultWaiter } from "app/telegram/outbox/result-waiter/outbox-res
 import { OutboxResultTimeout } from "app/telegram/outbox/result-waiter/outbox-result-waiter.errors";
 import type { OutboxResultWaiterSettings } from "app/telegram/outbox/result-waiter/outbox-result-waiter.types";
 import { OutboxStore } from "app/telegram/outbox/store/outbox-store";
-import type { FinishedOutboxMessage, OutboxMessageInput } from "app/telegram/outbox/store/outbox-store.types";
+import type {
+    FinishedOutboxMessage,
+    OutboxMessageInput,
+    OutboxWorker,
+    PulledOutboxMessage,
+} from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxChannel, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
 import { testDatabaseSettings } from "test/database.helper";
 import { NOTIFICATION_DEADLINE_MS, waitUntil } from "test/telegram/outbox/outbox-store.helper";
@@ -26,6 +31,9 @@ const NO_LIMITS: TelegramLimits = { common: NO_LIMIT, private: NO_LIMIT, group: 
 const FAST_POLL_MS = 20;
 // The timeout of the waiter spec that times out: over long before NOTIFICATION_DEADLINE_MS.
 const SHORT_WAIT_TIMEOUT_MS = 50;
+const WORKER: OutboxWorker = { host: "node-1", pid: 101, workerId: "worker-1" };
+// Longer than any test here: no lease expires under it.
+const LEASE_DURATION_MS = 600_000;
 // The statement postgres.js sends to listen on the finished channel, as pg_stat_activity shows it.
 const LISTEN_FINISHED_QUERY = `listen "${OutboxChannel.Finished}"`;
 
@@ -44,7 +52,7 @@ describe("OutboxFinishedMessageReader", function () {
 
         database = new Database(settings, false);
         observer = new Database(settings, false);
-        store = new OutboxStore(database, NO_LIMITS);
+        store = new OutboxStore(database, silentLogger(), NO_LIMITS, LEASE_DURATION_MS);
         reader = new OutboxFinishedMessageReader(database);
     });
 
@@ -84,9 +92,9 @@ describe("OutboxFinishedMessageReader", function () {
                 () => (listenCount += 1),
             );
             const id = await store.push(message(CHAT, "first"));
-            await store.pull(10);
+            const pulled = await pullOne();
 
-            await store.markAsDone(id, RESPONSE);
+            await store.markAsDone(pulled, RESPONSE);
 
             await waitUntil(() => finishedIds.length > 0, "no finished message came");
             expect(finishedIds).to.deep.equal([id]);
@@ -151,13 +159,13 @@ describe("OutboxFinishedMessageReader", function () {
         it("settles a wait by the notification of markAsDone", async function () {
             const waiter = new OutboxResultWaiter(recordingReader, silentLogger(), NO_POLL);
             const id = await store.push(message(CHAT, "first"));
-            await store.pull(10);
+            const pulled = await pullOne();
 
             const result = waiter.wait(id);
             // The poll made when the listening started has found nothing: what settles the wait
             // from here on is the notification.
             await waitUntil(() => recordingReader.completedLookups === 1, "the listening did not start");
-            await store.markAsDone(id, RESPONSE);
+            await store.markAsDone(pulled, RESPONSE);
 
             expect(await result).to.deep.equal({ id: id, status: OutboxStatus.Done, response: RESPONSE });
         });
@@ -181,7 +189,7 @@ describe("OutboxFinishedMessageReader", function () {
                 pollIntervalMs: SPEC_TIMEOUT_MS,
             });
             const id = await store.push(message(CHAT, "first"));
-            await store.pull(10);
+            const pulled = await pullOne();
 
             const error = await waiter.wait(id).then(
                 () => expect.fail("the wait was expected to time out"),
@@ -190,7 +198,7 @@ describe("OutboxFinishedMessageReader", function () {
             // A notification sent before the listening starts would go nowhere.
             await waitUntil(() => recordingReader.listenCount === 1, "the listening did not start");
             const lookupCount = recordingReader.startedLookups;
-            await store.markAsDone(id, RESPONSE);
+            await store.markAsDone(pulled, RESPONSE);
             await waitUntil(() => recordingReader.notifiedIds.includes(id), "no finished notification came");
 
             expect(error).to.be.instanceOf(OutboxResultTimeout);
@@ -202,7 +210,7 @@ describe("OutboxFinishedMessageReader", function () {
         it("listens again after its connection is lost", async function () {
             const waiter = new OutboxResultWaiter(recordingReader, silentLogger(), NO_POLL);
             const id = await store.push(message(CHAT, "first"));
-            await store.pull(10);
+            const pulled = await pullOne();
 
             const result = waiter.wait(id);
             await waitUntil(() => recordingReader.completedLookups === 1, "the listening did not start");
@@ -214,13 +222,21 @@ describe("OutboxFinishedMessageReader", function () {
             `;
             await waitUntil(() => recordingReader.listenCount === 2, "the listening did not start again");
             await waitUntil(() => recordingReader.completedLookups === 2, "no poll followed the new listening");
-            await store.markAsDone(id, RESPONSE);
+            await store.markAsDone(pulled, RESPONSE);
 
             expect(await result).to.deep.equal({ id: id, status: OutboxStatus.Done, response: RESPONSE });
         });
     });
 
     // A store whose statements run in the given transaction.
+
+    async function pullOne(): Promise<PulledOutboxMessage> {
+        const { messages } = await store.pull(10, WORKER);
+
+        expect(messages).to.have.lengthOf(1);
+
+        return messages[0] as PulledOutboxMessage;
+    }
 
     async function setStatus(messageId: number, status: OutboxStatus, response: typeof RESPONSE | null): Promise<void> {
         await database.sql`

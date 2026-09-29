@@ -63,6 +63,8 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
                     timeoutMs: parser.getTimerDelay("OUTBOX_RESULT_TIMEOUT", 60 * 1000),
                     pollIntervalMs: parser.getTimerDelay("OUTBOX_RESULT_POLL_INTERVAL", 1000),
                 },
+                leaseDurationMs: parser.getTimerDelay("OUTBOX_LEASE_DURATION", 10 * 60 * 1000),
+                maxAttempts: parser.getInteger("OUTBOX_MAX_ATTEMPTS", 10, { min: 1 }),
             },
 
             bot: {

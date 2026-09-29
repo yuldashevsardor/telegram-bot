@@ -185,6 +185,14 @@ assembled by `make mutation-area` over the PR tree (`scripts/review/mutation_are
 rule): it needs the PR's code, while the table sees only file names, and it leaves out a file whose
 diff changes only comments.
 
+The action also leaves `src/bootstrap/container/container.ts` and `src/shared/tokens.ts` to the
+batch of the full run (`FULL_RUN_ONLY` there), though `stryker.config.mjs` mutates them: a change
+of them or of their specs gives no area from them. Every new injectable class adds a token and a
+binding, so the two sit in the area of almost every feature PR, while the specs in `make check`
+already check a binding added or a token named. What the area run would add is a rerun of the
+mutants of lines the PR did not write, on every push. The price: a survivor in the bindings or the
+tokens shows only in a batch run, possibly weeks after the PR that made it.
+
 `mutation-full` is turned on by the run's tools. Changing the tools changes the run of every
 mutant, not of the diff's lines, and a PR that changes only the tools has an empty area from its
 diff. The tsconfigs and `typescript` are tools too: by them the type checker decides which mutant
@@ -218,8 +226,11 @@ on one commit, and the record is measured against another. So whether it still h
 same pass over the table above, only with the diff taken between those two commits. At least
 one of three gates on — the record is stale:
 
-- `mutation` — the mutated code changed, or the specs that kill the mutants; a comments-only
-  `.ts` diff between the two commits leaves it off, as it does in the PR diff;
+- `mutation` — the change reaches the record's area: the rule by which `make mutation-area`
+  assembles an area (`scripts/review/mutation_area.py`), applied to the files changed between the
+  two commits, gives at least one file of that area. The record's area is the files it names in
+  `files` and the files it mutated. A `.ts` that reaches none of them leaves the gate off, and so
+  does a comments-only diff;
 - `mutation-full` — the run's tools changed, and they change the outcome of every mutant, not
   of the diff's lines;
 - `rebuild` — the run went in a different image.
@@ -228,8 +239,21 @@ None of the three — the run is not repeated: neither by the author after the p
 reviewer under the gate. Otherwise a review fix that touched only documentation would cost the
 round two runs of the same area.
 
+The `mutation` row is narrower than in the PR diff, where any `.ts` turns it on. Several sessions
+merge into `main` every hour, so a merge of `origin/main` into a branch almost always brings
+someone else's `.ts`, and by the name alone the author ran the whole area again although none of
+its files changed: PR #693 ran its area twice in a row after two merges of `main`, 8 min 33 s the
+first time. The accepted cost: code outside the area that the area's code calls (a shared helper
+`main` changed, say) can change a mutant's status and still leave the record in force, and so can
+a spec that kills the area's mutants without being the mirror of an area file (an integration
+spec). That code went through the `mutation` gate of its own PR, and the next run of the area
+picks up the rest.
+
 The diff here is between the record's head and the PR head (for the author, their `HEAD` once
-pushed), and `make mutation-record` lists it. Condition 1 of the docstring of
+pushed). `make mutation-record` lists it and decides the `mutation` row itself: it refuses the
+record and names the files of its area the change reaches. It reads them in the tree of the PR
+head, `tree=` for the reviewer and the current tree for the author. The `rebuild` and
+`mutation-full` rows are left to the reader. Condition 1 of the docstring of
 `scripts/review/mutation_record.py` says why the diff is taken between the trees and not from
 the merge-base, and why a record whose commit a force-push lost does not hold.
 

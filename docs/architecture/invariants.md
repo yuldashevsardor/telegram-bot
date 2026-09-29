@@ -128,12 +128,22 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
 
 ## The outbox
 
-- **An outbox transaction that changes a chat state from what it reads — the chat state, the
-  active messages left — locks the chat row first and reads in a later statement**, as
-  `OutboxStore.push()` and `markAsDone()` do. Why, and what breaks otherwise, is in
+- **An outbox transaction that changes a chat state from what it reads — the chat state, the active
+  messages left — locks the chat row first and reads in a later statement**, as `OutboxStore.push()`
+  and the completions do; every completion goes through the private `complete()`. The locking
+  statement itself may read the columns of the row it locks: it gets their newest committed version,
+  which is how `complete()` reads the lock token. Why, and what breaks otherwise, is in
   [`outbox.md`](./outbox.md), "The chat lock". `pull()` is the exception with a check of its own
-  (same file, "Pull"). The spec lines up only these two methods: a new path that changes a chat
-  state is checked by nothing.
+  (same file, "Pull"). The spec lines up only `push()` and `markAsDone()`: a new path that changes a
+  chat state outside `complete()` is checked by nothing.
+- **The lease of a pulled chat must outlast the send of its message, unless the lease is
+  extended.** Every chat of a pull is leased from the pull, so a caller that sends the messages of
+  one pull one call after another needs the lease to cover them all, not the longest single call.
+  A lease that ends while its message is still being sent lets the recovery of expired leases
+  ([#672](https://github.com/yuldashevsardor/telegram-bot/issues/672)) hand the message to another
+  node, and it goes out twice; the late completion of the first node is fenced off and changes
+  nothing. `OUTBOX_LEASE_DURATION` of `.env.dist` says which call timeout its default
+  covers. Nothing checks the two against each other.
 - **The outbox goes by the database clock only.** `next_attempt_at`, `next_send_at` and
   `paused_until` are written and compared with `now()` of PostgreSQL: `pause()` takes a duration,
   and `pull()` answers with a duration, not a moment ([`outbox.md`](./outbox.md), "Limits"). A
@@ -141,10 +151,11 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   a pause written by a node whose clock is behind ends early for every node, and the next call gets
   a 429 again. Nothing checks this; a `Date` passed into the outbox SQL compiles.
 - **A transaction that moves an outbox message into `done`, `failed` or `skipped` calls
-  `OutboxStore.notifyFinished()` with its `sql`**, as `markAsDone()` does. Without the
-  notification a caller waiting on another node learns the outcome only from the poll, up to
-  `OUTBOX_RESULT_POLL_INTERVAL` later ([`outbox.md`](./outbox.md), "Waiting for the result"). The
-  specs check only `markAsDone()`.
+  `OutboxStore.notifyFinished()` with its `sql`**, as `finishMessage()` does for `markAsDone()`,
+  `markAsFailed()` and `markAsFailedAndBlockChat()`. Without the notification a caller waiting on
+  another node learns the outcome only from the poll, up to `OUTBOX_RESULT_POLL_INTERVAL` later
+  ([`outbox.md`](./outbox.md), "Waiting for the result"). A new path to a final status that skips
+  `finishMessage()` is checked by nothing.
 - **`status` and `state` of the outbox tables are written only through `OutboxStatus` and
   `OutboxChatState`.** The database has no check on them: a mistyped value is stored, and the row
   or the chat silently drops out of every query.
