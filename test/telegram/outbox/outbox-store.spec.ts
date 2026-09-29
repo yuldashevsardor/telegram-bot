@@ -133,9 +133,10 @@ describe("OutboxStore", function () {
     it("takes a limit and a common number beyond a 32-bit integer", async function () {
         const aboveInt32 = 2 ** 31;
         const bigLimitStore = new OutboxStore(database, { ...NO_LIMITS, common: { number: aboveInt32, interval: 1 } });
-        const id = await bigLimitStore.push(message(CHAT, "text"));
+        // Two chats, so a budget cut down to one message would show.
+        const ids = await bigLimitStore.pushBatch([message(CHAT, "a"), message(OTHER_CHAT, "b")]);
 
-        expect((await bigLimitStore.pull(aboveInt32)).messages.map((pulled) => pulled.id)).to.deep.equal([id]);
+        expect((await bigLimitStore.pull(aboveInt32)).messages.map((pulled) => pulled.id)).to.deep.equal(ids);
     });
 
     it("never keeps two messages of a chat in processing", async function () {
@@ -573,14 +574,20 @@ describe("OutboxStore", function () {
 
     describe("without the row of the bot limits", function () {
         // The deleted row goes back as it was, so the spec does not repeat its id.
-        let deletedRows: Record<string, unknown>[];
+        let deletedRows: Record<string, unknown>[] = [];
 
         beforeEach(async function () {
             deletedRows = [...(await database.sql<Record<string, unknown>[]>`DELETE FROM telegram_bot_limits RETURNING *`)];
         });
 
+        // A row lost before this block is not put back: an insert of nothing would throw an error of
+        // its own over the cause, while the later pulls throw BotLimitsRowMissing, which names it.
         afterEach(async function () {
-            await database.sql`INSERT INTO telegram_bot_limits ${database.sql(deletedRows)}`;
+            if (deletedRows.length > 0) {
+                await database.sql`INSERT INTO telegram_bot_limits ${database.sql(deletedRows)} ON CONFLICT DO NOTHING`;
+            }
+
+            deletedRows = [];
         });
 
         it("refuses a pull instead of reporting that no chat is ready", async function () {
