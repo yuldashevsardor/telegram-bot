@@ -6,7 +6,12 @@ import { Database } from "app/platform/database/database";
 import { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxMessageInput } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxChatState, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
-import { InvalidPauseDuration, OutboxMessageNotProcessing } from "app/telegram/outbox/store/outbox-store.errors";
+import {
+    BotLimitsRowMissing,
+    InvalidPauseDuration,
+    InvalidPullLimit,
+    OutboxMessageNotProcessing,
+} from "app/telegram/outbox/store/outbox-store.errors";
 import { MS_PER_SECOND } from "app/shared/time";
 import { sleep } from "app/shared/utils";
 import { testDatabaseSettings } from "test/database.helper";
@@ -107,6 +112,29 @@ describe("OutboxStore", function () {
         expect((await store.pull(10)).messages).to.deep.equal([
             { id, chatId: OTHER_CHAT, method: "sendPhoto", payload: { photo: "file-id", caption: null }, priority: 3 },
         ]);
+    });
+
+    for (const limit of [0, -1, 2.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+        it(`refuses a pull of ${limit} messages and pulls nothing`, async function () {
+            await store.push(message(CHAT, "text"));
+
+            const error = await store.pull(limit).then(
+                () => expect.fail("pull() was expected to reject"),
+                (reason: unknown) => reason,
+            );
+
+            expect(error).to.be.instanceOf(InvalidPullLimit);
+            expect((error as InvalidPullLimit).payload).to.deep.equal({ limit });
+            expect(await statuses()).to.deep.equal([OutboxStatus.Pending]);
+        });
+    }
+
+    it("takes a limit and a common number beyond a 32-bit integer", async function () {
+        const beyondInteger = 2 ** 31;
+        const wide = new OutboxStore(database, { ...NO_LIMITS, common: { number: beyondInteger, interval: 1 } });
+        const id = await wide.push(message(CHAT, "text"));
+
+        expect((await wide.pull(beyondInteger)).messages.map((pulled) => pulled.id)).to.deep.equal([id]);
     });
 
     it("never keeps two messages of a chat in processing", async function () {
@@ -540,6 +568,38 @@ describe("OutboxStore", function () {
 
             return (row as { paused_until: Date | null }).paused_until;
         }
+    });
+
+    describe("without the row of the bot limits", function () {
+        beforeEach(async function () {
+            await database.sql`DELETE FROM telegram_bot_limits`;
+        });
+
+        // The migration inserts the row with the defaults of its columns, and the outer beforeEach
+        // of the next spec sets the rest.
+        afterEach(async function () {
+            await database.sql`INSERT INTO telegram_bot_limits (id) VALUES (1) ON CONFLICT DO NOTHING`;
+        });
+
+        it("refuses a pull instead of reporting that no chat is ready", async function () {
+            await store.push(message(CHAT, "text"));
+
+            const error = await store.pull(10).then(
+                () => expect.fail("pull() was expected to reject"),
+                (reason: unknown) => reason,
+            );
+
+            expect(error).to.be.instanceOf(BotLimitsRowMissing);
+        });
+
+        it("refuses a pause instead of changing nothing", async function () {
+            const error = await store.pause(1).then(
+                () => expect.fail("pause() was expected to reject"),
+                (reason: unknown) => reason,
+            );
+
+            expect(error).to.be.instanceOf(BotLimitsRowMissing);
+        });
     });
 
     describe("a concurrent push and completion", function () {
