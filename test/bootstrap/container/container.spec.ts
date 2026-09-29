@@ -63,19 +63,6 @@ describe("Container", () => {
         expect(error).to.have.property("code", "CONNECTION_ENDED");
     });
 
-    // Both are stubs: a real wait would listen on the database of the environment.
-    it("stops the outbox result waiter before it closes the database pool", async () => {
-        const closable = new Container();
-        await closable.setup();
-        const calls: string[] = [];
-        closable.rebind(Tokens.Bot.Outbox.ResultWaiter).toConstantValue({ stop: () => calls.push("waiter") });
-        closable.rebind(Tokens.Platform.Database).toConstantValue({ close: async () => calls.push("database") });
-
-        await closable.close();
-
-        expect(calls).to.deep.equal(["waiter", "database"]);
-    });
-
     // There is no assertion, the check is the failure itself: without the early return close() would
     // resolve Database from an empty container and fail with "No matching bindings found".
     it("does nothing when closed before setup", async () => {

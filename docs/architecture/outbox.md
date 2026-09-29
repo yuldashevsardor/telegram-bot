@@ -5,9 +5,8 @@ The outbox is being built to replace the in-memory outbound queue
 any node sends them, the order inside a chat holds across nodes, and a node that dies loses
 nothing (the plan is epic [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)).
 Nothing calls the directory yet: so far it holds the tables with `OutboxStore`
-(`store/outbox-store.ts`), which pushes, pulls within the limits, pauses and marks done,
-`OutboxResultWaiter`, which waits for the outcome of a message, the payload codec and the retry
-delay. The error classes of a failed call, which the outbox will act on, lie
+(`store/outbox-store.ts`), which pushes, pulls within the limits, pauses and marks done, the payload
+codec and the retry delay. The error classes of a failed call, which the outbox will act on, lie
 outside it, in `telegram/bot-api-failure-classifier/`.
 
 ## Tables
@@ -66,9 +65,7 @@ lock.
 3. the messages go in as one `jsonb` array and are inserted `ORDER BY` their position in it, so
    the ids grow in the order of the input;
 4. every `idle` chat of the batch becomes `ready`; a chat in any other state already has an older
-   head;
-5. `pg_notify` on `telegram_outbox_ready` with an empty payload, delivered on commit, so that an
-   idle sender wakes up at once. Nothing listens on the channel yet: the sender is not written.
+   head.
 
 ## Pull
 
@@ -160,56 +157,13 @@ not a moment. The rule is in [`invariants.md`](./invariants.md), "The outbox".
    changes nothing. Nothing but `markAsDone` takes a message out of `processing`, so the cause is
    a wrong id, a message not pulled yet or a second completion of the same message;
 3. check whether the chat has an active message left;
-4. the chat goes to `ready` if it has, or to `idle`;
-5. `pg_notify` of the id on `telegram_outbox_finished` (see "Waiting for the result").
+4. the chat goes to `ready` if it has, or to `idle`.
 
 Every update of the store sets `updated_at = now()` itself; there is no trigger.
 
-## Waiting for the result
-
-The node that pushes a message waits for its outcome, while any node may send it.
-`OutboxResultWaiter.wait(messageId)` (`result-waiter/outbox-result-waiter.ts`) resolves with the
-message once it is `done`, `failed` or `skipped`: its id, status and `response`. A failed message
-resolves too: the caller reads the status.
-
-- **The notification.** A transaction that moves a message into one of those statuses sends
-  `pg_notify` on `telegram_outbox_finished` with the message id as the payload
-  ([invariant](./invariants.md)). The id alone: NOTIFY carries at most 8000 bytes, less than a
-  Telegram response can take. Every listening node hears every id; the waiter reads the row of an
-  id it waits for with `findFinished()` and ignores the rest. PostgreSQL delivers a notification on
-  commit, so the row read on it has the outcome.
-- **The listening** starts once, with the first wait, through `sql.listen()` on a connection of
-  its own ([`storage.md`](./storage.md), "LISTEN"). A failed start is logged at `warning` and is
-  not repeated: postgres.js keeps the listener of a failed `LISTEN` and subscribes it again when
-  its listening connection closes, so a second call would add a second listener, and every
-  notification would be read twice (`listen()` in postgres.js `src/index.js`).
-- **The poll.** A notification sent while the listening connection is down, or before it is up,
-  reaches no one. So one `findFinished()` query looks up every id waited for: every
-  `OUTBOX_RESULT_POLL_INTERVAL` ms while any is waited for, and each time the listening starts,
-  the first time and after postgres.js opens the connection again. A tick that comes while the
-  previous poll still runs is skipped. A start of the listening is not: the running poll may have
-  read the table before the `LISTEN`, so a new poll follows it. A failed lookup is logged at
-  `warning` and left to the next poll.
-- **A message finished before its wait.** Its notification finds no one waiting for its id, so the
-  first poll finds it, up to `OUTBOX_RESULT_POLL_INTERVAL` ms late. The caller waits right after
-  `push()` returns, while the message still has to be pulled and sent, so the window is narrow, and
-  no lookup is spent on every wait to close it.
-- **The timeout.** A wait rejects with `OutboxResultTimeout` after `OUTBOX_RESULT_TIMEOUT` ms and
-  the id is forgotten: a later notification or poll leaves it alone. The message stays in the outbox
-  and may still be sent.
-
-A second wait for an id still waited for gets the same promise.
-
-`stop()` rejects every pending wait with `OutboxResultWaiterStopped` and clears the timers: a node
-that shuts down neither polls its closed database nor is held up by a wait until its timeout.
-`Container.close()` calls it before it closes the database, which ends the listening.
-
 ## The store in code
 
-The store implements one interface, `FinishedMessageSource` (`outbox-result-waiter.types.ts`),
-which the waiter dictates. So the waiter has no SQL: mutation testing reaches it through a fake
-source, and `outbox-store.spec.ts` runs it over the real store. Beyond that the store has no
-interface: no other consumer dictates one yet ([`storage.md`](./storage.md)).
+The store has no interface of its own: no consumer dictates one yet ([`storage.md`](./storage.md)).
 It is SQL through and through, so it is in `DATABASE_ONLY_SOURCES` of `stryker.config.mjs` and its
 spec is in `DATABASE_SPECS` ([`testing.md`](./testing.md), "Mutation testing").
 
