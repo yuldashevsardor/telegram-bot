@@ -3,13 +3,11 @@
 The table that turns the changed files into a list of checks. The `/review-pr` command
 (step 4) applies it to the PR diff and passes the gates that are on to the review skill.
 
-The same table answers a second question: whether a mutation run record is stale (below,
-"Changes that affect the mutation run"). Both the author and the reviewer ask it, over a
-different diff. That is why the table is a document of its own and not part of the routing:
-three parties apply it, and with one copy nothing can drift apart.
-
-The second use does not turn the table into routing. Neither the author nor the review skill
-picks a skill or the run's gates by it: that is still done by `/review-pr` alone.
+The author applies it too: whether the change turned on `mutation-full`, and the issue goes into a
+batch of the full mutation run (`/solve-issue`, step 2). That is why the table is a document of its
+own and not part of the routing: two parties apply it, and with one copy nothing can drift apart.
+The author picks neither a skill nor the run's gates by it: that is still done by `/review-pr`
+alone.
 
 ## The table
 
@@ -29,8 +27,7 @@ once.
 | `.sh` or `.py`, and either no `.ts` or only a comments-only `.ts` diff | `bug-hunt-medium` |
 | `.ts` inside `src/font-convertor/`, `src/shared/`, `src/telegram/outbound-queue/`, `src/telegram/outbox/`, `src/telegram/bot-api-failure-classifier/` — not a comments-only `.ts` diff | `smells` |
 | any `.ts` — a comments-only `.ts` diff | `comments` |
-| `stryker.config.mjs`, `test/stryker-mocha-hook.cjs`, `test/mutation-record.ts`, `.mocharc.json`, `tsconfig.json`, `tsconfig.check.json` — not a comments-only diff | `mutation-full` |
-| any `.ts` in `src/` or `test/` — not a comments-only `.ts` diff | `mutation` |
+| `stryker.config.mjs`, `test/stryker-mocha-hook.cjs`, `test/mutation-record.ts`, `.mocharc.json`, `tsconfig.json`, `tsconfig.check.json` — not a comments-only diff; any `.ts` in `src/` or `test/` — not a comments-only `.ts` diff | `mutation-full` |
 | any `*.md`, including `docs/**` and `.claude/**` | `docs` |
 
 `build` and `typecheck` go on together, and neither replaces the other. The targets use
@@ -58,9 +55,9 @@ about price, not an oversight. The dependencies' types go into the checker's com
 decide who gets `CompileError` (`docs/architecture/testing.md`, "The type checker"). Say a
 grammY update made the `from` field required: the mutant `ctx.from?.language_code` in
 `src/telegram/locale/locale.ts` would start to compile, reach the tests and survive. It would
-turn red on the next PR that touches that file. The owner (2026-09-21) chose to catch such a
-survivor with that next PR: a full run then cost 15+ minutes per review round, and paying that for
-every dependency update cost more.
+turn red in the next batch run, which mutates the whole of `src/` on a `main` that has the update.
+The owner (2026-09-21) chose to catch such a survivor later: a full run then cost 15+ minutes per
+review round, and paying that for every dependency update cost more.
 
 The `Makefile` is not written into the `mutation-full` row by name. `make up`, `make logs` and
 the other targets do not touch the run, and by file name any change to them would take a place in
@@ -88,14 +85,14 @@ Comments only is a statement about the content of the diff, not about lines that
 comments. `.mocharc.json` and both tsconfigs are JSONC, and `"spec": "test/**/*.spec.ts"`
 carries `**` inside a string literal, so a grep for `//` or `*` decides nothing.
 
-A comments-only `.ts` diff turns off `bug-hunt-high`, `smells`, `docs-sync` and `mutation` and
-turns on `comments` instead. Read the diff, as with the files of the `mutation-full` row. The `.ts`
-diff is every `.ts` of the PR taken together: one changed line of code in any `.ts`, and every row
-goes by name, with the full review for the whole PR. A `.ts` that is added, deleted, renamed,
-copied or changes mode is code too, whatever its hunks hold, and a rename has no hunks.
-Renaming a migration breaks the append-only rule that only the full review checks. Renaming
-`test/x.spec.ts` to `test/x.ts` drops its specs from the `.mocharc.json` glob while `test`
-stays green.
+A comments-only `.ts` diff turns off `bug-hunt-high`, `smells`, `docs-sync` and the `.ts` part of
+`mutation-full`, and turns on `comments` instead. Read the diff, as with the tools of the
+`mutation-full` row. The `.ts` diff is every `.ts` of the PR taken together: one changed line of
+code in any `.ts`, and every row goes by name, with the full review for the whole PR. A `.ts` that
+is added, deleted, renamed, copied or changes mode is code too, whatever its hunks hold, and a
+rename has no hunks. Renaming a migration breaks the append-only rule that only the full review
+checks. Renaming `test/x.spec.ts` to `test/x.ts` drops its specs from the `.mocharc.json` glob while
+`test` stays green.
 
 The bug hunt and the smells look at what the code does, and a comment changes nothing it does.
 PRs #522, #523 and #524 changed comments in `.ts` and `*.md`: three rounds of the full review
@@ -111,9 +108,9 @@ corrected still stale in the `.eslintrc.js` comment and in `docs/architecture/lo
 That is the same claim in another place, and `comments` looks for it with the duplicate
 search.
 
-Comments only is read as for the `mutation-full` row: by the content of the diff, not by lines
-that look like comments. `//` inside a string or a template literal is not a comment. A hunk
-that changes a comment and code on the same line is code. A tool directive is code too, and
+Comments only is read as for the tools of the `mutation-full` row: by the content of the diff, not
+by lines that look like comments. `//` inside a string or a template literal is not a comment. A
+hunk that changes a comment and code on the same line is code. A tool directive is code too, and
 `.ts` has more of them than the run's tools do: `// Stryker disable …`, `// Stryker restore …`,
 `// eslint-disable…`, `// @ts-expect-error`, `// @ts-ignore`, `/* istanbul ignore … */`,
 `// prettier-ignore`, `/// <reference … />`. A directive is a comment any line of which opens
@@ -121,7 +118,7 @@ with `///`, with `@` or with the name of a tool (Stryker, eslint, istanbul, pret
 comment marks: TypeScript reads `@ts-ignore` on the last line of a block comment too. Each is read
 by a gate, so a diff that touches one gets the full review. So does a comment that changes which
 line a directive covers: its line break moves code off that line, or a comment between the
-directive and its code changes (the paragraph on `mutation` below).
+directive and its code changes (the paragraph on `mutation-full` below).
 `scripts/review/mutation_area.py` holds the same rule as code (`is_directive`), and its specs check
 it against this list.
 
@@ -130,21 +127,14 @@ The gates that run the code stay on by name. `build`, `typecheck`, `lint`, `form
 not read this way: a comment there can be a shebang or a linter directive, and its comments-only
 diffs were not measured.
 
-`mutation` runs code too, yet goes off, because its price is not seconds. Its area grows from the
-diff: a changed spec gives its mirror source, a changed helper the mirrors of every spec importing
-it, so a reworded comment in a shared helper mutates a sizeable part of `src/`. And the status
-of a mutant changes only through a directive: the mark that silences a survivor
-(`docs/architecture/testing.md`, "Working through survivors"), which acts only in a mutated file,
-and the `@ts-` comments of a source or a spec, by which the type checker decides who gets
-`CompileError` ("The type checker" there). A directive acts by line, and a comment reaches a
-status through it when its line break moves code off the line the directive covers:
+`mutation-full` runs code too, in the batch run, yet goes off: its price is not seconds but a place
+in a batch of the full run. And the status of a mutant changes only through a directive: the mark
+that silences a survivor (`docs/architecture/testing.md`, "Working through survivors"), which acts
+only in a mutated file, and the `@ts-` comments of a source or a spec, by which the type checker
+decides who gets `CompileError` ("The type checker" there). A directive acts by line, and a comment
+reaches a status through it when its line break moves code off the line the directive covers:
 `// Stryker disable next-line` over a `for` header no longer reaches the `<` a comment pushed onto
-the next line. Such a diff is not comments only. The price is paid again at every review fix
-that rewords a comment: without the exemption it makes the run record stale (below, "Changes
-that affect the mutation run"), and the author runs again. The same rule goes on inside the
-gate, file by file: when another `.ts` of the PR turns `mutation` on, a file whose own diff
-changes only comments gives no area. That part is `make mutation-area`'s, since the area is
-assembled there.
+the next line. Such a diff is not comments only.
 
 `bug-hunt-*` and `smells` are kept apart on purpose, and their boundaries differ. Bugs are
 hunted wherever there is executable code. In `src/platform/`, `src/bootstrap/` and
@@ -179,35 +169,26 @@ comments only" is already computed by the choice of depth (`/review-pr`, step 3)
 of it would drift from this one silently: both files would still read coherently, and the
 boundary would move in only one of them.
 
-`mutation` and `mutation-full` are a pair too, but they accumulate. `mutation` mutates the code
-the PR touched: a survivor sits on the author's line, and the run takes seconds. The area is
-assembled by `make mutation-area` over the PR tree (`scripts/review/mutation_area.py` holds the
-rule): it needs the PR's code, while the table sees only file names, and it leaves out a file whose
-diff changes only comments.
+`mutation-full` is turned on by a change of code and by a change of the run's tools. Changing the
+tools changes the run of every mutant, not of the diff's lines. The tsconfigs and `typescript` are
+tools too: by them the type checker decides which mutant gets `CompileError` and which goes to the
+tests (`docs/architecture/testing.md`, "The type checker"). The gate runs no mutants in the PR:
+neither the author nor the reviewer runs `make mutation`. The issue the PR closes is recorded in a
+batch instead, and the whole of `src/` runs on fresh `main` once per batch. The author records it
+after the PR is created (`make mutation-full-record issue=<M> pr=<N>`), and the review checks the
+record (`make mutation-full-check pr=<N>`): an issue that is not recorded is red. How a batch is
+kept is in the docstring of `scripts/review/mutation_batch.py`.
 
-The action also leaves `src/bootstrap/container/container.ts` and `src/shared/tokens.ts` to the
-batch of the full run (`FULL_RUN_ONLY` there), though `stryker.config.mjs` mutates them: a change
-of them or of their specs gives no area from them. Every new injectable class adds a token and a
-binding, so the two sit in the area of almost every feature PR, while the specs in `make check`
-already check a binding added or a token named. What the area run would add is a rerun of the
-mutants of lines the PR did not write, on every push. The price: a survivor in the bindings or the
-tokens shows only in a batch run, possibly weeks after the PR that made it.
+A run of the PR's own area went until #712, and the owner (2026-09-30) dropped it for its price. It
+was paid on every review round, and parallel sessions on one machine slow each other down 3–8×: on
+2026-09-29 four area runs overlapped and took 16–32 minutes, while the same areas took 4–9 on an
+idle machine, and PR #693 ran its area 8 times, about two hours in total. A batch run is paid once,
+by one session, and it reaches what an area run missed by construction: `container.ts` and
+`tokens.ts`, which the area left to the full run, and a helper `main` changed under the area.
 
-`mutation-full` is turned on by the run's tools. Changing the tools changes the run of every
-mutant, not of the diff's lines, and a PR that changes only the tools has an empty area from its
-diff. The tsconfigs and `typescript` are tools too: by them the type checker decides which mutant
-gets `CompileError` and which goes to the tests (`docs/architecture/testing.md`, "The type
-checker"). The gate runs no mutants in the PR, though: the whole of `src/` takes 15+ minutes, and
-the PR would pay that on every review round. The issue the PR closes is recorded in a batch
-instead, and the whole of `src/` runs once per batch. The author records it after the PR is created
-(`make mutation-full-record issue=<M> pr=<N>`), and the review checks the record
-(`make mutation-full-check pr=<N>`): an issue that is not recorded is red. How a batch is kept is
-in the docstring of `scripts/review/mutation_batch.py`. The PR's own `.ts` still go through
-`mutation`: the batch runs after the merge, and a survivor on the author's line is cheaper to
-catch in the PR.
-
-The price of the batch: a PR that changes only the tools has an empty area and runs no mutants at
-all. If it breaks the run itself (a Stryker update, say), that shows only in the batch run.
+The accepted cost: a weak test is found only by the batch run, possibly weeks after the PR that
+brought it, and its survivors are fixed by the session of the batch, not by the PR's author. A PR
+that breaks the run itself (a Stryker update, say) shows that only in the batch run too.
 
 With the `rebuild` gate on, the image is rebuilt **before** the other checks. Otherwise new
 code is checked against old dependencies and an old config, and a green result means nothing.
@@ -216,49 +197,3 @@ code is checked against old dependencies and an old config, and a green result m
 them on. `docs` is for a text change: the changed lines of `*.md` are checked. `docs-sync` is
 for a code change: the documentation the PR did not touch is checked. `docs` turns on no run,
 so a documentation-only diff still gets by without the database and containers.
-
-## Changes that affect the mutation run
-
-`make mutation` leaves a run record, and review accepts it in place of its own run
-(`docs/architecture/testing.md`, "The run record"). The acceptance conditions are in the
-docstring of `scripts/review/mutation_record.py`, run by `make mutation-record`. The run went
-on one commit, and the record is measured against another. So whether it still holds is the
-same pass over the table above, only with the diff taken between those two commits. At least
-one of three gates on — the record is stale:
-
-- `mutation` — the change reaches the record's area: the rule by which `make mutation-area`
-  assembles an area (`scripts/review/mutation_area.py`), applied to the files changed between the
-  two commits, gives at least one file of that area. The record's area is the files it names in
-  `files` and the files it mutated. A `.ts` that reaches none of them leaves the gate off, and so
-  does a comments-only diff;
-- `mutation-full` — the run's tools changed, and they change the outcome of every mutant, not
-  of the diff's lines;
-- `rebuild` — the run went in a different image.
-
-None of the three — the run is not repeated: neither by the author after the push nor by the
-reviewer under the gate. Otherwise a review fix that touched only documentation would cost the
-round two runs of the same area.
-
-The `mutation` row is narrower than in the PR diff, where any `.ts` turns it on. Several sessions
-merge into `main` every hour, so a merge of `origin/main` into a branch almost always brings
-someone else's `.ts`, and by the name alone the author ran the whole area again although none of
-its files changed: PR #693 ran its area twice in a row after two merges of `main`, 8 min 33 s the
-first time. The accepted cost: code outside the area that the area's code calls (a shared helper
-`main` changed, say) can change a mutant's status and still leave the record in force, and so can
-a spec that kills the area's mutants without being the mirror of an area file (an integration
-spec). That code went through the `mutation` gate of its own PR, and the next run of the area
-picks up the rest.
-
-The diff here is between the record's head and the PR head (for the author, their `HEAD` once
-pushed). `make mutation-record` lists it and decides the `mutation` row itself: it refuses the
-record and names the files of its area the change reaches. It reads them in the tree of the PR
-head, `tree=` for the reviewer and the current tree for the author. The `rebuild` and
-`mutation-full` rows are left to the reader. Condition 1 of the docstring of
-`scripts/review/mutation_record.py` says why the diff is taken between the trees and not from
-the merge-base, and why a record whose commit a force-push lost does not hold.
-
-`rebuild` is not redundant in the three, although review already refuses the record when that
-gate is on for the PR as a whole (condition 4 of the acceptance rule). The PR's gates are
-decided by `gh pr diff`, that is from the merge-base, and merging `origin/main` into the branch
-moves that merge-base. A `Dockerfile` change arriving from `main` is not visible in the PR
-diff, yet it changes the image.

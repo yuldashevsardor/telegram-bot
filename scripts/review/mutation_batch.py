@@ -1,11 +1,12 @@
 """Records an issue and its PR in a batch of the deferred full mutation run, or checks the record.
 
-A change to the tools of the mutation run turns on the `mutation-full` gate
-(docs/agents/review-gates.md), and a full `make mutation` takes 15+ minutes. Instead of paying that
-on every review round, the change is recorded in a batch, and the full run goes once per
-`BATCH_SIZE_ISSUES` recorded issues. A batch is an issue titled `Full mutation run <N>`, `<N>` a
-plain increment from 1; at most one batch is open at a time. No label marks it:
-docs/agents/issue-tracker.md forbids new ones.
+Any change of code, a `.ts` in `src/` or `test/` or a tool of the mutation run, turns on the
+`mutation-full` gate (docs/agents/review-gates.md): a PR runs no mutants of its own. A full
+`make mutation` takes 15+ minutes, and an area run slows down under the load of parallel sessions.
+Instead of paying either on every review round, the change is recorded in a batch, and the full run
+goes on fresh `main` once per `BATCH_SIZE_ISSUES` recorded issues. A batch is an issue titled
+`Full mutation run <N>`, `<N>` a plain increment from 1; at most one batch is open at a time. No
+label marks it: docs/agents/issue-tracker.md forbids new ones.
 
 `record <issue> <pr>` (make mutation-full-record):
 
@@ -49,7 +50,7 @@ from typing import List, NamedTuple, Optional
 
 from tree_remove import Run, reason
 
-BATCH_SIZE_ISSUES = 10
+BATCH_SIZE_ISSUES = 20
 NUMBER = re.compile(r"[1-9][0-9]*")
 BATCH_TITLE = re.compile(r"Full mutation run (?P<n>[1-9][0-9]*)")
 RECORD_MARKER = re.compile(

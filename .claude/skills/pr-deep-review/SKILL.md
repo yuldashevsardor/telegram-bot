@@ -87,9 +87,6 @@ findings on the changed `*.md` lines and comments (its step 3), without issue co
 verdict and without a verdict comment in the PR. Otherwise the PR gets two verdicts instead of one,
 and on the issue you get a second, weaker opinion you would have to reconcile with your own.
 
-`pr-light-check` publishes the record of its own mutation run in this mode too: it is a fact of the
-run, not a verdict. `--no-post` cancels that publication only if the flag reached it.
-
 `pr-light-check` runs the PR code in a temporary detached tree of the PR head, not in your tree:
 `make review-run` creates it and removes it when the gates are done. So do not rely on the PR
 branch being the `HEAD` of your tree: the commands of step 5 compare against the PR branch by name,
@@ -311,7 +308,6 @@ The output of both skills is input for your verdict, not the verdict.
 
 ### Checks
 rebuild: done/not needed · build: ok/fail/n-a · typecheck: ok/fail/n-a · test: ok/fail/n-a · lint: ok/fail/n-a · format-check: ok/fail/n-a · python: ok/fail/n-a
-mutation: ok/fail/n-a — <score from Final mutation score>, <the area files> · accepted record, <link> (head <sha> earlier — nothing under the mutation gates since) | own run — <why the record was not accepted> (n-a — reason)
 mutation-full: ok/fail/n-a — recorded: issue #<M> — <link> | not recorded: <why> (n-a — reason)
 make -n <target>: ok/fail — <what the expansion showed>
 sh -n <script>: ok/fail (+ dash: ok/fail/n-a)
@@ -360,8 +356,6 @@ Verdict rules:
 - **BLOCKED** — review is impossible:
   - the PR is not tied to an issue;
   - the build does not start;
-  - the mutation gate is cut short by a checker crash on the retry too, or its area could not be
-    assembled (`pr-light-check`, step 1 of `SKILL.md` and step 2 of `fallback.md`);
   - the batch of `mutation-full` could not be checked (`pr-light-check`, step 1 of `SKILL.md`);
   - the diff is empty;
   - the task is worded so that its criteria cannot be checked.
