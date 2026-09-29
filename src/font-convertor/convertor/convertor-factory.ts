@@ -37,57 +37,56 @@ import { EotToSvg } from "app/font-convertor/convertor/eot/eot-to-svg";
 import type { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
 import type { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 
-type ConvertorConstructor = new (fontForge: FontForge, fontValidatorResolver: FontValidatorResolver, eotPacker: EotPacker) => Convertor;
-
-type ConvertorMatrix = Partial<Record<Extension, Partial<Record<Extension, ConvertorConstructor>>>>;
+type ConvertorMatrix = Partial<Record<Extension, Partial<Record<Extension, () => Convertor>>>>;
 
 @injectable()
 export class ConvertorFactory {
     // The only record of what the domain can do: get() picks the convertor from it, and
     // getSupportedExtensions() derives the supported formats from it. A format declared in
-    // Extension but absent here does not count as supported.
+    // Extension but absent here does not count as supported. An entry builds its pair itself, so
+    // that a pair is handed only the dependencies it uses.
     private readonly convertors: ConvertorMatrix = {
         [Extension.WOFF]: {
-            [Extension.EOT]: WoffToEot,
-            [Extension.OTF]: WoffToOtf,
-            [Extension.SVG]: WoffToSvg,
-            [Extension.TTF]: WoffToTtf,
-            [Extension.WOFF2]: WoffToWoff2,
+            [Extension.EOT]: () => new WoffToEot(this.fontForge, this.fontValidatorResolver, this.eotPacker),
+            [Extension.OTF]: () => new WoffToOtf(this.fontForge, this.fontValidatorResolver),
+            [Extension.SVG]: () => new WoffToSvg(this.fontForge, this.fontValidatorResolver),
+            [Extension.TTF]: () => new WoffToTtf(this.fontForge, this.fontValidatorResolver),
+            [Extension.WOFF2]: () => new WoffToWoff2(this.fontForge, this.fontValidatorResolver),
         },
         [Extension.WOFF2]: {
-            [Extension.EOT]: Woff2ToEot,
-            [Extension.OTF]: Woff2ToOtf,
-            [Extension.SVG]: Woff2ToSvg,
-            [Extension.TTF]: Woff2ToTtf,
-            [Extension.WOFF]: Woff2ToWoff,
+            [Extension.EOT]: () => new Woff2ToEot(this.fontForge, this.fontValidatorResolver, this.eotPacker),
+            [Extension.OTF]: () => new Woff2ToOtf(this.fontForge, this.fontValidatorResolver),
+            [Extension.SVG]: () => new Woff2ToSvg(this.fontForge, this.fontValidatorResolver),
+            [Extension.TTF]: () => new Woff2ToTtf(this.fontForge, this.fontValidatorResolver),
+            [Extension.WOFF]: () => new Woff2ToWoff(this.fontForge, this.fontValidatorResolver),
         },
         [Extension.TTF]: {
-            [Extension.EOT]: TtfToEot,
-            [Extension.OTF]: TtfToOtf,
-            [Extension.SVG]: TtfToSvg,
-            [Extension.WOFF]: TtfToWoff,
-            [Extension.WOFF2]: TtfToWoff2,
+            [Extension.EOT]: () => new TtfToEot(this.fontValidatorResolver, this.eotPacker),
+            [Extension.OTF]: () => new TtfToOtf(this.fontForge, this.fontValidatorResolver),
+            [Extension.SVG]: () => new TtfToSvg(this.fontForge, this.fontValidatorResolver),
+            [Extension.WOFF]: () => new TtfToWoff(this.fontForge, this.fontValidatorResolver),
+            [Extension.WOFF2]: () => new TtfToWoff2(this.fontForge, this.fontValidatorResolver),
         },
         [Extension.OTF]: {
-            [Extension.EOT]: OtfToEot,
-            [Extension.SVG]: OtfToSvg,
-            [Extension.TTF]: OtfToTtf,
-            [Extension.WOFF]: OtfToWoff,
-            [Extension.WOFF2]: OtfToWoff2,
+            [Extension.EOT]: () => new OtfToEot(this.fontForge, this.fontValidatorResolver, this.eotPacker),
+            [Extension.SVG]: () => new OtfToSvg(this.fontForge, this.fontValidatorResolver),
+            [Extension.TTF]: () => new OtfToTtf(this.fontForge, this.fontValidatorResolver),
+            [Extension.WOFF]: () => new OtfToWoff(this.fontForge, this.fontValidatorResolver),
+            [Extension.WOFF2]: () => new OtfToWoff2(this.fontForge, this.fontValidatorResolver),
         },
         [Extension.EOT]: {
-            [Extension.OTF]: EotToOtf,
-            [Extension.SVG]: EotToSvg,
-            [Extension.TTF]: EotToTtf,
-            [Extension.WOFF]: EotToWoff,
-            [Extension.WOFF2]: EotToWoff2,
+            [Extension.OTF]: () => new EotToOtf(this.fontForge, this.fontValidatorResolver, this.eotPacker),
+            [Extension.SVG]: () => new EotToSvg(this.fontForge, this.fontValidatorResolver, this.eotPacker),
+            [Extension.TTF]: () => new EotToTtf(this.fontValidatorResolver, this.eotPacker),
+            [Extension.WOFF]: () => new EotToWoff(this.fontForge, this.fontValidatorResolver, this.eotPacker),
+            [Extension.WOFF2]: () => new EotToWoff2(this.fontForge, this.fontValidatorResolver, this.eotPacker),
         },
         [Extension.SVG]: {
-            [Extension.EOT]: SvgToEot,
-            [Extension.OTF]: SvgToOtf,
-            [Extension.TTF]: SvgToTtf,
-            [Extension.WOFF]: SvgToWoff,
-            [Extension.WOFF2]: SvgToWoff2,
+            [Extension.EOT]: () => new SvgToEot(this.fontForge, this.fontValidatorResolver, this.eotPacker),
+            [Extension.OTF]: () => new SvgToOtf(this.fontForge, this.fontValidatorResolver),
+            [Extension.TTF]: () => new SvgToTtf(this.fontForge, this.fontValidatorResolver),
+            [Extension.WOFF]: () => new SvgToWoff(this.fontForge, this.fontValidatorResolver),
+            [Extension.WOFF2]: () => new SvgToWoff2(this.fontForge, this.fontValidatorResolver),
         },
     };
 
@@ -98,13 +97,13 @@ export class ConvertorFactory {
     ) {}
 
     public get(fromExtension: Extension, toExtension: Extension): Convertor {
-        const convertor = this.convertors[fromExtension]?.[toExtension];
+        const buildConvertor = this.convertors[fromExtension]?.[toExtension];
 
-        if (convertor === undefined) {
+        if (buildConvertor === undefined) {
             throw ConvertorNotFound.byExtensions(fromExtension, toExtension);
         }
 
-        return new convertor(this.fontForge, this.fontValidatorResolver, this.eotPacker);
+        return buildConvertor();
     }
 
     /**
