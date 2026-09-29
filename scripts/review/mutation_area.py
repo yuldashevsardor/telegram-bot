@@ -88,7 +88,11 @@ COMMENTS_SCRIPT = os.path.join(
 DIRECTIVE = re.compile(r"\s*(?:///|[/*\s]*(?:@|(?:stryker|eslint|istanbul|prettier)\b))", re.I)
 # Left to the batch of the full run; why and at what price — docs/agents/review-gates.md, the
 # paragraph on FULL_RUN_ONLY. A missing path stops the action, as a missing DATABASE_ONLY_SOURCES
-# entry stops `make mutation`: a moved file would otherwise come back into the area silently.
+# entry stops `make mutation`: a moved file would otherwise come back into the area silently. Unlike
+# that list, read from the PR's own stryker.config.mjs, this one is read by the review from the tree
+# it started in (review_run.py), that is from main's copy. A PR that moves either file stops the
+# area of its own review even with the new path written in here, and every round comes back BLOCKED:
+# the gate of such a PR is left to the owner.
 FULL_RUN_ONLY = ["src/bootstrap/container/container.ts", "src/shared/tokens.ts"]
 
 
