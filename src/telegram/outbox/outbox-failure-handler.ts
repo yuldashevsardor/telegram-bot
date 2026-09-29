@@ -8,7 +8,14 @@ import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifi
 import type { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
 import type { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
-import type { OutboxAttemptError, PulledOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
+import type { ExpiredOutboxLease, OutboxAttemptError, PulledOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
+
+// The error of the attempt an expired lease closes: the node that made it reported nothing.
+const LEASE_EXPIRED: OutboxAttemptError = {
+    name: "OutboxLeaseExpired",
+    message: "The lease of the chat passed before its message was completed: the node that pulled it is presumed dead.",
+    kind: TelegramBotApiFailureKind.Transient,
+};
 
 // The outcome of a failed send, by the class of its error (docs/architecture/outbox.md, "Failures").
 @injectable()
@@ -28,6 +35,17 @@ export class OutboxFailureHandler {
         const attemptError: OutboxAttemptError = { ...this.errorSerializer.serialize(error), kind: failure.kind };
 
         await this.applyOutcome(message, failure, attemptError);
+    }
+
+    // The message of every expired lease is a transient failure: whether the node died before the
+    // call or after Telegram took it cannot be told, so it goes out again (docs/architecture/outbox.md,
+    // "Lease recovery").
+    public async recoverExpiredLeases(): Promise<void> {
+        const expiredLeases = await this.store.findExpiredLeases();
+
+        for (const expiredLease of expiredLeases) {
+            await this.retryOrBlock(expiredLease, LEASE_EXPIRED);
+        }
     }
 
     // Not async on purpose: a switch that misses a kind leaves the end of the function reachable,
@@ -53,7 +71,7 @@ export class OutboxFailureHandler {
     }
 
     // What counts and when the limit is checked: docs/architecture/outbox.md, "Outcomes".
-    private async retryOrBlock(message: PulledOutboxMessage, attemptError: OutboxAttemptError): Promise<void> {
+    private async retryOrBlock(message: PulledOutboxMessage | ExpiredOutboxLease, attemptError: OutboxAttemptError): Promise<void> {
         const countedAttempts = message.earlierAttempts + 1;
 
         if (countedAttempts >= this.maxAttempts) {

@@ -7,7 +7,13 @@ import { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializ
 import { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-handler";
 import { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
-import type { OutboxAttemptError, OutboxJsonObject, OutboxLease, PulledOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
+import type {
+    ExpiredOutboxLease,
+    OutboxAttemptError,
+    OutboxJsonObject,
+    OutboxLease,
+    PulledOutboxMessage,
+} from "app/telegram/outbox/store/outbox-store.types";
 
 const MAX_ATTEMPTS = 3;
 const FIRST_DELAY_MS = 1_000;
@@ -16,6 +22,14 @@ const MULTIPLIER = 2;
 const RETRY_DELAY = new OutboxRetryDelay({ firstDelayMs: FIRST_DELAY_MS, maxDelayMs: 60_000, multiplier: MULTIPLIER }, () => 0);
 // What the serializer of these specs turns any error into; its own spec pins what the real one does.
 const SERIALIZED: OutboxJsonObject = { name: "Error", message: "serialized", kind: "overwritten" };
+
+// What the attempt of an expired lease ends with. Spelled out rather than imported: the handler
+// keeps it private, and the attempts it lands in are read by people.
+const LEASE_EXPIRED: OutboxAttemptError = {
+    name: "OutboxLeaseExpired",
+    message: "The lease of the chat passed before its message was completed: the node that pulled it is presumed dead.",
+    kind: TelegramBotApiFailureKind.Transient,
+};
 
 type StoreCall =
     | { method: "retry"; lease: OutboxLease; error: OutboxAttemptError; delayMs: number }
@@ -26,6 +40,11 @@ type StoreCall =
 // written is pinned by the store spec.
 class RecordingStore {
     public readonly calls: StoreCall[] = [];
+    public expiredLeases: ExpiredOutboxLease[] = [];
+
+    public async findExpiredLeases(): Promise<ExpiredOutboxLease[]> {
+        return this.expiredLeases;
+    }
 
     public async retry(lease: OutboxLease, error: OutboxAttemptError, delayMs: number): Promise<void> {
         this.calls.push({ method: "retry", lease, error, delayMs });
@@ -126,6 +145,37 @@ describe("OutboxFailureHandler", function () {
         ]);
     });
 
+    describe("the recovery of expired leases", function () {
+        it("retries the message of every expired lease as a transient failure after the delay of its attempt", async function () {
+            const first = expiredAfter(7, 0);
+            const second = expiredAfter(8, 1);
+            store.expiredLeases = [first, second];
+
+            await handler.recoverExpiredLeases();
+
+            // The first attempt waits half of the first step, the second half of the doubled one.
+            expect(store.calls).to.deep.equal([
+                { method: "retry", lease: first, error: LEASE_EXPIRED, delayMs: FIRST_DELAY_MS / 2 },
+                { method: "retry", lease: second, error: LEASE_EXPIRED, delayMs: (FIRST_DELAY_MS * MULTIPLIER) / 2 },
+            ]);
+        });
+
+        it("fails the message of an expired lease on its last attempt and blocks its chat", async function () {
+            const expired = expiredAfter(7, MAX_ATTEMPTS - 1);
+            store.expiredLeases = [expired];
+
+            await handler.recoverExpiredLeases();
+
+            expect(store.calls).to.deep.equal([{ method: "markAsFailedAndBlockChat", lease: expired, error: LEASE_EXPIRED }]);
+        });
+
+        it("changes nothing when no lease has expired", async function () {
+            await handler.recoverExpiredLeases();
+
+            expect(store.calls).to.deep.equal([]);
+        });
+    });
+
     function handlerAllowing(maxAttempts: number): OutboxFailureHandler {
         return new OutboxFailureHandler(
             store as unknown as OutboxStore,
@@ -147,6 +197,17 @@ function pulledAfter(earlierAttempts: number): PulledOutboxMessage {
         method: "sendMessage",
         payload: { text: "text" },
         priority: 0,
+        earlierAttempts,
+    };
+}
+
+// A lease that passed before its message was completed, after earlierAttempts attempts.
+function expiredAfter(id: number, earlierAttempts: number): ExpiredOutboxLease {
+    return {
+        id,
+        lockToken: "9e4d1c7a-3b2f-4a6e-8c5d-1f0b2a3c4d5e",
+        startedAt: "2026-09-29T10:02:00.000000+00:00",
+        worker: null,
         earlierAttempts,
     };
 }
