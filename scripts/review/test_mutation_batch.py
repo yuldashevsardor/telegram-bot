@@ -465,7 +465,7 @@ class CheckTest(unittest.TestCase):
 
 
 def run_record(head=HEAD, clean="yes", scope="full", exit_code=0, score="100.00"):
-    marker = "<!-- mutation-record head={} clean={} scope={} exit={} score={} -->".format(
+    marker = "<!-- mutation-run head={} clean={} scope={} exit={} score={} -->".format(
         head, clean, scope, exit_code, score
     )
     return marker + "\n## `make mutation` run record\n\n- head: `{}`\n".format(head)

@@ -78,9 +78,9 @@ RECORD_MARKER = re.compile(
     r"<!-- mutation-batch-record issue=(?P<issue>[1-9][0-9]*) pr=(?P<pr>[1-9][0-9]*) -->"
 )
 CLOSE_MARKER = re.compile(r"<!-- mutation-batch-close head=[0-9a-f]{40} -->")
-# The first line of the run record test/mutation-record.ts writes.
+# The first line of the run record test/mutation-run.ts writes.
 RUN_RECORD_MARKER = re.compile(
-    r"<!-- mutation-record head=(?P<head>\S+) clean=(?P<clean>\S+) scope=(?P<scope>\S+)"
+    r"<!-- mutation-run head=(?P<head>\S+) clean=(?P<clean>\S+) scope=(?P<scope>\S+)"
     r" exit=(?P<exit>\S+) score=(?P<score>\S+) -->"
 )
 SHA = re.compile(r"[0-9a-f]{40}")
