@@ -8,7 +8,8 @@ No sender or caller uses the directory yet: so far it holds the tables with `Out
 (`store/outbox-store.ts`), which pushes, pulls within the limits, pauses, completes a pulled
 message, finds the expired leases and cleans up, `OutboxFailureHandler`
 (`outbox-failure-handler.ts`), which picks the outcome of a failed send and recovers the expired
-leases, `OutboxResultWaiter`, which waits for the outcome of a message, with
+leases, `OutboxMessageSource` (`outbox-message-source.ts`), which hands the pulled messages to the
+workers, `OutboxResultWaiter`, which waits for the outcome of a message, with
 `OutboxFinishedMessageReader`, the payload codec and the retry delay. The error classes of a failed
 call lie outside it, in `telegram/bot-api-failure-classifier/`.
 
@@ -91,7 +92,7 @@ no pull reaches them. The spec has the removal take the chat while a push waits 
 3. every `idle` chat of the batch becomes `ready`; a chat in any other state already has an older
    head;
 4. `pg_notify` on `telegram_outbox_ready` with an empty payload, delivered on commit, so that an
-   idle sender wakes up at once. Nothing listens on the channel yet: the sender is not written.
+   idle sender wakes up at once. `OutboxMessageSource` listens on it (see "The message source").
 
 ## Pull
 
@@ -134,7 +135,10 @@ start of this statement and its lock.
 The lock of step 1 makes the pulls of all the nodes take turns: two pulls that read the same
 `next_send_at` would both spend it. The pull that finds the row locked gets no messages and a
 `nextPullInMs` from the row as it was before the other pull, often zero: a caller that pulls again
-at once spins until the other pull commits.
+at once spins until the other pull commits. So does a pull that skips a due chat held by another
+transaction, an open push or completion of that chat: with nothing pulled, the bot's time decides
+the answer (see "Limits"), zero once `next_send_at` has passed. The message source sleeps on such an
+answer instead (see "The message source").
 
 ## Limits
 
@@ -158,7 +162,8 @@ queue takes ([`outbound-queue.md`](./outbound-queue.md)). A limit of `number` me
   The cooldown counts from the pull, not from the slot, and `nextPullInMs` rounds it up to a whole
   millisecond, so both the rounding and the latency of the caller come off the rate. With a limit
   of 30 per 1000 ms the answer is 34 ms, and a caller that pulls 3 ms after it sends a message every
-  37 ms: about 10% under the limit.
+  37 ms: about 10% under the limit. What the message source adds to that is in "The message
+  source".
 - **The pause.** `pause(durationMs)` sets `paused_until` to `now()` plus the duration, never
   earlier than it is (`greatest`): a 429 that asks for less than the pause left changes nothing.
   The pause stops the pull on every node, since every pull reads the same row. It moves
@@ -176,10 +181,55 @@ pull has just spent, or zero if it pulled nothing.
 
 The answer is not capped. A long pause or a long interval of a limit, common or chat, gives more
 than a Node timer takes (`ConfigParser.MAX_TIMER_DELAY`; what Node does with more is in
-[`config.md`](./config.md)), so a caller that sleeps on the answer caps it first.
+[`config.md`](./config.md)), so a caller that sleeps on the answer caps it first, as the message
+source does.
 
 The times are the database's (`now()`), and so is the answer: a duration counted from the pull,
 not a moment. The rule is in [`invariants.md`](./invariants.md), "The outbox".
+
+## The message source
+
+`OutboxMessageSource` (`outbox-message-source.ts`) is what the workers of a node take the pulled
+messages from. `messages(worker)` makes an async generator for one worker, and the worker awaits the
+next message of its own generator. Nothing makes a generator yet: the worker loop is
+[#728](https://github.com/yuldashevsardor/telegram-bot/issues/728).
+
+- **One message per pull.** The generator pulls with a `limit` of 1, and only when its worker asks
+  for the next message, so a worker never holds a leased message it has not started on.
+- **The sleep.** A pull that got nothing puts the generator to sleep for `nextPullInMs`, capped by a
+  random point from 100 ms to 1 s (`MIN_SLEEP_CAP_MS`, `MAX_SLEEP_CAP_MS`), drawn for each sleep.
+  A `null` answer sleeps the whole cap, and so does zero: with nothing pulled, zero means that
+  another pull holds the bot row or another transaction holds a due chat (see "Pull"), and pulling
+  again at once would spin until it commits. The cap keeps the sleep within a Node timer as well
+  (see "Limits"). A completion that leaves its chat `ready` notifies no one, so the next message of
+  that chat waits for a sleep of at most the cap. The cap is random so that the generators of the
+  nodes do not pull in step.
+- **The wake-up.** The first generator starts `LISTEN` on `telegram_outbox_ready`
+  (`OutboxStore.listenReady()`), on the listening connection of the client
+  ([`storage.md`](./storage.md), "LISTEN"). A failed start is logged at `warning` and is not
+  repeated, for the reason given in "Waiting for the result"; the generators go on with the capped
+  sleep alone. A notification wakes every sleeping generator of the node, since a push may have
+  made several chats ready, and so does every start of the listening: a push committed while the
+  connection was down reached no one. A notification that comes while a generator pulls makes it
+  pull again instead of sleeping: the pull may have read the tables before the push committed.
+- **A failed pull** is logged at `error`, and the generator sleeps the whole cap and pulls again:
+  the source ends only on stop.
+- **The stop.** `stop()` ends every generator of the node: a sleeping one at once, one whose pull
+  is in progress once it has handed out what the pull got, so no pulled message is left leased to
+  nobody, and one waiting for its worker at its next message. A generator made after the stop ends
+  without a pull. The worker sends the message it holds: waiting for the calls in flight is the
+  worker loop's.
+
+What this costs the rate of the common limit (see "Limits"):
+
+- A pull of one message drops the other slots due (see "Limits", the common limit), so a worker
+  that comes back after a long call gets one message, not the slots due meanwhile. The limit is
+  reached only while the workers of all the nodes together pull at least once per cooldown.
+- The latency of a worker comes off the rate as "Limits" counts it: how late its timer fires, and
+  the time from the answer of one pull to the start of the next.
+- A worker whose pull finds the bot row held by another pull sleeps the whole cap, up to 1 s,
+  although that pull ends within milliseconds: the price of not spinning. The slot is lost only if
+  no other worker of any node pulls meanwhile.
 
 ## The lease
 

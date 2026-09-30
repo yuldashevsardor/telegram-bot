@@ -121,6 +121,14 @@ export class OutboxStore {
         });
     }
 
+    // onReady is called on the commit of every push on any node, and every time the listening
+    // starts: the first time and after a reconnect, since a push committed while the connection was
+    // down is heard by no one. Resolves once the listening starts. LISTEN takes a connection of its
+    // own, outside the pool, until Database.close() (docs/architecture/storage.md).
+    public async listenReady(onReady: () => void): Promise<void> {
+        await this.sql.listen(OutboxChannel.Ready, () => onReady(), onReady);
+    }
+
     // One statement, so it is atomic without a transaction: up to limit ready chats by the priority
     // of their head, and the head of each, within the common limit, the chat limit and the pause
     // (docs/architecture/outbox.md, "Pull"). A chat locked by another puller is skipped, not waited
