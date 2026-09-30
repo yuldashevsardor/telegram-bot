@@ -58,7 +58,8 @@ The answer goes to stdout. A failed `gh` or `git` is `Stopped:` on stderr with e
 was decided, and the caller has to say so. After a stop in the middle of `record` a new batch may
 already exist without the record; the repeat call finds it open and records into it. After a stop in
 the middle of `close` the next batch may already be open next to the batch being closed; the repeat
-call takes it for the next one.
+call takes it for the next one. Until that call, two batches are open, and every `record` stops with
+"more than one batch is open".
 """
 
 import fcntl

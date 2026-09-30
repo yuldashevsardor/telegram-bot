@@ -101,8 +101,9 @@ is the run itself:
    recorded PRs the run did not cover into the next batch and posts the closing comment with the
    run record. What it checks before a write is in the docstring of
    `scripts/review/mutation_batch.py`.
-4. Fixes were committed — a PR with `Closes #<M>`, from step 2 of this command on. The batch is
-   closed by then, so `make mutation-full-record` puts the PR into the next one. No fixes — no PR:
+4. Fixes were committed — a PR with `Closes #<M>`: the workflow list of step 2 goes on from its
+   item 3. The batch is closed by then, so `make mutation-full-record` puts the PR into the next
+   one. No fixes — no PR:
    the report to the owner, then `make worktree-cleanup`.
 
 ## Step 3. Review
