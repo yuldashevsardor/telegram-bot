@@ -237,8 +237,8 @@ class RecordTest(unittest.TestCase):
             "_🤖 Posted by Claude Code from the owner's account._\n",
         )
 
-    def test_an_issue_already_recorded_is_not_recorded_twice(self):
-        github = self.github(batch(630, 1, records=[(655, 656), (640, 641)]))
+    def test_an_issue_already_recorded_with_the_pr_is_not_recorded_twice(self):
+        github = self.github(batch(630, 1, records=[(655, 660), (640, 641)]))
 
         code, lines, _ = self.record(github, 655, 660)
 
@@ -247,7 +247,23 @@ class RecordTest(unittest.TestCase):
         self.assertEqual(
             lines,
             [
-                "already recorded: issue #655 — {}/issues/630#issuecomment-1".format(REPO),
+                "already recorded: issue #655, PR #660 — {}/issues/630#issuecomment-1".format(
+                    REPO
+                ),
+                "issues in the batch: 2 of 20 — {}/issues/630".format(REPO),
+            ],
+        )
+
+    def test_a_pr_that_replaces_another_is_recorded_and_the_issue_counted_once(self):
+        github = self.github(batch(630, 1, records=[(655, 656), (640, 641)]))
+
+        code, lines, _ = self.record(github, 655, 660)
+
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            lines,
+            [
+                "recorded: issue #655, PR #660 — {}/issues/630#issuecomment-3".format(REPO),
                 "issues in the batch: 2 of 20 — {}/issues/630".format(REPO),
             ],
         )
@@ -583,8 +599,8 @@ class CloseTest(unittest.TestCase):
             ),
         )
 
-    def test_carries_into_the_open_batch_and_skips_an_issue_already_there(self):
-        github = self.four_prs(batch(640, 2, records=[(702, 802)]))
+    def test_carries_into_the_open_batch_and_skips_a_pr_already_there(self):
+        github = self.four_prs(batch(640, 2, records=[(702, 802), (703, 903)]))
 
         _, lines, _ = self.close(github)
 
@@ -593,11 +609,13 @@ class CloseTest(unittest.TestCase):
             [comment["body"].splitlines()[0] for comment in github.issues[640]["comments"]],
             [
                 "<!-- mutation-batch-record issue=702 pr=802 -->",
+                "<!-- mutation-batch-record issue=703 pr=903 -->",
                 "<!-- mutation-batch-record issue=703 pr=803 -->",
             ],
         )
         self.assertIn(
-            "already carried: issue #702 — {}/issues/640#issuecomment-1".format(REPO), lines
+            "already carried: issue #702, PR #802 — {}/issues/640#issuecomment-1".format(REPO),
+            lines,
         )
 
     def test_nothing_to_carry_creates_no_batch(self):
@@ -615,17 +633,19 @@ class CloseTest(unittest.TestCase):
             "Carried over:\n- none\n", github.issues[630]["comments"][-1]["body"]
         )
 
-    def test_an_issue_recorded_twice_is_sorted_by_its_first_record(self):
+    def test_each_pr_of_an_issue_is_sorted_on_its_own(self):
         github = self.github(
             batch(630, 1, records=[(701, 801), (701, 802)]),
-            prs={801: merged("c1"), 802: OPEN},
-            ancestors=["c1"],
+            prs={801: CLOSED, 802: merged("c2")},
         )
 
         _, lines, _ = self.close(github)
 
-        self.assertEqual(lines[0], "covered: issue #701, PR #801")
-        self.assertEqual(github.called("create"), [])
+        self.assertEqual(lines[0], "dropped: issue #701, PR #801, closed without a merge")
+        self.assertEqual(
+            github.issues[631]["comments"][0]["body"].splitlines()[0],
+            "<!-- mutation-batch-record issue=701 pr=802 -->",
+        )
 
     def test_a_batch_closed_by_the_merge_of_its_fix_gets_the_comment_and_no_second_close(self):
         github = self.four_prs()

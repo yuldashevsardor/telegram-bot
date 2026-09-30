@@ -20,8 +20,10 @@ label marks it: docs/agents/issue-tracker.md forbids new ones.
    newest batch would drop out of it silently once enough issues came after it.
 3. No open batch — creates `Full mutation run <max N + 1>` from templates/mutation-batch.md. Two
    open batches — stops: which one the record belongs to is a human's call.
-4. The issue is already recorded in the open batch — changes nothing, so a repeat call or the next
-   review round does not count twice.
+4. The issue is already recorded in the open batch with this PR — changes nothing, so a repeat call
+   or the next review round does not count twice. With another PR it is recorded again: a PR that
+   replaces one closed without a merge needs a record of its own for `close` to sort, while the
+   threshold counts the issue once.
 5. Otherwise adds a comment from templates/mutation-batch-record.md. A record is a comment and not
    an edit of the batch body: an edit is read-modify-write, and of two concurrent edits one is lost
    silently.
@@ -45,7 +47,8 @@ same lock as `record`:
 3. Sorts each recorded PR by `gh pr view`: merged, with its merge commit an ancestor of the run's
    head — covered; merged later, or not merged — carried over; closed without a merge — dropped.
 4. Records the carried ones into the other open batch, created if there is none, from
-   templates/mutation-batch-carry.md. An issue already recorded there is not recorded twice.
+   templates/mutation-batch-carry.md. An issue already recorded there with the same PR is not
+   recorded twice.
 5. Comments from templates/mutation-batch-close.md: the head, the three lists, the issues of the
    survivors and the run record itself. Then closes the issue if it is open.
 
@@ -285,9 +288,9 @@ def record_locked(issue: int, pr: int, run: Run) -> None:
         print("created: {}".format(batch.url))
     else:
         records = list_records(batch, login, run)
-    earlier = [record for record in records if record.issue == issue]
+    earlier = [record for record in records if (record.issue, record.pr) == (issue, pr)]
     if earlier:
-        print("already recorded: issue #{} — {}".format(issue, earlier[0].url))
+        print("already recorded: issue #{}, PR #{} — {}".format(issue, pr, earlier[0].url))
     else:
         url = add_record(batch, issue, pr, run)
         records.append(Record(issue, pr, url))
@@ -432,18 +435,6 @@ def sort_records(records: List[Record], head: str, run: Run) -> Sorted:
     return Sorted(covered, carried, dropped)
 
 
-def first_per_issue(records: List[Record]) -> List[Record]:
-    """One record per issue, the first one: record() counts an issue once as well."""
-    seen = set()
-    firsts = []
-    for found in records:
-        if found.issue in seen:
-            continue
-        seen.add(found.issue)
-        firsts.append(found)
-    return firsts
-
-
 def carry_over(
     closing: Batch, batches: List[Batch], carried: List[Carried], login: str, run: Run
 ) -> Optional[Batch]:
@@ -457,15 +448,17 @@ def carry_over(
         return None
     if others:
         next_batch = others[0]
-        known = {found.issue: found.url for found in list_records(next_batch, login, run)}
+        known = {
+            (found.issue, found.pr): found.url for found in list_records(next_batch, login, run)
+        }
     else:
         next_batch = create_batch(batches, run)
         known = {}
         print("created: {}".format(next_batch.url))
     for carry in carried:
         issue, pr = carry.record.issue, carry.record.pr
-        if issue in known:
-            print("already carried: issue #{} — {}".format(issue, known[issue]))
+        if (issue, pr) in known:
+            print("already carried: issue #{}, PR #{} — {}".format(issue, pr, known[(issue, pr)]))
             continue
         body = template(
             "mutation-batch-carry.md", issue=issue, pr=pr, batch=closing.issue, why=carry.why
@@ -533,7 +526,7 @@ def close_locked(batch_issue: int, survivor_issues: List[int], record_file: str,
         print("already closed: {}".format(closed_before[0].url))
         return
     fetch(run)
-    ordered = sort_records(first_per_issue(records_among(comments)), run_record.head, run)
+    ordered = sort_records(records_among(comments), run_record.head, run)
     for found in ordered.covered:
         print("covered: issue #{}, PR #{}".format(found.issue, found.pr))
     for found in ordered.dropped:
