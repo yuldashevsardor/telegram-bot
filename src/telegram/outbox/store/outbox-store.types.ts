@@ -140,6 +140,17 @@ export type OutboxPullResultRow = {
     has_bot_limits: boolean;
 };
 
+// What the cleanup deletes and how much at a time. A failed message has no retention: it is never
+// deleted automatically.
+export type OutboxCleanupSettings = {
+    // How long a done message is kept after its end.
+    doneRetentionMs: number;
+    // How long a skipped message is kept after its end.
+    skippedRetentionMs: number;
+    // The most rows one call of the cleanup deletes.
+    batchSize: number;
+};
+
 // A message in a final status, as the caller waiting for it gets it.
 export type FinishedOutboxMessage = {
     id: number;

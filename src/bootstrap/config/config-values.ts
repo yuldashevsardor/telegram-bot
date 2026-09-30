@@ -5,6 +5,7 @@ import type { DatabaseSettings } from "app/platform/database/database.types";
 import type { BotSettings } from "app/telegram/bot/bot.types";
 import type { OutboxRetryDelaySettings } from "app/telegram/outbox/retry-delay/outbox-retry-delay.types";
 import type { OutboxResultWaiterSettings } from "app/telegram/outbox/result-waiter/outbox-result-waiter.types";
+import type { OutboxCleanupSettings } from "app/telegram/outbox/store/outbox-store.types";
 
 export const Environments = ["production", "development", "testing"] as const;
 
@@ -43,6 +44,7 @@ export type ConfigValues = {
         leaseDurationMs: number;
         // The attempts of a message that count towards the limit, the last one included.
         maxAttempts: number;
+        cleanup: OutboxCleanupSettings;
     };
 
     bot: BotSettings;

@@ -11,6 +11,7 @@ import type { OutboxResultWaiterSettings } from "app/telegram/outbox/result-wait
 import { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type {
     FinishedOutboxMessage,
+    OutboxCleanupSettings,
     OutboxMessageInput,
     OutboxWorker,
     PulledOutboxMessage,
@@ -34,6 +35,8 @@ const SHORT_WAIT_TIMEOUT_MS = 50;
 const WORKER: OutboxWorker = { host: "node-1", pid: 101, workerId: "worker-1" };
 // Longer than any test here: no lease expires under it.
 const LEASE_DURATION_MS = 600_000;
+// The specs here call no cleanup.
+const CLEANUP: OutboxCleanupSettings = { doneRetentionMs: 1, skippedRetentionMs: 1, batchSize: 1 };
 // The statement postgres.js sends to listen on the finished channel, as pg_stat_activity shows it.
 const LISTEN_FINISHED_QUERY = `listen "${OutboxChannel.Finished}"`;
 
@@ -52,7 +55,7 @@ describe("OutboxFinishedMessageReader", function () {
 
         database = new Database(settings, false);
         observer = new Database(settings, false);
-        store = new OutboxStore(database, silentLogger(), NO_LIMITS, LEASE_DURATION_MS);
+        store = new OutboxStore(database, silentLogger(), NO_LIMITS, LEASE_DURATION_MS, CLEANUP);
         reader = new OutboxFinishedMessageReader(database);
     });
 
