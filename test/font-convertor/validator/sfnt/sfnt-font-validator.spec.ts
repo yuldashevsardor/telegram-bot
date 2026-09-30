@@ -17,16 +17,16 @@ const HEADER_SIZE_BYTES = 12;
 const RECORD_SIZE_BYTES = 16;
 
 // The header fields by their offset (OpenType 1.9.1, Table Directory).
-const VERSION = 0;
-const NUM_TABLES = 4;
-const SEARCH_RANGE = 6;
-const ENTRY_SELECTOR = 8;
-const RANGE_SHIFT = 10;
+const VERSION_OFFSET_BYTES = 0;
+const NUM_TABLES_OFFSET_BYTES = 4;
+const SEARCH_RANGE_OFFSET_BYTES = 6;
+const ENTRY_SELECTOR_OFFSET_BYTES = 8;
+const RANGE_SHIFT_OFFSET_BYTES = 10;
 // The fields of a table record by their offset in it.
-const CHECKSUM = 4;
-const LENGTH = 12;
+const CHECKSUM_OFFSET_BYTES = 4;
+const LENGTH_OFFSET_BYTES = 12;
 // checkSumAdjustment in head.
-const CHECKSUM_ADJUSTMENT = 8;
+const CHECKSUM_ADJUSTMENT_OFFSET_BYTES = 8;
 
 const TRUETYPE_VERSION = 0x00010000;
 const CFF_VERSION = 0x4f54544f;
@@ -72,18 +72,18 @@ describe("SfntFontValidator.validate", function () {
 
         it("of every sfnt version the domain accepts", async function () {
             for (const version of SFNT_VERSIONS) {
-                await validate(withUint32(ttf, VERSION, version));
-                await validate(withUint32(otf, VERSION, version));
+                await validate(withUint32(ttf, VERSION_OFFSET_BYTES, version));
+                await validate(withUint32(otf, VERSION_OFFSET_BYTES, version));
             }
         });
 
         it("whose version is OTTO over TrueType outlines", async function () {
             // The specification says "should" match; the rules go by the outline tables present.
-            await validate(withUint32(ttf, VERSION, CFF_VERSION));
+            await validate(withUint32(ttf, VERSION_OFFSET_BYTES, CFF_VERSION));
         });
 
         it("whose version is 0x00010000 over CFF outlines", async function () {
-            await validate(withUint32(otf, VERSION, TRUETYPE_VERSION));
+            await validate(withUint32(otf, VERSION_OFFSET_BYTES, TRUETYPE_VERSION));
         });
 
         it("with TrueType outlines and no OS/2", async function () {
@@ -93,25 +93,25 @@ describe("SfntFontValidator.validate", function () {
 
         it("whose table checksum is wrong", async function () {
             // fontforge does not read the checksums.
-            await validate(withUint32(ttf, recordOf(ttf, "glyf") + CHECKSUM, 0));
-            await validate(withUint32(otf, recordOf(otf, "CFF ") + CHECKSUM, 0));
+            await validate(withUint32(ttf, recordOf(ttf, "glyf") + CHECKSUM_OFFSET_BYTES, 0));
+            await validate(withUint32(otf, recordOf(otf, "CFF ") + CHECKSUM_OFFSET_BYTES, 0));
         });
 
         it("whose checkSumAdjustment is wrong", async function () {
-            await validate(withUint32(ttf, tableOffset(ttf, "head") + CHECKSUM_ADJUSTMENT, 0));
+            await validate(withUint32(ttf, tableOffset(ttf, "head") + CHECKSUM_ADJUSTMENT_OFFSET_BYTES, 0));
         });
 
         it("whose searchRange, entrySelector and rangeShift are wrong", async function () {
             // The specification tells readers not to rely on them.
-            await validate(withUint16(ttf, SEARCH_RANGE, 0));
-            await validate(withUint16(ttf, ENTRY_SELECTOR, 0));
-            await validate(withUint16(ttf, RANGE_SHIFT, 0));
+            await validate(withUint16(ttf, SEARCH_RANGE_OFFSET_BYTES, 0));
+            await validate(withUint16(ttf, ENTRY_SELECTOR_OFFSET_BYTES, 0));
+            await validate(withUint16(ttf, RANGE_SHIFT_OFFSET_BYTES, 0));
         });
 
         it("whose last table ends at the end of the file", async function () {
             const fftm = recordOf(ttf, "FFTM");
 
-            expect(tableOffset(ttf, "FFTM") + readUint32(ttf, fftm + LENGTH)).to.equal(TTF_SIZE_BYTES);
+            expect(tableOffset(ttf, "FFTM") + readUint32(ttf, fftm + LENGTH_OFFSET_BYTES)).to.equal(TTF_SIZE_BYTES);
             await validate(ttf);
         });
     });
@@ -131,7 +131,7 @@ describe("SfntFontValidator.validate", function () {
 
             await expectAnswer(woff, NotSfnt, `File is not sfnt: its version is 0x774f4646, ${VERSIONS_EXPECTED}`);
             await expectAnswer(
-                withUint32(ttf, VERSION, 0x00020000),
+                withUint32(ttf, VERSION_OFFSET_BYTES, 0x00020000),
                 NotSfnt,
                 `File is not sfnt: its version is 0x00020000, ${VERSIONS_EXPECTED}`,
             );
@@ -142,7 +142,7 @@ describe("SfntFontValidator.validate", function () {
         it("of a collection", async function () {
             for (const font of [ttf, otf]) {
                 await expectBroken(
-                    withUint32(font, VERSION, COLLECTION_VERSION),
+                    withUint32(font, VERSION_OFFSET_BYTES, COLLECTION_VERSION),
                     SfntRule.Collection,
                     `At the header: sfntVersion is 0x74746366 ("ttcf"), ${VERSIONS_EXPECTED}`,
                 );
@@ -151,7 +151,7 @@ describe("SfntFontValidator.validate", function () {
 
         it("with no tables", async function () {
             await expectBroken(
-                withUint16(ttf, NUM_TABLES, 0),
+                withUint16(ttf, NUM_TABLES_OFFSET_BYTES, 0),
                 SfntRule.TablesPresent,
                 "At the header: numTables is 0, expected at least 1.",
             );
@@ -198,7 +198,7 @@ describe("SfntFontValidator.validate", function () {
         it("whose table length runs past 2^32", async function () {
             // offset + length is summed as a number, not wrapped to 32 bits.
             await expectBroken(
-                withUint32(ttf, recordOf(ttf, "glyf") + LENGTH, 0xffffffff),
+                withUint32(ttf, recordOf(ttf, "glyf") + LENGTH_OFFSET_BYTES, 0xffffffff),
                 SfntRule.TableInFile,
                 'At table "glyf": offset + length is 4294979283, expected at most 158856, the file size.',
             );
@@ -208,7 +208,7 @@ describe("SfntFontValidator.validate", function () {
             // numTables + 5 crashes fontforge with SIGSEGV. The first extra record is read from the
             // start of head, whose version 1.0 is no tag after "post".
             await expectBroken(
-                withUint16(ttf, NUM_TABLES, TTF_NUM_TABLES + 5),
+                withUint16(ttf, NUM_TABLES_OFFSET_BYTES, TTF_NUM_TABLES + 5),
                 SfntRule.AscendingTags,
                 'At table "\\u0000\\u0001\\u0000\\u0000": tag is "\\u0000\\u0001\\u0000\\u0000", expected a tag after "post".',
             );
@@ -255,7 +255,7 @@ describe("SfntFontValidator.validate", function () {
         it("with CFF outlines and no OS/2 under the TrueType version", async function () {
             // The rule goes by the outlines present, not by the version.
             await expectBroken(
-                withUint32(withoutTable(otf, "OS/2"), VERSION, TRUETYPE_VERSION),
+                withUint32(withoutTable(otf, "OS/2"), VERSION_OFFSET_BYTES, TRUETYPE_VERSION),
                 SfntRule.Os2WithCff,
                 'At the table directory: table "OS/2" is absent, expected present, as the font has "CFF ".',
             );
@@ -364,14 +364,14 @@ async function expectRejection<T extends Error>(
  */
 function withoutTable(font: Uint8Array, tag: string): Uint8Array {
     const record = recordOf(font, tag);
-    const numTables = readUint16(font, NUM_TABLES);
+    const numTables = readUint16(font, NUM_TABLES_OFFSET_BYTES);
     const directoryEnd = HEADER_SIZE_BYTES + numTables * RECORD_SIZE_BYTES;
     const copy = Uint8Array.from(font);
 
     copy.copyWithin(record, record + RECORD_SIZE_BYTES, directoryEnd);
     copy.fill(0, directoryEnd - RECORD_SIZE_BYTES, directoryEnd);
 
-    return withUint16(copy, NUM_TABLES, numTables - 1);
+    return withUint16(copy, NUM_TABLES_OFFSET_BYTES, numTables - 1);
 }
 
 function withTag(font: Uint8Array, tag: string, replacement: string): Uint8Array {
@@ -391,7 +391,7 @@ function withSwappedRecords(font: Uint8Array, first: number, second: number): Ui
  * The offset of the table record of `tag` in the file.
  */
 function recordOf(font: Uint8Array, tag: string): number {
-    const numTables = readUint16(font, NUM_TABLES);
+    const numTables = readUint16(font, NUM_TABLES_OFFSET_BYTES);
 
     for (let index = 0; index < numTables; index++) {
         const record = HEADER_SIZE_BYTES + index * RECORD_SIZE_BYTES;

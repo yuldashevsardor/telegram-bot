@@ -57,9 +57,12 @@ Macintosh only `encodingId 0` is read: only that one is single-byte MacRoman, th
 national encodings. Within a platform English is preferred (`0x0409` on Windows, `0` on the others),
 because a font does not guarantee the order of its records.
 
-The names are informational, so a missing name never rejects the font: the matching envelope field
-stays empty. That holds for a missing record, a missing `name` table, and a string past the declared
-end of the table or past the end of the file.
+The names are informational, so the codec never rejects a font over a missing name: the matching
+envelope field stays empty. That holds for a missing record, a missing `name` table, and a string
+past the declared end of the table or past the end of the file. A missing `name` table no longer
+reaches the codec from the user: `SfntFontValidator` below rejects a TTF source without it, since
+OpenType requires the table. The tolerance for the table now covers the intermediate sfnt the
+engine writes; a missing record or a string out of bounds is still packed from a source as well.
 
 `eot-packer.ts` itself lays out the header and the versions: which one is written, which are read. A
 compressed (`TTEMBED_TTCOMPRESSED`) or encrypted (`TTEMBED_XORENCRYPTDATA`) payload is rejected with
