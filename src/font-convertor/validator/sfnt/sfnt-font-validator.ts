@@ -23,11 +23,16 @@ import { FileHelper } from "app/shared/fs/file-helper";
  */
 @injectable()
 export class SfntFontValidator implements FontValidator {
-    private static readonly VERSION_OFFSET = 0;
-    private static readonly NUM_TABLES_OFFSET = 4;
+    private static readonly VERSION_OFFSET_BYTES = 0;
+    private static readonly NUM_TABLES_OFFSET_BYTES = 4;
     private static readonly COLLECTION_VERSION = 0x74746366;
     // In the order the rule lists them, which is the order they are reported in.
     private static readonly REQUIRED_TAGS = ["cmap", "head", "hhea", "hmtx", "maxp", "name", "post"];
+    private static readonly GLYF_TAG = "glyf";
+    private static readonly LOCA_TAG = "loca";
+    private static readonly CFF_TAG = "CFF ";
+    private static readonly CFF2_TAG = "CFF2";
+    private static readonly OS2_TAG = "OS/2";
     private static readonly OUTLINES_EXPECTED = '"glyf" with "loca", or "CFF "';
 
     /**
@@ -51,7 +56,9 @@ export class SfntFontValidator implements FontValidator {
     /**
      * The header is read here, before `SfntTableDirectory` parses the same bytes: the directory
      * rejects a short file or an unknown version with the codec's `InvalidSfnt`, while an answer
-     * of the validator names the rule broken. Past these checks the directory cannot throw.
+     * of the validator names the rule broken. Past these checks the directory cannot throw, so
+     * each check of its constructor has its rule here; the constructor says the same from its
+     * side.
      */
     private checkHeader(fontPath: string, bytes: Uint8Array): void {
         const headerSizeBytes = SfntTableDirectory.HEADER_SIZE_BYTES;
@@ -61,7 +68,7 @@ export class SfntFontValidator implements FontValidator {
         }
 
         const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-        const version = view.getUint32(SfntFontValidator.VERSION_OFFSET);
+        const version = view.getUint32(SfntFontValidator.VERSION_OFFSET_BYTES);
         const at = "the header";
 
         if (version === SfntFontValidator.COLLECTION_VERSION) {
@@ -78,7 +85,7 @@ export class SfntFontValidator implements FontValidator {
             throw NotSfnt.byVersion(fontPath, this.hex(version), this.versionsExpected());
         }
 
-        const numTables = view.getUint16(SfntFontValidator.NUM_TABLES_OFFSET);
+        const numTables = view.getUint16(SfntFontValidator.NUM_TABLES_OFFSET_BYTES);
 
         if (numTables === 0) {
             throw BrokenSfnt.byRule(fontPath, {
@@ -90,15 +97,15 @@ export class SfntFontValidator implements FontValidator {
             });
         }
 
-        const directoryEnd = headerSizeBytes + numTables * SfntTableDirectory.RECORD_SIZE_BYTES;
+        const directoryEndBytes = headerSizeBytes + numTables * SfntTableDirectory.RECORD_SIZE_BYTES;
 
-        if (bytes.length < directoryEnd) {
+        if (bytes.length < directoryEndBytes) {
             throw BrokenSfnt.byRule(fontPath, {
                 rule: SfntRule.DirectoryInFile,
                 at: "the file",
                 field: "size",
                 value: bytes.length,
-                expected: `at least ${directoryEnd} for ${numTables} table records`,
+                expected: `at least ${directoryEndBytes} for ${numTables} table records`,
             });
         }
     }
@@ -121,14 +128,14 @@ export class SfntFontValidator implements FontValidator {
                 });
             }
 
-            const tableEnd = record.offset + record.length;
+            const tableEndBytes = record.offset + record.length;
 
-            if (tableEnd > fileSizeBytes) {
+            if (tableEndBytes > fileSizeBytes) {
                 throw BrokenSfnt.byRule(fontPath, {
                     rule: SfntRule.TableInFile,
                     at: this.tableName(record.tag),
                     field: "offset + length",
-                    value: tableEnd,
+                    value: tableEndBytes,
                     expected: `at most ${fileSizeBytes}, the file size`,
                 });
             }
@@ -156,19 +163,19 @@ export class SfntFontValidator implements FontValidator {
             }
         }
 
-        if (directory.find("CFF2") !== undefined) {
+        if (directory.find(SfntFontValidator.CFF2_TAG) !== undefined) {
             throw BrokenSfnt.byRule(fontPath, {
                 rule: SfntRule.NoCff2,
                 at: at,
-                field: this.tableName("CFF2"),
+                field: this.tableName(SfntFontValidator.CFF2_TAG),
                 value: "present",
                 expected: "absent",
             });
         }
 
-        const hasGlyf = directory.find("glyf") !== undefined;
-        const hasLoca = directory.find("loca") !== undefined;
-        const hasCff = directory.find("CFF ") !== undefined;
+        const hasGlyf = directory.find(SfntFontValidator.GLYF_TAG) !== undefined;
+        const hasLoca = directory.find(SfntFontValidator.LOCA_TAG) !== undefined;
+        const hasCff = directory.find(SfntFontValidator.CFF_TAG) !== undefined;
 
         if (hasGlyf !== hasLoca) {
             throw BrokenSfnt.byRule(fontPath, {
@@ -190,11 +197,11 @@ export class SfntFontValidator implements FontValidator {
             });
         }
 
-        if (hasCff && directory.find("OS/2") === undefined) {
+        if (hasCff && directory.find(SfntFontValidator.OS2_TAG) === undefined) {
             throw BrokenSfnt.byRule(fontPath, {
                 rule: SfntRule.Os2WithCff,
                 at: at,
-                field: this.tableName("OS/2"),
+                field: this.tableName(SfntFontValidator.OS2_TAG),
                 value: "absent",
                 expected: 'present, as the font has "CFF "',
             });

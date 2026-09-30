@@ -14,6 +14,11 @@ export class SfntTableDirectory {
     private readonly recordsInOrder: Array<SfntTableRecord> = [];
     private readonly recordsByTag = new Map<string, SfntTableRecord>();
 
+    /**
+     * `SfntFontValidator.checkHeader()` repeats every check that throws here, as a rule of its
+     * own, before it constructs the directory: a check added here without a rule there lets the
+     * codec's `InvalidSfnt` out of the validator instead of its answer.
+     */
     public constructor(bytes: Uint8Array) {
         // Stryker disable next-line EqualityOperator: `<=` is equivalent: it differs only on a 12-byte header without a single table, which is not a font
         if (bytes.length < SfntTableDirectory.HEADER_SIZE_BYTES) {
