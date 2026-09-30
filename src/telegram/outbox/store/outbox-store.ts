@@ -75,9 +75,11 @@ export class OutboxStore {
         return this.sql.begin(async (sql) => {
             // Inserts the chat row or locks the one there, in one statement: with DO NOTHING and a
             // separate lock, deleteIdleChats() could remove an idle chat between the two, and the
-            // messages would go in without their chat row, never to be pulled. The update changes
-            // nothing, it is there for its lock. The rows go in chat_id order, so two batches wait
-            // for the chats they share in the same order.
+            // messages would go in without their chat row, never to be pulled. WHERE false is not a
+            // mistake: PostgreSQL locks the row before it checks the condition, and the false one
+            // keeps the lock without writing a new version of the row (the ON CONFLICT condition in
+            // the docs of INSERT). The rows go in chat_id order, so two batches wait for the chats
+            // they share in the same order.
             await sql`
                 INSERT INTO telegram_outbox_chats (chat_id, state)
                 SELECT chat_id, ${OutboxChatState.Idle}
@@ -85,6 +87,7 @@ export class OutboxStore {
                 ORDER BY chat_id
                 ON CONFLICT (chat_id) DO UPDATE
                 SET state = telegram_outbox_chats.state
+                WHERE false
             `;
 
             const rows = await sql<{ id: string }[]>`

@@ -82,8 +82,10 @@ no pull reaches them. The spec has the removal take the chat while a push waits 
 `push()` is `pushBatch()` of one message. The batch is a transaction:
 
 1. every chat of the batch is inserted `idle` or, if it has a row, locked: one statement,
-   `ON CONFLICT DO UPDATE` with an update that changes nothing (see "The chat lock"). The rows go in
-   `chat_id` order, so two batches lock the chats they share in the same order;
+   `ON CONFLICT DO UPDATE … WHERE false` (see "The chat lock"). PostgreSQL locks the conflicting
+   row before it checks the condition, so the row is locked, and the false condition writes no new
+   version of it. The rows go in `chat_id` order, so two batches lock the chats they share in the
+   same order;
 2. the messages go in as one `jsonb` array and are inserted `ORDER BY` their position in it, so
    the ids grow in the order of the input;
 3. every `idle` chat of the batch becomes `ready`; a chat in any other state already has an older
@@ -224,8 +226,7 @@ of the attempt; the recovery of its lease appends one (see "Lease recovery").
 A retried message stays the head of its chat, so its chat waits with it: the messages behind it
 are not pulled before it, while the other chats are.
 
-Every update of the store sets `updated_at = now()` itself; there is no trigger. The update of the
-push's upsert is the exception: it changes nothing and is there only for its lock.
+Every update of the store sets `updated_at = now()` itself; there is no trigger.
 
 ## Waiting for the result
 
@@ -296,11 +297,11 @@ that gets a full batch calls again. Nothing calls them yet: the timers are the s
   `FOR UPDATE SKIP LOCKED`: a chat a push or a completion holds is left to them, and the lock
   rechecks the state on the newest version of the row, so a chat a push has made `ready` meanwhile
   is left alone too. A push that waits for a chat the removal holds inserts the chat again (see
-  "The chat lock"). A chat whose limit has not passed
-  keeps its row: a push recreates the chat with `next_attempt_at` of `now()`, so a removed row would
-  let the next message out before the limit. The messages of a removed chat stay; a late
-  completion of one of them is fenced (see "Completions"). A removed chat may still hold a `failed`
-  message that did not block it: putting it back by hand needs the chat row again (see "Tables").
+  "The chat lock"). A chat whose limit has not passed keeps its row: a push recreates the chat with
+  `next_attempt_at` of `now()`, so a removed row would let the next message out before the limit.
+  The messages of a removed chat stay; a late completion of one of them is fenced (see
+  "Completions"). A removed chat may still hold a `failed` message that did not block it: putting
+  it back by hand needs the chat row again (see "Tables").
 
 How the retention must relate to the wait for a result and to the lease is in
 [`invariants.md`](./invariants.md), "The outbox".
