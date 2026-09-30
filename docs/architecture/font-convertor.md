@@ -209,27 +209,15 @@ cut: the only text from the file they quote is a table tag, four bytes long. A z
 the zlib error as the cause, since its message comes from zlib, not from the file.
 
 The rules are `WoffRule` in `woff-font-validator.types.ts`, each with its section. Two of them are
-ours, not the standard's, and say so:
+ours, not the standard's, and the text of each says why, with the measurement behind it: the
+flavor is one of `SFNT_VERSIONS` (see "Signatures"), and `totalSfntSize` is at most 32 MiB, checked
+before any table is inflated (`MAX_SFNT_SIZE_BYTES`).
 
-- **The flavor is one of `SFNT_VERSIONS`** (see "Signatures"). The standard allows any flavor.
-  fontforge refuses an unknown one, and a collection (`ttcf`) holds several fonts, so it is
-  rejected for the same reason as a collection named `.ttf`.
-- **`totalSfntSize` is at most 32 MiB**, checked before any table is inflated. The tables are
-  inflated in the bot's process: a 589 168-byte WOFF with a 512 MiB table of zeros took it to
-  1090 MB RSS, while the largest of 5405 real fonts unpacks to 2.9 MB. The cap stands on the header
-  field because the directory rule of `totalSfntSize` ties that field to the tables.
-
-Deliberately not checked, as the class comment says in more detail:
-
-- **`head.checkSumAdjustment` of the sfnt rebuilt from the tables** (§5, W3C test
-  directory-origCheckSum-002). It fails for 1494 of 5405 real fonts, 28 %, among them Font Awesome
-  4.7 and all of `@fontsource/*`, and fontforge converts them. Checking it would turn away more than
-  a quarter of real fonts.
-- **The content of the metadata block.** §7 tells a user agent to ignore an invalid metadata block,
-  so only its bounds are checked, and it is never inflated.
-- **The enclosed sfnt**, among it the flavor against the outline tables (W3C tests
-  header-flavor-001/002): the standard itself checks only the packaging (§3)
-  ([#687](https://github.com/yuldashevsardor/telegram-bot/issues/687)).
+What is deliberately not checked, with the reasons, is in the class comment of `WoffFontValidator`:
+`head.checkSumAdjustment` of the rebuilt sfnt, which 28 % of real fonts fail while fontforge
+converts them; the content of the metadata block, which §7 tells a user agent to ignore when
+invalid; and the enclosed sfnt, since the standard checks only the packaging (§3)
+([#687](https://github.com/yuldashevsardor/telegram-bot/issues/687)).
 
 ## The pair table
 
