@@ -11,17 +11,6 @@ from unittest import mock
 import review_run
 
 HEAD = "e810a6c94c4063d8c74248e37b3711404f63dda0"
-URL = "https://github.com/yuldashevsardor/telegram-bot/pull/524#issuecomment-5796449019"
-AREA = [
-    "src/font-convertor/eot-packer/eot-packer.ts",
-    "src/font-convertor/font-forge/font-forge.ts",
-]
-ACCEPTED = """accepted {url}
-head: {head} — the PR head
-exit: 0
-score: 100.00
-survivors: 0
-""".format(url=URL, head=HEAD)
 BATCH_URL = "https://github.com/yuldashevsardor/telegram-bot/issues/662#issuecomment-5812345678"
 RECORDED = "recorded: issue #655 — {}\n".format(BATCH_URL)
 
@@ -90,8 +79,6 @@ class FakeRun:
                 "",
             ),
             "review-tree-remove": (0, "Cleaned up: {}\n".format(review), ""),
-            "mutation-area": (0, "\n".join(AREA) + "\n", ""),
-            "mutation-record": (0, ACCEPTED, ""),
             "mutation-full-check": (0, RECORDED, ""),
             "gh-diff": (0, "", ""),
             "coverage": (0, GREEN_SPECS, ""),
@@ -155,11 +142,12 @@ class ReviewRunTest(unittest.TestCase):
     def cwd_of(self, run, name):
         return [cwd for args, cwd in run.calls if args[0] != "git" and run.name(args) == name]
 
-    def test_the_green_path_of_pr_524_gives_the_checks_of_its_round_3(self):
+    def test_the_green_path_of_a_code_pr_gives_a_line_per_gate(self):
         run = self.fake()
 
         code, out = self.review_run(
-            "build typecheck lint format-check test docs-sync bug-hunt-high smells mutation", run
+            "build typecheck lint format-check test docs-sync bug-hunt-high smells mutation-full",
+            run,
         )
 
         self.assertEqual(code, 0)
@@ -169,9 +157,8 @@ class ReviewRunTest(unittest.TestCase):
             "Checks\n"
             "rebuild: not needed · build: ok · typecheck: ok · test: ok (712 passing) · lint: ok"
             " · format-check: ok\n"
-            "mutation: ok — 100.00, {area} · accepted record, {url}\n"
-            "Area: {area}\n"
-            "Logs: {logs}\n".format(head=HEAD, area=" ".join(AREA), url=URL, logs=self.logs),
+            "mutation-full: ok — recorded: issue #655 — {batch}\n"
+            "Logs: {logs}\n".format(head=HEAD, batch=BATCH_URL, logs=self.logs),
         )
         self.assertEqual(
             run.names(),
@@ -182,8 +169,7 @@ class ReviewRunTest(unittest.TestCase):
                 "coverage",
                 "lint",
                 "format-check",
-                "mutation-area",
-                "mutation-record",
+                "mutation-full-check",
                 "gh-diff",
                 "review-tree-remove",
             ],
@@ -192,42 +178,18 @@ class ReviewRunTest(unittest.TestCase):
     def test_the_gates_run_in_the_tree_of_the_pr_and_the_actions_here(self):
         run = self.fake()
 
-        self.review_run("rebuild build test python mutation mutation-full", run)
+        self.review_run("rebuild build test python mutation-full", run)
 
         for gate in ("rebuild", "build", "coverage", "review-test"):
             self.assertEqual(self.cwd_of(run, gate), [self.review], gate)
-        actions = (
-            "review-tree-create",
-            "mutation-area",
-            "mutation-record",
-            "mutation-full-check",
-            "review-tree-remove",
-        )
-        for action in actions:
+        for action in ("review-tree-create", "mutation-full-check", "review-tree-remove"):
             self.assertEqual(self.cwd_of(run, action), [self.task], action)
-        self.assertIn(
-            (["make", "mutation-area", "pr=7", "tree=" + self.review], self.task), run.calls
-        )
-        self.assertIn(
-            (
-                [
-                    "make",
-                    "mutation-record",
-                    "pr=7",
-                    "area=" + " ".join(AREA),
-                    "rebuild=1",
-                    "tree=" + self.review,
-                ],
-                self.task,
-            ),
-            run.calls,
-        )
         self.assertIn((["make", "review-tree-remove", "path=" + self.review], self.task), run.calls)
 
     def test_every_output_is_decoded_whatever_bytes_the_pr_brings(self):
         run = self.fake()
 
-        self.review_run("rebuild build test python mutation", run)
+        self.review_run("rebuild build test python mutation-full", run)
 
         for args, kwargs in run.kwargs:
             self.assertEqual(kwargs.get("errors"), "replace", args)
@@ -260,14 +222,13 @@ class ReviewRunTest(unittest.TestCase):
     def test_a_failed_rebuild_stops_the_other_container_gates(self):
         run = self.fake(rebuild=(1, RED_BUILD, ""))
 
-        code, out = self.review_run("rebuild build typecheck test python mutation", run)
+        code, out = self.review_run("rebuild build typecheck test python", run)
 
         self.assertEqual(
             run.names(), ["review-tree-create", "rebuild", "review-test", "review-tree-remove"]
         )
         self.assertIn(
             "rebuild: fail · build: n-a · typecheck: n-a · test: n-a · python: ok\n"
-            "mutation: n-a — rebuild failed\n"
             "Not run: build, typecheck, test — rebuild failed\n",
             out,
         )
@@ -323,14 +284,14 @@ class ReviewRunTest(unittest.TestCase):
     def test_the_rare_gates_and_an_unknown_one_give_not_run_lines_and_run_nothing(self):
         run = self.fake()
 
-        code, out = self.review_run("make-targets scripts lint-fix docs", run)
+        code, out = self.review_run("make-targets scripts lint-fix mutation docs", run)
 
         self.assertEqual(run.calls, [])
         self.assertEqual(
             out,
             "Checks\n"
             "Not run: make-targets, scripts — by fallback.md\n"
-            "Not run: lint-fix — the review run does not know this gate\n"
+            "Not run: lint-fix, mutation — the review run does not know this gate\n"
             "Logs: {}\n".format(self.logs),
         )
 
@@ -344,184 +305,18 @@ class ReviewRunTest(unittest.TestCase):
         self.assertEqual(run.calls, [])
         self.assertEqual(out, "Checks\nLogs: {}\n".format(self.logs))
 
-    def test_a_refused_record_leaves_the_gate_to_the_own_run(self):
-        run = self.fake(
-            **{
-                "mutation-record": (
-                    0,
-                    "refused: {}\n- clean=no: the run did not go on a clean tree of its commit\n"
-                    "- the rebuild gate is on: the run may have gone on an old image\n".format(URL),
-                    "",
-                )
-            }
-        )
-
-        code, out = self.review_run("rebuild mutation", run)
-
-        self.assertIn(
-            "Not run: mutation — the record was refused (clean=no: the run did not go on a clean"
-            " tree of its commit; the rebuild gate is on: the run may have gone on an old image),"
-            " the own run by fallback.md\n",
-            out,
-        )
-        self.assertNotIn("mutation: ", out)
-        self.assertIn("Area: {}\n".format(" ".join(AREA)), out)
-
-    def test_no_record_and_an_unchecked_record_leave_the_gate_to_the_own_run(self):
-        for answer, line in (
-            (
-                (0, "refused: no record in the PR\n", ""),
-                "the record was refused (no record in the PR)",
-            ),
-            (
-                (1, "", "Stopped: gh api user failed — HTTP 401\n"),
-                "the record was not checked (gh api user failed — HTTP 401)",
-            ),
-        ):
-            run = self.fake(**{"mutation-record": answer})
-
-            code, out = self.review_run("mutation", run)
-
-            self.assertIn("Not run: mutation — {}, the own run by fallback.md\n".format(line), out)
-
-    def test_a_record_from_an_earlier_head_says_so(self):
-        answer = ACCEPTED.replace(
-            "{} — the PR head".format(HEAD), "541d48a21e01 — not the PR head {}".format(HEAD)
-        )
-        run = self.fake(**{"mutation-record": (0, answer, "")})
-
-        code, out = self.review_run("mutation", run)
-
-        self.assertIn(
-            "· accepted record, {} (head 541d48a is earlier — nothing under the mutation gates"
-            " came in since)\n".format(URL),
-            out,
-        )
-
-    def test_a_record_accepted_on_condition_hands_the_files_to_the_reviewer(self):
-        answer = (
-            "accepted if the table turns on none of rebuild, mutation-full: {url}\n"
-            "changed between the record's head 541d48a21e01 and the PR head {head}:\n"
-            "  docs/architecture/testing.md\n"
-            "  Makefile\n"
-            "the hunk of a file: git diff 541d48a21e01 {head} -- <file>\n"
-            "head: 541d48a21e01 — not the PR head {head}\n"
-            "exit: 0\n"
-            "score: 100.00\n"
-            "survivors: 0\n"
-        ).format(url=URL, head=HEAD)
-        run = self.fake(**{"mutation-record": (0, answer, "")})
-
-        code, out = self.review_run("mutation", run)
-
-        self.assertIn(
-            "mutation: ok — 100.00, {} · accepted record, {} (head 541d48a is earlier — if the"
-            " table turns on none of rebuild, mutation-full for the files under"
-            ' "Yours to read")\n'.format(" ".join(AREA), URL),
-            out,
-        )
-        self.assertIn(
-            "Yours to read\n"
-            "Condition 1 of the record — apply the rebuild and mutation-full rows of the table of"
-            ' docs/agents/review-gates.md, "Changes that affect the mutation run", to these'
-            " files:\n"
-            "  changed between the record's head 541d48a21e01 and the PR head {head}:\n"
-            "  docs/architecture/testing.md\n"
-            "  Makefile\n"
-            "  the hunk of a file: git diff 541d48a21e01 {head} -- <file>\n".format(head=HEAD),
-            out,
-        )
-
-    def test_a_red_record_goes_to_red_and_leaves_the_repeat_to_the_skill(self):
-        answer = ACCEPTED.replace("exit: 0", "exit: 1").replace("score: 100.00", "score: 99.45")
-        answer = answer.replace(
-            "survivors: 0\n",
-            "survivors: 1\n- Survived · ConditionalExpression · "
-            "`src/font-convertor/font-forge/font-forge.ts:41:13` · `true`\n",
-        )
-        run = self.fake(**{"mutation-record": (0, answer, "")})
-
-        code, out = self.review_run("mutation", run)
-
-        self.assertIn("mutation: fail — 99.45, ", out)
-        self.assertIn(
-            "- make mutation (the accepted record) — exit 1, score 99.45\n"
-            "    - Survived · ConditionalExpression · "
-            "`src/font-convertor/font-forge/font-forge.ts:41:13` · `true`\n",
-            out,
-        )
-        self.assertIn(
-            "Not run: the repeat on the files with survivors — the own run by fallback.md\n", out
-        )
-
-    def test_the_score_nan_is_not_ok(self):
-        answer = ACCEPTED.replace("score: 100.00", "score: NaN")
-        run = self.fake(**{"mutation-record": (0, answer, "")})
-
-        code, out = self.review_run("mutation", run)
-
-        self.assertIn(
-            "mutation: n-a — NaN, {} · accepted record, {}: not a single mutant of the area got"
-            " into the score\n".format(" ".join(AREA), URL),
-            out,
-        )
-
-    def test_an_empty_area_and_a_failed_one_are_n_a_and_check_no_record(self):
-        for answer, line in (
-            (
-                (0, "", "`test/database.spec.ts` gives no area: no file under test/ imports it\n"),
-                "the area is empty: `test/database.spec.ts` gives no area: no file under test/"
-                " imports it",
-            ),
-            (
-                (1, "", "Stopped: git ls-files failed — fatal: not a git repository\n"),
-                "the area was not assembled: git ls-files failed — fatal: not a git repository",
-            ),
-        ):
-            run = self.fake(**{"mutation-area": answer})
-
-            code, out = self.review_run("mutation", run)
-
-            self.assertIn("mutation: n-a — {}\n".format(line), out)
-            self.assertNotIn("mutation-record", run.names())
-
     def test_mutation_full_checks_the_batch_without_a_tree(self):
         run = self.fake()
 
         code, out = self.review_run("mutation-full docs", run)
 
-        self.assertEqual(run.names(), ["mutation-full-check"])
+        self.assertEqual(run.names(), ["mutation-full-check", "gh-diff"])
         self.assertIn((["make", "mutation-full-check", "pr=7"], self.task), run.calls)
         self.assertEqual(
             out,
             "Checks\nmutation-full: ok — recorded: issue #655 — {}\nLogs: {}\n".format(
                 BATCH_URL, self.logs
             ),
-        )
-
-    def test_mutation_full_leaves_mutation_its_own_area(self):
-        run = self.fake()
-
-        code, out = self.review_run("build mutation mutation-full", run)
-
-        self.assertEqual(
-            run.names(),
-            [
-                "review-tree-create",
-                "build",
-                "mutation-area",
-                "mutation-record",
-                "gh-diff",
-                "mutation-full-check",
-                "review-tree-remove",
-            ],
-        )
-        self.assertIn(
-            "mutation: ok — 100.00, {} · accepted record, {}\n"
-            "mutation-full: ok — recorded: issue #655 — {}\n".format(
-                " ".join(AREA), URL, BATCH_URL
-            ),
-            out,
         )
 
     def test_an_issue_missing_from_the_batches_is_red(self):
@@ -555,7 +350,7 @@ class ReviewRunTest(unittest.TestCase):
         for answers in ({"rebuild": (1, RED_BUILD, "")}, {"review-tree-create": stopped}):
             run = self.fake(**answers)
 
-            code, out = self.review_run("rebuild mutation mutation-full", run)
+            code, out = self.review_run("rebuild mutation-full", run)
 
             self.assertIn("mutation-full-check", run.names())
             self.assertIn("mutation-full: ok — recorded: issue #655", out)
@@ -573,7 +368,7 @@ class ReviewRunTest(unittest.TestCase):
         )
         run = self.fake(**{"gh-diff": (0, diff, "")})
 
-        code, out = self.review_run("mutation", run)
+        code, out = self.review_run("mutation-full", run)
 
         self.assertIn(
             "Yours to read\n"
@@ -597,13 +392,12 @@ class ReviewRunTest(unittest.TestCase):
             }
         )
 
-        code, out = self.review_run("build test python mutation", run)
+        code, out = self.review_run("build test python", run)
 
         self.assertEqual(run.names(), ["review-tree-create"])
         why = "the tree was not created: a tree of an earlier run is left at " + self.review
         self.assertIn(
             "rebuild: not needed · build: n-a · test: n-a · python: n-a\n"
-            "mutation: n-a — {why}\n"
             "Not run: build, test, python — {why}\n"
             "Not cleaned up: {tree} — Cannot connect to the Docker daemon\n".format(
                 why=why, tree=self.review
@@ -646,7 +440,7 @@ class ReviewRunTest(unittest.TestCase):
         for interrupt in (KeyboardInterrupt(), review_run.Interrupted()):
             run = self.fake(coverage=interrupt)
 
-            code, out = self.review_run("build test lint mutation", run)
+            code, out = self.review_run("build test lint mutation-full", run)
 
             self.assertEqual(code, 130)
             self.assertEqual(
@@ -654,7 +448,7 @@ class ReviewRunTest(unittest.TestCase):
             )
             self.assertIn(
                 "rebuild: not needed · build: ok · test: n-a · lint: n-a\n"
-                "mutation: n-a — the run was interrupted\n"
+                "mutation-full: n-a — the run was interrupted\n"
                 "Not run: test, lint — the run was interrupted\n",
                 out,
             )

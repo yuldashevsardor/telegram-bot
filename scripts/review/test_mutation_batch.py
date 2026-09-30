@@ -158,7 +158,7 @@ class RecordTest(unittest.TestCase):
             [
                 "created: {}/issues/601".format(REPO),
                 "recorded: issue #655, PR #660 — {}/issues/601#issuecomment-1".format(REPO),
-                "issues in the batch: 1 of 10 — {}/issues/601".format(REPO),
+                "issues in the batch: 1 of 20 — {}/issues/601".format(REPO),
             ],
         )
 
@@ -168,7 +168,7 @@ class RecordTest(unittest.TestCase):
         self.record(github)
 
         body = github.issues[601]["body"]
-        self.assertIn("At 10 recorded issues the batch is due", body)
+        self.assertIn("At 20 recorded issues the batch is due", body)
         self.assertTrue(
             body.endswith("_🤖 Posted by Claude Code from the owner's account._\n"), body
         )
@@ -196,7 +196,7 @@ class RecordTest(unittest.TestCase):
                 "<!-- mutation-batch-record issue=655 pr=660 -->",
             ],
         )
-        self.assertEqual(lines[-1], "issues in the batch: 2 of 10 — {}/issues/630".format(REPO))
+        self.assertEqual(lines[-1], "issues in the batch: 2 of 20 — {}/issues/630".format(REPO))
 
     def test_the_record_comment_names_the_issue_and_the_pr_and_carries_the_signature(self):
         github = self.github(batch(630, 1))
@@ -222,7 +222,7 @@ class RecordTest(unittest.TestCase):
             lines,
             [
                 "already recorded: issue #655 — {}/issues/630#issuecomment-1".format(REPO),
-                "issues in the batch: 2 of 10 — {}/issues/630".format(REPO),
+                "issues in the batch: 2 of 20 — {}/issues/630".format(REPO),
             ],
         )
 
@@ -235,31 +235,31 @@ class RecordTest(unittest.TestCase):
         self.assertEqual(len(github.issues), 1)
         self.assertEqual(len(github.issues[601]["comments"]), 1)
 
-    def test_the_tenth_issue_reaches_the_threshold(self):
-        nine = [(issue, issue + 100) for issue in range(1, 10)]
-        github = self.github(batch(630, 1, records=nine))
+    def test_the_twentieth_issue_reaches_the_threshold(self):
+        nineteen = [(issue, issue + 100) for issue in range(1, 20)]
+        github = self.github(batch(630, 1, records=nineteen))
 
         _, lines, _ = self.record(github)
 
         self.assertEqual(
             lines[-2:],
             [
-                "issues in the batch: 10 of 10 — {}/issues/630".format(REPO),
+                "issues in the batch: 20 of 20 — {}/issues/630".format(REPO),
                 "threshold reached: the batch is due for its full run",
             ],
         )
 
-    def test_the_ninth_issue_does_not_reach_the_threshold(self):
-        eight = [(issue, issue + 100) for issue in range(1, 9)]
-        github = self.github(batch(630, 1, records=eight))
+    def test_the_nineteenth_issue_does_not_reach_the_threshold(self):
+        eighteen = [(issue, issue + 100) for issue in range(1, 19)]
+        github = self.github(batch(630, 1, records=eighteen))
 
         _, lines, _ = self.record(github)
 
-        self.assertEqual(lines[-1], "issues in the batch: 9 of 10 — {}/issues/630".format(REPO))
+        self.assertEqual(lines[-1], "issues in the batch: 19 of 20 — {}/issues/630".format(REPO))
 
     def test_a_batch_past_the_threshold_still_takes_records(self):
-        ten = [(issue, issue + 100) for issue in range(1, 11)]
-        github = self.github(batch(630, 1, records=ten))
+        twenty = [(issue, issue + 100) for issue in range(1, 21)]
+        github = self.github(batch(630, 1, records=twenty))
 
         _, lines, _ = self.record(github)
 
@@ -319,7 +319,7 @@ class RecordTest(unittest.TestCase):
         self.assertEqual(
             lines[0], "recorded: issue #655, PR #660 — {}/issues/630#issuecomment-4".format(REPO)
         )
-        self.assertEqual(lines[-1], "issues in the batch: 1 of 10 — {}/issues/630".format(REPO))
+        self.assertEqual(lines[-1], "issues in the batch: 1 of 20 — {}/issues/630".format(REPO))
 
     def test_two_open_batches_stop_without_a_write(self):
         github = self.github(batch(630, 1), batch(631, 2))

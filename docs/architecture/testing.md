@@ -157,8 +157,8 @@ preset has one other key, `cache: false`.
 `make mutation` runs StrykerJS. It puts one mutation at a time into the source (an operator, a
 literal, a condition) and watches whether at least one spec fails. A survived mutant shows
 behaviour the tests do not hold, although the line is covered. The target is not part of
-`make check`: there it would run on every edit and over the whole of `src/`. The threshold and the
-review gate are in "Threshold" below.
+`make check`: there it would run on every edit and over the whole of `src/`. The threshold and who
+runs the target are in "Threshold" below.
 
 **Running.** `make mutation files="src/shared/**"` narrows the run to an area: globs separated by
 spaces (a comma is part of a glob, as in `src/{shared,telegram}/**`), `!` excludes. An area made
@@ -181,12 +181,11 @@ of its non-obvious values.
 mutant in the area, and Stryker prints `Final mutation score <score> under breaking threshold 100`
 and exits with an error. Why 100 and not 99 is in a comment there.
 
-Any `make mutation` checks the threshold: working through an area, the run of the author before a
-PR (`.claude/commands/solve-issue.md`), the `mutation` gate of PR review and the full run of a
-batch (`docs/agents/review-gates.md`, the paragraph on `mutation` and `mutation-full`). Under the
-gate `pr-light-check` runs the target over the area of the diff, or else accepts the run record of
-the author ("The run record" below). While the area holds a survivor nobody has worked through, a
-run over it stays red. That is a sign of unfinished work, not a failure.
+Any `make mutation` checks the threshold: working through an area and the full run of a batch
+(`docs/agents/review-gates.md`, the paragraph on `mutation-full`). Neither the author of a PR nor
+its review runs the target: the PR is recorded in a batch instead. While the area holds a survivor
+nobody has worked through, a run over it stays red. That is a sign of unfinished work, not a
+failure.
 
 An area without a single mutant in the score is invisible to the threshold: the run is green having
 checked nothing. Such an area has no code, only errors (`CompileError`, `RuntimeError`), or only
@@ -195,10 +194,10 @@ mutants silenced by a mark (`Ignored`). Its score is `NaN` (`DEFAULT_SCORE` in
 
 **The run record.** The target runs Stryker through the wrapper `test/mutation-record.ts`. Once the
 run is over, whatever its outcome, the wrapper writes `reports/mutation/record.md` and exits with
-the exit code of Stryker. The record saves the reviewer from repeating the run of the author: the
-author publishes it in the PR, and the review gate may accept it instead of a run of its own. The
-rules of acceptance are in the docstring of `scripts/review/mutation_record.py`, run by
-`make mutation-record`. The first line of the record is a marker, invisible in the PR:
+the exit code of Stryker. The record is the summary of a run to publish in a comment. Until #712
+review accepted an author's record in place of its own run; the rules of that acceptance are still
+in the docstring of `scripts/review/mutation_record.py`, run by `make mutation-record`, and no
+review step calls it. The first line of the record is a marker, invisible in a comment:
 
 ```
 <!-- mutation-record head=<sha> clean=<yes|no|unknown> scope=<full|files> exit=<code> score=<score|NaN|none> -->
@@ -210,12 +209,11 @@ rules of acceptance are in the docstring of `scripts/review/mutation_record.py`,
 - The host counts `head` and `clean` in the recipe of the target, because `.git` is not mounted
   into the container. Each comes from a substitution with an exit code of its own. If `git status`
   failed (not a repository, an unreadable `.git`), it is `clean=unknown`, and `head` stays. The
-  reverse does not happen: with no `head` the wrapper sets `clean=unknown` as well, because review
-  will not accept a record without a commit, and the cleanliness of the tree decides nothing in it.
-- That the substitutions yield exactly these values is checked by the review of a PR that touches
-  the recipe (`.claude/skills/pr-light-check/fallback.md`, the `make-targets` gate). Expanding the
-  recipe is not enough: `make -n` does not execute the counting chain. Nor does a run in review
-  show it: it goes on a clean tree of the PR head, where `clean=yes` is expected anyway.
+  reverse does not happen: with no `head` the wrapper sets `clean=unknown` as well, because a run
+  without a commit cannot be tied to any code, and the cleanliness of the tree decides nothing then.
+- `make -n` does not show whether the substitutions yield exactly these values: it does not execute
+  the counting chain. `make mutation DC_APP_RUN=echo` does, and prints the counted values without
+  starting a container.
 - `scope=full` means `files` was not passed and the whole of `src/` was mutated.
 - `exit` is the exit code of `npm run mutation`, or `128 + the signal number` if that died from a
   signal. When Stryker itself dies from a signal (OOM), npm outlives it and returns an ordinary
@@ -243,8 +241,7 @@ The record carries only the summary and the mutants that were not killed, becaus
 PR, and a GitHub comment holds 65,536 characters. The limit stands on the record as a whole: once
 it grows to 60,000 characters, the wrapper cuts the list of survivors off with a line "and N more".
 Everything before that list (the summary and the mutated files) is not limited. The remainder stays
-in `mutation.html` on the machine of the run and travels nowhere with the record. So a cut-off list
-is a reason for the reviewer to run the target instead of accepting the record.
+in `mutation.html` on the machine of the run and travels nowhere with the record.
 
 Ctrl-C stops a run when the output goes to a terminal. The signal reaches the whole process group
 of the container and kills Stryker. The wrapper lives on and writes the record with `exit=130`: it
@@ -278,8 +275,8 @@ against it. The `mocha` runner cannot reload modules, so Stryker starts a new wo
 mutant (`ReloadEnvironmentDecorator` in `@stryker-mutator/core`). Hence the price: in the
 measurement of [#334](https://github.com/yuldashevsardor/telegram-bot/issues/334) the whole of
 `src/` took 8.5 minutes against a minute and a half, an area three minutes against 25 seconds. The
-price today is in "The type checker". The precision is worth those minutes: the review gate runs
-the area of the diff, and at a threshold of 100 a single false survivor would paint it red.
+price today is in "The type checker". The precision is worth those minutes: at a threshold of 100 a
+single false survivor paints a run red.
 
 Going back to `perTest` needs specs that survive a repeated run. Under `perTest` a worker runs mocha
 many times in one process, while `container.spec.ts` and `bulk-messages.command.spec.ts` hold state
