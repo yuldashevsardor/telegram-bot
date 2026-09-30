@@ -79,6 +79,32 @@ A repeat call records nothing twice. Without the record the review gives red: it
 not a run. A weak test the PR brings shows only in the batch run, and its survivors are fixed by
 the session of the batch, not by you.
 
+### A batch as the issue
+
+An issue `Full mutation run <M>` that reached its threshold is taken with this command too. Its task
+is the run itself:
+
+1. The worktree as above, from fresh `origin/main`. A full `make mutation`, without `files`, on a
+   clean tree. It takes 15+ minutes, and its run record `reports/mutation/record.md` is the input of
+   the close.
+2. The run is red — fix the survivors you can in the same worktree, commit, and run
+   `make mutation` again. The batch closes on a run that is green or whose every survivor has an
+   issue. The rest go into one issue per area, each filed on the owner's go-ahead on its text
+   (`CLAUDE.md`, "Scope").
+3. In the worktree of the last run:
+
+   ```bash
+   make mutation-full-close batch=<M> issues="<N> …"
+   ```
+
+   `issues` names the issues of step 2 and is left out when there are none. The target carries the
+   recorded PRs the run did not cover into the next batch and posts the closing comment with the
+   run record. What it checks before a write is in the docstring of
+   `scripts/review/mutation_batch.py`.
+4. Fixes were committed — a PR with `Closes #<M>`, from step 2 of this command on. The batch is
+   closed by then, so `make mutation-full-record` puts the PR into the next one. No fixes — no PR:
+   the report to the owner, then `make worktree-cleanup`.
+
 ## Step 3. Review
 
 ### Before the round: `origin/main`

@@ -1,4 +1,5 @@
-"""Records an issue and its PR in a batch of the deferred full mutation run, or checks the record.
+"""Records an issue and its PR in a batch of the deferred full mutation run, checks the record, or
+closes the batch after its run.
 
 Any change of code, a `.ts` in `src/` or `test/` or a tool of the mutation run, turns on the
 `mutation-full` gate (docs/agents/review-gates.md): a PR runs no mutants of its own. A full
@@ -30,14 +31,34 @@ label marks it: docs/agents/issue-tracker.md forbids new ones.
 closes (`closingIssuesReferences`, the `Closes #N` of its body) and answers whether one of them is
 recorded in a batch, open or closed.
 
-A batch or a record counts only when the viewer wrote it, and a record only by its marker, the
-first line of its template. The repository is public: anyone can type the title or the marker, and
-without the check a stranger's issue would take the place of the batch. The agent and the owner
-post from one account, so the viewer is both.
+`close <batch> <issues>` (make mutation-full-close) closes a batch after its full run, under the
+same lock as `record`:
+
+1. Reads the run record reports/mutation/record.md (docs/architecture/testing.md, "The run record")
+   and stops unless the run mutated the whole of `src/` on a clean tree and left a report. A red run
+   (`exit` other than 0) closes only with the issues filed for its survivors named; whether they
+   cover every survivor is the caller's check.
+2. The batch is the viewer's issue `Full mutation run <N>` by its number, open or closed: the PR
+   that fixes the survivors closes it through `Closes #<batch>` on its merge. When the batch
+   already carries its closing comment, only closing the issue is left, so a repeat call after a
+   stop finishes the job and posts nothing twice.
+3. Sorts each recorded PR by `gh pr view`: merged, with its merge commit an ancestor of the run's
+   head — covered; merged later, or not merged — carried over; closed without a merge — dropped.
+4. Records the carried ones into the other open batch, created if there is none, from
+   templates/mutation-batch-carry.md. An issue already recorded there is not recorded twice.
+5. Comments from templates/mutation-batch-close.md: the head, the three lists, the issues of the
+   survivors and the run record itself. Then closes the issue if it is open.
+
+A batch, a record or a closing comment counts only when the viewer wrote it, and a comment only by
+its marker, the first line of its template. The repository is public: anyone can type the title or
+the marker, and without the check a stranger's issue would take the place of the batch. The agent
+and the owner post from one account, so the viewer is both.
 
 The answer goes to stdout. A failed `gh` or `git` is `Stopped:` on stderr with exit code 1: nothing
 was decided, and the caller has to say so. After a stop in the middle of `record` a new batch may
-already exist without the record; the repeat call finds it open and records into it.
+already exist without the record; the repeat call finds it open and records into it. After a stop in
+the middle of `close` the next batch may already be open next to the batch being closed; the repeat
+call takes it for the next one.
 """
 
 import fcntl
@@ -46,7 +67,7 @@ import os
 import re
 import subprocess
 import sys
-from typing import List, NamedTuple, Optional
+from typing import Callable, List, NamedTuple, Optional, Tuple
 
 from tree_remove import Run, reason
 
@@ -56,10 +77,21 @@ BATCH_TITLE = re.compile(r"Full mutation run (?P<n>[1-9][0-9]*)")
 RECORD_MARKER = re.compile(
     r"<!-- mutation-batch-record issue=(?P<issue>[1-9][0-9]*) pr=(?P<pr>[1-9][0-9]*) -->"
 )
+CLOSE_MARKER = re.compile(r"<!-- mutation-batch-close head=[0-9a-f]{40} -->")
+# The first line of the run record test/mutation-record.ts writes.
+RUN_RECORD_MARKER = re.compile(
+    r"<!-- mutation-record head=(?P<head>\S+) clean=(?P<clean>\S+) scope=(?P<scope>\S+)"
+    r" exit=(?P<exit>\S+) score=(?P<score>\S+) -->"
+)
+SHA = re.compile(r"[0-9a-f]{40}")
 # `gh issue create` prints the URL of the issue it made; the URL ends in the issue number.
 CREATED_ISSUE = re.compile(r"/issues/(?P<number>[1-9][0-9]*)\s*$")
 LOCK_FILE_NAME = "mutation-batch.lock"
+# Relative to the root of the worktree: the make target runs there, and so did the run.
+RUN_RECORD_FILE = os.path.join("reports", "mutation", "record.md")
 TEMPLATES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")
+NOT_MERGED = "not merged"
+MERGED_AFTER_HEAD = "merged after the run's head"
 
 
 class Stop(Exception):
@@ -77,6 +109,27 @@ class Record(NamedTuple):
     issue: int
     pr: int
     url: str
+
+
+class Comment(NamedTuple):
+    first_line: str
+    url: str
+
+
+class RunRecord(NamedTuple):
+    head: str
+    text: str
+
+
+class Carried(NamedTuple):
+    record: Record
+    why: str
+
+
+class Sorted(NamedTuple):
+    covered: List[Record]
+    carried: List[Carried]
+    dropped: List[Record]
 
 
 def check(done: "subprocess.CompletedProcess[str]", what: str) -> None:
@@ -131,28 +184,40 @@ def list_batches(login: str, run: Run) -> List[Batch]:
     return batches
 
 
-def list_records(batch: Batch, login: str, run: Run) -> List[Record]:
-    """The records among the batch's comments, in their order."""
+def list_comments(batch: Batch, login: str, run: Run) -> List[Comment]:
+    """The first lines of the viewer's comments on the batch, in their order."""
     done = run(
         ["gh", "issue", "view", str(batch.issue), "--json", "comments"],
         capture_output=True,
         text=True,
     )
     check(done, "gh issue view {} failed".format(batch.issue))
-    records = []
+    comments = []
     try:
         for comment in json.loads(done.stdout)["comments"]:
             if (comment["author"] or {}).get("login") != login:
                 continue
             first_line = comment["body"].split("\n", 1)[0].strip()
-            marker = RECORD_MARKER.fullmatch(first_line)
-            if marker is None:
-                continue
-            issue, pr = int(marker.group("issue")), int(marker.group("pr"))
-            records.append(Record(issue, pr, comment["url"]))
+            comments.append(Comment(first_line, comment["url"]))
     except (ValueError, KeyError, TypeError) as failure:
         raise Stop("gh issue view {} gave no comments — {}".format(batch.issue, failure))
+    return comments
+
+
+def records_among(comments: List[Comment]) -> List[Record]:
+    records = []
+    for comment in comments:
+        marker = RECORD_MARKER.fullmatch(comment.first_line)
+        if marker is None:
+            continue
+        issue, pr = int(marker.group("issue")), int(marker.group("pr"))
+        records.append(Record(issue, pr, comment.url))
     return records
+
+
+def list_records(batch: Batch, login: str, run: Run) -> List[Record]:
+    """The records among the batch's comments, in their order."""
+    return records_among(list_comments(batch, login, run))
 
 
 def open_batch(batches: List[Batch]) -> Optional[Batch]:
@@ -182,9 +247,8 @@ def create_batch(batches: List[Batch], run: Run) -> Batch:
     return Batch(int(created.group("number")), n, True, url)
 
 
-def add_record(batch: Batch, issue: int, pr: int, run: Run) -> str:
-    """Comments the record on the batch; the URL of the comment."""
-    body = template("mutation-batch-record.md", issue=issue, pr=pr)
+def add_comment(batch: Batch, body: str, run: Run) -> str:
+    """Comments on the batch; the URL of the comment."""
     done = run(
         ["gh", "issue", "comment", str(batch.issue), "--body-file", "-"],
         input=body,
@@ -193,6 +257,11 @@ def add_record(batch: Batch, issue: int, pr: int, run: Run) -> str:
     )
     check(done, "gh issue comment {} failed".format(batch.issue))
     return done.stdout.strip()
+
+
+def add_record(batch: Batch, issue: int, pr: int, run: Run) -> str:
+    """Comments the record on the batch; the URL of the comment."""
+    return add_comment(batch, template("mutation-batch-record.md", issue=issue, pr=pr), run)
 
 
 def lock_path(run: Run) -> str:
@@ -230,18 +299,23 @@ def record_locked(issue: int, pr: int, run: Run) -> None:
         print("threshold reached: the batch is due for its full run")
 
 
-def record(issue: int, pr: int, run: Run = subprocess.run) -> int:
+def locked(action: Callable[[], None], run: Run) -> int:
+    """Runs the action under the lock of the batches; the exit code."""
     try:
         path = lock_path(run)
         # The lock is released when the file is closed, a crash included: the kernel holds it,
         # not the file.
         with open(path, "a", encoding="utf-8") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            record_locked(issue, pr, run)
+            action()
     except Stop as stop:
         print("Stopped: {}".format(stop), file=sys.stderr)
         return 1
     return 0
+
+
+def record(issue: int, pr: int, run: Run = subprocess.run) -> int:
+    return locked(lambda: record_locked(issue, pr, run), run)
 
 
 def closed_issues(pr: int, run: Run) -> List[int]:
@@ -277,9 +351,212 @@ def check_record(pr: int, run: Run = subprocess.run) -> int:
     return 0
 
 
+def read_run_record(path: str, survivor_issues: List[int]) -> RunRecord:
+    try:
+        with open(path, encoding="utf-8") as file:
+            text = file.read()
+    except FileNotFoundError:
+        raise Stop("no run record at {}: the full run goes first, make mutation".format(path))
+    except OSError as failure:
+        raise Stop("the run record {} was not read — {}".format(path, failure))
+    marker = RUN_RECORD_MARKER.fullmatch(text.split("\n", 1)[0].strip())
+    if marker is None:
+        raise Stop("{} does not open with the marker of a run record".format(path))
+    if marker.group("scope") != "full":
+        raise Stop("the run record is of a run over files, not of the whole of src/")
+    if marker.group("clean") != "yes" or not SHA.fullmatch(marker.group("head")):
+        raise Stop(
+            "the run record ties the run to no commit: clean={}, head={}".format(
+                marker.group("clean"), marker.group("head")
+            )
+        )
+    if marker.group("score") == "none":
+        raise Stop("the run broke off before its report: the run record has no score")
+    if marker.group("exit") != "0" and not survivor_issues:
+        raise Stop(
+            "the run is red (exit={}): name the issues filed for its survivors, "
+            'issues="<N> …"'.format(marker.group("exit"))
+        )
+    return RunRecord(marker.group("head"), text)
+
+
+def pr_state(pr: int, run: Run) -> Tuple[str, Optional[str]]:
+    """The state of the PR and its merge commit, None unless merged."""
+    done = run(
+        ["gh", "pr", "view", str(pr), "--json", "state,mergeCommit"],
+        capture_output=True,
+        text=True,
+    )
+    check(done, "gh pr view {} failed".format(pr))
+    try:
+        answer = json.loads(done.stdout)
+        state = answer["state"]
+        merge_commit = (answer["mergeCommit"] or {}).get("oid")
+    except (ValueError, KeyError, TypeError, AttributeError) as failure:
+        raise Stop("gh pr view {} gave no state — {}".format(pr, failure))
+    if state == "MERGED" and not merge_commit:
+        raise Stop("gh pr view {} named no merge commit of a merged PR".format(pr))
+    return state, merge_commit
+
+
+def is_ancestor(commit: str, head: str, run: Run) -> bool:
+    done = run(
+        ["git", "merge-base", "--is-ancestor", commit, head],
+        capture_output=True,
+        text=True,
+    )
+    # 1 is the answer "not an ancestor"; any other non-zero code is a failure.
+    if done.returncode == 1:
+        return False
+    check(done, "git merge-base --is-ancestor {} {} failed".format(commit, head))
+    return True
+
+
+def sort_records(records: List[Record], head: str, run: Run) -> Sorted:
+    covered: List[Record] = []
+    carried: List[Carried] = []
+    dropped: List[Record] = []
+    for found in records:
+        state, merge_commit = pr_state(found.pr, run)
+        if state == "CLOSED":
+            dropped.append(found)
+        elif state == "OPEN":
+            carried.append(Carried(found, NOT_MERGED))
+        elif state == "MERGED" and merge_commit and is_ancestor(merge_commit, head, run):
+            covered.append(found)
+        elif state == "MERGED":
+            carried.append(Carried(found, MERGED_AFTER_HEAD))
+        else:
+            raise Stop("gh pr view {} named an unknown state: {}".format(found.pr, state))
+    return Sorted(covered, carried, dropped)
+
+
+def first_per_issue(records: List[Record]) -> List[Record]:
+    """One record per issue, the first one: record() counts an issue once as well."""
+    seen = set()
+    firsts = []
+    for found in records:
+        if found.issue in seen:
+            continue
+        seen.add(found.issue)
+        firsts.append(found)
+    return firsts
+
+
+def carry_over(
+    closing: Batch, batches: List[Batch], carried: List[Carried], login: str, run: Run
+) -> Optional[Batch]:
+    """Records the carried PRs into the next batch; that batch, None when nothing is carried."""
+    others = [batch for batch in batches if batch.is_open and batch.issue != closing.issue]
+    if len(others) > 1:
+        raise Stop(
+            "more than one other batch is open: {}".format(" ".join(batch.url for batch in others))
+        )
+    if not carried:
+        return None
+    if others:
+        next_batch = others[0]
+        known = {found.issue: found.url for found in list_records(next_batch, login, run)}
+    else:
+        next_batch = create_batch(batches, run)
+        known = {}
+        print("created: {}".format(next_batch.url))
+    for carry in carried:
+        issue, pr = carry.record.issue, carry.record.pr
+        if issue in known:
+            print("already carried: issue #{} — {}".format(issue, known[issue]))
+            continue
+        body = template(
+            "mutation-batch-carry.md", issue=issue, pr=pr, batch=closing.issue, why=carry.why
+        )
+        url = add_comment(next_batch, body, run)
+        print("carried: issue #{}, PR #{}, {} — {}".format(issue, pr, carry.why, url))
+    return next_batch
+
+
+def bullets(lines: List[str]) -> str:
+    if not lines:
+        return "- none"
+    return "\n".join("- " + line for line in lines)
+
+
+def closing_body(
+    run_record: RunRecord,
+    ordered: Sorted,
+    next_batch: Optional[Batch],
+    survivor_issues: List[int],
+) -> str:
+    def pair(found: Record) -> str:
+        return "issue #{}, PR #{}".format(found.issue, found.pr)
+
+    carried = ["{}, {}".format(pair(carry.record), carry.why) for carry in ordered.carried]
+    return template(
+        "mutation-batch-close.md",
+        head=run_record.head,
+        covered=bullets([pair(found) for found in ordered.covered]),
+        next_batch=" to #{}".format(next_batch.issue) if next_batch else "",
+        carried=bullets(carried),
+        dropped=bullets([pair(found) for found in ordered.dropped]),
+        issues=bullets(["#{}".format(issue) for issue in survivor_issues]),
+        run_record=run_record.text.rstrip("\n"),
+    )
+
+
+def close_issue(batch: Batch, run: Run) -> None:
+    if not batch.is_open:
+        return
+    done = run(["gh", "issue", "close", str(batch.issue)], capture_output=True, text=True)
+    check(done, "gh issue close {} failed".format(batch.issue))
+
+
+def fetch(run: Run) -> None:
+    # A PR merged since the last fetch has its merge commit on origin only, and
+    # git merge-base --is-ancestor fails on a commit it does not know.
+    done = run(["git", "fetch", "--quiet", "origin"], capture_output=True, text=True)
+    check(done, "git fetch origin failed")
+
+
+def close_locked(batch_issue: int, survivor_issues: List[int], record_file: str, run: Run) -> None:
+    run_record = read_run_record(record_file, survivor_issues)
+    login = viewer(run)
+    batches = list_batches(login, run)
+    closing = next((batch for batch in batches if batch.issue == batch_issue), None)
+    if closing is None:
+        raise Stop(
+            "#{} is no batch: no issue `Full mutation run <N>` of {}".format(batch_issue, login)
+        )
+    comments = list_comments(closing, login, run)
+    closed_before = [comment for comment in comments if CLOSE_MARKER.fullmatch(comment.first_line)]
+    if closed_before:
+        close_issue(closing, run)
+        print("already closed: {}".format(closed_before[0].url))
+        return
+    fetch(run)
+    ordered = sort_records(first_per_issue(records_among(comments)), run_record.head, run)
+    for found in ordered.covered:
+        print("covered: issue #{}, PR #{}".format(found.issue, found.pr))
+    for found in ordered.dropped:
+        print("dropped: issue #{}, PR #{}, closed without a merge".format(found.issue, found.pr))
+    next_batch = carry_over(closing, batches, ordered.carried, login, run)
+    body = closing_body(run_record, ordered, next_batch, survivor_issues)
+    url = add_comment(closing, body, run)
+    close_issue(closing, run)
+    print("closed: {}".format(url))
+
+
+def close_batch(
+    batch_issue: int,
+    survivor_issues: List[int],
+    run: Run = subprocess.run,
+    record_file: str = RUN_RECORD_FILE,
+) -> int:
+    return locked(lambda: close_locked(batch_issue, survivor_issues, record_file, run), run)
+
+
 USAGE = (
     "usage: make mutation-full-record issue=<N> pr=<N>\n"
-    "       make mutation-full-check pr=<N>"
+    "       make mutation-full-check pr=<N>\n"
+    '       make mutation-full-close batch=<N> [issues="<N> …"]'
 )
 
 
@@ -287,14 +564,26 @@ def main(argv: Optional[List[str]] = None) -> int:
     # The make targets pass the mode and the numbers in a fixed order, the empty ones as empty
     # strings.
     args = sys.argv[1:] if argv is None else argv
-    if not args or not all(NUMBER.fullmatch(number) for number in args[1:]):
+    if not args:
         print(USAGE, file=sys.stderr)
         return 2
-    mode, numbers = args[0], [int(number) for number in args[1:]]
+    mode, values = args[0], args[1:]
+    if mode == "close":
+        if len(values) != 2:
+            print(USAGE, file=sys.stderr)
+            return 2
+        # The issues of the survivors come as one argument, separated by blanks.
+        values = values[:1] + values[1].split()
+    if not all(NUMBER.fullmatch(number) for number in values):
+        print(USAGE, file=sys.stderr)
+        return 2
+    numbers = [int(number) for number in values]
     if mode == "record" and len(numbers) == 2:
         return record(numbers[0], numbers[1])
     if mode == "check" and len(numbers) == 1:
         return check_record(numbers[0])
+    if mode == "close":
+        return close_batch(numbers[0], numbers[1:])
     print(USAGE, file=sys.stderr)
     return 2
 
