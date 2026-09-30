@@ -237,8 +237,9 @@ area. The wrapper deletes the old record and the old reports before the run: a r
 will not leave any of its own, and the previous ones would pass themselves off as its result.
 
 The record carries only the summary and the mutants that were not killed, because it goes into a
-PR, and a GitHub comment holds 65,536 characters. The limit stands on the record as a whole: once
-it grows to 60,000 characters, the wrapper cuts the list of survivors off with a line "and N more".
+GitHub comment, the closing one of a batch (`scripts/review/templates/mutation-batch.md`), and a
+comment holds 65,536 characters. The limit stands on the record as a whole: once it grows to 60,000
+characters, the wrapper cuts the list of survivors off with a line "and N more".
 Everything before that list (the summary and the mutated files) is not limited. The remainder stays
 in `mutation.html` on the machine of the run and travels nowhere with the record.
 
