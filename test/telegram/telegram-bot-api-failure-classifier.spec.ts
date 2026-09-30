@@ -52,7 +52,7 @@ describe("TelegramBotApiFailureClassifier", function () {
 
     // node-fetch copies the code of the system error onto its FetchError, but not the syscall.
     it("keeps a network error with the code of a missing file transient", function () {
-        const resolverFailure = Object.assign(new Error("request to https://api.telegram.org failed, reason: getaddrinfo ENOENT"), {
+        const resolverFailure = systemError("request to https://api.telegram.org failed, reason: getaddrinfo ENOENT", {
             type: "system",
             code: "ENOENT",
             errno: "ENOENT",
@@ -65,7 +65,7 @@ describe("TelegramBotApiFailureClassifier", function () {
     // Guards the syscall comparison of isMissingFile(). The input is made by hand: grammY with
     // node-fetch does not pass such an error on, its FetchError drops the syscall.
     it("keeps an ENOENT of a syscall other than open transient", function () {
-        const missingSocket = Object.assign(new Error("connect ENOENT /run/proxy.sock"), {
+        const missingSocket = systemError("connect ENOENT /run/proxy.sock", {
             code: "ENOENT",
             syscall: "connect",
             address: "/run/proxy.sock",
@@ -84,7 +84,7 @@ describe("TelegramBotApiFailureClassifier", function () {
 
     // A retry may open the file once descriptors are freed.
     it("keeps a file that cannot be opened for a while transient", function () {
-        const outOfDescriptors = Object.assign(new Error("EMFILE: too many open files, open '/fonts/a.ttf'"), {
+        const outOfDescriptors = systemError("EMFILE: too many open files, open '/fonts/a.ttf'", {
             code: "EMFILE",
             syscall: "open",
             path: "/fonts/a.ttf",
@@ -205,6 +205,12 @@ describe("TelegramBotApiFailureClassifier", function () {
         }
     });
 });
+
+// An error with the fields of a Node system error, made by hand for a shape grammY's own client does
+// not produce on demand.
+function systemError(message: string, fields: Record<string, string>): Error {
+    return Object.assign(new Error(message), fields);
+}
 
 // The error grammY's own client throws for the call.
 async function callError(call: () => Promise<unknown>): Promise<unknown> {

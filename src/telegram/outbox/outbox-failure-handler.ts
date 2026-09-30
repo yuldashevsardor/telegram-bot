@@ -25,7 +25,7 @@ const PAUSED_RETRY_DELAY_MS = 0;
 // How long every node waits after a 401 before the next message tries the token again. A revoked
 // token is replaced only by a restart with a new one, and the pause is common to all the nodes: it
 // is how late a node restarted with a new token starts sending, and how often the old token is
-// tried meanwhile, one attempt of one message per pause.
+// tried meanwhile: the probes after each pause (docs/architecture/outbox.md, "Outcomes").
 export const UNAUTHORIZED_PAUSE_SECONDS = 60;
 
 // The outcome of a failed send, by the class of its error (docs/architecture/outbox.md, "Failures").
