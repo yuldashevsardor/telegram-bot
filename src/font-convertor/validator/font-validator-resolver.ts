@@ -22,7 +22,7 @@ export class FontValidatorResolver {
     ) {
         // SVG has no signature: its first bytes say at most "this is markup", not "this is a font",
         // so its validator reads the whole document. WOFF has one, but its validator checks it
-        // together with the rest of the container.
+        // together with the rest of the WOFF file.
         this.validatorsByExtension = {
             [Extension.TTF]: new SignatureFontValidator(fontSignatureMatcher, Extension.TTF),
             [Extension.OTF]: new SignatureFontValidator(fontSignatureMatcher, Extension.OTF),

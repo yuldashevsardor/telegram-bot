@@ -19,7 +19,7 @@ import { InvalidFile, InvalidPath, PermissionDenied } from "app/shared/fs/file-h
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 // The offset of the reserved field in the WOFF header (WOFF 1.0, §4).
-const WOFF_RESERVED_OFFSET = 14;
+const WOFF_RESERVED_OFFSET_BYTES = 14;
 
 // Every pair shares the input check, Convertor.validate(), so its branches run on one pair,
 // ttf → woff, the SVG branch on svg → woff and the WOFF one on woff → ttf. That each pair calls the
@@ -121,7 +121,7 @@ describe("Convertor.validate", function () {
             // The signature is intact, so the signature check alone would have let the file through.
             const fromPath = inWorkDir("reserved.woff");
             const bytes = await fs.readFile(fixture(Extension.WOFF));
-            bytes.writeUInt16BE(1, WOFF_RESERVED_OFFSET);
+            bytes.writeUInt16BE(1, WOFF_RESERVED_OFFSET_BYTES);
             await fs.writeFile(fromPath, bytes);
             convertor = factory.get(Extension.WOFF, Extension.TTF);
 

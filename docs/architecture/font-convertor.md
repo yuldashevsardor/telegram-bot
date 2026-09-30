@@ -209,9 +209,9 @@ cut: the only text from the file they quote is a table tag, four bytes long. A z
 the zlib error as the cause, since its message comes from zlib, not from the file.
 
 The rules are `WoffRule` in `woff-font-validator.types.ts`, each with its section. Two of them are
-ours, not the standard's, and the text of each says why, with the measurement behind it: the
-flavor is one of `SFNT_VERSIONS` (see "Signatures"), and `totalSfntSize` is at most 32 MiB, checked
-before any table is inflated (`MAX_SFNT_SIZE_BYTES`).
+ours, not the standard's, and the text of each says why: the flavor is one of `SFNT_VERSIONS` (see
+"Signatures"), and `totalSfntSize` is at most 32 MiB, checked before any table is inflated. The
+measurement behind the cap is at `MAX_SFNT_SIZE_BYTES`.
 
 What is deliberately not checked, with the reasons, is in the class comment of `WoffFontValidator`:
 `head.checkSumAdjustment` of the rebuilt sfnt, which 28 % of real fonts fail while fontforge
