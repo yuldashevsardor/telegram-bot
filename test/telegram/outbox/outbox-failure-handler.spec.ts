@@ -1,10 +1,13 @@
 import { expect } from "chai";
 import { GrammyError, HttpError } from "grammy";
 import type { ApiError, ResponseParameters } from "grammy/types";
+import type { Logger } from "app/platform/logger/logger";
+import type { UnknownObject } from "app/shared/types";
+import { MS_PER_SECOND } from "app/shared/time";
 import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
-import { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-handler";
+import { OutboxFailureHandler, UNAUTHORIZED_PAUSE_SECONDS } from "app/telegram/outbox/outbox-failure-handler";
 import { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxAttemptError, OutboxJsonObject, OutboxLease, PulledOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
@@ -44,6 +47,24 @@ class RecordingStore {
     }
 }
 
+type LogRecord = { message: string; payload: UnknownObject | undefined };
+
+class RecordingLogger implements Logger {
+    public readonly errors: LogRecord[] = [];
+
+    public critical(): void {}
+
+    public error(message: string, payload?: UnknownObject): void {
+        this.errors.push({ message: message, payload: payload });
+    }
+
+    public warning(): void {}
+
+    public info(): void {}
+
+    public debug(): void {}
+}
+
 class FixedSerializer extends OutboxErrorSerializer {
     public constructor() {
         super("unused-token");
@@ -56,10 +77,12 @@ class FixedSerializer extends OutboxErrorSerializer {
 
 describe("OutboxFailureHandler", function () {
     let store: RecordingStore;
+    let logger: RecordingLogger;
     let handler: OutboxFailureHandler;
 
     beforeEach(function () {
         store = new RecordingStore();
+        logger = new RecordingLogger();
         handler = handlerAllowing(MAX_ATTEMPTS);
     });
 
@@ -106,6 +129,41 @@ describe("OutboxFailureHandler", function () {
         ]);
     });
 
+    it("pauses the outbox for a 401 before the message goes back to pending, even on the last attempt", async function () {
+        const message = pulledAfter(MAX_ATTEMPTS - 1);
+
+        await handler.handle(message, telegramError(401, "Unauthorized"));
+
+        expect(store.calls).to.deep.equal([
+            { method: "pause", durationMs: UNAUTHORIZED_PAUSE_SECONDS * MS_PER_SECOND },
+            { method: "retry", lease: message, error: attemptError(TelegramBotApiFailureKind.Unauthorized), delayMs: 0 },
+        ]);
+    });
+
+    it("logs a refused token as an error: no blocked chat shows it", async function () {
+        const message = pulledAfter(0);
+
+        await handler.handle(message, telegramError(401, "Unauthorized"));
+
+        expect(logger.errors).to.deep.equal([
+            {
+                message: "The Bot API refuses the bot token: the outbox is paused.",
+                payload: {
+                    messageId: message.id,
+                    pauseSeconds: UNAUTHORIZED_PAUSE_SECONDS,
+                    cause: attemptError(TelegramBotApiFailureKind.Unauthorized),
+                },
+            },
+        ]);
+    });
+
+    it("logs no error of its own for a flood or an unexpected failure", async function () {
+        await handler.handle(pulledAfter(0), telegramError(400, "Bad Request: message text is empty"));
+        await handler.handle(pulledAfter(0), telegramError(429, "Too Many Requests", { retry_after: 1 }));
+
+        expect(logger.errors).to.deep.equal([]);
+    });
+
     it("fails an undeliverable message without blocking its chat", async function () {
         const message = pulledAfter(0);
 
@@ -132,6 +190,7 @@ describe("OutboxFailureHandler", function () {
             new TelegramBotApiFailureClassifier(),
             RETRY_DELAY,
             new FixedSerializer(),
+            logger,
             maxAttempts,
         );
     }

@@ -2,6 +2,7 @@ import { inject, injectable } from "inversify";
 import { Tokens } from "app/shared/tokens";
 import { configValue } from "app/shared/config-value";
 import { MS_PER_SECOND } from "app/shared/time";
+import type { Logger } from "app/platform/logger/logger";
 import type { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 import type { TelegramBotApiFailure } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
@@ -10,8 +11,15 @@ import type { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-re
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxAttemptError, PulledOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
 
-// A flood retry adds no delay of its own: the pause it follows already stops the pull.
-const FLOOD_RETRY_DELAY_MS = 0;
+// A retry after a pause, a flood's or a 401's, adds no delay of its own: the pause already stops
+// the pull.
+const PAUSED_RETRY_DELAY_MS = 0;
+
+// How long every node waits after a 401 before the next message tries the token again. A revoked
+// token is replaced only by a restart with a new one, and the pause is common to all the nodes: it
+// is how late a node restarted with a new token starts sending, and how often the old token is
+// tried meanwhile, one attempt of one message per pause.
+export const UNAUTHORIZED_PAUSE_SECONDS = 60;
 
 // The outcome of a failed send, by the class of its error (docs/architecture/outbox.md, "Failures").
 @injectable()
@@ -22,6 +30,7 @@ export class OutboxFailureHandler {
         private readonly classifier: TelegramBotApiFailureClassifier,
         @inject<OutboxRetryDelay>(Tokens.Bot.Outbox.RetryDelay) private readonly retryDelay: OutboxRetryDelay,
         @inject<OutboxErrorSerializer>(Tokens.Bot.Outbox.ErrorSerializer) private readonly errorSerializer: OutboxErrorSerializer,
+        @inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger,
         private readonly maxAttempts: number = configValue("outbox.maxAttempts"),
     ) {}
 
@@ -43,16 +52,29 @@ export class OutboxFailureHandler {
                 return this.pauseAndRetry(message, failure.retryAfterSeconds, attemptError);
             case TelegramBotApiFailureKind.Undeliverable:
                 return this.store.markAsFailed(message, attemptError);
+            case TelegramBotApiFailureKind.Unauthorized:
+                return this.pauseForRefusedToken(message, attemptError);
             case TelegramBotApiFailureKind.Unexpected:
                 return this.store.markAsFailedAndBlockChat(message, attemptError);
         }
     }
 
     // The pause goes first: back in pending before it, the message could be pulled again into the
-    // same 429.
-    private async pauseAndRetry(message: PulledOutboxMessage, retryAfterSeconds: number, attemptError: OutboxAttemptError): Promise<void> {
-        await this.store.pause(retryAfterSeconds * MS_PER_SECOND);
-        await this.store.retry(message, attemptError, FLOOD_RETRY_DELAY_MS);
+    // same 429 or 401.
+    private async pauseAndRetry(message: PulledOutboxMessage, pauseSeconds: number, attemptError: OutboxAttemptError): Promise<void> {
+        await this.store.pause(pauseSeconds * MS_PER_SECOND);
+        await this.store.retry(message, attemptError, PAUSED_RETRY_DELAY_MS);
+    }
+
+    // Nothing else shows a revoked token: no chat is blocked, the sending only stops.
+    private async pauseForRefusedToken(message: PulledOutboxMessage, attemptError: OutboxAttemptError): Promise<void> {
+        this.logger.error("The Bot API refuses the bot token: the outbox is paused.", {
+            messageId: message.id,
+            pauseSeconds: UNAUTHORIZED_PAUSE_SECONDS,
+            cause: attemptError,
+        });
+
+        await this.pauseAndRetry(message, UNAUTHORIZED_PAUSE_SECONDS, attemptError);
     }
 
     // What counts and when the limit is checked: docs/architecture/outbox.md, "Outcomes".

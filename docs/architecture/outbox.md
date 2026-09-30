@@ -278,17 +278,36 @@ Nothing calls `OutboxFailureHandler` yet: the sending loop that will is
 
 `TelegramBotApiFailureClassifier.classify(error)`
 (`telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.ts`) sorts a failed Bot
-API call into the four classes of the epic
-([#618](https://github.com/yuldashevsardor/telegram-bot/issues/618), "Error classes"), the
-`TelegramBotApiFailureKind` values. Which error falls into which class is read off the branches
-of the method. What the code does not say is why two boundaries are drawn where they are, and why
-one failure is not classified at all:
+API call into the `TelegramBotApiFailureKind` values: the four classes of the epic
+([#618](https://github.com/yuldashevsardor/telegram-bot/issues/618), "Error classes") and
+`Unauthorized`, which the epic does not have. Which error falls into which class is read off the
+branches of the method. What the code does not say is why the boundaries are drawn where they are,
+and why one failure is not classified at all:
 
 - Every 403 is `Undeliverable`, not only the bot blocked or kicked: a 403 is Telegram refusing the
   bot this chat, and a retry does not change that.
-- A 400 is `Undeliverable` only by its description, because 400 is also the code of a malformed
-  call, which is a bug and must block the chat. A description Telegram rewords falls to
-  `Unexpected` and blocks the chat: the safe side.
+- A 400 is `Undeliverable` only by its exact description or by `migrate_to_chat_id` in its
+  `parameters`, because 400 is also the code of a malformed call, which is a bug and must block the
+  chat. A description Telegram rewords falls to `Unexpected` and blocks the chat: the safe side. A
+  group upgraded to a supergroup takes no messages under its old id, and the message is not resent
+  to the new one.
+- A 401 is `Unauthorized`: the token has been revoked, and every call of the bot fails the same way
+  until the process is restarted with a new one. As `Unexpected` it would block every chat the
+  outbox tries, each to be unblocked by hand, so the outbox pauses instead (see "Outcomes"). A 404
+  is not `Unauthorized` although Telegram answers it to a token of a wrong format as well as to an
+  unknown method: such a token fails the `getMe` the runner calls when the bot starts
+  (`bot.init()`), so a 404 while the bot runs is an unknown method, a bug of the call, and it is
+  `Unexpected`.
+- An `HttpError` is `Transient` although grammY throws it also after Telegram may have taken the
+  call: its own timeout, a connection reset while the answer is on its way. The Bot API has no
+  idempotency key, so the retry can deliver the message twice. The outbox delivers at least once
+  anyway (see "The lease"), and a duplicate costs less than a lost message or a blocked chat.
+- The exception is a file that is gone, the file of a `PathFile`: `Unexpected` at once, since every
+  retry would look for the same missing file. The sign is `ENOENT` of `open` on the error of the
+  file stream, which grammY passes on inside the `HttpError` as it is (`isMissingFile()`). The
+  code alone is not enough: node-fetch copies it from a network error, a resolver's `ENOENT`
+  included, but not the syscall. Any other file-system error stays `Transient`: out of descriptors
+  (`EMFILE`) or a hiccup of shared storage (`EIO`) may pass on a retry.
 - A lost database connection is not a Bot API error and is not classified here: the outcome of
   such a send cannot be written anyway. The recovery of an expired lease is to take such a message
   back (see "The lease").
@@ -300,6 +319,20 @@ and completes the message by its class; which completion each class gets is read
 of `applyOutcome()` and `retryOrBlock()`. The error goes into the attempt as
 `OutboxErrorSerializer` (`outbox-error-serializer.ts`) writes it, with its class in `kind`; what the
 serializer leaves out and why is in the comment of `serialize()`.
+
+An `Unauthorized` failure pauses the outbox as a flood does, for `UNAUTHORIZED_PAUSE_SECONDS`, and
+returns the message to `pending`: sending resumes by itself once a node restarted with a new token
+finds the pause over. Why the pause is that long is in the comment of the constant. No chat is
+blocked, so the handler logs the refused token as an error itself.
+
+Its attempt counts as a flood's does, but a token outage is not bounded as a `retry_after` is. The
+first pull after each pause takes one message (see "Limits"), and the retry keeps the
+`next_attempt_at` its chat got from that pull, so the probes go round the waiting chats, one per
+pause. A head collects `OUTBOX_MAX_ATTEMPTS` of them after that many rounds, about as many pauses
+times the number of waiting chats. After the restart, its first transient failure then blocks its
+chat with no retry. That is accepted: a revoked token is an incident fixed by hand anyway, the
+chats it leaves blocked are unblocked in the same pass, and leaving a 401 out of the count would
+move a count by `kind` into the SQL of `pull()`.
 
 Every attempt counts towards `OUTBOX_MAX_ATTEMPTS`, a flood included: the attempt being handled is
 `earlierAttempts + 1`. The limit is checked on a transient failure only, so a flood never blocks a

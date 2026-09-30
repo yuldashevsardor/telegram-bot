@@ -1,17 +1,82 @@
+import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect } from "chai";
-import { GrammyError, HttpError } from "grammy";
+import { Api, GrammyError, HttpError } from "grammy";
+import type { ApiClientOptions } from "grammy";
 import type { ApiError, ResponseParameters } from "grammy/types";
 import {
     DEFAULT_RETRY_AFTER_SECONDS,
     TelegramBotApiFailureClassifier,
 } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
+import { PathFile } from "app/telegram/path-file/path-file";
+
+const TOKEN = "123456789:unused";
+// Nothing listens on port 1, so node-fetch fails to connect at once.
+const UNREACHABLE_API_ROOT = "http://127.0.0.1:1";
+const SHORT_TIMEOUT_SECONDS = 0.01;
 
 describe("TelegramBotApiFailureClassifier", function () {
     const classifier = new TelegramBotApiFailureClassifier();
 
     it("takes a network error for transient", function () {
         const error = new HttpError("Network request for 'sendMessage' failed!", new Error("ECONNRESET"));
+
+        expect(classifier.classify(error)).to.deep.equal({ kind: TelegramBotApiFailureKind.Transient });
+    });
+
+    it("takes a failed connection of grammY's own client for transient", async function () {
+        const api = new Api(TOKEN, { apiRoot: UNREACHABLE_API_ROOT });
+        const error = await callError(() => api.sendMessage(1, "hello"));
+
+        expect(classifier.classify(error)).to.deep.equal({ kind: TelegramBotApiFailureKind.Transient });
+    });
+
+    // The call may have reached Telegram: its retry can deliver the message twice, which the outbox
+    // accepts (docs/architecture/outbox.md, "Error classes").
+    it("takes a timeout of grammY for transient", async function () {
+        const api = new Api(TOKEN, { fetch: neverAnswers(), timeoutSeconds: SHORT_TIMEOUT_SECONDS });
+        const error = await callError(() => api.sendMessage(1, "hello"));
+
+        expect(classifier.classify(error)).to.deep.equal({ kind: TelegramBotApiFailureKind.Transient });
+    });
+
+    it("takes a file that is gone for unexpected, with no retry", async function () {
+        const missingFilePath = join(tmpdir(), `missing-${randomUUID()}.ttf`);
+        const api = new Api(TOKEN, { fetch: readsTheBody() });
+        const error = await callError(() => api.sendDocument(1, new PathFile(missingFilePath)));
+
+        expect(classifier.classify(error)).to.deep.equal({ kind: TelegramBotApiFailureKind.Unexpected });
+    });
+
+    // node-fetch copies the code of the system error onto its FetchError, but not the syscall.
+    it("keeps a network error with the code of a missing file transient", function () {
+        const resolverFailure = Object.assign(new Error("request to https://api.telegram.org failed, reason: getaddrinfo ENOENT"), {
+            type: "system",
+            code: "ENOENT",
+            errno: "ENOENT",
+        });
+        const error = new HttpError("Network request for 'sendMessage' failed!", resolverFailure);
+
+        expect(classifier.classify(error)).to.deep.equal({ kind: TelegramBotApiFailureKind.Transient });
+    });
+
+    it("keeps a file that opens but cannot be read transient", async function () {
+        const api = new Api(TOKEN, { fetch: readsTheBody() });
+        const error = await callError(() => api.sendDocument(1, new PathFile(tmpdir())));
+
+        expect(classifier.classify(error)).to.deep.equal({ kind: TelegramBotApiFailureKind.Transient });
+    });
+
+    // A retry may open the file once descriptors are freed.
+    it("keeps a file that cannot be opened for a while transient", function () {
+        const outOfDescriptors = Object.assign(new Error("EMFILE: too many open files, open '/fonts/a.ttf'"), {
+            code: "EMFILE",
+            syscall: "open",
+            path: "/fonts/a.ttf",
+        });
+        const error = new HttpError("Network request for 'sendDocument' failed!", outOfDescriptors);
 
         expect(classifier.classify(error)).to.deep.equal({ kind: TelegramBotApiFailureKind.Transient });
     });
@@ -67,14 +132,30 @@ describe("TelegramBotApiFailureClassifier", function () {
         }
     });
 
-    it("takes a 400 chat not found for undeliverable", function () {
-        expect(classifier.classify(telegramError(400, "Bad Request: chat not found"))).to.deep.equal({
-            kind: TelegramBotApiFailureKind.Undeliverable,
+    it("takes a 400 about a chat the bot cannot reach for undeliverable", function () {
+        for (const description of ["Bad Request: chat not found", "Bad Request: PEER_ID_INVALID", "Bad Request: user not found"]) {
+            expect(classifier.classify(telegramError(400, description)), description).to.deep.equal({
+                kind: TelegramBotApiFailureKind.Undeliverable,
+            });
+        }
+    });
+
+    it("takes a 400 of a group upgraded to a supergroup for undeliverable", function () {
+        const error = telegramError(400, "Bad Request: group chat was upgraded to a supergroup chat", {
+            migrate_to_chat_id: -1001234567890,
+        });
+
+        expect(classifier.classify(error)).to.deep.equal({ kind: TelegramBotApiFailureKind.Undeliverable });
+    });
+
+    it("takes a 400 of a malformed call for unexpected", function () {
+        expect(classifier.classify(telegramError(400, "Bad Request: message text is empty"))).to.deep.equal({
+            kind: TelegramBotApiFailureKind.Unexpected,
         });
     });
 
-    it("takes a 400 other than chat not found for unexpected", function () {
-        expect(classifier.classify(telegramError(400, "Bad Request: message text is empty"))).to.deep.equal({
+    it("takes a reworded description of an unreachable chat for unexpected", function () {
+        expect(classifier.classify(telegramError(400, "Bad Request: CHAT NOT FOUND"))).to.deep.equal({
             kind: TelegramBotApiFailureKind.Unexpected,
         });
     });
@@ -85,8 +166,22 @@ describe("TelegramBotApiFailureClassifier", function () {
         });
     });
 
-    it("takes another 4xx for unexpected", function () {
+    it("takes a 401 for unauthorized", function () {
         expect(classifier.classify(telegramError(401, "Unauthorized"))).to.deep.equal({
+            kind: TelegramBotApiFailureKind.Unauthorized,
+        });
+    });
+
+    // Telegram answers a 404 to a token of a wrong format too, but such a token fails getMe when the
+    // bot starts: a 404 while it runs is an unknown method, a bug of the call.
+    it("takes a 404 for unexpected, not for unauthorized", function () {
+        expect(classifier.classify(telegramError(404, "Not Found"))).to.deep.equal({
+            kind: TelegramBotApiFailureKind.Unexpected,
+        });
+    });
+
+    it("takes another 4xx for unexpected", function () {
+        expect(classifier.classify(telegramError(409, "Conflict: terminated by other getUpdates request"))).to.deep.equal({
             kind: TelegramBotApiFailureKind.Unexpected,
         });
     });
@@ -97,6 +192,36 @@ describe("TelegramBotApiFailureClassifier", function () {
         }
     });
 });
+
+// The error grammY's own client throws for the call.
+async function callError(call: () => Promise<unknown>): Promise<unknown> {
+    try {
+        await call();
+    } catch (error) {
+        return error;
+    }
+
+    return expect.fail("The call was expected to fail");
+}
+
+// A fetch whose answer never comes, so grammY's timeout ends the call.
+function neverAnswers(): ApiClientOptions["fetch"] {
+    return (() => new Promise(() => {})) as unknown as ApiClientOptions["fetch"];
+}
+
+// A fetch that reads the multipart body, which is where grammY opens the files of the call, and
+// then never answers: the error of the file stream ends the call first.
+function readsTheBody(): ApiClientOptions["fetch"] {
+    const fetch = async (_url: string, init: { body: AsyncIterable<unknown> }): Promise<never> => {
+        for await (const chunk of init.body) {
+            void chunk;
+        }
+
+        return new Promise<never>(() => {});
+    };
+
+    return fetch as unknown as ApiClientOptions["fetch"];
+}
 
 // An answer without parameters leaves the field out, as Telegram does.
 function telegramError(errorCode: number, description: string, parameters?: ResponseParameters): GrammyError {

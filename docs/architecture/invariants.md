@@ -165,9 +165,11 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   ([`outbox.md`](./outbox.md)).
 - **The path of a `PathFile` must be on storage visible to every sending node.** Any node
   may claim the row, and it reads the file at the stored path. A path on the local disk of the
-  node that queued it sends from that node and fails on every other one. The code does not check
-  this; it only rejects a relative path (`RelativeFilePath`), which each node would resolve
-  against its own working directory.
+  node that queued it sends from that node and fails on every other one, at once: the file is
+  missing there, and a missing file fails the message and blocks its chat with no retry
+  ([`outbox.md`](./outbox.md), "Error classes"). The code does not check this; it only rejects a
+  relative path (`RelativeFilePath`), which each node would resolve against its own working
+  directory.
 
 ## Storage: migrations, `sessions`, `User`
 
