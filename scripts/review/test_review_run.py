@@ -321,7 +321,7 @@ class ReviewRunTest(unittest.TestCase):
 
     def test_an_issue_missing_from_the_batches_is_red(self):
         for answer in (
-            "not recorded: no batch records #657, the issues PR #7 closes",
+            "not recorded: no batch records PR #7 with #657, the issues it closes",
             "not recorded: PR #7 closes no issue",
         ):
             run = self.fake(**{"mutation-full-check": (0, answer + "\n", "")})

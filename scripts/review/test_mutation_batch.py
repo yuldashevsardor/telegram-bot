@@ -692,6 +692,19 @@ class CloseTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(github.issues[630]["state"], "closed")
 
+    def test_a_repeat_after_the_closing_comment_needs_no_run_record(self):
+        github = self.four_prs()
+        github.failures["close"] = (1, "HTTP 502")
+        self.close(github)
+        del github.failures["close"]
+        os.remove(self.record_file)
+
+        code, lines, err = self.close(github)
+
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(lines, ["already closed: {}/issues/630#issuecomment-5".format(REPO)])
+        self.assertEqual(github.issues[630]["state"], "closed")
+
     def test_a_close_stopped_after_the_next_batch_was_created_takes_it_on_the_repeat(self):
         github = self.four_prs()
         github.failures["close"] = (1, "HTTP 502")
@@ -723,7 +736,7 @@ class CloseTest(unittest.TestCase):
             github.called("merge-base")[0], ["git", "merge-base", "--is-ancestor", "c1", HEAD]
         )
 
-    def test_a_run_record_that_ties_the_run_to_no_full_clean_commit_stops_before_gh(self):
+    def test_a_run_record_that_ties_the_run_to_no_full_clean_commit_stops_before_a_write(self):
         for text, told in (
             (run_record(scope="files"), "a run over files, not of the whole of src/"),
             (run_record(clean="no"), "ties the run to no commit: clean=no"),
@@ -740,7 +753,8 @@ class CloseTest(unittest.TestCase):
 
             self.assertEqual((code, lines), (1, []), told)
             self.assertIn(told, err)
-            self.assertEqual([github.name(args) for args in github.calls], ["rev-parse"], told)
+            self.assertEqual(github.lock_held_on_write, [], told)
+            self.assertEqual(github.called("fetch"), [], told)
 
     def test_no_run_record_stops(self):
         os.remove(self.record_file)
