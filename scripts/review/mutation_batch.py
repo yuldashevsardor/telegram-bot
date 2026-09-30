@@ -31,13 +31,16 @@ label marks it: docs/agents/issue-tracker.md forbids new ones.
 
 `check <pr>` (make mutation-full-check) writes nothing and takes no lock. It takes the issues the PR
 closes (`closingIssuesReferences`, the `Closes #N` of its body) and answers whether one of them is
-recorded in a batch, open or closed.
+recorded together with this PR in a batch, open or closed. A record of the issue with another PR
+does not count: `close` sorts PRs, and a PR without a record of its own would be in none of its
+lists.
 
 `close <batch> <issues>` (make mutation-full-close) closes a batch after its full run, under the
 same lock as `record`:
 
 1. Reads the run record reports/mutation/record.md (docs/architecture/testing.md, "The run record")
-   and stops unless the run mutated the whole of `src/` on a clean tree and left a report. A red run
+   and stops unless the run mutated the whole of `src/` on a clean tree and left a report with a
+   score. A red run
    (`exit` other than 0) closes only with the issues filed for its survivors named; whether they
    cover every survivor is the caller's check.
 2. The batch is the viewer's issue `Full mutation run <N>` by its number, open or closed: the PR
@@ -344,14 +347,14 @@ def check_record(pr: int, run: Run = subprocess.run) -> int:
         login = viewer(run)
         for batch in list_batches(login, run):
             for found in list_records(batch, login, run):
-                if found.issue in issues:
+                if found.issue in issues and found.pr == pr:
                     print("recorded: issue #{} — {}".format(found.issue, found.url))
                     return 0
     except Stop as stop:
         print("Stopped: {}".format(stop), file=sys.stderr)
         return 1
     named = ", ".join("#{}".format(issue) for issue in issues)
-    print("not recorded: no batch records {}, the issues PR #{} closes".format(named, pr))
+    print("not recorded: no batch records PR #{} with {}, the issues it closes".format(pr, named))
     return 0
 
 
@@ -376,6 +379,10 @@ def read_run_record(path: str, survivor_issues: List[int]) -> RunRecord:
         )
     if marker.group("score") == "none":
         raise Stop("the run broke off before its report: the run record has no score")
+    # A score of NaN is a run without a single valid mutant, a broken `mutate` glob say: it tested
+    # nothing, and exits with 0 all the same (docs/architecture/testing.md, "Threshold").
+    if marker.group("score") == "NaN":
+        raise Stop("the run counted no mutant: score=NaN")
     if marker.group("exit") != "0" and not survivor_issues:
         raise Stop(
             "the run is red (exit={}): name the issues filed for its survivors, "

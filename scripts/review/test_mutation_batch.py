@@ -420,7 +420,7 @@ class CheckTest(unittest.TestCase):
 
     def test_an_issue_recorded_in_a_closed_batch_is_recorded(self):
         github = FakeGitHub(
-            [batch(630, 1, "closed", records=[(640, 641), (655, 656)]), batch(650, 2)],
+            [batch(630, 1, "closed", records=[(640, 641), (655, 660)]), batch(650, 2)],
             closes=[655],
         )
 
@@ -438,7 +438,17 @@ class CheckTest(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertEqual(
-            lines, ["not recorded: no batch records #655, #657, the issues PR #660 closes"]
+            lines, ["not recorded: no batch records PR #660 with #655, #657, the issues it closes"]
+        )
+
+    def test_a_record_of_the_issue_with_another_pr_does_not_count(self):
+        github = FakeGitHub([batch(630, 1, records=[(655, 656)])], closes=[655])
+
+        code, lines, _ = self.check(github)
+
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            lines, ["not recorded: no batch records PR #660 with #655, the issues it closes"]
         )
 
     def test_one_of_the_closed_issues_recorded_is_enough(self):
@@ -719,6 +729,7 @@ class CloseTest(unittest.TestCase):
             (run_record(clean="no"), "ties the run to no commit: clean=no"),
             (run_record(head="unknown", clean="unknown"), "clean=unknown, head=unknown"),
             (run_record(score="none", exit_code=1), "the run broke off before its report"),
+            (run_record(score="NaN"), "the run counted no mutant: score=NaN"),
             (run_record(exit_code=1, score="99.50"), "the run is red (exit=1)"),
             ("## `make mutation` run record\n", "does not open with the marker of a run record"),
         ):
