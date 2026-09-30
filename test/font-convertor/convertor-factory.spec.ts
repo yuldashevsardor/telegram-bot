@@ -6,12 +6,13 @@ import { ConvertorNotFound } from "app/font-convertor/font-convertor.errors";
 import type { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-signature-matcher";
 import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
+import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
 import { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
 import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 
 const convertorFactory = new ConvertorFactory(
     {} as FontForge,
-    new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator()),
+    new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator(), new SfntFontValidator()),
     new EotPacker(),
 );
 

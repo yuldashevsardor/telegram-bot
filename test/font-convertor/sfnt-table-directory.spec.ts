@@ -17,6 +17,8 @@ const VERSION_OFFSET = 0;
 const TABLE_COUNT_OFFSET = 4;
 const COLLECTION_VERSION = 0x74746366;
 const ENVELOPE_PREFIX_BYTES = 8;
+const HEADER_SIZE_BYTES = 12;
+const RECORD_SIZE_BYTES = 16;
 
 describe("SfntTableDirectory", function () {
     let ttf: Uint8Array;
@@ -43,6 +45,24 @@ describe("SfntTableDirectory", function () {
         expect(trueType.find("CFF "), "CFF in the TrueType font").to.equal(undefined);
         expect(cff.find("CFF "), "CFF in the CFF font").to.not.equal(undefined);
         expect(cff.find("glyf"), "glyf in the CFF font").to.equal(undefined);
+    });
+
+    it("lists the records in the order of the directory", function () {
+        const tags = new SfntTableDirectory(otf).records().map((record) => record.tag);
+
+        expect(tags).to.deep.equal(["CFF ", "FFTM", "GDEF", "OS/2", "cmap", "head", "hhea", "hmtx", "maxp", "name", "post"]);
+    });
+
+    it("lists a repeated tag each time, and finds its last record", function () {
+        // The validator rejects a repeated tag, so it has to see every record; the codec finds one.
+        const firstRecord = HEADER_SIZE_BYTES;
+        const secondRecord = HEADER_SIZE_BYTES + RECORD_SIZE_BYTES;
+        const repeated = patch(otf, (view) => view.setUint32(secondRecord, view.getUint32(firstRecord)));
+        const directory = new SfntTableDirectory(repeated);
+        const records = directory.records().filter((record) => record.tag === "CFF ");
+
+        expect(records).to.have.length(2);
+        expect(directory.find("CFF ")).to.equal(records[1]);
     });
 
     it("reads a font that lies inside a larger buffer", function () {

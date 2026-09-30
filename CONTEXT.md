@@ -63,7 +63,7 @@ a different thing.
 The suffix of a file name. It is the first of the two signs by which the domain determines the
 format of a font. The extension is a statement about the name of the file, not about its bytes, and
 whoever sent the file sets it. So the extension alone is not enough for the domain: it is checked
-against the format signature, and an SVG against the validation of the document.
+against the format signature, and an SVG, a TTF or an OTF against the validation of the file.
 _Avoid_: format. An extension is a way to learn the format, not the format itself.
 
 **Format signature**:
@@ -72,8 +72,9 @@ in its name. They do not necessarily start at the first byte. In EOT the marker 
 offset inside the header. The signature is the second sign of the format: the extension and the
 signature have to agree, otherwise the font is not admitted to conversion. A signature does not tell
 every pair of formats apart. TTF and OTF lie in a shared container and are indistinguishable by
-content. SVG has no signature: its format is confirmed by validating the document. How the check
-works is in `docs/architecture/font-convertor.md`.
+content. SVG has no signature, and the TTF and OTF one, the sfnt version, is not checked on its
+own: the format of each is confirmed by validating the file. How the check works is in
+`docs/architecture/font-convertor.md`.
 _Avoid_: MIME type, magic bytes, content type.
 
 ### Files
@@ -81,9 +82,10 @@ _Avoid_: MIME type, magic bytes, content type.
 **Font**:
 A file in one of the formats. For this domain it is almost opaque. The domain reads the head of the
 file to check the format against the signature, then hands the file to the engine and does not look
-inside. SVG is the first exception: it is read whole, but only to check that it is an SVG font. The
-other is the envelope: to assemble it or to take it apart, the domain reads the metadata of the
-enclosed font. Even there it only copies the metadata and does not parse outlines.
+inside. SVG, TTF and OTF are the first exception: each is read whole, but only to check that it is a
+font of its format. The other is the envelope: to assemble it or to take it apart, the domain reads
+the metadata of the enclosed font. Even there it only copies the metadata and does not parse
+outlines.
 _Avoid_: typeface. That is a typography term for the design; here the subject is the file.
 
 **Source font**:
@@ -112,7 +114,8 @@ as the same bytes, but it does not tell styles apart and cannot select a font by
 
 **Glyphs and metrics**:
 Not part of the domain. From a font the service reads the format signature, the metadata for the
-envelope and, in an SVG, the rules of an SVG font, which reach the glyph advances and the syntax of
-the outlines too. It does not interpret the outlines, so it can neither list the glyphs nor compare
-them before and after a conversion. The domain currently neither expresses nor checks whether glyphs
-and metrics survive a conversion.
+envelope, in a TTF or an OTF the table directory and which tables it holds, and in an SVG the rules
+of an SVG font, which reach the glyph advances and the syntax of the outlines too. It does not
+interpret the outlines, so it can neither list the glyphs nor compare them before and after a
+conversion. The domain currently neither expresses nor checks whether glyphs and metrics survive a
+conversion.

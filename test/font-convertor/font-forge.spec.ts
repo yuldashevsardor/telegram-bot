@@ -9,6 +9,7 @@ import { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { ExecuteError, ExtensionNotSupport } from "app/font-convertor/font-forge/font-forge.errors";
 import { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-signature-matcher";
 import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
+import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
 import { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
 import { FileHelper } from "app/shared/fs/file-helper";
 import { ProcessFailed } from "app/shared/process/process-helper.errors";
@@ -19,7 +20,7 @@ describe("FontForge.convert", function () {
     const fontForge = new FontForge("fontforge");
     const engineExtensions = new ConvertorFactory(
         fontForge,
-        new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator()),
+        new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator(), new SfntFontValidator()),
         new EotPacker(),
     )
         .getSupportedExtensions()
@@ -48,14 +49,13 @@ describe("FontForge.convert", function () {
     // The case of the source extension is set by whoever sent the file, and the engine's format list is lowercase.
     for (const extension of engineExtensions) {
         it(`reads ${extension} under an uppercase extension`, async function () {
-            const matcher = new FontSignatureMatcher();
             const srcPath = path.join(workDir, `Font.${extension.toUpperCase()}`);
             const distPath = path.join(workDir, "result.otf");
             await fs.copyFile(fixture(extension), srcPath);
 
             await fontForge.convert(srcPath, distPath);
 
-            expect(matcher.matches(await FileHelper.readHead(distPath, matcher.headLength), Extension.OTF)).to.be.true;
+            await new SfntFontValidator().validate(distPath);
         });
     }
 

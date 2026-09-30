@@ -10,7 +10,9 @@ import { Extension } from "app/font-convertor/font-convertor.types";
 import type { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-signature-matcher";
 import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
+import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
 import { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
+import { NotSfnt } from "app/font-convertor/validator/sfnt/sfnt-font-validator.errors";
 import { InvalidPath, PermissionDenied } from "app/shared/fs/file-helper.errors";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
@@ -38,7 +40,7 @@ describe("FontConvertor", function () {
 
         factory = new ConvertorFactory(
             fontForge,
-            new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator()),
+            new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator(), new SfntFontValidator()),
             new EotPacker(),
         );
     });
@@ -134,7 +136,7 @@ describe("FontConvertor", function () {
         );
 
         expect(error).to.be.instanceOf(FontConvertorError);
-        expect((error as FontConvertorError).cause).to.be.instanceOf(InvalidFontSignature);
+        expect((error as FontConvertorError).cause).to.be.instanceOf(NotSfnt);
     });
 
     // FileHelper.createDirectoriesByDate() checks the path, and its own spec pins the checks.
@@ -220,10 +222,10 @@ describe("ConvertorNotFound and InvalidFontSignature", function () {
         },
         {
             name: "InvalidFontSignature.byPathAndExtension",
-            error: InvalidFontSignature.byPathAndExtension("/x/font.ttf", Extension.TTF),
+            error: InvalidFontSignature.byPathAndExtension("/x/font.eot", Extension.EOT),
             type: InvalidFontSignature,
-            message: "File /x/font.ttf content does not match ttf format.",
-            payload: { path: "/x/font.ttf", extension: "ttf" },
+            message: "File /x/font.eot content does not match eot format.",
+            payload: { path: "/x/font.eot", extension: "eot" },
         },
     ];
 

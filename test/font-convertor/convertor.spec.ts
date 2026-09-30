@@ -5,16 +5,20 @@ import path from "path";
 import type { Convertor } from "app/font-convertor/convertor/convertor";
 import { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory";
 import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
-import { InvalidFontSignature } from "app/font-convertor/font-convertor.errors";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import type { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-signature-matcher";
 import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
+import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
 import { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
 import { NoFont } from "app/font-convertor/validator/svg/svg-font-validator.errors";
+import { BrokenSfnt, NotSfnt } from "app/font-convertor/validator/sfnt/sfnt-font-validator.errors";
+import { SfntRule } from "app/font-convertor/validator/sfnt/sfnt-font-validator.types";
 import { InvalidFile, InvalidPath, PermissionDenied } from "app/shared/fs/file-helper.errors";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
+// The offset of numTables in the sfnt header (OpenType 1.9.1, Table Directory).
+const SFNT_NUM_TABLES_OFFSET_BYTES = 4;
 
 // Every pair shares the input check, Convertor.validate(), so its branches run on one pair,
 // ttf → woff, and the SVG branch on svg → woff. That each pair calls the check is pinned in
@@ -41,7 +45,7 @@ describe("Convertor.validate", function () {
 
         factory = new ConvertorFactory(
             fontForge,
-            new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator()),
+            new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator(), new SfntFontValidator()),
             new EotPacker(),
         );
         convertor = factory.get(Extension.TTF, Extension.WOFF);
@@ -100,7 +104,27 @@ describe("Convertor.validate", function () {
             const fromPath = inWorkDir("garbage.ttf");
             await fs.writeFile(fromPath, Uint8Array.from([1, 2, 3, 4]));
 
-            await expectRejection(fromPath, inWorkDir("result.woff"), InvalidFontSignature.byPathAndExtension(fromPath, Extension.TTF));
+            await expectRejection(fromPath, inWorkDir("result.woff"), NotSfnt.bySize(fromPath, 4, 12));
+        });
+
+        it("when it is a ttf the validator rejects", async function () {
+            // The version is intact, so a signature check alone would have let the file through.
+            const fromPath = inWorkDir("no-tables.ttf");
+            const bytes = await fs.readFile(fixture(Extension.TTF));
+            bytes.writeUInt16BE(0, SFNT_NUM_TABLES_OFFSET_BYTES);
+            await fs.writeFile(fromPath, bytes);
+
+            await expectRejection(
+                fromPath,
+                inWorkDir("result.woff"),
+                BrokenSfnt.byRule(fromPath, {
+                    rule: SfntRule.TablesPresent,
+                    at: "the header",
+                    field: "numTables",
+                    value: 0,
+                    expected: "at least 1",
+                }),
+            );
         });
 
         it("when it is an svg the validator rejects", async function () {

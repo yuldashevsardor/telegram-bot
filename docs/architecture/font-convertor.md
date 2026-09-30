@@ -45,12 +45,12 @@ pair class gets what it does not need:
   eight pairs. Their bodies live in `ToEotConvertor` and `FromEotConvertor`. The eight classes
   are empty except for declaring the missing extension.
 
-`EotPacker` (`eot-packer/`) is one of the two places on the conversion path where the domain parses
-the content of a font, not just its first bytes; the other is the SVG validator below. The EOT
-header duplicates the metadata of the enclosed font. `SfntReader` takes it from the `OS/2`, `head`
-and `name` tables. The envelope holds four names, in UTF-16LE. The slant is taken from
-`OS/2.fsSelection`, not from `head.macStyle`, which duplicates it. `ttf2eot` does the same. Besides,
-in `macStyle` the slant is bit 1, and bit 1 of `fsSelection` means something else.
+`EotPacker` (`eot-packer/`) is one of the three places on the conversion path where the domain
+parses the content of a font, not just its first bytes; the others are the SVG and sfnt validators
+below. The EOT header duplicates the metadata of the enclosed font. `SfntReader` takes it from the
+`OS/2`, `head` and `name` tables. The envelope holds four names, in UTF-16LE. The slant is taken
+from `OS/2.fsSelection`, not from `head.macStyle`, which duplicates it. `ttf2eot` does the same.
+Besides, in `macStyle` the slant is bit 1, and bit 1 of `fsSelection` means something else.
 
 Names are read from the Windows platform, failing that from Unicode, then from Macintosh. On
 Macintosh only `encodingId 0` is read: only that one is single-byte MacRoman, the other records hold
@@ -80,45 +80,50 @@ The source format is checked twice: by the extension of the name and by the cont
 is checked by a `FontValidator` (`validator/`), each of which knows one format.
 `FontValidatorResolver`, a singleton in the container, holds one validator per format and gives a
 pair the one of its source format, so a pair holds the resolver and none of the checks. It builds
-the signature validators itself; the SVG one comes from the container. For five formats the
-validator is `SignatureFontValidator`: the first `headLength` bytes of the file against the
+the signature validators itself; the SVG and sfnt ones come from the container. For three formats
+the validator is `SignatureFontValidator`: the first `headLength` bytes of the file against the
 signature (`FontSignatureMatcher`, a singleton in the container). SVG has no signature: its first
 bytes could say at most "this is markup", not "this is a font", so `SvgFontValidator` below reads
-the whole document instead. The name is set by whoever sent the file, so the extension alone cannot
-be trusted. The code recognises the signatures itself, without an external tool. `file --mime-type`
-gives no usable answer for three of the five formats: none at all for EOT, and for TTF and OTF the
-answer also depends on the libmagic version.
+the whole document instead. TTF and OTF have one, the sfnt version, but it is only the first rule
+of the container, and `SfntFontValidator` below checks it together with the rest, so
+`FontSignatureMatcher` does not know it. The name is set by whoever sent the file, so the extension
+alone cannot be trusted. The code recognises the formats itself, without an external tool.
+`file --mime-type` gives no usable answer for three of the five binary formats: none at all for
+EOT, and for TTF and OTF the answer also depends on the libmagic version.
 
-The signature does not tell TTF from OTF. Both use the sfnt container, and the sfnt version names
+The content does not tell TTF from OTF. Both use the sfnt container, and the sfnt version names
 the outline type, not the extension. Outlines of either type are legal under both names. So both
-extensions accept the whole set of sfnt signatures: the signature confirms the container, and the
-extension still picks the conversion pair.
+extensions take the same validator: it confirms the container, and the extension still picks the
+conversion pair.
 
-The set leaves out one sfnt version: the `ttcf` collection. A collection holds several fonts, and
+The accepted versions leave out one: the `ttcf` collection. A collection holds several fonts, and
 which of them to take is not the domain's call. The engine would silently take the first, while the
 EOT envelope would reject the whole file, so one and the same file would behave differently from
-pair to pair. A collection named `.ttf` or `.otf` is therefore rejected here, the same way for every
-pair, before the chosen pair does any work.
+pair to pair. A collection named `.ttf` or `.otf` is therefore rejected on input, the same way for
+every pair, before the chosen pair does any work.
 
-This does not make the version check of the codec redundant. The signature sees only the source
-under its own extension. Two more files pass through the codec that the signature never saw: the
-intermediate sfnt from the engine on packing, and the envelope content on unpacking. The two checks
-differ: the signature compares the first bytes of the head, the codec parses the table directory.
-But they share one set of versions with a third check, `SFNT_VERSIONS` in
-`font-convertor/sfnt-version.ts`. The signature takes bytes from it, the codec reads the same values
-as numbers, and `WoffFontValidator` (`validator/woff/`) checks the flavor of a WOFF against it: the
-flavor is the version of the sfnt it carries. No convertor calls that validator yet. The set must
-not become several lists, because a divergence breaks behaviour rather than the build. A version
-known only to the signature reaches the codec and fails there with `InvalidSfnt`. A version known
-only to the codec does not get past the input.
+This does not make the version check of the codec redundant. The sfnt validator sees only the
+source under its own extension. Two more files pass through the codec that the validator never
+saw: the intermediate sfnt from the engine on packing, and the envelope content on unpacking. The
+codec checks less than the validator: the header size, the version and the bounds of the tables it
+reads, not the rules below. But
+the two share one set of versions with a third check, `SFNT_VERSIONS` in
+`font-convertor/sfnt-version.ts`, and `WoffFontValidator` (`validator/woff/`) checks the flavor of
+a WOFF against it: the flavor is the version of the sfnt it carries. No convertor calls that
+validator yet. The set must not become several lists, because a divergence breaks behaviour rather
+than the build. A version known only to the validator reaches the codec and fails there with
+`InvalidSfnt`. A version known only to the codec does not get past the input.
 
 Every offset is counted from the start of the file. A prefix is not skipped: a shifted head would
 turn the check into a search for the marker anywhere.
 
-`SfntReader` reads its tables through `SfntTableDirectory` (`font-convertor/sfnt-table-directory/`),
-which checks the header size and the version and holds the table records by tag. It lies outside
-`eot-packer/` because the codec is not meant to be its only reader: a second parse of the same
-directory would be a second copy of one format rule.
+`SfntReader` and `SfntFontValidator` read the table records through `SfntTableDirectory`
+(`font-convertor/sfnt-table-directory/`), which checks the header size and the version and holds
+the records by tag and in the order of the directory. It lies outside `eot-packer/` because the
+codec is not its only reader: a second parse of the same directory would be a second copy of one
+format rule. The validator checks the header before the directory parses it: the directory rejects
+a short file or an unknown version with the codec's `InvalidSfnt`, while the validator names the
+rule broken.
 
 ## The SVG validator
 
@@ -186,6 +191,47 @@ escaped value cannot reach. The payload also keeps the length before the cut:
 `valueLength` of the value, which, like the length of `value`, tells a cut value, and `rootLength`
 of the whole root, which does not say which of its two pieces was cut.
 
+## The sfnt validator
+
+`SfntFontValidator` (`validator/sfnt/`, a singleton in the container) reads the whole file and
+checks it against the Microsoft OpenType specification 1.9.1 and, for what it governs, Apple's
+TrueType Reference Manual: the table directory ("Table Directory") and the tables a font must have
+("Required Tables"). `FontValidatorResolver` gives it out for a TTF and an OTF source alike, and its
+answer reaches the caller the way the SVG one does: as the cause of `FontConvertorError`, before the
+engine is called. The engine's TTF and OTF output is not checked. The validator exists because the
+engine does not refuse a broken sfnt: of 104 variants of the fixtures, each broken in one place,
+fontforge 20230101 converted 79 with exit 0, 9 of them losing glyphs or outlines, and crashed on 8
+with SIGSEGV ([#614](https://github.com/yuldashevsardor/telegram-bot/issues/614)). `ttf → eot`
+does not reach the engine at all: `EotPacker.pack` reads `OS/2`, `head` and `name` and packs
+whatever else the font holds.
+
+It answers with a subclass of `InvalidSfntFont` (`sfnt-font-validator.errors.ts`): `NotSfnt` for a
+file shorter than the 12-byte header or of a version outside `SFNT_VERSIONS`, `BrokenSfnt` for the
+first broken rule. The order in which the rules are checked is in the comment of `validate()`. A
+file that cannot be read fails with `ReadFailed` of `FileHelper`, not with an answer about the font.
+Every answer names the source in `path` of its payload. Nothing in the answers is cut: the only
+text from the file they quote is a table tag, four bytes long.
+
+The rules are `SfntRule` in `sfnt-font-validator.types.ts`, each with its section. Two of them are
+ours, not the standard's, and the text of each says why: a collection is rejected (see
+"Signatures"), and so is a font with a `CFF2` table, which the standard allows but fontforge
+20230101 does not open (exit 1, "not in a known format"). Where the two references differ, the
+rules follow the one that governs the outlines present:
+
+- `OS/2` is required only with CFF outlines. Microsoft requires it of every font, Apple's manual
+  (chapter 6) not of a TrueType one. Without it the engine builds the table itself: every glyph is
+  kept, but the embedding restriction of `fsType` and the bold bit of `fsSelection` are lost.
+  `ttf → eot` fails on such a font in `SfntReader` with `InvalidSfnt`.
+- The version does not have to match the outlines: `OTTO` over `glyf` and `0x00010000` over
+  `CFF ` pass, since the specification says "should" and the engine converts both keeping every
+  glyph. A rule that depends on the outline type goes by the outline tables present, not by the
+  version.
+
+What is deliberately not checked, with the reasons, is in the class comment of
+`SfntFontValidator`: the table checksums and `head.checkSumAdjustment`, which the engine does not
+read, and `searchRange`, `entrySelector` and `rangeShift`, which the specification tells readers
+not to rely on.
+
 ## The pair table
 
 The pair table in `ConvertorFactory` is the only source of what the domain can do. The convertor is
@@ -198,8 +244,9 @@ not count as supported.
 - Temporary files are not deleted (issue
   [#37](https://github.com/yuldashevsardor/telegram-bot/issues/37)).
 - An SVG source is read, decoded and parsed whole, synchronously, on the event loop of the bot, and
-  the domain sets no limit on its size. The other formats read `headLength` bytes. Nothing measured
-  the cost yet.
+  the domain sets no limit on its size. A TTF or OTF source is read whole too, and its table
+  directory is walked on the event loop. The other formats read `headLength` bytes. Nothing
+  measured the cost yet.
 - `/font_generator` converts the fixed `test/fixtures/fonts/test-font.woff` into
   EOT/OTF/TTF/WOFF2. It answers with the **path** to the file as text; the file itself is not
   sent. A caught conversion error is written at `error` level through `Logger`
