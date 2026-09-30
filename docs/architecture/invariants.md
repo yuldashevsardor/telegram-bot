@@ -141,14 +141,17 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   by one statement and locked by the next may be gone in between, and messages inserted without
   their chat row are never pulled ([`outbox.md`](./outbox.md), "The chat lock"). The spec lines up
   only `push()` against the removal.
-- **The lease of a pulled chat must outlast the send of its message, unless the lease is
-  extended.** Every chat of a pull is leased from the pull, so a caller that sends the messages of
-  one pull one call after another needs the lease to cover them all, not the longest single call.
-  A lease that ends while its message is still being sent lets the recovery of expired leases
-  ([#672](https://github.com/yuldashevsardor/telegram-bot/issues/672)) hand the message to another
-  node, and it goes out twice; the late completion of the first node is fenced off and changes
-  nothing. `OUTBOX_LEASE_DURATION` of `.env.dist` says which call timeout its default
-  covers. Nothing checks the two against each other.
+- **The lease of a pulled chat must outlast the send of its message, unless the lease is extended.**
+  Every chat of a pull is leased from the pull, so a caller that sends the messages of one pull one
+  call after another needs the lease to cover them all, not the longest single call. A lease that
+  ends while its message is still being sent lets the recovery of expired leases
+  (`OutboxFailureHandler.recoverExpiredLeases()`) hand the message to another node, and it goes out
+  twice; the late completion of the first node is fenced off and changes nothing.
+  `OUTBOX_LEASE_DURATION` of `.env.dist` says which call timeout its default covers. Nothing checks
+  the two against each other. An extension may extend only a lease that has not passed: the recovery
+  tells its lease by the token, not by `locked_until`, and takes back the message of a passed lease
+  its node has just extended ([`outbox.md`](./outbox.md), "Lease recovery"). Nothing extends a lease
+  yet.
 - **The retention of a `done` message must outlast `OUTBOX_RESULT_TIMEOUT`.** A caller still
   waiting for a message the cleanup has deleted finds no row and times out as if the message were
   never sent, and may send it again ([`outbox.md`](./outbox.md), "Cleanup"). Nothing checks the two
@@ -174,9 +177,11 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   ([`outbox.md`](./outbox.md)).
 - **The path of a `PathFile` must be on storage visible to every sending node.** Any node
   may claim the row, and it reads the file at the stored path. A path on the local disk of the
-  node that queued it sends from that node and fails on every other one. The code does not check
-  this; it only rejects a relative path (`RelativeFilePath`), which each node would resolve
-  against its own working directory.
+  node that queued it sends from that node and fails on every other one, at once: the file is
+  missing there, and a missing file fails the message and blocks its chat with no retry
+  ([`outbox.md`](./outbox.md), "Error classes"). The code does not check this; it only rejects a
+  relative path (`RelativeFilePath`), which each node would resolve against its own working
+  directory.
 
 ## Storage: migrations, `sessions`, `User`
 

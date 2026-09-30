@@ -8,7 +8,16 @@ import type { TelegramBotApiFailure } from "app/telegram/bot-api-failure-classif
 // constants name it. They stop at 511 and have no name for the end of the 5xx range.
 const LAST_SERVER_ERROR_STATUS = 599;
 
-const CHAT_NOT_FOUND_DESCRIPTION = "Bad Request: chat not found";
+// The descriptions of a 400 about a chat the bot cannot reach. A 400 is also the code of a malformed
+// call, so the exact description decides (docs/architecture/outbox.md, "Error classes").
+const UNREACHABLE_CHAT_DESCRIPTIONS: ReadonlySet<string> = new Set([
+    "Bad Request: chat not found",
+    "Bad Request: PEER_ID_INVALID",
+    "Bad Request: user not found",
+]);
+
+const MISSING_FILE_CODE = "ENOENT";
+const FILE_OPEN_SYSCALL = "open";
 
 // The Bot API always sends retry_after with a 429. If it is missing or unreadable, the pause must
 // still be non-zero, or the caller would retry at once and run into the same 429. The outbound
@@ -22,6 +31,11 @@ export class TelegramBotApiFailureClassifier {
     // come back, and a GrammyError when Telegram answers ok: false.
     public classify(error: unknown): TelegramBotApiFailure {
         if (error instanceof HttpError) {
+            // A retry reads the same missing file: no backoff helps it.
+            if (this.isMissingFile(error.error)) {
+                return { kind: TelegramBotApiFailureKind.Unexpected };
+            }
+
             return { kind: TelegramBotApiFailureKind.Transient };
         }
 
@@ -49,10 +63,34 @@ export class TelegramBotApiFailureClassifier {
             return { kind: TelegramBotApiFailureKind.Undeliverable };
         }
 
-        if (error.error_code === httpStatus.HTTP_STATUS_BAD_REQUEST && error.description === CHAT_NOT_FOUND_DESCRIPTION) {
+        if (error.error_code === httpStatus.HTTP_STATUS_BAD_REQUEST && this.isUnreachableChat(error)) {
             return { kind: TelegramBotApiFailureKind.Undeliverable };
         }
 
+        if (error.error_code === httpStatus.HTTP_STATUS_UNAUTHORIZED) {
+            return { kind: TelegramBotApiFailureKind.Unauthorized };
+        }
+
         return { kind: TelegramBotApiFailureKind.Unexpected };
+    }
+
+    // An exact description of UNREACHABLE_CHAT_DESCRIPTIONS, or a group upgraded to a supergroup,
+    // which answers with the id of the supergroup in migrate_to_chat_id: the old id takes no
+    // messages any more, and the message is not resent to the new one.
+    private isUnreachableChat(error: GrammyError): boolean {
+        return error.parameters.migrate_to_chat_id !== undefined || UNREACHABLE_CHAT_DESCRIPTIONS.has(error.description);
+    }
+
+    // The file of a PathFile is gone: grammY passes the error of the file stream on as it is, a raw
+    // Node error of open(). A network error comes wrapped into node-fetch's FetchError, which copies
+    // the code of the system error (a resolver can fail with ENOENT) but not its syscall, and the
+    // timeout of grammY is a bare Error. Other file-system errors may pass on a retry (EMFILE, EIO
+    // on shared storage) and stay transient.
+    private isMissingFile(cause: unknown): boolean {
+        if (typeof cause !== "object" || cause === null || !("code" in cause) || !("syscall" in cause)) {
+            return false;
+        }
+
+        return cause.code === MISSING_FILE_CODE && cause.syscall === FILE_OPEN_SYSCALL;
     }
 }

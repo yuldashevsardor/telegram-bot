@@ -6,8 +6,9 @@ any node sends them, the order inside a chat holds across nodes, and a node that
 nothing (the plan is epic [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)).
 No sender or caller uses the directory yet: so far it holds the tables with `OutboxStore`
 (`store/outbox-store.ts`), which pushes, pulls within the limits, pauses, completes a pulled
-message and cleans up, `OutboxFailureHandler` (`outbox-failure-handler.ts`), which picks the
-outcome of a failed send, `OutboxResultWaiter`, which waits for the outcome of a message, with
+message, finds the expired leases and cleans up, `OutboxFailureHandler`
+(`outbox-failure-handler.ts`), which picks the outcome of a failed send and recovers the expired
+leases, `OutboxResultWaiter`, which waits for the outcome of a message, with
 `OutboxFinishedMessageReader`, the payload codec and the retry delay. The error classes of a failed
 call lie outside it, in `telegram/bot-api-failure-classifier/`.
 
@@ -17,8 +18,9 @@ One migration, `1790546834232_telegram-outbox-tables.ts`, creates the three tabl
 column the outbox needs. The columns and what they mean are in its `createTable` calls and
 `comment`s; the comment of `next_attempt_at` is replaced by
 `1790666223510_telegram-outbox-chat-limit-comment.ts` and then, with that of `status`, by
-`1790682156623_telegram-outbox-retry-comments.ts`. There are no indexes besides the primary
-keys yet: they will be picked once the queries of every stage are settled.
+`1790682156623_telegram-outbox-retry-comments.ts`; those of `attempts` and `lock_token` are
+replaced by `1790716587328_telegram-outbox-attempt-worker-comment.ts`. There are no indexes
+besides the primary keys yet: they will be picked once the queries of every stage are settled.
 
 The database does not check the values of `status` and `state`: the store writes them only
 through the `OutboxStatus` and `OutboxChatState` enums (`store/outbox-store.types.ts`). Of these,
@@ -184,9 +186,9 @@ A pull leases each chat it pulled: `locked_until` is `now()` plus `leaseDuration
 makes before the statement and returns with every message as `lockToken`. One token for the chats of
 a pull is enough: the fence compares the token of one chat row, and a chat is leased to one pull at
 a time, so the token only has to tell that pull from the next pull of the same chat. The completion
-ends the lease: both columns go back to `NULL`. Nothing reads `locked_until` yet: the recovery of a
-chat whose lease has passed is [#672](https://github.com/yuldashevsardor/telegram-bot/issues/672).
-How long the lease must be is in [`invariants.md`](./invariants.md), "The outbox".
+ends the lease: both columns go back to `NULL`. A lease that passes before the completion is
+recovered (see "Lease recovery"). How long the lease must be is in
+[`invariants.md`](./invariants.md), "The outbox".
 
 The delivery is at least once. A node that dies after Telegram took the call and before its
 completion commits leaves the message `processing`; once the lease is recovered, the message goes
@@ -195,8 +197,9 @@ one.
 
 ## Completions
 
-A pulled message is completed by one of the four public methods of the store after `pull()`, each
-taking the pulled message as its lease (`OutboxLease`). What each does to the message and the chat
+A leased message is completed by one of the four public methods of the store, each taking an
+`OutboxLease`: the message given out by `pull()`, or an expired lease read by `findExpiredLeases()`
+(see "Lease recovery"). What each does to the message and the chat
 is read off its body. Each is a transaction through the private `complete()`:
 
 1. lock the chat row of the message; a missing message throws `OutboxMessageNotLeased`;
@@ -216,8 +219,7 @@ result").
 Step 3 appends the attempt to `attempts`, whole: `started_at` and `worker` from the lease, the
 error, `null` for `done`, and `finished_at` of `now()`. Both times are the database's. Nothing is
 written into `attempts` before the completion, so a node that dies while it sends leaves no trace
-of the attempt; the recovery of its lease appends one
-([#672](https://github.com/yuldashevsardor/telegram-bot/issues/672)).
+of the attempt; the recovery of its lease appends one (see "Lease recovery").
 
 A retried message stays the head of its chat, so its chat waits with it: the messages behind it
 are not pulled before it, while the other chats are.
@@ -318,20 +320,39 @@ Nothing calls `OutboxFailureHandler` yet: the sending loop that will is
 
 `TelegramBotApiFailureClassifier.classify(error)`
 (`telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.ts`) sorts a failed Bot
-API call into the four classes of the epic
-([#618](https://github.com/yuldashevsardor/telegram-bot/issues/618), "Error classes"), the
-`TelegramBotApiFailureKind` values. Which error falls into which class is read off the branches
-of the method. What the code does not say is why two boundaries are drawn where they are, and why
-one failure is not classified at all:
+API call into the `TelegramBotApiFailureKind` values: the four classes of the epic
+([#618](https://github.com/yuldashevsardor/telegram-bot/issues/618), "Error classes") and
+`Unauthorized`, which the epic does not have. Which error falls into which class is read off the
+branches of the method. What the code does not say is why the boundaries are drawn where they are,
+and why one failure is not classified at all:
 
 - Every 403 is `Undeliverable`, not only the bot blocked or kicked: a 403 is Telegram refusing the
   bot this chat, and a retry does not change that.
-- A 400 is `Undeliverable` only by its description, because 400 is also the code of a malformed
-  call, which is a bug and must block the chat. A description Telegram rewords falls to
-  `Unexpected` and blocks the chat: the safe side.
+- A 400 is `Undeliverable` only by its exact description or by `migrate_to_chat_id` in its
+  `parameters`, because 400 is also the code of a malformed call, which is a bug and must block the
+  chat. A description Telegram rewords falls to `Unexpected` and blocks the chat: the safe side. A
+  group upgraded to a supergroup takes no messages under its old id, and the message is not resent
+  to the new one.
+- A 401 is `Unauthorized`: the token has been revoked, and every call of the bot fails the same way
+  until the process is restarted with a new one. As `Unexpected` it would block every chat the
+  outbox tries, each to be unblocked by hand, so the outbox pauses instead (see "Outcomes"). A 404
+  is not `Unauthorized` although Telegram answers it to a token of a wrong format as well as to an
+  unknown method: such a token fails the `getMe` the runner calls when the bot starts
+  (`bot.init()`), so a 404 while the bot runs is an unknown method, a bug of the call, and it is
+  `Unexpected`.
+- An `HttpError` is `Transient` although grammY throws it also after Telegram may have taken the
+  call: its own timeout, a connection reset while the answer is on its way. The Bot API has no
+  idempotency key, so the retry can deliver the message twice. The outbox delivers at least once
+  anyway (see "The lease"), and a duplicate costs less than a lost message or a blocked chat.
+- The exception is a file that is gone, the file of a `PathFile`: `Unexpected` at once, since every
+  retry would look for the same missing file. The sign is `ENOENT` of `open` on the error of the
+  file stream, which grammY passes on inside the `HttpError` as it is (`isMissingFile()`). The
+  code alone is not enough: node-fetch copies it from a network error, a resolver's `ENOENT`
+  included, but not the syscall. Any other file-system error stays `Transient`: out of descriptors
+  (`EMFILE`) or a hiccup of shared storage (`EIO`) may pass on a retry.
 - A lost database connection is not a Bot API error and is not classified here: the outcome of
-  such a send cannot be written anyway. The recovery of an expired lease is to take such a message
-  back (see "The lease").
+  such a send cannot be written anyway. The recovery of an expired lease takes such a message back
+  (see "Lease recovery").
 
 ### Outcomes
 
@@ -340,6 +361,20 @@ and completes the message by its class; which completion each class gets is read
 of `applyOutcome()` and `retryOrBlock()`. The error goes into the attempt as
 `OutboxErrorSerializer` (`outbox-error-serializer.ts`) writes it, with its class in `kind`; what the
 serializer leaves out and why is in the comment of `serialize()`.
+
+An `Unauthorized` failure pauses the outbox as a flood does, for `UNAUTHORIZED_PAUSE_SECONDS`, and
+returns the message to `pending`: sending resumes by itself once a node restarted with a new token
+finds the pause over. Why the pause is that long is in the comment of the constant. No chat is
+blocked, so the handler logs the refused token as an error itself.
+
+Its attempt counts as a flood's does, but a token outage is not bounded as a `retry_after` is. The
+first pull after each pause takes one message (see "Limits"), and the retry keeps the
+`next_attempt_at` its chat got from that pull, so the probes go round the waiting chats, one per
+pause. A head collects `OUTBOX_MAX_ATTEMPTS` of them after that many rounds, about as many pauses
+times the number of waiting chats. After the restart, its first transient failure then blocks its
+chat with no retry. That is accepted: a revoked token is an incident fixed by hand anyway, the
+chats it leaves blocked are unblocked in the same pass, and leaving a 401 out of the count would
+move a count by `kind` into the SQL of `pull()`.
 
 Every attempt counts towards `OUTBOX_MAX_ATTEMPTS`, a flood included: the attempt being handled is
 `earlierAttempts + 1`. The limit is checked on a transient failure only, so a flood never blocks a
@@ -352,6 +387,39 @@ again on its next transient failure, with no retry.
 
 A `retry_after` that `pause()` refuses (see "Limits") throws out of `handle()` before the retry,
 and the message stays `processing` until its lease is recovered.
+
+### Lease recovery
+
+`OutboxFailureHandler.recoverExpiredLeases()` takes back the messages of the chats whose lease has
+passed: the node that pulled them is presumed dead. The sending loop is to call it on a timer.
+
+1. `OutboxStore.findExpiredLeases()` reads every chat whose `locked_until` is behind `now()`, with
+   its `processing` message, as a lease under the chat's own `lock_token`. It reads without a lock
+   and leaves the lease as it is.
+2. Each lease is a transient failure, completed as one: the message goes back to `pending` with the
+   retry delay of its attempt, or, on the last attempt of `OUTBOX_MAX_ATTEMPTS`, fails and blocks
+   its chat (see "Outcomes"). The completion appends an attempt with the error `OutboxLeaseExpired`
+   of class `transient`. The leases are completed one after another, and a completion that throws
+   ends the call: the leases after it wait for the next one.
+
+The recovery completes the message as the node that pulled it would: through the same fenced
+completions, under the token of that pull (see "Completions"). So whichever comes first, the
+recovery or the late completion of the node presumed dead, changes the message, and the other one
+is fenced off and logged as a stale lock token, or as a removed chat if the cleanup has deleted
+the chat once it went `idle`. So is a second recovery of the same lease by
+another node that read it before the first recovery committed: the read claims nothing, so with
+several nodes recovering at once, one expired lease can give each of the others such a warning.
+The fence checks the token, not `locked_until`, so a lease that has passed must never be extended
+([`invariants.md`](./invariants.md), "The outbox").
+
+The appended attempt has `worker: null`: the pull keeps the worker nowhere but in the answer it
+gave out. Its `started_at` is `locked_until` minus `OUTBOX_LEASE_DURATION`, in the form the pull
+gives out `startedAt` (the form of a timestamp inside `jsonb`). That is the start of the pull only
+while the duration has not changed since: a node restarted with another duration shifts the start
+by the difference.
+
+The message goes out again, although the node may have died after Telegram took the call: the
+delivery is at least once (see "The lease").
 
 ### Retry delay
 

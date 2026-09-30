@@ -1,13 +1,22 @@
 import { expect } from "chai";
 import { GrammyError, HttpError } from "grammy";
 import type { ApiError, ResponseParameters } from "grammy/types";
+import type { Logger } from "app/platform/logger/logger";
+import type { UnknownObject } from "app/shared/types";
+import { MS_PER_SECOND } from "app/shared/time";
 import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
-import { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-handler";
+import { OutboxFailureHandler, UNAUTHORIZED_PAUSE_SECONDS } from "app/telegram/outbox/outbox-failure-handler";
 import { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
-import type { OutboxAttemptError, OutboxJsonObject, OutboxLease, PulledOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
+import type {
+    ExpiredOutboxLease,
+    OutboxAttemptError,
+    OutboxJsonObject,
+    OutboxLease,
+    PulledOutboxMessage,
+} from "app/telegram/outbox/store/outbox-store.types";
 
 const MAX_ATTEMPTS = 3;
 const FIRST_DELAY_MS = 1_000;
@@ -16,6 +25,14 @@ const MULTIPLIER = 2;
 const RETRY_DELAY = new OutboxRetryDelay({ firstDelayMs: FIRST_DELAY_MS, maxDelayMs: 60_000, multiplier: MULTIPLIER }, () => 0);
 // What the serializer of these specs turns any error into; its own spec pins what the real one does.
 const SERIALIZED: OutboxJsonObject = { name: "Error", message: "serialized", kind: "overwritten" };
+
+// What the attempt of an expired lease ends with. Spelled out rather than imported: the handler
+// keeps it private, and the attempts it lands in are read by people.
+const LEASE_EXPIRED: OutboxAttemptError = {
+    name: "OutboxLeaseExpired",
+    message: "The lease of the chat passed before its message was completed: the node that pulled it is presumed dead.",
+    kind: TelegramBotApiFailureKind.Transient,
+};
 
 type StoreCall =
     | { method: "retry"; lease: OutboxLease; error: OutboxAttemptError; delayMs: number }
@@ -26,6 +43,11 @@ type StoreCall =
 // written is pinned by the store spec.
 class RecordingStore {
     public readonly calls: StoreCall[] = [];
+    public expiredLeases: ExpiredOutboxLease[] = [];
+
+    public async findExpiredLeases(): Promise<ExpiredOutboxLease[]> {
+        return this.expiredLeases;
+    }
 
     public async retry(lease: OutboxLease, error: OutboxAttemptError, delayMs: number): Promise<void> {
         this.calls.push({ method: "retry", lease, error, delayMs });
@@ -44,6 +66,24 @@ class RecordingStore {
     }
 }
 
+type LogRecord = { message: string; payload: UnknownObject | undefined };
+
+class RecordingLogger implements Logger {
+    public readonly errors: LogRecord[] = [];
+
+    public critical(): void {}
+
+    public error(message: string, payload?: UnknownObject): void {
+        this.errors.push({ message: message, payload: payload });
+    }
+
+    public warning(): void {}
+
+    public info(): void {}
+
+    public debug(): void {}
+}
+
 class FixedSerializer extends OutboxErrorSerializer {
     public constructor() {
         super("unused-token");
@@ -56,10 +96,12 @@ class FixedSerializer extends OutboxErrorSerializer {
 
 describe("OutboxFailureHandler", function () {
     let store: RecordingStore;
+    let logger: RecordingLogger;
     let handler: OutboxFailureHandler;
 
     beforeEach(function () {
         store = new RecordingStore();
+        logger = new RecordingLogger();
         handler = handlerAllowing(MAX_ATTEMPTS);
     });
 
@@ -106,6 +148,41 @@ describe("OutboxFailureHandler", function () {
         ]);
     });
 
+    it("pauses the outbox for a 401 before the message goes back to pending, even on the last attempt", async function () {
+        const message = pulledAfter(MAX_ATTEMPTS - 1);
+
+        await handler.handle(message, telegramError(401, "Unauthorized"));
+
+        expect(store.calls).to.deep.equal([
+            { method: "pause", durationMs: UNAUTHORIZED_PAUSE_SECONDS * MS_PER_SECOND },
+            { method: "retry", lease: message, error: attemptError(TelegramBotApiFailureKind.Unauthorized), delayMs: 0 },
+        ]);
+    });
+
+    it("logs a refused token as an error: no blocked chat shows it", async function () {
+        const message = pulledAfter(0);
+
+        await handler.handle(message, telegramError(401, "Unauthorized"));
+
+        expect(logger.errors).to.deep.equal([
+            {
+                message: "The Bot API refuses the bot token: the outbox is paused.",
+                payload: {
+                    messageId: message.id,
+                    pauseSeconds: UNAUTHORIZED_PAUSE_SECONDS,
+                    cause: attemptError(TelegramBotApiFailureKind.Unauthorized),
+                },
+            },
+        ]);
+    });
+
+    it("logs no error of its own for a flood or an unexpected failure", async function () {
+        await handler.handle(pulledAfter(0), telegramError(400, "Bad Request: message text is empty"));
+        await handler.handle(pulledAfter(0), telegramError(429, "Too Many Requests", { retry_after: 1 }));
+
+        expect(logger.errors).to.deep.equal([]);
+    });
+
     it("fails an undeliverable message without blocking its chat", async function () {
         const message = pulledAfter(0);
 
@@ -126,12 +203,44 @@ describe("OutboxFailureHandler", function () {
         ]);
     });
 
+    describe("the recovery of expired leases", function () {
+        it("retries the message of every expired lease as a transient failure after the delay of its attempt", async function () {
+            const first = expiredAfter(7, 0);
+            const second = expiredAfter(8, 1);
+            store.expiredLeases = [first, second];
+
+            await handler.recoverExpiredLeases();
+
+            // The first attempt waits half of the first step, the second half of the doubled one.
+            expect(store.calls).to.deep.equal([
+                { method: "retry", lease: first, error: LEASE_EXPIRED, delayMs: FIRST_DELAY_MS / 2 },
+                { method: "retry", lease: second, error: LEASE_EXPIRED, delayMs: (FIRST_DELAY_MS * MULTIPLIER) / 2 },
+            ]);
+        });
+
+        it("fails the message of an expired lease on its last attempt and blocks its chat", async function () {
+            const expired = expiredAfter(7, MAX_ATTEMPTS - 1);
+            store.expiredLeases = [expired];
+
+            await handler.recoverExpiredLeases();
+
+            expect(store.calls).to.deep.equal([{ method: "markAsFailedAndBlockChat", lease: expired, error: LEASE_EXPIRED }]);
+        });
+
+        it("changes nothing when no lease has expired", async function () {
+            await handler.recoverExpiredLeases();
+
+            expect(store.calls).to.deep.equal([]);
+        });
+    });
+
     function handlerAllowing(maxAttempts: number): OutboxFailureHandler {
         return new OutboxFailureHandler(
             store as unknown as OutboxStore,
             new TelegramBotApiFailureClassifier(),
             RETRY_DELAY,
             new FixedSerializer(),
+            logger,
             maxAttempts,
         );
     }
@@ -147,6 +256,17 @@ function pulledAfter(earlierAttempts: number): PulledOutboxMessage {
         method: "sendMessage",
         payload: { text: "text" },
         priority: 0,
+        earlierAttempts,
+    };
+}
+
+// A lease that passed before its message was completed, after earlierAttempts attempts.
+function expiredAfter(id: number, earlierAttempts: number): ExpiredOutboxLease {
+    return {
+        id,
+        lockToken: "9e4d1c7a-3b2f-4a6e-8c5d-1f0b2a3c4d5e",
+        startedAt: "2026-09-29T10:02:00.000000+00:00",
+        worker: null,
         earlierAttempts,
     };
 }

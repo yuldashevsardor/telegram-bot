@@ -58,72 +58,26 @@ Then the "Workflow" of `CLAUDE.md`, with no exceptions:
    worktree and branch, and on GitHub not even the branch until its first push. The check runs
    here and not only in step 1 because a neighbour can claim the issue in between, while the
    owner answers a question. It narrows the window and does not close it.
-3. Edits, `make check`, `git status -sb`, commit, mutation run, push.
+3. Edits, `make check`, `git status -sb`, commit, push.
 4. A PR into `main` with the issue link; how to write it is in `docs/agents/issue-tracker.md`.
-   Without the link the review gives BLOCKED. Right after the PR, post the mutation run record in
-   it, and record the issue in a batch if the change turned on `mutation-full` (below).
+   Without the link the review gives BLOCKED. Right after the PR, record the issue in a batch if
+   the change turned on `mutation-full` (below).
 
 All further commands run in the task worktree.
 
-### The mutation run
+### The batch of the full mutation run
 
-The mutation run is `make mutation files="<area>"`. It has the same threshold as the review gate:
-without it you learn of a survived mutant only from the reviewer, at the cost of a round. The run
-is not part of `make check`: there it would go on every edit.
-
-- The area is the output of `make mutation-area`. It applies the rule of the `mutation` gate to
-  the candidates from `git diff --name-only origin/main...HEAD` instead of the PR diff.
-- Pass the area as paths, not as a glob.
-- An empty output is an empty area. Its stderr says why.
-
-While the run goes, run nothing else; the reviewer does the same. Under load a mutant's status lies
-both ways (`docs/architecture/testing.md`, "Timeouts and errors"), and the review reuses your run.
-
-The change turned on the `mutation-full` gate (`docs/agents/review-gates.md`) — the run above stays
-as it is, and the whole of `src/` is not run. Record the issue in a batch of the deferred full run
-once the PR exists, after the push that turned the gate on:
+Neither you nor the reviewer runs `make mutation`. The change turned on the `mutation-full` gate
+(`docs/agents/review-gates.md`) — record the issue in a batch of the deferred full run once the PR
+exists, after the push that turned the gate on:
 
 ```bash
 make mutation-full-record issue=<N> pr=<PR>
 ```
 
 A repeat call records nothing twice. Without the record the review gives red: it checks the batch,
-not a run.
-
-### The run record
-
-The run leaves a record, `reports/mutation/record.md`. Its format is in
-`docs/architecture/testing.md`, "The run record". By the record the reviewer accepts your run
-instead of its own; the conditions are in the docstring of `scripts/review/mutation_record.py`.
-
-- Post it in the PR after the push, as a comment: the file as is, then an empty line and the
-  signature from `CLAUDE.md`.
-- The first run goes before the PR, and its record is posted right after the PR is created.
-- Post only the record of a run that happened. The area is empty and the target did not run —
-  there is nothing to post: a `record.md` left over from the previous round would lie about the
-  head.
-
-### When the last record still holds
-
-The last record in the PR also covers the next commit if the changes since its head do not
-affect the run. Then the target does not run and no new record is posted: the review accepts the
-same one (`docs/agents/review-gates.md`, "Changes that affect the mutation run"). A record of the
-reviewer's serves as well: it lies in the same thread, and the same rule applies to it.
-
-`make mutation-record pr=<PR> area="<the area>"` answers this against the PR head. So once the PR
-exists, the order is:
-
-1. push;
-2. `make mutation-record`;
-3. the run and its record, only on a refusal, or when the table turns on `rebuild` or
-   `mutation-full` for the files the answer lists. The `mutation` row the answer decides itself:
-   a change that reaches the record's area is a reason of the refusal.
-
-A merge of `origin/main` into the branch is the same rule. It moves the head although you edited
-nothing, and what the merge brings goes through the same three gates: a `.ts` of someone else's
-that reaches no file of the record's area leaves it in force. Measure the record against the new
-`HEAD` before the next round, and run again if one of the gates turns on. A round opened on
-a record the review refuses costs the reviewer a run of its own and buys the branch nothing.
+not a run. A weak test the PR brings shows only in the batch run, and its survivors are fixed by
+the session of the batch, not by you.
 
 ## Step 3. Review
 
@@ -141,15 +95,14 @@ git diff --no-renames --name-only HEAD...origin/main -- $(git diff --no-renames 
 `merge-tree` exits with 1 on a conflict and with 0 on a clean merge. The last command prints the
 files of the PR diff that `main` changed since the branch's merge-base.
 
-- A conflict, or at least one file printed — `git merge origin/main`, resolve, `make check`, push,
-  then the record by "When the last record still holds" (step 2). Then the round.
+- A conflict, or at least one file printed — `git merge origin/main`, resolve, `make check`, push.
+  Then the round.
 - Otherwise the round opens without a merge.
 
-A merge on every round would stale the record whenever `main` touched the mutated code, the run
-tools or the image: with neighbouring sessions moving `main` often, that is minutes of a run per
-round that buy nothing when `main` changed unrelated files. The check does not catch `main`
-changing a file the PR depends on without changing the PR's own files (a shared spec helper, an
-imported module): with no CI, nothing checks that combination.
+A merge on every round would cost a `make check` and a push per round, and with neighbouring
+sessions moving `main` often they buy nothing when `main` changed unrelated files. The check does
+not catch `main` changing a file the PR depends on without changing the PR's own files (a shared
+spec helper, an imported module): with no CI, nothing checks that combination.
 
 ### The round
 
@@ -242,8 +195,8 @@ finding and your position to the owner and wait for the decision.
 - A reply in the PR instead of a fix does not close the round: the next run counts findings over
   the cumulative diff and returns them word for word.
 
-Fixes go out in this order: `make check`, a commit "Review fixes: …", push, a mutation run if one
-is needed (step 2), the run record in the PR, `R` + 1, step 3. At `R` = 3 an owner comment that
+Fixes go out in this order: `make check`, a commit "Review fixes: …", push, the batch record if
+the fixes turned `mutation-full` on (step 2), `R` + 1, step 3. At `R` = 3 an owner comment that
 needs a fix still goes to step 3.
 
 Do not get around the three-round limit: it guards against ping-pong between author and reviewer.
@@ -277,8 +230,8 @@ Without findings the options are "Merge" and "Left comments in the PR". With a `
 knowing the price:
 
 - "Fix the nits" — one more review round now;
-- "Merge, nits into an issue" — a full pipeline later (a session, `make check`, a mutation run, a
-  new series of review rounds, which finds nits in the new text), if the issue is taken at all;
+- "Merge, nits into an issue" — a full pipeline later (a session, `make check`, a new series of
+  review rounds, which finds nits in the new text), if the issue is taken at all;
 - "Merge" — nothing: the nits are dropped;
 - "Left comments in the PR" — as many rounds as the comments need.
 
@@ -286,7 +239,7 @@ AskUserQuestion takes at most four options, so a new kind of answer replaces one
 than joining them.
 
 - **Fix the nits** → fix every nit and every question a change resolves. Send the fixes out as
-  step 6 says: the commit, the push, the mutation run if needed, `R` + 1, step 3. At `R` = 3 this
+  step 6 says: the commit, the push, the batch record if needed, `R` + 1, step 3. At `R` = 3 this
   is a fourth round: open it, do not refuse. The limit guards against ping-pong between author and
   reviewer, not against the owner, and this answer is a decision of the same kind as an owner
   comment.

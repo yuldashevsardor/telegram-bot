@@ -1,7 +1,7 @@
 ---
 name: pr-light-check
 description: Light Pull Request review — a mechanical run of the repository checks by the gates passed in, documentation drift in the changed lines and issue compliance, with a verdict and a PR comment. Run by the /review-pr command, and by the pr-deep-review skill as its mechanical part. Not for ordinary work on code and not for checking uncommitted edits.
-allowed-tools: Bash(gh:*), Bash(git:*), Bash(make rebuild), Bash(make build), Bash(make typecheck), Bash(make coverage), Bash(make lint), Bash(make format-check), Bash(make mutation:*), Bash(make review-run:*), Bash(make help), Bash(make token-status), Bash(make -n:*), Bash(sh -n:*), Bash(docker run:*), Bash(make review-test), Bash(make review-tree-create:*), Bash(make review-tree-remove:*), Bash(scripts/bot-token.sh), Bash(cd:*), Bash(ls:*), Bash(cp:*), Bash(touch mutation-dirty-probe), Bash(rm mutation-dirty-probe), Bash(grep:*), Bash(awk:*), Read, Grep, Glob, Write
+allowed-tools: Bash(gh:*), Bash(git:*), Bash(make rebuild), Bash(make build), Bash(make typecheck), Bash(make coverage), Bash(make lint), Bash(make format-check), Bash(make review-run:*), Bash(make help), Bash(make token-status), Bash(make -n:*), Bash(sh -n:*), Bash(docker run:*), Bash(make review-test), Bash(make review-tree-create:*), Bash(make review-tree-remove:*), Bash(scripts/bot-token.sh), Bash(cd:*), Bash(ls:*), Bash(cp:*), Bash(grep:*), Bash(awk:*), Read, Grep, Glob, Write
 ---
 
 You run the repository checks over the code of a Pull Request and decide whether it can be
@@ -21,8 +21,6 @@ belong to `pr-deep-review`.
 - **Mechanical** (called by `pr-deep-review`): you do steps 1–3 and the cleanup, and return the run
   results and the documentation findings as lines. No issue, no verdict, no comment: those belong
   to the caller, and `standalone.md` is not read.
-- The mechanical mode still publishes the record of your own mutation run ("Your own mutation
-  run" in `fallback.md`). The record is a fact of the run, not a verdict.
 
 Step 3 is in the mechanical mode because the check has one owner. `pr-deep-review` sees the `*.md`
 diff only through you, and a documentation-only PR never reaches it at all. With the check split in
@@ -35,9 +33,7 @@ two, the repository would hold two copies of the checklist, and the first edit w
 - `cp` and `Write` are granted for the records the steps below prescribe and for nothing else:
   creating a file is an edit too.
 - **Run, do not eyeball.** A check you did not run is `n-a`, not `ok`. "Looks correct", "the syntax
-  is fine" and "should work" without the output of a command are forbidden. The one exception is an
-  accepted mutation run record of the author (step 1): `make mutation` writes it itself, the author
-  does not retell it.
+  is fine" and "should work" without the output of a command are forbidden.
 - **Allowlist.** You really run only `make review-run` and what step 2 and "Cleaning up the
   temporary trees" of `fallback.md` list. Everything else, any other `Makefile` target included, is
   never run, even if a gate points at it. Such a check goes into the report as a "Not run" line
@@ -60,9 +56,9 @@ two, the repository would hold two copies of the checklist, and the first edit w
 ## Step 1. The run
 
 A run gate is any of `rebuild`, `build`, `typecheck`, `test`, `lint`, `format-check`, `python`,
-`mutation`, `mutation-full`, `make-targets` and `scripts`. None of them — skip steps 1–2 whole: no
-checkout, no database, no containers. Building a project in which not a single line of executable
-code changed costs minutes and cannot yield a single finding. Step 3 needs no checkout either: it
+`mutation-full`, `make-targets` and `scripts`. None of them — skip steps 1–2 whole: no checkout,
+no database, no containers. Building a project in which not a single line of executable code
+changed costs minutes and cannot yield a single finding. Step 3 needs no checkout either: it
 reads the diff through `gh`.
 
 At least one run gate — call the target from the tree you were started in, with every gate as it
@@ -74,69 +70,38 @@ make review-run pr=<N> gates="<the gates>" [flags="--no-post"]
 
 The target takes minutes, longer than the limit of one command. Run it in the background, do step 3
 while it goes and read the report on completion. It takes the head of the PR into a temporary tree,
-runs the gates it knows there, checks the author's mutation run record, checks under `mutation-full`
-that the PR's issue is recorded in a batch, and removes the tree whatever the outcome. What it runs,
-in which order and why is in the docstring of `scripts/review/review_run.py`. The report:
+runs the gates it knows there, checks under `mutation-full` that the PR's issue is recorded in a
+batch, and removes the tree whatever the outcome. What it runs, in which order and why is in the
+docstring of `scripts/review/review_run.py`. The report:
 
 - `Head:` — the commit the gates ran on.
-- `Checks` — the gates line and the `mutation:` and `mutation-full:` lines go into the verdict as
-  they are.
+- `Checks` — the gates line and the `mutation-full:` line go into the verdict as they are.
 - `Not run: <checks> — <reason>` — into the report as it is.
   - A reason that ends in `by fallback.md` leaves the check to you (step 2).
   - `the tree was not created` with `no .env` among the reasons means that `make worktree-init` is
     needed here. Say so and do not run it yourself: it takes a slot of the token pool.
 - `Not cleaned up:` and `Refused:` — as "Cleaning up the temporary trees" of `fallback.md` says.
-- `Area:` — the area of the `mutation` gate, for your own run.
 - `Red` — every red command with the first meaningful line of its error and an excerpt. The whole
   logs lie in the directory of the `Logs:` line.
   - `Missing script` in the excerpt of a container gate is not a review finding but a missed
     `rebuild`: say so. The PR adds or renames an npm script, the script lives in the image, and
     the `/review-pr` table did not turn `rebuild` on.
-- `Yours to read` — the new `Stryker disable` marks and the files of condition 1 of the record
-  (below).
+- `Yours to read` — the new `Stryker disable` marks (below).
 
-The `mutation:` line needs reading in three cases:
-
-- **`n-a`.**
-  - `n-a — the area was not assembled` — the verdict is BLOCKED, as on a checker crash: nobody
-    checked the PR's mutants.
-  - `n-a — the area is empty` names why, and the verdict stands: the PR edited, say, only the
-    database specs (PR #372).
-  - The score `NaN` is `n-a` too: not a single mutant of the area got into the score, and the
-    green exit checked nothing.
-- **The record is accepted on condition 1**: the run went on another commit whose tree differs.
-  Apply the `rebuild` and `mutation-full` rows of the table of `docs/agents/review-gates.md`,
-  "Changes that affect the mutation run", to the files under "Yours to read", as `/review-pr`
-  applies the table to the PR diff. The `mutation` row is decided already: a change that reaches
-  the record's area refuses it.
-  - Some rows are decided by content: `package.json`, `package-lock.json`, the `Makefile` or a tool
-    of the run with their comments-only rule. For a file of such a row, read its hunk with the
-    command given under the list.
-  - Neither gate on — the record is accepted. In the line, "if the table turns on none of …"
-    becomes "nothing under the mutation gates came in since".
-  - One is on — your own run.
-- **A new mark.** Check its reason against "Working through survivors" in
-  `docs/architecture/testing.md`: the mutant is equivalent, or the behaviour is not required and an
-  issue is filed for it, and then the mark links to it. The reason does not hold — the gate is
-  `fail`, as with a live survivor: the mark only hid it. At a threshold of 100, silencing a
-  survivor with a mark is cheaper than writing a test, so a green run does not yet mean there are
-  no survivors.
-
-Refusing the record is not a review finding and does not affect the verdict: a process error must
-not cost a round. The `mutation:` line of the verdict (step 5, `standalone.md`) tells where the run
-came from and why the record was not accepted. It says "accepted record" and gives the link rather
-than naming the author. The reviewer's record of the previous round lies in the same thread and is
-accepted on a par with the author's, and the author's comment cannot be told from it: the account is
-the same.
-
-The `mutation-full` gate runs no mutants: its full run goes once per batch of recorded issues
-(`docs/agents/review-gates.md`, the paragraph on `mutation` and `mutation-full`). Its line:
+The `mutation-full` gate runs no mutants: neither the author nor you runs `make mutation`, and the
+whole of `src/` runs once per batch of recorded issues (`docs/agents/review-gates.md`, the paragraph
+on `mutation-full`). Its line:
 
 - `ok — recorded: …` — the issue the PR closes is recorded in a batch.
 - `fail — not recorded: …` — red brought by this PR, and it stands in `Red` too.
 - `n-a` with any reason (the batch was not checked, the run was interrupted) — the verdict is
-  BLOCKED, as with an area that was not assembled: nobody checked that the change reaches a full
-  run.
+  BLOCKED: nobody checked that the change reaches a full run.
+
+A new `Stryker disable` mark needs reading. Check its reason against "Working through survivors"
+in `docs/architecture/testing.md`: the mutant is equivalent, or the behaviour is not required and an
+issue is filed for it, and then the mark links to it. The reason does not hold — red brought by
+this PR: put the mark into `Red`. The mark hides a survivor from the batch run too, and at a
+threshold of 100 silencing a survivor with a mark is cheaper than writing a test.
 
 ## Step 2. The checks the run leaves to you
 
@@ -144,8 +109,7 @@ Read `fallback.md` next to this file when the report of step 1 has any of:
 
 - a `Not run` line whose reason ends in `by fallback.md`;
 - a `Red` section;
-- a `Not cleaned up:` or `Refused:` line;
-- a record accepted on condition 1 for which the table turns on `rebuild` or `mutation-full`.
+- a `Not cleaned up:` or `Refused:` line.
 
 Its step 2 has a section for each such check, and its "Cleaning up the temporary trees" removes the
 trees that step creates. A report with none of them needs nothing from it.
