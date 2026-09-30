@@ -206,8 +206,8 @@ describe("TelegramBotApiFailureClassifier", function () {
     });
 });
 
-// An error with the fields of a Node system error, made by hand for a shape grammY's own client does
-// not produce on demand.
+// An error with the fields of a system error, a raw one of Node or the FetchError of node-fetch that
+// copies them, made by hand for a shape grammY's own client does not produce on demand.
 function systemError(message: string, fields: Record<string, string>): Error {
     return Object.assign(new Error(message), fields);
 }
