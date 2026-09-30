@@ -341,7 +341,10 @@ it `done`, and only then:
   message is never deleted either (see "Cleanup"), so nothing removes its files;
 - a retried message keeps them for its next attempt;
 - a fenced completion keeps them: `markAsDone()` returns `false` when it changed nothing (see
-  "Completions"), and the message belongs to another pull then, which sends it again;
+  "Completions"). Another completion has changed the message already: the recovery of its lease
+  put it back to `pending`, for a pull that sends it again, or failed it on its last attempt (see
+  "Lease recovery"), or another node finished it and the cleanup removed its chat. Either way the
+  files are not this completion's to remove;
 - a send the node did not finish, a node that died or a database that went away, keeps them for the
   node that recovers the lease (see "Lease recovery").
 

@@ -45,8 +45,9 @@ export class OutboxSender {
 
         const isDone = await this.store.markAsDone(message, response);
 
-        // A fenced completion leaves the message to the pull that holds it now, and that pull needs
-        // the files.
+        // A fenced completion: another completion has changed the message already, a recovery that
+        // put it back to pending or failed it, or the node that finished it. Its files are not this
+        // completion's to remove.
         if (!isDone) {
             return;
         }
