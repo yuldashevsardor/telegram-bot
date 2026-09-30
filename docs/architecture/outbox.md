@@ -213,12 +213,14 @@ next message of its own generator. Nothing makes a generator yet: the worker loo
   connection was down reached no one. A notification that comes while a generator pulls makes it
   pull again instead of sleeping: the pull may have read the tables before the push committed.
 - **A failed pull** is logged at `error`, and the generator sleeps the whole cap and pulls again:
-  the source ends only on stop.
+  the source ends only on stop. A pull that fails after the stop is logged at `warning` and ends
+  the generator: the database may have been closed under it.
 - **The stop.** `stop()` ends every generator of the node: a sleeping one at once, one whose pull
   is in progress once it has handed out what the pull got, so no pulled message is left leased to
   nobody, and one waiting for its worker at its next message. A generator made after the stop ends
-  without a pull. The worker sends the message it holds: waiting for the calls in flight is the
-  worker loop's.
+  without a pull and does not start the listening: the database may be closed by then, and a
+  `LISTEN` would open a connection that nothing closes. The worker sends the message it holds:
+  waiting for the calls in flight is the worker loop's.
 
 What this costs the rate of the common limit (see "Limits"):
 

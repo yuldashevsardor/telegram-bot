@@ -35,6 +35,12 @@ export class OutboxMessageSource {
     // the next one. Ends after stop(): at once from a sleep, and after it has handed out what a pull
     // in progress has got, so no pulled message is left leased to nobody.
     public async *messages(worker: OutboxWorker): AsyncGenerator<PulledOutboxMessage, void, undefined> {
+        // After stop() the database may be closed already, and a LISTEN started then opens a
+        // connection that nothing closes.
+        if (this.isStopped) {
+            return;
+        }
+
         this.listen();
 
         while (!this.isStopped) {
@@ -63,12 +69,17 @@ export class OutboxMessageSource {
         this.wakeAll();
     }
 
-    // A failed pull is left to the next one: the source ends only on stop().
+    // A failed pull is left to the next one: the source ends only on stop(). A pull that fails after
+    // stop() has no next one, and the database may have been closed under it.
     private async pull(worker: OutboxWorker): Promise<OutboxPullResult> {
         try {
             return await this.store.pull(PULL_LIMIT, worker);
         } catch (error) {
-            this.logger.error("Pulling outbox messages failed, the next pull tries again.", { worker: worker, cause: error });
+            if (this.isStopped) {
+                this.logger.warning("Pulling outbox messages failed after the stop.", { worker: worker, cause: error });
+            } else {
+                this.logger.error("Pulling outbox messages failed, the next pull tries again.", { worker: worker, cause: error });
+            }
 
             return { messages: [], nextPullInMs: null };
         }

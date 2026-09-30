@@ -67,6 +67,11 @@ class FakeStore {
         this.heldPull = undefined;
     }
 
+    public fail(error: Error): void {
+        this.heldPull?.reject(error);
+        this.heldPull = undefined;
+    }
+
     public notifyReady(): void {
         this.onReady?.();
     }
@@ -350,6 +355,24 @@ describe("OutboxMessageSource", function () {
 
         expect(await source.messages(WORKER).next()).to.deep.equal({ value: undefined, done: true });
         expect(store.pulls).to.be.empty;
+        expect(store.listenCount).to.equal(0);
+    });
+
+    it("logs a pull that fails after stop as a warning, not as an error to retry", async function () {
+        const source = build();
+        const failure = new Error("database closed");
+        store.hold();
+        const next = source.messages(WORKER).next();
+        await settle();
+
+        source.stop();
+        store.fail(failure);
+
+        expect(await next).to.deep.equal({ value: undefined, done: true });
+        expect(logger.errors).to.be.empty;
+        expect(logger.warnings).to.deep.equal([
+            { message: "Pulling outbox messages failed after the stop.", payload: { worker: WORKER, cause: failure } },
+        ]);
     });
 
     function build(random: () => number = () => HALF_RANDOM): OutboxMessageSource {
