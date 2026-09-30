@@ -875,6 +875,176 @@ describe("OutboxStore", function () {
         });
     });
 
+    describe("the extension of a lease", function () {
+        // The chat pulled alone, so its token is its own, with its lease cut short to an end that has
+        // not passed: an extension that moves it is told from one that leaves it.
+        async function pullAlone(chatId: number): Promise<PulledOutboxMessage> {
+            await store.push(message(chatId, "text"));
+            const pulled = await pullOne();
+            await setLeaseEnd(chatId, "now() + interval '1 second'");
+
+            return pulled;
+        }
+
+        async function setLeaseEnd(chatId: number, end: "now() + interval '1 second'" | "now() - interval '1 second'"): Promise<void> {
+            await database.sql`
+                UPDATE telegram_outbox_chats
+                SET locked_until = ${database.sql.unsafe(end)}
+                WHERE chat_id = ${chatId}
+            `;
+        }
+
+        // Exact to the microsecond: a timestamp as text.
+        async function leaseEnd(chatId: number): Promise<string | null> {
+            const [row] = await database.sql<{ locked_until: string | null }[]>`
+                SELECT locked_until::text
+                FROM telegram_outbox_chats
+                WHERE chat_id = ${chatId}
+            `;
+
+            return (row as { locked_until: string | null }).locked_until;
+        }
+
+        it("moves a live lease of its token to the lease duration from the extension", async function () {
+            const pulled = await pullAlone(CHAT);
+
+            await store.extendLeases([pulled.lockToken]);
+
+            // Both columns are now() of the extension.
+            const [row] = await database.sql<{ lease_ms: number }[]>`
+                SELECT extract(epoch FROM locked_until - updated_at)::double precision * ${MS_PER_SECOND} AS lease_ms
+                FROM telegram_outbox_chats
+                WHERE chat_id = ${CHAT}
+            `;
+
+            expect(row).to.deep.equal({ lease_ms: LEASE_DURATION_MS });
+        });
+
+        it("extends the live leases of every token it is given", async function () {
+            const first = await pullAlone(CHAT);
+            const second = await pullAlone(OTHER_CHAT);
+            const endsBefore = [await leaseEnd(CHAT), await leaseEnd(OTHER_CHAT)];
+
+            await store.extendLeases([first.lockToken, second.lockToken]);
+
+            expect(await leaseEnd(CHAT)).not.to.equal(endsBefore[0]);
+            expect(await leaseEnd(OTHER_CHAT)).not.to.equal(endsBefore[1]);
+        });
+
+        it("leaves alone a lease of its token that has passed, so the recovery still finds it", async function () {
+            const pulled = await pullAlone(CHAT);
+            await setLeaseEnd(CHAT, "now() - interval '1 second'");
+            const endBefore = await leaseEnd(CHAT);
+
+            await store.extendLeases([pulled.lockToken]);
+
+            expect(await leaseEnd(CHAT)).to.equal(endBefore);
+            expect((await store.findExpiredLeases()).map(({ id }) => id)).to.deep.equal([pulled.id]);
+        });
+
+        it("leaves alone the live lease of a token it is not given", async function () {
+            const extended = await pullAlone(CHAT);
+            await pullAlone(OTHER_CHAT);
+            const endBefore = await leaseEnd(OTHER_CHAT);
+
+            await store.extendLeases([extended.lockToken]);
+
+            expect(await leaseEnd(OTHER_CHAT)).to.equal(endBefore);
+        });
+
+        it("changes nothing for the token of a completed pull", async function () {
+            const pulled = await pullAlone(CHAT);
+            await store.markAsDone(pulled, RESPONSE);
+
+            await store.extendLeases([pulled.lockToken]);
+
+            expect(await leaseEnd(CHAT)).to.equal(null);
+        });
+
+        it("takes an empty list of tokens and changes nothing", async function () {
+            await pullAlone(CHAT);
+            const endBefore = await leaseEnd(CHAT);
+
+            await store.extendLeases([]);
+
+            expect(await leaseEnd(CHAT)).to.equal(endBefore);
+        });
+    });
+
+    describe("a release on stop", function () {
+        it("returns the message to pending and ends the lease of its chat", async function () {
+            await store.push(message(CHAT, "text"));
+            const pulled = await pullOne();
+
+            await store.releaseOnStop(pulled);
+
+            const [row] = await database.sql`SELECT state, locked_until, lock_token FROM telegram_outbox_chats`;
+
+            expect(await statuses()).to.deep.equal([OutboxStatus.Pending]);
+            expect(row).to.deep.equal({ state: OutboxChatState.Ready, locked_until: null, lock_token: null });
+        });
+
+        it("lets a pull on another client take the released message at once, with the release counted as an attempt", async function () {
+            await store.push(message(CHAT, "text"));
+            const pulled = await pullOne();
+            const otherNode = new OutboxStore(other, logger, NO_LIMITS, LEASE_DURATION_MS, CLEANUP);
+
+            await store.releaseOnStop(pulled);
+            const pulledAgain = (await otherNode.pull(10, WORKER)).messages;
+
+            expect(pulledAgain.map(({ id, earlierAttempts }) => ({ id, earlierAttempts }))).to.deep.equal([
+                { id: pulled.id, earlierAttempts: 1 },
+            ]);
+        });
+
+        it("closes the attempt of the pull with a transient error of the stopped node", async function () {
+            await store.push(message(CHAT, "text"));
+            const pulled = await pullOne();
+
+            await store.releaseOnStop(pulled);
+
+            const [attempt] = await attempts(pulled.id);
+
+            expect(attempt).to.deep.include({
+                started_at: pulled.startedAt,
+                worker: { host: WORKER.host, pid: WORKER.pid, worker_id: WORKER.workerId },
+            });
+            expect(attempt?.error).to.deep.include({ name: "OutboxNodeStopped", kind: TelegramBotApiFailureKind.Transient });
+        });
+
+        it("keeps the chat limit the pull set", async function () {
+            const limitedStore = new OutboxStore(
+                database,
+                logger,
+                { common: NO_LIMIT, private: { number: 1, interval: HOUR_MS }, group: NO_LIMIT },
+                LEASE_DURATION_MS,
+                CLEANUP,
+            );
+            await limitedStore.push(message(CHAT, "text"));
+            const [pulled] = (await limitedStore.pull(10, WORKER)).messages;
+
+            await limitedStore.releaseOnStop(pulled as PulledOutboxMessage);
+
+            expect((await limitedStore.pull(10, WORKER)).messages).to.deep.equal([]);
+        });
+
+        it("changes nothing under a stale token and logs a warning", async function () {
+            await store.push(message(CHAT, "text"));
+            const stale = await pullOne();
+            await store.retry(stale, TRANSIENT, 0);
+            const current = await pullOne();
+
+            await store.releaseOnStop(stale);
+
+            expect(await statuses()).to.deep.equal([OutboxStatus.Processing]);
+            expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Processing });
+            expect(await attempts(current.id)).to.have.lengthOf(1);
+            expect(logger.warnings.map(({ message: warning, payload }) => ({ warning, lockToken: payload?.["lockToken"] }))).to.deep.equal([
+                { warning: "Outbox completion with a stale lock token changed nothing.", lockToken: stale.lockToken },
+            ]);
+        });
+    });
+
     describe("outcomes", function () {
         it("returns a retried message to pending and closes its attempt with the error", async function () {
             await store.push(message(CHAT, "text"));

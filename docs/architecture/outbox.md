@@ -6,9 +6,9 @@ any node sends them, the order inside a chat holds across nodes, and a node that
 nothing (the plan is epic [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)).
 No sender or caller uses the directory yet: so far it holds the tables with `OutboxStore`
 (`store/outbox-store.ts`), which pushes, pulls within the limits, pauses, completes a pulled
-message, finds the expired leases and cleans up, `OutboxFailureHandler`
-(`outbox-failure-handler.ts`), which picks the outcome of a failed send and recovers the expired
-leases, `OutboxResultWaiter`, which waits for the outcome of a message, with
+message, extends and releases the leases, finds the expired ones and cleans up,
+`OutboxFailureHandler` (`outbox-failure-handler.ts`), which picks the outcome of a failed send and
+recovers the expired leases, `OutboxResultWaiter`, which waits for the outcome of a message, with
 `OutboxFinishedMessageReader`, the payload codec and the retry delay. The error classes of a failed
 call lie outside it, in `telegram/bot-api-failure-classifier/`.
 
@@ -192,6 +192,19 @@ ends the lease: both columns go back to `NULL`. A lease that passes before the c
 recovered (see "Lease recovery"). How long the lease must be is in
 [`invariants.md`](./invariants.md), "The outbox".
 
+`extendLeases(lockTokens)` moves `locked_until` of every chat leased under one of the tokens to
+`now()` plus `leaseDurationMs`, for the calls still in flight, but only while the lease has not
+passed (`locked_until > now()`). A passed lease is left alone: the recovery may already have read
+it, and it takes the message back under the token whatever `locked_until` says by then (see "Lease
+recovery"). A token no chat holds any more, completed or recovered, changes nothing.
+
+The check cannot shut the recovery out of a lease that is about to pass. It compares with `now()`
+of the statement, taken before the statement waits for the row lock (a push of the chat holds it),
+and the recovery reads without a lock. A lease that passes while the extension waits or before it
+commits is extended, and a recovery that read it in between still takes the message back. So the
+caller extends well before the end of a lease, not at it. Nothing calls the method yet: the timer
+is the sending loop's ([#728](https://github.com/yuldashevsardor/telegram-bot/issues/728)).
+
 The delivery is at least once. A node that dies after Telegram took the call and before its
 completion commits leaves the message `processing`; once the lease is recovered, the message goes
 out again. The Bot API has no idempotency key, so the outbox cannot tell such a send from a failed
@@ -199,7 +212,7 @@ one.
 
 ## Completions
 
-A leased message is completed by one of the four public methods of the store, each taking an
+A leased message is completed by one of the five public methods of the store, each taking an
 `OutboxLease`: the message given out by `pull()`, or an expired lease read by `findExpiredLeases()`
 (see "Lease recovery"). What each does to the message and the chat
 is read off its body. Each is a transaction through the private `complete()`:
@@ -225,6 +238,17 @@ of the attempt; the recovery of its lease appends one (see "Lease recovery").
 
 A retried message stays the head of its chat, so its chat waits with it: the messages behind it
 are not pulled before it, while the other chats are.
+
+`releaseOnStop(lease)` hands back a message whose call a stopping node did not finish, so another
+node takes it at once rather than after the lease. It is `retry()` with no delay and the error
+`OutboxNodeStopped` of class `transient`: the message goes back to `pending`, the chat to `ready`
+with the chat limit the pull set, the lease ends, and a stale token is fenced as in every
+completion.
+The call may have reached Telegram, so the release writes the attempt and it counts towards
+`OUTBOX_MAX_ATTEMPTS` (see "Outcomes"), although the limit is not checked on it: a stop says nothing
+about the message, so it neither blocks the chat nor waits a retry delay. The next transient failure
+of a message released on its last attempt blocks the chat. The store cannot tell a call in flight
+from a message pulled and never sent, so each gets the attempt.
 
 Every update of the store sets `updated_at = now()` itself; there is no trigger.
 
@@ -442,7 +466,8 @@ The fence checks the token, not `locked_until`, so a lease that has passed must 
 The appended attempt has `worker: null`: the pull keeps the worker nowhere but in the answer it
 gave out. Its `started_at` is `locked_until` minus `OUTBOX_LEASE_DURATION`, in the form the pull
 gives out `startedAt` (the form of a timestamp inside `jsonb`). That is the start of the pull only
-while the duration has not changed since: a node restarted with another duration shifts the start
+while the lease has not been extended and the duration has not changed since: an extended lease
+gives the time of its last extension, and a node restarted with another duration shifts the start
 by the difference.
 
 The message goes out again, although the node may have died after Telegram took the call: the
