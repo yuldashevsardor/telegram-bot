@@ -165,8 +165,8 @@ function finish(exitCode: number): void {
 
     finished = true;
 
-    // A failure to write the record does not replace the outcome of the run: the review gate decides
-    // ok or fail by the exit code.
+    // A failure to write the record does not replace the outcome of the run: whoever runs the target
+    // reads ok or fail from the exit code.
     try {
         mkdirSync("reports/mutation", { recursive: true });
         writeFileSync(RECORD_FILE, record({ exitCode, startedAt, finishedAt: new Date() }));

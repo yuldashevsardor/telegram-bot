@@ -195,7 +195,7 @@ mutants silenced by a mark (`Ignored`). Its score is `NaN` (`DEFAULT_SCORE` in
 **The run record.** The target runs Stryker through the wrapper `test/mutation-run.ts`. Once the
 run is over, whatever its outcome, the wrapper writes `reports/mutation/record.md` and exits with
 the exit code of Stryker. The record is the summary of a run to publish in a comment. No review
-takes it in place of a run of its own, and no tool reads it (#712). The first line of the record is
+runs the target or reads the record, and no tool parses it (#712). The first line of the record is
 a marker, invisible in a comment:
 
 ```
