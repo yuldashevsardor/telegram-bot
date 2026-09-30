@@ -11,6 +11,7 @@ import type { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-signature-matcher";
 import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
 import { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
+import { WoffFontValidator } from "app/font-convertor/validator/woff/woff-font-validator";
 import { InvalidPath, PermissionDenied } from "app/shared/fs/file-helper.errors";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
@@ -38,7 +39,7 @@ describe("FontConvertor", function () {
 
         factory = new ConvertorFactory(
             fontForge,
-            new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator()),
+            new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator(), new WoffFontValidator()),
             new EotPacker(),
         );
     });

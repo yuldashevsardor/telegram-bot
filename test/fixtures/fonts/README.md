@@ -47,15 +47,15 @@ byte-for-byte test is the only check in the repository of the envelope against t
 than against itself. Do not rebuild this file with our own code: the check would become a
 tautology.
 
-The format of each file but SVG is checked by its signature. The `FontSignatureMatcher` spec rests
-on that too, so a replacement is best checked by the same signs. SVG has no signature: its sign is
-that `SvgFontValidator` accepts it.
+The format of each file but SVG and WOFF is checked by its signature. The `FontSignatureMatcher`
+spec rests on that too, so a replacement is best checked by the same signs. SVG and WOFF are
+checked by their validators instead: the sign of each is that its validator accepts it.
 
 | file | sign |
 |---|---|
 | `test-font.ttf` | `00 01 00 00` |
 | `test-font.otf` | `OTTO` |
-| `test-font.woff` | `wOFF` |
+| `test-font.woff` | `WoffFontValidator` accepts it, see `docs/architecture/font-convertor.md`, "The WOFF validator" |
 | `test-font.woff2` | `wOF2` |
 | `test-font.eot` | `0x504C` at offset 34, `EOTSize` in the first four bytes equals the file size |
 | `test-font.svg` | `SvgFontValidator` accepts it, see `docs/architecture/font-convertor.md`, "The SVG validator" |

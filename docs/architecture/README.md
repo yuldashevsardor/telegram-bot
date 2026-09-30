@@ -23,8 +23,8 @@ The runtime sequences live in the files of their subsystems:
   queue: the tables, the chat states, push, pull, the limits and the pause, the chat lock, the
   lease and the completions, the failure classes, the outcomes, the retry delay, waiting for the
   result and the payload codec
-- [`font-convertor.md`](./font-convertor.md) — format pairs, the EOT codec, signatures, the SVG
-  validator, running the engine
+- [`font-convertor.md`](./font-convertor.md) — format pairs, the EOT codec, signatures, the SVG and
+  WOFF validators, running the engine
 - [`user.md`](./user.md) — the entity, the repository, filling the context
 - [`logging.md`](./logging.md) — the port and the adapters, thresholds, request correlation
 - [`i18n.md`](./i18n.md) — locales, Fluent bundles, command descriptions
@@ -206,8 +206,7 @@ the import path can be guessed from the class name.
 **Gathers** — same-kind siblings of one contract, enumerated by one registrar:
 
 - `convertor/<from>/` — by `convertor-factory.ts`;
-- `validator/` — by `font-validator-resolver.ts`; `woff/` is not given out by it yet, since no
-  convertor takes the WOFF validator;
+- `validator/` — by `font-validator-resolver.ts`;
 - `command/`, `conversation/`, `filter/` and `middleware/` — by `container.ts`;
 - the `.ftl` bundles in the `locale/` directories at commands and conversations — by the walk in
   `createFluent()` (`telegram/locale/locale.ts`).
@@ -229,7 +228,8 @@ own only when it has files of its own or a role of its own among the siblings:
   keep the command or the conversation together with their `locale/` bundles;
 - `middleware/mutation/` is a role inside `middleware/`: a middleware that replaces `ctx.api.raw`
   ([`bot.md`](./bot.md)). There is only one file in it so far;
-- `validator/svg/` keeps `SvgFontValidator` together with its companions and its path data parser.
+- `validator/svg/` keeps `SvgFontValidator` together with its companions and its path data parser,
+  `validator/woff/` keeps `WoffFontValidator` with its companions.
 
 A sibling with neither lies flat in the siblings directory: `filter/has-session-key.filter.ts`,
 `middleware/request-log.middleware.ts`. The name is the prefix of the sibling's file name
