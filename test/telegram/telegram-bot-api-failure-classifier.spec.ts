@@ -62,6 +62,18 @@ describe("TelegramBotApiFailureClassifier", function () {
         expect(classifier.classify(error)).to.deep.equal({ kind: TelegramBotApiFailureKind.Transient });
     });
 
+    // Only open() of the file of a PathFile is the file of the call gone.
+    it("keeps an ENOENT of a syscall other than open transient", function () {
+        const missingSocket = Object.assign(new Error("connect ENOENT /run/proxy.sock"), {
+            code: "ENOENT",
+            syscall: "connect",
+            address: "/run/proxy.sock",
+        });
+        const error = new HttpError("Network request for 'sendMessage' failed!", missingSocket);
+
+        expect(classifier.classify(error)).to.deep.equal({ kind: TelegramBotApiFailureKind.Transient });
+    });
+
     it("keeps a file that opens but cannot be read transient", async function () {
         const api = new Api(TOKEN, { fetch: readsTheBody() });
         const error = await callError(() => api.sendDocument(1, new PathFile(tmpdir())));

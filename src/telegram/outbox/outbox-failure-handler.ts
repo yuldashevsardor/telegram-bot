@@ -71,7 +71,7 @@ export class OutboxFailureHandler {
             case TelegramBotApiFailureKind.Undeliverable:
                 return this.store.markAsFailed(message, attemptError);
             case TelegramBotApiFailureKind.Unauthorized:
-                return this.pauseForRefusedToken(message, attemptError);
+                return this.pauseForUnauthorized(message, attemptError);
             case TelegramBotApiFailureKind.Unexpected:
                 return this.store.markAsFailedAndBlockChat(message, attemptError);
         }
@@ -85,7 +85,7 @@ export class OutboxFailureHandler {
     }
 
     // Nothing else shows a revoked token: no chat is blocked, the sending only stops.
-    private async pauseForRefusedToken(message: PulledOutboxMessage, attemptError: OutboxAttemptError): Promise<void> {
+    private async pauseForUnauthorized(message: PulledOutboxMessage, attemptError: OutboxAttemptError): Promise<void> {
         this.logger.error("The Bot API refuses the bot token: the outbox is paused.", {
             messageId: message.id,
             pauseSeconds: UNAUTHORIZED_PAUSE_SECONDS,
