@@ -21,8 +21,8 @@ The runtime sequences live in the files of their subsystems:
   of an outgoing call
 - [`outbox.md`](./outbox.md) — the outbox in PostgreSQL being built to replace the outbound
   queue: the tables, the chat states, push, pull, the limits and the pause, the chat lock, the
-  lease and the completions, the failure classes, the outcomes, the retry delay, waiting for the
-  result and the payload codec
+  lease and the completions, sending one message and removing its files, the failure classes, the
+  outcomes, the retry delay, waiting for the result and the payload codec
 - [`font-convertor.md`](./font-convertor.md) — format pairs, the EOT codec, signatures, the SVG and
   WOFF validators, running the engine
 - [`user.md`](./user.md) — the entity, the repository, filling the context
@@ -134,7 +134,7 @@ src/
   telegram/                 grammY: commands, conversations, middleware, filters, session, locales (bot.md, i18n.md)
     user/                   the entity, the repository interface, the service, the PostgreSQL adapter (user.md)
     outbound-queue/         the outbound queue by keys, limits, the Runner loop (outbound-queue.md)
-    outbox/                 the future outbox of Bot API calls in PostgreSQL: the store (push, pull, completions), the outcomes of a failure, the result waiter with its reader, the payload codec and the retry delay (outbox.md)
+    outbox/                 the future outbox of Bot API calls in PostgreSQL: the store (push, pull, completions), the sender of one message with its Api, the outcomes of a failure, the result waiter with its reader, the payload codec and the retry delay (outbox.md)
   platform/                 adapters that know no module
     database/               Database (storage.md)
     logger/                 the Logger interface, the Level enum, ConsoleLogger, PinoLogger (logging.md)

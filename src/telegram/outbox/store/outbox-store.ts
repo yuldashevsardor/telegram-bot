@@ -334,11 +334,15 @@ export class OutboxStore {
     }
 
     // The message is sent: the response goes to the row, and the chat goes on to its next message.
-    public async markAsDone(lease: OutboxLease, response: OutboxJson): Promise<void> {
-        await this.complete(lease, null, async (sql, chatId) => {
+    // Returns whether the message is done by this completion: false for a fenced one, whose message
+    // another pull holds now and sends again.
+    public async markAsDone(lease: OutboxLease, response: OutboxJson): Promise<boolean> {
+        const chatId = await this.complete(lease, null, async (sql, lockedChatId) => {
             await this.finishMessage(sql, lease, { status: OutboxStatus.Done, attemptError: null, response: response });
-            await this.releaseChat(sql, chatId);
+            await this.releaseChat(sql, lockedChatId);
         });
+
+        return chatId !== null;
     }
 
     // The message goes back to pending, and its chat waits delayMs or its chat limit, whichever is

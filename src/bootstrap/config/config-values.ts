@@ -42,6 +42,8 @@ export type ConfigValues = {
         resultWaiter: OutboxResultWaiterSettings;
         // How long a pulled chat stays with the node that pulled it.
         leaseDurationMs: number;
+        // How long the sender waits for one Bot API call before it fails.
+        apiTimeoutMs: number;
         // The attempts of a message that count towards the limit, the last one included.
         maxAttempts: number;
         cleanup: OutboxCleanupSettings;
