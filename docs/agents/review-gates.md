@@ -27,7 +27,7 @@ once.
 | `.sh` or `.py`, and either no `.ts` or only a comments-only `.ts` diff | `bug-hunt-medium` |
 | `.ts` inside `src/font-convertor/`, `src/shared/`, `src/telegram/outbound-queue/`, `src/telegram/outbox/`, `src/telegram/bot-api-failure-classifier/` — not a comments-only `.ts` diff | `smells` |
 | any `.ts` — a comments-only `.ts` diff | `comments` |
-| `stryker.config.mjs`, `test/stryker-mocha-hook.cjs`, `test/mutation-record.ts`, `.mocharc.json`, `tsconfig.json`, `tsconfig.check.json` — not a comments-only diff; any `.ts` in `src/` or `test/` — not a comments-only `.ts` diff | `mutation-full` |
+| `stryker.config.mjs`, `test/stryker-mocha-hook.cjs`, `test/mutation-run.ts`, `.mocharc.json`, `tsconfig.json`, `tsconfig.check.json` — not a comments-only diff; any `.ts` in `src/` or `test/` — not a comments-only `.ts` diff | `mutation-full` |
 | any `*.md`, including `docs/**` and `.claude/**` | `docs` |
 
 `build` and `typecheck` go on together, and neither replaces the other. The targets use
@@ -66,7 +66,7 @@ a batch of the full run (below) for nothing. Decide by the content of the change
 expands (`DC_APP_RUN`, `FILES`) touched — `mutation-full` too. The recipe is the launch. It sets
 `TSX_TSCONFIG_PATH=./tsconfig.check.json`, by which the type checker decides which mutant gets
 `CompileError`. It sets `MUTATE` from `files`. It holds the wrapper command itself,
-`node --require tsx/cjs test/mutation-record.ts`. Changing any of them changes the outcome of
+`node --require tsx/cjs test/mutation-run.ts`. Changing any of them changes the outcome of
 every mutant: the same argument that puts the tsconfigs in the row.
 
 A comments-only diff of the files in the `mutation-full` row leaves the gate off. Read the
@@ -119,8 +119,6 @@ comment marks: TypeScript reads `@ts-ignore` on the last line of a block comment
 by a gate, so a diff that touches one gets the full review. So does a comment that changes which
 line a directive covers: its line break moves code off that line, or a comment between the
 directive and its code changes (the paragraph on `mutation-full` below).
-`scripts/review/mutation_area.py` holds the same rule as code (`is_directive`), and its specs check
-it against this list.
 
 The gates that run the code stay on by name. `build`, `typecheck`, `lint`, `format-check` and
 `test` take seconds, and a directive the reading missed still changes their outcome. A `.sh` is

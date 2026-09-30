@@ -192,15 +192,14 @@ checked nothing. Such an area has no code, only errors (`CompileError`, `Runtime
 mutants silenced by a mark (`Ignored`). Its score is `NaN` (`DEFAULT_SCORE` in
 `mutation-testing-metrics`), and `NaN < 100` is false.
 
-**The run record.** The target runs Stryker through the wrapper `test/mutation-record.ts`. Once the
+**The run record.** The target runs Stryker through the wrapper `test/mutation-run.ts`. Once the
 run is over, whatever its outcome, the wrapper writes `reports/mutation/record.md` and exits with
-the exit code of Stryker. The record is the summary of a run to publish in a comment. Until #712
-review accepted an author's record in place of its own run; the rules of that acceptance are still
-in the docstring of `scripts/review/mutation_record.py`, run by `make mutation-record`, and no
-review step calls it. The first line of the record is a marker, invisible in a comment:
+the exit code of Stryker. The record is the summary of a run to publish in a comment. No review
+takes it in place of a run of its own, and no tool reads it (#712). The first line of the record is
+a marker, invisible in a comment:
 
 ```
-<!-- mutation-record head=<sha> clean=<yes|no|unknown> scope=<full|files> exit=<code> score=<score|NaN|none> -->
+<!-- mutation-run head=<sha> clean=<yes|no|unknown> scope=<full|files> exit=<code> score=<score|NaN|none> -->
 ```
 
 - `head` is the commit at the start of the run.

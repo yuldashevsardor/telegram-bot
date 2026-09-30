@@ -97,7 +97,7 @@ function record(run: Run): string {
     const scoreText = typeof report === "string" ? "none" : score(counts);
     const scope = area === "" ? "full" : "files";
     const lines = [
-        `<!-- mutation-record head=${head || "unknown"} clean=${clean} scope=${scope} exit=${run.exitCode} score=${scoreText} -->`,
+        `<!-- mutation-run head=${head || "unknown"} clean=${clean} scope=${scope} exit=${run.exitCode} score=${scoreText} -->`,
         "## `make mutation` run record",
         "",
         `- head: ${head === "" ? "unknown, git on the host did not answer" : `\`${head}\``}`,
