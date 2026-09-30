@@ -107,7 +107,7 @@ export default {
     // 99 over the whole of src/ lets a couple of dozen survivors through, and over an area of twenty
     // mutants none. 100 means "not a single survivor" over an area of any size.
     thresholds: { break: 100 },
-    // json is the source of the run record: the make mutation wrapper (test/mutation-record.ts)
+    // json is the source of the run record: the make mutation wrapper (test/mutation-run.ts)
     // takes the mutated files, the statuses and the mutants from it, not from the clear-text output.
     reporters: ["clear-text", "progress", "html", "json"],
     // Otherwise clear-text prints all five hundred-odd tests of the run under the table.

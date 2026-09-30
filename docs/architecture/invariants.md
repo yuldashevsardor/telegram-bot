@@ -228,7 +228,7 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   substituted path becomes code again. Tests pin `ProcessHelper` itself against a swap to `exec`.
   But neither the linter nor the tests catch a new `child_process` call past it: on "normal" paths
   `exec` and `execFile` are indistinguishable.
-- **`test/mutation-record.ts` calls `spawn` past `ProcessHelper` on purpose.** `ProcessHelper`
+- **`test/mutation-run.ts` calls `spawn` past `ProcessHelper` on purpose.** `ProcessHelper`
   collects the output and treats a non-zero code as a refusal. The run needs live output and a
   non-zero code as a regular outcome ([`testing.md`](./testing.md), "The run record"). The command
   is not assembled as a string there either.
