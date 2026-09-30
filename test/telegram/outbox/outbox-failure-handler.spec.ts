@@ -159,7 +159,7 @@ describe("OutboxFailureHandler", function () {
         ]);
     });
 
-    it("logs a refused token as an error: no blocked chat shows it", async function () {
+    it("logs an unauthorized failure as an error: no blocked chat shows it", async function () {
         const message = pulledAfter(0);
 
         await handler.handle(message, telegramError(401, "Unauthorized"));

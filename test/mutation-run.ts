@@ -10,7 +10,7 @@ import { constants } from "node:os";
 const REPORT_FILE = "reports/mutation/mutation.json";
 const HTML_FILE = "reports/mutation/mutation.html";
 const RECORD_FILE = "reports/mutation/record.md";
-// The record goes into a PR as a comment, and that holds 65,536 characters; the slack is for the
+// The record goes into a GitHub comment, and that holds 65,536 characters; the slack is for the
 // signature of whoever publishes it.
 const RECORD_LIMIT = 60_000;
 const STATUSES = ["Killed", "Timeout", "Survived", "NoCoverage", "CompileError", "RuntimeError", "Ignored", "Pending"];
@@ -97,7 +97,7 @@ function record(run: Run): string {
     const scoreText = typeof report === "string" ? "none" : score(counts);
     const scope = area === "" ? "full" : "files";
     const lines = [
-        `<!-- mutation-record head=${head || "unknown"} clean=${clean} scope=${scope} exit=${run.exitCode} score=${scoreText} -->`,
+        `<!-- mutation-run head=${head || "unknown"} clean=${clean} scope=${scope} exit=${run.exitCode} score=${scoreText} -->`,
         "## `make mutation` run record",
         "",
         `- head: ${head === "" ? "unknown, git on the host did not answer" : `\`${head}\``}`,
@@ -165,8 +165,8 @@ function finish(exitCode: number): void {
 
     finished = true;
 
-    // A failure to write the record does not replace the outcome of the run: the review gate decides
-    // ok or fail by the exit code.
+    // A failure to write the record does not replace the outcome of the run: whoever runs the target
+    // reads ok or fail from the exit code.
     try {
         mkdirSync("reports/mutation", { recursive: true });
         writeFileSync(RECORD_FILE, record({ exitCode, startedAt, finishedAt: new Date() }));

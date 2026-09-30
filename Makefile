@@ -131,7 +131,7 @@ format: ## Reformat with prettier: make format [files="src/app.ts"]
 # Stryker expand the glob, not the shell of the host. reports/ is created beforehand for the same
 # reason as coverage/.
 #
-# The wrapper test/mutation-record.ts runs Stryker, writes the run record and exits with Stryker's
+# The wrapper test/mutation-run.ts runs Stryker, writes the run record and exits with Stryker's
 # code. The host counts the head and the number of changed paths for the record: .git is not mounted
 # into the container. The paths are not counted by the pipeline `git status | wc -l`: its exit code
 # is that of wc, so a failing git would give 0, "the tree is clean" where nobody looked. Hence a
@@ -154,7 +154,7 @@ mutation: ## Mutation testing, report and run record in ./reports: make mutation
 		tree=$$(git status --porcelain) && dirty=$$(printf '%s' "$$tree" | awk 'END { print NR }') || dirty=unknown; \
 		$(DC_APP_RUN) env MUTATION_HEAD="$$(git rev-parse HEAD)" MUTATION_DIRTY="$$dirty" \
 		TSX_TSCONFIG_PATH=./tsconfig.check.json $(if $(FILES),MUTATE='$(FILES)') \
-		node --require tsx/cjs test/mutation-record.ts
+		node --require tsx/cjs test/mutation-run.ts
 
 # A quick pass before a PR in one output: the width of the added lines of prose and host scripts,
 # then types, eslint, prettier, the tests with the coverage threshold. The width is checked on the
@@ -236,17 +236,6 @@ review-tree-create: ## Take the head of a PR into a temporary review tree <main 
 	@[ -n "$(pr)" ] || { printf 'give it the PR: make review-tree-create pr=<N>\n' >&2; exit 1; }
 	python3 scripts/review/tree_create.py '$(pr)'
 
-# The recipe line is not echoed: stdout is the area itself, one path per line. DC_APP_RUN goes in
-# whole, so the action runs node in the same container make mutation does: the one of `tree` when it
-# is given. The two arguments go in a fixed order, the empty ones as empty strings.
-mutation-area: ## The area of make mutation from the diff against origin/main, or from a PR's: make mutation-area [pr=<N>] [tree=<path>]
-	@DC_APP_RUN='$(DC_APP_RUN)' python3 scripts/review/mutation_area.py '$(pr)' '$(tree)'
-
-# The recipe line is not echoed: stdout is the answer the skill reads. The four arguments go in a
-# fixed order, the empty ones as empty strings, and the area is joined into one line as for files.
-mutation-record: ## Whether the last mutation run record of a PR replaces the reviewer's run: make mutation-record pr=<N> area="<paths>" [rebuild=1] [tree=<path>]
-	@DC_APP_RUN='$(DC_APP_RUN)' python3 scripts/review/mutation_record.py '$(pr)' '$(strip $(subst $(NEWLINE), ,$(area)))' '$(rebuild)' '$(tree)'
-
 # The recipe lines are not echoed: stdout is the answer. The mode and the numbers go in a fixed
 # order, the empty ones as empty strings.
 mutation-full-record: ## Record an issue and its PR in the batch of the deferred full mutation run: make mutation-full-record issue=<N> pr=<N>
@@ -274,5 +263,5 @@ review-tree-remove: ## Remove a temporary review tree <main worktree>-review-<PR
 	migrate migrate-create build typecheck test test-watch coverage \
 	lint lint-fix format-check format mutation check rebuild shell psql \
 	worktree-init worktree-cleanup token-acquire token-renew token-release token-status token-add \
-	review-test review-tree-create mutation-area mutation-record mutation-full-record \
-	mutation-full-check mutation-full-close review-run review-tree-remove help
+	review-test review-tree-create mutation-full-record mutation-full-check mutation-full-close \
+	review-run review-tree-remove help

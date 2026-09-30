@@ -192,15 +192,14 @@ checked nothing. Such an area has no code, only errors (`CompileError`, `Runtime
 mutants silenced by a mark (`Ignored`). Its score is `NaN` (`DEFAULT_SCORE` in
 `mutation-testing-metrics`), and `NaN < 100` is false.
 
-**The run record.** The target runs Stryker through the wrapper `test/mutation-record.ts`. Once the
+**The run record.** The target runs Stryker through the wrapper `test/mutation-run.ts`. Once the
 run is over, whatever its outcome, the wrapper writes `reports/mutation/record.md` and exits with
-the exit code of Stryker. The record is the summary of a run to publish in a comment. Until #712
-review accepted an author's record in place of its own run; the rules of that acceptance are still
-in the docstring of `scripts/review/mutation_record.py`, run by `make mutation-record`, and no
-review step calls it. The first line of the record is a marker, invisible in a comment:
+the exit code of Stryker. The record is the summary of a run to publish in a comment. No review
+runs the target or reads the record, and no tool parses it (#712). The first line of the record is
+a marker, invisible in a comment:
 
 ```
-<!-- mutation-record head=<sha> clean=<yes|no|unknown> scope=<full|files> exit=<code> score=<score|NaN|none> -->
+<!-- mutation-run head=<sha> clean=<yes|no|unknown> scope=<full|files> exit=<code> score=<score|NaN|none> -->
 ```
 
 - `head` is the commit at the start of the run.
@@ -238,8 +237,9 @@ area. The wrapper deletes the old record and the old reports before the run: a r
 will not leave any of its own, and the previous ones would pass themselves off as its result.
 
 The record carries only the summary and the mutants that were not killed, because it goes into a
-PR, and a GitHub comment holds 65,536 characters. The limit stands on the record as a whole: once
-it grows to 60,000 characters, the wrapper cuts the list of survivors off with a line "and N more".
+GitHub comment, the closing one of a batch (`scripts/review/templates/mutation-batch.md`), and a
+comment holds 65,536 characters. The limit stands on the record as a whole: once it grows to 60,000
+characters, the wrapper cuts the list of survivors off with a line "and N more".
 Everything before that list (the summary and the mutated files) is not limited. The remainder stays
 in `mutation.html` on the machine of the run and travels nowhere with the record.
 
