@@ -425,8 +425,9 @@ export class OutboxStore {
     // One batch of the idle chats whose chat limit has passed; the number deleted. A caller that gets
     // a full batch calls again. A push recreates the row of its chat, idle, with next_attempt_at of
     // now(): a chat whose limit has not passed keeps its row, so an idle spell does not shorten the
-    // limit. The lock rechecks the state on the newest version of the row, so a chat that a push or a
-    // completion has changed meanwhile is left alone; the order of chat_id is that of push().
+    // limit. A chat another transaction holds is skipped: a push or a completion is changing it. The
+    // lock rechecks the state on the newest version of the row, so a chat that a push or a completion
+    // has changed meanwhile is left alone too.
     public async deleteIdleChats(): Promise<number> {
         const deletedRows = await this.sql`
             DELETE FROM telegram_outbox_chats
@@ -435,9 +436,8 @@ export class OutboxStore {
                 FROM telegram_outbox_chats
                 WHERE state = ${OutboxChatState.Idle}
                   AND next_attempt_at <= now()
-                ORDER BY chat_id
                 LIMIT ${this.cleanupSettings.batchSize}
-                FOR UPDATE
+                FOR UPDATE SKIP LOCKED
             )
             RETURNING chat_id
         `;

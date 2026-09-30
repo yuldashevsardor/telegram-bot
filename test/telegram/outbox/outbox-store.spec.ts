@@ -46,7 +46,7 @@ const SPEC_TIMEOUT_MS = 10_000;
 const NO_LIMIT: TelegramLimits["common"] = { number: 1_000_000, interval: 1 };
 const NO_LIMITS: TelegramLimits = { common: NO_LIMIT, private: NO_LIMIT, group: NO_LIMIT };
 const LEASE_DURATION_MS = 600_000;
-const HOUR_MS = 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * MS_PER_SECOND;
 const CLEANUP: OutboxCleanupSettings = { doneRetentionMs: HOUR_MS, skippedRetentionMs: 2 * HOUR_MS, batchSize: 10 };
 const WORKER: OutboxWorker = { host: "node-1", pid: 101, workerId: "worker-1" };
 const TRANSIENT: OutboxAttemptError = { kind: TelegramBotApiFailureKind.Transient, message: "Network request failed" };
@@ -994,6 +994,27 @@ describe("OutboxStore", function () {
     });
 
     describe("a concurrent push and completion", function () {
+        // The third client holds the chat row, the store calls queue up behind it in a known order,
+        // and the order decides which of them sees the other.
+        async function race(first: () => Promise<unknown>, second: () => Promise<unknown>): Promise<void> {
+            let calls: Promise<unknown> = Promise.resolve();
+
+            // The transaction commits on return and lets the waiting calls through.
+            await other.sql.begin(async (sql) => {
+                await sql`SELECT chat_id FROM telegram_outbox_chats WHERE chat_id = ${CHAT} FOR UPDATE`;
+
+                const firstCall = first();
+
+                await waitForLockWaiters(1);
+
+                calls = Promise.all([firstCall, second()]);
+
+                await waitForLockWaiters(2);
+            });
+
+            await calls;
+        }
+
         let processing: PulledOutboxMessage;
         let pushed: number | undefined;
 
@@ -1049,7 +1070,7 @@ describe("OutboxStore", function () {
         }
 
         // A minute on either side of a retention: far more than the spec takes to run.
-        const MARGIN_MS = 60 * 1000;
+        const MARGIN_MS = 60 * MS_PER_SECOND;
 
         it("deletes a done message once its retention has passed and keeps a younger one", async function () {
             const [, younger] = await finishedAgo(
@@ -1192,36 +1213,44 @@ describe("OutboxStore", function () {
         });
     });
 
-    // A push that lost its chat row between the insert and the lock would put its messages in
-    // without a chat, and no pull would ever take them.
     describe("a concurrent push and removal of its chat", function () {
-        let pushed: number[];
-        let removed: number;
-
         beforeEach(async function () {
             await store.push(message(CHAT, "done"));
             await store.markAsDone(await pullOne(), RESPONSE);
-            pushed = [];
-            removed = 0;
         });
 
-        const push = async (): Promise<void> => {
-            pushed = await store.pushBatch([message(CHAT, "first"), message(CHAT, "second")]);
-        };
-        const remove = async (): Promise<void> => {
-            removed = await store.deleteIdleChats();
-        };
+        // The holder stands in for a push or a completion of the chat.
+        it("leaves a chat another transaction holds to it", async function () {
+            let removed = -1;
 
-        it("keeps the chat and the order of the push when the push locks the chat first", async function () {
-            await race(push, remove);
+            await other.sql.begin(async (sql) => {
+                await sql`SELECT chat_id FROM telegram_outbox_chats WHERE chat_id = ${CHAT} FOR UPDATE`;
+
+                removed = await store.deleteIdleChats();
+            });
 
             expect(removed).to.equal(0);
-            expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Ready });
-            expect(await drain(store)).to.deep.equal(pushed);
+            expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Idle });
         });
 
-        it("recreates the chat and keeps the order of the push when the removal locks the chat first", async function () {
-            await race(remove, push);
+        // The removal runs in the transaction that holds the chat, so it takes the chat while the push
+        // waits for it. A push that found the row in one statement and locked it in the next would
+        // find it gone and put its messages in without a chat, where no pull reaches them.
+        it("recreates the chat and keeps the order of a push that waited for its removal", async function () {
+            let pushing: Promise<number[]> = Promise.resolve([]);
+            let removed = 0;
+
+            await other.sql.begin(async (sql) => {
+                await sql`SELECT chat_id FROM telegram_outbox_chats WHERE chat_id = ${CHAT} FOR UPDATE`;
+
+                pushing = store.pushBatch([message(CHAT, "first"), message(CHAT, "second")]);
+
+                await waitForLockWaiters(1);
+
+                removed = await storeOn(sql).deleteIdleChats();
+            });
+
+            const pushed = await pushing;
 
             expect(removed).to.equal(1);
             expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Ready });
@@ -1294,27 +1323,6 @@ describe("OutboxStore", function () {
             expect(payloads).to.deep.equal([String(done)]);
         });
     });
-
-    // The third client holds the chat row, the store calls queue up behind it in a known order,
-    // and the order decides which of them sees the other.
-    async function race(first: () => Promise<unknown>, second: () => Promise<unknown>): Promise<void> {
-        let calls: Promise<unknown> = Promise.resolve();
-
-        // The transaction commits on return and lets the waiting calls through.
-        await other.sql.begin(async (sql) => {
-            await sql`SELECT chat_id FROM telegram_outbox_chats WHERE chat_id = ${CHAT} FOR UPDATE`;
-
-            const firstCall = first();
-
-            await waitForLockWaiters(1);
-
-            calls = Promise.all([firstCall, second()]);
-
-            await waitForLockWaiters(2);
-        });
-
-        await calls;
-    }
 
     // A store whose statements run in the given transaction.
     function storeOn(transaction: TransactionSql): OutboxStore {

@@ -73,7 +73,7 @@ lock.
 A push that inserts the chat row locks it in the same statement: an `idle` chat can be deleted by
 the cleanup at any moment, and a push that inserted the row with `ON CONFLICT DO NOTHING` and
 locked it in the next statement would find it gone and put its messages in without a chat, where
-no pull reaches them. The spec lines the push and the removal up the same way, in both orders.
+no pull reaches them. The spec has the removal take the chat while a push waits for it.
 
 `pull` is the exception: it locks and reads the head in one statement, see below.
 
@@ -293,9 +293,10 @@ that gets a full batch calls again. Nothing calls them yet: the timers are the s
   so a message a person has moved back to `pending` meanwhile is kept, and two nodes cleaning at
   once take different rows.
 - `deleteIdleChats()` deletes the `idle` chats whose `next_attempt_at` has passed. It locks them
-  `FOR UPDATE` in `chat_id` order, as a push does, and the lock rechecks the state on the newest
-  version of the row, so a chat a push has made `ready` meanwhile is left alone; a push that comes
-  after the removal inserts the chat again (see "The chat lock"). A chat whose limit has not passed
+  `FOR UPDATE SKIP LOCKED`: a chat a push or a completion holds is left to them, and the lock
+  rechecks the state on the newest version of the row, so a chat a push has made `ready` meanwhile
+  is left alone too. A push that waits for a chat the removal holds inserts the chat again (see
+  "The chat lock"). A chat whose limit has not passed
   keeps its row: a push recreates the chat with `next_attempt_at` of `now()`, so a removed row would
   let the next message out before the limit. The messages of a removed chat stay; a late
   completion of one of them is fenced (see "Completions"). A removed chat may still hold a `failed`
