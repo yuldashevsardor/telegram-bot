@@ -157,8 +157,8 @@ preset has one other key, `cache: false`.
 `make mutation` runs StrykerJS. It puts one mutation at a time into the source (an operator, a
 literal, a condition) and watches whether at least one spec fails. A survived mutant shows
 behaviour the tests do not hold, although the line is covered. The target is not part of
-`make check`: there it would run on every edit and over the whole of `src/`. The threshold and the
-review gate are in "Threshold" below.
+`make check`: there it would run on every edit and over the whole of `src/`. The threshold and who
+runs the target are in "Threshold" below.
 
 **Running.** `make mutation files="src/shared/**"` narrows the run to an area: globs separated by
 spaces (a comma is part of a glob, as in `src/{shared,telegram}/**`), `!` excludes. An area made
