@@ -73,7 +73,7 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
                 cleanup: {
                     doneRetentionMs: parser.getInteger("OUTBOX_DONE_RETENTION", 7 * MS_PER_DAY, ConfigValuesBuilder.RETENTION_RANGE),
                     skippedRetentionMs: parser.getInteger("OUTBOX_SKIPPED_RETENTION", 30 * MS_PER_DAY, ConfigValuesBuilder.RETENTION_RANGE),
-                    batchSize: parser.getInteger("OUTBOX_CLEANUP_BATCH_SIZE", 1000, { min: 1 }),
+                    batchSize: parser.getInteger("OUTBOX_CLEANUP_BATCH_SIZE", 1000, { min: 1, max: Number.MAX_SAFE_INTEGER }),
                 },
             },
 

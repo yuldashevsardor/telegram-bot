@@ -54,7 +54,7 @@ export class OutboxStore {
         @inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger,
         private readonly limits: TelegramLimits = configValue("limits"),
         private readonly leaseDurationMs: number = configValue("outbox.leaseDurationMs"),
-        private readonly cleanup: OutboxCleanupSettings = configValue("outbox.cleanup"),
+        private readonly cleanupSettings: OutboxCleanupSettings = configValue("outbox.cleanup"),
     ) {
         this.sql = database.sql;
     }
@@ -408,10 +408,10 @@ export class OutboxStore {
                 SELECT id
                 FROM telegram_outbox
                 WHERE (status = ${OutboxStatus.Done}
-                       AND finished_at + ${this.cleanup.doneRetentionMs}::double precision * interval '1 millisecond' < now())
+                       AND finished_at + ${this.cleanupSettings.doneRetentionMs}::double precision * interval '1 millisecond' < now())
                    OR (status = ${OutboxStatus.Skipped}
-                       AND finished_at + ${this.cleanup.skippedRetentionMs}::double precision * interval '1 millisecond' < now())
-                LIMIT ${this.cleanup.batchSize}
+                       AND finished_at + ${this.cleanupSettings.skippedRetentionMs}::double precision * interval '1 millisecond' < now())
+                LIMIT ${this.cleanupSettings.batchSize}
             )
             RETURNING id
         `;
@@ -433,7 +433,7 @@ export class OutboxStore {
                 WHERE state = ${OutboxChatState.Idle}
                   AND next_attempt_at <= now()
                 ORDER BY chat_id
-                LIMIT ${this.cleanup.batchSize}
+                LIMIT ${this.cleanupSettings.batchSize}
                 FOR UPDATE
             )
             RETURNING chat_id

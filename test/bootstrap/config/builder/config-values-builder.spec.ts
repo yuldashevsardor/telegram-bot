@@ -211,7 +211,7 @@ describe("ConfigValuesBuilder", () => {
         { name: "OUTBOX_MAX_ATTEMPTS", below: "0", range: "at least 1" },
         { name: "OUTBOX_DONE_RETENTION", below: "0", range: "between 1 and 9007199254740991" },
         { name: "OUTBOX_SKIPPED_RETENTION", below: "0", range: "between 1 and 9007199254740991" },
-        { name: "OUTBOX_CLEANUP_BATCH_SIZE", below: "0", range: "at least 1" },
+        { name: "OUTBOX_CLEANUP_BATCH_SIZE", below: "0", range: "between 1 and 9007199254740991" },
         { name: "BOT_GRACEFUL_SHUTDOWN_TIMEOUT", below: "-1", range: "between 0 and 2147483647" },
         { name: "TASK_QUEUE_LOG_INTERVAL", below: "0", range: "between 1 and 2147483647" },
         { name: "TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT", below: "-1", range: "between 0 and 2147483647" },
