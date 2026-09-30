@@ -412,6 +412,9 @@ export class OutboxStore {
                    OR (status = ${OutboxStatus.Skipped}
                        AND finished_at + ${this.cleanupSettings.skippedRetentionMs}::double precision * interval '1 millisecond' < now())
                 LIMIT ${this.cleanupSettings.batchSize}
+                -- The lock rechecks the status on the newest version of the row, so a message moved
+                -- back to pending meanwhile is kept; a row another cleanup holds is left to it.
+                FOR UPDATE SKIP LOCKED
             )
             RETURNING id
         `;

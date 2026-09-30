@@ -1082,6 +1082,33 @@ describe("OutboxStore", function () {
             expect(await ids()).to.deep.equal(kept);
         });
 
+        it("never deletes a done or a skipped message without its end", async function () {
+            const kept = await finishedAgo(
+                { status: OutboxStatus.Done, agoMs: 1000 * CLEANUP.skippedRetentionMs },
+                { status: OutboxStatus.Skipped, agoMs: 1000 * CLEANUP.skippedRetentionMs },
+            );
+            await database.sql`UPDATE telegram_outbox SET finished_at = NULL`;
+
+            expect(await store.deleteFinishedMessages()).to.equal(0);
+            expect(await ids()).to.deep.equal(kept);
+        });
+
+        // Another cleanup, or a person moving the message back by hand, holds the row.
+        it("skips a message another transaction holds and deletes the rest", async function () {
+            const old = { status: OutboxStatus.Done, agoMs: CLEANUP.doneRetentionMs + MARGIN_MS };
+            const [held] = await finishedAgo(old, old);
+            let deleted = 0;
+
+            await other.sql.begin(async (sql) => {
+                await sql`SELECT id FROM telegram_outbox WHERE id = ${held as number} FOR UPDATE`;
+
+                deleted = await store.deleteFinishedMessages();
+            });
+
+            expect(deleted).to.equal(1);
+            expect(await ids()).to.deep.equal([held]);
+        });
+
         it("deletes no more messages in one call than the batch size", async function () {
             const batched = new OutboxStore(database, logger, NO_LIMITS, LEASE_DURATION_MS, { ...CLEANUP, batchSize: 2 });
             const old = { status: OutboxStatus.Done, agoMs: CLEANUP.doneRetentionMs + MARGIN_MS };

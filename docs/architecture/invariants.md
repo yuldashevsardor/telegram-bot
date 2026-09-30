@@ -152,10 +152,13 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   tells its lease by the token, not by `locked_until`, and takes back the message of a passed lease
   its node has just extended ([`outbox.md`](./outbox.md), "Lease recovery"). Nothing extends a lease
   yet.
-- **The retention of a `done` message must outlast `OUTBOX_RESULT_TIMEOUT`.** A caller still
-  waiting for a message the cleanup has deleted finds no row and times out as if the message were
-  never sent, and may send it again ([`outbox.md`](./outbox.md), "Cleanup"). Nothing checks the two
-  variables against each other.
+- **The retention of a `done` and of a `skipped` message must outlast `OUTBOX_RESULT_TIMEOUT` and
+  `OUTBOX_LEASE_DURATION`.** A caller still waiting for a message the cleanup has deleted finds no
+  row and times out as if the message were never sent, and may send it again. A late completion
+  of an expired lease whose message another node has finished and the cleanup has deleted finds
+  neither the chat nor the message and throws `OutboxMessageNotLeased` instead of being fenced
+  ([`outbox.md`](./outbox.md), "Cleanup", "Completions"). Nothing checks the variables against
+  each other.
 - **The outbox goes by the database clock only.** `next_attempt_at`, `next_send_at` and
   `paused_until` are written and compared with `now()` of PostgreSQL: `pause()` takes a duration,
   and `pull()` answers with a duration, not a moment ([`outbox.md`](./outbox.md), "Limits"). A

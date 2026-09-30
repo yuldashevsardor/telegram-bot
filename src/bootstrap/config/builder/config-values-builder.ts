@@ -18,9 +18,10 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
     // the slot is never freed, while a zero in interval makes it nil and the limit stops limiting.
     private static readonly LIMIT_RANGE: IntegerRange = { min: 1 };
 
-    // The cleanup adds a retention to finished_at: up to this many ms the sum stays within the
-    // timestamps PostgreSQL takes, while 1e16 ms is past the range of its interval.
-    private static readonly RETENTION_RANGE: IntegerRange = { min: 1, max: Number.MAX_SAFE_INTEGER };
+    // The numbers of the outbox cleanup SQL. It adds a retention to finished_at: up to this many ms
+    // the sum stays within the timestamps PostgreSQL takes, while 1e16 ms is past the range of its
+    // interval. A batch size goes to LIMIT, and 1e21 would reach it as 1e+21, which is no bigint.
+    private static readonly CLEANUP_RANGE: IntegerRange = { min: 1, max: Number.MAX_SAFE_INTEGER };
 
     // The pool deadlines are in seconds: postgres.js multiplies them by 1000 for setTimeout, so the
     // ceiling is the longest timer delay in seconds. A zero switches the timer off there, while a
@@ -71,9 +72,9 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
                 leaseDurationMs: parser.getTimerDelay("OUTBOX_LEASE_DURATION", 10 * 60 * 1000),
                 maxAttempts: parser.getInteger("OUTBOX_MAX_ATTEMPTS", 10, { min: 1 }),
                 cleanup: {
-                    doneRetentionMs: parser.getInteger("OUTBOX_DONE_RETENTION", 7 * MS_PER_DAY, ConfigValuesBuilder.RETENTION_RANGE),
-                    skippedRetentionMs: parser.getInteger("OUTBOX_SKIPPED_RETENTION", 30 * MS_PER_DAY, ConfigValuesBuilder.RETENTION_RANGE),
-                    batchSize: parser.getInteger("OUTBOX_CLEANUP_BATCH_SIZE", 1000, { min: 1, max: Number.MAX_SAFE_INTEGER }),
+                    doneRetentionMs: parser.getInteger("OUTBOX_DONE_RETENTION", 7 * MS_PER_DAY, ConfigValuesBuilder.CLEANUP_RANGE),
+                    skippedRetentionMs: parser.getInteger("OUTBOX_SKIPPED_RETENTION", 30 * MS_PER_DAY, ConfigValuesBuilder.CLEANUP_RANGE),
+                    batchSize: parser.getInteger("OUTBOX_CLEANUP_BATCH_SIZE", 1000, ConfigValuesBuilder.CLEANUP_RANGE),
                 },
             },
 

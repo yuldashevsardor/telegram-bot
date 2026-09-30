@@ -287,8 +287,11 @@ that gets a full batch calls again. Nothing calls them yet: the timers are the s
   message is never deleted: it waits for a person to unblock its chat or look at it. A message
   without `finished_at` is not deleted either, so whatever sets `skipped` sets `finished_at` too.
   The retention is added to `finished_at` rather than taken off `now()`: the config takes a
-  retention up to `Number.MAX_SAFE_INTEGER` ms (`RETENTION_RANGE` of `ConfigValuesBuilder`), and
-  `now()` minus that falls below 4713 BC, the earliest timestamp PostgreSQL has.
+  retention up to `Number.MAX_SAFE_INTEGER` ms (`CLEANUP_RANGE` of `ConfigValuesBuilder`), and
+  `now()` minus that falls below 4713 BC, the earliest timestamp PostgreSQL has. The batch is
+  locked `FOR UPDATE SKIP LOCKED`: the lock rechecks the status on the newest version of the row,
+  so a message a person has moved back to `pending` meanwhile is kept, and two nodes cleaning at
+  once take different rows.
 - `deleteIdleChats()` deletes the `idle` chats whose `next_attempt_at` has passed. It locks them
   `FOR UPDATE` in `chat_id` order, as a push does, and the lock rechecks the state on the newest
   version of the row, so a chat a push has made `ready` meanwhile is left alone; a push that comes
@@ -298,8 +301,8 @@ that gets a full batch calls again. Nothing calls them yet: the timers are the s
   completion of one of them is fenced (see "Completions"). A removed chat may still hold a `failed`
   message that did not block it: putting it back by hand needs the chat row again (see "Tables").
 
-How the retention must relate to the wait for a result is in [`invariants.md`](./invariants.md),
-"The outbox".
+How the retention must relate to the wait for a result and to the lease is in
+[`invariants.md`](./invariants.md), "The outbox".
 
 ## The store in code
 
