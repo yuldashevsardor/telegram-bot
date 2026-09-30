@@ -136,6 +136,11 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   [`outbox.md`](./outbox.md), "The chat lock". `pull()` is the exception with a check of its own
   (same file, "Pull"). The spec lines up only `push()` and `markAsDone()`: a new path that changes a
   chat state outside `complete()` is checked by nothing.
+- **A statement that makes sure a chat row exists also locks it**, as the `ON CONFLICT DO UPDATE`
+  of `OutboxStore.push()` does. The cleanup deletes an `idle` chat at any moment, so a row found
+  by one statement and locked by the next may be gone in between, and messages inserted without
+  their chat row are never pulled ([`outbox.md`](./outbox.md), "The chat lock"). The spec lines up
+  only `push()` against the removal.
 - **The lease of a pulled chat must outlast the send of its message, unless the lease is extended.**
   Every chat of a pull is leased from the pull, so a caller that sends the messages of one pull one
   call after another needs the lease to cover them all, not the longest single call. A lease that
@@ -147,6 +152,13 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   tells its lease by the token, not by `locked_until`, and takes back the message of a passed lease
   its node has just extended ([`outbox.md`](./outbox.md), "Lease recovery"). Nothing extends a lease
   yet.
+- **The retention of a `done` and of a `skipped` message must outlast `OUTBOX_RESULT_TIMEOUT` and
+  `OUTBOX_LEASE_DURATION`.** A caller still waiting for a message the cleanup has deleted finds no
+  row and times out as if the message were never sent, and may send it again. A late completion
+  of an expired lease whose message another node has finished and the cleanup has deleted finds
+  neither the chat nor the message and throws `OutboxMessageNotLeased` instead of being fenced
+  ([`outbox.md`](./outbox.md), "Cleanup", "Completions"). Nothing checks the variables against
+  each other.
 - **The outbox goes by the database clock only.** `next_attempt_at`, `next_send_at` and
   `paused_until` are written and compared with `now()` of PostgreSQL: `pause()` takes a duration,
   and `pull()` answers with a duration, not a moment ([`outbox.md`](./outbox.md), "Limits"). A

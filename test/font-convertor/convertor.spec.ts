@@ -11,20 +11,25 @@ import { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-
 import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
 import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
 import { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
+import { WoffFontValidator } from "app/font-convertor/validator/woff/woff-font-validator";
 import { NoFont } from "app/font-convertor/validator/svg/svg-font-validator.errors";
 import { BrokenSfnt, NotSfnt } from "app/font-convertor/validator/sfnt/sfnt-font-validator.errors";
 import { SfntRule } from "app/font-convertor/validator/sfnt/sfnt-font-validator.types";
+import { BrokenWoff } from "app/font-convertor/validator/woff/woff-font-validator.errors";
+import { WoffRule } from "app/font-convertor/validator/woff/woff-font-validator.types";
 import { InvalidFile, InvalidPath, PermissionDenied } from "app/shared/fs/file-helper.errors";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 // The offset of numTables in the sfnt header (OpenType 1.9.1, Table Directory).
 const SFNT_NUM_TABLES_OFFSET_BYTES = 4;
+// The offset of the reserved field in the WOFF header (WOFF 1.0, §4).
+const WOFF_RESERVED_OFFSET_BYTES = 14;
 
 // Every pair shares the input check, Convertor.validate(), so its branches run on one pair,
-// ttf → woff, and the SVG branch on svg → woff. That each pair calls the check is pinned in
-// font-forge-convertor.spec.ts and eot-convertor.spec.ts. The engine is a stub: a rejection has to
-// happen before it. Permissions are taken away with chmod, so the spec is not for root
-// (docs/architecture/testing.md).
+// ttf → woff, the SVG branch on svg → woff and the WOFF one on woff → ttf. That each pair calls the
+// check is pinned in font-forge-convertor.spec.ts and eot-convertor.spec.ts. The engine is a stub:
+// a rejection has to happen before it. Permissions are taken away with chmod, so the spec is not for
+// root (docs/architecture/testing.md).
 describe("Convertor.validate", function () {
     let workDir: string;
     let lockedDirs: Array<string>;
@@ -45,7 +50,7 @@ describe("Convertor.validate", function () {
 
         factory = new ConvertorFactory(
             fontForge,
-            new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator(), new SfntFontValidator()),
+            new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator(), new WoffFontValidator(), new SfntFontValidator()),
             new EotPacker(),
         );
         convertor = factory.get(Extension.TTF, Extension.WOFF);
@@ -134,6 +139,21 @@ describe("Convertor.validate", function () {
             convertor = factory.get(Extension.SVG, Extension.WOFF);
 
             await expectRejection(fromPath, inWorkDir("result.woff"), NoFont.inDocument(fromPath));
+        });
+
+        it("when it is a woff the validator rejects", async function () {
+            // The signature is intact, so the signature check alone would have let the file through.
+            const fromPath = inWorkDir("reserved.woff");
+            const bytes = await fs.readFile(fixture(Extension.WOFF));
+            bytes.writeUInt16BE(1, WOFF_RESERVED_OFFSET_BYTES);
+            await fs.writeFile(fromPath, bytes);
+            convertor = factory.get(Extension.WOFF, Extension.TTF);
+
+            await expectRejection(
+                fromPath,
+                inWorkDir("result.ttf"),
+                BrokenWoff.byRule(fromPath, { rule: WoffRule.Reserved, at: "the header", field: "reserved", value: 1, expected: "0" }),
+            );
         });
     });
 

@@ -10,12 +10,18 @@ import type { RawConfig } from "app/bootstrap/config/container/config-container.
 import type { ConfigBuilder } from "app/bootstrap/config/builder/config-builder";
 import { Environments } from "app/bootstrap/config/config-values";
 import type { ConfigValues, LoggerConfig } from "app/bootstrap/config/config-values";
+import { MS_PER_DAY } from "app/shared/time";
 
 // Checks that tie several variables together live here; parsing a single variable lives in ConfigParser.
 export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
     // The cooldown of a RateLimit slot is interval / number: a zero in number makes it infinite and
     // the slot is never freed, while a zero in interval makes it nil and the limit stops limiting.
     private static readonly LIMIT_RANGE: IntegerRange = { min: 1 };
+
+    // The numbers of the outbox cleanup SQL. It adds a retention to finished_at: up to this many ms
+    // the sum stays within the timestamps PostgreSQL takes, while 1e16 ms is past the range of its
+    // interval. A batch size goes to LIMIT, and 1e21 would reach it as 1e+21, which is no bigint.
+    private static readonly CLEANUP_RANGE: IntegerRange = { min: 1, max: Number.MAX_SAFE_INTEGER };
 
     // The pool deadlines are in seconds: postgres.js multiplies them by 1000 for setTimeout, so the
     // ceiling is the longest timer delay in seconds. A zero switches the timer off there, while a
@@ -65,6 +71,11 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
                 },
                 leaseDurationMs: parser.getTimerDelay("OUTBOX_LEASE_DURATION", 10 * 60 * 1000),
                 maxAttempts: parser.getInteger("OUTBOX_MAX_ATTEMPTS", 10, { min: 1 }),
+                cleanup: {
+                    doneRetentionMs: parser.getInteger("OUTBOX_DONE_RETENTION", 7 * MS_PER_DAY, ConfigValuesBuilder.CLEANUP_RANGE),
+                    skippedRetentionMs: parser.getInteger("OUTBOX_SKIPPED_RETENTION", 30 * MS_PER_DAY, ConfigValuesBuilder.CLEANUP_RANGE),
+                    batchSize: parser.getInteger("OUTBOX_CLEANUP_BATCH_SIZE", 1000, ConfigValuesBuilder.CLEANUP_RANGE),
+                },
             },
 
             bot: {

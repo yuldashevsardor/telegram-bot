@@ -12,6 +12,7 @@ import { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-
 import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
 import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
 import { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
+import { WoffFontValidator } from "app/font-convertor/validator/woff/woff-font-validator";
 import { NotSfnt } from "app/font-convertor/validator/sfnt/sfnt-font-validator.errors";
 import { InvalidPath, PermissionDenied } from "app/shared/fs/file-helper.errors";
 
@@ -40,7 +41,7 @@ describe("FontConvertor", function () {
 
         factory = new ConvertorFactory(
             fontForge,
-            new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator(), new SfntFontValidator()),
+            new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator(), new WoffFontValidator(), new SfntFontValidator()),
             new EotPacker(),
         );
     });

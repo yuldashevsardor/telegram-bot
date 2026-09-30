@@ -17,7 +17,6 @@ export class FontSignatureMatcher {
 
     public constructor() {
         this.signaturesByExtension = {
-            [Extension.WOFF]: [{ offset: 0, bytes: this.ascii("wOFF") }],
             [Extension.WOFF2]: [{ offset: 0, bytes: this.ascii("wOF2") }],
             [Extension.EOT]: [{ offset: FontSignatureMatcher.EOT_MAGIC_OFFSET, bytes: [0x4c, 0x50] }],
         };

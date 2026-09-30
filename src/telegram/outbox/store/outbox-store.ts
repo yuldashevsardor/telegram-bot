@@ -12,6 +12,7 @@ import type {
     ExpiredOutboxLeaseRow,
     OutboxAttempt,
     OutboxAttemptError,
+    OutboxCleanupSettings,
     OutboxFinalOutcome,
     OutboxJson,
     OutboxLease,
@@ -53,6 +54,7 @@ export class OutboxStore {
         @inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger,
         private readonly limits: TelegramLimits = configValue("limits"),
         private readonly leaseDurationMs: number = configValue("outbox.leaseDurationMs"),
+        private readonly cleanupSettings: OutboxCleanupSettings = configValue("outbox.cleanup"),
     ) {
         this.sql = database.sql;
     }
@@ -71,22 +73,21 @@ export class OutboxStore {
         const chatIds = [...new Set(messages.map((message) => message.chatId))];
 
         return this.sql.begin(async (sql) => {
-            // Both statements go in chat_id order, so two batches wait for the chats they share in
-            // the same order.
+            // Inserts the chat row or locks the one there, in one statement: with DO NOTHING and a
+            // separate lock, deleteIdleChats() could remove an idle chat between the two, and the
+            // messages would go in without their chat row, never to be pulled. WHERE false is not a
+            // mistake: PostgreSQL locks the row before it checks the condition, and the false one
+            // keeps the lock without writing a new version of the row (the ON CONFLICT condition in
+            // the docs of INSERT). The rows go in chat_id order, so two batches wait for the chats
+            // they share in the same order.
             await sql`
                 INSERT INTO telegram_outbox_chats (chat_id, state)
                 SELECT chat_id, ${OutboxChatState.Idle}
                 FROM unnest(${sql.array(chatIds, BIGINT)}::bigint[]) AS input(chat_id)
                 ORDER BY chat_id
-                ON CONFLICT (chat_id) DO NOTHING
-            `;
-
-            await sql`
-                SELECT chat_id
-                FROM telegram_outbox_chats
-                WHERE chat_id = ANY(${sql.array(chatIds, BIGINT)}::bigint[])
-                ORDER BY chat_id
-                FOR UPDATE
+                ON CONFLICT (chat_id) DO UPDATE
+                SET state = telegram_outbox_chats.state
+                WHERE false
             `;
 
             const rows = await sql<{ id: string }[]>`
@@ -384,8 +385,8 @@ export class OutboxStore {
         });
 
         // A fenced completion changed nothing, so it logs no error: an alert on the error below
-        // would fire for a chat this call did not block. Its failure is in the stale-token
-        // warning, and a block by the completion that did apply logs the error below.
+        // would fire for a chat this call did not block. Its failure is in the warning of
+        // complete(), and a block by the completion that did apply logs the error below.
         if (chatId === null) {
             return;
         }
@@ -397,10 +398,62 @@ export class OutboxStore {
         });
     }
 
+    // One batch of the done and skipped messages whose retention has passed since their end; the
+    // number deleted. A caller that gets a full batch calls again. A failed message is never deleted:
+    // it waits for a person. A message without finished_at is never deleted either.
+    public async deleteFinishedMessages(): Promise<number> {
+        // finished_at plus the retention, not now() minus it: a long retention would take now()
+        // below the earliest timestamp PostgreSQL has, 4713 BC, while the sum stays below its
+        // latest for any retention the config takes.
+        const deletedRows = await this.sql`
+            DELETE FROM telegram_outbox
+            WHERE id IN (
+                SELECT id
+                FROM telegram_outbox
+                WHERE (status = ${OutboxStatus.Done}
+                       AND finished_at + ${this.cleanupSettings.doneRetentionMs}::double precision * interval '1 millisecond' < now())
+                   OR (status = ${OutboxStatus.Skipped}
+                       AND finished_at + ${this.cleanupSettings.skippedRetentionMs}::double precision * interval '1 millisecond' < now())
+                LIMIT ${this.cleanupSettings.batchSize}
+                -- The lock rechecks the status on the newest version of the row, so a message moved
+                -- back to pending meanwhile is kept; a row another cleanup holds is left to it.
+                FOR UPDATE SKIP LOCKED
+            )
+            RETURNING id
+        `;
+
+        return deletedRows.length;
+    }
+
+    // One batch of the idle chats whose chat limit has passed; the number deleted. A caller that gets
+    // a full batch calls again. A push recreates the row of its chat, idle, with next_attempt_at of
+    // now(): a chat whose limit has not passed keeps its row, so an idle spell does not shorten the
+    // limit. A chat another transaction holds is skipped: a push or a completion is changing it. The
+    // lock rechecks the state on the newest version of the row, so a chat that a push or a completion
+    // has changed meanwhile is left alone too.
+    public async deleteIdleChats(): Promise<number> {
+        const deletedRows = await this.sql`
+            DELETE FROM telegram_outbox_chats
+            WHERE chat_id IN (
+                SELECT chat_id
+                FROM telegram_outbox_chats
+                WHERE state = ${OutboxChatState.Idle}
+                  AND next_attempt_at <= now()
+                LIMIT ${this.cleanupSettings.batchSize}
+                FOR UPDATE SKIP LOCKED
+            )
+            RETURNING chat_id
+        `;
+
+        return deletedRows.length;
+    }
+
     // Every completion: the lock of the chat, then the fence, then the writes (docs/architecture/outbox.md,
     // "The chat lock"). A missing message throws OutboxMessageNotLeased. A lock token that is not
     // the chat's changes nothing and is logged with the error the completion carried: the lease has
-    // passed to another pull, or the chat was released by an earlier completion. Returns the chat of
+    // passed to another pull, or the chat was released by an earlier completion. A chat row that is
+    // missing while its message is there changes nothing either and is logged apart:
+    // deleteIdleChats() removed the chat once it went idle, so no lease is left. Returns the chat of
     // an applied completion, null for a fenced one.
     private async complete(
         lease: OutboxLease,
@@ -417,7 +470,17 @@ export class OutboxStore {
             `;
 
             if (chat === undefined) {
-                throw OutboxMessageNotLeased.byId(lease.id);
+                if (!(await this.hasMessage(sql, lease.id))) {
+                    throw OutboxMessageNotLeased.byId(lease.id);
+                }
+
+                this.logger.warning("Outbox completion of a chat the cleanup removed changed nothing.", {
+                    messageId: lease.id,
+                    lockToken: lease.lockToken,
+                    cause: attemptError,
+                });
+
+                return null;
             }
 
             if (chat.lock_token !== lease.lockToken) {
@@ -434,6 +497,12 @@ export class OutboxStore {
 
             return chat.chat_id;
         });
+    }
+
+    private async hasMessage(sql: TransactionSql, messageId: number): Promise<boolean> {
+        const [message] = await sql`SELECT id FROM telegram_outbox WHERE id = ${messageId}`;
+
+        return message !== undefined;
     }
 
     // The final outcome of a message, with the end of its attempt. finished_at is for the cleanup.
