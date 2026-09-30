@@ -65,30 +65,40 @@ export type OutboxJsonObject = { [field: string]: OutboxJson };
 export type OutboxAttemptError = OutboxJsonObject & { kind: TelegramBotApiFailureKind };
 
 // One attempt of a message, as telegram_outbox.attempts keeps it: a completion appends it whole,
-// finished_at is set by the database. error is null for a success.
+// finished_at is set by the database. error is null for a success. worker is null for the attempt
+// of an expired lease: the worker of its pull is stored nowhere.
 export type OutboxAttempt = {
     started_at: string;
-    worker: { host: string; pid: number; worker_id: string };
+    worker: { host: string; pid: number; worker_id: string } | null;
     finished_at: string;
     error: OutboxAttemptError | null;
 };
 
-// What a completion of a pulled message is fenced by: the message and the token of the pull that
-// leased its chat. The start of the attempt and its worker come from the pull too: the completion
-// writes the attempt. A pulled message is a lease itself.
+// What a completion of a leased message is fenced by: the message and the token of the pull that
+// leased its chat. The start of the attempt and its worker go with it: the completion writes the
+// attempt. A pulled message is a lease itself, and so is an expired lease the recovery reads.
 export type OutboxLease = {
     id: number;
     lockToken: string;
-    // now() of the pull, by the database clock.
+    // now() of the pull, by the database clock; derived for an expired lease (ExpiredOutboxLease).
     startedAt: string;
-    worker: OutboxWorker;
+    // null for an expired lease.
+    worker: OutboxWorker | null;
 };
 
 export type PulledOutboxMessage = OutboxMessageInput &
     OutboxLease & {
+        worker: OutboxWorker;
         // The attempts the message has made before this one, whatever they ended with.
         earlierAttempts: number;
     };
+
+// A lease that passed before its message was completed: the node that pulled the message is
+// presumed dead. Only the lease end is stored, so startedAt is that end minus the lease duration.
+export type ExpiredOutboxLease = OutboxLease & {
+    worker: null;
+    earlierAttempts: number;
+};
 
 // What a pull gives out: the messages, and when the next pull can give out one.
 export type OutboxPullResult = {
@@ -111,6 +121,14 @@ export type PulledOutboxRow = {
     method: string;
     payload: OutboxPayload;
     priority: number;
+    started_at: string;
+    earlier_attempts: number;
+};
+
+// An expired lease as postgres returns it: a bigint comes as a string.
+export type ExpiredOutboxLeaseRow = {
+    id: string;
+    lock_token: string;
     started_at: string;
     earlier_attempts: number;
 };

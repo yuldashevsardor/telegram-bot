@@ -8,6 +8,8 @@ import type { TelegramLimits } from "app/bootstrap/config/config-values";
 import { configValue } from "app/shared/config-value";
 import { MS_PER_SECOND } from "app/shared/time";
 import type {
+    ExpiredOutboxLease,
+    ExpiredOutboxLeaseRow,
     OutboxAttempt,
     OutboxAttemptError,
     OutboxFinalOutcome,
@@ -294,6 +296,36 @@ export class OutboxStore {
         }
     }
 
+    // The chats whose lease has passed, each with its processing message as a lease under the chat's
+    // token. The lease stays: a completion under that token takes the message back, fenced as any
+    // completion, so a late completion of the node presumed dead and a second recovery of the same
+    // lease change nothing (docs/architecture/outbox.md, "Lease recovery").
+    public async findExpiredLeases(): Promise<ExpiredOutboxLease[]> {
+        const rows = await this.sql<ExpiredOutboxLeaseRow[]>`
+            SELECT message.id,
+                   chats.lock_token,
+                   -- As jsonb writes a timestamp, the form of started_at the pull gives out: the
+                   -- attempts of a message keep one form.
+                   to_jsonb(chats.locked_until - ${this.leaseDurationMs}::double precision * interval '1 millisecond') #>> '{}' AS started_at,
+                   jsonb_array_length(message.attempts) AS earlier_attempts
+            FROM telegram_outbox_chats AS chats
+            JOIN telegram_outbox AS message
+                ON message.chat_id = chats.chat_id
+               AND message.status = ${OutboxStatus.Processing}
+            -- Only a pulled chat is leased: a completion clears the lease.
+            WHERE chats.locked_until <= now()
+            ORDER BY chats.locked_until, chats.chat_id
+        `;
+
+        return rows.map((row) => ({
+            id: Number(row.id),
+            lockToken: row.lock_token,
+            startedAt: row.started_at,
+            worker: null,
+            earlierAttempts: row.earlier_attempts,
+        }));
+    }
+
     // The time a limit leaves between two messages, as the in-memory queue spaces them. LIMIT_*_NUMBER
     // is at least 1, so the cooldown is finite.
     private cooldownMs(limit: TelegramLimits[keyof TelegramLimits]): number {
@@ -446,12 +478,13 @@ export class OutboxStore {
         }
     }
 
-    // The attempts with this one appended: its start and worker from the pull, its error, null for a
+    // The attempts with this one appended: its start and worker from the lease, its error, null for a
     // success, and its end by the database clock, as its start.
     private withAttempt(sql: TransactionSql, lease: OutboxLease, attemptError: OutboxAttemptError | null): PendingQuery<Row[]> {
+        const { worker } = lease;
         const attempt: Omit<OutboxAttempt, "finished_at"> = {
             started_at: lease.startedAt,
-            worker: { host: lease.worker.host, pid: lease.worker.pid, worker_id: lease.worker.workerId },
+            worker: worker === null ? null : { host: worker.host, pid: worker.pid, worker_id: worker.workerId },
             error: attemptError,
         };
 
