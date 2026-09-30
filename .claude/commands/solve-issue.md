@@ -294,4 +294,5 @@ Read the output:
   commands it names.
 
 Check `gh issue view <N> --json state`. The issue did not close — close it by hand as
-`docs/agents/issue-tracker.md` says.
+`docs/agents/issue-tracker.md` says. Its rule on parent issues decides both whether an issue with
+open sub-issues stays open and whether the parent of `N` closes now.
