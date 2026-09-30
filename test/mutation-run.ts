@@ -10,8 +10,8 @@ import { constants } from "node:os";
 const REPORT_FILE = "reports/mutation/mutation.json";
 const HTML_FILE = "reports/mutation/mutation.html";
 const RECORD_FILE = "reports/mutation/record.md";
-// The record goes into a GitHub comment, and that holds 65,536 characters; the slack is for the
-// signature of whoever publishes it.
+// The record goes into a GitHub comment, and that holds 65,536 characters; the slack is for what the
+// closing comment of a batch adds around it: the lists of its PRs and the signature.
 const RECORD_LIMIT = 60_000;
 const STATUSES = ["Killed", "Timeout", "Survived", "NoCoverage", "CompileError", "RuntimeError", "Ignored", "Pending"];
 

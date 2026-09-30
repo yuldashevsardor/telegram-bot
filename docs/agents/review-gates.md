@@ -174,8 +174,8 @@ tests (`docs/architecture/testing.md`, "The type checker"). The gate runs no mut
 neither the author nor the reviewer runs `make mutation`. The issue the PR closes is recorded in a
 batch instead, and the whole of `src/` runs on fresh `main` once per batch. The author records it
 after the PR is created (`make mutation-full-record issue=<M> pr=<N>`), and the review checks the
-record (`make mutation-full-check pr=<N>`): an issue that is not recorded is red. How a batch is
-kept is in the docstring of `scripts/review/mutation_batch.py`.
+record (`make mutation-full-check pr=<N>`): an issue not recorded together with this PR is red. How
+a batch is kept is in the docstring of `scripts/review/mutation_batch.py`.
 
 A run of the PR's own area went until #712, and the owner (2026-09-30) dropped it for its price. It
 was paid on every review round, and parallel sessions on one machine slow each other down 3–8×: on

@@ -244,6 +244,12 @@ mutation-full-record: ## Record an issue and its PR in the batch of the deferred
 mutation-full-check: ## Whether the issue a PR closes is recorded in a batch of the full mutation run: make mutation-full-check pr=<N>
 	@python3 scripts/review/mutation_batch.py check '$(pr)'
 
+# The issues of the survivors go in as one argument, and the action splits them. It reads the run
+# record reports/mutation/record.md from the directory make runs in: the root of the worktree of the
+# run.
+mutation-full-close: ## Close a batch after its full run, carrying the PRs it did not cover over: make mutation-full-close batch=<N> [issues="<N> …"]
+	@python3 scripts/review/mutation_batch.py close '$(batch)' '$(strip $(issues))'
+
 # The recipe line is not echoed: stdout is the report the skill reads. The three arguments go in a
 # fixed order, the empty ones as empty strings.
 review-run: ## The mechanical run of a PR review in one call, from the tree the review started in: make review-run pr=<N> gates="<gates>" [flags="--no-post"]
@@ -257,5 +263,5 @@ review-tree-remove: ## Remove a temporary review tree <main worktree>-review-<PR
 	migrate migrate-create build typecheck test test-watch coverage \
 	lint lint-fix format-check format mutation check rebuild shell psql \
 	worktree-init worktree-cleanup token-acquire token-renew token-release token-status token-add \
-	review-test review-tree-create mutation-full-record mutation-full-check review-run \
-	review-tree-remove help
+	review-test review-tree-create mutation-full-record mutation-full-check mutation-full-close \
+	review-run review-tree-remove help
