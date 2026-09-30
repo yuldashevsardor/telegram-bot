@@ -46,9 +46,9 @@ two, the repository would hold two copies of the checklist, and the first edit w
   a target that runs an action of `scripts/review/` from the tree you were started in, never from a
   temporary one. In a temporary tree the `Makefile` and `scripts/review/` are the PR's code under
   review, so the PR would be reviewed by its own version of the action. A PR opened before an action
-  was merged has no such target at all: a re-review of PR #524 got `No rule to make target
-  'mutation-area'`. An action takes what it reads of the PR from the PR tree named in its arguments
-  or from the objects the trees share.
+  was merged has no such target at all: a re-review of PR #524 got a `No rule to make target …`
+  error. An action takes what it reads of the PR from the PR tree named in its arguments or from the
+  objects the trees share.
 - **A temporary tree does not outlive the run.** "Cleaning up the temporary trees" of `fallback.md`
   removes every tree you created in step 2 whatever the outcome, a red gate, BLOCKED and a stop
   halfway included.

@@ -301,9 +301,9 @@ and why one failure is not classified at all:
   (`bot.init()`), so a 404 while the bot runs is an unknown method, a bug of the call, and it is
   `Unexpected`.
 - An `HttpError` is `Transient` although grammY throws it also after Telegram may have taken the
-  call: its own timeout, a connection reset while the answer is on its way. The Bot API has no
-  idempotency key, so the retry can deliver the message twice. The outbox delivers at least once
-  anyway (see "The lease"), and a duplicate costs less than a lost message or a blocked chat.
+  call: its own timeout, a connection reset while the answer is on its way. The retry can deliver
+  the message twice. The delivery is at least once anyway (see "The lease"), and a duplicate costs
+  less than a lost message or a blocked chat.
 - The exception is a file that is gone, the file of a `PathFile`: `Unexpected` at once, since every
   retry would look for the same missing file. The sign is `ENOENT` of `open` on the error of the
   file stream, which grammY passes on inside the `HttpError` as it is (`isMissingFile()`). The
@@ -323,18 +323,29 @@ of `applyOutcome()` and `retryOrBlock()`. The error goes into the attempt as
 serializer leaves out and why is in the comment of `serialize()`.
 
 An `Unauthorized` failure pauses the outbox as a flood does, for `UNAUTHORIZED_PAUSE_SECONDS`, and
-returns the message to `pending`: sending resumes by itself once a node restarted with a new token
-finds the pause over. Why the pause is that long is in the comment of the constant. No chat is
-blocked, so the handler logs the refused token as an error itself.
+returns the message to `pending`: sending resumes by itself once the pause is over and no node with
+the old token is left. During a rolling restart a node still on the old token that wins a pull
+after a pause gets a 401 and pauses the outbox for every node, the restarted ones included, so
+sending stops and starts until the last node is restarted. Why the pause is that long is in the
+comment of the constant. No chat is blocked, so the handler logs the 401 as an error itself.
 
 Its attempt counts as a flood's does, but a token outage is not bounded as a `retry_after` is. The
-first pull after each pause takes one message (see "Limits"), and the retry keeps the
-`next_attempt_at` its chat got from that pull, so the probes go round the waiting chats, one per
-pause. A head collects `OUTBOX_MAX_ATTEMPTS` of them after that many rounds, about as many pauses
-times the number of waiting chats. After the restart, its first transient failure then blocks its
-chat with no retry. That is accepted: a revoked token is an incident fixed by hand anyway, the
-chats it leaves blocked are unblocked in the same pass, and leaving a 401 out of the count would
-move a count by `kind` into the SQL of `pull()`.
+first pull after each pause takes one message (see "Limits"), the head of the most urgent priority
+first (see "Pull", step 2), so a less urgent head is pulled only when no more urgent chat can be:
+`ready`, its `next_attempt_at` passed and not locked. The retry keeps the `next_attempt_at` its chat
+got from that pull, unless the 401 came back later than the chat limit, so the probes go round the
+waiting chats within the most urgent waiting priority. A pause can carry more than one probe: a
+pull that another node makes while the 401 is still on its way finds the probed chat `processing`
+and takes the next head that can be pulled, a less urgent one included. A head of the most urgent
+waiting priority that shares it with other waiting chats collects `OUTBOX_MAX_ATTEMPTS` probes in
+at most about as many pauses times the number of those chats; a less urgent head gets only such
+stray probes, if any. A lone head of the most urgent priority, a reply to a user among bulk
+messages, gets one probe per pause and collects them in about `OUTBOX_MAX_ATTEMPTS` pauses: the
+most urgent chat pays first. Once the last node is restarted, a head with `OUTBOX_MAX_ATTEMPTS - 1`
+attempts or more, those before the outage included, blocks its chat on its first transient failure,
+with no retry. That is accepted: a revoked token is an incident fixed by hand anyway, the chats it
+leaves blocked are unblocked in the same pass, and leaving a 401 out of the count would move a count
+by `kind` into the SQL of `pull()`.
 
 Every attempt counts towards `OUTBOX_MAX_ATTEMPTS`, a flood included: the attempt being handled is
 `earlierAttempts + 1`. The limit is checked on a transient failure only, so a flood never blocks a
