@@ -62,7 +62,8 @@ describe("TelegramBotApiFailureClassifier", function () {
         expect(classifier.classify(error)).to.deep.equal({ kind: TelegramBotApiFailureKind.Transient });
     });
 
-    // Only open() of the file of a PathFile is the file of the call gone.
+    // Guards the syscall comparison of isMissingFile(). The input is made by hand: grammY with
+    // node-fetch does not pass such an error on, its FetchError drops the syscall.
     it("keeps an ENOENT of a syscall other than open transient", function () {
         const missingSocket = Object.assign(new Error("connect ENOENT /run/proxy.sock"), {
             code: "ENOENT",
