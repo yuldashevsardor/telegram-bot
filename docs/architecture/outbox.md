@@ -330,22 +330,33 @@ sending stops and starts until the last node is restarted. Why the pause is that
 comment of the constant. No chat is blocked, so the handler logs the 401 as an error itself.
 
 Its attempt counts as a flood's does, but a token outage is not bounded as a `retry_after` is. The
-first pull after each pause takes one message (see "Limits"), the head of the most urgent priority
-first (see "Pull", step 2), so a less urgent head is pulled only when no more urgent chat can be:
-`ready`, its `next_attempt_at` passed and not locked. The retry keeps the `next_attempt_at` its chat
-got from that pull, unless the 401 came back later than the chat limit, so the probes go round the
-waiting chats within the most urgent waiting priority. A pause can carry more than one probe: a
-pull that another node makes while the 401 is still on its way finds the probed chat `processing`
-and takes the next head that can be pulled, a less urgent one included. A head of the most urgent
-waiting priority that shares it with other waiting chats collects `OUTBOX_MAX_ATTEMPTS` probes in
-at most about as many pauses times the number of those chats; a less urgent head gets only such
-stray probes, if any. A lone head of the most urgent priority, a reply to a user among bulk
-messages, gets one probe per pause and collects them in about `OUTBOX_MAX_ATTEMPTS` pauses: the
-most urgent chat pays first. Once the last node is restarted, a head with `OUTBOX_MAX_ATTEMPTS - 1`
-attempts or more, those before the outage included, blocks its chat on its first transient failure,
-with no retry. That is accepted: a revoked token is an incident fixed by hand anyway, the chats it
-leaves blocked are unblocked in the same pass, and leaving a 401 out of the count would move a count
-by `kind` into the SQL of `pull()`.
+counts of probes below rest on two premises: the caller sleeps on `nextPullInMs`, and the set of
+waiting chats stays the same through the outage. Such a caller pulls within one common cooldown of
+the end of the pause, so the first pull after each pause takes one message (see "Limits"), the head
+of the most urgent priority first (see "Pull", step 2), so a less urgent head is pulled only when no
+more urgent chat can be: `ready`, its `next_attempt_at` passed and not locked. A pull that comes
+later has a budget of more than one (`floor((now() - next_send_at) / cooldown) + 1`) and takes the
+next heads as well, less urgent ones included, and each of them collects a probe per pause. The
+retry keeps the `next_attempt_at` its chat got from that pull, unless the 401 came back later than
+the chat limit, so the probes go round the waiting chats within the most urgent waiting priority. A
+pause can carry more than one probe: a pull that another puller makes while the 401 is still on its
+way, a worker of another node or of the same one, finds the probed chat `processing` and takes the
+next head that can be pulled, a less urgent one included. A head of the most urgent waiting priority
+that shares it with other waiting chats collects `OUTBOX_MAX_ATTEMPTS` probes in about as many
+pauses times the number of those chats; a less urgent head gets only such stray probes, if any. A
+chat that starts waiting during the outage joins the round and lengthens it: a new chat's
+`next_attempt_at` is the time of its push, and an idle one keeps its old one (see "Limits"), so
+either can be ordered ahead of the probed heads. A lone head of the most urgent priority, a reply
+to a user among bulk messages, gets one probe per pause and collects them in about
+`OUTBOX_MAX_ATTEMPTS` pauses: the most urgent chat pays first.
+
+A head with `OUTBOX_MAX_ATTEMPTS - 1` attempts or more, those before the outage included, blocks its
+chat on its first transient failure, with no retry. That can happen during the outage as well: a
+probe answered by an `HttpError` instead of a 401 goes through `retryOrBlock()`, and so does the
+lease of a node that died mid-probe once it is recovered. After the last node is restarted, every
+such head is a transient failure away from the block. That is accepted: a revoked token is an
+incident fixed by hand anyway, the chats it leaves blocked are unblocked in the same pass, and
+leaving a 401 out of the count would move a count by `kind` into the SQL of `pull()`.
 
 Every attempt counts towards `OUTBOX_MAX_ATTEMPTS`, a flood included: the attempt being handled is
 `earlierAttempts + 1`. The limit is checked on a transient failure only, so a flood never blocks a
