@@ -17,7 +17,7 @@ export async function up(pgm: MigrationBuilder): Promise<void> {
     });
     pgm.alterColumn(chats, "lock_token", {
         comment:
-            "The token of the current pull: a write of a later pull does not match it, and neither does a late write of a node presumed dead once its lease is recovered",
+            "The token of the current pull: a write of an earlier pull does not match it, and neither does a late write of a node presumed dead once its lease is recovered",
     });
 }
 

@@ -806,8 +806,8 @@ describe("OutboxStore", function () {
             await store.push(message(CHAT, "expired"));
             const expired = await pullOne();
             const longLeasing = new OutboxStore(database, logger, NO_LIMITS, LEASE_DURATION_MS);
-            await longLeasing.push(message(OTHER_CHAT, "leased"));
-            await longLeasing.pull(10, WORKER);
+            const leased = await longLeasing.push(message(OTHER_CHAT, "leased"));
+            expect((await longLeasing.pull(10, WORKER)).messages.map(({ id }) => id)).to.deep.equal([leased]);
             await store.push(message(READY_CHAT, "ready"));
             await sleep(SHORT_LEASE_MS * 2);
 
