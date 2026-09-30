@@ -161,7 +161,6 @@ migrations/                 migrations, common/ holds the shared shorthands and 
 scripts/                    host scripts of the make targets; claude-worktree-guard is a hook (testing.md)
   review/                   the Python actions of the review skills and the width check of make check,
                             each with its test_*.py next to it (testing.md)
-    records/                mutation run records as published in PRs, read by test_mutation_record.py
     templates/              the texts mutation_batch.py posts to GitHub
 ```
 
