@@ -28,7 +28,6 @@ export class FontSignatureMatcher {
         this.signaturesByExtension = {
             [Extension.TTF]: sfnt,
             [Extension.OTF]: sfnt,
-            [Extension.WOFF]: [{ offset: 0, bytes: this.ascii("wOFF") }],
             [Extension.WOFF2]: [{ offset: 0, bytes: this.ascii("wOF2") }],
             [Extension.EOT]: [{ offset: FontSignatureMatcher.EOT_MAGIC_OFFSET, bytes: [0x4c, 0x50] }],
         };

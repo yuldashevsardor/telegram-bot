@@ -9,6 +9,7 @@ import { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-signature-matcher";
 import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
 import { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
+import { WoffFontValidator } from "app/font-convertor/validator/woff/woff-font-validator";
 import { InvalidPath } from "app/shared/fs/file-helper.errors";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
@@ -19,7 +20,7 @@ const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 // The branches of the check itself run in convertor.spec.ts. The EOT pairs run on stubs in
 // eot-convertor.spec.ts; only their SVG route runs here, with the real engine and codec, below.
 describe("Convertors of the engine pairs", function () {
-    const resolver = new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator());
+    const resolver = new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator(), new WoffFontValidator());
     const factory = new ConvertorFactory(new FontForge("fontforge"), resolver, new EotPacker());
     const engineExtensions = factory.getSupportedExtensions().filter((extension) => extension !== Extension.EOT);
     const nonSvgExtensions = factory.getSupportedExtensions().filter((extension) => extension !== Extension.SVG);

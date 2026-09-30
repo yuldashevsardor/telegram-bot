@@ -10,6 +10,7 @@ import { ExecuteError, ExtensionNotSupport } from "app/font-convertor/font-forge
 import { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-signature-matcher";
 import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
 import { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
+import { WoffFontValidator } from "app/font-convertor/validator/woff/woff-font-validator";
 import { FileHelper } from "app/shared/fs/file-helper";
 import { ProcessFailed } from "app/shared/process/process-helper.errors";
 
@@ -19,7 +20,7 @@ describe("FontForge.convert", function () {
     const fontForge = new FontForge("fontforge");
     const engineExtensions = new ConvertorFactory(
         fontForge,
-        new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator()),
+        new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator(), new WoffFontValidator()),
         new EotPacker(),
     )
         .getSupportedExtensions()
@@ -34,15 +35,14 @@ describe("FontForge.convert", function () {
         await fs.rm(workDir, { recursive: true, force: true });
     });
 
-    // The pair has different signatures on purpose: TTF and OTF share one, and with it the test
-    // would pass even if the engine just copied the source.
+    // The pair has different formats on purpose: TTF and OTF share one signature, and with it the
+    // test would pass even if the engine just copied the source.
     it("converts a font with the engine", async function () {
-        const matcher = new FontSignatureMatcher();
         const distPath = path.join(workDir, "result.woff");
 
         await fontForge.convert(fixture(Extension.TTF), distPath);
 
-        expect(matcher.matches(await FileHelper.readHead(distPath, matcher.headLength), Extension.WOFF)).to.be.true;
+        await new WoffFontValidator().validate(distPath);
     });
 
     // The case of the source extension is set by whoever sent the file, and the engine's format list is lowercase.
