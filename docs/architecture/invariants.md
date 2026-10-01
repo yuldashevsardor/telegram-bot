@@ -118,8 +118,9 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   - in the outbox, for a private or group limit, `next_attempt_at` of a pulled chat becomes
     `infinity`, which PostgreSQL accepts, and the chat is never pulled again;
   - in the outbox, for the common limit, the budget is zero: nothing is pulled, `next_send_at`
-    stays in the past, and `nextPullInMs` is 0 while a chat is ready, so a worker pulls again
-    without a pause ([`outbox.md`](./outbox.md), "Limits").
+    stays in the past, and `nextPullInMs` is 0 while a chat is ready: the message source does not
+    spin on it, but pulls again after every sleep of up to 1 s, for good
+    ([`outbox.md`](./outbox.md), "Limits", "The message source").
 
 ## The outbound queue
 

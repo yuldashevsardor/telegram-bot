@@ -108,7 +108,6 @@ export class OutboxMessageSource {
         return Math.min(nextPullInMs, capMs);
     }
 
-    // A random point between MIN_SLEEP_CAP_MS and MAX_SLEEP_CAP_MS, drawn for each sleep.
     private randomCapMs(): number {
         return MIN_SLEEP_CAP_MS + this.random() * (MAX_SLEEP_CAP_MS - MIN_SLEEP_CAP_MS);
     }
