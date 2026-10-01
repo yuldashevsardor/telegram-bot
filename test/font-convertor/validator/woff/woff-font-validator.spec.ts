@@ -41,6 +41,8 @@ const ORIG_LENGTH = 12;
 const ORIG_CHECKSUM = 16;
 // numGlyphs by its offset in maxp (OpenType 1.9.1, maxp).
 const MAXP_NUM_GLYPHS = 4;
+// numTables by its offset in cmap (OpenType 1.9.1, cmap).
+const CMAP_NUM_TABLES = 2;
 
 // The fixture: flavor OTTO, 11 tables, 67 316 bytes, no metadata and no private block.
 const FIXTURE_SIZE_BYTES = 67316;
@@ -703,6 +705,19 @@ describe("WoffFontValidator.validate", function () {
             });
 
             await expectBrokenSfnt(build(noGlyphs), SfntRule.NotdefGlyph, 'At table "maxp": numGlyphs is 0, expected at least 1.');
+        });
+
+        it("rejects a font by a rule on cmap, name, OS/2 or post", async function () {
+            // A cmap without subtables loses the encoding in fontforge, with exit 0 (issue #683).
+            const noSubtables = withStoredTable(fixtureLayout, "cmap", (table) => {
+                const cmap = Uint8Array.from(uncompressed(table));
+
+                new DataView(cmap.buffer).setUint16(CMAP_NUM_TABLES, 0);
+
+                return compressed("cmap", cmap, checksum(cmap));
+            });
+
+            await expectBrokenSfnt(build(noSubtables), SfntRule.CmapSubtables, 'At table "cmap": numTables is 0, expected at least 1.');
         });
 
         it("rejects a font with CFF2 outlines", async function () {

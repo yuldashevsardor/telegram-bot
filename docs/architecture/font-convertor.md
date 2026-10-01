@@ -231,9 +231,8 @@ the validator rebuilds, in memory, the sfnt they were packed from, as §5 and §
 (`WoffFontValidator.sfnt()`), and hands the bytes to `SfntFontValidator.validateBytes()`. The sfnt
 validator's answer, a subclass of `InvalidSfntFont` naming the WOFF file in `path`, passes through
 as the WOFF validator's own. The rebuild repeats what the container has confirmed, so the sfnt
-rules on the header and the table records cannot fail there. Those on which tables the font has (a
-required table, the outlines, `OS/2` with CFF, CFF2) and on the content of `head`, `maxp`, `hhea`,
-`hmtx` and `loca` can.
+rules on the header and the table records cannot fail there. Those on which tables the font has and
+on their content, `checkTables()` and `checkContent()` of `SfntFontValidator`, can.
 
 The rules are `WoffRule` in `woff-font-validator.types.ts`, each with its section. Two of them are
 ours, not the standard's, and the text of each says why: the flavor is one of `SFNT_VERSIONS` (see
@@ -307,11 +306,9 @@ the engine forgives, but the standard does not. The length of `hmtx` and of `loc
 an exact size: none of the 297 real fonts with TrueType outlines measured has either table longer
 than its fields, so the stricter form would buy nothing.
 
-The rules on `cmap`, `name`, `OS/2` and `post` read the version and whether the headers and records
-of `cmap` and `name`, the fields of the `OS/2` version and the 32-byte header of `post` fit into the
-table, not what the records point to: neither the content of a `cmap` subtable, nor the strings of
-`name`, nor the glyph names of `post` 2.0 and 2.5. The engine converts every such break keeping
-every glyph, and some of them lose content
+The rules on `cmap`, `name`, `OS/2` and `post` do not read what the records point to: neither the
+content of a `cmap` subtable, nor the strings of `name`, nor the glyph names of `post` 2.0 and 2.5.
+The engine converts every break they catch keeping every glyph, and some of them lose content
 ([#683](https://github.com/yuldashevsardor/telegram-bot/issues/683)): a `cmap` without subtables or
 with a subtable offset past the table loses the encoding, with "Could not find any valid encoding
 tables"; a `name` with 60000 records gives "Invalid mac encoding 65535". The length `OS/2` needs by
