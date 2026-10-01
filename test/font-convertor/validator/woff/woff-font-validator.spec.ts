@@ -707,7 +707,7 @@ describe("WoffFontValidator.validate", function () {
             await expectBrokenSfnt(build(noGlyphs), SfntRule.NotdefGlyph, 'At table "maxp": numGlyphs is 0, expected at least 1.');
         });
 
-        it("rejects a font by a rule on cmap, name, OS/2 or post", async function () {
+        it("rejects a font whose cmap has no subtables", async function () {
             // A cmap without subtables loses the encoding in fontforge, with exit 0 (issue #683).
             const noSubtables = withStoredTable(fixtureLayout, "cmap", (table) => {
                 const cmap = Uint8Array.from(uncompressed(table));

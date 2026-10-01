@@ -60,9 +60,9 @@ because a font does not guarantee the order of its records.
 The names are informational, so the codec never rejects a font over a missing name: the matching
 envelope field stays empty. That holds for a missing record, a missing `name` table, and a string
 past the declared end of the table or past the end of the file. A TTF source without the `name`
-table does not reach the codec: `SfntFontValidator` below rejects it, since OpenType requires the
-table. So the tolerance for a missing table serves the intermediate sfnt the engine writes, while a
-missing record or a string out of bounds is packed from a source too.
+table, or with a string past its end, does not reach the codec: `SfntFontValidator` below rejects
+it. So the tolerance for a missing table and for a string out of bounds serves the intermediate
+sfnt the engine writes, while a missing record is packed from a source too.
 
 `eot-packer.ts` writes version `0x00020001`. The header is read through `EotHeader`
 (`font-convertor/eot-header/`), which lays out the fixed part, the names and the tail of every
@@ -251,16 +251,14 @@ version to the outlines.
 checks it, or takes from `WoffFontValidator` (above) the bytes of the sfnt a WOFF carries, and
 checks them against the Microsoft OpenType specification 1.9.1 and, for what it governs, Apple's
 TrueType Reference Manual: the table directory ("Table Directory"), the tables a font must have
-("Required Tables"), the fields of `head`, `maxp`, `hhea`, `hmtx` and `loca` that give the glyph
-count, where each glyph's metrics lie and, with TrueType outlines, where its outline lies, and the
-version of `cmap`, `name`, `OS/2` and `post` with whether the headers and records of `cmap` and
-`name`, the fields of the `OS/2` version and the 32-byte header of `post` fit into the table (each
-table by its own section). `FontValidatorResolver` gives it out for a TTF and an OTF source alike,
-and its answer reaches the caller the way the SVG one does: as the cause of `FontConvertorError`,
-before the engine is called. The engine's TTF and OTF output is not checked. The validator exists
-because the engine does not refuse a broken sfnt: of 104 variants of the fixtures, each broken in
-one place, fontforge 20230101 converted 79 with exit 0, 9 of them losing glyphs or outlines, and
-crashed on 8 with SIGSEGV ([#614](https://github.com/yuldashevsardor/telegram-bot/issues/614)).
+("Required Tables"), and the fields of each table by its own section. Which fields of which tables
+it reads is in the class comment of `SfntFontValidator`. `FontValidatorResolver` gives it out for a
+TTF and an OTF source alike, and its answer reaches the caller the way the SVG one does: as the
+cause of `FontConvertorError`, before the engine is called. The engine's TTF and OTF output is not
+checked. The validator exists because the engine does not refuse a broken sfnt: of 104 variants of
+the fixtures, each broken in one place, fontforge 20230101 converted 79 with exit 0, 9 of them
+losing glyphs or outlines, and crashed on 8 with SIGSEGV
+([#614](https://github.com/yuldashevsardor/telegram-bot/issues/614)).
 `ttf → eot` does not reach the engine at all: `EotPacker.pack` reads `OS/2`, `head` and `name` and
 packs whatever else the font holds.
 
@@ -306,14 +304,23 @@ the engine forgives, but the standard does not. The length of `hmtx` and of `loc
 an exact size: none of the 297 real fonts with TrueType outlines measured has either table longer
 than its fields, so the stricter form would buy nothing.
 
-The rules on `cmap`, `name`, `OS/2` and `post` do not read what the records point to: neither the
-content of a `cmap` subtable, nor the strings of `name`, nor the glyph names of `post` 2.0 and 2.5.
-The engine converts every break they catch keeping every glyph, and some of them lose content
-([#683](https://github.com/yuldashevsardor/telegram-bot/issues/683)): a `cmap` without subtables or
-with a subtable offset past the table loses the encoding, with "Could not find any valid encoding
-tables"; a `name` with 60000 records gives "Invalid mac encoding 65535". The length `OS/2` needs by
-its version, and why version 0 passes shortened, is in the comment of `OS2_LENGTHS_BYTES` in
-`SfntFontValidator`.
+The rules on `cmap`, `name`, `OS/2` and `post` check where the records point, not what lies there:
+neither the content of a `cmap` subtable past its format and length, nor the text of a `name`
+string, nor the glyph names of `post` 2.0 and 2.5 past their index. Every break they catch the
+engine either converts keeping every glyph, some of them losing content, or crashes on
+([#683](https://github.com/yuldashevsardor/telegram-bot/issues/683),
+[#752](https://github.com/yuldashevsardor/telegram-bot/issues/752)): a `cmap` without subtables,
+or whose every subtable offset points into its header and records or past where a subtable header
+fits, loses the encoding, with "Could not find any valid encoding tables"; a `name` with 60000
+records gives "Invalid mac encoding 65535"; a `name` string past the table crashed fontforge with
+SIGSEGV in every conversion in 7 of the 14 variants measured and put foreign bytes into the full
+name in 2; a `post` 2.0 cut to its 32-byte header renames 399 glyphs of the TrueType fixture, those
+without an encoding, to `glyphN`. Some breaks the rules follow the standard on, not the engine:
+`name` records that run into the string storage convert with nothing lost, and so does a `cmap`
+whose one record points into its header while another Unicode record holds. None of
+the rules rejects a font of the 242 in the macOS system font folders, which the validator walks in
+0.3 s. The length `OS/2` needs by its version, and why version 0 passes shortened, is in the comment
+of `OS2_LENGTHS_BYTES` in `SfntFontValidator`.
 
 What is deliberately not checked, with the reasons, is in the class comment of
 `SfntFontValidator`: the table checksums and `head.checkSumAdjustment`, which the engine does not
