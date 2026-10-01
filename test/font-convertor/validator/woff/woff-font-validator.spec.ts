@@ -5,6 +5,9 @@ import path from "path";
 import zlib from "zlib";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { SFNT_VERSIONS } from "app/font-convertor/sfnt-version";
+import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
+import { BrokenSfnt } from "app/font-convertor/validator/sfnt/sfnt-font-validator.errors";
+import { SfntRule } from "app/font-convertor/validator/sfnt/sfnt-font-validator.types";
 import { WoffFontValidator } from "app/font-convertor/validator/woff/woff-font-validator";
 import type { InvalidWoffFont } from "app/font-convertor/validator/woff/woff-font-validator.errors";
 import { BrokenWoff, NotWoff } from "app/font-convertor/validator/woff/woff-font-validator.errors";
@@ -12,7 +15,7 @@ import { WoffRule } from "app/font-convertor/validator/woff/woff-font-validator.
 import { ReadFailed } from "app/shared/fs/file-helper.errors";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
-const validator = new WoffFontValidator();
+const validator = new WoffFontValidator(new SfntFontValidator());
 
 const HEADER_SIZE_BYTES = 44;
 const ENTRY_SIZE_BYTES = 20;
@@ -36,6 +39,8 @@ const OFFSET = 4;
 const COMP_LENGTH = 8;
 const ORIG_LENGTH = 12;
 const ORIG_CHECKSUM = 16;
+// numGlyphs by its offset in maxp (OpenType 1.9.1, maxp).
+const MAXP_NUM_GLYPHS = 4;
 
 // The fixture: flavor OTTO, 11 tables, 67 316 bytes, no metadata and no private block.
 const FIXTURE_SIZE_BYTES = 67316;
@@ -123,7 +128,7 @@ describe("WoffFontValidator.validate", function () {
         });
 
         it("of every sfnt version the domain accepts", async function () {
-            // The flavor is not checked against the outlines: that is a rule of the enclosed sfnt.
+            // The flavor is not checked against the outlines: SfntFontValidator does not tie the version of the rebuilt sfnt to them.
             for (const version of SFNT_VERSIONS) {
                 await validate(withUint32(fixture, FLAVOR, version));
             }
@@ -649,6 +654,75 @@ describe("WoffFontValidator.validate", function () {
         });
     });
 
+    describe("checks the sfnt it carries", function () {
+        it("rebuilds the sfnt of the fixture as the OTF fixture, byte for byte", async function () {
+            const otf = await fs.readFile(path.join(fixtureDir, `test-font.${Extension.OTF}`));
+
+            expect(Buffer.compare(await rebuiltSfnt(fixture), otf)).to.equal(0);
+        });
+
+        it("rebuilds the wrapped TTF fixture byte for byte, the tables in storage order rather than tag order", async function () {
+            // FFTM is the first record of the TTF fixture and the last table in its file.
+            const ttf = await fs.readFile(path.join(fixtureDir, `test-font.${Extension.TTF}`));
+
+            expect(Buffer.compare(await rebuiltSfnt(build(wrap(ttf))), ttf)).to.equal(0);
+        });
+
+        it("rejects a font without a required table with the answer of SfntFontValidator", async function () {
+            await expectBrokenSfnt(
+                build(withoutTable(fixtureLayout, "cmap")),
+                SfntRule.RequiredTable,
+                'At the table directory: table "cmap" is absent, expected present.',
+            );
+        });
+
+        it("rejects a font without outlines", async function () {
+            await expectBrokenSfnt(
+                build(withoutTable(fixtureLayout, "CFF ")),
+                SfntRule.Outlines,
+                'At the table directory: outlines is none, expected "glyf" with "loca", or "CFF ".',
+            );
+        });
+
+        it("rejects a font with CFF outlines and no OS/2", async function () {
+            await expectBrokenSfnt(
+                build(withoutTable(fixtureLayout, "OS/2")),
+                SfntRule.Os2WithCff,
+                'At the table directory: table "OS/2" is absent, expected present, as the font has "CFF ".',
+            );
+        });
+
+        it("rejects a font by the content of its tables, not only by which tables it has", async function () {
+            // fontforge converts a WOFF with maxp.numGlyphs 0 with exit 0 (issue #687).
+            const noGlyphs = withStoredTable(fixtureLayout, "maxp", (table) => {
+                const maxp = Uint8Array.from(uncompressed(table));
+
+                new DataView(maxp.buffer).setUint16(MAXP_NUM_GLYPHS, 0);
+
+                return compressed("maxp", maxp, checksum(maxp));
+            });
+
+            await expectBrokenSfnt(build(noGlyphs), SfntRule.NotdefGlyph, 'At table "maxp": numGlyphs is 0, expected at least 1.');
+        });
+
+        it("rejects a font with CFF2 outlines", async function () {
+            // The rule two of the 5405 real fonts were rejected by: the variable Source Sans 3.6.0.
+            const withCff2 = { ...fixtureLayout, tables: [...fixtureLayout.tables, compressed("CFF2", new Uint8Array(4), 0)] };
+
+            await expectBrokenSfnt(build(withCff2), SfntRule.NoCff2, 'At the table directory: table "CFF2" is present, expected absent.');
+        });
+
+        it("rejects a font with TrueType outlines and no loca", async function () {
+            const ttf = await fs.readFile(path.join(fixtureDir, `test-font.${Extension.TTF}`));
+
+            await expectBrokenSfnt(
+                build(withoutTable(wrap(ttf), "loca")),
+                SfntRule.Outlines,
+                'At the table directory: outlines is "glyf" without "loca", expected "glyf" with "loca", or "CFF ".',
+            );
+        });
+    });
+
     it("throws ReadFailed, not an answer, on a file that cannot be read", async function () {
         await expectRejection(() => validator.validate(path.join(workDir, `missing.${Extension.WOFF}`)), ReadFailed);
     });
@@ -656,6 +730,23 @@ describe("WoffFontValidator.validate", function () {
     async function validate(content: Uint8Array): Promise<void> {
         await fs.writeFile(fontPath, content);
         await validator.validate(fontPath);
+    }
+
+    /**
+     * The bytes the validator hands to `SfntFontValidator` for a WOFF it accepts as a container.
+     */
+    async function rebuiltSfnt(content: Uint8Array): Promise<Uint8Array> {
+        let rebuilt: Uint8Array | undefined;
+        const recording = new (class extends SfntFontValidator {
+            public override validateBytes(_fontPath: string, bytes: Uint8Array): void {
+                rebuilt = bytes;
+            }
+        })();
+
+        await fs.writeFile(fontPath, content);
+        await new WoffFontValidator(recording).validate(fontPath);
+
+        return rebuilt ?? expect.fail("the sfnt was not handed to SfntFontValidator");
     }
 
     /**
@@ -682,6 +773,15 @@ describe("WoffFontValidator.validate", function () {
         const error = await expectAnswer(content, BrokenWoff, `WOFF breaks a rule: ${rule}. ${where}`);
 
         expect(error.payload).to.include({ rule: rule });
+    }
+
+    /**
+     * The answer of `SfntFontValidator` on the rebuilt sfnt, passed through: it names the WOFF file.
+     */
+    async function expectBrokenSfnt(content: Uint8Array, rule: SfntRule, where: string): Promise<void> {
+        const error = await expectRejection(() => validate(content), BrokenSfnt, `Sfnt font breaks a rule: ${rule}. ${where}`);
+
+        expect(error.payload).to.include({ path: fontPath, rule: rule });
     }
 });
 
@@ -869,6 +969,32 @@ function withEditedTable(layout: Layout, tag: string, edit: (table: Uint8Array) 
 
         return compressed(tag, bytes, table.origChecksum);
     });
+}
+
+/**
+ * The sfnt checksum of a table other than head: the sum of its big-endian 32-bit words, padded with
+ * zeros, modulo 2^32.
+ */
+function checksum(table: Uint8Array): number {
+    const padded = new Uint8Array(Math.ceil(table.length / 4) * 4);
+
+    padded.set(table);
+
+    const view = new DataView(padded.buffer);
+    let sum = 0;
+
+    for (let offset = 0; offset < padded.length; offset += 4) {
+        sum = (sum + view.getUint32(offset)) >>> 0;
+    }
+
+    return sum;
+}
+
+/**
+ * The layout without the table of `tag`.
+ */
+function withoutTable(layout: Layout, tag: string): Layout {
+    return { ...layout, tables: layout.tables.filter((table) => table.tag !== tag) };
 }
 
 /**

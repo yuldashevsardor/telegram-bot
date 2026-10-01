@@ -66,6 +66,14 @@ export type TableEntry = {
 };
 
 /**
+ * A table of the directory with its bytes inflated, as the rebuilt sfnt holds them.
+ */
+export type InflatedTable = {
+    entry: TableEntry;
+    bytes: Uint8Array;
+};
+
+/**
  * The kinds of block, in the order §3 lays them out in the file.
  */
 export enum BlockKind {
