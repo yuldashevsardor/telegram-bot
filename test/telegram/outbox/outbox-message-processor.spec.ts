@@ -93,7 +93,7 @@ describe("OutboxMessageProcessor", function () {
             failureHandler as unknown as OutboxFailureHandler,
             logger,
         );
-        directory = await fs.mkdtemp(path.join(os.tmpdir(), "outbox-sender-"));
+        directory = await fs.mkdtemp(path.join(os.tmpdir(), "outbox-message-processor-"));
     });
 
     afterEach(async function () {
