@@ -17,6 +17,7 @@ export enum FontRule {
     PositiveUnitsPerEm = "units-per-em is positive (SVG 1.1, §20.8.3)",
     PathData = "d of a glyph or missing-glyph is path data (SVG 1.1, §8.3.9, §20.4, §20.5)",
     GlyphRequired = "font has a glyph child (ours: fontforge turns a font without glyphs into an empty one)",
+    SingleFont = "the document has one font element in any namespace (ours: fontforge converts the first of several and drops the rest)",
 }
 
 /**
@@ -59,6 +60,8 @@ export type Scan = {
     /** The root element in Clark notation, `{namespace}local`. */
     root: string | undefined;
     hasFont: boolean;
+    /** The elements named `font` in any namespace: fontforge takes each of them for a font. */
+    fontElementCount: number;
     /** The first broken rule the pass met. */
     violation: Violation | undefined;
     open: Array<OpenElement>;

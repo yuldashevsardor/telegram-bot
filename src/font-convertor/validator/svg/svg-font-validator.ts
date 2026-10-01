@@ -103,7 +103,7 @@ export class SvgFontValidator implements FontValidator {
     }
 
     private scan(fontPath: string, text: string, encoding: Encoding): Scan {
-        const scan: Scan = { svg11Doctype: false, root: undefined, hasFont: false, violation: undefined, open: [] };
+        const scan: Scan = { svg11Doctype: false, root: undefined, hasFont: false, fontElementCount: 0, violation: undefined, open: [] };
         // XML 1.0 fifth edition: a document declaring another 1.x version is read as 1.0.
         const parser = new SaxesParser({
             xmlns: true,
@@ -158,6 +158,16 @@ export class SvgFontValidator implements FontValidator {
         }
 
         scan.open.push(element);
+
+        // fontforge reads a `font` of any namespace as a font, and of several converts the first
+        // without a word. Which one to take is not the domain's call, as with an sfnt collection.
+        if (tag.local === "font") {
+            scan.fontElementCount += 1;
+
+            if (scan.fontElementCount > 1) {
+                this.report(scan, FontRule.SingleFont, "font", line);
+            }
+        }
 
         if (element.name === "font") {
             scan.hasFont = true;

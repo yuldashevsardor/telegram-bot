@@ -500,12 +500,23 @@ describe("SvgFontValidator.validate", function () {
             await expectAnswer(inline(`<font horiz-adv-x="500">${FONT_FACE}<glyph xmlns="urn:x"/></font>`), BrokenFont, message);
         });
 
-        it("to a broken font after a valid one", async function () {
-            await expectAnswer(
-                inline(`${FONT}\n<font horiz-adv-x="-1">${FONT_FACE}${GLYPH}</font>`),
-                BrokenFont,
-                'SVG font breaks a rule: horiz-adv-x is not negative (SVG 1.1, §20.3, §20.4). At line 3: <font> with horiz-adv-x="-1".',
-            );
+        describe("to a second font element", function () {
+            const message =
+                "SVG font breaks a rule: the document has one font element in any namespace (ours: fontforge converts the first of several and drops the rest). At line 3: <font>.";
+
+            it("next to a valid font, wherever it lies", async function () {
+                await expectAnswer(inline(`${FONT}\n${FONT}`), BrokenFont, message);
+                await expectAnswer(inline(`<defs>${FONT}</defs>\n<g><defs>${FONT}</defs></g>`), BrokenFont, message);
+            });
+
+            it("before the rules of that font", async function () {
+                await expectAnswer(inline(`${FONT}\n<font horiz-adv-x="-1">${FONT_FACE}${GLYPH}</font>`), BrokenFont, message);
+            });
+
+            it("outside the SVG namespace, since fontforge reads it as a font", async function () {
+                await expectAnswer(inline(`<font xmlns="urn:x"/>\n${FONT}`), BrokenFont, message);
+                await expectAnswer(inline(`${FONT}\n<x:font xmlns:x="urn:x"/>`), BrokenFont, message);
+            });
         });
 
         it("naming the first rule broken", async function () {
