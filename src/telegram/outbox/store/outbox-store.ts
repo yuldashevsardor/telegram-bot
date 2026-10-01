@@ -353,6 +353,13 @@ export class OutboxStore {
         `;
     }
 
+    // Wakes the nodes that sleep with nothing to pull, for a chat made ready by something other than a
+    // push: a node that sleeps on a null nextPullInMs learns of it from nothing else. Called after the
+    // transaction that made the chat ready has committed, so a pull on it sees the chat.
+    public async notifyReady(): Promise<void> {
+        await this.sql`SELECT pg_notify(${OutboxChannel.Ready}, '')`;
+    }
+
     // The time a limit leaves between two messages, as the in-memory queue spaces them. LIMIT_*_NUMBER
     // is at least 1, so the cooldown is finite.
     private cooldownMs(limit: TelegramLimits[keyof TelegramLimits]): number {

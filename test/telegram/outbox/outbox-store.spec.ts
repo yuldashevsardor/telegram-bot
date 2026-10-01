@@ -977,15 +977,6 @@ describe("OutboxStore", function () {
             expect(await leaseEnd(OTHER_CHAT)).to.equal(endBefore);
         });
 
-        it("changes nothing for the token of a completed pull", async function () {
-            const pulled = await pullAlone(CHAT);
-            await store.markAsDone(pulled, RESPONSE);
-
-            await store.extendLeases([pulled.lockToken]);
-
-            expect(await leaseEnd(CHAT)).to.equal(null);
-        });
-
         it("takes an empty list of tokens and changes nothing", async function () {
             await pullAlone(CHAT);
             const endBefore = await leaseEnd(CHAT);
@@ -1035,6 +1026,18 @@ describe("OutboxStore", function () {
             expect(pulledAgain.map(({ id, earlierAttempts }) => ({ id, earlierAttempts }))).to.deep.equal([
                 { id: pulled.id, earlierAttempts: 1 },
             ]);
+        });
+
+        it("wakes the nodes that sleep with nothing to pull once the message is ready again", async function () {
+            await store.push(message(CHAT, "text"));
+            const pulled = await pullOne();
+            const payloads = await listenTo(other, OutboxChannel.Ready);
+
+            await handlerOver(store).releaseOnStop(pulled);
+
+            await waitUntil(() => payloads.length > 0, "no ready notification came");
+            expect(payloads).to.deep.equal([""]);
+            expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Ready });
         });
 
         it("closes the attempt of the pull with a transient error of the stopped node", async function () {

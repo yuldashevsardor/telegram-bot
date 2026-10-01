@@ -20,7 +20,7 @@ export type FinishedOutboxStatus = (typeof FINISHED_STATUSES)[number];
 // The PostgreSQL channels of the outbox. The payload of a Finished notification is the message id
 // alone: NOTIFY carries at most 8000 bytes, less than a Telegram response can take.
 export enum OutboxChannel {
-    // A push: an idle sender can pull.
+    // A push or a release on stop: an idle sender can pull.
     Ready = "telegram_outbox_ready",
     // A message reached a final status.
     Finished = "telegram_outbox_finished",

@@ -154,6 +154,10 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   `OutboxStore.extendLeases()` checks `locked_until` against `now()` of its statement, which cannot
   shut out a recovery that read the lease while the extension ran, so the caller extends
   well before the end of the lease ([`outbox.md`](./outbox.md), "The lease"). Nothing calls it yet.
+- **A call is released on stop only once it has settled.** `OutboxFailureHandler.releaseOnStop()`
+  makes the chat `ready` at once, so a call of the stopping node still on its way can reach Telegram
+  after the next message of the chat, sent by another node: the order inside the chat breaks.
+  Nothing checks that the call has settled ([`outbox.md`](./outbox.md), "Release on stop").
 - **The retention of a `done` and of a `skipped` message must outlast `OUTBOX_RESULT_TIMEOUT` and
   `OUTBOX_LEASE_DURATION`.** A caller still waiting for a message the cleanup has deleted finds no
   row and times out as if the message were never sent, and may send it again. A late completion

@@ -473,9 +473,20 @@ delivery is at least once (see "The lease").
 finish, so another node takes it on its next pull rather than after the lease. It is
 `OutboxStore.retry()` with no delay and the error `OutboxNodeStopped` of class `transient`: the
 message goes back to `pending`, the chat to `ready` with the chat limit the pull set, the lease
-ends, and a stale token is fenced as in every completion (see "Completions"). The release sends no
-notification on `telegram_outbox_ready`, as no completion does: a node that sleeps with nothing to
-pull finds the message when it wakes up.
+ends, and a stale token is fenced as in every completion (see "Completions").
+
+Then the release calls `OutboxStore.notifyReady()`, `pg_notify` on `telegram_outbox_ready` after the
+commit, as a push sends it. The node that would pull the message next is the one that stops, and a
+node whose last pull found nothing `ready` got `nextPullInMs` of `null`: no time to wait for, only a
+notification (see "Limits"). Without it the message could wait for an unrelated push longer than the
+lease the release exists to cut short.
+
+The caller releases a call only once it has settled: aborted and its promise done. The chat is
+`ready` at once, so another node may send the message and the next one behind it while a call of the
+stopping node is still on its way, and Telegram would show the message again after the next one.
+The lease keeps that order only while it outlasts the call (see "The lease"), and the release ends
+it early. An aborted call may still have reached Telegram before the abort: that is the duplicate
+below, not a change of order.
 
 The call may have reached Telegram, so the release writes the attempt and it counts towards
 `OUTBOX_MAX_ATTEMPTS` (see "Outcomes"), although the limit is not checked on it: a stop says nothing

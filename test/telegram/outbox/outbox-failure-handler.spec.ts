@@ -44,7 +44,8 @@ const NODE_STOPPED: OutboxAttemptError = {
 type StoreCall =
     | { method: "retry"; lease: OutboxLease; error: OutboxAttemptError; delayMs: number }
     | { method: "markAsFailed" | "markAsFailedAndBlockChat"; lease: OutboxLease; error: OutboxAttemptError }
-    | { method: "pause"; durationMs: number };
+    | { method: "pause"; durationMs: number }
+    | { method: "notifyReady" };
 
 // Records what the handler asks of the store: which outcome is written is decided here, how it is
 // written is pinned by the store spec.
@@ -70,6 +71,10 @@ class RecordingStore {
 
     public async pause(durationMs: number): Promise<void> {
         this.calls.push({ method: "pause", durationMs });
+    }
+
+    public async notifyReady(): Promise<void> {
+        this.calls.push({ method: "notifyReady" });
     }
 }
 
@@ -242,12 +247,15 @@ describe("OutboxFailureHandler", function () {
     });
 
     describe("a release on stop", function () {
-        it("returns the message to pending with no delay and an attempt of the stopped node", async function () {
+        it("returns the message to pending with no delay and an attempt of the stopped node, then wakes the idle nodes", async function () {
             const message = pulledAfter(0);
 
             await handler.releaseOnStop(message);
 
-            expect(store.calls).to.deep.equal([{ method: "retry", lease: message, error: NODE_STOPPED, delayMs: 0 }]);
+            expect(store.calls).to.deep.equal([
+                { method: "retry", lease: message, error: NODE_STOPPED, delayMs: 0 },
+                { method: "notifyReady" },
+            ]);
         });
 
         it("blocks no chat, even on the last attempt", async function () {
@@ -255,7 +263,10 @@ describe("OutboxFailureHandler", function () {
 
             await handler.releaseOnStop(message);
 
-            expect(store.calls).to.deep.equal([{ method: "retry", lease: message, error: NODE_STOPPED, delayMs: 0 }]);
+            expect(store.calls).to.deep.equal([
+                { method: "retry", lease: message, error: NODE_STOPPED, delayMs: 0 },
+                { method: "notifyReady" },
+            ]);
         });
     });
 

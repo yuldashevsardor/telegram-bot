@@ -72,10 +72,14 @@ export class OutboxFailureHandler {
 
     // A message whose call the stopping node did not finish goes back to pending, and its chat is
     // ready for the next pull on any node. The attempt counts as a transient failure's, although the
-    // limit of attempts is not checked: the stop says nothing about the message, so it blocks no chat
-    // (docs/architecture/outbox.md, "Release on stop").
+    // limit of attempts is not checked: the stop says nothing about the message, so it blocks no chat.
+    // The call must have settled before: a call still on its way could reach Telegram after the
+    // next message of the chat (docs/architecture/outbox.md, "Release on stop").
     public async releaseOnStop(lease: OutboxLease): Promise<void> {
         await this.store.retry(lease, NODE_STOPPED, RELEASE_DELAY_MS);
+        // The node that would pull the message next is this one, and it stops: an idle node sleeps
+        // until a notification otherwise.
+        await this.store.notifyReady();
     }
 
     // Not async on purpose: a switch that misses a kind leaves the end of the function reachable,
