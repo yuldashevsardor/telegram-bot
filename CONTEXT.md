@@ -115,8 +115,9 @@ as the same bytes, but it does not tell styles apart and cannot select a font by
 
 **Glyphs and metrics**:
 Not part of the domain. From a font the service reads the format signature, the metadata for the
-envelope, in a WOFF the rules of its container, in a TTF or an OTF the table directory and which
-tables it holds, and in an SVG the rules of an SVG font, which reach the glyph advances and the
-syntax of the outlines too. It does not interpret the outlines, so it can neither list the glyphs
-nor compare them before and after a conversion. The domain currently neither expresses nor checks
+envelope, in a WOFF the rules of its container, in a TTF or an OTF the table directory, which
+tables it holds, the glyph count and where each glyph's metrics and outline lie, and in an SVG the
+rules of an SVG font, which reach the glyph advances and the syntax of the outlines too. It does not
+interpret the outlines, so it can neither list the glyphs nor compare them before and after a
+conversion. The domain currently neither expresses nor checks
 whether glyphs and metrics survive a conversion.
