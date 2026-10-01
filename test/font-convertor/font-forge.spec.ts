@@ -36,7 +36,7 @@ describe("FontForge.convert", function () {
         await fs.rm(workDir, { recursive: true, force: true });
     });
 
-    // The pair has different formats on purpose: TTF and OTF share one signature, and with it the
+    // The pair has different formats on purpose: TTF and OTF share one validator, and with it the
     // test would pass even if the engine just copied the source.
     it("converts a font with the engine", async function () {
         const distPath = path.join(workDir, "result.woff");

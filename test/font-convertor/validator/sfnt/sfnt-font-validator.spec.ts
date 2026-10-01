@@ -22,8 +22,10 @@ const NUM_TABLES_OFFSET_BYTES = 4;
 const SEARCH_RANGE_OFFSET_BYTES = 6;
 const ENTRY_SELECTOR_OFFSET_BYTES = 8;
 const RANGE_SHIFT_OFFSET_BYTES = 10;
-// The fields of a table record by their offset in it.
+// The fields of a table record by their offset in it: the tag opens it.
+const TAG_SIZE_BYTES = 4;
 const CHECKSUM_OFFSET_BYTES = 4;
+const TABLE_OFFSET_OFFSET_BYTES = 8;
 const LENGTH_OFFSET_BYTES = 12;
 // checkSumAdjustment in head.
 const CHECKSUM_ADJUSTMENT_OFFSET_BYTES = 8;
@@ -84,6 +86,13 @@ describe("SfntFontValidator.validate", function () {
 
         it("whose version is 0x00010000 over CFF outlines", async function () {
             await validate(withUint32(otf, VERSION_OFFSET_BYTES, TRUETYPE_VERSION));
+        });
+
+        it("with CFF outlines and a stray loca or glyf", async function () {
+            // A font with CFF has its outlines: a lone loca or glyf next to it is not TrueType outlines.
+            for (const tag of ["loca", "glyf"]) {
+                await validate(withRecordsSorted(withTag(otf, "GDEF", tag)));
+            }
         });
 
         it("with TrueType outlines and no OS/2", async function () {
@@ -166,10 +175,10 @@ describe("SfntFontValidator.validate", function () {
         });
 
         it("whose table directory does not fit in the file", async function () {
-            const directoryEnd = HEADER_SIZE_BYTES + TTF_NUM_TABLES * RECORD_SIZE_BYTES;
+            const directoryEndBytes = HEADER_SIZE_BYTES + TTF_NUM_TABLES * RECORD_SIZE_BYTES;
 
             await expectBroken(
-                ttf.subarray(0, directoryEnd - 1),
+                ttf.subarray(0, directoryEndBytes - 1),
                 SfntRule.DirectoryInFile,
                 "At the file: size is 219, expected at least 220 for 13 table records.",
             );
@@ -178,10 +187,10 @@ describe("SfntFontValidator.validate", function () {
 
     describe("rejects a broken table directory", function () {
         it("goes on to the tables in a file that holds the whole directory", async function () {
-            const directoryEnd = HEADER_SIZE_BYTES + TTF_NUM_TABLES * RECORD_SIZE_BYTES;
+            const directoryEndBytes = HEADER_SIZE_BYTES + TTF_NUM_TABLES * RECORD_SIZE_BYTES;
 
             await expectBroken(
-                ttf.subarray(0, directoryEnd),
+                ttf.subarray(0, directoryEndBytes),
                 SfntRule.TableInFile,
                 'At table "FFTM": offset + length is 158856, expected at most 220, the file size.',
             );
@@ -363,13 +372,13 @@ async function expectRejection<T extends Error>(
  * the tables are zeroed: every table stays where it was, and the offsets stay true.
  */
 function withoutTable(font: Uint8Array, tag: string): Uint8Array {
-    const record = recordOf(font, tag);
+    const recordOffsetBytes = recordOf(font, tag);
     const numTables = readUint16(font, NUM_TABLES_OFFSET_BYTES);
-    const directoryEnd = HEADER_SIZE_BYTES + numTables * RECORD_SIZE_BYTES;
+    const directoryEndBytes = HEADER_SIZE_BYTES + numTables * RECORD_SIZE_BYTES;
     const copy = Uint8Array.from(font);
 
-    copy.copyWithin(record, record + RECORD_SIZE_BYTES, directoryEnd);
-    copy.fill(0, directoryEnd - RECORD_SIZE_BYTES, directoryEnd);
+    copy.copyWithin(recordOffsetBytes, recordOffsetBytes + RECORD_SIZE_BYTES, directoryEndBytes);
+    copy.fill(0, directoryEndBytes - RECORD_SIZE_BYTES, directoryEndBytes);
 
     return withUint16(copy, NUM_TABLES_OFFSET_BYTES, numTables - 1);
 }
@@ -378,13 +387,27 @@ function withTag(font: Uint8Array, tag: string, replacement: string): Uint8Array
     return withBytes(font, recordOf(font, tag), Buffer.from(replacement, "latin1"));
 }
 
-function withSwappedRecords(font: Uint8Array, first: number, second: number): Uint8Array {
-    const firstOffset = HEADER_SIZE_BYTES + first * RECORD_SIZE_BYTES;
-    const secondOffset = HEADER_SIZE_BYTES + second * RECORD_SIZE_BYTES;
-    const firstRecord = font.slice(firstOffset, firstOffset + RECORD_SIZE_BYTES);
-    const secondRecord = font.slice(secondOffset, secondOffset + RECORD_SIZE_BYTES);
+/**
+ * The font with its table records sorted by tag, as the directory requires after a renamed tag.
+ */
+function withRecordsSorted(font: Uint8Array): Uint8Array {
+    const numTables = readUint16(font, NUM_TABLES_OFFSET_BYTES);
+    const records = Array.from({ length: numTables }, (_, index) =>
+        font.slice(HEADER_SIZE_BYTES + index * RECORD_SIZE_BYTES, HEADER_SIZE_BYTES + (index + 1) * RECORD_SIZE_BYTES),
+    );
 
-    return withBytes(withBytes(font, firstOffset, secondRecord), secondOffset, firstRecord);
+    records.sort((left, right) => Buffer.compare(left.subarray(0, TAG_SIZE_BYTES), right.subarray(0, TAG_SIZE_BYTES)));
+
+    return withBytes(font, HEADER_SIZE_BYTES, Buffer.concat(records));
+}
+
+function withSwappedRecords(font: Uint8Array, first: number, second: number): Uint8Array {
+    const firstOffsetBytes = HEADER_SIZE_BYTES + first * RECORD_SIZE_BYTES;
+    const secondOffsetBytes = HEADER_SIZE_BYTES + second * RECORD_SIZE_BYTES;
+    const firstRecord = font.slice(firstOffsetBytes, firstOffsetBytes + RECORD_SIZE_BYTES);
+    const secondRecord = font.slice(secondOffsetBytes, secondOffsetBytes + RECORD_SIZE_BYTES);
+
+    return withBytes(withBytes(font, firstOffsetBytes, secondRecord), secondOffsetBytes, firstRecord);
 }
 
 /**
@@ -394,10 +417,11 @@ function recordOf(font: Uint8Array, tag: string): number {
     const numTables = readUint16(font, NUM_TABLES_OFFSET_BYTES);
 
     for (let index = 0; index < numTables; index++) {
-        const record = HEADER_SIZE_BYTES + index * RECORD_SIZE_BYTES;
+        const recordOffsetBytes = HEADER_SIZE_BYTES + index * RECORD_SIZE_BYTES;
+        const recordTag = Buffer.from(font.subarray(recordOffsetBytes, recordOffsetBytes + TAG_SIZE_BYTES)).toString("latin1");
 
-        if (Buffer.from(font.subarray(record, record + 4)).toString("latin1") === tag) {
-            return record;
+        if (recordTag === tag) {
+            return recordOffsetBytes;
         }
     }
 
@@ -405,37 +429,37 @@ function recordOf(font: Uint8Array, tag: string): number {
 }
 
 function tableOffset(font: Uint8Array, tag: string): number {
-    return readUint32(font, recordOf(font, tag) + 8);
+    return readUint32(font, recordOf(font, tag) + TABLE_OFFSET_OFFSET_BYTES);
 }
 
-function readUint16(bytes: Uint8Array, offset: number): number {
-    return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint16(offset);
+function readUint16(bytes: Uint8Array, offsetBytes: number): number {
+    return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint16(offsetBytes);
 }
 
-function readUint32(bytes: Uint8Array, offset: number): number {
-    return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(offset);
+function readUint32(bytes: Uint8Array, offsetBytes: number): number {
+    return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(offsetBytes);
 }
 
-function withUint16(bytes: Uint8Array, offset: number, value: number): Uint8Array {
+function withUint16(bytes: Uint8Array, offsetBytes: number, value: number): Uint8Array {
     const copy = Uint8Array.from(bytes);
 
-    new DataView(copy.buffer).setUint16(offset, value);
+    new DataView(copy.buffer).setUint16(offsetBytes, value);
 
     return copy;
 }
 
-function withUint32(bytes: Uint8Array, offset: number, value: number): Uint8Array {
+function withUint32(bytes: Uint8Array, offsetBytes: number, value: number): Uint8Array {
     const copy = Uint8Array.from(bytes);
 
-    new DataView(copy.buffer).setUint32(offset, value);
+    new DataView(copy.buffer).setUint32(offsetBytes, value);
 
     return copy;
 }
 
-function withBytes(bytes: Uint8Array, offset: number, replacement: ArrayLike<number>): Uint8Array {
+function withBytes(bytes: Uint8Array, offsetBytes: number, replacement: ArrayLike<number>): Uint8Array {
     const copy = Uint8Array.from(bytes);
 
-    copy.set(replacement, offset);
+    copy.set(replacement, offsetBytes);
 
     return copy;
 }

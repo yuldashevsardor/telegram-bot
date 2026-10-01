@@ -59,10 +59,10 @@ because a font does not guarantee the order of its records.
 
 The names are informational, so the codec never rejects a font over a missing name: the matching
 envelope field stays empty. That holds for a missing record, a missing `name` table, and a string
-past the declared end of the table or past the end of the file. A missing `name` table no longer
-reaches the codec from the user: `SfntFontValidator` below rejects a TTF source without it, since
-OpenType requires the table. The tolerance for the table now covers the intermediate sfnt the
-engine writes; a missing record or a string out of bounds is still packed from a source as well.
+past the declared end of the table or past the end of the file. A TTF source without the `name`
+table does not reach the codec: `SfntFontValidator` below rejects it, since OpenType requires the
+table. So the tolerance for a missing table serves the intermediate sfnt the engine writes, while a
+missing record or a string out of bounds is packed from a source too.
 
 `eot-packer.ts` itself lays out the header and the versions: which one is written, which are read. A
 compressed (`TTEMBED_TTCOMPRESSED`) or encrypted (`TTEMBED_XORENCRYPTDATA`) payload is rejected with
@@ -114,8 +114,9 @@ reads, not the rules below. But the two share one set of versions with a third c
 `SFNT_VERSIONS` in `font-convertor/sfnt-version.ts`, and `WoffFontValidator` (`validator/woff/`)
 checks the flavor of a WOFF against it: the flavor is the version of the sfnt it carries. The set
 must not become several lists, because a divergence breaks behaviour rather than the build. A
-version known only to the validator reaches the codec and fails there with `InvalidSfnt`. A version
-known only to the codec does not get past the input.
+version known only to the validator still fails on input: the directory the validator builds
+rejects it, with the codec's `InvalidSfnt` instead of an answer of the validator. A version known
+only to the codec does not get past the input.
 
 Every offset is counted from the start of the file. A prefix is not skipped: a shifted head would
 turn the check into a search for the marker anywhere.

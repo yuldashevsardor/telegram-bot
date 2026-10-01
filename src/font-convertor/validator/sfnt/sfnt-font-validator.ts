@@ -173,9 +173,14 @@ export class SfntFontValidator implements FontValidator {
             });
         }
 
+        if (directory.find(SfntFontValidator.CFF_TAG) !== undefined) {
+            this.checkCffTables(fontPath, directory);
+
+            return;
+        }
+
         const hasGlyf = directory.find(SfntFontValidator.GLYF_TAG) !== undefined;
         const hasLoca = directory.find(SfntFontValidator.LOCA_TAG) !== undefined;
-        const hasCff = directory.find(SfntFontValidator.CFF_TAG) !== undefined;
 
         if (hasGlyf !== hasLoca) {
             throw BrokenSfnt.byRule(fontPath, {
@@ -187,7 +192,7 @@ export class SfntFontValidator implements FontValidator {
             });
         }
 
-        if (!hasGlyf && !hasCff) {
+        if (!hasGlyf) {
             throw BrokenSfnt.byRule(fontPath, {
                 rule: SfntRule.Outlines,
                 at: at,
@@ -196,11 +201,17 @@ export class SfntFontValidator implements FontValidator {
                 expected: SfntFontValidator.OUTLINES_EXPECTED,
             });
         }
+    }
 
-        if (hasCff && directory.find(SfntFontValidator.OS2_TAG) === undefined) {
+    /**
+     * A font with CFF has its outlines whatever else it holds: a glyf or a loca next to CFF is not
+     * read as TrueType outlines, broken or not.
+     */
+    private checkCffTables(fontPath: string, directory: SfntTableDirectory): void {
+        if (directory.find(SfntFontValidator.OS2_TAG) === undefined) {
             throw BrokenSfnt.byRule(fontPath, {
                 rule: SfntRule.Os2WithCff,
-                at: at,
+                at: "the table directory",
                 field: this.tableName(SfntFontValidator.OS2_TAG),
                 value: "absent",
                 expected: 'present, as the font has "CFF "',
