@@ -382,7 +382,7 @@ measurement a full run with the limit at a load average of 22–33 sent 281 kill
 
 The error column adds up `CompileError` and `RuntimeError`; they do not count towards the score.
 `CompileError` needs no working through ("The type checker"). Static mutants on which the module
-does not load (`shared/tokens.ts`, the fields of `FontSignatureMatcher`) used to give
+does not load (`shared/tokens.ts`) used to give
 `RuntimeError` without the checker; with it they are weeded out before the tests as
 `CompileError`. A remaining `RuntimeError` with the reason `Test runner crashed. Tried twice…` is a
 mutant on which the runner failed twice (`RetryRejectedDecorator` in `@stryker-mutator/core`).

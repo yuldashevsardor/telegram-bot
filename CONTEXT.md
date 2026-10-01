@@ -63,8 +63,8 @@ a different thing.
 The suffix of a file name. It is the first of the two signs by which the domain determines the
 format of a font. The extension is a statement about the name of the file, not about its bytes, and
 whoever sent the file sets it. So the extension alone is not enough for the domain: it is checked
-against the format signature, and an SVG, a WOFF, a TTF or an OTF against the validation of the
-whole file.
+against the format signature, and an SVG, a WOFF, an EOT, a TTF or an OTF against the validation of
+the whole file.
 _Avoid_: format. An extension is a way to learn the format, not the format itself.
 
 **Format signature**:

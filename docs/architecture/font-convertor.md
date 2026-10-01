@@ -70,9 +70,10 @@ version, and where the font lies. It rejects only what leaves it nothing to read
 `FontDataSize` included, and exposes the rest: the codec itself checks the magic number, `EOTSize`,
 the flags and that the names end before the font. `EotHeader` lies outside `eot-packer/` because the
 codec is not its only reader: `EotFontValidator` below reads it too, and a second parse of the same
-header would be a second copy of one format rule. The two flags are constants of `EotHeader` for the
-same reason. A compressed (`TTEMBED_TTCOMPRESSED`) or encrypted (`TTEMBED_XORENCRYPTDATA`) payload
-is rejected with an explicit `UnsupportedEotFlags` error; the codec does not try to parse it.
+header would be a second copy of one format rule. The mask of the two flags below is a constant of
+`EotHeader` for the same reason. A compressed (`TTEMBED_TTCOMPRESSED`) or encrypted
+(`TTEMBED_XORENCRYPTDATA`) payload is rejected with an explicit `UnsupportedEotFlags` error; the
+codec does not try to parse it.
 
 ## Running the engine
 
@@ -266,26 +267,23 @@ first broken rule. The order in which the rules are checked is in the comment of
 file that cannot be read fails with `ReadFailed` of `FileHelper`, not with an answer about the font.
 Every answer names the source in `path` of its payload. Nothing in the answers is cut: the only
 things from the file they quote are numbers. Two answers keep another error as the cause: a file
-that ends inside the Padding or the size of a block keeps the `InvalidEot` of `EotHeader`, and the
-enclosed font keeps the `InvalidSfnt` of the codec.
+that ends inside a field the parse reads (the Padding or the size of a block, or `EUDCFlags` and
+`EUDCFontSize` of version `0x00020002`) keeps the `InvalidEot` of `EotHeader`, and the enclosed font
+keeps the `InvalidSfnt` of the codec.
 
 The rules are `EotRule` in `eot-font-validator.types.ts`, each with its section. One is ours, not
 the submission's, and its text says why: a payload compressed with MicroType Express
 (`TTEMBED_TTCOMPRESSED`) or XOR-encrypted (`TTEMBED_XORENCRYPTDATA`) is rejected, since the codec
 takes out only a raw sfnt, while the submission asks a user agent to decompress (§2.3). Of 367 real
 EOT files from npm packages the validator accepts 247 and rejects 120, all of them by this rule. The
-enclosed font gets the check the codec makes on unpacking, `SfntReader.validate`: the size of the
-sfnt header and its version.
+enclosed font gets the check the codec makes on unpacking, where `SfntReader.validate` parses its
+table directory: the validator parses it with the same `SfntTableDirectory`, which checks the size
+of the sfnt header, its version and that the table records fit.
 
 `EotPacker.unpack()` keeps its own checks as they were. Every source it unpacks has passed the
 validator first.
 
-What is deliberately not checked, with the reasons, is in the class comment of `EotFontValidator`:
-the header fields that copy the enclosed font, which 25 of 247 uncompressed real files and the
-fixture itself disagree on while the domain discards the header on unpacking; the fields the
-submission gives a reader no rule for (unknown flag bits, `TTEMBED_EMBEDEUDC` against the version,
-`SignatureSize`, `Italic`, `Charset`, well-formed UTF-16 in the names); and the `RootString` URLs
-and the `fsType` permissions, which §2.3 puts on a user agent displaying a page.
+What is deliberately not checked, with the reasons, is in the class comment of `EotFontValidator`.
 
 ## The sfnt validator
 

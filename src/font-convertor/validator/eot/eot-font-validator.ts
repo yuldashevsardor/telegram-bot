@@ -2,10 +2,10 @@ import { injectable } from "inversify";
 import { EotHeader } from "app/font-convertor/eot-header/eot-header";
 import { InvalidEot } from "app/font-convertor/eot-header/eot-header.errors";
 import type { EotBlock } from "app/font-convertor/eot-header/eot-header.types";
-import { SfntReader } from "app/font-convertor/eot-packer/sfnt-reader/sfnt-reader";
+import { SfntTableDirectory } from "app/font-convertor/sfnt-table-directory/sfnt-table-directory";
 import { InvalidSfnt } from "app/font-convertor/sfnt-table-directory/sfnt-table-directory.errors";
 import { BrokenEot, NotEot } from "app/font-convertor/validator/eot/eot-font-validator.errors";
-import type { EotBlocks, NamedBlock, RootStringCheck } from "app/font-convertor/validator/eot/eot-font-validator.types";
+import type { HeaderLayout, NamedBlock, RootStringCheck } from "app/font-convertor/validator/eot/eot-font-validator.types";
 import { EotRule } from "app/font-convertor/validator/eot/eot-font-validator.types";
 import type { FontValidator } from "app/font-convertor/validator/font-validator";
 import { FileHelper } from "app/shared/fs/file-helper";
@@ -14,7 +14,8 @@ import { FileHelper } from "app/shared/fs/file-helper";
  * Checks the EOT envelope against W3C Member Submission "Embedded OpenType (EOT) File Format"
  * (5 March 2008): the fixed part of the header, the blocks of its version and that the font follows
  * them to the end of the file. The header is read through `EotHeader`, the parse the codec reads
- * too. The enclosed font gets the check the codec makes on unpacking, `SfntReader.validate`.
+ * too. The enclosed font gets the check the codec makes on unpacking: `SfntReader.validate` parses
+ * its table directory, `SfntTableDirectory`, and so does this validator.
  *
  * Deliberately not checked, as the submission gives a reader no rule for them:
  * - The fields that copy the enclosed font: FontPANOSE, Italic, Weight, fsType, UnicodeRange1..4,
@@ -30,7 +31,6 @@ import { FileHelper } from "app/shared/fs/file-helper";
 @injectable()
 export class EotFontValidator implements FontValidator {
     private static readonly ROOT_STRING_CHECKSUM_KEY = 0x50475342;
-    private static readonly UNSUPPORTED_FLAGS = EotHeader.TTEMBED_TTCOMPRESSED | EotHeader.TTEMBED_XORENCRYPTDATA;
     private static readonly UTF16_CHARACTER_SIZE_BYTES = 2;
     private static readonly USHORT_HEX_DIGITS = 4;
     private static readonly ULONG_HEX_DIGITS = 8;
@@ -64,13 +64,13 @@ export class EotFontValidator implements FontValidator {
 
         this.checkFixedPart(fontPath, header, bytes.length);
 
-        const blocks = this.readBlocks(fontPath, header, bytes.length);
+        const layout = this.readLayout(fontPath, header, bytes.length);
 
-        this.checkLayout(fontPath, header, blocks, bytes.length);
-        this.checkBlocks(fontPath, blocks);
-        this.checkRootStringCheckSum(fontPath, bytes, blocks.rootStringCheck);
+        this.checkLayout(fontPath, header, layout, bytes.length);
+        this.checkBlocks(fontPath, layout.blocks);
+        this.checkRootStringCheckSum(fontPath, bytes, layout.rootStringCheck);
         this.checkFlags(fontPath, header);
-        this.checkFontData(fontPath, bytes.subarray(blocks.endOffset));
+        this.checkFontData(fontPath, bytes.subarray(layout.endOffset));
     }
 
     private checkFixedPart(fontPath: string, header: EotHeader, fileSizeBytes: number): void {
@@ -114,11 +114,12 @@ export class EotFontValidator implements FontValidator {
     }
 
     /**
-     * The blocks of the header's version. The parse rejects a file that ends inside the Padding or
-     * the size of a block, so that file breaks the rule on the blocks inside the file, and the
-     * parse's answer stays as the cause.
+     * The blocks of the header's version. The parse rejects a file that ends inside a field it
+     * reads: the Padding or the size of a block, or, in version 0x00020002, EUDCFlags and
+     * EUDCFontSize. That file breaks the rule on the blocks inside the file, and the parse's answer
+     * stays as the cause.
      */
-    private readBlocks(fontPath: string, header: EotHeader, fileSizeBytes: number): EotBlocks {
+    private readLayout(fontPath: string, header: EotHeader, fileSizeBytes: number): HeaderLayout {
         try {
             const names = header.readNames();
             const tail = header.readTail();
@@ -133,7 +134,8 @@ export class EotFontValidator implements FontValidator {
                 blocks.push({ name: "RootString", paddingField: "Padding5", isText: true, block: names.rootString });
             }
 
-            if (tail === undefined) {
+            // The tail exists only in version 0x00020002, which has RootString too.
+            if (tail === undefined || names.rootString === undefined) {
                 return { blocks: blocks, rootStringCheck: undefined, endOffset: names.endOffset };
             }
 
@@ -141,8 +143,7 @@ export class EotFontValidator implements FontValidator {
 
             return {
                 blocks: blocks,
-                // The tail exists only in version 0x00020002, which has RootString.
-                rootStringCheck: { rootString: names.rootString as EotBlock, checkSum: tail.rootStringCheckSum },
+                rootStringCheck: { rootString: names.rootString, checkSum: tail.rootStringCheckSum },
                 endOffset: tail.endOffset,
             };
         } catch (error) {
@@ -157,7 +158,7 @@ export class EotFontValidator implements FontValidator {
                     at: "the header",
                     field: "the file size",
                     value: fileSizeBytes,
-                    expected: `room for the Padding and the size of every block of version ${this.hex(
+                    expected: `room for every field of the header of version ${this.hex(
                         header.version,
                         EotFontValidator.ULONG_HEX_DIGITS,
                     )}`,
@@ -171,13 +172,13 @@ export class EotFontValidator implements FontValidator {
      * The header ends inside the file, and FontData fills the rest of it. EOTSize is the file size
      * by now.
      */
-    private checkLayout(fontPath: string, header: EotHeader, blocks: EotBlocks, fileSizeBytes: number): void {
-        if (blocks.endOffset > fileSizeBytes) {
+    private checkLayout(fontPath: string, header: EotHeader, layout: HeaderLayout, fileSizeBytes: number): void {
+        if (layout.endOffset > fileSizeBytes) {
             throw BrokenEot.byRule(fontPath, {
                 rule: EotRule.BlocksInFile,
                 at: "the header",
                 field: "end",
-                value: blocks.endOffset,
+                value: layout.endOffset,
                 expected: `at most ${fileSizeBytes}, the file size`,
             });
         }
@@ -192,20 +193,20 @@ export class EotFontValidator implements FontValidator {
             });
         }
 
-        const fontDataEnd = blocks.endOffset + header.fontDataSizeBytes;
+        const fontDataEnd = layout.endOffset + header.fontDataSizeBytes;
 
         if (fontDataEnd !== header.eotSizeBytes) {
             throw BrokenEot.byRule(fontPath, {
                 rule: EotRule.FontDataLayout,
                 at: "FontData",
-                field: `the header end ${blocks.endOffset} + FontDataSize ${header.fontDataSizeBytes}`,
+                field: `the header end ${layout.endOffset} + FontDataSize ${header.fontDataSizeBytes}`,
                 value: fontDataEnd,
                 expected: `${header.eotSizeBytes}, EOTSize`,
             });
         }
     }
 
-    private checkBlocks(fontPath: string, { blocks }: EotBlocks): void {
+    private checkBlocks(fontPath: string, blocks: ReadonlyArray<NamedBlock>): void {
         for (const { name, paddingField, isText, block } of blocks) {
             if (block.padding !== 0) {
                 throw BrokenEot.byRule(fontPath, {
@@ -252,20 +253,20 @@ export class EotFontValidator implements FontValidator {
     }
 
     private checkFlags(fontPath: string, header: EotHeader): void {
-        if ((header.flags & EotFontValidator.UNSUPPORTED_FLAGS) !== 0) {
+        if ((header.flags & EotHeader.ENCODED_FONT_DATA_FLAGS) !== 0) {
             throw BrokenEot.byRule(fontPath, {
                 rule: EotRule.Flags,
                 at: "the header",
                 field: "Flags",
                 value: this.hex(header.flags, EotFontValidator.ULONG_HEX_DIGITS),
-                expected: `no bit of ${this.hex(EotFontValidator.UNSUPPORTED_FLAGS, EotFontValidator.ULONG_HEX_DIGITS)}`,
+                expected: `no bit of ${this.hex(EotHeader.ENCODED_FONT_DATA_FLAGS, EotFontValidator.ULONG_HEX_DIGITS)}`,
             });
         }
     }
 
     private checkFontData(fontPath: string, fontData: Uint8Array): void {
         try {
-            SfntReader.validate(fontData);
+            new SfntTableDirectory(fontData);
         } catch (error) {
             if (!(error instanceof InvalidSfnt)) {
                 throw error;

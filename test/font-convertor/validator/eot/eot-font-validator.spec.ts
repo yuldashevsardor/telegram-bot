@@ -308,7 +308,26 @@ describe("EotFontValidator.validate", function () {
             const error = await expectBroken(
                 overlong,
                 EotRule.BlocksInFile,
-                `At the header: the file size is ${short.length}, expected room for the Padding and the size of every block of version 0x00020001.`,
+                `At the header: the file size is ${short.length}, expected room for every field of the header of version 0x00020001.`,
+            );
+
+            expect(error.cause).to.be.instanceOf(InvalidEot);
+        });
+
+        it("a SignatureSize that leaves EUDCFlags and EUDCFontSize past the end of the file", async function () {
+            // Neither field is a Padding or a block size, and the parse cannot read them either.
+            const layout = { ...version22(), font: fixtureLayout.font.subarray(0, 16) };
+            const short = build(layout);
+            const headerEnd = short.length - layout.font.length;
+            // SignatureSize lies before the empty signature, EUDCFlags and EUDCFontSize. Grown by the
+            // font size + 4, the signature puts EUDCFlags 4 bytes before the end of the file.
+            const signatureSizeOffset = headerEnd - 2 * 4 - 2;
+            const overlong = patch(short, (view) => view.setUint16(signatureSizeOffset, layout.font.length + 4, true));
+
+            const error = await expectBroken(
+                overlong,
+                EotRule.BlocksInFile,
+                `At the header: the file size is ${short.length}, expected room for every field of the header of version 0x00020002.`,
             );
 
             expect(error.cause).to.be.instanceOf(InvalidEot);

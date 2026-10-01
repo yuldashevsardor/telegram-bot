@@ -15,7 +15,7 @@ export enum EotRule {
     FontDataLayout = "FontDataSize is not 0, and FontData follows the header directly and ends the file: the header end + FontDataSize is EOTSize (EOT, §3)",
     RootStringCheckSum = "in version 0x00020002, RootStringCheckSum is the sum of the RootString bytes XOR 0x50475342 (EOT, §4.3.2)",
     Flags = "Flags have neither TTEMBED_TTCOMPRESSED (0x00000004) nor TTEMBED_XORENCRYPTDATA (0x10000000) (ours: the codec takes out only a raw sfnt)",
-    FontData = "FontData opens with an sfnt header of a version the domain accepts (EOT, §3: a TrueType or OpenType font)",
+    FontData = "FontData holds an sfnt header of a version the domain accepts and the table records it declares (EOT, §3: a TrueType or OpenType font)",
 }
 
 /**
@@ -55,7 +55,7 @@ export type RootStringCheck = {
 /**
  * The variable part of the header as its version lays it out.
  */
-export type EotBlocks = {
+export type HeaderLayout = {
     /** The four names, RootString from version 0x00020001 and Signature in version 0x00020002. */
     blocks: Array<NamedBlock>;
     /** Only in version 0x00020002. */

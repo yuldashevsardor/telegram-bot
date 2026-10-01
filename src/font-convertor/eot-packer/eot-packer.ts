@@ -111,7 +111,7 @@ export class EotPacker {
         // The names also reject an unknown version.
         const names = header.readNames();
 
-        if ((header.flags & (EotHeader.TTEMBED_TTCOMPRESSED | EotHeader.TTEMBED_XORENCRYPTDATA)) !== 0) {
+        if ((header.flags & EotHeader.ENCODED_FONT_DATA_FLAGS) !== 0) {
             throw UnsupportedEotFlags.byFlags(header.flags);
         }
 
