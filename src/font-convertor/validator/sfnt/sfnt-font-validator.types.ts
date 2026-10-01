@@ -35,7 +35,7 @@ export enum SfntRule {
     NameRecordsInTable = "name holds its 6-byte header and a 12-byte name record per count, and with version 1 a 2-byte langTagCount and a 4-byte language-tag record per langTagCount (OpenType 1.9.1, name)",
     NameVersion = "name.version is 0 or 1 (OpenType 1.9.1, name)",
     Os2Version = "OS/2.version is from 0 to 5 (OpenType 1.9.1, OS/2)",
-    Os2Length = "OS/2 holds the fields of its version: 86 bytes for version 1, 96 for 2 to 4, 100 for 5, and 68 for version 0, whose last five fields a legacy font may lack (OpenType 1.9.1, OS/2)",
+    Os2Length = "OS/2 holds its 2-byte version and the fields of that version: 86 bytes for version 1, 96 for 2 to 4, 100 for 5, and 68 for version 0, whose last five fields a legacy font may lack (OpenType 1.9.1, OS/2)",
     PostLength = "post holds its 32-byte header (OpenType 1.9.1, post)",
     PostVersion = "post.version is 1.0, 2.0, 2.5 or 3.0 (OpenType 1.9.1, post)",
 }

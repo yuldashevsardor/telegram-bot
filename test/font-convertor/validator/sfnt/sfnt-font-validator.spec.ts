@@ -48,6 +48,11 @@ const CMAP_HEADER_SIZE_BYTES = 4;
 const ENCODING_RECORD_SIZE_BYTES = 8;
 const SUBTABLE_OFFSET_IN_RECORD_BYTES = 4;
 const NAME_COUNT_OFFSET_BYTES = 2;
+const NAME_HEADER_SIZE_BYTES = 6;
+const LANG_TAG_COUNT_SIZE_BYTES = 2;
+const LANG_TAG_RECORD_SIZE_BYTES = 4;
+const OS2_VERSION_SIZE_BYTES = 2;
+const POST_HEADER_SIZE_BYTES = 32;
 // The length the fields of each OS/2 version take, by version. A version 0 table of 68 bytes is a
 // legacy one, without its last five fields.
 const OS2_LENGTHS_BYTES = new Map([
@@ -88,8 +93,12 @@ const REQUIRED_TAGS = ["cmap", "head", "hhea", "hmtx", "maxp", "name", "post"];
 const CMAP_LENGTH_BYTES = 1182;
 const CMAP_NUM_TABLES = 3;
 const CMAP_RECORDS_END_BYTES = CMAP_HEADER_SIZE_BYTES + CMAP_NUM_TABLES * ENCODING_RECORD_SIZE_BYTES;
+// The fewest encoding records that run past the end of cmap: 4 + 8 × 148 = 1188.
+const CMAP_NUM_TABLES_PAST_END = Math.floor((CMAP_LENGTH_BYTES - CMAP_HEADER_SIZE_BYTES) / ENCODING_RECORD_SIZE_BYTES) + 1;
 const NAME_LENGTH_BYTES = 444;
 const NAME_RECORDS_END_BYTES = 150;
+// The most language-tag records a version 1 name of the fixture holds: (444 − 150 − 2) / 4 = 73.
+const NAME_LANG_TAGS_FITTING = (NAME_LENGTH_BYTES - NAME_RECORDS_END_BYTES - LANG_TAG_COUNT_SIZE_BYTES) / LANG_TAG_RECORD_SIZE_BYTES;
 
 describe("SfntFontValidator.validate", function () {
     let workDir: string;
@@ -203,13 +212,14 @@ describe("SfntFontValidator.validate", function () {
         });
 
         it("with a version 1 name whose language-tag records end the table", async function () {
-            // 150 bytes of the header and the name records, 2 of langTagCount, 4 × 73 of the records.
-            await validate(withNameVersion1(ttf, 73));
+            await validate(withNameVersion1(ttf, NAME_LANG_TAGS_FITTING));
         });
 
         it("with OS/2 of every version at the length of its fields", async function () {
+            // The table is moved to the end of the file: version 5 is longer than the fixture's OS/2 and
+            // would run into the next table in place.
             for (const [version, lengthBytes] of OS2_LENGTHS_BYTES) {
-                await validate(withLength(withField16(otf, "OS/2", TABLE_VERSION_OFFSET_BYTES, version), "OS/2", lengthBytes));
+                await validate(withTableMovedToEnd(withField16(otf, "OS/2", TABLE_VERSION_OFFSET_BYTES, version), "OS/2", lengthBytes));
             }
         });
 
@@ -683,7 +693,7 @@ describe("SfntFontValidator.validate", function () {
 
         it("whose numTables runs past it", async function () {
             await expectBroken(
-                withField16(ttf, "cmap", CMAP_NUM_TABLES_OFFSET_BYTES, 148),
+                withField16(ttf, "cmap", CMAP_NUM_TABLES_OFFSET_BYTES, CMAP_NUM_TABLES_PAST_END),
                 SfntRule.CmapRecordsInTable,
                 'At table "cmap": length is 1182, expected at least 1188 for the header and encodingRecords[148].',
             );
@@ -711,7 +721,7 @@ describe("SfntFontValidator.validate", function () {
     describe("rejects a broken name", function () {
         it("shorter than its header", async function () {
             await expectBroken(
-                withLength(ttf, "name", 5),
+                withLength(ttf, "name", NAME_HEADER_SIZE_BYTES - 1),
                 SfntRule.NameRecordsInTable,
                 'At table "name": length is 5, expected at least 6 for the header.',
             );
@@ -752,7 +762,7 @@ describe("SfntFontValidator.validate", function () {
 
         it("of version 1 whose language-tag records run past it", async function () {
             await expectBroken(
-                withNameVersion1(ttf, 74),
+                withNameVersion1(ttf, NAME_LANG_TAGS_FITTING + 1),
                 SfntRule.NameRecordsInTable,
                 `At table "name": length is ${NAME_LENGTH_BYTES}, expected at least 448 for the header, nameRecord[12], langTagCount and langTagRecord[74].`,
             );
@@ -762,7 +772,7 @@ describe("SfntFontValidator.validate", function () {
     describe("rejects a broken OS/2", function () {
         it("shorter than its version", async function () {
             await expectBroken(
-                withLength(ttf, "OS/2", 1),
+                withLength(ttf, "OS/2", OS2_VERSION_SIZE_BYTES - 1),
                 SfntRule.Os2Length,
                 'At table "OS/2": length is 1, expected at least 2 for the version.',
             );
@@ -800,7 +810,7 @@ describe("SfntFontValidator.validate", function () {
     describe("rejects a broken post", function () {
         it("shorter than its header", async function () {
             await expectBroken(
-                withLength(otf, "post", 31),
+                withLength(otf, "post", POST_HEADER_SIZE_BYTES - 1),
                 SfntRule.PostLength,
                 'At table "post": length is 31, expected at least 32 for the header.',
             );
@@ -985,6 +995,23 @@ function withSubtableOffset(font: Uint8Array, index: number, subtableOffset: num
     const recordOffsetBytes = tableOffset(font, "cmap") + CMAP_HEADER_SIZE_BYTES + index * ENCODING_RECORD_SIZE_BYTES;
 
     return withUint32(font, recordOffsetBytes + SUBTABLE_OFFSET_IN_RECORD_BYTES, subtableOffset);
+}
+
+/**
+ * The font with the table of `tag` copied to the end of the file, its record pointing at the copy and
+ * declaring `lengthBytes`. A copy longer than the table takes the bytes that followed it, which no
+ * rule on the table reads; it runs into no other table.
+ */
+function withTableMovedToEnd(font: Uint8Array, tag: string, lengthBytes: number): Uint8Array {
+    const recordOffsetBytes = recordOf(font, tag);
+    const offsetBytes = tableOffset(font, tag);
+    const moved = Uint8Array.from(Buffer.concat([font, font.subarray(offsetBytes, offsetBytes + lengthBytes)]));
+
+    return withUint32(
+        withUint32(moved, recordOffsetBytes + TABLE_OFFSET_OFFSET_BYTES, font.length),
+        recordOffsetBytes + LENGTH_OFFSET_BYTES,
+        lengthBytes,
+    );
 }
 
 /**

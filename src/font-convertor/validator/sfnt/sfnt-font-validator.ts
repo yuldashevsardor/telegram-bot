@@ -18,7 +18,8 @@ import { FileHelper } from "app/shared/fs/file-helper";
  * TrueType Reference Manual for what it governs: the table directory, the tables a font must
  * have, the fields of `head`, `maxp`, `hhea`, `hmtx` and `loca` that give the glyph count, where
  * the metrics of each glyph lie and, with TrueType outlines, where its outline lies, and the
- * version of `cmap`, `name`, `OS/2` and `post` with whether what it declares fits into the table.
+ * version of `cmap`, `name`, `OS/2` and `post` with whether their fixed fields and the `cmap` and
+ * `name` records fit into the table.
  * Both extensions take the same checks: the sfnt version names the outline type, not the extension,
  * and the rules that depend on the outline type go by the outline tables present, not by the
  * version, which the specification only says "should" match them.
