@@ -58,7 +58,8 @@ const OS2_LENGTHS_BYTES = new Map([
     [4, 96],
     [5, 100],
 ]);
-const POST_VERSIONS_EXPECTED = "expected one of 0x00010000, 0x00020000, 0x00025000, 0x00030000.";
+const POST_VERSIONS = [0x00010000, 0x00020000, 0x00025000, 0x00030000];
+const POST_VERSIONS_EXPECTED = `expected one of ${POST_VERSIONS.map(hex).join(", ")}.`;
 
 const TRUETYPE_VERSION = 0x00010000;
 const CFF_VERSION = 0x4f54544f;
@@ -86,6 +87,7 @@ const REQUIRED_TAGS = ["cmap", "head", "hhea", "hmtx", "maxp", "name", "post"];
 // which end at byte 150 of the table.
 const CMAP_LENGTH_BYTES = 1182;
 const CMAP_NUM_TABLES = 3;
+const CMAP_RECORDS_END_BYTES = CMAP_HEADER_SIZE_BYTES + CMAP_NUM_TABLES * ENCODING_RECORD_SIZE_BYTES;
 const NAME_LENGTH_BYTES = 444;
 const NAME_RECORDS_END_BYTES = 150;
 
@@ -212,7 +214,7 @@ describe("SfntFontValidator.validate", function () {
         });
 
         it("with post of every version", async function () {
-            for (const version of [0x00010000, 0x00020000, 0x00025000, 0x00030000]) {
+            for (const version of POST_VERSIONS) {
                 await validate(withUint32(otf, tableOffset(otf, "post") + TABLE_VERSION_OFFSET_BYTES, version));
             }
         });
@@ -672,10 +674,8 @@ describe("SfntFontValidator.validate", function () {
         });
 
         it("one byte short of its encoding records", async function () {
-            const recordsEndBytes = CMAP_HEADER_SIZE_BYTES + CMAP_NUM_TABLES * ENCODING_RECORD_SIZE_BYTES;
-
             await expectBroken(
-                withLength(ttf, "cmap", recordsEndBytes - 1),
+                withLength(ttf, "cmap", CMAP_RECORDS_END_BYTES - 1),
                 SfntRule.CmapRecordsInTable,
                 'At table "cmap": length is 27, expected at least 28 for the header and encodingRecords[3].',
             );
@@ -701,7 +701,7 @@ describe("SfntFontValidator.validate", function () {
 
         it("cut to its encoding records, its subtables left out", async function () {
             await expectBroken(
-                withLength(otf, "cmap", 28),
+                withLength(otf, "cmap", CMAP_RECORDS_END_BYTES),
                 SfntRule.CmapSubtableInTable,
                 'At table "cmap": encodingRecords[0].subtableOffset is 28, expected less than 28, the length of table "cmap".',
             );
@@ -721,7 +721,7 @@ describe("SfntFontValidator.validate", function () {
             await expectBroken(
                 withField16(ttf, "name", TABLE_VERSION_OFFSET_BYTES, 2),
                 SfntRule.NameVersion,
-                'At table "name": version is 2, expected 0 or 1.',
+                'At table "name": version is 2, expected one of 0, 1.',
             );
         });
 
@@ -773,7 +773,7 @@ describe("SfntFontValidator.validate", function () {
                 await expectBroken(
                     withField16(ttf, "OS/2", TABLE_VERSION_OFFSET_BYTES, version),
                     SfntRule.Os2Version,
-                    `At table "OS/2": version is ${version}, expected from 0 to 5.`,
+                    `At table "OS/2": version is ${version}, expected one of 0, 1, 2, 3, 4, 5.`,
                 );
             }
         });
@@ -812,7 +812,7 @@ describe("SfntFontValidator.validate", function () {
                 await expectBroken(
                     withUint32(ttf, tableOffset(ttf, "post") + TABLE_VERSION_OFFSET_BYTES, version),
                     SfntRule.PostVersion,
-                    `At table "post": version is 0x${version.toString(16).padStart(8, "0")}, ${POST_VERSIONS_EXPECTED}`,
+                    `At table "post": version is ${hex(version)}, ${POST_VERSIONS_EXPECTED}`,
                 );
             }
         });
@@ -995,6 +995,10 @@ function withNameVersion1(font: Uint8Array, langTagCount: number): Uint8Array {
     const version1 = withField16(font, "name", TABLE_VERSION_OFFSET_BYTES, 1);
 
     return withField16(version1, "name", NAME_RECORDS_END_BYTES, langTagCount);
+}
+
+function hex(value: number): string {
+    return `0x${value.toString(16).padStart(8, "0")}`;
 }
 
 function readUint16(bytes: Uint8Array, offsetBytes: number): number {

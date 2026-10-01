@@ -239,7 +239,8 @@ checks it against the Microsoft OpenType specification 1.9.1 and, for what it go
 TrueType Reference Manual: the table directory ("Table Directory"), the tables a font must have
 ("Required Tables"), the fields of `head`, `maxp`, `hhea`, `hmtx` and `loca` that give the glyph
 count, where each glyph's metrics lie and, with TrueType outlines, where its outline lies, and the
-version and the records of `cmap`, `name`, `OS/2` and `post` (each table by its own section).
+version of `cmap`, `name`, `OS/2` and `post` with whether what it declares fits into the table (each
+table by its own section).
 `FontValidatorResolver` gives it out for a TTF and an OTF source alike, and its answer reaches the
 caller the way the SVG one does: as the cause of `FontConvertorError`, before the engine is called.
 The engine's TTF and OTF output is not checked. The validator exists
@@ -256,10 +257,11 @@ file that cannot be read fails with `ReadFailed` of `FileHelper`, not with an an
 Every answer names the source in `path` of its payload. Nothing in the answers is cut: the only
 text from the file they quote is a table tag, four bytes long.
 
-The rules are `SfntRule` in `sfnt-font-validator.types.ts`, each with its section. Two of them are
-ours, not the standard's, and the text of each says why: a collection is rejected (see
-"Signatures"), and so is a font with a `CFF2` table, which the standard allows but fontforge
-20230101 does not open (exit 1, "not in a known format"). Where the two references differ, the
+The rules are `SfntRule` in `sfnt-font-validator.types.ts`, each with its section. Three of them
+are ours, not the standard's, and the text of each says why: a collection is rejected (see
+"Signatures"); so is a font with a `CFF2` table, which the standard allows but fontforge 20230101
+does not open (exit 1, "not in a known format"); and so is a `cmap` without subtables, of which the
+standard sets no count. Where the two references differ, the
 rules follow the one that governs the outlines present, with one exception, the last item:
 
 - `OS/2` is required only with CFF outlines. Microsoft requires it of every font, Apple's manual
@@ -284,17 +286,14 @@ the engine forgives, but the standard does not. The length of `hmtx` and of `loc
 an exact size: none of the 297 real fonts with TrueType outlines measured has either table longer
 than its fields, so the stricter form would buy nothing.
 
-The rules on `cmap`, `name`, `OS/2` and `post` read the version and whether the records fit into
-the table, not what the records point to: neither the content of a `cmap` subtable nor the strings
-of `name`. The engine converts every such break keeping every glyph, and some of them lose content
-([#683](https://github.com/yuldashevsardor/telegram-bot/issues/683)): a `cmap` without subtables or
-with a subtable offset past the table loses the encoding, with "Could not find any valid encoding
-tables"; a `name` with 60000 records gives "Invalid mac encoding 65535". At least one `cmap`
-subtable is a rule of ours, since the specification sets no count. The length of `OS/2` goes by its
-version. Version 0 needs 68 bytes, not its full 78: the specification warns that legacy fonts may
-carry it without the last five fields and tells applications to check the length before reading
-them. The sizes are summed from the field lists into `OS2_LENGTHS_BYTES`, as the page does not
-state them.
+The rules on `cmap`, `name`, `OS/2` and `post` read the version and whether what it declares fits
+into the table, not what the records point to: neither the content of a `cmap` subtable nor the
+strings of `name`. The engine converts every such break keeping every glyph, and some of them lose
+content ([#683](https://github.com/yuldashevsardor/telegram-bot/issues/683)): a `cmap` without
+subtables or with a subtable offset past the table loses the encoding, with "Could not find any
+valid encoding tables"; a `name` with 60000 records gives "Invalid mac encoding 65535". The length
+`OS/2` needs by its version, and why version 0 passes shortened, is in the comment of
+`OS2_LENGTHS_BYTES` in `SfntFontValidator`.
 
 What is deliberately not checked, with the reasons, is in the class comment of
 `SfntFontValidator`: the table checksums and `head.checkSumAdjustment`, which the engine does not

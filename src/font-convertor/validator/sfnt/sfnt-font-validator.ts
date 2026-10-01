@@ -18,10 +18,10 @@ import { FileHelper } from "app/shared/fs/file-helper";
  * TrueType Reference Manual for what it governs: the table directory, the tables a font must
  * have, the fields of `head`, `maxp`, `hhea`, `hmtx` and `loca` that give the glyph count, where
  * the metrics of each glyph lie and, with TrueType outlines, where its outline lies, and the
- * version and the records of `cmap`, `name`, `OS/2` and `post`. Both extensions take the same
- * checks: the sfnt version names the outline type, not the extension, and the rules that depend on
- * the outline type go by the outline tables present, not by the version, which the specification
- * only says "should" match them.
+ * version of `cmap`, `name`, `OS/2` and `post` with whether what it declares fits into the table.
+ * Both extensions take the same checks: the sfnt version names the outline type, not the extension,
+ * and the rules that depend on the outline type go by the outline tables present, not by the
+ * version, which the specification only says "should" match them.
  *
  * Deliberately not checked:
  * - The table checksums and `head.checkSumAdjustment`. fontforge does not read them: its output
@@ -619,7 +619,7 @@ export class SfntFontValidator implements FontValidator {
                 at: this.tableName(SfntFontValidator.NAME_TAG),
                 field: "version",
                 value: version,
-                expected: "0 or 1",
+                expected: this.oneOf(SfntFontValidator.NAME_VERSIONS),
             });
         }
 
@@ -661,7 +661,7 @@ export class SfntFontValidator implements FontValidator {
                 at: this.tableName(SfntFontValidator.OS2_TAG),
                 field: "version",
                 value: version,
-                expected: "from 0 to 5",
+                expected: this.oneOf([...SfntFontValidator.OS2_LENGTHS_BYTES.keys()]),
             });
         }
 
@@ -682,7 +682,7 @@ export class SfntFontValidator implements FontValidator {
                 at: this.tableName(SfntFontValidator.POST_TAG),
                 field: "version",
                 value: this.hex(version),
-                expected: `one of ${SfntFontValidator.POST_VERSIONS.map((postVersion) => this.hex(postVersion)).join(", ")}`,
+                expected: this.oneOf(SfntFontValidator.POST_VERSIONS.map((postVersion) => this.hex(postVersion))),
             });
         }
     }
@@ -713,7 +713,11 @@ export class SfntFontValidator implements FontValidator {
     }
 
     private versionsExpected(): string {
-        return `one of ${SFNT_VERSIONS.map((version) => this.hex(version)).join(", ")}`;
+        return this.oneOf(SFNT_VERSIONS.map((version) => this.hex(version)));
+    }
+
+    private oneOf(values: ReadonlyArray<number | string>): string {
+        return `one of ${values.join(", ")}`;
     }
 
     private tableName(tag: string): string {
