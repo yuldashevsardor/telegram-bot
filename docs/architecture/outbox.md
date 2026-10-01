@@ -9,9 +9,9 @@ No caller or sending loop uses the directory yet: so far it holds the tables wit
 message, finds the expired leases and cleans up, `OutboxMessageProcessor`
 (`outbox-message-processor.ts`), which takes one pulled message to its outcome, with
 `OutboxSender`, which makes its Bot API call, `OutboxFailureHandler` (`outbox-failure-handler.ts`),
-which picks the outcome of a failed send and recovers the expired leases, `OutboxResultWaiter`,
-which waits for the outcome of a message, with `OutboxFinishedMessageReader`, the payload codec and
-the retry delay. The error classes of a failed call lie outside it, in
+which picks the outcome of a failed send, recovers the expired leases and releases a lease on stop,
+`OutboxResultWaiter`, which waits for the outcome of a message, with `OutboxFinishedMessageReader`,
+the payload codec and the retry delay. The error classes of a failed call lie outside it, in
 `telegram/bot-api-failure-classifier/`.
 
 ## Tables
@@ -172,9 +172,10 @@ queue takes ([`outbound-queue.md`](./outbound-queue.md)). A limit of `number` me
 `nextPullInMs` is the later of the nearest `next_attempt_at` among the `ready` chats not pulled by
 this pull and the bot's own time — `next_send_at` after the pull, or `paused_until` if later —
 counted from `now()` and never below zero. It is `null` when no chat is `ready`: there is no time
-to wait for, only a push or a completion brings a message then. A ready chat left out by `limit`
-or skipped as locked no longer holds the answer back: the bot's time decides it, the cooldowns the
-pull has just spent, or zero if it pulled nothing.
+to wait for. A push or a completion brings a message then, but another node hears only of a push
+and of a release on stop, the two that notify `telegram_outbox_ready` (see "Release on stop"). A
+ready chat left out by `limit` or skipped as locked no longer holds the answer back: the bot's time
+decides it, the cooldowns the pull has just spent, or zero if it pulled nothing.
 
 The answer is not capped. A long pause or a long interval of a limit, common or chat, gives more
 than a Node timer takes (`ConfigParser.MAX_TIMER_DELAY`; what Node does with more is in
@@ -201,7 +202,7 @@ one.
 
 ## Completions
 
-A leased message is completed by one of the four public methods of the store, each taking an
+A leased message is completed by one of the public methods of the store that take an
 `OutboxLease`: the message given out by `pull()`, or an expired lease read by `findExpiredLeases()`
 (see "Lease recovery"). What each does to the message and the chat
 is read off its body. Each is a transaction through the private `complete()`:
@@ -493,6 +494,36 @@ by the difference.
 
 The message goes out again, although the node may have died after Telegram took the call: the
 delivery is at least once (see "The lease").
+
+### Release on stop
+
+`OutboxFailureHandler.releaseOnStop(lease)` hands back a message whose call a stopping node did not
+finish, so another node takes it on its next pull rather than after the lease. It is
+`OutboxStore.retry()` with no delay and the error `OutboxNodeStopped` of class `transient`: the
+message goes back to `pending`, the chat to `ready` with the chat limit the pull set, the lease
+ends, and a stale token is fenced as in every completion (see "Completions").
+
+The release passes `shouldWakeIdleNodes` to `retry()`, which then sends `pg_notify` on
+`telegram_outbox_ready` in its transaction, delivered on commit as the one of a push; a fenced
+release sends none. The node that would pull the message next is the one that stops, and a
+node whose last pull found nothing `ready` got `nextPullInMs` of `null`: no time to wait for, only a
+notification (see "Limits"). Without it the message could wait for an unrelated push longer than the
+lease the release exists to cut short.
+
+The caller releases a call only once it has settled: aborted and its promise done. The chat is
+`ready` at once, so another node may send the message and the next one behind it while a call of the
+stopping node is still on its way, and Telegram would show the message again after the next one.
+The lease keeps that order only while it outlasts the call (see "The lease"), and the release ends
+it early. An aborted call may still have reached Telegram before the abort: that is the duplicate
+below, not a change of order.
+
+The call may have reached Telegram, so the release writes the attempt and it counts towards
+`OUTBOX_MAX_ATTEMPTS` (see "Outcomes"), although the limit is not checked on it: a stop says nothing
+about the message, so it neither blocks the chat nor waits a retry delay. The next transient failure
+of a message released on its last attempt blocks the chat, and the retry delay of a later transient
+failure grows with the attempt as well (see "Retry delay"). The handler cannot tell a call in flight
+from a message pulled and never sent, so each gets the attempt: a message a node pulls and hands
+back on every rolling stop comes nearer to the block and to a longer delay each time.
 
 ### Retry delay
 
