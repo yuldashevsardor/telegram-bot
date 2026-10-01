@@ -7,7 +7,7 @@ nothing (the plan is epic [#618](https://github.com/yuldashevsardor/telegram-bot
 No caller or sending loop uses the directory yet: so far it holds the tables with `OutboxStore`
 (`store/outbox-store.ts`), which pushes, pulls within the limits, pauses, completes a pulled
 message, finds the expired leases and cleans up, `OutboxMessageSource` (`outbox-message-source.ts`),
-which hands the pulled messages to the workers, `OutboxMessageProcessor`
+which pulls the messages for the worker loop of a node, `OutboxMessageProcessor`
 (`outbox-message-processor.ts`), which takes one pulled message to its outcome, with
 `OutboxSender`, which makes its Bot API call, `OutboxFailureHandler` (`outbox-failure-handler.ts`),
 which picks the outcome of a failed send, recovers the expired leases and releases a lease on stop,
@@ -94,8 +94,8 @@ no pull reaches them. The spec has the removal take the chat while a push waits 
 3. every `idle` chat of the batch becomes `ready`; a chat in any other state already has an older
    head;
 4. `pg_notify` on `telegram_outbox_ready` with an empty payload, delivered on commit, so that an
-   idle sender wakes up at once. `OutboxMessageSource` listens on it once a worker asks it for a
-   message (see "The message source").
+   idle sender wakes up at once. `OutboxMessageSource` listens on it once the worker loop first asks
+   it for messages (see "The message source").
 
 ## Pull
 
@@ -193,62 +193,67 @@ not a moment. The rule is in [`invariants.md`](./invariants.md), "The outbox".
 
 ## The message source
 
-`OutboxMessageSource` (`outbox-message-source.ts`) is what the workers of a node take the pulled
-messages from. `messages(worker)` makes an async generator for one worker, and the worker awaits the
-next message of its own generator. Nothing makes a generator yet: the worker loop is
+`OutboxMessageSource` (`outbox-message-source.ts`) is what the worker loop of a node takes the
+pulled messages from. One source serves one caller, the loop of its node (decided in
+[#747](https://github.com/yuldashevsardor/telegram-bot/issues/747)): `next(limit, worker)` pulls
+with one `pull(limit, worker)`, `limit` being the free slots of the loop, and returns what the pull
+got. Nothing calls it yet: the worker loop is
 [#728](https://github.com/yuldashevsardor/telegram-bot/issues/728).
 
-- **One message per pull.** The generator pulls with a `limit` of 1, and only when its worker asks
-  for the next message, so a worker never holds a leased message it has not started on.
-- **The sleep.** A pull that got nothing puts the generator to sleep for `nextPullInMs`, capped by a
-  random point from 100 ms to 1 s (`MIN_SLEEP_CAP_MS`, `MAX_SLEEP_CAP_MS`), drawn for each sleep.
-  A `null` answer sleeps the whole cap, and so does zero: with nothing pulled, zero means that
-  another pull holds the bot row or another transaction holds a due chat (see "Pull"), and pulling
-  again at once would spin until it commits. The cap keeps the sleep within a Node timer as well
-  (see "Limits"). A completion that leaves its chat `ready` notifies no one, so the next message of
-  that chat waits for a sleep of at most the cap. The cap is random so that the generators that
-  sleep the whole cap together, as the ones that lost the bot row to the same pull do, wake up
-  apart.
-- **The wake-up.** The first generator starts `LISTEN` on `telegram_outbox_ready`
+- **One pull per call, for the free slots.** The loop asks only for as many messages as it can
+  start at once, so it never holds a leased message it has not started on, and one pull sends a
+  burst within the common limit. `worker` goes into the attempt of every message of the pull, so
+  its `workerId` names the loop of the node, not a slot.
+- **The sleep.** A pull that got nothing sleeps for `nextPullInMs`, capped by a random point from
+  100 ms to 1 s (`MIN_SLEEP_CAP_MS`, `MAX_SLEEP_CAP_MS`), drawn for each sleep, and `next()` returns
+  no messages: the loop calls again. A `null` answer sleeps the whole cap, and so does zero: with
+  nothing pulled, zero means that another pull holds the bot row or another transaction holds a due
+  chat (see "Pull"), and pulling again at once would spin until it commits. The cap keeps the sleep
+  within a Node timer as well (see "Limits"). A completion that leaves its chat `ready` notifies no
+  one, so the next message of that chat waits for a sleep of at most the cap. The cap is random so
+  that the sources of the nodes that sleep the whole cap together, as the ones that lost the bot
+  row to the same pull do, wake up apart.
+- **The wake-up.** The first call starts `LISTEN` on `telegram_outbox_ready`
   (`OutboxStore.listenReady()`), on the listening connection of the client
   ([`storage.md`](./storage.md), "LISTEN"). A failed start is logged at `warning` and is not
   repeated, for the reason given in "Waiting for the result": postgres.js subscribes the listener
-  again when its listening connection closes. Until the listening starts, the generators go on
-  with the capped sleep. A start that fails after the stop is not logged: a clean shutdown may
-  close the database under it. A notification wakes every sleeping generator of the node, since a
-  push may have made several chats ready, and so does every start of the listening: a push
-  committed while the connection was down reached no one. A notification that comes while a
-  generator pulls makes it pull again instead of sleeping: the pull may have read the tables before
-  the push committed.
-- **A failed pull** is logged at `error`, and the generator sleeps the whole cap and pulls again:
-  the source ends only on stop. No notification cuts that sleep short, nor one that came during
-  the failed pull: pushes go on while the pulls fail (a missing `telegram_bot_limits` row fails
-  every pull, not a push), and the generator would retry and log at their rate. A pull that fails
-  after the stop is logged at `warning` and ends the generator: the database may have been closed
-  under it.
-- **The stop.** `stop()` ends every generator of the node: a sleeping one at once, one whose pull
-  is in progress once it has handed out what the pull got, so no pulled message is left leased to
-  nobody, and one waiting for its worker at its next message. A generator made after the stop ends
-  without a pull and does not start the listening: the database may be closed by then, and a
-  `LISTEN` would open a connection that nothing closes. The worker sends the message it holds:
-  waiting for the calls in flight is the worker loop's.
+  again when its listening connection closes. Until the listening starts, the source goes on with
+  the capped sleep. A start that fails after the stop is not logged: a clean shutdown may close the
+  database under it. A notification cuts the sleep short, and so does every start of the listening:
+  a push committed while the connection was down reached no one. A notification that comes during
+  a pull that gets nothing makes `next()` return at once instead of sleeping: the pull may have read
+  the tables before the push committed. The source sleeps at most once at a time, since it has one
+  caller, so it keeps the wake-up of one sleep, not a set of them.
+- **A failed pull** is logged at `error`, sleeps the whole cap and returns no messages: the source
+  ends only on stop. No notification cuts that sleep short, nor one that came during the failed
+  pull: pushes go on while the pulls fail (a missing `telegram_bot_limits` row fails every pull,
+  not a push), and the loop would retry and log at their rate. A pull that fails after the stop is
+  logged at `warning`: the database may have been closed under it.
+- **The stop.** After `stop()` a sleep in progress ends at once, and `next()` returns no messages
+  without a pull and without starting the listening: the database may be closed by then, and a
+  `LISTEN` would open a connection that nothing closes. A pull in progress returns what it got, and
+  the loop starts those messages, so no pulled message is left leased to nobody. Waiting for the
+  calls in flight is the loop's.
 
 What this costs the rate of the common limit (see "Limits"):
 
-- A pull of one message drops the other slots due (see "Limits", the common limit), so a worker
-  that comes back after a long call gets one message, not the slots due meanwhile. The limit is
-  reached only while the workers of all the nodes together pull at least once per cooldown.
-- The latency of a worker comes off the rate as "Limits" counts it: how late its timer fires, and
+- A pull takes the slots due up to `limit`, the free slots of the loop, and drops the rest (see
+  "Limits", the common limit): a loop that gets one slot back after its slots were all busy on long
+  calls pulls one message, not the slots due meanwhile. The limit is reached only while the loops
+  of all the nodes together pull at least once per cooldown.
+- The latency of the loop comes off the rate as "Limits" counts it: how late its timer fires, and
   the time from the answer of one pull to the start of the next.
-- A worker whose pull finds the bot row held by another pull sleeps the whole cap, up to 1 s,
-  although that pull ends within milliseconds: the price of not spinning. The slot is lost only if
-  no other worker of any node pulls meanwhile.
+- A source whose pull finds the bot row held by another node's pull sleeps the whole cap, up to
+  1 s, although that pull ends within milliseconds: the price of not spinning. The slots are lost
+  only if no other node pulls meanwhile. The pullers on the bot row are one per node, so a node
+  does not lose the row to itself.
 
 What it costs the database: during a pause, or while the common limit is spent, a push cannot make
-a pull succeed, yet its notification wakes every sleeping generator of every node, and one that
-comes during a pull makes the generator pull again. While the pushes come faster than a pull takes,
-each generator pulls at their rate and gets nothing until the pause or the cooldown is over. The
-source cannot tell such a time apart: `pull()` answers with a duration, not with its reason.
+a pull succeed, yet its notification wakes the sleeping source of every node, and one that comes
+during a pull makes `next()` return at once, and the loop pulls again. While the pushes come faster
+than a pull takes, each node pulls at their rate and gets nothing until the pause or the cooldown
+is over. The source cannot tell such a time apart: `pull()` answers with a duration, not with its
+reason.
 
 ## The lease
 
@@ -498,7 +503,7 @@ next heads as well, less urgent ones included, and each of them collects a probe
 retry keeps the `next_attempt_at` its chat got from that pull, unless the 401 came back later than
 the chat limit, so the probes go round the waiting chats within the most urgent waiting priority. A
 pause can carry more than one probe: a pull that another puller makes while the 401 is still on its
-way, a worker of another node or of the same one, finds the probed chat `processing` and takes the
+way, a loop of another node or of the same one, finds the probed chat `processing` and takes the
 next head that can be pulled, a less urgent one included. A head of the most urgent waiting priority
 that shares it with other waiting chats collects `OUTBOX_MAX_ATTEMPTS` probes in about as many
 pauses times the number of those chats; a less urgent head gets only such stray probes, if any. A

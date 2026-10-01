@@ -4,28 +4,25 @@ import { Tokens } from "app/shared/tokens";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxPullResult, OutboxWorker, PulledOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
 
-// A generator serves one worker, and the worker asks for the next message only once it is free.
-const PULL_LIMIT = 1;
 // The range of the random cap of a sleep. The cap keeps nextPullInMs within a Node timer and stops
-// a spin on an answer of zero. Being random, it spreads out the generators that sleep the whole cap
-// together, as the ones that lost the bot row to the same pull do.
+// a spin on an answer of zero. Being random, it spreads out the sources of the nodes that sleep the
+// whole cap together, as the ones that lost the bot row to the same pull do.
 const MIN_SLEEP_CAP_MS = 100;
 const MAX_SLEEP_CAP_MS = 1_000;
 
-// The messages of the outbox for the workers of this node: each worker takes them from a generator
-// of its own that pulls, and sleeps when there is nothing to pull (docs/architecture/outbox.md,
-// "The message source").
+// The messages of the outbox for the worker loop of this node: one pull per call, for as many
+// messages as the loop has free slots, and a sleep when there is nothing to pull
+// (docs/architecture/outbox.md, "The message source").
 @injectable()
 export class OutboxMessageSource {
     private isStopped = false;
     private hasStartedListening = false;
-    // Counts the ready notifications: a notification that comes while a generator pulls finds it
+    // Counts the ready notifications: a notification that comes during a pull finds the source
     // awake, and the pull may have read the tables before the push it announces committed.
     private readyNotificationCount = 0;
-    // The wake-ups of the generators that sleep now, for stop().
-    private readonly wakeUps = new Set<() => void>();
-    // The wake-ups of those a ready notification cuts short: every sleep but one after a failed pull.
-    private readonly readyWakeUps = new Set<() => void>();
+    // The sleep in progress, for stop() and the ready notifications. The source serves one caller,
+    // the worker loop of the node, so it sleeps at most once at a time.
+    private currentSleep: { wakeUp: () => void; shouldWakeOnReady: boolean } | undefined;
 
     public constructor(
         @inject<OutboxStore>(Tokens.Bot.Outbox.Store) private readonly store: OutboxStore,
@@ -33,57 +30,56 @@ export class OutboxMessageSource {
         private readonly random: () => number = Math.random,
     ) {}
 
-    // Yields the messages pulled for worker, one per pull, and pulls again when the worker asks for
-    // the next one. Ends after stop(): at once from a sleep, and after it has handed out what a pull
-    // in progress has got, so no pulled message is left leased to nobody.
-    public async *messages(worker: OutboxWorker): AsyncGenerator<PulledOutboxMessage, void, undefined> {
+    // Pulls up to limit messages for worker and returns them. A pull that got nothing or failed
+    // sleeps first and returns none: the caller calls again. After stop() returns none without a
+    // pull, and a pull in progress on stop() returns what it got, so no pulled message is left
+    // leased to nobody.
+    public async next(limit: number, worker: OutboxWorker): Promise<PulledOutboxMessage[]> {
         // After stop() the database may be closed already, and a LISTEN started then opens a
         // connection that nothing closes.
         if (this.isStopped) {
-            return;
+            return [];
         }
 
         this.listen();
 
-        while (!this.isStopped) {
-            const readyNotificationCountBeforePull = this.readyNotificationCount;
-            const pullResult = await this.pull(worker);
+        const readyNotificationCountBeforePull = this.readyNotificationCount;
+        const pullResult = await this.pull(limit, worker);
 
-            // Not cut short by a notification, during the failed pull or the sleep: pushes do not
-            // stop while the pulls fail, and the generator would retry and log at their rate.
-            if (pullResult === undefined) {
-                await this.sleep(this.randomCapMs(), { shouldWakeOnReady: false });
+        // Not cut short by a notification, during the failed pull or the sleep: pushes do not
+        // stop while the pulls fail, and the source would retry and log at their rate.
+        if (pullResult === undefined) {
+            await this.sleep(this.randomCapMs(), { shouldWakeOnReady: false });
 
-                continue;
-            }
-
-            if (pullResult.messages.length > 0) {
-                yield* pullResult.messages;
-
-                continue;
-            }
-
-            if (this.readyNotificationCount !== readyNotificationCountBeforePull) {
-                continue;
-            }
-
-            await this.sleep(this.sleepDurationMs(pullResult.nextPullInMs), { shouldWakeOnReady: true });
+            return [];
         }
+
+        if (pullResult.messages.length > 0) {
+            return pullResult.messages;
+        }
+
+        if (this.readyNotificationCount !== readyNotificationCountBeforePull) {
+            return [];
+        }
+
+        await this.sleep(this.sleepDurationMs(pullResult.nextPullInMs), { shouldWakeOnReady: true });
+
+        return [];
     }
 
-    // Ends every generator: a sleeping one at once, a pulling one once it has handed out what the
-    // pull got, and one generator made afterwards at once. A worker holding a message sends it: the
-    // stop of the calls in flight is the worker's.
+    // Ends a sleep in progress at once, and every call of next() afterwards returns none without a
+    // pull. A pull in progress returns what it got: the caller starts those messages, and the stop
+    // of the calls in flight is the caller's.
     public stop(): void {
         this.isStopped = true;
-        this.wake(this.wakeUps);
+        this.currentSleep?.wakeUp();
     }
 
     // undefined: the pull failed. It is left to the next one: the source ends only on stop(). A pull
     // that fails after stop() has no next one, and the database may have been closed under it.
-    private async pull(worker: OutboxWorker): Promise<OutboxPullResult | undefined> {
+    private async pull(limit: number, worker: OutboxWorker): Promise<OutboxPullResult | undefined> {
         try {
-            return await this.store.pull(PULL_LIMIT, worker);
+            return await this.store.pull(limit, worker);
         } catch (error) {
             if (this.isStopped) {
                 this.logger.warning("Pulling outbox messages failed after the stop.", { worker: worker, cause: error });
@@ -120,22 +116,17 @@ export class OutboxMessageSource {
 
         const { promise, resolve } = Promise.withResolvers<void>();
         const timer = setTimeout(resolve, durationMs);
-        this.wakeUps.add(resolve);
-
-        if (options.shouldWakeOnReady) {
-            this.readyWakeUps.add(resolve);
-        }
+        this.currentSleep = { wakeUp: resolve, shouldWakeOnReady: options.shouldWakeOnReady };
 
         await promise;
 
         clearTimeout(timer);
-        this.wakeUps.delete(resolve);
-        this.readyWakeUps.delete(resolve);
+        this.currentSleep = undefined;
     }
 
-    // Started once, by the first generator, for the reason OutboxResultWaiter.listen() gives. Until
-    // the listening starts, the capped sleep serves. A start that fails after stop() is not logged:
-    // the database may have been closed under it by a clean shutdown.
+    // Started once, by the first call of next(), for the reason OutboxResultWaiter.listen() gives.
+    // Until the listening starts, the capped sleep serves. A start that fails after stop() is not
+    // logged: the database may have been closed under it by a clean shutdown.
     private listen(): void {
         if (this.hasStartedListening) {
             return;
@@ -151,7 +142,7 @@ export class OutboxMessageSource {
                 }
 
                 this.logger.warning(
-                    "Listening for ready outbox messages failed, the sources pull on the capped sleep until the listening starts.",
+                    "Listening for ready outbox messages failed, the source pulls on the capped sleep until the listening starts.",
                     {
                         cause: error,
                     },
@@ -159,15 +150,11 @@ export class OutboxMessageSource {
             });
     }
 
-    // Every generator of the node wakes up: a push may have made several chats ready.
     private onReady(): void {
         this.readyNotificationCount += 1;
-        this.wake(this.readyWakeUps);
-    }
 
-    private wake(wakeUps: Set<() => void>): void {
-        for (const wakeUp of wakeUps) {
-            wakeUp();
+        if (this.currentSleep?.shouldWakeOnReady === true) {
+            this.currentSleep.wakeUp();
         }
     }
 }
