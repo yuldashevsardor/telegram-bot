@@ -116,10 +116,7 @@ export class OutboxStore {
                   AND state = ${OutboxChatState.Idle}
             `;
 
-            // Delivered on commit, so a sender that wakes up on it sees the rows. No ids in it: the
-            // sender takes what it pulls, not what was pushed, and a batch of ids could outgrow the
-            // 8000 bytes of a NOTIFY payload.
-            await sql`SELECT pg_notify(${OutboxChannel.Ready}, '')`;
+            await this.notifyReady(sql);
 
             return rows.map((row) => Number(row.id)).sort((a, b) => a - b);
         });
@@ -369,14 +366,14 @@ export class OutboxStore {
     }
 
     // The message goes back to pending, and its chat waits delayMs or its chat limit, whichever is
-    // later: the message stays the head, so it holds its chat. wakeIdleNodes notifies the ready
+    // later: the message stays the head, so it holds its chat. shouldWakeIdleNodes notifies the ready
     // channel as a push does, for a retry whose node pulls no more: a node that sleeps on a null
     // nextPullInMs learns of the chat from nothing else. A fenced retry notifies no one.
     public async retry(
         lease: OutboxLease,
         attemptError: OutboxAttemptError,
         delayMs: number,
-        options: OutboxRetryOptions = { wakeIdleNodes: false },
+        options: OutboxRetryOptions = { shouldWakeIdleNodes: false },
     ): Promise<void> {
         await this.complete(lease, attemptError, async (sql, chatId) => {
             await this.updateProcessingMessage(
@@ -400,9 +397,8 @@ export class OutboxStore {
                 WHERE chat_id = ${chatId}
             `;
 
-            // In the transaction, so it is delivered on commit, as the notification of a push.
-            if (options.wakeIdleNodes) {
-                await sql`SELECT pg_notify(${OutboxChannel.Ready}, '')`;
+            if (options.shouldWakeIdleNodes) {
+                await this.notifyReady(sql);
             }
         });
     }
@@ -574,6 +570,14 @@ export class OutboxStore {
     // it would notify before the commit, and even for a transaction that rolls back.
     private async notifyFinished(sql: TransactionSql, messageId: number): Promise<void> {
         await sql`SELECT pg_notify(${OutboxChannel.Finished}, ${String(messageId)})`;
+    }
+
+    // Wakes the senders that sleep with nothing to pull. Through sql of the transaction that made a
+    // chat ready, as notifyFinished(), so it is delivered on commit and a sender that wakes up on it
+    // sees the chat. No ids in it: the sender takes what it pulls, not what was pushed, and a batch of
+    // ids could outgrow the 8000 bytes of a NOTIFY payload.
+    private async notifyReady(sql: TransactionSql): Promise<void> {
+        await sql`SELECT pg_notify(${OutboxChannel.Ready}, '')`;
     }
 
     // The token is the chat's, so the chat is processing with one message: another message of the

@@ -252,7 +252,7 @@ describe("OutboxFailureHandler", function () {
             await handler.releaseOnStop(message);
 
             expect(store.calls).to.deep.equal([
-                { method: "retry", lease: message, error: NODE_STOPPED, delayMs: 0, options: { wakeIdleNodes: true } },
+                { method: "retry", lease: message, error: NODE_STOPPED, delayMs: 0, options: { shouldWakeIdleNodes: true } },
             ]);
         });
 
@@ -262,7 +262,7 @@ describe("OutboxFailureHandler", function () {
             await handler.releaseOnStop(message);
 
             expect(store.calls).to.deep.equal([
-                { method: "retry", lease: message, error: NODE_STOPPED, delayMs: 0, options: { wakeIdleNodes: true } },
+                { method: "retry", lease: message, error: NODE_STOPPED, delayMs: 0, options: { shouldWakeIdleNodes: true } },
             ]);
         });
     });

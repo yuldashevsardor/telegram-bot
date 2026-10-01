@@ -170,9 +170,10 @@ queue takes ([`outbound-queue.md`](./outbound-queue.md)). A limit of `number` me
 `nextPullInMs` is the later of the nearest `next_attempt_at` among the `ready` chats not pulled by
 this pull and the bot's own time — `next_send_at` after the pull, or `paused_until` if later —
 counted from `now()` and never below zero. It is `null` when no chat is `ready`: there is no time
-to wait for, only a push or a completion brings a message then. A ready chat left out by `limit`
-or skipped as locked no longer holds the answer back: the bot's time decides it, the cooldowns the
-pull has just spent, or zero if it pulled nothing.
+to wait for. A push or a completion brings a message then, but another node hears only of a push
+and of a release on stop, the two that notify `telegram_outbox_ready` (see "Release on stop"). A
+ready chat left out by `limit` or skipped as locked no longer holds the answer back: the bot's time
+decides it, the cooldowns the pull has just spent, or zero if it pulled nothing.
 
 The answer is not capped. A long pause or a long interval of a limit, common or chat, gives more
 than a Node timer takes (`ConfigParser.MAX_TIMER_DELAY`; what Node does with more is in
@@ -475,7 +476,7 @@ finish, so another node takes it on its next pull rather than after the lease. I
 message goes back to `pending`, the chat to `ready` with the chat limit the pull set, the lease
 ends, and a stale token is fenced as in every completion (see "Completions").
 
-The release passes `wakeIdleNodes` to `retry()`, which then sends `pg_notify` on
+The release passes `shouldWakeIdleNodes` to `retry()`, which then sends `pg_notify` on
 `telegram_outbox_ready` in its transaction, delivered on commit as the one of a push; a fenced
 release sends none. The node that would pull the message next is the one that stops, and a
 node whose last pull found nothing `ready` got `nextPullInMs` of `null`: no time to wait for, only a

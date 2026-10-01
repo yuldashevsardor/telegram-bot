@@ -141,9 +141,9 @@ export type OutboxPullResultRow = {
     has_bot_limits: boolean;
 };
 
-// How a retry ends besides the rows: wakeIdleNodes notifies the ready channel on commit.
+// How a retry ends besides the rows: shouldWakeIdleNodes notifies the ready channel on commit.
 export type OutboxRetryOptions = {
-    wakeIdleNodes: boolean;
+    shouldWakeIdleNodes: boolean;
 };
 
 // What the cleanup deletes and how much at a time. A failed message has no retention: it is never

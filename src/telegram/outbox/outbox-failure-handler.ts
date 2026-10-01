@@ -78,7 +78,7 @@ export class OutboxFailureHandler {
     public async releaseOnStop(lease: OutboxLease): Promise<void> {
         // The node that would pull the message next is this one, and it stops: an idle node sleeps
         // until a notification otherwise.
-        await this.store.retry(lease, NODE_STOPPED, RELEASE_DELAY_MS, { wakeIdleNodes: true });
+        await this.store.retry(lease, NODE_STOPPED, RELEASE_DELAY_MS, { shouldWakeIdleNodes: true });
     }
 
     // Not async on purpose: a switch that misses a kind leaves the end of the function reachable,
