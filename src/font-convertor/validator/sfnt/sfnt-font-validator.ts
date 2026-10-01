@@ -15,14 +15,14 @@ import { FileHelper } from "app/shared/fs/file-helper";
 
 /**
  * Checks a TTF or OTF font against the Microsoft OpenType specification 1.9.1, and against Apple's
- * TrueType Reference Manual for what it governs: the table directory, the tables a font must
- * have, the fields of `head`, `maxp`, `hhea`, `hmtx` and `loca` that give the glyph count, where
- * the metrics of each glyph lie and, with TrueType outlines, where its outline lies, and the
- * version of `cmap`, `name`, `OS/2` and `post` with whether their fixed fields and the `cmap` and
- * `name` records fit into the table.
- * Both extensions take the same checks: the sfnt version names the outline type, not the extension,
- * and the rules that depend on the outline type go by the outline tables present, not by the
- * version, which the specification only says "should" match them.
+ * TrueType Reference Manual for what it governs: the table directory, the tables a font must have,
+ * the fields of `head`, `maxp`, `hhea`, `hmtx` and `loca` that give the glyph count, where the
+ * metrics of each glyph lie and, with TrueType outlines, where its outline lies, and the version of
+ * `cmap`, `name`, `OS/2` and `post` with whether the headers and records of `cmap` and `name`, the
+ * fields of the `OS/2` version and the 32-byte header of `post` fit into the table. Both extensions
+ * take the same checks: the sfnt version names the outline type, not the extension, and the rules
+ * that depend on the outline type go by the outline tables present, not by the version, which the
+ * specification only says "should" match them.
  *
  * Deliberately not checked:
  * - The table checksums and `head.checkSumAdjustment`. fontforge does not read them: its output
@@ -95,6 +95,7 @@ export class SfntFontValidator implements FontValidator {
     private static readonly NAME_RECORD_SIZE_BYTES = 12;
     private static readonly LANG_TAG_COUNT_SIZE_BYTES = 2;
     private static readonly LANG_TAG_RECORD_SIZE_BYTES = 4;
+    private static readonly OS2_VERSION_OFFSET_BYTES = 0;
     private static readonly OS2_VERSION_SIZE_BYTES = 2;
     // The length the fields of each version take, summed from the field lists of the specification,
     // which does not state it. Version 0 ends at usLastCharIndex, 10 bytes short of its full 78:
@@ -108,6 +109,7 @@ export class SfntFontValidator implements FontValidator {
         [5, 100],
     ]);
     private static readonly POST_HEADER_SIZE_BYTES = 32;
+    private static readonly POST_VERSION_OFFSET_BYTES = 0;
     private static readonly POST_VERSIONS = [0x00010000, 0x00020000, 0x00025000, 0x00030000];
 
     /**
@@ -653,7 +655,7 @@ export class SfntFontValidator implements FontValidator {
     private checkOs2(fontPath: string, view: DataView, os2: SfntTableRecord): void {
         this.checkLength(fontPath, os2, SfntRule.Os2Length, SfntFontValidator.OS2_VERSION_SIZE_BYTES, "the version");
 
-        const version = view.getUint16(os2.offset);
+        const version = view.getUint16(os2.offset + SfntFontValidator.OS2_VERSION_OFFSET_BYTES);
         const minLengthBytes = SfntFontValidator.OS2_LENGTHS_BYTES.get(version);
 
         if (minLengthBytes === undefined) {
@@ -675,7 +677,7 @@ export class SfntFontValidator implements FontValidator {
     private checkPost(fontPath: string, view: DataView, post: SfntTableRecord): void {
         this.checkLength(fontPath, post, SfntRule.PostLength, SfntFontValidator.POST_HEADER_SIZE_BYTES, "the header");
 
-        const version = view.getUint32(post.offset);
+        const version = view.getUint32(post.offset + SfntFontValidator.POST_VERSION_OFFSET_BYTES);
 
         if (!SfntFontValidator.POST_VERSIONS.includes(version)) {
             throw BrokenSfnt.byRule(fontPath, {

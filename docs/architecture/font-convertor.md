@@ -239,14 +239,14 @@ checks it against the Microsoft OpenType specification 1.9.1 and, for what it go
 TrueType Reference Manual: the table directory ("Table Directory"), the tables a font must have
 ("Required Tables"), the fields of `head`, `maxp`, `hhea`, `hmtx` and `loca` that give the glyph
 count, where each glyph's metrics lie and, with TrueType outlines, where its outline lies, and the
-version of `cmap`, `name`, `OS/2` and `post` with whether their fixed fields and the `cmap` and
-`name` records fit into the table (each table by its own section). `FontValidatorResolver` gives it
-out for a TTF and an OTF source alike, and its answer reaches the caller the way the SVG one does:
-as the cause of `FontConvertorError`, before the engine is called. The engine's TTF and OTF output
-is not checked. The validator exists because the engine does not refuse a broken sfnt: of 104
-variants of the fixtures, each broken in one place, fontforge 20230101 converted 79 with exit 0, 9
-of them losing glyphs or outlines, and crashed on 8 with SIGSEGV
-([#614](https://github.com/yuldashevsardor/telegram-bot/issues/614)).
+version of `cmap`, `name`, `OS/2` and `post` with whether the headers and records of `cmap` and
+`name`, the fields of the `OS/2` version and the 32-byte header of `post` fit into the table (each
+table by its own section). `FontValidatorResolver` gives it out for a TTF and an OTF source alike,
+and its answer reaches the caller the way the SVG one does: as the cause of `FontConvertorError`,
+before the engine is called. The engine's TTF and OTF output is not checked. The validator exists
+because the engine does not refuse a broken sfnt: of 104 variants of the fixtures, each broken in
+one place, fontforge 20230101 converted 79 with exit 0, 9 of them losing glyphs or outlines, and
+crashed on 8 with SIGSEGV ([#614](https://github.com/yuldashevsardor/telegram-bot/issues/614)).
 `ttf → eot` does not reach the engine at all: `EotPacker.pack` reads `OS/2`, `head` and `name` and
 packs whatever else the font holds.
 
@@ -291,10 +291,11 @@ the engine forgives, but the standard does not. The length of `hmtx` and of `loc
 an exact size: none of the 297 real fonts with TrueType outlines measured has either table longer
 than its fields, so the stricter form would buy nothing.
 
-The rules on `cmap`, `name`, `OS/2` and `post` read the version and whether the fixed fields and the
-`cmap` and `name` records fit into the table, not what the records point to: neither the content of
-a `cmap` subtable, nor the strings of `name`, nor the glyph names of `post` 2.0 and 2.5. The engine
-converts every such break keeping every glyph, and some of them lose content
+The rules on `cmap`, `name`, `OS/2` and `post` read the version and whether the headers and records
+of `cmap` and `name`, the fields of the `OS/2` version and the 32-byte header of `post` fit into the
+table, not what the records point to: neither the content of a `cmap` subtable, nor the strings of
+`name`, nor the glyph names of `post` 2.0 and 2.5. The engine converts every such break keeping
+every glyph, and some of them lose content
 ([#683](https://github.com/yuldashevsardor/telegram-bot/issues/683)): a `cmap` without subtables or
 with a subtable offset past the table loses the encoding, with "Could not find any valid encoding
 tables"; a `name` with 60000 records gives "Invalid mac encoding 65535". The length `OS/2` needs by
