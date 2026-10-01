@@ -8,6 +8,7 @@ import { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory
 import type { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-signature-matcher";
 import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
+import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
 import { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
 import { WoffFontValidator } from "app/font-convertor/validator/woff/woff-font-validator";
 import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
@@ -17,7 +18,7 @@ type Run = { formats: unknown; events: string[] };
 function buildConvertorFactory(): ConvertorFactory {
     return new ConvertorFactory(
         {} as FontForge,
-        new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator(), new WoffFontValidator()),
+        new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator(), new WoffFontValidator(), new SfntFontValidator()),
         new EotPacker(),
     );
 }
