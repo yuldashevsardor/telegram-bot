@@ -1405,6 +1405,17 @@ describe("OutboxStore", function () {
             expect(payloads).to.deep.equal([""]);
         });
 
+        it("calls the ready listener when the listening starts and when a push commits", async function () {
+            let readyCount = 0;
+            await new OutboxStore(listener, logger, NO_LIMITS, LEASE_DURATION_MS, CLEANUP).listenReady(() => (readyCount += 1));
+
+            expect(readyCount).to.equal(1);
+
+            await store.push(message(CHAT, "first"));
+
+            await waitUntil(() => readyCount === 2, "no ready notification came");
+        });
+
         it("notifies the finished channel with the id of a message marked as done", async function () {
             const payloads = await listenTo(listener, OutboxChannel.Finished);
             const id = await store.push(message(CHAT, "first"));

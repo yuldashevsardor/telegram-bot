@@ -43,6 +43,7 @@ import { OutboxFinishedMessageReader } from "app/telegram/outbox/outbox-finished
 import { OutboxResultWaiter } from "app/telegram/outbox/result-waiter/outbox-result-waiter";
 import { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-handler";
 import { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
+import { OutboxMessageSource } from "app/telegram/outbox/outbox-message-source";
 import { OutboxApiFactory } from "app/telegram/outbox/outbox-api-factory";
 import { OutboxSender } from "app/telegram/outbox/outbox-sender";
 import { OutboxMessageProcessor } from "app/telegram/outbox/outbox-message-processor";
@@ -112,6 +113,7 @@ export class Container extends InversifyContainer {
         this.bind<OutboxResultWaiter>(Tokens.Bot.Outbox.Result.Waiter).to(OutboxResultWaiter).inSingletonScope();
         this.bind<OutboxFailureHandler>(Tokens.Bot.Outbox.FailureHandler).to(OutboxFailureHandler).inSingletonScope();
         this.bind<OutboxErrorSerializer>(Tokens.Bot.Outbox.ErrorSerializer).to(OutboxErrorSerializer).inSingletonScope();
+        this.bind<OutboxMessageSource>(Tokens.Bot.Outbox.MessageSource).to(OutboxMessageSource).inSingletonScope();
         this.bind<OutboxApiFactory>(Tokens.Bot.Outbox.ApiFactory).to(OutboxApiFactory).inSingletonScope();
         this.bind<OutboxSender>(Tokens.Bot.Outbox.Sender).to(OutboxSender).inSingletonScope();
         this.bind<OutboxMessageProcessor>(Tokens.Bot.Outbox.MessageProcessor).to(OutboxMessageProcessor).inSingletonScope();
