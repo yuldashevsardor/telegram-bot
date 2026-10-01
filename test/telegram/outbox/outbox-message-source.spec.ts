@@ -281,16 +281,6 @@ describe("OutboxMessageSource", function () {
         expect(store.pulls).to.have.length(2);
     });
 
-    it("wakes up when the listening starts again after a reconnect", async function () {
-        void build().messages(WORKER).next();
-        await settle();
-
-        store.notifyReady();
-        await settle();
-
-        expect(store.pulls).to.have.length(2);
-    });
-
     // The first pull may have read the tables before the LISTEN, and a push in between was heard by
     // no one.
     it("pulls again at once when the listening starts during the first pull", async function () {

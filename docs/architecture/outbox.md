@@ -240,6 +240,12 @@ What this costs the rate of the common limit (see "Limits"):
   although that pull ends within milliseconds: the price of not spinning. The slot is lost only if
   no other worker of any node pulls meanwhile.
 
+What it costs the database: during a pause, or while the common limit is spent, a push cannot make
+a pull succeed, yet its notification wakes every sleeping generator of every node, and one that
+comes during a pull makes the generator pull again. While the pushes come faster than a pull takes,
+each generator pulls at their rate and gets nothing until the pause or the cooldown is over. The
+source cannot tell such a time apart: `pull()` answers with a duration, not with its reason.
+
 ## The lease
 
 A pull leases each chat it pulled: `locked_until` is `now()` plus `leaseDurationMs`

@@ -52,7 +52,7 @@ export class OutboxMessageSource {
             // Not cut short by a notification, during the failed pull or the sleep: pushes do not
             // stop while the pulls fail, and the generator would retry and log at their rate.
             if (pullResult === undefined) {
-                await this.sleep(this.sleepDurationMs(null), { wakesOnReady: false });
+                await this.sleep(this.randomCapMs(), { shouldWakeOnReady: false });
 
                 continue;
             }
@@ -67,7 +67,7 @@ export class OutboxMessageSource {
                 continue;
             }
 
-            await this.sleep(this.sleepDurationMs(pullResult.nextPullInMs), { wakesOnReady: true });
+            await this.sleep(this.sleepDurationMs(pullResult.nextPullInMs), { shouldWakeOnReady: true });
         }
     }
 
@@ -95,11 +95,11 @@ export class OutboxMessageSource {
         }
     }
 
-    // nextPullInMs, capped by a random point between MIN_SLEEP_CAP_MS and MAX_SLEEP_CAP_MS. A null
-    // answer has no time to wait for, and an answer of zero after a pull that got nothing means that
-    // another transaction holds the bot row or a due chat: both sleep the whole cap.
+    // nextPullInMs, capped by randomCapMs(). A null answer has no time to wait for, and an answer of
+    // zero after a pull that got nothing means that another transaction holds the bot row or a due
+    // chat: both sleep the whole cap.
     private sleepDurationMs(nextPullInMs: number | null): number {
-        const capMs = MIN_SLEEP_CAP_MS + this.random() * (MAX_SLEEP_CAP_MS - MIN_SLEEP_CAP_MS);
+        const capMs = this.randomCapMs();
 
         if (nextPullInMs === null || nextPullInMs === 0) {
             return capMs;
@@ -108,9 +108,14 @@ export class OutboxMessageSource {
         return Math.min(nextPullInMs, capMs);
     }
 
-    // Cut short by stop(), and by a ready notification if wakesOnReady; a sleep after stop() does not
+    // A random point between MIN_SLEEP_CAP_MS and MAX_SLEEP_CAP_MS, drawn for each sleep.
+    private randomCapMs(): number {
+        return MIN_SLEEP_CAP_MS + this.random() * (MAX_SLEEP_CAP_MS - MIN_SLEEP_CAP_MS);
+    }
+
+    // Cut short by stop(), and by a ready notification if shouldWakeOnReady; a sleep after stop() does not
     // start.
-    private async sleep(durationMs: number, options: { wakesOnReady: boolean }): Promise<void> {
+    private async sleep(durationMs: number, options: { shouldWakeOnReady: boolean }): Promise<void> {
         if (this.isStopped) {
             return;
         }
@@ -119,7 +124,7 @@ export class OutboxMessageSource {
         const timer = setTimeout(resolve, durationMs);
         this.wakeUps.add(resolve);
 
-        if (options.wakesOnReady) {
+        if (options.shouldWakeOnReady) {
             this.readyWakeUps.add(resolve);
         }
 
