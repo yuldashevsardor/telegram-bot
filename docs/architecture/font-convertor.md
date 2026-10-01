@@ -64,9 +64,15 @@ table does not reach the codec: `SfntFontValidator` below rejects it, since Open
 table. So the tolerance for a missing table serves the intermediate sfnt the engine writes, while a
 missing record or a string out of bounds is packed from a source too.
 
-`eot-packer.ts` itself lays out the header and the versions: which one is written, which are read. A
-compressed (`TTEMBED_TTCOMPRESSED`) or encrypted (`TTEMBED_XORENCRYPTDATA`) payload is rejected with
-an explicit `UnsupportedEotFlags` error; the codec does not try to parse it.
+`eot-packer.ts` writes version `0x00020001`. The header is read through `EotHeader`
+(`font-convertor/eot-header/`), which lays out the fixed part, the names and the tail of every
+version, and where the font lies. It rejects only what leaves it nothing to read, an empty
+`FontDataSize` included, and exposes the rest: the codec itself checks the magic number, `EOTSize`,
+the flags and that the names end before the font. `EotHeader` lies outside `eot-packer/` because the
+codec is not meant to be its only reader: a second parse of the same header would be a second copy
+of one format rule. A compressed (`TTEMBED_TTCOMPRESSED`) or encrypted (`TTEMBED_XORENCRYPTDATA`)
+payload is rejected with an explicit `UnsupportedEotFlags` error; the codec does not try to parse
+it.
 
 ## Running the engine
 
@@ -289,10 +295,10 @@ not count as supported.
   sent. A caught conversion error is written at `error` level through `Logger`
   ([`logging.md`](./logging.md)). The command is for debugging and does not go to production
   ([overview](./README.md)), so its input from the `test/` directory stays as it is.
-- The EOT envelope is not read through. The names are parsed, then the font is taken as the tail
-  of the file by `FontDataSize`. The bytes between the parsed header and the font are not
-  checked, in any version: only a header running past the font start is rejected. In version
-  `0x00020002` the tail (a signature, embedded EUDC) lies there.
+- The codec does not read the EOT envelope through. It parses the names (`EotHeader.readNames()`),
+  then takes the font as the tail of the file by `FontDataSize`. The bytes between the parsed header
+  and the font are not checked, in any version: only a header running past the font start is
+  rejected. In version `0x00020002` the tail (a signature, embedded EUDC) lies there.
 - An envelope built by `EotPacker` repeats the output of `ttf2eot` byte for byte, except for
   `fsType`. `ttf2eot` always writes zero there, declaring any font free to install. We carry
   `OS/2.fsType` over as is, following the specification. The byte-for-byte comparison test with

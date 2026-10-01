@@ -402,12 +402,12 @@ this behaviour required?", not "which test would kill it?". There are three outc
 Indistinguishable by what is required, not byte by byte:
 
 - A boundary mutant shifts a check by one byte. If it differs from the source only on input that is
-  rejected either way, it is equivalent: all that changes is which check rejected the input, that
-  is the class, the text and the details of the error (`readFontData()` in `eot-packer.ts`). A test
-  checks the details when without them it is not visible whether the check works at all: an
-  envelope whose font is one byte too large to fit past the fixed part of the header would have
-  been rejected by the matching of the names against the beginning of the font as well
-  (`eot-packer.spec.ts`).
+  rejected either way, it is equivalent: all that changes is which check rejected the input, that is
+  the class, the text and the details of the error (the constructor and `readFontDataOffset()` of
+  `EotHeader`). A test checks the details when without them it is not visible whether the check
+  works at all: an envelope whose font is one byte too large to fit past the fixed part of the
+  header would have been rejected by the matching of the names against the beginning of the font as
+  well (`eot-packer.spec.ts`).
 - The same holds if the mutant differs only on a file the domain is not obliged to let through:
   twelve bytes of an sfnt header without a single table, which one version lets through and the
   other rejects (the constructor of `SfntTableDirectory`).
