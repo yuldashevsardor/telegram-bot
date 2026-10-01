@@ -1,5 +1,10 @@
 import { RuntimeError } from "app/shared/errors";
 
+/**
+ * A broken EOT envelope. `EotHeader` throws the answers it cannot read past; the codec throws the
+ * rest (the magic number, EOTSize, the names against the font start). One class holds both, so a
+ * reader tells a broken envelope by one `instanceof` whichever check rejected it.
+ */
 export class InvalidEot extends RuntimeError {
     public static tooShort(length: number): InvalidEot {
         return new InvalidEot(`Eot font is too short: ${length} bytes.`, {

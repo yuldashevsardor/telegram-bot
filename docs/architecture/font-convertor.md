@@ -63,12 +63,13 @@ end of the table or past the end of the file.
 
 `eot-packer.ts` writes version `0x00020001`. The header is read through `EotHeader`
 (`font-convertor/eot-header/`), which lays out the fixed part, the names and the tail of every
-version, and where the font lies. It rejects only what it cannot read past and exposes the rest: the
-codec itself checks the magic number, `EOTSize`, the flags and that the names end before the font.
-`EotHeader` lies outside `eot-packer/` because the codec is not meant to be its only reader: a
-second parse of the same header would be a second copy of one format rule. A compressed
-(`TTEMBED_TTCOMPRESSED`) or encrypted (`TTEMBED_XORENCRYPTDATA`) payload is rejected with an
-explicit `UnsupportedEotFlags` error; the codec does not try to parse it.
+version, and where the font lies. It rejects only what leaves it nothing to read, an empty
+`FontDataSize` included, and exposes the rest: the codec itself checks the magic number, `EOTSize`,
+the flags and that the names end before the font. `EotHeader` lies outside `eot-packer/` because the
+codec is not meant to be its only reader: a second parse of the same header would be a second copy
+of one format rule. A compressed (`TTEMBED_TTCOMPRESSED`) or encrypted (`TTEMBED_XORENCRYPTDATA`)
+payload is rejected with an explicit `UnsupportedEotFlags` error; the codec does not try to parse
+it.
 
 ## Running the engine
 

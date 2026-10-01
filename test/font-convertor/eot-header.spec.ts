@@ -145,6 +145,18 @@ describe("EotHeader", function () {
             expect(new EotHeader(inflated).readNames().endOffset).to.equal(eot.length - ttf.length + 0xffff);
         });
 
+        it("reads a name size that ends exactly at the end of the file", function () {
+            // Version 1.0 cut right after FullNameSize, set to zero: the last field the walk reads
+            // ends where the file does.
+            const fullNameSizeEnd = (paddingOffsetsOf(eot)[3] as number) + 4;
+            const cut = patch(eot.subarray(0, fullNameSizeEnd), (view) => {
+                view.setUint32(VERSION_OFFSET, EotHeader.VERSION_1_0, true);
+                view.setUint16(fullNameSizeEnd - 2, 0, true);
+            });
+
+            expect(new EotHeader(cut).readNames().endOffset).to.equal(fullNameSizeEnd);
+        });
+
         it("rejects a file that ends inside a name size", function () {
             // The file breaks off one byte short of the end of StyleNameSize. Without the check
             // DataView would throw a RangeError instead of InvalidEot.

@@ -31,7 +31,6 @@ const EOT_SIZE_OFFSET = 0;
 const FONT_DATA_SIZE_OFFSET = 4;
 const VERSION_OFFSET = 8;
 const FLAGS_OFFSET = 12;
-const MAGIC_NUMBER_OFFSET = 34;
 const RESERVED_OFFSET = 64;
 const RESERVED_COUNT = 4;
 const PADDING_1_OFFSET = 80;
@@ -44,13 +43,18 @@ const ULONG_SIZE_BYTES = 4;
  * version 0x00020002 and where the font lies. The codec takes the font out through it, so the
  * domain has one implementation of the parse rather than a copy per reader.
  *
- * The parse rejects only what it cannot read past: a file shorter than a field it reads, an
- * unknown version whose layout it does not know, a FontDataSize that leaves the font no room. The
- * rest of the format (the magic number, EOTSize, the reserved fields, the extent of the blocks) is
- * exposed for its readers to check.
+ * The parse rejects only what leaves it nothing to read: a file shorter than a field it reads, an
+ * unknown version whose layout it does not know, a FontDataSize that is zero or leaves the font no
+ * room. The rest of the format (the magic number, EOTSize, the reserved fields, the extent of the
+ * blocks) is exposed for its readers to check.
+ *
+ * Two boundary checks below are marked equivalent because of what the codec does after them: it
+ * reads the names and rejects names that run past the font start (`headerOverlapsFontData` in
+ * `EotPacker`). A reader that skips either has to pin those boundaries itself.
  */
 export class EotHeader {
     public static readonly FIXED_SIZE_BYTES = 82;
+    public static readonly MAGIC_NUMBER_OFFSET = 34;
     public static readonly MAGIC_NUMBER = 0x504c;
     public static readonly VERSION_1_0 = 0x00010000;
     public static readonly VERSION_2_1 = 0x00020001;
@@ -70,7 +74,7 @@ export class EotHeader {
     private readonly view: DataView;
 
     public constructor(private readonly bytes: Uint8Array) {
-        // Stryker disable next-line EqualityOperator: `<=` is equivalent: a file of exactly 82 bytes is rejected by the reading of the names too, only the error changes
+        // Stryker disable next-line EqualityOperator: `<=` is equivalent for the codec: a file of exactly 82 bytes ends inside FamilyNameSize, and readNames(), which the codec calls, rejects it with the same tooShort
         if (bytes.length < EotHeader.FIXED_SIZE_BYTES) {
             throw InvalidEot.tooShort(bytes.length);
         }
@@ -80,7 +84,7 @@ export class EotHeader {
         this.fontDataSizeBytes = this.view.getUint32(FONT_DATA_SIZE_OFFSET, true);
         this.version = this.view.getUint32(VERSION_OFFSET, true);
         this.flags = this.view.getUint32(FLAGS_OFFSET, true);
-        this.magicNumber = this.view.getUint16(MAGIC_NUMBER_OFFSET, true);
+        this.magicNumber = this.view.getUint16(EotHeader.MAGIC_NUMBER_OFFSET, true);
 
         const reserved: Array<number> = [];
 
@@ -129,7 +133,8 @@ export class EotHeader {
 
     /**
      * The fields version 0x00020002 adds after RootString; `undefined` for the earlier versions,
-     * which have none.
+     * which have none. The names are read first, so a file cut inside them is rejected in any
+     * version.
      */
     public readTail(): EotTail | undefined {
         const names = this.readNames();
@@ -164,7 +169,7 @@ export class EotHeader {
      * the end of the file. Whether it follows the header directly is left to the readers.
      */
     public readFontDataOffset(): number {
-        // Stryker disable next-line EqualityOperator: `>=` on FontDataSize is equivalent: a font starting right after the fixed part is rejected by the name parsing, only the error changes
+        // Stryker disable next-line EqualityOperator: `>=` on FontDataSize is equivalent for the codec: a font starting right after the fixed part starts inside FamilyNameSize, so the codec rejects it with headerOverlapsFontData, only the error changes
         if (this.fontDataSizeBytes === 0 || this.fontDataSizeBytes > this.bytes.length - EotHeader.FIXED_SIZE_BYTES) {
             throw InvalidEot.invalidFontDataSize(this.fontDataSizeBytes, this.bytes.length);
         }
@@ -190,7 +195,6 @@ export class EotHeader {
      * Without the check DataView would throw a RangeError instead of InvalidEot.
      */
     private requireBytes(offset: number, sizeBytes: number): void {
-        // Stryker disable next-line EqualityOperator: `>=` is equivalent: a header whose fields end exactly at the end of the file leaves no room for FontData, which is never empty, so the file is rejected either way, only the error changes
         if (offset + sizeBytes > this.bytes.length) {
             throw InvalidEot.tooShort(this.bytes.length);
         }

@@ -73,7 +73,7 @@ export class EotPacker {
         view.setUint8(27, metadata.italic);
         view.setUint32(28, metadata.weight, true);
         view.setUint16(32, metadata.fsType, true);
-        view.setUint16(34, EotHeader.MAGIC_NUMBER, true);
+        view.setUint16(EotHeader.MAGIC_NUMBER_OFFSET, EotHeader.MAGIC_NUMBER, true);
 
         // Stryker disable next-line EqualityOperator: `<=` is equivalent: the extra pass writes undefined, that is zero, into CodePageRange1, and the loop below overwrites it
         for (let index = 0; index < 4; index++) {
