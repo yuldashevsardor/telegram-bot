@@ -15,6 +15,7 @@ import type {
     OutboxAttemptError,
     OutboxJsonObject,
     OutboxLease,
+    OutboxRetryOptions,
     PulledOutboxMessage,
 } from "app/telegram/outbox/store/outbox-store.types";
 
@@ -34,8 +35,15 @@ const LEASE_EXPIRED: OutboxAttemptError = {
     kind: TelegramBotApiFailureKind.Transient,
 };
 
+// What the attempt of a release on stop ends with, spelled out for the same reason.
+const NODE_STOPPED: OutboxAttemptError = {
+    name: "OutboxNodeStopped",
+    message: "The node stopped before the call of the message finished: the message is released to any node.",
+    kind: TelegramBotApiFailureKind.Transient,
+};
+
 type StoreCall =
-    | { method: "retry"; lease: OutboxLease; error: OutboxAttemptError; delayMs: number }
+    | { method: "retry"; lease: OutboxLease; error: OutboxAttemptError; delayMs: number; options?: OutboxRetryOptions }
     | { method: "markAsFailed" | "markAsFailedAndBlockChat"; lease: OutboxLease; error: OutboxAttemptError }
     | { method: "pause"; durationMs: number };
 
@@ -49,8 +57,11 @@ class RecordingStore {
         return this.expiredLeases;
     }
 
-    public async retry(lease: OutboxLease, error: OutboxAttemptError, delayMs: number): Promise<void> {
-        this.calls.push({ method: "retry", lease, error, delayMs });
+    public async retry(lease: OutboxLease, error: OutboxAttemptError, delayMs: number, options?: OutboxRetryOptions): Promise<void> {
+        // Only a call that passes options records them, so the other expectations need not spell them out.
+        this.calls.push(
+            options === undefined ? { method: "retry", lease, error, delayMs } : { method: "retry", lease, error, delayMs, options },
+        );
     }
 
     public async markAsFailed(lease: OutboxLease, error: OutboxAttemptError): Promise<void> {
@@ -231,6 +242,28 @@ describe("OutboxFailureHandler", function () {
             await handler.recoverExpiredLeases();
 
             expect(store.calls).to.deep.equal([]);
+        });
+    });
+
+    describe("a release on stop", function () {
+        it("returns the message to pending with no delay and an attempt of the stopped node, then wakes the idle nodes", async function () {
+            const message = pulledAfter(0);
+
+            await handler.releaseOnStop(message);
+
+            expect(store.calls).to.deep.equal([
+                { method: "retry", lease: message, error: NODE_STOPPED, delayMs: 0, options: { shouldWakeIdleNodes: true } },
+            ]);
+        });
+
+        it("blocks no chat, even on the last attempt", async function () {
+            const message = pulledAfter(MAX_ATTEMPTS - 1);
+
+            await handler.releaseOnStop(message);
+
+            expect(store.calls).to.deep.equal([
+                { method: "retry", lease: message, error: NODE_STOPPED, delayMs: 0, options: { shouldWakeIdleNodes: true } },
+            ]);
         });
     });
 

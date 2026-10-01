@@ -1,3 +1,5 @@
+import type { SfntTableRecord } from "app/font-convertor/sfnt-table-directory/sfnt-table-directory.types";
+
 /**
  * A rule an sfnt font breaks. The text names the rule and where it comes from: a section of the
  * Microsoft OpenType specification 1.9.1, a chapter of Apple's TrueType Reference Manual for what it
@@ -13,7 +15,57 @@ export enum SfntRule {
     NoCff2 = "the outlines are not CFF2 (ours: fontforge 20230101 does not open a font with them)",
     Outlines = "the font has TrueType outlines, glyf with loca, or CFF outlines, CFF (OpenType 1.9.1, Required Tables)",
     Os2WithCff = "a font with CFF outlines has OS/2 (OpenType 1.9.1, Required Tables; a font with TrueType outlines may lack it, TrueType Reference Manual, chapter 6)",
+    HeadLength = "head is at least 54 bytes long (OpenType 1.9.1, head)",
+    HeadVersion = "head.majorVersion is 1 (OpenType 1.9.1, head)",
+    MagicNumber = "head.magicNumber is 0x5F0F3CF5 (OpenType 1.9.1, head)",
+    UnitsPerEm = "head.unitsPerEm is from 16 to 16384 (OpenType 1.9.1, head)",
+    IndexToLocFormat = "head.indexToLocFormat is 0 for short loca offsets or 1 for long ones (OpenType 1.9.1, head)",
+    MaxpVersion = "maxp is version 0.5, at least 6 bytes long, with CFF outlines, and version 1.0, at least 32 bytes long, with TrueType outlines (OpenType 1.9.1, maxp)",
+    NotdefGlyph = "maxp.numGlyphs is at least 1: glyph 0 must be the .notdef glyph (OpenType 1.9.1, Recommendations for OpenType Fonts, Glyph 0)",
+    HheaLength = "hhea is at least 36 bytes long (OpenType 1.9.1, hhea)",
+    NumberOfHMetrics = "hhea.numberOfHMetrics is from 1 to maxp.numGlyphs: the last of the hmtx records applies to the remaining glyphs (OpenType 1.9.1, hmtx)",
+    HmtxLength = "hmtx holds a 4-byte record per numberOfHMetrics and a 2-byte left side bearing per remaining glyph (OpenType 1.9.1, hmtx)",
+    LocaLength = "loca holds numGlyphs + 1 offsets, 2 bytes each with indexToLocFormat 0 and 4 bytes with 1 (OpenType 1.9.1, loca)",
+    LocaAscending = "the loca offsets are in ascending order, loca[n] <= loca[n+1] (OpenType 1.9.1, loca)",
+    LocaInGlyf = "the last loca offset, the end of the last glyph, lies within glyf (OpenType 1.9.1, loca)",
 }
+
+/**
+ * The tables the rules on the content read, found by the rules on the table directory.
+ * `trueTypeOutlines` is undefined in a font with CFF outlines, whatever else it holds: a `glyf` or
+ * a `loca` next to `CFF ` is not read as outlines.
+ */
+export type SfntTables = {
+    head: SfntTableRecord;
+    hhea: SfntTableRecord;
+    hmtx: SfntTableRecord;
+    maxp: SfntTableRecord;
+    trueTypeOutlines: TrueTypeOutlines | undefined;
+};
+
+export type TrueTypeOutlines = {
+    glyf: SfntTableRecord;
+    loca: SfntTableRecord;
+};
+
+/**
+ * What `maxp` must be with the outlines of the font: its version and the length that version needs.
+ */
+export type MaxpExpectation = {
+    version: number;
+    minLengthBytes: number;
+    /** The outline table that decides the version, for the message. */
+    outlinesTag: string;
+};
+
+/**
+ * How `head.indexToLocFormat` lays out a loca offset: its width, and the factor that turns the
+ * stored value into bytes (the short format stores the offset divided by 2).
+ */
+export type LocaFormat = {
+    entrySizeBytes: number;
+    offsetFactor: number;
+};
 
 /**
  * A broken rule: what `BrokenSfnt` is built from.

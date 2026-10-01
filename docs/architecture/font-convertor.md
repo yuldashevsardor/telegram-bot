@@ -230,9 +230,10 @@ converts with exit 0 a WOFF whose font lacks `head`, `cmap` or another required 
 the validator rebuilds, in memory, the sfnt they were packed from, as §5 and §6 describe
 (`WoffFontValidator.sfnt()`), and hands the bytes to `SfntFontValidator.validateBytes()`. The sfnt
 validator's answer, a subclass of `InvalidSfntFont` naming the WOFF file in `path`, passes through
-as the WOFF validator's own. The rebuild repeats what the container has confirmed, so of the sfnt
-rules only those about which tables the font has can fail there: a required table, the outlines,
-`OS/2` with CFF, CFF2.
+as the WOFF validator's own. The rebuild repeats what the container has confirmed, so the sfnt
+rules on the header and the table records cannot fail there. Those on which tables the font has (a
+required table, the outlines, `OS/2` with CFF, CFF2) and on the content of `head`, `maxp`, `hhea`,
+`hmtx` and `loca` can.
 
 The rules are `WoffRule` in `woff-font-validator.types.ts`, each with its section. Two of them are
 ours, not the standard's, and the text of each says why: the flavor is one of `SFNT_VERSIONS` (see
@@ -250,15 +251,17 @@ version to the outlines.
 `SfntFontValidator` (`validator/sfnt/`, a singleton in the container) reads the whole file and
 checks it, or takes from `WoffFontValidator` (above) the bytes of the sfnt a WOFF carries, and
 checks them against the Microsoft OpenType specification 1.9.1 and, for what it governs, Apple's
-TrueType Reference Manual: the table directory ("Table Directory") and the tables a font must have
-("Required Tables"). `FontValidatorResolver` gives it out for a TTF and an OTF source alike, and its
-answer reaches the caller the way the SVG one does: as the cause of `FontConvertorError`, before the
-engine is called. The engine's TTF and OTF output is not checked. The validator exists because the
-engine does not refuse a broken sfnt: of 104 variants of the fixtures, each broken in one place,
-fontforge 20230101 converted 79 with exit 0, 9 of them losing glyphs or outlines, and crashed on 8
-with SIGSEGV ([#614](https://github.com/yuldashevsardor/telegram-bot/issues/614)). `ttf → eot`
-does not reach the engine at all: `EotPacker.pack` reads `OS/2`, `head` and `name` and packs
-whatever else the font holds.
+TrueType Reference Manual: the table directory ("Table Directory"), the tables a font must have
+("Required Tables"), and the fields of `head`, `maxp`, `hhea`, `hmtx` and `loca` that give the glyph
+count, where each glyph's metrics lie and, with TrueType outlines, where its outline lies (each
+table by its own section). `FontValidatorResolver` gives it out for a TTF and an OTF source alike,
+and its answer reaches the caller the way the SVG one does: as the cause of `FontConvertorError`,
+before the engine is called. The engine's TTF and OTF output is not checked. The validator exists
+because the engine does not refuse a broken sfnt: of 104 variants of the fixtures, each broken in
+one place, fontforge 20230101 converted 79 with exit 0, 9 of them losing glyphs or outlines, and
+crashed on 8 with SIGSEGV ([#614](https://github.com/yuldashevsardor/telegram-bot/issues/614)).
+`ttf → eot` does not reach the engine at all: `EotPacker.pack` reads `OS/2`, `head` and `name` and
+packs whatever else the font holds.
 
 It answers with a subclass of `InvalidSfntFont` (`sfnt-font-validator.errors.ts`): `NotSfnt` for a
 file shorter than the 12-byte header or of a version outside `SFNT_VERSIONS`, `BrokenSfnt` for the
@@ -272,7 +275,7 @@ The rules are `SfntRule` in `sfnt-font-validator.types.ts`, each with its sectio
 ours, not the standard's, and the text of each says why: a collection is rejected (see
 "Signatures"), and so is a font with a `CFF2` table, which the standard allows but fontforge
 20230101 does not open (exit 1, "not in a known format"). Where the two references differ, the
-rules follow the one that governs the outlines present:
+rules follow the one that governs the outlines present, with one exception, the last item:
 
 - `OS/2` is required only with CFF outlines. Microsoft requires it of every font, Apple's manual
   (chapter 6) not of a TrueType one. Without it the engine builds the table itself: every glyph is
@@ -281,7 +284,20 @@ rules follow the one that governs the outlines present:
 - The version does not have to match the outlines: `OTTO` over `glyf` and `0x00010000` over
   `CFF ` pass, since the specification says "should" and the engine converts both keeping every
   glyph. A rule that depends on the outline type goes by the outline tables present, not by the
-  version.
+  version: `OS/2` above, the version of `maxp` (0.5 with `CFF `, 1.0 with `glyf`), and `loca`,
+  which is read only with TrueType outlines.
+- `head.unitsPerEm` goes by OpenType for every font: 16 to 16384, of which the specification says
+  "Any value in this range is valid", as #682 sets it. Apple's manual (chapter 6, `head`) gives a
+  TrueType font 64 to 16384; that floor is not applied, so a TrueType font of 16 to 63 units passes.
+
+The rules on `head`, `maxp`, `hhea`, `hmtx` and `loca` are those where the engine converts a broken
+font with exit 0 and loses glyphs, measured on the TrueType fixture of 1296 glyphs: `maxp.numGlyphs`
+cut by 100 leaves 1196, `numGlyphs` 0 leaves 3, `indexToLocFormat` 2 leaves 649, a `loca` descending
+at one glyph or ending past `glyf` drops that glyph
+([#682](https://github.com/yuldashevsardor/telegram-bot/issues/682)). The other fields they read
+the engine forgives, but the standard does not. The length of `hmtx` and of `loca` is a minimum, not
+an exact size: none of the 297 real fonts with TrueType outlines measured has either table longer
+than its fields, so the stricter form would buy nothing.
 
 What is deliberately not checked, with the reasons, is in the class comment of
 `SfntFontValidator`: the table checksums and `head.checkSumAdjustment`, which the engine does not
@@ -304,8 +320,8 @@ not count as supported.
   the asynchronous `zlib.inflate`, off the event loop, but their checksums are summed and the sfnt
   is rebuilt from them on it. The 32 MiB cap bounds the inflated tables, not the file, and the
   rebuilt sfnt is a second copy of them of the same size. A TTF or OTF source is read whole as well,
-  and its table directory is walked on the event loop. The other formats read `headLength` bytes.
-  Nothing measured the cost yet.
+  and its table directory and every `loca` offset are walked on the event loop, as they are for the
+  sfnt a WOFF carries. The other formats read `headLength` bytes. Nothing measured the cost yet.
 - `/font_generator` converts the fixed `test/fixtures/fonts/test-font.woff` into
   EOT/OTF/TTF/WOFF2. It answers with the **path** to the file as text; the file itself is not
   sent. A caught conversion error is written at `error` level through `Logger`

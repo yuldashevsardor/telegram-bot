@@ -4,6 +4,10 @@ import type { TelegramLimits } from "app/bootstrap/config/config-values";
 import type { TransactionSql } from "postgres";
 import { Database } from "app/platform/database/database";
 import { OutboxStore } from "app/telegram/outbox/store/outbox-store";
+import { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-handler";
+import { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
+import { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
+import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 import type { Logger } from "app/platform/logger/logger";
 import type { UnknownObject } from "app/shared/types";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
@@ -882,6 +886,117 @@ describe("OutboxStore", function () {
             expect(await statuses()).to.deep.equal([OutboxStatus.Pending]);
             expect(await attempts(pulled.id)).to.have.lengthOf(1);
             expect(logger.warnings.map(({ payload }) => payload?.["cause"])).to.deep.equal([null, EXPIRED_LEASE_ERROR]);
+        });
+    });
+
+    // The release is OutboxFailureHandler's decision over a completion of the store: the handler
+    // runs over the real store here, so the specs pin what the release writes.
+    describe("a release on stop", function () {
+        // A handler over the store of the spec, with a retry delay of an hour and a limit of one
+        // attempt: a release that applied either would leave the message out of the next pull.
+        function handlerOver(releasingStore: OutboxStore): OutboxFailureHandler {
+            return new OutboxFailureHandler(
+                releasingStore,
+                new TelegramBotApiFailureClassifier(),
+                new OutboxRetryDelay({ firstDelayMs: HOUR_MS, maxDelayMs: HOUR_MS, multiplier: 1 }),
+                new OutboxErrorSerializer("unused-token"),
+                logger,
+                1,
+            );
+        }
+
+        it("returns the message to pending and ends the lease of its chat", async function () {
+            await store.push(message(CHAT, "text"));
+            const pulled = await pullOne();
+
+            await handlerOver(store).releaseOnStop(pulled);
+
+            const [row] = await database.sql`SELECT state, locked_until, lock_token FROM telegram_outbox_chats`;
+
+            expect(await statuses()).to.deep.equal([OutboxStatus.Pending]);
+            expect(row).to.deep.equal({ state: OutboxChatState.Ready, locked_until: null, lock_token: null });
+        });
+
+        it("lets a pull on another client take the released message at once, with the release counted as an attempt", async function () {
+            await store.push(message(CHAT, "text"));
+            const pulled = await pullOne();
+            const otherNode = new OutboxStore(other, logger, NO_LIMITS, LEASE_DURATION_MS, CLEANUP);
+
+            await handlerOver(store).releaseOnStop(pulled);
+            const pulledAgain = (await otherNode.pull(10, WORKER)).messages;
+
+            expect(pulledAgain.map(({ id, earlierAttempts }) => ({ id, earlierAttempts }))).to.deep.equal([
+                { id: pulled.id, earlierAttempts: 1 },
+            ]);
+        });
+
+        it("wakes the nodes that sleep with nothing to pull once the message is ready again", async function () {
+            await store.push(message(CHAT, "text"));
+            const pulled = await pullOne();
+            const payloads = await listenTo(other, OutboxChannel.Ready);
+
+            await handlerOver(store).releaseOnStop(pulled);
+
+            await waitUntil(() => payloads.length > 0, "no ready notification came");
+            expect(payloads).to.deep.equal([""]);
+            expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Ready });
+        });
+
+        it("closes the attempt of the pull with a transient error of the stopped node", async function () {
+            await store.push(message(CHAT, "text"));
+            const pulled = await pullOne();
+
+            await handlerOver(store).releaseOnStop(pulled);
+
+            const [attempt] = await attempts(pulled.id);
+
+            expect(attempt).to.deep.include({
+                started_at: pulled.startedAt,
+                worker: { host: WORKER.host, pid: WORKER.pid, worker_id: WORKER.workerId },
+            });
+            expect(attempt?.error).to.deep.include({ name: "OutboxNodeStopped", kind: TelegramBotApiFailureKind.Transient });
+        });
+
+        it("keeps the chat limit the pull set", async function () {
+            const limitedStore = new OutboxStore(
+                database,
+                logger,
+                { common: NO_LIMIT, private: { number: 1, interval: HOUR_MS }, group: NO_LIMIT },
+                LEASE_DURATION_MS,
+                CLEANUP,
+            );
+            await limitedStore.push(message(CHAT, "text"));
+            const [pulled] = (await limitedStore.pull(10, WORKER)).messages;
+
+            await handlerOver(limitedStore).releaseOnStop(pulled as PulledOutboxMessage);
+
+            // Released, so the empty pull below is the chat limit, not a message left processing.
+            expect(await statuses()).to.deep.equal([OutboxStatus.Pending]);
+            expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Ready });
+            expect((await limitedStore.pull(10, WORKER)).messages).to.deep.equal([]);
+        });
+
+        it("changes nothing under a stale token, wakes no one and logs a warning", async function () {
+            await store.push(message(CHAT, "text"));
+            const stale = await pullOne();
+            await store.retry(stale, TRANSIENT, 0);
+            const current = await pullOne();
+            const payloads = await listenTo(other, OutboxChannel.Ready);
+
+            await handlerOver(store).releaseOnStop(stale);
+            // PostgreSQL delivers the notifications in the order of the commits: a notification of
+            // the release would come before this one.
+            await database.sql`SELECT pg_notify(${OutboxChannel.Ready}, 'after the release')`;
+
+            await waitUntil(() => payloads.length > 0, "no ready notification came");
+            expect(payloads).to.deep.equal(["after the release"]);
+
+            expect(await statuses()).to.deep.equal([OutboxStatus.Processing]);
+            expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Processing });
+            expect(await attempts(current.id)).to.have.lengthOf(1);
+            expect(logger.warnings.map(({ message: warning, payload }) => ({ warning, lockToken: payload?.["lockToken"] }))).to.deep.equal([
+                { warning: "Outbox completion with a stale lock token changed nothing.", lockToken: stale.lockToken },
+            ]);
         });
     });
 
