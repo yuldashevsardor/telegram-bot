@@ -42,7 +42,7 @@ const TTF_SIZE_BYTES = 158856;
 const TTF_NUM_TABLES = 13;
 const REQUIRED_TAGS = ["cmap", "head", "hhea", "hmtx", "maxp", "name", "post"];
 
-describe("SfntFontValidator.validate", function () {
+describe("SfntFontValidator", function () {
     let workDir: string;
     // The file every variant is written to: each answer names it in its payload.
     let fontPath: string;
@@ -316,15 +316,17 @@ describe("SfntFontValidator.validate", function () {
     });
 
     // The sfnt a WOFF carries is rebuilt in memory: nothing lies at the path validateBytes is given.
-    it("accepts a TTF and an OTF given as bytes, with no file at the path", function () {
-        validator.validateBytes(fontPath, ttf);
-        validator.validateBytes(fontPath, otf);
-    });
+    describe("validateBytes", function () {
+        it("accepts a TTF and an OTF given as bytes, with no file at the path", function () {
+            validator.validateBytes(fontPath, ttf);
+            validator.validateBytes(fontPath, otf);
+        });
 
-    it("names the given path in its answer on bytes, without reading a file", async function () {
-        const error = await expectRejection(async () => validator.validateBytes(fontPath, withoutTable(otf, "cmap")), BrokenSfnt);
+        it("names the given path in its answer on bytes, without reading a file", async function () {
+            const error = await expectRejection(async () => validator.validateBytes(fontPath, withoutTable(otf, "cmap")), BrokenSfnt);
 
-        expect(error.payload).to.include({ path: fontPath, rule: SfntRule.RequiredTable });
+            expect(error.payload).to.include({ path: fontPath, rule: SfntRule.RequiredTable });
+        });
     });
 
     async function validate(content: Uint8Array): Promise<void> {

@@ -499,13 +499,15 @@ export class WoffFontValidator implements FontValidator {
      * with zeros. totalSfntSize is its size: rule 6 has confirmed it against the directory.
      */
     private sfnt({ header }: Woff, tables: ReadonlyArray<InflatedTable>): Uint8Array {
-        const sfnt = new Uint8Array(header.totalSfntSize);
-        const view = new DataView(sfnt.buffer);
+        const rebuiltSfnt = new Uint8Array(header.totalSfntSize);
+        const view = new DataView(rebuiltSfnt.buffer);
         const headerFields = SfntTableDirectory.HEADER_FIELD_OFFSETS_BYTES;
         const recordSizeBytes = SfntTableDirectory.RECORD_SIZE_BYTES;
         const numTables = tables.length;
         // entrySelector is the exponent of the largest power of 2 not greater than numTables, and
-        // searchRange is that power of 2 times the record size, in bytes.
+        // searchRange is that power of 2 times the record size, in bytes. From 4096 tables on it does
+        // not fit its 16 bits and setUint16 wraps it: OpenType gives no value for that case, and
+        // SfntFontValidator does not read the field.
         const entrySelector = Math.floor(Math.log2(numTables));
         const searchRange = 2 ** entrySelector * recordSizeBytes;
 
@@ -518,21 +520,21 @@ export class WoffFontValidator implements FontValidator {
         const recordFields = SfntTableDirectory.RECORD_FIELD_OFFSETS_BYTES;
         const withRecordOffsets = tables.map((inflated, index) => ({
             ...inflated,
-            recordOffset: SfntTableDirectory.HEADER_SIZE_BYTES + index * recordSizeBytes,
+            recordOffsetBytes: SfntTableDirectory.HEADER_SIZE_BYTES + index * recordSizeBytes,
         }));
         const inStorageOrder = withRecordOffsets.toSorted((left, right) => left.entry.offset - right.entry.offset);
-        let tableOffset = SfntTableDirectory.HEADER_SIZE_BYTES + numTables * recordSizeBytes;
+        let tableOffsetBytes = SfntTableDirectory.HEADER_SIZE_BYTES + numTables * recordSizeBytes;
 
-        for (const { entry, bytes, recordOffset } of inStorageOrder) {
-            sfnt.set(Buffer.from(entry.tag, "latin1"), recordOffset);
-            view.setUint32(recordOffset + recordFields.checksum, entry.origChecksum);
-            view.setUint32(recordOffset + recordFields.offset, tableOffset);
-            view.setUint32(recordOffset + recordFields.length, entry.origLength);
-            sfnt.set(bytes, tableOffset);
-            tableOffset += this.padded(entry.origLength, WoffFontValidator.ALIGNMENT_BYTES);
+        for (const { entry, bytes, recordOffsetBytes } of inStorageOrder) {
+            rebuiltSfnt.set(Buffer.from(entry.tag, "latin1"), recordOffsetBytes);
+            view.setUint32(recordOffsetBytes + recordFields.checksum, entry.origChecksum);
+            view.setUint32(recordOffsetBytes + recordFields.offset, tableOffsetBytes);
+            view.setUint32(recordOffsetBytes + recordFields.length, entry.origLength);
+            rebuiltSfnt.set(bytes, tableOffsetBytes);
+            tableOffsetBytes += this.padded(entry.origLength, WoffFontValidator.ALIGNMENT_BYTES);
         }
 
-        return sfnt;
+        return rebuiltSfnt;
     }
 
     /**

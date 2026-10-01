@@ -12,8 +12,14 @@ export class SfntTableDirectory {
     public static readonly RECORD_SIZE_BYTES = 16;
     // The offsets of the header fields, and of the fields in a table record after the tag that
     // opens it (OpenType 1.9.1, Table Directory).
-    public static readonly HEADER_FIELD_OFFSETS_BYTES = { version: 0, numTables: 4, searchRange: 6, entrySelector: 8, rangeShift: 10 };
-    public static readonly RECORD_FIELD_OFFSETS_BYTES = { checksum: 4, offset: 8, length: 12 };
+    public static readonly HEADER_FIELD_OFFSETS_BYTES = {
+        version: 0,
+        numTables: 4,
+        searchRange: 6,
+        entrySelector: 8,
+        rangeShift: 10,
+    } as const;
+    public static readonly RECORD_FIELD_OFFSETS_BYTES = { checksum: 4, offset: 8, length: 12 } as const;
 
     private readonly recordsInOrder: Array<SfntTableRecord> = [];
     private readonly recordsByTag = new Map<string, SfntTableRecord>();
