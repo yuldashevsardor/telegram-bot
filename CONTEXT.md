@@ -69,11 +69,10 @@ _Avoid_: format. An extension is a way to learn the format, not the format itsel
 
 **Format signature**:
 Known bytes in the head of a font by which the format is recognised in the file itself rather than
-in its name. They do not necessarily start at the first byte. In EOT the marker lies at a fixed
-offset inside the header. The signature is the second sign of the format: the extension and the
-signature have to agree, otherwise the font is not admitted to conversion. A signature does not tell
-every pair of formats apart. TTF and OTF lie in a shared container and are indistinguishable by
-content. SVG has no signature, and the WOFF one and the TTF and OTF one, the sfnt version, are not
+in its name. The signature is the second sign of the format: the extension and the signature have
+to agree, otherwise the font is not admitted to conversion. A signature does not tell every pair of
+formats apart. TTF and OTF lie in a shared container and are indistinguishable by content. SVG has
+no signature, and the WOFF one, the EOT one and the TTF and OTF one, the sfnt version, are not
 checked on their own: the format of each is confirmed by validating the whole file. How the check
 works is in `docs/architecture/font-convertor.md`.
 _Avoid_: MIME type, magic bytes, content type.

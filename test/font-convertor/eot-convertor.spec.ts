@@ -11,6 +11,7 @@ import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-vali
 import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
 import { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
 import { WoffFontValidator } from "app/font-convertor/validator/woff/woff-font-validator";
+import { EotFontValidator } from "app/font-convertor/validator/eot/eot-font-validator";
 import { InvalidPath, RemoveFailed } from "app/shared/fs/file-helper.errors";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
@@ -39,6 +40,7 @@ describe("Convertors of the eot pairs", function () {
                 new SvgFontValidator(),
                 new WoffFontValidator(new SfntFontValidator()),
                 new SfntFontValidator(),
+                new EotFontValidator(),
             ),
             eotPacker(),
         );
@@ -115,6 +117,7 @@ describe("Convertors of the eot pairs", function () {
             new SvgFontValidator(),
             new WoffFontValidator(new SfntFontValidator()),
             new SfntFontValidator(),
+            new EotFontValidator(),
         ),
         eotPacker(),
     )

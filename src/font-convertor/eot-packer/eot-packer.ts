@@ -17,10 +17,6 @@ const VERSION_WRITTEN = EotHeader.VERSION_2_1;
 
 const CHARSET_DEFAULT = 0x01;
 
-// TTEMBED_TTCOMPRESSED and TTEMBED_XORENCRYPTDATA: the payload is not a raw sfnt.
-const FLAG_COMPRESSED = 0x00000004;
-const FLAG_XOR_ENCRYPTED = 0x10000000;
-
 const PANOSE_SIZE = 10;
 
 @injectable()
@@ -115,7 +111,7 @@ export class EotPacker {
         // The names also reject an unknown version.
         const names = header.readNames();
 
-        if ((header.flags & (FLAG_COMPRESSED | FLAG_XOR_ENCRYPTED)) !== 0) {
+        if ((header.flags & (EotHeader.TTEMBED_TTCOMPRESSED | EotHeader.TTEMBED_XORENCRYPTDATA)) !== 0) {
             throw UnsupportedEotFlags.byFlags(header.flags);
         }
 

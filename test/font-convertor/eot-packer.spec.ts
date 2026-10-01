@@ -7,7 +7,7 @@ import { InvalidEot } from "app/font-convertor/eot-header/eot-header.errors";
 import { UnsupportedEotFlags } from "app/font-convertor/eot-packer/eot-packer.errors";
 import { InvalidSfnt } from "app/font-convertor/sfnt-table-directory/sfnt-table-directory.errors";
 import { Extension } from "app/font-convertor/font-convertor.types";
-import { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-signature-matcher";
+import { EotFontValidator } from "app/font-convertor/validator/eot/eot-font-validator";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
@@ -66,10 +66,11 @@ describe("EotPacker", function () {
             expect(fontFsType(ttf)).to.equal(8);
         });
 
-        it("produces a file the signature matcher accepts as eot", async function () {
-            const packed = await pack(ttf);
+        it("produces a file the EOT validator accepts", async function () {
+            const packedPath = path.join(workDir, `validated.${Extension.EOT}`);
 
-            expect(new FontSignatureMatcher().matches(packed, Extension.EOT)).to.be.true;
+            await fs.writeFile(packedPath, await pack(ttf));
+            await new EotFontValidator().validate(packedPath);
         });
 
         it("carries the italic flag of the font into the envelope", async function () {

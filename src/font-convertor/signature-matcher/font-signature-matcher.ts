@@ -4,10 +4,6 @@ import type { Signature, SignedExtension } from "app/font-convertor/signature-ma
 
 @injectable()
 export class FontSignatureMatcher {
-    // EOT has no signature at the start of the file: the header opens with the file and font
-    // data sizes. The format marker (USHORT 0x504C, little-endian) lies at a fixed offset.
-    private static readonly EOT_MAGIC_OFFSET = 34;
-
     private readonly signaturesByExtension: Record<SignedExtension, Array<Signature>>;
 
     /**
@@ -18,7 +14,6 @@ export class FontSignatureMatcher {
     public constructor() {
         this.signaturesByExtension = {
             [Extension.WOFF2]: [{ offset: 0, bytes: this.ascii("wOF2") }],
-            [Extension.EOT]: [{ offset: FontSignatureMatcher.EOT_MAGIC_OFFSET, bytes: [0x4c, 0x50] }],
         };
 
         this.headLength = this.calculateHeadLength();
