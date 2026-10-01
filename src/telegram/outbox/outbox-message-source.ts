@@ -22,8 +22,10 @@ export class OutboxMessageSource {
     // Counts the ready notifications: a notification that comes while a generator pulls finds it
     // awake, and the pull may have read the tables before the push it announces committed.
     private readyNotificationCount = 0;
-    // The wake-ups of the generators that sleep now.
+    // The wake-ups of the generators that sleep now, for stop().
     private readonly wakeUps = new Set<() => void>();
+    // The wake-ups of those a ready notification cuts short: every sleep but one after a failed pull.
+    private readonly readyWakeUps = new Set<() => void>();
 
     public constructor(
         @inject<OutboxStore>(Tokens.Bot.Outbox.Store) private readonly store: OutboxStore,
@@ -47,6 +49,14 @@ export class OutboxMessageSource {
             const readyNotificationCountBeforePull = this.readyNotificationCount;
             const pullResult = await this.pull(worker);
 
+            // Not cut short by a notification, during the failed pull or the sleep: pushes do not
+            // stop while the pulls fail, and the generator would retry and log at their rate.
+            if (pullResult === undefined) {
+                await this.sleep(this.sleepDurationMs(null), { wakesOnReady: false });
+
+                continue;
+            }
+
             if (pullResult.messages.length > 0) {
                 yield* pullResult.messages;
 
@@ -57,7 +67,7 @@ export class OutboxMessageSource {
                 continue;
             }
 
-            await this.sleep(this.sleepDurationMs(pullResult.nextPullInMs));
+            await this.sleep(this.sleepDurationMs(pullResult.nextPullInMs), { wakesOnReady: true });
         }
     }
 
@@ -66,12 +76,12 @@ export class OutboxMessageSource {
     // stop of the calls in flight is the worker's.
     public stop(): void {
         this.isStopped = true;
-        this.wakeAll();
+        this.wake(this.wakeUps);
     }
 
-    // A failed pull is left to the next one: the source ends only on stop(). A pull that fails after
-    // stop() has no next one, and the database may have been closed under it.
-    private async pull(worker: OutboxWorker): Promise<OutboxPullResult> {
+    // undefined: the pull failed. It is left to the next one: the source ends only on stop(). A pull
+    // that fails after stop() has no next one, and the database may have been closed under it.
+    private async pull(worker: OutboxWorker): Promise<OutboxPullResult | undefined> {
         try {
             return await this.store.pull(PULL_LIMIT, worker);
         } catch (error) {
@@ -81,7 +91,7 @@ export class OutboxMessageSource {
                 this.logger.error("Pulling outbox messages failed, the next pull tries again.", { worker: worker, cause: error });
             }
 
-            return { messages: [], nextPullInMs: null };
+            return undefined;
         }
     }
 
@@ -98,8 +108,9 @@ export class OutboxMessageSource {
         return Math.min(nextPullInMs, capMs);
     }
 
-    // Cut short by a ready notification and by stop(); a sleep after stop() does not start.
-    private async sleep(durationMs: number): Promise<void> {
+    // Cut short by stop(), and by a ready notification if wakesOnReady; a sleep after stop() does not
+    // start.
+    private async sleep(durationMs: number, options: { wakesOnReady: boolean }): Promise<void> {
         if (this.isStopped) {
             return;
         }
@@ -108,10 +119,15 @@ export class OutboxMessageSource {
         const timer = setTimeout(resolve, durationMs);
         this.wakeUps.add(resolve);
 
+        if (options.wakesOnReady) {
+            this.readyWakeUps.add(resolve);
+        }
+
         await promise;
 
         clearTimeout(timer);
         this.wakeUps.delete(resolve);
+        this.readyWakeUps.delete(resolve);
     }
 
     // Started once, by the first generator, for the reason OutboxResultWaiter.listen() gives. Until
@@ -143,11 +159,11 @@ export class OutboxMessageSource {
     // Every generator of the node wakes up: a push may have made several chats ready.
     private onReady(): void {
         this.readyNotificationCount += 1;
-        this.wakeAll();
+        this.wake(this.readyWakeUps);
     }
 
-    private wakeAll(): void {
-        for (const wakeUp of this.wakeUps) {
+    private wake(wakeUps: Set<() => void>): void {
+        for (const wakeUp of wakeUps) {
             wakeUp();
         }
     }

@@ -73,6 +73,8 @@ class FakeStore {
         this.heldPull = undefined;
     }
 
+    // A notification, or a start of the listening after a reconnect: postgres.js calls onReady on
+    // both.
     public notifyReady(): void {
         this.onReady?.();
     }
@@ -104,12 +106,6 @@ class FakeStore {
 
     public failListening(error: Error): void {
         this.heldListening?.reject(error);
-    }
-
-    // As postgres.js does, onReady is called on every start of the listening: the first one and
-    // each after a reconnect.
-    public restartListening(): void {
-        this.onReady?.();
     }
 
     public async listenReady(onReady: () => void): Promise<void> {
@@ -289,7 +285,7 @@ describe("OutboxMessageSource", function () {
         void build().messages(WORKER).next();
         await settle();
 
-        store.restartListening();
+        store.notifyReady();
         await settle();
 
         expect(store.pulls).to.have.length(2);
@@ -363,6 +359,34 @@ describe("OutboxMessageSource", function () {
 
         await advance(HALF_CAP_MS);
         expect((await next).value).to.deep.equal(message);
+    });
+
+    it("sleeps the whole cap after a failed pull, with notifications during the pull and the sleep", async function () {
+        store.hold();
+        void build().messages(WORKER).next();
+        await settle();
+
+        store.notifyReady();
+        store.fail(new Error("connection lost"));
+        await settle();
+        store.notifyReady();
+
+        await advance(HALF_CAP_MS - 1);
+        expect(store.pulls).to.have.length(1);
+
+        await advance(1);
+        expect(store.pulls).to.have.length(2);
+    });
+
+    it("ends a generator sleeping after a failed pull at once on stop", async function () {
+        const source = build();
+        store.answer(new Error("connection lost"));
+        const next = source.messages(WORKER).next();
+        await settle();
+
+        source.stop();
+
+        expect(await next).to.deep.equal({ value: undefined, done: true });
     });
 
     it("ends a sleeping generator at once on stop", async function () {

@@ -92,7 +92,8 @@ no pull reaches them. The spec has the removal take the chat while a push waits 
 3. every `idle` chat of the batch becomes `ready`; a chat in any other state already has an older
    head;
 4. `pg_notify` on `telegram_outbox_ready` with an empty payload, delivered on commit, so that an
-   idle sender wakes up at once. `OutboxMessageSource` listens on it (see "The message source").
+   idle sender wakes up at once. `OutboxMessageSource` listens on it once a worker asks it for a
+   message (see "The message source").
 
 ## Pull
 
@@ -216,8 +217,11 @@ next message of its own generator. Nothing makes a generator yet: the worker loo
   generator pulls makes it pull again instead of sleeping: the pull may have read the tables before
   the push committed.
 - **A failed pull** is logged at `error`, and the generator sleeps the whole cap and pulls again:
-  the source ends only on stop. A pull that fails after the stop is logged at `warning` and ends
-  the generator: the database may have been closed under it.
+  the source ends only on stop. No notification cuts that sleep short, nor one that came during
+  the failed pull: pushes go on while the pulls fail (a missing `telegram_bot_limits` row fails
+  every pull, not a push), and the generator would retry and log at their rate. A pull that fails
+  after the stop is logged at `warning` and ends the generator: the database may have been closed
+  under it.
 - **The stop.** `stop()` ends every generator of the node: a sleeping one at once, one whose pull
   is in progress once it has handed out what the pull got, so no pulled message is left leased to
   nobody, and one waiting for its worker at its next message. A generator made after the stop ends
