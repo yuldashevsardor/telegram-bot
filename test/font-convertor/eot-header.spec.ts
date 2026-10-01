@@ -174,13 +174,7 @@ describe("EotHeader", function () {
 
     describe("the tail of version 0x00020002", function () {
         it("reads the tail a writer of an empty root string produces", function () {
-            // RootStringCheckSum of an empty RootString is the key alone, the rest is zero: no
-            // signature, no EUDC font.
-            const tailed = envelope(EotHeader.VERSION_2_2, [
-                namesPart,
-                block(0, new Uint8Array()),
-                tail(ROOT_STRING_CHECKSUM_KEY, 0, 0, new Uint8Array(), 0, new Uint8Array()),
-            ]);
+            const tailed = envelope(EotHeader.VERSION_2_2, [namesPart, block(0, new Uint8Array()), emptyTail()]);
             const fontDataOffset = tailed.length - ttf.length;
 
             expect(new EotHeader(tailed).readTail()).to.deep.equal({
@@ -200,7 +194,14 @@ describe("EotHeader", function () {
             const tailed = envelope(EotHeader.VERSION_2_2, [
                 namesPart,
                 block(0, new Uint8Array()),
-                tail(0x0a0b0c0d, 0x01020304, 0x0506, signature, 0x0708090a, eudcFont),
+                tail({
+                    checkSum: 0x0a0b0c0d,
+                    eudcCodePage: 0x01020304,
+                    padding6: 0x0506,
+                    signature: signature,
+                    eudcFlags: 0x0708090a,
+                    eudcFont: eudcFont,
+                }),
             ]);
             const fontDataOffset = tailed.length - ttf.length;
             const parsed = new EotHeader(tailed).readTail();
@@ -246,11 +247,7 @@ describe("EotHeader", function () {
 
         for (const { name, fieldsEndBytes } of cuts) {
             it(`rejects a file that ends ${name}`, function () {
-                const tailed = envelope(EotHeader.VERSION_2_2, [
-                    namesPart,
-                    block(0, new Uint8Array()),
-                    tail(ROOT_STRING_CHECKSUM_KEY, 0, 0, new Uint8Array(), 0, new Uint8Array()),
-                ]);
+                const tailed = envelope(EotHeader.VERSION_2_2, [namesPart, block(0, new Uint8Array()), emptyTail()]);
                 const tailOffset = namesPart.length + ROOT_STRING_BLOCK_BYTES;
 
                 expect(() => new EotHeader(tailed.subarray(0, tailOffset + fieldsEndBytes - 1)).readTail()).to.throw(InvalidEot);
@@ -327,14 +324,15 @@ function block(padding: number, content: Uint8Array): Uint8Array {
  * The tail of version 0x00020002 (§3.3): RootStringCheckSum, EUDCCodePage, Padding6,
  * SignatureSize with Signature, EUDCFlags, EUDCFontSize with EUDCFontData.
  */
-function tail(
-    checkSum: number,
-    eudcCodePage: number,
-    padding6: number,
-    signature: Uint8Array,
-    eudcFlags: number,
-    eudcFont: Uint8Array,
-): Uint8Array {
+function tail(fields: {
+    checkSum: number;
+    eudcCodePage: number;
+    padding6: number;
+    signature: Uint8Array;
+    eudcFlags: number;
+    eudcFont: Uint8Array;
+}): Uint8Array {
+    const { checkSum, eudcCodePage, padding6, signature, eudcFlags, eudcFont } = fields;
     const head = new Uint8Array(8);
     const middle = new Uint8Array(8);
 
@@ -344,6 +342,21 @@ function tail(
     new DataView(middle.buffer).setUint32(4, eudcFont.length, true);
 
     return Uint8Array.from(Buffer.concat([head, block(padding6, signature), middle, eudcFont]));
+}
+
+/**
+ * The tail a writer of an empty RootString produces: RootStringCheckSum is the key alone, the rest
+ * is zero, with no signature and no EUDC font.
+ */
+function emptyTail(): Uint8Array {
+    return tail({
+        checkSum: ROOT_STRING_CHECKSUM_KEY,
+        eudcCodePage: 0,
+        padding6: 0,
+        signature: new Uint8Array(),
+        eudcFlags: 0,
+        eudcFont: new Uint8Array(),
+    });
 }
 
 function decode(bytes: Uint8Array, name: EotBlock): string {

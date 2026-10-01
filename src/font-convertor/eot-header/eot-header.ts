@@ -74,7 +74,7 @@ export class EotHeader {
     private readonly view: DataView;
 
     public constructor(private readonly bytes: Uint8Array) {
-        // Stryker disable next-line EqualityOperator: `<=` is equivalent for the codec: a file of exactly 82 bytes ends inside FamilyNameSize, and readNames(), which the codec calls, rejects it with the same tooShort
+        // Stryker disable next-line EqualityOperator: `<=` is equivalent for the codec: a file of exactly 82 bytes ends right before FamilyNameSize, so readNames(), which the codec calls, rejects it too, only the check that rejects it may change
         if (bytes.length < EotHeader.FIXED_SIZE_BYTES) {
             throw InvalidEot.tooShort(bytes.length);
         }
@@ -108,18 +108,8 @@ export class EotHeader {
         const versionName = this.readBlock(this.endOf(styleName));
         const fullName = this.readBlock(this.endOf(versionName));
 
-        if (this.version === EotHeader.VERSION_1_0) {
-            return {
-                familyName: familyName,
-                styleName: styleName,
-                versionName: versionName,
-                fullName: fullName,
-                rootString: undefined,
-                endOffset: this.endOf(fullName),
-            };
-        }
-
-        const rootString = this.readBlock(this.endOf(fullName));
+        const rootString = this.version === EotHeader.VERSION_1_0 ? undefined : this.readBlock(this.endOf(fullName));
+        const lastBlock = rootString ?? fullName;
 
         return {
             familyName: familyName,
@@ -127,7 +117,7 @@ export class EotHeader {
             versionName: versionName,
             fullName: fullName,
             rootString: rootString,
-            endOffset: this.endOf(rootString),
+            endOffset: this.endOf(lastBlock),
         };
     }
 
