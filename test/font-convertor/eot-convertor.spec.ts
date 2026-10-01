@@ -34,7 +34,12 @@ describe("Convertors of the eot pairs", function () {
         unremovableOn = undefined;
         factory = new ConvertorFactory(
             fontForge(),
-            new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator(), new WoffFontValidator(), new SfntFontValidator()),
+            new FontValidatorResolver(
+                new FontSignatureMatcher(),
+                new SvgFontValidator(),
+                new WoffFontValidator(new SfntFontValidator()),
+                new SfntFontValidator(),
+            ),
             eotPacker(),
         );
     });
@@ -105,7 +110,12 @@ describe("Convertors of the eot pairs", function () {
     // an occupied path happens before that extension is checked.
     const eotPairs = new ConvertorFactory(
         fontForge(),
-        new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator(), new WoffFontValidator(), new SfntFontValidator()),
+        new FontValidatorResolver(
+            new FontSignatureMatcher(),
+            new SvgFontValidator(),
+            new WoffFontValidator(new SfntFontValidator()),
+            new SfntFontValidator(),
+        ),
         eotPacker(),
     )
         .getSupportedExtensions()

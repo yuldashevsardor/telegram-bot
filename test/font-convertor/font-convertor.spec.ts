@@ -41,7 +41,12 @@ describe("FontConvertor", function () {
 
         factory = new ConvertorFactory(
             fontForge,
-            new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator(), new WoffFontValidator(), new SfntFontValidator()),
+            new FontValidatorResolver(
+                new FontSignatureMatcher(),
+                new SvgFontValidator(),
+                new WoffFontValidator(new SfntFontValidator()),
+                new SfntFontValidator(),
+            ),
             new EotPacker(),
         );
     });

@@ -37,15 +37,24 @@ export class SfntFontValidator implements FontValidator {
     private static readonly DIRECTORY_AT = "the table directory";
 
     /**
-     * Throws when the file is not a valid sfnt font. The answers are subclasses of
-     * `InvalidSfntFont`: `NotSfnt` for a file shorter than the header or of an unknown version,
-     * `BrokenSfnt` for the first broken rule, checked in this order: the header, the table records
-     * one by one in directory order, then the tables the font has. A file that cannot be read throws
-     * `ReadFailed` of `FileHelper` instead: an I/O failure, not a verdict on the font.
+     * Throws when the file is not a valid sfnt font, with the answers of `validateBytes()`. A file
+     * that cannot be read throws `ReadFailed` of `FileHelper` instead: an I/O failure, not a verdict
+     * on the font.
      */
     public async validate(fontPath: string): Promise<void> {
         const bytes = await FileHelper.read(fontPath);
 
+        this.validateBytes(fontPath, bytes);
+    }
+
+    /**
+     * Throws when `bytes` are not a valid sfnt font. It takes bytes for the sfnt a WOFF carries,
+     * which `WoffFontValidator` rebuilds in memory, and `fontPath` is the file every answer names.
+     * The answers are subclasses of `InvalidSfntFont`: `NotSfnt` for bytes shorter than the header
+     * or of an unknown version, `BrokenSfnt` for the first broken rule, checked in this order: the
+     * header, the table records one by one in directory order, then the tables the font has.
+     */
+    public validateBytes(fontPath: string, bytes: Uint8Array): void {
         this.checkHeader(fontPath, bytes);
 
         const directory = new SfntTableDirectory(bytes);

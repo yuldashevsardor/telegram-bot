@@ -21,7 +21,12 @@ describe("FontForge.convert", function () {
     const fontForge = new FontForge("fontforge");
     const engineExtensions = new ConvertorFactory(
         fontForge,
-        new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator(), new WoffFontValidator(), new SfntFontValidator()),
+        new FontValidatorResolver(
+            new FontSignatureMatcher(),
+            new SvgFontValidator(),
+            new WoffFontValidator(new SfntFontValidator()),
+            new SfntFontValidator(),
+        ),
         new EotPacker(),
     )
         .getSupportedExtensions()
@@ -43,7 +48,7 @@ describe("FontForge.convert", function () {
 
         await fontForge.convert(fixture(Extension.TTF), distPath);
 
-        await new WoffFontValidator().validate(distPath);
+        await new WoffFontValidator(new SfntFontValidator()).validate(distPath);
     });
 
     // The case of the source extension is set by whoever sent the file, and the engine's format list is lowercase.

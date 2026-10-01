@@ -315,6 +315,23 @@ describe("SfntFontValidator.validate", function () {
         await expectRejection(() => validator.validate(path.join(workDir, `missing.${Extension.TTF}`)), ReadFailed);
     });
 
+    it("checks bytes with validateBytes, with no file at the path its answers name", function () {
+        // The sfnt a WOFF carries is rebuilt in memory: nothing lies at the path.
+        validator.validateBytes(fontPath, ttf);
+        validator.validateBytes(fontPath, otf);
+
+        try {
+            validator.validateBytes(fontPath, withoutTable(otf, "cmap"));
+        } catch (error) {
+            expect(error).to.be.instanceOf(BrokenSfnt);
+            expect((error as BrokenSfnt).payload).to.include({ path: fontPath, rule: SfntRule.RequiredTable });
+
+            return;
+        }
+
+        expect.fail("validateBytes did not throw BrokenSfnt");
+    });
+
     async function validate(content: Uint8Array): Promise<void> {
         await fs.writeFile(fontPath, content);
         await validator.validate(fontPath);

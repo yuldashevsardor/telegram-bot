@@ -5,6 +5,9 @@ import path from "path";
 import zlib from "zlib";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { SFNT_VERSIONS } from "app/font-convertor/sfnt-version";
+import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
+import { BrokenSfnt } from "app/font-convertor/validator/sfnt/sfnt-font-validator.errors";
+import { SfntRule } from "app/font-convertor/validator/sfnt/sfnt-font-validator.types";
 import { WoffFontValidator } from "app/font-convertor/validator/woff/woff-font-validator";
 import type { InvalidWoffFont } from "app/font-convertor/validator/woff/woff-font-validator.errors";
 import { BrokenWoff, NotWoff } from "app/font-convertor/validator/woff/woff-font-validator.errors";
@@ -12,7 +15,7 @@ import { WoffRule } from "app/font-convertor/validator/woff/woff-font-validator.
 import { ReadFailed } from "app/shared/fs/file-helper.errors";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
-const validator = new WoffFontValidator();
+const validator = new WoffFontValidator(new SfntFontValidator());
 
 const HEADER_SIZE_BYTES = 44;
 const ENTRY_SIZE_BYTES = 20;
@@ -123,7 +126,7 @@ describe("WoffFontValidator.validate", function () {
         });
 
         it("of every sfnt version the domain accepts", async function () {
-            // The flavor is not checked against the outlines: that is a rule of the enclosed sfnt.
+            // The flavor is not checked against the outlines: SfntFontValidator does not tie the version of the rebuilt sfnt to them.
             for (const version of SFNT_VERSIONS) {
                 await validate(withUint32(fixture, FLAVOR, version));
             }
@@ -649,6 +652,55 @@ describe("WoffFontValidator.validate", function () {
         });
     });
 
+    describe("checks the sfnt it carries", function () {
+        it("rebuilds the sfnt of the fixture as the OTF fixture, byte for byte", async function () {
+            const otf = await fs.readFile(path.join(fixtureDir, `test-font.${Extension.OTF}`));
+
+            expect(Buffer.compare(await rebuiltSfnt(fixture), otf)).to.equal(0);
+        });
+
+        it("rebuilds the wrapped TTF fixture byte for byte, the tables in storage order rather than tag order", async function () {
+            // FFTM is the first record of the TTF fixture and the last table in its file.
+            const ttf = await fs.readFile(path.join(fixtureDir, `test-font.${Extension.TTF}`));
+
+            expect(Buffer.compare(await rebuiltSfnt(build(wrap(ttf))), ttf)).to.equal(0);
+        });
+
+        it("rejects a font without a required table with the answer of SfntFontValidator", async function () {
+            await expectBrokenSfnt(
+                build(withoutTable(fixtureLayout, "cmap")),
+                SfntRule.RequiredTable,
+                'At the table directory: table "cmap" is absent, expected present.',
+            );
+        });
+
+        it("rejects a font without outlines", async function () {
+            await expectBrokenSfnt(
+                build(withoutTable(fixtureLayout, "CFF ")),
+                SfntRule.Outlines,
+                'At the table directory: outlines is none, expected "glyf" with "loca", or "CFF ".',
+            );
+        });
+
+        it("rejects a font with CFF outlines and no OS/2", async function () {
+            await expectBrokenSfnt(
+                build(withoutTable(fixtureLayout, "OS/2")),
+                SfntRule.Os2WithCff,
+                'At the table directory: table "OS/2" is absent, expected present, as the font has "CFF ".',
+            );
+        });
+
+        it("rejects a font with TrueType outlines and no loca", async function () {
+            const ttf = await fs.readFile(path.join(fixtureDir, `test-font.${Extension.TTF}`));
+
+            await expectBrokenSfnt(
+                build(withoutTable(wrap(ttf), "loca")),
+                SfntRule.Outlines,
+                'At the table directory: outlines is "glyf" without "loca", expected "glyf" with "loca", or "CFF ".',
+            );
+        });
+    });
+
     it("throws ReadFailed, not an answer, on a file that cannot be read", async function () {
         await expectRejection(() => validator.validate(path.join(workDir, `missing.${Extension.WOFF}`)), ReadFailed);
     });
@@ -656,6 +708,23 @@ describe("WoffFontValidator.validate", function () {
     async function validate(content: Uint8Array): Promise<void> {
         await fs.writeFile(fontPath, content);
         await validator.validate(fontPath);
+    }
+
+    /**
+     * The bytes the validator hands to `SfntFontValidator` for a WOFF it accepts as a container.
+     */
+    async function rebuiltSfnt(content: Uint8Array): Promise<Uint8Array> {
+        let rebuilt: Uint8Array | undefined;
+        const recording = new (class extends SfntFontValidator {
+            public override validateBytes(_fontPath: string, bytes: Uint8Array): void {
+                rebuilt = bytes;
+            }
+        })();
+
+        await fs.writeFile(fontPath, content);
+        await new WoffFontValidator(recording).validate(fontPath);
+
+        return rebuilt ?? expect.fail("the sfnt was not handed to SfntFontValidator");
     }
 
     /**
@@ -682,6 +751,15 @@ describe("WoffFontValidator.validate", function () {
         const error = await expectAnswer(content, BrokenWoff, `WOFF breaks a rule: ${rule}. ${where}`);
 
         expect(error.payload).to.include({ rule: rule });
+    }
+
+    /**
+     * The answer of `SfntFontValidator` on the rebuilt sfnt, passed through: it names the WOFF file.
+     */
+    async function expectBrokenSfnt(content: Uint8Array, rule: SfntRule, where: string): Promise<void> {
+        const error = await expectRejection(() => validate(content), BrokenSfnt, `Sfnt font breaks a rule: ${rule}. ${where}`);
+
+        expect(error.payload).to.include({ path: fontPath, rule: rule });
     }
 });
 
@@ -869,6 +947,13 @@ function withEditedTable(layout: Layout, tag: string, edit: (table: Uint8Array) 
 
         return compressed(tag, bytes, table.origChecksum);
     });
+}
+
+/**
+ * The layout without the table of `tag`.
+ */
+function withoutTable(layout: Layout, tag: string): Layout {
+    return { ...layout, tables: layout.tables.filter((table) => table.tag !== tag) };
 }
 
 /**

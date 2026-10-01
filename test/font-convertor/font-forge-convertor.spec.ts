@@ -24,7 +24,7 @@ describe("Convertors of the engine pairs", function () {
     const resolver = new FontValidatorResolver(
         new FontSignatureMatcher(),
         new SvgFontValidator(),
-        new WoffFontValidator(),
+        new WoffFontValidator(new SfntFontValidator()),
         new SfntFontValidator(),
     );
     const factory = new ConvertorFactory(new FontForge("fontforge"), resolver, new EotPacker());
