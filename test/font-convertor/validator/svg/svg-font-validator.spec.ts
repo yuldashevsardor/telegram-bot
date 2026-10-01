@@ -515,7 +515,25 @@ describe("SvgFontValidator.validate", function () {
 
             it("outside the SVG namespace, since fontforge reads it as a font", async function () {
                 await expectAnswer(inline(`<font xmlns="urn:x"/>\n${FONT}`), BrokenFont, message);
-                await expectAnswer(inline(`${FONT}\n<x:font xmlns:x="urn:x"/>`), BrokenFont, message);
+
+                const error = await expectAnswer(
+                    inline(`${FONT}\n<x:font xmlns:x="urn:x"/>`),
+                    BrokenFont,
+                    message.replace("<font>", "<x:font>"),
+                );
+
+                expect(error.payload).to.deep.equal({ path: fontPath, rule: FontRule.SingleFont, element: "x:font", line: 3 });
+            });
+
+            it("quoting its qualified name cut to 64 UTF-16 units", async function () {
+                const prefix = "p".repeat(70);
+                const error = await expectAnswer(
+                    inline(`${FONT}\n<${prefix}:font xmlns:${prefix}="urn:x"/>`),
+                    BrokenFont,
+                    message.replace("<font>", `<${"p".repeat(64)}…>`),
+                );
+
+                expect(error.payload).to.include({ element: `${"p".repeat(64)}…` });
             });
         });
 

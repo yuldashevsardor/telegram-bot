@@ -59,9 +59,10 @@ export type Scan = {
     svg11Doctype: boolean;
     /** The root element in Clark notation, `{namespace}local`. */
     root: string | undefined;
+    /** Whether a `font` in the SVG namespace was met: the font the rules check. */
     hasFont: boolean;
-    /** The elements named `font` in any namespace: fontforge takes each of them for a font. */
-    fontElementCount: number;
+    /** Whether an element named `font` in any namespace was met: fontforge takes each for a font. */
+    hasFontInAnyNamespace: boolean;
     /** The first broken rule the pass met. */
     violation: Violation | undefined;
     open: Array<OpenElement>;
