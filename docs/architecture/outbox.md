@@ -222,8 +222,7 @@ got. Nothing calls it yet: the worker loop is
   database under it. A notification cuts the sleep short, and so does every start of the listening:
   a push committed while the connection was down reached no one. A notification that comes during
   a pull that gets nothing makes `next()` return at once instead of sleeping: the pull may have read
-  the tables before the push committed. The source sleeps at most once at a time, since it has one
-  caller, so it keeps the wake-up of one sleep, not a set of them.
+  the tables before the push committed.
 - **A failed pull** is logged at `error`, sleeps the whole cap and returns no messages: the pulls
   go on until the stop. No notification cuts that sleep short, nor one that came during the failed
   pull: pushes go on while the pulls fail (a missing `telegram_bot_limits` row fails every pull,
@@ -256,8 +255,8 @@ What this costs the rate of the common limit (see "Limits"):
   the time from the answer of one pull to the start of the next.
 - A source whose pull finds the bot row held by another node's pull sleeps the whole cap, up to
   1 s, although that pull ends within milliseconds: the price of not spinning. The slots are lost
-  only if no other node pulls meanwhile. The pullers on the bot row are one per node, so a node
-  does not lose the row to itself.
+  only if no other node pulls meanwhile. The pullers on the bot row are one per node, so the pulls
+  of one node do not take the row from each other.
 
 What it costs the database: during a pause, or while the common limit is spent, a push cannot make
 a pull succeed, yet its notification wakes the sleeping source of every node, and one that comes

@@ -158,6 +158,10 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   sleep, so two `next()` calls that overlap overwrite it: a stop or a ready notification misses one
   of the sleeps, which runs to its cap of up to 1 s. Nothing checks that the calls do not overlap
   ([`outbox.md`](./outbox.md), "The message source").
+- **No messages from the message source after its stop is not an end.** `OutboxMessageSource.next()`
+  returns `[]` at once after `stop()`, with no sleep, so a loop that calls it again on `[]` without
+  checking its own stop spins on microtasks, and no timer fires, the stop deadline included. Nothing
+  checks that the caller stops calling ([`outbox.md`](./outbox.md), "The message source").
 - **A call is released on stop only once it has settled.** `OutboxFailureHandler.releaseOnStop()`
   makes the chat `ready` at once, so a call of the stopping node still on its way can reach Telegram
   after the next message of the chat, sent by another node: the order inside the chat breaks.

@@ -247,7 +247,9 @@ describe("OutboxMessageSource", function () {
         await settle();
 
         store.notifyReady();
+        await settle();
 
+        expect(call.hasReturned).to.be.true;
         expect(await call.messages).to.be.empty;
         expect(store.pulls).to.have.length(1);
     });
@@ -292,6 +294,7 @@ describe("OutboxMessageSource", function () {
         store.failListening(new Error("database closed"));
         await settle();
 
+        expect(call.hasReturned).to.be.true;
         expect(await call.messages).to.be.empty;
         expect(logger.warnings).to.be.empty;
     });
@@ -363,7 +366,9 @@ describe("OutboxMessageSource", function () {
         await settle();
 
         source.stop();
+        await settle();
 
+        expect(call.hasReturned).to.be.true;
         expect(await call.messages).to.be.empty;
     });
 
@@ -373,7 +378,9 @@ describe("OutboxMessageSource", function () {
         await settle();
 
         source.stop();
+        await settle();
 
+        expect(call.hasReturned).to.be.true;
         expect(await call.messages).to.be.empty;
         expect(store.pulls).to.have.length(1);
     });
@@ -387,7 +394,9 @@ describe("OutboxMessageSource", function () {
 
         source.stop();
         store.release({ messages: messages, nextPullInMs: 0 });
+        await settle();
 
+        expect(call.hasReturned).to.be.true;
         expect(await call.messages).to.deep.equal(messages);
         expect(store.pulls).to.have.length(1);
     });
@@ -400,7 +409,9 @@ describe("OutboxMessageSource", function () {
 
         source.stop();
         store.release(NOTHING_READY);
+        await settle();
 
+        expect(call.hasReturned).to.be.true;
         expect(await call.messages).to.be.empty;
     });
 
@@ -422,7 +433,9 @@ describe("OutboxMessageSource", function () {
 
         source.stop();
         store.fail(failure);
+        await settle();
 
+        expect(call.hasReturned).to.be.true;
         expect(await call.messages).to.be.empty;
         expect(logger.errors).to.be.empty;
         expect(logger.warnings).to.deep.equal([
