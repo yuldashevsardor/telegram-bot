@@ -34,6 +34,13 @@ const LEASE_EXPIRED: OutboxAttemptError = {
     kind: TelegramBotApiFailureKind.Transient,
 };
 
+// What the attempt of a release on stop ends with, spelled out for the same reason.
+const NODE_STOPPED: OutboxAttemptError = {
+    name: "OutboxNodeStopped",
+    message: "The node stopped before the call of the message finished: the message is released to any node.",
+    kind: TelegramBotApiFailureKind.Transient,
+};
+
 type StoreCall =
     | { method: "retry"; lease: OutboxLease; error: OutboxAttemptError; delayMs: number }
     | { method: "markAsFailed" | "markAsFailedAndBlockChat"; lease: OutboxLease; error: OutboxAttemptError }
@@ -231,6 +238,24 @@ describe("OutboxFailureHandler", function () {
             await handler.recoverExpiredLeases();
 
             expect(store.calls).to.deep.equal([]);
+        });
+    });
+
+    describe("a release on stop", function () {
+        it("returns the message to pending with no delay and an attempt of the stopped node", async function () {
+            const message = pulledAfter(0);
+
+            await handler.releaseOnStop(message);
+
+            expect(store.calls).to.deep.equal([{ method: "retry", lease: message, error: NODE_STOPPED, delayMs: 0 }]);
+        });
+
+        it("blocks no chat, even on the last attempt", async function () {
+            const message = pulledAfter(MAX_ATTEMPTS - 1);
+
+            await handler.releaseOnStop(message);
+
+            expect(store.calls).to.deep.equal([{ method: "retry", lease: message, error: NODE_STOPPED, delayMs: 0 }]);
         });
     });
 

@@ -152,7 +152,7 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   tells its lease by the token, not by `locked_until`, and takes back the message of a passed lease
   its node has just extended ([`outbox.md`](./outbox.md), "Lease recovery").
   `OutboxStore.extendLeases()` checks `locked_until` against `now()` of its statement, which cannot
-  shut out a recovery that read the lease while the extension waited or ran, so the caller extends
+  shut out a recovery that read the lease while the extension ran, so the caller extends
   well before the end of the lease ([`outbox.md`](./outbox.md), "The lease"). Nothing calls it yet.
 - **The retention of a `done` and of a `skipped` message must outlast `OUTBOX_RESULT_TIMEOUT` and
   `OUTBOX_LEASE_DURATION`.** A caller still waiting for a message the cleanup has deleted finds no

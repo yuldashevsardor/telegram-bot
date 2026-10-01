@@ -7,7 +7,6 @@ import { Tokens } from "app/shared/tokens";
 import type { TelegramLimits } from "app/bootstrap/config/config-values";
 import { configValue } from "app/shared/config-value";
 import { MS_PER_SECOND } from "app/shared/time";
-import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import type {
     ExpiredOutboxLease,
     ExpiredOutboxLeaseRow,
@@ -35,16 +34,6 @@ const BIGINT = 20;
 
 // The OID of uuid: the lock tokens of an extension go to the database as a uuid[] parameter.
 const UUID = 2950;
-
-// The error of the attempt a release on stop closes: the call may have reached Telegram or not.
-const NODE_STOPPED: OutboxAttemptError = {
-    name: "OutboxNodeStopped",
-    message: "The node stopped before the call of the message finished: the message is released to any node.",
-    kind: TelegramBotApiFailureKind.Transient,
-};
-
-// A released message is pulled again at once: the stop says nothing about the message.
-const RELEASE_DELAY_MS = 0;
 
 // The statuses a chat head can be in: its first message by id among them. A failed message is not
 // among them: the chat it blocks is held by its state, and one that does not block lets the next
@@ -344,14 +333,23 @@ export class OutboxStore {
     // Moves the end of every live lease under these tokens to now() + leaseDurationMs, for the calls
     // still in flight. A lease that has passed is not extended: the recovery tells its lease by the
     // token, not by the end, and may already be taking its message back (docs/architecture/outbox.md,
-    // "The lease"). A token no chat holds any more, completed or recovered, changes nothing.
+    // "The lease"). A token no chat holds any more, completed or recovered, changes nothing. A chat
+    // another transaction holds is skipped, not waited for, and left to the next extension: waiting,
+    // the update would lock several chats in no set order and could deadlock with a push of them.
     public async extendLeases(lockTokens: string[]): Promise<void> {
         await this.sql`
             UPDATE telegram_outbox_chats
             SET locked_until = now() + ${this.leaseDurationMs}::double precision * interval '1 millisecond',
                 updated_at = now()
-            WHERE lock_token = ANY(${this.sql.array(lockTokens, UUID)}::uuid[])
-              AND locked_until > now()
+            WHERE chat_id IN (
+                SELECT chat_id
+                FROM telegram_outbox_chats
+                WHERE lock_token = ANY(${this.sql.array(lockTokens, UUID)}::uuid[])
+                  AND locked_until > now()
+                -- The lock rechecks the token and the end on the newest version of the row, so a
+                -- lease a completion has ended meanwhile is left alone.
+                FOR UPDATE SKIP LOCKED
+            )
         `;
     }
 
@@ -394,14 +392,6 @@ export class OutboxStore {
                 WHERE chat_id = ${chatId}
             `;
         });
-    }
-
-    // A message whose call the stopping node did not finish goes back to pending, and its chat is
-    // ready for the next pull on any node. The attempt counts as a transient failure's, although
-    // neither a retry delay nor the limit of attempts applies: the stop says nothing about the
-    // message (docs/architecture/outbox.md, "Completions").
-    public async releaseOnStop(lease: OutboxLease): Promise<void> {
-        await this.retry(lease, NODE_STOPPED, RELEASE_DELAY_MS);
     }
 
     // The message cannot be delivered, and its chat goes on to its next message.

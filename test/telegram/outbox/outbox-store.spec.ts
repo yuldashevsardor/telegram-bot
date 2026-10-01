@@ -4,6 +4,10 @@ import type { TelegramLimits } from "app/bootstrap/config/config-values";
 import type { TransactionSql } from "postgres";
 import { Database } from "app/platform/database/database";
 import { OutboxStore } from "app/telegram/outbox/store/outbox-store";
+import { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-handler";
+import { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
+import { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
+import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 import type { Logger } from "app/platform/logger/logger";
 import type { UnknownObject } from "app/shared/types";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
@@ -877,16 +881,17 @@ describe("OutboxStore", function () {
 
     describe("the extension of a lease", function () {
         // The chat pulled alone, so its token is its own, with its lease cut short to an end that has
-        // not passed: an extension that moves it is told from one that leaves it.
+        // not passed: an extension that moves it is told from one that leaves it. A minute outlasts
+        // any spec, and an extension by LEASE_DURATION_MS moves the end past it.
         async function pullAlone(chatId: number): Promise<PulledOutboxMessage> {
             await store.push(message(chatId, "text"));
             const pulled = await pullOne();
-            await setLeaseEnd(chatId, "now() + interval '1 second'");
+            await setLeaseEnd(chatId, "now() + interval '1 minute'");
 
             return pulled;
         }
 
-        async function setLeaseEnd(chatId: number, end: "now() + interval '1 second'" | "now() - interval '1 second'"): Promise<void> {
+        async function setLeaseEnd(chatId: number, end: "now() + interval '1 minute'" | "now() - interval '1 second'"): Promise<void> {
             await database.sql`
                 UPDATE telegram_outbox_chats
                 SET locked_until = ${database.sql.unsafe(end)}
@@ -905,30 +910,50 @@ describe("OutboxStore", function () {
             return (row as { locked_until: string | null }).locked_until;
         }
 
+        // How far the lease reaches from the last write of the chat row: LEASE_DURATION_MS right after
+        // an extension, whose now() both columns are, and less for the minute pullAlone() leaves.
+        async function leaseMs(chatId: number): Promise<number> {
+            const [row] = await database.sql<{ lease_ms: number }[]>`
+                SELECT extract(epoch FROM locked_until - updated_at)::double precision * ${MS_PER_SECOND} AS lease_ms
+                FROM telegram_outbox_chats
+                WHERE chat_id = ${chatId}
+            `;
+
+            return (row as { lease_ms: number }).lease_ms;
+        }
+
         it("moves a live lease of its token to the lease duration from the extension", async function () {
             const pulled = await pullAlone(CHAT);
 
             await store.extendLeases([pulled.lockToken]);
 
-            // Both columns are now() of the extension.
-            const [row] = await database.sql<{ lease_ms: number }[]>`
-                SELECT extract(epoch FROM locked_until - updated_at)::double precision * ${MS_PER_SECOND} AS lease_ms
-                FROM telegram_outbox_chats
-                WHERE chat_id = ${CHAT}
-            `;
-
-            expect(row).to.deep.equal({ lease_ms: LEASE_DURATION_MS });
+            expect(await leaseMs(CHAT)).to.equal(LEASE_DURATION_MS);
         });
 
         it("extends the live leases of every token it is given", async function () {
             const first = await pullAlone(CHAT);
             const second = await pullAlone(OTHER_CHAT);
-            const endsBefore = [await leaseEnd(CHAT), await leaseEnd(OTHER_CHAT)];
 
             await store.extendLeases([first.lockToken, second.lockToken]);
 
-            expect(await leaseEnd(CHAT)).not.to.equal(endsBefore[0]);
-            expect(await leaseEnd(OTHER_CHAT)).not.to.equal(endsBefore[1]);
+            expect([await leaseMs(CHAT), await leaseMs(OTHER_CHAT)]).to.deep.equal([LEASE_DURATION_MS, LEASE_DURATION_MS]);
+        });
+
+        // Waiting, it would lock the chats in the order of the scan and could deadlock with a push of
+        // two of them, which locks them by chat_id.
+        it("skips a chat another transaction holds, without waiting for it, and extends the rest", async function () {
+            const held = await pullAlone(CHAT);
+            const free = await pullAlone(OTHER_CHAT);
+            const heldEndBefore = await leaseEnd(CHAT);
+
+            await other.sql.begin(async (transaction) => {
+                await transaction`SELECT chat_id FROM telegram_outbox_chats WHERE chat_id = ${CHAT} FOR UPDATE`;
+
+                await store.extendLeases([held.lockToken, free.lockToken]);
+            });
+
+            expect(await leaseEnd(CHAT)).to.equal(heldEndBefore);
+            expect(await leaseMs(OTHER_CHAT)).to.equal(LEASE_DURATION_MS);
         });
 
         it("leaves alone a lease of its token that has passed, so the recovery still finds it", async function () {
@@ -971,12 +996,27 @@ describe("OutboxStore", function () {
         });
     });
 
+    // The release is OutboxFailureHandler's decision over a completion of the store: the handler
+    // runs over the real store here, so the specs pin what the release writes.
     describe("a release on stop", function () {
+        // A handler over the store of the spec, with a retry delay of an hour and a limit of one
+        // attempt: a release that applied either would leave the message out of the next pull.
+        function handlerOver(releasingStore: OutboxStore): OutboxFailureHandler {
+            return new OutboxFailureHandler(
+                releasingStore,
+                new TelegramBotApiFailureClassifier(),
+                new OutboxRetryDelay({ firstDelayMs: HOUR_MS, maxDelayMs: HOUR_MS, multiplier: 1 }),
+                new OutboxErrorSerializer("unused-token"),
+                logger,
+                1,
+            );
+        }
+
         it("returns the message to pending and ends the lease of its chat", async function () {
             await store.push(message(CHAT, "text"));
             const pulled = await pullOne();
 
-            await store.releaseOnStop(pulled);
+            await handlerOver(store).releaseOnStop(pulled);
 
             const [row] = await database.sql`SELECT state, locked_until, lock_token FROM telegram_outbox_chats`;
 
@@ -989,7 +1029,7 @@ describe("OutboxStore", function () {
             const pulled = await pullOne();
             const otherNode = new OutboxStore(other, logger, NO_LIMITS, LEASE_DURATION_MS, CLEANUP);
 
-            await store.releaseOnStop(pulled);
+            await handlerOver(store).releaseOnStop(pulled);
             const pulledAgain = (await otherNode.pull(10, WORKER)).messages;
 
             expect(pulledAgain.map(({ id, earlierAttempts }) => ({ id, earlierAttempts }))).to.deep.equal([
@@ -1001,7 +1041,7 @@ describe("OutboxStore", function () {
             await store.push(message(CHAT, "text"));
             const pulled = await pullOne();
 
-            await store.releaseOnStop(pulled);
+            await handlerOver(store).releaseOnStop(pulled);
 
             const [attempt] = await attempts(pulled.id);
 
@@ -1023,7 +1063,7 @@ describe("OutboxStore", function () {
             await limitedStore.push(message(CHAT, "text"));
             const [pulled] = (await limitedStore.pull(10, WORKER)).messages;
 
-            await limitedStore.releaseOnStop(pulled as PulledOutboxMessage);
+            await handlerOver(limitedStore).releaseOnStop(pulled as PulledOutboxMessage);
 
             expect((await limitedStore.pull(10, WORKER)).messages).to.deep.equal([]);
         });
@@ -1034,7 +1074,7 @@ describe("OutboxStore", function () {
             await store.retry(stale, TRANSIENT, 0);
             const current = await pullOne();
 
-            await store.releaseOnStop(stale);
+            await handlerOver(store).releaseOnStop(stale);
 
             expect(await statuses()).to.deep.equal([OutboxStatus.Processing]);
             expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Processing });
