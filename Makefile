@@ -241,7 +241,7 @@ review-tree-create: ## Take the head of a PR into a temporary review tree <main 
 mutation-full-record: ## Record an issue and its PR in the batch of the deferred full mutation run: make mutation-full-record issue=<N> pr=<N>
 	@python3 scripts/review/mutation_batch.py record '$(issue)' '$(pr)'
 
-mutation-full-check: ## Whether the issue a PR closes is recorded in a batch of the full mutation run: make mutation-full-check pr=<N>
+mutation-full-check: ## Whether the issue a PR closes is recorded together with this PR in a batch of the full mutation run: make mutation-full-check pr=<N>
 	@python3 scripts/review/mutation_batch.py check '$(pr)'
 
 # The issues of the survivors go in as one argument, and the action splits them. It reads the run

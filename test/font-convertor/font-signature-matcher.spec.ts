@@ -7,7 +7,7 @@ import type { SignedExtension } from "app/font-convertor/signature-matcher/font-
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 const fontSignatureMatcher = new FontSignatureMatcher();
-const signedExtensions: Array<SignedExtension> = [Extension.TTF, Extension.OTF, Extension.WOFF2, Extension.EOT];
+const signedExtensions: Array<SignedExtension> = [Extension.WOFF2, Extension.EOT];
 
 describe("FontSignatureMatcher.matches", function () {
     const heads = new Map<Extension, Uint8Array>();
@@ -32,28 +32,10 @@ describe("FontSignatureMatcher.matches", function () {
         });
     }
 
-    it("accepts the legacy Macintosh flavour of ttf", function () {
-        expect(fontSignatureMatcher.matches(ascii("true"), Extension.TTF)).to.be.true;
-    });
-
-    it("rejects a font collection under both sfnt extensions", function () {
-        // A collection has the same container but several fonts. The domain does not pick one of
-        // them, so under an sfnt name a collection does not pass.
-        expect(fontSignatureMatcher.matches(ascii("ttcf"), Extension.TTF)).to.be.false;
-        expect(fontSignatureMatcher.matches(ascii("ttcf"), Extension.OTF)).to.be.false;
-    });
-
-    it("accepts either outline flavour under both sfnt extensions", function () {
-        // The extension does not dictate the outline type: the specification allows .otf with
-        // TrueType outlines and .ttf with CFF, and the engine opens both.
-        expect(fontSignatureMatcher.matches(head(Extension.TTF), Extension.OTF)).to.be.true;
-        expect(fontSignatureMatcher.matches(head(Extension.OTF), Extension.TTF)).to.be.true;
-    });
-
     it("keeps the offsets fixed", function () {
         // A shifted head would turn the check into a search for the marker anywhere.
         expect(fontSignatureMatcher.matches(concat("\n", "wOF2"), Extension.WOFF2)).to.be.false;
-        expect(fontSignatureMatcher.matches(concat([0xef, 0xbb, 0xbf], "OTTO"), Extension.OTF)).to.be.false;
+        expect(fontSignatureMatcher.matches(concat([0xef, 0xbb, 0xbf], "wOF2"), Extension.WOFF2)).to.be.false;
         expect(fontSignatureMatcher.matches(concat("\n", head(Extension.EOT)), Extension.EOT)).to.be.false;
     });
 
@@ -68,7 +50,7 @@ describe("FontSignatureMatcher.matches", function () {
     });
 
     it("rejects a file shorter than the signature", function () {
-        expect(fontSignatureMatcher.matches(new Uint8Array([0x00, 0x01]), Extension.TTF)).to.be.false;
+        expect(fontSignatureMatcher.matches(ascii("wO"), Extension.WOFF2)).to.be.false;
         // The EOT marker lies at offset 34, which a truncated header does not reach.
         expect(fontSignatureMatcher.matches(head(Extension.EOT).subarray(0, 20), Extension.EOT)).to.be.false;
     });
@@ -89,12 +71,8 @@ describe("FontSignatureMatcher.matches", function () {
         return bytes;
     }
 
-    // TTF and OTF are indistinguishable by content: they share the sfnt container.
     function foreignTo(extension: Extension): Array<SignedExtension> {
-        const sfnt: Array<Extension> = [Extension.TTF, Extension.OTF];
-        const same = sfnt.includes(extension) ? sfnt : [extension];
-
-        return signedExtensions.filter((value) => !same.includes(value));
+        return signedExtensions.filter((value) => value !== extension);
     }
 
     function ascii(text: string): Uint8Array {

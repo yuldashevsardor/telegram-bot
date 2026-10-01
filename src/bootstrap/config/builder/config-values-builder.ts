@@ -70,6 +70,7 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
                     pollIntervalMs: parser.getTimerDelay("OUTBOX_RESULT_POLL_INTERVAL", 1000),
                 },
                 leaseDurationMs: parser.getTimerDelay("OUTBOX_LEASE_DURATION", 10 * 60 * 1000),
+                apiTimeoutMs: parser.getTimerDelay("OUTBOX_API_TIMEOUT", 60 * 1000),
                 maxAttempts: parser.getInteger("OUTBOX_MAX_ATTEMPTS", 10, { min: 1 }),
                 cleanup: {
                     doneRetentionMs: parser.getInteger("OUTBOX_DONE_RETENTION", 7 * MS_PER_DAY, ConfigValuesBuilder.CLEANUP_RANGE),
@@ -102,6 +103,7 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
         };
 
         ConfigValuesBuilder.checkGracefulShutdown(values);
+        ConfigValuesBuilder.checkOutboxLease(values);
 
         return values;
     }
@@ -154,6 +156,18 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
                 application: gracefulShutdown.timeout,
                 bot: bot.gracefulShutdown.timeout,
                 taskQueue: taskQueue.gracefulShutdown.timeout,
+            });
+        }
+    }
+
+    // A lease that ends while its call still runs hands the message to another node, and it goes out
+    // twice (docs/architecture/invariants.md, "The outbox"). The check covers one call only: the
+    // calls of one pull sent one after another need more, and nothing checks that.
+    private static checkOutboxLease({ outbox }: ConfigValues): void {
+        if (outbox.leaseDurationMs <= outbox.apiTimeoutMs) {
+            throw new InvalidConfigError("OUTBOX_LEASE_DURATION must be greater than OUTBOX_API_TIMEOUT", {
+                leaseDurationMs: outbox.leaseDurationMs,
+                apiTimeoutMs: outbox.apiTimeoutMs,
             });
         }
     }
