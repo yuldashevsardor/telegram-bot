@@ -31,15 +31,18 @@ export enum SfntRule {
 }
 
 /**
- * The tables the rules on the content read, found by the rules on the table directory.
- * `trueTypeOutlines` is undefined in a font with CFF outlines, whatever else it holds: a `glyf` or
- * a `loca` next to `CFF ` is not read as outlines.
+ * The tables every font must have and its TrueType outlines, found by the rules on the table
+ * directory; the rules on the content read them. `trueTypeOutlines` is undefined in a font with CFF
+ * outlines, whatever else it holds: a `glyf` or a `loca` next to `CFF ` is not read as outlines.
  */
 export type SfntTables = {
+    cmap: SfntTableRecord;
     head: SfntTableRecord;
-    maxp: SfntTableRecord;
     hhea: SfntTableRecord;
     hmtx: SfntTableRecord;
+    maxp: SfntTableRecord;
+    name: SfntTableRecord;
+    post: SfntTableRecord;
     trueTypeOutlines: TrueTypeOutlines | undefined;
 };
 

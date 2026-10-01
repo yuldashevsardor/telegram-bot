@@ -238,15 +238,15 @@ invalid; and the enclosed sfnt, since the standard checks only the packaging (§
 checks it against the Microsoft OpenType specification 1.9.1 and, for what it governs, Apple's
 TrueType Reference Manual: the table directory ("Table Directory"), the tables a font must have
 ("Required Tables"), and the fields of `head`, `maxp`, `hhea`, `hmtx` and `loca` that give the glyph
-count and where each glyph's metrics and outline lie (each table by its own section).
-`FontValidatorResolver` gives it out for a TTF and an OTF source alike, and its
-answer reaches the caller the way the SVG one does: as the cause of `FontConvertorError`, before the
-engine is called. The engine's TTF and OTF output is not checked. The validator exists because the
-engine does not refuse a broken sfnt: of 104 variants of the fixtures, each broken in one place,
-fontforge 20230101 converted 79 with exit 0, 9 of them losing glyphs or outlines, and crashed on 8
-with SIGSEGV ([#614](https://github.com/yuldashevsardor/telegram-bot/issues/614)). `ttf → eot`
-does not reach the engine at all: `EotPacker.pack` reads `OS/2`, `head` and `name` and packs
-whatever else the font holds.
+count, where each glyph's metrics lie and, with TrueType outlines, where its outline lies (each
+table by its own section). `FontValidatorResolver` gives it out for a TTF and an OTF source alike,
+and its answer reaches the caller the way the SVG one does: as the cause of `FontConvertorError`,
+before the engine is called. The engine's TTF and OTF output is not checked. The validator exists
+because the engine does not refuse a broken sfnt: of 104 variants of the fixtures, each broken in
+one place, fontforge 20230101 converted 79 with exit 0, 9 of them losing glyphs or outlines, and
+crashed on 8 with SIGSEGV ([#614](https://github.com/yuldashevsardor/telegram-bot/issues/614)).
+`ttf → eot` does not reach the engine at all: `EotPacker.pack` reads `OS/2`, `head` and `name` and
+packs whatever else the font holds.
 
 It answers with a subclass of `InvalidSfntFont` (`sfnt-font-validator.errors.ts`): `NotSfnt` for a
 file shorter than the 12-byte header or of a version outside `SFNT_VERSIONS`, `BrokenSfnt` for the

@@ -39,6 +39,8 @@ const NUMBER_OF_H_METRICS_OFFSET_BYTES = 34;
 // The width of a loca offset by head.indexToLocFormat: 0 is short, 1 is long.
 const SHORT_LOCA_ENTRY_SIZE_BYTES = 2;
 const LONG_LOCA_ENTRY_SIZE_BYTES = 4;
+// The short format stores the offset divided by 2.
+const SHORT_LOCA_OFFSET_FACTOR = 2;
 
 const TRUETYPE_VERSION = 0x00010000;
 const CFF_VERSION = 0x4f54544f;
@@ -51,7 +53,9 @@ const OUTLINES_EXPECTED = 'expected "glyf" with "loca", or "CFF ".';
 const TTF_SIZE_BYTES = 158856;
 const TTF_NUM_TABLES = 13;
 // Both fixtures give every glyph a 4-byte hmtx record. The TrueType one has long loca offsets, and
-// its last offset is the length of glyf.
+// its last offset is the length of glyf. Every table a length rule covers is exactly as long as its
+// fields need: head 54, hhea 36, maxp 32 and 6, the hmtx and loca of the TrueType fixture. Accepting
+// the fixtures holds each length rule at its boundary.
 const TTF_NUM_GLYPHS = 1296;
 const OTF_NUM_GLYPHS = 1295;
 const TTF_GLYF_LENGTH_BYTES = 133424;
@@ -138,13 +142,6 @@ describe("SfntFontValidator.validate", function () {
             for (const unitsPerEm of [16, 16384]) {
                 await validate(withField16(ttf, "head", UNITS_PER_EM_OFFSET_BYTES, unitsPerEm));
             }
-        });
-
-        it("whose head, hhea and maxp are exactly as long as their fields need", async function () {
-            // The loca and hmtx of the TrueType fixture are exactly as long already.
-            await validate(withLength(ttf, "head", 54));
-            await validate(withLength(ttf, "hhea", 36));
-            await validate(withLength(otf, "maxp", 6));
         });
 
         it("with fewer hmtx records than glyphs", async function () {
@@ -743,7 +740,7 @@ function withShortLoca(font: Uint8Array): Uint8Array {
     for (let index = 0; index <= SHORT_LOCA_NUM_GLYPHS; index++) {
         const longOffsetBytes = readUint32(font, loca + index * LONG_LOCA_ENTRY_SIZE_BYTES);
 
-        view.setUint16(loca + index * SHORT_LOCA_ENTRY_SIZE_BYTES, longOffsetBytes / 2);
+        view.setUint16(loca + index * SHORT_LOCA_ENTRY_SIZE_BYTES, longOffsetBytes / SHORT_LOCA_OFFSET_FACTOR);
     }
 
     return copy;
@@ -753,7 +750,7 @@ function withShortLoca(font: Uint8Array): Uint8Array {
  * The end of the last glyph of `withShortLoca`, in bytes: its last short offset doubled.
  */
 function lastShortOffsetBytes(font: Uint8Array): number {
-    return 2 * readUint16(font, tableOffset(font, "loca") + SHORT_LOCA_NUM_GLYPHS * SHORT_LOCA_ENTRY_SIZE_BYTES);
+    return SHORT_LOCA_OFFSET_FACTOR * readUint16(font, tableOffset(font, "loca") + SHORT_LOCA_NUM_GLYPHS * SHORT_LOCA_ENTRY_SIZE_BYTES);
 }
 
 function readUint16(bytes: Uint8Array, offsetBytes: number): number {

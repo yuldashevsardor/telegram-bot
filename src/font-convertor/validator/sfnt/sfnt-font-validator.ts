@@ -16,11 +16,11 @@ import { FileHelper } from "app/shared/fs/file-helper";
 /**
  * Checks a TTF or OTF font against the Microsoft OpenType specification 1.9.1, and against Apple's
  * TrueType Reference Manual for what it governs: the table directory, the tables a font must
- * have, and the fields of `head`, `maxp`, `hhea`, `hmtx` and `loca` that give the glyph count and
- * where the metrics and the outline of each glyph lie. Both extensions take the same checks: the
- * sfnt version names the outline type, not the extension, and the rules that depend on the outline
- * type go by the outline tables present, not by the version, which the specification only says
- * "should" match them.
+ * have, and the fields of `head`, `maxp`, `hhea`, `hmtx` and `loca` that give the glyph count,
+ * where the metrics of each glyph lie and, with TrueType outlines, where its outline lies. Both
+ * extensions take the same checks: the sfnt version names the outline type, not the extension, and
+ * the rules that depend on the outline type go by the outline tables present, not by the version,
+ * which the specification only says "should" match them.
  *
  * Deliberately not checked:
  * - The table checksums and `head.checkSumAdjustment`. fontforge does not read them: its output
@@ -34,8 +34,6 @@ export class SfntFontValidator implements FontValidator {
     private static readonly VERSION_OFFSET_BYTES = 0;
     private static readonly NUM_TABLES_OFFSET_BYTES = 4;
     private static readonly COLLECTION_VERSION = 0x74746366;
-    // In the order the rule lists them, which is the order they are reported in.
-    private static readonly REQUIRED_TAGS = ["cmap", "head", "hhea", "hmtx", "maxp", "name", "post"];
     private static readonly GLYF_TAG = "glyf";
     private static readonly LOCA_TAG = "loca";
     private static readonly CFF_TAG = "CFF ";
@@ -43,27 +41,41 @@ export class SfntFontValidator implements FontValidator {
     private static readonly OS2_TAG = "OS/2";
     private static readonly OUTLINES_EXPECTED = '"glyf" with "loca", or "CFF "';
     private static readonly DIRECTORY_AT = "the table directory";
+    private static readonly CMAP_TAG = "cmap";
     private static readonly HEAD_TAG = "head";
-    private static readonly MAXP_TAG = "maxp";
     private static readonly HHEA_TAG = "hhea";
     private static readonly HMTX_TAG = "hmtx";
+    private static readonly MAXP_TAG = "maxp";
+    private static readonly NAME_TAG = "name";
+    private static readonly POST_TAG = "post";
     // The fields each table rule reads, by their offset in the table; the minimum length covers them.
     private static readonly HEAD_MIN_LENGTH_BYTES = 54;
-    private static readonly HEAD_FIELD_OFFSETS = { majorVersion: 0, magicNumber: 12, unitsPerEm: 18, indexToLocFormat: 50 };
+    private static readonly HEAD_FIELD_OFFSETS_BYTES = { majorVersion: 0, magicNumber: 12, unitsPerEm: 18, indexToLocFormat: 50 };
     private static readonly HEAD_MAJOR_VERSION = 1;
     private static readonly MAGIC_NUMBER = 0x5f0f3cf5;
     private static readonly MIN_UNITS_PER_EM = 16;
     private static readonly MAX_UNITS_PER_EM = 16384;
     private static readonly SHORT_LOCA_ENTRY_SIZE_BYTES = 2;
     private static readonly LONG_LOCA_ENTRY_SIZE_BYTES = 4;
-    // By indexToLocFormat: the short format stores the offset divided by 2.
+    // The short format stores the offset divided by 2, the long one the offset itself.
+    private static readonly SHORT_LOCA_OFFSET_FACTOR = 2;
+    private static readonly LONG_LOCA_OFFSET_FACTOR = 1;
+    // By indexToLocFormat.
     private static readonly LOCA_FORMATS: ReadonlyMap<number, LocaFormat> = new Map([
-        [0, { entrySizeBytes: SfntFontValidator.SHORT_LOCA_ENTRY_SIZE_BYTES, offsetFactor: 2 }],
-        [1, { entrySizeBytes: SfntFontValidator.LONG_LOCA_ENTRY_SIZE_BYTES, offsetFactor: 1 }],
+        [0, { entrySizeBytes: SfntFontValidator.SHORT_LOCA_ENTRY_SIZE_BYTES, offsetFactor: SfntFontValidator.SHORT_LOCA_OFFSET_FACTOR }],
+        [1, { entrySizeBytes: SfntFontValidator.LONG_LOCA_ENTRY_SIZE_BYTES, offsetFactor: SfntFontValidator.LONG_LOCA_OFFSET_FACTOR }],
     ]);
-    private static readonly MAXP_FIELD_OFFSETS = { version: 0, numGlyphs: 4 };
-    private static readonly MAXP_WITH_CFF: MaxpExpectation = { version: 0x00005000, minLengthBytes: 6, outlinesTag: "CFF " };
-    private static readonly MAXP_WITH_TRUETYPE: MaxpExpectation = { version: 0x00010000, minLengthBytes: 32, outlinesTag: "glyf" };
+    private static readonly MAXP_FIELD_OFFSETS_BYTES = { version: 0, numGlyphs: 4 };
+    private static readonly MAXP_WITH_CFF: MaxpExpectation = {
+        version: 0x00005000,
+        minLengthBytes: 6,
+        outlinesTag: SfntFontValidator.CFF_TAG,
+    };
+    private static readonly MAXP_WITH_TRUETYPE: MaxpExpectation = {
+        version: 0x00010000,
+        minLengthBytes: 32,
+        outlinesTag: SfntFontValidator.GLYF_TAG,
+    };
     private static readonly HHEA_MIN_LENGTH_BYTES = 36;
     private static readonly NUMBER_OF_H_METRICS_OFFSET_BYTES = 34;
     private static readonly H_METRIC_SIZE_BYTES = 4;
@@ -188,10 +200,16 @@ export class SfntFontValidator implements FontValidator {
      */
     private checkTables(fontPath: string, directory: SfntTableDirectory): SfntTables {
         const at = SfntFontValidator.DIRECTORY_AT;
-
-        for (const tag of SfntFontValidator.REQUIRED_TAGS) {
-            this.requiredTable(fontPath, directory, tag);
-        }
+        // In the order the rule lists them, which is the order they are reported in.
+        const required = {
+            cmap: this.requiredTable(fontPath, directory, SfntFontValidator.CMAP_TAG),
+            head: this.requiredTable(fontPath, directory, SfntFontValidator.HEAD_TAG),
+            hhea: this.requiredTable(fontPath, directory, SfntFontValidator.HHEA_TAG),
+            hmtx: this.requiredTable(fontPath, directory, SfntFontValidator.HMTX_TAG),
+            maxp: this.requiredTable(fontPath, directory, SfntFontValidator.MAXP_TAG),
+            name: this.requiredTable(fontPath, directory, SfntFontValidator.NAME_TAG),
+            post: this.requiredTable(fontPath, directory, SfntFontValidator.POST_TAG),
+        };
 
         if (directory.has(SfntFontValidator.CFF2_TAG)) {
             throw BrokenSfnt.byRule(fontPath, {
@@ -203,17 +221,10 @@ export class SfntFontValidator implements FontValidator {
             });
         }
 
-        const tables = {
-            head: this.requiredTable(fontPath, directory, SfntFontValidator.HEAD_TAG),
-            maxp: this.requiredTable(fontPath, directory, SfntFontValidator.MAXP_TAG),
-            hhea: this.requiredTable(fontPath, directory, SfntFontValidator.HHEA_TAG),
-            hmtx: this.requiredTable(fontPath, directory, SfntFontValidator.HMTX_TAG),
-        };
-
         if (directory.has(SfntFontValidator.CFF_TAG)) {
             this.checkCffTables(fontPath, directory);
 
-            return { ...tables, trueTypeOutlines: undefined };
+            return { ...required, trueTypeOutlines: undefined };
         }
 
         const glyf = directory.find(SfntFontValidator.GLYF_TAG);
@@ -241,7 +252,7 @@ export class SfntFontValidator implements FontValidator {
             });
         }
 
-        return { ...tables, trueTypeOutlines: { glyf: glyf, loca: loca } };
+        return { ...required, trueTypeOutlines: { glyf: glyf, loca: loca } };
     }
 
     private requiredTable(fontPath: string, directory: SfntTableDirectory, tag: string): SfntTableRecord {
@@ -298,7 +309,7 @@ export class SfntFontValidator implements FontValidator {
 
     private checkHead(fontPath: string, view: DataView, head: SfntTableRecord): LocaFormat {
         const at = this.tableName(SfntFontValidator.HEAD_TAG);
-        const offsets = SfntFontValidator.HEAD_FIELD_OFFSETS;
+        const offsets = SfntFontValidator.HEAD_FIELD_OFFSETS_BYTES;
 
         if (head.length < SfntFontValidator.HEAD_MIN_LENGTH_BYTES) {
             throw BrokenSfnt.byRule(fontPath, {
@@ -381,7 +392,7 @@ export class SfntFontValidator implements FontValidator {
             });
         }
 
-        const version = view.getUint32(maxp.offset + SfntFontValidator.MAXP_FIELD_OFFSETS.version);
+        const version = view.getUint32(maxp.offset + SfntFontValidator.MAXP_FIELD_OFFSETS_BYTES.version);
 
         if (version !== expected.version) {
             throw BrokenSfnt.byRule(fontPath, {
@@ -393,7 +404,7 @@ export class SfntFontValidator implements FontValidator {
             });
         }
 
-        const numGlyphs = view.getUint16(maxp.offset + SfntFontValidator.MAXP_FIELD_OFFSETS.numGlyphs);
+        const numGlyphs = view.getUint16(maxp.offset + SfntFontValidator.MAXP_FIELD_OFFSETS_BYTES.numGlyphs);
 
         if (numGlyphs === 0) {
             throw BrokenSfnt.byRule(fontPath, {
