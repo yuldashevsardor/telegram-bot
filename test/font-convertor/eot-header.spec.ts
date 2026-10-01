@@ -8,8 +8,10 @@ import { Extension } from "app/font-convertor/font-convertor.types";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
-// The offsets of the fixed part by the submission, §3. The fixture is version 0x00020001: a
-// 180-byte header that ends with an empty RootString, then test-font.ttf byte for byte.
+// The offsets of the fixed part by the submission, §3. The spec keeps its own copies rather than
+// the constants of EotHeader, so that a wrong constant in the class fails its spec. The fixture is
+// version 0x00020001: a 180-byte header that ends with an empty RootString, then test-font.ttf byte
+// for byte.
 const EOT_SIZE_OFFSET = 0;
 const FONT_DATA_SIZE_OFFSET = 4;
 const VERSION_OFFSET = 8;
@@ -18,7 +20,10 @@ const MAGIC_NUMBER_OFFSET = 34;
 const RESERVED_OFFSET = 64;
 const PADDING_1_OFFSET = 80;
 const FIXED_SIZE_BYTES = 82;
-const ROOT_STRING_BLOCK_BYTES = 4;
+// A block of the variable part opens with Padding (u16) and its size (u16); an empty block is
+// only that.
+const BLOCK_PREFIX_BYTES = 4;
+const ULONG_SIZE_BYTES = 4;
 const ROOT_STRING_CHECKSUM_KEY = 0x50475342;
 const ENVELOPE_PREFIX_BYTES = 8;
 
@@ -31,7 +36,7 @@ describe("EotHeader", function () {
     before(async function () {
         ttf = await readFixture(Extension.TTF);
         eot = await readFixture(Extension.EOT);
-        namesPart = eot.subarray(0, eot.length - ttf.length - ROOT_STRING_BLOCK_BYTES);
+        namesPart = eot.subarray(0, eot.length - ttf.length - BLOCK_PREFIX_BYTES);
     });
 
     describe("the fixed part", function () {
@@ -148,7 +153,8 @@ describe("EotHeader", function () {
         it("reads a name size that ends exactly at the end of the file", function () {
             // Version 1.0 cut right after FullNameSize, set to zero: the last field the walk reads
             // ends where the file does.
-            const fullNameSizeEnd = (paddingOffsetsOf(eot)[3] as number) + 4;
+            const [, , , fullNamePaddingOffset] = paddingOffsetsOf(eot);
+            const fullNameSizeEnd = (fullNamePaddingOffset as number) + BLOCK_PREFIX_BYTES;
             const cut = patch(eot.subarray(0, fullNameSizeEnd), (view) => {
                 view.setUint32(VERSION_OFFSET, EotHeader.VERSION_1_0, true);
                 view.setUint16(fullNameSizeEnd - 2, 0, true);
@@ -160,7 +166,8 @@ describe("EotHeader", function () {
         it("rejects a file that ends inside a name size", function () {
             // The file breaks off one byte short of the end of StyleNameSize. Without the check
             // DataView would throw a RangeError instead of InvalidEot.
-            const styleNameSizeEnd = (paddingOffsetsOf(eot)[1] as number) + 4;
+            const [, styleNamePaddingOffset] = paddingOffsetsOf(eot);
+            const styleNameSizeEnd = (styleNamePaddingOffset as number) + BLOCK_PREFIX_BYTES;
 
             expect(() => new EotHeader(eot.subarray(0, styleNameSizeEnd - 1)).readNames()).to.throw(InvalidEot);
         });
@@ -180,7 +187,8 @@ describe("EotHeader", function () {
             expect(new EotHeader(tailed).readTail()).to.deep.equal({
                 rootStringCheckSum: ROOT_STRING_CHECKSUM_KEY,
                 eudcCodePage: 0,
-                signature: { padding: 0, offset: fontDataOffset - 8, sizeBytes: 0 },
+                // The empty signature is followed by EUDCFlags and EUDCFontSize, then the font.
+                signature: { padding: 0, offset: fontDataOffset - 2 * ULONG_SIZE_BYTES, sizeBytes: 0 },
                 eudcFlags: 0,
                 eudcFontOffset: fontDataOffset,
                 eudcFontSizeBytes: 0,
@@ -237,8 +245,8 @@ describe("EotHeader", function () {
             expect(() => new EotHeader(unknown).readTail()).to.throw(InvalidEot);
         });
 
-        // Each cut leaves the file one byte short of the end of a group of fields the tail reads
-        // at once. Without the check DataView would throw a RangeError instead of InvalidEot.
+        // Each cut leaves the file one byte short of the end of a field the tail reads. Without the
+        // length checks DataView would throw a RangeError instead of InvalidEot.
         const cuts = [
             { name: "inside EUDCCodePage", fieldsEndBytes: 8 },
             { name: "inside SignatureSize", fieldsEndBytes: 12 },
@@ -248,7 +256,7 @@ describe("EotHeader", function () {
         for (const { name, fieldsEndBytes } of cuts) {
             it(`rejects a file that ends ${name}`, function () {
                 const tailed = envelope(EotHeader.VERSION_2_2, [namesPart, block(0, new Uint8Array()), emptyTail()]);
-                const tailOffset = namesPart.length + ROOT_STRING_BLOCK_BYTES;
+                const tailOffset = namesPart.length + BLOCK_PREFIX_BYTES;
 
                 expect(() => new EotHeader(tailed.subarray(0, tailOffset + fieldsEndBytes - 1)).readTail()).to.throw(InvalidEot);
             });
@@ -299,7 +307,7 @@ describe("EotHeader", function () {
 
         for (let index = 0; index < 5; index++) {
             offsets.push(offset);
-            offset += 4 + view.getUint16(offset + 2, true);
+            offset += BLOCK_PREFIX_BYTES + view.getUint16(offset + 2, true);
         }
 
         return offsets;
@@ -310,12 +318,12 @@ describe("EotHeader", function () {
  * A block of the variable part: Padding (u16), size (u16), then the bytes.
  */
 function block(padding: number, content: Uint8Array): Uint8Array {
-    const bytes = new Uint8Array(4 + content.length);
+    const bytes = new Uint8Array(BLOCK_PREFIX_BYTES + content.length);
     const view = new DataView(bytes.buffer);
 
     view.setUint16(0, padding, true);
     view.setUint16(2, content.length, true);
-    bytes.set(content, 4);
+    bytes.set(content, BLOCK_PREFIX_BYTES);
 
     return bytes;
 }

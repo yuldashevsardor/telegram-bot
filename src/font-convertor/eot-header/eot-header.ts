@@ -133,9 +133,9 @@ export class EotHeader {
             return undefined;
         }
 
+        // The length check of the signature block also covers RootStringCheckSum and EUDCCodePage in
+        // front of it.
         const checkSumOffset = names.endOffset;
-        this.requireBytes(checkSumOffset, 2 * ULONG_SIZE_BYTES);
-
         const signature = this.readBlock(checkSumOffset + 2 * ULONG_SIZE_BYTES);
         const eudcFlagsOffset = this.endOf(signature);
         this.requireBytes(eudcFlagsOffset, 2 * ULONG_SIZE_BYTES);
