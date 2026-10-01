@@ -16,9 +16,11 @@ import { FileHelper } from "app/shared/fs/file-helper";
 /**
  * Checks a TTF or OTF font, or the sfnt a WOFF carries, against the Microsoft OpenType
  * specification 1.9.1, and against Apple's TrueType Reference Manual for what it governs: the table
- * directory, the tables a font must have, and the fields of `head`, `maxp`, `hhea`, `hmtx` and
- * `loca` that give the glyph count, where the metrics of each glyph lie and, with TrueType outlines,
- * where its outline lies. TTF and OTF take the same checks: the sfnt version names the outline
+ * directory, the tables a font must have, the fields of `head`, `maxp`, `hhea`, `hmtx` and `loca`
+ * that give the glyph count, where the metrics of each glyph lie and, with TrueType outlines, where
+ * its outline lies, and the version of `cmap`, `name`, `OS/2` and `post` with whether the headers
+ * and records of `cmap` and `name`, the fields of the `OS/2` version and the 32-byte header of
+ * `post` fit into the table. TTF and OTF take the same checks: the sfnt version names the outline
  * type, not the extension, and the rules that depend on the outline type go by the outline tables
  * present, not by the version, which the specification only says "should" match them.
  *
@@ -78,6 +80,35 @@ export class SfntFontValidator implements FontValidator {
     private static readonly NUMBER_OF_H_METRICS_OFFSET_BYTES = 34;
     private static readonly H_METRIC_SIZE_BYTES = 4;
     private static readonly LEFT_SIDE_BEARING_SIZE_BYTES = 2;
+    private static readonly CMAP_HEADER_SIZE_BYTES = 4;
+    private static readonly CMAP_FIELD_OFFSETS_BYTES = { version: 0, numTables: 2 };
+    private static readonly CMAP_VERSION = 0;
+    private static readonly ENCODING_RECORD_SIZE_BYTES = 8;
+    private static readonly SUBTABLE_OFFSET_IN_RECORD_BYTES = 4;
+    private static readonly NAME_HEADER_SIZE_BYTES = 6;
+    private static readonly NAME_FIELD_OFFSETS_BYTES = { version: 0, count: 2 };
+    private static readonly NAME_VERSIONS = [0, 1];
+    // Only version 1 has language-tag records.
+    private static readonly NAME_VERSION_WITH_LANG_TAGS = 1;
+    private static readonly NAME_RECORD_SIZE_BYTES = 12;
+    private static readonly LANG_TAG_COUNT_SIZE_BYTES = 2;
+    private static readonly LANG_TAG_RECORD_SIZE_BYTES = 4;
+    private static readonly OS2_VERSION_OFFSET_BYTES = 0;
+    private static readonly OS2_VERSION_SIZE_BYTES = 2;
+    // The length the fields of each version take, summed from the field lists of the specification,
+    // which does not state it. Version 0 ends at usLastCharIndex, 10 bytes short of its full 78:
+    // the specification warns that legacy fonts may carry it shortened so.
+    private static readonly OS2_LENGTHS_BYTES: ReadonlyMap<number, number> = new Map([
+        [0, 68],
+        [1, 86],
+        [2, 96],
+        [3, 96],
+        [4, 96],
+        [5, 100],
+    ]);
+    private static readonly POST_HEADER_SIZE_BYTES = 32;
+    private static readonly POST_VERSION_OFFSET_BYTES = 0;
+    private static readonly POST_VERSIONS = [0x00010000, 0x00020000, 0x00025000, 0x00030000];
 
     /**
      * Throws when the file is not a valid sfnt font, with the answers of `validateBytes()`. A file
@@ -96,7 +127,8 @@ export class SfntFontValidator implements FontValidator {
      * The answers are subclasses of `InvalidSfntFont`: `NotSfnt` for bytes shorter than the header
      * or of an unknown version, `BrokenSfnt` for the first broken rule, checked in this order: the
      * header, the table records one by one in directory order, the tables the font has, then the
-     * content of `head`, `maxp`, `hhea`, `hmtx` and, with TrueType outlines, `loca`.
+     * content of `head`, `maxp`, `hhea`, `hmtx`, with TrueType outlines `loca`, then of `cmap`,
+     * `name`, `OS/2` when the font has it, and `post`.
      */
     public validateBytes(fontPath: string, bytes: Uint8Array): void {
         this.checkHeader(fontPath, bytes);
@@ -207,17 +239,16 @@ export class SfntFontValidator implements FontValidator {
      */
     private checkTables(fontPath: string, directory: SfntTableDirectory): SfntTables {
         const at = SfntFontValidator.DIRECTORY_AT;
-        // In the order the rule lists them, which is the order they are reported in. Of cmap, name
-        // and post no rule reads the content yet, so only their presence is checked.
-        this.requiredTable(fontPath, directory, SfntFontValidator.CMAP_TAG);
-
+        // In the order the rule lists them, which is the order they are reported in.
+        const cmap = this.requiredTable(fontPath, directory, SfntFontValidator.CMAP_TAG);
         const head = this.requiredTable(fontPath, directory, SfntFontValidator.HEAD_TAG);
         const hhea = this.requiredTable(fontPath, directory, SfntFontValidator.HHEA_TAG);
         const hmtx = this.requiredTable(fontPath, directory, SfntFontValidator.HMTX_TAG);
         const maxp = this.requiredTable(fontPath, directory, SfntFontValidator.MAXP_TAG);
-
-        this.requiredTable(fontPath, directory, SfntFontValidator.NAME_TAG);
-        this.requiredTable(fontPath, directory, SfntFontValidator.POST_TAG);
+        const name = this.requiredTable(fontPath, directory, SfntFontValidator.NAME_TAG);
+        const post = this.requiredTable(fontPath, directory, SfntFontValidator.POST_TAG);
+        const os2 = directory.find(SfntFontValidator.OS2_TAG);
+        const tables = { cmap: cmap, head: head, hhea: hhea, hmtx: hmtx, maxp: maxp, name: name, os2: os2, post: post };
 
         if (directory.has(SfntFontValidator.CFF2_TAG)) {
             throw BrokenSfnt.byRule(fontPath, {
@@ -230,9 +261,9 @@ export class SfntFontValidator implements FontValidator {
         }
 
         if (directory.has(SfntFontValidator.CFF_TAG)) {
-            this.checkCffTables(fontPath, directory);
+            this.checkCffTables(fontPath, os2);
 
-            return { head: head, hhea: hhea, hmtx: hmtx, maxp: maxp, trueTypeOutlines: undefined };
+            return { ...tables, trueTypeOutlines: undefined };
         }
 
         const glyf = directory.find(SfntFontValidator.GLYF_TAG);
@@ -260,7 +291,7 @@ export class SfntFontValidator implements FontValidator {
             });
         }
 
-        return { head: head, hhea: hhea, hmtx: hmtx, maxp: maxp, trueTypeOutlines: { glyf: glyf, loca: loca } };
+        return { ...tables, trueTypeOutlines: { glyf: glyf, loca: loca } };
     }
 
     private requiredTable(fontPath: string, directory: SfntTableDirectory, tag: string): SfntTableRecord {
@@ -283,8 +314,8 @@ export class SfntFontValidator implements FontValidator {
      * A font with CFF has its outlines whatever else it holds: a glyf or a loca next to CFF is not
      * read as TrueType outlines, broken or not.
      */
-    private checkCffTables(fontPath: string, directory: SfntTableDirectory): void {
-        if (!directory.has(SfntFontValidator.OS2_TAG)) {
+    private checkCffTables(fontPath: string, os2: SfntTableRecord | undefined): void {
+        if (os2 === undefined) {
             throw BrokenSfnt.byRule(fontPath, {
                 rule: SfntRule.Os2WithCff,
                 at: SfntFontValidator.DIRECTORY_AT,
@@ -297,8 +328,9 @@ export class SfntFontValidator implements FontValidator {
 
     /**
      * The tables are read in the order their fields depend on each other: `head` gives the loca
-     * format, `maxp` the glyph count, `hhea` the number of the hmtx records. Each table is checked
-     * long enough before its fields are read, and every table lies inside the file by then.
+     * format, `maxp` the glyph count, `hhea` the number of the hmtx records. `cmap`, `name`, `OS/2`
+     * and `post` depend on none of them and come last. Each table is checked long enough before its
+     * fields are read, and every table lies inside the file by then.
      */
     private checkContent(fontPath: string, view: DataView, tables: SfntTables): void {
         const locaFormat = this.checkHead(fontPath, view, tables.head);
@@ -308,11 +340,18 @@ export class SfntFontValidator implements FontValidator {
 
         this.checkHmtx(fontPath, tables.hmtx, numGlyphs, numberOfHMetrics);
 
-        if (tables.trueTypeOutlines === undefined) {
-            return;
+        if (tables.trueTypeOutlines !== undefined) {
+            this.checkLoca(fontPath, view, tables.trueTypeOutlines, numGlyphs, locaFormat);
         }
 
-        this.checkLoca(fontPath, view, tables.trueTypeOutlines, numGlyphs, locaFormat);
+        this.checkCmap(fontPath, view, tables.cmap);
+        this.checkName(fontPath, view, tables.name);
+
+        if (tables.os2 !== undefined) {
+            this.checkOs2(fontPath, view, tables.os2);
+        }
+
+        this.checkPost(fontPath, view, tables.post);
     }
 
     private checkHead(fontPath: string, view: DataView, head: SfntTableRecord): LocaFormat {
@@ -520,6 +559,159 @@ export class SfntFontValidator implements FontValidator {
         }
     }
 
+    /**
+     * A subtable offset is held only against the length of cmap: what the subtable holds is not read.
+     */
+    private checkCmap(fontPath: string, view: DataView, cmap: SfntTableRecord): void {
+        const at = this.tableName(SfntFontValidator.CMAP_TAG);
+        const offsets = SfntFontValidator.CMAP_FIELD_OFFSETS_BYTES;
+        const headerSizeBytes = SfntFontValidator.CMAP_HEADER_SIZE_BYTES;
+
+        this.checkLength(fontPath, cmap, SfntRule.CmapRecordsInTable, headerSizeBytes, "the header");
+
+        const version = view.getUint16(cmap.offset + offsets.version);
+
+        if (version !== SfntFontValidator.CMAP_VERSION) {
+            throw BrokenSfnt.byRule(fontPath, {
+                rule: SfntRule.CmapVersion,
+                at: at,
+                field: "version",
+                value: version,
+                expected: `${SfntFontValidator.CMAP_VERSION}`,
+            });
+        }
+
+        const numTables = view.getUint16(cmap.offset + offsets.numTables);
+
+        if (numTables === 0) {
+            throw BrokenSfnt.byRule(fontPath, {
+                rule: SfntRule.CmapSubtables,
+                at: at,
+                field: "numTables",
+                value: numTables,
+                expected: "at least 1",
+            });
+        }
+
+        const recordsEndBytes = headerSizeBytes + numTables * SfntFontValidator.ENCODING_RECORD_SIZE_BYTES;
+
+        this.checkLength(fontPath, cmap, SfntRule.CmapRecordsInTable, recordsEndBytes, `the header and encodingRecords[${numTables}]`);
+
+        for (let index = 0; index < numTables; index++) {
+            const recordOffsetBytes = headerSizeBytes + index * SfntFontValidator.ENCODING_RECORD_SIZE_BYTES;
+            const subtableOffset = view.getUint32(cmap.offset + recordOffsetBytes + SfntFontValidator.SUBTABLE_OFFSET_IN_RECORD_BYTES);
+
+            if (subtableOffset >= cmap.length) {
+                throw BrokenSfnt.byRule(fontPath, {
+                    rule: SfntRule.CmapSubtableInTable,
+                    at: at,
+                    field: `encodingRecords[${index}].subtableOffset`,
+                    value: subtableOffset,
+                    expected: `less than ${cmap.length}, the length of ${at}`,
+                });
+            }
+        }
+    }
+
+    /**
+     * The strings are not read: the codec forgives a string out of bounds (`SfntReader`).
+     */
+    private checkName(fontPath: string, view: DataView, name: SfntTableRecord): void {
+        const offsets = SfntFontValidator.NAME_FIELD_OFFSETS_BYTES;
+
+        this.checkLength(fontPath, name, SfntRule.NameRecordsInTable, SfntFontValidator.NAME_HEADER_SIZE_BYTES, "the header");
+
+        const version = view.getUint16(name.offset + offsets.version);
+
+        if (!SfntFontValidator.NAME_VERSIONS.includes(version)) {
+            throw BrokenSfnt.byRule(fontPath, {
+                rule: SfntRule.NameVersion,
+                at: this.tableName(SfntFontValidator.NAME_TAG),
+                field: "version",
+                value: version,
+                expected: this.oneOf(SfntFontValidator.NAME_VERSIONS),
+            });
+        }
+
+        const count = view.getUint16(name.offset + offsets.count);
+        const recordsEndBytes = SfntFontValidator.NAME_HEADER_SIZE_BYTES + count * SfntFontValidator.NAME_RECORD_SIZE_BYTES;
+        const nameRecords = `nameRecord[${count}]`;
+
+        this.checkLength(fontPath, name, SfntRule.NameRecordsInTable, recordsEndBytes, `the header and ${nameRecords}`);
+
+        if (version !== SfntFontValidator.NAME_VERSION_WITH_LANG_TAGS) {
+            return;
+        }
+
+        const langTagCountEndBytes = recordsEndBytes + SfntFontValidator.LANG_TAG_COUNT_SIZE_BYTES;
+
+        this.checkLength(fontPath, name, SfntRule.NameRecordsInTable, langTagCountEndBytes, `the header, ${nameRecords} and langTagCount`);
+
+        const langTagCount = view.getUint16(name.offset + recordsEndBytes);
+        const langTagRecordsEndBytes = langTagCountEndBytes + langTagCount * SfntFontValidator.LANG_TAG_RECORD_SIZE_BYTES;
+
+        this.checkLength(
+            fontPath,
+            name,
+            SfntRule.NameRecordsInTable,
+            langTagRecordsEndBytes,
+            `the header, ${nameRecords}, langTagCount and langTagRecord[${langTagCount}]`,
+        );
+    }
+
+    private checkOs2(fontPath: string, view: DataView, os2: SfntTableRecord): void {
+        this.checkLength(fontPath, os2, SfntRule.Os2Length, SfntFontValidator.OS2_VERSION_SIZE_BYTES, "the version");
+
+        const version = view.getUint16(os2.offset + SfntFontValidator.OS2_VERSION_OFFSET_BYTES);
+        const minLengthBytes = SfntFontValidator.OS2_LENGTHS_BYTES.get(version);
+
+        if (minLengthBytes === undefined) {
+            throw BrokenSfnt.byRule(fontPath, {
+                rule: SfntRule.Os2Version,
+                at: this.tableName(SfntFontValidator.OS2_TAG),
+                field: "version",
+                value: version,
+                expected: this.oneOf([...SfntFontValidator.OS2_LENGTHS_BYTES.keys()]),
+            });
+        }
+
+        this.checkLength(fontPath, os2, SfntRule.Os2Length, minLengthBytes, `version ${version}`);
+    }
+
+    /**
+     * The header is the same for every version, so its length is checked before the version is read.
+     */
+    private checkPost(fontPath: string, view: DataView, post: SfntTableRecord): void {
+        this.checkLength(fontPath, post, SfntRule.PostLength, SfntFontValidator.POST_HEADER_SIZE_BYTES, "the header");
+
+        const version = view.getUint32(post.offset + SfntFontValidator.POST_VERSION_OFFSET_BYTES);
+
+        if (!SfntFontValidator.POST_VERSIONS.includes(version)) {
+            throw BrokenSfnt.byRule(fontPath, {
+                rule: SfntRule.PostVersion,
+                at: this.tableName(SfntFontValidator.POST_TAG),
+                field: "version",
+                value: this.hex(version),
+                expected: this.oneOf(SfntFontValidator.POST_VERSIONS.map((postVersion) => this.hex(postVersion))),
+            });
+        }
+    }
+
+    /**
+     * The length rules of cmap, name, OS/2 and post: `fields` names what the minimum length holds.
+     */
+    private checkLength(fontPath: string, table: SfntTableRecord, rule: SfntRule, minLengthBytes: number, fields: string): void {
+        if (table.length < minLengthBytes) {
+            throw BrokenSfnt.byRule(fontPath, {
+                rule: rule,
+                at: this.tableName(table.tag),
+                field: "length",
+                value: table.length,
+                expected: `at least ${minLengthBytes} for ${fields}`,
+            });
+        }
+    }
+
     private locaOffset(view: DataView, loca: SfntTableRecord, format: LocaFormat, index: number): number {
         const entryOffsetBytes = loca.offset + index * format.entrySizeBytes;
         const storedOffset =
@@ -531,7 +723,11 @@ export class SfntFontValidator implements FontValidator {
     }
 
     private versionsExpected(): string {
-        return `one of ${SFNT_VERSIONS.map((version) => this.hex(version)).join(", ")}`;
+        return this.oneOf(SFNT_VERSIONS.map((version) => this.hex(version)));
+    }
+
+    private oneOf(values: ReadonlyArray<number | string>): string {
+        return `one of ${values.join(", ")}`;
     }
 
     private tableName(tag: string): string {
