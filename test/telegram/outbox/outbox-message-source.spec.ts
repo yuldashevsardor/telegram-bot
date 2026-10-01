@@ -15,8 +15,9 @@ const OTHER_WORKER: OutboxWorker = { host: "node-1", pid: 101, workerId: "worker
 const HALF_RANDOM = 0.5;
 const HALF_CAP_MS = 550;
 const MIN_CAP_MS = 100;
-// The largest value Math.random returns: the cap just below 1 s.
-const TOP_RANDOM = 1 - Number.EPSILON;
+// The largest value Math.random returns, the largest double below 1: the cap rounds to the whole
+// 1 s in floating point, as in outbox-retry-delay.spec.ts.
+const LARGEST_RANDOM = 1 - Number.EPSILON / 2;
 const MAX_CAP_MS = 1_000;
 const NEXT_PULL_IN_MS = 200;
 // Beyond the 2^31 - 1 ms a Node timer takes: Node would fire such a timer after 1 ms.
@@ -200,7 +201,7 @@ describe("OutboxMessageSource", function () {
 
     it("takes the upper end of the cap for the highest random", async function () {
         store.answer({ messages: [], nextPullInMs: BEYOND_TIMER_MS });
-        void build(() => TOP_RANDOM)
+        void build(() => LARGEST_RANDOM)
             .messages(WORKER)
             .next();
 

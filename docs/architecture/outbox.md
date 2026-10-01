@@ -203,8 +203,9 @@ next message of its own generator. Nothing makes a generator yet: the worker loo
   another pull holds the bot row or another transaction holds a due chat (see "Pull"), and pulling
   again at once would spin until it commits. The cap keeps the sleep within a Node timer as well
   (see "Limits"). A completion that leaves its chat `ready` notifies no one, so the next message of
-  that chat waits for a sleep of at most the cap. The cap is random so that the generators of the
-  nodes do not pull in step.
+  that chat waits for a sleep of at most the cap. The cap is random so that the generators that
+  sleep the whole cap together, as the ones that lost the bot row to the same pull do, wake up
+  apart.
 - **The wake-up.** The first generator starts `LISTEN` on `telegram_outbox_ready`
   (`OutboxStore.listenReady()`), on the listening connection of the client
   ([`storage.md`](./storage.md), "LISTEN"). A failed start is logged at `warning` and is not
