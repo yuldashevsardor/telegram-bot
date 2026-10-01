@@ -4,13 +4,15 @@ The outbox is being built to replace the in-memory outbound queue
 ([`outbound-queue.md`](./outbound-queue.md)): outgoing Bot API calls become rows in PostgreSQL,
 any node sends them, the order inside a chat holds across nodes, and a node that dies loses
 nothing (the plan is epic [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)).
-No sender or caller uses the directory yet: so far it holds the tables with `OutboxStore`
+No caller or sending loop uses the directory yet: so far it holds the tables with `OutboxStore`
 (`store/outbox-store.ts`), which pushes, pulls within the limits, pauses, completes a pulled
-message, finds the expired leases and cleans up, `OutboxFailureHandler`
-(`outbox-failure-handler.ts`), which picks the outcome of a failed send and recovers the expired
-leases, `OutboxResultWaiter`, which waits for the outcome of a message, with
-`OutboxFinishedMessageReader`, the payload codec and the retry delay. The error classes of a failed
-call lie outside it, in `telegram/bot-api-failure-classifier/`.
+message, finds the expired leases and cleans up, `OutboxMessageProcessor`
+(`outbox-message-processor.ts`), which takes one pulled message to its outcome, with
+`OutboxSender`, which makes its Bot API call, `OutboxFailureHandler` (`outbox-failure-handler.ts`),
+which picks the outcome of a failed send and recovers the expired leases, `OutboxResultWaiter`,
+which waits for the outcome of a message, with `OutboxFinishedMessageReader`, the payload codec and
+the retry delay. The error classes of a failed call lie outside it, in
+`telegram/bot-api-failure-classifier/`.
 
 ## Tables
 
@@ -91,7 +93,7 @@ no pull reaches them. The spec has the removal take the chat while a push waits 
 3. every `idle` chat of the batch becomes `ready`; a chat in any other state already has an older
    head;
 4. `pg_notify` on `telegram_outbox_ready` with an empty payload, delivered on commit, so that an
-   idle sender wakes up at once. Nothing listens on the channel yet: the sender is not written.
+   idle sender wakes up at once. Nothing listens on the channel yet.
 
 ## Pull
 
@@ -315,11 +317,55 @@ spec is in `DATABASE_SPECS` ([`testing.md`](./testing.md), "Mutation testing").
 The ids come back as numbers: the driver returns `bigint` as a string, and the store converts it,
 as `PgSqlUserRepository` does ([`storage.md`](./storage.md), "`User.id`").
 
+## Sending
+
+Two classes send a pulled message, so that the sending loop only hands it over and Telegram is
+called from one place:
+
+- `OutboxMessageProcessor.process(message)` (`outbox-message-processor.ts`) takes the message to
+  its outcome: it rebuilds the payload with `deserialize()`, has the sender call the method, and
+  completes the message (below). Nothing calls it yet: the sending loop that will is
+  [#624](https://github.com/yuldashevsardor/telegram-bot/issues/624);
+- `OutboxSender.send(method, payload)` (`outbox-sender.ts`) makes the call: the method by its name,
+  with the payload alone. It resolves with Telegram's result and throws the error of the call as
+  grammY throws it; it knows neither the store nor the files.
+
+The processor completes the message:
+
+- the call answers: `markAsDone()` with Telegram's result as the `response`;
+- the call throws, or the row does not rebuild (`InvalidFileMarker`, a corrupted row):
+  `OutboxFailureHandler.handle()` with the error as it was thrown (see "Outcomes"). A wrapped
+  `GrammyError` would bring the copy of the call into the attempt: the serializer leaves out the
+  payload of a `GrammyError` only at the top level.
+
+The sender calls through an `Api` of its own, from `OutboxApiFactory`
+(`outbox-api-factory.ts`): the bot token, no transformers, and `timeoutSeconds` from
+`OUTBOX_API_TIMEOUT`; why is in the comment of `create()`. A call that runs past the timeout fails
+with an `HttpError`, a transient failure (see "Error classes").
+
+The files of a message, every `PathFile` of its payload, are removed once `markAsDone()` has made
+it `done`, and only then:
+
+- a failed message keeps them: a person may put it back to `pending` by hand (see "Tables"), and
+  without its file it would fail at once and block its chat again (see "Error classes"). A failed
+  message is never deleted either (see "Cleanup"), so nothing removes its files;
+- a retried message keeps them for its next attempt;
+- a fenced completion keeps them: `markAsDone()` returns `false` when it changed nothing (see
+  "Completions"). Another completion has changed the message already: the recovery of its lease
+  put it back to `pending`, for a pull that sends it again, or failed it on its last attempt (see
+  "Lease recovery"), or another node finished it and the cleanup removed its chat. Either way the
+  files are not this completion's to remove;
+- a send the node did not finish, a node that died or a database that went away, keeps them for the
+  node that recovers the lease (see "Lease recovery").
+
+A file that cannot be removed is logged as a warning and the next one is removed: the message is
+sent either way. What removing the file after the send asks of the caller is in
+[`invariants.md`](./invariants.md), "The outbox".
+
 ## Failures
 
 The decisions that need no database are classes without SQL, so mutation testing reaches them.
-Nothing calls `OutboxFailureHandler` yet: the sending loop that will is
-[#624](https://github.com/yuldashevsardor/telegram-bot/issues/624).
+`OutboxMessageProcessor` calls `OutboxFailureHandler.handle()` (see "Sending").
 
 ### Error classes
 

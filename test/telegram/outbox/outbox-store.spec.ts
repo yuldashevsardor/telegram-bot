@@ -249,10 +249,10 @@ describe("OutboxStore", function () {
         expect((await store.pull(1, WORKER)).messages.map(({ id }) => id)).to.deep.equal([other]);
     });
 
-    it("stores the response and the end of a done message", async function () {
+    it("stores the response and the end of a done message, and says the message is done", async function () {
         const id = await store.push(message(CHAT, "text"));
 
-        await store.markAsDone(await pullOne(), RESPONSE);
+        expect(await store.markAsDone(await pullOne(), RESPONSE)).to.equal(true);
 
         const [row] = await database.sql<{ status: string; response: unknown; finished: boolean }[]>`
             SELECT status, response, finished_at IS NOT NULL AS finished
@@ -737,7 +737,7 @@ describe("OutboxStore", function () {
 
             await database.sql`UPDATE telegram_outbox_chats SET lock_token = gen_random_uuid()`;
 
-            await store.markAsDone(pulled, RESPONSE);
+            expect(await store.markAsDone(pulled, RESPONSE)).to.equal(false);
             await store.retry(pulled, TRANSIENT, 0);
             await store.markAsFailed(pulled, UNDELIVERABLE);
             await store.markAsFailedAndBlockChat(pulled, UNEXPECTED);
@@ -793,6 +793,16 @@ describe("OutboxStore", function () {
                 },
             ]);
             expect(logger.errors).to.deep.equal([]);
+        });
+
+        it("says a done message of a chat the cleanup removed is not done by this completion", async function () {
+            await store.push(message(CHAT, "text"));
+            const pulled = await pullOne();
+
+            await store.markAsDone(pulled, RESPONSE);
+            await store.deleteIdleChats();
+
+            expect(await store.markAsDone(pulled, RESPONSE)).to.equal(false);
         });
     });
 

@@ -45,6 +45,7 @@ describe("ConfigValuesBuilder", () => {
             retryDelay: { firstDelayMs: 1000, maxDelayMs: 60000, multiplier: 2 },
             resultWaiter: { timeoutMs: 60000, pollIntervalMs: 1000 },
             leaseDurationMs: 600000,
+            apiTimeoutMs: 60000,
             maxAttempts: 10,
             cleanup: { doneRetentionMs: 604800000, skippedRetentionMs: 2592000000, batchSize: 1000 },
         });
@@ -83,6 +84,7 @@ describe("ConfigValuesBuilder", () => {
             OUTBOX_RESULT_TIMEOUT: "60003",
             OUTBOX_RESULT_POLL_INTERVAL: "1005",
             OUTBOX_LEASE_DURATION: "600001",
+            OUTBOX_API_TIMEOUT: "60004",
             OUTBOX_MAX_ATTEMPTS: "11",
             OUTBOX_DONE_RETENTION: "604800001",
             OUTBOX_SKIPPED_RETENTION: "2592000001",
@@ -118,6 +120,7 @@ describe("ConfigValuesBuilder", () => {
             retryDelay: { firstDelayMs: 1004, maxDelayMs: 60002, multiplier: 3 },
             resultWaiter: { timeoutMs: 60003, pollIntervalMs: 1005 },
             leaseDurationMs: 600001,
+            apiTimeoutMs: 60004,
             maxAttempts: 11,
             cleanup: { doneRetentionMs: 604800001, skippedRetentionMs: 2592000001, batchSize: 1001 },
         });
@@ -208,6 +211,7 @@ describe("ConfigValuesBuilder", () => {
         { name: "OUTBOX_RESULT_TIMEOUT", below: "0", range: "between 1 and 2147483647" },
         { name: "OUTBOX_RESULT_POLL_INTERVAL", below: "0", range: "between 1 and 2147483647" },
         { name: "OUTBOX_LEASE_DURATION", below: "0", range: "between 1 and 2147483647" },
+        { name: "OUTBOX_API_TIMEOUT", below: "0", range: "between 1 and 2147483647" },
         { name: "OUTBOX_MAX_ATTEMPTS", below: "0", range: "at least 1" },
         { name: "OUTBOX_DONE_RETENTION", below: "0", range: "between 1 and 9007199254740991" },
         { name: "OUTBOX_SKIPPED_RETENTION", below: "0", range: "between 1 and 9007199254740991" },
@@ -271,6 +275,19 @@ describe("ConfigValuesBuilder", () => {
         const result = config({ OUTBOX_RETRY_FIRST_DELAY: "5000", OUTBOX_RETRY_MAX_DELAY: "5000", OUTBOX_RETRY_DELAY_MULTIPLIER: "1" });
 
         expect(result.outbox.retryDelay).to.deep.equal({ firstDelayMs: 5000, maxDelayMs: 5000, multiplier: 1 });
+    });
+
+    it("rejects an outbox lease not above the Bot API call timeout", () => {
+        const error = rejection({ OUTBOX_LEASE_DURATION: "30000", OUTBOX_API_TIMEOUT: "30000" });
+
+        expect(error.message).to.equal("OUTBOX_LEASE_DURATION must be greater than OUTBOX_API_TIMEOUT");
+        expect(error.payload).to.deep.equal({ leaseDurationMs: 30000, apiTimeoutMs: 30000 });
+    });
+
+    it("accepts an outbox lease above the Bot API call timeout", () => {
+        const result = config({ OUTBOX_LEASE_DURATION: "30001", OUTBOX_API_TIMEOUT: "30000" });
+
+        expect(result.outbox).to.include({ leaseDurationMs: 30001, apiTimeoutMs: 30000 });
     });
 
     it("rejects a shutdown timeout that does not cover the bot and the task queue", () => {
