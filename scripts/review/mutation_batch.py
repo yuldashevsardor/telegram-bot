@@ -38,15 +38,15 @@ lists.
 `close <batch> <issues>` (make mutation-full-close) closes a batch after its full run, under the
 same lock as `record`:
 
-1. Reads the run record reports/mutation/record.md (docs/architecture/testing.md, "The run record")
-   and stops unless the run mutated the whole of `src/` on a clean tree and left a report with a
-   score. A red run
-   (`exit` other than 0) closes only with the issues filed for its survivors named; whether they
-   cover every survivor is the caller's check.
-2. The batch is the viewer's issue `Full mutation run <N>` by its number, open or closed: the PR
+1. The batch is the viewer's issue `Full mutation run <N>` by its number, open or closed: the PR
    that fixes the survivors closes it through `Closes #<batch>` on its merge. When the batch
    already carries its closing comment, only closing the issue is left, so a repeat call after a
-   stop finishes the job and posts nothing twice.
+   stop finishes the job, posts nothing twice and reads no run record: by then the record may be
+   gone together with the worktree of the run.
+2. Reads the run record reports/mutation/record.md (docs/architecture/testing.md, "The run record")
+   and stops unless the run mutated the whole of `src/` on a clean tree and left a report with a
+   score. A red run (`exit` other than 0) closes only with the issues filed for its survivors
+   named; whether they cover every survivor is the caller's check.
 3. Sorts each recorded PR by `gh pr view`: merged, with its merge commit an ancestor of the run's
    head — covered; merged later, or not merged — carried over; closed without a merge — dropped.
 4. Records the carried ones into the other open batch, created if there is none, from
@@ -518,7 +518,6 @@ def fetch(run: Run) -> None:
 
 
 def close_locked(batch_issue: int, survivor_issues: List[int], record_file: str, run: Run) -> None:
-    run_record = read_run_record(record_file, survivor_issues)
     login = viewer(run)
     batches = list_batches(login, run)
     closing = next((batch for batch in batches if batch.issue == batch_issue), None)
@@ -532,6 +531,7 @@ def close_locked(batch_issue: int, survivor_issues: List[int], record_file: str,
         close_issue(closing, run)
         print("already closed: {}".format(closed_before[0].url))
         return
+    run_record = read_run_record(record_file, survivor_issues)
     fetch(run)
     ordered = sort_records(records_among(comments), run_record.head, run)
     for found in ordered.covered:
