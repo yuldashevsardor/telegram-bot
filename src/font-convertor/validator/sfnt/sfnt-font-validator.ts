@@ -8,9 +8,9 @@ import type { FontValidator } from "app/font-convertor/validator/font-validator"
 import { FileHelper } from "app/shared/fs/file-helper";
 
 /**
- * Checks a TTF or OTF font against the Microsoft OpenType specification 1.9.1, and against Apple's
- * TrueType Reference Manual for what it governs: the table directory and the tables a font must
- * have. Both extensions take the same checks: the sfnt version names the outline type, not the
+ * Checks a TTF or OTF font, or the sfnt a WOFF carries, against the Microsoft OpenType
+ * specification 1.9.1, and against Apple's TrueType Reference Manual for what it governs: the table
+ * directory and the tables a font must have. Both extensions take the same checks: the sfnt version names the outline type, not the
  * extension, and the rules that depend on the outline type go by the outline tables present, not
  * by the version, which the specification only says "should" match them.
  *

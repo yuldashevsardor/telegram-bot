@@ -1,6 +1,7 @@
 import { inject, injectable } from "inversify";
 import { promisify } from "util";
 import { inflate as inflateOrigin } from "zlib";
+import { SfntTableDirectory } from "app/font-convertor/sfnt-table-directory/sfnt-table-directory";
 import { SFNT_VERSIONS } from "app/font-convertor/sfnt-version";
 import type { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
 import { BrokenWoff, NotWoff } from "app/font-convertor/validator/woff/woff-font-validator.errors";
@@ -70,8 +71,6 @@ export class WoffFontValidator implements FontValidator {
     };
     // The offsets of the fields in a table directory entry (§5), after the tag that opens it.
     private static readonly ENTRY_FIELD_OFFSETS = { offset: 4, compLength: 8, origLength: 12, origChecksum: 16 };
-    private static readonly SFNT_HEADER_SIZE_BYTES = 12;
-    private static readonly SFNT_TABLE_RECORD_SIZE_BYTES = 16;
     // The offsets of the sfnt header fields, and of the fields in a table record after the tag that
     // opens it (OpenType 1.9.1, Table Directory).
     private static readonly SFNT_HEADER_FIELD_OFFSETS = { version: 0, numTables: 4, searchRange: 6, entrySelector: 8, rangeShift: 10 };
@@ -238,7 +237,7 @@ export class WoffFontValidator implements FontValidator {
      * cap after that, so the cap stands on a field the directory has confirmed.
      */
     private checkDirectory({ path, header, entries }: Woff): void {
-        let sfntSizeBytes = WoffFontValidator.SFNT_HEADER_SIZE_BYTES + WoffFontValidator.SFNT_TABLE_RECORD_SIZE_BYTES * header.numTables;
+        let sfntSizeBytes = SfntTableDirectory.HEADER_SIZE_BYTES + SfntTableDirectory.RECORD_SIZE_BYTES * header.numTables;
         let previous: TableEntry | undefined;
 
         for (const entry of entries) {
@@ -507,9 +506,10 @@ export class WoffFontValidator implements FontValidator {
         const sfnt = new Uint8Array(header.totalSfntSize);
         const view = new DataView(sfnt.buffer);
         const headerFields = WoffFontValidator.SFNT_HEADER_FIELD_OFFSETS;
-        const recordSizeBytes = WoffFontValidator.SFNT_TABLE_RECORD_SIZE_BYTES;
+        const recordSizeBytes = SfntTableDirectory.RECORD_SIZE_BYTES;
         const numTables = tables.length;
-        // The largest power of 2 not greater than numTables, as its exponent and in records.
+        // entrySelector is the exponent of the largest power of 2 not greater than numTables, and
+        // searchRange is that power of 2 times the record size, in bytes.
         const entrySelector = Math.floor(Math.log2(numTables));
         const searchRange = 2 ** entrySelector * recordSizeBytes;
 
@@ -522,10 +522,10 @@ export class WoffFontValidator implements FontValidator {
         const recordFields = WoffFontValidator.SFNT_RECORD_FIELD_OFFSETS;
         const records = tables.map((table, index) => ({
             ...table,
-            recordOffset: WoffFontValidator.SFNT_HEADER_SIZE_BYTES + index * recordSizeBytes,
+            recordOffset: SfntTableDirectory.HEADER_SIZE_BYTES + index * recordSizeBytes,
         }));
         const inStorageOrder = records.toSorted((left, right) => left.entry.offset - right.entry.offset);
-        let tableOffset = WoffFontValidator.SFNT_HEADER_SIZE_BYTES + numTables * recordSizeBytes;
+        let tableOffset = SfntTableDirectory.HEADER_SIZE_BYTES + numTables * recordSizeBytes;
 
         for (const { entry, table, recordOffset } of inStorageOrder) {
             sfnt.set(Buffer.from(entry.tag, "latin1"), recordOffset);

@@ -214,12 +214,13 @@ The validator exists because the engine does not refuse a broken container: of t
 container files of the W3C test suite fontforge 20230101 converts 34
 ([#685](https://github.com/yuldashevsardor/telegram-bot/issues/685)).
 
-It answers with a subclass of `InvalidWoffFont` (`woff-font-validator.errors.ts`): `NotWoff` for a
-file shorter than the 44-byte header or without the `wOFF` signature, `BrokenWoff` for the first
-broken rule. The order in which the rules are checked is in the comment of `validate()`. A file
-that cannot be read fails with `ReadFailed` of `FileHelper`, not with an answer about the font.
-Every answer names the source in `path` of its payload. Unlike the SVG answers, nothing in them is
-cut: the only text from the file they quote is a table tag, four bytes long. A zlib failure keeps
+About the container it answers with a subclass of `InvalidWoffFont`
+(`woff-font-validator.errors.ts`): `NotWoff` for a file shorter than the 44-byte header or without
+the `wOFF` signature, `BrokenWoff` for the first broken rule. The order in which the rules are
+checked is in the comment of `validate()`. A file that cannot be read fails with `ReadFailed` of
+`FileHelper`, not with an answer about the font. Every answer names the source in `path` of its
+payload. Unlike the SVG answers, nothing in them is cut: the only text from the file they quote is
+a table tag, four bytes long. A zlib failure keeps
 the zlib error as the cause, since its message comes from zlib, not from the file.
 
 A valid container is not yet a valid font: the standard "does not guarantee that the actual font
@@ -261,10 +262,11 @@ whatever else the font holds.
 
 It answers with a subclass of `InvalidSfntFont` (`sfnt-font-validator.errors.ts`): `NotSfnt` for a
 file shorter than the 12-byte header or of a version outside `SFNT_VERSIONS`, `BrokenSfnt` for the
-first broken rule. The order in which the rules are checked is in the comment of `validate()`. A
-file that cannot be read fails with `ReadFailed` of `FileHelper`, not with an answer about the font.
-Every answer names the source in `path` of its payload. Nothing in the answers is cut: the only
-text from the file they quote is a table tag, four bytes long.
+first broken rule. The order in which the rules are checked is in the comment of `validateBytes()`.
+A file that cannot be read fails with `ReadFailed` of `FileHelper`, not with an answer about the
+font. Every answer names the source in `path` of its payload, the WOFF file for the sfnt a WOFF
+carries. Nothing in the answers is cut: the only text from the file they quote is a table tag, four
+bytes long.
 
 The rules are `SfntRule` in `sfnt-font-validator.types.ts`, each with its section. Two of them are
 ours, not the standard's, and the text of each says why: a collection is rejected (see

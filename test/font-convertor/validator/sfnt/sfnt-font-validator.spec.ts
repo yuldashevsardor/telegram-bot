@@ -315,11 +315,13 @@ describe("SfntFontValidator.validate", function () {
         await expectRejection(() => validator.validate(path.join(workDir, `missing.${Extension.TTF}`)), ReadFailed);
     });
 
-    it("checks bytes with validateBytes, with no file at the path its answers name", function () {
-        // The sfnt a WOFF carries is rebuilt in memory: nothing lies at the path.
+    // The sfnt a WOFF carries is rebuilt in memory: nothing lies at the path validateBytes is given.
+    it("accepts a TTF and an OTF given as bytes, with no file at the path", function () {
         validator.validateBytes(fontPath, ttf);
         validator.validateBytes(fontPath, otf);
+    });
 
+    it("names the given path in its answer on bytes, without reading a file", function () {
         try {
             validator.validateBytes(fontPath, withoutTable(otf, "cmap"));
         } catch (error) {
