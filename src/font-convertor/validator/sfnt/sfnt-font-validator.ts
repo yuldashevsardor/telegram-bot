@@ -200,16 +200,17 @@ export class SfntFontValidator implements FontValidator {
      */
     private checkTables(fontPath: string, directory: SfntTableDirectory): SfntTables {
         const at = SfntFontValidator.DIRECTORY_AT;
-        // In the order the rule lists them, which is the order they are reported in.
-        const required = {
-            cmap: this.requiredTable(fontPath, directory, SfntFontValidator.CMAP_TAG),
-            head: this.requiredTable(fontPath, directory, SfntFontValidator.HEAD_TAG),
-            hhea: this.requiredTable(fontPath, directory, SfntFontValidator.HHEA_TAG),
-            hmtx: this.requiredTable(fontPath, directory, SfntFontValidator.HMTX_TAG),
-            maxp: this.requiredTable(fontPath, directory, SfntFontValidator.MAXP_TAG),
-            name: this.requiredTable(fontPath, directory, SfntFontValidator.NAME_TAG),
-            post: this.requiredTable(fontPath, directory, SfntFontValidator.POST_TAG),
-        };
+        // In the order the rule lists them, which is the order they are reported in. Of cmap, name
+        // and post no rule reads the content yet, so only their presence is checked.
+        this.requiredTable(fontPath, directory, SfntFontValidator.CMAP_TAG);
+
+        const head = this.requiredTable(fontPath, directory, SfntFontValidator.HEAD_TAG);
+        const hhea = this.requiredTable(fontPath, directory, SfntFontValidator.HHEA_TAG);
+        const hmtx = this.requiredTable(fontPath, directory, SfntFontValidator.HMTX_TAG);
+        const maxp = this.requiredTable(fontPath, directory, SfntFontValidator.MAXP_TAG);
+
+        this.requiredTable(fontPath, directory, SfntFontValidator.NAME_TAG);
+        this.requiredTable(fontPath, directory, SfntFontValidator.POST_TAG);
 
         if (directory.has(SfntFontValidator.CFF2_TAG)) {
             throw BrokenSfnt.byRule(fontPath, {
@@ -224,15 +225,15 @@ export class SfntFontValidator implements FontValidator {
         if (directory.has(SfntFontValidator.CFF_TAG)) {
             this.checkCffTables(fontPath, directory);
 
-            return { ...required, trueTypeOutlines: undefined };
+            return { head: head, hhea: hhea, hmtx: hmtx, maxp: maxp, trueTypeOutlines: undefined };
         }
 
         const glyf = directory.find(SfntFontValidator.GLYF_TAG);
         const loca = directory.find(SfntFontValidator.LOCA_TAG);
-
         const hasGlyf = glyf !== undefined;
+        const hasLoca = loca !== undefined;
 
-        if (hasGlyf !== (loca !== undefined)) {
+        if (hasGlyf !== hasLoca) {
             throw BrokenSfnt.byRule(fontPath, {
                 rule: SfntRule.Outlines,
                 at: at,
@@ -242,7 +243,7 @@ export class SfntFontValidator implements FontValidator {
             });
         }
 
-        if (glyf === undefined || loca === undefined) {
+        if (!hasGlyf || !hasLoca) {
             throw BrokenSfnt.byRule(fontPath, {
                 rule: SfntRule.Outlines,
                 at: at,
@@ -252,7 +253,7 @@ export class SfntFontValidator implements FontValidator {
             });
         }
 
-        return { ...required, trueTypeOutlines: { glyf: glyf, loca: loca } };
+        return { head: head, hhea: hhea, hmtx: hmtx, maxp: maxp, trueTypeOutlines: { glyf: glyf, loca: loca } };
     }
 
     private requiredTable(fontPath: string, directory: SfntTableDirectory, tag: string): SfntTableRecord {
@@ -380,7 +381,7 @@ export class SfntFontValidator implements FontValidator {
      */
     private checkMaxp(fontPath: string, view: DataView, maxp: SfntTableRecord, expected: MaxpExpectation): number {
         const at = this.tableName(SfntFontValidator.MAXP_TAG);
-        const outlines = `as the font has ${this.tableName(expected.outlinesTag)}`;
+        const outlinesClause = `as the font has ${this.tableName(expected.outlinesTag)}`;
 
         if (maxp.length < expected.minLengthBytes) {
             throw BrokenSfnt.byRule(fontPath, {
@@ -388,7 +389,7 @@ export class SfntFontValidator implements FontValidator {
                 at: at,
                 field: "length",
                 value: maxp.length,
-                expected: `at least ${expected.minLengthBytes}, ${outlines}`,
+                expected: `at least ${expected.minLengthBytes}, ${outlinesClause}`,
             });
         }
 
@@ -400,7 +401,7 @@ export class SfntFontValidator implements FontValidator {
                 at: at,
                 field: "version",
                 value: this.hex(version),
-                expected: `${this.hex(expected.version)}, ${outlines}`,
+                expected: `${this.hex(expected.version)}, ${outlinesClause}`,
             });
         }
 

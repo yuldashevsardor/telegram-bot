@@ -734,8 +734,8 @@ function withShortLoca(font: Uint8Array): Uint8Array {
     const loca = tableOffset(font, "loca");
     const shortFormat = withField16(font, "head", INDEX_TO_LOC_FORMAT_OFFSET_BYTES, 0);
     const fewerGlyphs = withField16(shortFormat, "maxp", NUM_GLYPHS_OFFSET_BYTES, SHORT_LOCA_NUM_GLYPHS);
-    const copy = withField16(fewerGlyphs, "hhea", NUMBER_OF_H_METRICS_OFFSET_BYTES, SHORT_LOCA_NUM_GLYPHS);
-    const view = new DataView(copy.buffer);
+    const shortLocaFont = withField16(fewerGlyphs, "hhea", NUMBER_OF_H_METRICS_OFFSET_BYTES, SHORT_LOCA_NUM_GLYPHS);
+    const view = new DataView(shortLocaFont.buffer);
 
     for (let index = 0; index <= SHORT_LOCA_NUM_GLYPHS; index++) {
         const longOffsetBytes = readUint32(font, loca + index * LONG_LOCA_ENTRY_SIZE_BYTES);
@@ -743,7 +743,7 @@ function withShortLoca(font: Uint8Array): Uint8Array {
         view.setUint16(loca + index * SHORT_LOCA_ENTRY_SIZE_BYTES, longOffsetBytes / SHORT_LOCA_OFFSET_FACTOR);
     }
 
-    return copy;
+    return shortLocaFont;
 }
 
 /**

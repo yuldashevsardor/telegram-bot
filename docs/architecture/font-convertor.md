@@ -259,7 +259,7 @@ The rules are `SfntRule` in `sfnt-font-validator.types.ts`, each with its sectio
 ours, not the standard's, and the text of each says why: a collection is rejected (see
 "Signatures"), and so is a font with a `CFF2` table, which the standard allows but fontforge
 20230101 does not open (exit 1, "not in a known format"). Where the two references differ, the
-rules follow the one that governs the outlines present:
+rules follow the one that governs the outlines present, with one exception, the last item:
 
 - `OS/2` is required only with CFF outlines. Microsoft requires it of every font, Apple's manual
   (chapter 6) not of a TrueType one. Without it the engine builds the table itself: every glyph is
@@ -270,6 +270,9 @@ rules follow the one that governs the outlines present:
   glyph. A rule that depends on the outline type goes by the outline tables present, not by the
   version: `OS/2` above, the version of `maxp` (0.5 with `CFF `, 1.0 with `glyf`), and `loca`,
   which is read only with TrueType outlines.
+- `head.unitsPerEm` goes by OpenType for every font: 16 to 16384, of which the specification says
+  "Any value in this range is valid", as #682 sets it. Apple's manual (chapter 6, `head`) gives a
+  TrueType font 64 to 16384; that floor is not applied, so a TrueType font of 16 to 63 units passes.
 
 The rules on `head`, `maxp`, `hhea`, `hmtx` and `loca` are those where the engine converts a broken
 font with exit 0 and loses glyphs, measured on the TrueType fixture of 1296 glyphs: `maxp.numGlyphs`
