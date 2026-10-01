@@ -321,17 +321,10 @@ describe("SfntFontValidator.validate", function () {
         validator.validateBytes(fontPath, otf);
     });
 
-    it("names the given path in its answer on bytes, without reading a file", function () {
-        try {
-            validator.validateBytes(fontPath, withoutTable(otf, "cmap"));
-        } catch (error) {
-            expect(error).to.be.instanceOf(BrokenSfnt);
-            expect((error as BrokenSfnt).payload).to.include({ path: fontPath, rule: SfntRule.RequiredTable });
+    it("names the given path in its answer on bytes, without reading a file", async function () {
+        const error = await expectRejection(async () => validator.validateBytes(fontPath, withoutTable(otf, "cmap")), BrokenSfnt);
 
-            return;
-        }
-
-        expect.fail("validateBytes did not throw BrokenSfnt");
+        expect(error.payload).to.include({ path: fontPath, rule: SfntRule.RequiredTable });
     });
 
     async function validate(content: Uint8Array): Promise<void> {

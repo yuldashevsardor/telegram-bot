@@ -10,9 +10,10 @@ import { FileHelper } from "app/shared/fs/file-helper";
 /**
  * Checks a TTF or OTF font, or the sfnt a WOFF carries, against the Microsoft OpenType
  * specification 1.9.1, and against Apple's TrueType Reference Manual for what it governs: the table
- * directory and the tables a font must have. Both extensions take the same checks: the sfnt version names the outline type, not the
- * extension, and the rules that depend on the outline type go by the outline tables present, not
- * by the version, which the specification only says "should" match them.
+ * directory and the tables a font must have. TTF and OTF take the same checks: the sfnt version
+ * names the outline type, not the extension, and the rules that depend on the outline type go by
+ * the outline tables present, not by the version, which the specification only says "should" match
+ * them.
  *
  * Deliberately not checked:
  * - The table checksums and `head.checkSumAdjustment`. fontforge does not read them: its output
@@ -23,8 +24,6 @@ import { FileHelper } from "app/shared/fs/file-helper";
  */
 @injectable()
 export class SfntFontValidator implements FontValidator {
-    private static readonly VERSION_OFFSET_BYTES = 0;
-    private static readonly NUM_TABLES_OFFSET_BYTES = 4;
     private static readonly COLLECTION_VERSION = 0x74746366;
     // In the order the rule lists them, which is the order they are reported in.
     private static readonly REQUIRED_TAGS = ["cmap", "head", "hhea", "hmtx", "maxp", "name", "post"];
@@ -78,7 +77,7 @@ export class SfntFontValidator implements FontValidator {
         }
 
         const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-        const version = view.getUint32(SfntFontValidator.VERSION_OFFSET_BYTES);
+        const version = view.getUint32(SfntTableDirectory.HEADER_FIELD_OFFSETS_BYTES.version);
         const at = "the header";
 
         if (version === SfntFontValidator.COLLECTION_VERSION) {
@@ -95,7 +94,7 @@ export class SfntFontValidator implements FontValidator {
             throw NotSfnt.byVersion(fontPath, this.hex(version), this.versionsExpected());
         }
 
-        const numTables = view.getUint16(SfntFontValidator.NUM_TABLES_OFFSET_BYTES);
+        const numTables = view.getUint16(SfntTableDirectory.HEADER_FIELD_OFFSETS_BYTES.numTables);
 
         if (numTables === 0) {
             throw BrokenSfnt.byRule(fontPath, {

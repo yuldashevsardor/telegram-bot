@@ -690,6 +690,13 @@ describe("WoffFontValidator.validate", function () {
             );
         });
 
+        it("rejects a font with CFF2 outlines", async function () {
+            // The rule two of the 5405 real fonts were rejected by: the variable Source Sans 3.6.0.
+            const withCff2 = { ...fixtureLayout, tables: [...fixtureLayout.tables, compressed("CFF2", new Uint8Array(4), 0)] };
+
+            await expectBrokenSfnt(build(withCff2), SfntRule.NoCff2, 'At the table directory: table "CFF2" is present, expected absent.');
+        });
+
         it("rejects a font with TrueType outlines and no loca", async function () {
             const ttf = await fs.readFile(path.join(fixtureDir, `test-font.${Extension.TTF}`));
 

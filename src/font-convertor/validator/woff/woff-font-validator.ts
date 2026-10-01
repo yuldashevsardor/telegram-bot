@@ -71,10 +71,6 @@ export class WoffFontValidator implements FontValidator {
     };
     // The offsets of the fields in a table directory entry (§5), after the tag that opens it.
     private static readonly ENTRY_FIELD_OFFSETS = { offset: 4, compLength: 8, origLength: 12, origChecksum: 16 };
-    // The offsets of the sfnt header fields, and of the fields in a table record after the tag that
-    // opens it (OpenType 1.9.1, Table Directory).
-    private static readonly SFNT_HEADER_FIELD_OFFSETS = { version: 0, numTables: 4, searchRange: 6, entrySelector: 8, rangeShift: 10 };
-    private static readonly SFNT_RECORD_FIELD_OFFSETS = { checksum: 4, offset: 8, length: 12 };
     // Tables are aligned and padded to it (§5), and the private block is aligned (§8).
     private static readonly ALIGNMENT_BYTES = 4;
     // The blocks that start on that boundary, with the rule each breaks off it.
@@ -131,7 +127,7 @@ export class WoffFontValidator implements FontValidator {
         const tables: Array<InflatedTable> = [];
 
         for (const entry of woff.entries) {
-            tables.push({ entry: entry, table: await this.readTable(woff, entry) });
+            tables.push({ entry: entry, bytes: await this.readTable(woff, entry) });
         }
 
         this.sfntFontValidator.validateBytes(fontPath, this.sfnt(woff, tables));
@@ -505,7 +501,7 @@ export class WoffFontValidator implements FontValidator {
     private sfnt({ header }: Woff, tables: ReadonlyArray<InflatedTable>): Uint8Array {
         const sfnt = new Uint8Array(header.totalSfntSize);
         const view = new DataView(sfnt.buffer);
-        const headerFields = WoffFontValidator.SFNT_HEADER_FIELD_OFFSETS;
+        const headerFields = SfntTableDirectory.HEADER_FIELD_OFFSETS_BYTES;
         const recordSizeBytes = SfntTableDirectory.RECORD_SIZE_BYTES;
         const numTables = tables.length;
         // entrySelector is the exponent of the largest power of 2 not greater than numTables, and
@@ -519,20 +515,20 @@ export class WoffFontValidator implements FontValidator {
         view.setUint16(headerFields.entrySelector, entrySelector);
         view.setUint16(headerFields.rangeShift, numTables * recordSizeBytes - searchRange);
 
-        const recordFields = WoffFontValidator.SFNT_RECORD_FIELD_OFFSETS;
-        const records = tables.map((table, index) => ({
-            ...table,
+        const recordFields = SfntTableDirectory.RECORD_FIELD_OFFSETS_BYTES;
+        const withRecordOffsets = tables.map((inflated, index) => ({
+            ...inflated,
             recordOffset: SfntTableDirectory.HEADER_SIZE_BYTES + index * recordSizeBytes,
         }));
-        const inStorageOrder = records.toSorted((left, right) => left.entry.offset - right.entry.offset);
+        const inStorageOrder = withRecordOffsets.toSorted((left, right) => left.entry.offset - right.entry.offset);
         let tableOffset = SfntTableDirectory.HEADER_SIZE_BYTES + numTables * recordSizeBytes;
 
-        for (const { entry, table, recordOffset } of inStorageOrder) {
+        for (const { entry, bytes, recordOffset } of inStorageOrder) {
             sfnt.set(Buffer.from(entry.tag, "latin1"), recordOffset);
             view.setUint32(recordOffset + recordFields.checksum, entry.origChecksum);
             view.setUint32(recordOffset + recordFields.offset, tableOffset);
             view.setUint32(recordOffset + recordFields.length, entry.origLength);
-            sfnt.set(table, tableOffset);
+            sfnt.set(bytes, tableOffset);
             tableOffset += this.padded(entry.origLength, WoffFontValidator.ALIGNMENT_BYTES);
         }
 

@@ -70,7 +70,7 @@ export type TableEntry = {
  */
 export type InflatedTable = {
     entry: TableEntry;
-    table: Uint8Array;
+    bytes: Uint8Array;
 };
 
 /**

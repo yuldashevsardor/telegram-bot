@@ -10,6 +10,10 @@ import { SFNT_VERSIONS } from "app/font-convertor/sfnt-version";
 export class SfntTableDirectory {
     public static readonly HEADER_SIZE_BYTES = 12;
     public static readonly RECORD_SIZE_BYTES = 16;
+    // The offsets of the header fields, and of the fields in a table record after the tag that
+    // opens it (OpenType 1.9.1, Table Directory).
+    public static readonly HEADER_FIELD_OFFSETS_BYTES = { version: 0, numTables: 4, searchRange: 6, entrySelector: 8, rangeShift: 10 };
+    public static readonly RECORD_FIELD_OFFSETS_BYTES = { checksum: 4, offset: 8, length: 12 };
 
     private readonly recordsInOrder: Array<SfntTableRecord> = [];
     private readonly recordsByTag = new Map<string, SfntTableRecord>();
@@ -26,13 +30,14 @@ export class SfntTableDirectory {
         }
 
         const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-        const version = view.getUint32(0);
+        const headerFields = SfntTableDirectory.HEADER_FIELD_OFFSETS_BYTES;
+        const version = view.getUint32(headerFields.version);
 
         if (!SFNT_VERSIONS.includes(version)) {
             throw InvalidSfnt.unknownVersion(version);
         }
 
-        const tableCount = view.getUint16(4);
+        const tableCount = view.getUint16(headerFields.numTables);
 
         for (let index = 0; index < tableCount; index++) {
             const recordOffset = SfntTableDirectory.HEADER_SIZE_BYTES + index * SfntTableDirectory.RECORD_SIZE_BYTES;
@@ -45,8 +50,8 @@ export class SfntTableDirectory {
             const tag = String.fromCharCode(...bytes.subarray(recordOffset, recordOffset + 4));
             const record = {
                 tag: tag,
-                offset: view.getUint32(recordOffset + 8),
-                length: view.getUint32(recordOffset + 12),
+                offset: view.getUint32(recordOffset + SfntTableDirectory.RECORD_FIELD_OFFSETS_BYTES.offset),
+                length: view.getUint32(recordOffset + SfntTableDirectory.RECORD_FIELD_OFFSETS_BYTES.length),
             };
 
             this.recordsInOrder.push(record);
