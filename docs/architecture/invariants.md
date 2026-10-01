@@ -119,7 +119,7 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
     `infinity`, which PostgreSQL accepts, and the chat is never pulled again;
   - in the outbox, for the common limit, the budget is zero: nothing is pulled, `next_send_at`
     stays in the past, and `nextPullInMs` is 0 while a chat is ready: the message source does not
-    spin on it, but pulls again after every sleep of up to 1 s and on every push, for good
+    spin on it, but the loop pulls again after every sleep of up to 1 s and on every push, for good
     ([`outbox.md`](./outbox.md), "Limits", "The message source").
 
 ## The outbound queue
@@ -154,6 +154,10 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   tells its lease by the token, not by `locked_until`, and takes back the message of a passed lease
   its node has just extended ([`outbox.md`](./outbox.md), "Lease recovery"). Nothing extends a lease
   yet.
+- **The message source has one caller at a time.** `OutboxMessageSource` keeps the wake-up of one
+  sleep, so two `next()` calls that overlap overwrite it: a stop or a ready notification misses one
+  of the sleeps, which runs to its cap of up to 1 s. Nothing checks that the calls do not overlap
+  ([`outbox.md`](./outbox.md), "The message source").
 - **A call is released on stop only once it has settled.** `OutboxFailureHandler.releaseOnStop()`
   makes the chat `ready` at once, so a call of the stopping node still on its way can reach Telegram
   after the next message of the chat, sent by another node: the order inside the chat breaks.

@@ -31,9 +31,10 @@ export class OutboxMessageSource {
     ) {}
 
     // Pulls up to limit messages for worker and returns them. A pull that got nothing or failed
-    // sleeps first and returns none: the caller calls again. After stop() returns none without a
-    // pull, and a pull in progress on stop() returns what it got, so no pulled message is left
-    // leased to nobody.
+    // sleeps first and returns none: the caller calls again. After stop() returns none at once,
+    // without a pull, so the caller tells its own stop from an empty pull; a pull in progress on
+    // stop() returns what it got, so no pulled message is left leased to nobody. One call at a
+    // time, with a limit from 1 (docs/architecture/outbox.md, "The message source").
     public async next(limit: number, worker: OutboxWorker): Promise<PulledOutboxMessage[]> {
         // After stop() the database may be closed already, and a LISTEN started then opens a
         // connection that nothing closes.
@@ -75,7 +76,7 @@ export class OutboxMessageSource {
         this.currentSleep?.wakeUp();
     }
 
-    // undefined: the pull failed. It is left to the next one: the source ends only on stop(). A pull
+    // undefined: the pull failed. It is left to the next one: the pulls go on until stop(). A pull
     // that fails after stop() has no next one, and the database may have been closed under it.
     private async pull(limit: number, worker: OutboxWorker): Promise<OutboxPullResult | undefined> {
         try {

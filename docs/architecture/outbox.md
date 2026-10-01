@@ -224,8 +224,8 @@ got. Nothing calls it yet: the worker loop is
   a pull that gets nothing makes `next()` return at once instead of sleeping: the pull may have read
   the tables before the push committed. The source sleeps at most once at a time, since it has one
   caller, so it keeps the wake-up of one sleep, not a set of them.
-- **A failed pull** is logged at `error`, sleeps the whole cap and returns no messages: the source
-  ends only on stop. No notification cuts that sleep short, nor one that came during the failed
+- **A failed pull** is logged at `error`, sleeps the whole cap and returns no messages: the pulls
+  go on until the stop. No notification cuts that sleep short, nor one that came during the failed
   pull: pushes go on while the pulls fail (a missing `telegram_bot_limits` row fails every pull,
   not a push), and the loop would retry and log at their rate. A pull that fails after the stop is
   logged at `warning`: the database may have been closed under it.
@@ -234,6 +234,17 @@ got. Nothing calls it yet: the worker loop is
   `LISTEN` would open a connection that nothing closes. A pull in progress returns what it got, and
   the loop starts those messages, so no pulled message is left leased to nobody. Waiting for the
   calls in flight is the loop's.
+
+What the source takes on trust from its caller, unchecked by the code:
+
+- **One call at a time.** The source keeps the wake-up of one sleep. Two calls that overlap
+  overwrite it, so a stop or a notification can miss one of the sleeps, which then runs to its cap,
+  up to 1 s ([`invariants.md`](./invariants.md), "The outbox").
+- **A `limit` from 1.** A loop with no free slot does not call. A `limit` of 0 or a fraction makes
+  `pull()` throw `InvalidPullLimit`, and the source takes it for a failed pull: logged at `error`
+  as a pull the next one retries, once per cap.
+- **No messages after the stop is not an end.** `next()` returns `[]` at once after `stop()`, with
+  no sleep, so a loop that calls again on `[]` without checking its own stop spins.
 
 What this costs the rate of the common limit (see "Limits"):
 

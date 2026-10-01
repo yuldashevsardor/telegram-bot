@@ -296,7 +296,7 @@ describe("OutboxMessageSource", function () {
         expect(logger.warnings).to.be.empty;
     });
 
-    it("listens once for every call", async function () {
+    it("starts the listening once across calls", async function () {
         store.answer(pullOf(pulledMessage(1)), pullOf(pulledMessage(2)));
         const source = build();
 
