@@ -8,6 +8,7 @@ import type { OutboxPullResult, OutboxWorker, PulledOutboxMessage } from "app/te
 
 // The pull of the source over the real store is checked in outbox-store.spec.ts.
 
+const CHAT = 5_000_000_001;
 const WORKER: OutboxWorker = { host: "node-1", pid: 101, workerId: "worker-1" };
 const OTHER_WORKER: OutboxWorker = { host: "node-1", pid: 101, workerId: "worker-2" };
 // A random of 0.5 puts the cap of a sleep in the middle of 100 ms to 1 s.
@@ -464,9 +465,9 @@ describe("OutboxMessageSource", function () {
 function pulledMessage(id: number): PulledOutboxMessage {
     return {
         id: id,
-        chatId: 5_000_000_001,
+        chatId: CHAT,
         method: "sendMessage",
-        payload: { chat_id: 5_000_000_001, text: `message ${id}` },
+        payload: { chat_id: CHAT, text: `message ${id}` },
         priority: 0,
         lockToken: "00000000-0000-4000-8000-000000000000",
         startedAt: "2026-09-30T00:00:00.000000+00:00",

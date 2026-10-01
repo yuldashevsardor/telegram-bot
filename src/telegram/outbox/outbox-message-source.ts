@@ -7,8 +7,8 @@ import type { OutboxPullResult, OutboxWorker, PulledOutboxMessage } from "app/te
 // A generator serves one worker, and the worker asks for the next message only once it is free.
 const PULL_LIMIT = 1;
 // The range of the random cap of a sleep. The cap keeps nextPullInMs within a Node timer and stops
-// a spin on an answer of zero; being random, it keeps the sources of a node and of the other nodes
-// from pulling in step.
+// a spin on an answer of zero. Being random, it spreads out the generators that sleep the whole cap
+// together, as the ones that lost the bot row to the same pull do.
 const MIN_SLEEP_CAP_MS = 100;
 const MAX_SLEEP_CAP_MS = 1_000;
 
@@ -112,8 +112,7 @@ export class OutboxMessageSource {
         return MIN_SLEEP_CAP_MS + this.random() * (MAX_SLEEP_CAP_MS - MIN_SLEEP_CAP_MS);
     }
 
-    // Cut short by stop(), and by a ready notification if shouldWakeOnReady; a sleep after stop() does not
-    // start.
+    // Cut short by stop(), and by a ready notification if shouldWakeOnReady. Not started after stop().
     private async sleep(durationMs: number, options: { shouldWakeOnReady: boolean }): Promise<void> {
         if (this.isStopped) {
             return;
