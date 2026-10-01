@@ -220,8 +220,8 @@ the `wOFF` signature, `BrokenWoff` for the first broken rule. The order in which
 checked is in the comment of `validate()`. A file that cannot be read fails with `ReadFailed` of
 `FileHelper`, not with an answer about the font. Every answer names the source in `path` of its
 payload. Unlike the SVG answers, nothing in them is cut: the only text from the file they quote is
-a table tag, four bytes long. A zlib failure keeps
-the zlib error as the cause, since its message comes from zlib, not from the file.
+a table tag, four bytes long. A zlib failure keeps the zlib error as the cause, since its message
+comes from zlib, not from the file.
 
 A valid container is not yet a valid font: the standard "does not guarantee that the actual font
 data packaged in a valid WOFF container is in fact correct and usable" (§3), and fontforge

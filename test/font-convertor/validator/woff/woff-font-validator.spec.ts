@@ -39,6 +39,8 @@ const OFFSET = 4;
 const COMP_LENGTH = 8;
 const ORIG_LENGTH = 12;
 const ORIG_CHECKSUM = 16;
+// numGlyphs by its offset in maxp (OpenType 1.9.1, maxp).
+const MAXP_NUM_GLYPHS = 4;
 
 // The fixture: flavor OTTO, 11 tables, 67 316 bytes, no metadata and no private block.
 const FIXTURE_SIZE_BYTES = 67316;
@@ -695,7 +697,7 @@ describe("WoffFontValidator.validate", function () {
             const noGlyphs = withStoredTable(fixtureLayout, "maxp", (table) => {
                 const maxp = Uint8Array.from(uncompressed(table));
 
-                new DataView(maxp.buffer).setUint16(4, 0);
+                new DataView(maxp.buffer).setUint16(MAXP_NUM_GLYPHS, 0);
 
                 return compressed("maxp", maxp, checksum(maxp));
             });

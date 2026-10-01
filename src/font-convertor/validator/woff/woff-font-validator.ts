@@ -127,7 +127,7 @@ export class WoffFontValidator implements FontValidator {
         const tables: Array<InflatedTable> = [];
 
         for (const entry of woff.entries) {
-            tables.push({ entry: entry, bytes: await this.readTable(woff, entry) });
+            tables.push({ entry: entry, bytes: await this.checkedTable(woff, entry) });
         }
 
         this.sfntFontValidator.validateBytes(fontPath, this.sfnt(woff, tables));
@@ -475,7 +475,7 @@ export class WoffFontValidator implements FontValidator {
     /**
      * The uncompressed table, once its checksum matches.
      */
-    private async readTable(woff: Woff, entry: TableEntry): Promise<Uint8Array> {
+    private async checkedTable(woff: Woff, entry: TableEntry): Promise<Uint8Array> {
         const table = await this.uncompressed(woff, entry);
         const checksum = this.checksum(entry.tag, table);
 
@@ -509,13 +509,13 @@ export class WoffFontValidator implements FontValidator {
         // not fit its 16 bits and setUint16 wraps it: OpenType gives no value for that case, and
         // SfntFontValidator does not read the field.
         const entrySelector = Math.floor(Math.log2(numTables));
-        const searchRange = 2 ** entrySelector * recordSizeBytes;
+        const searchRangeBytes = 2 ** entrySelector * recordSizeBytes;
 
         view.setUint32(headerFields.version, header.flavor);
         view.setUint16(headerFields.numTables, numTables);
-        view.setUint16(headerFields.searchRange, searchRange);
+        view.setUint16(headerFields.searchRange, searchRangeBytes);
         view.setUint16(headerFields.entrySelector, entrySelector);
-        view.setUint16(headerFields.rangeShift, numTables * recordSizeBytes - searchRange);
+        view.setUint16(headerFields.rangeShift, numTables * recordSizeBytes - searchRangeBytes);
 
         const recordFields = SfntTableDirectory.RECORD_FIELD_OFFSETS_BYTES;
         const withRecordOffsets = tables.map((inflated, index) => ({
