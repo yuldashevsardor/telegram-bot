@@ -47,6 +47,13 @@ describe("SfntTableDirectory", function () {
         expect(cff.find("glyf"), "glyf in the CFF font").to.equal(undefined);
     });
 
+    it("tells whether it has a table by its tag", function () {
+        const directory = new SfntTableDirectory(otf);
+
+        expect(directory.has("CFF ")).to.be.true;
+        expect(directory.has("glyf")).to.be.false;
+    });
+
     it("lists the records in the order of the directory", function () {
         const tags = new SfntTableDirectory(otf).records().map((record) => record.tag);
 

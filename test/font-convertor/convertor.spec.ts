@@ -73,6 +73,21 @@ describe("Convertor.validate", function () {
         expect(engineCalls).to.deep.equal([`${fixture(Extension.TTF)} -> ${toPath}`]);
     });
 
+    it("takes either outline type under either sfnt extension", async function () {
+        // The sfnt version names the outline type, not the extension: CFF under .ttf and TrueType
+        // outlines under .otf are legal, and both extensions take the same validator.
+        const cffPath = inWorkDir("cff.ttf");
+        const trueTypePath = inWorkDir("true-type.otf");
+        const toPath = inWorkDir("result.woff");
+        await fs.copyFile(fixture(Extension.OTF), cffPath);
+        await fs.copyFile(fixture(Extension.TTF), trueTypePath);
+
+        await convertor.convert(cffPath, toPath);
+        await factory.get(Extension.OTF, Extension.WOFF).convert(trueTypePath, toPath);
+
+        expect(engineCalls).to.deep.equal([`${cffPath} -> ${toPath}`, `${trueTypePath} -> ${toPath}`]);
+    });
+
     describe("rejects the source", function () {
         it("when it does not exist", async function () {
             const fromPath = inWorkDir("missing.ttf");

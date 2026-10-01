@@ -61,6 +61,10 @@ export class SfntTableDirectory {
         return this.recordsByTag.get(tag);
     }
 
+    public has(tag: string): boolean {
+        return this.recordsByTag.has(tag);
+    }
+
     /**
      * Every record in the order of the directory, a repeated tag as many times as it is there.
      */

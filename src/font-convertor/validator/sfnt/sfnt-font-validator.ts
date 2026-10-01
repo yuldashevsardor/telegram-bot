@@ -34,6 +34,7 @@ export class SfntFontValidator implements FontValidator {
     private static readonly CFF2_TAG = "CFF2";
     private static readonly OS2_TAG = "OS/2";
     private static readonly OUTLINES_EXPECTED = '"glyf" with "loca", or "CFF "';
+    private static readonly DIRECTORY_AT = "the table directory";
 
     /**
      * Throws when the file is not a valid sfnt font. The answers are subclasses of
@@ -149,10 +150,10 @@ export class SfntFontValidator implements FontValidator {
      * rejected for its outlines, not for their absence.
      */
     private checkTables(fontPath: string, directory: SfntTableDirectory): void {
-        const at = "the table directory";
+        const at = SfntFontValidator.DIRECTORY_AT;
 
         for (const tag of SfntFontValidator.REQUIRED_TAGS) {
-            if (directory.find(tag) === undefined) {
+            if (!directory.has(tag)) {
                 throw BrokenSfnt.byRule(fontPath, {
                     rule: SfntRule.RequiredTable,
                     at: at,
@@ -163,7 +164,7 @@ export class SfntFontValidator implements FontValidator {
             }
         }
 
-        if (directory.find(SfntFontValidator.CFF2_TAG) !== undefined) {
+        if (directory.has(SfntFontValidator.CFF2_TAG)) {
             throw BrokenSfnt.byRule(fontPath, {
                 rule: SfntRule.NoCff2,
                 at: at,
@@ -173,14 +174,14 @@ export class SfntFontValidator implements FontValidator {
             });
         }
 
-        if (directory.find(SfntFontValidator.CFF_TAG) !== undefined) {
+        if (directory.has(SfntFontValidator.CFF_TAG)) {
             this.checkCffTables(fontPath, directory);
 
             return;
         }
 
-        const hasGlyf = directory.find(SfntFontValidator.GLYF_TAG) !== undefined;
-        const hasLoca = directory.find(SfntFontValidator.LOCA_TAG) !== undefined;
+        const hasGlyf = directory.has(SfntFontValidator.GLYF_TAG);
+        const hasLoca = directory.has(SfntFontValidator.LOCA_TAG);
 
         if (hasGlyf !== hasLoca) {
             throw BrokenSfnt.byRule(fontPath, {
@@ -208,10 +209,10 @@ export class SfntFontValidator implements FontValidator {
      * read as TrueType outlines, broken or not.
      */
     private checkCffTables(fontPath: string, directory: SfntTableDirectory): void {
-        if (directory.find(SfntFontValidator.OS2_TAG) === undefined) {
+        if (!directory.has(SfntFontValidator.OS2_TAG)) {
             throw BrokenSfnt.byRule(fontPath, {
                 rule: SfntRule.Os2WithCff,
-                at: "the table directory",
+                at: SfntFontValidator.DIRECTORY_AT,
                 field: this.tableName(SfntFontValidator.OS2_TAG),
                 value: "absent",
                 expected: 'present, as the font has "CFF "',

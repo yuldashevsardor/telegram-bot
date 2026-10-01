@@ -166,7 +166,7 @@ describe("SfntFontValidator.validate", function () {
             );
         });
 
-        it("goes on to the directory in a file of the header alone", async function () {
+        it("of the 12-byte header alone, for the table records it lacks", async function () {
             await expectBroken(
                 ttf.subarray(0, HEADER_SIZE_BYTES),
                 SfntRule.DirectoryInFile,
@@ -186,7 +186,7 @@ describe("SfntFontValidator.validate", function () {
     });
 
     describe("rejects a broken table directory", function () {
-        it("goes on to the tables in a file that holds the whole directory", async function () {
+        it("whose tables lie past a file of the directory alone", async function () {
             const directoryEndBytes = HEADER_SIZE_BYTES + TTF_NUM_TABLES * RECORD_SIZE_BYTES;
 
             await expectBroken(
