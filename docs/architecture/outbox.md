@@ -207,11 +207,14 @@ next message of its own generator. Nothing makes a generator yet: the worker loo
 - **The wake-up.** The first generator starts `LISTEN` on `telegram_outbox_ready`
   (`OutboxStore.listenReady()`), on the listening connection of the client
   ([`storage.md`](./storage.md), "LISTEN"). A failed start is logged at `warning` and is not
-  repeated, for the reason given in "Waiting for the result"; the generators go on with the capped
-  sleep alone. A notification wakes every sleeping generator of the node, since a push may have
-  made several chats ready, and so does every start of the listening: a push committed while the
-  connection was down reached no one. A notification that comes while a generator pulls makes it
-  pull again instead of sleeping: the pull may have read the tables before the push committed.
+  repeated, for the reason given in "Waiting for the result": postgres.js subscribes the listener
+  again when its listening connection closes. Until the listening starts, the generators go on
+  with the capped sleep. A start that fails after the stop is not logged: a clean shutdown may
+  close the database under it. A notification wakes every sleeping generator of the node, since a
+  push may have made several chats ready, and so does every start of the listening: a push
+  committed while the connection was down reached no one. A notification that comes while a
+  generator pulls makes it pull again instead of sleeping: the pull may have read the tables before
+  the push committed.
 - **A failed pull** is logged at `error`, and the generator sleeps the whole cap and pulls again:
   the source ends only on stop. A pull that fails after the stop is logged at `warning` and ends
   the generator: the database may have been closed under it.

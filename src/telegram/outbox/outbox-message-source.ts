@@ -57,7 +57,7 @@ export class OutboxMessageSource {
                 continue;
             }
 
-            await this.sleep(this.sleepMs(pullResult.nextPullInMs));
+            await this.sleep(this.sleepDurationMs(pullResult.nextPullInMs));
         }
     }
 
@@ -88,7 +88,7 @@ export class OutboxMessageSource {
     // nextPullInMs, capped by a random point between MIN_SLEEP_CAP_MS and MAX_SLEEP_CAP_MS. A null
     // answer has no time to wait for, and an answer of zero after a pull that got nothing means that
     // another transaction holds the bot row or a due chat: both sleep the whole cap.
-    private sleepMs(nextPullInMs: number | null): number {
+    private sleepDurationMs(nextPullInMs: number | null): number {
         const capMs = MIN_SLEEP_CAP_MS + this.random() * (MAX_SLEEP_CAP_MS - MIN_SLEEP_CAP_MS);
 
         if (nextPullInMs === null || nextPullInMs === 0) {
@@ -115,7 +115,8 @@ export class OutboxMessageSource {
     }
 
     // Started once, by the first generator, for the reason OutboxResultWaiter.listen() gives. Until
-    // then, and without it, the capped sleep serves.
+    // the listening starts, the capped sleep serves. A start that fails after stop() is not logged:
+    // the database may have been closed under it by a clean shutdown.
     private listen(): void {
         if (this.hasStartedListening) {
             return;
@@ -126,9 +127,16 @@ export class OutboxMessageSource {
         this.store
             .listenReady(() => this.onReady())
             .catch((error: unknown) => {
-                this.logger.warning("Listening for ready outbox messages failed, the sources pull on the capped sleep alone.", {
-                    cause: error,
-                });
+                if (this.isStopped) {
+                    return;
+                }
+
+                this.logger.warning(
+                    "Listening for ready outbox messages failed, the sources pull on the capped sleep until the listening starts.",
+                    {
+                        cause: error,
+                    },
+                );
             });
     }
 

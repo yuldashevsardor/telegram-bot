@@ -51,6 +51,7 @@ class FakeStore {
     public shouldFailListening = false;
     private readonly results: (OutboxPullResult | Error)[] = [];
     private heldPull: PromiseWithResolvers<OutboxPullResult> | undefined;
+    private heldListening: PromiseWithResolvers<void> | undefined;
     private onReady: (() => void) | undefined;
 
     public answer(...results: (OutboxPullResult | Error)[]): void {
@@ -92,6 +93,25 @@ class FakeStore {
         return result;
     }
 
+    // The next start of the listening waits for startListening() or failListening().
+    public holdListening(): void {
+        this.heldListening = Promise.withResolvers<void>();
+    }
+
+    public startListening(): void {
+        this.heldListening?.resolve();
+    }
+
+    public failListening(error: Error): void {
+        this.heldListening?.reject(error);
+    }
+
+    // As postgres.js does, onReady is called on every start of the listening: the first one and
+    // each after a reconnect.
+    public restartListening(): void {
+        this.onReady?.();
+    }
+
     public async listenReady(onReady: () => void): Promise<void> {
         this.listenCount += 1;
 
@@ -99,7 +119,14 @@ class FakeStore {
             throw new Error("connection refused");
         }
 
+        // Awaited only when held: an await of nothing would still put the start after the first
+        // pull of the generator, and the start would make every spec pull twice.
+        if (this.heldListening !== undefined) {
+            await this.heldListening.promise;
+        }
+
         this.onReady = onReady;
+        onReady();
     }
 }
 
@@ -258,6 +285,46 @@ describe("OutboxMessageSource", function () {
         expect(store.pulls).to.have.length(2);
     });
 
+    it("wakes up when the listening starts again after a reconnect", async function () {
+        void build().messages(WORKER).next();
+        await settle();
+
+        store.restartListening();
+        await settle();
+
+        expect(store.pulls).to.have.length(2);
+    });
+
+    // The first pull may have read the tables before the LISTEN, and a push in between was heard by
+    // no one.
+    it("pulls again at once when the listening starts during the first pull", async function () {
+        store.holdListening();
+        store.hold();
+        void build().messages(WORKER).next();
+        await settle();
+
+        store.startListening();
+        await settle();
+        store.release(NOTHING_READY);
+        await settle();
+
+        expect(store.pulls).to.have.length(2);
+    });
+
+    it("does not log a start of the listening that fails after stop", async function () {
+        store.holdListening();
+        const source = build();
+        const next = source.messages(WORKER).next();
+        await settle();
+
+        source.stop();
+        store.failListening(new Error("database closed"));
+        await settle();
+
+        expect(await next).to.deep.equal({ value: undefined, done: true });
+        expect(logger.warnings).to.be.empty;
+    });
+
     it("listens once for every generator of the node", async function () {
         const source = build();
         void source.messages(WORKER).next();
@@ -273,7 +340,7 @@ describe("OutboxMessageSource", function () {
         await settle();
 
         expect(logger.warnings.map((record) => record.message)).to.deep.equal([
-            "Listening for ready outbox messages failed, the sources pull on the capped sleep alone.",
+            "Listening for ready outbox messages failed, the sources pull on the capped sleep until the listening starts.",
         ]);
 
         await advance(HALF_CAP_MS);
