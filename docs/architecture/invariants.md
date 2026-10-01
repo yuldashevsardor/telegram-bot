@@ -150,10 +150,8 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   `OUTBOX_LEASE_DURATION` of `.env.dist` says which call timeout its default covers. Nothing checks
   the two against each other. An extension may extend only a lease that has not passed: the recovery
   tells its lease by the token, not by `locked_until`, and takes back the message of a passed lease
-  its node has just extended ([`outbox.md`](./outbox.md), "Lease recovery").
-  `OutboxStore.extendLeases()` checks `locked_until` against `now()` of its statement, which cannot
-  shut out a recovery that read the lease while the extension ran, so the caller extends
-  well before the end of the lease ([`outbox.md`](./outbox.md), "The lease"). Nothing calls it yet.
+  its node has just extended ([`outbox.md`](./outbox.md), "Lease recovery"). Nothing extends a lease
+  yet.
 - **A call is released on stop only once it has settled.** `OutboxFailureHandler.releaseOnStop()`
   makes the chat `ready` at once, so a call of the stopping node still on its way can reach Telegram
   after the next message of the chat, sent by another node: the order inside the chat breaks.

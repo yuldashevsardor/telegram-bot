@@ -94,8 +94,7 @@ export type PulledOutboxMessage = OutboxMessageInput &
     };
 
 // A lease that passed before its message was completed: the node that pulled the message is
-// presumed dead. Only the lease end is stored, so startedAt is that end minus the lease duration:
-// the last extension of an extended lease, not its pull.
+// presumed dead. Only the lease end is stored, so startedAt is that end minus the lease duration.
 export type ExpiredOutboxLease = OutboxLease & {
     worker: null;
     earlierAttempts: number;

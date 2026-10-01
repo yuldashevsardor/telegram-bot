@@ -33,9 +33,6 @@ import {
 // The OID of bigint: the chat ids go to the database as a bigint[] parameter.
 const BIGINT = 20;
 
-// The OID of uuid: the lock tokens of an extension go to the database as a uuid[] parameter.
-const UUID = 2950;
-
 // The statuses a chat head can be in: its first message by id among them. A failed message is not
 // among them: the chat it blocks is held by its state, and one that does not block lets the next
 // message through.
@@ -326,29 +323,6 @@ export class OutboxStore {
             worker: null,
             earlierAttempts: row.earlier_attempts,
         }));
-    }
-
-    // Moves the end of every live lease under these tokens to now() + leaseDurationMs, for the calls
-    // still in flight. A lease that has passed is not extended: the recovery tells its lease by the
-    // token, not by the end, and may already be taking its message back (docs/architecture/outbox.md,
-    // "The lease"). A token no chat holds any more, completed or recovered, changes nothing. A chat
-    // another transaction holds is skipped, not waited for, and left to the next extension: waiting,
-    // the update would lock several chats in no set order and could deadlock with a push of them.
-    public async extendLeases(lockTokens: string[]): Promise<void> {
-        await this.sql`
-            UPDATE telegram_outbox_chats
-            SET locked_until = now() + ${this.leaseDurationMs}::double precision * interval '1 millisecond',
-                updated_at = now()
-            WHERE chat_id IN (
-                SELECT chat_id
-                FROM telegram_outbox_chats
-                WHERE lock_token = ANY(${this.sql.array(lockTokens, UUID)}::uuid[])
-                  AND locked_until > now()
-                -- The lock rechecks the token and the end on the newest version of the row, so a
-                -- lease a completion has ended meanwhile is left alone.
-                FOR UPDATE SKIP LOCKED
-            )
-        `;
     }
 
     // The time a limit leaves between two messages, as the in-memory queue spaces them. LIMIT_*_NUMBER
