@@ -109,8 +109,9 @@ export class SfntReader {
     /**
      * The envelope names by nameID. The names are informational, so an unreadable record is not an
      * error: it is skipped, and a field nothing was found for stays empty. Rejecting the whole font
-     * over it costs more: subsetters cut name records, and `pyftsubset --drop-tables+=name` drops
-     * the whole table.
+     * over it costs more: subsetters cut name records. A source without the whole table
+     * (`pyftsubset --drop-tables+=name`) is rejected earlier, by `SfntFontValidator`, as OpenType
+     * requires `name`; here a missing table is forgiven for the intermediate sfnt of the engine.
      */
     private readNames(): Map<number, string> {
         const names = new Map<number, string>();

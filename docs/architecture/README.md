@@ -23,8 +23,8 @@ The runtime sequences live in the files of their subsystems:
   queue: the tables, the chat states, push, pull, the limits and the pause, the chat lock, the
   lease and the completions, sending one message and removing its files, the failure classes, the
   outcomes, the retry delay, waiting for the result and the payload codec
-- [`font-convertor.md`](./font-convertor.md) — format pairs, the EOT codec, signatures, the SVG and
-  WOFF validators, running the engine
+- [`font-convertor.md`](./font-convertor.md) — format pairs, the EOT codec, signatures, the SVG,
+  WOFF and sfnt validators, running the engine
 - [`user.md`](./user.md) — the entity, the repository, filling the context
 - [`logging.md`](./logging.md) — the port and the adapters, thresholds, request correlation
 - [`i18n.md`](./i18n.md) — locales, Fluent bundles, command descriptions
@@ -229,7 +229,8 @@ own only when it has files of its own or a role of its own among the siblings:
 - `middleware/mutation/` is a role inside `middleware/`: a middleware that replaces `ctx.api.raw`
   ([`bot.md`](./bot.md)). There is only one file in it so far;
 - `validator/svg/` keeps `SvgFontValidator` together with its companions and its path data parser,
-  `validator/woff/` keeps `WoffFontValidator` with its companions.
+  `validator/woff/` and `validator/sfnt/` keep `WoffFontValidator` and `SfntFontValidator` with
+  their companions.
 
 A sibling with neither lies flat in the siblings directory: `filter/has-session-key.filter.ts`,
 `middleware/request-log.middleware.ts`. The name is the prefix of the sibling's file name
