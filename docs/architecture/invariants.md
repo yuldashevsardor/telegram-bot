@@ -186,10 +186,10 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   ([`outbox.md`](./outbox.md), "Error classes"). The code does not check this; it only rejects a
   relative path (`RelativeFilePath`), which each node would resolve against its own working
   directory.
-- **The file of a `PathFile` belongs to its message.** `OutboxSender` removes it once the message
-  is `done` ([`outbox.md`](./outbox.md), "Sending"), so two messages that share a path lose the
-  file with the first one sent: the second fails on the missing file and blocks its chat. A caller
-  that sends one file twice gives each message a copy of its own. Nothing checks this.
+- **The file of a `PathFile` belongs to its message.** `OutboxMessageProcessor` removes it once
+  the message is `done` ([`outbox.md`](./outbox.md), "Sending"), so two messages that share a path
+  lose the file with the first one sent: the second fails on the missing file and blocks its chat.
+  A caller that sends one file twice gives each message a copy of its own. Nothing checks this.
 
 ## Storage: migrations, `sessions`, `User`
 

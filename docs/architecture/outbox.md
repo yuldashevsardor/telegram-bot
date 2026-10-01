@@ -6,11 +6,13 @@ any node sends them, the order inside a chat holds across nodes, and a node that
 nothing (the plan is epic [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)).
 No caller or sending loop uses the directory yet: so far it holds the tables with `OutboxStore`
 (`store/outbox-store.ts`), which pushes, pulls within the limits, pauses, completes a pulled
-message, finds the expired leases and cleans up, `OutboxSender` (`outbox-sender.ts`), which sends
-one pulled message, `OutboxFailureHandler` (`outbox-failure-handler.ts`), which picks the outcome
-of a failed send and recovers the expired leases, `OutboxResultWaiter`, which waits for the outcome
-of a message, with `OutboxFinishedMessageReader`, the payload codec and the retry delay. The error
-classes of a failed call lie outside it, in `telegram/bot-api-failure-classifier/`.
+message, finds the expired leases and cleans up, `OutboxMessageProcessor`
+(`outbox-message-processor.ts`), which takes one pulled message to its outcome, with
+`OutboxSender`, which makes its Bot API call, `OutboxFailureHandler` (`outbox-failure-handler.ts`),
+which picks the outcome of a failed send and recovers the expired leases, `OutboxResultWaiter`,
+which waits for the outcome of a message, with `OutboxFinishedMessageReader`, the payload codec and
+the retry delay. The error classes of a failed call lie outside it, in
+`telegram/bot-api-failure-classifier/`.
 
 ## Tables
 
@@ -317,10 +319,18 @@ as `PgSqlUserRepository` does ([`storage.md`](./storage.md), "`User.id`").
 
 ## Sending
 
-`OutboxSender.send(message)` (`outbox-sender.ts`) sends one pulled message. Nothing calls it yet:
-the sending loop that will is [#624](https://github.com/yuldashevsardor/telegram-bot/issues/624).
-It rebuilds the payload with `deserialize()`, calls the method of the message by its name with the
-payload alone, and completes the message:
+Two classes send a pulled message, so that the sending loop only hands it over and Telegram is
+called from one place:
+
+- `OutboxMessageProcessor.process(message)` (`outbox-message-processor.ts`) takes the message to
+  its outcome: it rebuilds the payload with `deserialize()`, has the sender call the method, and
+  completes the message (below). Nothing calls it yet: the sending loop that will is
+  [#624](https://github.com/yuldashevsardor/telegram-bot/issues/624);
+- `OutboxSender.send(method, payload)` (`outbox-sender.ts`) makes the call: the method by its name,
+  with the payload alone. It resolves with Telegram's result and throws the error of the call as
+  grammY throws it; it knows neither the store nor the files.
+
+The processor completes the message:
 
 - the call answers: `markAsDone()` with Telegram's result as the `response`;
 - the call throws, or the row does not rebuild (`InvalidFileMarker`, a corrupted row):
@@ -328,7 +338,7 @@ payload alone, and completes the message:
   `GrammyError` would bring the copy of the call into the attempt: the serializer leaves out the
   payload of a `GrammyError` only at the top level.
 
-The call goes through an `Api` of the sender's own, from `OutboxApiFactory`
+The sender calls through an `Api` of its own, from `OutboxApiFactory`
 (`outbox-api-factory.ts`): the bot token, no transformers, and `timeoutSeconds` from
 `OUTBOX_API_TIMEOUT`; why is in the comment of `create()`. A call that runs past the timeout fails
 with an `HttpError`, a transient failure (see "Error classes").
@@ -355,7 +365,7 @@ sent either way. What removing the file after the send asks of the caller is in
 ## Failures
 
 The decisions that need no database are classes without SQL, so mutation testing reaches them.
-`OutboxSender` calls `OutboxFailureHandler.handle()` (see "Sending").
+`OutboxMessageProcessor` calls `OutboxFailureHandler.handle()` (see "Sending").
 
 ### Error classes
 
