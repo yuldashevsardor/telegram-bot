@@ -27,8 +27,20 @@ const TAG_SIZE_BYTES = 4;
 const CHECKSUM_OFFSET_BYTES = 4;
 const TABLE_OFFSET_OFFSET_BYTES = 8;
 const LENGTH_OFFSET_BYTES = 12;
-// checkSumAdjustment in head.
+// The fields of head, maxp and hhea by their offset in the table (OpenType 1.9.1, head, maxp, hhea).
 const CHECKSUM_ADJUSTMENT_OFFSET_BYTES = 8;
+const MAJOR_VERSION_OFFSET_BYTES = 0;
+const MAGIC_NUMBER_OFFSET_BYTES = 12;
+const UNITS_PER_EM_OFFSET_BYTES = 18;
+const INDEX_TO_LOC_FORMAT_OFFSET_BYTES = 50;
+const MAXP_VERSION_OFFSET_BYTES = 0;
+const NUM_GLYPHS_OFFSET_BYTES = 4;
+const NUMBER_OF_H_METRICS_OFFSET_BYTES = 34;
+// The width of a loca offset by head.indexToLocFormat: 0 is short, 1 is long.
+const SHORT_LOCA_ENTRY_SIZE_BYTES = 2;
+const LONG_LOCA_ENTRY_SIZE_BYTES = 4;
+// The short format stores the offset divided by 2.
+const SHORT_LOCA_OFFSET_FACTOR = 2;
 
 const TRUETYPE_VERSION = 0x00010000;
 const CFF_VERSION = 0x4f54544f;
@@ -40,6 +52,15 @@ const OUTLINES_EXPECTED = 'expected "glyf" with "loca", or "CFF ".';
 // file. The CFF fixture: 11 tables, 95 936 bytes.
 const TTF_SIZE_BYTES = 158856;
 const TTF_NUM_TABLES = 13;
+// Both fixtures give every glyph a 4-byte hmtx record. The TrueType one has long loca offsets, and
+// its last offset is the length of glyf. Every table a length rule covers is exactly as long as its
+// fields need: head 54, hhea 36, maxp 32 and 6, the hmtx and loca of the TrueType fixture. Accepting
+// the fixtures holds each length rule at its boundary.
+const TTF_NUM_GLYPHS = 1296;
+const OTF_NUM_GLYPHS = 1295;
+const TTF_GLYF_LENGTH_BYTES = 133424;
+// Its glyphs up to this one end below 131 070, the largest offset the short loca format holds.
+const SHORT_LOCA_NUM_GLYPHS = 1000;
 const REQUIRED_TAGS = ["cmap", "head", "hhea", "hmtx", "maxp", "name", "post"];
 
 describe("SfntFontValidator.validate", function () {
@@ -115,6 +136,33 @@ describe("SfntFontValidator.validate", function () {
             await validate(withUint16(ttf, SEARCH_RANGE_OFFSET_BYTES, 0));
             await validate(withUint16(ttf, ENTRY_SELECTOR_OFFSET_BYTES, 0));
             await validate(withUint16(ttf, RANGE_SHIFT_OFFSET_BYTES, 0));
+        });
+
+        it("whose unitsPerEm is at either end of 16 to 16384", async function () {
+            for (const unitsPerEm of [16, 16384]) {
+                await validate(withField16(ttf, "head", UNITS_PER_EM_OFFSET_BYTES, unitsPerEm));
+            }
+        });
+
+        it("with fewer hmtx records than glyphs", async function () {
+            // The last record applies to the rest, which carry only a left side bearing: 4 + 2 × 1295.
+            await validate(withLength(withField16(ttf, "hhea", NUMBER_OF_H_METRICS_OFFSET_BYTES, 1), "hmtx", 2594));
+        });
+
+        it("with short loca offsets", async function () {
+            await validate(withShortLoca(ttf));
+        });
+
+        it("whose last short offset, doubled, is the length of glyf", async function () {
+            const font = withShortLoca(ttf);
+
+            await validate(withLength(font, "glyf", lastShortOffsetBytes(font)));
+        });
+
+        it("whose loca repeats an offset, for a glyph without an outline", async function () {
+            const loca = tableOffset(ttf, "loca");
+
+            await validate(withUint32(ttf, loca + LONG_LOCA_ENTRY_SIZE_BYTES, readUint32(ttf, loca)));
         });
 
         it("whose last table ends at the end of the file", async function () {
@@ -311,6 +359,240 @@ describe("SfntFontValidator.validate", function () {
         });
     });
 
+    describe("rejects a broken head", function () {
+        it("shorter than its 54 bytes", async function () {
+            // Declared 20 bytes long, head is converted with every glyph kept.
+            for (const lengthBytes of [20, 53]) {
+                await expectBroken(
+                    withLength(ttf, "head", lengthBytes),
+                    SfntRule.HeadLength,
+                    `At table "head": length is ${lengthBytes}, expected at least 54.`,
+                );
+            }
+        });
+
+        it("of major version 2", async function () {
+            await expectBroken(
+                withField16(ttf, "head", MAJOR_VERSION_OFFSET_BYTES, 2),
+                SfntRule.HeadVersion,
+                'At table "head": majorVersion is 2, expected 1.',
+            );
+        });
+
+        it("with a wrong magic number", async function () {
+            await expectBroken(
+                withUint32(ttf, tableOffset(ttf, "head") + MAGIC_NUMBER_OFFSET_BYTES, 0x5f0f3cf4),
+                SfntRule.MagicNumber,
+                'At table "head": magicNumber is 0x5f0f3cf4, expected 0x5f0f3cf5.',
+            );
+        });
+
+        it("with unitsPerEm outside 16 to 16384", async function () {
+            for (const unitsPerEm of [0, 8, 15, 16385, 40000]) {
+                await expectBroken(
+                    withField16(ttf, "head", UNITS_PER_EM_OFFSET_BYTES, unitsPerEm),
+                    SfntRule.UnitsPerEm,
+                    `At table "head": unitsPerEm is ${unitsPerEm}, expected from 16 to 16384.`,
+                );
+            }
+        });
+
+        it("with indexToLocFormat neither 0 nor 1", async function () {
+            // indexToLocFormat 2 loses half of the glyphs in fontforge (649 of 1296).
+            await expectBroken(
+                withField16(ttf, "head", INDEX_TO_LOC_FORMAT_OFFSET_BYTES, 2),
+                SfntRule.IndexToLocFormat,
+                'At table "head": indexToLocFormat is 2, expected 0 or 1.',
+            );
+            // The field is signed.
+            await expectBroken(
+                withField16(otf, "head", INDEX_TO_LOC_FORMAT_OFFSET_BYTES, 0xffff),
+                SfntRule.IndexToLocFormat,
+                'At table "head": indexToLocFormat is -1, expected 0 or 1.',
+            );
+        });
+    });
+
+    describe("rejects a broken maxp", function () {
+        it("of version 0.5 with TrueType outlines", async function () {
+            await expectBroken(
+                withUint32(ttf, tableOffset(ttf, "maxp") + MAXP_VERSION_OFFSET_BYTES, 0x00005000),
+                SfntRule.MaxpVersion,
+                'At table "maxp": version is 0x00005000, expected 0x00010000, as the font has table "glyf".',
+            );
+        });
+
+        it("of version 1.0 with CFF outlines", async function () {
+            await expectBroken(
+                withUint32(otf, tableOffset(otf, "maxp") + MAXP_VERSION_OFFSET_BYTES, 0x00010000),
+                SfntRule.MaxpVersion,
+                'At table "maxp": version is 0x00010000, expected 0x00005000, as the font has table "CFF ".',
+            );
+        });
+
+        it("of version 0.5 with TrueType outlines under the CFF version", async function () {
+            // The rule goes by the outlines present, not by the version.
+            await expectBroken(
+                withUint32(
+                    withUint32(ttf, tableOffset(ttf, "maxp") + MAXP_VERSION_OFFSET_BYTES, 0x00005000),
+                    VERSION_OFFSET_BYTES,
+                    CFF_VERSION,
+                ),
+                SfntRule.MaxpVersion,
+                'At table "maxp": version is 0x00005000, expected 0x00010000, as the font has table "glyf".',
+            );
+        });
+
+        it("shorter than its version needs", async function () {
+            await expectBroken(
+                withLength(ttf, "maxp", 31),
+                SfntRule.MaxpVersion,
+                'At table "maxp": length is 31, expected at least 32, as the font has table "glyf".',
+            );
+            await expectBroken(
+                withLength(otf, "maxp", 5),
+                SfntRule.MaxpVersion,
+                'At table "maxp": length is 5, expected at least 6, as the font has table "CFF ".',
+            );
+        });
+
+        it("with no glyphs", async function () {
+            // numGlyphs 0 leaves 3 glyphs of 1296 in fontforge's output.
+            for (const font of [ttf, otf]) {
+                await expectBroken(
+                    withField16(font, "maxp", NUM_GLYPHS_OFFSET_BYTES, 0),
+                    SfntRule.NotdefGlyph,
+                    'At table "maxp": numGlyphs is 0, expected at least 1.',
+                );
+            }
+        });
+    });
+
+    describe("rejects a broken hhea", function () {
+        it("shorter than its 36 bytes", async function () {
+            await expectBroken(withLength(ttf, "hhea", 35), SfntRule.HheaLength, 'At table "hhea": length is 35, expected at least 36.');
+        });
+
+        it("with numberOfHMetrics 0", async function () {
+            await expectBroken(
+                withField16(ttf, "hhea", NUMBER_OF_H_METRICS_OFFSET_BYTES, 0),
+                SfntRule.NumberOfHMetrics,
+                `At table "hhea": numberOfHMetrics is 0, expected from 1 to ${TTF_NUM_GLYPHS}, maxp.numGlyphs.`,
+            );
+        });
+
+        it("with numberOfHMetrics past numGlyphs", async function () {
+            for (const numberOfHMetrics of [TTF_NUM_GLYPHS + 1, 65535]) {
+                await expectBroken(
+                    withField16(ttf, "hhea", NUMBER_OF_H_METRICS_OFFSET_BYTES, numberOfHMetrics),
+                    SfntRule.NumberOfHMetrics,
+                    `At table "hhea": numberOfHMetrics is ${numberOfHMetrics}, expected from 1 to ${TTF_NUM_GLYPHS}, maxp.numGlyphs.`,
+                );
+            }
+        });
+
+        it("for numGlyphs cut by 100", async function () {
+            // fontforge keeps 1196 of the 1296 glyphs.
+            await expectBroken(
+                withField16(ttf, "maxp", NUM_GLYPHS_OFFSET_BYTES, TTF_NUM_GLYPHS - 100),
+                SfntRule.NumberOfHMetrics,
+                `At table "hhea": numberOfHMetrics is ${TTF_NUM_GLYPHS}, expected from 1 to ${TTF_NUM_GLYPHS - 100}, maxp.numGlyphs.`,
+            );
+        });
+    });
+
+    describe("rejects a broken hmtx", function () {
+        it("declared half its size", async function () {
+            await expectBroken(
+                withLength(otf, "hmtx", 2590),
+                SfntRule.HmtxLength,
+                `At table "hmtx": length is 2590, expected at least 5180 for hMetrics[${OTF_NUM_GLYPHS}] and leftSideBearings[0].`,
+            );
+        });
+
+        it("one byte short of its left side bearings", async function () {
+            // One record and 1295 left side bearings take 4 + 2 × 1295 = 2594 bytes.
+            const font = withField16(ttf, "hhea", NUMBER_OF_H_METRICS_OFFSET_BYTES, 1);
+
+            await expectBroken(
+                withLength(font, "hmtx", 2593),
+                SfntRule.HmtxLength,
+                'At table "hmtx": length is 2593, expected at least 2594 for hMetrics[1] and leftSideBearings[1295].',
+            );
+        });
+
+        it("for numGlyphs grown by 100", async function () {
+            await expectBroken(
+                withField16(ttf, "maxp", NUM_GLYPHS_OFFSET_BYTES, TTF_NUM_GLYPHS + 100),
+                SfntRule.HmtxLength,
+                `At table "hmtx": length is 5184, expected at least 5384 for hMetrics[${TTF_NUM_GLYPHS}] and leftSideBearings[100].`,
+            );
+        });
+    });
+
+    describe("rejects a broken loca", function () {
+        it("shorter than numGlyphs + 1 long offsets", async function () {
+            await expectBroken(
+                withLength(ttf, "loca", 5187),
+                SfntRule.LocaLength,
+                'At table "loca": length is 5187, expected at least 5188 for offsets[1297] of 4 bytes.',
+            );
+        });
+
+        it("shorter than numGlyphs + 1 short offsets", async function () {
+            await expectBroken(
+                withLength(withShortLoca(ttf), "loca", 2001),
+                SfntRule.LocaLength,
+                'At table "loca": length is 2001, expected at least 2002 for offsets[1001] of 2 bytes.',
+            );
+        });
+
+        it("descending at one glyph", async function () {
+            // fontforge drops the glyph: 1295 of 1296 are kept.
+            const loca = tableOffset(ttf, "loca");
+            const descending = readUint32(ttf, loca + 4 * LONG_LOCA_ENTRY_SIZE_BYTES) - 1;
+
+            await expectBroken(
+                withUint32(ttf, loca + 5 * LONG_LOCA_ENTRY_SIZE_BYTES, descending),
+                SfntRule.LocaAscending,
+                `At table "loca": loca[5] in bytes is ${descending}, expected at least ${descending + 1}, loca[4].`,
+            );
+        });
+
+        it("of long offsets read as short ones", async function () {
+            // The long offsets open with 0, 84, 84, 84, 168. Read 2 bytes wide and doubled, the low half
+            // of the second gives loca[3] = 168, and the high half of the third loca[4] = 0.
+            await expectBroken(
+                withField16(ttf, "head", INDEX_TO_LOC_FORMAT_OFFSET_BYTES, 0),
+                SfntRule.LocaAscending,
+                'At table "loca": loca[4] in bytes is 0, expected at least 168, loca[3].',
+            );
+        });
+
+        it("whose last offset runs past glyf", async function () {
+            await expectBroken(
+                withLength(ttf, "glyf", TTF_GLYF_LENGTH_BYTES - 1),
+                SfntRule.LocaInGlyf,
+                `At table "loca": loca[${TTF_NUM_GLYPHS}] in bytes is ${TTF_GLYF_LENGTH_BYTES}, expected at most ${
+                    TTF_GLYF_LENGTH_BYTES - 1
+                }, the length of table "glyf".`,
+            );
+        });
+
+        it("whose last short offset, doubled, runs past glyf", async function () {
+            const font = withShortLoca(ttf);
+            const lastOffsetBytes = lastShortOffsetBytes(font);
+
+            await expectBroken(
+                withLength(font, "glyf", lastOffsetBytes - 1),
+                SfntRule.LocaInGlyf,
+                `At table "loca": loca[${SHORT_LOCA_NUM_GLYPHS}] in bytes is ${lastOffsetBytes}, expected at most ${
+                    lastOffsetBytes - 1
+                }, the length of table "glyf".`,
+            );
+        });
+    });
+
     it("throws ReadFailed, not an answer, on a file that cannot be read", async function () {
         await expectRejection(() => validator.validate(path.join(workDir, `missing.${Extension.TTF}`)), ReadFailed);
     });
@@ -430,6 +712,45 @@ function recordOf(font: Uint8Array, tag: string): number {
 
 function tableOffset(font: Uint8Array, tag: string): number {
     return readUint32(font, recordOf(font, tag) + TABLE_OFFSET_OFFSET_BYTES);
+}
+
+/**
+ * The font with its directory record of `tag` declaring `lengthBytes`: the table stays where it was.
+ */
+function withLength(font: Uint8Array, tag: string, lengthBytes: number): Uint8Array {
+    return withUint32(font, recordOf(font, tag) + LENGTH_OFFSET_BYTES, lengthBytes);
+}
+
+function withField16(font: Uint8Array, tag: string, fieldOffsetBytes: number, value: number): Uint8Array {
+    return withUint16(font, tableOffset(font, tag) + fieldOffsetBytes, value);
+}
+
+/**
+ * The TrueType fixture cut to its first `SHORT_LOCA_NUM_GLYPHS` glyphs, with short loca offsets: each
+ * long offset halved and written 2 bytes wide over the start of loca. The table keeps its length,
+ * longer than the short offsets need, and every glyph its hmtx record.
+ */
+function withShortLoca(font: Uint8Array): Uint8Array {
+    const loca = tableOffset(font, "loca");
+    const shortFormat = withField16(font, "head", INDEX_TO_LOC_FORMAT_OFFSET_BYTES, 0);
+    const fewerGlyphs = withField16(shortFormat, "maxp", NUM_GLYPHS_OFFSET_BYTES, SHORT_LOCA_NUM_GLYPHS);
+    const shortLocaFont = withField16(fewerGlyphs, "hhea", NUMBER_OF_H_METRICS_OFFSET_BYTES, SHORT_LOCA_NUM_GLYPHS);
+    const view = new DataView(shortLocaFont.buffer);
+
+    for (let index = 0; index <= SHORT_LOCA_NUM_GLYPHS; index++) {
+        const longOffsetBytes = readUint32(font, loca + index * LONG_LOCA_ENTRY_SIZE_BYTES);
+
+        view.setUint16(loca + index * SHORT_LOCA_ENTRY_SIZE_BYTES, longOffsetBytes / SHORT_LOCA_OFFSET_FACTOR);
+    }
+
+    return shortLocaFont;
+}
+
+/**
+ * The end of the last glyph of `withShortLoca`, in bytes: its last short offset doubled.
+ */
+function lastShortOffsetBytes(font: Uint8Array): number {
+    return SHORT_LOCA_OFFSET_FACTOR * readUint16(font, tableOffset(font, "loca") + SHORT_LOCA_NUM_GLYPHS * SHORT_LOCA_ENTRY_SIZE_BYTES);
 }
 
 function readUint16(bytes: Uint8Array, offsetBytes: number): number {
