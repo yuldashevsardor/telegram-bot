@@ -2,8 +2,10 @@ import { RuntimeError } from "app/shared/errors";
 import type { Violation } from "app/font-convertor/validator/woff/woff-font-validator.types";
 
 /**
- * The file is not a valid WOFF font. `WoffFontValidator` answers with one of the subclasses, and a
- * caller tells them apart by `instanceof`. The payload of each names the file in `path`.
+ * The file is not a valid WOFF container. `WoffFontValidator` answers about the container with one
+ * of the subclasses, and a caller tells them apart by `instanceof`. The payload of each names the
+ * file in `path`. About the sfnt a valid container carries it answers with a subclass of
+ * `InvalidSfntFont` instead, which names the WOFF file too.
  */
 export class InvalidWoffFont extends RuntimeError {}
 

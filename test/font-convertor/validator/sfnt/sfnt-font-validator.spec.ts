@@ -100,7 +100,7 @@ const NAME_RECORDS_END_BYTES = 150;
 // The most language-tag records a version 1 name of the fixture holds: (444 − 150 − 2) / 4 = 73.
 const NAME_LANG_TAGS_FITTING = (NAME_LENGTH_BYTES - NAME_RECORDS_END_BYTES - LANG_TAG_COUNT_SIZE_BYTES) / LANG_TAG_RECORD_SIZE_BYTES;
 
-describe("SfntFontValidator.validate", function () {
+describe("SfntFontValidator", function () {
     let workDir: string;
     // The file every variant is written to: each answer names it in its payload.
     let fontPath: string;
@@ -830,6 +830,20 @@ describe("SfntFontValidator.validate", function () {
 
     it("throws ReadFailed, not an answer, on a file that cannot be read", async function () {
         await expectRejection(() => validator.validate(path.join(workDir, `missing.${Extension.TTF}`)), ReadFailed);
+    });
+
+    // The sfnt a WOFF carries is rebuilt in memory: nothing lies at the path validateBytes is given.
+    describe("validateBytes", function () {
+        it("accepts a TTF and an OTF given as bytes, with no file at the path", function () {
+            validator.validateBytes(fontPath, ttf);
+            validator.validateBytes(fontPath, otf);
+        });
+
+        it("names the given path in its answer on bytes, without reading a file", async function () {
+            const error = await expectRejection(async () => validator.validateBytes(fontPath, withoutTable(otf, "cmap")), BrokenSfnt);
+
+            expect(error.payload).to.include({ path: fontPath, rule: SfntRule.RequiredTable });
+        });
     });
 
     async function validate(content: Uint8Array): Promise<void> {

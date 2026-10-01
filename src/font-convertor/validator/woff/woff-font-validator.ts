@@ -1,12 +1,23 @@
-import { injectable } from "inversify";
+import { inject, injectable } from "inversify";
 import { promisify } from "util";
 import { inflate as inflateOrigin } from "zlib";
+import { SfntTableDirectory } from "app/font-convertor/sfnt-table-directory/sfnt-table-directory";
 import { SFNT_VERSIONS } from "app/font-convertor/sfnt-version";
+import type { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
 import { BrokenWoff, NotWoff } from "app/font-convertor/validator/woff/woff-font-validator.errors";
-import type { Block, ExpectedEnd, GapEnd, TableEntry, Woff, WoffHeader } from "app/font-convertor/validator/woff/woff-font-validator.types";
+import type {
+    Block,
+    ExpectedEnd,
+    GapEnd,
+    InflatedTable,
+    TableEntry,
+    Woff,
+    WoffHeader,
+} from "app/font-convertor/validator/woff/woff-font-validator.types";
 import { BlockKind, WoffRule } from "app/font-convertor/validator/woff/woff-font-validator.types";
 import type { FontValidator } from "app/font-convertor/validator/font-validator";
 import { FileHelper } from "app/shared/fs/file-helper";
+import { Tokens } from "app/shared/tokens";
 
 const inflate = promisify(inflateOrigin);
 
@@ -23,8 +34,9 @@ type Inflated = {
 /**
  * Checks the WOFF container against W3C Recommendation "WOFF File Format 1.0" (13 December 2012):
  * the header, the table directory, the tables and the bounds of the metadata and private blocks.
- * The standard checks the packaging only (§3), and so does this validator: the enclosed sfnt is not
- * checked here.
+ * The standard checks the packaging only: it "does not guarantee that the actual font data packaged
+ * in a valid WOFF container is in fact correct and usable" (§3). So the sfnt the tables were packed
+ * from is rebuilt in memory and checked by `SfntFontValidator`, whose answer passes through as is.
  *
  * Deliberately not checked:
  * - `head.checkSumAdjustment` of the sfnt rebuilt from the tables (§5, W3C test
@@ -34,8 +46,8 @@ type Inflated = {
  * - The content of the metadata block: zlib, `metaOrigLength`, XML, the schema. §7: "A conforming
  *   user agent MUST ignore an invalid metadata block". Only its bounds are checked, and it is never
  *   inflated.
- * - The flavor against the outline tables (W3C tests header-flavor-001/002): it is a rule of the
- *   enclosed sfnt.
+ * - The flavor against the outline tables (W3C tests header-flavor-001/002). The flavor is the
+ *   version of the rebuilt sfnt, and `SfntFontValidator` does not tie the version to the outlines.
  */
 @injectable()
 export class WoffFontValidator implements FontValidator {
@@ -59,8 +71,6 @@ export class WoffFontValidator implements FontValidator {
     };
     // The offsets of the fields in a table directory entry (§5), after the tag that opens it.
     private static readonly ENTRY_FIELD_OFFSETS = { offset: 4, compLength: 8, origLength: 12, origChecksum: 16 };
-    private static readonly SFNT_HEADER_SIZE_BYTES = 12;
-    private static readonly SFNT_TABLE_RECORD_SIZE_BYTES = 16;
     // Tables are aligned and padded to it (§5), and the private block is aligned (§8).
     private static readonly ALIGNMENT_BYTES = 4;
     // The blocks that start on that boundary, with the rule each breaks off it.
@@ -78,13 +88,17 @@ export class WoffFontValidator implements FontValidator {
     // inflating; fontforge ignores such a table.
     private static readonly MAX_SFNT_SIZE_BYTES = 32 * 1024 * 1024;
 
+    public constructor(@inject<SfntFontValidator>(Tokens.Font.Validator.Sfnt) private readonly sfntFontValidator: SfntFontValidator) {}
+
     /**
-     * Throws when the file is not a valid WOFF container. The answers are subclasses of
-     * `InvalidWoffFont`: `NotWoff` for a file shorter than the header or without the signature,
-     * `BrokenWoff` for the first broken rule, checked in this order: the header, the table
-     * directory, the fields of absent blocks, the layout of the blocks, then the tables one by one
-     * in directory order. A file that cannot be read throws `ReadFailed` of `FileHelper` instead: an
-     * I/O failure, not a verdict on the font.
+     * Throws when the file is not a valid WOFF font. The answers about the container are
+     * subclasses of `InvalidWoffFont`: `NotWoff` for a file shorter than the header or without the
+     * signature, `BrokenWoff` for the first broken rule, checked in this order: the header, the
+     * table directory, the fields of absent blocks, the layout of the blocks, then the tables one by
+     * one in directory order. A valid container gets the answer of `SfntFontValidator` on the sfnt
+     * rebuilt from its tables, a subclass of `InvalidSfntFont` naming the WOFF file. A file that
+     * cannot be read throws `ReadFailed` of `FileHelper` instead: an I/O failure, not a verdict on
+     * the font.
      */
     public async validate(fontPath: string): Promise<void> {
         const bytes = await FileHelper.read(fontPath);
@@ -110,9 +124,13 @@ export class WoffFontValidator implements FontValidator {
         this.checkBlockAbsence(woff);
         this.checkLayout(woff);
 
+        const tables: Array<InflatedTable> = [];
+
         for (const entry of woff.entries) {
-            await this.checkTable(woff, entry);
+            tables.push({ entry: entry, bytes: await this.checkedTable(woff, entry) });
         }
+
+        this.sfntFontValidator.validateBytes(fontPath, this.sfnt(woff, tables));
     }
 
     private readHeader(view: DataView): WoffHeader {
@@ -215,7 +233,7 @@ export class WoffFontValidator implements FontValidator {
      * cap after that, so the cap stands on a field the directory has confirmed.
      */
     private checkDirectory({ path, header, entries }: Woff): void {
-        let sfntSizeBytes = WoffFontValidator.SFNT_HEADER_SIZE_BYTES + WoffFontValidator.SFNT_TABLE_RECORD_SIZE_BYTES * header.numTables;
+        let sfntSizeBytes = SfntTableDirectory.HEADER_SIZE_BYTES + SfntTableDirectory.RECORD_SIZE_BYTES * header.numTables;
         let previous: TableEntry | undefined;
 
         for (const entry of entries) {
@@ -454,7 +472,10 @@ export class WoffFontValidator implements FontValidator {
         return block.offset + block.length;
     }
 
-    private async checkTable(woff: Woff, entry: TableEntry): Promise<void> {
+    /**
+     * The uncompressed table, once its checksum matches.
+     */
+    private async checkedTable(woff: Woff, entry: TableEntry): Promise<Uint8Array> {
         const table = await this.uncompressed(woff, entry);
         const checksum = this.checksum(entry.tag, table);
 
@@ -467,6 +488,53 @@ export class WoffFontValidator implements FontValidator {
                 expected: this.hex(checksum),
             });
         }
+
+        return table;
+    }
+
+    /**
+     * The sfnt the tables were packed from, as §5 and §6 rebuild it: the flavor as the version, the
+     * directory in tag order, which the WOFF directory already is, each record with origChecksum
+     * and origLength, and the tables in the order of their WOFF offsets, each padded to 4 bytes
+     * with zeros. totalSfntSize is its size: rule 6 has confirmed it against the directory.
+     */
+    private sfnt({ header }: Woff, tables: ReadonlyArray<InflatedTable>): Uint8Array {
+        const rebuiltSfnt = new Uint8Array(header.totalSfntSize);
+        const view = new DataView(rebuiltSfnt.buffer);
+        const headerFields = SfntTableDirectory.HEADER_FIELD_OFFSETS_BYTES;
+        const recordSizeBytes = SfntTableDirectory.RECORD_SIZE_BYTES;
+        const numTables = tables.length;
+        // entrySelector is the exponent of the largest power of 2 not greater than numTables, and
+        // searchRange is that power of 2 times the record size, in bytes. From 4096 tables on it does
+        // not fit its 16 bits and setUint16 wraps it: OpenType gives no value for that case, and
+        // SfntFontValidator does not read the field.
+        const entrySelector = Math.floor(Math.log2(numTables));
+        const searchRangeBytes = 2 ** entrySelector * recordSizeBytes;
+
+        view.setUint32(headerFields.version, header.flavor);
+        view.setUint16(headerFields.numTables, numTables);
+        view.setUint16(headerFields.searchRange, searchRangeBytes);
+        view.setUint16(headerFields.entrySelector, entrySelector);
+        view.setUint16(headerFields.rangeShift, numTables * recordSizeBytes - searchRangeBytes);
+
+        const recordFields = SfntTableDirectory.RECORD_FIELD_OFFSETS_BYTES;
+        const withRecordOffsets = tables.map((inflated, index) => ({
+            ...inflated,
+            recordOffsetBytes: SfntTableDirectory.HEADER_SIZE_BYTES + index * recordSizeBytes,
+        }));
+        const inStorageOrder = withRecordOffsets.toSorted((left, right) => left.entry.offset - right.entry.offset);
+        let tableOffsetBytes = SfntTableDirectory.HEADER_SIZE_BYTES + numTables * recordSizeBytes;
+
+        for (const { entry, bytes, recordOffsetBytes } of inStorageOrder) {
+            rebuiltSfnt.set(Buffer.from(entry.tag, "latin1"), recordOffsetBytes);
+            view.setUint32(recordOffsetBytes + recordFields.checksum, entry.origChecksum);
+            view.setUint32(recordOffsetBytes + recordFields.offset, tableOffsetBytes);
+            view.setUint32(recordOffsetBytes + recordFields.length, entry.origLength);
+            rebuiltSfnt.set(bytes, tableOffsetBytes);
+            tableOffsetBytes += this.padded(entry.origLength, WoffFontValidator.ALIGNMENT_BYTES);
+        }
+
+        return rebuiltSfnt;
     }
 
     /**

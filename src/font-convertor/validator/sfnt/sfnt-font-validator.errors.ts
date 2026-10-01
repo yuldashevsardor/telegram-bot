@@ -2,8 +2,9 @@ import { RuntimeError } from "app/shared/errors";
 import type { Violation } from "app/font-convertor/validator/sfnt/sfnt-font-validator.types";
 
 /**
- * The file is not a valid TTF or OTF font. `SfntFontValidator` answers with one of the subclasses,
- * and a caller tells them apart by `instanceof`. The payload of each names the file in `path`.
+ * The file is not a valid TTF or OTF font, or the sfnt a WOFF file carries is not. `SfntFontValidator`
+ * answers with one of the subclasses, and a caller tells them apart by `instanceof`. The payload of
+ * each names the file in `path`: the TTF or OTF file, or the WOFF file.
  */
 export class InvalidSfntFont extends RuntimeError {}
 

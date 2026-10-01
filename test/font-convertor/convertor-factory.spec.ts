@@ -13,7 +13,12 @@ import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 
 const convertorFactory = new ConvertorFactory(
     {} as FontForge,
-    new FontValidatorResolver(new FontSignatureMatcher(), new SvgFontValidator(), new WoffFontValidator(), new SfntFontValidator()),
+    new FontValidatorResolver(
+        new FontSignatureMatcher(),
+        new SvgFontValidator(),
+        new WoffFontValidator(new SfntFontValidator()),
+        new SfntFontValidator(),
+    ),
     new EotPacker(),
 );
 

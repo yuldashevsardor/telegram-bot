@@ -14,15 +14,15 @@ import type { FontValidator } from "app/font-convertor/validator/font-validator"
 import { FileHelper } from "app/shared/fs/file-helper";
 
 /**
- * Checks a TTF or OTF font against the Microsoft OpenType specification 1.9.1, and against Apple's
- * TrueType Reference Manual for what it governs: the table directory, the tables a font must have,
- * the fields of `head`, `maxp`, `hhea`, `hmtx` and `loca` that give the glyph count, where the
- * metrics of each glyph lie and, with TrueType outlines, where its outline lies, and the version of
- * `cmap`, `name`, `OS/2` and `post` with whether the headers and records of `cmap` and `name`, the
- * fields of the `OS/2` version and the 32-byte header of `post` fit into the table. Both extensions
- * take the same checks: the sfnt version names the outline type, not the extension, and the rules
- * that depend on the outline type go by the outline tables present, not by the version, which the
- * specification only says "should" match them.
+ * Checks a TTF or OTF font, or the sfnt a WOFF carries, against the Microsoft OpenType
+ * specification 1.9.1, and against Apple's TrueType Reference Manual for what it governs: the table
+ * directory, the tables a font must have, the fields of `head`, `maxp`, `hhea`, `hmtx` and `loca`
+ * that give the glyph count, where the metrics of each glyph lie and, with TrueType outlines, where
+ * its outline lies, and the version of `cmap`, `name`, `OS/2` and `post` with whether the headers
+ * and records of `cmap` and `name`, the fields of the `OS/2` version and the 32-byte header of
+ * `post` fit into the table. TTF and OTF take the same checks: the sfnt version names the outline
+ * type, not the extension, and the rules that depend on the outline type go by the outline tables
+ * present, not by the version, which the specification only says "should" match them.
  *
  * Deliberately not checked:
  * - The table checksums and `head.checkSumAdjustment`. fontforge does not read them: its output
@@ -33,8 +33,6 @@ import { FileHelper } from "app/shared/fs/file-helper";
  */
 @injectable()
 export class SfntFontValidator implements FontValidator {
-    private static readonly VERSION_OFFSET_BYTES = 0;
-    private static readonly NUM_TABLES_OFFSET_BYTES = 4;
     private static readonly COLLECTION_VERSION = 0x74746366;
     private static readonly GLYF_TAG = "glyf";
     private static readonly LOCA_TAG = "loca";
@@ -113,17 +111,26 @@ export class SfntFontValidator implements FontValidator {
     private static readonly POST_VERSIONS = [0x00010000, 0x00020000, 0x00025000, 0x00030000];
 
     /**
-     * Throws when the file is not a valid sfnt font. The answers are subclasses of
-     * `InvalidSfntFont`: `NotSfnt` for a file shorter than the header or of an unknown version,
-     * `BrokenSfnt` for the first broken rule, checked in this order: the header, the table records
-     * one by one in directory order, the tables the font has, then the content of `head`, `maxp`,
-     * `hhea`, `hmtx`, with TrueType outlines `loca`, then of `cmap`, `name`, `OS/2` when the font
-     * has it, and `post`. A file that cannot be read throws `ReadFailed` of `FileHelper` instead: an
-     * I/O failure, not a verdict on the font.
+     * Throws when the file is not a valid sfnt font, with the answers of `validateBytes()`. A file
+     * that cannot be read throws `ReadFailed` of `FileHelper` instead: an I/O failure, not a verdict
+     * on the font.
      */
     public async validate(fontPath: string): Promise<void> {
         const bytes = await FileHelper.read(fontPath);
 
+        this.validateBytes(fontPath, bytes);
+    }
+
+    /**
+     * Throws when `bytes` are not a valid sfnt font. It takes bytes for the sfnt a WOFF carries,
+     * which `WoffFontValidator` rebuilds in memory, and `fontPath` is the file every answer names.
+     * The answers are subclasses of `InvalidSfntFont`: `NotSfnt` for bytes shorter than the header
+     * or of an unknown version, `BrokenSfnt` for the first broken rule, checked in this order: the
+     * header, the table records one by one in directory order, the tables the font has, then the
+     * content of `head`, `maxp`, `hhea`, `hmtx`, with TrueType outlines `loca`, then of `cmap`,
+     * `name`, `OS/2` when the font has it, and `post`.
+     */
+    public validateBytes(fontPath: string, bytes: Uint8Array): void {
         this.checkHeader(fontPath, bytes);
 
         const directory = new SfntTableDirectory(bytes);
@@ -150,7 +157,7 @@ export class SfntFontValidator implements FontValidator {
         }
 
         const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-        const version = view.getUint32(SfntFontValidator.VERSION_OFFSET_BYTES);
+        const version = view.getUint32(SfntTableDirectory.HEADER_FIELD_OFFSETS_BYTES.version);
         const at = "the header";
 
         if (version === SfntFontValidator.COLLECTION_VERSION) {
@@ -167,7 +174,7 @@ export class SfntFontValidator implements FontValidator {
             throw NotSfnt.byVersion(fontPath, this.hex(version), this.versionsExpected());
         }
 
-        const numTables = view.getUint16(SfntFontValidator.NUM_TABLES_OFFSET_BYTES);
+        const numTables = view.getUint16(SfntTableDirectory.HEADER_FIELD_OFFSETS_BYTES.numTables);
 
         if (numTables === 0) {
             throw BrokenSfnt.byRule(fontPath, {
