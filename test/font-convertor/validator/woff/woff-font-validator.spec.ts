@@ -690,6 +690,19 @@ describe("WoffFontValidator.validate", function () {
             );
         });
 
+        it("rejects a font by the content of its tables, not only by which tables it has", async function () {
+            // fontforge converts a WOFF with maxp.numGlyphs 0 with exit 0 (issue #687).
+            const noGlyphs = withStoredTable(fixtureLayout, "maxp", (table) => {
+                const maxp = Uint8Array.from(uncompressed(table));
+
+                new DataView(maxp.buffer).setUint16(4, 0);
+
+                return compressed("maxp", maxp, checksum(maxp));
+            });
+
+            await expectBrokenSfnt(build(noGlyphs), SfntRule.NotdefGlyph, 'At table "maxp": numGlyphs is 0, expected at least 1.');
+        });
+
         it("rejects a font with CFF2 outlines", async function () {
             // The rule two of the 5405 real fonts were rejected by: the variable Source Sans 3.6.0.
             const withCff2 = { ...fixtureLayout, tables: [...fixtureLayout.tables, compressed("CFF2", new Uint8Array(4), 0)] };
@@ -954,6 +967,25 @@ function withEditedTable(layout: Layout, tag: string, edit: (table: Uint8Array) 
 
         return compressed(tag, bytes, table.origChecksum);
     });
+}
+
+/**
+ * The sfnt checksum of a table other than head: the sum of its big-endian 32-bit words, padded with
+ * zeros, modulo 2^32.
+ */
+function checksum(table: Uint8Array): number {
+    const padded = new Uint8Array(Math.ceil(table.length / 4) * 4);
+
+    padded.set(table);
+
+    const view = new DataView(padded.buffer);
+    let sum = 0;
+
+    for (let offset = 0; offset < padded.length; offset += 4) {
+        sum = (sum + view.getUint32(offset)) >>> 0;
+    }
+
+    return sum;
 }
 
 /**
