@@ -41,6 +41,24 @@ const SHORT_LOCA_ENTRY_SIZE_BYTES = 2;
 const LONG_LOCA_ENTRY_SIZE_BYTES = 4;
 // The short format stores the offset divided by 2.
 const SHORT_LOCA_OFFSET_FACTOR = 2;
+// cmap, name, OS/2 and post open with their version (OpenType 1.9.1, cmap, name, OS/2, post).
+const TABLE_VERSION_OFFSET_BYTES = 0;
+const CMAP_NUM_TABLES_OFFSET_BYTES = 2;
+const CMAP_HEADER_SIZE_BYTES = 4;
+const ENCODING_RECORD_SIZE_BYTES = 8;
+const SUBTABLE_OFFSET_IN_RECORD_BYTES = 4;
+const NAME_COUNT_OFFSET_BYTES = 2;
+// The length the fields of each OS/2 version take, by version. A version 0 table of 68 bytes is a
+// legacy one, without its last five fields.
+const OS2_LENGTHS_BYTES = new Map([
+    [0, 68],
+    [1, 86],
+    [2, 96],
+    [3, 96],
+    [4, 96],
+    [5, 100],
+]);
+const POST_VERSIONS_EXPECTED = "expected one of 0x00010000, 0x00020000, 0x00025000, 0x00030000.";
 
 const TRUETYPE_VERSION = 0x00010000;
 const CFF_VERSION = 0x4f54544f;
@@ -53,15 +71,23 @@ const OUTLINES_EXPECTED = 'expected "glyf" with "loca", or "CFF ".';
 const TTF_SIZE_BYTES = 158856;
 const TTF_NUM_TABLES = 13;
 // Both fixtures give every glyph a 4-byte hmtx record. The TrueType one has long loca offsets, and
-// its last offset is the length of glyf. Every table a length rule covers is exactly as long as its
-// fields need: head 54, hhea 36, maxp 32 and 6, the hmtx and loca of the TrueType fixture. Accepting
-// the fixtures holds each length rule at its boundary.
+// its last offset is the length of glyf. Every table a length rule of head, hhea, maxp, hmtx and
+// loca covers is exactly as long as its fields need: head 54, hhea 36, maxp 32 and 6, the hmtx and
+// loca of the TrueType fixture. Accepting the fixtures holds each of those length rules at its
+// boundary. So do OS/2, version 1 of 86 bytes in the TrueType fixture and version 3 of 96 in the CFF
+// one, and post, version 3 of 32 bytes in the CFF fixture.
 const TTF_NUM_GLYPHS = 1296;
 const OTF_NUM_GLYPHS = 1295;
 const TTF_GLYF_LENGTH_BYTES = 133424;
 // Its glyphs up to this one end below 131 070, the largest offset the short loca format holds.
 const SHORT_LOCA_NUM_GLYPHS = 1000;
 const REQUIRED_TAGS = ["cmap", "head", "hhea", "hmtx", "maxp", "name", "post"];
+// Both fixtures: cmap is 1182 bytes long with 3 encoding records, name 444 bytes with 12 name records,
+// which end at byte 150 of the table.
+const CMAP_LENGTH_BYTES = 1182;
+const CMAP_NUM_TABLES = 3;
+const NAME_LENGTH_BYTES = 444;
+const NAME_RECORDS_END_BYTES = 150;
 
 describe("SfntFontValidator.validate", function () {
     let workDir: string;
@@ -163,6 +189,32 @@ describe("SfntFontValidator.validate", function () {
             const loca = tableOffset(ttf, "loca");
 
             await validate(withUint32(ttf, loca + LONG_LOCA_ENTRY_SIZE_BYTES, readUint32(ttf, loca)));
+        });
+
+        it("whose cmap subtable starts at the last byte of cmap", async function () {
+            await validate(withSubtableOffset(ttf, 0, CMAP_LENGTH_BYTES - 1));
+        });
+
+        it("whose name ends with its name records", async function () {
+            // The strings are not read.
+            await validate(withLength(ttf, "name", NAME_RECORDS_END_BYTES));
+        });
+
+        it("with a version 1 name whose language-tag records end the table", async function () {
+            // 150 bytes of the header and the name records, 2 of langTagCount, 4 × 73 of the records.
+            await validate(withNameVersion1(ttf, 73));
+        });
+
+        it("with OS/2 of every version at the length of its fields", async function () {
+            for (const [version, lengthBytes] of OS2_LENGTHS_BYTES) {
+                await validate(withLength(withField16(otf, "OS/2", TABLE_VERSION_OFFSET_BYTES, version), "OS/2", lengthBytes));
+            }
+        });
+
+        it("with post of every version", async function () {
+            for (const version of [0x00010000, 0x00020000, 0x00025000, 0x00030000]) {
+                await validate(withUint32(otf, tableOffset(otf, "post") + TABLE_VERSION_OFFSET_BYTES, version));
+            }
         });
 
         it("whose last table ends at the end of the file", async function () {
@@ -593,6 +645,179 @@ describe("SfntFontValidator.validate", function () {
         });
     });
 
+    describe("rejects a broken cmap", function () {
+        it("shorter than its header", async function () {
+            await expectBroken(
+                withLength(ttf, "cmap", CMAP_HEADER_SIZE_BYTES - 1),
+                SfntRule.CmapRecordsInTable,
+                'At table "cmap": length is 3, expected at least 4 for the header.',
+            );
+        });
+
+        it("of version 1", async function () {
+            await expectBroken(
+                withField16(ttf, "cmap", TABLE_VERSION_OFFSET_BYTES, 1),
+                SfntRule.CmapVersion,
+                'At table "cmap": version is 1, expected 0.',
+            );
+        });
+
+        it("with no subtables", async function () {
+            // fontforge says "Could not find any valid encoding tables" and drops the encoding.
+            await expectBroken(
+                withField16(otf, "cmap", CMAP_NUM_TABLES_OFFSET_BYTES, 0),
+                SfntRule.CmapSubtables,
+                'At table "cmap": numTables is 0, expected at least 1.',
+            );
+        });
+
+        it("one byte short of its encoding records", async function () {
+            const recordsEndBytes = CMAP_HEADER_SIZE_BYTES + CMAP_NUM_TABLES * ENCODING_RECORD_SIZE_BYTES;
+
+            await expectBroken(
+                withLength(ttf, "cmap", recordsEndBytes - 1),
+                SfntRule.CmapRecordsInTable,
+                'At table "cmap": length is 27, expected at least 28 for the header and encodingRecords[3].',
+            );
+        });
+
+        it("whose numTables runs past it", async function () {
+            await expectBroken(
+                withField16(ttf, "cmap", CMAP_NUM_TABLES_OFFSET_BYTES, 148),
+                SfntRule.CmapRecordsInTable,
+                'At table "cmap": length is 1182, expected at least 1188 for the header and encodingRecords[148].',
+            );
+        });
+
+        it("whose subtable starts at or past its end", async function () {
+            for (const subtableOffset of [CMAP_LENGTH_BYTES, 0xffffffff]) {
+                await expectBroken(
+                    withSubtableOffset(ttf, 1, subtableOffset),
+                    SfntRule.CmapSubtableInTable,
+                    `At table "cmap": encodingRecords[1].subtableOffset is ${subtableOffset}, expected less than 1182, the length of table "cmap".`,
+                );
+            }
+        });
+
+        it("cut to its encoding records, its subtables left out", async function () {
+            await expectBroken(
+                withLength(otf, "cmap", 28),
+                SfntRule.CmapSubtableInTable,
+                'At table "cmap": encodingRecords[0].subtableOffset is 28, expected less than 28, the length of table "cmap".',
+            );
+        });
+    });
+
+    describe("rejects a broken name", function () {
+        it("shorter than its header", async function () {
+            await expectBroken(
+                withLength(ttf, "name", 5),
+                SfntRule.NameRecordsInTable,
+                'At table "name": length is 5, expected at least 6 for the header.',
+            );
+        });
+
+        it("of version 2", async function () {
+            await expectBroken(
+                withField16(ttf, "name", TABLE_VERSION_OFFSET_BYTES, 2),
+                SfntRule.NameVersion,
+                'At table "name": version is 2, expected 0 or 1.',
+            );
+        });
+
+        it("one byte short of its name records", async function () {
+            await expectBroken(
+                withLength(otf, "name", NAME_RECORDS_END_BYTES - 1),
+                SfntRule.NameRecordsInTable,
+                'At table "name": length is 149, expected at least 150 for the header and nameRecord[12].',
+            );
+        });
+
+        it("with a record count of 60000", async function () {
+            // fontforge says "Invalid mac encoding 65535".
+            await expectBroken(
+                withField16(ttf, "name", NAME_COUNT_OFFSET_BYTES, 60000),
+                SfntRule.NameRecordsInTable,
+                'At table "name": length is 444, expected at least 720006 for the header and nameRecord[60000].',
+            );
+        });
+
+        it("of version 1 with no room for langTagCount", async function () {
+            await expectBroken(
+                withLength(withNameVersion1(ttf, 0), "name", NAME_RECORDS_END_BYTES + 1),
+                SfntRule.NameRecordsInTable,
+                'At table "name": length is 151, expected at least 152 for the header, nameRecord[12] and langTagCount.',
+            );
+        });
+
+        it("of version 1 whose language-tag records run past it", async function () {
+            await expectBroken(
+                withNameVersion1(ttf, 74),
+                SfntRule.NameRecordsInTable,
+                `At table "name": length is ${NAME_LENGTH_BYTES}, expected at least 448 for the header, nameRecord[12], langTagCount and langTagRecord[74].`,
+            );
+        });
+    });
+
+    describe("rejects a broken OS/2", function () {
+        it("shorter than its version", async function () {
+            await expectBroken(
+                withLength(ttf, "OS/2", 1),
+                SfntRule.Os2Length,
+                'At table "OS/2": length is 1, expected at least 2 for the version.',
+            );
+        });
+
+        it("of a version past 5", async function () {
+            for (const version of [6, 9]) {
+                await expectBroken(
+                    withField16(ttf, "OS/2", TABLE_VERSION_OFFSET_BYTES, version),
+                    SfntRule.Os2Version,
+                    `At table "OS/2": version is ${version}, expected from 0 to 5.`,
+                );
+            }
+        });
+
+        it("declared 10 bytes long", async function () {
+            await expectBroken(
+                withLength(ttf, "OS/2", 10),
+                SfntRule.Os2Length,
+                'At table "OS/2": length is 10, expected at least 86 for version 1.',
+            );
+        });
+
+        it("one byte short of the fields of its version", async function () {
+            for (const [version, lengthBytes] of OS2_LENGTHS_BYTES) {
+                await expectBroken(
+                    withLength(withField16(otf, "OS/2", TABLE_VERSION_OFFSET_BYTES, version), "OS/2", lengthBytes - 1),
+                    SfntRule.Os2Length,
+                    `At table "OS/2": length is ${lengthBytes - 1}, expected at least ${lengthBytes} for version ${version}.`,
+                );
+            }
+        });
+    });
+
+    describe("rejects a broken post", function () {
+        it("shorter than its header", async function () {
+            await expectBroken(
+                withLength(otf, "post", 31),
+                SfntRule.PostLength,
+                'At table "post": length is 31, expected at least 32 for the header.',
+            );
+        });
+
+        it("of a version OpenType does not define", async function () {
+            // 4.0 is Apple's, "not supported in OpenType".
+            for (const version of [0x00070000, 0x00040000]) {
+                await expectBroken(
+                    withUint32(ttf, tableOffset(ttf, "post") + TABLE_VERSION_OFFSET_BYTES, version),
+                    SfntRule.PostVersion,
+                    `At table "post": version is 0x${version.toString(16).padStart(8, "0")}, ${POST_VERSIONS_EXPECTED}`,
+                );
+            }
+        });
+    });
+
     it("throws ReadFailed, not an answer, on a file that cannot be read", async function () {
         await expectRejection(() => validator.validate(path.join(workDir, `missing.${Extension.TTF}`)), ReadFailed);
     });
@@ -751,6 +976,25 @@ function withShortLoca(font: Uint8Array): Uint8Array {
  */
 function lastShortOffsetBytes(font: Uint8Array): number {
     return SHORT_LOCA_OFFSET_FACTOR * readUint16(font, tableOffset(font, "loca") + SHORT_LOCA_NUM_GLYPHS * SHORT_LOCA_ENTRY_SIZE_BYTES);
+}
+
+/**
+ * The font with the subtable offset of its cmap encoding record `index` set to `subtableOffset`.
+ */
+function withSubtableOffset(font: Uint8Array, index: number, subtableOffset: number): Uint8Array {
+    const recordOffsetBytes = tableOffset(font, "cmap") + CMAP_HEADER_SIZE_BYTES + index * ENCODING_RECORD_SIZE_BYTES;
+
+    return withUint32(font, recordOffsetBytes + SUBTABLE_OFFSET_IN_RECORD_BYTES, subtableOffset);
+}
+
+/**
+ * The font with its name turned into version 1: `langTagCount` is written right after the name
+ * records, over the start of the strings, which the validator does not read.
+ */
+function withNameVersion1(font: Uint8Array, langTagCount: number): Uint8Array {
+    const version1 = withField16(font, "name", TABLE_VERSION_OFFSET_BYTES, 1);
+
+    return withField16(version1, "name", NAME_RECORDS_END_BYTES, langTagCount);
 }
 
 function readUint16(bytes: Uint8Array, offsetBytes: number): number {
