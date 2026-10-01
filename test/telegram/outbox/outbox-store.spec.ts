@@ -1068,16 +1068,26 @@ describe("OutboxStore", function () {
 
             await handlerOver(limitedStore).releaseOnStop(pulled as PulledOutboxMessage);
 
+            // Released, so the empty pull below is the chat limit, not a message left processing.
+            expect(await statuses()).to.deep.equal([OutboxStatus.Pending]);
+            expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Ready });
             expect((await limitedStore.pull(10, WORKER)).messages).to.deep.equal([]);
         });
 
-        it("changes nothing under a stale token and logs a warning", async function () {
+        it("changes nothing under a stale token, wakes no one and logs a warning", async function () {
             await store.push(message(CHAT, "text"));
             const stale = await pullOne();
             await store.retry(stale, TRANSIENT, 0);
             const current = await pullOne();
+            const payloads = await listenTo(other, OutboxChannel.Ready);
 
             await handlerOver(store).releaseOnStop(stale);
+            // PostgreSQL delivers the notifications in the order of the commits: a notification of
+            // the release would come before this one.
+            await database.sql`SELECT pg_notify(${OutboxChannel.Ready}, 'after the release')`;
+
+            await waitUntil(() => payloads.length > 0, "no ready notification came");
+            expect(payloads).to.deep.equal(["after the release"]);
 
             expect(await statuses()).to.deep.equal([OutboxStatus.Processing]);
             expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Processing });

@@ -475,8 +475,9 @@ finish, so another node takes it on its next pull rather than after the lease. I
 message goes back to `pending`, the chat to `ready` with the chat limit the pull set, the lease
 ends, and a stale token is fenced as in every completion (see "Completions").
 
-Then the release calls `OutboxStore.notifyReady()`, `pg_notify` on `telegram_outbox_ready` after the
-commit, as a push sends it. The node that would pull the message next is the one that stops, and a
+The release passes `wakeIdleNodes` to `retry()`, which then sends `pg_notify` on
+`telegram_outbox_ready` in its transaction, delivered on commit as the one of a push; a fenced
+release sends none. The node that would pull the message next is the one that stops, and a
 node whose last pull found nothing `ready` got `nextPullInMs` of `null`: no time to wait for, only a
 notification (see "Limits"). Without it the message could wait for an unrelated push longer than the
 lease the release exists to cut short.

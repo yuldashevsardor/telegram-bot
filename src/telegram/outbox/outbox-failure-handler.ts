@@ -76,10 +76,9 @@ export class OutboxFailureHandler {
     // The call must have settled before: a call still on its way could reach Telegram after the
     // next message of the chat (docs/architecture/outbox.md, "Release on stop").
     public async releaseOnStop(lease: OutboxLease): Promise<void> {
-        await this.store.retry(lease, NODE_STOPPED, RELEASE_DELAY_MS);
         // The node that would pull the message next is this one, and it stops: an idle node sleeps
         // until a notification otherwise.
-        await this.store.notifyReady();
+        await this.store.retry(lease, NODE_STOPPED, RELEASE_DELAY_MS, { wakeIdleNodes: true });
     }
 
     // Not async on purpose: a switch that misses a kind leaves the end of the function reachable,

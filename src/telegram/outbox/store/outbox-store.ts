@@ -19,6 +19,7 @@ import type {
     OutboxMessageInput,
     OutboxPullResult,
     OutboxPullResultRow,
+    OutboxRetryOptions,
     OutboxWorker,
 } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxChannel, OutboxChatState, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
@@ -353,13 +354,6 @@ export class OutboxStore {
         `;
     }
 
-    // Wakes the nodes that sleep with nothing to pull, for a chat made ready by something other than a
-    // push: a node that sleeps on a null nextPullInMs learns of it from nothing else. Called after the
-    // transaction that made the chat ready has committed, so a pull on it sees the chat.
-    public async notifyReady(): Promise<void> {
-        await this.sql`SELECT pg_notify(${OutboxChannel.Ready}, '')`;
-    }
-
     // The time a limit leaves between two messages, as the in-memory queue spaces them. LIMIT_*_NUMBER
     // is at least 1, so the cooldown is finite.
     private cooldownMs(limit: TelegramLimits[keyof TelegramLimits]): number {
@@ -375,8 +369,15 @@ export class OutboxStore {
     }
 
     // The message goes back to pending, and its chat waits delayMs or its chat limit, whichever is
-    // later: the message stays the head, so it holds its chat.
-    public async retry(lease: OutboxLease, attemptError: OutboxAttemptError, delayMs: number): Promise<void> {
+    // later: the message stays the head, so it holds its chat. wakeIdleNodes notifies the ready
+    // channel as a push does, for a retry whose node pulls no more: a node that sleeps on a null
+    // nextPullInMs learns of the chat from nothing else. A fenced retry notifies no one.
+    public async retry(
+        lease: OutboxLease,
+        attemptError: OutboxAttemptError,
+        delayMs: number,
+        options: OutboxRetryOptions = { wakeIdleNodes: false },
+    ): Promise<void> {
         await this.complete(lease, attemptError, async (sql, chatId) => {
             await this.updateProcessingMessage(
                 lease,
@@ -398,6 +399,11 @@ export class OutboxStore {
                     updated_at = now()
                 WHERE chat_id = ${chatId}
             `;
+
+            // In the transaction, so it is delivered on commit, as the notification of a push.
+            if (options.wakeIdleNodes) {
+                await sql`SELECT pg_notify(${OutboxChannel.Ready}, '')`;
+            }
         });
     }
 
