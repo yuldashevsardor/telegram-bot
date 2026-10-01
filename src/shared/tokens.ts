@@ -35,6 +35,7 @@ export const Tokens = {
         Validator: {
             Resolver: Symbol.for("FontValidatorResolver"),
             Svg: Symbol.for("FontValidatorSvg"),
+            Sfnt: Symbol.for("FontValidatorSfnt"),
             Woff: Symbol.for("FontValidatorWoff"),
         },
         Envelope: {

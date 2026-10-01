@@ -1,7 +1,6 @@
 import { injectable } from "inversify";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import type { Signature, SignedExtension } from "app/font-convertor/signature-matcher/font-signature-matcher.types";
-import { SFNT_VERSIONS, sfntVersionBytes } from "app/font-convertor/sfnt-version";
 
 @injectable()
 export class FontSignatureMatcher {
@@ -17,17 +16,7 @@ export class FontSignatureMatcher {
     public readonly headLength: number;
 
     public constructor() {
-        // TTF and OTF share the sfnt container and cannot be told apart by content, so the
-        // signature confirms the container, and the extension picks the conversion pair
-        // (docs/architecture/font-convertor.md, "Signatures").
-        //
-        // The version set is shared with the codec. Which versions the domain accepts, and why the
-        // collection ("ttcf") is not among them, is said at `SFNT_VERSIONS`.
-        const sfnt: Array<Signature> = SFNT_VERSIONS.map((version) => ({ offset: 0, bytes: sfntVersionBytes(version) }));
-
         this.signaturesByExtension = {
-            [Extension.TTF]: sfnt,
-            [Extension.OTF]: sfnt,
             [Extension.WOFF2]: [{ offset: 0, bytes: this.ascii("wOF2") }],
             [Extension.EOT]: [{ offset: FontSignatureMatcher.EOT_MAGIC_OFFSET, bytes: [0x4c, 0x50] }],
         };
