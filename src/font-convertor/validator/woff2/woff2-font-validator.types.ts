@@ -22,6 +22,7 @@ export enum Woff2Rule {
     Brotli = "the compressed data is one Brotli stream that decompresses to the sum of origLength of the plain tables and transformLength of the transformed ones (WOFF 2.0, §5)",
     TransformedGlyf = "the transformed glyf holds its 36-byte header and its seven substreams, then the overlapSimpleBitmap when bit 0 of optionFlags is set (WOFF 2.0, §5.1)",
     Flavor = "flavor is an sfnt version the domain accepts (ours: a collection holds several fonts, and fontforge refuses any other flavor)",
+    HmtxBesideTransformedGlyf = "a transformed hmtx is in a font whose glyf is transformed (ours: the decoder of fontforge takes the glyph count and the xMin of the glyphs from the transformed glyf alone)",
     EndPadding = "the compressed data that ends the file is padded to a 4-byte boundary (ours: the decoder of fontforge refuses a file that ends before it)",
     MaxDecompressedSize = "the tables decompress to at most 30 MiB (ours: the output buffer fontforge gives its decoder)",
     MaxCompressionRatio = "the tables decompress to at most 100 times the file size (ours: the decoder of fontforge refuses a higher ratio)",

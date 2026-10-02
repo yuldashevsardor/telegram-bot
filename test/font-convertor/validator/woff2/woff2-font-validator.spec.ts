@@ -494,6 +494,24 @@ describe("Woff2FontValidator.validate", function () {
         });
     });
 
+    describe("rejects a transformed hmtx beside a glyf under the null transform, by a rule of ours", function () {
+        it("whatever its flags", async function () {
+            // The decoder of fontforge takes the glyph count and the xMin for hmtx from a transformed glyf alone.
+            const ttf = await fs.readFile(path.join(fixtureDir, `test-font.${Extension.TTF}`));
+            const plainGlyf = withEntry(
+                withEntry(fixtureLayout, "glyf", plain(sfntTable(ttf, "glyf"))),
+                "loca",
+                plain(sfntTable(ttf, "loca")),
+            );
+
+            await expectBroken(
+                build(withHmtxTransform(plainGlyf, 0x01)),
+                Woff2Rule.HmtxBesideTransformedGlyf,
+                'At table "hmtx": transform version is 1, expected 0, as table "glyf" is not transformed.',
+            );
+        });
+    });
+
     describe("rejects blocks laid out against the standard", function () {
         it("with the compressed data, the metadata or the private block running past the end of the file", async function () {
             const withMetadata = build({ ...fixtureLayout, metadata: metadata() });

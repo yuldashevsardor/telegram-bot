@@ -140,6 +140,7 @@ export class Woff2FontValidator implements FontValidator {
     ];
     private static readonly TAG_INDEX_MASK = 0x3f;
     private static readonly TRANSFORM_VERSION_SHIFT = 6;
+    private static readonly FLAGS_SIZE_BYTES = 1;
     private static readonly TAG_SIZE_BYTES = 4;
     // §3.1: the low 7 bits of a byte carry the value, the high bit says another byte follows.
     private static readonly BASE128_MAX_SIZE_BYTES = 5;
@@ -289,10 +290,10 @@ export class Woff2FontValidator implements FontValidator {
         let offset = Woff2FontValidator.HEADER_SIZE_BYTES;
 
         for (let index = 0; index < header.numTables; index++) {
-            const read = this.readEntry(fontPath, bytes, offset, `directory entry ${index + 1}`);
+            const readEntry = this.readEntry(fontPath, bytes, offset, `directory entry ${index + 1}`);
 
-            entries.push(read.entry);
-            offset = read.end;
+            entries.push(readEntry.entry);
+            offset = readEntry.end;
         }
 
         return { path: fontPath, bytes: bytes, header: header, entries: entries, directoryEnd: offset };
@@ -302,7 +303,7 @@ export class Woff2FontValidator implements FontValidator {
         const flags = this.byteAt(fontPath, bytes, entryOffset, entryName);
         const tagIndex = flags & Woff2FontValidator.TAG_INDEX_MASK;
         const transformVersion = flags >> Woff2FontValidator.TRANSFORM_VERSION_SHIFT;
-        let offset = entryOffset + 1;
+        let offset = entryOffset + Woff2FontValidator.FLAGS_SIZE_BYTES;
         let tag = Woff2FontValidator.KNOWN_TAGS[tagIndex];
 
         // Index 63 has no known tag: the tag follows the flags byte. Its last byte is read first, so
@@ -320,10 +321,10 @@ export class Woff2FontValidator implements FontValidator {
         offset = origLength.end;
 
         if (isTransformed) {
-            const read = this.readUIntBase128(fontPath, bytes, offset, { entryName: entryName, tag: tag, field: "transformLength" });
+            const readLength = this.readUIntBase128(fontPath, bytes, offset, { entryName: entryName, tag: tag, field: "transformLength" });
 
-            transformLength = read.value;
-            offset = read.end;
+            transformLength = readLength.value;
+            offset = readLength.end;
         }
 
         const entry = { tag: tag, transformVersion: transformVersion, origLength: origLength.value, transformLength: transformLength };
@@ -426,7 +427,7 @@ export class Woff2FontValidator implements FontValidator {
 
     /**
      * The directory as a whole, once every entry is read: one entry per tag, glyf and loca as a
-     * pair, and a transformed hmtx only beside glyf.
+     * pair, and a transformed hmtx only beside a transformed glyf.
      */
     private checkDirectory({ path, entries }: Woff2): void {
         const indexByTag = new Map<string, number>();
@@ -448,16 +449,41 @@ export class Woff2FontValidator implements FontValidator {
         });
 
         this.checkGlyfLoca(path, entries);
+        this.checkHmtx(path, entries);
+    }
 
+    /**
+     * A transformed hmtx takes the xMin of the glyphs from glyf (§5.4). The standard asks for glyf
+     * alone; the decoder of fontforge reads the glyph count and the xMin only when it rebuilds a
+     * transformed glyf (`ReconstructGlyf()` in `woff2_dec.cc` 1.0.2), and refuses the file otherwise.
+     */
+    private checkHmtx(fontPath: string, entries: Array<TableEntry>): void {
         const hmtx = entries.find((entry) => entry.tag === Woff2FontValidator.HMTX_TAG);
+        const glyf = entries.find((entry) => entry.tag === Woff2FontValidator.GLYF_TAG);
 
-        if (hmtx?.transformLength !== undefined && !indexByTag.has(Woff2FontValidator.GLYF_TAG)) {
-            throw BrokenWoff2.byRule(path, {
+        if (hmtx?.transformLength === undefined) {
+            return;
+        }
+
+        const violation = {
+            at: this.tableName(Woff2FontValidator.HMTX_TAG),
+            field: "transform version",
+            value: hmtx.transformVersion,
+        };
+
+        if (glyf === undefined) {
+            throw BrokenWoff2.byRule(fontPath, {
+                ...violation,
                 rule: Woff2Rule.HmtxTransform,
-                at: this.tableName(Woff2FontValidator.HMTX_TAG),
-                field: "transform version",
-                value: hmtx.transformVersion,
                 expected: `${Woff2FontValidator.HMTX_VERSIONS.plain}, as the font has no table "glyf"`,
+            });
+        }
+
+        if (glyf.transformLength === undefined) {
+            throw BrokenWoff2.byRule(fontPath, {
+                ...violation,
+                rule: Woff2Rule.HmtxBesideTransformedGlyf,
+                expected: `${Woff2FontValidator.HMTX_VERSIONS.plain}, as table "glyf" is not transformed`,
             });
         }
     }
