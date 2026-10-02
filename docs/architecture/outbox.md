@@ -168,11 +168,12 @@ a message while it waited for the bot row would close a cycle with it.
 A pull that skips a due chat held by another transaction, an open push or completion of that chat,
 gets no messages: with nothing pulled, the bot's time decides the answer (see "Limits"), zero once
 `next_send_at` has passed, and a caller that pulls again at once spins until that transaction
-commits. A pull that waited for the bot row longer than the common cooldown can answer zero with
-nothing pulled as well, holding nothing up: it has a budget, but the due chat it saw was taken by
-the pull it waited for, and the answer reads the `ready` chats from the snapshot taken before the
-wait, where that chat is still `ready` and due. The next pull answers right. The message source
-sleeps on such an answer instead (see "The message source"), in this case up to the cap for
+commits. A pull that waited behind a pull that held the bot row longer than the common cooldown can
+answer zero with nothing pulled as well, holding nothing up, however short its own wait: its time
+comes after the `next_send_at` the other pull left, so it has a budget, but the due chat it saw was
+taken by the pull it waited for, and the answer reads the `ready` chats from the snapshot taken
+before the wait, where that chat is still `ready` and due. The next pull answers right. The message
+source sleeps on such an answer instead (see "The message source"), in this case up to the cap for
 nothing.
 
 ## Limits
@@ -208,6 +209,8 @@ queue takes ([`outbound-queue.md`](./outbound-queue.md)). A limit of `number` me
   and `greatest` would keep it, while `1e17` ms overflows the interval PostgreSQL adds to `now()`.
   The pause counts from `now()` of its statement, before its wait for the bot row behind the pulls
   queued on it, so it ends early by that wait: milliseconds against a `retry_after` of seconds.
+  The pulls queued ahead of it take the row first, and each may spend a slot of the common limit
+  before the pause lands; the common limit still spaces them.
 
 `nextPullInMs` is the later of the nearest `next_attempt_at` among the `ready` chats not pulled by
 this pull and the bot's own time — `next_send_at` after the pull, or `paused_until` if later —
@@ -245,11 +248,11 @@ outbox"). Nothing makes the generator yet: the worker loop is
   random point from 100 ms to 1 s (`MIN_SLEEP_CAP_MS`, `MAX_SLEEP_CAP_MS`), drawn for each sleep. A
   `null` answer sleeps the whole cap, and so does zero: with nothing pulled, zero means that another
   transaction holds a due chat, and pulling again at once would spin until it commits, or that the
-  pull waited for the bot row longer than the common cooldown (see "Pull"). The cap keeps the sleep
-  within a Node timer as well (see "Limits"). A completion that leaves its chat `ready` notifies no
-  one, so the next message of that chat waits for a sleep of at most the cap. The cap is random so
-  that the nodes that sleep the whole cap together, as the ones that skipped the same held chat do,
-  wake up apart.
+  pull waited behind a pull that held the bot row longer than the common cooldown (see "Pull"). The
+  cap keeps the sleep within a Node timer as well (see "Limits"). A completion that leaves its chat
+  `ready` notifies no one, so the next message of that chat waits for a sleep of at most the cap.
+  The cap is random so that the nodes that sleep the whole cap together, as the ones that skipped
+  the same held chat do, wake up apart.
 - **The wake-up.** The generator starts `LISTEN` on `telegram_outbox_ready`
   (`OutboxStore.listenReady()`) at its start, on the listening connection of the client
   ([`storage.md`](./storage.md), "LISTEN"). A failed start is logged at `warning` and is not
@@ -284,17 +287,17 @@ What this costs the rate of the common limit (see "Limits"):
 - The pulls of all the nodes take the bot row in turn while a chat is ready to be pulled, even
   while the common limit is spent or the bot is paused: a pull locks the row before it learns
   either. A check of the snapshot before the lock would spare them the row, since `next_send_at`
-  and `paused_until` only move forward, but it would be a condition the lock does not recheck, and
-  no measurement asks for it yet.
+  and `paused_until` only move forward; it is an optimisation no measurement asks for yet.
 
 What it costs the database: the wait for the bot row has no bound. A transaction left open on the
 row, such as an `UPDATE telegram_bot_limits` by hand in `psql`, stops the pull of every node, and
-each waiting pull holds a connection of the pool meanwhile. During a pause, or while the common
-limit is spent, a push cannot make a pull succeed, yet its notification wakes the sleeping generator
-of every node, and one that comes during a pull makes the generator pull again. While the pushes
-come faster than a pull takes, each generator pulls at their rate and gets nothing until the pause
-or the cooldown is over. The source cannot tell such a time apart: `pull()` answers with a duration,
-not with its reason.
+each waiting pull holds a connection of the pool meanwhile. It holds up the stop of a node as well:
+`stop()` ends the generator only once its pull in progress returns. During a pause, or while the
+common limit is spent, a push cannot make a pull succeed, yet its notification wakes the sleeping
+generator of every node, and one that comes during a pull makes the generator pull again. While the
+pushes come faster than a pull takes, each generator pulls at their rate and gets nothing until the
+pause or the cooldown is over. The source cannot tell such a time apart: `pull()` answers with a
+duration, not with its reason.
 
 ## The lease
 

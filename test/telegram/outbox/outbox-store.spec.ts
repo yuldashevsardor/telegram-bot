@@ -343,7 +343,7 @@ describe("OutboxStore", function () {
     // A pull inside a transaction of the other client keeps what it locked until the commit, as a
     // pull on another node does for the length of its statement.
     it("waits for another pull holding the bot row and takes what that pull left", async function () {
-        const [, left] = await store.pushBatch([message(OTHER_CHAT, "held"), message(CHAT, "left")]);
+        const [, leftMessageId] = await store.pushBatch([message(OTHER_CHAT, "held"), message(CHAT, "left")]);
 
         let waiting: Promise<OutboxPullResult> = Promise.resolve(NOTHING_PULLED);
 
@@ -355,7 +355,7 @@ describe("OutboxStore", function () {
             await waitForLockWaiters(1);
         });
 
-        expect((await waiting).messages.map(({ id }) => id)).to.deep.equal([left]);
+        expect((await waiting).messages.map(({ id }) => id)).to.deep.equal([leftMessageId]);
     });
 
     it("leaves the bot row to other pulls when it has no chat to pull", async function () {

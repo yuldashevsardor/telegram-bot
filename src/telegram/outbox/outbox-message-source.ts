@@ -95,8 +95,8 @@ export class OutboxMessageSource {
 
     // nextPullInMs, capped by randomCapMs(). A null answer has no time to wait for, and an answer of
     // zero after a pull that got nothing means that another transaction holds a due chat, or that
-    // the pull waited for the bot row longer than the common cooldown (docs/architecture/outbox.md,
-    // "Pull"): both sleep the whole cap.
+    // the pull waited behind a pull that held the bot row longer than the common cooldown
+    // (docs/architecture/outbox.md, "Pull"): both sleep the whole cap.
     private sleepDurationMs(nextPullInMs: number | null): number {
         const capMs = this.randomCapMs();
 
