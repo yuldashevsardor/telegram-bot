@@ -20,23 +20,20 @@ export const Tokens = {
         Database: Symbol.for("PlatformDatabase"),
     },
     // The branches inside Font are named after the notions of the subject area (CONTEXT.md): the
-    // format signature, the envelope, the conversion engine. `Validator` is the one role among them:
-    // the check of a source format, by the signature or by validating the whole file. A second
-    // engine or a second codec of the envelope will lie next to its own notion, and not a single
-    // @inject will move because of it.
+    // envelope, the conversion engine. `Validator` is the one role among them: the check of a source
+    // format by validating the whole file. A second engine or a second codec of the envelope will lie
+    // next to its own notion, and not a single @inject will move because of it.
     Font: {
         Convertor: {
             Convertor: Symbol.for("FontConvertorConvertor"),
             Factory: Symbol.for("FontConvertorFactory"),
-        },
-        Signature: {
-            Matcher: Symbol.for("FontSignatureMatcher"),
         },
         Validator: {
             Resolver: Symbol.for("FontValidatorResolver"),
             Svg: Symbol.for("FontValidatorSvg"),
             Sfnt: Symbol.for("FontValidatorSfnt"),
             Woff: Symbol.for("FontValidatorWoff"),
+            Woff2: Symbol.for("FontValidatorWoff2"),
             Eot: Symbol.for("FontValidatorEot"),
         },
         Envelope: {

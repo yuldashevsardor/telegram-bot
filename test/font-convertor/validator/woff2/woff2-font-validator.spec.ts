@@ -241,6 +241,22 @@ describe("Woff2FontValidator.validate", function () {
                 `File is not WOFF2: its signature is 0x58585858, ${expected}`,
             );
         });
+
+        it("with the wOF2 signature behind a prefix", async function () {
+            // A shifted head would turn the check into a search for the marker anywhere.
+            const expected = 'expected 0x774f4632 ("wOF2").';
+
+            await expectAnswer(
+                Buffer.concat([Buffer.from("\n"), fixture]),
+                NotWoff2,
+                `File is not WOFF2: its signature is 0x0a774f46, ${expected}`,
+            );
+            await expectAnswer(
+                Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), fixture]),
+                NotWoff2,
+                `File is not WOFF2: its signature is 0xefbbbf77, ${expected}`,
+            );
+        });
     });
 
     describe("rejects a broken header", function () {

@@ -22,7 +22,7 @@ import type { FontValidator } from "app/font-convertor/validator/font-validator"
 import { FileHelper } from "app/shared/fs/file-helper";
 
 /**
- * Checks a TTF or OTF font, or the sfnt a WOFF carries, against the Microsoft OpenType
+ * Checks a TTF or OTF font, or the sfnt a WOFF or an EOT carries, against the Microsoft OpenType
  * specification 1.9.1, and against Apple's TrueType Reference Manual for what it governs: the table
  * directory, the tables a font must have, the fields of `head`, `maxp`, `hhea`, `hmtx` and `loca`
  * that give the glyph count, where the metrics of each glyph lie and, with TrueType outlines, where
@@ -192,8 +192,9 @@ export class SfntFontValidator implements FontValidator {
     }
 
     /**
-     * Throws when `bytes` are not a valid sfnt font. It takes bytes for the sfnt a WOFF carries,
-     * which `WoffFontValidator` rebuilds in memory, and `fontPath` is the file every answer names.
+     * Throws when `bytes` are not a valid sfnt font. It takes bytes for the sfnt a WOFF or an EOT
+     * carries, which `WoffFontValidator` rebuilds in memory and `EotFontValidator` takes from
+     * FontData, and `fontPath` is the file every answer names.
      * The answers are subclasses of `InvalidSfntFont`: `NotSfnt` for bytes shorter than the header
      * or of an unknown version, `BrokenSfnt` for the first broken rule, checked in this order: the
      * header, the table records one by one in directory order, the tables the font has, then the
