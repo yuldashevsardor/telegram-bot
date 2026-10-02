@@ -40,7 +40,7 @@ describe("Convertors of the eot pairs", function () {
                 new WoffFontValidator(new SfntFontValidator()),
                 new Woff2FontValidator(),
                 new SfntFontValidator(),
-                new EotFontValidator(),
+                new EotFontValidator(new SfntFontValidator()),
             ),
             eotPacker(),
         );
@@ -117,7 +117,7 @@ describe("Convertors of the eot pairs", function () {
             new WoffFontValidator(new SfntFontValidator()),
             new Woff2FontValidator(),
             new SfntFontValidator(),
-            new EotFontValidator(),
+            new EotFontValidator(new SfntFontValidator()),
         ),
         eotPacker(),
     )

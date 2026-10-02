@@ -113,15 +113,15 @@ pair to pair. A collection named `.ttf` or `.otf` is therefore rejected on input
 every pair, before the chosen pair does any work.
 
 This does not make the version check of the codec redundant. The sfnt validator sees only the
-sources: a TTF or OTF file and the sfnt a WOFF carries. Two more files pass through the codec that
-the validator never saw: the intermediate sfnt from the engine on packing, and the envelope content
-on unpacking. The codec checks less than the validator: the header size, the version and the bounds
-of the tables it reads, not the rules below. But the two share one set of versions with two more
-checks, `SFNT_VERSIONS` in `font-convertor/sfnt-version.ts`: `WoffFontValidator` (`validator/woff/`)
-checks the flavor of a WOFF against it, and `Woff2FontValidator` (`validator/woff2/`) the flavor of
-a WOFF2. The flavor is the version of the sfnt the container carries. The set must not become
-several lists, because a divergence breaks behaviour rather than the build. A version known only to
-the validator still fails on input: the directory the validator builds rejects it, with the codec's
+sources: a TTF or OTF file and the sfnt a WOFF or an EOT carries. One more file passes through the
+codec that the validator never saw: the intermediate sfnt from the engine on packing. The codec
+checks less than the validator: the header size, the version and the bounds of the tables it
+reads, not the rules below. But the two share one set of versions with two more checks,
+`SFNT_VERSIONS` in `font-convertor/sfnt-version.ts`: `WoffFontValidator` (`validator/woff/`) checks
+the flavor of a WOFF against it, and `Woff2FontValidator` (`validator/woff2/`) the flavor of a
+WOFF2. The flavor is the version of the sfnt the container carries. The set must not become several
+lists, because a divergence breaks behaviour rather than the build. A version known only to the
+validator still fails on input: the directory the validator builds rejects it, with the codec's
 `InvalidSfnt` instead of an answer of the validator. A version known only to the codec does not get
 past the input.
 
@@ -333,24 +333,32 @@ exit 0 and every glyph, since it never sees the envelope
 ([#617](https://github.com/yuldashevsardor/telegram-bot/issues/617)). On `eot → ttf` the engine is
 not called at all.
 
-It answers with a subclass of `InvalidEotFont` (`eot-font-validator.errors.ts`): `NotEot` for a file
-shorter than the 82-byte fixed part of the header or without the `MagicNumber`, `BrokenEot` for the
-first broken rule. The order in which the rules are checked is in the comment of `validate()`. A
-file that cannot be read fails with `ReadFailed` of `FileHelper`, not with an answer about the font.
-Every answer names the source in `path` of its payload. Nothing in the answers is cut: the only
-things from the file they quote are numbers. Two answers keep another error as the cause: a file
-that ends inside a field the parse reads (the Padding or the size of a block, or `EUDCFlags` and
-`EUDCFontSize` of version `0x00020002`) keeps the `InvalidEot` of `EotHeader`, and the enclosed font
-keeps the `InvalidSfnt` of the codec.
+About the envelope it answers with a subclass of `InvalidEotFont` (`eot-font-validator.errors.ts`):
+`NotEot` for a file shorter than the 82-byte fixed part of the header or without the `MagicNumber`,
+`BrokenEot` for the first broken rule. The order in which the rules are checked is in the comment of
+`validate()`. A file that cannot be read fails with `ReadFailed` of `FileHelper`, not with an answer
+about the font. Every answer names the source in `path` of its payload. Nothing in the answers is
+cut: the only things from the file they quote are numbers. One answer keeps another error as the
+cause: a file that ends inside a field the parse reads (the Padding or the size of a block, or
+`EUDCFlags` and `EUDCFontSize` of version `0x00020002`) keeps the `InvalidEot` of `EotHeader`.
 
 The rules are `EotRule` in `eot-font-validator.types.ts`, each with its section. One is ours, not
 the submission's, and its text says why: a payload compressed with MicroType Express
 (`TTEMBED_TTCOMPRESSED`) or XOR-encrypted (`TTEMBED_XORENCRYPTDATA`) is rejected, since the codec
 takes out only a raw sfnt, while the submission asks a user agent to decompress (§2.3). Of 367 real
-EOT files from npm packages the validator accepts 247 and rejects 120, all of them by this rule. The
-enclosed font gets the check the codec makes on unpacking, where `SfntReader.validate` parses its
-table directory: the validator parses it with the same `SfntTableDirectory`, which checks the size
-of the sfnt header, its version and that the table records fit.
+EOT files from npm packages the validator accepts 247 and rejects 120, all of them by this rule.
+
+A valid envelope is not yet a valid font. The submission makes the enclosed font part of the format:
+`FontData` is "a TrueType or OpenType font" (§3). The codec checks only its sfnt header and table
+records on unpacking, and on `eot → ttf` the unpacked sfnt is the result: of 15 variants of the
+fixture with a broken enclosed font the codec rejected 4, and `eot → ttf` returned the other 11
+([#740](https://github.com/yuldashevsardor/telegram-bot/issues/740)). So the validator hands the
+`FontData` bytes to `SfntFontValidator.validateBytes()`, last, once the envelope holds. The sfnt
+validator's answer, a subclass of `InvalidSfntFont` naming the EOT file in `path`, passes through as
+the EOT validator's own, as it does for WOFF. Unlike the rebuilt sfnt of a WOFF, `FontData` can
+break the sfnt rules on its size, and then "the file" of the answer is `FontData`, not the EOT file
+its `path` names: the size `NotSfnt` and `DirectoryInFile` give and "the file size" of `TableInFile`
+are those of `FontData`.
 
 `EotPacker.unpack()` keeps its own checks as they were. Every source it unpacks has passed the
 validator first.
@@ -360,16 +368,16 @@ What is deliberately not checked, with the reasons, is in the class comment of `
 ## The sfnt validator
 
 `SfntFontValidator` (`validator/sfnt/`, a singleton in the container) reads the whole file and
-checks it, or takes from `WoffFontValidator` (above) the bytes of the sfnt a WOFF carries, and
-checks them against the Microsoft OpenType specification 1.9.1 and, for what it governs, Apple's
-TrueType Reference Manual: the table directory ("Table Directory"), the tables a font must have
-("Required Tables"), and the fields of each table by its own section. Which fields of which tables
-it reads is in the class comment of `SfntFontValidator`. `FontValidatorResolver` gives it out for a
-TTF and an OTF source alike, and its answer reaches the caller the way the SVG one does: as the
-cause of `FontConvertorError`, before the engine is called. The engine's TTF and OTF output is not
-checked. The validator exists because the engine does not refuse a broken sfnt: of 104 variants of
-the fixtures, each broken in one place, fontforge 20230101 converted 79 with exit 0, 9 of them
-losing glyphs or outlines, and crashed on 8 with SIGSEGV
+checks it, or takes from `WoffFontValidator` and `EotFontValidator` (above) the bytes of the sfnt a
+WOFF or an EOT carries, and checks them against the Microsoft OpenType specification 1.9.1 and, for
+what it governs, Apple's TrueType Reference Manual: the table directory ("Table Directory"), the
+tables a font must have ("Required Tables"), and the fields of each table by its own section. Which
+fields of which tables it reads is in the class comment of `SfntFontValidator`.
+`FontValidatorResolver` gives it out for a TTF and an OTF source alike, and its answer reaches the
+caller the way the SVG one does: as the cause of `FontConvertorError`, before the engine is called.
+The engine's TTF and OTF output is not checked. The validator exists because the engine does not
+refuse a broken sfnt: of 104 variants of the fixtures, each broken in one place, fontforge 20230101
+converted 79 with exit 0, 9 of them losing glyphs or outlines, and crashed on 8 with SIGSEGV
 ([#614](https://github.com/yuldashevsardor/telegram-bot/issues/614)).
 `ttf → eot` does not reach the engine at all: `EotPacker.pack` reads `OS/2`, `head` and `name` and
 packs whatever else the font holds.
@@ -378,9 +386,9 @@ It answers with a subclass of `InvalidSfntFont` (`sfnt-font-validator.errors.ts`
 file shorter than the 12-byte header or of a version outside `SFNT_VERSIONS`, `BrokenSfnt` for the
 first broken rule. The order in which the rules are checked is in the comment of `validateBytes()`.
 A file that cannot be read fails with `ReadFailed` of `FileHelper`, not with an answer about the
-font. Every answer names the source in `path` of its payload, the WOFF file for the sfnt a WOFF
-carries. Nothing in the answers is cut: the only text from the file they quote is a table tag, four
-bytes long.
+font. Every answer names the source in `path` of its payload, the WOFF or the EOT file for the sfnt
+it carries. Nothing in the answers is cut: the only text from the file they quote is a table tag,
+four bytes long.
 
 The rules are `SfntRule` in `sfnt-font-validator.types.ts`, each with its section. Four of them are
 ours, not the standard's, and the text of each says why: a collection is rejected (see
@@ -504,8 +512,8 @@ not count as supported.
   is rebuilt from them on it. The 32 MiB cap bounds the inflated tables, not the file, and the
   rebuilt sfnt is a second copy of them of the same size. A TTF or OTF source is read whole as well,
   and its table directory, every `loca` offset and every glyph of `glyf` are walked on the event
-  loop, as they are for the sfnt a WOFF carries. An EOT source is read whole too, and its header is
-  walked on the event loop. A WOFF2 source is read whole as well: its compressed data is
+  loop, as they are for the sfnt a WOFF or an EOT carries. An EOT source is read whole too, and its
+  header is walked on the event loop. A WOFF2 source is read whole as well: its compressed data is
   decompressed by the asynchronous `zlib.brotliDecompress`, off the event loop, but its table
   directory and the transformed tables are walked on it. The 30 MiB cap bounds the decompressed
   tables, not the file. Only the sfnt walk was measured: `validateBytes()` takes 27 ms on

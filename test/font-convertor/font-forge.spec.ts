@@ -27,7 +27,7 @@ describe("FontForge.convert", function () {
             new WoffFontValidator(new SfntFontValidator()),
             new Woff2FontValidator(),
             new SfntFontValidator(),
-            new EotFontValidator(),
+            new EotFontValidator(new SfntFontValidator()),
         ),
         new EotPacker(),
     )
