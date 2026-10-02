@@ -169,7 +169,7 @@ export class OutboxStore {
             -- count from it: from now(), the pulls queued behind a slow one would all find a slot
             -- due and go out together. clock_timestamp() is read here, off the row the lock
             -- returned, not in bot, whose columns may be computed before the lock.
-            locked AS (
+            pull_time AS (
                 SELECT next_send_at, paused_until, clock_timestamp() AS pulled_at
                 FROM bot
             ),
@@ -183,7 +183,7 @@ export class OutboxStore {
                            ${commonLimit.number}::double precision,
                            floor(extract(epoch FROM pulled_at - next_send_at) * ${MS_PER_SECOND} / ${commonCooldownMs}::double precision) + 1
                        )::bigint AS budget
-                FROM locked
+                FROM pull_time
                 WHERE next_send_at <= pulled_at
                   AND (paused_until IS NULL OR paused_until <= pulled_at)
             ),
@@ -202,7 +202,7 @@ export class OutboxStore {
                   -- By the time of the pull, as the budget: a chat that came due while the pull
                   -- waited for the bot row is taken. Without the row pulled_at is NULL, and so is
                   -- the budget.
-                  AND chats.next_attempt_at <= (SELECT pulled_at FROM locked)
+                  AND chats.next_attempt_at <= (SELECT pulled_at FROM pull_time)
                 ORDER BY head.priority, chats.next_attempt_at, chats.chat_id
                 -- No budget: a pause, a spent limit or nothing to pull. NULL would lift the limit.
                 LIMIT coalesce((SELECT budget FROM budget), 0)
@@ -212,35 +212,35 @@ export class OutboxStore {
                 -- The head comes from the snapshot of the statement (docs/architecture/outbox.md, "Pull").
                 UPDATE telegram_outbox
                 SET status = ${OutboxStatus.Processing},
-                    updated_at = locked.pulled_at
-                FROM heads, locked
+                    updated_at = pull_time.pulled_at
+                FROM heads, pull_time
                 WHERE telegram_outbox.id = heads.id
                   AND telegram_outbox.status = ${OutboxStatus.Pending}
                 RETURNING telegram_outbox.id, telegram_outbox.chat_id, method, payload, priority,
-                          locked.pulled_at AS started_at,
+                          pull_time.pulled_at AS started_at,
                           jsonb_array_length(attempts) AS earlier_attempts
             ),
             moved AS (
                 -- A negative chat id is a group, as isGroupChat() has it.
                 UPDATE telegram_outbox_chats
                 SET state = ${OutboxChatState.Processing},
-                    next_attempt_at = locked.pulled_at + CASE
+                    next_attempt_at = pull_time.pulled_at + CASE
                         WHEN telegram_outbox_chats.chat_id < 0 THEN ${this.cooldownMs(this.limits.group)}::double precision
                         ELSE ${this.cooldownMs(this.limits.private)}::double precision
                     END * interval '1 millisecond',
-                    locked_until = locked.pulled_at + ${this.leaseDurationMs}::double precision * interval '1 millisecond',
+                    locked_until = pull_time.pulled_at + ${this.leaseDurationMs}::double precision * interval '1 millisecond',
                     lock_token = ${lockToken},
-                    updated_at = locked.pulled_at
-                FROM pulled, locked
+                    updated_at = pull_time.pulled_at
+                FROM pulled, pull_time
                 WHERE telegram_outbox_chats.chat_id = pulled.chat_id
             ),
             spent AS (
                 -- From the pull, not from the slots saved up: a batch holds the next one back by a
                 -- cooldown per message, so no interval gets more than number messages.
                 UPDATE telegram_bot_limits
-                SET next_send_at = locked.pulled_at + (SELECT count(*) FROM pulled) * ${commonCooldownMs}::double precision * interval '1 millisecond',
-                    updated_at = locked.pulled_at
-                FROM locked
+                SET next_send_at = pull_time.pulled_at + (SELECT count(*) FROM pulled) * ${commonCooldownMs}::double precision * interval '1 millisecond',
+                    updated_at = pull_time.pulled_at
+                FROM pull_time
                 WHERE id = ${BOT_LIMITS_ID}
                   AND EXISTS (SELECT 1 FROM pulled)
                 RETURNING telegram_bot_limits.next_send_at
@@ -249,12 +249,12 @@ export class OutboxStore {
             -- the snapshot when the pull did not lock it, with now() for the time of the pull.
             bot_after AS (
                 SELECT coalesce((SELECT next_send_at FROM spent), next_send_at) AS next_send_at, paused_until, pulled_at
-                FROM locked
+                FROM pull_time
                 UNION ALL
                 SELECT next_send_at, paused_until, now()
                 FROM telegram_bot_limits
                 WHERE id = ${BOT_LIMITS_ID}
-                  AND NOT EXISTS (SELECT 1 FROM locked)
+                  AND NOT EXISTS (SELECT 1 FROM pull_time)
             ),
             -- The chats pulled here are processing now; the rest of the ready ones wait for their time.
             ready AS (

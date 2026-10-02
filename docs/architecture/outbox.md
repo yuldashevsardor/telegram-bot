@@ -134,9 +134,10 @@ turns that head away: the chat is left `ready` for the next pull instead of send
 The chat takes a slot of `limit` and gives nothing, and it keeps its `next_attempt_at`, but only
 for this pull: the head of a `ready` chat is `pending` (a `failed` message is not a head), so the
 next pull, with a fresh snapshot, takes it. The window is narrow as well: another pull must have
-started at least a chat limit before this one, and its completion must have committed between the
-start of this statement and its lock of the chat. That gap holds the wait for the bot row as well:
-microseconds without it, the length of the statements queued ahead under load.
+taken the chat at least a chat limit before the time of this one, and its completion must have
+committed between the start of this statement and its lock of the chat. That gap holds the wait
+for the bot row as well, and the time of the pull comes after the wait: a wait longer than the
+chat limit is enough for a chat pulled and completed during it.
 
 The lock of step 1 makes the pulls of all the nodes take turns: two pulls that read the same
 `next_send_at` would both spend it. A pull that finds the row locked waits for the other pull, which
@@ -167,7 +168,12 @@ a message while it waited for the bot row would close a cycle with it.
 A pull that skips a due chat held by another transaction, an open push or completion of that chat,
 gets no messages: with nothing pulled, the bot's time decides the answer (see "Limits"), zero once
 `next_send_at` has passed, and a caller that pulls again at once spins until that transaction
-commits. The message source sleeps on such an answer instead (see "The message source").
+commits. A pull that waited for the bot row longer than the common cooldown can answer zero with
+nothing pulled as well, holding nothing up: it has a budget, but the due chat it saw was taken by
+the pull it waited for, and the answer reads the `ready` chats from the snapshot taken before the
+wait, where that chat is still `ready` and due. The next pull answers right. The message source
+sleeps on such an answer instead (see "The message source"), in this case up to the cap for
+nothing.
 
 ## Limits
 
@@ -236,13 +242,14 @@ outbox"). Nothing makes the generator yet: the worker loop is
 - **One message per pull.** The generator pulls with a `limit` of 1, and only when the loop asks
   for the next message, so the loop never holds a leased message it has not started on.
 - **The sleep.** A pull that got nothing puts the generator to sleep for `nextPullInMs`, capped by a
-  random point from 100 ms to 1 s (`MIN_SLEEP_CAP_MS`, `MAX_SLEEP_CAP_MS`), drawn for each sleep.
-  A `null` answer sleeps the whole cap, and so does zero: with nothing pulled, zero means that
-  another transaction holds a due chat (see "Pull"), and pulling again at once would spin until it
-  commits. The cap keeps the sleep within a Node timer as well (see "Limits"). A completion that
-  leaves its chat `ready` notifies no one, so the next message of that chat waits for a sleep of at
-  most the cap. The cap is random so that the nodes that sleep the whole cap together, as the ones
-  that skipped the same held chat do, wake up apart.
+  random point from 100 ms to 1 s (`MIN_SLEEP_CAP_MS`, `MAX_SLEEP_CAP_MS`), drawn for each sleep. A
+  `null` answer sleeps the whole cap, and so does zero: with nothing pulled, zero means that another
+  transaction holds a due chat, and pulling again at once would spin until it commits, or that the
+  pull waited for the bot row longer than the common cooldown (see "Pull"). The cap keeps the sleep
+  within a Node timer as well (see "Limits"). A completion that leaves its chat `ready` notifies no
+  one, so the next message of that chat waits for a sleep of at most the cap. The cap is random so
+  that the nodes that sleep the whole cap together, as the ones that skipped the same held chat do,
+  wake up apart.
 - **The wake-up.** The generator starts `LISTEN` on `telegram_outbox_ready`
   (`OutboxStore.listenReady()`) at its start, on the listening connection of the client
   ([`storage.md`](./storage.md), "LISTEN"). A failed start is logged at `warning` and is not

@@ -461,11 +461,13 @@ describe("OutboxStore", function () {
         const SHORTER_PAUSE_MS = PAUSE_MS / 2;
         // A pause that is over by the time the spec sleeps SHORT_PAUSE_MS twice.
         const SHORT_PAUSE_MS = 5;
-        // The cooldown of the specs on the pulls queued behind a slow one: each pull of them starts
-        // more than a cooldown after the one before, and its statement takes far less than a
-        // cooldown. The chat that comes due during a wait does so a cooldown after the push.
+        // The cooldown of the spec on the pulls queued behind a slow one: each pull of it starts more
+        // than a cooldown after the one before, and its statement takes far less than a cooldown.
         const QUEUED_COOLDOWN_MS = 200;
-        const QUEUED_MARGIN_MS = 50;
+        // How long after the push the chat of the spec on a wait for the bot row comes due.
+        const DUE_LATER_MS = 200;
+        // What a spec sleeps past a cooldown or a due time, so that it has passed for the database.
+        const TIMING_MARGIN_MS = 50;
 
         it("gives a chat no message before its interval has passed", async function () {
             const limited = new OutboxStore(database, logger, CHAT_LIMITS, LEASE_DURATION_MS, CLEANUP);
@@ -504,7 +506,7 @@ describe("OutboxStore", function () {
             await limited.pushBatch([message(CHAT, "private"), message(OTHER_CHAT, "group")]);
             await limited.pull(10, WORKER);
 
-            // Both columns are now() of the pull.
+            // Both columns are the time of the pull.
             const rows = await database.sql<{ chat_id: string; moved_ms: number }[]>`
                 SELECT chat_id, extract(epoch FROM next_attempt_at - updated_at)::double precision * ${MS_PER_SECOND} AS moved_ms
                 FROM telegram_outbox_chats
@@ -626,11 +628,11 @@ describe("OutboxStore", function () {
             await other.sql.begin(async (sql) => {
                 expect((await storeOn(sql, queuedLimits).pull(1, WORKER)).messages).to.have.lengthOf(1);
 
-                await sleep(QUEUED_COOLDOWN_MS + QUEUED_MARGIN_MS);
+                await sleep(QUEUED_COOLDOWN_MS + TIMING_MARGIN_MS);
                 const firstQueuedPull = limited.pull(1, WORKER);
                 await waitForLockWaiters(1);
 
-                await sleep(QUEUED_COOLDOWN_MS + QUEUED_MARGIN_MS);
+                await sleep(QUEUED_COOLDOWN_MS + TIMING_MARGIN_MS);
                 const secondQueuedPull = limited.pull(1, WORKER);
                 await waitForLockWaiters(2);
 
@@ -649,7 +651,7 @@ describe("OutboxStore", function () {
 
             await database.sql`
                 UPDATE telegram_outbox_chats
-                SET next_attempt_at = now() + ${QUEUED_COOLDOWN_MS}::double precision * interval '1 millisecond'
+                SET next_attempt_at = now() + ${DUE_LATER_MS}::double precision * interval '1 millisecond'
                 WHERE chat_id = ${CHAT}
             `;
 
@@ -661,7 +663,7 @@ describe("OutboxStore", function () {
                 waiting = store.pull(10, WORKER);
                 await waitForLockWaiters(1);
 
-                await sleep(QUEUED_COOLDOWN_MS + QUEUED_MARGIN_MS);
+                await sleep(DUE_LATER_MS + TIMING_MARGIN_MS);
             });
 
             expect((await waiting).messages.map(({ id }) => id)).to.deep.equal([cameDue]);
@@ -748,7 +750,7 @@ describe("OutboxStore", function () {
             expect((await limited.pull(10, WORKER)).nextPullInMs).to.be.within(PAUSE_MS - ELAPSED_TOLERANCE_MS, PAUSE_MS);
         });
 
-        // Both columns are now() of the last pull that took messages.
+        // Both columns are the time of the last pull that took messages.
         async function nextSendAfterUpdateMs(): Promise<number> {
             const [row] = await database.sql<{ moved_ms: number }[]>`
                 SELECT extract(epoch FROM next_send_at - updated_at)::double precision * ${MS_PER_SECOND} AS moved_ms
@@ -771,7 +773,7 @@ describe("OutboxStore", function () {
 
             const pulled = (await store.pull(10, WORKER)).messages;
             const [lockToken] = pulled.map((pulledMessage) => pulledMessage.lockToken);
-            // Both columns are now() of the pull.
+            // Both columns are the time of the pull.
             const rows = await database.sql<{ chat_id: string; lock_token: string; lease_ms: number }[]>`
                 SELECT chat_id, lock_token, extract(epoch FROM locked_until - updated_at)::double precision * ${MS_PER_SECOND} AS lease_ms
                 FROM telegram_outbox_chats
