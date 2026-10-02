@@ -13,6 +13,7 @@ import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-vali
 import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
 import { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
 import { WoffFontValidator } from "app/font-convertor/validator/woff/woff-font-validator";
+import { EotFontValidator } from "app/font-convertor/validator/eot/eot-font-validator";
 import { NotSfnt } from "app/font-convertor/validator/sfnt/sfnt-font-validator.errors";
 import { InvalidPath, PermissionDenied } from "app/shared/fs/file-helper.errors";
 
@@ -46,6 +47,7 @@ describe("FontConvertor", function () {
                 new SvgFontValidator(),
                 new WoffFontValidator(new SfntFontValidator()),
                 new SfntFontValidator(),
+                new EotFontValidator(),
             ),
             new EotPacker(),
         );

@@ -45,12 +45,12 @@ pair class gets what it does not need:
   eight pairs. Their bodies live in `ToEotConvertor` and `FromEotConvertor`. The eight classes
   are empty except for declaring the missing extension.
 
-`EotPacker` (`eot-packer/`) is one of the four places on the conversion path where the domain parses
-the content of a font, not just its first bytes; the others are the SVG, WOFF and sfnt validators
-below. The EOT header duplicates the metadata of the enclosed font. `SfntReader` takes it from the
-`OS/2`, `head` and `name` tables. The envelope holds four names, in UTF-16LE. The slant is taken
-from `OS/2.fsSelection`, not from `head.macStyle`, which duplicates it. `ttf2eot` does the same.
-Besides, in `macStyle` the slant is bit 1, and bit 1 of `fsSelection` means something else.
+`EotPacker` (`eot-packer/`) is one of the five places on the conversion path where the domain parses
+the content of a font, not just its first bytes; the others are the SVG, WOFF, EOT and sfnt
+validators below. The EOT header duplicates the metadata of the enclosed font. `SfntReader` takes it
+from the `OS/2`, `head` and `name` tables. The envelope holds four names, in UTF-16LE. The slant is
+taken from `OS/2.fsSelection`, not from `head.macStyle`, which duplicates it. `ttf2eot` does the
+same. Besides, in `macStyle` the slant is bit 1, and bit 1 of `fsSelection` means something else.
 
 Names are read from the Windows platform, failing that from Unicode, then from Macintosh. On
 Macintosh only `encodingId 0` is read: only that one is single-byte MacRoman, the other records hold
@@ -60,19 +60,21 @@ because a font does not guarantee the order of its records.
 The names are informational, so the codec never rejects a font over a missing name: the matching
 envelope field stays empty. That holds for a missing record, a missing `name` table, and a string
 past the declared end of the table or past the end of the file. A TTF source without the `name`
-table does not reach the codec: `SfntFontValidator` below rejects it, since OpenType requires the
-table. So the tolerance for a missing table serves the intermediate sfnt the engine writes, while a
-missing record or a string out of bounds is packed from a source too.
+table, or with a non-empty string past its end, does not reach the codec: `SfntFontValidator`
+below rejects it. So the tolerance for a missing table and for a non-empty string out of bounds
+serves the intermediate sfnt the engine writes, while a missing record or an empty string out of
+bounds is packed from a source too.
 
 `eot-packer.ts` writes version `0x00020001`. The header is read through `EotHeader`
 (`font-convertor/eot-header/`), which lays out the fixed part, the names and the tail of every
 version, and where the font lies. It rejects only what leaves it nothing to read, an empty
 `FontDataSize` included, and exposes the rest: the codec itself checks the magic number, `EOTSize`,
 the flags and that the names end before the font. `EotHeader` lies outside `eot-packer/` because the
-codec is not meant to be its only reader: a second parse of the same header would be a second copy
-of one format rule. A compressed (`TTEMBED_TTCOMPRESSED`) or encrypted (`TTEMBED_XORENCRYPTDATA`)
-payload is rejected with an explicit `UnsupportedEotFlags` error; the codec does not try to parse
-it.
+codec is not its only reader: `EotFontValidator` below reads it too, and a second parse of the same
+header would be a second copy of one format rule. The mask of the two flags below is a constant of
+`EotHeader` for the same reason. A compressed (`TTEMBED_TTCOMPRESSED`) or encrypted
+(`TTEMBED_XORENCRYPTDATA`) payload is rejected with an explicit `UnsupportedEotFlags` error; the
+codec does not try to parse it.
 
 ## Running the engine
 
@@ -85,21 +87,21 @@ script text.
 
 ## Signatures
 
-The source format is checked twice: by the extension of the name and by the content. The content
-is checked by a `FontValidator` (`validator/`), each of which knows one format.
+The source format is checked twice: by the extension of the name and by the content. The content is
+checked by a `FontValidator` (`validator/`), each of which knows one format.
 `FontValidatorResolver`, a singleton in the container, holds one validator per format and gives a
 pair the one of its source format, so a pair holds the resolver and none of the checks. It builds
-the signature validators itself; the SVG, WOFF and sfnt ones come from the container. For two
-formats the validator is `SignatureFontValidator`: the first `headLength` bytes of the file against
-the signature (`FontSignatureMatcher`, a singleton in the container). SVG has no signature: its
-first bytes could say at most "this is markup", not "this is a font", so `SvgFontValidator` below
-reads the whole document instead. WOFF has one, `wOFF`, and TTF and OTF have one, the sfnt version,
-but each is only the first rule of its container: `WoffFontValidator` and `SfntFontValidator` below
-check it together with the rest, so `FontSignatureMatcher` does not know them. The name is set by
-whoever sent the file, so the extension alone cannot be trusted. The code recognises the formats
-itself, without an external tool. `file --mime-type` gives no usable answer for three of the five
-binary formats: none at all for EOT, and for TTF and OTF the answer also depends on the libmagic
-version.
+the signature validator itself; the SVG, WOFF, EOT and sfnt ones come from the container. For one
+format, WOFF2, the validator is `SignatureFontValidator`: the first `headLength` bytes of the file
+against the signature (`FontSignatureMatcher`, a singleton in the container). SVG has no signature:
+its first bytes could say at most "this is markup", not "this is a font", so `SvgFontValidator`
+below reads the whole document instead. WOFF has one, `wOFF`, EOT has one, `MagicNumber` at offset
+34, and TTF and OTF have one, the sfnt version, but each is only the first rule of its container:
+`WoffFontValidator`, `EotFontValidator` and `SfntFontValidator` below check it together with the
+rest, so `FontSignatureMatcher` does not know them. The name is set by whoever sent the file, so the
+extension alone cannot be trusted. The code recognises the formats itself, without an external tool.
+`file --mime-type` gives no usable answer for three of the five binary formats: none at all for EOT,
+and for TTF and OTF the answer also depends on the libmagic version.
 
 The content does not tell TTF from OTF. Both use the sfnt container, and the sfnt version names
 the outline type, not the extension. Outlines of either type are legal under both names. So both
@@ -258,22 +260,59 @@ converts them; the content of the metadata block, which §7 tells a user agent t
 invalid; and the flavor against the outline tables, since the sfnt validator does not tie the
 version to the outlines.
 
+## The EOT validator
+
+`EotFontValidator` (`validator/eot/`, a singleton in the container) reads the whole file and checks
+the envelope against W3C Member Submission "Embedded OpenType (EOT) File Format" (5 March 2008): the
+fixed part of the header (§3), the blocks of its version (§3.1–§3.3), that the font follows the
+header directly and ends the file (§3), and `RootStringCheckSum` of version `0x00020002` (§4.3.2).
+It reads the header through `EotHeader` (see "EOT"). `FontValidatorResolver` gives it out for an EOT
+source in place of the signature, and its answer reaches the caller the way the SVG one does: as the
+cause of `FontConvertorError`, before the codec is called. The validator exists because neither the
+codec nor the engine refuses a broken envelope: of 27 variants of the fixture, each breaking one
+rule of the submission, `EotPacker.unpack()` rejected 12, and fontforge 20230101 converted the other
+15 with exit 0 and every glyph, since it never sees the envelope
+([#617](https://github.com/yuldashevsardor/telegram-bot/issues/617)). On `eot → ttf` the engine is
+not called at all.
+
+It answers with a subclass of `InvalidEotFont` (`eot-font-validator.errors.ts`): `NotEot` for a file
+shorter than the 82-byte fixed part of the header or without the `MagicNumber`, `BrokenEot` for the
+first broken rule. The order in which the rules are checked is in the comment of `validate()`. A
+file that cannot be read fails with `ReadFailed` of `FileHelper`, not with an answer about the font.
+Every answer names the source in `path` of its payload. Nothing in the answers is cut: the only
+things from the file they quote are numbers. Two answers keep another error as the cause: a file
+that ends inside a field the parse reads (the Padding or the size of a block, or `EUDCFlags` and
+`EUDCFontSize` of version `0x00020002`) keeps the `InvalidEot` of `EotHeader`, and the enclosed font
+keeps the `InvalidSfnt` of the codec.
+
+The rules are `EotRule` in `eot-font-validator.types.ts`, each with its section. One is ours, not
+the submission's, and its text says why: a payload compressed with MicroType Express
+(`TTEMBED_TTCOMPRESSED`) or XOR-encrypted (`TTEMBED_XORENCRYPTDATA`) is rejected, since the codec
+takes out only a raw sfnt, while the submission asks a user agent to decompress (§2.3). Of 367 real
+EOT files from npm packages the validator accepts 247 and rejects 120, all of them by this rule. The
+enclosed font gets the check the codec makes on unpacking, where `SfntReader.validate` parses its
+table directory: the validator parses it with the same `SfntTableDirectory`, which checks the size
+of the sfnt header, its version and that the table records fit.
+
+`EotPacker.unpack()` keeps its own checks as they were. Every source it unpacks has passed the
+validator first.
+
+What is deliberately not checked, with the reasons, is in the class comment of `EotFontValidator`.
+
 ## The sfnt validator
 
 `SfntFontValidator` (`validator/sfnt/`, a singleton in the container) reads the whole file and
 checks it, or takes from `WoffFontValidator` (above) the bytes of the sfnt a WOFF carries, and
 checks them against the Microsoft OpenType specification 1.9.1 and, for what it governs, Apple's
 TrueType Reference Manual: the table directory ("Table Directory"), the tables a font must have
-("Required Tables"), the fields of `head`, `maxp`, `hhea`, `hmtx` and `loca` that give the glyph
-count, where each glyph's metrics lie and, with TrueType outlines, where its outline lies, and the
-version of `cmap`, `name`, `OS/2` and `post` with whether the headers and records of `cmap` and
-`name`, the fields of the `OS/2` version and the 32-byte header of `post` fit into the table (each
-table by its own section). `FontValidatorResolver` gives it out for a TTF and an OTF source alike,
-and its answer reaches the caller the way the SVG one does: as the cause of `FontConvertorError`,
-before the engine is called. The engine's TTF and OTF output is not checked. The validator exists
-because the engine does not refuse a broken sfnt: of 104 variants of the fixtures, each broken in
-one place, fontforge 20230101 converted 79 with exit 0, 9 of them losing glyphs or outlines, and
-crashed on 8 with SIGSEGV ([#614](https://github.com/yuldashevsardor/telegram-bot/issues/614)).
+("Required Tables"), and the fields of each table by its own section. Which fields of which tables
+it reads is in the class comment of `SfntFontValidator`. `FontValidatorResolver` gives it out for a
+TTF and an OTF source alike, and its answer reaches the caller the way the SVG one does: as the
+cause of `FontConvertorError`, before the engine is called. The engine's TTF and OTF output is not
+checked. The validator exists because the engine does not refuse a broken sfnt: of 104 variants of
+the fixtures, each broken in one place, fontforge 20230101 converted 79 with exit 0, 9 of them
+losing glyphs or outlines, and crashed on 8 with SIGSEGV
+([#614](https://github.com/yuldashevsardor/telegram-bot/issues/614)).
 `ttf → eot` does not reach the engine at all: `EotPacker.pack` reads `OS/2`, `head` and `name` and
 packs whatever else the font holds.
 
@@ -319,14 +358,27 @@ the engine forgives, but the standard does not. The length of `hmtx` and of `loc
 an exact size: none of the 297 real fonts with TrueType outlines measured has either table longer
 than its fields, so the stricter form would buy nothing.
 
-The rules on `cmap`, `name`, `OS/2` and `post` do not read what the records point to: neither the
-content of a `cmap` subtable, nor the strings of `name`, nor the glyph names of `post` 2.0 and 2.5.
-The engine converts every break they catch keeping every glyph, and some of them lose content
-([#683](https://github.com/yuldashevsardor/telegram-bot/issues/683)): a `cmap` without subtables or
-with a subtable offset past the table loses the encoding, with "Could not find any valid encoding
-tables"; a `name` with 60000 records gives "Invalid mac encoding 65535". The length `OS/2` needs by
-its version, and why version 0 passes shortened, is in the comment of `OS2_LENGTHS_BYTES` in
-`SfntFontValidator`.
+The rules on `cmap`, `name`, `OS/2` and `post` check where the records point, not what lies there:
+neither the content of a `cmap` subtable past its format and length, nor the text of a `name`
+string, nor the glyph names of `post` 2.0 and 2.5 past their index. Every break they catch the
+engine either converts keeping every glyph, some of them losing content, or crashes on
+([#683](https://github.com/yuldashevsardor/telegram-bot/issues/683),
+[#752](https://github.com/yuldashevsardor/telegram-bot/issues/752)): a `cmap` without subtables, or
+whose every subtable offset points into its header and records or past where the fields of a
+subtable up to its length fit, loses the encoding, with "Could not find any valid encoding tables";
+a `name` with 60000 records gives "Invalid mac encoding 65535"; a `name` string past the table
+crashed fontforge with SIGSEGV in every conversion in 7 of the 14 variants measured and put foreign
+bytes into the full name in 2; a `post` 2.0 cut to its 32-byte header renames 399 glyphs of the
+TrueType fixture, those without an encoding, to `glyphN`; an undefined format over the Unicode
+subtable of the fixture leaves 225 of its 893 encoded glyphs, those of the Macintosh one. Some
+breaks the rules follow the standard on, not the engine: `name` records that run into the string
+storage convert with nothing lost, and so does a `cmap` subtable whose length runs past `cmap`, up
+to 65535 for format 4, or a `cmap` whose one record points 2 bytes into its header while another
+Unicode record holds; pointing at 0 or 4, one such record already loses the encoding. An empty
+`name` string is not held to the table: it has no byte to read, and the engine converts it at any
+offset. None of these rules rejects a font of the 242 in the macOS system font folders, which the
+validator walks in 0.3 s. The length `OS/2` needs by its version, and why version 0 passes
+shortened, is in the comment of `OS2_LENGTHS_BYTES` in `SfntFontValidator`.
 
 What is deliberately not checked, with the reasons, is in the class comment of
 `SfntFontValidator`: the table checksums and `head.checkSumAdjustment`, which the engine does not
@@ -350,16 +402,19 @@ not count as supported.
   is rebuilt from them on it. The 32 MiB cap bounds the inflated tables, not the file, and the
   rebuilt sfnt is a second copy of them of the same size. A TTF or OTF source is read whole as well,
   and its table directory and every `loca` offset are walked on the event loop, as they are for the
-  sfnt a WOFF carries. The other formats read `headLength` bytes. Nothing measured the cost yet.
+  sfnt a WOFF carries. An EOT source is read whole too, and its header is walked on the event loop.
+  A WOFF2 source reads `headLength` bytes. Nothing measured the cost yet.
 - `/font_generator` converts the fixed `test/fixtures/fonts/test-font.woff` into
   EOT/OTF/TTF/WOFF2. It answers with the **path** to the file as text; the file itself is not
   sent. A caught conversion error is written at `error` level through `Logger`
   ([`logging.md`](./logging.md)). The command is for debugging and does not go to production
   ([overview](./README.md)), so its input from the `test/` directory stays as it is.
 - The codec does not read the EOT envelope through. It parses the names (`EotHeader.readNames()`),
-  then takes the font as the tail of the file by `FontDataSize`. The bytes between the parsed header
-  and the font are not checked, in any version: only a header running past the font start is
-  rejected. In version `0x00020002` the tail (a signature, embedded EUDC) lies there.
+  then takes the font as the tail of the file by `FontDataSize`: it does not read the tail of
+  version `0x00020002` and lets any bytes between the names and the font through, rejecting only a
+  header that runs past the font start. A source is checked before that: `EotFontValidator` requires
+  the font to follow the header directly. So the gap matters only for an envelope that bypasses the
+  validator, and no route of the domain unpacks one.
 - An envelope built by `EotPacker` repeats the output of `ttf2eot` byte for byte, except for
   `fsType`. `ttf2eot` always writes zero there, declaring any font free to install. We carry
   `OS/2.fsType` over as is, following the specification. The byte-for-byte comparison test with

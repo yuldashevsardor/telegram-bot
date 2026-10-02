@@ -7,7 +7,7 @@ import type { SignedExtension } from "app/font-convertor/signature-matcher/font-
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 const fontSignatureMatcher = new FontSignatureMatcher();
-const signedExtensions: Array<SignedExtension> = [Extension.WOFF2, Extension.EOT];
+const signedExtensions: Array<SignedExtension> = [Extension.WOFF2];
 
 describe("FontSignatureMatcher.matches", function () {
     const heads = new Map<Extension, Uint8Array>();
@@ -36,7 +36,6 @@ describe("FontSignatureMatcher.matches", function () {
         // A shifted head would turn the check into a search for the marker anywhere.
         expect(fontSignatureMatcher.matches(concat("\n", "wOF2"), Extension.WOFF2)).to.be.false;
         expect(fontSignatureMatcher.matches(concat([0xef, 0xbb, 0xbf], "wOF2"), Extension.WOFF2)).to.be.false;
-        expect(fontSignatureMatcher.matches(concat("\n", head(Extension.EOT)), Extension.EOT)).to.be.false;
     });
 
     it("rejects arbitrary bytes named as a font", function () {
@@ -51,8 +50,6 @@ describe("FontSignatureMatcher.matches", function () {
 
     it("rejects a file shorter than the signature", function () {
         expect(fontSignatureMatcher.matches(ascii("wO"), Extension.WOFF2)).to.be.false;
-        // The EOT marker lies at offset 34, which a truncated header does not reach.
-        expect(fontSignatureMatcher.matches(head(Extension.EOT).subarray(0, 20), Extension.EOT)).to.be.false;
     });
 
     it("rejects an empty file", function () {

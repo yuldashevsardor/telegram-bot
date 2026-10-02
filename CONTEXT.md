@@ -63,17 +63,16 @@ a different thing.
 The suffix of a file name. It is the first of the two signs by which the domain determines the
 format of a font. The extension is a statement about the name of the file, not about its bytes, and
 whoever sent the file sets it. So the extension alone is not enough for the domain: it is checked
-against the format signature, and an SVG, a WOFF, a TTF or an OTF against the validation of the
-whole file.
+against the format signature, and an SVG, a WOFF, an EOT, a TTF or an OTF against the validation of
+the whole file.
 _Avoid_: format. An extension is a way to learn the format, not the format itself.
 
 **Format signature**:
 Known bytes in the head of a font by which the format is recognised in the file itself rather than
-in its name. They do not necessarily start at the first byte. In EOT the marker lies at a fixed
-offset inside the header. The signature is the second sign of the format: the extension and the
-signature have to agree, otherwise the font is not admitted to conversion. A signature does not tell
-every pair of formats apart. TTF and OTF lie in a shared container and are indistinguishable by
-content. SVG has no signature, and the WOFF one and the TTF and OTF one, the sfnt version, are not
+in its name. The signature is the second sign of the format: the extension and the signature have
+to agree, otherwise the font is not admitted to conversion. A signature does not tell every pair of
+formats apart. TTF and OTF lie in a shared container and are indistinguishable by content. SVG has
+no signature, and the WOFF one, the EOT one and the TTF and OTF one, the sfnt version, are not
 checked on their own: the format of each is confirmed by validating the whole file. How the check
 works is in `docs/architecture/font-convertor.md`.
 _Avoid_: MIME type, magic bytes, content type.
@@ -115,11 +114,10 @@ as the same bytes, but it does not tell styles apart and cannot select a font by
 
 **Glyphs and metrics**:
 Not part of the domain. From a font the service reads the format signature; the metadata for the
-envelope; in a WOFF the rules of its container; in a TTF, an OTF and the sfnt a WOFF carries the
-table directory, which tables it holds, the glyph count, where each glyph's metrics lie, with
-TrueType outlines where its outline lies, and the version of `cmap`, `name`, `OS/2` and `post` with
-whether the headers and records of `cmap` and `name`, the fields of the `OS/2` version and the
-32-byte header of `post` fit into the table; and in an SVG the rules of an SVG font, which reach the
-glyph advances and the syntax of the outlines too. It does not interpret the outlines, so it can
-neither list the glyphs nor compare them before and after a conversion. The domain currently
-neither expresses nor checks whether glyphs and metrics survive a conversion.
+envelope; in a WOFF the rules of its container; in an EOT the rules of its envelope; in a TTF, an
+OTF and the sfnt a WOFF carries the table directory, which tables it holds, the glyph count and
+whether most of what the required tables point to, such as each glyph's metrics and outline, lies
+inside them; and in an SVG the rules of an SVG font, which reach the glyph advances and the syntax
+of the outlines too. It does not interpret the outlines, so it can neither list the glyphs nor
+compare them before and after a conversion. The domain currently neither expresses nor checks
+whether glyphs and metrics survive a conversion.
