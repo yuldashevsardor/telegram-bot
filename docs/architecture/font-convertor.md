@@ -184,11 +184,14 @@ which file was rejected.
   namespace, so a font node has no prefixed attribute at all, whatever its name: a namespace
   declaration is no attribute. And a `glyph` or `missing-glyph` has no child elements: without `d`
   fontforge draws the glyph from its children as any SVG (`SVGParseGlyphBody` hands the glyph to
-  `_SVGParseSVG`: shapes, `use`, `style`, `transform`, by the local name), past every rule here, and
-  next to `d` it drops them, while SVG 1.1 draws both. The rule takes `title` and `desc` too. None
-  of the six icon fonts checked for #766 (Font Awesome 4.7 and 5, Glyphicons, Ionicons, Material
-  Design Icons, Weather Icons; about 5,000 glyphs) has a child element in a glyph, a prefixed
-  attribute on a font node or an internal subset. Measured on 20230101
+  `SVGParseSVG`: `g`, `use`, the shapes and `image` by the local name), past every rule here, and
+  next to `d` it drops them, while SVG 1.1 draws both. The rule takes `title` and `desc` too, and
+  it rejects what fontforge itself exports with children (`svg_scpathdump`): a stroked font, whose
+  glyph is a `g` around a `path`, and a multilayer one, whose glyph is nested `g`, `path` and
+  `image` without `d`. The owner took that price for the narrowest rule. None of the six icon fonts
+  checked for #766 (Font Awesome 4.7 and 5, Glyphicons, Ionicons, Material Design Icons, Weather
+  Icons; about 5,000 glyphs) has a child element in a glyph, a prefixed attribute on a font node or
+  an internal subset. Measured on 20230101
   ([#756](https://github.com/yuldashevsardor/telegram-bot/issues/756),
   [#766](https://github.com/yuldashevsardor/telegram-bot/issues/766)): an `x:glyph` with
   `d="garbage"` in a valid font, an `x:d="garbage"` before a valid `d`, or a default `d="garbage"`
@@ -232,10 +235,10 @@ This holds for every piece quoted from the file in the payload and in the `NotXm
 is not text from the file and is not cut. The `NotSvg` and `BrokenFont` messages escape what they
 quote with `JSON.stringify`, which can make it longer. The `BrokenFont` value is escaped inside its
 quotes, and its `…` stands outside them, where the escaped value cannot reach. The quoted element or
-root is escaped without the quotes, so that a line break in a namespace does not split the message,
-and a `}` in a namespace stays, since the local name follows the last one; there the length tells
-nothing, and the payload, which keeps the quote unescaped, tells a cut piece. The payload also keeps
-the length before the cut:
+root is escaped without the quotes, so that an XML line end in a namespace does not split the
+message, and a `}` in a namespace stays, since the local name follows the last one; there the length
+tells nothing, and the payload, which keeps the quote unescaped, tells a cut piece. The payload also
+keeps the length before the cut:
 `valueLength` of the value, which, like the length of `value`, tells a cut value, and `rootLength`
 of the whole root, which does not say which of its two pieces was cut. The element and the
 attribute name keep none.

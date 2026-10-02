@@ -47,6 +47,10 @@ export class SvgFontValidator implements FontValidator {
         ["xlink", SvgFontValidator.XLINK_NAMESPACE],
     ]);
 
+    // A quoted literal of a DOCTYPE: saxes pairs the quotes this way, so a bracket inside one is no
+    // part of the markup.
+    private static readonly QUOTED_LITERAL = /"[^"]*"|'[^']*'/g;
+
     // The attribute form of <number> (§4.2): unlike path data, `5.` is not a number here.
     private static readonly NUMBER = /^[+-]?(?:\d+|\d*\.\d+)(?:[Ee][+-]?\d+)?$/;
     // The attributes of type <number>: §20.4 for `glyph`, the same for `missing-glyph` (§20.5), and
@@ -161,7 +165,7 @@ export class SvgFontValidator implements FontValidator {
         // does not read it, so a default `d` of every glyph would pass unseen. The subset opens with
         // the first `[` outside the quoted literals of the external ID: a name holds no `[`. saxes
         // lets text after the subset through, so its end is no sign.
-        if (doctype.replace(/"[^"]*"|'[^']*'/g, "").includes("[")) {
+        if (doctype.replace(SvgFontValidator.QUOTED_LITERAL, "").includes("[")) {
             this.report(scan, FontRule.NoInternalSubset, "!DOCTYPE", line);
         }
     }

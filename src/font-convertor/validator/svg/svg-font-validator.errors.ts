@@ -38,10 +38,12 @@ export class InvalidSvgFont extends RuntimeError {
     }
 
     /**
-     * Escapes a quoted element for a message as in a JSON string, without the quotes, so that a
-     * line break in a namespace does not split the message. A name holds nothing the escape
-     * touches, and a `}` in a namespace stays: a local name holds none and follows the last one.
-     * The payload keeps the quote unescaped, so that there its length still tells a cut piece.
+     * Escapes a quoted element for a message as in a JSON string, without the quotes, so that an
+     * XML line end, LF or CR, in a namespace does not split the message. U+0085, U+2028 and U+2029
+     * stay, as in the escaped value: XML 1.0 takes none of them for a line end. A name holds
+     * nothing the escape touches, and a `}` in a namespace stays: a local name holds none and
+     * follows the last one. The payload keeps the quote unescaped, so that there its length still
+     * tells a cut piece.
      */
     protected static escapeForMessage(quoted: string): string {
         return JSON.stringify(quoted).slice(1, -1);
