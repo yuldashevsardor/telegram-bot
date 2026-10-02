@@ -19,8 +19,10 @@ export enum FontRule {
     PathData = "d of a glyph or missing-glyph is path data (SVG 1.1, §8.3.9, §20.4, §20.5)",
     GlyphRequired = "font has a glyph child (ours: fontforge turns a font without glyphs into an empty one)",
     SingleFont = "the document has one font element (ours: fontforge converts the first of several and drops the rest)",
-    SvgNamespaceOnly = "font, font-face, glyph and missing-glyph name only elements in the SVG namespace (ours: fontforge reads a node of these names in any namespace, and a processing instruction by its target)",
-    UnprefixedAttribute = "an attribute the rules read has no prefix (ours: fontforge reads the first attribute of that local name, in any namespace)",
+    SvgNamespaceOnly = "the name of a font node is given only to an element in the SVG namespace (ours: fontforge reads a node of that name in any namespace, and a processing instruction by its target)",
+    UnprefixedAttribute = "a font node has no prefixed attribute (ours: fontforge reads the first attribute of a local name, in any namespace)",
+    ChildlessGlyph = "glyph and missing-glyph have no child elements (ours: fontforge draws a glyph without d from its children as any SVG, and drops them next to d)",
+    NoInternalSubset = "the DOCTYPE has no internal subset (ours: fontforge takes attribute defaults from it, which the validator does not read)",
 }
 
 /**
@@ -47,7 +49,7 @@ export type OpenElement = {
  */
 export type Violation = {
     rule: FontRule;
-    /** The local name of an element, or a processing instruction as its answer quotes it, `?target?`. */
+    /** The local name of an element, or as the answer quotes it a processing instruction, `?target?`, or the DOCTYPE, `!DOCTYPE`. */
     element: string;
     /** The namespace of an element outside the SVG one, `undefined` otherwise: the answer then quotes the element in Clark notation. */
     namespace: string | undefined;

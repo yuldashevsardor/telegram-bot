@@ -170,22 +170,37 @@ which file was rejected.
   `glyph` count only as direct children of `font` in the SVG namespace, and only unprefixed
   attributes are attributes of these elements. The rules are `FontRule` in
   `svg-font-validator.types.ts`; the text of each names its section, or says "ours" where fontforge
-  asks more than the specification. Two of ours look at the whole document. It holds one `font`: a
-  second font is the case of the `ttcf` collection above, fontforge 20230101 silently converts the
-  first and drops the rest ([#664](https://github.com/yuldashevsardor/telegram-bot/issues/664)). And
-  the names of the font nodes, `FONT_NODE_NAMES` of `SvgFontValidator`, appear in it only on
+  asks more than the specification. Three of ours look at the whole document. It holds one `font`:
+  a second font is the case of the `ttcf` collection above, fontforge 20230101 silently converts the
+  first and drops the rest ([#664](https://github.com/yuldashevsardor/telegram-bot/issues/664)).
+  The names of the font nodes, `FONT_NODE_NAMES` of `SvgFontValidator`, appear in it only on
   elements of the SVG namespace. fontforge finds these nodes by the local name alone
   (`_FindSVGFontNodes` and `SVGParseFont` of its `svg.c`), so it reads an element of any namespace
-  and a processing instruction by its target as one of them, past the rules above. It reads their
-  attributes by the local name too (libxml2 `xmlGetProp`), the first one in any namespace, so a
-  prefixed attribute of a name a rule reads breaks one more rule of ours. Measured on 20230101
-  ([#756](https://github.com/yuldashevsardor/telegram-bot/issues/756)): an `x:glyph` with
-  `d="garbage"` in a valid font, or an `x:d="garbage"` before a valid `d`, sends fontforge into a
-  loop that prints `Unknown type 'g' found in path specification` without end, and an
-  `x:font-face` without `units-per-em` or a `<?font?>` before the font fails its open. The node
-  rule holds in the prologue too, though fontforge reads only below the root: no real font holds
-  such a node. A foreign element is quoted in Clark notation, `{urn:x}glyph`, so that it does not
-  read as an SVG one, an instruction as `?font?`, and a prefixed attribute by its qualified name.
+  and a processing instruction by its target as one of them, past the rules above. And its DOCTYPE
+  has no internal subset: libxml2 gives fontforge the attribute defaults the subset declares, while
+  saxes does not read it, so `<!ATTLIST glyph d CDATA "garbage">` would hand every glyph an outline
+  the validator never sees. Two more of ours hold for the font nodes the rules check. fontforge
+  reads their attributes by the local name too (libxml2 `xmlGetProp`), the first one in any
+  namespace, so a font node has no prefixed attribute at all, whatever its name: a namespace
+  declaration is no attribute. And a `glyph` or `missing-glyph` has no child elements: without `d`
+  fontforge draws the glyph from its children as any SVG (`SVGParseGlyphBody` hands the glyph to
+  `_SVGParseSVG`: shapes, `use`, `style`, `transform`, by the local name), past every rule here, and
+  next to `d` it drops them, while SVG 1.1 draws both. The rule takes `title` and `desc` too. None
+  of the six icon fonts checked for #766 (Font Awesome 4.7 and 5, Glyphicons, Ionicons, Material
+  Design Icons, Weather Icons; about 5,000 glyphs) has a child element in a glyph, a prefixed
+  attribute on a font node or an internal subset. Measured on 20230101
+  ([#756](https://github.com/yuldashevsardor/telegram-bot/issues/756),
+  [#766](https://github.com/yuldashevsardor/telegram-bot/issues/766)): an `x:glyph` with
+  `d="garbage"` in a valid font, an `x:d="garbage"` before a valid `d`, or a default `d="garbage"`
+  from the internal subset sends fontforge into a loop that prints
+  `Unknown type 'g' found in path specification` without end; an `x:font-face` without
+  `units-per-em` or a `<?font?>` before the font fails its open; a `<path d="garbage"/>` in a glyph
+  without `d`, or a `use` that refers to its own parent, kills it with a segmentation fault; and an
+  `x:unicode="b"` before `unicode="a"`, or a default `unicode` from the subset, maps the glyph to
+  `b` without a word. The node rule holds in the prologue too, though fontforge reads only below
+  the root: no real font holds such a node. A foreign element is quoted in Clark notation,
+  `{urn:x}glyph`, so that it does not read as an SVG one, an instruction as `?font?`, the DOCTYPE as
+  `!DOCTYPE`, and a prefixed attribute by its qualified name.
   The outline, `d` of `glyph` and `missing-glyph`, is checked by `isPathData()` (`path-data.ts`)
   against the path data grammar of §8.3.9, which §20.4 gives it. Numbers there are read greedily,
   as §8.3.9 requires ("must consume as much of a given BNF production as possible"), and `1.` is a
@@ -209,15 +224,17 @@ from the file, and a cause reaches the log uncut.
 
 Text from the file reaches the log through the answers, so each piece of it is cut
 (`svg-font-validator.errors.ts`): the saxes message to `MAX_PARSER_MESSAGE_LENGTH` UTF-16 units, the
-namespace and the local name of a `NotSvg` root and of a `BrokenFont` element in Clark notation, and
-the attribute name and value of a `BrokenFont`, each to `MAX_QUOTED_LENGTH`. A cut piece ends with
-`…`, which makes it one unit longer than an uncut piece can be: that, not the text, tells it from a
-piece that ends with `…` itself.
+namespace and the local name of a `NotSvg` root and of a `BrokenFont` element, the prefix and the
+local name of a `BrokenFont` attribute, and its value, each to `MAX_QUOTED_LENGTH`. A cut piece
+ends with `…`, which makes it one unit longer than an uncut piece can be: that, not the text, tells
+it from a piece that ends with `…` itself.
 This holds for every piece quoted from the file, in the payload, in the `NotXml` and `NotSvg`
 messages and for the element in the `BrokenFont` one; `path` is not text from the file and is not
 cut. The `BrokenFont` message escapes the kept value with
 `JSON.stringify`, which can make it longer, so there the `…` stands outside the quotes, where the
-escaped value cannot reach. The payload also keeps the length before the cut:
+escaped value cannot reach. The kept namespace of a Clark name is escaped the same way, without the
+quotes, so that a line break in it does not split the message; a `}` in it stays, since the local
+name follows the last one. The payload also keeps the length before the cut:
 `valueLength` of the value, which, like the length of `value`, tells a cut value, and `rootLength`
 of the whole root, which does not say which of its two pieces was cut. The element and the
 attribute name keep none.

@@ -129,11 +129,20 @@ describe("SvgFontValidator.validate", function () {
             );
         });
 
-        it("ignoring prefixed attributes no rule reads and elements outside a font", async function () {
+        it("ignoring namespace declarations and elements outside a font", async function () {
             // A namespace declaration is no attribute, and a glyph outside a font is no part of it.
-            await validate(inline(`<font horiz-adv-x="500" xmlns:x="urn:x" x:label="-1">${FONT_FACE}${GLYPH}</font>`));
             await validate(inline(`<font horiz-adv-x="500">${FONT_FACE}<glyph xmlns:d="urn:x" d="M0 0"/></font>`));
             await validate(inline(`<glyph horiz-adv-x="-1"/>${FONT}`));
+            await validate(inline(`<g><glyph x:d="garbage" xmlns:x="urn:x"><path d="garbage"/></glyph></g>${FONT}`));
+        });
+
+        it("with a DOCTYPE that has no internal subset", async function () {
+            await validate(`<!DOCTYPE svg>\n${inline(FONT)}`);
+            await validate(`<!DOCTYPE svg SYSTEM "a]" >\n${inline(FONT)}`);
+        });
+
+        it("with text inside a glyph", async function () {
+            await validate(inline(`<font horiz-adv-x="500">${FONT_FACE}<glyph d="M0 0"> </glyph></font>`));
         });
     });
 
@@ -293,6 +302,9 @@ describe("SvgFontValidator.validate", function () {
                 [`<x xmlns="urn:${"a".repeat(61)}"/>`, `{urn:${"a".repeat(60)}…}x`, 68],
                 // A namespace may hold `}`, a local name may not: the name follows the last one.
                 [`<x xmlns="urn:}${"a".repeat(100)}"/>`, `{urn:}${"a".repeat(59)}…}x`, 108],
+                // The namespace is escaped, so that a line break does not split the quote.
+                [`<x xmlns="urn:a&#10;b\\c"/>`, String.raw`{urn:a\nb\\c}x`, 12],
+                [`<x xmlns="urn:${"\\".repeat(70)}"/>`, `{urn:${"\\\\".repeat(60)}…}x`, 77],
             ];
 
             for (const [document, quoted, rootLength] of cases) {
@@ -527,7 +539,7 @@ describe("SvgFontValidator.validate", function () {
 
         describe("to a font node name outside the SVG namespace", function () {
             const rule =
-                "font, font-face, glyph and missing-glyph name only elements in the SVG namespace (ours: fontforge reads a node of these names in any namespace, and a processing instruction by its target)";
+                "the name of a font node is given only to an element in the SVG namespace (ours: fontforge reads a node of that name in any namespace, and a processing instruction by its target)";
 
             for (const name of ["font", "font-face", "glyph", "missing-glyph"]) {
                 it(`on a ${name} element, quoted in Clark notation`, async function () {
@@ -599,11 +611,19 @@ describe("SvgFontValidator.validate", function () {
 
                 expect(error.payload).to.include({ element: `{urn:${"a".repeat(60)}…}glyph` });
             });
+
+            it("quoting the namespace escaped", async function () {
+                await expectAnswer(
+                    inline(`${FONT}\n<x:glyph xmlns:x="urn:a&#10;b"/>`),
+                    BrokenFont,
+                    String.raw`SVG font breaks a rule: ${rule}. At line 3: <{urn:a\nb}glyph>.`,
+                );
+            });
         });
 
-        describe("to a prefixed attribute of a name a rule reads", function () {
+        describe("to a prefixed attribute of a font node", function () {
             const rule =
-                "an attribute the rules read has no prefix (ours: fontforge reads the first attribute of that local name, in any namespace)";
+                "a font node has no prefixed attribute (ours: fontforge reads the first attribute of a local name, in any namespace)";
 
             it("before a valid unprefixed one", async function () {
                 // fontforge takes the garbage outline here and loops on it.
@@ -624,6 +644,20 @@ describe("SvgFontValidator.validate", function () {
                 });
             });
 
+            it("of a name no rule reads", async function () {
+                // fontforge maps this glyph to "b".
+                await expectAnswer(
+                    inline(`<font horiz-adv-x="500">${FONT_FACE}<glyph xmlns:x="urn:x" x:unicode="b" unicode="a"/></font>`),
+                    BrokenFont,
+                    `SVG font breaks a rule: ${rule}. At line 2: <glyph> with x:unicode="b".`,
+                );
+                await expectAnswer(
+                    inline(`<font horiz-adv-x="500">${FONT_FACE}<glyph xml:lang="en"/></font>`),
+                    BrokenFont,
+                    `SVG font breaks a rule: ${rule}. At line 2: <glyph> with xml:lang="en".`,
+                );
+            });
+
             it("on font, font-face and missing-glyph", async function () {
                 await expectAnswer(
                     inline(`<font horiz-adv-x="500" xmlns:x="urn:x" x:horiz-adv-x="-1">${FONT_FACE}${GLYPH}</font>`),
@@ -642,15 +676,109 @@ describe("SvgFontValidator.validate", function () {
                 );
             });
 
-            it("quoting its qualified name cut to 64 UTF-16 units", async function () {
-                const prefix = "p".repeat(70);
-                const error = await expectAnswer(
-                    inline(`<font horiz-adv-x="500">${FONT_FACE}<glyph xmlns:${prefix}="urn:x" ${prefix}:d="M0 0"/></font>`),
+            it("before the other rules of that node", async function () {
+                await expectAnswer(
+                    inline(`<font horiz-adv-x="-1" xmlns:x="urn:x" x:label="a">${FONT_FACE}${GLYPH}</font>`),
                     BrokenFont,
-                    `SVG font breaks a rule: ${rule}. At line 2: <glyph> with ${"p".repeat(64)}…="M0 0".`,
+                    `SVG font breaks a rule: ${rule}. At line 2: <font> with x:label="a".`,
+                );
+            });
+
+            it("quoting the prefix and the local name of its name each cut to 64 UTF-16 units", async function () {
+                // A long prefix must not cut off the local name.
+                const prefix = "p".repeat(70);
+                const local = "l".repeat(70);
+                const cases: Array<[string, string]> = [
+                    [`${prefix}:d`, `${"p".repeat(64)}…:d`],
+                    [`x:${local}`, `x:${"l".repeat(64)}…`],
+                    [`${prefix}:${local}`, `${"p".repeat(64)}…:${"l".repeat(64)}…`],
+                ];
+
+                for (const [name, quoted] of cases) {
+                    const namespacePrefix = name.slice(0, name.indexOf(":"));
+                    const error = await expectAnswer(
+                        inline(`<font horiz-adv-x="500">${FONT_FACE}<glyph xmlns:${namespacePrefix}="urn:x" ${name}="M0 0"/></font>`),
+                        BrokenFont,
+                        `SVG font breaks a rule: ${rule}. At line 2: <glyph> with ${quoted}="M0 0".`,
+                    );
+
+                    expect(error.payload).to.include({ attribute: quoted });
+                }
+            });
+        });
+
+        describe("to a child element of a glyph", function () {
+            const rule =
+                "glyph and missing-glyph have no child elements (ours: fontforge draws a glyph without d from its children as any SVG, and drops them next to d)";
+
+            it("drawing a glyph without d", async function () {
+                // fontforge dies on this outline with a segmentation fault.
+                const error = await expectAnswer(
+                    inline(`<font horiz-adv-x="500">${FONT_FACE}<glyph unicode="a">\n<path d="garbage"/></glyph></font>`),
+                    BrokenFont,
+                    `SVG font breaks a rule: ${rule}. At line 3: <path>.`,
                 );
 
-                expect(error.payload).to.include({ attribute: `${"p".repeat(64)}…` });
+                expect(error.payload).to.deep.equal({ path: fontPath, rule: FontRule.ChildlessGlyph, element: "path", line: 3 });
+            });
+
+            it("next to d, of missing-glyph, and outside the SVG namespace", async function () {
+                await expectAnswer(
+                    inline(`<font horiz-adv-x="500">${FONT_FACE}<glyph d="M0 0"><title>a</title></glyph></font>`),
+                    BrokenFont,
+                    `SVG font breaks a rule: ${rule}. At line 2: <title>.`,
+                );
+                await expectAnswer(
+                    inline(
+                        `<font horiz-adv-x="500">${FONT_FACE}<missing-glyph><rect width="1" height="1"/></missing-glyph>${GLYPH}</font>`,
+                    ),
+                    BrokenFont,
+                    `SVG font breaks a rule: ${rule}. At line 2: <rect>.`,
+                );
+                await expectAnswer(
+                    inline(`<font horiz-adv-x="500">${FONT_FACE}<glyph><x:path xmlns:x="urn:x" d="M0 0"/></glyph></font>`),
+                    BrokenFont,
+                    `SVG font breaks a rule: ${rule}. At line 2: <{urn:x}path>.`,
+                );
+            });
+
+            it("quoting its local name cut to 64 UTF-16 units", async function () {
+                const error = await expectAnswer(
+                    inline(`<font horiz-adv-x="500">${FONT_FACE}<glyph><${"c".repeat(70)}/></glyph></font>`),
+                    BrokenFont,
+                    `SVG font breaks a rule: ${rule}. At line 2: <${"c".repeat(64)}…>.`,
+                );
+
+                expect(error.payload).to.include({ element: `${"c".repeat(64)}…` });
+            });
+        });
+
+        describe("to a DOCTYPE with an internal subset", function () {
+            const rule =
+                "the DOCTYPE has no internal subset (ours: fontforge takes attribute defaults from it, which the validator does not read)";
+
+            it("declaring an attribute default", async function () {
+                // fontforge takes the default d of the glyph and loops on it.
+                const error = await expectAnswer(
+                    `<!DOCTYPE svg [\n<!ATTLIST glyph d CDATA "garbage">\n]>\n${inline(FONT)}`,
+                    BrokenFont,
+                    `SVG font breaks a rule: ${rule}. At line 3: <!DOCTYPE>.`,
+                );
+
+                expect(error.payload).to.deep.equal({ path: fontPath, rule: FontRule.NoInternalSubset, element: "!DOCTYPE", line: 3 });
+            });
+
+            it("empty, and after the SVG 1.1 external ID", async function () {
+                await expectAnswer(
+                    `<!DOCTYPE svg [ ] >${inline(FONT)}`,
+                    BrokenFont,
+                    `SVG font breaks a rule: ${rule}. At line 1: <!DOCTYPE>.`,
+                );
+                await expectAnswer(
+                    `${SVG11_DOCTYPE.replace(/>$/, " []>")}<svg>${FONT}</svg>`,
+                    BrokenFont,
+                    `SVG font breaks a rule: ${rule}. At line 1: <!DOCTYPE>.`,
+                );
             });
         });
 

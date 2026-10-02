@@ -4,15 +4,16 @@ import type { SaxesTagNS, XMLDecl } from "saxes";
 import { FileHelper } from "app/shared/fs/file-helper";
 import { isPathData } from "app/font-convertor/validator/svg/path-data";
 import { BrokenFont, NoFont, NotSvg, NotXml } from "app/font-convertor/validator/svg/svg-font-validator.errors";
-import type { Encoding, NumericElement, OpenElement, Scan } from "app/font-convertor/validator/svg/svg-font-validator.types";
+import type { Encoding, NumericElement, OpenElement, Scan, Violation } from "app/font-convertor/validator/svg/svg-font-validator.types";
 import { FontRule } from "app/font-convertor/validator/svg/svg-font-validator.types";
 import type { FontValidator } from "app/font-convertor/validator/font-validator";
 
 /**
  * Checks an SVG font against W3C SVG 1.1 Second Edition, chapter 20 "Fonts". SVG 2 removed SVG
  * fonts, so 1.1 is the reference. Only the fonts are checked against it, not the rest of the
- * document. Two rules of ours look at the whole document: it holds one `font`, and the names of the
- * font elements appear in it only on elements of the SVG namespace.
+ * document. Three rules of ours look at the whole document: it holds one `font`, the names of the
+ * font elements appear in it only on elements of the SVG namespace, and its DOCTYPE has no internal
+ * subset.
  */
 @injectable()
 export class SvgFontValidator implements FontValidator {
@@ -128,9 +129,8 @@ export class SvgFontValidator implements FontValidator {
             throw NotXml.byParser(fontPath, error);
         });
         parser.on("xmldecl", (declaration) => this.checkEncoding(parser, declaration, encoding));
-        parser.on("doctype", (doctype) => {
-            scan.svg11Doctype = SvgFontValidator.SVG11_DOCTYPE.test(doctype);
-        });
+        // The event comes at `>`, so the line is the one the DOCTYPE closes on.
+        parser.on("doctype", (doctype) => this.checkDoctype(scan, doctype, parser.line));
         // The event comes once the name is read together with the character after it. A newline
         // there has already moved the line on, and the column back to zero.
         parser.on("opentagstart", () => {
@@ -154,8 +154,21 @@ export class SvgFontValidator implements FontValidator {
         }
     }
 
+    private checkDoctype(scan: Scan, doctype: string, line: number): void {
+        scan.svg11Doctype = SvgFontValidator.SVG11_DOCTYPE.test(doctype);
+
+        // Our rule: fontforge takes attribute defaults from the internal subset (libxml2), and saxes
+        // does not read it, so a default `d` of every glyph would pass unseen. The subset is the
+        // only part of the DOCTYPE that ends with `]`: a name holds no `]`, an external ID ends with
+        // a quote.
+        if (doctype.trimEnd().endsWith("]")) {
+            this.report(scan, FontRule.NoInternalSubset, "!DOCTYPE", line);
+        }
+    }
+
     private open(scan: Scan, tag: SaxesTagNS, line: number): void {
         const parent = scan.open.at(-1);
+        const grandparent = scan.open.at(-2);
         const element: OpenElement = {
             name: tag.uri === SvgFontValidator.SVG_NAMESPACE ? tag.local : undefined,
             line: line,
@@ -170,13 +183,16 @@ export class SvgFontValidator implements FontValidator {
         scan.open.push(element);
 
         if (tag.uri !== SvgFontValidator.SVG_NAMESPACE && SvgFontValidator.FONT_NODE_NAMES.includes(tag.local)) {
-            scan.violation ??= {
-                rule: FontRule.SvgNamespaceOnly,
-                element: tag.local,
-                namespace: tag.uri,
-                line: line,
-                attribute: undefined,
-            };
+            this.report(scan, FontRule.SvgNamespaceOnly, tag.local, line, { namespace: tag.uri });
+        }
+
+        // Our rule: without `d` fontforge draws a glyph from its children as any SVG, by the local
+        // name and past the rules here, and next to `d` it drops them. The parent counts the way
+        // the switch below counts it: a direct child of `font`.
+        if (grandparent?.name === "font" && (parent?.name === "glyph" || parent?.name === "missing-glyph")) {
+            const namespace = tag.uri === SvgFontValidator.SVG_NAMESPACE ? undefined : tag.uri;
+
+            this.report(scan, FontRule.ChildlessGlyph, tag.local, line, { namespace: namespace });
         }
 
         // Of several fonts fontforge converts the first without a word. Which one to take is not the
@@ -233,8 +249,10 @@ export class SvgFontValidator implements FontValidator {
     }
 
     private checkFont(scan: Scan, element: OpenElement, tag: SaxesTagNS): void {
+        this.checkPrefixes(scan, element, tag, "font");
+
         // `horiz-adv-x` of `font` is #REQUIRED in the DTD.
-        if (this.attribute(scan, element, tag, "font", "horiz-adv-x") === undefined) {
+        if (tag.attributes["horiz-adv-x"] === undefined) {
             this.report(scan, FontRule.AdvanceRequired, "font", element.line);
         }
 
@@ -242,26 +260,29 @@ export class SvgFontValidator implements FontValidator {
     }
 
     private checkFontFace(scan: Scan, element: OpenElement, tag: SaxesTagNS): void {
-        const unitsPerEm = this.attribute(scan, element, tag, "font-face", "units-per-em");
+        this.checkPrefixes(scan, element, tag, "font-face");
+
+        const unitsPerEm = tag.attributes["units-per-em"]?.value;
 
         // Our rule: the specification defaults `units-per-em` to 1000 (§20.8.3), but fontforge does
         // not open a font without it.
         if (unitsPerEm === undefined) {
             this.report(scan, FontRule.UnitsPerEmRequired, "font-face", element.line);
         } else if (!SvgFontValidator.NUMBER.test(unitsPerEm)) {
-            this.report(scan, FontRule.Number, "font-face", element.line, ["units-per-em", unitsPerEm]);
+            this.report(scan, FontRule.Number, "font-face", element.line, { attribute: ["units-per-em", unitsPerEm] });
         } else if (this.sign(unitsPerEm) <= 0) {
-            this.report(scan, FontRule.PositiveUnitsPerEm, "font-face", element.line, ["units-per-em", unitsPerEm]);
+            this.report(scan, FontRule.PositiveUnitsPerEm, "font-face", element.line, { attribute: ["units-per-em", unitsPerEm] });
         }
     }
 
     private checkGlyph(scan: Scan, element: OpenElement, tag: SaxesTagNS, name: Exclude<NumericElement, "font">): void {
+        this.checkPrefixes(scan, element, tag, name);
         this.checkMetrics(scan, element, tag, name);
 
-        const outline = this.attribute(scan, element, tag, name, "d");
+        const outline = tag.attributes["d"]?.value;
 
         if (outline !== undefined && !isPathData(outline)) {
-            this.report(scan, FontRule.PathData, name, element.line, ["d", outline]);
+            this.report(scan, FontRule.PathData, name, element.line, { attribute: ["d", outline] });
         }
     }
 
@@ -270,18 +291,18 @@ export class SvgFontValidator implements FontValidator {
      */
     private checkMetrics(scan: Scan, element: OpenElement, tag: SaxesTagNS, name: NumericElement): void {
         for (const attribute of SvgFontValidator.NUMERIC_ATTRIBUTES[name]) {
-            const value = this.attribute(scan, element, tag, name, attribute);
+            const value = tag.attributes[attribute]?.value;
 
             if (value !== undefined && !SvgFontValidator.NUMBER.test(value)) {
-                this.report(scan, FontRule.Number, name, element.line, [attribute, value]);
+                this.report(scan, FontRule.Number, name, element.line, { attribute: [attribute, value] });
             }
         }
 
-        const advance = this.attribute(scan, element, tag, name, "horiz-adv-x");
+        const advance = tag.attributes["horiz-adv-x"]?.value;
 
         // "Glyph widths are required to be non-negative" (§20.3, §20.4).
         if (advance !== undefined && this.sign(advance) < 0) {
-            this.report(scan, FontRule.NonNegativeAdvance, name, element.line, ["horiz-adv-x", advance]);
+            this.report(scan, FontRule.NonNegativeAdvance, name, element.line, { attribute: ["horiz-adv-x", advance] });
         }
     }
 
@@ -297,22 +318,27 @@ export class SvgFontValidator implements FontValidator {
     }
 
     /**
-     * Reads an attribute a rule checks. Only an unprefixed attribute is an attribute of an SVG
-     * element; saxes keys a prefixed one by its qualified name. fontforge, though, reads the first
-     * attribute of the local name in any namespace (libxml2 `xmlGetProp`), so a prefixed one of that
-     * name breaks a rule of ours. A namespace declaration is no attribute to libxml2.
+     * Our rule: a font node has no prefixed attribute. Only an unprefixed attribute is an attribute
+     * of an SVG element, and the rules read it alone; saxes keys a prefixed one by its qualified
+     * name. fontforge, though, reads the first attribute of a local name in any namespace (libxml2
+     * `xmlGetProp`), so `x:unicode` before `unicode` maps the glyph to another character. A
+     * namespace declaration is no attribute to libxml2.
      */
-    private attribute(scan: Scan, element: OpenElement, tag: SaxesTagNS, elementName: string, name: string): string | undefined {
+    private checkPrefixes(scan: Scan, element: OpenElement, tag: SaxesTagNS, name: string): void {
         for (const attribute of Object.values(tag.attributes)) {
-            if (attribute.local === name && attribute.prefix !== "" && attribute.prefix !== "xmlns") {
-                this.report(scan, FontRule.UnprefixedAttribute, elementName, element.line, [attribute.name, attribute.value]);
+            if (attribute.prefix !== "" && attribute.prefix !== "xmlns") {
+                this.report(scan, FontRule.UnprefixedAttribute, name, element.line, { attribute: [attribute.name, attribute.value] });
             }
         }
-
-        return tag.attributes[name]?.value;
     }
 
-    private report(scan: Scan, rule: FontRule, name: string, line: number, attribute?: [string, string]): void {
-        scan.violation ??= { rule: rule, element: name, namespace: undefined, line: line, attribute: attribute };
+    private report(
+        scan: Scan,
+        rule: FontRule,
+        name: string,
+        line: number,
+        details: Partial<Pick<Violation, "namespace" | "attribute">> = {},
+    ): void {
+        scan.violation ??= { rule: rule, element: name, namespace: details.namespace, line: line, attribute: details.attribute };
     }
 }
