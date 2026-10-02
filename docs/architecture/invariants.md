@@ -137,6 +137,12 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   [`outbox.md`](./outbox.md), "The chat lock". `pull()` is the exception with a check of its own
   (same file, "Pull"). The spec lines up only `push()` and `markAsDone()`: a new path that changes a
   chat state outside `complete()` is checked by nothing.
+- **A statement that locks the bot row (`telegram_bot_limits`) takes it before any other lock and
+  holds no other lock while it waits**, as `OutboxStore.pull()` and `pause()` do, each in one
+  statement. A pull waits for the row and then, holding it, for the message rows it updates (the
+  chats it skips when they are locked), so a transaction that held a message while it waited for
+  the row would close a cycle with a pull ([`outbox.md`](./outbox.md), "Pull"). Nothing checks the
+  order.
 - **A statement that makes sure a chat row exists also locks it**, as the `ON CONFLICT DO UPDATE`
   of `OutboxStore.push()` does. The cleanup deletes an `idle` chat at any moment, so a row found
   by one statement and locked by the next may be gone in between, and messages inserted without
@@ -173,11 +179,12 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   ([`outbox.md`](./outbox.md), "Cleanup", "Completions"). Nothing checks the variables against
   each other.
 - **The outbox goes by the database clock only.** `next_attempt_at`, `next_send_at` and
-  `paused_until` are written and compared with `now()` of PostgreSQL: `pause()` takes a duration,
-  and `pull()` answers with a duration, not a moment ([`outbox.md`](./outbox.md), "Limits"). A
-  moment taken from the clock of a node compares with `now()` through the skew of the two clocks:
-  a pause written by a node whose clock is behind ends early for every node, and the next call gets
-  a 429 again. Nothing checks this; a `Date` passed into the outbox SQL compiles.
+  `paused_until` are written and compared with `now()` and `clock_timestamp()` of PostgreSQL:
+  `pause()` takes a duration, and `pull()` answers with a duration, not a moment
+  ([`outbox.md`](./outbox.md), "Limits"). A moment taken from the clock of a node compares with
+  `now()` through the skew of the two clocks: a pause written by a node whose clock is behind ends
+  early for every node, and the next call gets a 429 again. Nothing checks this; a `Date` passed
+  into the outbox SQL compiles.
 - **A transaction that moves an outbox message into `done`, `failed` or `skipped` calls
   `OutboxStore.notifyFinished()` with its `sql`**, as `finishMessage()` does for `markAsDone()`,
   `markAsFailed()` and `markAsFailedAndBlockChat()`. Without the notification a caller waiting on

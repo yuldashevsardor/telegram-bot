@@ -461,6 +461,10 @@ describe("OutboxStore", function () {
         const SHORTER_PAUSE_MS = PAUSE_MS / 2;
         // A pause that is over by the time the spec sleeps SHORT_PAUSE_MS twice.
         const SHORT_PAUSE_MS = 5;
+        // The cooldown of the spec on the pulls queued behind a slow one: each pull of it starts more
+        // than a cooldown after the one before, and its statement takes far less than a cooldown.
+        const QUEUED_COOLDOWN_MS = 200;
+        const QUEUED_MARGIN_MS = 50;
 
         it("gives a chat no message before its interval has passed", async function () {
             const limited = new OutboxStore(database, logger, CHAT_LIMITS, LEASE_DURATION_MS, CLEANUP);
@@ -570,7 +574,7 @@ describe("OutboxStore", function () {
         it("answers a pull that waited for another pull by the next_send_at that pull left", async function () {
             const limited = new OutboxStore(database, logger, COMMON_LIMITS, LEASE_DURATION_MS, CLEANUP);
 
-            await limited.pushBatch([message(CHAT, "held"), message(OTHER_CHAT, "left")]);
+            await limited.pushBatch([message(OTHER_CHAT, "held"), message(CHAT, "left")]);
 
             let waiting: Promise<OutboxPullResult> = Promise.resolve(NOTHING_PULLED);
 
@@ -601,10 +605,40 @@ describe("OutboxStore", function () {
                 await waitForLockWaiters(1);
             });
 
-            const paused = await waiting;
+            const answer = await waiting;
 
-            expect(paused.messages).to.deep.equal([]);
-            expect(paused.nextPullInMs).to.be.within(PAUSE_MS - ELAPSED_TOLERANCE_MS, PAUSE_MS);
+            expect(answer.messages).to.deep.equal([]);
+            expect(answer.nextPullInMs).to.be.within(PAUSE_MS - ELAPSED_TOLERANCE_MS, PAUSE_MS);
+        });
+
+        // Counted from the start of their statements, taken before the wait, the second pull would
+        // find the slot the first one moved due as well, and both would go out when the slow pull
+        // commits.
+        it("gives the pulls queued behind a pull slower than the cooldown one slot", async function () {
+            const queuedLimits: TelegramLimits = { ...NO_LIMITS, common: { number: 1, interval: QUEUED_COOLDOWN_MS } };
+            const limited = new OutboxStore(database, logger, queuedLimits, LEASE_DURATION_MS, CLEANUP);
+
+            await limited.pushBatch(MANY_CHAT_IDS.map((chatId) => message(chatId, "text")));
+
+            let queued: Promise<OutboxPullResult[]> = Promise.resolve([]);
+
+            await other.sql.begin(async (sql) => {
+                expect((await storeOn(sql, queuedLimits).pull(1, WORKER)).messages).to.have.lengthOf(1);
+
+                await sleep(QUEUED_COOLDOWN_MS + QUEUED_MARGIN_MS);
+                const first = limited.pull(1, WORKER);
+                await waitForLockWaiters(1);
+
+                await sleep(QUEUED_COOLDOWN_MS + QUEUED_MARGIN_MS);
+                const second = limited.pull(1, WORKER);
+                await waitForLockWaiters(2);
+
+                queued = Promise.all([first, second]);
+            });
+
+            const pulled = (await queued).flatMap((answer) => answer.messages);
+
+            expect(pulled).to.have.lengthOf(1);
         });
 
         it("lets the pull through once the pause is over", async function () {
