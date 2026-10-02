@@ -500,12 +500,46 @@ describe("SvgFontValidator.validate", function () {
             await expectAnswer(inline(`<font horiz-adv-x="500">${FONT_FACE}<glyph xmlns="urn:x"/></font>`), BrokenFont, message);
         });
 
-        it("to a broken font after a valid one", async function () {
-            await expectAnswer(
-                inline(`${FONT}\n<font horiz-adv-x="-1">${FONT_FACE}${GLYPH}</font>`),
-                BrokenFont,
-                'SVG font breaks a rule: horiz-adv-x is not negative (SVG 1.1, §20.3, §20.4). At line 3: <font> with horiz-adv-x="-1".',
-            );
+        describe("to a second font element", function () {
+            const message =
+                "SVG font breaks a rule: the document has one font element in any namespace (ours: fontforge converts the first of several and drops the rest). At line 3: <font>.";
+
+            it("next to a valid font, wherever it lies", async function () {
+                await expectAnswer(inline(`${FONT}\n${FONT}`), BrokenFont, message);
+                await expectAnswer(inline(`<defs>${FONT}</defs>\n<g><defs>${FONT}</defs></g>`), BrokenFont, message);
+            });
+
+            it("nested in a font, before the rule the outer font breaks at its close", async function () {
+                // The outer font has no font-face, which is reported at its end tag, after the inner start tag.
+                await expectAnswer(inline(`<font horiz-adv-x="500">${GLYPH}\n${FONT}</font>`), BrokenFont, message);
+            });
+
+            it("before the rules of that font", async function () {
+                await expectAnswer(inline(`${FONT}\n<font horiz-adv-x="-1">${FONT_FACE}${GLYPH}</font>`), BrokenFont, message);
+            });
+
+            it("outside the SVG namespace, since fontforge reads it as a font", async function () {
+                await expectAnswer(inline(`<font xmlns="urn:x"/>\n${FONT}`), BrokenFont, message);
+
+                const error = await expectAnswer(
+                    inline(`${FONT}\n<x:font xmlns:x="urn:x"/>`),
+                    BrokenFont,
+                    message.replace("<font>", "<x:font>"),
+                );
+
+                expect(error.payload).to.deep.equal({ path: fontPath, rule: FontRule.SingleFont, element: "x:font", line: 3 });
+            });
+
+            it("quoting its qualified name cut to 64 UTF-16 units", async function () {
+                const prefix = "p".repeat(70);
+                const error = await expectAnswer(
+                    inline(`${FONT}\n<${prefix}:font xmlns:${prefix}="urn:x"/>`),
+                    BrokenFont,
+                    message.replace("<font>", `<${"p".repeat(64)}…>`),
+                );
+
+                expect(error.payload).to.include({ element: `${"p".repeat(64)}…` });
+            });
         });
 
         it("naming the first rule broken", async function () {
