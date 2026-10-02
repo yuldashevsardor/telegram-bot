@@ -10,7 +10,6 @@ import type { OutboxPullResult, OutboxWorker, PulledOutboxMessage } from "app/te
 
 const CHAT = 5_000_000_001;
 const WORKER: OutboxWorker = { host: "node-1", pid: 101, workerId: "worker-1" };
-const OTHER_WORKER: OutboxWorker = { host: "node-1", pid: 101, workerId: "worker-2" };
 // A random of 0.5 puts the cap of a sleep in the middle of 100 ms to 1 s.
 const HALF_RANDOM = 0.5;
 const HALF_CAP_MS = 550;
@@ -142,31 +141,31 @@ describe("OutboxMessageSource", function () {
         mock.timers.reset();
     });
 
-    it("pulls one message for its worker", async function () {
+    it("pulls one message for the worker loop", async function () {
         const message = pulledMessage(1);
         store.answer(pullOf(message));
 
-        const next = await build().messages(WORKER).next();
+        const next = await build().stream(WORKER).next();
 
         expect(next.value).to.deep.equal(message);
         expect(store.pulls).to.deep.equal([{ limit: 1, worker: WORKER }]);
     });
 
-    it("pulls again only when the worker asks for the next message", async function () {
+    it("pulls again only when the loop asks for the next message", async function () {
         store.answer(pullOf(pulledMessage(1)), pullOf(pulledMessage(2)));
-        const messages = build().messages(WORKER);
+        const stream = build().stream(WORKER);
 
-        await messages.next();
+        await stream.next();
         await settle();
         expect(store.pulls).to.have.length(1);
 
-        expect((await messages.next()).value).to.deep.equal(pulledMessage(2));
+        expect((await stream.next()).value).to.deep.equal(pulledMessage(2));
         expect(store.pulls).to.have.length(2);
     });
 
     it("sleeps until nextPullInMs when it comes before the cap", async function () {
         store.answer({ messages: [], nextPullInMs: NEXT_PULL_IN_MS });
-        void build().messages(WORKER).next();
+        void build().stream(WORKER).next();
 
         await advance(NEXT_PULL_IN_MS - 1);
         expect(store.pulls).to.have.length(1);
@@ -177,7 +176,7 @@ describe("OutboxMessageSource", function () {
 
     it("caps the sleep by a random point from 100 ms to 1 s", async function () {
         store.answer({ messages: [], nextPullInMs: MAX_CAP_MS });
-        void build().messages(WORKER).next();
+        void build().stream(WORKER).next();
 
         await advance(HALF_CAP_MS - 1);
         expect(store.pulls).to.have.length(1);
@@ -189,7 +188,7 @@ describe("OutboxMessageSource", function () {
     it("takes the lower end of the cap for the lowest random", async function () {
         store.answer({ messages: [], nextPullInMs: MAX_CAP_MS });
         void build(() => 0)
-            .messages(WORKER)
+            .stream(WORKER)
             .next();
 
         await advance(MIN_CAP_MS - 1);
@@ -202,7 +201,7 @@ describe("OutboxMessageSource", function () {
     it("takes the upper end of the cap for the highest random", async function () {
         store.answer({ messages: [], nextPullInMs: BEYOND_TIMER_MS });
         void build(() => LARGEST_RANDOM)
-            .messages(WORKER)
+            .stream(WORKER)
             .next();
 
         await advance(MAX_CAP_MS - 1);
@@ -214,7 +213,7 @@ describe("OutboxMessageSource", function () {
 
     it("sleeps within the cap on a nextPullInMs beyond a Node timer", async function () {
         store.answer({ messages: [], nextPullInMs: BEYOND_TIMER_MS });
-        void build().messages(WORKER).next();
+        void build().stream(WORKER).next();
 
         await advance(1);
         expect(store.pulls).to.have.length(1);
@@ -225,7 +224,7 @@ describe("OutboxMessageSource", function () {
 
     it("sleeps the whole cap when no chat is ready", async function () {
         store.answer(NOTHING_READY);
-        void build().messages(WORKER).next();
+        void build().stream(WORKER).next();
 
         await advance(HALF_CAP_MS - 1);
         expect(store.pulls).to.have.length(1);
@@ -237,7 +236,7 @@ describe("OutboxMessageSource", function () {
     // Another transaction holds a due chat: pulling again at once would spin.
     it("sleeps the whole cap on a nextPullInMs of zero with nothing pulled", async function () {
         store.answer({ messages: [], nextPullInMs: 0 });
-        void build().messages(WORKER).next();
+        void build().stream(WORKER).next();
 
         await advance(HALF_CAP_MS - 1);
         expect(store.pulls).to.have.length(1);
@@ -249,7 +248,7 @@ describe("OutboxMessageSource", function () {
     it("wakes up at once on a ready notification", async function () {
         const message = pulledMessage(1);
         store.answer(NOTHING_READY, pullOf(message));
-        const next = build().messages(WORKER).next();
+        const next = build().stream(WORKER).next();
         await settle();
 
         store.notifyReady();
@@ -258,22 +257,10 @@ describe("OutboxMessageSource", function () {
         expect(store.pulls).to.have.length(2);
     });
 
-    it("wakes up every sleeping generator of the node on a ready notification", async function () {
-        const source = build();
-        void source.messages(WORKER).next();
-        void source.messages(OTHER_WORKER).next();
-        await settle();
-
-        store.notifyReady();
-        await settle();
-
-        expect(store.pulls.map((pull) => pull.worker)).to.deep.equal([WORKER, OTHER_WORKER, WORKER, OTHER_WORKER]);
-    });
-
     // The pull may have read the tables before the push it announces committed.
     it("pulls again at once after a notification that came during a pull", async function () {
         store.hold();
-        void build().messages(WORKER).next();
+        void build().stream(WORKER).next();
         await settle();
 
         store.notifyReady();
@@ -288,7 +275,7 @@ describe("OutboxMessageSource", function () {
     it("pulls again at once when the listening starts during the first pull", async function () {
         store.holdListening();
         store.hold();
-        void build().messages(WORKER).next();
+        void build().stream(WORKER).next();
         await settle();
 
         store.startListening();
@@ -302,7 +289,7 @@ describe("OutboxMessageSource", function () {
     it("does not log a start of the listening that fails after stop", async function () {
         store.holdListening();
         const source = build();
-        const next = source.messages(WORKER).next();
+        const next = source.stream(WORKER).next();
         await settle();
 
         source.stop();
@@ -313,22 +300,27 @@ describe("OutboxMessageSource", function () {
         expect(logger.warnings).to.be.empty;
     });
 
-    it("listens once for every generator of the node", async function () {
-        const source = build();
-        void source.messages(WORKER).next();
-        void source.messages(OTHER_WORKER).next();
+    it("listens once across the pulls and the sleeps of the generator", async function () {
+        store.answer(NOTHING_READY, pullOf(pulledMessage(1)));
+        const stream = build().stream(WORKER);
+        const next = stream.next();
+
+        await advance(HALF_CAP_MS);
+        await next;
+        void stream.next();
         await settle();
 
+        expect(store.pulls).to.have.length(3);
         expect(store.listenCount).to.equal(1);
     });
 
     it("goes on with the capped sleep when the listening fails", async function () {
         store.shouldFailListening = true;
-        void build().messages(WORKER).next();
+        void build().stream(WORKER).next();
         await settle();
 
         expect(logger.warnings.map((record) => record.message)).to.deep.equal([
-            "Listening for ready outbox messages failed, the sources pull on the capped sleep until the listening starts.",
+            "Listening for ready outbox messages failed, the source pulls on the capped sleep until the listening starts.",
         ]);
 
         await advance(HALF_CAP_MS);
@@ -339,7 +331,7 @@ describe("OutboxMessageSource", function () {
         const failure = new Error("connection lost");
         const message = pulledMessage(1);
         store.answer(failure, pullOf(message));
-        const next = build().messages(WORKER).next();
+        const next = build().stream(WORKER).next();
         await settle();
 
         expect(logger.errors).to.deep.equal([
@@ -355,7 +347,7 @@ describe("OutboxMessageSource", function () {
 
     it("sleeps the whole cap after a failed pull, with notifications during the pull and the sleep", async function () {
         store.hold();
-        void build().messages(WORKER).next();
+        void build().stream(WORKER).next();
         await settle();
 
         store.notifyReady();
@@ -373,7 +365,7 @@ describe("OutboxMessageSource", function () {
     it("ends a generator sleeping after a failed pull at once on stop", async function () {
         const source = build();
         store.answer(new Error("connection lost"));
-        const next = source.messages(WORKER).next();
+        const next = source.stream(WORKER).next();
         await settle();
 
         source.stop();
@@ -383,7 +375,7 @@ describe("OutboxMessageSource", function () {
 
     it("ends a sleeping generator at once on stop", async function () {
         const source = build();
-        const next = source.messages(WORKER).next();
+        const next = source.stream(WORKER).next();
         await settle();
 
         source.stop();
@@ -394,24 +386,24 @@ describe("OutboxMessageSource", function () {
 
     it("hands out the message of a pull in progress on stop, then ends", async function () {
         const source = build();
-        const messages = source.messages(WORKER);
+        const stream = source.stream(WORKER);
         const message = pulledMessage(1);
         store.hold();
-        const next = messages.next();
+        const next = stream.next();
         await settle();
 
         source.stop();
         store.release(pullOf(message));
 
         expect((await next).value).to.deep.equal(message);
-        expect(await messages.next()).to.deep.equal({ value: undefined, done: true });
+        expect(await stream.next()).to.deep.equal({ value: undefined, done: true });
         expect(store.pulls).to.have.length(1);
     });
 
     it("ends without a sleep when a pull in progress on stop got nothing", async function () {
         const source = build();
         store.hold();
-        const next = source.messages(WORKER).next();
+        const next = source.stream(WORKER).next();
         await settle();
 
         source.stop();
@@ -420,15 +412,15 @@ describe("OutboxMessageSource", function () {
         expect(await next).to.deep.equal({ value: undefined, done: true });
     });
 
-    it("ends a generator waiting for its worker at the next message", async function () {
+    it("ends a generator waiting for the loop at the next message", async function () {
         const source = build();
         store.answer(pullOf(pulledMessage(1)));
-        const messages = source.messages(WORKER);
-        await messages.next();
+        const stream = source.stream(WORKER);
+        await stream.next();
 
         source.stop();
 
-        expect(await messages.next()).to.deep.equal({ value: undefined, done: true });
+        expect(await stream.next()).to.deep.equal({ value: undefined, done: true });
         expect(store.pulls).to.have.length(1);
     });
 
@@ -436,7 +428,7 @@ describe("OutboxMessageSource", function () {
         const source = build();
         source.stop();
 
-        expect(await source.messages(WORKER).next()).to.deep.equal({ value: undefined, done: true });
+        expect(await source.stream(WORKER).next()).to.deep.equal({ value: undefined, done: true });
         expect(store.pulls).to.be.empty;
         expect(store.listenCount).to.equal(0);
     });
@@ -445,7 +437,7 @@ describe("OutboxMessageSource", function () {
         const source = build();
         const failure = new Error("database closed");
         store.hold();
-        const next = source.messages(WORKER).next();
+        const next = source.stream(WORKER).next();
         await settle();
 
         source.stop();

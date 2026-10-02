@@ -134,7 +134,7 @@ src/
   telegram/                 grammY: commands, conversations, middleware, filters, session, locales (bot.md, i18n.md)
     user/                   the entity, the repository interface, the service, the PostgreSQL adapter (user.md)
     outbound-queue/         the outbound queue by keys, limits, the Runner loop (outbound-queue.md)
-    outbox/                 the future outbox of Bot API calls in PostgreSQL: the store (push, pull, completions), the message source of the workers, the processor of one message with the sender of its call and the Api, the outcomes of a failure, the result waiter with its reader, the payload codec and the retry delay (outbox.md)
+    outbox/                 the future outbox of Bot API calls in PostgreSQL: the store (push, pull, completions), the message source of the worker loop, the processor of one message with the sender of its call and the Api, the outcomes of a failure, the result waiter with its reader, the payload codec and the retry delay (outbox.md)
   platform/                 adapters that know no module
     database/               Database (storage.md)
     logger/                 the Logger interface, the Level enum, ConsoleLogger, PinoLogger (logging.md)
@@ -206,7 +206,8 @@ the import path can be guessed from the class name.
 **Gathers** — same-kind siblings of one contract, enumerated by one registrar:
 
 - `convertor/<from>/` — by `convertor-factory.ts`;
-- `validator/` — by `font-validator-resolver.ts`;
+- `validator/` — by `font-validator-resolver.ts`; `woff2/` is not given out by it yet, since no
+  convertor takes the WOFF2 validator;
 - `command/`, `conversation/`, `filter/` and `middleware/` — by `container.ts`;
 - the `.ftl` bundles in the `locale/` directories at commands and conversations — by the walk in
   `createFluent()` (`telegram/locale/locale.ts`).
@@ -229,8 +230,9 @@ own only when it has files of its own or a role of its own among the siblings:
 - `middleware/mutation/` is a role inside `middleware/`: a middleware that replaces `ctx.api.raw`
   ([`bot.md`](./bot.md)). There is only one file in it so far;
 - `validator/svg/` keeps `SvgFontValidator` together with its companions and its path data parser,
-  `validator/woff/`, `validator/eot/` and `validator/sfnt/` keep `WoffFontValidator`,
-  `EotFontValidator` and `SfntFontValidator` with their companions.
+  `validator/woff/`, `validator/woff2/`, `validator/eot/` and `validator/sfnt/` keep
+  `WoffFontValidator`, `Woff2FontValidator`, `EotFontValidator` and `SfntFontValidator` with their
+  companions.
 
 A sibling with neither lies flat in the siblings directory: `filter/has-session-key.filter.ts`,
 `middleware/request-log.middleware.ts`. The name is the prefix of the sibling's file name

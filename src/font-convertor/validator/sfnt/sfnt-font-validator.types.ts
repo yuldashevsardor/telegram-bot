@@ -28,11 +28,16 @@ export enum SfntRule {
     LocaLength = "loca holds numGlyphs + 1 offsets, 2 bytes each with indexToLocFormat 0 and 4 bytes with 1 (OpenType 1.9.1, loca)",
     LocaAscending = "the loca offsets are in ascending order, loca[n] <= loca[n+1] (OpenType 1.9.1, loca)",
     LocaInGlyf = "the last loca offset, the end of the last glyph, lies within glyf (OpenType 1.9.1, loca)",
+    GlyphHeader = "a glyph with an outline holds the 10-byte glyph header: its length by loca, loca[n+1] - loca[n], is 0 or at least 10 (OpenType 1.9.1, glyf, Glyph Headers)",
+    SimpleGlyphInData = "a simple glyph, of numberOfContours 0 or more, lies inside its length by loca: endPtsOfContours[numberOfContours], instructionLength, the instructions, the flags with their repeat counts, and the x and y coordinates of the widths its flags give (OpenType 1.9.1, glyf, Simple Glyph Description)",
+    EndPtsAscending = "the endPtsOfContours of a simple glyph are in increasing numeric order (OpenType 1.9.1, glyf, Simple Glyph Description)",
+    FlagPerPoint = "a simple glyph has one flag per point: its flags, each with its repeats, are no more than endPtsOfContours[numberOfContours - 1] + 1 (OpenType 1.9.1, glyf, Simple Glyph Description)",
     CmapRecordsInTable = "cmap holds its 4-byte header and an 8-byte encoding record per numTables (OpenType 1.9.1, cmap)",
     CmapVersion = "cmap.version is 0 (OpenType 1.9.1, cmap)",
     CmapSubtables = "cmap has at least one subtable (ours: the specification sets no count, and without a subtable fontforge 20230101 drops the encoding)",
     CmapSubtableInTable = "a cmap subtable starts after the header and the encoding records of cmap, with room in cmap for its format and for the fields up to its length: 4 bytes for formats 0 to 6, 8 for 8 to 13 and 6 for 14, as the length of a table encompasses its subtables (OpenType 1.9.1, Table Directory; cmap)",
     CmapSubtableFormat = "a cmap subtable is of format 0, 2, 4, 6, 8, 10, 12, 13 or 14 (OpenType 1.9.1, cmap)",
+    CmapSubtableMinLength = "a cmap subtable is at least as long as the part of its format of a set size, the fields and arrays before its first array of a variable count: 262 bytes for format 0, 518 for 2, 14 for 4, 10 for 6 and 14, 8208 for 8, 20 for 10, and 16 for 12 and 13 (OpenType 1.9.1, cmap)",
     CmapSubtableLength = "a cmap subtable ends inside cmap: its offset plus its length is at most the length of cmap (OpenType 1.9.1, Table Directory; cmap)",
     NameRecordsInTable = "name holds its 6-byte header and a 12-byte name record per count, and with version 1 a 2-byte langTagCount and a 4-byte language-tag record per langTagCount (OpenType 1.9.1, name)",
     NameStorageAfterRecords = "the string storage of name starts after its records: storageOffset is at least where the name records, and with version 1 the language-tag records, end (OpenType 1.9.1, name)",
@@ -42,6 +47,8 @@ export enum SfntRule {
     Os2Length = "OS/2 holds its 2-byte version and the fields of that version: 86 bytes for version 1, 96 for 2 to 4, 100 for 5, and 68 for version 0, whose last five fields a legacy font may lack (OpenType 1.9.1, OS/2)",
     PostLength = "post holds its 32-byte header, and with version 2.0 a 2-byte numGlyphs and a 2-byte glyphNameIndex per numGlyphs, with version 2.5 a 2-byte numGlyphs and a 1-byte offset per numGlyphs (OpenType 1.9.1, post)",
     PostVersion = "post.version is 1.0, 2.0, 2.5 or 3.0 (OpenType 1.9.1, post)",
+    PostNumGlyphs = "post.numGlyphs of version 2.0 or 2.5 is at least maxp.numGlyphs (ours: OpenType 1.9.1, post, says only that the two should be the same; with fewer, fontforge 20230101 renames the glyphs past them, and with more it loses nothing)",
+    PostNameStringInTable = "every glyph name of post 2.0 that a glyphNameIndex of 258 or more points at lies inside post, with the Pascal strings before it (OpenType 1.9.1, post; Table Directory)",
 }
 
 /**
@@ -65,6 +72,35 @@ export type SfntTables = {
 export type TrueTypeOutlines = {
     glyf: SfntTableRecord;
     loca: SfntTableRecord;
+};
+
+/**
+ * Where the data of a glyph with an outline lies in glyf: `offsetBytes` is where it starts in the
+ * file, `lengthBytes` its length by loca.
+ */
+export type GlyfEntry = {
+    id: number;
+    offsetBytes: number;
+    lengthBytes: number;
+};
+
+/**
+ * The bits of a simple glyph flag that give the width of one coordinate: `shortVector`, 1 byte;
+ * else `sameOrPositive`, no byte, the coordinate is the previous one; else 2 bytes.
+ */
+export type CoordinateFlagBits = {
+    shortVector: number;
+    sameOrPositive: number;
+};
+
+/**
+ * What the flags of a simple glyph lay out: where they end, from the start of the glyph, and how
+ * many bytes the x and the y coordinates that follow them take.
+ */
+export type FlagsLayout = {
+    flagsEndBytes: number;
+    xCoordinatesSizeBytes: number;
+    yCoordinatesSizeBytes: number;
 };
 
 /**
@@ -96,6 +132,16 @@ export type CmapSubtableLengthField = {
 };
 
 /**
+ * What the validator knows of a cmap subtable format: where its length lies, and how long the part
+ * of a set size is, the fields and arrays before the first array of a variable count. Format 0 has
+ * no such array, so the part is the whole subtable.
+ */
+export type CmapSubtableLayout = {
+    lengthField: CmapSubtableLengthField;
+    fixedSizeBytes: number;
+};
+
+/**
  * A kind of record of name that points at a string in the string storage: the name record or the
  * language-tag record. `label` names the record array in the messages.
  */
@@ -117,11 +163,13 @@ export type NameRecordArray = {
 
 /**
  * What a version of post holds past its 32-byte header: a numGlyphs and one entry per glyph.
- * `entries` names the entry array in the messages.
+ * `entries` names the entry array in the messages. `hasNameStrings` says whether glyph names of the
+ * table's own, Pascal strings, follow the entries.
  */
 export type PostGlyphNames = {
     entries: string;
     entrySizeBytes: number;
+    hasNameStrings: boolean;
 };
 
 /**

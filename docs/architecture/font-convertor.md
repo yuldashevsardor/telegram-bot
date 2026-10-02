@@ -118,13 +118,15 @@ This does not make the version check of the codec redundant. The sfnt validator 
 sources: a TTF or OTF file and the sfnt a WOFF carries. Two more files pass through the codec that
 the validator never saw: the intermediate sfnt from the engine on packing, and the envelope content
 on unpacking. The codec checks less than the validator: the header size, the version and the bounds
-of the tables it reads, not the rules below. But the two share one set of versions with a third
-check, `SFNT_VERSIONS` in `font-convertor/sfnt-version.ts`, and `WoffFontValidator`
-(`validator/woff/`) checks the flavor of a WOFF against it: the flavor is the version of the sfnt it
-carries. The set must not become several lists, because a divergence breaks behaviour rather than
-the build. A version known only to the validator still fails on input: the directory the validator
-builds rejects it, with the codec's `InvalidSfnt` instead of an answer of the validator. A version
-known only to the codec does not get past the input.
+of the tables it reads, not the rules below. But the two share one set of versions with two more
+checks, `SFNT_VERSIONS` in `font-convertor/sfnt-version.ts`: `WoffFontValidator`
+(`validator/woff/`) checks the flavor of a WOFF against it, and `Woff2FontValidator`
+(`validator/woff2/`), which no convertor calls yet, the flavor of a WOFF2. The flavor is the
+version of the sfnt the container carries. The set must not become several lists, because a
+divergence breaks behaviour rather than the build. A version known only to the validator still
+fails on input: the directory the validator builds rejects it, with the codec's `InvalidSfnt`
+instead of an answer of the validator. A version known only to the codec does not get past the
+input.
 
 Every offset is counted from the start of the file. A prefix is not skipped: a shifted head would
 turn the check into a search for the marker anywhere.
@@ -164,22 +166,30 @@ which file was rejected.
   `xmlns:xlink` the same way. The parser does not read the DTD, so the validator binds both prefixes
   itself (`resolvePrefix`).
 - **No font, broken font.** Only the fonts are checked against the specification, not the rest of
-  the document; the one rule that looks at the whole document is ours, below. `font-face` and
+  the document; the rules that look at the whole document are ours, below. `font-face` and
   `glyph` count only as direct children of `font` in the SVG namespace, and only unprefixed
   attributes are attributes of these elements. The rules are `FontRule` in
-  `svg-font-validator.types.ts`; the text of each names its section. Three of them are ours, not
-  the specification's, and say so: `units-per-em` is required (the specification defaults it to
-  1000, but fontforge does not open a font without it), a font needs a `glyph` (the specification
-  allows none, but fontforge turns such a font into an empty one), and the document holds one
-  element named `font`. A second font is the case of the `ttcf` collection above: fontforge
-  20230101 silently converts the first and drops the rest
-  ([#664](https://github.com/yuldashevsardor/telegram-bot/issues/664)). This rule alone counts
-  `font` in any namespace, because fontforge reads such an element as a font regardless of its
-  namespace: counted only in the SVG one, an `x:font` before the checked font would reach the
-  engine unchecked and be the one converted. The outline, `d` of `glyph` and `missing-glyph`, is
-  checked by `isPathData()` (`path-data.ts`) against the path data grammar of §8.3.9, which §20.4
-  gives it. Numbers there are read greedily, as §8.3.9 requires ("must consume as much of a given
-  BNF production as possible"), and `1.` is a number, unlike in the other attributes.
+  `svg-font-validator.types.ts`; the text of each names its section, or says "ours" where fontforge
+  asks more than the specification. Two of ours look at the whole document. It holds one `font`: a
+  second font is the case of the `ttcf` collection above, fontforge 20230101 silently converts the
+  first and drops the rest ([#664](https://github.com/yuldashevsardor/telegram-bot/issues/664)). And
+  the names of the font nodes, `FONT_NODE_NAMES` of `SvgFontValidator`, appear in it only on
+  elements of the SVG namespace. fontforge finds these nodes by the local name alone
+  (`_FindSVGFontNodes` and `SVGParseFont` of its `svg.c`), so it reads an element of any namespace
+  and a processing instruction by its target as one of them, past the rules above. It reads their
+  attributes by the local name too (libxml2 `xmlGetProp`), the first one in any namespace, so a
+  prefixed attribute of a name a rule reads breaks one more rule of ours. Measured on 20230101
+  ([#756](https://github.com/yuldashevsardor/telegram-bot/issues/756)): an `x:glyph` with
+  `d="garbage"` in a valid font, or an `x:d="garbage"` before a valid `d`, sends fontforge into a
+  loop that prints `Unknown type 'g' found in path specification` without end, and an
+  `x:font-face` without `units-per-em` or a `<?font?>` before the font fails its open. The node
+  rule holds in the prologue too, though fontforge reads only below the root: no real font holds
+  such a node. A foreign element is quoted in Clark notation, `{urn:x}glyph`, so that it does not
+  read as an SVG one, an instruction as `?font?`, and a prefixed attribute by its qualified name.
+  The outline, `d` of `glyph` and `missing-glyph`, is checked by `isPathData()` (`path-data.ts`)
+  against the path data grammar of §8.3.9, which §20.4 gives it. Numbers there are read greedily,
+  as §8.3.9 requires ("must consume as much of a given BNF production as possible"), and `1.` is a
+  number, unlike in the other attributes.
 
 XML is parsed with `saxes` (XML 1.0 fifth edition and Namespaces in XML, non-validating). It was
 chosen by measurement, with expat as the reference: of 38 malformed documents it accepted none,
@@ -199,16 +209,18 @@ from the file, and a cause reaches the log uncut.
 
 Text from the file reaches the log through the answers, so each piece of it is cut
 (`svg-font-validator.errors.ts`): the saxes message to `MAX_PARSER_MESSAGE_LENGTH` UTF-16 units, the
-namespace and the local name of a `NotSvg` root, the element and the attribute value of a
-`BrokenFont` each to `MAX_QUOTED_LENGTH`. A cut piece ends with `…`, which makes it one unit longer
-than an uncut piece can be: that, not the text, tells it from a piece that ends with `…` itself.
+namespace and the local name of a `NotSvg` root and of a `BrokenFont` element in Clark notation, and
+the attribute name and value of a `BrokenFont`, each to `MAX_QUOTED_LENGTH`. A cut piece ends with
+`…`, which makes it one unit longer than an uncut piece can be: that, not the text, tells it from a
+piece that ends with `…` itself.
 This holds for every piece quoted from the file, in the payload, in the `NotXml` and `NotSvg`
 messages and for the element in the `BrokenFont` one; `path` is not text from the file and is not
 cut. The `BrokenFont` message escapes the kept value with
 `JSON.stringify`, which can make it longer, so there the `…` stands outside the quotes, where the
 escaped value cannot reach. The payload also keeps the length before the cut:
 `valueLength` of the value, which, like the length of `value`, tells a cut value, and `rootLength`
-of the whole root, which does not say which of its two pieces was cut.
+of the whole root, which does not say which of its two pieces was cut. The element and the
+attribute name keep none.
 
 ## The WOFF validator
 
@@ -318,12 +330,14 @@ font. Every answer names the source in `path` of its payload, the WOFF file for 
 carries. Nothing in the answers is cut: the only text from the file they quote is a table tag, four
 bytes long.
 
-The rules are `SfntRule` in `sfnt-font-validator.types.ts`, each with its section. Three of them
-are ours, not the standard's, and the text of each says why: a collection is rejected (see
+The rules are `SfntRule` in `sfnt-font-validator.types.ts`, each with its section. Four of them are
+ours, not the standard's, and the text of each says why: a collection is rejected (see
 "Signatures"); so is a font with a `CFF2` table, which the standard allows but fontforge 20230101
-does not open (exit 1, "not in a known format"); and so is a `cmap` without subtables, of which the
-standard sets no count. Where the two references differ, the rules follow the one that governs the
-outlines present, with two exceptions, the last two items:
+does not open (exit 1, "not in a known format"); so is a `cmap` without subtables, of which the
+standard sets no count; and so is a `post` 2.0 or 2.5 with fewer glyph names than `maxp` has glyphs,
+of which the standard says only that the two counts should be the same. Where the two references
+differ, the rules follow the one that governs the outlines present, with three exceptions, the last
+three items:
 
 - `OS/2` is required only with CFF outlines. Microsoft requires it of every font, Apple's manual
   (chapter 6) not of a TrueType one. Without it the engine builds the table itself: every glyph is
@@ -332,8 +346,8 @@ outlines present, with two exceptions, the last two items:
 - The version does not have to match the outlines: `OTTO` over `glyf` and `0x00010000` over
   `CFF ` pass, since the specification says "should" and the engine converts both keeping every
   glyph. A rule that depends on the outline type goes by the outline tables present, not by the
-  version: `OS/2` above, the version of `maxp` (0.5 with `CFF `, 1.0 with `glyf`), and `loca`,
-  which is read only with TrueType outlines.
+  version: `OS/2` above, the version of `maxp` (0.5 with `CFF `, 1.0 with `glyf`), and `loca` and
+  `glyf`, which are read only with TrueType outlines.
 - `head.unitsPerEm` goes by OpenType for every font: 16 to 16384, of which the specification says
   "Any value in this range is valid", as #682 sets it. Apple's manual (chapter 6, `head`) gives a
   TrueType font 64 to 16384; that floor is not applied, so a TrueType font of 16 to 63 units passes.
@@ -342,6 +356,11 @@ outlines present, with two exceptions, the last two items:
   supported on Apple platforms", and fails with a version 4.0 `post`, which the manual defines but
   says "should be avoided" and OpenType does not support. None of the 543 real fonts measured has
   either.
+- The glyph-name index of `post` 2.0 goes by OpenType for every font: from 258 to 65535 it points at
+  a string. Apple's manual (chapter 6, `post`) reserves 32768 to 65535 "for future use"; a TrueType
+  font with such an index is held to the string it points at all the same, and fails without one.
+  fontforge 20230101 reads the index as OpenType does: a glyph of the TrueType fixture given 65535
+  is renamed to `glyphN` ([#757](https://github.com/yuldashevsardor/telegram-bot/issues/757)).
 
 The rules on `head`, `maxp`, `hhea`, `hmtx` and `loca` are those where the engine converts a broken
 font with exit 0 and loses glyphs, measured on the TrueType fixture of 1296 glyphs: `maxp.numGlyphs`
@@ -352,25 +371,62 @@ the engine forgives, but the standard does not. The length of `hmtx` and of `loc
 an exact size: none of the 297 real fonts with TrueType outlines measured has either table longer
 than its fields, so the stricter form would buy nothing.
 
+The rules on `glyf` walk every glyph with an outline, `loca[n] < loca[n+1]`: its 10-byte header,
+and in a simple glyph whether `endPtsOfContours`, the instructions, the flags with their repeats
+and the coordinates of the widths the flags give fit into its length by `loca`, the contour ends
+increasing and one flag per point
+([#684](https://github.com/yuldashevsardor/telegram-bot/issues/684)). Of the breaks measured on the
+TrueType fixture the engine converts every one with exit 0 but a single conversion, to WOFF2 with
+the instructions past the glyph, which fails with exit 1: a `glyf` filled with garbage keeps all
+1296 glyphs and loses every outline, 16 KB of WOFF against 72 KB; contour ends past the glyph or
+descending drop its outline, with "contour ends make no sense"; a glyph whose instructions run
+past it, or which is cut inside its flags, is read on into the next glyph and its points change,
+with "Flag count is wrong"; a glyph cut inside its coordinates takes the missing bytes from the
+next glyph, with "A point … is outside the glyph bounding box". Two rules follow the standard,
+not the engine, which loses nothing on what they reject: `EndPtsAscending` on equal contour ends,
+an empty contour, and `FlagPerPoint` on flag repeats past the last point, which the engine cuts
+short with "Flag count is wrong". A composite glyph, of a negative `numberOfContours`, needs only
+its header: the specification says -1 "should be used", and the engine reads -2 and -32768 as a
+composite glyph too. Its components are not read, although the engine loses the outline of a
+composite glyph cut inside a component or whose component points past `numGlyphs`, at the glyph
+itself or around a cycle. None of the 297 real fonts with TrueType outlines measured breaks a
+`glyf` rule.
+
 The rules on `cmap`, `name`, `OS/2` and `post` check where the records point, not what lies there:
-neither the content of a `cmap` subtable past its format and length, nor the text of a `name`
-string, nor the glyph names of `post` 2.0 and 2.5 past their index. Every break they catch the
-engine either converts keeping every glyph, some of them losing content, or crashes on
+neither the content of a `cmap` subtable past its format and length, nor the text of a `name` string
+or of a `post` 2.0 glyph name. Of the glyph names only where they lie is checked, up to the last
+string an index points at; the strings past it are not read. Every break they catch the engine
+either converts keeping every glyph, some of them losing content, crashes on, or runs on past 60 s
 ([#683](https://github.com/yuldashevsardor/telegram-bot/issues/683),
-[#752](https://github.com/yuldashevsardor/telegram-bot/issues/752)): a `cmap` without subtables, or
+[#752](https://github.com/yuldashevsardor/telegram-bot/issues/752),
+[#757](https://github.com/yuldashevsardor/telegram-bot/issues/757)): a `cmap` without subtables, or
 whose every subtable offset points into its header and records or past where the fields of a
 subtable up to its length fit, loses the encoding, with "Could not find any valid encoding tables";
-a `name` with 60000 records gives "Invalid mac encoding 65535"; a `name` string past the table
-crashed fontforge with SIGSEGV in every conversion in 7 of the 14 variants measured and put foreign
-bytes into the full name in 2; a `post` 2.0 cut to its 32-byte header renames 399 glyphs of the
-TrueType fixture, those without an encoding, to `glyphN`; an undefined format over the Unicode
-subtable of the fixture leaves 225 of its 893 encoded glyphs, those of the Macintosh one. Some
-breaks the rules follow the standard on, not the engine: `name` records that run into the string
-storage convert with nothing lost, and so does a `cmap` subtable whose length runs past `cmap`, up
-to 65535 for format 4, or a `cmap` whose one record points 2 bytes into its header while another
-Unicode record holds; pointing at 0 or 4, one such record already loses the encoding. An empty
-`name` string is not held to the table: it has no byte to read, and the engine converts it at any
-offset. None of these rules rejects a font of the 242 in the macOS system font folders, which the
+a subtable shorter than the part of its format of a set size, at the end of `cmap`, has the engine
+read that part from the next table or from past the end of the file: of 20 variants it lost the
+encoding in 15 and made a wrong one up in 3, and on format 12 at the end of the file it ran past
+60 s in both fixtures, writing over 100 MB of "Bad font: Encoding data out of range." to stderr; a
+`name` with 60000 records gives "Invalid mac encoding 65535"; a `name` string past the table crashed
+fontforge with SIGSEGV in every conversion in 7 of the 14 variants measured and put foreign bytes
+into the full name in 2; a `post` 2.0 cut to its 32-byte header renames 399 glyphs of the TrueType
+fixture, those without an encoding, to `glyphN`, and a `post` 2.0 or 2.5 whose `numGlyphs` is below
+that of `maxp` renames the glyphs past it, 401 with `numGlyphs` 0; a glyph name the index points at
+that is missing from `post` is renamed to `glyphN`, one the table cuts short is cut short, and one
+read past the end of the file carries a 0xFF byte into the name of the output, which is then not
+UTF-8; an undefined format over the Unicode subtable of the fixture leaves 225 of its 893 encoded
+glyphs, those of the Macintosh one. Some breaks the rules follow the standard on, not the engine:
+`name` records that run into the string storage convert with nothing lost, and so does a `cmap`
+subtable whose length runs past `cmap`, up to 65535 for format 4, or falls short of the part of its
+format of a set size while that part lies inside `cmap`, or a `cmap` whose one record points 2 bytes
+into its header while another Unicode record holds; pointing at 0 or 4, one such record already
+loses the encoding. The engine reads a `post` 2.0 name only up to the end of `post`: a string whose
+length byte overstates it past the table, while its bytes lie inside, loses nothing, and the rule
+rejects it all the same. An empty `name` string is not held to the table: it has no byte to read,
+and the engine converts it at any offset. A `post` naming more glyphs than `maxp` has passes: the
+engine loses nothing on it. Its entries past the glyphs of `maxp` are held to the strings all the
+same: an entry of 2.0 pointing past them fails the font. With CFF outlines the engine takes the
+glyph names from `CFF `, and no break of `post` measured loses one; the `post` rules apply to those
+fonts too. None of these rules rejects a font of the 242 in the macOS system font folders, which the
 validator walks in 0.3 s. The length `OS/2` needs by its version, and why version 0 passes
 shortened, is in the comment of `OS2_LENGTHS_BYTES` in `SfntFontValidator`.
 
@@ -395,9 +451,12 @@ not count as supported.
   the asynchronous `zlib.inflate`, off the event loop, but their checksums are summed and the sfnt
   is rebuilt from them on it. The 32 MiB cap bounds the inflated tables, not the file, and the
   rebuilt sfnt is a second copy of them of the same size. A TTF or OTF source is read whole as well,
-  and its table directory and every `loca` offset are walked on the event loop, as they are for the
-  sfnt a WOFF carries. An EOT source is read whole too, and its header is walked on the event loop.
-  A WOFF2 source reads `headLength` bytes. Nothing measured the cost yet.
+  and its table directory, every `loca` offset and every glyph of `glyf` are walked on the event
+  loop, as they are for the sfnt a WOFF carries. An EOT source is read whole too, and its header is
+  walked on the event loop. A WOFF2 source reads `headLength` bytes. Only the sfnt walk was
+  measured: `validateBytes()` takes 27 ms on `Arial Unicode.ttf`, 22 MB and 50377 glyphs, which the
+  engine converts in 2.5 s
+  ([#684](https://github.com/yuldashevsardor/telegram-bot/issues/684)).
 - `/font_generator` converts the fixed `test/fixtures/fonts/test-font.woff` into
   EOT/OTF/TTF/WOFF2. It answers with the **path** to the file as text; the file itself is not
   sent. A caught conversion error is written at `error` level through `Logger`

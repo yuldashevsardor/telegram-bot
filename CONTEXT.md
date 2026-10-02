@@ -117,7 +117,7 @@ Not part of the domain. From a font the service reads the format signature; the 
 envelope; in a WOFF the rules of its container; in an EOT the rules of its envelope; in a TTF, an
 OTF and the sfnt a WOFF carries the table directory, which tables it holds, the glyph count and
 whether most of what the required tables point to, such as each glyph's metrics and outline, lies
-inside them; and in an SVG the rules of an SVG font, which reach the glyph advances and the syntax
-of the outlines too. It does not interpret the outlines, so it can neither list the glyphs nor
-compare them before and after a conversion. The domain currently neither expresses nor checks
-whether glyphs and metrics survive a conversion.
+inside them, down to the fields of each simple TrueType glyph; and in an SVG the rules of an SVG
+font, which reach the glyph advances and the syntax of the outlines too. It does not interpret the
+outlines, so it can neither list the glyphs nor compare them before and after a conversion. The
+domain currently neither expresses nor checks whether glyphs and metrics survive a conversion.

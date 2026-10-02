@@ -18,7 +18,9 @@ export enum FontRule {
     PositiveUnitsPerEm = "units-per-em is positive (SVG 1.1, §20.8.3)",
     PathData = "d of a glyph or missing-glyph is path data (SVG 1.1, §8.3.9, §20.4, §20.5)",
     GlyphRequired = "font has a glyph child (ours: fontforge turns a font without glyphs into an empty one)",
-    SingleFont = "the document has one font element in any namespace (ours: fontforge converts the first of several and drops the rest)",
+    SingleFont = "the document has one font element (ours: fontforge converts the first of several and drops the rest)",
+    SvgNamespaceOnly = "font, font-face, glyph and missing-glyph name only elements in the SVG namespace (ours: fontforge reads a node of these names in any namespace, and a processing instruction by its target)",
+    UnprefixedAttribute = "an attribute the rules read has no prefix (ours: fontforge reads the first attribute of that local name, in any namespace)",
 }
 
 /**
@@ -45,9 +47,15 @@ export type OpenElement = {
  */
 export type Violation = {
     rule: FontRule;
+    /** The local name of an element, or a processing instruction as its answer quotes it, `?target?`. */
     element: string;
+    /** The namespace of an element outside the SVG one, `undefined` otherwise: the answer then quotes the element in Clark notation. */
+    namespace: string | undefined;
     line: number;
-    /** The attribute that breaks the rule, as a name and a value; `undefined` for a rule of the element itself. */
+    /**
+     * The attribute that breaks the rule, as a name and a value; `undefined` for a rule of the
+     * element itself. A prefixed name is the qualified one from the file.
+     */
     attribute: [string, string] | undefined;
 };
 
@@ -62,8 +70,6 @@ export type Scan = {
     root: string | undefined;
     /** Whether a `font` in the SVG namespace was met: the font the rules check. */
     hasFont: boolean;
-    /** Whether an element named `font` in any namespace was met: fontforge takes each for a font. */
-    hasFontInAnyNamespace: boolean;
     /** The first broken rule the pass met. */
     violation: Violation | undefined;
     open: Array<OpenElement>;

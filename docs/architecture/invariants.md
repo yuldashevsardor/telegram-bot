@@ -158,6 +158,13 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   makes the chat `ready` at once, so a call of the stopping node still on its way can reach Telegram
   after the next message of the chat, sent by another node: the order inside the chat breaks.
   Nothing checks that the call has settled ([`outbox.md`](./outbox.md), "Release on stop").
+- **`OutboxMessageSource` serves one generator: the worker loop of a node takes every message from
+  one `stream(worker)`.** The source keeps one sleep in progress (`currentSleep`), the one of the
+  latest generator to fall asleep. With a second generator, a ready notification and `stop()` reach
+  only that sleep: the other generator wakes on its own timer, up to the cap of 1 s later, and a
+  sleep that ends first leaves the other one with nothing to cut it short. Each generator also
+  starts a `LISTEN` of its own ([`outbox.md`](./outbox.md), "The message source"). Nothing checks
+  this.
 - **The retention of a `done` and of a `skipped` message must outlast `OUTBOX_RESULT_TIMEOUT` and
   `OUTBOX_LEASE_DURATION`.** A caller still waiting for a message the cleanup has deleted finds no
   row and times out as if the message were never sent, and may send it again. A late completion

@@ -41,6 +41,32 @@ const SHORT_LOCA_ENTRY_SIZE_BYTES = 2;
 const LONG_LOCA_ENTRY_SIZE_BYTES = 4;
 // The short format stores the offset divided by 2.
 const SHORT_LOCA_OFFSET_FACTOR = 2;
+// The fields of a glyph by their offset from its start (OpenType 1.9.1, glyf).
+const NUMBER_OF_CONTOURS_OFFSET_BYTES = 0;
+const GLYPH_HEADER_SIZE_BYTES = 10;
+const END_PTS_OFFSET_BYTES = GLYPH_HEADER_SIZE_BYTES;
+const END_PT_SIZE_BYTES = 2;
+// Glyph 0 of the TrueType fixture, .notdef, is 84 bytes long by loca: a simple glyph of 5 contours
+// and 16 points. instructionLength 0 lies at 20, the flags from 22 to 38, the first of them repeated
+// with its repeat count 1 at 23, the x coordinates up to 60 and the y coordinates up to 81. 3 bytes
+// of padding follow. Glyphs 1 and 2 have no outline: their loca offsets equal the end of glyph 0.
+const GLYPH_0_LENGTH_BYTES = 84;
+const GLYPH_0_NUMBER_OF_CONTOURS = 5;
+const GLYPH_0_NUMBER_OF_POINTS = 16;
+// endPtsOfContours[0]: the first contour ends at point 3.
+const GLYPH_0_FIRST_END_PT = 3;
+const GLYPH_0_INSTRUCTION_LENGTH_OFFSET_BYTES = 20;
+const GLYPH_0_FLAGS_OFFSET_BYTES = 22;
+const GLYPH_0_REPEAT_COUNT_OFFSET_BYTES = 23;
+// The first flag stands for points 0 and 1, so the second stored flag, at 24, opens point 2.
+const GLYPH_0_SECOND_FLAG_OFFSET_BYTES = 24;
+const GLYPH_0_X_COORDINATES_END_BYTES = 60;
+const GLYPH_0_Y_COORDINATES_END_BYTES = 81;
+// More contours than glyph 0 has room for: their 2-byte ends alone run to byte 90 of its 84.
+const CONTOURS_PAST_GLYPH_0 = 40;
+// A deterministic fill for glyf: the top byte of the index times Knuth's multiplicative hash constant.
+const GARBAGE_MULTIPLIER = 2654435761;
+const GARBAGE_SHIFT = 24;
 // cmap, name, OS/2 and post open with their version (OpenType 1.9.1, cmap, name, OS/2, post).
 const TABLE_VERSION_OFFSET_BYTES = 0;
 const CMAP_NUM_TABLES_OFFSET_BYTES = 2;
@@ -52,16 +78,21 @@ const SUBTABLE_OFFSET_IN_RECORD_BYTES = 4;
 // 32 bits right after the format. The header ends with the length.
 const SUBTABLE_FORMAT_SIZE_BYTES = 2;
 const SHORT_SUBTABLE_LENGTH_SIZE_BYTES = 2;
-const SUBTABLE_LENGTH_FIELDS = new Map([
-    [0, { offsetBytes: 2, sizeBytes: 2 }],
-    [2, { offsetBytes: 2, sizeBytes: 2 }],
-    [4, { offsetBytes: 2, sizeBytes: 2 }],
-    [6, { offsetBytes: 2, sizeBytes: 2 }],
-    [8, { offsetBytes: 4, sizeBytes: 4 }],
-    [10, { offsetBytes: 4, sizeBytes: 4 }],
-    [12, { offsetBytes: 4, sizeBytes: 4 }],
-    [13, { offsetBytes: 4, sizeBytes: 4 }],
-    [14, { offsetBytes: 2, sizeBytes: 4 }],
+// By format, also the part of a subtable of a set size: the fields and arrays before its first
+// array of a variable count (OpenType 1.9.1, cmap).
+const SHORT_LENGTH_FIELD = { offsetBytes: 2, sizeBytes: 2 };
+const LONG_LENGTH_FIELD = { offsetBytes: 4, sizeBytes: 4 };
+const VARIATION_LENGTH_FIELD = { offsetBytes: 2, sizeBytes: 4 };
+const SUBTABLE_LAYOUTS = new Map([
+    [0, { lengthField: SHORT_LENGTH_FIELD, fixedSizeBytes: 262 }],
+    [2, { lengthField: SHORT_LENGTH_FIELD, fixedSizeBytes: 518 }],
+    [4, { lengthField: SHORT_LENGTH_FIELD, fixedSizeBytes: 14 }],
+    [6, { lengthField: SHORT_LENGTH_FIELD, fixedSizeBytes: 10 }],
+    [8, { lengthField: LONG_LENGTH_FIELD, fixedSizeBytes: 8208 }],
+    [10, { lengthField: LONG_LENGTH_FIELD, fixedSizeBytes: 20 }],
+    [12, { lengthField: LONG_LENGTH_FIELD, fixedSizeBytes: 16 }],
+    [13, { lengthField: LONG_LENGTH_FIELD, fixedSizeBytes: 16 }],
+    [14, { lengthField: VARIATION_LENGTH_FIELD, fixedSizeBytes: 10 }],
 ]);
 const NAME_COUNT_OFFSET_BYTES = 2;
 const NAME_STORAGE_OFFSET_OFFSET_BYTES = 4;
@@ -85,6 +116,7 @@ const POST_GLYPH_NAMES = new Map([
     [0x00020000, { entries: "glyphNameIndex", entrySizeBytes: 2 }],
     [0x00025000, { entries: "offset", entrySizeBytes: 1 }],
 ]);
+const GLYPH_NAME_INDEX_SIZE_BYTES = 2;
 // The length the fields of each OS/2 version take, by version. A version 0 table of 68 bytes is a
 // legacy one, without its last five fields.
 const OS2_LENGTHS_BYTES = new Map([
@@ -115,6 +147,7 @@ const TTF_NUM_TABLES = 13;
 // boundary. So do OS/2, version 1 of 86 bytes in the TrueType fixture and version 3 of 96 in the CFF
 // one, and post, version 3 of 32 bytes in the CFF fixture.
 const TTF_NUM_GLYPHS = 1296;
+const LAST_GLYPH = TTF_NUM_GLYPHS - 1;
 const OTF_NUM_GLYPHS = 1295;
 const TTF_GLYF_LENGTH_BYTES = 133424;
 // Its glyphs up to this one end below 131 070, the largest offset the short loca format holds.
@@ -134,6 +167,16 @@ const LAST_SUBTABLE_FORMAT = 6;
 // OpenType defines formats 0 to 14 without 1, 3, 5, 7, 9 and 11.
 const UNDEFINED_SUBTABLE_FORMAT = 7;
 const LAST_SUBTABLE_LENGTH_BYTES = CMAP_LENGTH_BYTES - LAST_SUBTABLE_OFFSET_BYTES;
+// post of the TrueType fixture is version 2.0, 12925 bytes long: glyphNameIndex[1296] ends at byte
+// 2626, and 1047 Pascal strings follow it up to the end of the table. Only the last glyph points at
+// the last string, with the highest index, 1304; the next highest is 1303. The last string starts at
+// byte 12915 with its length byte.
+const TTF_POST_LENGTH_BYTES = 12925;
+const TTF_POST_STRINGS_START_BYTES = POST_NUM_GLYPHS_END_BYTES + TTF_NUM_GLYPHS * GLYPH_NAME_INDEX_SIZE_BYTES;
+const TTF_POST_STRING_COUNT = 1047;
+const TTF_LAST_GLYPH = TTF_NUM_GLYPHS - 1;
+const TTF_HIGHEST_GLYPH_NAME_INDEX = 1304;
+const TTF_LAST_POST_STRING_START_BYTES = 12915;
 const NAME_LENGTH_BYTES = 444;
 const NAME_COUNT = 12;
 const NAME_RECORDS_END_BYTES = 150;
@@ -253,15 +296,44 @@ describe("SfntFontValidator", function () {
             await validate(withUint32(ttf, loca + LONG_LOCA_ENTRY_SIZE_BYTES, readUint32(ttf, loca)));
         });
 
+        it("whose simple glyph ends with its last y coordinate", async function () {
+            await validate(withGlyph(ttf, 0, glyph0(ttf).subarray(0, GLYPH_0_Y_COORDINATES_END_BYTES)));
+        });
+
+        it("with a simple glyph without contours", async function () {
+            // The header and instructionLength 0: no points, so no flags and no coordinates.
+            const header = withUint16(glyph0(ttf), NUMBER_OF_CONTOURS_OFFSET_BYTES, 0);
+            const withoutContours = withUint16(header, END_PTS_OFFSET_BYTES, 0);
+
+            await validate(withGlyph(ttf, 0, withoutContours.subarray(0, GLYPH_HEADER_SIZE_BYTES + END_PT_SIZE_BYTES)));
+        });
+
+        it("with a composite glyph of any negative numberOfContours, its components not read", async function () {
+            // The specification says -1 "should be used", and fontforge reads any negative value as a
+            // composite glyph. What follows the header is the simple glyph, read as no component.
+            // setUint16 stores a negative value as its two's complement, as the signed field holds it.
+            for (const numberOfContours of [-1, -2, -32768]) {
+                await validate(withGlyph(ttf, 0, withUint16(glyph0(ttf), NUMBER_OF_CONTOURS_OFFSET_BYTES, numberOfContours)));
+            }
+        });
+
+        it("with a composite glyph of its 10-byte header alone", async function () {
+            // The specification gives a composite glyph at least one component; this passes only while
+            // the components are not read.
+            const composite = withUint16(glyph0(ttf), NUMBER_OF_CONTOURS_OFFSET_BYTES, -1);
+
+            await validate(withGlyph(ttf, 0, composite.subarray(0, GLYPH_HEADER_SIZE_BYTES)));
+        });
+
         it("whose cmap subtable starts right after the encoding records, and another ends the table", async function () {
             expect(subtableOffsetOf(ttf, 0)).to.equal(CMAP_RECORDS_END_BYTES);
             expect(subtableOffsetOf(ttf, 1)).to.equal(LAST_SUBTABLE_OFFSET_BYTES);
             await validate(withSubtableHeader(ttf, LAST_SUBTABLE_FORMAT, LAST_SUBTABLE_LENGTH_BYTES));
         });
 
-        it("whose last cmap subtable ends the table in every format", async function () {
-            for (const format of SUBTABLE_LENGTH_FIELDS.keys()) {
-                await validate(withSubtableHeader(ttf, format, LAST_SUBTABLE_LENGTH_BYTES));
+        it("whose last cmap subtable is as long as the part of its format of a set size and ends the table, in every format", async function () {
+            for (const [format, { fixedSizeBytes }] of SUBTABLE_LAYOUTS) {
+                await validate(withLastSubtable(ttf, format, fixedSizeBytes, fixedSizeBytes));
             }
         });
 
@@ -300,6 +372,26 @@ describe("SfntFontValidator", function () {
             for (const version of POST_GLYPH_NAMES.keys()) {
                 await validate(withPostGlyphNames(otf, version));
             }
+        });
+
+        it("with post 2.0 and 2.5 naming more glyphs than maxp has", async function () {
+            // fontforge loses nothing on a larger numGlyphs (issue #757).
+            for (const version of POST_GLYPH_NAMES.keys()) {
+                await validate(withPostGlyphNames(otf, version, OTF_NUM_GLYPHS + 1));
+            }
+        });
+
+        it("whose post 2.0 ends with the string its highest glyphNameIndex points at", async function () {
+            expect(readUint32(ttf, recordOf(ttf, "post") + LENGTH_OFFSET_BYTES)).to.equal(TTF_POST_LENGTH_BYTES);
+            expect(glyphNameIndexOf(ttf, TTF_LAST_GLYPH)).to.equal(TTF_HIGHEST_GLYPH_NAME_INDEX);
+            await validate(ttf);
+        });
+
+        it("whose post 2.0 string past the one its highest glyphNameIndex points at runs past the table", async function () {
+            // The last glyph no longer names the last string, and the table is cut into it.
+            const withoutLastName = withGlyphNameIndex(ttf, TTF_LAST_GLYPH, 0);
+
+            await validate(withLength(withoutLastName, "post", TTF_POST_LENGTH_BYTES - 1));
         });
 
         it("whose last table ends at the end of the file", async function () {
@@ -730,6 +822,157 @@ describe("SfntFontValidator", function () {
         });
     });
 
+    describe("rejects a broken glyf", function () {
+        it("filled with garbage, its length kept", async function () {
+            // fontforge keeps every glyph slot and loses every outline: 16 KB of WOFF against 72 KB.
+            const garbage = Uint8Array.from(
+                { length: TTF_GLYF_LENGTH_BYTES },
+                (_, index) => (index * GARBAGE_MULTIPLIER) >>> GARBAGE_SHIFT,
+            );
+
+            await expectBroken(
+                withBytes(ttf, tableOffset(ttf, "glyf"), garbage),
+                SfntRule.SimpleGlyphInData,
+                'At table "glyf": the end of endPtsOfContours[158] of glyph 0 is 326, expected at most 84, the length of glyph 0 by loca.',
+            );
+        });
+
+        it("whose glyph is shorter than its header", async function () {
+            await expectBroken(
+                withGlyph(ttf, 0, glyph0(ttf).subarray(0, GLYPH_HEADER_SIZE_BYTES - 1)),
+                SfntRule.GlyphHeader,
+                'At table "glyf": the length of glyph 0 by loca is 9, expected 0 or at least 10.',
+            );
+        });
+
+        it("whose last glyph is broken, every glyph before it valid", async function () {
+            await expectBroken(
+                withGlyph(ttf, LAST_GLYPH, glyph0(ttf).subarray(0, GLYPH_HEADER_SIZE_BYTES - 1)),
+                SfntRule.GlyphHeader,
+                `At table "glyf": the length of glyph ${LAST_GLYPH} by loca is 9, expected 0 or at least 10.`,
+            );
+            await expectBroken(
+                withGlyph(ttf, LAST_GLYPH, glyph0(ttf).subarray(0, GLYPH_0_Y_COORDINATES_END_BYTES - 1)),
+                SfntRule.SimpleGlyphInData,
+                `At table "glyf": the end of yCoordinates of glyph ${LAST_GLYPH} is 81, expected at most 80, the length of glyph ${LAST_GLYPH} by loca.`,
+            );
+        });
+
+        it("of a simple glyph without contours and without room for instructionLength", async function () {
+            // The 10-byte header alone, which a composite glyph may be.
+            const withoutContours = withUint16(glyph0(ttf), NUMBER_OF_CONTOURS_OFFSET_BYTES, 0);
+
+            await expectBroken(
+                withGlyph(ttf, 0, withoutContours.subarray(0, GLYPH_HEADER_SIZE_BYTES)),
+                SfntRule.SimpleGlyphInData,
+                'At table "glyf": the end of instructionLength of glyph 0 is 12, expected at most 10, the length of glyph 0 by loca.',
+            );
+        });
+
+        it("whose endPtsOfContours run past the glyph", async function () {
+            const endPtsEndBytes = END_PTS_OFFSET_BYTES + GLYPH_0_NUMBER_OF_CONTOURS * END_PT_SIZE_BYTES;
+
+            await expectBroken(
+                withGlyph(ttf, 0, glyph0(ttf).subarray(0, endPtsEndBytes - 1)),
+                SfntRule.SimpleGlyphInData,
+                'At table "glyf": the end of endPtsOfContours[5] of glyph 0 is 20, expected at most 19, the length of glyph 0 by loca.',
+            );
+            await expectBroken(
+                withGlyph(ttf, 0, withUint16(glyph0(ttf), NUMBER_OF_CONTOURS_OFFSET_BYTES, CONTOURS_PAST_GLYPH_0)),
+                SfntRule.SimpleGlyphInData,
+                'At table "glyf": the end of endPtsOfContours[40] of glyph 0 is 90, expected at most 84, the length of glyph 0 by loca.',
+            );
+        });
+
+        it("whose endPtsOfContours descend", async function () {
+            // fontforge drops the outline: "contour ends make no sense".
+            await expectBroken(
+                withGlyph(ttf, 0, withUint16(glyph0(ttf), END_PTS_OFFSET_BYTES + END_PT_SIZE_BYTES, GLYPH_0_FIRST_END_PT - 1)),
+                SfntRule.EndPtsAscending,
+                'At table "glyf": endPtsOfContours[1] of glyph 0 is 2, expected more than 3, endPtsOfContours[0].',
+            );
+        });
+
+        it("whose endPtsOfContours repeat a point, for an empty contour", async function () {
+            // fontforge loses nothing here; the rule follows the specification, "increasing numeric order".
+            await expectBroken(
+                withGlyph(ttf, 0, withUint16(glyph0(ttf), END_PTS_OFFSET_BYTES + END_PT_SIZE_BYTES, GLYPH_0_FIRST_END_PT)),
+                SfntRule.EndPtsAscending,
+                'At table "glyf": endPtsOfContours[1] of glyph 0 is 3, expected more than 3, endPtsOfContours[0].',
+            );
+        });
+
+        it("with no room for instructionLength", async function () {
+            await expectBroken(
+                withGlyph(ttf, 0, glyph0(ttf).subarray(0, GLYPH_0_FLAGS_OFFSET_BYTES - 1)),
+                SfntRule.SimpleGlyphInData,
+                'At table "glyf": the end of instructionLength of glyph 0 is 22, expected at most 21, the length of glyph 0 by loca.',
+            );
+        });
+
+        it("whose instructions run past the glyph", async function () {
+            // One byte past the glyph, and the most instructionLength can state.
+            for (const instructionLength of [GLYPH_0_LENGTH_BYTES - GLYPH_0_FLAGS_OFFSET_BYTES + 1, 0xffff]) {
+                await expectBroken(
+                    withGlyph(ttf, 0, withUint16(glyph0(ttf), GLYPH_0_INSTRUCTION_LENGTH_OFFSET_BYTES, instructionLength)),
+                    SfntRule.SimpleGlyphInData,
+                    `At table "glyf": the end of instructions[${instructionLength}] of glyph 0 is ${
+                        GLYPH_0_FLAGS_OFFSET_BYTES + instructionLength
+                    }, expected at most 84, the length of glyph 0 by loca.`,
+                );
+            }
+        });
+
+        it("whose flags run past the glyph", async function () {
+            await expectBroken(
+                withGlyph(ttf, 0, glyph0(ttf).subarray(0, GLYPH_0_FLAGS_OFFSET_BYTES)),
+                SfntRule.SimpleGlyphInData,
+                'At table "glyf": the end of the flag of point 0 of glyph 0 is 23, expected at most 22, the length of glyph 0 by loca.',
+            );
+            await expectBroken(
+                withGlyph(ttf, 0, glyph0(ttf).subarray(0, GLYPH_0_SECOND_FLAG_OFFSET_BYTES)),
+                SfntRule.SimpleGlyphInData,
+                'At table "glyf": the end of the flag of point 2 of glyph 0 is 25, expected at most 24, the length of glyph 0 by loca.',
+            );
+        });
+
+        it("whose repeat count runs past the glyph", async function () {
+            await expectBroken(
+                withGlyph(ttf, 0, glyph0(ttf).subarray(0, GLYPH_0_REPEAT_COUNT_OFFSET_BYTES)),
+                SfntRule.SimpleGlyphInData,
+                'At table "glyf": the end of the repeat count of the flag of point 0 of glyph 0 is 24, expected at most 23, the length of glyph 0 by loca.',
+            );
+        });
+
+        it("whose flag repeats run past its points", async function () {
+            // fontforge cuts the repeats short, "Flag count is wrong", and loses nothing; the rule follows
+            // the specification, one flag per point.
+            await expectBroken(
+                withGlyph(ttf, 0, withBytes(glyph0(ttf), GLYPH_0_REPEAT_COUNT_OFFSET_BYTES, [GLYPH_0_NUMBER_OF_POINTS])),
+                SfntRule.FlagPerPoint,
+                'At table "glyf": the flag count with the flag of point 0 and its 16 repeats of glyph 0 is 17, expected at most 16, the number of points.',
+            );
+        });
+
+        it("whose x coordinates run past the glyph", async function () {
+            await expectBroken(
+                withGlyph(ttf, 0, glyph0(ttf).subarray(0, GLYPH_0_X_COORDINATES_END_BYTES - 1)),
+                SfntRule.SimpleGlyphInData,
+                'At table "glyf": the end of xCoordinates of glyph 0 is 60, expected at most 59, the length of glyph 0 by loca.',
+            );
+        });
+
+        it("whose y coordinates run past the glyph", async function () {
+            // fontforge reads the missing byte from the next glyph. Measured on glyph 31, it said "A
+            // point in GID 31 is outside the glyph bounding box".
+            await expectBroken(
+                withGlyph(ttf, 0, glyph0(ttf).subarray(0, GLYPH_0_Y_COORDINATES_END_BYTES - 1)),
+                SfntRule.SimpleGlyphInData,
+                'At table "glyf": the end of yCoordinates of glyph 0 is 81, expected at most 80, the length of glyph 0 by loca.',
+            );
+        });
+    });
+
     describe("rejects a broken cmap", function () {
         it("shorter than its header", async function () {
             await expectBroken(
@@ -814,7 +1057,7 @@ describe("SfntFontValidator", function () {
         });
 
         it("whose subtable leaves no room for the header of its format", async function () {
-            for (const [format, lengthField] of SUBTABLE_LENGTH_FIELDS) {
+            for (const [format, { lengthField }] of SUBTABLE_LAYOUTS) {
                 const headerSizeBytes = lengthField.offsetBytes + lengthField.sizeBytes;
                 const subtableOffset = CMAP_LENGTH_BYTES - headerSizeBytes + 1;
 
@@ -826,12 +1069,28 @@ describe("SfntFontValidator", function () {
             }
         });
 
-        it("whose subtable runs past its end", async function () {
-            for (const format of SUBTABLE_LENGTH_FIELDS.keys()) {
+        it("whose subtable is shorter than the part of its format of a set size", async function () {
+            // fontforge reads that part past cmap and loses the encoding or makes one up, both with
+            // exit 0, or runs past 60 s (issue #757).
+            for (const [format, { fixedSizeBytes }] of SUBTABLE_LAYOUTS) {
                 await expectBroken(
-                    withSubtableHeader(ttf, format, LAST_SUBTABLE_LENGTH_BYTES + 1),
+                    withLastSubtable(ttf, format, fixedSizeBytes, fixedSizeBytes - 1),
+                    SfntRule.CmapSubtableMinLength,
+                    `At table "cmap": the length of the subtable of encodingRecords[1] is ${
+                        fixedSizeBytes - 1
+                    }, expected at least ${fixedSizeBytes}, the part of format ${format} of a set size.`,
+                );
+            }
+        });
+
+        it("whose subtable runs past its end", async function () {
+            for (const [format, { fixedSizeBytes }] of SUBTABLE_LAYOUTS) {
+                await expectBroken(
+                    withLastSubtable(ttf, format, fixedSizeBytes, fixedSizeBytes + 1),
                     SfntRule.CmapSubtableLength,
-                    'At table "cmap": the length of the subtable of encodingRecords[1] is 523, expected at most 522, the rest of table "cmap" from offset 660.',
+                    `At table "cmap": the length of the subtable of encodingRecords[1] is ${
+                        fixedSizeBytes + 1
+                    }, expected at most ${fixedSizeBytes}, the rest of table "cmap" from offset 660.`,
                 );
             }
         });
@@ -1015,6 +1274,96 @@ describe("SfntFontValidator", function () {
                     }[${OTF_NUM_GLYPHS}].`,
                 );
             }
+        });
+
+        it("of version 2.0 or 2.5 naming fewer glyphs than maxp has", async function () {
+            // fontforge renames the glyphs past numGlyphs that have no encoding to glyphN with exit
+            // 0: 401 of the TrueType fixture with numGlyphs 0 (issue #757).
+            for (const version of POST_GLYPH_NAMES.keys()) {
+                for (const numGlyphs of [0, OTF_NUM_GLYPHS - 1]) {
+                    await expectBroken(
+                        withPostGlyphNames(otf, version, numGlyphs),
+                        SfntRule.PostNumGlyphs,
+                        `At table "post": numGlyphs is ${numGlyphs}, expected at least ${OTF_NUM_GLYPHS}, maxp.numGlyphs.`,
+                    );
+                }
+            }
+        });
+
+        it("of version 2.0 whose string its highest glyphNameIndex points at runs one byte past it", async function () {
+            // fontforge cuts the glyph name short with exit 0 (issue #757).
+            await expectBroken(
+                withLength(ttf, "post", TTF_POST_LENGTH_BYTES - 1),
+                SfntRule.PostNameStringInTable,
+                `At table "post": the end of string ${
+                    TTF_POST_STRING_COUNT - 1
+                } of stringData is ${TTF_POST_LENGTH_BYTES}, expected at most ${
+                    TTF_POST_LENGTH_BYTES - 1
+                }, the length of table "post", as glyphNameIndex[${TTF_LAST_GLYPH}] is ${TTF_HIGHEST_GLYPH_NAME_INDEX}.`,
+            );
+        });
+
+        it("naming the first of the glyphs that share the highest glyphNameIndex", async function () {
+            const withNotdefSharingIndex = withGlyphNameIndex(ttf, 0, TTF_HIGHEST_GLYPH_NAME_INDEX);
+
+            await expectBroken(
+                withLength(withNotdefSharingIndex, "post", TTF_POST_LENGTH_BYTES - 1),
+                SfntRule.PostNameStringInTable,
+                `At table "post": the end of string ${
+                    TTF_POST_STRING_COUNT - 1
+                } of stringData is ${TTF_POST_LENGTH_BYTES}, expected at most ${
+                    TTF_POST_LENGTH_BYTES - 1
+                }, the length of table "post", as glyphNameIndex[0] is ${TTF_HIGHEST_GLYPH_NAME_INDEX}.`,
+            );
+        });
+
+        it("of version 2.0 ending with the length byte of the string its highest glyphNameIndex points at", async function () {
+            const lengthEndBytes = TTF_LAST_POST_STRING_START_BYTES + 1;
+
+            await expectBroken(
+                withLength(ttf, "post", lengthEndBytes),
+                SfntRule.PostNameStringInTable,
+                `At table "post": the end of string ${
+                    TTF_POST_STRING_COUNT - 1
+                } of stringData is ${TTF_POST_LENGTH_BYTES}, expected at most ${lengthEndBytes}, the length of table "post", as glyphNameIndex[${TTF_LAST_GLYPH}] is ${TTF_HIGHEST_GLYPH_NAME_INDEX}.`,
+            );
+        });
+
+        it("of version 2.0 cut right after glyphNameIndex, its strings left out", async function () {
+            // fontforge renames 400 glyphs of the TrueType fixture to glyphN with exit 0 (issue #757).
+            await expectBroken(
+                withLength(ttf, "post", TTF_POST_STRINGS_START_BYTES),
+                SfntRule.PostNameStringInTable,
+                `At table "post": the end of string 0 of stringData is ${
+                    TTF_POST_STRINGS_START_BYTES + 1
+                }, expected at most ${TTF_POST_STRINGS_START_BYTES}, the length of table "post", as glyphNameIndex[${TTF_LAST_GLYPH}] is ${TTF_HIGHEST_GLYPH_NAME_INDEX}.`,
+            );
+        });
+
+        it("of version 2.0 whose entry past the glyphs of maxp points past its strings", async function () {
+            const pastStrings = TTF_HIGHEST_GLYPH_NAME_INDEX + 1;
+            const withExtraEntry = withExtraGlyphName(ttf, pastStrings);
+            const lengthBytes = TTF_POST_LENGTH_BYTES + GLYPH_NAME_INDEX_SIZE_BYTES;
+
+            await expectBroken(
+                withExtraEntry,
+                SfntRule.PostNameStringInTable,
+                `At table "post": the end of string ${TTF_POST_STRING_COUNT} of stringData is ${
+                    lengthBytes + 1
+                }, expected at most ${lengthBytes}, the length of table "post", as glyphNameIndex[${TTF_NUM_GLYPHS}] is ${pastStrings}.`,
+            );
+        });
+
+        it("of version 2.0 whose glyphNameIndex points past its strings", async function () {
+            const pastStrings = TTF_HIGHEST_GLYPH_NAME_INDEX + 1;
+
+            await expectBroken(
+                withGlyphNameIndex(ttf, TTF_LAST_GLYPH, pastStrings),
+                SfntRule.PostNameStringInTable,
+                `At table "post": the end of string ${TTF_POST_STRING_COUNT} of stringData is ${
+                    TTF_POST_LENGTH_BYTES + 1
+                }, expected at most ${TTF_POST_LENGTH_BYTES}, the length of table "post", as glyphNameIndex[${TTF_LAST_GLYPH}] is ${pastStrings}.`,
+            );
         });
 
         it("of a version OpenType does not define", async function () {
@@ -1204,6 +1553,42 @@ function lastShortOffsetBytes(font: Uint8Array): number {
 }
 
 /**
+ * The bytes of glyph 0 of the TrueType fixture, by loca.
+ */
+function glyph0(font: Uint8Array): Uint8Array {
+    const glyf = tableOffset(font, "glyf");
+
+    return font.slice(glyf, glyf + GLYPH_0_LENGTH_BYTES);
+}
+
+/**
+ * The TrueType fixture with glyph `glyphId` replaced by `glyph`. glyf and loca are rebuilt, with
+ * long offsets, and appended to the end of the file; every other glyph keeps its bytes.
+ */
+function withGlyph(font: Uint8Array, glyphId: number, glyph: Uint8Array): Uint8Array {
+    const loca = tableOffset(font, "loca");
+    const glyf = tableOffset(font, "glyf");
+    const glyphs: Uint8Array[] = [];
+    const newLoca = new Uint8Array((TTF_NUM_GLYPHS + 1) * LONG_LOCA_ENTRY_SIZE_BYTES);
+    const view = new DataView(newLoca.buffer);
+    let offsetBytes = 0;
+
+    for (let index = 0; index < TTF_NUM_GLYPHS; index++) {
+        const startBytes = readUint32(font, loca + index * LONG_LOCA_ENTRY_SIZE_BYTES);
+        const endBytes = readUint32(font, loca + (index + 1) * LONG_LOCA_ENTRY_SIZE_BYTES);
+        const glyphBytes = index === glyphId ? glyph : font.subarray(glyf + startBytes, glyf + endBytes);
+
+        glyphs.push(glyphBytes);
+        view.setUint32(index * LONG_LOCA_ENTRY_SIZE_BYTES, offsetBytes);
+        offsetBytes += glyphBytes.length;
+    }
+
+    view.setUint32(TTF_NUM_GLYPHS * LONG_LOCA_ENTRY_SIZE_BYTES, offsetBytes);
+
+    return withTableAtEnd(withTableAtEnd(font, "glyf", Uint8Array.from(Buffer.concat(glyphs))), "loca", newLoca);
+}
+
+/**
  * The font with the subtable offset of its cmap encoding record `index` set to `subtableOffset`.
  */
 function withSubtableOffset(font: Uint8Array, index: number, subtableOffset: number): Uint8Array {
@@ -1224,7 +1609,7 @@ function subtableOffsetField(font: Uint8Array, index: number): number {
  * as it was, as the validator does not read it.
  */
 function withSubtableHeader(font: Uint8Array, format: number, lengthBytes: number): Uint8Array {
-    const lengthField = SUBTABLE_LENGTH_FIELDS.get(format) ?? expect.fail(`no cmap subtable format ${format}`);
+    const { lengthField } = SUBTABLE_LAYOUTS.get(format) ?? expect.fail(`no cmap subtable format ${format}`);
     const subtableBytes = tableOffset(font, "cmap") + LAST_SUBTABLE_OFFSET_BYTES;
     const header = new Uint8Array(lengthField.offsetBytes + lengthField.sizeBytes);
     const view = new DataView(header.buffer);
@@ -1238,6 +1623,16 @@ function withSubtableHeader(font: Uint8Array, format: number, lengthBytes: numbe
     }
 
     return withBytes(font, subtableBytes, header);
+}
+
+/**
+ * The font with cmap moved to the end of the file and its last subtable, the one of encoding record
+ * 1, rewritten as of `format`, stating `lengthBytes`: the copy of cmap ends `restBytes` after the
+ * start of the subtable, cut or lengthened to do so. The bytes past the header are those that
+ * followed in the file, which the validator does not read.
+ */
+function withLastSubtable(font: Uint8Array, format: number, restBytes: number, lengthBytes: number): Uint8Array {
+    return withSubtableHeader(withTableMovedToEnd(font, "cmap", LAST_SUBTABLE_OFFSET_BYTES + restBytes), format, lengthBytes);
 }
 
 /**
@@ -1303,16 +1698,52 @@ function withNameString(font: Uint8Array, index: number, stringOffset: number, l
 }
 
 /**
- * The font with a post of `version`, 2.0 or 2.5, moved to the end of the file: numGlyphs is the
- * glyph count of the CFF fixture, and the table ends with the entry of its last glyph.
+ * The font with a post of `version`, 2.0 or 2.5, at the end of the file: the header of its post,
+ * then `numGlyphs`, the glyph count of the CFF fixture unless given, and a zero entry per glyph, so
+ * every glyph of a 2.0 takes a standard name and no string is needed. The table ends with the entry
+ * of its last glyph.
  */
-function withPostGlyphNames(font: Uint8Array, version: number): Uint8Array {
+function withPostGlyphNames(font: Uint8Array, version: number, numGlyphs: number = OTF_NUM_GLYPHS): Uint8Array {
     const glyphNames = POST_GLYPH_NAMES.get(version) ?? expect.fail(`no glyph names in post ${hex(version)}`);
-    const lengthBytes = POST_NUM_GLYPHS_END_BYTES + OTF_NUM_GLYPHS * glyphNames.entrySizeBytes;
-    const moved = withTableMovedToEnd(font, "post", lengthBytes);
-    const withVersion = withUint32(moved, tableOffset(moved, "post") + TABLE_VERSION_OFFSET_BYTES, version);
+    const post = tableOffset(font, "post");
+    const table = new Uint8Array(POST_NUM_GLYPHS_END_BYTES + numGlyphs * glyphNames.entrySizeBytes);
+    const view = new DataView(table.buffer);
 
-    return withField16(withVersion, "post", POST_NUM_GLYPHS_OFFSET_BYTES, OTF_NUM_GLYPHS);
+    table.set(font.subarray(post, post + POST_HEADER_SIZE_BYTES));
+    view.setUint32(TABLE_VERSION_OFFSET_BYTES, version);
+    view.setUint16(POST_NUM_GLYPHS_OFFSET_BYTES, numGlyphs);
+
+    return withTableAtEnd(font, "post", table);
+}
+
+/**
+ * The font with its post 2.0 at the end of the file, naming one glyph more than maxp has: numGlyphs
+ * grows by one, and an entry of `glyphNameIndex` follows the last one, before the strings.
+ */
+function withExtraGlyphName(font: Uint8Array, glyphNameIndex: number): Uint8Array {
+    const post = tableOffset(font, "post");
+    const numGlyphs = readUint16(font, post + POST_NUM_GLYPHS_OFFSET_BYTES);
+    const lengthBytes = readUint32(font, recordOf(font, "post") + LENGTH_OFFSET_BYTES);
+    const entriesEndBytes = POST_NUM_GLYPHS_END_BYTES + numGlyphs * GLYPH_NAME_INDEX_SIZE_BYTES;
+    const extraEntry = new Uint8Array(GLYPH_NAME_INDEX_SIZE_BYTES);
+
+    new DataView(extraEntry.buffer).setUint16(0, glyphNameIndex);
+
+    const table = Uint8Array.from(
+        Buffer.concat([font.subarray(post, post + entriesEndBytes), extraEntry, font.subarray(post + entriesEndBytes, post + lengthBytes)]),
+    );
+
+    new DataView(table.buffer).setUint16(POST_NUM_GLYPHS_OFFSET_BYTES, numGlyphs + 1);
+
+    return withTableAtEnd(font, "post", table);
+}
+
+function glyphNameIndexOf(font: Uint8Array, glyphIndex: number): number {
+    return readUint16(font, tableOffset(font, "post") + POST_NUM_GLYPHS_END_BYTES + glyphIndex * GLYPH_NAME_INDEX_SIZE_BYTES);
+}
+
+function withGlyphNameIndex(font: Uint8Array, glyphIndex: number, glyphNameIndex: number): Uint8Array {
+    return withField16(font, "post", POST_NUM_GLYPHS_END_BYTES + glyphIndex * GLYPH_NAME_INDEX_SIZE_BYTES, glyphNameIndex);
 }
 
 function hex(value: number): string {
