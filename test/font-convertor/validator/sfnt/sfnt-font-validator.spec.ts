@@ -1613,8 +1613,9 @@ function withSubtableHeader(font: Uint8Array, format: number, lengthBytes: numbe
 
 /**
  * The font with cmap moved to the end of the file and its last subtable, the one of encoding record
- * 1, rewritten as of `format`, stating `lengthBytes`: cmap is cut to leave the subtable `restBytes`.
- * The bytes past the header are those that followed in the file, which the validator does not read.
+ * 1, rewritten as of `format`, stating `lengthBytes`: the copy of cmap ends `restBytes` after the
+ * start of the subtable, cut or lengthened to do so. The bytes past the header are those that
+ * followed in the file, which the validator does not read.
  */
 function withLastSubtable(font: Uint8Array, format: number, restBytes: number, lengthBytes: number): Uint8Array {
     return withSubtableHeader(withTableMovedToEnd(font, "cmap", LAST_SUBTABLE_OFFSET_BYTES + restBytes), format, lengthBytes);

@@ -173,10 +173,11 @@ export class SfntFontValidator implements FontValidator {
     private static readonly POST_STANDARD_NAME_COUNT = 258;
     private static readonly PASCAL_STRING_LENGTH_SIZE_BYTES = 1;
     private static readonly GLYPH_NAME_INDEX_SIZE_BYTES = 2;
+    private static readonly GLYPH_NAME_OFFSET_SIZE_BYTES = 1;
     // By version: only 2.0 and 2.5 carry glyph names past the header, and only 2.0 names of its own.
     private static readonly POST_GLYPH_NAMES: ReadonlyMap<number, PostGlyphNames> = new Map([
         [0x00020000, { entries: "glyphNameIndex", entrySizeBytes: SfntFontValidator.GLYPH_NAME_INDEX_SIZE_BYTES, hasNameStrings: true }],
-        [0x00025000, { entries: "offset", entrySizeBytes: 1, hasNameStrings: false }],
+        [0x00025000, { entries: "offset", entrySizeBytes: SfntFontValidator.GLYPH_NAME_OFFSET_SIZE_BYTES, hasNameStrings: false }],
     ]);
 
     /**
@@ -1165,7 +1166,7 @@ export class SfntFontValidator implements FontValidator {
         fontPath: string,
         view: DataView,
         post: SfntTableRecord,
-        numGlyphs: number,
+        postNumGlyphs: number,
         indexStartBytes: number,
         stringsStartBytes: number,
     ): void {
@@ -1173,7 +1174,7 @@ export class SfntFontValidator implements FontValidator {
         let glyphWithHighestIndex = 0;
         let highestIndex = 0;
 
-        for (let glyphIndex = 0; glyphIndex < numGlyphs; glyphIndex++) {
+        for (let glyphIndex = 0; glyphIndex < postNumGlyphs; glyphIndex++) {
             const glyphNameIndex = view.getUint16(
                 post.offset + indexStartBytes + glyphIndex * SfntFontValidator.GLYPH_NAME_INDEX_SIZE_BYTES,
             );
