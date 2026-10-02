@@ -32,6 +32,9 @@ export enum SfntRule {
     SimpleGlyphInData = "a simple glyph, of numberOfContours 0 or more, lies inside its length by loca: endPtsOfContours[numberOfContours], instructionLength, the instructions, the flags with their repeat counts, and the x and y coordinates of the widths its flags give (OpenType 1.9.1, glyf, Simple Glyph Description)",
     EndPtsAscending = "the endPtsOfContours of a simple glyph are in increasing numeric order (OpenType 1.9.1, glyf, Simple Glyph Description)",
     FlagPerPoint = "a simple glyph has one flag per point: its flags, each with its repeats, are no more than endPtsOfContours[numberOfContours - 1] + 1 (OpenType 1.9.1, glyf, Simple Glyph Description)",
+    CompositeGlyphInData = "a composite glyph, of a negative numberOfContours, lies inside its length by loca: at least one component, each with its flags and glyphIndex, its arguments of 4 bytes with ARG_1_AND_2_ARE_WORDS and of 2 without, and its transform of 2, 4 or 8 bytes with WE_HAVE_A_SCALE, WE_HAVE_AN_X_AND_Y_SCALE or WE_HAVE_A_TWO_BY_TWO, and after the last component, when any of them sets WE_HAVE_INSTRUCTIONS, numInstr and the instructions (OpenType 1.9.1, glyf, Composite Glyph Description)",
+    ComponentGlyphIndex = "the glyphIndex of a component is less than maxp.numGlyphs (OpenType 1.9.1, glyf, Composite Glyph Description; maxp)",
+    ComponentCycle = "the components of composite glyphs make no cycle, a glyph that is its own component included: the graph they make must be acyclic (OpenType 1.9.1, glyf, Composite Glyph Description)",
     CmapRecordsInTable = "cmap holds its 4-byte header and an 8-byte encoding record per numTables (OpenType 1.9.1, cmap)",
     CmapVersion = "cmap.version is 0 (OpenType 1.9.1, cmap)",
     CmapSubtables = "cmap has at least one subtable (ours: the specification sets no count, and without a subtable fontforge 20230101 drops the encoding)",
@@ -82,6 +85,16 @@ export type GlyfEntry = {
     id: number;
     offsetBytes: number;
     lengthBytes: number;
+};
+
+/**
+ * A composite glyph on the chain of components being followed: the glyphs its components point at,
+ * and the index in them of the next one to follow.
+ */
+export type ComponentWalk = {
+    glyphId: number;
+    componentGlyphIds: ReadonlyArray<number>;
+    nextComponentIndex: number;
 };
 
 /**

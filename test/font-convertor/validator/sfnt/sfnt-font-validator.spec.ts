@@ -64,6 +64,40 @@ const GLYPH_0_X_COORDINATES_END_BYTES = 60;
 const GLYPH_0_Y_COORDINATES_END_BYTES = 81;
 // More contours than glyph 0 has room for: their 2-byte ends alone run to byte 90 of its 84.
 const CONTOURS_PAST_GLYPH_0 = 40;
+// The flags of a component and the widths they give (OpenType 1.9.1, glyf, Composite Glyph
+// Description). The TrueType fixture has no composite glyph, so the specs build them.
+const ARG_1_AND_2_ARE_WORDS = 0x0001;
+const ARGS_ARE_XY_VALUES = 0x0002;
+const WE_HAVE_A_SCALE = 0x0008;
+const MORE_COMPONENTS = 0x0020;
+const WE_HAVE_AN_X_AND_Y_SCALE = 0x0040;
+const WE_HAVE_A_TWO_BY_TWO = 0x0080;
+const WE_HAVE_INSTRUCTIONS = 0x0100;
+// Bits 4, 13, 14 and 15, which the specification reserves.
+const RESERVED_COMPONENT_FLAGS = 0xe010;
+// A component opens with its flags and glyphIndex.
+const COMPONENT_FLAGS_OFFSET_BYTES = 0;
+const COMPONENT_GLYPH_INDEX_OFFSET_BYTES = 2;
+const COMPONENT_HEADER_SIZE_BYTES = 4;
+const WORD_ARGUMENTS_SIZE_BYTES = 4;
+const BYTE_ARGUMENTS_SIZE_BYTES = 2;
+const TRANSFORM_FLAGS = WE_HAVE_A_SCALE | WE_HAVE_AN_X_AND_Y_SCALE | WE_HAVE_A_TWO_BY_TWO;
+const TRANSFORM_SIZES_BYTES = new Map([
+    [0, 0],
+    [WE_HAVE_A_SCALE, 2],
+    [WE_HAVE_AN_X_AND_Y_SCALE, 4],
+    [WE_HAVE_A_TWO_BY_TWO, 8],
+]);
+const NUM_INSTR_SIZE_BYTES = 2;
+// Two bytes of instructions for a composite glyph, PUSHB[0] and its byte; no rule reads their values.
+const COMPOSITE_INSTRUCTIONS = [0xb0, 0x00];
+// Composite glyphs 1 to 27, each of two components pointing at the next one, reach glyph 27 through
+// 2^26 chains of components. A walk that followed a glyph again on every chain takes about 18 s there
+// in the application image, past the 2 s mocha timeout; one that follows each composite glyph once
+// takes 53 steps.
+const CHAIN_OF_DOUBLED_COMPONENTS_LENGTH = 27;
+// A component compositeGlyph builds, ARGS_ARE_XY_VALUES and MORE_COMPONENTS added to its flags.
+type Component = { glyphIndex: number; flags: number };
 // A deterministic fill for glyf: the top byte of the index times Knuth's multiplicative hash constant.
 const GARBAGE_MULTIPLIER = 2654435761;
 const GARBAGE_SHIFT = 24;
@@ -308,21 +342,70 @@ describe("SfntFontValidator", function () {
             await validate(withGlyph(ttf, 0, withoutContours.subarray(0, GLYPH_HEADER_SIZE_BYTES + END_PT_SIZE_BYTES)));
         });
 
-        it("with a composite glyph of any negative numberOfContours, its components not read", async function () {
+        it("with a composite glyph of any negative numberOfContours", async function () {
             // The specification says -1 "should be used", and fontforge reads any negative value as a
-            // composite glyph. What follows the header is the simple glyph, read as no component.
-            // setUint16 stores a negative value as its two's complement, as the signed field holds it.
+            // composite glyph. setUint16 stores a negative value as its two's complement, as the signed
+            // field holds it.
+            const composite = compositeGlyph([{ glyphIndex: 0, flags: 0 }]);
+
             for (const numberOfContours of [-1, -2, -32768]) {
-                await validate(withGlyph(ttf, 0, withUint16(glyph0(ttf), NUMBER_OF_CONTOURS_OFFSET_BYTES, numberOfContours)));
+                await validate(withGlyph(ttf, 1, withUint16(composite, NUMBER_OF_CONTOURS_OFFSET_BYTES, numberOfContours)));
             }
         });
 
-        it("with a composite glyph of its 10-byte header alone", async function () {
-            // The specification gives a composite glyph at least one component; this passes only while
-            // the components are not read.
-            const composite = withUint16(glyph0(ttf), NUMBER_OF_CONTOURS_OFFSET_BYTES, -1);
+        it("whose composite glyph ends with its last component, of every width of arguments and transform", async function () {
+            const composite = compositeGlyph([
+                { glyphIndex: 0, flags: 0 },
+                { glyphIndex: 0, flags: ARG_1_AND_2_ARE_WORDS | WE_HAVE_A_SCALE },
+                { glyphIndex: 0, flags: WE_HAVE_AN_X_AND_Y_SCALE },
+                { glyphIndex: 0, flags: ARG_1_AND_2_ARE_WORDS | WE_HAVE_A_TWO_BY_TWO },
+            ]);
 
-            await validate(withGlyph(ttf, 0, composite.subarray(0, GLYPH_HEADER_SIZE_BYTES)));
+            await validate(withGlyph(ttf, 1, composite));
+        });
+
+        it("whose composite glyph ends with its instructions", async function () {
+            await validate(withGlyph(ttf, 1, compositeGlyph([{ glyphIndex: 0, flags: WE_HAVE_INSTRUCTIONS }], COMPOSITE_INSTRUCTIONS)));
+        });
+
+        it("with a component pointing at the last glyph of maxp", async function () {
+            await validate(withGlyph(ttf, 1, compositeGlyph([{ glyphIndex: LAST_GLYPH, flags: 0 }])));
+        });
+
+        it("whose component flags set the reserved bits", async function () {
+            // Real fonts set them: the class comment of SfntFontValidator gives the measurement.
+            await validate(withGlyph(ttf, 1, compositeGlyph([{ glyphIndex: 0, flags: RESERVED_COMPONENT_FLAGS }])));
+        });
+
+        it("with composite glyphs nested, two chains meeting at one glyph", async function () {
+            // Glyph 1 reaches glyph 3 through glyph 2 and directly: a glyph met twice, not a cycle.
+            const nested = withGlyphs(ttf, [
+                [
+                    1,
+                    compositeGlyph([
+                        { glyphIndex: 2, flags: 0 },
+                        { glyphIndex: 3, flags: 0 },
+                    ]),
+                ],
+                [2, compositeGlyph([{ glyphIndex: 3, flags: 0 }])],
+                [3, compositeGlyph([{ glyphIndex: 0, flags: 0 }])],
+            ]);
+
+            await validate(nested);
+        });
+
+        it("with a chain of composite glyphs each pointing twice at the next, each glyph walked once", async function () {
+            const chain: Array<[number, Uint8Array]> = [];
+
+            for (let glyphId = 1; glyphId < CHAIN_OF_DOUBLED_COMPONENTS_LENGTH; glyphId++) {
+                const next = { glyphIndex: glyphId + 1, flags: 0 };
+
+                chain.push([glyphId, compositeGlyph([next, next])]);
+            }
+
+            chain.push([CHAIN_OF_DOUBLED_COMPONENTS_LENGTH, compositeGlyph([{ glyphIndex: 0, flags: 0 }])]);
+
+            await validate(withGlyphs(ttf, chain));
         });
 
         it("whose cmap subtable starts right after the encoding records, and another ends the table", async function () {
@@ -859,7 +942,7 @@ describe("SfntFontValidator", function () {
         });
 
         it("of a simple glyph without contours and without room for instructionLength", async function () {
-            // The 10-byte header alone, which a composite glyph may be.
+            // The 10-byte header alone.
             const withoutContours = withUint16(glyph0(ttf), NUMBER_OF_CONTOURS_OFFSET_BYTES, 0);
 
             await expectBroken(
@@ -969,6 +1052,155 @@ describe("SfntFontValidator", function () {
                 withGlyph(ttf, 0, glyph0(ttf).subarray(0, GLYPH_0_Y_COORDINATES_END_BYTES - 1)),
                 SfntRule.SimpleGlyphInData,
                 'At table "glyf": the end of yCoordinates of glyph 0 is 81, expected at most 80, the length of glyph 0 by loca.',
+            );
+        });
+    });
+
+    // fontforge 20230101 loses the outline of a composite glyph cut inside a component, of one whose
+    // component points past numGlyphs, and of one on a cycle, the glyph itself included.
+    describe("rejects a broken composite glyph", function () {
+        it("of its 10-byte header alone, without a component", async function () {
+            await expectBroken(
+                withGlyph(ttf, 1, compositeGlyph([{ glyphIndex: 0, flags: 0 }]).subarray(0, GLYPH_HEADER_SIZE_BYTES)),
+                SfntRule.CompositeGlyphInData,
+                'At table "glyf": the end of the flags and glyphIndex of component 0 of glyph 1 is 14, expected at most 10, the length of glyph 1 by loca.',
+            );
+        });
+
+        it("cut inside the flags and glyphIndex of a component past the first", async function () {
+            const composite = compositeGlyph([
+                { glyphIndex: 0, flags: 0 },
+                { glyphIndex: 0, flags: 0 },
+            ]);
+
+            await expectBroken(
+                withGlyph(ttf, 1, composite.subarray(0, composite.length - BYTE_ARGUMENTS_SIZE_BYTES - 1)),
+                SfntRule.CompositeGlyphInData,
+                'At table "glyf": the end of the flags and glyphIndex of component 1 of glyph 1 is 20, expected at most 19, the length of glyph 1 by loca.',
+            );
+        });
+
+        it("whose last component sets MORE_COMPONENTS, with no bytes left", async function () {
+            // fontforge says "Bad flags value" and loses nothing; the rule follows the specification.
+            await expectBroken(
+                withGlyph(ttf, 1, compositeGlyph([{ glyphIndex: 0, flags: MORE_COMPONENTS }])),
+                SfntRule.CompositeGlyphInData,
+                'At table "glyf": the end of the flags and glyphIndex of component 1 of glyph 1 is 20, expected at most 16, the length of glyph 1 by loca.',
+            );
+        });
+
+        it("cut inside the arguments of a component, of bytes and of words", async function () {
+            for (const flags of [0, ARG_1_AND_2_ARE_WORDS]) {
+                const composite = compositeGlyph([{ glyphIndex: 0, flags: flags }]);
+
+                await expectBroken(
+                    withGlyph(ttf, 1, composite.subarray(0, composite.length - 1)),
+                    SfntRule.CompositeGlyphInData,
+                    `At table "glyf": the end of the arguments of component 0 of glyph 1 is ${composite.length}, expected at most ${
+                        composite.length - 1
+                    }, the length of glyph 1 by loca.`,
+                );
+            }
+        });
+
+        it("cut inside the transform of a component, of every scale flag", async function () {
+            for (const flags of [WE_HAVE_A_SCALE, WE_HAVE_AN_X_AND_Y_SCALE, WE_HAVE_A_TWO_BY_TWO]) {
+                const composite = compositeGlyph([{ glyphIndex: 0, flags: flags }]);
+
+                await expectBroken(
+                    withGlyph(ttf, 1, composite.subarray(0, composite.length - 1)),
+                    SfntRule.CompositeGlyphInData,
+                    `At table "glyf": the end of the transform of component 0 of glyph 1 is ${composite.length}, expected at most ${
+                        composite.length - 1
+                    }, the length of glyph 1 by loca.`,
+                );
+            }
+        });
+
+        it("with WE_HAVE_INSTRUCTIONS and no room for numInstr", async function () {
+            await expectBroken(
+                withGlyph(ttf, 1, compositeGlyph([{ glyphIndex: 0, flags: WE_HAVE_INSTRUCTIONS }])),
+                SfntRule.CompositeGlyphInData,
+                'At table "glyf": the end of numInstr of glyph 1 is 18, expected at most 16, the length of glyph 1 by loca.',
+            );
+        });
+
+        it("with WE_HAVE_INSTRUCTIONS on a component before the last and no room for numInstr", async function () {
+            // The prose of the specification reads numInstr "if the flag is set on any component
+            // glyph"; its pseudo-code and fontforge read the flag of the last component only. None of
+            // the real fonts measured sets it on another component alone.
+            const composite = compositeGlyph([
+                { glyphIndex: 0, flags: WE_HAVE_INSTRUCTIONS },
+                { glyphIndex: 0, flags: 0 },
+            ]);
+
+            await expectBroken(
+                withGlyph(ttf, 1, composite),
+                SfntRule.CompositeGlyphInData,
+                'At table "glyf": the end of numInstr of glyph 1 is 24, expected at most 22, the length of glyph 1 by loca.',
+            );
+        });
+
+        it("whose instructions run past the glyph", async function () {
+            const composite = compositeGlyph([{ glyphIndex: 0, flags: WE_HAVE_INSTRUCTIONS }], COMPOSITE_INSTRUCTIONS);
+
+            await expectBroken(
+                withGlyph(ttf, 1, composite.subarray(0, composite.length - 1)),
+                SfntRule.CompositeGlyphInData,
+                `At table "glyf": the end of instructions[${COMPOSITE_INSTRUCTIONS.length}] of glyph 1 is 20, expected at most 19, the length of glyph 1 by loca.`,
+            );
+        });
+
+        it("whose component points past the glyphs of maxp", async function () {
+            // fontforge says "Reference to glyph … out of bounds" and drops the outline.
+            for (const glyphIndex of [TTF_NUM_GLYPHS, 0xffff]) {
+                await expectBroken(
+                    withGlyph(ttf, 1, compositeGlyph([{ glyphIndex: glyphIndex, flags: 0 }])),
+                    SfntRule.ComponentGlyphIndex,
+                    `At table "glyf": the glyphIndex of component 0 of glyph 1 is ${glyphIndex}, expected less than ${TTF_NUM_GLYPHS}, maxp.numGlyphs.`,
+                );
+            }
+        });
+
+        it("whose component is the glyph itself", async function () {
+            await expectBroken(
+                withGlyph(ttf, 1, compositeGlyph([{ glyphIndex: 1, flags: 0 }])),
+                SfntRule.ComponentCycle,
+                'At table "glyf": the chain of components from glyph 1 is 1 -> 1, expected a chain that ends at glyphs without components.',
+            );
+        });
+
+        it("whose two composite glyphs point at each other", async function () {
+            const cycle = withGlyphs(ttf, [
+                [1, compositeGlyph([{ glyphIndex: 2, flags: 0 }])],
+                [2, compositeGlyph([{ glyphIndex: 1, flags: 0 }])],
+            ]);
+
+            await expectBroken(
+                cycle,
+                SfntRule.ComponentCycle,
+                'At table "glyf": the chain of components from glyph 1 is 1 -> 2 -> 1, expected a chain that ends at glyphs without components.',
+            );
+        });
+
+        it("whose cycle closes past the glyph the chain starts from", async function () {
+            // Glyph 1 leads into the cycle of glyphs 2 and 3 and is not on it.
+            const cycle = withGlyphs(ttf, [
+                [
+                    1,
+                    compositeGlyph([
+                        { glyphIndex: 0, flags: 0 },
+                        { glyphIndex: 2, flags: 0 },
+                    ]),
+                ],
+                [2, compositeGlyph([{ glyphIndex: 3, flags: 0 }])],
+                [3, compositeGlyph([{ glyphIndex: 2, flags: 0 }])],
+            ]);
+
+            await expectBroken(
+                cycle,
+                SfntRule.ComponentCycle,
+                'At table "glyf": the chain of components from glyph 2 is 2 -> 3 -> 2, expected a chain that ends at glyphs without components.',
             );
         });
     });
@@ -1562,13 +1794,21 @@ function glyph0(font: Uint8Array): Uint8Array {
 }
 
 /**
- * The TrueType fixture with glyph `glyphId` replaced by `glyph`. glyf and loca are rebuilt, with
- * long offsets, and appended to the end of the file; every other glyph keeps its bytes.
+ * The TrueType fixture with glyph `glyphId` replaced by `glyph`.
  */
 function withGlyph(font: Uint8Array, glyphId: number, glyph: Uint8Array): Uint8Array {
+    return withGlyphs(font, [[glyphId, glyph]]);
+}
+
+/**
+ * The TrueType fixture with each glyph of `glyphs`, by its id, replaced. glyf and loca are rebuilt,
+ * with long offsets, and appended to the end of the file; every other glyph keeps its bytes.
+ */
+function withGlyphs(font: Uint8Array, glyphs: ReadonlyArray<[number, Uint8Array]>): Uint8Array {
+    const replacements = new Map(glyphs);
     const loca = tableOffset(font, "loca");
     const glyf = tableOffset(font, "glyf");
-    const glyphs: Uint8Array[] = [];
+    const rebuiltGlyphs: Uint8Array[] = [];
     const newLoca = new Uint8Array((TTF_NUM_GLYPHS + 1) * LONG_LOCA_ENTRY_SIZE_BYTES);
     const view = new DataView(newLoca.buffer);
     let offsetBytes = 0;
@@ -1576,16 +1816,51 @@ function withGlyph(font: Uint8Array, glyphId: number, glyph: Uint8Array): Uint8A
     for (let index = 0; index < TTF_NUM_GLYPHS; index++) {
         const startBytes = readUint32(font, loca + index * LONG_LOCA_ENTRY_SIZE_BYTES);
         const endBytes = readUint32(font, loca + (index + 1) * LONG_LOCA_ENTRY_SIZE_BYTES);
-        const glyphBytes = index === glyphId ? glyph : font.subarray(glyf + startBytes, glyf + endBytes);
+        const glyphBytes = replacements.get(index) ?? font.subarray(glyf + startBytes, glyf + endBytes);
 
-        glyphs.push(glyphBytes);
+        rebuiltGlyphs.push(glyphBytes);
         view.setUint32(index * LONG_LOCA_ENTRY_SIZE_BYTES, offsetBytes);
         offsetBytes += glyphBytes.length;
     }
 
     view.setUint32(TTF_NUM_GLYPHS * LONG_LOCA_ENTRY_SIZE_BYTES, offsetBytes);
 
-    return withTableAtEnd(withTableAtEnd(font, "glyf", Uint8Array.from(Buffer.concat(glyphs))), "loca", newLoca);
+    return withTableAtEnd(withTableAtEnd(font, "glyf", Uint8Array.from(Buffer.concat(rebuiltGlyphs))), "loca", newLoca);
+}
+
+/**
+ * A composite glyph of numberOfContours -1 and a zero bounding box, one component per entry of
+ * `components`: its flags with ARGS_ARE_XY_VALUES added, and MORE_COMPONENTS on every component but
+ * the last, its glyphIndex, then zero arguments and a zero transform of the widths its flags give.
+ * With `instructions`, numInstr and the instructions follow the last component.
+ */
+function compositeGlyph(components: ReadonlyArray<Component>, instructions?: ArrayLike<number>): Uint8Array {
+    const header = withUint16(new Uint8Array(GLYPH_HEADER_SIZE_BYTES), NUMBER_OF_CONTOURS_OFFSET_BYTES, -1);
+    const parts = [header];
+
+    components.forEach((component, index) => {
+        let flags = component.flags | ARGS_ARE_XY_VALUES;
+
+        if (index < components.length - 1) {
+            flags |= MORE_COMPONENTS;
+        }
+
+        const argumentsSizeBytes = (flags & ARG_1_AND_2_ARE_WORDS) !== 0 ? WORD_ARGUMENTS_SIZE_BYTES : BYTE_ARGUMENTS_SIZE_BYTES;
+        const transformSizeBytes =
+            TRANSFORM_SIZES_BYTES.get(flags & TRANSFORM_FLAGS) ?? expect.fail(`more than one scale flag in ${flags}`);
+        const record = new Uint8Array(COMPONENT_HEADER_SIZE_BYTES + argumentsSizeBytes + transformSizeBytes);
+        const view = new DataView(record.buffer);
+
+        view.setUint16(COMPONENT_FLAGS_OFFSET_BYTES, flags);
+        view.setUint16(COMPONENT_GLYPH_INDEX_OFFSET_BYTES, component.glyphIndex);
+        parts.push(record);
+    });
+
+    if (instructions !== undefined) {
+        parts.push(withUint16(new Uint8Array(NUM_INSTR_SIZE_BYTES), 0, instructions.length), Uint8Array.from(instructions));
+    }
+
+    return Uint8Array.from(Buffer.concat(parts));
 }
 
 /**
