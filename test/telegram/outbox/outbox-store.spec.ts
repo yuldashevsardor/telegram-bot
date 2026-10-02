@@ -461,8 +461,9 @@ describe("OutboxStore", function () {
         const SHORTER_PAUSE_MS = PAUSE_MS / 2;
         // A pause that is over by the time the spec sleeps SHORT_PAUSE_MS twice.
         const SHORT_PAUSE_MS = 5;
-        // The cooldown of the spec on the pulls queued behind a slow one: each pull of it starts more
-        // than a cooldown after the one before, and its statement takes far less than a cooldown.
+        // The cooldown of the specs on the pulls queued behind a slow one: each pull of them starts
+        // more than a cooldown after the one before, and its statement takes far less than a
+        // cooldown. The chat that comes due during a wait does so a cooldown after the push.
         const QUEUED_COOLDOWN_MS = 200;
         const QUEUED_MARGIN_MS = 50;
 
@@ -626,19 +627,44 @@ describe("OutboxStore", function () {
                 expect((await storeOn(sql, queuedLimits).pull(1, WORKER)).messages).to.have.lengthOf(1);
 
                 await sleep(QUEUED_COOLDOWN_MS + QUEUED_MARGIN_MS);
-                const first = limited.pull(1, WORKER);
+                const firstQueuedPull = limited.pull(1, WORKER);
                 await waitForLockWaiters(1);
 
                 await sleep(QUEUED_COOLDOWN_MS + QUEUED_MARGIN_MS);
-                const second = limited.pull(1, WORKER);
+                const secondQueuedPull = limited.pull(1, WORKER);
                 await waitForLockWaiters(2);
 
-                queued = Promise.all([first, second]);
+                queued = Promise.all([firstQueuedPull, secondQueuedPull]);
             });
 
             const pulled = (await queued).flatMap((answer) => answer.messages);
 
             expect(pulled).to.have.lengthOf(1);
+        });
+
+        // Checked by the start of its statement, taken before the wait, the chat would not be due
+        // yet, and the pull would answer zero with a slot of the common limit to spend.
+        it("takes a chat that came due while the pull waited for the bot row", async function () {
+            const [, cameDue] = await store.pushBatch([message(OTHER_CHAT, "held"), message(CHAT, "due later")]);
+
+            await database.sql`
+                UPDATE telegram_outbox_chats
+                SET next_attempt_at = now() + ${QUEUED_COOLDOWN_MS}::double precision * interval '1 millisecond'
+                WHERE chat_id = ${CHAT}
+            `;
+
+            let waiting: Promise<OutboxPullResult> = Promise.resolve(NOTHING_PULLED);
+
+            await other.sql.begin(async (sql) => {
+                expect((await storeOn(sql).pull(1, WORKER)).messages).to.have.lengthOf(1);
+
+                waiting = store.pull(10, WORKER);
+                await waitForLockWaiters(1);
+
+                await sleep(QUEUED_COOLDOWN_MS + QUEUED_MARGIN_MS);
+            });
+
+            expect((await waiting).messages.map(({ id }) => id)).to.deep.equal([cameDue]);
         });
 
         it("lets the pull through once the pause is over", async function () {

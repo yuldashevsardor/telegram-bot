@@ -139,10 +139,8 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   chat state outside `complete()` is checked by nothing.
 - **A statement that locks the bot row (`telegram_bot_limits`) takes it before any other lock and
   holds no other lock while it waits**, as `OutboxStore.pull()` and `pause()` do, each in one
-  statement. A pull waits for the row and then, holding it, for the message rows it updates (the
-  chats it skips when they are locked), so a transaction that held a message while it waited for
-  the row would close a cycle with a pull ([`outbox.md`](./outbox.md), "Pull"). Nothing checks the
-  order.
+  statement. Otherwise the wait of a pull for the row can close a lock cycle; how is in
+  [`outbox.md`](./outbox.md), "Pull". Nothing checks the order.
 - **A statement that makes sure a chat row exists also locks it**, as the `ON CONFLICT DO UPDATE`
   of `OutboxStore.push()` does. The cleanup deletes an `idle` chat at any moment, so a row found
   by one statement and locked by the next may be gone in between, and messages inserted without

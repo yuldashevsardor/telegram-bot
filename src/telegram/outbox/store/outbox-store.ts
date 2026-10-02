@@ -199,7 +199,10 @@ export class OutboxStore {
                     LIMIT 1
                 ) AS head
                 WHERE chats.state = ${OutboxChatState.Ready}
-                  AND chats.next_attempt_at <= now()
+                  -- By the time of the pull, as the budget: a chat that came due while the pull
+                  -- waited for the bot row is taken. Without the row pulled_at is NULL, and so is
+                  -- the budget.
+                  AND chats.next_attempt_at <= (SELECT pulled_at FROM locked)
                 ORDER BY head.priority, chats.next_attempt_at, chats.chat_id
                 -- No budget: a pause, a spent limit or nothing to pull. NULL would lift the limit.
                 LIMIT coalesce((SELECT budget FROM budget), 0)

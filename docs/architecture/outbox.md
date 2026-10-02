@@ -108,10 +108,10 @@ no pull reaches them. The spec has the removal take the chat while a push waits 
    of the row as locked is over and its `next_send_at` has passed by then, it gives the budget of
    the pull (see "Limits"); a pause, a spent common limit or nothing to pull means a budget of zero.
    A pull with nothing to take does not lock the row, so it does not hold back a pull that has;
-2. up to the budget of `ready` chats whose `next_attempt_at` has passed, with the head of each
-   (`CROSS JOIN LATERAL`), by the priority of the head, then by `next_attempt_at`, then by
-   `chat_id`, `FOR UPDATE OF chats SKIP LOCKED`: a chat another puller holds is skipped, not
-   waited for;
+2. up to the budget of `ready` chats whose `next_attempt_at` has passed by the time of the pull,
+   with the head of each (`CROSS JOIN LATERAL`), by the priority of the head, then by
+   `next_attempt_at`, then by `chat_id`, `FOR UPDATE OF chats SKIP LOCKED`: a chat another puller
+   holds is skipped, not waited for;
 3. the head goes to `processing`, but only if it is still `pending`; its `attempts` stay as they
    are, the completion writes the attempt (see "Completions");
 4. the chats whose head was pulled go to `processing`, `next_attempt_at` moves to the time of the
@@ -149,16 +149,20 @@ that `WHERE` holds nothing another pull or a pause changes: a row turned away by
 leave the answer to the snapshot, where the row was still due, and the answer would be zero instead
 of the `next_send_at` the other pull left.
 
-The limits, the lease and `startedAt` count from the time of the pull, not from `now()`, which is
-the start of the statement, before the wait. Counted from `now()`, the pulls queued behind a pull
-slower than the common cooldown would each find the slot the one before them moved already due,
-and all of them would go out when the slow pull commits. `test/telegram/outbox/outbox-store.spec.ts`
-holds a pull, and a pause, open in a transaction while other pulls wait, and pins their answers.
+The limits, the due chats, the lease and `startedAt` go by the time of the pull, not by `now()`,
+which is the start of the statement, before the wait. Counted from `now()`, the pulls queued behind
+a pull slower than the common cooldown would each find the slot the one before them moved already
+due, and all of them would go out when the slow pull commits. A chat that came due during the wait
+would be left out while the budget counts the slots due after it, and a pull with a slot to spend
+would answer zero. `test/telegram/outbox/outbox-store.spec.ts` holds a pull, and a pause, open in a
+transaction while other pulls wait, and pins what they pull and answer.
 
 The wait makes no lock cycle: only `pull()` and `pause()` lock the bot row, each in one statement
 that takes the row before any other lock, so a statement waiting for the row holds nothing another
 could wait for ([invariant](./invariants.md)). `pause()` locks nothing else; `pull()` locks its
-chats in step 2, whose budget needs the row, and its message rows in step 3, after them.
+chats in step 2, whose budget needs the row, and its message rows in step 3, after them. Holding
+the row, a pull skips a locked chat but waits for a locked message row, so a transaction that held
+a message while it waited for the bot row would close a cycle with it.
 
 A pull that skips a due chat held by another transaction, an open push or completion of that chat,
 gets no messages: with nothing pulled, the bot's time decides the answer (see "Limits"), zero once
@@ -196,6 +200,8 @@ queue takes ([`outbound-queue.md`](./outbound-queue.md)). A limit of `number` me
   after a 429 gets one message, not a burst of `number`. A duration that is negative, `NaN` or
   above `Number.MAX_SAFE_INTEGER` throws `InvalidPauseDuration`: an infinite pause would never end,
   and `greatest` would keep it, while `1e17` ms overflows the interval PostgreSQL adds to `now()`.
+  The pause counts from `now()` of its statement, before its wait for the bot row behind the pulls
+  queued on it, so it ends early by that wait: milliseconds against a `retry_after` of seconds.
 
 `nextPullInMs` is the later of the nearest `next_attempt_at` among the `ready` chats not pulled by
 this pull and the bot's own time — `next_send_at` after the pull, or `paused_until` if later —
