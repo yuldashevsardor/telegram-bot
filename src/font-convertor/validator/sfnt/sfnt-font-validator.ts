@@ -4,7 +4,7 @@ import type { SfntTableRecord } from "app/font-convertor/sfnt-table-directory/sf
 import { SFNT_VERSIONS } from "app/font-convertor/sfnt-version";
 import { BrokenSfnt, NotSfnt } from "app/font-convertor/validator/sfnt/sfnt-font-validator.errors";
 import type {
-    CmapSubtableHeader,
+    CmapSubtableLengthField,
     LocaFormat,
     MaxpExpectation,
     NameRecordArray,
@@ -24,9 +24,9 @@ import { FileHelper } from "app/shared/fs/file-helper";
  * that give the glyph count, where the metrics of each glyph lie and, with TrueType outlines, where
  * its outline lies, and the version of `cmap`, `name`, `OS/2` and `post` with whether their
  * content lies inside the table: the headers and records of `cmap` and `name`, each `cmap`
- * subtable with its format and length, each non-empty `name` string, the fields of the `OS/2` version, and
- * the 32-byte header of `post` with the glyph-name index of versions 2.0 and 2.5. What a subtable,
- * a string or a glyph name holds is not read. TTF and OTF take the same checks: the sfnt version
+ * subtable with its format and length, each non-empty `name` string, the fields of the `OS/2`
+ * version, and the 32-byte header of `post` with the glyph-name index of versions 2.0 and 2.5. What
+ * a subtable, a string or a glyph name holds is not read. TTF and OTF take the same checks: the sfnt version
  * names the outline type, not the extension, and the rules that depend on the outline type go by
  * the outline tables present, not by the version, which the specification only says "should" match
  * them.
@@ -94,21 +94,21 @@ export class SfntFontValidator implements FontValidator {
     private static readonly SUBTABLE_OFFSET_IN_RECORD_BYTES = 4;
     private static readonly CMAP_SUBTABLE_FORMAT_SIZE_BYTES = 2;
     private static readonly SHORT_SUBTABLE_LENGTH_SIZE_BYTES = 2;
-    private static readonly SHORT_LENGTH_SUBTABLE: CmapSubtableHeader = { sizeBytes: 4, lengthOffsetBytes: 2, lengthSizeBytes: 2 };
-    private static readonly LONG_LENGTH_SUBTABLE: CmapSubtableHeader = { sizeBytes: 8, lengthOffsetBytes: 4, lengthSizeBytes: 4 };
-    private static readonly VARIATION_SUBTABLE: CmapSubtableHeader = { sizeBytes: 6, lengthOffsetBytes: 2, lengthSizeBytes: 4 };
+    private static readonly SHORT_LENGTH_FIELD: CmapSubtableLengthField = { offsetBytes: 2, sizeBytes: 2 };
+    private static readonly LONG_LENGTH_FIELD: CmapSubtableLengthField = { offsetBytes: 4, sizeBytes: 4 };
+    private static readonly VARIATION_LENGTH_FIELD: CmapSubtableLengthField = { offsetBytes: 2, sizeBytes: 4 };
     // By format: formats 0 to 6 give a 16-bit length right after the format, 8 to 13 a 32-bit one
     // after a reserved field, and 14 a 32-bit one right after the format.
-    private static readonly CMAP_SUBTABLE_HEADERS: ReadonlyMap<number, CmapSubtableHeader> = new Map([
-        [0, SfntFontValidator.SHORT_LENGTH_SUBTABLE],
-        [2, SfntFontValidator.SHORT_LENGTH_SUBTABLE],
-        [4, SfntFontValidator.SHORT_LENGTH_SUBTABLE],
-        [6, SfntFontValidator.SHORT_LENGTH_SUBTABLE],
-        [8, SfntFontValidator.LONG_LENGTH_SUBTABLE],
-        [10, SfntFontValidator.LONG_LENGTH_SUBTABLE],
-        [12, SfntFontValidator.LONG_LENGTH_SUBTABLE],
-        [13, SfntFontValidator.LONG_LENGTH_SUBTABLE],
-        [14, SfntFontValidator.VARIATION_SUBTABLE],
+    private static readonly CMAP_SUBTABLE_LENGTH_FIELDS: ReadonlyMap<number, CmapSubtableLengthField> = new Map([
+        [0, SfntFontValidator.SHORT_LENGTH_FIELD],
+        [2, SfntFontValidator.SHORT_LENGTH_FIELD],
+        [4, SfntFontValidator.SHORT_LENGTH_FIELD],
+        [6, SfntFontValidator.SHORT_LENGTH_FIELD],
+        [8, SfntFontValidator.LONG_LENGTH_FIELD],
+        [10, SfntFontValidator.LONG_LENGTH_FIELD],
+        [12, SfntFontValidator.LONG_LENGTH_FIELD],
+        [13, SfntFontValidator.LONG_LENGTH_FIELD],
+        [14, SfntFontValidator.VARIATION_LENGTH_FIELD],
     ]);
     private static readonly NAME_HEADER_SIZE_BYTES = 6;
     private static readonly NAME_FIELD_OFFSETS_BYTES = { version: 0, count: 2, storageOffset: 4 };
@@ -669,33 +669,35 @@ export class SfntFontValidator implements FontValidator {
         );
 
         const format = view.getUint16(cmap.offset + subtableOffset);
-        const header = SfntFontValidator.CMAP_SUBTABLE_HEADERS.get(format);
+        const lengthField = SfntFontValidator.CMAP_SUBTABLE_LENGTH_FIELDS.get(format);
         const at = this.tableName(SfntFontValidator.CMAP_TAG);
 
-        if (header === undefined) {
+        if (lengthField === undefined) {
             throw BrokenSfnt.byRule(fontPath, {
                 rule: SfntRule.CmapSubtableFormat,
                 at: at,
                 field: `the format of the subtable of encodingRecords[${index}]`,
                 value: format,
-                expected: this.oneOf([...SfntFontValidator.CMAP_SUBTABLE_HEADERS.keys()]),
+                expected: this.oneOf([...SfntFontValidator.CMAP_SUBTABLE_LENGTH_FIELDS.keys()]),
             });
         }
+
+        const fieldsEndBytes = lengthField.offsetBytes + lengthField.sizeBytes;
 
         this.checkSubtableRoom(
             fontPath,
             cmap,
             index,
             subtableOffset,
-            header.sizeBytes,
-            `the ${header.sizeBytes}-byte fields up to the length of format ${format}`,
+            fieldsEndBytes,
+            `the ${fieldsEndBytes}-byte fields up to the length of format ${format}`,
         );
 
-        const lengthOffsetBytes = cmap.offset + subtableOffset + header.lengthOffsetBytes;
+        const lengthFieldInFileBytes = cmap.offset + subtableOffset + lengthField.offsetBytes;
         const subtableLengthBytes =
-            header.lengthSizeBytes === SfntFontValidator.SHORT_SUBTABLE_LENGTH_SIZE_BYTES
-                ? view.getUint16(lengthOffsetBytes)
-                : view.getUint32(lengthOffsetBytes);
+            lengthField.sizeBytes === SfntFontValidator.SHORT_SUBTABLE_LENGTH_SIZE_BYTES
+                ? view.getUint16(lengthFieldInFileBytes)
+                : view.getUint32(lengthFieldInFileBytes);
         const restBytes = cmap.length - subtableOffset;
 
         if (subtableLengthBytes > restBytes) {
@@ -831,6 +833,7 @@ export class SfntFontValidator implements FontValidator {
         records: NameRecordArray,
     ): void {
         const { record, startBytes, count } = records;
+        const at = this.tableName(SfntFontValidator.NAME_TAG);
 
         for (let index = 0; index < count; index++) {
             const recordOffsetBytes = name.offset + startBytes + index * record.sizeBytes;
@@ -847,10 +850,10 @@ export class SfntFontValidator implements FontValidator {
             if (stringEndBytes > name.length) {
                 throw BrokenSfnt.byRule(fontPath, {
                     rule: SfntRule.NameStringInTable,
-                    at: this.tableName(SfntFontValidator.NAME_TAG),
+                    at: at,
                     field: `the end of the string of ${record.label}[${index}]`,
                     value: stringEndBytes,
-                    expected: `at most ${name.length}, the length of ${this.tableName(SfntFontValidator.NAME_TAG)}`,
+                    expected: `at most ${name.length}, the length of ${at}`,
                 });
             }
         }

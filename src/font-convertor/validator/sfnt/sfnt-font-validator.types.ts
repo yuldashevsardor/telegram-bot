@@ -87,13 +87,12 @@ export type LocaFormat = {
 };
 
 /**
- * How a cmap subtable of one format lays out its header: its size, and where its length lies and
- * how wide it is. Every format opens with a 2-byte format field.
+ * Where a cmap subtable of one format gives its length, from the start of the subtable, and how wide
+ * the field is. Every format opens with a 2-byte format field.
  */
-export type CmapSubtableHeader = {
+export type CmapSubtableLengthField = {
+    offsetBytes: number;
     sizeBytes: number;
-    lengthOffsetBytes: number;
-    lengthSizeBytes: number;
 };
 
 /**
