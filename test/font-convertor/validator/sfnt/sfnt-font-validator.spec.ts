@@ -89,6 +89,13 @@ const TRANSFORM_SIZES_BYTES = new Map([
     [WE_HAVE_A_TWO_BY_TWO, 8],
 ]);
 const NUM_INSTR_SIZE_BYTES = 2;
+// Two bytes of instructions for a composite glyph, PUSHB[0] and its byte; no rule reads their values.
+const COMPOSITE_INSTRUCTIONS = [0xb0, 0x00];
+// Composite glyphs 1 to 27, each of two components pointing at the next one, reach glyph 27 through
+// 2^26 chains of components. A walk that followed a glyph again on every chain takes about 18 s there
+// in the application image, past the 2 s mocha timeout; one that follows each composite glyph once
+// takes 53 steps.
+const CHAIN_OF_DOUBLED_COMPONENTS_LENGTH = 27;
 // A component compositeGlyph builds, ARGS_ARE_XY_VALUES and MORE_COMPONENTS added to its flags.
 type Component = { glyphIndex: number; flags: number };
 // A deterministic fill for glyf: the top byte of the index times Knuth's multiplicative hash constant.
@@ -358,7 +365,7 @@ describe("SfntFontValidator", function () {
         });
 
         it("whose composite glyph ends with its instructions", async function () {
-            await validate(withGlyph(ttf, 1, compositeGlyph([{ glyphIndex: 0, flags: WE_HAVE_INSTRUCTIONS }], [0xb0, 0x00])));
+            await validate(withGlyph(ttf, 1, compositeGlyph([{ glyphIndex: 0, flags: WE_HAVE_INSTRUCTIONS }], COMPOSITE_INSTRUCTIONS)));
         });
 
         it("with a component pointing at the last glyph of maxp", async function () {
@@ -385,6 +392,20 @@ describe("SfntFontValidator", function () {
             ]);
 
             await validate(nested);
+        });
+
+        it("with a chain of composite glyphs each pointing twice at the next, each glyph walked once", async function () {
+            const chain: Array<[number, Uint8Array]> = [];
+
+            for (let glyphId = 1; glyphId < CHAIN_OF_DOUBLED_COMPONENTS_LENGTH; glyphId++) {
+                const next = { glyphIndex: glyphId + 1, flags: 0 };
+
+                chain.push([glyphId, compositeGlyph([next, next])]);
+            }
+
+            chain.push([CHAIN_OF_DOUBLED_COMPONENTS_LENGTH, compositeGlyph([{ glyphIndex: 0, flags: 0 }])]);
+
+            await validate(withGlyphs(ttf, chain));
         });
 
         it("whose cmap subtable starts right after the encoding records, and another ends the table", async function () {
@@ -1121,12 +1142,12 @@ describe("SfntFontValidator", function () {
         });
 
         it("whose instructions run past the glyph", async function () {
-            const composite = compositeGlyph([{ glyphIndex: 0, flags: WE_HAVE_INSTRUCTIONS }], [0xb0, 0x00]);
+            const composite = compositeGlyph([{ glyphIndex: 0, flags: WE_HAVE_INSTRUCTIONS }], COMPOSITE_INSTRUCTIONS);
 
             await expectBroken(
                 withGlyph(ttf, 1, composite.subarray(0, composite.length - 1)),
                 SfntRule.CompositeGlyphInData,
-                'At table "glyf": the end of instructions[2] of glyph 1 is 20, expected at most 19, the length of glyph 1 by loca.',
+                `At table "glyf": the end of instructions[${COMPOSITE_INSTRUCTIONS.length}] of glyph 1 is 20, expected at most 19, the length of glyph 1 by loca.`,
             );
         });
 
@@ -1773,13 +1794,21 @@ function glyph0(font: Uint8Array): Uint8Array {
 }
 
 /**
- * The TrueType fixture with glyph `glyphId` replaced by `glyph`. glyf and loca are rebuilt, with
- * long offsets, and appended to the end of the file; every other glyph keeps its bytes.
+ * The TrueType fixture with glyph `glyphId` replaced by `glyph`.
  */
 function withGlyph(font: Uint8Array, glyphId: number, glyph: Uint8Array): Uint8Array {
+    return withGlyphs(font, [[glyphId, glyph]]);
+}
+
+/**
+ * The TrueType fixture with each glyph of `glyphs`, by its id, replaced. glyf and loca are rebuilt,
+ * with long offsets, and appended to the end of the file; every other glyph keeps its bytes.
+ */
+function withGlyphs(font: Uint8Array, glyphs: ReadonlyArray<[number, Uint8Array]>): Uint8Array {
+    const replacements = new Map(glyphs);
     const loca = tableOffset(font, "loca");
     const glyf = tableOffset(font, "glyf");
-    const glyphs: Uint8Array[] = [];
+    const rebuiltGlyphs: Uint8Array[] = [];
     const newLoca = new Uint8Array((TTF_NUM_GLYPHS + 1) * LONG_LOCA_ENTRY_SIZE_BYTES);
     const view = new DataView(newLoca.buffer);
     let offsetBytes = 0;
@@ -1787,29 +1816,16 @@ function withGlyph(font: Uint8Array, glyphId: number, glyph: Uint8Array): Uint8A
     for (let index = 0; index < TTF_NUM_GLYPHS; index++) {
         const startBytes = readUint32(font, loca + index * LONG_LOCA_ENTRY_SIZE_BYTES);
         const endBytes = readUint32(font, loca + (index + 1) * LONG_LOCA_ENTRY_SIZE_BYTES);
-        const glyphBytes = index === glyphId ? glyph : font.subarray(glyf + startBytes, glyf + endBytes);
+        const glyphBytes = replacements.get(index) ?? font.subarray(glyf + startBytes, glyf + endBytes);
 
-        glyphs.push(glyphBytes);
+        rebuiltGlyphs.push(glyphBytes);
         view.setUint32(index * LONG_LOCA_ENTRY_SIZE_BYTES, offsetBytes);
         offsetBytes += glyphBytes.length;
     }
 
     view.setUint32(TTF_NUM_GLYPHS * LONG_LOCA_ENTRY_SIZE_BYTES, offsetBytes);
 
-    return withTableAtEnd(withTableAtEnd(font, "glyf", Uint8Array.from(Buffer.concat(glyphs))), "loca", newLoca);
-}
-
-/**
- * The TrueType fixture with each glyph of `glyphs`, by its id, replaced, one after another.
- */
-function withGlyphs(font: Uint8Array, glyphs: ReadonlyArray<[number, Uint8Array]>): Uint8Array {
-    let result = font;
-
-    for (const [glyphId, glyph] of glyphs) {
-        result = withGlyph(result, glyphId, glyph);
-    }
-
-    return result;
+    return withTableAtEnd(withTableAtEnd(font, "glyf", Uint8Array.from(Buffer.concat(rebuiltGlyphs))), "loca", newLoca);
 }
 
 /**

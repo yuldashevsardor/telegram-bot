@@ -89,12 +89,12 @@ export type GlyfEntry = {
 
 /**
  * A composite glyph on the chain of components being followed: the glyphs its components point at,
- * and the position of the next one to follow.
+ * and the index in them of the next one to follow.
  */
 export type ComponentWalk = {
     glyphId: number;
     componentGlyphIds: ReadonlyArray<number>;
-    nextComponent: number;
+    nextComponentIndex: number;
 };
 
 /**

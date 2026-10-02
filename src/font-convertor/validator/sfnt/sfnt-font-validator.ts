@@ -842,7 +842,7 @@ export class SfntFontValidator implements FontValidator {
         let hasMoreComponents = true;
 
         while (hasMoreComponents) {
-            const component = `component ${componentGlyphIds.length}`;
+            const componentLabel = `component ${componentGlyphIds.length}`;
             const glyphIndexOffsetBytes = positionBytes + SfntFontValidator.COMPONENT_FLAGS_SIZE_BYTES;
             const glyphIndexEndBytes = glyphIndexOffsetBytes + SfntFontValidator.COMPONENT_GLYPH_INDEX_SIZE_BYTES;
 
@@ -851,7 +851,7 @@ export class SfntFontValidator implements FontValidator {
                 glyph,
                 SfntRule.CompositeGlyphInData,
                 glyphIndexEndBytes,
-                `the flags and glyphIndex of ${component}`,
+                `the flags and glyphIndex of ${componentLabel}`,
             );
 
             const flags = view.getUint16(glyph.offsetBytes + positionBytes);
@@ -861,7 +861,7 @@ export class SfntFontValidator implements FontValidator {
                 throw BrokenSfnt.byRule(fontPath, {
                     rule: SfntRule.ComponentGlyphIndex,
                     at: this.tableName(SfntFontValidator.GLYF_TAG),
-                    field: `the glyphIndex of ${component} of glyph ${glyph.id}`,
+                    field: `the glyphIndex of ${componentLabel} of glyph ${glyph.id}`,
                     value: componentGlyphId,
                     expected: `less than ${numGlyphs}, maxp.numGlyphs`,
                 });
@@ -869,11 +869,11 @@ export class SfntFontValidator implements FontValidator {
 
             const argumentsEndBytes = glyphIndexEndBytes + this.argumentsSizeBytes(flags);
 
-            this.checkInGlyph(fontPath, glyph, SfntRule.CompositeGlyphInData, argumentsEndBytes, `the arguments of ${component}`);
+            this.checkInGlyph(fontPath, glyph, SfntRule.CompositeGlyphInData, argumentsEndBytes, `the arguments of ${componentLabel}`);
 
             const transformEndBytes = argumentsEndBytes + this.transformSizeBytes(flags);
 
-            this.checkInGlyph(fontPath, glyph, SfntRule.CompositeGlyphInData, transformEndBytes, `the transform of ${component}`);
+            this.checkInGlyph(fontPath, glyph, SfntRule.CompositeGlyphInData, transformEndBytes, `the transform of ${componentLabel}`);
 
             componentGlyphIds.push(componentGlyphId);
             positionBytes = transformEndBytes;
@@ -933,20 +933,19 @@ export class SfntFontValidator implements FontValidator {
     /**
      * Follows the components of every composite glyph down to the glyphs without components. A
      * glyph met again on the chain that leads to it closes a cycle; a glyph whose components are all
-     * followed already is not followed again, so each composite glyph is walked once.
+     * followed already is not followed again, so the walk takes each component once below a root,
+     * and a root walked already costs only a look at its own components.
      */
     private checkComponentCycles(fontPath: string, componentsByGlyph: ReadonlyMap<number, ReadonlyArray<number>>): void {
         const walkedGlyphIds = new Set<number>();
 
         for (const [glyphId, componentGlyphIds] of componentsByGlyph) {
-            if (!walkedGlyphIds.has(glyphId)) {
-                this.walkComponents(
-                    fontPath,
-                    componentsByGlyph,
-                    { glyphId: glyphId, componentGlyphIds: componentGlyphIds, nextComponent: 0 },
-                    walkedGlyphIds,
-                );
-            }
+            this.walkComponents(
+                fontPath,
+                componentsByGlyph,
+                { glyphId: glyphId, componentGlyphIds: componentGlyphIds, nextComponentIndex: 0 },
+                walkedGlyphIds,
+            );
         }
     }
 
@@ -963,19 +962,22 @@ export class SfntFontValidator implements FontValidator {
     ): void {
         const chain = [root];
         const chainGlyphIds = new Set([root.glyphId]);
+        // The top of the chain: the glyph whose components are being followed.
+        let current: ComponentWalk | undefined = root;
 
-        for (let current = chain[chain.length - 1]; current !== undefined; current = chain[chain.length - 1]) {
-            const componentGlyphId = current.componentGlyphIds[current.nextComponent];
+        while (current !== undefined) {
+            const componentGlyphId = current.componentGlyphIds[current.nextComponentIndex];
 
             // Every component of the glyph is followed.
             if (componentGlyphId === undefined) {
                 chain.pop();
                 chainGlyphIds.delete(current.glyphId);
                 walkedGlyphIds.add(current.glyphId);
+                current = chain[chain.length - 1];
                 continue;
             }
 
-            current.nextComponent++;
+            current.nextComponentIndex++;
 
             if (chainGlyphIds.has(componentGlyphId)) {
                 this.throwCycle(fontPath, chain, componentGlyphId);
@@ -984,7 +986,8 @@ export class SfntFontValidator implements FontValidator {
             const components = componentsByGlyph.get(componentGlyphId);
 
             if (components !== undefined && !walkedGlyphIds.has(componentGlyphId)) {
-                chain.push({ glyphId: componentGlyphId, componentGlyphIds: components, nextComponent: 0 });
+                current = { glyphId: componentGlyphId, componentGlyphIds: components, nextComponentIndex: 0 };
+                chain.push(current);
                 chainGlyphIds.add(componentGlyphId);
             }
         }
