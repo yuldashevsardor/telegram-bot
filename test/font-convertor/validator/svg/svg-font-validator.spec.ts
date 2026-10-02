@@ -772,7 +772,7 @@ describe("SvgFontValidator.validate", function () {
                 await expectAnswer(
                     inline(`<font horiz-adv-x="500">${FONT_FACE}<glyph><?${"t".repeat(70)}?></glyph></font>`),
                     BrokenFont,
-                    `SVG font breaks a rule: ${rule}. At line 2: <?${"t".repeat(63)}…>.`,
+                    `SVG font breaks a rule: ${rule}. At line 2: <?${"t".repeat(64)}…?>.`,
                 );
             });
 

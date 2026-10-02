@@ -26,10 +26,14 @@ export class InvalidSvgFont extends RuntimeError {
     }
 
     /**
-     * Quotes a name without a namespace or a prefix: a local name, or a quote of ours around one,
-     * `?target?`.
+     * Quotes a name without a namespace or a prefix: a local name, or a processing instruction,
+     * `?target?`. Of an instruction the target alone is cut, so that the quote keeps its `?…?`.
      */
     protected static clipName(name: string): string {
+        if (name.startsWith("?")) {
+            return `?${InvalidSvgFont.clip(name.slice(1, -1), MAX_QUOTED_LENGTH).join("")}?`;
+        }
+
         return InvalidSvgFont.clip(name, MAX_QUOTED_LENGTH).join("");
     }
 
@@ -125,8 +129,8 @@ export class BrokenFont extends InvalidSvgFont {
      * `JSON.stringify`, which can make it longer, so there the mark stands outside the quotes.
      *
      * Of the element, the local name or the target of a glyph's child and the namespace of one
-     * outside the SVG namespace come from the file; of the attribute name, the prefix and the local name. Each is
-     * cut, and no length before the cut is kept for them, unlike for the value.
+     * outside the SVG namespace come from the file; of the attribute name, the prefix and the local
+     * name. Each is cut, and no length before the cut is kept for them, unlike for the value.
      */
     public static byRule(fontPath: string, violation: Violation): BrokenFont {
         const { rule, element, namespace, line, attribute } = violation;

@@ -230,10 +230,11 @@ from the file, and a cause reaches the log uncut.
 
 Text from the file reaches the log through the answers, so each piece of it is cut
 (`svg-font-validator.errors.ts`): the saxes message to `MAX_PARSER_MESSAGE_LENGTH` UTF-16 units, the
-namespace and the local name of a `NotSvg` root and of a `BrokenFont` element, the prefix and the
-local name of a `BrokenFont` attribute, and its value, each to `MAX_QUOTED_LENGTH`. A cut piece
-ends with `…`, which makes it one unit longer than an uncut piece can be: that, not the text, tells
-it from a piece that ends with `…` itself.
+namespace and the local name of a `NotSvg` root and of a `BrokenFont` element, the target of a
+`BrokenFont` instruction inside its `?…?`, the prefix and the local name of a `BrokenFont`
+attribute, and its value, each to `MAX_QUOTED_LENGTH`. A cut piece ends with `…`, which makes it
+one unit longer than an uncut piece can be: that, not the text, tells it from a piece that ends
+with `…` itself.
 This holds for every piece quoted from the file in the payload and in the `NotXml` message; `path`
 is not text from the file and is not cut. The `NotSvg` and `BrokenFont` messages escape what they
 quote with `JSON.stringify`, which can make it longer. The `BrokenFont` value is escaped inside its
