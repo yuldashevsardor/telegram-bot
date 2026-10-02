@@ -84,8 +84,8 @@ export class SfntFontValidator implements FontValidator {
     private static readonly FLAG_SIZE_BYTES = 1;
     private static readonly REPEAT_COUNT_SIZE_BYTES = 1;
     private static readonly REPEAT_FLAG = 0x08;
-    private static readonly X_COORDINATE_FLAGS: CoordinateFlagBits = { shortVector: 0x02, isSameOrPositive: 0x10 };
-    private static readonly Y_COORDINATE_FLAGS: CoordinateFlagBits = { shortVector: 0x04, isSameOrPositive: 0x20 };
+    private static readonly X_COORDINATE_FLAGS: CoordinateFlagBits = { shortVector: 0x02, sameOrPositive: 0x10 };
+    private static readonly Y_COORDINATE_FLAGS: CoordinateFlagBits = { shortVector: 0x04, sameOrPositive: 0x20 };
     private static readonly SHORT_COORDINATE_SIZE_BYTES = 1;
     private static readonly LONG_COORDINATE_SIZE_BYTES = 2;
     // A coordinate the same as the previous one is not stored.
@@ -717,7 +717,8 @@ export class SfntFontValidator implements FontValidator {
 
     /**
      * Reads one flag per point, a repeated flag standing for its repeats too, and sums the widths
-     * of the coordinates the flags give.
+     * of the coordinates the flags give. The messages name a flag by the point it opens: after a
+     * flag with repeats the next stored flag is that of a later point.
      */
     private checkFlags(fontPath: string, view: DataView, glyph: Glyph, startBytes: number, numberOfPoints: number): SimpleGlyphFlags {
         let positionBytes = startBytes;
@@ -726,7 +727,9 @@ export class SfntFontValidator implements FontValidator {
         let yCoordinatesSizeBytes = 0;
 
         while (flagCount < numberOfPoints) {
-            this.checkInGlyph(fontPath, glyph, positionBytes + SfntFontValidator.FLAG_SIZE_BYTES, `flags[${flagCount}]`);
+            const flagOfPoint = `the flag of point ${flagCount}`;
+
+            this.checkInGlyph(fontPath, glyph, positionBytes + SfntFontValidator.FLAG_SIZE_BYTES, flagOfPoint);
 
             const flag = view.getUint8(glyph.offsetBytes + positionBytes);
             let repeatCount = 0;
@@ -738,7 +741,7 @@ export class SfntFontValidator implements FontValidator {
                     fontPath,
                     glyph,
                     positionBytes + SfntFontValidator.REPEAT_COUNT_SIZE_BYTES,
-                    `the repeat count of flags[${flagCount}]`,
+                    `the repeat count of ${flagOfPoint}`,
                 );
                 repeatCount = view.getUint8(glyph.offsetBytes + positionBytes);
                 positionBytes += SfntFontValidator.REPEAT_COUNT_SIZE_BYTES;
@@ -750,7 +753,7 @@ export class SfntFontValidator implements FontValidator {
                 throw BrokenSfnt.byRule(fontPath, {
                     rule: SfntRule.FlagPerPoint,
                     at: this.tableName(SfntFontValidator.GLYF_TAG),
-                    field: `the flag count with flags[${flagCount}] and its ${repeatCount} repeats of glyph ${glyph.id}`,
+                    field: `the flag count with ${flagOfPoint} and its ${repeatCount} repeats of glyph ${glyph.id}`,
                     value: flagCount + flagsGiven,
                     expected: `at most ${numberOfPoints}, the number of points`,
                 });
@@ -769,7 +772,7 @@ export class SfntFontValidator implements FontValidator {
             return SfntFontValidator.SHORT_COORDINATE_SIZE_BYTES;
         }
 
-        if ((flag & bits.isSameOrPositive) !== 0) {
+        if ((flag & bits.sameOrPositive) !== 0) {
             return SfntFontValidator.SAME_COORDINATE_SIZE_BYTES;
         }
 

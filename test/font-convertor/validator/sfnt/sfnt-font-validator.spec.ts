@@ -48,16 +48,20 @@ const END_PTS_OFFSET_BYTES = GLYPH_HEADER_SIZE_BYTES;
 const END_PT_SIZE_BYTES = 2;
 // Glyph 0 of the TrueType fixture, .notdef, is 84 bytes long by loca: a simple glyph of 5 contours
 // and 16 points. instructionLength 0 lies at 20, the flags from 22 to 38, the first of them repeated
-// with its repeat count at 23, the x coordinates up to 60 and the y coordinates up to 81. 3 bytes of
-// padding follow. Glyphs 1 and 2 have no outline: their loca offsets equal the end of glyph 0.
+// with its repeat count 1 at 23, the x coordinates up to 60 and the y coordinates up to 81. 3 bytes
+// of padding follow. Glyphs 1 and 2 have no outline: their loca offsets equal the end of glyph 0.
 const GLYPH_0_LENGTH_BYTES = 84;
 const GLYPH_0_NUMBER_OF_CONTOURS = 5;
 const GLYPH_0_NUMBER_OF_POINTS = 16;
 const GLYPH_0_INSTRUCTION_LENGTH_OFFSET_BYTES = 20;
 const GLYPH_0_FLAGS_OFFSET_BYTES = 22;
 const GLYPH_0_REPEAT_COUNT_OFFSET_BYTES = 23;
+// The first flag stands for points 0 and 1, so the second stored flag, at 24, opens point 2.
+const GLYPH_0_SECOND_FLAG_OFFSET_BYTES = 24;
 const GLYPH_0_X_COORDINATES_END_BYTES = 60;
 const GLYPH_0_Y_COORDINATES_END_BYTES = 81;
+// More contours than glyph 0 has room for: their 2-byte ends alone run to byte 90 of its 84.
+const CONTOURS_PAST_GLYPH_0 = 40;
 // A deterministic fill for glyf: the top byte of the index times Knuth's multiplicative hash constant.
 const GARBAGE_MULTIPLIER = 2654435761;
 const GARBAGE_SHIFT = 24;
@@ -135,6 +139,7 @@ const TTF_NUM_TABLES = 13;
 // boundary. So do OS/2, version 1 of 86 bytes in the TrueType fixture and version 3 of 96 in the CFF
 // one, and post, version 3 of 32 bytes in the CFF fixture.
 const TTF_NUM_GLYPHS = 1296;
+const LAST_GLYPH = TTF_NUM_GLYPHS - 1;
 const OTF_NUM_GLYPHS = 1295;
 const TTF_GLYF_LENGTH_BYTES = 133424;
 // Its glyphs up to this one end below 131 070, the largest offset the short loca format holds.
@@ -288,13 +293,14 @@ describe("SfntFontValidator", function () {
         it("with a composite glyph of any negative numberOfContours, its components not read", async function () {
             // The specification says -1 "should be used", and fontforge reads any negative value as a
             // composite glyph. What follows the header is the simple glyph, read as no component.
+            // setUint16 stores a negative value as its two's complement, as the signed field holds it.
             for (const numberOfContours of [-1, -2, -32768]) {
-                await validate(withGlyph(ttf, 0, withInt16(glyph0(ttf), NUMBER_OF_CONTOURS_OFFSET_BYTES, numberOfContours)));
+                await validate(withGlyph(ttf, 0, withUint16(glyph0(ttf), NUMBER_OF_CONTOURS_OFFSET_BYTES, numberOfContours)));
             }
         });
 
         it("with a composite glyph of its 10-byte header alone", async function () {
-            const composite = withInt16(glyph0(ttf), NUMBER_OF_CONTOURS_OFFSET_BYTES, -1);
+            const composite = withUint16(glyph0(ttf), NUMBER_OF_CONTOURS_OFFSET_BYTES, -1);
 
             await validate(withGlyph(ttf, 0, composite.subarray(0, GLYPH_HEADER_SIZE_BYTES)));
         });
@@ -799,6 +805,30 @@ describe("SfntFontValidator", function () {
             );
         });
 
+        it("whose last glyph is broken, every glyph before it valid", async function () {
+            await expectBroken(
+                withGlyph(ttf, LAST_GLYPH, glyph0(ttf).subarray(0, GLYPH_HEADER_SIZE_BYTES - 1)),
+                SfntRule.GlyphHeader,
+                `At table "glyf": the length of glyph ${LAST_GLYPH} by loca is 9, expected 0 or at least 10.`,
+            );
+            await expectBroken(
+                withGlyph(ttf, LAST_GLYPH, glyph0(ttf).subarray(0, GLYPH_0_Y_COORDINATES_END_BYTES - 1)),
+                SfntRule.SimpleGlyphInData,
+                `At table "glyf": the end of yCoordinates of glyph ${LAST_GLYPH} is 81, expected at most 80, the length of glyph ${LAST_GLYPH} by loca.`,
+            );
+        });
+
+        it("of a simple glyph without contours and without room for instructionLength", async function () {
+            // The 10-byte header alone, which a composite glyph may be.
+            const withoutContours = withUint16(glyph0(ttf), NUMBER_OF_CONTOURS_OFFSET_BYTES, 0);
+
+            await expectBroken(
+                withGlyph(ttf, 0, withoutContours.subarray(0, GLYPH_HEADER_SIZE_BYTES)),
+                SfntRule.SimpleGlyphInData,
+                'At table "glyf": the end of instructionLength of glyph 0 is 12, expected at most 10, the length of glyph 0 by loca.',
+            );
+        });
+
         it("whose endPtsOfContours run past the glyph", async function () {
             const endPtsEndBytes = END_PTS_OFFSET_BYTES + GLYPH_0_NUMBER_OF_CONTOURS * END_PT_SIZE_BYTES;
 
@@ -808,7 +838,7 @@ describe("SfntFontValidator", function () {
                 'At table "glyf": the end of endPtsOfContours[5] of glyph 0 is 20, expected at most 19, the length of glyph 0 by loca.',
             );
             await expectBroken(
-                withGlyph(ttf, 0, withUint16(glyph0(ttf), NUMBER_OF_CONTOURS_OFFSET_BYTES, 40)),
+                withGlyph(ttf, 0, withUint16(glyph0(ttf), NUMBER_OF_CONTOURS_OFFSET_BYTES, CONTOURS_PAST_GLYPH_0)),
                 SfntRule.SimpleGlyphInData,
                 'At table "glyf": the end of endPtsOfContours[40] of glyph 0 is 90, expected at most 84, the length of glyph 0 by loca.',
             );
@@ -857,7 +887,12 @@ describe("SfntFontValidator", function () {
             await expectBroken(
                 withGlyph(ttf, 0, glyph0(ttf).subarray(0, GLYPH_0_FLAGS_OFFSET_BYTES)),
                 SfntRule.SimpleGlyphInData,
-                'At table "glyf": the end of flags[0] of glyph 0 is 23, expected at most 22, the length of glyph 0 by loca.',
+                'At table "glyf": the end of the flag of point 0 of glyph 0 is 23, expected at most 22, the length of glyph 0 by loca.',
+            );
+            await expectBroken(
+                withGlyph(ttf, 0, glyph0(ttf).subarray(0, GLYPH_0_SECOND_FLAG_OFFSET_BYTES)),
+                SfntRule.SimpleGlyphInData,
+                'At table "glyf": the end of the flag of point 2 of glyph 0 is 25, expected at most 24, the length of glyph 0 by loca.',
             );
         });
 
@@ -865,7 +900,7 @@ describe("SfntFontValidator", function () {
             await expectBroken(
                 withGlyph(ttf, 0, glyph0(ttf).subarray(0, GLYPH_0_REPEAT_COUNT_OFFSET_BYTES)),
                 SfntRule.SimpleGlyphInData,
-                'At table "glyf": the end of the repeat count of flags[0] of glyph 0 is 24, expected at most 23, the length of glyph 0 by loca.',
+                'At table "glyf": the end of the repeat count of the flag of point 0 of glyph 0 is 24, expected at most 23, the length of glyph 0 by loca.',
             );
         });
 
@@ -875,7 +910,7 @@ describe("SfntFontValidator", function () {
             await expectBroken(
                 withGlyph(ttf, 0, withBytes(glyph0(ttf), GLYPH_0_REPEAT_COUNT_OFFSET_BYTES, [GLYPH_0_NUMBER_OF_POINTS])),
                 SfntRule.FlagPerPoint,
-                'At table "glyf": the flag count with flags[0] and its 16 repeats of glyph 0 is 17, expected at most 16, the number of points.',
+                'At table "glyf": the flag count with the flag of point 0 and its 16 repeats of glyph 0 is 17, expected at most 16, the number of points.',
             );
         });
 
@@ -1535,14 +1570,6 @@ function withUint16(bytes: Uint8Array, offsetBytes: number, value: number): Uint
     const copy = Uint8Array.from(bytes);
 
     new DataView(copy.buffer).setUint16(offsetBytes, value);
-
-    return copy;
-}
-
-function withInt16(bytes: Uint8Array, offsetBytes: number, value: number): Uint8Array {
-    const copy = Uint8Array.from(bytes);
-
-    new DataView(copy.buffer).setInt16(offsetBytes, value);
 
     return copy;
 }

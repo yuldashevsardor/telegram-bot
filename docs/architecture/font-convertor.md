@@ -356,19 +356,20 @@ The rules on `glyf` walk every glyph with an outline, `loca[n] < loca[n+1]`: its
 and in a simple glyph whether `endPtsOfContours`, the instructions, the flags with their repeats
 and the coordinates of the widths the flags give fit into its length by `loca`, the contour ends
 increasing and one flag per point
-([#684](https://github.com/yuldashevsardor/telegram-bot/issues/684)). The engine converts each break
-measured on the TrueType fixture with exit 0: a `glyf` filled with garbage keeps all 1296 glyphs and
-loses every outline, 16 KB of WOFF against 72 KB; contour ends past the glyph or descending drop
-its outline, with "contour ends make no sense"; a glyph cut inside its instructions, flags or
-coordinates is read on into the next glyph, "A point … is outside the glyph bounding box", and with
-its instructions past the glyph the WOFF2 conversion fails with exit 1. Two rules follow the
-standard, not the engine: equal contour ends, an empty contour, and flag repeats past the last
-point, which the engine cuts short with "Flag count is wrong", lose nothing. A composite glyph, of
-a negative `numberOfContours`, needs only its header: the specification says -1 "should be used",
-and the engine reads -2 and -32768 as a composite glyph too. Its components are not read, although
-the engine loses the outline of a composite glyph cut inside a component or whose component points
-past `numGlyphs`, at the glyph itself or around a cycle. None of the 297 real fonts with TrueType
-outlines measured breaks a `glyf` rule.
+([#684](https://github.com/yuldashevsardor/telegram-bot/issues/684)). Of the breaks measured on the
+TrueType fixture the engine converts every one with exit 0 but a single conversion, to WOFF2 with
+the instructions past the glyph, which fails with exit 1: a `glyf` filled with garbage keeps all
+1296 glyphs and loses every outline, 16 KB of WOFF against 72 KB; contour ends past the glyph or
+descending drop its outline, with "contour ends make no sense"; a glyph cut inside its
+instructions, flags or coordinates is read on into the next glyph, "A point … is outside the glyph
+bounding box". Two rules follow the standard, not the engine, which loses nothing on what they
+reject: `EndPtsAscending` on equal contour ends, an empty contour, and `FlagPerPoint` on flag
+repeats past the last point, which the engine cuts short with "Flag count is wrong". A composite
+glyph, of a negative `numberOfContours`, needs only its header: the specification says -1 "should
+be used", and the engine reads -2 and -32768 as a composite glyph too. Its components are not read,
+although the engine loses the outline of a composite glyph cut inside a component or whose
+component points past `numGlyphs`, at the glyph itself or around a cycle. None of the 297 real fonts
+with TrueType outlines measured breaks a `glyf` rule.
 
 The rules on `cmap`, `name`, `OS/2` and `post` check where the records point, not what lies there:
 neither the content of a `cmap` subtable past its format and length, nor the text of a `name`

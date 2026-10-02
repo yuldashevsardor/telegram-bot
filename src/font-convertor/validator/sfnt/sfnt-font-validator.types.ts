@@ -83,11 +83,11 @@ export type Glyph = {
 
 /**
  * The bits of a simple glyph flag that give the width of one coordinate: `shortVector`, 1 byte;
- * else `isSameOrPositive`, no byte, the coordinate is the previous one; else 2 bytes.
+ * else `sameOrPositive`, no byte, the coordinate is the previous one; else 2 bytes.
  */
 export type CoordinateFlagBits = {
     shortVector: number;
-    isSameOrPositive: number;
+    sameOrPositive: number;
 };
 
 /**
