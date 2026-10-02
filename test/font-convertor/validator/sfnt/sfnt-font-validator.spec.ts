@@ -150,12 +150,14 @@ const UNDEFINED_SUBTABLE_FORMAT = 7;
 const LAST_SUBTABLE_LENGTH_BYTES = CMAP_LENGTH_BYTES - LAST_SUBTABLE_OFFSET_BYTES;
 // post of the TrueType fixture is version 2.0, 12925 bytes long: glyphNameIndex[1296] ends at byte
 // 2626, and 1047 Pascal strings follow it up to the end of the table. Only the last glyph points at
-// the last string, with the highest index, 1304; the next highest is 1303.
+// the last string, with the highest index, 1304; the next highest is 1303. The last string starts at
+// byte 12915 with its length byte.
 const TTF_POST_LENGTH_BYTES = 12925;
 const TTF_POST_STRINGS_START_BYTES = POST_NUM_GLYPHS_END_BYTES + TTF_NUM_GLYPHS * GLYPH_NAME_INDEX_SIZE_BYTES;
 const TTF_POST_STRING_COUNT = 1047;
 const TTF_LAST_GLYPH = TTF_NUM_GLYPHS - 1;
 const TTF_HIGHEST_GLYPH_NAME_INDEX = 1304;
+const TTF_LAST_POST_STRING_START_BYTES = 12915;
 const NAME_LENGTH_BYTES = 444;
 const NAME_COUNT = 12;
 const NAME_RECORDS_END_BYTES = 150;
@@ -1076,8 +1078,8 @@ describe("SfntFontValidator", function () {
         });
 
         it("of version 2.0 or 2.5 naming fewer glyphs than maxp has", async function () {
-            // fontforge renames the glyphs past numGlyphs that have no encoding to glyphN with exit 0:
-            // 401 of the TrueType fixture with numGlyphs 0 (issue #757).
+            // fontforge renames the glyphs past numGlyphs that have no encoding to glyphN with exit
+            // 0: 401 of the TrueType fixture with numGlyphs 0 (issue #757).
             for (const version of POST_GLYPH_NAMES.keys()) {
                 for (const numGlyphs of [0, OTF_NUM_GLYPHS - 1]) {
                     await expectBroken(
@@ -1099,6 +1101,18 @@ describe("SfntFontValidator", function () {
                 } of stringData is ${TTF_POST_LENGTH_BYTES}, expected at most ${
                     TTF_POST_LENGTH_BYTES - 1
                 }, the length of table "post", as glyphNameIndex[${TTF_LAST_GLYPH}] is ${TTF_HIGHEST_GLYPH_NAME_INDEX}.`,
+            );
+        });
+
+        it("of version 2.0 ending with the length byte of the string its highest glyphNameIndex points at", async function () {
+            const lengthEndBytes = TTF_LAST_POST_STRING_START_BYTES + 1;
+
+            await expectBroken(
+                withLength(ttf, "post", lengthEndBytes),
+                SfntRule.PostNameStringInTable,
+                `At table "post": the end of string ${
+                    TTF_POST_STRING_COUNT - 1
+                } of stringData is ${TTF_POST_LENGTH_BYTES}, expected at most ${lengthEndBytes}, the length of table "post", as glyphNameIndex[${TTF_LAST_GLYPH}] is ${TTF_HIGHEST_GLYPH_NAME_INDEX}.`,
             );
         });
 

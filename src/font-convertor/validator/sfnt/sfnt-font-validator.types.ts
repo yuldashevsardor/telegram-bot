@@ -130,11 +130,13 @@ export type NameRecordArray = {
 
 /**
  * What a version of post holds past its 32-byte header: a numGlyphs and one entry per glyph.
- * `entries` names the entry array in the messages.
+ * `entries` names the entry array in the messages. `hasNameStrings` says whether glyph names of the
+ * table's own, Pascal strings, follow the entries.
  */
 export type PostGlyphNames = {
     entries: string;
     entrySizeBytes: number;
+    hasNameStrings: boolean;
 };
 
 /**

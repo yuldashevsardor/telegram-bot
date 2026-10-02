@@ -28,10 +28,10 @@ import { FileHelper } from "app/shared/fs/file-helper";
  * subtable with its format and a length that covers the part of its format of a set size, each
  * non-empty `name` string, the fields of the `OS/2` version, and the 32-byte header of `post` with
  * the glyph-name index of versions 2.0 and 2.5, held against the glyph count of `maxp`, and with 2.0
- * the glyph names the index points at. What a subtable, a string or a glyph name holds is not read. TTF and OTF take the same checks: the sfnt version
- * names the outline type, not the extension, and the rules that depend on the outline type go by
- * the outline tables present, not by the version, which the specification only says "should" match
- * them.
+ * the glyph names the index points at. What a subtable, a string or a glyph name holds is not read.
+ * TTF and OTF take the same checks: the sfnt version names the outline type, not the extension, and
+ * the rules that depend on the outline type go by the outline tables present, not by the version,
+ * which the specification only says "should" match them.
  *
  * Deliberately not checked:
  * - The table checksums and `head.checkSumAdjustment`. fontforge does not read them: its output
@@ -150,15 +150,15 @@ export class SfntFontValidator implements FontValidator {
     private static readonly POST_VERSIONS = [0x00010000, 0x00020000, 0x00025000, 0x00030000];
     private static readonly POST_NUM_GLYPHS_OFFSET_BYTES = 32;
     private static readonly POST_NUM_GLYPHS_SIZE_BYTES = 2;
-    // Only 2.0 keeps glyph names of its own, as Pascal strings after glyphNameIndex. An index below
-    // 258 names a standard Macintosh glyph, 258 and above the string at the index minus 258.
-    private static readonly POST_VERSION_WITH_STRINGS = 0x00020000;
+    // An index of 2.0 below 258 names a standard Macintosh glyph, 258 and above the Pascal string at
+    // the index minus 258.
     private static readonly POST_STANDARD_NAME_COUNT = 258;
     private static readonly PASCAL_STRING_LENGTH_SIZE_BYTES = 1;
-    // By version: only 2.0 and 2.5 carry glyph names past the header.
+    private static readonly GLYPH_NAME_INDEX_SIZE_BYTES = 2;
+    // By version: only 2.0 and 2.5 carry glyph names past the header, and only 2.0 names of its own.
     private static readonly POST_GLYPH_NAMES: ReadonlyMap<number, PostGlyphNames> = new Map([
-        [0x00020000, { entries: "glyphNameIndex", entrySizeBytes: 2 }],
-        [0x00025000, { entries: "offset", entrySizeBytes: 1 }],
+        [0x00020000, { entries: "glyphNameIndex", entrySizeBytes: SfntFontValidator.GLYPH_NAME_INDEX_SIZE_BYTES, hasNameStrings: true }],
+        [0x00025000, { entries: "offset", entrySizeBytes: 1, hasNameStrings: false }],
     ]);
 
     /**
@@ -380,8 +380,9 @@ export class SfntFontValidator implements FontValidator {
     /**
      * The tables are read in the order their fields depend on each other: `head` gives the loca
      * format, `maxp` the glyph count, `hhea` the number of the hmtx records. `cmap`, `name`, `OS/2`
-     * and `post` come last: of them only `post` depends on another table, on the glyph count. Each table is checked long enough before its
-     * fields are read, and every table lies inside the file by then.
+     * and `post` come last: of them only `post` depends on another table, on the glyph count. Each
+     * table is checked long enough before its fields are read, and every table lies inside the file
+     * by then.
      */
     private checkContent(fontPath: string, view: DataView, tables: SfntTables): void {
         const locaFormat = this.checkHead(fontPath, view, tables.head);
@@ -708,7 +709,7 @@ export class SfntFontValidator implements FontValidator {
             lengthField.sizeBytes === SfntFontValidator.SHORT_SUBTABLE_LENGTH_SIZE_BYTES
                 ? view.getUint16(lengthFieldInFileBytes)
                 : view.getUint32(lengthFieldInFileBytes);
-        const lengthAt = `the length of the subtable of encodingRecords[${index}]`;
+        const lengthFieldLabel = `the length of the subtable of encodingRecords[${index}]`;
 
         // Past cmap fontforge reads the bytes of the next table, or of no table: of 20 variants of the
         // fixtures with such a subtable at the end of cmap it lost every encoding in 15, made one up
@@ -718,7 +719,7 @@ export class SfntFontValidator implements FontValidator {
             throw BrokenSfnt.byRule(fontPath, {
                 rule: SfntRule.CmapSubtableMinLength,
                 at: at,
-                field: lengthAt,
+                field: lengthFieldLabel,
                 value: subtableLengthBytes,
                 expected: `at least ${layout.fixedSizeBytes}, the part of format ${format} of a set size`,
             });
@@ -730,7 +731,7 @@ export class SfntFontValidator implements FontValidator {
             throw BrokenSfnt.byRule(fontPath, {
                 rule: SfntRule.CmapSubtableLength,
                 at: at,
-                field: lengthAt,
+                field: lengthFieldLabel,
                 value: subtableLengthBytes,
                 expected: `at most ${restBytes}, the rest of ${at} from offset ${subtableOffset}`,
             });
@@ -956,8 +957,8 @@ export class SfntFontValidator implements FontValidator {
             `the header, numGlyphs and ${glyphNames.entries}[${numGlyphs}]`,
         );
 
-        if (version === SfntFontValidator.POST_VERSION_WITH_STRINGS) {
-            this.checkPostStrings(fontPath, view, post, glyphNames, numGlyphs);
+        if (glyphNames.hasNameStrings) {
+            this.checkPostStrings(fontPath, view, post, numGlyphs, numGlyphsEndBytes, entriesEndBytes);
         }
     }
 
@@ -967,13 +968,19 @@ export class SfntFontValidator implements FontValidator {
      * of one whose string is cut short; reading past the end of the file, it puts a 0xFF byte into
      * the name, and the output carries it.
      */
-    private checkPostStrings(fontPath: string, view: DataView, post: SfntTableRecord, glyphNames: PostGlyphNames, numGlyphs: number): void {
-        const entriesStartBytes = SfntFontValidator.POST_NUM_GLYPHS_OFFSET_BYTES + SfntFontValidator.POST_NUM_GLYPHS_SIZE_BYTES;
+    private checkPostStrings(
+        fontPath: string,
+        view: DataView,
+        post: SfntTableRecord,
+        numGlyphs: number,
+        indexStartBytes: number,
+        stringsStartBytes: number,
+    ): void {
         let highestIndexGlyph = 0;
         let highestIndex = 0;
 
         for (let glyph = 0; glyph < numGlyphs; glyph++) {
-            const glyphNameIndex = view.getUint16(post.offset + entriesStartBytes + glyph * glyphNames.entrySizeBytes);
+            const glyphNameIndex = view.getUint16(post.offset + indexStartBytes + glyph * SfntFontValidator.GLYPH_NAME_INDEX_SIZE_BYTES);
 
             if (glyphNameIndex > highestIndex) {
                 highestIndexGlyph = glyph;
@@ -983,7 +990,7 @@ export class SfntFontValidator implements FontValidator {
 
         const stringCount = highestIndex - SfntFontValidator.POST_STANDARD_NAME_COUNT + 1;
         const at = this.tableName(SfntFontValidator.POST_TAG);
-        let stringOffsetBytes = entriesStartBytes + numGlyphs * glyphNames.entrySizeBytes;
+        let stringOffsetBytes = stringsStartBytes;
 
         for (let stringIndex = 0; stringIndex < stringCount; stringIndex++) {
             const lengthEndBytes = stringOffsetBytes + SfntFontValidator.PASCAL_STRING_LENGTH_SIZE_BYTES;

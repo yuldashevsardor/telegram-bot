@@ -381,11 +381,13 @@ format of a set size while that part lies inside `cmap`, or a `cmap` whose one r
 into its header while another Unicode record holds; pointing at 0 or 4, one such record already
 loses the encoding. An empty `name` string is not held to the table: it has no byte to read, and the
 engine converts it at any offset. A `post` naming more glyphs than `maxp` has passes: the standard
-says the two "should be the same", and the engine loses nothing on it. With CFF outlines the engine
-takes the glyph names from `CFF `, and no break of `post` measured loses one; the `post` rules hold
-for those fonts all the same. None of these rules rejects a font of the 242 in the macOS system font
-folders, which the validator walks in 0.3 s. The length `OS/2` needs by its version, and why version
-0 passes shortened, is in the comment of `OS2_LENGTHS_BYTES` in `SfntFontValidator`.
+says the two "should be the same", and the engine loses nothing on it. Its entries past the glyphs
+of `maxp` are held to the strings all the same: an entry of 2.0 pointing past them fails the font.
+With CFF outlines the engine takes the glyph names from `CFF `, and no break of `post` measured
+loses one; the `post` rules apply to those fonts too. None of these rules rejects a font of the
+242 in the macOS system font folders, which the validator walks in 0.3 s. The length `OS/2` needs by
+its version, and why version 0 passes shortened, is in the comment of `OS2_LENGTHS_BYTES` in
+`SfntFontValidator`.
 
 What is deliberately not checked, with the reasons, is in the class comment of
 `SfntFontValidator`: the table checksums and `head.checkSumAdjustment`, which the engine does not
