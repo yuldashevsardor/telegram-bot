@@ -373,7 +373,7 @@ describe("SfntFontValidator", function () {
         });
 
         it("whose component flags set the reserved bits", async function () {
-            // 42 132 components of 36 of the 297 real fonts measured set them, Arial among them.
+            // Real fonts set them: the class comment of SfntFontValidator gives the measurement.
             await validate(withGlyph(ttf, 1, compositeGlyph([{ glyphIndex: 0, flags: RESERVED_COMPONENT_FLAGS }])));
         });
 
@@ -1126,9 +1126,9 @@ describe("SfntFontValidator", function () {
         });
 
         it("with WE_HAVE_INSTRUCTIONS on a component before the last and no room for numInstr", async function () {
-            // The specification reads numInstr "if the flag is set on any component glyph"; fontforge
-            // reads the flag of the last component only. None of the real fonts measured sets it on
-            // another component alone.
+            // The prose of the specification reads numInstr "if the flag is set on any component
+            // glyph"; its pseudo-code and fontforge read the flag of the last component only. None of
+            // the real fonts measured sets it on another component alone.
             const composite = compositeGlyph([
                 { glyphIndex: 0, flags: WE_HAVE_INSTRUCTIONS },
                 { glyphIndex: 0, flags: 0 },
@@ -1157,7 +1157,7 @@ describe("SfntFontValidator", function () {
                 await expectBroken(
                     withGlyph(ttf, 1, compositeGlyph([{ glyphIndex: glyphIndex, flags: 0 }])),
                     SfntRule.ComponentGlyphIndex,
-                    `At table "glyf": the glyphIndex of component 0 of glyph 1 is ${glyphIndex}, expected less than 1296, maxp.numGlyphs.`,
+                    `At table "glyf": the glyphIndex of component 0 of glyph 1 is ${glyphIndex}, expected less than ${TTF_NUM_GLYPHS}, maxp.numGlyphs.`,
                 );
             }
         });

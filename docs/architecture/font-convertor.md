@@ -396,8 +396,11 @@ of a composite glyph cut inside a component, of one whose component points past 
 one on a cycle. Two cases follow the standard, not the engine: `MORE_COMPONENTS` on the last
 component with no bytes left, on which the engine says "Bad flags value" and loses nothing, and
 `WE_HAVE_INSTRUCTIONS` on a component before the last, which the engine reads on the last one only.
-The reserved bits of the component flags are not checked, since 36 of the 297 real fonts set them,
-Arial among them; nor is a component held to one scale flag at most, which the specification asks.
+On that flag the rule takes the prose of the specification, "if the flag is set on any component
+glyph", over its own pseudo-code, which reads the flag of the last component as the engine does.
+The reserved bits of the component flags are not checked, since real fonts set them, nor is a
+component held to one scale flag at most; the class comment of `SfntFontValidator` gives the
+measurement for both.
 None of the 297 real fonts with TrueType outlines measured breaks a `glyf` rule.
 
 The rules on `cmap`, `name`, `OS/2` and `post` check where the records point, not what lies there:

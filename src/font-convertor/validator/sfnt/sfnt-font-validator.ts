@@ -46,6 +46,12 @@ import { FileHelper } from "app/shared/fs/file-helper";
  *   macOS system fonts do not match.
  * - `searchRange`, `entrySelector` and `rangeShift`: the specification tells readers not to rely
  *   on them.
+ * - The reserved bits of the component flags of a composite glyph, bit 4 and bits 13 to 15, which
+ *   the specification sets to 0: 42 132 components of 36 of the 297 real fonts with TrueType
+ *   outlines measured set them, Arial among them.
+ * - That a component sets one scale flag at most, which the specification asks. None of the real
+ *   fonts measured sets more than one, and of several fontforge 20230101 takes the first in the
+ *   order of the pseudo-code of the specification, as `transformSizeBytes()` does.
  */
 @injectable()
 export class SfntFontValidator implements FontValidator {
@@ -830,10 +836,9 @@ export class SfntFontValidator implements FontValidator {
      * Reads the components one by one while MORE_COMPONENTS is set, each checked to fit into the
      * glyph before its fields are read, the first one too: a composite glyph has at least one.
      * Returns the glyphs they point at. The instructions follow the last component when any
-     * component sets WE_HAVE_INSTRUCTIONS, as the specification has it; fontforge 20230101 reads
-     * the flag of the last one only. The reserved bits of the flags are not checked: 42 132
-     * components of 36 of the 297 real fonts with TrueType outlines measured set them, Arial among
-     * them.
+     * component sets WE_HAVE_INSTRUCTIONS, as the prose of the specification has it. The
+     * specification contradicts itself there: its pseudo-code reads the flag of the last component
+     * only, and so does fontforge 20230101.
      */
     private checkCompositeGlyph(fontPath: string, view: DataView, glyph: GlyfEntry, numGlyphs: number): ReadonlyArray<number> {
         const componentGlyphIds: number[] = [];
@@ -897,9 +902,8 @@ export class SfntFontValidator implements FontValidator {
     }
 
     /**
-     * The specification makes the three scale flags mutually exclusive; this check does not hold a
-     * component to that. Of several set, the first in this order gives the size, as in the
-     * pseudo-code of the specification and in fontforge 20230101.
+     * Of several scale flags set, the first in this order gives the size, as in the pseudo-code of
+     * the specification and in fontforge 20230101.
      */
     private transformSizeBytes(flags: number): number {
         if ((flags & SfntFontValidator.WE_HAVE_A_SCALE) !== 0) {
