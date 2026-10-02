@@ -15,7 +15,6 @@ export enum EotRule {
     FontDataLayout = "FontDataSize is not 0, and FontData follows the header directly and ends the file: the header end + FontDataSize is EOTSize (EOT, §3)",
     RootStringCheckSum = "in version 0x00020002, RootStringCheckSum is the sum of the RootString bytes XOR 0x50475342 (EOT, §4.3.2)",
     Flags = "Flags have neither TTEMBED_TTCOMPRESSED (0x00000004) nor TTEMBED_XORENCRYPTDATA (0x10000000) (ours: the codec takes out only a raw sfnt)",
-    FontData = "FontData holds an sfnt header of a version the domain accepts and the table records it declares (EOT, §3: a TrueType or OpenType font)",
 }
 
 /**

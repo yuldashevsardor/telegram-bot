@@ -2,8 +2,10 @@ import { RuntimeError } from "app/shared/errors";
 import type { Violation } from "app/font-convertor/validator/eot/eot-font-validator.types";
 
 /**
- * The file is not a valid EOT font. `EotFontValidator` answers with one of the subclasses, and a
- * caller tells them apart by `instanceof`. The payload of each names the file in `path`.
+ * The file is not a valid EOT envelope. `EotFontValidator` answers about the envelope with one of
+ * the subclasses, and a caller tells them apart by `instanceof`. The payload of each names the file
+ * in `path`. About the font a valid envelope encloses it answers with a subclass of
+ * `InvalidSfntFont` instead, which names the EOT file too.
  */
 export class InvalidEotFont extends RuntimeError {}
 
@@ -35,7 +37,7 @@ export class BrokenEot extends InvalidEotFont {
     }
 
     /**
-     * The error of the parse or of the codec is the cause: it says what exactly could not be read.
+     * The error of the parse is the cause: it says what exactly could not be read.
      */
     public static byRuleAndCause(fontPath: string, violation: Violation, error: Error): BrokenEot {
         return new BrokenEot(BrokenEot.message(violation), { path: fontPath, ...violation, cause: error });
