@@ -41,6 +41,26 @@ const SHORT_LOCA_ENTRY_SIZE_BYTES = 2;
 const LONG_LOCA_ENTRY_SIZE_BYTES = 4;
 // The short format stores the offset divided by 2.
 const SHORT_LOCA_OFFSET_FACTOR = 2;
+// The fields of a glyph by their offset from its start (OpenType 1.9.1, glyf).
+const NUMBER_OF_CONTOURS_OFFSET_BYTES = 0;
+const GLYPH_HEADER_SIZE_BYTES = 10;
+const END_PTS_OFFSET_BYTES = GLYPH_HEADER_SIZE_BYTES;
+const END_PT_SIZE_BYTES = 2;
+// Glyph 0 of the TrueType fixture, .notdef, is 84 bytes long by loca: a simple glyph of 5 contours
+// and 16 points. instructionLength 0 lies at 20, the flags from 22 to 38, the first of them repeated
+// with its repeat count at 23, the x coordinates up to 60 and the y coordinates up to 81. 3 bytes of
+// padding follow. Glyphs 1 and 2 have no outline: their loca offsets equal the end of glyph 0.
+const GLYPH_0_LENGTH_BYTES = 84;
+const GLYPH_0_NUMBER_OF_CONTOURS = 5;
+const GLYPH_0_NUMBER_OF_POINTS = 16;
+const GLYPH_0_INSTRUCTION_LENGTH_OFFSET_BYTES = 20;
+const GLYPH_0_FLAGS_OFFSET_BYTES = 22;
+const GLYPH_0_REPEAT_COUNT_OFFSET_BYTES = 23;
+const GLYPH_0_X_COORDINATES_END_BYTES = 60;
+const GLYPH_0_Y_COORDINATES_END_BYTES = 81;
+// A deterministic fill for glyf: the top byte of the index times Knuth's multiplicative hash constant.
+const GARBAGE_MULTIPLIER = 2654435761;
+const GARBAGE_SHIFT = 24;
 // cmap, name, OS/2 and post open with their version (OpenType 1.9.1, cmap, name, OS/2, post).
 const TABLE_VERSION_OFFSET_BYTES = 0;
 const CMAP_NUM_TABLES_OFFSET_BYTES = 2;
@@ -251,6 +271,32 @@ describe("SfntFontValidator", function () {
             const loca = tableOffset(ttf, "loca");
 
             await validate(withUint32(ttf, loca + LONG_LOCA_ENTRY_SIZE_BYTES, readUint32(ttf, loca)));
+        });
+
+        it("whose simple glyph ends with its last y coordinate", async function () {
+            await validate(withGlyph(ttf, 0, glyph0(ttf).subarray(0, GLYPH_0_Y_COORDINATES_END_BYTES)));
+        });
+
+        it("with a simple glyph without contours", async function () {
+            // The header and instructionLength 0: no points, so no flags and no coordinates.
+            const header = withUint16(glyph0(ttf), NUMBER_OF_CONTOURS_OFFSET_BYTES, 0);
+            const withoutContours = withUint16(header, END_PTS_OFFSET_BYTES, 0);
+
+            await validate(withGlyph(ttf, 0, withoutContours.subarray(0, GLYPH_HEADER_SIZE_BYTES + END_PT_SIZE_BYTES)));
+        });
+
+        it("with a composite glyph of any negative numberOfContours, its components not read", async function () {
+            // The specification says -1 "should be used", and fontforge reads any negative value as a
+            // composite glyph. What follows the header is the simple glyph, read as no component.
+            for (const numberOfContours of [-1, -2, -32768]) {
+                await validate(withGlyph(ttf, 0, withInt16(glyph0(ttf), NUMBER_OF_CONTOURS_OFFSET_BYTES, numberOfContours)));
+            }
+        });
+
+        it("with a composite glyph of its 10-byte header alone", async function () {
+            const composite = withInt16(glyph0(ttf), NUMBER_OF_CONTOURS_OFFSET_BYTES, -1);
+
+            await validate(withGlyph(ttf, 0, composite.subarray(0, GLYPH_HEADER_SIZE_BYTES)));
         });
 
         it("whose cmap subtable starts right after the encoding records, and another ends the table", async function () {
@@ -730,6 +776,128 @@ describe("SfntFontValidator", function () {
         });
     });
 
+    describe("rejects a broken glyf", function () {
+        it("filled with garbage, its length kept", async function () {
+            // fontforge keeps every glyph slot and loses every outline: 16 KB of WOFF against 72 KB.
+            const garbage = Uint8Array.from(
+                { length: TTF_GLYF_LENGTH_BYTES },
+                (_, index) => (index * GARBAGE_MULTIPLIER) >>> GARBAGE_SHIFT,
+            );
+
+            await expectBroken(
+                withBytes(ttf, tableOffset(ttf, "glyf"), garbage),
+                SfntRule.SimpleGlyphInData,
+                'At table "glyf": the end of endPtsOfContours[158] of glyph 0 is 326, expected at most 84, the length of glyph 0 by loca.',
+            );
+        });
+
+        it("whose glyph is shorter than its header", async function () {
+            await expectBroken(
+                withGlyph(ttf, 0, glyph0(ttf).subarray(0, GLYPH_HEADER_SIZE_BYTES - 1)),
+                SfntRule.GlyphHeader,
+                'At table "glyf": the length of glyph 0 by loca is 9, expected 0 or at least 10.',
+            );
+        });
+
+        it("whose endPtsOfContours run past the glyph", async function () {
+            const endPtsEndBytes = END_PTS_OFFSET_BYTES + GLYPH_0_NUMBER_OF_CONTOURS * END_PT_SIZE_BYTES;
+
+            await expectBroken(
+                withGlyph(ttf, 0, glyph0(ttf).subarray(0, endPtsEndBytes - 1)),
+                SfntRule.SimpleGlyphInData,
+                'At table "glyf": the end of endPtsOfContours[5] of glyph 0 is 20, expected at most 19, the length of glyph 0 by loca.',
+            );
+            await expectBroken(
+                withGlyph(ttf, 0, withUint16(glyph0(ttf), NUMBER_OF_CONTOURS_OFFSET_BYTES, 40)),
+                SfntRule.SimpleGlyphInData,
+                'At table "glyf": the end of endPtsOfContours[40] of glyph 0 is 90, expected at most 84, the length of glyph 0 by loca.',
+            );
+        });
+
+        it("whose endPtsOfContours descend", async function () {
+            // fontforge drops the outline: "contour ends make no sense".
+            await expectBroken(
+                withGlyph(ttf, 0, withUint16(glyph0(ttf), END_PTS_OFFSET_BYTES + END_PT_SIZE_BYTES, 2)),
+                SfntRule.EndPtsAscending,
+                'At table "glyf": endPtsOfContours[1] of glyph 0 is 2, expected more than 3, endPtsOfContours[0].',
+            );
+        });
+
+        it("whose endPtsOfContours repeat a point, for an empty contour", async function () {
+            // fontforge loses nothing here; the rule follows the specification, "increasing numeric order".
+            await expectBroken(
+                withGlyph(ttf, 0, withUint16(glyph0(ttf), END_PTS_OFFSET_BYTES + END_PT_SIZE_BYTES, 3)),
+                SfntRule.EndPtsAscending,
+                'At table "glyf": endPtsOfContours[1] of glyph 0 is 3, expected more than 3, endPtsOfContours[0].',
+            );
+        });
+
+        it("with no room for instructionLength", async function () {
+            await expectBroken(
+                withGlyph(ttf, 0, glyph0(ttf).subarray(0, GLYPH_0_FLAGS_OFFSET_BYTES - 1)),
+                SfntRule.SimpleGlyphInData,
+                'At table "glyf": the end of instructionLength of glyph 0 is 22, expected at most 21, the length of glyph 0 by loca.',
+            );
+        });
+
+        it("whose instructions run past the glyph", async function () {
+            // One byte past the glyph, and the most instructionLength can state.
+            for (const instructionLength of [GLYPH_0_LENGTH_BYTES - GLYPH_0_FLAGS_OFFSET_BYTES + 1, 0xffff]) {
+                await expectBroken(
+                    withGlyph(ttf, 0, withUint16(glyph0(ttf), GLYPH_0_INSTRUCTION_LENGTH_OFFSET_BYTES, instructionLength)),
+                    SfntRule.SimpleGlyphInData,
+                    `At table "glyf": the end of instructions[${instructionLength}] of glyph 0 is ${
+                        GLYPH_0_FLAGS_OFFSET_BYTES + instructionLength
+                    }, expected at most 84, the length of glyph 0 by loca.`,
+                );
+            }
+        });
+
+        it("whose flags run past the glyph", async function () {
+            await expectBroken(
+                withGlyph(ttf, 0, glyph0(ttf).subarray(0, GLYPH_0_FLAGS_OFFSET_BYTES)),
+                SfntRule.SimpleGlyphInData,
+                'At table "glyf": the end of flags[0] of glyph 0 is 23, expected at most 22, the length of glyph 0 by loca.',
+            );
+        });
+
+        it("whose repeat count runs past the glyph", async function () {
+            await expectBroken(
+                withGlyph(ttf, 0, glyph0(ttf).subarray(0, GLYPH_0_REPEAT_COUNT_OFFSET_BYTES)),
+                SfntRule.SimpleGlyphInData,
+                'At table "glyf": the end of the repeat count of flags[0] of glyph 0 is 24, expected at most 23, the length of glyph 0 by loca.',
+            );
+        });
+
+        it("whose flag repeats run past its points", async function () {
+            // fontforge cuts the repeats short, "Flag count is wrong", and loses nothing; the rule follows
+            // the specification, one flag per point.
+            await expectBroken(
+                withGlyph(ttf, 0, withBytes(glyph0(ttf), GLYPH_0_REPEAT_COUNT_OFFSET_BYTES, [GLYPH_0_NUMBER_OF_POINTS])),
+                SfntRule.FlagPerPoint,
+                'At table "glyf": the flag count with flags[0] and its 16 repeats of glyph 0 is 17, expected at most 16, the number of points.',
+            );
+        });
+
+        it("whose x coordinates run past the glyph", async function () {
+            await expectBroken(
+                withGlyph(ttf, 0, glyph0(ttf).subarray(0, GLYPH_0_X_COORDINATES_END_BYTES - 1)),
+                SfntRule.SimpleGlyphInData,
+                'At table "glyf": the end of xCoordinates of glyph 0 is 60, expected at most 59, the length of glyph 0 by loca.',
+            );
+        });
+
+        it("whose y coordinates run past the glyph", async function () {
+            // fontforge reads the missing byte from the next glyph: "A point in GID 0 is outside the
+            // glyph bounding box".
+            await expectBroken(
+                withGlyph(ttf, 0, glyph0(ttf).subarray(0, GLYPH_0_Y_COORDINATES_END_BYTES - 1)),
+                SfntRule.SimpleGlyphInData,
+                'At table "glyf": the end of yCoordinates of glyph 0 is 81, expected at most 80, the length of glyph 0 by loca.',
+            );
+        });
+    });
+
     describe("rejects a broken cmap", function () {
         it("shorter than its header", async function () {
             await expectBroken(
@@ -1204,6 +1372,42 @@ function lastShortOffsetBytes(font: Uint8Array): number {
 }
 
 /**
+ * The bytes of glyph 0 of the TrueType fixture, by loca.
+ */
+function glyph0(font: Uint8Array): Uint8Array {
+    const glyf = tableOffset(font, "glyf");
+
+    return font.slice(glyf, glyf + GLYPH_0_LENGTH_BYTES);
+}
+
+/**
+ * The TrueType fixture with glyph `glyphId` replaced by `glyph`. glyf and loca are rebuilt, with
+ * long offsets, and appended to the end of the file; every other glyph keeps its bytes.
+ */
+function withGlyph(font: Uint8Array, glyphId: number, glyph: Uint8Array): Uint8Array {
+    const loca = tableOffset(font, "loca");
+    const glyf = tableOffset(font, "glyf");
+    const glyphs: Uint8Array[] = [];
+    const newLoca = new Uint8Array((TTF_NUM_GLYPHS + 1) * LONG_LOCA_ENTRY_SIZE_BYTES);
+    const view = new DataView(newLoca.buffer);
+    let offsetBytes = 0;
+
+    for (let index = 0; index < TTF_NUM_GLYPHS; index++) {
+        const startBytes = readUint32(font, loca + index * LONG_LOCA_ENTRY_SIZE_BYTES);
+        const endBytes = readUint32(font, loca + (index + 1) * LONG_LOCA_ENTRY_SIZE_BYTES);
+        const glyphBytes = index === glyphId ? glyph : font.subarray(glyf + startBytes, glyf + endBytes);
+
+        glyphs.push(glyphBytes);
+        view.setUint32(index * LONG_LOCA_ENTRY_SIZE_BYTES, offsetBytes);
+        offsetBytes += glyphBytes.length;
+    }
+
+    view.setUint32(TTF_NUM_GLYPHS * LONG_LOCA_ENTRY_SIZE_BYTES, offsetBytes);
+
+    return withTableAtEnd(withTableAtEnd(font, "glyf", Uint8Array.from(Buffer.concat(glyphs))), "loca", newLoca);
+}
+
+/**
  * The font with the subtable offset of its cmap encoding record `index` set to `subtableOffset`.
  */
 function withSubtableOffset(font: Uint8Array, index: number, subtableOffset: number): Uint8Array {
@@ -1331,6 +1535,14 @@ function withUint16(bytes: Uint8Array, offsetBytes: number, value: number): Uint
     const copy = Uint8Array.from(bytes);
 
     new DataView(copy.buffer).setUint16(offsetBytes, value);
+
+    return copy;
+}
+
+function withInt16(bytes: Uint8Array, offsetBytes: number, value: number): Uint8Array {
+    const copy = Uint8Array.from(bytes);
+
+    new DataView(copy.buffer).setInt16(offsetBytes, value);
 
     return copy;
 }

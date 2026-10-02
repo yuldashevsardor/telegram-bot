@@ -5,12 +5,15 @@ import { SFNT_VERSIONS } from "app/font-convertor/sfnt-version";
 import { BrokenSfnt, NotSfnt } from "app/font-convertor/validator/sfnt/sfnt-font-validator.errors";
 import type {
     CmapSubtableLengthField,
+    CoordinateFlagBits,
+    Glyph,
     LocaFormat,
     MaxpExpectation,
     NameRecordArray,
     NameStringRecord,
     PostGlyphNames,
     SfntTables,
+    SimpleGlyphFlags,
     TrueTypeOutlines,
 } from "app/font-convertor/validator/sfnt/sfnt-font-validator.types";
 import { SfntRule } from "app/font-convertor/validator/sfnt/sfnt-font-validator.types";
@@ -22,11 +25,13 @@ import { FileHelper } from "app/shared/fs/file-helper";
  * specification 1.9.1, and against Apple's TrueType Reference Manual for what it governs: the table
  * directory, the tables a font must have, the fields of `head`, `maxp`, `hhea`, `hmtx` and `loca`
  * that give the glyph count, where the metrics of each glyph lie and, with TrueType outlines, where
- * its outline lies, and the version of `cmap`, `name`, `OS/2` and `post` with whether their
- * content lies inside the table: the headers and records of `cmap` and `name`, each `cmap`
- * subtable with its format and length, each non-empty `name` string, the fields of the `OS/2`
- * version, and the 32-byte header of `post` with the glyph-name index of versions 2.0 and 2.5. What
- * a subtable, a string or a glyph name holds is not read. TTF and OTF take the same checks: the sfnt version
+ * its outline lies, the header of every glyph in `glyf` and whether the fields of each simple glyph
+ * lie inside it, and the version of `cmap`, `name`, `OS/2` and `post` with whether their content lies inside the
+ * table: the headers and records of `cmap` and `name`, each `cmap` subtable with its format and
+ * length, each non-empty `name` string, the fields of the `OS/2` version, and the 32-byte header of
+ * `post` with the glyph-name index of versions 2.0 and 2.5. What a subtable, a string or a glyph
+ * name holds is not read, nor are the components of a composite glyph, the values of a simple
+ * glyph's coordinates and its instructions. TTF and OTF take the same checks: the sfnt version
  * names the outline type, not the extension, and the rules that depend on the outline type go by
  * the outline tables present, not by the version, which the specification only says "should" match
  * them.
@@ -72,6 +77,19 @@ export class SfntFontValidator implements FontValidator {
         [0, { entrySizeBytes: SfntFontValidator.SHORT_LOCA_ENTRY_SIZE_BYTES, offsetFactor: SfntFontValidator.SHORT_LOCA_OFFSET_FACTOR }],
         [1, { entrySizeBytes: SfntFontValidator.LONG_LOCA_ENTRY_SIZE_BYTES, offsetFactor: SfntFontValidator.LONG_LOCA_OFFSET_FACTOR }],
     ]);
+    private static readonly GLYPH_HEADER_SIZE_BYTES = 10;
+    private static readonly NUMBER_OF_CONTOURS_OFFSET_BYTES = 0;
+    private static readonly END_PT_SIZE_BYTES = 2;
+    private static readonly INSTRUCTION_LENGTH_SIZE_BYTES = 2;
+    private static readonly FLAG_SIZE_BYTES = 1;
+    private static readonly REPEAT_COUNT_SIZE_BYTES = 1;
+    private static readonly REPEAT_FLAG = 0x08;
+    private static readonly X_COORDINATE_FLAGS: CoordinateFlagBits = { shortVector: 0x02, isSameOrPositive: 0x10 };
+    private static readonly Y_COORDINATE_FLAGS: CoordinateFlagBits = { shortVector: 0x04, isSameOrPositive: 0x20 };
+    private static readonly SHORT_COORDINATE_SIZE_BYTES = 1;
+    private static readonly LONG_COORDINATE_SIZE_BYTES = 2;
+    // A coordinate the same as the previous one is not stored.
+    private static readonly SAME_COORDINATE_SIZE_BYTES = 0;
     private static readonly MAXP_FIELD_OFFSETS_BYTES = { version: 0, numGlyphs: 4 };
     private static readonly MAXP_WITH_CFF: MaxpExpectation = {
         version: 0x00005000,
@@ -169,8 +187,8 @@ export class SfntFontValidator implements FontValidator {
      * The answers are subclasses of `InvalidSfntFont`: `NotSfnt` for bytes shorter than the header
      * or of an unknown version, `BrokenSfnt` for the first broken rule, checked in this order: the
      * header, the table records one by one in directory order, the tables the font has, then the
-     * content of `head`, `maxp`, `hhea`, `hmtx`, with TrueType outlines `loca`, then of `cmap`,
-     * `name`, `OS/2` when the font has it, and `post`.
+     * content of `head`, `maxp`, `hhea`, `hmtx`, with TrueType outlines `loca` and `glyf`, glyph by
+     * glyph, then of `cmap`, `name`, `OS/2` when the font has it, and `post`.
      */
     public validateBytes(fontPath: string, bytes: Uint8Array): void {
         this.checkHeader(fontPath, bytes);
@@ -384,6 +402,7 @@ export class SfntFontValidator implements FontValidator {
 
         if (tables.trueTypeOutlines !== undefined) {
             this.checkLoca(fontPath, view, tables.trueTypeOutlines, numGlyphs, locaFormat);
+            this.checkGlyf(fontPath, view, tables.trueTypeOutlines, numGlyphs, locaFormat);
         }
 
         this.checkCmap(fontPath, view, tables.cmap);
@@ -597,6 +616,177 @@ export class SfntFontValidator implements FontValidator {
                 field: `loca[${numGlyphs}] in bytes`,
                 value: previousOffsetBytes,
                 expected: `at most ${glyf.length}, the length of ${this.tableName(SfntFontValidator.GLYF_TAG)}`,
+            });
+        }
+    }
+
+    /**
+     * Walks every glyph with an outline, loca[n] < loca[n+1]. loca is checked by then, so each glyph
+     * lies inside glyf.
+     */
+    private checkGlyf(fontPath: string, view: DataView, { glyf, loca }: TrueTypeOutlines, numGlyphs: number, format: LocaFormat): void {
+        for (let glyphId = 0; glyphId < numGlyphs; glyphId++) {
+            const startBytes = this.locaOffset(view, loca, format, glyphId);
+            const endBytes = this.locaOffset(view, loca, format, glyphId + 1);
+            const glyph = { id: glyphId, offsetBytes: glyf.offset + startBytes, lengthBytes: endBytes - startBytes };
+
+            if (glyph.lengthBytes > 0) {
+                this.checkGlyph(fontPath, view, glyph);
+            }
+        }
+    }
+
+    /**
+     * A negative numberOfContours makes a composite glyph, and its components are not read. Any
+     * negative value passes: the specification says -1 "should be used", and fontforge 20230101
+     * reads -2 and -32768 as a composite glyph too, losing nothing.
+     */
+    private checkGlyph(fontPath: string, view: DataView, glyph: Glyph): void {
+        if (glyph.lengthBytes < SfntFontValidator.GLYPH_HEADER_SIZE_BYTES) {
+            throw BrokenSfnt.byRule(fontPath, {
+                rule: SfntRule.GlyphHeader,
+                at: this.tableName(SfntFontValidator.GLYF_TAG),
+                field: `the length of glyph ${glyph.id} by loca`,
+                value: glyph.lengthBytes,
+                expected: `0 or at least ${SfntFontValidator.GLYPH_HEADER_SIZE_BYTES}`,
+            });
+        }
+
+        const numberOfContours = view.getInt16(glyph.offsetBytes + SfntFontValidator.NUMBER_OF_CONTOURS_OFFSET_BYTES);
+
+        if (numberOfContours < 0) {
+            return;
+        }
+
+        this.checkSimpleGlyph(fontPath, view, glyph, numberOfContours);
+    }
+
+    /**
+     * The fields follow one another, each placed by the ones before it, so each is checked to fit
+     * into the glyph before it is read. Positions are counted from the start of the glyph.
+     */
+    private checkSimpleGlyph(fontPath: string, view: DataView, glyph: Glyph, numberOfContours: number): void {
+        const endPtsEndBytes = SfntFontValidator.GLYPH_HEADER_SIZE_BYTES + numberOfContours * SfntFontValidator.END_PT_SIZE_BYTES;
+
+        this.checkInGlyph(fontPath, glyph, endPtsEndBytes, `endPtsOfContours[${numberOfContours}]`);
+
+        const numberOfPoints = this.checkEndPtsOfContours(fontPath, view, glyph, numberOfContours);
+        const instructionLengthEndBytes = endPtsEndBytes + SfntFontValidator.INSTRUCTION_LENGTH_SIZE_BYTES;
+
+        this.checkInGlyph(fontPath, glyph, instructionLengthEndBytes, "instructionLength");
+
+        const instructionLength = view.getUint16(glyph.offsetBytes + endPtsEndBytes);
+        const instructionsEndBytes = instructionLengthEndBytes + instructionLength;
+
+        this.checkInGlyph(fontPath, glyph, instructionsEndBytes, `instructions[${instructionLength}]`);
+
+        const flags = this.checkFlags(fontPath, view, glyph, instructionsEndBytes, numberOfPoints);
+        const xCoordinatesEndBytes = flags.endBytes + flags.xCoordinatesSizeBytes;
+
+        this.checkInGlyph(fontPath, glyph, xCoordinatesEndBytes, "xCoordinates");
+        this.checkInGlyph(fontPath, glyph, xCoordinatesEndBytes + flags.yCoordinatesSizeBytes, "yCoordinates");
+    }
+
+    /**
+     * Returns the number of points: the points are numbered from 0, so the last contour ends at the
+     * last point, and a glyph without contours has none.
+     */
+    private checkEndPtsOfContours(fontPath: string, view: DataView, glyph: Glyph, numberOfContours: number): number {
+        let previousEndPt = -1;
+
+        for (let index = 0; index < numberOfContours; index++) {
+            const endPt = view.getUint16(
+                glyph.offsetBytes + SfntFontValidator.GLYPH_HEADER_SIZE_BYTES + index * SfntFontValidator.END_PT_SIZE_BYTES,
+            );
+
+            if (endPt <= previousEndPt) {
+                throw BrokenSfnt.byRule(fontPath, {
+                    rule: SfntRule.EndPtsAscending,
+                    at: this.tableName(SfntFontValidator.GLYF_TAG),
+                    field: `endPtsOfContours[${index}] of glyph ${glyph.id}`,
+                    value: endPt,
+                    expected: `more than ${previousEndPt}, endPtsOfContours[${index - 1}]`,
+                });
+            }
+
+            previousEndPt = endPt;
+        }
+
+        return previousEndPt + 1;
+    }
+
+    /**
+     * Reads one flag per point, a repeated flag standing for its repeats too, and sums the widths
+     * of the coordinates the flags give.
+     */
+    private checkFlags(fontPath: string, view: DataView, glyph: Glyph, startBytes: number, numberOfPoints: number): SimpleGlyphFlags {
+        let positionBytes = startBytes;
+        let flagCount = 0;
+        let xCoordinatesSizeBytes = 0;
+        let yCoordinatesSizeBytes = 0;
+
+        while (flagCount < numberOfPoints) {
+            this.checkInGlyph(fontPath, glyph, positionBytes + SfntFontValidator.FLAG_SIZE_BYTES, `flags[${flagCount}]`);
+
+            const flag = view.getUint8(glyph.offsetBytes + positionBytes);
+            let repeatCount = 0;
+
+            positionBytes += SfntFontValidator.FLAG_SIZE_BYTES;
+
+            if ((flag & SfntFontValidator.REPEAT_FLAG) !== 0) {
+                this.checkInGlyph(
+                    fontPath,
+                    glyph,
+                    positionBytes + SfntFontValidator.REPEAT_COUNT_SIZE_BYTES,
+                    `the repeat count of flags[${flagCount}]`,
+                );
+                repeatCount = view.getUint8(glyph.offsetBytes + positionBytes);
+                positionBytes += SfntFontValidator.REPEAT_COUNT_SIZE_BYTES;
+            }
+
+            const flagsGiven = 1 + repeatCount;
+
+            if (flagCount + flagsGiven > numberOfPoints) {
+                throw BrokenSfnt.byRule(fontPath, {
+                    rule: SfntRule.FlagPerPoint,
+                    at: this.tableName(SfntFontValidator.GLYF_TAG),
+                    field: `the flag count with flags[${flagCount}] and its ${repeatCount} repeats of glyph ${glyph.id}`,
+                    value: flagCount + flagsGiven,
+                    expected: `at most ${numberOfPoints}, the number of points`,
+                });
+            }
+
+            xCoordinatesSizeBytes += flagsGiven * this.coordinateSizeBytes(flag, SfntFontValidator.X_COORDINATE_FLAGS);
+            yCoordinatesSizeBytes += flagsGiven * this.coordinateSizeBytes(flag, SfntFontValidator.Y_COORDINATE_FLAGS);
+            flagCount += flagsGiven;
+        }
+
+        return { endBytes: positionBytes, xCoordinatesSizeBytes: xCoordinatesSizeBytes, yCoordinatesSizeBytes: yCoordinatesSizeBytes };
+    }
+
+    private coordinateSizeBytes(flag: number, bits: CoordinateFlagBits): number {
+        if ((flag & bits.shortVector) !== 0) {
+            return SfntFontValidator.SHORT_COORDINATE_SIZE_BYTES;
+        }
+
+        if ((flag & bits.isSameOrPositive) !== 0) {
+            return SfntFontValidator.SAME_COORDINATE_SIZE_BYTES;
+        }
+
+        return SfntFontValidator.LONG_COORDINATE_SIZE_BYTES;
+    }
+
+    /**
+     * `fields` names what ends at `endBytes`, counted from the start of the glyph.
+     */
+    private checkInGlyph(fontPath: string, glyph: Glyph, endBytes: number, fields: string): void {
+        if (endBytes > glyph.lengthBytes) {
+            throw BrokenSfnt.byRule(fontPath, {
+                rule: SfntRule.SimpleGlyphInData,
+                at: this.tableName(SfntFontValidator.GLYF_TAG),
+                field: `the end of ${fields} of glyph ${glyph.id}`,
+                value: endBytes,
+                expected: `at most ${glyph.lengthBytes}, the length of glyph ${glyph.id} by loca`,
             });
         }
     }

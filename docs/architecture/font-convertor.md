@@ -332,8 +332,8 @@ outlines present, with two exceptions, the last two items:
 - The version does not have to match the outlines: `OTTO` over `glyf` and `0x00010000` over
   `CFF ` pass, since the specification says "should" and the engine converts both keeping every
   glyph. A rule that depends on the outline type goes by the outline tables present, not by the
-  version: `OS/2` above, the version of `maxp` (0.5 with `CFF `, 1.0 with `glyf`), and `loca`,
-  which is read only with TrueType outlines.
+  version: `OS/2` above, the version of `maxp` (0.5 with `CFF `, 1.0 with `glyf`), and `loca` and
+  `glyf`, which are read only with TrueType outlines.
 - `head.unitsPerEm` goes by OpenType for every font: 16 to 16384, of which the specification says
   "Any value in this range is valid", as #682 sets it. Apple's manual (chapter 6, `head`) gives a
   TrueType font 64 to 16384; that floor is not applied, so a TrueType font of 16 to 63 units passes.
@@ -351,6 +351,24 @@ at one glyph or ending past `glyf` drops that glyph
 the engine forgives, but the standard does not. The length of `hmtx` and of `loca` is a minimum, not
 an exact size: none of the 297 real fonts with TrueType outlines measured has either table longer
 than its fields, so the stricter form would buy nothing.
+
+The rules on `glyf` walk every glyph with an outline, `loca[n] < loca[n+1]`: its 10-byte header,
+and in a simple glyph whether `endPtsOfContours`, the instructions, the flags with their repeats
+and the coordinates of the widths the flags give fit into its length by `loca`, the contour ends
+increasing and one flag per point
+([#684](https://github.com/yuldashevsardor/telegram-bot/issues/684)). The engine converts each break
+measured on the TrueType fixture with exit 0: a `glyf` filled with garbage keeps all 1296 glyphs and
+loses every outline, 16 KB of WOFF against 72 KB; contour ends past the glyph or descending drop
+its outline, with "contour ends make no sense"; a glyph cut inside its instructions, flags or
+coordinates is read on into the next glyph, "A point … is outside the glyph bounding box", and with
+its instructions past the glyph the WOFF2 conversion fails with exit 1. Two rules follow the
+standard, not the engine: equal contour ends, an empty contour, and flag repeats past the last
+point, which the engine cuts short with "Flag count is wrong", lose nothing. A composite glyph, of
+a negative `numberOfContours`, needs only its header: the specification says -1 "should be used",
+and the engine reads -2 and -32768 as a composite glyph too. Its components are not read, although
+the engine loses the outline of a composite glyph cut inside a component or whose component points
+past `numGlyphs`, at the glyph itself or around a cycle. None of the 297 real fonts with TrueType
+outlines measured breaks a `glyf` rule.
 
 The rules on `cmap`, `name`, `OS/2` and `post` check where the records point, not what lies there:
 neither the content of a `cmap` subtable past its format and length, nor the text of a `name`
@@ -395,9 +413,12 @@ not count as supported.
   the asynchronous `zlib.inflate`, off the event loop, but their checksums are summed and the sfnt
   is rebuilt from them on it. The 32 MiB cap bounds the inflated tables, not the file, and the
   rebuilt sfnt is a second copy of them of the same size. A TTF or OTF source is read whole as well,
-  and its table directory and every `loca` offset are walked on the event loop, as they are for the
-  sfnt a WOFF carries. An EOT source is read whole too, and its header is walked on the event loop.
-  A WOFF2 source reads `headLength` bytes. Nothing measured the cost yet.
+  and its table directory, every `loca` offset and every glyph of `glyf` are walked on the event
+  loop, as they are for the sfnt a WOFF carries. An EOT source is read whole too, and its header is
+  walked on the event loop. A WOFF2 source reads `headLength` bytes. Only the sfnt walk was
+  measured: `validateBytes()` takes 27 ms on `Arial Unicode.ttf`, 22 MB and 50377 glyphs, which the
+  engine converts in 2.5 s
+  ([#684](https://github.com/yuldashevsardor/telegram-bot/issues/684)).
 - `/font_generator` converts the fixed `test/fixtures/fonts/test-font.woff` into
   EOT/OTF/TTF/WOFF2. It answers with the **path** to the file as text; the file itself is not
   sent. A caught conversion error is written at `error` level through `Logger`

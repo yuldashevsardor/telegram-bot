@@ -28,6 +28,10 @@ export enum SfntRule {
     LocaLength = "loca holds numGlyphs + 1 offsets, 2 bytes each with indexToLocFormat 0 and 4 bytes with 1 (OpenType 1.9.1, loca)",
     LocaAscending = "the loca offsets are in ascending order, loca[n] <= loca[n+1] (OpenType 1.9.1, loca)",
     LocaInGlyf = "the last loca offset, the end of the last glyph, lies within glyf (OpenType 1.9.1, loca)",
+    GlyphHeader = "a glyph with an outline holds the 10-byte glyph header: its length by loca, loca[n+1] - loca[n], is 0 or at least 10 (OpenType 1.9.1, glyf, Glyph Headers)",
+    SimpleGlyphInData = "a simple glyph, of numberOfContours 0 or more, lies inside its length by loca: endPtsOfContours[numberOfContours], instructionLength, the instructions, the flags with their repeat counts, and the x and y coordinates of the widths its flags give (OpenType 1.9.1, glyf, Simple Glyph Description)",
+    EndPtsAscending = "the endPtsOfContours of a simple glyph are in increasing numeric order (OpenType 1.9.1, glyf, Simple Glyph Description)",
+    FlagPerPoint = "a simple glyph has one flag per point: its flags, each with its repeats, are no more than endPtsOfContours[numberOfContours - 1] + 1 (OpenType 1.9.1, glyf, Simple Glyph Description)",
     CmapRecordsInTable = "cmap holds its 4-byte header and an 8-byte encoding record per numTables (OpenType 1.9.1, cmap)",
     CmapVersion = "cmap.version is 0 (OpenType 1.9.1, cmap)",
     CmapSubtables = "cmap has at least one subtable (ours: the specification sets no count, and without a subtable fontforge 20230101 drops the encoding)",
@@ -65,6 +69,35 @@ export type SfntTables = {
 export type TrueTypeOutlines = {
     glyf: SfntTableRecord;
     loca: SfntTableRecord;
+};
+
+/**
+ * A glyph of glyf with an outline: `offsetBytes` is where it starts in the file, `lengthBytes` its
+ * length by loca.
+ */
+export type Glyph = {
+    id: number;
+    offsetBytes: number;
+    lengthBytes: number;
+};
+
+/**
+ * The bits of a simple glyph flag that give the width of one coordinate: `shortVector`, 1 byte;
+ * else `isSameOrPositive`, no byte, the coordinate is the previous one; else 2 bytes.
+ */
+export type CoordinateFlagBits = {
+    shortVector: number;
+    isSameOrPositive: number;
+};
+
+/**
+ * The flags of a simple glyph as read: where they end, from the start of the glyph, and how many
+ * bytes the x and the y coordinates that follow them take.
+ */
+export type SimpleGlyphFlags = {
+    endBytes: number;
+    xCoordinatesSizeBytes: number;
+    yCoordinatesSizeBytes: number;
 };
 
 /**
