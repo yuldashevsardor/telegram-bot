@@ -102,10 +102,11 @@ no pull reaches them. The spec has the removal take the chat while a push waits 
 `pull(limit, worker)` throws `InvalidPullLimit` on a `limit` that is not a whole number from 1 to
 `Number.MAX_SAFE_INTEGER`. Otherwise it is one statement, atomic without a transaction:
 
-1. the bot row, `FOR UPDATE SKIP LOCKED`, if the pause is over, `next_send_at` has passed and a
-   chat is ready to be pulled; it gives the budget of the pull (see "Limits"). No row — a pause, a
-   spent common limit, nothing to pull or another puller holding the row — means a budget of zero.
-   A pull with nothing to take does not lock the row, so it does not hold back a pull that has;
+1. the bot row, `FOR UPDATE`, if a chat is ready to be pulled: another pull or a `pause()` holding
+   the row is waited for. If the pause of the row as locked is over and its `next_send_at` has
+   passed, it gives the budget of the pull (see "Limits"); a pause, a spent common limit or nothing
+   to pull means a budget of zero. A pull with nothing to take does not lock the row, so it does not
+   hold back a pull that has;
 2. up to the budget of `ready` chats whose `next_attempt_at` has passed, with the head of each
    (`CROSS JOIN LATERAL`), by the priority of the head, then by `next_attempt_at`, then by
    `chat_id`, `FOR UPDATE OF chats SKIP LOCKED`: a chat another puller holds is skipped, not
@@ -136,12 +137,26 @@ started at least a chat limit before this one, and its completion must have comm
 start of this statement and its lock.
 
 The lock of step 1 makes the pulls of all the nodes take turns: two pulls that read the same
-`next_send_at` would both spend it. The pull that finds the row locked gets no messages and a
-`nextPullInMs` from the row as it was before the other pull, often zero: a caller that pulls again
-at once spins until the other pull commits. So does a pull that skips a due chat held by another
-transaction, an open push or completion of that chat: with nothing pulled, the bot's time decides
-the answer (see "Limits"), zero once `next_send_at` has passed. The message source sleeps on such an
-answer instead (see "The message source").
+`next_send_at` would both spend it. A pull that finds the row locked waits for the other pull, which
+holds it for one statement, and both the budget and the bot's time in the answer come from the row
+as the lock found it: `pull()` reads `next_send_at` and `paused_until` from the `bot` CTE that
+locks it, and from the snapshot only when it did not lock the row. Under `read committed` the
+statement that waited reads every other table from the snapshot taken before the wait, while the
+lock returns the newest version of the row and rechecks the `WHERE` of the locking query on it. So
+that `WHERE` holds nothing another pull or a pause changes: a row turned away by the recheck would
+leave the answer to the snapshot, where the row was still due, and the answer would be zero instead
+of the `next_send_at` the other pull left. `test/telegram/outbox/outbox-store.spec.ts` holds a pull,
+and a pause, open in a transaction while another pull waits, and pins its answer.
+
+The wait makes no lock cycle: only `pull()` and `pause()` lock the bot row, each in one statement
+that takes the row before any other lock, so a statement waiting for the row holds nothing another
+could wait for. `pause()` locks nothing else, and `pull()` locks its chats in step 2, whose budget
+needs the row.
+
+A pull that skips a due chat held by another transaction, an open push or completion of that chat,
+gets no messages: with nothing pulled, the bot's time decides the answer (see "Limits"), zero once
+`next_send_at` has passed, and a caller that pulls again at once spins until that transaction
+commits. The message source sleeps on such an answer instead (see "The message source").
 
 ## Limits
 
@@ -203,12 +218,11 @@ next message of its own generator. Nothing makes a generator yet: the worker loo
 - **The sleep.** A pull that got nothing puts the generator to sleep for `nextPullInMs`, capped by a
   random point from 100 ms to 1 s (`MIN_SLEEP_CAP_MS`, `MAX_SLEEP_CAP_MS`), drawn for each sleep.
   A `null` answer sleeps the whole cap, and so does zero: with nothing pulled, zero means that
-  another pull holds the bot row or another transaction holds a due chat (see "Pull"), and pulling
-  again at once would spin until it commits. The cap keeps the sleep within a Node timer as well
-  (see "Limits"). A completion that leaves its chat `ready` notifies no one, so the next message of
-  that chat waits for a sleep of at most the cap. The cap is random so that the generators that
-  sleep the whole cap together, as the ones that lost the bot row to the same pull do, wake up
-  apart.
+  another transaction holds a due chat (see "Pull"), and pulling again at once would spin until it
+  commits. The cap keeps the sleep within a Node timer as well (see "Limits"). A completion that
+  leaves its chat `ready` notifies no one, so the next message of that chat waits for a sleep of at
+  most the cap. The cap is random so that the generators that sleep the whole cap together, as the
+  ones that skipped the same held chat do, wake up apart.
 - **The wake-up.** The first generator starts `LISTEN` on `telegram_outbox_ready`
   (`OutboxStore.listenReady()`), on the listening connection of the client
   ([`storage.md`](./storage.md), "LISTEN"). A failed start is logged at `warning` and is not
@@ -240,9 +254,10 @@ What this costs the rate of the common limit (see "Limits"):
   reached only while the workers of all the nodes together pull at least once per cooldown.
 - The latency of a worker comes off the rate as "Limits" counts it: how late its timer fires, and
   the time from the answer of one pull to the start of the next.
-- A worker whose pull finds the bot row held by another pull sleeps the whole cap, up to 1 s,
-  although that pull ends within milliseconds: the price of not spinning. The slot is lost only if
-  no other worker of any node pulls meanwhile.
+- The pulls of all the nodes take the bot row in turn while a chat is ready to be pulled, even
+  while the common limit is spent or the bot is paused: a pull locks the row before it learns
+  either. A pull that waited sleeps until the `next_send_at` the pull before it left, but the
+  answer counts from the start of its statement, so the wait comes off the rate as well.
 
 What it costs the database: during a pause, or while the common limit is spent, a push cannot make
 a pull succeed, yet its notification wakes every sleeping generator of every node, and one that

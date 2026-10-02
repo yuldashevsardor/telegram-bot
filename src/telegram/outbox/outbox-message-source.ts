@@ -8,7 +8,7 @@ import type { OutboxPullResult, OutboxWorker, PulledOutboxMessage } from "app/te
 const PULL_LIMIT = 1;
 // The range of the random cap of a sleep. The cap keeps nextPullInMs within a Node timer and stops
 // a spin on an answer of zero. Being random, it spreads out the generators that sleep the whole cap
-// together, as the ones that lost the bot row to the same pull do.
+// together, as the ones that skipped the same held chat do.
 const MIN_SLEEP_CAP_MS = 100;
 const MAX_SLEEP_CAP_MS = 1_000;
 
@@ -96,8 +96,8 @@ export class OutboxMessageSource {
     }
 
     // nextPullInMs, capped by randomCapMs(). A null answer has no time to wait for, and an answer of
-    // zero after a pull that got nothing means that another transaction holds the bot row or a due
-    // chat: both sleep the whole cap.
+    // zero after a pull that got nothing means that another transaction holds a due chat: both sleep
+    // the whole cap.
     private sleepDurationMs(nextPullInMs: number | null): number {
         const capMs = this.randomCapMs();
 

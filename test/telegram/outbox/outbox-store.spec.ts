@@ -18,6 +18,7 @@ import type {
     OutboxCleanupSettings,
     OutboxLease,
     OutboxMessageInput,
+    OutboxPullResult,
     OutboxWorker,
     PulledOutboxMessage,
 } from "app/telegram/outbox/store/outbox-store.types";
@@ -69,6 +70,8 @@ const SHORT_LEASE_MS = 10;
 const OTHER_TOKEN = "00000000-0000-4000-8000-000000000000";
 // Longer than any spec runs: a chat retried with it is not pulled again by the spec.
 const LONG_RETRY_DELAY_MS = 60_000;
+// The placeholder of a pull a spec starts inside a transaction.
+const NOTHING_PULLED: OutboxPullResult = { messages: [], nextPullInMs: null };
 
 type ChatRow = { state: string };
 type LogRecord = { message: string; payload: UnknownObject | undefined };
@@ -339,14 +342,20 @@ describe("OutboxStore", function () {
 
     // A pull inside a transaction of the other client keeps what it locked until the commit, as a
     // pull on another node does for the length of its statement.
-    it("gives out nothing while another pull holds the bot row", async function () {
-        await store.pushBatch([message(CHAT, "held"), message(OTHER_CHAT, "waiting")]);
+    it("waits for another pull holding the bot row and takes what that pull left", async function () {
+        const [, left] = await store.pushBatch([message(OTHER_CHAT, "held"), message(CHAT, "left")]);
+
+        let waiting: Promise<OutboxPullResult> = Promise.resolve(NOTHING_PULLED);
 
         await other.sql.begin(async (sql) => {
             expect((await storeOn(sql).pull(1, WORKER)).messages).to.have.lengthOf(1);
 
-            expect((await store.pull(10, WORKER)).messages).to.deep.equal([]);
+            waiting = store.pull(10, WORKER);
+
+            await waitForLockWaiters(1);
         });
+
+        expect((await waiting).messages.map(({ id }) => id)).to.deep.equal([left]);
     });
 
     it("leaves the bot row to other pulls when it has no chat to pull", async function () {
@@ -554,6 +563,48 @@ describe("OutboxStore", function () {
             expect(paused.messages).to.deep.equal([]);
             expect(paused.nextPullInMs).to.be.within(PAUSE_MS - ELAPSED_TOLERANCE_MS, PAUSE_MS);
             expect((await store.pull(10, WORKER)).messages).to.deep.equal([]);
+        });
+
+        // The pull that waited reads the rest of the statement from the snapshot taken before the
+        // wait, where the bot row is still due: an answer from that snapshot would be zero.
+        it("answers a pull that waited for another pull by the next_send_at that pull left", async function () {
+            const limited = new OutboxStore(database, logger, COMMON_LIMITS, LEASE_DURATION_MS, CLEANUP);
+
+            await limited.pushBatch([message(CHAT, "held"), message(OTHER_CHAT, "left")]);
+
+            let waiting: Promise<OutboxPullResult> = Promise.resolve(NOTHING_PULLED);
+
+            await other.sql.begin(async (sql) => {
+                expect((await storeOn(sql, COMMON_LIMITS).pull(1, WORKER)).messages).to.have.lengthOf(1);
+
+                waiting = limited.pull(1, WORKER);
+
+                await waitForLockWaiters(1);
+            });
+
+            const answer = await waiting;
+
+            expect(answer.messages).to.deep.equal([]);
+            expect(answer.nextPullInMs).to.be.within(1, COMMON_COOLDOWN_MS);
+        });
+
+        it("answers a pull that waited for a pause by the end of that pause", async function () {
+            await store.push(message(CHAT, "text"));
+
+            let waiting: Promise<OutboxPullResult> = Promise.resolve(NOTHING_PULLED);
+
+            await other.sql.begin(async (sql) => {
+                await storeOn(sql).pause(PAUSE_MS);
+
+                waiting = store.pull(10, WORKER);
+
+                await waitForLockWaiters(1);
+            });
+
+            const paused = await waiting;
+
+            expect(paused.messages).to.deep.equal([]);
+            expect(paused.nextPullInMs).to.be.within(PAUSE_MS - ELAPSED_TOLERANCE_MS, PAUSE_MS);
         });
 
         it("lets the pull through once the pause is over", async function () {
@@ -1461,8 +1512,8 @@ describe("OutboxStore", function () {
     });
 
     // A store whose statements run in the given transaction.
-    function storeOn(transaction: TransactionSql): OutboxStore {
-        return new OutboxStore({ sql: transaction } as unknown as Database, logger, NO_LIMITS, LEASE_DURATION_MS, CLEANUP);
+    function storeOn(transaction: TransactionSql, limits: TelegramLimits = NO_LIMITS): OutboxStore {
+        return new OutboxStore({ sql: transaction } as unknown as Database, logger, limits, LEASE_DURATION_MS, CLEANUP);
     }
 
     async function chat(chatId: number): Promise<ChatRow | undefined> {

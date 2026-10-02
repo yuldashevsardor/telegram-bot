@@ -130,7 +130,7 @@ export class OutboxStore {
     // One statement, so it is atomic without a transaction: up to limit ready chats by the priority
     // of their head, and the head of each, within the common limit, the chat limit and the pause
     // (docs/architecture/outbox.md, "Pull"). A chat locked by another puller is skipped, not waited
-    // for, and so is the bot row: one puller at a time spends the common limit. A pulled chat moves
+    // for; the bot row is waited for: one puller at a time spends the common limit. A pulled chat moves
     // behind the chats of the same priority, so they are served in turn. The messages come back by
     // priority, so a caller that sends them in order sends the urgent first. The pulled chats are
     // leased to the caller for leaseDurationMs under the token of this pull. Each pulled message
@@ -148,6 +148,23 @@ export class OutboxStore {
 
         const pullRows = await this.sql<OutboxPullResultRow[]>`
             WITH bot AS (
+                -- Waits for another pull or a pause holding the row and gets its newest version. The
+                -- WHERE has nothing they change: the lock rechecks it on that version, and a row that
+                -- failed it would leave the rest of the statement with the snapshot from before the
+                -- wait (docs/architecture/outbox.md, "Pull").
+                SELECT next_send_at, paused_until
+                FROM telegram_bot_limits
+                WHERE id = ${BOT_LIMITS_ID}
+                  -- A pull with nothing to take leaves the row to the pulls that have something.
+                  AND EXISTS (
+                      SELECT 1
+                      FROM telegram_outbox_chats
+                      WHERE state = ${OutboxChatState.Ready}
+                        AND next_attempt_at <= now()
+                  )
+                FOR UPDATE
+            ),
+            budget AS (
                 -- The slots of the common limit come due one per cooldown from next_send_at, and an
                 -- idle bot saves up no more than number of them. The config bounds number only from
                 -- below, so it is not cast to integer, which overflows above 2^31 - 1. The budget is at
@@ -157,18 +174,9 @@ export class OutboxStore {
                            ${commonLimit.number}::double precision,
                            floor(extract(epoch FROM now() - next_send_at) * ${MS_PER_SECOND} / ${commonCooldownMs}::double precision) + 1
                        )::bigint AS budget
-                FROM telegram_bot_limits
-                WHERE id = ${BOT_LIMITS_ID}
-                  AND next_send_at <= now()
+                FROM bot
+                WHERE next_send_at <= now()
                   AND (paused_until IS NULL OR paused_until <= now())
-                  -- A pull with nothing to take leaves the row to the pulls that have something.
-                  AND EXISTS (
-                      SELECT 1
-                      FROM telegram_outbox_chats
-                      WHERE state = ${OutboxChatState.Ready}
-                        AND next_attempt_at <= now()
-                  )
-                FOR UPDATE SKIP LOCKED
             ),
             heads AS (
                 SELECT chats.chat_id, head.id
@@ -184,8 +192,8 @@ export class OutboxStore {
                 WHERE chats.state = ${OutboxChatState.Ready}
                   AND chats.next_attempt_at <= now()
                 ORDER BY head.priority, chats.next_attempt_at, chats.chat_id
-                -- No bot row: a pause, a spent limit or another puller. NULL would lift the limit.
-                LIMIT coalesce((SELECT budget FROM bot), 0)
+                -- No budget: a pause, a spent limit or nothing to pull. NULL would lift the limit.
+                LIMIT coalesce((SELECT budget FROM budget), 0)
                 FOR UPDATE OF chats SKIP LOCKED
             ),
             pulled AS (
@@ -224,11 +232,16 @@ export class OutboxStore {
                   AND EXISTS (SELECT 1 FROM pulled)
                 RETURNING next_send_at
             ),
-            -- The row as it is after this pull; the snapshot when nothing was pulled.
+            -- The row as this pull leaves it: as the lock found it, moved if something was pulled;
+            -- the snapshot when the pull did not lock it.
             bot_after AS (
                 SELECT coalesce((SELECT next_send_at FROM spent), next_send_at) AS next_send_at, paused_until
+                FROM bot
+                UNION ALL
+                SELECT next_send_at, paused_until
                 FROM telegram_bot_limits
                 WHERE id = ${BOT_LIMITS_ID}
+                  AND NOT EXISTS (SELECT 1 FROM bot)
             ),
             -- The chats pulled here are processing now; the rest of the ready ones wait for their time.
             ready AS (
