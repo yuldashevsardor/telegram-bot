@@ -38,6 +38,8 @@ export type OpenElement = {
     name: string | undefined;
     /** The line of the start tag. */
     line: number;
+    /** Whether this is a `glyph` or `missing-glyph` the rules check: a direct child of `font`. */
+    isGlyph: boolean;
     /** Whether a `font` has a `font-face` child; tracked for a `font` only. */
     hasFontFace: boolean;
     /** Whether a `font` has a `glyph` child; tracked for a `font` only. */

@@ -228,13 +228,14 @@ namespace and the local name of a `NotSvg` root and of a `BrokenFont` element, t
 local name of a `BrokenFont` attribute, and its value, each to `MAX_QUOTED_LENGTH`. A cut piece
 ends with `…`, which makes it one unit longer than an uncut piece can be: that, not the text, tells
 it from a piece that ends with `…` itself.
-This holds for every piece quoted from the file, in the payload, in the `NotXml` and `NotSvg`
-messages and for the element in the `BrokenFont` one; `path` is not text from the file and is not
-cut. The `BrokenFont` message escapes the kept value with
-`JSON.stringify`, which can make it longer, so there the `…` stands outside the quotes, where the
-escaped value cannot reach. The kept namespace of a Clark name is escaped the same way, without the
-quotes, so that a line break in it does not split the message; a `}` in it stays, since the local
-name follows the last one. The payload also keeps the length before the cut:
+This holds for every piece quoted from the file in the payload and in the `NotXml` message; `path`
+is not text from the file and is not cut. The `NotSvg` and `BrokenFont` messages escape what they
+quote with `JSON.stringify`, which can make it longer. The `BrokenFont` value is escaped inside its
+quotes, and its `…` stands outside them, where the escaped value cannot reach. The quoted element or
+root is escaped without the quotes, so that a line break in a namespace does not split the message,
+and a `}` in a namespace stays, since the local name follows the last one; there the length tells
+nothing, and the payload, which keeps the quote unescaped, tells a cut piece. The payload also keeps
+the length before the cut:
 `valueLength` of the value, which, like the length of `value`, tells a cut value, and `rootLength`
 of the whole root, which does not say which of its two pieces was cut. The element and the
 attribute name keep none.

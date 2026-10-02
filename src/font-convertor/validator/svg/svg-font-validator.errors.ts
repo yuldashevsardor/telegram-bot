@@ -4,11 +4,10 @@ import type { Encoding, Violation } from "app/font-convertor/validator/svg/svg-f
 // Text from the file may be of any length, while the error carries it into the log. A quote from
 // it is cut on its own to the first limit: a name in Clark notation keeps that much of its
 // namespace and as much of its local name, a prefixed attribute name that much of its prefix and
-// as much of its local name. The kept value in the message of `BrokenFont`, and the kept namespace
-// of a Clark name, are escaped as in a JSON string, which at most doubles them: of what the parser
-// lets through as XML 1.0, it escapes only tab, LF, CR, `"` and `\`, each as two units. A parser
-// message is cut to the second limit: saxes quotes names from the file in it, and `checkEncoding`
-// the declared encoding.
+// as much of its local name. The messages of `NotSvg` and `BrokenFont` escape what they keep as in a
+// JSON string, which at most doubles it: of what the parser lets through as XML 1.0, it escapes
+// only tab, LF, CR, `"` and `\`, each as two units. A parser message is cut to the second limit:
+// saxes quotes names from the file in it, and `checkEncoding` the declared encoding.
 const MAX_QUOTED_LENGTH = 64;
 const MAX_PARSER_MESSAGE_LENGTH = 200;
 
@@ -29,16 +28,23 @@ export class InvalidSvgFont extends RuntimeError {
     /**
      * Quotes a name in Clark notation, `{namespace}local`. The namespace and the local name are cut
      * each on its own, so that a long namespace does not cut off the name, and the braces are kept,
-     * so that the quote stays in Clark notation. The namespace is escaped, so that a line break in
-     * it does not split the quote; a `}` in it is left, since a local name holds none and follows
-     * the last one.
+     * so that the quote stays in Clark notation.
      */
     protected static clipClark(namespace: string, local: string): string {
         const [keptNamespace, namespaceMark] = InvalidSvgFont.clip(namespace, MAX_QUOTED_LENGTH);
         const [keptLocal, localMark] = InvalidSvgFont.clip(local, MAX_QUOTED_LENGTH);
-        const escapedNamespace = JSON.stringify(keptNamespace).slice(1, -1);
 
-        return `{${escapedNamespace}${namespaceMark}}${keptLocal}${localMark}`;
+        return `{${keptNamespace}${namespaceMark}}${keptLocal}${localMark}`;
+    }
+
+    /**
+     * Escapes a quoted element for a message as in a JSON string, without the quotes, so that a
+     * line break in a namespace does not split the message. A name holds nothing the escape
+     * touches, and a `}` in a namespace stays: a local name holds none and follows the last one.
+     * The payload keeps the quote unescaped, so that there its length still tells a cut piece.
+     */
+    protected static escapeForMessage(quoted: string): string {
+        return JSON.stringify(quoted).slice(1, -1);
     }
 
     /**
@@ -47,14 +53,14 @@ export class InvalidSvgFont extends RuntimeError {
      * follows the first one.
      */
     protected static clipQualified(name: string): string {
-        const colon = name.indexOf(":");
+        const colonIndex = name.indexOf(":");
 
-        if (colon === -1) {
+        if (colonIndex === -1) {
             return InvalidSvgFont.clip(name, MAX_QUOTED_LENGTH).join("");
         }
 
-        const [keptPrefix, prefixMark] = InvalidSvgFont.clip(name.slice(0, colon), MAX_QUOTED_LENGTH);
-        const [keptLocal, localMark] = InvalidSvgFont.clip(name.slice(colon + 1), MAX_QUOTED_LENGTH);
+        const [keptPrefix, prefixMark] = InvalidSvgFont.clip(name.slice(0, colonIndex), MAX_QUOTED_LENGTH);
+        const [keptLocal, localMark] = InvalidSvgFont.clip(name.slice(colonIndex + 1), MAX_QUOTED_LENGTH);
 
         return `${keptPrefix}${prefixMark}:${keptLocal}${localMark}`;
     }
@@ -87,7 +93,7 @@ export class NotSvg extends InvalidSvgFont {
         const end = root.lastIndexOf("}");
         const quoted = InvalidSvgFont.clipClark(root.slice(1, end), root.slice(end + 1));
 
-        return new NotSvg(`File is not SVG: the root element is ${quoted}, expected ${expected}.`, {
+        return new NotSvg(`File is not SVG: the root element is ${InvalidSvgFont.escapeForMessage(quoted)}, expected ${expected}.`, {
             path: fontPath,
             root: quoted,
             rootLength: root.length,
@@ -118,7 +124,7 @@ export class BrokenFont extends InvalidSvgFont {
             namespace === undefined
                 ? InvalidSvgFont.clip(element, MAX_QUOTED_LENGTH).join("")
                 : InvalidSvgFont.clipClark(namespace, element);
-        const at = `SVG font breaks a rule: ${rule}. At line ${line}: <${quotedElement}>`;
+        const at = `SVG font breaks a rule: ${rule}. At line ${line}: <${InvalidSvgFont.escapeForMessage(quotedElement)}>`;
 
         if (attribute === undefined) {
             return new BrokenFont(`${at}.`, { path: fontPath, rule: rule, element: quotedElement, line: line });

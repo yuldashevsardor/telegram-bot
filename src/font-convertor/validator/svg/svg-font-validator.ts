@@ -158,20 +158,20 @@ export class SvgFontValidator implements FontValidator {
         scan.svg11Doctype = SvgFontValidator.SVG11_DOCTYPE.test(doctype);
 
         // Our rule: fontforge takes attribute defaults from the internal subset (libxml2), and saxes
-        // does not read it, so a default `d` of every glyph would pass unseen. The subset is the
-        // only part of the DOCTYPE that ends with `]`: a name holds no `]`, an external ID ends with
-        // a quote.
-        if (doctype.trimEnd().endsWith("]")) {
+        // does not read it, so a default `d` of every glyph would pass unseen. The subset opens with
+        // the first `[` outside the quoted literals of the external ID: a name holds no `[`. saxes
+        // lets text after the subset through, so its end is no sign.
+        if (doctype.replace(/"[^"]*"|'[^']*'/g, "").includes("[")) {
             this.report(scan, FontRule.NoInternalSubset, "!DOCTYPE", line);
         }
     }
 
     private open(scan: Scan, tag: SaxesTagNS, line: number): void {
         const parent = scan.open.at(-1);
-        const grandparent = scan.open.at(-2);
         const element: OpenElement = {
             name: tag.uri === SvgFontValidator.SVG_NAMESPACE ? tag.local : undefined,
             line: line,
+            isGlyph: false,
             hasFontFace: false,
             hasGlyph: false,
         };
@@ -187,10 +187,9 @@ export class SvgFontValidator implements FontValidator {
         }
 
         // Our rule: without `d` fontforge draws a glyph from its children as any SVG, by the local
-        // name and past the rules here, and next to `d` it drops them. The parent counts the way
-        // the switch below counts it: a direct child of `font`.
-        if (grandparent?.name === "font" && (parent?.name === "glyph" || parent?.name === "missing-glyph")) {
-            const namespace = tag.uri === SvgFontValidator.SVG_NAMESPACE ? undefined : tag.uri;
+        // name and past the rules here, and next to `d` it drops them.
+        if (parent?.isGlyph === true) {
+            const namespace = element.name === undefined ? tag.uri : undefined;
 
             this.report(scan, FontRule.ChildlessGlyph, tag.local, line, { namespace: namespace });
         }
@@ -218,9 +217,11 @@ export class SvgFontValidator implements FontValidator {
                 break;
             case "glyph":
                 parent.hasGlyph = true;
+                element.isGlyph = true;
                 this.checkGlyph(scan, element, tag, "glyph");
                 break;
             case "missing-glyph":
+                element.isGlyph = true;
                 this.checkGlyph(scan, element, tag, "missing-glyph");
                 break;
         }

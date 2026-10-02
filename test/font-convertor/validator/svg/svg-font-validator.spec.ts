@@ -139,6 +139,7 @@ describe("SvgFontValidator.validate", function () {
         it("with a DOCTYPE that has no internal subset", async function () {
             await validate(`<!DOCTYPE svg>\n${inline(FONT)}`);
             await validate(`<!DOCTYPE svg SYSTEM "a]" >\n${inline(FONT)}`);
+            await validate(`<!DOCTYPE svg SYSTEM 'a[' >\n${inline(FONT)}`);
         });
 
         it("with text inside a glyph", async function () {
@@ -302,15 +303,30 @@ describe("SvgFontValidator.validate", function () {
                 [`<x xmlns="urn:${"a".repeat(61)}"/>`, `{urn:${"a".repeat(60)}…}x`, 68],
                 // A namespace may hold `}`, a local name may not: the name follows the last one.
                 [`<x xmlns="urn:}${"a".repeat(100)}"/>`, `{urn:}${"a".repeat(59)}…}x`, 108],
-                // The namespace is escaped, so that a line break does not split the quote.
-                [`<x xmlns="urn:a&#10;b\\c"/>`, String.raw`{urn:a\nb\\c}x`, 12],
-                [`<x xmlns="urn:${"\\".repeat(70)}"/>`, `{urn:${"\\\\".repeat(60)}…}x`, 77],
             ];
 
             for (const [document, quoted, rootLength] of cases) {
                 const error = await expectAnswer(document, NotSvg, `File is not SVG: the root element is ${quoted}, expected ${SVG_ROOT}.`);
 
                 expect(error.payload).to.deep.equal({ path: fontPath, root: quoted, rootLength: rootLength });
+            }
+        });
+
+        it("quoting the namespace escaped in the message and unescaped in the payload", async function () {
+            // A line break must not split the message, while the length of the payload's quote still tells a cut.
+            const cases: Array<[string, string, string]> = [
+                [`<x xmlns="urn:a&#10;b\\c"/>`, String.raw`{urn:a\nb\\c}x`, "{urn:a\nb\\c}x"],
+                [`<x xmlns="urn:${"\\".repeat(70)}"/>`, `{urn:${"\\\\".repeat(60)}…}x`, `{urn:${"\\".repeat(60)}…}x`],
+            ];
+
+            for (const [document, escaped, quoted] of cases) {
+                const error = await expectAnswer(
+                    document,
+                    NotSvg,
+                    `File is not SVG: the root element is ${escaped}, expected ${SVG_ROOT}.`,
+                );
+
+                expect(error.payload).to.include({ root: quoted });
             }
         });
 
@@ -612,12 +628,14 @@ describe("SvgFontValidator.validate", function () {
                 expect(error.payload).to.include({ element: `{urn:${"a".repeat(60)}…}glyph` });
             });
 
-            it("quoting the namespace escaped", async function () {
-                await expectAnswer(
+            it("quoting the namespace escaped in the message and unescaped in the payload", async function () {
+                const error = await expectAnswer(
                     inline(`${FONT}\n<x:glyph xmlns:x="urn:a&#10;b"/>`),
                     BrokenFont,
                     String.raw`SVG font breaks a rule: ${rule}. At line 3: <{urn:a\nb}glyph>.`,
                 );
+
+                expect(error.payload).to.include({ element: "{urn:a\nb}glyph" });
             });
         });
 
@@ -766,6 +784,15 @@ describe("SvgFontValidator.validate", function () {
                 );
 
                 expect(error.payload).to.deep.equal({ path: fontPath, rule: FontRule.NoInternalSubset, element: "!DOCTYPE", line: 3 });
+            });
+
+            it("followed by text saxes lets through", async function () {
+                // saxes accepts text between the subset and `>`, so the end of the DOCTYPE is no sign of a subset.
+                await expectAnswer(
+                    `<!DOCTYPE svg [<!ATTLIST glyph d CDATA "garbage">] x>${inline(FONT)}`,
+                    BrokenFont,
+                    `SVG font breaks a rule: ${rule}. At line 1: <!DOCTYPE>.`,
+                );
             });
 
             it("empty, and after the SVG 1.1 external ID", async function () {
