@@ -170,9 +170,8 @@ hyphen, and the specs import the module they check. The same holds for their spe
 finds them by the `test_*.py` pattern and imports them as modules too.
 
 A subsystem is a directory named in the map above. `convertor/`, `eot-packer/`, `font-forge/` and
-the other directories inside subsystems are not in the map. A role
-directory is a subsystem whose name is a role rather than the name of a file inside: `platform/`,
-`shared/fs/`.
+the other directories inside subsystems are not in the map. A role directory is a subsystem whose
+name is a role rather than the name of a file inside: `platform/`, `shared/fs/`.
 
 A directory inside a subsystem is created on at least one of four grounds, otherwise it is not
 created (`shared/` has a rule of its own, below):
