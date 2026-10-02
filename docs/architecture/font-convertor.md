@@ -385,12 +385,20 @@ with "Flag count is wrong"; a glyph cut inside its coordinates takes the missing
 next glyph, with "A point … is outside the glyph bounding box". Two rules follow the standard,
 not the engine, which loses nothing on what they reject: `EndPtsAscending` on equal contour ends,
 an empty contour, and `FlagPerPoint` on flag repeats past the last point, which the engine cuts
-short with "Flag count is wrong". A composite glyph, of a negative `numberOfContours`, needs only
-its header: the specification says -1 "should be used", and the engine reads -2 and -32768 as a
-composite glyph too. Its components are not read, although the engine loses the outline of a
-composite glyph cut inside a component or whose component points past `numGlyphs`, at the glyph
-itself or around a cycle. None of the 297 real fonts with TrueType outlines measured breaks a
-`glyf` rule.
+short with "Flag count is wrong". A composite glyph is one of a negative `numberOfContours`: the
+specification says -1 "should be used", and the engine reads -2 and -32768 as a composite glyph too.
+Its components are walked as the specification lays them out: at least one, each with its flags,
+`glyphIndex`, arguments and transform inside the glyph, the instructions after the last one when any
+component sets `WE_HAVE_INSTRUCTIONS`, every `glyphIndex` below `numGlyphs`, and no cycle among the
+composite glyphs, a glyph that is its own component included
+([#767](https://github.com/yuldashevsardor/telegram-bot/issues/767)). The engine loses the outline
+of a composite glyph cut inside a component, of one whose component points past `numGlyphs`, and of
+one on a cycle. Two cases follow the standard, not the engine: `MORE_COMPONENTS` on the last
+component with no bytes left, on which the engine says "Bad flags value" and loses nothing, and
+`WE_HAVE_INSTRUCTIONS` on a component before the last, which the engine reads on the last one only.
+The reserved bits of the component flags are not checked, since 36 of the 297 real fonts set them,
+Arial among them; nor is a component held to one scale flag at most, which the specification asks.
+None of the 297 real fonts with TrueType outlines measured breaks a `glyf` rule.
 
 The rules on `cmap`, `name`, `OS/2` and `post` check where the records point, not what lies there:
 neither the content of a `cmap` subtable past its format and length, nor the text of a `name` string
@@ -451,12 +459,14 @@ not count as supported.
   the asynchronous `zlib.inflate`, off the event loop, but their checksums are summed and the sfnt
   is rebuilt from them on it. The 32 MiB cap bounds the inflated tables, not the file, and the
   rebuilt sfnt is a second copy of them of the same size. A TTF or OTF source is read whole as well,
-  and its table directory, every `loca` offset and every glyph of `glyf` are walked on the event
-  loop, as they are for the sfnt a WOFF carries. An EOT source is read whole too, and its header is
-  walked on the event loop. A WOFF2 source reads `headLength` bytes. Only the sfnt walk was
-  measured: `validateBytes()` takes 27 ms on `Arial Unicode.ttf`, 22 MB and 50377 glyphs, which the
-  engine converts in 2.5 s
-  ([#684](https://github.com/yuldashevsardor/telegram-bot/issues/684)).
+  and its table directory, every `loca` offset, every glyph of `glyf` and the references between
+  composite glyphs are walked on the event loop, as they are for the sfnt a WOFF carries. An EOT
+  source is read whole too, and its header is walked on the event loop. A WOFF2 source reads
+  `headLength` bytes. Only the sfnt walk was measured: `validateBytes()` takes 34 ms on
+  `Arial Unicode.ttf`, 22 MB and 50377 glyphs, against 29 ms in the same run with the components of
+  composite glyphs left unread; the engine converts the file in 2.5 s
+  ([#684](https://github.com/yuldashevsardor/telegram-bot/issues/684),
+  [#767](https://github.com/yuldashevsardor/telegram-bot/issues/767)).
 - `/font_generator` converts the fixed `test/fixtures/fonts/test-font.woff` into
   EOT/OTF/TTF/WOFF2. It answers with the **path** to the file as text; the file itself is not
   sent. A caught conversion error is written at `error` level through `Logger`

@@ -6,6 +6,7 @@ import { BrokenSfnt, NotSfnt } from "app/font-convertor/validator/sfnt/sfnt-font
 import type {
     CmapSubtableLayout,
     CmapSubtableLengthField,
+    ComponentWalk,
     CoordinateFlagBits,
     FlagsLayout,
     GlyfEntry,
@@ -27,16 +28,17 @@ import { FileHelper } from "app/shared/fs/file-helper";
  * directory, the tables a font must have, the fields of `head`, `maxp`, `hhea`, `hmtx` and `loca`
  * that give the glyph count, where the metrics of each glyph lie and, with TrueType outlines, where
  * its outline lies, the header of every glyph in `glyf` and whether the fields of each simple glyph
- * lie inside it, and the version of `cmap`, `name`, `OS/2` and `post` with whether their content
- * lies inside the table: the headers and records of `cmap` and `name`, each `cmap` subtable with
- * its format and a length that covers the part of its format of a set size, each non-empty `name`
- * string, the fields of the `OS/2` version, and the 32-byte header of `post` with the glyph-name
- * index of versions 2.0 and 2.5, held against the glyph count of `maxp`, and with 2.0 the glyph
- * names the index points at. What a subtable, a string or a glyph name holds is not read, nor are
- * the components of a composite glyph, the values of a simple glyph's coordinates and its
- * instructions. TTF and OTF take the same checks: the sfnt version names the outline type, not the
- * extension, and the rules that depend on the outline type go by the outline tables present, not by
- * the version, which the specification only says "should" match them.
+ * and the components of each composite glyph lie inside it, the components pointing at glyphs of
+ * the font without a cycle, and the version of `cmap`, `name`, `OS/2` and `post` with whether their
+ * content lies inside the table: the headers and records of `cmap` and `name`, each `cmap` subtable
+ * with its format and a length that covers the part of its format of a set size, each non-empty
+ * `name` string, the fields of the `OS/2` version, and the 32-byte header of `post` with the
+ * glyph-name index of versions 2.0 and 2.5, held against the glyph count of `maxp`, and with 2.0 the
+ * glyph names the index points at. What a subtable, a string or a glyph name holds is not read, nor
+ * are the values of a glyph's coordinates, arguments and transform and its instructions. TTF and
+ * OTF take the same checks: the sfnt version names the outline type, not the extension, and the
+ * rules that depend on the outline type go by the outline tables present, not by the version, which
+ * the specification only says "should" match them.
  *
  * Deliberately not checked:
  * - The table checksums and `head.checkSumAdjustment`. fontforge does not read them: its output
@@ -92,6 +94,24 @@ export class SfntFontValidator implements FontValidator {
     private static readonly LONG_COORDINATE_SIZE_BYTES = 2;
     // A coordinate the same as the previous one is not stored.
     private static readonly SAME_COORDINATE_SIZE_BYTES = 0;
+    // A component opens with its flags and glyphIndex; the flags give the width of what follows.
+    private static readonly COMPONENT_FLAGS_SIZE_BYTES = 2;
+    private static readonly COMPONENT_GLYPH_INDEX_SIZE_BYTES = 2;
+    private static readonly ARG_1_AND_2_ARE_WORDS = 0x0001;
+    private static readonly WE_HAVE_A_SCALE = 0x0008;
+    private static readonly MORE_COMPONENTS = 0x0020;
+    private static readonly WE_HAVE_AN_X_AND_Y_SCALE = 0x0040;
+    private static readonly WE_HAVE_A_TWO_BY_TWO = 0x0080;
+    private static readonly WE_HAVE_INSTRUCTIONS = 0x0100;
+    // argument1 and argument2: two words with ARG_1_AND_2_ARE_WORDS, two bytes without.
+    private static readonly WORD_ARGUMENTS_SIZE_BYTES = 4;
+    private static readonly BYTE_ARGUMENTS_SIZE_BYTES = 2;
+    // One, two or four F2DOT14 values by the scale flag.
+    private static readonly SCALE_SIZE_BYTES = 2;
+    private static readonly X_AND_Y_SCALE_SIZE_BYTES = 4;
+    private static readonly TWO_BY_TWO_SIZE_BYTES = 8;
+    private static readonly NO_TRANSFORM_SIZE_BYTES = 0;
+    private static readonly NUM_INSTR_SIZE_BYTES = 2;
     private static readonly MAXP_FIELD_OFFSETS_BYTES = { version: 0, numGlyphs: 4 };
     private static readonly MAXP_WITH_CFF: MaxpExpectation = {
         version: 0x00005000,
@@ -198,7 +218,8 @@ export class SfntFontValidator implements FontValidator {
      * or of an unknown version, `BrokenSfnt` for the first broken rule, checked in this order: the
      * header, the table records one by one in directory order, the tables the font has, then the
      * content of `head`, `maxp`, `hhea`, `hmtx`, with TrueType outlines `loca` and `glyf`, glyph by
-     * glyph, then of `cmap`, `name`, `OS/2` when the font has it, and `post`.
+     * glyph, then the references between composite glyphs, then of `cmap`, `name`, `OS/2` when the
+     * font has it, and `post`.
      */
     public validateBytes(fontPath: string, bytes: Uint8Array): void {
         this.checkHeader(fontPath, bytes);
@@ -633,26 +654,38 @@ export class SfntFontValidator implements FontValidator {
 
     /**
      * Walks every glyph with an outline, loca[n] < loca[n+1]. loca is checked by then, so each glyph
-     * lies inside glyf.
+     * lies inside glyf. The references between composite glyphs are checked once every glyph is
+     * read: a cycle can close at a glyph past the one that opens it.
      */
     private checkGlyf(fontPath: string, view: DataView, { glyf, loca }: TrueTypeOutlines, numGlyphs: number, format: LocaFormat): void {
+        const componentsByGlyph = new Map<number, ReadonlyArray<number>>();
+
         for (let glyphId = 0; glyphId < numGlyphs; glyphId++) {
             const startBytes = this.locaOffset(view, loca, format, glyphId);
             const endBytes = this.locaOffset(view, loca, format, glyphId + 1);
             const glyph = { id: glyphId, offsetBytes: glyf.offset + startBytes, lengthBytes: endBytes - startBytes };
 
-            if (glyph.lengthBytes > 0) {
-                this.checkGlyph(fontPath, view, glyph);
+            if (glyph.lengthBytes === 0) {
+                continue;
+            }
+
+            const componentGlyphIds = this.checkGlyph(fontPath, view, glyph, numGlyphs);
+
+            if (componentGlyphIds.length > 0) {
+                componentsByGlyph.set(glyphId, componentGlyphIds);
             }
         }
+
+        this.checkComponentCycles(fontPath, componentsByGlyph);
     }
 
     /**
-     * A negative numberOfContours makes a composite glyph, and its components are not read. Any
-     * negative value passes: the specification says -1 "should be used", and fontforge 20230101
-     * reads -2 and -32768 as a composite glyph too, losing nothing.
+     * Returns the glyphs the components of a composite glyph point at, in their order, and none for
+     * a simple glyph. A negative numberOfContours makes a composite glyph. Any negative value
+     * passes: the specification says -1 "should be used", and fontforge 20230101 reads -2 and
+     * -32768 as a composite glyph too, losing nothing.
      */
-    private checkGlyph(fontPath: string, view: DataView, glyph: GlyfEntry): void {
+    private checkGlyph(fontPath: string, view: DataView, glyph: GlyfEntry, numGlyphs: number): ReadonlyArray<number> {
         if (glyph.lengthBytes < SfntFontValidator.GLYPH_HEADER_SIZE_BYTES) {
             throw BrokenSfnt.byRule(fontPath, {
                 rule: SfntRule.GlyphHeader,
@@ -666,10 +699,12 @@ export class SfntFontValidator implements FontValidator {
         const numberOfContours = view.getInt16(glyph.offsetBytes + SfntFontValidator.NUMBER_OF_CONTOURS_OFFSET_BYTES);
 
         if (numberOfContours < 0) {
-            return;
+            return this.checkCompositeGlyph(fontPath, view, glyph, numGlyphs);
         }
 
         this.checkSimpleGlyph(fontPath, view, glyph, numberOfContours);
+
+        return [];
     }
 
     /**
@@ -679,23 +714,23 @@ export class SfntFontValidator implements FontValidator {
     private checkSimpleGlyph(fontPath: string, view: DataView, glyph: GlyfEntry, numberOfContours: number): void {
         const endPtsEndBytes = SfntFontValidator.GLYPH_HEADER_SIZE_BYTES + numberOfContours * SfntFontValidator.END_PT_SIZE_BYTES;
 
-        this.checkInGlyph(fontPath, glyph, endPtsEndBytes, `endPtsOfContours[${numberOfContours}]`);
+        this.checkInGlyph(fontPath, glyph, SfntRule.SimpleGlyphInData, endPtsEndBytes, `endPtsOfContours[${numberOfContours}]`);
 
         const numberOfPoints = this.checkEndPtsOfContours(fontPath, view, glyph, numberOfContours);
         const instructionLengthEndBytes = endPtsEndBytes + SfntFontValidator.INSTRUCTION_LENGTH_SIZE_BYTES;
 
-        this.checkInGlyph(fontPath, glyph, instructionLengthEndBytes, "instructionLength");
+        this.checkInGlyph(fontPath, glyph, SfntRule.SimpleGlyphInData, instructionLengthEndBytes, "instructionLength");
 
         const instructionLength = view.getUint16(glyph.offsetBytes + endPtsEndBytes);
         const instructionsEndBytes = instructionLengthEndBytes + instructionLength;
 
-        this.checkInGlyph(fontPath, glyph, instructionsEndBytes, `instructions[${instructionLength}]`);
+        this.checkInGlyph(fontPath, glyph, SfntRule.SimpleGlyphInData, instructionsEndBytes, `instructions[${instructionLength}]`);
 
         const flags = this.checkFlags(fontPath, view, glyph, instructionsEndBytes, numberOfPoints);
         const xCoordinatesEndBytes = flags.flagsEndBytes + flags.xCoordinatesSizeBytes;
 
-        this.checkInGlyph(fontPath, glyph, xCoordinatesEndBytes, "xCoordinates");
-        this.checkInGlyph(fontPath, glyph, xCoordinatesEndBytes + flags.yCoordinatesSizeBytes, "yCoordinates");
+        this.checkInGlyph(fontPath, glyph, SfntRule.SimpleGlyphInData, xCoordinatesEndBytes, "xCoordinates");
+        this.checkInGlyph(fontPath, glyph, SfntRule.SimpleGlyphInData, xCoordinatesEndBytes + flags.yCoordinatesSizeBytes, "yCoordinates");
     }
 
     /**
@@ -740,7 +775,7 @@ export class SfntFontValidator implements FontValidator {
         while (flagCount < numberOfPoints) {
             const flagOfPoint = `the flag of point ${flagCount}`;
 
-            this.checkInGlyph(fontPath, glyph, positionBytes + SfntFontValidator.FLAG_SIZE_BYTES, flagOfPoint);
+            this.checkInGlyph(fontPath, glyph, SfntRule.SimpleGlyphInData, positionBytes + SfntFontValidator.FLAG_SIZE_BYTES, flagOfPoint);
 
             const flag = view.getUint8(glyph.offsetBytes + positionBytes);
             let repeatCount = 0;
@@ -751,6 +786,7 @@ export class SfntFontValidator implements FontValidator {
                 this.checkInGlyph(
                     fontPath,
                     glyph,
+                    SfntRule.SimpleGlyphInData,
                     positionBytes + SfntFontValidator.REPEAT_COUNT_SIZE_BYTES,
                     `the repeat count of ${flagOfPoint}`,
                 );
@@ -791,12 +827,194 @@ export class SfntFontValidator implements FontValidator {
     }
 
     /**
-     * `fields` names what ends at `endBytes`, counted from the start of the glyph.
+     * Reads the components one by one while MORE_COMPONENTS is set, each checked to fit into the
+     * glyph before its fields are read, the first one too: a composite glyph has at least one.
+     * Returns the glyphs they point at. The instructions follow the last component when any
+     * component sets WE_HAVE_INSTRUCTIONS, as the specification has it; fontforge 20230101 reads
+     * the flag of the last one only. The reserved bits of the flags are not checked: 42 132
+     * components of 36 of the 297 real fonts with TrueType outlines measured set them, Arial among
+     * them.
      */
-    private checkInGlyph(fontPath: string, glyph: GlyfEntry, endBytes: number, fields: string): void {
+    private checkCompositeGlyph(fontPath: string, view: DataView, glyph: GlyfEntry, numGlyphs: number): ReadonlyArray<number> {
+        const componentGlyphIds: number[] = [];
+        let positionBytes = SfntFontValidator.GLYPH_HEADER_SIZE_BYTES;
+        let hasInstructions = false;
+        let hasMoreComponents = true;
+
+        while (hasMoreComponents) {
+            const component = `component ${componentGlyphIds.length}`;
+            const glyphIndexOffsetBytes = positionBytes + SfntFontValidator.COMPONENT_FLAGS_SIZE_BYTES;
+            const glyphIndexEndBytes = glyphIndexOffsetBytes + SfntFontValidator.COMPONENT_GLYPH_INDEX_SIZE_BYTES;
+
+            this.checkInGlyph(
+                fontPath,
+                glyph,
+                SfntRule.CompositeGlyphInData,
+                glyphIndexEndBytes,
+                `the flags and glyphIndex of ${component}`,
+            );
+
+            const flags = view.getUint16(glyph.offsetBytes + positionBytes);
+            const componentGlyphId = view.getUint16(glyph.offsetBytes + glyphIndexOffsetBytes);
+
+            if (componentGlyphId >= numGlyphs) {
+                throw BrokenSfnt.byRule(fontPath, {
+                    rule: SfntRule.ComponentGlyphIndex,
+                    at: this.tableName(SfntFontValidator.GLYF_TAG),
+                    field: `the glyphIndex of ${component} of glyph ${glyph.id}`,
+                    value: componentGlyphId,
+                    expected: `less than ${numGlyphs}, maxp.numGlyphs`,
+                });
+            }
+
+            const argumentsEndBytes = glyphIndexEndBytes + this.argumentsSizeBytes(flags);
+
+            this.checkInGlyph(fontPath, glyph, SfntRule.CompositeGlyphInData, argumentsEndBytes, `the arguments of ${component}`);
+
+            const transformEndBytes = argumentsEndBytes + this.transformSizeBytes(flags);
+
+            this.checkInGlyph(fontPath, glyph, SfntRule.CompositeGlyphInData, transformEndBytes, `the transform of ${component}`);
+
+            componentGlyphIds.push(componentGlyphId);
+            positionBytes = transformEndBytes;
+            hasInstructions = hasInstructions || (flags & SfntFontValidator.WE_HAVE_INSTRUCTIONS) !== 0;
+            hasMoreComponents = (flags & SfntFontValidator.MORE_COMPONENTS) !== 0;
+        }
+
+        if (hasInstructions) {
+            this.checkCompositeInstructions(fontPath, view, glyph, positionBytes);
+        }
+
+        return componentGlyphIds;
+    }
+
+    private argumentsSizeBytes(flags: number): number {
+        if ((flags & SfntFontValidator.ARG_1_AND_2_ARE_WORDS) !== 0) {
+            return SfntFontValidator.WORD_ARGUMENTS_SIZE_BYTES;
+        }
+
+        return SfntFontValidator.BYTE_ARGUMENTS_SIZE_BYTES;
+    }
+
+    /**
+     * The specification makes the three scale flags mutually exclusive; this check does not hold a
+     * component to that. Of several set, the first in this order gives the size, as in the
+     * pseudo-code of the specification and in fontforge 20230101.
+     */
+    private transformSizeBytes(flags: number): number {
+        if ((flags & SfntFontValidator.WE_HAVE_A_SCALE) !== 0) {
+            return SfntFontValidator.SCALE_SIZE_BYTES;
+        }
+
+        if ((flags & SfntFontValidator.WE_HAVE_AN_X_AND_Y_SCALE) !== 0) {
+            return SfntFontValidator.X_AND_Y_SCALE_SIZE_BYTES;
+        }
+
+        if ((flags & SfntFontValidator.WE_HAVE_A_TWO_BY_TWO) !== 0) {
+            return SfntFontValidator.TWO_BY_TWO_SIZE_BYTES;
+        }
+
+        return SfntFontValidator.NO_TRANSFORM_SIZE_BYTES;
+    }
+
+    /**
+     * `startBytes` is where the last component ends, counted from the start of the glyph.
+     */
+    private checkCompositeInstructions(fontPath: string, view: DataView, glyph: GlyfEntry, startBytes: number): void {
+        const numInstrEndBytes = startBytes + SfntFontValidator.NUM_INSTR_SIZE_BYTES;
+
+        this.checkInGlyph(fontPath, glyph, SfntRule.CompositeGlyphInData, numInstrEndBytes, "numInstr");
+
+        const numInstr = view.getUint16(glyph.offsetBytes + startBytes);
+
+        this.checkInGlyph(fontPath, glyph, SfntRule.CompositeGlyphInData, numInstrEndBytes + numInstr, `instructions[${numInstr}]`);
+    }
+
+    /**
+     * Follows the components of every composite glyph down to the glyphs without components. A
+     * glyph met again on the chain that leads to it closes a cycle; a glyph whose components are all
+     * followed already is not followed again, so each composite glyph is walked once.
+     */
+    private checkComponentCycles(fontPath: string, componentsByGlyph: ReadonlyMap<number, ReadonlyArray<number>>): void {
+        const walkedGlyphIds = new Set<number>();
+
+        for (const [glyphId, componentGlyphIds] of componentsByGlyph) {
+            if (!walkedGlyphIds.has(glyphId)) {
+                this.walkComponents(
+                    fontPath,
+                    componentsByGlyph,
+                    { glyphId: glyphId, componentGlyphIds: componentGlyphIds, nextComponent: 0 },
+                    walkedGlyphIds,
+                );
+            }
+        }
+    }
+
+    /**
+     * Depth first with a stack of its own rather than by recursion: a crafted font can chain 65 535
+     * composite glyphs, one inside the next, deeper than the call stack goes. For the same chain the
+     * glyphs on it are kept in a set as well, so that a step does not search the stack.
+     */
+    private walkComponents(
+        fontPath: string,
+        componentsByGlyph: ReadonlyMap<number, ReadonlyArray<number>>,
+        root: ComponentWalk,
+        walkedGlyphIds: Set<number>,
+    ): void {
+        const chain = [root];
+        const chainGlyphIds = new Set([root.glyphId]);
+
+        for (let current = chain[chain.length - 1]; current !== undefined; current = chain[chain.length - 1]) {
+            const componentGlyphId = current.componentGlyphIds[current.nextComponent];
+
+            // Every component of the glyph is followed.
+            if (componentGlyphId === undefined) {
+                chain.pop();
+                chainGlyphIds.delete(current.glyphId);
+                walkedGlyphIds.add(current.glyphId);
+                continue;
+            }
+
+            current.nextComponent++;
+
+            if (chainGlyphIds.has(componentGlyphId)) {
+                this.throwCycle(fontPath, chain, componentGlyphId);
+            }
+
+            const components = componentsByGlyph.get(componentGlyphId);
+
+            if (components !== undefined && !walkedGlyphIds.has(componentGlyphId)) {
+                chain.push({ glyphId: componentGlyphId, componentGlyphIds: components, nextComponent: 0 });
+                chainGlyphIds.add(componentGlyphId);
+            }
+        }
+    }
+
+    /**
+     * The message lists the cycle from the glyph that closes it, which is on `chain`, round to that
+     * glyph again.
+     */
+    private throwCycle(fontPath: string, chain: ReadonlyArray<ComponentWalk>, closingGlyphId: number): never {
+        const cycleStart = chain.findIndex((link) => link.glyphId === closingGlyphId);
+        const cycleGlyphIds = [...chain.slice(cycleStart).map((link) => link.glyphId), closingGlyphId];
+
+        throw BrokenSfnt.byRule(fontPath, {
+            rule: SfntRule.ComponentCycle,
+            at: this.tableName(SfntFontValidator.GLYF_TAG),
+            field: `the chain of components from glyph ${closingGlyphId}`,
+            value: cycleGlyphIds.join(" -> "),
+            expected: "a chain that ends at glyphs without components",
+        });
+    }
+
+    /**
+     * `fields` names what ends at `endBytes`, counted from the start of the glyph, and `rule` is the
+     * rule of a simple or of a composite glyph.
+     */
+    private checkInGlyph(fontPath: string, glyph: GlyfEntry, rule: SfntRule, endBytes: number, fields: string): void {
         if (endBytes > glyph.lengthBytes) {
             throw BrokenSfnt.byRule(fontPath, {
-                rule: SfntRule.SimpleGlyphInData,
+                rule: rule,
                 at: this.tableName(SfntFontValidator.GLYF_TAG),
                 field: `the end of ${fields} of glyph ${glyph.id}`,
                 value: endBytes,
