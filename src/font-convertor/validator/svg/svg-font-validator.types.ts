@@ -5,8 +5,9 @@
 export type Encoding = "utf-8" | "utf-16le" | "utf-16be";
 
 /**
- * A rule a font breaks. The text names the rule and where it comes from: a section of SVG 1.1 Second
- * Edition, or ours, where fontforge asks more than the specification.
+ * A rule a font, or the document around it, breaks. The text names the rule and where it comes
+ * from: a section of SVG 1.1 Second Edition, or ours, where fontforge asks more than the
+ * specification.
  */
 export enum FontRule {
     AdvanceRequired = "font has horiz-adv-x (SVG 1.1, Appendix A.3.39)",
@@ -17,6 +18,7 @@ export enum FontRule {
     PositiveUnitsPerEm = "units-per-em is positive (SVG 1.1, §20.8.3)",
     PathData = "d of a glyph or missing-glyph is path data (SVG 1.1, §8.3.9, §20.4, §20.5)",
     GlyphRequired = "font has a glyph child (ours: fontforge turns a font without glyphs into an empty one)",
+    SingleFont = "the document has one font element in any namespace (ours: fontforge converts the first of several and drops the rest)",
 }
 
 /**
@@ -58,7 +60,10 @@ export type Scan = {
     svg11Doctype: boolean;
     /** The root element in Clark notation, `{namespace}local`. */
     root: string | undefined;
+    /** Whether a `font` in the SVG namespace was met: the font the rules check. */
     hasFont: boolean;
+    /** Whether an element named `font` in any namespace was met: fontforge takes each for a font. */
+    hasFontInAnyNamespace: boolean;
     /** The first broken rule the pass met. */
     violation: Violation | undefined;
     open: Array<OpenElement>;

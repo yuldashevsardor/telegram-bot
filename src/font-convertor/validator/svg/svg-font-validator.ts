@@ -11,7 +11,8 @@ import type { FontValidator } from "app/font-convertor/validator/font-validator"
 /**
  * Checks an SVG font against W3C SVG 1.1 Second Edition, chapter 20 "Fonts". SVG 2 removed SVG
  * fonts, so 1.1 is the reference. Only the fonts are checked against it, not the rest of the
- * document.
+ * document. One rule of ours looks at the whole document: it holds one element named `font`, in any
+ * namespace.
  */
 @injectable()
 export class SvgFontValidator implements FontValidator {
@@ -103,7 +104,14 @@ export class SvgFontValidator implements FontValidator {
     }
 
     private scan(fontPath: string, text: string, encoding: Encoding): Scan {
-        const scan: Scan = { svg11Doctype: false, root: undefined, hasFont: false, violation: undefined, open: [] };
+        const scan: Scan = {
+            svg11Doctype: false,
+            root: undefined,
+            hasFont: false,
+            hasFontInAnyNamespace: false,
+            violation: undefined,
+            open: [],
+        };
         // XML 1.0 fifth edition: a document declaring another 1.x version is read as 1.0.
         const parser = new SaxesParser({
             xmlns: true,
@@ -158,6 +166,16 @@ export class SvgFontValidator implements FontValidator {
         }
 
         scan.open.push(element);
+
+        // fontforge reads a `font` of any namespace as a font, and of several converts the first
+        // without a word. Which one to take is not the domain's call, as with an sfnt collection.
+        if (tag.local === "font") {
+            if (scan.hasFontInAnyNamespace) {
+                this.report(scan, FontRule.SingleFont, tag.name, line);
+            }
+
+            scan.hasFontInAnyNamespace = true;
+        }
 
         if (element.name === "font") {
             scan.hasFont = true;

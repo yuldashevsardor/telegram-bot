@@ -163,16 +163,22 @@ which file was rejected.
   `xmlns:xlink` the same way. The parser does not read the DTD, so the validator binds both prefixes
   itself (`resolvePrefix`).
 - **No font, broken font.** Only the fonts are checked against the specification, not the rest of
-  the document. `font-face` and `glyph` count only as direct children of `font` in the SVG
-  namespace, and only unprefixed attributes are attributes of these elements. The rules are
-  `FontRule` in `svg-font-validator.types.ts`; the text of each names its section. Two of them are
-  ours, not the specification's, and say so: `units-per-em` is required (the specification defaults
-  it to 1000, but fontforge does not open a font without it), and a font needs a `glyph` (the
-  specification allows none, but fontforge turns such a font into an empty one). The outline, `d`
-  of `glyph` and `missing-glyph`, is checked by `isPathData()` (`path-data.ts`) against the path
-  data grammar of §8.3.9, which §20.4 gives it. Numbers there are read greedily, as §8.3.9
-  requires ("must consume as much of a given BNF production as possible"), and `1.` is a number,
-  unlike in the other attributes.
+  the document; the one rule that looks at the whole document is ours, below. `font-face` and
+  `glyph` count only as direct children of `font` in the SVG namespace, and only unprefixed
+  attributes are attributes of these elements. The rules are `FontRule` in
+  `svg-font-validator.types.ts`; the text of each names its section. Three of them are ours, not
+  the specification's, and say so: `units-per-em` is required (the specification defaults it to
+  1000, but fontforge does not open a font without it), a font needs a `glyph` (the specification
+  allows none, but fontforge turns such a font into an empty one), and the document holds one
+  element named `font`. A second font is the case of the `ttcf` collection above: fontforge
+  20230101 silently converts the first and drops the rest
+  ([#664](https://github.com/yuldashevsardor/telegram-bot/issues/664)). This rule alone counts
+  `font` in any namespace, because fontforge reads such an element as a font regardless of its
+  namespace: counted only in the SVG one, an `x:font` before the checked font would reach the
+  engine unchecked and be the one converted. The outline, `d` of `glyph` and `missing-glyph`, is
+  checked by `isPathData()` (`path-data.ts`) against the path data grammar of §8.3.9, which §20.4
+  gives it. Numbers there are read greedily, as §8.3.9 requires ("must consume as much of a given
+  BNF production as possible"), and `1.` is a number, unlike in the other attributes.
 
 XML is parsed with `saxes` (XML 1.0 fifth edition and Namespaces in XML, non-validating). It was
 chosen by measurement, with expat as the reference: of 38 malformed documents it accepted none,
@@ -192,11 +198,12 @@ from the file, and a cause reaches the log uncut.
 
 Text from the file reaches the log through the answers, so each piece of it is cut
 (`svg-font-validator.errors.ts`): the saxes message to `MAX_PARSER_MESSAGE_LENGTH` UTF-16 units, the
-namespace and the local name of a `NotSvg` root and the attribute value of a `BrokenFont` each to
-`MAX_QUOTED_LENGTH`. A cut piece ends with `…`, which makes it one unit longer than an uncut piece
-can be: that, not the text, tells it from a piece that ends with `…` itself. This holds for every
-piece quoted from the file, in the payload and in the `NotXml` and `NotSvg` messages; `path` is not
-text from the file and is not cut. The `BrokenFont` message escapes the kept value with
+namespace and the local name of a `NotSvg` root, the element and the attribute value of a
+`BrokenFont` each to `MAX_QUOTED_LENGTH`. A cut piece ends with `…`, which makes it one unit longer
+than an uncut piece can be: that, not the text, tells it from a piece that ends with `…` itself.
+This holds for every piece quoted from the file, in the payload, in the `NotXml` and `NotSvg`
+messages and for the element in the `BrokenFont` one; `path` is not text from the file and is not
+cut. The `BrokenFont` message escapes the kept value with
 `JSON.stringify`, which can make it longer, so there the `…` stands outside the quotes, where the
 escaped value cannot reach. The payload also keeps the length before the cut:
 `valueLength` of the value, which, like the length of `value`, tells a cut value, and `rootLength`

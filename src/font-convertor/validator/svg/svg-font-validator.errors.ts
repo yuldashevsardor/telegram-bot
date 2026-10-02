@@ -3,10 +3,11 @@ import type { Encoding, FontRule } from "app/font-convertor/validator/svg/svg-fo
 
 // Text from the file may be of any length, while the error carries it into the log. A quote from
 // it is cut on its own to the first limit: a root keeps that much of its namespace and as much of
-// its local name, and the message of `BrokenFont` escapes the kept value with `JSON.stringify`,
-// which at most doubles it: of what the parser lets through as XML 1.0, it escapes only tab, LF,
-// CR, `"` and `\`, each as two units. A parser message is cut to the second limit: saxes quotes
-// names from the file in it, and `checkEncoding` the declared encoding.
+// its local name, the element of `BrokenFont` that much of its qualified name. The message of
+// `BrokenFont` escapes the kept value with `JSON.stringify`, which at most doubles it: of what the
+// parser lets through as XML 1.0, it escapes only tab, LF, CR, `"` and `\`, each as two units. A
+// parser message is cut to the second limit: saxes quotes names from the file in it, and
+// `checkEncoding` the declared encoding.
 const MAX_QUOTED_LENGTH = 64;
 const MAX_PARSER_MESSAGE_LENGTH = 200;
 
@@ -75,12 +76,14 @@ export class BrokenFont extends InvalidSvgFont {
      * can be, and `valueLength`, the length before the cut, says the same: either tells it apart
      * from a value that ends with `…` itself. In the message the value is escaped by
      * `JSON.stringify`, which can make it longer, so there the mark stands outside the quotes.
+     * `element` is cut the same way: for a second `font` it is the qualified name from the file.
      */
     public static byRule(fontPath: string, rule: FontRule, element: string, line: number, attribute?: [string, string]): BrokenFont {
-        const at = `SVG font breaks a rule: ${rule}. At line ${line}: <${element}>`;
+        const quotedElement = clip(element, MAX_QUOTED_LENGTH).join("");
+        const at = `SVG font breaks a rule: ${rule}. At line ${line}: <${quotedElement}>`;
 
         if (attribute === undefined) {
-            return new BrokenFont(`${at}.`, { path: fontPath, rule: rule, element: element, line: line });
+            return new BrokenFont(`${at}.`, { path: fontPath, rule: rule, element: quotedElement, line: line });
         }
 
         const [name, value] = attribute;
@@ -89,7 +92,7 @@ export class BrokenFont extends InvalidSvgFont {
         return new BrokenFont(`${at} with ${name}=${JSON.stringify(kept)}${mark}.`, {
             path: fontPath,
             rule: rule,
-            element: element,
+            element: quotedElement,
             line: line,
             attribute: name,
             value: `${kept}${mark}`,
