@@ -18,7 +18,8 @@ export enum FontRule {
     PositiveUnitsPerEm = "units-per-em is positive (SVG 1.1, §20.8.3)",
     PathData = "d of a glyph or missing-glyph is path data (SVG 1.1, §8.3.9, §20.4, §20.5)",
     GlyphRequired = "font has a glyph child (ours: fontforge turns a font without glyphs into an empty one)",
-    SingleFont = "the document has one font element in any namespace (ours: fontforge converts the first of several and drops the rest)",
+    SingleFont = "the document has one font element (ours: fontforge converts the first of several and drops the rest)",
+    SvgNamespaceOnly = "font, font-face, glyph and missing-glyph name only elements in the SVG namespace (ours: fontforge reads a node of these names in any namespace, and a processing instruction by its target)",
 }
 
 /**
@@ -45,6 +46,10 @@ export type OpenElement = {
  */
 export type Violation = {
     rule: FontRule;
+    /**
+     * The node as the answer quotes it between `<` and `>`: the local name of an element in the SVG
+     * namespace, another element in Clark notation, a processing instruction as `?target?`.
+     */
     element: string;
     line: number;
     /** The attribute that breaks the rule, as a name and a value; `undefined` for a rule of the element itself. */
@@ -62,8 +67,6 @@ export type Scan = {
     root: string | undefined;
     /** Whether a `font` in the SVG namespace was met: the font the rules check. */
     hasFont: boolean;
-    /** Whether an element named `font` in any namespace was met: fontforge takes each for a font. */
-    hasFontInAnyNamespace: boolean;
     /** The first broken rule the pass met. */
     violation: Violation | undefined;
     open: Array<OpenElement>;

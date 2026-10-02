@@ -2,12 +2,11 @@ import { RuntimeError } from "app/shared/errors";
 import type { Encoding, FontRule } from "app/font-convertor/validator/svg/svg-font-validator.types";
 
 // Text from the file may be of any length, while the error carries it into the log. A quote from
-// it is cut on its own to the first limit: a root keeps that much of its namespace and as much of
-// its local name, the element of `BrokenFont` that much of its qualified name. The message of
-// `BrokenFont` escapes the kept value with `JSON.stringify`, which at most doubles it: of what the
-// parser lets through as XML 1.0, it escapes only tab, LF, CR, `"` and `\`, each as two units. A
-// parser message is cut to the second limit: saxes quotes names from the file in it, and
-// `checkEncoding` the declared encoding.
+// it is cut on its own to the first limit: a name in Clark notation keeps that much of its
+// namespace and as much of its local name. The message of `BrokenFont` escapes the kept value with
+// `JSON.stringify`, which at most doubles it: of what the parser lets through as XML 1.0, it
+// escapes only tab, LF, CR, `"` and `\`, each as two units. A parser message is cut to the second
+// limit: saxes quotes names from the file in it, and `checkEncoding` the declared encoding.
 const MAX_QUOTED_LENGTH = 64;
 const MAX_PARSER_MESSAGE_LENGTH = 200;
 
@@ -18,6 +17,19 @@ const MAX_PARSER_MESSAGE_LENGTH = 200;
  */
 function clip(text: string, maxLength: number): [kept: string, mark: string] {
     return text.length > maxLength ? [text.slice(0, maxLength).toWellFormed(), "…"] : [text, ""];
+}
+
+/**
+ * Cuts a name in Clark notation, `{namespace}local`. An NCName holds no `}`, so the local name
+ * follows the last one. The namespace and the local name are cut each on its own, so that a long
+ * namespace does not cut off the name, and the braces are kept, so that the quote stays in Clark
+ * notation.
+ */
+function clipClark(name: string): string {
+    const end = name.lastIndexOf("}");
+    const namespace = clip(name.slice(1, end), MAX_QUOTED_LENGTH).join("");
+
+    return `{${namespace}}${clip(name.slice(end + 1), MAX_QUOTED_LENGTH).join("")}`;
 }
 
 /**
@@ -46,15 +58,10 @@ export class NotXml extends InvalidSvgFont {
 
 export class NotSvg extends InvalidSvgFont {
     /**
-     * `root` is in Clark notation, `{namespace}local`. An NCName holds no `}`, so the local name
-     * follows the last one. The namespace and the local name are cut each on its own, so that a long
-     * namespace does not cut off the name, and the braces are kept, so that the quote stays in Clark
-     * notation.
+     * `root` is in Clark notation, `{namespace}local`, and is quoted cut by `clipClark`.
      */
     public static byRoot(fontPath: string, root: string, expected: string): NotSvg {
-        const end = root.lastIndexOf("}");
-        const namespace = clip(root.slice(1, end), MAX_QUOTED_LENGTH).join("");
-        const quoted = `{${namespace}}${clip(root.slice(end + 1), MAX_QUOTED_LENGTH).join("")}`;
+        const quoted = clipClark(root);
 
         return new NotSvg(`File is not SVG: the root element is ${quoted}, expected ${expected}.`, {
             path: fontPath,
@@ -76,10 +83,12 @@ export class BrokenFont extends InvalidSvgFont {
      * can be, and `valueLength`, the length before the cut, says the same: either tells it apart
      * from a value that ends with `…` itself. In the message the value is escaped by
      * `JSON.stringify`, which can make it longer, so there the mark stands outside the quotes.
-     * `element` is cut the same way: for a second `font` it is the qualified name from the file.
+     *
+     * Of `element`, only the namespace of an element in Clark notation comes from the file. It is
+     * cut by `clipClark`, and no length before the cut is kept for it, unlike for the value.
      */
     public static byRule(fontPath: string, rule: FontRule, element: string, line: number, attribute?: [string, string]): BrokenFont {
-        const quotedElement = clip(element, MAX_QUOTED_LENGTH).join("");
+        const quotedElement = element.startsWith("{") ? clipClark(element) : element;
         const at = `SVG font breaks a rule: ${rule}. At line ${line}: <${quotedElement}>`;
 
         if (attribute === undefined) {

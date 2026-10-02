@@ -11,14 +11,17 @@ import type { FontValidator } from "app/font-convertor/validator/font-validator"
 /**
  * Checks an SVG font against W3C SVG 1.1 Second Edition, chapter 20 "Fonts". SVG 2 removed SVG
  * fonts, so 1.1 is the reference. Only the fonts are checked against it, not the rest of the
- * document. One rule of ours looks at the whole document: it holds one element named `font`, in any
- * namespace.
+ * document. Two rules of ours look at the whole document: it holds one `font`, and the names of the
+ * font elements appear in it only on elements of the SVG namespace.
  */
 @injectable()
 export class SvgFontValidator implements FontValidator {
     private static readonly SVG_NAMESPACE = "http://www.w3.org/2000/svg";
     private static readonly XLINK_NAMESPACE = "http://www.w3.org/1999/xlink";
     private static readonly SVG_ROOT = `{${SvgFontValidator.SVG_NAMESPACE}}svg`;
+    // The names fontforge reads by the local name alone: of an element in any namespace, and of a
+    // processing instruction by its target (`_FindSVGFontNodes` and `SVGParseFont` of its `svg.c`).
+    private static readonly FONT_NODE_NAMES: ReadonlyArray<string> = ["font", "font-face", "glyph", "missing-glyph"];
 
     // XML 1.0 §4.3.3 requires the BOM for UTF-16. Without one the file is read as UTF-8, and the
     // zero bytes of UTF-16 make it "not XML".
@@ -108,7 +111,6 @@ export class SvgFontValidator implements FontValidator {
             svg11Doctype: false,
             root: undefined,
             hasFont: false,
-            hasFontInAnyNamespace: false,
             violation: undefined,
             open: [],
         };
@@ -137,6 +139,8 @@ export class SvgFontValidator implements FontValidator {
             line = parser.column === 0 ? parser.line - 1 : parser.line;
         });
         parser.on("opentag", (tag) => this.open(scan, tag, line));
+        // The event comes at `?>`, so the line is the one the instruction closes on.
+        parser.on("processinginstruction", (instruction) => this.checkInstruction(scan, instruction.target, parser.line));
         parser.on("closetag", () => this.close(scan));
 
         parser.write(text).close();
@@ -167,17 +171,17 @@ export class SvgFontValidator implements FontValidator {
 
         scan.open.push(element);
 
-        // fontforge reads a `font` of any namespace as a font, and of several converts the first
-        // without a word. Which one to take is not the domain's call, as with an sfnt collection.
-        if (tag.local === "font") {
-            if (scan.hasFontInAnyNamespace) {
-                this.report(scan, FontRule.SingleFont, tag.name, line);
-            }
-
-            scan.hasFontInAnyNamespace = true;
+        if (tag.uri !== SvgFontValidator.SVG_NAMESPACE && SvgFontValidator.FONT_NODE_NAMES.includes(tag.local)) {
+            this.report(scan, FontRule.SvgNamespaceOnly, `{${tag.uri}}${tag.local}`, line);
         }
 
+        // Of several fonts fontforge converts the first without a word. Which one to take is not the
+        // domain's call, as with an sfnt collection.
         if (element.name === "font") {
+            if (scan.hasFont) {
+                this.report(scan, FontRule.SingleFont, "font", line);
+            }
+
             scan.hasFont = true;
             this.checkFont(scan, element, tag);
         }
@@ -215,6 +219,12 @@ export class SvgFontValidator implements FontValidator {
 
         if (!element.hasGlyph) {
             this.report(scan, FontRule.GlyphRequired, "font", element.line);
+        }
+    }
+
+    private checkInstruction(scan: Scan, target: string, line: number): void {
+        if (SvgFontValidator.FONT_NODE_NAMES.includes(target)) {
+            this.report(scan, FontRule.SvgNamespaceOnly, `?${target}?`, line);
         }
     }
 
