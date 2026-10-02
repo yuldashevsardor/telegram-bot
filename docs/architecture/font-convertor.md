@@ -330,12 +330,14 @@ font. Every answer names the source in `path` of its payload, the WOFF file for 
 carries. Nothing in the answers is cut: the only text from the file they quote is a table tag, four
 bytes long.
 
-The rules are `SfntRule` in `sfnt-font-validator.types.ts`, each with its section. Three of them
-are ours, not the standard's, and the text of each says why: a collection is rejected (see
+The rules are `SfntRule` in `sfnt-font-validator.types.ts`, each with its section. Four of them are
+ours, not the standard's, and the text of each says why: a collection is rejected (see
 "Signatures"); so is a font with a `CFF2` table, which the standard allows but fontforge 20230101
-does not open (exit 1, "not in a known format"); and so is a `cmap` without subtables, of which the
-standard sets no count. Where the two references differ, the rules follow the one that governs the
-outlines present, with two exceptions, the last two items:
+does not open (exit 1, "not in a known format"); so is a `cmap` without subtables, of which the
+standard sets no count; and so is a `post` 2.0 or 2.5 with fewer glyph names than `maxp` has glyphs,
+of which the standard says only that the two counts should be the same. Where the two references
+differ, the rules follow the one that governs the outlines present, with three exceptions, the last
+three items:
 
 - `OS/2` is required only with CFF outlines. Microsoft requires it of every font, Apple's manual
   (chapter 6) not of a TrueType one. Without it the engine builds the table itself: every glyph is
@@ -354,6 +356,11 @@ outlines present, with two exceptions, the last two items:
   supported on Apple platforms", and fails with a version 4.0 `post`, which the manual defines but
   says "should be avoided" and OpenType does not support. None of the 543 real fonts measured has
   either.
+- The glyph-name index of `post` 2.0 goes by OpenType for every font: from 258 to 65535 it points at
+  a string. Apple's manual (chapter 6, `post`) reserves 32768 to 65535 "for future use"; a TrueType
+  font with such an index is held to the string it points at all the same, and fails without one.
+  fontforge 20230101 reads the index as OpenType does: a glyph of the TrueType fixture given 65535
+  is renamed to `glyphN` ([#757](https://github.com/yuldashevsardor/telegram-bot/issues/757)).
 
 The rules on `head`, `maxp`, `hhea`, `hmtx` and `loca` are those where the engine converts a broken
 font with exit 0 and loses glyphs, measured on the TrueType fixture of 1296 glyphs: `maxp.numGlyphs`
@@ -386,24 +393,40 @@ itself or around a cycle. None of the 297 real fonts with TrueType outlines meas
 `glyf` rule.
 
 The rules on `cmap`, `name`, `OS/2` and `post` check where the records point, not what lies there:
-neither the content of a `cmap` subtable past its format and length, nor the text of a `name`
-string, nor the glyph names of `post` 2.0 and 2.5 past their index. Every break they catch the
-engine either converts keeping every glyph, some of them losing content, or crashes on
+neither the content of a `cmap` subtable past its format and length, nor the text of a `name` string
+or of a `post` 2.0 glyph name. Of the glyph names only where they lie is checked, up to the last
+string an index points at; the strings past it are not read. Every break they catch the engine
+either converts keeping every glyph, some of them losing content, crashes on, or runs on past 60 s
 ([#683](https://github.com/yuldashevsardor/telegram-bot/issues/683),
-[#752](https://github.com/yuldashevsardor/telegram-bot/issues/752)): a `cmap` without subtables, or
+[#752](https://github.com/yuldashevsardor/telegram-bot/issues/752),
+[#757](https://github.com/yuldashevsardor/telegram-bot/issues/757)): a `cmap` without subtables, or
 whose every subtable offset points into its header and records or past where the fields of a
 subtable up to its length fit, loses the encoding, with "Could not find any valid encoding tables";
-a `name` with 60000 records gives "Invalid mac encoding 65535"; a `name` string past the table
-crashed fontforge with SIGSEGV in every conversion in 7 of the 14 variants measured and put foreign
-bytes into the full name in 2; a `post` 2.0 cut to its 32-byte header renames 399 glyphs of the
-TrueType fixture, those without an encoding, to `glyphN`; an undefined format over the Unicode
-subtable of the fixture leaves 225 of its 893 encoded glyphs, those of the Macintosh one. Some
-breaks the rules follow the standard on, not the engine: `name` records that run into the string
-storage convert with nothing lost, and so does a `cmap` subtable whose length runs past `cmap`, up
-to 65535 for format 4, or a `cmap` whose one record points 2 bytes into its header while another
-Unicode record holds; pointing at 0 or 4, one such record already loses the encoding. An empty
-`name` string is not held to the table: it has no byte to read, and the engine converts it at any
-offset. None of these rules rejects a font of the 242 in the macOS system font folders, which the
+a subtable shorter than the part of its format of a set size, at the end of `cmap`, has the engine
+read that part from the next table or from past the end of the file: of 20 variants it lost the
+encoding in 15 and made a wrong one up in 3, and on format 12 at the end of the file it ran past
+60 s in both fixtures, writing over 100 MB of "Bad font: Encoding data out of range." to stderr; a
+`name` with 60000 records gives "Invalid mac encoding 65535"; a `name` string past the table crashed
+fontforge with SIGSEGV in every conversion in 7 of the 14 variants measured and put foreign bytes
+into the full name in 2; a `post` 2.0 cut to its 32-byte header renames 399 glyphs of the TrueType
+fixture, those without an encoding, to `glyphN`, and a `post` 2.0 or 2.5 whose `numGlyphs` is below
+that of `maxp` renames the glyphs past it, 401 with `numGlyphs` 0; a glyph name the index points at
+that is missing from `post` is renamed to `glyphN`, one the table cuts short is cut short, and one
+read past the end of the file carries a 0xFF byte into the name of the output, which is then not
+UTF-8; an undefined format over the Unicode subtable of the fixture leaves 225 of its 893 encoded
+glyphs, those of the Macintosh one. Some breaks the rules follow the standard on, not the engine:
+`name` records that run into the string storage convert with nothing lost, and so does a `cmap`
+subtable whose length runs past `cmap`, up to 65535 for format 4, or falls short of the part of its
+format of a set size while that part lies inside `cmap`, or a `cmap` whose one record points 2 bytes
+into its header while another Unicode record holds; pointing at 0 or 4, one such record already
+loses the encoding. The engine reads a `post` 2.0 name only up to the end of `post`: a string whose
+length byte overstates it past the table, while its bytes lie inside, loses nothing, and the rule
+rejects it all the same. An empty `name` string is not held to the table: it has no byte to read,
+and the engine converts it at any offset. A `post` naming more glyphs than `maxp` has passes: the
+engine loses nothing on it. Its entries past the glyphs of `maxp` are held to the strings all the
+same: an entry of 2.0 pointing past them fails the font. With CFF outlines the engine takes the
+glyph names from `CFF `, and no break of `post` measured loses one; the `post` rules apply to those
+fonts too. None of these rules rejects a font of the 242 in the macOS system font folders, which the
 validator walks in 0.3 s. The length `OS/2` needs by its version, and why version 0 passes
 shortened, is in the comment of `OS2_LENGTHS_BYTES` in `SfntFontValidator`.
 

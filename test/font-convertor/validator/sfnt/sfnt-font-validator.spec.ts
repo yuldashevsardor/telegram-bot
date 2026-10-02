@@ -78,16 +78,21 @@ const SUBTABLE_OFFSET_IN_RECORD_BYTES = 4;
 // 32 bits right after the format. The header ends with the length.
 const SUBTABLE_FORMAT_SIZE_BYTES = 2;
 const SHORT_SUBTABLE_LENGTH_SIZE_BYTES = 2;
-const SUBTABLE_LENGTH_FIELDS = new Map([
-    [0, { offsetBytes: 2, sizeBytes: 2 }],
-    [2, { offsetBytes: 2, sizeBytes: 2 }],
-    [4, { offsetBytes: 2, sizeBytes: 2 }],
-    [6, { offsetBytes: 2, sizeBytes: 2 }],
-    [8, { offsetBytes: 4, sizeBytes: 4 }],
-    [10, { offsetBytes: 4, sizeBytes: 4 }],
-    [12, { offsetBytes: 4, sizeBytes: 4 }],
-    [13, { offsetBytes: 4, sizeBytes: 4 }],
-    [14, { offsetBytes: 2, sizeBytes: 4 }],
+// By format, also the part of a subtable of a set size: the fields and arrays before its first
+// array of a variable count (OpenType 1.9.1, cmap).
+const SHORT_LENGTH_FIELD = { offsetBytes: 2, sizeBytes: 2 };
+const LONG_LENGTH_FIELD = { offsetBytes: 4, sizeBytes: 4 };
+const VARIATION_LENGTH_FIELD = { offsetBytes: 2, sizeBytes: 4 };
+const SUBTABLE_LAYOUTS = new Map([
+    [0, { lengthField: SHORT_LENGTH_FIELD, fixedSizeBytes: 262 }],
+    [2, { lengthField: SHORT_LENGTH_FIELD, fixedSizeBytes: 518 }],
+    [4, { lengthField: SHORT_LENGTH_FIELD, fixedSizeBytes: 14 }],
+    [6, { lengthField: SHORT_LENGTH_FIELD, fixedSizeBytes: 10 }],
+    [8, { lengthField: LONG_LENGTH_FIELD, fixedSizeBytes: 8208 }],
+    [10, { lengthField: LONG_LENGTH_FIELD, fixedSizeBytes: 20 }],
+    [12, { lengthField: LONG_LENGTH_FIELD, fixedSizeBytes: 16 }],
+    [13, { lengthField: LONG_LENGTH_FIELD, fixedSizeBytes: 16 }],
+    [14, { lengthField: VARIATION_LENGTH_FIELD, fixedSizeBytes: 10 }],
 ]);
 const NAME_COUNT_OFFSET_BYTES = 2;
 const NAME_STORAGE_OFFSET_OFFSET_BYTES = 4;
@@ -111,6 +116,7 @@ const POST_GLYPH_NAMES = new Map([
     [0x00020000, { entries: "glyphNameIndex", entrySizeBytes: 2 }],
     [0x00025000, { entries: "offset", entrySizeBytes: 1 }],
 ]);
+const GLYPH_NAME_INDEX_SIZE_BYTES = 2;
 // The length the fields of each OS/2 version take, by version. A version 0 table of 68 bytes is a
 // legacy one, without its last five fields.
 const OS2_LENGTHS_BYTES = new Map([
@@ -161,6 +167,16 @@ const LAST_SUBTABLE_FORMAT = 6;
 // OpenType defines formats 0 to 14 without 1, 3, 5, 7, 9 and 11.
 const UNDEFINED_SUBTABLE_FORMAT = 7;
 const LAST_SUBTABLE_LENGTH_BYTES = CMAP_LENGTH_BYTES - LAST_SUBTABLE_OFFSET_BYTES;
+// post of the TrueType fixture is version 2.0, 12925 bytes long: glyphNameIndex[1296] ends at byte
+// 2626, and 1047 Pascal strings follow it up to the end of the table. Only the last glyph points at
+// the last string, with the highest index, 1304; the next highest is 1303. The last string starts at
+// byte 12915 with its length byte.
+const TTF_POST_LENGTH_BYTES = 12925;
+const TTF_POST_STRINGS_START_BYTES = POST_NUM_GLYPHS_END_BYTES + TTF_NUM_GLYPHS * GLYPH_NAME_INDEX_SIZE_BYTES;
+const TTF_POST_STRING_COUNT = 1047;
+const TTF_LAST_GLYPH = TTF_NUM_GLYPHS - 1;
+const TTF_HIGHEST_GLYPH_NAME_INDEX = 1304;
+const TTF_LAST_POST_STRING_START_BYTES = 12915;
 const NAME_LENGTH_BYTES = 444;
 const NAME_COUNT = 12;
 const NAME_RECORDS_END_BYTES = 150;
@@ -315,9 +331,9 @@ describe("SfntFontValidator", function () {
             await validate(withSubtableHeader(ttf, LAST_SUBTABLE_FORMAT, LAST_SUBTABLE_LENGTH_BYTES));
         });
 
-        it("whose last cmap subtable ends the table in every format", async function () {
-            for (const format of SUBTABLE_LENGTH_FIELDS.keys()) {
-                await validate(withSubtableHeader(ttf, format, LAST_SUBTABLE_LENGTH_BYTES));
+        it("whose last cmap subtable is as long as the part of its format of a set size and ends the table, in every format", async function () {
+            for (const [format, { fixedSizeBytes }] of SUBTABLE_LAYOUTS) {
+                await validate(withLastSubtable(ttf, format, fixedSizeBytes, fixedSizeBytes));
             }
         });
 
@@ -356,6 +372,26 @@ describe("SfntFontValidator", function () {
             for (const version of POST_GLYPH_NAMES.keys()) {
                 await validate(withPostGlyphNames(otf, version));
             }
+        });
+
+        it("with post 2.0 and 2.5 naming more glyphs than maxp has", async function () {
+            // fontforge loses nothing on a larger numGlyphs (issue #757).
+            for (const version of POST_GLYPH_NAMES.keys()) {
+                await validate(withPostGlyphNames(otf, version, OTF_NUM_GLYPHS + 1));
+            }
+        });
+
+        it("whose post 2.0 ends with the string its highest glyphNameIndex points at", async function () {
+            expect(readUint32(ttf, recordOf(ttf, "post") + LENGTH_OFFSET_BYTES)).to.equal(TTF_POST_LENGTH_BYTES);
+            expect(glyphNameIndexOf(ttf, TTF_LAST_GLYPH)).to.equal(TTF_HIGHEST_GLYPH_NAME_INDEX);
+            await validate(ttf);
+        });
+
+        it("whose post 2.0 string past the one its highest glyphNameIndex points at runs past the table", async function () {
+            // The last glyph no longer names the last string, and the table is cut into it.
+            const withoutLastName = withGlyphNameIndex(ttf, TTF_LAST_GLYPH, 0);
+
+            await validate(withLength(withoutLastName, "post", TTF_POST_LENGTH_BYTES - 1));
         });
 
         it("whose last table ends at the end of the file", async function () {
@@ -1021,7 +1057,7 @@ describe("SfntFontValidator", function () {
         });
 
         it("whose subtable leaves no room for the header of its format", async function () {
-            for (const [format, lengthField] of SUBTABLE_LENGTH_FIELDS) {
+            for (const [format, { lengthField }] of SUBTABLE_LAYOUTS) {
                 const headerSizeBytes = lengthField.offsetBytes + lengthField.sizeBytes;
                 const subtableOffset = CMAP_LENGTH_BYTES - headerSizeBytes + 1;
 
@@ -1033,12 +1069,28 @@ describe("SfntFontValidator", function () {
             }
         });
 
-        it("whose subtable runs past its end", async function () {
-            for (const format of SUBTABLE_LENGTH_FIELDS.keys()) {
+        it("whose subtable is shorter than the part of its format of a set size", async function () {
+            // fontforge reads that part past cmap and loses the encoding or makes one up, both with
+            // exit 0, or runs past 60 s (issue #757).
+            for (const [format, { fixedSizeBytes }] of SUBTABLE_LAYOUTS) {
                 await expectBroken(
-                    withSubtableHeader(ttf, format, LAST_SUBTABLE_LENGTH_BYTES + 1),
+                    withLastSubtable(ttf, format, fixedSizeBytes, fixedSizeBytes - 1),
+                    SfntRule.CmapSubtableMinLength,
+                    `At table "cmap": the length of the subtable of encodingRecords[1] is ${
+                        fixedSizeBytes - 1
+                    }, expected at least ${fixedSizeBytes}, the part of format ${format} of a set size.`,
+                );
+            }
+        });
+
+        it("whose subtable runs past its end", async function () {
+            for (const [format, { fixedSizeBytes }] of SUBTABLE_LAYOUTS) {
+                await expectBroken(
+                    withLastSubtable(ttf, format, fixedSizeBytes, fixedSizeBytes + 1),
                     SfntRule.CmapSubtableLength,
-                    'At table "cmap": the length of the subtable of encodingRecords[1] is 523, expected at most 522, the rest of table "cmap" from offset 660.',
+                    `At table "cmap": the length of the subtable of encodingRecords[1] is ${
+                        fixedSizeBytes + 1
+                    }, expected at most ${fixedSizeBytes}, the rest of table "cmap" from offset 660.`,
                 );
             }
         });
@@ -1222,6 +1274,96 @@ describe("SfntFontValidator", function () {
                     }[${OTF_NUM_GLYPHS}].`,
                 );
             }
+        });
+
+        it("of version 2.0 or 2.5 naming fewer glyphs than maxp has", async function () {
+            // fontforge renames the glyphs past numGlyphs that have no encoding to glyphN with exit
+            // 0: 401 of the TrueType fixture with numGlyphs 0 (issue #757).
+            for (const version of POST_GLYPH_NAMES.keys()) {
+                for (const numGlyphs of [0, OTF_NUM_GLYPHS - 1]) {
+                    await expectBroken(
+                        withPostGlyphNames(otf, version, numGlyphs),
+                        SfntRule.PostNumGlyphs,
+                        `At table "post": numGlyphs is ${numGlyphs}, expected at least ${OTF_NUM_GLYPHS}, maxp.numGlyphs.`,
+                    );
+                }
+            }
+        });
+
+        it("of version 2.0 whose string its highest glyphNameIndex points at runs one byte past it", async function () {
+            // fontforge cuts the glyph name short with exit 0 (issue #757).
+            await expectBroken(
+                withLength(ttf, "post", TTF_POST_LENGTH_BYTES - 1),
+                SfntRule.PostNameStringInTable,
+                `At table "post": the end of string ${
+                    TTF_POST_STRING_COUNT - 1
+                } of stringData is ${TTF_POST_LENGTH_BYTES}, expected at most ${
+                    TTF_POST_LENGTH_BYTES - 1
+                }, the length of table "post", as glyphNameIndex[${TTF_LAST_GLYPH}] is ${TTF_HIGHEST_GLYPH_NAME_INDEX}.`,
+            );
+        });
+
+        it("naming the first of the glyphs that share the highest glyphNameIndex", async function () {
+            const withNotdefSharingIndex = withGlyphNameIndex(ttf, 0, TTF_HIGHEST_GLYPH_NAME_INDEX);
+
+            await expectBroken(
+                withLength(withNotdefSharingIndex, "post", TTF_POST_LENGTH_BYTES - 1),
+                SfntRule.PostNameStringInTable,
+                `At table "post": the end of string ${
+                    TTF_POST_STRING_COUNT - 1
+                } of stringData is ${TTF_POST_LENGTH_BYTES}, expected at most ${
+                    TTF_POST_LENGTH_BYTES - 1
+                }, the length of table "post", as glyphNameIndex[0] is ${TTF_HIGHEST_GLYPH_NAME_INDEX}.`,
+            );
+        });
+
+        it("of version 2.0 ending with the length byte of the string its highest glyphNameIndex points at", async function () {
+            const lengthEndBytes = TTF_LAST_POST_STRING_START_BYTES + 1;
+
+            await expectBroken(
+                withLength(ttf, "post", lengthEndBytes),
+                SfntRule.PostNameStringInTable,
+                `At table "post": the end of string ${
+                    TTF_POST_STRING_COUNT - 1
+                } of stringData is ${TTF_POST_LENGTH_BYTES}, expected at most ${lengthEndBytes}, the length of table "post", as glyphNameIndex[${TTF_LAST_GLYPH}] is ${TTF_HIGHEST_GLYPH_NAME_INDEX}.`,
+            );
+        });
+
+        it("of version 2.0 cut right after glyphNameIndex, its strings left out", async function () {
+            // fontforge renames 400 glyphs of the TrueType fixture to glyphN with exit 0 (issue #757).
+            await expectBroken(
+                withLength(ttf, "post", TTF_POST_STRINGS_START_BYTES),
+                SfntRule.PostNameStringInTable,
+                `At table "post": the end of string 0 of stringData is ${
+                    TTF_POST_STRINGS_START_BYTES + 1
+                }, expected at most ${TTF_POST_STRINGS_START_BYTES}, the length of table "post", as glyphNameIndex[${TTF_LAST_GLYPH}] is ${TTF_HIGHEST_GLYPH_NAME_INDEX}.`,
+            );
+        });
+
+        it("of version 2.0 whose entry past the glyphs of maxp points past its strings", async function () {
+            const pastStrings = TTF_HIGHEST_GLYPH_NAME_INDEX + 1;
+            const withExtraEntry = withExtraGlyphName(ttf, pastStrings);
+            const lengthBytes = TTF_POST_LENGTH_BYTES + GLYPH_NAME_INDEX_SIZE_BYTES;
+
+            await expectBroken(
+                withExtraEntry,
+                SfntRule.PostNameStringInTable,
+                `At table "post": the end of string ${TTF_POST_STRING_COUNT} of stringData is ${
+                    lengthBytes + 1
+                }, expected at most ${lengthBytes}, the length of table "post", as glyphNameIndex[${TTF_NUM_GLYPHS}] is ${pastStrings}.`,
+            );
+        });
+
+        it("of version 2.0 whose glyphNameIndex points past its strings", async function () {
+            const pastStrings = TTF_HIGHEST_GLYPH_NAME_INDEX + 1;
+
+            await expectBroken(
+                withGlyphNameIndex(ttf, TTF_LAST_GLYPH, pastStrings),
+                SfntRule.PostNameStringInTable,
+                `At table "post": the end of string ${TTF_POST_STRING_COUNT} of stringData is ${
+                    TTF_POST_LENGTH_BYTES + 1
+                }, expected at most ${TTF_POST_LENGTH_BYTES}, the length of table "post", as glyphNameIndex[${TTF_LAST_GLYPH}] is ${pastStrings}.`,
+            );
         });
 
         it("of a version OpenType does not define", async function () {
@@ -1467,7 +1609,7 @@ function subtableOffsetField(font: Uint8Array, index: number): number {
  * as it was, as the validator does not read it.
  */
 function withSubtableHeader(font: Uint8Array, format: number, lengthBytes: number): Uint8Array {
-    const lengthField = SUBTABLE_LENGTH_FIELDS.get(format) ?? expect.fail(`no cmap subtable format ${format}`);
+    const { lengthField } = SUBTABLE_LAYOUTS.get(format) ?? expect.fail(`no cmap subtable format ${format}`);
     const subtableBytes = tableOffset(font, "cmap") + LAST_SUBTABLE_OFFSET_BYTES;
     const header = new Uint8Array(lengthField.offsetBytes + lengthField.sizeBytes);
     const view = new DataView(header.buffer);
@@ -1481,6 +1623,16 @@ function withSubtableHeader(font: Uint8Array, format: number, lengthBytes: numbe
     }
 
     return withBytes(font, subtableBytes, header);
+}
+
+/**
+ * The font with cmap moved to the end of the file and its last subtable, the one of encoding record
+ * 1, rewritten as of `format`, stating `lengthBytes`: the copy of cmap ends `restBytes` after the
+ * start of the subtable, cut or lengthened to do so. The bytes past the header are those that
+ * followed in the file, which the validator does not read.
+ */
+function withLastSubtable(font: Uint8Array, format: number, restBytes: number, lengthBytes: number): Uint8Array {
+    return withSubtableHeader(withTableMovedToEnd(font, "cmap", LAST_SUBTABLE_OFFSET_BYTES + restBytes), format, lengthBytes);
 }
 
 /**
@@ -1546,16 +1698,52 @@ function withNameString(font: Uint8Array, index: number, stringOffset: number, l
 }
 
 /**
- * The font with a post of `version`, 2.0 or 2.5, moved to the end of the file: numGlyphs is the
- * glyph count of the CFF fixture, and the table ends with the entry of its last glyph.
+ * The font with a post of `version`, 2.0 or 2.5, at the end of the file: the header of its post,
+ * then `numGlyphs`, the glyph count of the CFF fixture unless given, and a zero entry per glyph, so
+ * every glyph of a 2.0 takes a standard name and no string is needed. The table ends with the entry
+ * of its last glyph.
  */
-function withPostGlyphNames(font: Uint8Array, version: number): Uint8Array {
+function withPostGlyphNames(font: Uint8Array, version: number, numGlyphs: number = OTF_NUM_GLYPHS): Uint8Array {
     const glyphNames = POST_GLYPH_NAMES.get(version) ?? expect.fail(`no glyph names in post ${hex(version)}`);
-    const lengthBytes = POST_NUM_GLYPHS_END_BYTES + OTF_NUM_GLYPHS * glyphNames.entrySizeBytes;
-    const moved = withTableMovedToEnd(font, "post", lengthBytes);
-    const withVersion = withUint32(moved, tableOffset(moved, "post") + TABLE_VERSION_OFFSET_BYTES, version);
+    const post = tableOffset(font, "post");
+    const table = new Uint8Array(POST_NUM_GLYPHS_END_BYTES + numGlyphs * glyphNames.entrySizeBytes);
+    const view = new DataView(table.buffer);
 
-    return withField16(withVersion, "post", POST_NUM_GLYPHS_OFFSET_BYTES, OTF_NUM_GLYPHS);
+    table.set(font.subarray(post, post + POST_HEADER_SIZE_BYTES));
+    view.setUint32(TABLE_VERSION_OFFSET_BYTES, version);
+    view.setUint16(POST_NUM_GLYPHS_OFFSET_BYTES, numGlyphs);
+
+    return withTableAtEnd(font, "post", table);
+}
+
+/**
+ * The font with its post 2.0 at the end of the file, naming one glyph more than maxp has: numGlyphs
+ * grows by one, and an entry of `glyphNameIndex` follows the last one, before the strings.
+ */
+function withExtraGlyphName(font: Uint8Array, glyphNameIndex: number): Uint8Array {
+    const post = tableOffset(font, "post");
+    const numGlyphs = readUint16(font, post + POST_NUM_GLYPHS_OFFSET_BYTES);
+    const lengthBytes = readUint32(font, recordOf(font, "post") + LENGTH_OFFSET_BYTES);
+    const entriesEndBytes = POST_NUM_GLYPHS_END_BYTES + numGlyphs * GLYPH_NAME_INDEX_SIZE_BYTES;
+    const extraEntry = new Uint8Array(GLYPH_NAME_INDEX_SIZE_BYTES);
+
+    new DataView(extraEntry.buffer).setUint16(0, glyphNameIndex);
+
+    const table = Uint8Array.from(
+        Buffer.concat([font.subarray(post, post + entriesEndBytes), extraEntry, font.subarray(post + entriesEndBytes, post + lengthBytes)]),
+    );
+
+    new DataView(table.buffer).setUint16(POST_NUM_GLYPHS_OFFSET_BYTES, numGlyphs + 1);
+
+    return withTableAtEnd(font, "post", table);
+}
+
+function glyphNameIndexOf(font: Uint8Array, glyphIndex: number): number {
+    return readUint16(font, tableOffset(font, "post") + POST_NUM_GLYPHS_END_BYTES + glyphIndex * GLYPH_NAME_INDEX_SIZE_BYTES);
+}
+
+function withGlyphNameIndex(font: Uint8Array, glyphIndex: number, glyphNameIndex: number): Uint8Array {
+    return withField16(font, "post", POST_NUM_GLYPHS_END_BYTES + glyphIndex * GLYPH_NAME_INDEX_SIZE_BYTES, glyphNameIndex);
 }
 
 function hex(value: number): string {
