@@ -24,7 +24,7 @@ import { FileHelper } from "app/shared/fs/file-helper";
  * that give the glyph count, where the metrics of each glyph lie and, with TrueType outlines, where
  * its outline lies, and the version of `cmap`, `name`, `OS/2` and `post` with whether their
  * content lies inside the table: the headers and records of `cmap` and `name`, each `cmap`
- * subtable with its format and length, each `name` string, the fields of the `OS/2` version, and
+ * subtable with its format and length, each non-empty `name` string, the fields of the `OS/2` version, and
  * the 32-byte header of `post` with the glyph-name index of versions 2.0 and 2.5. What a subtable,
  * a string or a glyph name holds is not read. TTF and OTF take the same checks: the sfnt version
  * names the outline type, not the extension, and the rules that depend on the outline type go by
@@ -665,7 +665,7 @@ export class SfntFontValidator implements FontValidator {
             index,
             subtableOffset,
             SfntFontValidator.CMAP_SUBTABLE_FORMAT_SIZE_BYTES,
-            "the 2-byte format",
+            `the ${SfntFontValidator.CMAP_SUBTABLE_FORMAT_SIZE_BYTES}-byte format`,
         );
 
         const format = view.getUint16(cmap.offset + subtableOffset);
@@ -688,7 +688,7 @@ export class SfntFontValidator implements FontValidator {
             index,
             subtableOffset,
             header.sizeBytes,
-            `the ${header.sizeBytes}-byte header of format ${format}`,
+            `the ${header.sizeBytes}-byte fields up to the length of format ${format}`,
         );
 
         const lengthOffsetBytes = cmap.offset + subtableOffset + header.lengthOffsetBytes;
@@ -721,13 +721,15 @@ export class SfntFontValidator implements FontValidator {
         sizeBytes: number,
         fields: string,
     ): void {
+        const at = this.tableName(SfntFontValidator.CMAP_TAG);
+
         if (subtableOffset + sizeBytes > cmap.length) {
             throw BrokenSfnt.byRule(fontPath, {
                 rule: SfntRule.CmapSubtableInTable,
-                at: this.tableName(SfntFontValidator.CMAP_TAG),
+                at: at,
                 field: `the end of ${fields} of the subtable of encodingRecords[${index}]`,
                 value: subtableOffset + sizeBytes,
-                expected: `at most ${cmap.length}, the length of ${this.tableName(SfntFontValidator.CMAP_TAG)}`,
+                expected: `at most ${cmap.length}, the length of ${at}`,
             });
         }
     }

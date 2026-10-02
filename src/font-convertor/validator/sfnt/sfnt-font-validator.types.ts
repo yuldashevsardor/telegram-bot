@@ -31,7 +31,7 @@ export enum SfntRule {
     CmapRecordsInTable = "cmap holds its 4-byte header and an 8-byte encoding record per numTables (OpenType 1.9.1, cmap)",
     CmapVersion = "cmap.version is 0 (OpenType 1.9.1, cmap)",
     CmapSubtables = "cmap has at least one subtable (ours: the specification sets no count, and without a subtable fontforge 20230101 drops the encoding)",
-    CmapSubtableInTable = "a cmap subtable starts after the header and the encoding records of cmap, with room in cmap for its format and for the header that format gives, as the length of a table encompasses its subtables (OpenType 1.9.1, Table Directory; cmap)",
+    CmapSubtableInTable = "a cmap subtable starts after the header and the encoding records of cmap, with room in cmap for its format and for the fields up to its length: 4 bytes for formats 0 to 6, 8 for 8 to 13 and 6 for 14, as the length of a table encompasses its subtables (OpenType 1.9.1, Table Directory; cmap)",
     CmapSubtableFormat = "a cmap subtable is of format 0, 2, 4, 6, 8, 10, 12, 13 or 14 (OpenType 1.9.1, cmap)",
     CmapSubtableLength = "a cmap subtable ends inside cmap: its offset plus its length is at most the length of cmap (OpenType 1.9.1, Table Directory; cmap)",
     NameRecordsInTable = "name holds its 6-byte header and a 12-byte name record per count, and with version 1 a 2-byte langTagCount and a 4-byte language-tag record per langTagCount (OpenType 1.9.1, name)",

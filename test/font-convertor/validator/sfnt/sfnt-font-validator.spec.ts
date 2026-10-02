@@ -130,6 +130,9 @@ const CMAP_RECORDS_END_BYTES = CMAP_HEADER_SIZE_BYTES + CMAP_NUM_TABLES * ENCODI
 // The fewest encoding records that run past the end of cmap: 4 + 8 × 148 = 1188.
 const CMAP_NUM_TABLES_PAST_END = Math.floor((CMAP_LENGTH_BYTES - CMAP_HEADER_SIZE_BYTES) / ENCODING_RECORD_SIZE_BYTES) + 1;
 const LAST_SUBTABLE_OFFSET_BYTES = 660;
+const LAST_SUBTABLE_FORMAT = 6;
+// OpenType defines formats 0 to 14 without 1, 3, 5, 7, 9 and 11.
+const UNDEFINED_SUBTABLE_FORMAT = 7;
 const LAST_SUBTABLE_LENGTH_BYTES = CMAP_LENGTH_BYTES - LAST_SUBTABLE_OFFSET_BYTES;
 const NAME_LENGTH_BYTES = 444;
 const NAME_COUNT = 12;
@@ -140,6 +143,8 @@ const WINDOWS_FULL_NAME_RECORD = 9;
 // A string the measurement placed past the table: 40 bytes at 290 of the storage, so it ends at
 // 150 + 290 + 40 = 480 of the 444-byte name.
 const STRING_PAST_TABLE = { offsetBytes: 290, lengthBytes: 40 };
+// An offset past the storage of any name, which the measurement gave an empty string.
+const FAR_STRING_OFFSET_BYTES = 60000;
 // A version 1 name without language tags (withNameVersion1) is 446 bytes long, and the fewest
 // language-tag records that run past it are 74: (446 − 152) / 4 = 73.5.
 const NAME_VERSION_1_LENGTH_BYTES = NAME_LENGTH_BYTES + LANG_TAG_COUNT_SIZE_BYTES;
@@ -251,7 +256,7 @@ describe("SfntFontValidator", function () {
         it("whose cmap subtable starts right after the encoding records, and another ends the table", async function () {
             expect(subtableOffsetOf(ttf, 0)).to.equal(CMAP_RECORDS_END_BYTES);
             expect(subtableOffsetOf(ttf, 1)).to.equal(LAST_SUBTABLE_OFFSET_BYTES);
-            await validate(withSubtableHeader(ttf, 6, LAST_SUBTABLE_LENGTH_BYTES));
+            await validate(withSubtableHeader(ttf, LAST_SUBTABLE_FORMAT, LAST_SUBTABLE_LENGTH_BYTES));
         });
 
         it("whose last cmap subtable ends the table in every format", async function () {
@@ -266,7 +271,7 @@ describe("SfntFontValidator", function () {
 
         it("whose empty name string points past the table", async function () {
             // An empty string has no byte to read, and fontforge converts it at any offset.
-            await validate(withNameString(ttf, WINDOWS_FULL_NAME_RECORD, STRING_PAST_TABLE.offsetBytes, 0));
+            await validate(withNameString(ttf, WINDOWS_FULL_NAME_RECORD, FAR_STRING_OFFSET_BYTES, 0));
         });
 
         it("whose name holds no strings past its records", async function () {
@@ -286,7 +291,7 @@ describe("SfntFontValidator", function () {
         });
 
         it("with post 1.0 and 3.0 of its 32-byte header", async function () {
-            for (const version of [0x00010000, 0x00030000]) {
+            for (const version of POST_VERSIONS.filter((postVersion) => !POST_GLYPH_NAMES.has(postVersion))) {
                 await validate(withUint32(otf, tableOffset(otf, "post") + TABLE_VERSION_OFFSET_BYTES, version));
             }
         });
@@ -802,7 +807,7 @@ describe("SfntFontValidator", function () {
 
         it("whose subtable is of a format OpenType does not define", async function () {
             await expectBroken(
-                withField16(ttf, "cmap", LAST_SUBTABLE_OFFSET_BYTES, 7),
+                withField16(ttf, "cmap", LAST_SUBTABLE_OFFSET_BYTES, UNDEFINED_SUBTABLE_FORMAT),
                 SfntRule.CmapSubtableFormat,
                 'At table "cmap": the format of the subtable of encodingRecords[1] is 7, expected one of 0, 2, 4, 6, 8, 10, 12, 13, 14.',
             );
@@ -816,7 +821,7 @@ describe("SfntFontValidator", function () {
                 await expectBroken(
                     withField16(withSubtableOffset(ttf, 1, subtableOffset), "cmap", subtableOffset, format),
                     SfntRule.CmapSubtableInTable,
-                    `At table "cmap": the end of the ${headerSizeBytes}-byte header of format ${format} of the subtable of encodingRecords[1] is 1183, expected at most 1182, the length of table "cmap".`,
+                    `At table "cmap": the end of the ${headerSizeBytes}-byte fields up to the length of format ${format} of the subtable of encodingRecords[1] is 1183, expected at most 1182, the length of table "cmap".`,
                 );
             }
         });

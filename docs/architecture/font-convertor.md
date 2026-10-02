@@ -60,9 +60,10 @@ because a font does not guarantee the order of its records.
 The names are informational, so the codec never rejects a font over a missing name: the matching
 envelope field stays empty. That holds for a missing record, a missing `name` table, and a string
 past the declared end of the table or past the end of the file. A TTF source without the `name`
-table, or with a string past its end, does not reach the codec: `SfntFontValidator` below rejects
-it. So the tolerance for a missing table and for a string out of bounds serves the intermediate
-sfnt the engine writes, while a missing record is packed from a source too.
+table, or with a non-empty string past its end, does not reach the codec: `SfntFontValidator`
+below rejects it. So the tolerance for a missing table and for a non-empty string out of bounds
+serves the intermediate sfnt the engine writes, while a missing record or an empty string out of
+bounds is packed from a source too.
 
 `eot-packer.ts` writes version `0x00020001`. The header is read through `EotHeader`
 (`font-convertor/eot-header/`), which lays out the fixed part, the names and the tail of every
@@ -315,8 +316,10 @@ fits, loses the encoding, with "Could not find any valid encoding tables"; a `na
 records gives "Invalid mac encoding 65535"; a `name` string past the table crashed fontforge with
 SIGSEGV in every conversion in 7 of the 14 variants measured and put foreign bytes into the full
 name in 2; a `post` 2.0 cut to its 32-byte header renames 399 glyphs of the TrueType fixture, those
-without an encoding, to `glyphN`. Some breaks the rules follow the standard on, not the engine:
-`name` records that run into the string storage convert with nothing lost, and so does a `cmap`
+without an encoding, to `glyphN`; an undefined format over the Unicode subtable of the fixture
+leaves 225 of its 893 encoded glyphs, those of the Macintosh one. Some breaks the rules follow the
+standard on, not the engine: `name` records that run into the string storage convert with nothing
+lost, and so does a `cmap` subtable whose length runs past `cmap`, up to 65535 for format 4, or
 whose one record points 2 bytes into its header while another Unicode record holds; pointing at 0
 or 4, one such record already loses the encoding. An empty `name` string is not held to the table:
 it has no byte to read, and the engine converts it at any offset. None of these rules rejects a
