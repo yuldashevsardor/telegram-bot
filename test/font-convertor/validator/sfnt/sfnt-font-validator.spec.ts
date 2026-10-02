@@ -1340,6 +1340,20 @@ describe("SfntFontValidator", function () {
             );
         });
 
+        it("of version 2.0 whose entry past the glyphs of maxp points past its strings", async function () {
+            const pastStrings = TTF_HIGHEST_GLYPH_NAME_INDEX + 1;
+            const withExtraEntry = withExtraGlyphName(ttf, pastStrings);
+            const lengthBytes = TTF_POST_LENGTH_BYTES + GLYPH_NAME_INDEX_SIZE_BYTES;
+
+            await expectBroken(
+                withExtraEntry,
+                SfntRule.PostNameStringInTable,
+                `At table "post": the end of string ${TTF_POST_STRING_COUNT} of stringData is ${
+                    lengthBytes + 1
+                }, expected at most ${lengthBytes}, the length of table "post", as glyphNameIndex[${TTF_NUM_GLYPHS}] is ${pastStrings}.`,
+            );
+        });
+
         it("of version 2.0 whose glyphNameIndex points past its strings", async function () {
             const pastStrings = TTF_HIGHEST_GLYPH_NAME_INDEX + 1;
 
@@ -1698,6 +1712,28 @@ function withPostGlyphNames(font: Uint8Array, version: number, numGlyphs: number
     table.set(font.subarray(post, post + POST_HEADER_SIZE_BYTES));
     view.setUint32(TABLE_VERSION_OFFSET_BYTES, version);
     view.setUint16(POST_NUM_GLYPHS_OFFSET_BYTES, numGlyphs);
+
+    return withTableAtEnd(font, "post", table);
+}
+
+/**
+ * The font with its post 2.0 at the end of the file, naming one glyph more than maxp has: numGlyphs
+ * grows by one, and an entry of `glyphNameIndex` follows the last one, before the strings.
+ */
+function withExtraGlyphName(font: Uint8Array, glyphNameIndex: number): Uint8Array {
+    const post = tableOffset(font, "post");
+    const numGlyphs = readUint16(font, post + POST_NUM_GLYPHS_OFFSET_BYTES);
+    const lengthBytes = readUint32(font, recordOf(font, "post") + LENGTH_OFFSET_BYTES);
+    const entriesEndBytes = POST_NUM_GLYPHS_END_BYTES + numGlyphs * GLYPH_NAME_INDEX_SIZE_BYTES;
+    const extraEntry = new Uint8Array(GLYPH_NAME_INDEX_SIZE_BYTES);
+
+    new DataView(extraEntry.buffer).setUint16(0, glyphNameIndex);
+
+    const table = Uint8Array.from(
+        Buffer.concat([font.subarray(post, post + entriesEndBytes), extraEntry, font.subarray(post + entriesEndBytes, post + lengthBytes)]),
+    );
+
+    new DataView(table.buffer).setUint16(POST_NUM_GLYPHS_OFFSET_BYTES, numGlyphs + 1);
 
     return withTableAtEnd(font, "post", table);
 }

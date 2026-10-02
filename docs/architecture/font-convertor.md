@@ -336,8 +336,8 @@ ours, not the standard's, and the text of each says why: a collection is rejecte
 does not open (exit 1, "not in a known format"); so is a `cmap` without subtables, of which the
 standard sets no count; and so is a `post` 2.0 or 2.5 with fewer glyph names than `maxp` has glyphs,
 of which the standard says only that the two counts should be the same. Where the two references
-differ, the rules follow the one that governs the outlines present, with two exceptions, the last
-two items:
+differ, the rules follow the one that governs the outlines present, with three exceptions, the last
+three items:
 
 - `OS/2` is required only with CFF outlines. Microsoft requires it of every font, Apple's manual
   (chapter 6) not of a TrueType one. Without it the engine builds the table itself: every glyph is
@@ -356,6 +356,11 @@ two items:
   supported on Apple platforms", and fails with a version 4.0 `post`, which the manual defines but
   says "should be avoided" and OpenType does not support. None of the 543 real fonts measured has
   either.
+- The glyph-name index of `post` 2.0 goes by OpenType for every font: from 258 to 65535 it points at
+  a string. Apple's manual (chapter 6, `post`) reserves 32768 to 65535 "for future use"; a TrueType
+  font with such an index is held to the string it points at all the same, and fails without one.
+  fontforge 20230101 reads the index as OpenType does: a glyph of the TrueType fixture given 65535
+  is renamed to `glyphN` ([#757](https://github.com/yuldashevsardor/telegram-bot/issues/757)).
 
 The rules on `head`, `maxp`, `hhea`, `hmtx` and `loca` are those where the engine converts a broken
 font with exit 0 and loses glyphs, measured on the TrueType fixture of 1296 glyphs: `maxp.numGlyphs`
