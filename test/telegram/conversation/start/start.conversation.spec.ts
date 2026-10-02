@@ -6,11 +6,11 @@ import type { Context, Conversation } from "app/telegram/bot/bot.types";
 import { StartConversation } from "app/telegram/conversation/start/start.conversation";
 import { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory";
 import type { FontForge } from "app/font-convertor/font-forge/font-forge";
-import { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-signature-matcher";
 import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
 import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
 import { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
 import { WoffFontValidator } from "app/font-convertor/validator/woff/woff-font-validator";
+import { Woff2FontValidator } from "app/font-convertor/validator/woff2/woff2-font-validator";
 import { EotFontValidator } from "app/font-convertor/validator/eot/eot-font-validator";
 import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 
@@ -20,9 +20,9 @@ function buildConvertorFactory(): ConvertorFactory {
     return new ConvertorFactory(
         {} as FontForge,
         new FontValidatorResolver(
-            new FontSignatureMatcher(),
             new SvgFontValidator(),
             new WoffFontValidator(new SfntFontValidator()),
+            new Woff2FontValidator(),
             new SfntFontValidator(),
             new EotFontValidator(),
         ),

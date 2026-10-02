@@ -5,14 +5,14 @@ import path from "path";
 import { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory";
 import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 import { FontConvertor } from "app/font-convertor/font-convertor";
-import { ConvertorNotFound, FontConvertorError, InvalidFontSignature } from "app/font-convertor/font-convertor.errors";
+import { ConvertorNotFound, FontConvertorError } from "app/font-convertor/font-convertor.errors";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import type { FontForge } from "app/font-convertor/font-forge/font-forge";
-import { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-signature-matcher";
 import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
 import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
 import { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
 import { WoffFontValidator } from "app/font-convertor/validator/woff/woff-font-validator";
+import { Woff2FontValidator } from "app/font-convertor/validator/woff2/woff2-font-validator";
 import { EotFontValidator } from "app/font-convertor/validator/eot/eot-font-validator";
 import { NotSfnt } from "app/font-convertor/validator/sfnt/sfnt-font-validator.errors";
 import { InvalidPath, PermissionDenied } from "app/shared/fs/file-helper.errors";
@@ -43,9 +43,9 @@ describe("FontConvertor", function () {
         factory = new ConvertorFactory(
             fontForge,
             new FontValidatorResolver(
-                new FontSignatureMatcher(),
                 new SvgFontValidator(),
                 new WoffFontValidator(new SfntFontValidator()),
+                new Woff2FontValidator(),
                 new SfntFontValidator(),
                 new EotFontValidator(),
             ),
@@ -216,32 +216,14 @@ describe("FontConvertor", function () {
     }
 });
 
-describe("ConvertorNotFound and InvalidFontSignature", function () {
-    // The factories are checked directly. The spec above compares only the payload of
-    // ConvertorNotFound. The Convertor spec compares a rejection with an error from the same
-    // factory, so the text there is compared with itself.
-    const cases = [
-        {
-            name: "ConvertorNotFound.byExtensions",
-            error: ConvertorNotFound.byExtensions(Extension.TTF, Extension.WOFF),
-            type: ConvertorNotFound,
-            message: "Convertor for ttf to woff not found.",
-            payload: { from: "ttf", to: "woff" },
-        },
-        {
-            name: "InvalidFontSignature.byPathAndExtension",
-            error: InvalidFontSignature.byPathAndExtension("/x/font.eot", Extension.EOT),
-            type: InvalidFontSignature,
-            message: "File /x/font.eot content does not match eot format.",
-            payload: { path: "/x/font.eot", extension: "eot" },
-        },
-    ];
+describe("ConvertorNotFound", function () {
+    // The factory is checked directly. The spec above compares only the payload of
+    // ConvertorNotFound.
+    it("ConvertorNotFound.byExtensions keeps its message and details", function () {
+        const error = ConvertorNotFound.byExtensions(Extension.TTF, Extension.WOFF);
 
-    for (const { name, error, type, message, payload } of cases) {
-        it(`${name} keeps its message and details`, function () {
-            expect(error).to.be.instanceOf(type);
-            expect(error.message).to.equal(message);
-            expect(error.payload).to.deep.equal(payload);
-        });
-    }
+        expect(error).to.be.instanceOf(ConvertorNotFound);
+        expect(error.message).to.equal("Convertor for ttf to woff not found.");
+        expect(error.payload).to.deep.equal({ from: "ttf", to: "woff" });
+    });
 });

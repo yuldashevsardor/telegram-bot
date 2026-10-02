@@ -6,11 +6,11 @@ import { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory
 import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { FontForge } from "app/font-convertor/font-forge/font-forge";
-import { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-signature-matcher";
 import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
 import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
 import { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
 import { WoffFontValidator } from "app/font-convertor/validator/woff/woff-font-validator";
+import { Woff2FontValidator } from "app/font-convertor/validator/woff2/woff2-font-validator";
 import { EotFontValidator } from "app/font-convertor/validator/eot/eot-font-validator";
 import { InvalidPath } from "app/shared/fs/file-helper.errors";
 
@@ -23,9 +23,9 @@ const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 // eot-convertor.spec.ts; only their SVG route runs here, with the real engine and codec, below.
 describe("Convertors of the engine pairs", function () {
     const resolver = new FontValidatorResolver(
-        new FontSignatureMatcher(),
         new SvgFontValidator(),
         new WoffFontValidator(new SfntFontValidator()),
+        new Woff2FontValidator(),
         new SfntFontValidator(),
         new EotFontValidator(),
     );

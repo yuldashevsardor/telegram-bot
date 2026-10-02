@@ -24,7 +24,7 @@ The runtime sequences live in the files of their subsystems:
   lease and the completions, sending one message and removing its files, the failure classes, the
   outcomes, the retry delay, waiting for the result and the payload codec
 - [`font-convertor.md`](./font-convertor.md) — format pairs, the EOT codec, signatures, the SVG,
-  WOFF, EOT and sfnt validators, running the engine
+  WOFF, WOFF2, EOT and sfnt validators, running the engine
 - [`user.md`](./user.md) — the entity, the repository, filling the context
 - [`logging.md`](./logging.md) — the port and the adapters, thresholds, request correlation
 - [`i18n.md`](./i18n.md) — locales, Fluent bundles, command descriptions
@@ -169,8 +169,8 @@ exception: they use underscores (`tree_remove.py`). Python cannot import a modul
 hyphen, and the specs import the module they check. The same holds for their specs: `unittest`
 finds them by the `test_*.py` pattern and imports them as modules too.
 
-A subsystem is a directory named in the map above. `convertor/`, `eot-packer/`, `font-forge/`,
-`signature-matcher/` and the other directories inside subsystems are not in the map. A role
+A subsystem is a directory named in the map above. `convertor/`, `eot-packer/`, `font-forge/` and
+the other directories inside subsystems are not in the map. A role
 directory is a subsystem whose name is a role rather than the name of a file inside: `platform/`,
 `shared/fs/`.
 
@@ -206,8 +206,7 @@ the import path can be guessed from the class name.
 **Gathers** — same-kind siblings of one contract, enumerated by one registrar:
 
 - `convertor/<from>/` — by `convertor-factory.ts`;
-- `validator/` — by `font-validator-resolver.ts`; `woff2/` is not given out by it yet, since no
-  convertor takes the WOFF2 validator;
+- `validator/` — by `font-validator-resolver.ts`;
 - `command/`, `conversation/`, `filter/` and `middleware/` — by `container.ts`;
 - the `.ftl` bundles in the `locale/` directories at commands and conversations — by the walk in
   `createFluent()` (`telegram/locale/locale.ts`).
@@ -240,13 +239,11 @@ A sibling with neither lies flat in the siblings directory: `filter/has-session-
 
 **Keeps a main file with its companions** — `*.types.ts` and `*.errors.ts` lie in the directory
 together with their main file, and the directory name is the name of the main file:
-`eot-packer/eot-packer.ts` with its `*.errors.ts`, `signature-matcher/font-signature-matcher.ts`
-with its `*.types.ts` (the word `font` is struck out, see the next paragraph). Companions lie the
-same way in the directories the map names itself: `font-convertor/font-convertor.*`,
-`platform/logger/logger.*`, `telegram/user/user.*`. The directory name there is the name of the
-main file as well. A directory with companions can also stand inside a hiding one:
-`eot-packer/sfnt-reader/` keeps `sfnt-reader.ts` with its `*.types.ts`, while from outside
-`eot-packer/` still only `eot-packer.ts` is visible.
+`eot-packer/eot-packer.ts` with its `*.errors.ts`. Companions lie the same way in the directories
+the map names itself: `font-convertor/font-convertor.*`, `platform/logger/logger.*`,
+`telegram/user/user.*`. The directory name there is the name of the main file as well. A directory
+with companions can also stand inside a hiding one: `eot-packer/sfnt-reader/` keeps `sfnt-reader.ts`
+with its `*.types.ts`, while from outside `eot-packer/` still only `eot-packer.ts` is visible.
 
 A directory name does not repeat words the path above it has already said. They are struck out of
 the name the ground gives: `bootstrap/config/container/` at `config-container.ts`,
@@ -315,8 +312,8 @@ its main file is not reflected in the spec path: named by the file's name or its
 struck-out words of the path included. A siblings directory and a directory around a sibling are
 exceptions to this, see the paragraph on them below. Examples:
 
-- the files of `convertor/`, `eot-packer/`, `font-forge/` and `signature-matcher/` are checked by
-  specs right in `test/font-convertor/`;
+- the files of `convertor/`, `eot-packer/` and `font-forge/` are checked by specs right in
+  `test/font-convertor/`;
 - `telegram/bot/bot.ts` — by `test/telegram/bot.spec.ts`;
 - `bootstrap/config/container/config-container.ts` — by
   `test/bootstrap/config/config-container.spec.ts`.
