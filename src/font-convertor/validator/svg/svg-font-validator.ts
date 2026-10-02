@@ -11,14 +11,17 @@ import type { FontValidator } from "app/font-convertor/validator/font-validator"
 /**
  * Checks an SVG font against W3C SVG 1.1 Second Edition, chapter 20 "Fonts". SVG 2 removed SVG
  * fonts, so 1.1 is the reference. Only the fonts are checked against it, not the rest of the
- * document. One rule of ours looks at the whole document: it holds one element named `font`, in any
- * namespace.
+ * document. Two rules of ours look at the whole document: it holds one `font`, and the names of the
+ * font elements appear in it only on elements of the SVG namespace.
  */
 @injectable()
 export class SvgFontValidator implements FontValidator {
     private static readonly SVG_NAMESPACE = "http://www.w3.org/2000/svg";
     private static readonly XLINK_NAMESPACE = "http://www.w3.org/1999/xlink";
     private static readonly SVG_ROOT = `{${SvgFontValidator.SVG_NAMESPACE}}svg`;
+    // The names fontforge reads by the local name alone: of an element in any namespace, and of a
+    // processing instruction by its target (`_FindSVGFontNodes` and `SVGParseFont` of its `svg.c`).
+    private static readonly FONT_NODE_NAMES: ReadonlyArray<string> = ["font", "font-face", "glyph", "missing-glyph"];
 
     // XML 1.0 §4.3.3 requires the BOM for UTF-16. Without one the file is read as UTF-8, and the
     // zero bytes of UTF-16 make it "not XML".
@@ -78,9 +81,7 @@ export class SvgFontValidator implements FontValidator {
         }
 
         if (scan.violation !== undefined) {
-            const { rule, element, line, attribute } = scan.violation;
-
-            throw BrokenFont.byRule(fontPath, rule, element, line, attribute);
+            throw BrokenFont.byRule(fontPath, scan.violation);
         }
     }
 
@@ -108,7 +109,6 @@ export class SvgFontValidator implements FontValidator {
             svg11Doctype: false,
             root: undefined,
             hasFont: false,
-            hasFontInAnyNamespace: false,
             violation: undefined,
             open: [],
         };
@@ -137,6 +137,8 @@ export class SvgFontValidator implements FontValidator {
             line = parser.column === 0 ? parser.line - 1 : parser.line;
         });
         parser.on("opentag", (tag) => this.open(scan, tag, line));
+        // The event comes at `?>`, so the line is the one the instruction closes on.
+        parser.on("processinginstruction", (instruction) => this.checkInstruction(scan, instruction.target, parser.line));
         parser.on("closetag", () => this.close(scan));
 
         parser.write(text).close();
@@ -167,17 +169,23 @@ export class SvgFontValidator implements FontValidator {
 
         scan.open.push(element);
 
-        // fontforge reads a `font` of any namespace as a font, and of several converts the first
-        // without a word. Which one to take is not the domain's call, as with an sfnt collection.
-        if (tag.local === "font") {
-            if (scan.hasFontInAnyNamespace) {
-                this.report(scan, FontRule.SingleFont, tag.name, line);
-            }
-
-            scan.hasFontInAnyNamespace = true;
+        if (tag.uri !== SvgFontValidator.SVG_NAMESPACE && SvgFontValidator.FONT_NODE_NAMES.includes(tag.local)) {
+            scan.violation ??= {
+                rule: FontRule.SvgNamespaceOnly,
+                element: tag.local,
+                namespace: tag.uri,
+                line: line,
+                attribute: undefined,
+            };
         }
 
+        // Of several fonts fontforge converts the first without a word. Which one to take is not the
+        // domain's call, as with an sfnt collection.
         if (element.name === "font") {
+            if (scan.hasFont) {
+                this.report(scan, FontRule.SingleFont, "font", line);
+            }
+
             scan.hasFont = true;
             this.checkFont(scan, element, tag);
         }
@@ -218,9 +226,15 @@ export class SvgFontValidator implements FontValidator {
         }
     }
 
+    private checkInstruction(scan: Scan, target: string, line: number): void {
+        if (SvgFontValidator.FONT_NODE_NAMES.includes(target)) {
+            this.report(scan, FontRule.SvgNamespaceOnly, `?${target}?`, line);
+        }
+    }
+
     private checkFont(scan: Scan, element: OpenElement, tag: SaxesTagNS): void {
         // `horiz-adv-x` of `font` is #REQUIRED in the DTD.
-        if (this.attribute(tag, "horiz-adv-x") === undefined) {
+        if (this.attribute(scan, element, tag, "font", "horiz-adv-x") === undefined) {
             this.report(scan, FontRule.AdvanceRequired, "font", element.line);
         }
 
@@ -228,7 +242,7 @@ export class SvgFontValidator implements FontValidator {
     }
 
     private checkFontFace(scan: Scan, element: OpenElement, tag: SaxesTagNS): void {
-        const unitsPerEm = this.attribute(tag, "units-per-em");
+        const unitsPerEm = this.attribute(scan, element, tag, "font-face", "units-per-em");
 
         // Our rule: the specification defaults `units-per-em` to 1000 (§20.8.3), but fontforge does
         // not open a font without it.
@@ -244,7 +258,7 @@ export class SvgFontValidator implements FontValidator {
     private checkGlyph(scan: Scan, element: OpenElement, tag: SaxesTagNS, name: Exclude<NumericElement, "font">): void {
         this.checkMetrics(scan, element, tag, name);
 
-        const outline = this.attribute(tag, "d");
+        const outline = this.attribute(scan, element, tag, name, "d");
 
         if (outline !== undefined && !isPathData(outline)) {
             this.report(scan, FontRule.PathData, name, element.line, ["d", outline]);
@@ -256,14 +270,14 @@ export class SvgFontValidator implements FontValidator {
      */
     private checkMetrics(scan: Scan, element: OpenElement, tag: SaxesTagNS, name: NumericElement): void {
         for (const attribute of SvgFontValidator.NUMERIC_ATTRIBUTES[name]) {
-            const value = this.attribute(tag, attribute);
+            const value = this.attribute(scan, element, tag, name, attribute);
 
             if (value !== undefined && !SvgFontValidator.NUMBER.test(value)) {
                 this.report(scan, FontRule.Number, name, element.line, [attribute, value]);
             }
         }
 
-        const advance = this.attribute(tag, "horiz-adv-x");
+        const advance = this.attribute(scan, element, tag, name, "horiz-adv-x");
 
         // "Glyph widths are required to be non-negative" (§20.3, §20.4).
         if (advance !== undefined && this.sign(advance) < 0) {
@@ -282,13 +296,23 @@ export class SvgFontValidator implements FontValidator {
         return mantissa.startsWith("-") ? -1 : 1;
     }
 
-    private attribute(tag: SaxesTagNS, name: string): string | undefined {
-        // Only an unprefixed attribute is an attribute of an SVG element; saxes keys a prefixed one
-        // by its qualified name.
+    /**
+     * Reads an attribute a rule checks. Only an unprefixed attribute is an attribute of an SVG
+     * element; saxes keys a prefixed one by its qualified name. fontforge, though, reads the first
+     * attribute of the local name in any namespace (libxml2 `xmlGetProp`), so a prefixed one of that
+     * name breaks a rule of ours. A namespace declaration is no attribute to libxml2.
+     */
+    private attribute(scan: Scan, element: OpenElement, tag: SaxesTagNS, elementName: string, name: string): string | undefined {
+        for (const attribute of Object.values(tag.attributes)) {
+            if (attribute.local === name && attribute.prefix !== "" && attribute.prefix !== "xmlns") {
+                this.report(scan, FontRule.UnprefixedAttribute, elementName, element.line, [attribute.name, attribute.value]);
+            }
+        }
+
         return tag.attributes[name]?.value;
     }
 
     private report(scan: Scan, rule: FontRule, name: string, line: number, attribute?: [string, string]): void {
-        scan.violation ??= { rule: rule, element: name, line: line, attribute: attribute };
+        scan.violation ??= { rule: rule, element: name, namespace: undefined, line: line, attribute: attribute };
     }
 }
