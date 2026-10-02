@@ -27,7 +27,7 @@ describe("Convertors of the engine pairs", function () {
         new SvgFontValidator(),
         new WoffFontValidator(new SfntFontValidator()),
         new SfntFontValidator(),
-        new EotFontValidator(),
+        new EotFontValidator(new SfntFontValidator()),
     );
     const factory = new ConvertorFactory(new FontForge("fontforge"), resolver, new EotPacker());
     const engineExtensions = factory.getSupportedExtensions().filter((extension) => extension !== Extension.EOT);
