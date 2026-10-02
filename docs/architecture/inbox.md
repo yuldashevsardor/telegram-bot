@@ -30,10 +30,10 @@ not stored twice, and it is the order inside a group.
 ### Updates without a session key
 
 An update without a user or a chat is not stored: `user_id` and `chat_id` are `NOT NULL`, and the
-caller drops such an update before the push, logging a warning, as `HasSessionKeyFilter` drops it
-from the pipeline today ([`bot.md`](./bot.md)). Such an update has no session, so the pipeline
-would drop it anyway, and with `ALLOWED_UPDATES` of `message` alone (`bot.ts`) none is requested,
-as the comment of the filter says.
+caller is to drop such an update before the push, logging a warning, as `HasSessionKeyFilter`
+drops it from the pipeline today ([`bot.md`](./bot.md)). Such an update has no session, so the
+pipeline would drop it anyway, and with `ALLOWED_UPDATES` of `message` alone (`bot.ts`) none is
+requested, as the comment of the filter says.
 
 ## Group states
 
@@ -53,7 +53,8 @@ as the comment of the filter says.
    chats ([`outbox.md`](./outbox.md), "Push"). A group that comes twice in a batch is passed once:
    PostgreSQL fails an `ON CONFLICT DO UPDATE` that inserts the same new row twice;
 2. the updates go in with `ON CONFLICT (update_id) DO NOTHING`: one stored already, or repeated
-   in the batch, is left out without failing the batch, and the first copy stays;
+   in the batch, is left out without failing the batch. The stored update stays; of the copies
+   in one batch, whichever PostgreSQL meets first goes in;
 3. every `idle` group that got an update inserted by step 2 becomes `ready`. A group whose
    updates were all left out stays `idle`: it has no head to claim.
 

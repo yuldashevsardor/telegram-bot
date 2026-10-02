@@ -112,7 +112,7 @@ export class InboxStore {
         // has to tell that claim from the next one of the same group.
         const lockToken = randomUUID();
 
-        const rows = await this.sql<ClaimedInboxRow[]>`
+        const claimedRows = await this.sql<ClaimedInboxRow[]>`
             WITH heads AS (
                 SELECT head.update_id
                 FROM telegram_inbox_groups AS inbox_group
@@ -157,7 +157,7 @@ export class InboxStore {
             ORDER BY update_id
         `;
 
-        return rows.map((row) => ({
+        return claimedRows.map((row) => ({
             updateId: Number(row.update_id),
             userId: Number(row.user_id),
             chatId: Number(row.chat_id),

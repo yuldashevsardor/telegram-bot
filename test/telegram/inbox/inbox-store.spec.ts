@@ -20,6 +20,9 @@ const GROUP_CHAT = -1_001_234_567_890;
 const WAIT_DEADLINE_MS = 5_000;
 // The default timeout of mocha, 2 s, is shorter than the deadline and would fail a hung wait first.
 const SPEC_TIMEOUT_MS = 10_000;
+// The spec of two claimers drains 48 updates through two clients, beyond SPEC_TIMEOUT_MS on a slow
+// machine.
+const CONCURRENT_CLAIMS_TIMEOUT_MS = 20_000;
 const LEASE_DURATION_MS = 600_000;
 // A token no claim gave out.
 const OTHER_TOKEN = "00000000-0000-4000-8000-000000000000";
@@ -210,7 +213,7 @@ describe("InboxStore", function () {
         });
 
         it("never gives one group to two claimers on separate clients at once", async function () {
-            this.timeout(20_000);
+            this.timeout(CONCURRENT_CLAIMS_TIMEOUT_MS);
 
             const users = [USER, OTHER_USER, 1, 2, 3, 4];
             const perGroup = 8;
