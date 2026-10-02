@@ -281,7 +281,8 @@ rule of the submission, `EotPacker.unpack()` rejected 12, and fontforge 20230101
 ([#617](https://github.com/yuldashevsardor/telegram-bot/issues/617)). On `eot → ttf` the engine is
 not called at all.
 
-It answers with a subclass of `InvalidEotFont` (`eot-font-validator.errors.ts`): `NotEot` for a file
+About the envelope it answers with a subclass of `InvalidEotFont` (`eot-font-validator.errors.ts`):
+`NotEot` for a file
 shorter than the 82-byte fixed part of the header or without the `MagicNumber`, `BrokenEot` for the
 first broken rule. The order in which the rules are checked is in the comment of `validate()`. A
 file that cannot be read fails with `ReadFailed` of `FileHelper`, not with an answer about the font.
@@ -303,7 +304,10 @@ fixture with a broken enclosed font the codec rejected 4, and `eot → ttf` retu
 ([#740](https://github.com/yuldashevsardor/telegram-bot/issues/740)). So the validator hands the
 `FontData` bytes to `SfntFontValidator.validateBytes()`, last, once the envelope holds. The sfnt
 validator's answer, a subclass of `InvalidSfntFont` naming the EOT file in `path`, passes through as
-the EOT validator's own, as it does for WOFF.
+the EOT validator's own, as it does for WOFF. Unlike the rebuilt sfnt of a WOFF, `FontData` can
+break the sfnt rules on its size, and then "the file" of the answer is `FontData`, not the EOT file
+its `path` names: the size `NotSfnt` and `DirectoryInFile` give and "the file size" of `TableInFile`
+are those of `FontData`.
 
 `EotPacker.unpack()` keeps its own checks as they were. Every source it unpacks has passed the
 validator first.

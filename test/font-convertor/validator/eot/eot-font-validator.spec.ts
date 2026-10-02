@@ -47,16 +47,17 @@ const UNKNOWN_FLAG = 0x00010000;
 const FIXTURE_HEADER_SIZE_BYTES = 180;
 
 // The sfnt fields the spec edits in the enclosed font, by their offset (OpenType 1.9.1, Table
-// Directory, head, maxp). Unlike the EOT header, the sfnt is big-endian.
-const SFNT_VERSION = 0;
-const SFNT_NUM_TABLES = 4;
+// Directory, head, maxp): in the sfnt, in a table record and in the table. Unlike the EOT header,
+// the sfnt is big-endian.
+const SFNT_VERSION_OFFSET_BYTES = 0;
+const SFNT_NUM_TABLES_OFFSET_BYTES = 4;
 const SFNT_HEADER_SIZE_BYTES = 12;
 const SFNT_RECORD_SIZE_BYTES = 16;
 const SFNT_TAG_SIZE_BYTES = 4;
-const SFNT_RECORD_TABLE_OFFSET = 8;
-const SFNT_RECORD_LENGTH = 12;
-const HEAD_INDEX_TO_LOC_FORMAT = 50;
-const MAXP_NUM_GLYPHS = 4;
+const TABLE_OFFSET_OFFSET_BYTES = 8;
+const LENGTH_OFFSET_BYTES = 12;
+const INDEX_TO_LOC_FORMAT_OFFSET_BYTES = 50;
+const NUM_GLYPHS_OFFSET_BYTES = 4;
 const TTC_TAG = 0x74746366;
 // A glyf filled with this byte opens glyph 0 with numberOfContours 0x7f7f: a simple glyph whose
 // endPtsOfContours alone run past it.
@@ -491,7 +492,7 @@ describe("EotFontValidator.validate", function () {
             { name: "garbage", font: () => new Uint8Array(GARBAGE_SIZE_BYTES).fill(GARBAGE_BYTE), expected: NotSfnt },
             {
                 name: "a collection",
-                font: () => withUint32(fixtureLayout.font, SFNT_VERSION, TTC_TAG),
+                font: () => withUint32(fixtureLayout.font, SFNT_VERSION_OFFSET_BYTES, TTC_TAG),
                 expected: BrokenSfnt,
                 rule: SfntRule.Collection,
             },
@@ -503,7 +504,7 @@ describe("EotFontValidator.validate", function () {
             },
             {
                 name: "numTables 0",
-                font: () => withUint16(fixtureLayout.font, SFNT_NUM_TABLES, 0),
+                font: () => withUint16(fixtureLayout.font, SFNT_NUM_TABLES_OFFSET_BYTES, 0),
                 expected: BrokenSfnt,
                 rule: SfntRule.TablesPresent,
             },
@@ -528,13 +529,13 @@ describe("EotFontValidator.validate", function () {
             })),
             {
                 name: "maxp.numGlyphs 0",
-                font: () => withUint16(fixtureLayout.font, tableOffset(fixtureLayout.font, "maxp") + MAXP_NUM_GLYPHS, 0),
+                font: () => withUint16(fixtureLayout.font, tableOffset(fixtureLayout.font, "maxp") + NUM_GLYPHS_OFFSET_BYTES, 0),
                 expected: BrokenSfnt,
                 rule: SfntRule.NotdefGlyph,
             },
             {
                 name: "head.indexToLocFormat 2",
-                font: () => withUint16(fixtureLayout.font, tableOffset(fixtureLayout.font, "head") + HEAD_INDEX_TO_LOC_FORMAT, 2),
+                font: () => withUint16(fixtureLayout.font, tableOffset(fixtureLayout.font, "head") + INDEX_TO_LOC_FORMAT_OFFSET_BYTES, 2),
                 expected: BrokenSfnt,
                 rule: SfntRule.IndexToLocFormat,
             },
@@ -740,34 +741,34 @@ function patch(bytes: Uint8Array, mutate: (view: DataView) => void): Uint8Array 
  */
 function withoutTable(font: Uint8Array, tag: string): Uint8Array {
     const recordOffset = recordOf(font, tag);
-    const numTables = readUint16(font, SFNT_NUM_TABLES);
+    const numTables = readUint16(font, SFNT_NUM_TABLES_OFFSET_BYTES);
     const directoryEnd = SFNT_HEADER_SIZE_BYTES + numTables * SFNT_RECORD_SIZE_BYTES;
     const copy = Uint8Array.from(font);
 
     copy.copyWithin(recordOffset, recordOffset + SFNT_RECORD_SIZE_BYTES, directoryEnd);
     copy.fill(0, directoryEnd - SFNT_RECORD_SIZE_BYTES, directoryEnd);
 
-    return withUint16(copy, SFNT_NUM_TABLES, numTables - 1);
+    return withUint16(copy, SFNT_NUM_TABLES_OFFSET_BYTES, numTables - 1);
 }
 
 function withTableFilled(font: Uint8Array, tag: string, byte: number): Uint8Array {
     const copy = Uint8Array.from(font);
     const start = tableOffset(font, tag);
 
-    copy.fill(byte, start, start + readUint32(font, recordOf(font, tag) + SFNT_RECORD_LENGTH));
+    copy.fill(byte, start, start + readUint32(font, recordOf(font, tag) + LENGTH_OFFSET_BYTES));
 
     return copy;
 }
 
 function tableOffset(font: Uint8Array, tag: string): number {
-    return readUint32(font, recordOf(font, tag) + SFNT_RECORD_TABLE_OFFSET);
+    return readUint32(font, recordOf(font, tag) + TABLE_OFFSET_OFFSET_BYTES);
 }
 
 /**
  * The offset of the table record of `tag` in the sfnt.
  */
 function recordOf(font: Uint8Array, tag: string): number {
-    const numTables = readUint16(font, SFNT_NUM_TABLES);
+    const numTables = readUint16(font, SFNT_NUM_TABLES_OFFSET_BYTES);
 
     for (let index = 0; index < numTables; index++) {
         const recordOffset = SFNT_HEADER_SIZE_BYTES + index * SFNT_RECORD_SIZE_BYTES;

@@ -5,7 +5,7 @@
  * (issue https://github.com/yuldashevsardor/telegram-bot/issues/181).
  *
  * One set serves four checks. `SfntFontValidator` checks the version of a source under an sfnt
- * extension and of the font an EOT encloses against it. `SfntTableDirectory` checks the version
+ * extension and of the sfnt a WOFF or an EOT carries against it. `SfntTableDirectory` checks the version
  * before parsing the table directory, and files that never passed the validator reach it too.
  * `WoffFontValidator` and `Woff2FontValidator` check the flavor of a WOFF and a WOFF2 against it:
  * the flavor is the version of the enclosed sfnt. No convertor calls `Woff2FontValidator` yet. The
