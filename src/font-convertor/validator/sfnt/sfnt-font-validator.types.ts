@@ -72,10 +72,10 @@ export type TrueTypeOutlines = {
 };
 
 /**
- * A glyph of glyf with an outline: `offsetBytes` is where it starts in the file, `lengthBytes` its
- * length by loca.
+ * Where the data of a glyph with an outline lies in glyf: `offsetBytes` is where it starts in the
+ * file, `lengthBytes` its length by loca.
  */
-export type Glyph = {
+export type GlyfEntry = {
     id: number;
     offsetBytes: number;
     lengthBytes: number;
@@ -91,11 +91,11 @@ export type CoordinateFlagBits = {
 };
 
 /**
- * The flags of a simple glyph as read: where they end, from the start of the glyph, and how many
- * bytes the x and the y coordinates that follow them take.
+ * What the flags of a simple glyph lay out: where they end, from the start of the glyph, and how
+ * many bytes the x and the y coordinates that follow them take.
  */
-export type SimpleGlyphFlags = {
-    endBytes: number;
+export type FlagsLayout = {
+    flagsEndBytes: number;
     xCoordinatesSizeBytes: number;
     yCoordinatesSizeBytes: number;
 };

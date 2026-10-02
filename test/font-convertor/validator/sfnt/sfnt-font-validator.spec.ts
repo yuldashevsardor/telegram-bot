@@ -53,6 +53,8 @@ const END_PT_SIZE_BYTES = 2;
 const GLYPH_0_LENGTH_BYTES = 84;
 const GLYPH_0_NUMBER_OF_CONTOURS = 5;
 const GLYPH_0_NUMBER_OF_POINTS = 16;
+// endPtsOfContours[0]: the first contour ends at point 3.
+const GLYPH_0_FIRST_END_PT = 3;
 const GLYPH_0_INSTRUCTION_LENGTH_OFFSET_BYTES = 20;
 const GLYPH_0_FLAGS_OFFSET_BYTES = 22;
 const GLYPH_0_REPEAT_COUNT_OFFSET_BYTES = 23;
@@ -300,6 +302,8 @@ describe("SfntFontValidator", function () {
         });
 
         it("with a composite glyph of its 10-byte header alone", async function () {
+            // The specification gives a composite glyph at least one component; this passes only while
+            // the components are not read.
             const composite = withUint16(glyph0(ttf), NUMBER_OF_CONTOURS_OFFSET_BYTES, -1);
 
             await validate(withGlyph(ttf, 0, composite.subarray(0, GLYPH_HEADER_SIZE_BYTES)));
@@ -847,7 +851,7 @@ describe("SfntFontValidator", function () {
         it("whose endPtsOfContours descend", async function () {
             // fontforge drops the outline: "contour ends make no sense".
             await expectBroken(
-                withGlyph(ttf, 0, withUint16(glyph0(ttf), END_PTS_OFFSET_BYTES + END_PT_SIZE_BYTES, 2)),
+                withGlyph(ttf, 0, withUint16(glyph0(ttf), END_PTS_OFFSET_BYTES + END_PT_SIZE_BYTES, GLYPH_0_FIRST_END_PT - 1)),
                 SfntRule.EndPtsAscending,
                 'At table "glyf": endPtsOfContours[1] of glyph 0 is 2, expected more than 3, endPtsOfContours[0].',
             );
@@ -856,7 +860,7 @@ describe("SfntFontValidator", function () {
         it("whose endPtsOfContours repeat a point, for an empty contour", async function () {
             // fontforge loses nothing here; the rule follows the specification, "increasing numeric order".
             await expectBroken(
-                withGlyph(ttf, 0, withUint16(glyph0(ttf), END_PTS_OFFSET_BYTES + END_PT_SIZE_BYTES, 3)),
+                withGlyph(ttf, 0, withUint16(glyph0(ttf), END_PTS_OFFSET_BYTES + END_PT_SIZE_BYTES, GLYPH_0_FIRST_END_PT)),
                 SfntRule.EndPtsAscending,
                 'At table "glyf": endPtsOfContours[1] of glyph 0 is 3, expected more than 3, endPtsOfContours[0].',
             );
@@ -923,8 +927,8 @@ describe("SfntFontValidator", function () {
         });
 
         it("whose y coordinates run past the glyph", async function () {
-            // fontforge reads the missing byte from the next glyph: "A point in GID 0 is outside the
-            // glyph bounding box".
+            // fontforge reads the missing byte from the next glyph. Measured on glyph 31, it said "A
+            // point in GID 31 is outside the glyph bounding box".
             await expectBroken(
                 withGlyph(ttf, 0, glyph0(ttf).subarray(0, GLYPH_0_Y_COORDINATES_END_BYTES - 1)),
                 SfntRule.SimpleGlyphInData,
