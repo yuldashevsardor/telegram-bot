@@ -282,14 +282,13 @@ rule of the submission, `EotPacker.unpack()` rejected 12, and fontforge 20230101
 not called at all.
 
 About the envelope it answers with a subclass of `InvalidEotFont` (`eot-font-validator.errors.ts`):
-`NotEot` for a file
-shorter than the 82-byte fixed part of the header or without the `MagicNumber`, `BrokenEot` for the
-first broken rule. The order in which the rules are checked is in the comment of `validate()`. A
-file that cannot be read fails with `ReadFailed` of `FileHelper`, not with an answer about the font.
-Every answer names the source in `path` of its payload. Nothing in the answers is cut: the only
-things from the file they quote are numbers. One answer keeps another error as the cause: a file
-that ends inside a field the parse reads (the Padding or the size of a block, or `EUDCFlags` and
-`EUDCFontSize` of version `0x00020002`) keeps the `InvalidEot` of `EotHeader`.
+`NotEot` for a file shorter than the 82-byte fixed part of the header or without the `MagicNumber`,
+`BrokenEot` for the first broken rule. The order in which the rules are checked is in the comment of
+`validate()`. A file that cannot be read fails with `ReadFailed` of `FileHelper`, not with an answer
+about the font. Every answer names the source in `path` of its payload. Nothing in the answers is
+cut: the only things from the file they quote are numbers. One answer keeps another error as the
+cause: a file that ends inside a field the parse reads (the Padding or the size of a block, or
+`EUDCFlags` and `EUDCFontSize` of version `0x00020002`) keeps the `InvalidEot` of `EotHeader`.
 
 The rules are `EotRule` in `eot-font-validator.types.ts`, each with its section. One is ours, not
 the submission's, and its text says why: a payload compressed with MicroType Express
@@ -322,12 +321,11 @@ WOFF or an EOT carries, and checks them against the Microsoft OpenType specifica
 what it governs, Apple's TrueType Reference Manual: the table directory ("Table Directory"), the
 tables a font must have ("Required Tables"), and the fields of each table by its own section. Which
 fields of which tables it reads is in the class comment of `SfntFontValidator`.
-`FontValidatorResolver` gives it out for a
-TTF and an OTF source alike, and its answer reaches the caller the way the SVG one does: as the
-cause of `FontConvertorError`, before the engine is called. The engine's TTF and OTF output is not
-checked. The validator exists because the engine does not refuse a broken sfnt: of 104 variants of
-the fixtures, each broken in one place, fontforge 20230101 converted 79 with exit 0, 9 of them
-losing glyphs or outlines, and crashed on 8 with SIGSEGV
+`FontValidatorResolver` gives it out for a TTF and an OTF source alike, and its answer reaches the
+caller the way the SVG one does: as the cause of `FontConvertorError`, before the engine is called.
+The engine's TTF and OTF output is not checked. The validator exists because the engine does not
+refuse a broken sfnt: of 104 variants of the fixtures, each broken in one place, fontforge 20230101
+converted 79 with exit 0, 9 of them losing glyphs or outlines, and crashed on 8 with SIGSEGV
 ([#614](https://github.com/yuldashevsardor/telegram-bot/issues/614)).
 `ttf → eot` does not reach the engine at all: `EotPacker.pack` reads `OS/2`, `head` and `name` and
 packs whatever else the font holds.

@@ -482,6 +482,16 @@ describe("EotFontValidator.validate", function () {
                 );
             });
         }
+
+        it("by its flags before the enclosed font, which a compressed payload does not hold as an sfnt", async function () {
+            const compressed = new Uint8Array(GARBAGE_SIZE_BYTES).fill(GARBAGE_BYTE);
+
+            await expectBroken(
+                build({ ...fixtureLayout, flags: TTEMBED_TTCOMPRESSED, font: compressed }),
+                EotRule.Flags,
+                `At the header: Flags is ${hex(TTEMBED_TTCOMPRESSED)}, expected no bit of 0x10000004.`,
+            );
+        });
     });
 
     // The breaks measured in issue #740: the codec rejects the first four by the sfnt header alone
