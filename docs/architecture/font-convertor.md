@@ -330,12 +330,14 @@ font. Every answer names the source in `path` of its payload, the WOFF file for 
 carries. Nothing in the answers is cut: the only text from the file they quote is a table tag, four
 bytes long.
 
-The rules are `SfntRule` in `sfnt-font-validator.types.ts`, each with its section. Three of them
-are ours, not the standard's, and the text of each says why: a collection is rejected (see
+The rules are `SfntRule` in `sfnt-font-validator.types.ts`, each with its section. Four of them are
+ours, not the standard's, and the text of each says why: a collection is rejected (see
 "Signatures"); so is a font with a `CFF2` table, which the standard allows but fontforge 20230101
-does not open (exit 1, "not in a known format"); and so is a `cmap` without subtables, of which the
-standard sets no count. Where the two references differ, the rules follow the one that governs the
-outlines present, with two exceptions, the last two items:
+does not open (exit 1, "not in a known format"); so is a `cmap` without subtables, of which the
+standard sets no count; and so is a `post` 2.0 or 2.5 with fewer glyph names than `maxp` has glyphs,
+of which the standard says only that the two counts should be the same. Where the two references
+differ, the rules follow the one that governs the outlines present, with two exceptions, the last
+two items:
 
 - `OS/2` is required only with CFF outlines. Microsoft requires it of every font, Apple's manual
   (chapter 6) not of a TrueType one. Without it the engine builds the table itself: every glyph is
@@ -412,10 +414,10 @@ glyphs, those of the Macintosh one. Some breaks the rules follow the standard on
 subtable whose length runs past `cmap`, up to 65535 for format 4, or falls short of the part of its
 format of a set size while that part lies inside `cmap`, or a `cmap` whose one record points 2 bytes
 into its header while another Unicode record holds; pointing at 0 or 4, one such record already
-loses the encoding. A `post` 2.0 string whose length runs past `post`, with another table after it,
-loses nothing either: the engine reads the name only up to the end of `post`. An empty `name` string
-is not held to the table: it has no byte to read, and the engine converts it at any offset. A `post`
-naming more glyphs than `maxp` has passes: the standard says the two "should be the same", and the
+loses the encoding. The engine reads a `post` 2.0 name only up to the end of `post`: a string whose
+length byte overstates it past the table, while its bytes lie inside, loses nothing, and the rule
+rejects it all the same. An empty `name` string is not held to the table: it has no byte to read,
+and the engine converts it at any offset. A `post` naming more glyphs than `maxp` has passes: the
 engine loses nothing on it. Its entries past the glyphs of `maxp` are held to the strings all the
 same: an entry of 2.0 pointing past them fails the font. With CFF outlines the engine takes the
 glyph names from `CFF `, and no break of `post` measured loses one; the `post` rules apply to those

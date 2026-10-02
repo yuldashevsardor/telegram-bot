@@ -47,7 +47,7 @@ export enum SfntRule {
     Os2Length = "OS/2 holds its 2-byte version and the fields of that version: 86 bytes for version 1, 96 for 2 to 4, 100 for 5, and 68 for version 0, whose last five fields a legacy font may lack (OpenType 1.9.1, OS/2)",
     PostLength = "post holds its 32-byte header, and with version 2.0 a 2-byte numGlyphs and a 2-byte glyphNameIndex per numGlyphs, with version 2.5 a 2-byte numGlyphs and a 1-byte offset per numGlyphs (OpenType 1.9.1, post)",
     PostVersion = "post.version is 1.0, 2.0, 2.5 or 3.0 (OpenType 1.9.1, post)",
-    PostNumGlyphs = "post.numGlyphs of version 2.0 or 2.5 is at least maxp.numGlyphs (OpenType 1.9.1, post, says the two should be the same; a larger one passes, as fontforge 20230101 loses nothing on it)",
+    PostNumGlyphs = "post.numGlyphs of version 2.0 or 2.5 is at least maxp.numGlyphs (ours: OpenType 1.9.1, post, says only that the two should be the same; with fewer, fontforge 20230101 renames the glyphs past them, and with more it loses nothing)",
     PostNameStringInTable = "every glyph name of post 2.0 that a glyphNameIndex of 258 or more points at lies inside post, with the Pascal strings before it (OpenType 1.9.1, post; Table Directory)",
 }
 

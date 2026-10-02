@@ -1184,6 +1184,11 @@ export class SfntFontValidator implements FontValidator {
             }
         }
 
+        // Every glyph takes a standard name: no string is read.
+        if (highestIndex < SfntFontValidator.POST_STANDARD_NAME_COUNT) {
+            return;
+        }
+
         const stringCount = highestIndex - SfntFontValidator.POST_STANDARD_NAME_COUNT + 1;
         const at = this.tableName(SfntFontValidator.POST_TAG);
         let stringOffsetBytes = stringsStartBytes;

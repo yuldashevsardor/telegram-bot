@@ -78,29 +78,21 @@ const SUBTABLE_OFFSET_IN_RECORD_BYTES = 4;
 // 32 bits right after the format. The header ends with the length.
 const SUBTABLE_FORMAT_SIZE_BYTES = 2;
 const SHORT_SUBTABLE_LENGTH_SIZE_BYTES = 2;
-const SUBTABLE_LENGTH_FIELDS = new Map([
-    [0, { offsetBytes: 2, sizeBytes: 2 }],
-    [2, { offsetBytes: 2, sizeBytes: 2 }],
-    [4, { offsetBytes: 2, sizeBytes: 2 }],
-    [6, { offsetBytes: 2, sizeBytes: 2 }],
-    [8, { offsetBytes: 4, sizeBytes: 4 }],
-    [10, { offsetBytes: 4, sizeBytes: 4 }],
-    [12, { offsetBytes: 4, sizeBytes: 4 }],
-    [13, { offsetBytes: 4, sizeBytes: 4 }],
-    [14, { offsetBytes: 2, sizeBytes: 4 }],
-]);
-// By format, the part of a cmap subtable of a set size: the fields and arrays before its first array
-// of a variable count (OpenType 1.9.1, cmap).
-const SUBTABLE_FIXED_SIZES_BYTES = new Map([
-    [0, 262],
-    [2, 518],
-    [4, 14],
-    [6, 10],
-    [8, 8208],
-    [10, 20],
-    [12, 16],
-    [13, 16],
-    [14, 10],
+// By format, also the part of a subtable of a set size: the fields and arrays before its first
+// array of a variable count (OpenType 1.9.1, cmap).
+const SHORT_LENGTH_FIELD = { offsetBytes: 2, sizeBytes: 2 };
+const LONG_LENGTH_FIELD = { offsetBytes: 4, sizeBytes: 4 };
+const VARIATION_LENGTH_FIELD = { offsetBytes: 2, sizeBytes: 4 };
+const SUBTABLE_LAYOUTS = new Map([
+    [0, { lengthField: SHORT_LENGTH_FIELD, fixedSizeBytes: 262 }],
+    [2, { lengthField: SHORT_LENGTH_FIELD, fixedSizeBytes: 518 }],
+    [4, { lengthField: SHORT_LENGTH_FIELD, fixedSizeBytes: 14 }],
+    [6, { lengthField: SHORT_LENGTH_FIELD, fixedSizeBytes: 10 }],
+    [8, { lengthField: LONG_LENGTH_FIELD, fixedSizeBytes: 8208 }],
+    [10, { lengthField: LONG_LENGTH_FIELD, fixedSizeBytes: 20 }],
+    [12, { lengthField: LONG_LENGTH_FIELD, fixedSizeBytes: 16 }],
+    [13, { lengthField: LONG_LENGTH_FIELD, fixedSizeBytes: 16 }],
+    [14, { lengthField: VARIATION_LENGTH_FIELD, fixedSizeBytes: 10 }],
 ]);
 const NAME_COUNT_OFFSET_BYTES = 2;
 const NAME_STORAGE_OFFSET_OFFSET_BYTES = 4;
@@ -340,7 +332,7 @@ describe("SfntFontValidator", function () {
         });
 
         it("whose last cmap subtable is as long as the part of its format of a set size and ends the table, in every format", async function () {
-            for (const [format, fixedSizeBytes] of SUBTABLE_FIXED_SIZES_BYTES) {
+            for (const [format, { fixedSizeBytes }] of SUBTABLE_LAYOUTS) {
                 await validate(withLastSubtable(ttf, format, fixedSizeBytes, fixedSizeBytes));
             }
         });
@@ -1065,7 +1057,7 @@ describe("SfntFontValidator", function () {
         });
 
         it("whose subtable leaves no room for the header of its format", async function () {
-            for (const [format, lengthField] of SUBTABLE_LENGTH_FIELDS) {
+            for (const [format, { lengthField }] of SUBTABLE_LAYOUTS) {
                 const headerSizeBytes = lengthField.offsetBytes + lengthField.sizeBytes;
                 const subtableOffset = CMAP_LENGTH_BYTES - headerSizeBytes + 1;
 
@@ -1080,7 +1072,7 @@ describe("SfntFontValidator", function () {
         it("whose subtable is shorter than the part of its format of a set size", async function () {
             // fontforge reads that part past cmap and loses the encoding or makes one up, both with
             // exit 0, or runs past 60 s (issue #757).
-            for (const [format, fixedSizeBytes] of SUBTABLE_FIXED_SIZES_BYTES) {
+            for (const [format, { fixedSizeBytes }] of SUBTABLE_LAYOUTS) {
                 await expectBroken(
                     withLastSubtable(ttf, format, fixedSizeBytes, fixedSizeBytes - 1),
                     SfntRule.CmapSubtableMinLength,
@@ -1092,7 +1084,7 @@ describe("SfntFontValidator", function () {
         });
 
         it("whose subtable runs past its end", async function () {
-            for (const [format, fixedSizeBytes] of SUBTABLE_FIXED_SIZES_BYTES) {
+            for (const [format, { fixedSizeBytes }] of SUBTABLE_LAYOUTS) {
                 await expectBroken(
                     withLastSubtable(ttf, format, fixedSizeBytes, fixedSizeBytes + 1),
                     SfntRule.CmapSubtableLength,
@@ -1603,7 +1595,7 @@ function subtableOffsetField(font: Uint8Array, index: number): number {
  * as it was, as the validator does not read it.
  */
 function withSubtableHeader(font: Uint8Array, format: number, lengthBytes: number): Uint8Array {
-    const lengthField = SUBTABLE_LENGTH_FIELDS.get(format) ?? expect.fail(`no cmap subtable format ${format}`);
+    const { lengthField } = SUBTABLE_LAYOUTS.get(format) ?? expect.fail(`no cmap subtable format ${format}`);
     const subtableBytes = tableOffset(font, "cmap") + LAST_SUBTABLE_OFFSET_BYTES;
     const header = new Uint8Array(lengthField.offsetBytes + lengthField.sizeBytes);
     const view = new DataView(header.buffer);
@@ -1709,12 +1701,12 @@ function withPostGlyphNames(font: Uint8Array, version: number, numGlyphs: number
     return withTableAtEnd(font, "post", table);
 }
 
-function glyphNameIndexOf(font: Uint8Array, glyph: number): number {
-    return readUint16(font, tableOffset(font, "post") + POST_NUM_GLYPHS_END_BYTES + glyph * GLYPH_NAME_INDEX_SIZE_BYTES);
+function glyphNameIndexOf(font: Uint8Array, glyphIndex: number): number {
+    return readUint16(font, tableOffset(font, "post") + POST_NUM_GLYPHS_END_BYTES + glyphIndex * GLYPH_NAME_INDEX_SIZE_BYTES);
 }
 
-function withGlyphNameIndex(font: Uint8Array, glyph: number, glyphNameIndex: number): Uint8Array {
-    return withField16(font, "post", POST_NUM_GLYPHS_END_BYTES + glyph * GLYPH_NAME_INDEX_SIZE_BYTES, glyphNameIndex);
+function withGlyphNameIndex(font: Uint8Array, glyphIndex: number, glyphNameIndex: number): Uint8Array {
+    return withField16(font, "post", POST_NUM_GLYPHS_END_BYTES + glyphIndex * GLYPH_NAME_INDEX_SIZE_BYTES, glyphNameIndex);
 }
 
 function hex(value: number): string {
