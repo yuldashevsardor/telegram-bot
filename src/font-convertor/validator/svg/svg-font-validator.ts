@@ -81,9 +81,7 @@ export class SvgFontValidator implements FontValidator {
         }
 
         if (scan.violation !== undefined) {
-            const { rule, element, line, attribute } = scan.violation;
-
-            throw BrokenFont.byRule(fontPath, rule, element, line, attribute);
+            throw BrokenFont.byRule(fontPath, scan.violation);
         }
     }
 
@@ -172,7 +170,13 @@ export class SvgFontValidator implements FontValidator {
         scan.open.push(element);
 
         if (tag.uri !== SvgFontValidator.SVG_NAMESPACE && SvgFontValidator.FONT_NODE_NAMES.includes(tag.local)) {
-            this.report(scan, FontRule.SvgNamespaceOnly, `{${tag.uri}}${tag.local}`, line);
+            scan.violation ??= {
+                rule: FontRule.SvgNamespaceOnly,
+                element: tag.local,
+                namespace: tag.uri,
+                line: line,
+                attribute: undefined,
+            };
         }
 
         // Of several fonts fontforge converts the first without a word. Which one to take is not the
@@ -230,7 +234,7 @@ export class SvgFontValidator implements FontValidator {
 
     private checkFont(scan: Scan, element: OpenElement, tag: SaxesTagNS): void {
         // `horiz-adv-x` of `font` is #REQUIRED in the DTD.
-        if (this.attribute(tag, "horiz-adv-x") === undefined) {
+        if (this.attribute(scan, element, tag, "font", "horiz-adv-x") === undefined) {
             this.report(scan, FontRule.AdvanceRequired, "font", element.line);
         }
 
@@ -238,7 +242,7 @@ export class SvgFontValidator implements FontValidator {
     }
 
     private checkFontFace(scan: Scan, element: OpenElement, tag: SaxesTagNS): void {
-        const unitsPerEm = this.attribute(tag, "units-per-em");
+        const unitsPerEm = this.attribute(scan, element, tag, "font-face", "units-per-em");
 
         // Our rule: the specification defaults `units-per-em` to 1000 (§20.8.3), but fontforge does
         // not open a font without it.
@@ -254,7 +258,7 @@ export class SvgFontValidator implements FontValidator {
     private checkGlyph(scan: Scan, element: OpenElement, tag: SaxesTagNS, name: Exclude<NumericElement, "font">): void {
         this.checkMetrics(scan, element, tag, name);
 
-        const outline = this.attribute(tag, "d");
+        const outline = this.attribute(scan, element, tag, name, "d");
 
         if (outline !== undefined && !isPathData(outline)) {
             this.report(scan, FontRule.PathData, name, element.line, ["d", outline]);
@@ -266,14 +270,14 @@ export class SvgFontValidator implements FontValidator {
      */
     private checkMetrics(scan: Scan, element: OpenElement, tag: SaxesTagNS, name: NumericElement): void {
         for (const attribute of SvgFontValidator.NUMERIC_ATTRIBUTES[name]) {
-            const value = this.attribute(tag, attribute);
+            const value = this.attribute(scan, element, tag, name, attribute);
 
             if (value !== undefined && !SvgFontValidator.NUMBER.test(value)) {
                 this.report(scan, FontRule.Number, name, element.line, [attribute, value]);
             }
         }
 
-        const advance = this.attribute(tag, "horiz-adv-x");
+        const advance = this.attribute(scan, element, tag, name, "horiz-adv-x");
 
         // "Glyph widths are required to be non-negative" (§20.3, §20.4).
         if (advance !== undefined && this.sign(advance) < 0) {
@@ -292,13 +296,23 @@ export class SvgFontValidator implements FontValidator {
         return mantissa.startsWith("-") ? -1 : 1;
     }
 
-    private attribute(tag: SaxesTagNS, name: string): string | undefined {
-        // Only an unprefixed attribute is an attribute of an SVG element; saxes keys a prefixed one
-        // by its qualified name.
+    /**
+     * Reads an attribute a rule checks. Only an unprefixed attribute is an attribute of an SVG
+     * element; saxes keys a prefixed one by its qualified name. fontforge, though, reads the first
+     * attribute of the local name in any namespace (libxml2 `xmlGetProp`), so a prefixed one of that
+     * name breaks a rule of ours. A namespace declaration is no attribute to libxml2.
+     */
+    private attribute(scan: Scan, element: OpenElement, tag: SaxesTagNS, elementName: string, name: string): string | undefined {
+        for (const attribute of Object.values(tag.attributes)) {
+            if (attribute.local === name && attribute.prefix !== "" && attribute.prefix !== "xmlns") {
+                this.report(scan, FontRule.UnprefixedAttribute, elementName, element.line, [attribute.name, attribute.value]);
+            }
+        }
+
         return tag.attributes[name]?.value;
     }
 
     private report(scan: Scan, rule: FontRule, name: string, line: number, attribute?: [string, string]): void {
-        scan.violation ??= { rule: rule, element: name, line: line, attribute: attribute };
+        scan.violation ??= { rule: rule, element: name, namespace: undefined, line: line, attribute: attribute };
     }
 }

@@ -20,6 +20,7 @@ export enum FontRule {
     GlyphRequired = "font has a glyph child (ours: fontforge turns a font without glyphs into an empty one)",
     SingleFont = "the document has one font element (ours: fontforge converts the first of several and drops the rest)",
     SvgNamespaceOnly = "font, font-face, glyph and missing-glyph name only elements in the SVG namespace (ours: fontforge reads a node of these names in any namespace, and a processing instruction by its target)",
+    UnprefixedAttribute = "an attribute the rules read has no prefix (ours: fontforge reads the first attribute of that local name, in any namespace)",
 }
 
 /**
@@ -46,13 +47,15 @@ export type OpenElement = {
  */
 export type Violation = {
     rule: FontRule;
-    /**
-     * The node as the answer quotes it between `<` and `>`: the local name of an element in the SVG
-     * namespace, another element in Clark notation, a processing instruction as `?target?`.
-     */
+    /** The local name of an element, or a processing instruction as its answer quotes it, `?target?`. */
     element: string;
+    /** The namespace of an element outside the SVG one, `undefined` otherwise: the answer then quotes the element in Clark notation. */
+    namespace: string | undefined;
     line: number;
-    /** The attribute that breaks the rule, as a name and a value; `undefined` for a rule of the element itself. */
+    /**
+     * The attribute that breaks the rule, as a name and a value; `undefined` for a rule of the
+     * element itself. A prefixed name is the qualified one from the file.
+     */
     attribute: [string, string] | undefined;
 };
 
