@@ -50,8 +50,9 @@ const SUBTABLE_OFFSET_IN_RECORD_BYTES = 4;
 // Every cmap subtable opens with its 2-byte format. By format, where its length lies and how wide it
 // is: formats 0 to 6 give 16 bits right after the format, 8 to 13 32 bits after a reserved field, 14
 // 32 bits right after the format. The header ends with the length.
+const SUBTABLE_FORMAT_SIZE_BYTES = 2;
 const SHORT_SUBTABLE_LENGTH_SIZE_BYTES = 2;
-const SUBTABLE_LENGTHS = new Map([
+const SUBTABLE_LENGTH_FIELDS = new Map([
     [0, { offsetBytes: 2, sizeBytes: 2 }],
     [2, { offsetBytes: 2, sizeBytes: 2 }],
     [4, { offsetBytes: 2, sizeBytes: 2 }],
@@ -78,7 +79,8 @@ const POST_HEADER_SIZE_BYTES = 32;
 // Versions 2.0 and 2.5 follow the header with numGlyphs and an entry per glyph: a 2-byte
 // glyphNameIndex for 2.0, a 1-byte offset for 2.5.
 const POST_NUM_GLYPHS_OFFSET_BYTES = 32;
-const POST_NUM_GLYPHS_END_BYTES = 34;
+const POST_NUM_GLYPHS_SIZE_BYTES = 2;
+const POST_NUM_GLYPHS_END_BYTES = POST_NUM_GLYPHS_OFFSET_BYTES + POST_NUM_GLYPHS_SIZE_BYTES;
 const POST_GLYPH_NAMES = new Map([
     [0x00020000, { entries: "glyphNameIndex", entrySizeBytes: 2 }],
     [0x00025000, { entries: "offset", entrySizeBytes: 1 }],
@@ -130,10 +132,19 @@ const CMAP_NUM_TABLES_PAST_END = Math.floor((CMAP_LENGTH_BYTES - CMAP_HEADER_SIZ
 const LAST_SUBTABLE_OFFSET_BYTES = 660;
 const LAST_SUBTABLE_LENGTH_BYTES = CMAP_LENGTH_BYTES - LAST_SUBTABLE_OFFSET_BYTES;
 const NAME_LENGTH_BYTES = 444;
+const NAME_COUNT = 12;
 const NAME_RECORDS_END_BYTES = 150;
 const NAME_STRINGS_END_BYTES = 443;
 // The record of the Windows full name: pointed past the table, its string crashes fontforge 20230101.
 const WINDOWS_FULL_NAME_RECORD = 9;
+// A string the measurement placed past the table: 40 bytes at 290 of the storage, so it ends at
+// 150 + 290 + 40 = 480 of the 444-byte name.
+const STRING_PAST_TABLE = { offsetBytes: 290, lengthBytes: 40 };
+// A version 1 name without language tags (withNameVersion1) is 446 bytes long, and the fewest
+// language-tag records that run past it are 74: (446 − 152) / 4 = 73.5.
+const NAME_VERSION_1_LENGTH_BYTES = NAME_LENGTH_BYTES + LANG_TAG_COUNT_SIZE_BYTES;
+const LANG_TAGS_PAST_END =
+    Math.floor((NAME_VERSION_1_LENGTH_BYTES - NAME_RECORDS_END_BYTES - LANG_TAG_COUNT_SIZE_BYTES) / LANG_TAG_RECORD_SIZE_BYTES) + 1;
 
 describe("SfntFontValidator", function () {
     let workDir: string;
@@ -244,13 +255,18 @@ describe("SfntFontValidator", function () {
         });
 
         it("whose last cmap subtable ends the table in every format", async function () {
-            for (const format of SUBTABLE_LENGTHS.keys()) {
+            for (const format of SUBTABLE_LENGTH_FIELDS.keys()) {
                 await validate(withSubtableHeader(ttf, format, LAST_SUBTABLE_LENGTH_BYTES));
             }
         });
 
         it("whose last name string ends the table", async function () {
             await validate(withLength(ttf, "name", NAME_STRINGS_END_BYTES));
+        });
+
+        it("whose empty name string points past the table", async function () {
+            // An empty string has no byte to read, and fontforge converts it at any offset.
+            await validate(withNameString(ttf, WINDOWS_FULL_NAME_RECORD, STRING_PAST_TABLE.offsetBytes, 0));
         });
 
         it("whose name holds no strings past its records", async function () {
@@ -769,7 +785,9 @@ describe("SfntFontValidator", function () {
                 await expectBroken(
                     withSubtableOffset(ttf, 1, subtableOffset),
                     SfntRule.CmapSubtableInTable,
-                    `At table "cmap": encodingRecords[1].subtableOffset is ${subtableOffset}, expected at most 1180 for the 2-byte format.`,
+                    `At table "cmap": the end of the 2-byte format of the subtable of encodingRecords[1] is ${
+                        subtableOffset + SUBTABLE_FORMAT_SIZE_BYTES
+                    }, expected at most 1182, the length of table "cmap".`,
                 );
             }
         });
@@ -778,7 +796,7 @@ describe("SfntFontValidator", function () {
             await expectBroken(
                 withLength(otf, "cmap", CMAP_RECORDS_END_BYTES),
                 SfntRule.CmapSubtableInTable,
-                'At table "cmap": encodingRecords[0].subtableOffset is 28, expected at most 26 for the 2-byte format.',
+                'At table "cmap": the end of the 2-byte format of the subtable of encodingRecords[0] is 30, expected at most 28, the length of table "cmap".',
             );
         });
 
@@ -791,22 +809,20 @@ describe("SfntFontValidator", function () {
         });
 
         it("whose subtable leaves no room for the header of its format", async function () {
-            for (const [format, length] of SUBTABLE_LENGTHS) {
-                const headerSizeBytes = length.offsetBytes + length.sizeBytes;
+            for (const [format, lengthField] of SUBTABLE_LENGTH_FIELDS) {
+                const headerSizeBytes = lengthField.offsetBytes + lengthField.sizeBytes;
                 const subtableOffset = CMAP_LENGTH_BYTES - headerSizeBytes + 1;
 
                 await expectBroken(
                     withField16(withSubtableOffset(ttf, 1, subtableOffset), "cmap", subtableOffset, format),
                     SfntRule.CmapSubtableInTable,
-                    `At table "cmap": encodingRecords[1].subtableOffset is ${subtableOffset}, expected at most ${
-                        subtableOffset - 1
-                    } for the ${headerSizeBytes}-byte header of format ${format}.`,
+                    `At table "cmap": the end of the ${headerSizeBytes}-byte header of format ${format} of the subtable of encodingRecords[1] is 1183, expected at most 1182, the length of table "cmap".`,
                 );
             }
         });
 
         it("whose subtable runs past its end", async function () {
-            for (const format of SUBTABLE_LENGTHS.keys()) {
+            for (const format of SUBTABLE_LENGTH_FIELDS.keys()) {
                 await expectBroken(
                     withSubtableHeader(ttf, format, LAST_SUBTABLE_LENGTH_BYTES + 1),
                     SfntRule.CmapSubtableLength,
@@ -853,7 +869,7 @@ describe("SfntFontValidator", function () {
         it("whose name records run into the string storage", async function () {
             // fontforge loses nothing here, but the standard lays the storage out after the records.
             await expectBroken(
-                withField16(ttf, "name", NAME_COUNT_OFFSET_BYTES, 13),
+                withField16(ttf, "name", NAME_COUNT_OFFSET_BYTES, NAME_COUNT + 1),
                 SfntRule.NameStorageAfterRecords,
                 'At table "name": storageOffset is 150, expected at least 162, the end of nameRecord[13].',
             );
@@ -870,7 +886,7 @@ describe("SfntFontValidator", function () {
         it("whose string points past it", async function () {
             // fontforge 20230101 crashes with SIGSEGV on it (issue #752).
             await expectBroken(
-                withNameString(ttf, WINDOWS_FULL_NAME_RECORD, 290, 40),
+                withNameString(ttf, WINDOWS_FULL_NAME_RECORD, STRING_PAST_TABLE.offsetBytes, STRING_PAST_TABLE.lengthBytes),
                 SfntRule.NameStringInTable,
                 'At table "name": the end of the string of nameRecord[9] is 480, expected at most 444, the length of table "name".',
             );
@@ -887,7 +903,7 @@ describe("SfntFontValidator", function () {
         it("of version 1 whose language-tag records run past it", async function () {
             // The table of version 1 without language tags is 446 bytes long: (446 − 152) / 4 = 73.5.
             await expectBroken(
-                withField16(withNameVersion1(ttf, 0), "name", NAME_RECORDS_END_BYTES, 74),
+                withField16(withNameVersion1(ttf, 0), "name", NAME_RECORDS_END_BYTES, LANG_TAGS_PAST_END),
                 SfntRule.NameRecordsInTable,
                 'At table "name": length is 446, expected at least 448 for the header, nameRecord[12], langTagCount and langTagRecord[74].',
             );
@@ -907,11 +923,16 @@ describe("SfntFontValidator", function () {
                 withNameVersion1(ttf, 1),
                 "name",
                 langTagRecordBytes + LANG_TAG_RECORD_LENGTH_OFFSET_BYTES,
-                40,
+                STRING_PAST_TABLE.lengthBytes,
             );
 
             await expectBroken(
-                withField16(withLengthSet, "name", langTagRecordBytes + LANG_TAG_RECORD_STRING_OFFSET_OFFSET_BYTES, 290),
+                withField16(
+                    withLengthSet,
+                    "name",
+                    langTagRecordBytes + LANG_TAG_RECORD_STRING_OFFSET_OFFSET_BYTES,
+                    STRING_PAST_TABLE.offsetBytes,
+                ),
                 SfntRule.NameStringInTable,
                 'At table "name": the end of the string of langTagRecord[0] is 486, expected at most 450, the length of table "name".',
             );
@@ -1198,17 +1219,17 @@ function subtableOffsetField(font: Uint8Array, index: number): number {
  * as it was, as the validator does not read it.
  */
 function withSubtableHeader(font: Uint8Array, format: number, lengthBytes: number): Uint8Array {
-    const length = SUBTABLE_LENGTHS.get(format) ?? expect.fail(`no cmap subtable format ${format}`);
+    const lengthField = SUBTABLE_LENGTH_FIELDS.get(format) ?? expect.fail(`no cmap subtable format ${format}`);
     const subtableBytes = tableOffset(font, "cmap") + LAST_SUBTABLE_OFFSET_BYTES;
-    const header = new Uint8Array(length.offsetBytes + length.sizeBytes);
+    const header = new Uint8Array(lengthField.offsetBytes + lengthField.sizeBytes);
     const view = new DataView(header.buffer);
 
     view.setUint16(0, format);
 
-    if (length.sizeBytes === SHORT_SUBTABLE_LENGTH_SIZE_BYTES) {
-        view.setUint16(length.offsetBytes, lengthBytes);
+    if (lengthField.sizeBytes === SHORT_SUBTABLE_LENGTH_SIZE_BYTES) {
+        view.setUint16(lengthField.offsetBytes, lengthBytes);
     } else {
-        view.setUint32(length.offsetBytes, lengthBytes);
+        view.setUint32(lengthField.offsetBytes, lengthBytes);
     }
 
     return withBytes(font, subtableBytes, header);

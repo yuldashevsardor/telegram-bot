@@ -317,10 +317,12 @@ SIGSEGV in every conversion in 7 of the 14 variants measured and put foreign byt
 name in 2; a `post` 2.0 cut to its 32-byte header renames 399 glyphs of the TrueType fixture, those
 without an encoding, to `glyphN`. Some breaks the rules follow the standard on, not the engine:
 `name` records that run into the string storage convert with nothing lost, and so does a `cmap`
-whose one record points into its header while another Unicode record holds. None of
-the rules rejects a font of the 242 in the macOS system font folders, which the validator walks in
-0.3 s. The length `OS/2` needs by its version, and why version 0 passes shortened, is in the comment
-of `OS2_LENGTHS_BYTES` in `SfntFontValidator`.
+whose one record points 2 bytes into its header while another Unicode record holds; pointing at 0
+or 4, one such record already loses the encoding. An empty `name` string is not held to the table:
+it has no byte to read, and the engine converts it at any offset. None of these rules rejects a
+font of the 242 in the macOS system font folders, which the validator walks in 0.3 s. The length
+`OS/2` needs by its version, and why version 0 passes shortened, is in the comment of
+`OS2_LENGTHS_BYTES` in `SfntFontValidator`.
 
 What is deliberately not checked, with the reasons, is in the class comment of
 `SfntFontValidator`: the table checksums and `head.checkSumAdjustment`, which the engine does not

@@ -36,7 +36,7 @@ export enum SfntRule {
     CmapSubtableLength = "a cmap subtable ends inside cmap: its offset plus its length is at most the length of cmap (OpenType 1.9.1, Table Directory; cmap)",
     NameRecordsInTable = "name holds its 6-byte header and a 12-byte name record per count, and with version 1 a 2-byte langTagCount and a 4-byte language-tag record per langTagCount (OpenType 1.9.1, name)",
     NameStorageAfterRecords = "the string storage of name starts after its records: storageOffset is at least where the name records, and with version 1 the language-tag records, end (OpenType 1.9.1, name)",
-    NameStringInTable = "every string of name, of a name record and of a language-tag record, lies inside name: storageOffset plus its offset plus its length is at most the length of name (OpenType 1.9.1, name; Table Directory)",
+    NameStringInTable = "every non-empty string of name, of a name record and of a language-tag record, lies inside name: storageOffset plus its offset plus its length is at most the length of name (OpenType 1.9.1, name; Table Directory)",
     NameVersion = "name.version is 0 or 1 (OpenType 1.9.1, name)",
     Os2Version = "OS/2.version is from 0 to 5 (OpenType 1.9.1, OS/2)",
     Os2Length = "OS/2 holds its 2-byte version and the fields of that version: 86 bytes for version 1, 96 for 2 to 4, 100 for 5, and 68 for version 0, whose last five fields a legacy font may lack (OpenType 1.9.1, OS/2)",

@@ -692,25 +692,26 @@ export class SfntFontValidator implements FontValidator {
         );
 
         const lengthOffsetBytes = cmap.offset + subtableOffset + header.lengthOffsetBytes;
-        const subtableLength =
+        const subtableLengthBytes =
             header.lengthSizeBytes === SfntFontValidator.SHORT_SUBTABLE_LENGTH_SIZE_BYTES
                 ? view.getUint16(lengthOffsetBytes)
                 : view.getUint32(lengthOffsetBytes);
         const restBytes = cmap.length - subtableOffset;
 
-        if (subtableLength > restBytes) {
+        if (subtableLengthBytes > restBytes) {
             throw BrokenSfnt.byRule(fontPath, {
                 rule: SfntRule.CmapSubtableLength,
                 at: at,
                 field: `the length of the subtable of encodingRecords[${index}]`,
-                value: subtableLength,
+                value: subtableLengthBytes,
                 expected: `at most ${restBytes}, the rest of ${at} from offset ${subtableOffset}`,
             });
         }
     }
 
     /**
-     * `fields` names what has to fit at the subtable offset.
+     * `fields` names what has to fit at the subtable offset. The message gives where it ends rather
+     * than a bound on the offset: a cmap cut short has no offset left that the records allow.
      */
     private checkSubtableRoom(
         fontPath: string,
@@ -724,16 +725,17 @@ export class SfntFontValidator implements FontValidator {
             throw BrokenSfnt.byRule(fontPath, {
                 rule: SfntRule.CmapSubtableInTable,
                 at: this.tableName(SfntFontValidator.CMAP_TAG),
-                field: `encodingRecords[${index}].subtableOffset`,
-                value: subtableOffset,
-                expected: `at most ${cmap.length - sizeBytes} for ${fields}`,
+                field: `the end of ${fields} of the subtable of encodingRecords[${index}]`,
+                value: subtableOffset + sizeBytes,
+                expected: `at most ${cmap.length}, the length of ${this.tableName(SfntFontValidator.CMAP_TAG)}`,
             });
         }
     }
 
     /**
-     * Where each string lies is checked, what it holds is not: fontforge 20230101 crashes with
-     * SIGSEGV on a string that runs past the table.
+     * Where each string lies is checked, what it holds is not: on a string that runs past the table
+     * fontforge 20230101 crashed with SIGSEGV in 7 of the 14 variants measured, and put foreign
+     * bytes into the names in 2 more.
      */
     private checkName(fontPath: string, view: DataView, name: SfntTableRecord): void {
         const offsets = SfntFontValidator.NAME_FIELD_OFFSETS_BYTES;
@@ -752,8 +754,8 @@ export class SfntFontValidator implements FontValidator {
             });
         }
 
-        const recordArrays = this.checkNameRecords(fontPath, view, name, version);
         const storageOffset = view.getUint16(name.offset + offsets.storageOffset);
+        const recordArrays = this.checkNameRecords(fontPath, view, name, version, storageOffset);
 
         for (const records of recordArrays) {
             this.checkNameStrings(fontPath, view, name, storageOffset, records);
@@ -764,7 +766,13 @@ export class SfntFontValidator implements FontValidator {
      * Checks that the records fit into the table and end before the string storage, and returns
      * them in table order: the name records, then with version 1 the language-tag records.
      */
-    private checkNameRecords(fontPath: string, view: DataView, name: SfntTableRecord, version: number): NameRecordArray[] {
+    private checkNameRecords(
+        fontPath: string,
+        view: DataView,
+        name: SfntTableRecord,
+        version: number,
+        storageOffset: number,
+    ): NameRecordArray[] {
         const headerSizeBytes = SfntFontValidator.NAME_HEADER_SIZE_BYTES;
         const count = view.getUint16(name.offset + SfntFontValidator.NAME_FIELD_OFFSETS_BYTES.count);
         const recordsEndBytes = headerSizeBytes + count * SfntFontValidator.NAME_RECORD.sizeBytes;
@@ -774,7 +782,7 @@ export class SfntFontValidator implements FontValidator {
         this.checkLength(fontPath, name, SfntRule.NameRecordsInTable, recordsEndBytes, `the header and ${nameRecords}`);
 
         if (version !== SfntFontValidator.NAME_VERSION_WITH_LANG_TAGS) {
-            this.checkStorageOffset(fontPath, view, name, recordsEndBytes, nameRecords);
+            this.checkStorageOffset(fontPath, storageOffset, recordsEndBytes, nameRecords);
 
             return [nameRecordArray];
         }
@@ -793,7 +801,7 @@ export class SfntFontValidator implements FontValidator {
             langTagRecordsEndBytes,
             `the header, ${nameRecords}, langTagCount and langTagRecord[${langTagCount}]`,
         );
-        this.checkStorageOffset(fontPath, view, name, langTagRecordsEndBytes, `langTagRecord[${langTagCount}]`);
+        this.checkStorageOffset(fontPath, storageOffset, langTagRecordsEndBytes, `langTagRecord[${langTagCount}]`);
 
         return [nameRecordArray, { record: SfntFontValidator.LANG_TAG_RECORD, startBytes: langTagCountEndBytes, count: langTagCount }];
     }
@@ -801,15 +809,7 @@ export class SfntFontValidator implements FontValidator {
     /**
      * `lastRecords` names the record array that ends at `recordsEndBytes`.
      */
-    private checkStorageOffset(
-        fontPath: string,
-        view: DataView,
-        name: SfntTableRecord,
-        recordsEndBytes: number,
-        lastRecords: string,
-    ): void {
-        const storageOffset = view.getUint16(name.offset + SfntFontValidator.NAME_FIELD_OFFSETS_BYTES.storageOffset);
-
+    private checkStorageOffset(fontPath: string, storageOffset: number, recordsEndBytes: number, lastRecords: string): void {
         if (storageOffset < recordsEndBytes) {
             throw BrokenSfnt.byRule(fontPath, {
                 rule: SfntRule.NameStorageAfterRecords,
@@ -833,6 +833,12 @@ export class SfntFontValidator implements FontValidator {
         for (let index = 0; index < count; index++) {
             const recordOffsetBytes = name.offset + startBytes + index * record.sizeBytes;
             const lengthBytes = view.getUint16(recordOffsetBytes + record.lengthOffsetBytes);
+
+            // An empty string has no byte to read: fontforge converts it at any offset.
+            if (lengthBytes === 0) {
+                continue;
+            }
+
             const stringOffset = view.getUint16(recordOffsetBytes + record.stringOffsetOffsetBytes);
             const stringEndBytes = storageOffset + stringOffset + lengthBytes;
 
