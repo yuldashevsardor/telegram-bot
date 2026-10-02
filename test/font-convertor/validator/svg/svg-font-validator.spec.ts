@@ -509,6 +509,11 @@ describe("SvgFontValidator.validate", function () {
                 await expectAnswer(inline(`<defs>${FONT}</defs>\n<g><defs>${FONT}</defs></g>`), BrokenFont, message);
             });
 
+            it("nested in a font, before the rule the outer font breaks at its close", async function () {
+                // The outer font has no font-face, which is reported at its end tag, after the inner start tag.
+                await expectAnswer(inline(`<font horiz-adv-x="500">${GLYPH}\n${FONT}</font>`), BrokenFont, message);
+            });
+
             it("before the rules of that font", async function () {
                 await expectAnswer(inline(`${FONT}\n<font horiz-adv-x="-1">${FONT_FACE}${GLYPH}</font>`), BrokenFont, message);
             });

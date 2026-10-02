@@ -5,8 +5,9 @@ import type { Encoding, FontRule } from "app/font-convertor/validator/svg/svg-fo
 // it is cut on its own to the first limit: a root keeps that much of its namespace and as much of
 // its local name, the element of `BrokenFont` that much of its qualified name. The message of
 // `BrokenFont` escapes the kept value with `JSON.stringify`, which at most doubles it: of what the
-// parser lets through as XML 1.0, it escapes only tab, LF, CR, `"` and `\`, each as two units. A parser message is cut to the second limit: saxes quotes
-// names from the file in it, and `checkEncoding` the declared encoding.
+// parser lets through as XML 1.0, it escapes only tab, LF, CR, `"` and `\`, each as two units. A
+// parser message is cut to the second limit: saxes quotes names from the file in it, and
+// `checkEncoding` the declared encoding.
 const MAX_QUOTED_LENGTH = 64;
 const MAX_PARSER_MESSAGE_LENGTH = 200;
 
