@@ -81,30 +81,6 @@ export class FileHelper {
     }
 
     /**
-     * The first length bytes of the file. If the file is shorter, what there is comes back.
-     */
-    public static async readHead(path: string, length: number): Promise<Uint8Array> {
-        const buffer = new Uint8Array(length);
-        let file;
-
-        try {
-            file = await fs.open(path, "r");
-        } catch (error) {
-            throw ReadFailed.byPath(path, error);
-        }
-
-        try {
-            const { bytesRead } = await file.read(buffer, 0, length, 0);
-
-            return buffer.subarray(0, bytesRead);
-        } catch (error) {
-            throw ReadFailed.byPath(path, error);
-        } finally {
-            await file.close();
-        }
-    }
-
-    /**
      * The whole file.
      */
     public static async read(path: string): Promise<Uint8Array> {

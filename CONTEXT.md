@@ -63,29 +63,27 @@ a different thing.
 The suffix of a file name. It is the first of the two signs by which the domain determines the
 format of a font. The extension is a statement about the name of the file, not about its bytes, and
 whoever sent the file sets it. So the extension alone is not enough for the domain: it is checked
-against the format signature, and an SVG, a WOFF, an EOT, a TTF or an OTF against the validation of
-the whole file.
+against the validation of the whole file.
 _Avoid_: format. An extension is a way to learn the format, not the format itself.
 
 **Format signature**:
 Known bytes in the head of a font by which the format is recognised in the file itself rather than
-in its name. The signature is the second sign of the format: the extension and the signature have
-to agree, otherwise the font is not admitted to conversion. A signature does not tell every pair of
-formats apart. TTF and OTF lie in a shared container and are indistinguishable by content. SVG has
-no signature, and the WOFF one, the EOT one and the TTF and OTF one, the sfnt version, are not
-checked on their own: the format of each is confirmed by validating the whole file. How the check
-works is in `docs/architecture/font-convertor.md`.
+in its name. No signature is checked on its own: it is the first rule of validating the whole file,
+which is the second sign of the format. The extension and the validation have to agree, otherwise
+the font is not admitted to conversion. A signature does not tell every pair of formats apart. TTF
+and OTF lie in a shared container and are indistinguishable by content, and their signature is the
+sfnt version. SVG has no signature at all. How the check works is in
+`docs/architecture/font-convertor.md`.
 _Avoid_: MIME type, magic bytes, content type.
 
 ### Files
 
 **Font**:
-A file in one of the formats. For this domain it is almost opaque. The domain checks its format, by
-the signature in the head of the file or by validating the whole file, then hands the file to the
-engine and does not look inside. Validation is the first exception: an SVG, a WOFF, a TTF or an OTF
-is read whole, but only to check that it is a font of its format. The other is the envelope: to
-assemble it or to take it apart, the domain reads the metadata of the enclosed font. Even there it
-only copies the metadata and does not parse outlines.
+A file in one of the formats. For this domain it is almost opaque. The domain checks its format by
+validating the whole file, then hands the file to the engine and does not look inside. Validation is
+the first exception: a source of any format is read whole, but only to check that it is a font of
+its format. The other is the envelope: to assemble it or to take it apart, the domain reads the
+metadata of the enclosed font. Even there it only copies the metadata and does not parse outlines.
 _Avoid_: typeface. That is a typography term for the design; here the subject is the file.
 
 **Source font**:
@@ -114,9 +112,9 @@ as the same bytes, but it does not tell styles apart and cannot select a font by
 
 **Glyphs and metrics**:
 Not part of the domain. From a font the service reads the format signature; the metadata for the
-envelope; in a WOFF the rules of its container; in an EOT the rules of its envelope; in a TTF, an
-OTF and the sfnt a WOFF or an EOT carries the table directory, which tables it holds, the glyph
-count and whether most of what the required tables point to, such as each glyph's metrics and
+envelope; in a WOFF and a WOFF2 the rules of its container; in an EOT the rules of its envelope; in
+a TTF, an OTF and the sfnt a WOFF or an EOT carries the table directory, which tables it holds, the
+glyph count and whether most of what the required tables point to, such as each glyph's metrics and
 outline, lies inside them, down to the fields of each simple TrueType glyph; and in an SVG the rules
 of an SVG font, which reach the glyph advances and the syntax of the outlines too. It does not
 interpret the outlines, so it can neither list the glyphs nor compare them before and after a

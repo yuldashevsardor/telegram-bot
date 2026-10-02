@@ -39,12 +39,6 @@ function rejectionOf(call: () => Promise<unknown>): Promise<unknown> {
     );
 }
 
-// The specs run in the image on Linux, where the open descriptors of the process are listed in
-// /proc/self/fd.
-async function openDescriptors(): Promise<number> {
-    return (await fs.readdir("/proc/self/fd")).length;
-}
-
 async function expectRejection(call: () => Promise<unknown>, expected: RuntimeError): Promise<void> {
     const error = await rejectionOf(call);
 
@@ -147,71 +141,6 @@ describe("FileHelper.createDirectoriesByDate", function () {
     function expectedPath(dateTime: Dayjs): string {
         return path.join(basePath, dateTime.year().toString(), (dateTime.month() + 1).toString(), dateTime.date().toString());
     }
-});
-
-describe("FileHelper.readHead", function () {
-    let basePath: string;
-
-    beforeEach(async function () {
-        basePath = await fs.mkdtemp(path.join(os.tmpdir(), "file-helper-"));
-    });
-
-    afterEach(async function () {
-        await fs.rm(basePath, { recursive: true, force: true });
-    });
-
-    it("reads the first bytes of a file", async function () {
-        const filePath = path.join(basePath, "head.bin");
-        await fs.writeFile(filePath, Uint8Array.from([1, 2, 3, 4, 5]));
-
-        expect(Array.from(await FileHelper.readHead(filePath, 3))).to.deep.equal([1, 2, 3]);
-    });
-
-    it("returns what there is when the file is shorter", async function () {
-        const filePath = path.join(basePath, "short.bin");
-        await fs.writeFile(filePath, Uint8Array.from([1, 2]));
-
-        expect(Array.from(await FileHelper.readHead(filePath, 8))).to.deep.equal([1, 2]);
-    });
-
-    it("wraps a system error instead of letting it out", async function () {
-        try {
-            await FileHelper.readHead(path.join(basePath, "missing.bin"), 4);
-            expect.fail("readHead did not throw");
-        } catch (error) {
-            expect(error).to.be.instanceOf(ReadFailed);
-            expect((error as ReadFailed).payload).to.have.property("path");
-            expect((error as ReadFailed).cause).to.be.instanceOf(Error);
-        }
-    });
-
-    it("wraps an error that comes after the file was opened", async function () {
-        // A directory opens for reading, and it is the read itself that fails (EISDIR).
-        const error = await rejectionOf(() => FileHelper.readHead(basePath, 4));
-
-        expect(error).to.be.instanceOf(ReadFailed);
-        expect((error as ReadFailed).payload).to.deep.equal({ path: basePath });
-        expect((error as ReadFailed).cause).to.be.instanceOf(Error);
-    });
-
-    it("closes the file after reading its head", async function () {
-        const filePath = path.join(basePath, "head.bin");
-        await fs.writeFile(filePath, Uint8Array.from([1, 2, 3]));
-        const before = await openDescriptors();
-
-        await FileHelper.readHead(filePath, 3);
-
-        expect(await openDescriptors()).to.equal(before);
-    });
-
-    it("closes the file when the read fails after it was opened", async function () {
-        const before = await openDescriptors();
-
-        // A directory opens for reading, and it is the read itself that fails (EISDIR).
-        await rejectionOf(() => FileHelper.readHead(basePath, 4));
-
-        expect(await openDescriptors()).to.equal(before);
-    });
 });
 
 describe("FileHelper.findFilesByExtensions", function () {
