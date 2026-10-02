@@ -27,7 +27,7 @@ the headers. So a replacement is checked by the signs of its format below, not b
 `make test` run. `font-forge-convertor.spec.ts` converts every fixture except EOT with the real
 fontforge into every other format except EOT, the EOT fixture into SVG, and sources made from the
 SVG fixture into every other format, EOT included. So a replacement the engine cannot open fails
-the spec even with a correct signature.
+the spec even when its validator accepts it.
 
 `test-font.eot` cannot be made with this command. fontforge does not know the `.eot` extension
 and silently writes PostScript Type 1 instead of EOT. That is exactly how two fixtures of the

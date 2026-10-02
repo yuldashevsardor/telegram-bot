@@ -46,11 +46,11 @@ pair class gets what it does not need:
   are empty except for declaring the missing extension.
 
 `EotPacker` (`eot-packer/`) is one of the six places on the conversion path where the domain parses
-the content of a font, not just its first bytes; the others are the SVG, WOFF, WOFF2, EOT and sfnt
-validators below. The EOT header duplicates the metadata of the enclosed font. `SfntReader` takes it
-from the `OS/2`, `head` and `name` tables. The envelope holds four names, in UTF-16LE. The slant is
-taken from `OS/2.fsSelection`, not from `head.macStyle`, which duplicates it. `ttf2eot` does the
-same. Besides, in `macStyle` the slant is bit 1, and bit 1 of `fsSelection` means something else.
+the content of a font; the others are the SVG, WOFF, WOFF2, EOT and sfnt validators below. The EOT
+header duplicates the metadata of the enclosed font. `SfntReader` takes it from the `OS/2`, `head`
+and `name` tables. The envelope holds four names, in UTF-16LE. The slant is taken from
+`OS/2.fsSelection`, not from `head.macStyle`, which duplicates it. `ttf2eot` does the same. Besides,
+in `macStyle` the slant is bit 1, and bit 1 of `fsSelection` means something else.
 
 Names are read from the Windows platform, failing that from Unicode, then from Macintosh. On
 Macintosh only `encodingId 0` is read: only that one is single-byte MacRoman, the other records hold
@@ -293,8 +293,8 @@ since its message comes from Node's Brotli decoder, not from the file.
 The rules are `Woff2Rule` in `woff2-font-validator.types.ts`, each with its section. Five of them
 are ours, not the standard's, and the text of each says why:
 
-- the flavor is one of `SFNT_VERSIONS` (see "Signatures"): the standard allows a collection, which
-  the domain rejects;
+- the flavor is one of `SFNT_VERSIONS` (see "Signatures"): a collection holds several fonts, and
+  fontforge refuses any other flavor;
 - a transformed `hmtx` lies beside a transformed `glyf`, not just beside `glyf`: the decoder takes
   the glyph count and the `xMin` of the glyphs from the transformed `glyf` alone;
 - the compressed data that ends the file is padded to a 4-byte boundary: the standard asks for the
