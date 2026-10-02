@@ -647,7 +647,7 @@ describe("OutboxStore", function () {
         // Checked by the start of its statement, taken before the wait, the chat would not be due
         // yet, and the pull would answer zero with a slot of the common limit to spend.
         it("takes a chat that came due while the pull waited for the bot row", async function () {
-            const [, cameDue] = await store.pushBatch([message(OTHER_CHAT, "held"), message(CHAT, "due later")]);
+            const [, cameDueMessageId] = await store.pushBatch([message(OTHER_CHAT, "held"), message(CHAT, "due later")]);
 
             await database.sql`
                 UPDATE telegram_outbox_chats
@@ -666,7 +666,7 @@ describe("OutboxStore", function () {
                 await sleep(DUE_LATER_MS + TIMING_MARGIN_MS);
             });
 
-            expect((await waiting).messages.map(({ id }) => id)).to.deep.equal([cameDue]);
+            expect((await waiting).messages.map(({ id }) => id)).to.deep.equal([cameDueMessageId]);
         });
 
         it("lets the pull through once the pause is over", async function () {

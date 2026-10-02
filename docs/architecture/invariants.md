@@ -137,9 +137,9 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   [`outbox.md`](./outbox.md), "The chat lock". `pull()` is the exception with a check of its own
   (same file, "Pull"). The spec lines up only `push()` and `markAsDone()`: a new path that changes a
   chat state outside `complete()` is checked by nothing.
-- **A statement that locks the bot row (`telegram_bot_limits`) takes it before any other lock and
-  holds no other lock while it waits**, as `OutboxStore.pull()` and `pause()` do, each in one
-  statement. Otherwise the wait of a pull for the row can close a lock cycle; how is in
+- **A statement that locks the bot row (`telegram_bot_limits`) takes it before any other row lock
+  and holds no other row lock while it waits**, as `OutboxStore.pull()` and `pause()` do, each in
+  one statement. Otherwise the wait of a pull for the row can close a lock cycle; how is in
   [`outbox.md`](./outbox.md), "Pull". Nothing checks the order.
 - **A statement that makes sure a chat row exists also locks it**, as the `ON CONFLICT DO UPDATE`
   of `OutboxStore.push()` does. The cleanup deletes an `idle` chat at any moment, so a row found

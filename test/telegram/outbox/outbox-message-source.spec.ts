@@ -233,7 +233,8 @@ describe("OutboxMessageSource", function () {
         expect(store.pulls).to.have.length(2);
     });
 
-    // Another transaction holds a due chat: pulling again at once would spin.
+    // Another transaction holds a due chat, or the pull waited behind a slow holder of the bot row:
+    // pulling again at once would spin in the first case.
     it("sleeps the whole cap on a nextPullInMs of zero with nothing pulled", async function () {
         store.answer({ messages: [], nextPullInMs: 0 });
         void build().stream(WORKER).next();

@@ -283,7 +283,9 @@ export class OutboxStore {
         // A statement without FROM returns exactly one row.
         const pullRow = pullRows[0] as OutboxPullResultRow;
 
-        // Without the row nothing is pulled and nextPullInMs is null, as if no chat were ready.
+        // Without the row nothing is pulled and nextPullInMs is null, as if no chat were ready. A row
+        // deleted while the pull waited for it is not seen: the pull answers from the snapshot, and
+        // the next pull throws.
         if (!pullRow.has_bot_limits) {
             throw BotLimitsRowMissing.create();
         }

@@ -131,13 +131,14 @@ Step 2 reads the head from the snapshot of the statement, taken before the lock.
 and made `ready` again after the snapshot still passes the lock (the lock rereads the newest row
 version), while the head read with it is the old one, already `done` by then. The check of step 3
 turns that head away: the chat is left `ready` for the next pull instead of sending the head twice.
-The chat takes a slot of `limit` and gives nothing, and it keeps its `next_attempt_at`, but only
-for this pull: the head of a `ready` chat is `pending` (a `failed` message is not a head), so the
-next pull, with a fresh snapshot, takes it. The window is narrow as well: another pull must have
-taken the chat at least a chat limit before the time of this one, and its completion must have
-committed between the start of this statement and its lock of the chat. That gap holds the wait
-for the bot row as well, and the time of the pull comes after the wait: a wait longer than the
-chat limit is enough for a chat pulled and completed during it.
+The chat takes a slot of `limit` and gives nothing, and it keeps its `next_attempt_at`, but only for
+this pull: the head of a `ready` chat is `pending` (a `failed` message is not a head), so the next
+pull, with a fresh snapshot, takes it. The window is narrow as well: another pull must have taken
+the chat at least a chat limit before the time of this one, and its completion must have committed
+between the start of this statement and its lock of the chat. That gap holds the wait for the bot
+row as well, and the time of the pull comes after the wait: a wait longer than the chat limit is
+enough for a chat pulled and completed during it, and the slot it takes is one the budget of the
+waited pull counted.
 
 The lock of step 1 makes the pulls of all the nodes take turns: two pulls that read the same
 `next_send_at` would both spend it. A pull that finds the row locked waits for the other pull, which
@@ -159,11 +160,11 @@ would answer zero. `test/telegram/outbox/outbox-store.spec.ts` holds a pull, and
 transaction while other pulls wait, and pins what they pull and answer.
 
 The wait makes no lock cycle: only `pull()` and `pause()` lock the bot row, each in one statement
-that takes the row before any other lock, so a statement waiting for the row holds nothing another
-could wait for ([invariant](./invariants.md)). `pause()` locks nothing else; `pull()` locks its
-chats in step 2, whose budget needs the row, and its message rows in step 3, after them. Holding
-the row, a pull skips a locked chat but waits for a locked message row, so a transaction that held
-a message while it waited for the bot row would close a cycle with it.
+that takes the row before any other row lock, so a statement waiting for the row holds no row
+another could wait for ([invariant](./invariants.md)). `pause()` locks no other row; `pull()` locks
+its chats in step 2, whose budget needs the row, and its message rows in step 3, after them. Holding
+the row, a pull skips a locked chat but waits for a locked message row, so a transaction that held a
+message while it waited for the bot row would close a cycle with it.
 
 A pull that skips a due chat held by another transaction, an open push or completion of that chat,
 gets no messages: with nothing pulled, the bot's time decides the answer (see "Limits"), zero once
