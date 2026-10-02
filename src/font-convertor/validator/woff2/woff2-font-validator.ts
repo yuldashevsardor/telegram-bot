@@ -290,10 +290,10 @@ export class Woff2FontValidator implements FontValidator {
         let offset = Woff2FontValidator.HEADER_SIZE_BYTES;
 
         for (let index = 0; index < header.numTables; index++) {
-            const readEntry = this.readEntry(fontPath, bytes, offset, `directory entry ${index + 1}`);
+            const parsedEntry = this.readEntry(fontPath, bytes, offset, `directory entry ${index + 1}`);
 
-            entries.push(readEntry.entry);
-            offset = readEntry.end;
+            entries.push(parsedEntry.entry);
+            offset = parsedEntry.end;
         }
 
         return { path: fontPath, bytes: bytes, header: header, entries: entries, directoryEnd: offset };
@@ -315,19 +315,28 @@ export class Woff2FontValidator implements FontValidator {
         }
 
         const isTransformed = this.isTransformed(fontPath, tag, transformVersion);
-        const origLength = this.readUIntBase128(fontPath, bytes, offset, { entryName: entryName, tag: tag, field: "origLength" });
+        const parsedOrigLength = this.readUIntBase128(fontPath, bytes, offset, { entryName: entryName, tag: tag, field: "origLength" });
         let transformLength: number | undefined;
 
-        offset = origLength.end;
+        offset = parsedOrigLength.end;
 
         if (isTransformed) {
-            const readLength = this.readUIntBase128(fontPath, bytes, offset, { entryName: entryName, tag: tag, field: "transformLength" });
+            const parsedTransformLength = this.readUIntBase128(fontPath, bytes, offset, {
+                entryName: entryName,
+                tag: tag,
+                field: "transformLength",
+            });
 
-            transformLength = readLength.value;
-            offset = readLength.end;
+            transformLength = parsedTransformLength.value;
+            offset = parsedTransformLength.end;
         }
 
-        const entry = { tag: tag, transformVersion: transformVersion, origLength: origLength.value, transformLength: transformLength };
+        const entry = {
+            tag: tag,
+            transformVersion: transformVersion,
+            origLength: parsedOrigLength.value,
+            transformLength: transformLength,
+        };
 
         return { entry: entry, end: offset };
     }
@@ -531,7 +540,7 @@ export class Woff2FontValidator implements FontValidator {
                 at: locaName,
                 field: "directory entry",
                 value: locaIndex + 1,
-                expected: `one after entry ${glyfIndex + 1}, the entry of table "glyf"`,
+                expected: `any entry after entry ${glyfIndex + 1}, the entry of table "glyf"`,
             });
         }
 
@@ -750,7 +759,7 @@ export class Woff2FontValidator implements FontValidator {
         let streamSizeBytes = 0;
 
         for (const entry of woff2.entries) {
-            streamSizeBytes += this.streamLength(entry);
+            streamSizeBytes += this.streamLengthBytes(entry);
         }
 
         this.checkDecompressedSize(woff2, streamSizeBytes);
@@ -760,14 +769,14 @@ export class Woff2FontValidator implements FontValidator {
         let offset = 0;
 
         for (const entry of woff2.entries) {
-            tables.push({ entry: entry, bytes: stream.subarray(offset, offset + this.streamLength(entry)) });
-            offset += this.streamLength(entry);
+            tables.push({ entry: entry, bytes: stream.subarray(offset, offset + this.streamLengthBytes(entry)) });
+            offset += this.streamLengthBytes(entry);
         }
 
         return tables;
     }
 
-    private streamLength(entry: TableEntry): number {
+    private streamLengthBytes(entry: TableEntry): number {
         return entry.transformLength ?? entry.origLength;
     }
 

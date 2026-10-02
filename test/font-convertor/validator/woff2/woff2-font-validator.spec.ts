@@ -150,15 +150,7 @@ describe("Woff2FontValidator.validate", function () {
         });
 
         it("with glyf and loca under the null transform", async function () {
-            // Version 3: the tables of the TTF fixture as they are, without transformLength.
-            const ttf = await fs.readFile(path.join(fixtureDir, `test-font.${Extension.TTF}`));
-            const layout = withEntry(
-                withEntry(fixtureLayout, "glyf", plain(sfntTable(ttf, "glyf"))),
-                "loca",
-                plain(sfntTable(ttf, "loca")),
-            );
-
-            await validate(build(layout));
+            await validate(build(await withPlainGlyfLoca(fixtureLayout)));
         });
 
         it("with loca at the end of the directory, and with the directory in tag order", async function () {
@@ -472,7 +464,7 @@ describe("Woff2FontValidator.validate", function () {
             await expectBroken(
                 build({ ...fixtureLayout, entries: entries }),
                 Woff2Rule.GlyfLoca,
-                'At table "loca": directory entry is 6, expected one after entry 7, the entry of table "glyf".',
+                'At table "loca": directory entry is 6, expected any entry after entry 7, the entry of table "glyf".',
             );
         });
 
@@ -495,20 +487,17 @@ describe("Woff2FontValidator.validate", function () {
     });
 
     describe("rejects a transformed hmtx beside a glyf under the null transform, by a rule of ours", function () {
-        it("whatever its flags", async function () {
+        it("with flags 1 or 2", async function () {
             // The decoder of fontforge takes the glyph count and the xMin for hmtx from a transformed glyf alone.
-            const ttf = await fs.readFile(path.join(fixtureDir, `test-font.${Extension.TTF}`));
-            const plainGlyf = withEntry(
-                withEntry(fixtureLayout, "glyf", plain(sfntTable(ttf, "glyf"))),
-                "loca",
-                plain(sfntTable(ttf, "loca")),
-            );
+            const plainGlyf = await withPlainGlyfLoca(fixtureLayout);
 
-            await expectBroken(
-                build(withHmtxTransform(plainGlyf, 0x01)),
-                Woff2Rule.HmtxBesideTransformedGlyf,
-                'At table "hmtx": transform version is 1, expected 0, as table "glyf" is not transformed.',
-            );
+            for (const flags of [0x01, 0x02]) {
+                await expectBroken(
+                    build(withHmtxTransform(plainGlyf, flags)),
+                    Woff2Rule.HmtxBesideTransformedGlyf,
+                    'At table "hmtx": transform version is 1, expected 0, as table "glyf" is not transformed.',
+                );
+            }
         });
     });
 
@@ -1137,6 +1126,16 @@ function withGlyf(layout: Layout, edit: (glyf: Uint8Array) => Uint8Array): Layou
 
         return { ...entry, transformLength: data.length, data: data };
     });
+}
+
+/**
+ * The layout with glyf and loca under the null transform (version 3): the tables of the TTF
+ * fixture as they are, without transformLength.
+ */
+async function withPlainGlyfLoca(layout: Layout): Promise<Layout> {
+    const ttf = await fs.readFile(path.join(fixtureDir, `test-font.${Extension.TTF}`));
+
+    return withEntry(withEntry(layout, "glyf", plain(sfntTable(ttf, "glyf"))), "loca", plain(sfntTable(ttf, "loca")));
 }
 
 /**
