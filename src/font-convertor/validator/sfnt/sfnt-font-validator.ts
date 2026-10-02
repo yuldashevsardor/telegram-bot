@@ -4,8 +4,12 @@ import type { SfntTableRecord } from "app/font-convertor/sfnt-table-directory/sf
 import { SFNT_VERSIONS } from "app/font-convertor/sfnt-version";
 import { BrokenSfnt, NotSfnt } from "app/font-convertor/validator/sfnt/sfnt-font-validator.errors";
 import type {
+    CmapSubtableLengthField,
     LocaFormat,
     MaxpExpectation,
+    NameRecordArray,
+    NameStringRecord,
+    PostGlyphNames,
     SfntTables,
     TrueTypeOutlines,
 } from "app/font-convertor/validator/sfnt/sfnt-font-validator.types";
@@ -18,11 +22,14 @@ import { FileHelper } from "app/shared/fs/file-helper";
  * specification 1.9.1, and against Apple's TrueType Reference Manual for what it governs: the table
  * directory, the tables a font must have, the fields of `head`, `maxp`, `hhea`, `hmtx` and `loca`
  * that give the glyph count, where the metrics of each glyph lie and, with TrueType outlines, where
- * its outline lies, and the version of `cmap`, `name`, `OS/2` and `post` with whether the headers
- * and records of `cmap` and `name`, the fields of the `OS/2` version and the 32-byte header of
- * `post` fit into the table. TTF and OTF take the same checks: the sfnt version names the outline
- * type, not the extension, and the rules that depend on the outline type go by the outline tables
- * present, not by the version, which the specification only says "should" match them.
+ * its outline lies, and the version of `cmap`, `name`, `OS/2` and `post` with whether their
+ * content lies inside the table: the headers and records of `cmap` and `name`, each `cmap`
+ * subtable with its format and length, each non-empty `name` string, the fields of the `OS/2`
+ * version, and the 32-byte header of `post` with the glyph-name index of versions 2.0 and 2.5. What
+ * a subtable, a string or a glyph name holds is not read. TTF and OTF take the same checks: the sfnt version
+ * names the outline type, not the extension, and the rules that depend on the outline type go by
+ * the outline tables present, not by the version, which the specification only says "should" match
+ * them.
  *
  * Deliberately not checked:
  * - The table checksums and `head.checkSumAdjustment`. fontforge does not read them: its output
@@ -85,14 +92,42 @@ export class SfntFontValidator implements FontValidator {
     private static readonly CMAP_VERSION = 0;
     private static readonly ENCODING_RECORD_SIZE_BYTES = 8;
     private static readonly SUBTABLE_OFFSET_IN_RECORD_BYTES = 4;
+    private static readonly CMAP_SUBTABLE_FORMAT_SIZE_BYTES = 2;
+    private static readonly SHORT_SUBTABLE_LENGTH_SIZE_BYTES = 2;
+    private static readonly SHORT_LENGTH_FIELD: CmapSubtableLengthField = { offsetBytes: 2, sizeBytes: 2 };
+    private static readonly LONG_LENGTH_FIELD: CmapSubtableLengthField = { offsetBytes: 4, sizeBytes: 4 };
+    private static readonly VARIATION_LENGTH_FIELD: CmapSubtableLengthField = { offsetBytes: 2, sizeBytes: 4 };
+    // By format: formats 0 to 6 give a 16-bit length right after the format, 8 to 13 a 32-bit one
+    // after a reserved field, and 14 a 32-bit one right after the format.
+    private static readonly CMAP_SUBTABLE_LENGTH_FIELDS: ReadonlyMap<number, CmapSubtableLengthField> = new Map([
+        [0, SfntFontValidator.SHORT_LENGTH_FIELD],
+        [2, SfntFontValidator.SHORT_LENGTH_FIELD],
+        [4, SfntFontValidator.SHORT_LENGTH_FIELD],
+        [6, SfntFontValidator.SHORT_LENGTH_FIELD],
+        [8, SfntFontValidator.LONG_LENGTH_FIELD],
+        [10, SfntFontValidator.LONG_LENGTH_FIELD],
+        [12, SfntFontValidator.LONG_LENGTH_FIELD],
+        [13, SfntFontValidator.LONG_LENGTH_FIELD],
+        [14, SfntFontValidator.VARIATION_LENGTH_FIELD],
+    ]);
     private static readonly NAME_HEADER_SIZE_BYTES = 6;
-    private static readonly NAME_FIELD_OFFSETS_BYTES = { version: 0, count: 2 };
+    private static readonly NAME_FIELD_OFFSETS_BYTES = { version: 0, count: 2, storageOffset: 4 };
     private static readonly NAME_VERSIONS = [0, 1];
     // Only version 1 has language-tag records.
     private static readonly NAME_VERSION_WITH_LANG_TAGS = 1;
-    private static readonly NAME_RECORD_SIZE_BYTES = 12;
+    private static readonly NAME_RECORD: NameStringRecord = {
+        label: "nameRecord",
+        sizeBytes: 12,
+        lengthOffsetBytes: 8,
+        stringOffsetOffsetBytes: 10,
+    };
     private static readonly LANG_TAG_COUNT_SIZE_BYTES = 2;
-    private static readonly LANG_TAG_RECORD_SIZE_BYTES = 4;
+    private static readonly LANG_TAG_RECORD: NameStringRecord = {
+        label: "langTagRecord",
+        sizeBytes: 4,
+        lengthOffsetBytes: 0,
+        stringOffsetOffsetBytes: 2,
+    };
     private static readonly OS2_VERSION_OFFSET_BYTES = 0;
     private static readonly OS2_VERSION_SIZE_BYTES = 2;
     // The length the fields of each version take, summed from the field lists of the specification,
@@ -109,6 +144,13 @@ export class SfntFontValidator implements FontValidator {
     private static readonly POST_HEADER_SIZE_BYTES = 32;
     private static readonly POST_VERSION_OFFSET_BYTES = 0;
     private static readonly POST_VERSIONS = [0x00010000, 0x00020000, 0x00025000, 0x00030000];
+    private static readonly POST_NUM_GLYPHS_OFFSET_BYTES = 32;
+    private static readonly POST_NUM_GLYPHS_SIZE_BYTES = 2;
+    // By version: only 2.0 and 2.5 carry glyph names past the header.
+    private static readonly POST_GLYPH_NAMES: ReadonlyMap<number, PostGlyphNames> = new Map([
+        [0x00020000, { entries: "glyphNameIndex", entrySizeBytes: 2 }],
+        [0x00025000, { entries: "offset", entrySizeBytes: 1 }],
+    ]);
 
     /**
      * Throws when the file is not a valid sfnt font, with the answers of `validateBytes()`. A file
@@ -560,7 +602,7 @@ export class SfntFontValidator implements FontValidator {
     }
 
     /**
-     * A subtable offset is held only against the length of cmap: what the subtable holds is not read.
+     * Of a subtable only its header is read: the format and the length.
      */
     private checkCmap(fontPath: string, view: DataView, cmap: SfntTableRecord): void {
         const at = this.tableName(SfntFontValidator.CMAP_TAG);
@@ -594,27 +636,110 @@ export class SfntFontValidator implements FontValidator {
         }
 
         const recordsEndBytes = headerSizeBytes + numTables * SfntFontValidator.ENCODING_RECORD_SIZE_BYTES;
+        const encodingRecords = `encodingRecords[${numTables}]`;
 
-        this.checkLength(fontPath, cmap, SfntRule.CmapRecordsInTable, recordsEndBytes, `the header and encodingRecords[${numTables}]`);
+        this.checkLength(fontPath, cmap, SfntRule.CmapRecordsInTable, recordsEndBytes, `the header and ${encodingRecords}`);
 
         for (let index = 0; index < numTables; index++) {
             const recordOffsetBytes = headerSizeBytes + index * SfntFontValidator.ENCODING_RECORD_SIZE_BYTES;
             const subtableOffset = view.getUint32(cmap.offset + recordOffsetBytes + SfntFontValidator.SUBTABLE_OFFSET_IN_RECORD_BYTES);
 
-            if (subtableOffset >= cmap.length) {
+            if (subtableOffset < recordsEndBytes) {
                 throw BrokenSfnt.byRule(fontPath, {
                     rule: SfntRule.CmapSubtableInTable,
                     at: at,
                     field: `encodingRecords[${index}].subtableOffset`,
                     value: subtableOffset,
-                    expected: `less than ${cmap.length}, the length of ${at}`,
+                    expected: `at least ${recordsEndBytes}, the end of the header and ${encodingRecords}`,
                 });
             }
+
+            this.checkCmapSubtable(fontPath, view, cmap, index, subtableOffset);
+        }
+    }
+
+    private checkCmapSubtable(fontPath: string, view: DataView, cmap: SfntTableRecord, index: number, subtableOffset: number): void {
+        this.checkSubtableRoom(
+            fontPath,
+            cmap,
+            index,
+            subtableOffset,
+            SfntFontValidator.CMAP_SUBTABLE_FORMAT_SIZE_BYTES,
+            `the ${SfntFontValidator.CMAP_SUBTABLE_FORMAT_SIZE_BYTES}-byte format`,
+        );
+
+        const format = view.getUint16(cmap.offset + subtableOffset);
+        const lengthField = SfntFontValidator.CMAP_SUBTABLE_LENGTH_FIELDS.get(format);
+        const at = this.tableName(SfntFontValidator.CMAP_TAG);
+
+        if (lengthField === undefined) {
+            throw BrokenSfnt.byRule(fontPath, {
+                rule: SfntRule.CmapSubtableFormat,
+                at: at,
+                field: `the format of the subtable of encodingRecords[${index}]`,
+                value: format,
+                expected: this.oneOf([...SfntFontValidator.CMAP_SUBTABLE_LENGTH_FIELDS.keys()]),
+            });
+        }
+
+        const fieldsEndBytes = lengthField.offsetBytes + lengthField.sizeBytes;
+
+        this.checkSubtableRoom(
+            fontPath,
+            cmap,
+            index,
+            subtableOffset,
+            fieldsEndBytes,
+            `the ${fieldsEndBytes}-byte fields up to the length of format ${format}`,
+        );
+
+        const lengthFieldInFileBytes = cmap.offset + subtableOffset + lengthField.offsetBytes;
+        const subtableLengthBytes =
+            lengthField.sizeBytes === SfntFontValidator.SHORT_SUBTABLE_LENGTH_SIZE_BYTES
+                ? view.getUint16(lengthFieldInFileBytes)
+                : view.getUint32(lengthFieldInFileBytes);
+        const restBytes = cmap.length - subtableOffset;
+
+        if (subtableLengthBytes > restBytes) {
+            throw BrokenSfnt.byRule(fontPath, {
+                rule: SfntRule.CmapSubtableLength,
+                at: at,
+                field: `the length of the subtable of encodingRecords[${index}]`,
+                value: subtableLengthBytes,
+                expected: `at most ${restBytes}, the rest of ${at} from offset ${subtableOffset}`,
+            });
         }
     }
 
     /**
-     * The strings are not read: the codec forgives a string out of bounds (`SfntReader`).
+     * `fields` names what has to fit at the subtable offset. The message gives where it ends rather
+     * than a bound on the offset: a cmap cut short has no offset left that the records allow.
+     */
+    private checkSubtableRoom(
+        fontPath: string,
+        cmap: SfntTableRecord,
+        index: number,
+        subtableOffset: number,
+        sizeBytes: number,
+        fields: string,
+    ): void {
+        const at = this.tableName(SfntFontValidator.CMAP_TAG);
+
+        if (subtableOffset + sizeBytes > cmap.length) {
+            throw BrokenSfnt.byRule(fontPath, {
+                rule: SfntRule.CmapSubtableInTable,
+                at: at,
+                field: `the end of ${fields} of the subtable of encodingRecords[${index}]`,
+                value: subtableOffset + sizeBytes,
+                expected: `at most ${cmap.length}, the length of ${at}`,
+            });
+        }
+    }
+
+    /**
+     * Where each string lies is checked, what it holds is not: on a string that runs past the table
+     * fontforge 20230101 crashed with SIGSEGV in 7 of the 14 variants measured, and put foreign
+     * bytes into the names in 2 more.
      */
     private checkName(fontPath: string, view: DataView, name: SfntTableRecord): void {
         const offsets = SfntFontValidator.NAME_FIELD_OFFSETS_BYTES;
@@ -633,14 +758,37 @@ export class SfntFontValidator implements FontValidator {
             });
         }
 
-        const count = view.getUint16(name.offset + offsets.count);
-        const recordsEndBytes = SfntFontValidator.NAME_HEADER_SIZE_BYTES + count * SfntFontValidator.NAME_RECORD_SIZE_BYTES;
+        const storageOffset = view.getUint16(name.offset + offsets.storageOffset);
+        const recordArrays = this.checkNameRecords(fontPath, view, name, version, storageOffset);
+
+        for (const records of recordArrays) {
+            this.checkNameStrings(fontPath, view, name, storageOffset, records);
+        }
+    }
+
+    /**
+     * Checks that the records fit into the table and end before the string storage, and returns
+     * them in table order: the name records, then with version 1 the language-tag records.
+     */
+    private checkNameRecords(
+        fontPath: string,
+        view: DataView,
+        name: SfntTableRecord,
+        version: number,
+        storageOffset: number,
+    ): NameRecordArray[] {
+        const headerSizeBytes = SfntFontValidator.NAME_HEADER_SIZE_BYTES;
+        const count = view.getUint16(name.offset + SfntFontValidator.NAME_FIELD_OFFSETS_BYTES.count);
+        const recordsEndBytes = headerSizeBytes + count * SfntFontValidator.NAME_RECORD.sizeBytes;
         const nameRecords = `nameRecord[${count}]`;
+        const nameRecordArray = { record: SfntFontValidator.NAME_RECORD, startBytes: headerSizeBytes, count: count };
 
         this.checkLength(fontPath, name, SfntRule.NameRecordsInTable, recordsEndBytes, `the header and ${nameRecords}`);
 
         if (version !== SfntFontValidator.NAME_VERSION_WITH_LANG_TAGS) {
-            return;
+            this.checkStorageOffset(fontPath, storageOffset, recordsEndBytes, nameRecords);
+
+            return [nameRecordArray];
         }
 
         const langTagCountEndBytes = recordsEndBytes + SfntFontValidator.LANG_TAG_COUNT_SIZE_BYTES;
@@ -648,7 +796,7 @@ export class SfntFontValidator implements FontValidator {
         this.checkLength(fontPath, name, SfntRule.NameRecordsInTable, langTagCountEndBytes, `the header, ${nameRecords} and langTagCount`);
 
         const langTagCount = view.getUint16(name.offset + recordsEndBytes);
-        const langTagRecordsEndBytes = langTagCountEndBytes + langTagCount * SfntFontValidator.LANG_TAG_RECORD_SIZE_BYTES;
+        const langTagRecordsEndBytes = langTagCountEndBytes + langTagCount * SfntFontValidator.LANG_TAG_RECORD.sizeBytes;
 
         this.checkLength(
             fontPath,
@@ -657,6 +805,58 @@ export class SfntFontValidator implements FontValidator {
             langTagRecordsEndBytes,
             `the header, ${nameRecords}, langTagCount and langTagRecord[${langTagCount}]`,
         );
+        this.checkStorageOffset(fontPath, storageOffset, langTagRecordsEndBytes, `langTagRecord[${langTagCount}]`);
+
+        return [nameRecordArray, { record: SfntFontValidator.LANG_TAG_RECORD, startBytes: langTagCountEndBytes, count: langTagCount }];
+    }
+
+    /**
+     * `lastRecords` names the record array that ends at `recordsEndBytes`.
+     */
+    private checkStorageOffset(fontPath: string, storageOffset: number, recordsEndBytes: number, lastRecords: string): void {
+        if (storageOffset < recordsEndBytes) {
+            throw BrokenSfnt.byRule(fontPath, {
+                rule: SfntRule.NameStorageAfterRecords,
+                at: this.tableName(SfntFontValidator.NAME_TAG),
+                field: "storageOffset",
+                value: storageOffset,
+                expected: `at least ${recordsEndBytes}, the end of ${lastRecords}`,
+            });
+        }
+    }
+
+    private checkNameStrings(
+        fontPath: string,
+        view: DataView,
+        name: SfntTableRecord,
+        storageOffset: number,
+        records: NameRecordArray,
+    ): void {
+        const { record, startBytes, count } = records;
+        const at = this.tableName(SfntFontValidator.NAME_TAG);
+
+        for (let index = 0; index < count; index++) {
+            const recordOffsetBytes = name.offset + startBytes + index * record.sizeBytes;
+            const lengthBytes = view.getUint16(recordOffsetBytes + record.lengthOffsetBytes);
+
+            // An empty string has no byte to read: fontforge converts it at any offset.
+            if (lengthBytes === 0) {
+                continue;
+            }
+
+            const stringOffset = view.getUint16(recordOffsetBytes + record.stringOffsetOffsetBytes);
+            const stringEndBytes = storageOffset + stringOffset + lengthBytes;
+
+            if (stringEndBytes > name.length) {
+                throw BrokenSfnt.byRule(fontPath, {
+                    rule: SfntRule.NameStringInTable,
+                    at: at,
+                    field: `the end of the string of ${record.label}[${index}]`,
+                    value: stringEndBytes,
+                    expected: `at most ${name.length}, the length of ${at}`,
+                });
+            }
+        }
     }
 
     private checkOs2(fontPath: string, view: DataView, os2: SfntTableRecord): void {
@@ -695,6 +895,27 @@ export class SfntFontValidator implements FontValidator {
                 expected: this.oneOf(SfntFontValidator.POST_VERSIONS.map((postVersion) => this.hex(postVersion))),
             });
         }
+
+        const glyphNames = SfntFontValidator.POST_GLYPH_NAMES.get(version);
+
+        if (glyphNames === undefined) {
+            return;
+        }
+
+        const numGlyphsEndBytes = SfntFontValidator.POST_NUM_GLYPHS_OFFSET_BYTES + SfntFontValidator.POST_NUM_GLYPHS_SIZE_BYTES;
+
+        this.checkLength(fontPath, post, SfntRule.PostLength, numGlyphsEndBytes, "the header and numGlyphs");
+
+        const numGlyphs = view.getUint16(post.offset + SfntFontValidator.POST_NUM_GLYPHS_OFFSET_BYTES);
+        const entriesEndBytes = numGlyphsEndBytes + numGlyphs * glyphNames.entrySizeBytes;
+
+        this.checkLength(
+            fontPath,
+            post,
+            SfntRule.PostLength,
+            entriesEndBytes,
+            `the header, numGlyphs and ${glyphNames.entries}[${numGlyphs}]`,
+        );
     }
 
     /**
