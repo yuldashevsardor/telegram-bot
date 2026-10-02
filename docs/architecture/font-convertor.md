@@ -118,13 +118,15 @@ This does not make the version check of the codec redundant. The sfnt validator 
 sources: a TTF or OTF file and the sfnt a WOFF carries. Two more files pass through the codec that
 the validator never saw: the intermediate sfnt from the engine on packing, and the envelope content
 on unpacking. The codec checks less than the validator: the header size, the version and the bounds
-of the tables it reads, not the rules below. But the two share one set of versions with a third
-check, `SFNT_VERSIONS` in `font-convertor/sfnt-version.ts`, and `WoffFontValidator`
-(`validator/woff/`) checks the flavor of a WOFF against it: the flavor is the version of the sfnt it
-carries. The set must not become several lists, because a divergence breaks behaviour rather than
-the build. A version known only to the validator still fails on input: the directory the validator
-builds rejects it, with the codec's `InvalidSfnt` instead of an answer of the validator. A version
-known only to the codec does not get past the input.
+of the tables it reads, not the rules below. But the two share one set of versions with two more
+checks, `SFNT_VERSIONS` in `font-convertor/sfnt-version.ts`: `WoffFontValidator`
+(`validator/woff/`) checks the flavor of a WOFF against it, and `Woff2FontValidator`
+(`validator/woff2/`), which no convertor calls yet, the flavor of a WOFF2. The flavor is the
+version of the sfnt the container carries. The set must not become several lists, because a
+divergence breaks behaviour rather than the build. A version known only to the validator still
+fails on input: the directory the validator builds rejects it, with the codec's `InvalidSfnt`
+instead of an answer of the validator. A version known only to the codec does not get past the
+input.
 
 Every offset is counted from the start of the file. A prefix is not skipped: a shifted head would
 turn the check into a search for the marker anywhere.
