@@ -9,6 +9,7 @@ import { FontSignatureMatcher } from "app/font-convertor/signature-matcher/font-
 import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
 import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
 import { WoffFontValidator } from "app/font-convertor/validator/woff/woff-font-validator";
+import { EotFontValidator } from "app/font-convertor/validator/eot/eot-font-validator";
 import { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
 import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 import { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory";
@@ -93,6 +94,7 @@ export class Container extends InversifyContainer {
         this.bind<SvgFontValidator>(Tokens.Font.Validator.Svg).to(SvgFontValidator).inSingletonScope();
         this.bind<SfntFontValidator>(Tokens.Font.Validator.Sfnt).to(SfntFontValidator).inSingletonScope();
         this.bind<WoffFontValidator>(Tokens.Font.Validator.Woff).to(WoffFontValidator).inSingletonScope();
+        this.bind<EotFontValidator>(Tokens.Font.Validator.Eot).to(EotFontValidator).inSingletonScope();
         this.bind<FontValidatorResolver>(Tokens.Font.Validator.Resolver).to(FontValidatorResolver).inSingletonScope();
         this.bind<EotPacker>(Tokens.Font.Envelope.Packer).to(EotPacker).inSingletonScope();
         this.bind<FontConvertor>(Tokens.Font.Convertor.Convertor).to(FontConvertor).inSingletonScope();
