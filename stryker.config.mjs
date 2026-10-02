@@ -9,6 +9,7 @@ import { existsSync, globSync } from "node:fs";
 // grep -rln test/database.helper test --include='*.spec.ts'.
 const DATABASE_SPECS = [
     "test/platform/database/database.spec.ts",
+    "test/telegram/inbox/inbox-store.spec.ts",
     "test/telegram/outbox/outbox-finished-message-reader.spec.ts",
     "test/telegram/outbox/outbox-store.spec.ts",
     "test/telegram/session/pgsql-storage.spec.ts",
@@ -19,6 +20,9 @@ const DATABASE_SPECS = [
 // and stay uncovered because the tests do not run, not because they are weak.
 const DATABASE_ONLY_SOURCES = [
     "src/platform/database/database.ts",
+    "src/telegram/inbox/store/inbox-store.errors.ts",
+    "src/telegram/inbox/store/inbox-store.ts",
+    "src/telegram/inbox/store/inbox-store.types.ts",
     "src/telegram/outbox/outbox-finished-message-reader.ts",
     "src/telegram/outbox/store/outbox-store.errors.ts",
     "src/telegram/outbox/store/outbox-store.ts",

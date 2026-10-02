@@ -49,6 +49,11 @@ export type ConfigValues = {
         cleanup: OutboxCleanupSettings;
     };
 
+    inbox: {
+        // How long a claimed group stays with the node that claimed it.
+        leaseDurationMs: number;
+    };
+
     bot: BotSettings;
 
     taskQueue: {

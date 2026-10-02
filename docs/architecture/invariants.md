@@ -203,6 +203,13 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   lose the file with the first one sent: the second fails on the missing file and blocks its chat.
   A caller that sends one file twice gives each message a copy of its own. Nothing checks this.
 
+## The inbox
+
+- **`status` and `state` of the inbox tables are written only through `InboxStatus` and
+  `InboxGroupState`**, as those of the outbox tables are (above), and for the same reason: an
+  update or a group with a mistyped value silently drops out of every query
+  ([`inbox.md`](./inbox.md)).
+
 ## Storage: migrations, `sessions`, `User`
 
 - **Migrations are append-only.** `node-pg-migrate` tracks the applied ones by file name. Editing

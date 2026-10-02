@@ -79,6 +79,10 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
                 },
             },
 
+            inbox: {
+                leaseDurationMs: parser.getTimerDelay("INBOX_LEASE_DURATION", 10 * 60 * 1000),
+            },
+
             bot: {
                 token: parser.getString("BOT_TOKEN"),
                 gracefulShutdown: {
