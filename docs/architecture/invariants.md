@@ -208,6 +208,19 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   lose the file with the first one sent: the second fails on the missing file and blocks its chat.
   A caller that sends one file twice gives each message a copy of its own. Nothing checks this.
 
+## The inbox
+
+- **`status` and `state` of the inbox tables are written only through `InboxStatus` and
+  `InboxGroupState`**, as those of the outbox tables are (above), and for the same reason: an
+  update or a group with a mistyped value silently drops out of every query
+  ([`inbox.md`](./inbox.md)).
+- **`InboxStore.pushBatch()` and `markAsDone()` lock the group row before they read what their
+  change depends on**, as the push and the completions of the outbox lock the chat row (above):
+  read before the lock, a completion leaves a group `idle` with an update pushed meanwhile, an
+  update never claimed. `claim()` is the exception with a check of its own
+  ([`inbox.md`](./inbox.md), "Claim"). The spec pins a push and a completion in both orders (same
+  file, "Push"); a new write path is checked by nothing.
+
 ## Storage: migrations, `sessions`, `User`
 
 - **Migrations are append-only.** `node-pg-migrate` tracks the applied ones by file name. Editing

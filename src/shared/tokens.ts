@@ -64,6 +64,9 @@ export const Tokens = {
             Sender: Symbol.for("BotOutboxSender"),
             MessageProcessor: Symbol.for("BotOutboxMessageProcessor"),
         },
+        Inbox: {
+            Store: Symbol.for("BotInboxStore"),
+        },
         ApiFailureClassifier: Symbol.for("BotApiFailureClassifier"),
         User: {
             Service: Symbol.for("BotUserService"),

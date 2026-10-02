@@ -23,6 +23,8 @@ The runtime sequences live in the files of their subsystems:
   queue: the tables, the chat states, push, pull, the limits and the pause, the chat lock, the
   lease and the completions, sending one message and removing its files, the failure classes, the
   outcomes, the retry delay, waiting for the result and the payload codec
+- [`inbox.md`](./inbox.md) — the inbox of incoming updates in PostgreSQL being built: the tables,
+  the group, the group states, push without duplicates, the claim, the lease and the completion
 - [`font-convertor.md`](./font-convertor.md) — format pairs, the EOT codec, signatures, the SVG,
   WOFF, WOFF2, EOT and sfnt validators, running the engine
 - [`user.md`](./user.md) — the entity, the repository, filling the context
@@ -60,7 +62,8 @@ Stack:
 
 - `font-convertor/` — the only domain one;
 - `telegram/` — what exists for the sake of Telegram (above): the bot, `User`, the outbound
-  queue and the outbox that is being built to replace it.
+  queue and the outbox that is being built to replace it, and the inbox of incoming updates being
+  built beside it.
 
 Around them stand three directories named by role:
 
@@ -134,6 +137,7 @@ src/
   telegram/                 grammY: commands, conversations, middleware, filters, session, locales (bot.md, i18n.md)
     user/                   the entity, the repository interface, the service, the PostgreSQL adapter (user.md)
     outbound-queue/         the outbound queue by keys, limits, the Runner loop (outbound-queue.md)
+    inbox/                  the future inbox of incoming updates in PostgreSQL: the store (push, claim, completion) (inbox.md)
     outbox/                 the future outbox of Bot API calls in PostgreSQL: the store (push, pull, completions), the message source of the worker loop, the processor of one message with the sender of its call and the Api, the outcomes of a failure, the result waiter with its reader, the payload codec and the retry delay (outbox.md)
   platform/                 adapters that know no module
     database/               Database (storage.md)
