@@ -60,7 +60,7 @@ describe("Convertor.validate", function () {
                 new SvgFontValidator(),
                 new WoffFontValidator(new SfntFontValidator()),
                 new SfntFontValidator(),
-                new EotFontValidator(),
+                new EotFontValidator(new SfntFontValidator()),
             ),
             new EotPacker(),
         );

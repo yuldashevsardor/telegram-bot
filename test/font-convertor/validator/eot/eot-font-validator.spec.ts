@@ -4,15 +4,19 @@ import os from "os";
 import path from "path";
 import { InvalidEot } from "app/font-convertor/eot-header/eot-header.errors";
 import { Extension } from "app/font-convertor/font-convertor.types";
-import { InvalidSfnt } from "app/font-convertor/sfnt-table-directory/sfnt-table-directory.errors";
 import { EotFontValidator } from "app/font-convertor/validator/eot/eot-font-validator";
 import type { InvalidEotFont } from "app/font-convertor/validator/eot/eot-font-validator.errors";
 import { BrokenEot, NotEot } from "app/font-convertor/validator/eot/eot-font-validator.errors";
 import { EotRule } from "app/font-convertor/validator/eot/eot-font-validator.types";
+import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
+import type { InvalidSfntFont } from "app/font-convertor/validator/sfnt/sfnt-font-validator.errors";
+import { BrokenSfnt, NotSfnt } from "app/font-convertor/validator/sfnt/sfnt-font-validator.errors";
+import { SfntRule } from "app/font-convertor/validator/sfnt/sfnt-font-validator.types";
 import { ReadFailed } from "app/shared/fs/file-helper.errors";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
-const validator = new EotFontValidator();
+const sfntFontValidator = new SfntFontValidator();
+const validator = new EotFontValidator(sfntFontValidator);
 
 // The fields of the fixed part by their offset (EOT, §3). The spec keeps its own copies rather
 // than the constants of EotHeader, so that a wrong constant in the class fails its spec.
@@ -41,6 +45,35 @@ const UNKNOWN_FLAG = 0x00010000;
 // The fixture: version 0x00020001, flags 0, a 180-byte header that ends with an empty RootString,
 // then test-font.ttf byte for byte.
 const FIXTURE_HEADER_SIZE_BYTES = 180;
+
+// The sfnt fields the spec edits in the enclosed font, by their offset (OpenType 1.9.1, Table
+// Directory, head, maxp). Unlike the EOT header, the sfnt is big-endian.
+const SFNT_VERSION = 0;
+const SFNT_NUM_TABLES = 4;
+const SFNT_HEADER_SIZE_BYTES = 12;
+const SFNT_RECORD_SIZE_BYTES = 16;
+const SFNT_TAG_SIZE_BYTES = 4;
+const SFNT_RECORD_TABLE_OFFSET = 8;
+const SFNT_RECORD_LENGTH = 12;
+const HEAD_INDEX_TO_LOC_FORMAT = 50;
+const MAXP_NUM_GLYPHS = 4;
+const TTC_TAG = 0x74746366;
+// A glyf filled with this byte opens glyph 0 with numberOfContours 0x7f7f: a simple glyph whose
+// endPtsOfContours alone run past it.
+const GLYF_GARBAGE_BYTE = 0x7f;
+const GARBAGE_BYTE = 0xab;
+const GARBAGE_SIZE_BYTES = 1024;
+
+/**
+ * A break of the enclosed font with the answer `SfntFontValidator` gives on it.
+ */
+type FontBreak = {
+    name: string;
+    font: () => Uint8Array;
+    expected: new (...params: never) => InvalidSfntFont;
+    /** The rule a `BrokenSfnt` names. */
+    rule?: SfntRule;
+};
 
 /**
  * A block of the variable part: a name, RootString or Signature.
@@ -88,11 +121,13 @@ describe("EotFontValidator.validate", function () {
     let fixture: Uint8Array;
     let fixtureLayout: Layout;
     let otf: Uint8Array;
+    let woff: Uint8Array;
 
     before(async function () {
         fixture = await readFixture(Extension.EOT);
         fixtureLayout = parse(fixture);
         otf = await readFixture(Extension.OTF);
+        woff = await readFixture(Extension.WOFF);
     });
 
     beforeEach(async function () {
@@ -165,6 +200,10 @@ describe("EotFontValidator.validate", function () {
 
         it("with the OTF fixture enclosed", async function () {
             await validate(build({ ...fixtureLayout, font: otf }));
+        });
+
+        it("with the TTF fixture without OS/2 enclosed: a font with TrueType outlines may lack it", async function () {
+            await validate(build({ ...fixtureLayout, font: withoutTable(fixtureLayout.font, "OS/2") }));
         });
     });
 
@@ -442,20 +481,86 @@ describe("EotFontValidator.validate", function () {
                 );
             });
         }
+    });
 
-        it("that is not an sfnt", async function () {
-            const font = Uint8Array.from(fixtureLayout.font);
+    // The breaks measured in issue #740: the codec rejects the first four by the sfnt header alone
+    // and lets the rest through, and on eot → ttf the engine is not called.
+    describe("rejects a broken enclosed font with the answer of SfntFontValidator", function () {
+        const breaks: ReadonlyArray<FontBreak> = [
+            { name: "a WOFF", font: () => woff, expected: NotSfnt },
+            { name: "garbage", font: () => new Uint8Array(GARBAGE_SIZE_BYTES).fill(GARBAGE_BYTE), expected: NotSfnt },
+            {
+                name: "a collection",
+                font: () => withUint32(fixtureLayout.font, SFNT_VERSION, TTC_TAG),
+                expected: BrokenSfnt,
+                rule: SfntRule.Collection,
+            },
+            {
+                name: "the sfnt header alone",
+                font: () => fixtureLayout.font.slice(0, SFNT_HEADER_SIZE_BYTES),
+                expected: BrokenSfnt,
+                rule: SfntRule.DirectoryInFile,
+            },
+            {
+                name: "numTables 0",
+                font: () => withUint16(fixtureLayout.font, SFNT_NUM_TABLES, 0),
+                expected: BrokenSfnt,
+                rule: SfntRule.TablesPresent,
+            },
+            {
+                name: "cut in half",
+                font: () => fixtureLayout.font.slice(0, fixtureLayout.font.length / 2),
+                expected: BrokenSfnt,
+                rule: SfntRule.TableInFile,
+            },
+            {
+                name: "without its last byte",
+                font: () => fixtureLayout.font.slice(0, -1),
+                expected: BrokenSfnt,
+                rule: SfntRule.TableInFile,
+            },
+            { name: "without glyf", font: () => withoutTable(fixtureLayout.font, "glyf"), expected: BrokenSfnt, rule: SfntRule.Outlines },
+            ...["head", "cmap", "name"].map((tag) => ({
+                name: `without ${tag}`,
+                font: () => withoutTable(fixtureLayout.font, tag),
+                expected: BrokenSfnt,
+                rule: SfntRule.RequiredTable,
+            })),
+            {
+                name: "maxp.numGlyphs 0",
+                font: () => withUint16(fixtureLayout.font, tableOffset(fixtureLayout.font, "maxp") + MAXP_NUM_GLYPHS, 0),
+                expected: BrokenSfnt,
+                rule: SfntRule.NotdefGlyph,
+            },
+            {
+                name: "head.indexToLocFormat 2",
+                font: () => withUint16(fixtureLayout.font, tableOffset(fixtureLayout.font, "head") + HEAD_INDEX_TO_LOC_FORMAT, 2),
+                expected: BrokenSfnt,
+                rule: SfntRule.IndexToLocFormat,
+            },
+            {
+                name: "a glyf of garbage",
+                font: () => withTableFilled(fixtureLayout.font, "glyf", GLYF_GARBAGE_BYTE),
+                expected: BrokenSfnt,
+                rule: SfntRule.SimpleGlyphInData,
+            },
+        ];
 
-            font.set([0x77, 0x4f, 0x46, 0x46]);
+        for (const { name, font, expected, rule } of breaks) {
+            it(name, async function () {
+                const enclosed = font();
+                const direct = await expectRejection(async () => sfntFontValidator.validateBytes(fontPath, enclosed), expected);
+                const error = await expectRejection(() => validate(build({ ...fixtureLayout, font: enclosed })), expected, direct.message);
 
-            const error = await expectBroken(
-                build({ ...fixtureLayout, font: font }),
-                EotRule.FontData,
-                'At FontData: the sfnt header is "Unknown sfnt version: 0x774f4646.", expected a header the codec reads.',
-            );
+                // The answer passes through as is, and its payload names the EOT file.
+                expect(error.payload).to.deep.equal(direct.payload);
+                expect(error.payload).to.include({ path: fontPath });
 
-            expect(error.cause).to.be.instanceOf(InvalidSfnt);
-        });
+                if (rule !== undefined) {
+                    expect(error.payload).to.include({ rule: rule });
+                }
+            });
+        }
     });
 
     it("fails with ReadFailed on a file that cannot be read", async function () {
@@ -628,6 +733,67 @@ function patch(bytes: Uint8Array, mutate: (view: DataView) => void): Uint8Array 
     mutate(new DataView(copy.buffer));
 
     return copy;
+}
+
+/**
+ * The sfnt without the table record of `tag`: the table itself stays where it was.
+ */
+function withoutTable(font: Uint8Array, tag: string): Uint8Array {
+    const recordOffset = recordOf(font, tag);
+    const numTables = readUint16(font, SFNT_NUM_TABLES);
+    const directoryEnd = SFNT_HEADER_SIZE_BYTES + numTables * SFNT_RECORD_SIZE_BYTES;
+    const copy = Uint8Array.from(font);
+
+    copy.copyWithin(recordOffset, recordOffset + SFNT_RECORD_SIZE_BYTES, directoryEnd);
+    copy.fill(0, directoryEnd - SFNT_RECORD_SIZE_BYTES, directoryEnd);
+
+    return withUint16(copy, SFNT_NUM_TABLES, numTables - 1);
+}
+
+function withTableFilled(font: Uint8Array, tag: string, byte: number): Uint8Array {
+    const copy = Uint8Array.from(font);
+    const start = tableOffset(font, tag);
+
+    copy.fill(byte, start, start + readUint32(font, recordOf(font, tag) + SFNT_RECORD_LENGTH));
+
+    return copy;
+}
+
+function tableOffset(font: Uint8Array, tag: string): number {
+    return readUint32(font, recordOf(font, tag) + SFNT_RECORD_TABLE_OFFSET);
+}
+
+/**
+ * The offset of the table record of `tag` in the sfnt.
+ */
+function recordOf(font: Uint8Array, tag: string): number {
+    const numTables = readUint16(font, SFNT_NUM_TABLES);
+
+    for (let index = 0; index < numTables; index++) {
+        const recordOffset = SFNT_HEADER_SIZE_BYTES + index * SFNT_RECORD_SIZE_BYTES;
+
+        if (Buffer.from(font.subarray(recordOffset, recordOffset + SFNT_TAG_SIZE_BYTES)).toString("latin1") === tag) {
+            return recordOffset;
+        }
+    }
+
+    return expect.fail(`no table ${tag}`);
+}
+
+function readUint16(bytes: Uint8Array, offset: number): number {
+    return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint16(offset);
+}
+
+function readUint32(bytes: Uint8Array, offset: number): number {
+    return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(offset);
+}
+
+function withUint16(bytes: Uint8Array, offset: number, value: number): Uint8Array {
+    return patch(bytes, (view) => view.setUint16(offset, value));
+}
+
+function withUint32(bytes: Uint8Array, offset: number, value: number): Uint8Array {
+    return patch(bytes, (view) => view.setUint32(offset, value));
 }
 
 function hex(value: number): string {
