@@ -976,14 +976,17 @@ export class SfntFontValidator implements FontValidator {
         indexStartBytes: number,
         stringsStartBytes: number,
     ): void {
-        let highestIndexGlyph = 0;
+        // Of glyphs sharing the highest index, the message names the first.
+        let glyphWithHighestIndex = 0;
         let highestIndex = 0;
 
-        for (let glyph = 0; glyph < numGlyphs; glyph++) {
-            const glyphNameIndex = view.getUint16(post.offset + indexStartBytes + glyph * SfntFontValidator.GLYPH_NAME_INDEX_SIZE_BYTES);
+        for (let glyphIndex = 0; glyphIndex < numGlyphs; glyphIndex++) {
+            const glyphNameIndex = view.getUint16(
+                post.offset + indexStartBytes + glyphIndex * SfntFontValidator.GLYPH_NAME_INDEX_SIZE_BYTES,
+            );
 
             if (glyphNameIndex > highestIndex) {
-                highestIndexGlyph = glyph;
+                glyphWithHighestIndex = glyphIndex;
                 highestIndex = glyphNameIndex;
             }
         }
@@ -1007,7 +1010,7 @@ export class SfntFontValidator implements FontValidator {
                     at: at,
                     field: `the end of string ${stringIndex} of stringData`,
                     value: stringEndBytes,
-                    expected: `at most ${post.length}, the length of ${at}, as glyphNameIndex[${highestIndexGlyph}] is ${highestIndex}`,
+                    expected: `at most ${post.length}, the length of ${at}, as glyphNameIndex[${glyphWithHighestIndex}] is ${highestIndex}`,
                 });
             }
 

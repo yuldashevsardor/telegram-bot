@@ -363,41 +363,42 @@ an exact size: none of the 297 real fonts with TrueType outlines measured has ei
 than its fields, so the stricter form would buy nothing.
 
 The rules on `cmap`, `name`, `OS/2` and `post` check where the records point, not what lies there:
-neither the content of a `cmap` subtable past its format and length, nor the text of a `name`
-string or of a `post` 2.0 glyph name. Of the glyph names only where they lie is checked, up to the
-last string an index points at; the strings past it are not read. Every break they catch the
-engine either converts keeping every glyph, some of them losing content, crashes on, or runs on
-past 60 s ([#683](https://github.com/yuldashevsardor/telegram-bot/issues/683),
+neither the content of a `cmap` subtable past its format and length, nor the text of a `name` string
+or of a `post` 2.0 glyph name. Of the glyph names only where they lie is checked, up to the last
+string an index points at; the strings past it are not read. Every break they catch the engine
+either converts keeping every glyph, some of them losing content, crashes on, or runs on past 60 s
+([#683](https://github.com/yuldashevsardor/telegram-bot/issues/683),
 [#752](https://github.com/yuldashevsardor/telegram-bot/issues/752),
 [#757](https://github.com/yuldashevsardor/telegram-bot/issues/757)): a `cmap` without subtables, or
 whose every subtable offset points into its header and records or past where the fields of a
 subtable up to its length fit, loses the encoding, with "Could not find any valid encoding tables";
 a subtable shorter than the part of its format of a set size, at the end of `cmap`, has the engine
 read that part from the next table or from past the end of the file: of 20 variants it lost the
-encoding in 15 and made a wrong one up in 3, and on format 12 at the end of the file it ran past
-60 s in both fixtures, writing over 100 MB of "Bad font: Encoding data out of range." to stderr;
-a `name` with 60000 records gives "Invalid mac encoding 65535"; a `name` string past the table
-crashed fontforge with SIGSEGV in every conversion in 7 of the 14 variants measured and put foreign
-bytes into the full name in 2; a `post` 2.0 cut to its 32-byte header renames 399 glyphs of the
-TrueType fixture, those without an encoding, to `glyphN`, and a `post` 2.0 or 2.5 whose `numGlyphs`
-is below that of `maxp` renames the glyphs past it, 401 with `numGlyphs` 0; a glyph name the index
-points at that lies past `post` is renamed to `glyphN`, or cut short where the table cuts it, and
-read past the end of the file it carries a 0xFF byte into the name of the output, which is then not
+encoding in 15 and made a wrong one up in 3, and on format 12 at the end of the file it ran past 60
+s in both fixtures, writing over 100 MB of "Bad font: Encoding data out of range." to stderr; a
+`name` with 60000 records gives "Invalid mac encoding 65535"; a `name` string past the table crashed
+fontforge with SIGSEGV in every conversion in 7 of the 14 variants measured and put foreign bytes
+into the full name in 2; a `post` 2.0 cut to its 32-byte header renames 399 glyphs of the TrueType
+fixture, those without an encoding, to `glyphN`, and a `post` 2.0 or 2.5 whose `numGlyphs` is below
+that of `maxp` renames the glyphs past it, 401 with `numGlyphs` 0; a glyph name the index points at
+that is missing from `post` is renamed to `glyphN`, one the table cuts short is cut short, and one
+read past the end of the file carries a 0xFF byte into the name of the output, which is then not
 UTF-8; an undefined format over the Unicode subtable of the fixture leaves 225 of its 893 encoded
 glyphs, those of the Macintosh one. Some breaks the rules follow the standard on, not the engine:
 `name` records that run into the string storage convert with nothing lost, and so does a `cmap`
 subtable whose length runs past `cmap`, up to 65535 for format 4, or falls short of the part of its
 format of a set size while that part lies inside `cmap`, or a `cmap` whose one record points 2 bytes
 into its header while another Unicode record holds; pointing at 0 or 4, one such record already
-loses the encoding. An empty `name` string is not held to the table: it has no byte to read, and the
-engine converts it at any offset. A `post` naming more glyphs than `maxp` has passes: the standard
-says the two "should be the same", and the engine loses nothing on it. Its entries past the glyphs
-of `maxp` are held to the strings all the same: an entry of 2.0 pointing past them fails the font.
-With CFF outlines the engine takes the glyph names from `CFF `, and no break of `post` measured
-loses one; the `post` rules apply to those fonts too. None of these rules rejects a font of the
-242 in the macOS system font folders, which the validator walks in 0.3 s. The length `OS/2` needs by
-its version, and why version 0 passes shortened, is in the comment of `OS2_LENGTHS_BYTES` in
-`SfntFontValidator`.
+loses the encoding. A `post` 2.0 string whose length runs past `post`, with another table after it,
+loses nothing either: the engine reads the name only up to the end of `post`. An empty `name` string
+is not held to the table: it has no byte to read, and the engine converts it at any offset. A `post`
+naming more glyphs than `maxp` has passes: the standard says the two "should be the same", and the
+engine loses nothing on it. Its entries past the glyphs of `maxp` are held to the strings all the
+same: an entry of 2.0 pointing past them fails the font. With CFF outlines the engine takes the
+glyph names from `CFF `, and no break of `post` measured loses one; the `post` rules apply to those
+fonts too. None of these rules rejects a font of the 242 in the macOS system font folders, which the
+validator walks in 0.3 s. The length `OS/2` needs by its version, and why version 0 passes
+shortened, is in the comment of `OS2_LENGTHS_BYTES` in `SfntFontValidator`.
 
 What is deliberately not checked, with the reasons, is in the class comment of
 `SfntFontValidator`: the table checksums and `head.checkSumAdjustment`, which the engine does not

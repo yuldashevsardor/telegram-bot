@@ -1104,6 +1104,20 @@ describe("SfntFontValidator", function () {
             );
         });
 
+        it("naming the first of the glyphs that share the highest glyphNameIndex", async function () {
+            const withNotdefSharingIndex = withGlyphNameIndex(ttf, 0, TTF_HIGHEST_GLYPH_NAME_INDEX);
+
+            await expectBroken(
+                withLength(withNotdefSharingIndex, "post", TTF_POST_LENGTH_BYTES - 1),
+                SfntRule.PostNameStringInTable,
+                `At table "post": the end of string ${
+                    TTF_POST_STRING_COUNT - 1
+                } of stringData is ${TTF_POST_LENGTH_BYTES}, expected at most ${
+                    TTF_POST_LENGTH_BYTES - 1
+                }, the length of table "post", as glyphNameIndex[0] is ${TTF_HIGHEST_GLYPH_NAME_INDEX}.`,
+            );
+        });
+
         it("of version 2.0 ending with the length byte of the string its highest glyphNameIndex points at", async function () {
             const lengthEndBytes = TTF_LAST_POST_STRING_START_BYTES + 1;
 
