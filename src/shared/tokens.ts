@@ -37,6 +37,7 @@ export const Tokens = {
             Svg: Symbol.for("FontValidatorSvg"),
             Sfnt: Symbol.for("FontValidatorSfnt"),
             Woff: Symbol.for("FontValidatorWoff"),
+            Eot: Symbol.for("FontValidatorEot"),
         },
         Envelope: {
             Packer: Symbol.for("FontEnvelopePacker"),
