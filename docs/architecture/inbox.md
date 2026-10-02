@@ -63,8 +63,9 @@ their change depends on, as in the outbox ([`outbox.md`](./outbox.md), "The chat
 and a completion of one group are serialized in either order: the one that locks second sees what
 the first committed, and `test/telegram/inbox/inbox-store.spec.ts` pins both orders.
 
-The order inside a group is the order of `update_id` among the updates stored when the head is
-claimed. An update pushed after a later update of its group was claimed is handled after it.
+The order inside a group is the order of `update_id` among the updates stored as of the snapshot
+of the claim (see "Claim"). An update pushed after a later update of its group was claimed is
+handled after it.
 
 `update_id` grows only while updates keep coming: after a week without updates Telegram picks the
 next one at random (`update_id` of `Update` in the Bot API docs). An update still active from
@@ -107,9 +108,10 @@ passed yet, so such a group stays `processing`.
 `markAsDone(lease)` is a transaction:
 
 1. lock the group row of the update; a missing update throws `InboxUpdateNotLeased`;
-2. the fence: a `lockToken` that is not the group's changes nothing and is logged as a warning.
-   The lease has passed to another claim, or an earlier completion of the same claim has ended
-   it;
+2. the fence: a `lockToken` that is not the group's changes nothing and is logged as a warning,
+   with the group and its own token. The lease has passed to another claim, and the group holds
+   the token of that claim, or an earlier completion of the same claim has ended it, and the token
+   is `null`;
 3. the update goes from `processing` to `done` with `finished_at`. An update that is not
    `processing` under the group's own token is another update of the group, and the method throws
    `InboxUpdateNotLeased`;

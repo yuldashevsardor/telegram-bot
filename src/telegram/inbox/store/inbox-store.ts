@@ -185,9 +185,14 @@ export class InboxStore {
             }
 
             if (group.lock_token !== lease.lockToken) {
+                // The token of the group tells a lease passed to another claim from one already
+                // ended by a completion, which leaves null.
                 this.logger.warning("Inbox completion with a stale lock token changed nothing.", {
                     updateId: lease.updateId,
                     lockToken: lease.lockToken,
+                    userId: Number(group.user_id),
+                    chatId: Number(group.chat_id),
+                    groupLockToken: group.lock_token,
                 });
 
                 return;

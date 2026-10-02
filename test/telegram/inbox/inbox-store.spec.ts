@@ -355,7 +355,7 @@ describe("InboxStore", function () {
             await store.push(input(10));
             const claimed = await claimOne();
 
-            await database.sql`UPDATE telegram_inbox_groups SET lock_token = gen_random_uuid()`;
+            await database.sql`UPDATE telegram_inbox_groups SET lock_token = ${OTHER_TOKEN}`;
             await store.markAsDone(claimed);
 
             expect(await statuses()).to.deep.equal([InboxStatus.Processing]);
@@ -363,7 +363,7 @@ describe("InboxStore", function () {
             expect(logger.warnings).to.deep.equal([
                 {
                     message: "Inbox completion with a stale lock token changed nothing.",
-                    payload: { updateId: 10, lockToken: claimed.lockToken },
+                    payload: { updateId: 10, lockToken: claimed.lockToken, userId: USER, chatId: CHAT, groupLockToken: OTHER_TOKEN },
                 },
             ]);
         });
@@ -377,7 +377,7 @@ describe("InboxStore", function () {
 
             expect(await statuses()).to.deep.equal([InboxStatus.Done, InboxStatus.Pending]);
             expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Ready });
-            expect(logger.warnings).to.have.lengthOf(1);
+            expect(logger.warnings.map(({ payload }) => payload?.["groupLockToken"])).to.deep.equal([null]);
         });
 
         it("changes nothing for a token no claim gave out", async function () {
