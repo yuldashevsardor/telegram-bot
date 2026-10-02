@@ -104,6 +104,13 @@ describe("InboxStore", function () {
             ]);
         });
 
+        // A poll gets an empty batch more often than not.
+        it("does not open a transaction for an empty batch", async function () {
+            const unused = { sql: { begin: () => expect.fail("an empty batch opened a transaction") } } as unknown as Database;
+
+            await new InboxStore(unused, logger, LEASE_DURATION_MS).pushBatch([]);
+        });
+
         it("inserts an update repeated inside one batch once", async function () {
             await store.pushBatch([input(10, USER, CHAT, "first"), input(10, USER, CHAT, "repeated")]);
 

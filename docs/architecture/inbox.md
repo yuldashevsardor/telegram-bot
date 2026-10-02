@@ -65,6 +65,11 @@ the first committed, and `test/telegram/inbox/inbox-store.spec.ts` pins both ord
 The order inside a group is the order of `update_id` among the updates stored when the head is
 claimed. An update pushed after a later update of its group was claimed is handled after it.
 
+`update_id` grows only while updates keep coming: after a week without updates Telegram picks the
+next one at random (`update_id` of `Update` in the Bot API docs). An update still active from
+before such a gap would then be claimed after the newer updates of its group, and a new id equal to
+a stored one would be left out as a redelivery. Nothing keeps an update active for a week yet.
+
 ## Claim
 
 `claim(limit)` throws `InvalidClaimLimit` on a `limit` that is not a whole number from 1 to

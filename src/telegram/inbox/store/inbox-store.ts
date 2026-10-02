@@ -42,6 +42,11 @@ export class InboxStore {
     // left out: Telegram delivers an update again when it did not learn that the bot got it
     // (docs/architecture/inbox.md, "Push").
     public async pushBatch(inputs: InboxUpdateInput[]): Promise<void> {
+        // An empty getUpdates is the common answer of a poll: it costs no transaction.
+        if (inputs.length === 0) {
+            return;
+        }
+
         const groups = this.uniqueGroups(inputs);
         const userIds = groups.map((group) => group.userId);
         const chatIds = groups.map((group) => group.chatId);
