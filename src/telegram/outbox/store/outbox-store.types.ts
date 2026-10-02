@@ -51,7 +51,8 @@ export type OutboxMessageInput = {
     priority: number;
 };
 
-// Who pulled a message, written into its attempt: the node and the worker on it.
+// Who pulled a message, written into its attempt: the node and its worker loop. workerId names the
+// loop, not one of its slots.
 export type OutboxWorker = {
     host: string;
     pid: number;
