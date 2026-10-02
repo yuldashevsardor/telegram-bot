@@ -188,7 +188,10 @@ which file was rejected.
   next to `d` it drops them, while SVG 1.1 draws both. The rule takes `title` and `desc` too, and
   it rejects what fontforge itself exports with children (`svg_scpathdump`): a stroked font, whose
   glyph is a `g` around a `path`, and a multilayer one, whose glyph is nested `g`, `path` and
-  `image` without `d`. The owner took that price for the narrowest rule. None of the six icon fonts
+  `image` without `d`. The owner took that price for the narrowest rule. A processing instruction
+  in a glyph counts as a child too: libxml2 names it by its target, so `<?path?>` reaches the same
+  dispatch. Measured, fontforge draws such a glyph empty, as one without children, since the
+  instruction has no attributes to read; the rule does not lean on that. None of the six icon fonts
   checked for #766 (Font Awesome 4.7 and 5, Glyphicons, Ionicons, Material Design Icons, Weather
   Icons; about 5,000 glyphs) has a child element in a glyph, a prefixed attribute on a font node or
   an internal subset. Measured on 20230101

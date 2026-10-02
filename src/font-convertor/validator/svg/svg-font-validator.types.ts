@@ -21,7 +21,7 @@ export enum FontRule {
     SingleFont = "the document has one font element (ours: fontforge converts the first of several and drops the rest)",
     SvgNamespaceOnly = "the name of a font node is given only to an element in the SVG namespace (ours: fontforge reads a node of that name in any namespace, and a processing instruction by its target)",
     UnprefixedAttribute = "a font node has no prefixed attribute (ours: fontforge reads the first attribute of a local name, in any namespace)",
-    ChildlessGlyph = "glyph and missing-glyph have no child elements (ours: fontforge draws a glyph without d from its children as any SVG, and drops them next to d)",
+    ChildlessGlyph = "glyph and missing-glyph have no child elements or processing instructions (ours: fontforge draws a glyph without d from its children as any SVG, and drops them next to d)",
     NoInternalSubset = "the DOCTYPE has no internal subset (ours: fontforge takes attribute defaults from it, which the validator does not read)",
 }
 

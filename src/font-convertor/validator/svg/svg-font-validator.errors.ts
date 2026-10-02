@@ -26,6 +26,14 @@ export class InvalidSvgFont extends RuntimeError {
     }
 
     /**
+     * Quotes a name without a namespace or a prefix: a local name, or a quote of ours around one,
+     * `?target?`.
+     */
+    protected static clipName(name: string): string {
+        return InvalidSvgFont.clip(name, MAX_QUOTED_LENGTH).join("");
+    }
+
+    /**
      * Quotes a name in Clark notation, `{namespace}local`. The namespace and the local name are cut
      * each on its own, so that a long namespace does not cut off the name, and the braces are kept,
      * so that the quote stays in Clark notation.
@@ -58,7 +66,7 @@ export class InvalidSvgFont extends RuntimeError {
         const colonIndex = name.indexOf(":");
 
         if (colonIndex === -1) {
-            return InvalidSvgFont.clip(name, MAX_QUOTED_LENGTH).join("");
+            return InvalidSvgFont.clipName(name);
         }
 
         const [keptPrefix, prefixMark] = InvalidSvgFont.clip(name.slice(0, colonIndex), MAX_QUOTED_LENGTH);
@@ -116,16 +124,13 @@ export class BrokenFont extends InvalidSvgFont {
      * from a value that ends with `…` itself. In the message the value is escaped by
      * `JSON.stringify`, which can make it longer, so there the mark stands outside the quotes.
      *
-     * Of the element, the local name of a glyph's child and the namespace of one outside the SVG
-     * namespace come from the file; of the attribute name, the prefix and the local name. Each is
+     * Of the element, the local name or the target of a glyph's child and the namespace of one
+     * outside the SVG namespace come from the file; of the attribute name, the prefix and the local name. Each is
      * cut, and no length before the cut is kept for them, unlike for the value.
      */
     public static byRule(fontPath: string, violation: Violation): BrokenFont {
         const { rule, element, namespace, line, attribute } = violation;
-        const quotedElement =
-            namespace === undefined
-                ? InvalidSvgFont.clip(element, MAX_QUOTED_LENGTH).join("")
-                : InvalidSvgFont.clipClark(namespace, element);
+        const quotedElement = namespace === undefined ? InvalidSvgFont.clipName(element) : InvalidSvgFont.clipClark(namespace, element);
         const at = `SVG font breaks a rule: ${rule}. At line ${line}: <${InvalidSvgFont.escapeForMessage(quotedElement)}>`;
 
         if (attribute === undefined) {

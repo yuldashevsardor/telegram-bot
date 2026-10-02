@@ -251,6 +251,12 @@ export class SvgFontValidator implements FontValidator {
         if (SvgFontValidator.FONT_NODE_NAMES.includes(target)) {
             this.report(scan, FontRule.SvgNamespaceOnly, `?${target}?`, line);
         }
+
+        // libxml2 names a processing instruction by its target, so in a glyph `<?path?>` reaches
+        // the same dispatch on the local name as a child element.
+        if (scan.open.at(-1)?.isGlyph === true) {
+            this.report(scan, FontRule.ChildlessGlyph, `?${target}?`, line);
+        }
     }
 
     private checkFont(scan: Scan, element: OpenElement, tag: SaxesTagNS): void {

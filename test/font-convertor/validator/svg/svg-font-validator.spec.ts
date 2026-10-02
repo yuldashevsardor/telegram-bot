@@ -142,8 +142,8 @@ describe("SvgFontValidator.validate", function () {
             await validate(`<!DOCTYPE svg SYSTEM 'a[' >\n${inline(FONT)}`);
         });
 
-        it("with text inside a glyph", async function () {
-            await validate(inline(`<font horiz-adv-x="500">${FONT_FACE}<glyph d="M0 0"> </glyph></font>`));
+        it("with text or a comment inside a glyph", async function () {
+            await validate(inline(`<font horiz-adv-x="500">${FONT_FACE}<glyph d="M0 0"> <!-- path --> </glyph></font>`));
         });
     });
 
@@ -727,7 +727,7 @@ describe("SvgFontValidator.validate", function () {
 
         describe("to a child element of a glyph", function () {
             const rule =
-                "glyph and missing-glyph have no child elements (ours: fontforge draws a glyph without d from its children as any SVG, and drops them next to d)";
+                "glyph and missing-glyph have no child elements or processing instructions (ours: fontforge draws a glyph without d from its children as any SVG, and drops them next to d)";
 
             it("drawing a glyph without d", async function () {
                 // fontforge dies on this outline with a segmentation fault.
@@ -757,6 +757,22 @@ describe("SvgFontValidator.validate", function () {
                     inline(`<font horiz-adv-x="500">${FONT_FACE}<glyph><x:path xmlns:x="urn:x" d="M0 0"/></glyph></font>`),
                     BrokenFont,
                     `SVG font breaks a rule: ${rule}. At line 2: <{urn:x}path>.`,
+                );
+            });
+
+            it("on a processing instruction, quoted by its target", async function () {
+                // libxml2 names the instruction by its target, the name fontforge dispatches a child on.
+                const error = await expectAnswer(
+                    inline(`<font horiz-adv-x="500">${FONT_FACE}<glyph unicode="a"><?path d="garbage"?></glyph></font>`),
+                    BrokenFont,
+                    `SVG font breaks a rule: ${rule}. At line 2: <?path?>.`,
+                );
+
+                expect(error.payload).to.deep.equal({ path: fontPath, rule: FontRule.ChildlessGlyph, element: "?path?", line: 2 });
+                await expectAnswer(
+                    inline(`<font horiz-adv-x="500">${FONT_FACE}<glyph><?${"t".repeat(70)}?></glyph></font>`),
+                    BrokenFont,
+                    `SVG font breaks a rule: ${rule}. At line 2: <?${"t".repeat(63)}…>.`,
                 );
             });
 
