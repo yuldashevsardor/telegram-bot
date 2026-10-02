@@ -13,6 +13,8 @@ import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-v
 import { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
 import { WoffFontValidator } from "app/font-convertor/validator/woff/woff-font-validator";
 import { EotFontValidator } from "app/font-convertor/validator/eot/eot-font-validator";
+import { BrokenEot } from "app/font-convertor/validator/eot/eot-font-validator.errors";
+import { EotRule } from "app/font-convertor/validator/eot/eot-font-validator.types";
 import { NoFont } from "app/font-convertor/validator/svg/svg-font-validator.errors";
 import { BrokenSfnt, NotSfnt } from "app/font-convertor/validator/sfnt/sfnt-font-validator.errors";
 import { SfntRule } from "app/font-convertor/validator/sfnt/sfnt-font-validator.types";
@@ -25,12 +27,14 @@ const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 const SFNT_NUM_TABLES_OFFSET_BYTES = 4;
 // The offset of the reserved field in the WOFF header (WOFF 1.0, §4).
 const WOFF_RESERVED_OFFSET_BYTES = 14;
+// The offset of Reserved1 in the EOT header (EOT, §3).
+const EOT_RESERVED_1_OFFSET_BYTES = 64;
 
 // Every pair shares the input check, Convertor.validate(), so its branches run on one pair,
-// ttf → woff, the SVG branch on svg → woff and the WOFF one on woff → ttf. That each pair calls the
-// check is pinned in font-forge-convertor.spec.ts and eot-convertor.spec.ts. The engine is a stub:
-// a rejection has to happen before it. Permissions are taken away with chmod, so the spec is not for
-// root (docs/architecture/testing.md).
+// ttf → woff, the SVG branch on svg → woff, the WOFF one on woff → ttf and the EOT one on
+// eot → woff. That each pair calls the check is pinned in font-forge-convertor.spec.ts and
+// eot-convertor.spec.ts. The engine is a stub: a rejection has to happen before it. Permissions are
+// taken away with chmod, so the spec is not for root (docs/architecture/testing.md).
 describe("Convertor.validate", function () {
     let workDir: string;
     let lockedDirs: Array<string>;
@@ -175,6 +179,27 @@ describe("Convertor.validate", function () {
                 fromPath,
                 inWorkDir("result.ttf"),
                 BrokenWoff.byRule(fromPath, { rule: WoffRule.Reserved, at: "the header", field: "reserved", value: 1, expected: "0" }),
+            );
+        });
+
+        it("when it is an eot the validator rejects", async function () {
+            // MagicNumber is intact, so the signature check alone would have let the file through.
+            const fromPath = inWorkDir("reserved.eot");
+            const bytes = await fs.readFile(fixture(Extension.EOT));
+            bytes.writeUInt32LE(1, EOT_RESERVED_1_OFFSET_BYTES);
+            await fs.writeFile(fromPath, bytes);
+            convertor = factory.get(Extension.EOT, Extension.WOFF);
+
+            await expectRejection(
+                fromPath,
+                inWorkDir("result.woff"),
+                BrokenEot.byRule(fromPath, {
+                    rule: EotRule.Reserved,
+                    at: "the header",
+                    field: "Reserved1",
+                    value: "0x00000001",
+                    expected: "0",
+                }),
             );
         });
     });

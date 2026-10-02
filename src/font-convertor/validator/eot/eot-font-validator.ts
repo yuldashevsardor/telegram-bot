@@ -100,7 +100,7 @@ export class EotFontValidator implements FontValidator {
             });
         }
 
-        header.reserved.forEach((reserved, index) => {
+        for (const [index, reserved] of header.reserved.entries()) {
             if (reserved !== 0) {
                 throw BrokenEot.byRule(fontPath, {
                     rule: EotRule.Reserved,
@@ -110,7 +110,7 @@ export class EotFontValidator implements FontValidator {
                     expected: "0",
                 });
             }
-        });
+        }
     }
 
     /**

@@ -60,9 +60,11 @@ export class EotHeader {
     public static readonly VERSION_2_1 = 0x00020001;
     public static readonly VERSION_2_2 = 0x00020002;
     public static readonly VERSIONS: ReadonlyArray<number> = [EotHeader.VERSION_1_0, EotHeader.VERSION_2_1, EotHeader.VERSION_2_2];
-    // TTEMBED_TTCOMPRESSED and TTEMBED_XORENCRYPTDATA (§4.2): under either flag FontData is not a
-    // raw sfnt but compressed with MicroType Express or XOR-encrypted (§4.4).
-    public static readonly ENCODED_FONT_DATA_FLAGS = 0x00000004 | 0x10000000;
+    // The two flags (§4.2) under either of which FontData is not a raw sfnt: compressed with
+    // MicroType Express or XOR-encrypted (§4.4).
+    public static readonly TTEMBED_TTCOMPRESSED = 0x00000004;
+    public static readonly TTEMBED_XORENCRYPTDATA = 0x10000000;
+    public static readonly ENCODED_FONT_DATA_FLAGS = EotHeader.TTEMBED_TTCOMPRESSED | EotHeader.TTEMBED_XORENCRYPTDATA;
 
     public readonly eotSizeBytes: number;
     public readonly fontDataSizeBytes: number;
