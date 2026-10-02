@@ -300,6 +300,20 @@ describe("OutboxMessageSource", function () {
         expect(logger.warnings).to.be.empty;
     });
 
+    it("listens once across the pulls and the sleeps of the generator", async function () {
+        store.answer(NOTHING_READY, pullOf(pulledMessage(1)));
+        const stream = build().stream(WORKER);
+        const next = stream.next();
+
+        await advance(HALF_CAP_MS);
+        await next;
+        void stream.next();
+        await settle();
+
+        expect(store.pulls).to.have.length(3);
+        expect(store.listenCount).to.equal(1);
+    });
+
     it("goes on with the capped sleep when the listening fails", async function () {
         store.shouldFailListening = true;
         void build().stream(WORKER).next();
