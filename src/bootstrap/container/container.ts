@@ -48,6 +48,8 @@ import { OutboxMessageSource } from "app/telegram/outbox/outbox-message-source";
 import { OutboxApiFactory } from "app/telegram/outbox/outbox-api-factory";
 import { OutboxSender } from "app/telegram/outbox/outbox-sender";
 import { OutboxMessageProcessor } from "app/telegram/outbox/outbox-message-processor";
+import { OutboxWorkerLoop } from "app/telegram/outbox/outbox-worker-loop";
+import { OutboxMaintenance } from "app/telegram/outbox/outbox-maintenance";
 import { InboxStore } from "app/telegram/inbox/store/inbox-store";
 import { InboxFailureClassifier } from "app/telegram/inbox/failure-classifier/inbox-failure-classifier";
 import { InboxFailureHandler } from "app/telegram/inbox/inbox-failure-handler";
@@ -122,6 +124,8 @@ export class Container extends InversifyContainer {
         this.bind<OutboxApiFactory>(Tokens.Bot.Outbox.ApiFactory).to(OutboxApiFactory).inSingletonScope();
         this.bind<OutboxSender>(Tokens.Bot.Outbox.Sender).to(OutboxSender).inSingletonScope();
         this.bind<OutboxMessageProcessor>(Tokens.Bot.Outbox.MessageProcessor).to(OutboxMessageProcessor).inSingletonScope();
+        this.bind<OutboxWorkerLoop>(Tokens.Bot.Outbox.WorkerLoop).to(OutboxWorkerLoop).inSingletonScope();
+        this.bind<OutboxMaintenance>(Tokens.Bot.Outbox.Maintenance).to(OutboxMaintenance).inSingletonScope();
 
         // Inbox
         this.bind<InboxStore>(Tokens.Bot.Inbox.Store).to(InboxStore).inSingletonScope();

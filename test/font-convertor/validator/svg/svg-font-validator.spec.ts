@@ -27,6 +27,11 @@ function inline(font: string): string {
     return `<svg xmlns="${SVG_NAMESPACE}">\n${font}\n</svg>`;
 }
 
+// A valid font with the kerning pairs given after its glyphs.
+function kerned(kerning: string): string {
+    return `<font horiz-adv-x="500">${FONT_FACE}<glyph glyph-name="a" unicode="a"/><glyph glyph-name="b" unicode="b"/>${kerning}</font>`;
+}
+
 describe("SvgFontValidator.validate", function () {
     let workDir: string;
     // The file every inline document is written to: each answer names it in its payload.
@@ -134,16 +139,33 @@ describe("SvgFontValidator.validate", function () {
             await validate(inline(`<font horiz-adv-x="500">${FONT_FACE}<glyph xmlns:d="urn:x" d="M0 0"/></font>`));
             await validate(inline(`<glyph horiz-adv-x="-1"/>${FONT}`));
             await validate(inline(`<g><glyph x:d="garbage" xmlns:x="urn:x"><path d="garbage"/></glyph></g>${FONT}`));
+            await validate(inline(`<hkern u1="ab" k="x"/>${FONT}`));
         });
 
         it("with a DOCTYPE that has no internal subset", async function () {
             await validate(`<!DOCTYPE svg>\n${inline(FONT)}`);
             await validate(`<!DOCTYPE svg SYSTEM "a]" >\n${inline(FONT)}`);
             await validate(`<!DOCTYPE svg SYSTEM 'a[' >\n${inline(FONT)}`);
+            await validate(`<!DOCTYPE svg SYSTEM "a[b" >\n${inline(FONT)}`);
         });
 
         it("with text or a comment inside a glyph", async function () {
             await validate(inline(`<font horiz-adv-x="500">${FONT_FACE}<glyph d="M0 0"> <!-- path --> </glyph></font>`));
+        });
+
+        it("with kerning pairs in the forms real fonts write", async function () {
+            // u1="," is a single character, not a list: 13 of the 24 real fonts checked for #776 hold it.
+            await validate(inline(kerned('<hkern u1="," u2="a" k="-50"/><vkern u1="a" u2="b" k="12.5"/>')));
+            await validate(inline(kerned('<hkern g1="a,b c" g2="unknown" k="50"/><hkern u1="a" g1="b" u2="b" k="0"/>')));
+            // A no-break space is no XML whitespace: it is a name, though no glyph has it.
+            await validate(inline(kerned('<hkern g1="&#xA0;" u2="b" k="50"/>')));
+            // A character outside the BMP is one code point, though two UTF-16 units.
+            await validate(inline(kerned('<hkern u1="😀" u2="&#x1F600;" k="50"/>')));
+        });
+
+        it("with a k whose number rounds off its range", async function () {
+            // No number is checked for its range: fontforge makes a pair of zero of 1e999.
+            await validate(inline(kerned('<hkern u1="a" u2="b" k="1e999"/><hkern u1="a" u2="b" k="1e-999"/>')));
         });
     });
 
@@ -534,6 +556,91 @@ describe("SvgFontValidator.validate", function () {
             await expectAnswer(inline(`<font horiz-adv-x="500">${FONT_FACE}<g>${GLYPH}</g></font>`), BrokenFont, message);
         });
 
+        describe("to a kerning pair", function () {
+            for (const element of ["hkern", "vkern"]) {
+                it(`on ${element} without k`, async function () {
+                    const error = await expectAnswer(
+                        inline(kerned(`<${element} u1="a" u2="b"/>`)),
+                        BrokenFont,
+                        `SVG font breaks a rule: hkern and vkern have k (SVG 1.1, §20.7). At line 2: <${element}>.`,
+                    );
+
+                    expect(error.payload).to.deep.equal({ path: fontPath, rule: FontRule.KerningRequired, element: element, line: 2 });
+                });
+
+                it(`on ${element} whose k is not a number`, async function () {
+                    // fontforge reads the number at the head of the value: 12garbage kerns by 12.
+                    for (const value of ["12garbage", "nan", "", "5."]) {
+                        const error = await expectAnswer(
+                            inline(kerned(`<${element} u1="a" u2="b" k="${value}"/>`)),
+                            BrokenFont,
+                            `SVG font breaks a rule: a numeric attribute is a <number> (SVG 1.1, §4.2). At line 2: <${element}> with k=${JSON.stringify(
+                                value,
+                            )}.`,
+                        );
+
+                        expect(error.payload).to.include({ rule: FontRule.Number, element: element, attribute: "k", value: value });
+                    }
+                });
+            }
+
+            it("without one of its glyphs", async function () {
+                const message =
+                    "SVG font breaks a rule: hkern and vkern name both glyphs of the pair, by u1 or g1 and by u2 or g2 (SVG 1.1, §20.7). At line 2: <hkern>.";
+
+                // A g1 of separators alone names no glyph: fontforge kerns nothing for it.
+                for (const kernMarkup of [
+                    '<hkern u2="b" k="50"/>',
+                    '<hkern g1="a" k="50"/>',
+                    '<hkern k="50"/>',
+                    '<hkern g1="" u2="b" k="50"/>',
+                    '<hkern g1=" , " u2="b" k="50"/>',
+                ]) {
+                    const error = await expectAnswer(inline(kerned(kernMarkup)), BrokenFont, message);
+
+                    expect(error.payload).to.deep.equal({ path: fontPath, rule: FontRule.KernedGlyphRequired, element: "hkern", line: 2 });
+                }
+
+                await expectAnswer(inline(kerned('<vkern u1="a" k="50"/>')), BrokenFont, message.replace("<hkern>", "<vkern>"));
+                await expectAnswer(
+                    inline(kerned('<vkern u1="a" g2="&#9;,&#10;&#13; " k="50"/>')),
+                    BrokenFont,
+                    message.replace("<hkern>", "<vkern>"),
+                );
+            });
+
+            it("whose u1 or u2 is not one character", async function () {
+                const rule =
+                    "u1 and u2 of hkern and vkern are one character each (ours: fontforge reads them as a string of characters, not the list of §20.7)";
+
+                // fontforge kerns the comma of a list too, nothing for a range, and a and b for the ligature.
+                for (const value of ["a,b", "U+0061-0062", "ab", ""]) {
+                    const error = await expectAnswer(
+                        inline(kerned(`<hkern u1="${value}" u2="b" k="50"/>`)),
+                        BrokenFont,
+                        `SVG font breaks a rule: ${rule}. At line 2: <hkern> with u1=${JSON.stringify(value)}.`,
+                    );
+
+                    expect(error.payload).to.include({ rule: FontRule.SingleKernedCharacter, attribute: "u1", value: value });
+                }
+
+                // A g2 next to it does not excuse u2.
+                await expectAnswer(
+                    inline(kerned('<vkern u1="a" u2="a,b" g2="b" k="50"/>')),
+                    BrokenFont,
+                    `SVG font breaks a rule: ${rule}. At line 2: <vkern> with u2="a,b".`,
+                );
+            });
+
+            it("only as a direct child of font", async function () {
+                await expectAnswer(
+                    inline(`<font horiz-adv-x="500">${FONT_FACE}${GLYPH}<g><hkern/></g>\n<hkern/></font>`),
+                    BrokenFont,
+                    "SVG font breaks a rule: hkern and vkern have k (SVG 1.1, §20.7). At line 3: <hkern>.",
+                );
+            });
+        });
+
         describe("to a second font element", function () {
             const message =
                 "SVG font breaks a rule: the document has one font element (ours: fontforge converts the first of several and drops the rest). At line 3: <font>.";
@@ -557,7 +664,7 @@ describe("SvgFontValidator.validate", function () {
             const rule =
                 "the name of a font node is given only to an element in the SVG namespace (ours: fontforge reads a node of that name in any namespace, and a processing instruction by its target)";
 
-            for (const name of ["font", "font-face", "glyph", "missing-glyph"]) {
+            for (const name of ["font", "font-face", "glyph", "missing-glyph", "hkern", "vkern"]) {
                 it(`on a ${name} element, quoted in Clark notation`, async function () {
                     const error = await expectAnswer(
                         inline(`<font horiz-adv-x="500">${FONT_FACE}${GLYPH}\n<x:${name} xmlns:x="urn:x"/></font>`),
@@ -676,7 +783,7 @@ describe("SvgFontValidator.validate", function () {
                 );
             });
 
-            it("on font, font-face and missing-glyph", async function () {
+            it("on font, font-face, missing-glyph, hkern and vkern", async function () {
                 await expectAnswer(
                     inline(`<font horiz-adv-x="500" xmlns:x="urn:x" x:horiz-adv-x="-1">${FONT_FACE}${GLYPH}</font>`),
                     BrokenFont,
@@ -691,6 +798,17 @@ describe("SvgFontValidator.validate", function () {
                     inline(`<font horiz-adv-x="500">${FONT_FACE}<missing-glyph xmlns:x="urn:x" x:vert-adv-y="1"/>${GLYPH}</font>`),
                     BrokenFont,
                     `SVG font breaks a rule: ${rule}. At line 2: <missing-glyph> with x:vert-adv-y="1".`,
+                );
+                // fontforge kerns this pair by 70.
+                await expectAnswer(
+                    inline(kerned('<hkern xmlns:x="urn:x" u1="a" u2="b" x:k="70" k="50"/>')),
+                    BrokenFont,
+                    `SVG font breaks a rule: ${rule}. At line 2: <hkern> with x:k="70".`,
+                );
+                await expectAnswer(
+                    inline(kerned('<vkern xmlns:x="urn:x" x:u1="b" u1="a" u2="b" k="50"/>')),
+                    BrokenFont,
+                    `SVG font breaks a rule: ${rule}. At line 2: <vkern> with x:u1="b".`,
                 );
             });
 

@@ -23,6 +23,10 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
     // interval. A batch size goes to LIMIT, and 1e21 would reach it as 1e+21, which is no bigint.
     private static readonly CLEANUP_RANGE: IntegerRange = { min: 1, max: Number.MAX_SAFE_INTEGER };
 
+    // The connections the outbox takes besides its slots: the pull of the worker loop and the three
+    // tasks of OutboxMaintenance, each one query at a time.
+    private static readonly OUTBOX_CONNECTIONS_BESIDES_SLOTS = 4;
+
     // The pool deadlines are in seconds: postgres.js multiplies them by 1000 for setTimeout, so the
     // ceiling is the longest timer delay in seconds. A zero switches the timer off there, while a
     // negative value is truthy and would close the connection after 1 ms.
@@ -69,9 +73,13 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
                     timeoutMs: parser.getTimerDelay("OUTBOX_RESULT_TIMEOUT", 60 * 1000),
                     pollIntervalMs: parser.getTimerDelay("OUTBOX_RESULT_POLL_INTERVAL", 1000),
                 },
-                leaseDurationMs: parser.getTimerDelay("OUTBOX_LEASE_DURATION", 10 * 60 * 1000),
+                leaseDurationMs: parser.getTimerDelay("OUTBOX_LEASE_DURATION", 90 * 1000),
                 apiTimeoutMs: parser.getTimerDelay("OUTBOX_API_TIMEOUT", 60 * 1000),
                 maxAttempts: parser.getInteger("OUTBOX_MAX_ATTEMPTS", 10, { min: 1 }),
+                concurrency: parser.getInteger("OUTBOX_CONCURRENCY", 5, { min: 1 }),
+                stopTimeoutMs: parser.getTimerDelay("OUTBOX_STOP_TIMEOUT", 5000, { min: 0 }),
+                leaseRecoveryIntervalMs: parser.getTimerDelay("OUTBOX_LEASE_RECOVERY_INTERVAL", 10 * 1000),
+                cleanupIntervalMs: parser.getTimerDelay("OUTBOX_CLEANUP_INTERVAL", 10 * 60 * 1000),
                 cleanup: {
                     doneRetentionMs: parser.getInteger("OUTBOX_DONE_RETENTION", 7 * MS_PER_DAY, ConfigValuesBuilder.CLEANUP_RANGE),
                     skippedRetentionMs: parser.getInteger("OUTBOX_SKIPPED_RETENTION", 30 * MS_PER_DAY, ConfigValuesBuilder.CLEANUP_RANGE),
@@ -109,6 +117,7 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
 
         ConfigValuesBuilder.checkGracefulShutdown(values);
         ConfigValuesBuilder.checkOutboxLease(values);
+        ConfigValuesBuilder.checkOutboxConcurrency(values);
 
         return values;
     }
@@ -166,14 +175,29 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
     }
 
     // A lease that ends while its call still runs hands the message to another node, and it goes out
-    // twice (docs/architecture/invariants.md, "The outbox"). The check covers one call only: the
-    // calls of one pull sent one after another need more, and nothing checks that.
+    // twice (docs/architecture/invariants.md, "The outbox"). One call is enough to check: the worker
+    // loop pulls one message per free slot and starts it at once.
     private static checkOutboxLease({ outbox }: ConfigValues): void {
         if (outbox.leaseDurationMs <= outbox.apiTimeoutMs) {
             throw new InvalidConfigError("OUTBOX_LEASE_DURATION must be greater than OUTBOX_API_TIMEOUT", {
                 leaseDurationMs: outbox.leaseDurationMs,
                 apiTimeoutMs: outbox.apiTimeoutMs,
             });
+        }
+    }
+
+    // Each slot of the worker loop completes its message on a connection of the pool, and the pull
+    // and the maintenance take more. A pool they fill leaves the rest of the bot, the sessions and
+    // the users, waiting for a connection behind the sends.
+    private static checkOutboxConcurrency({ outbox, database }: ConfigValues): void {
+        if (outbox.concurrency + ConfigValuesBuilder.OUTBOX_CONNECTIONS_BESIDES_SLOTS >= database.connection.max) {
+            throw new InvalidConfigError(
+                "OUTBOX_CONCURRENCY plus the connections of the pull and the maintenance must be below DATABASE_CONNECTION_LIMIT",
+                {
+                    concurrency: outbox.concurrency,
+                    connectionLimit: database.connection.max,
+                },
+            );
         }
     }
 

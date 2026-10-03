@@ -433,15 +433,17 @@ describe("EotFontValidator.validate", function () {
             );
         });
 
-        it("a name of an odd size", async function () {
-            const familyName = fixtureLayout.names[0] as Block;
-            const names = [{ padding: 0, content: Uint8Array.from([...familyName.content, 0x41]) }, ...fixtureLayout.names.slice(1)];
+        it("a name of an odd size, each of the four", async function () {
+            for (const [index, name] of ["FamilyName", "StyleName", "VersionName", "FullName"].entries()) {
+                const block = fixtureLayout.names[index] as Block;
+                const names = fixtureLayout.names.with(index, { padding: 0, content: Uint8Array.from([...block.content, 0x41]) });
 
-            await expectBroken(
-                build({ ...fixtureLayout, names: names }),
-                EotRule.EvenSize,
-                `At the block of FamilyName: FamilyNameSize is ${familyName.content.length + 1}, expected an even number of bytes.`,
-            );
+                await expectBroken(
+                    build({ ...fixtureLayout, names: names }),
+                    EotRule.EvenSize,
+                    `At the block of ${name}: ${name}Size is ${block.content.length + 1}, expected an even number of bytes.`,
+                );
+            }
         });
 
         it("a RootString of an odd size", async function () {
