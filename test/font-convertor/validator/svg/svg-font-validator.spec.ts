@@ -156,6 +156,8 @@ describe("SvgFontValidator.validate", function () {
             // A comma is one character, the one u1 of 13 of the 24 real fonts checked for #776 kerns.
             await validate(inline(kerned('<hkern u1="," u2="a" k="-50"/><vkern u1="a" u2="b" k="12.5"/>')));
             await validate(inline(kerned('<hkern g1="a,b c" g2="unknown" k="50"/><hkern u1="a" g1="b" u2="b" k="0"/>')));
+            // A no-break space is no XML whitespace: it is a name, though no glyph has it.
+            await validate(inline(kerned('<hkern g1="&#xA0;" u2="b" k="50"/>')));
             // A character outside the BMP is one code point, though two UTF-16 units.
             await validate(inline(kerned('<hkern u1="😀" u2="&#x1F600;" k="50"/>')));
         });
@@ -599,6 +601,11 @@ describe("SvgFontValidator.validate", function () {
                 }
 
                 await expectAnswer(inline(kerned('<vkern u1="a" k="50"/>')), BrokenFont, message.replace("<hkern>", "<vkern>"));
+                await expectAnswer(
+                    inline(kerned('<vkern u1="a" g2="&#9;,&#10;" k="50"/>')),
+                    BrokenFont,
+                    message.replace("<hkern>", "<vkern>"),
+                );
             });
 
             it("whose u1 or u2 is not one character", async function () {

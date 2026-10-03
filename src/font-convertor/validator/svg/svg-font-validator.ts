@@ -68,6 +68,9 @@ export class SvgFontValidator implements FontValidator {
         "vert-origin-y",
         "vert-adv-y",
     ];
+    // A character of a glyph name in `g1` or `g2`: neither a comma nor XML whitespace (XML 1.0
+    // §2.3). fontforge splits at C `isspace`, whose `\v` and `\f` XML does not allow at all.
+    private static readonly GLYPH_NAME_CHARACTER = /[^,\x20\t\n\r]/;
     private static readonly NUMERIC_ATTRIBUTES: Record<NumericElement, ReadonlyArray<string>> = {
         font: ["horiz-origin-x", "horiz-origin-y", ...SvgFontValidator.GLYPH_NUMERIC_ATTRIBUTES],
         glyph: SvgFontValidator.GLYPH_NUMERIC_ATTRIBUTES,
@@ -349,7 +352,7 @@ export class SvgFontValidator implements FontValidator {
         if (characters === undefined) {
             const glyphNames = tag.attributes[side.glyphNamesAttribute]?.value;
 
-            if (glyphNames === undefined || !/[^,\s]/.test(glyphNames)) {
+            if (glyphNames === undefined || !SvgFontValidator.GLYPH_NAME_CHARACTER.test(glyphNames)) {
                 this.report(scan, FontRule.KernedGlyphRequired, name, element.line);
             }
 

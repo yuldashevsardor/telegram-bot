@@ -29,7 +29,8 @@ export enum FontRule {
 }
 
 /**
- * The elements whose attributes of type <number> the validator checks.
+ * The elements whose attributes of type <number> `NUMERIC_ATTRIBUTES` lists for `checkMetrics()`;
+ * `k` of a kerning pair is checked apart from them.
  */
 export type NumericElement = "font" | "glyph" | "missing-glyph";
 
