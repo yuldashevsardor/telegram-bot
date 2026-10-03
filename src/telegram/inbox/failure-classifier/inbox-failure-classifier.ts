@@ -31,9 +31,10 @@ const LOST_CONNECTION_CODES: ReadonlySet<string> = new Set([
 const CONNECTION_EXCEPTION_CLASS = "08";
 
 // The SQLSTATE codes of a server that stops or starts (admin_shutdown, crash_shutdown,
-// cannot_connect_now) and of a transaction PostgreSQL rolled back for a concurrent one
+// cannot_connect_now), of one that has no connection slot left (too_many_connections, which a server
+// just restarted under load gives) and of a transaction PostgreSQL rolled back for a concurrent one
 // (serialization_failure, deadlock_detected): the same query passes once it runs again.
-const TRANSIENT_SQLSTATES: ReadonlySet<string> = new Set(["57P01", "57P02", "57P03", "40001", "40P01"]);
+const TRANSIENT_SQLSTATES: ReadonlySet<string> = new Set(["57P01", "57P02", "57P03", "53300", "40001", "40P01"]);
 
 // Sorts the error an update handler failed with into InboxFailureKind (docs/architecture/inbox.md,
 // "Error classes"). The error is the handler's own: grammY wraps it into a BotError, which the caller
@@ -45,7 +46,7 @@ export class InboxFailureClassifier {
         private readonly botApiClassifier: TelegramBotApiFailureClassifier,
     ) {}
 
-    // The first link of the cause chain that has a class of its own decides: a wrapper says what failed,
+    // The first link of the cause chain that is not Unexpected decides: a wrapper says what failed,
     // the error it wraps says why. UserService wraps a failed save of the user, made on every update,
     // into UserCreateError or UserEditError with the error of the database as cause.
     public classify(error: unknown): InboxFailureKind {

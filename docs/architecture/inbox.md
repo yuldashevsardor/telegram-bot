@@ -172,15 +172,18 @@ does not say is why:
   `Unexpected`; the rest are `Transient`.
 - A 429 (`Flood`) and a 401 (`Unauthorized`) are `Transient`. Through the outbox neither reaches a
   handler: the outbox waits a 429 out and pauses on a 401 itself. One that does came from a call
-  that bypassed the outbox, and the update can be handled once Telegram lets the bot call again. A
-  401 of a token that stays revoked runs out the attempts and blocks the group.
+  that bypassed the outbox, and the update can be handled once Telegram lets the bot call again.
+  The inbox does not wait `retry_after` out: a 429 that asks for longer than the retry delays of
+  all the attempts, some 2 to 4 minutes at the defaults, runs them out and blocks the group, as a
+  401 of a token that stays revoked does.
 - A lost database connection is `Transient`: the codes postgres.js gives a query whose connection
   went away, the codes of the Node socket it passes on, the SQLSTATE class `08` (connection
-  exception) and the codes of a server that stops or starts. So are a deadlock and a serialization
-  failure, which PostgreSQL resolves by rolling one transaction back: the same handler passes once
-  it runs again. The outcome may still be unwritable while the connection is down; the lease
-  recovery then takes the update back (see "Lease recovery").
-- The `cause` chain is read too, and its first link that has a class of its own decides: a lost
+  exception), the codes of a server that stops or starts and of one with no connection slot left.
+  So are a deadlock and a serialization failure, which PostgreSQL resolves by rolling one
+  transaction back: the same handler passes once it runs again. The outcome may still be
+  unwritable while the connection is down; the lease recovery then takes the update back (see
+  "Lease recovery").
+- The `cause` chain is read too, and its first link that is not `Unexpected` decides: a lost
   connection a caller wrapped into its own error is `Transient`. `UserService` wraps a failed save
   of the user, made on every update, into `UserCreateError` or `UserEditError`; read only at the
   top, a restart of PostgreSQL during that save would block the group.

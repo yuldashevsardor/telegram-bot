@@ -68,7 +68,7 @@ describe("InboxFailureClassifier", function () {
         }
 
         // 08006 is connection_failure, 08P01 protocol_violation: the whole class is taken.
-        for (const code of ["08006", "08P01", "57P01", "57P02", "57P03", "40001", "40P01"]) {
+        for (const code of ["08006", "08P01", "57P01", "57P02", "57P03", "53300", "40001", "40P01"]) {
             it(`takes the SQLSTATE ${code} for transient`, function () {
                 expect(classifier.classify(postgresError(code))).to.equal(InboxFailureKind.Transient);
             });
