@@ -213,11 +213,9 @@ was rejected.
   `k`, a `<number>`, and names both glyphs, by `u1` or `g1` and by `u2` or `g2`; a `g1` or `g2`
   of commas and XML whitespace alone names none. fontforge
   (`SVGParseKern`) skips a pair without `k` or without a glyph, and reads the number at the head of
-  `k`, so `12garbage` kerns by 12. No number is checked against the range a font can store, `k`
-  included: out of a double, `1e999` makes a pair of zero, and past 16 bits `40000` makes 25536,
-  as `horiz-adv-x="70000"` of a glyph makes 4464. One rule is ours: `u1` and `u2` hold one
-  character each. fontforge reads them as a string of characters, not as the comma-separated list
-  of §20.7, so the list `a,b` kerns the comma too, the range `U+0061-0062` kerns nothing, and the
+  `k`, so `12garbage` kerns by 12. One rule is ours: `u1` and `u2` hold one character each.
+  fontforge reads them as a string of characters, not as the comma-separated list of §20.7, so the
+  list `a,b` kerns the comma too, the range `U+0061-0062` kerns nothing, and the
   ligature `ab` kerns `a` and `b`. The names in `g1` and `g2` are not checked: fontforge splits
   them at commas and whitespace, as the list of §20.7 is split. A name no glyph has, and a `u1` or
   `u2` character no glyph has, fontforge drops without a word.
@@ -227,6 +225,26 @@ was rejected.
   lists in 2,241 pairs. A grammar check of `u1` by §20.7, where the comma separates, would stumble
   on `u1=","`, which 13 of the 24 fonts hold. None of the fonts breaks a kerning rule; two break
   older ones, a Batik sample with a `g` in a glyph and a libmsvg sample with `xml:id` on its font.
+  The numbers fontforge carries into the font have a range each, ours, by where fontforge keeps
+  them (`strtod` in its `svg.c`, then a field of the font): past it fontforge writes another value
+  without a word. A range holds the number as written, and `1e999`, out of a double, is past every
+  range. `horiz-adv-x` and `vert-adv-y` of `font`, `glyph` and `missing-glyph` are 0 to 32767:
+  fontforge keeps an advance in a signed 16-bit field, narrower than the unsigned one of `hmtx`, so
+  `32768` makes 0 in a TTF and `70000` makes 4464. `k` is -32767 to 32767: fontforge keeps it
+  negated in the same kind of field, so `40000` kerns by 25536 and `-32768` wraps over to the
+  opposite sign. `units-per-em` is 16 to 16384, the range of `unitsPerEm` in the OpenType `head`
+  table; fontforge writes 15 or 16385 as it is. `ascent` and `descent` of `font-face`, numbers by
+  §20.8.3, are -32767 to 32767: fontforge takes them when they add up to `units-per-em` and writes
+  them into signed 16-bit fields, so `ascent="40000" descent="-39000"` gives an ascender of -25536.
+  A fraction is let through: fontforge truncates it (rounds `units-per-em`), and real fonts hold
+  fractional advances. The origins, `horiz-origin-x`, `horiz-origin-y`, `vert-origin-x` and
+  `vert-origin-y`, have no range: fontforge does not read them. The other numbers of `font-face`,
+  such as `underline-position` or `slope`, are not checked at all. Within the ranges the targets
+  agree: TTF, OTF, WOFF and WOFF2 were measured, and EOT is built from the TTF. Measured on
+  20230101 for [#792](https://github.com/yuldashevsardor/telegram-bot/issues/792), with 132
+  distinct real SVG fonts gathered for the earlier issues: none holds a number past its range, the
+  widest advance is 3169, `k` stays within ±1024, and `units-per-em` runs from 96 to 2048.
+  fontforge takes `ascent` and `descent` in 22 of them, and 17 glyph advances in 5 are fractional.
 
 XML is parsed with `saxes` (XML 1.0 fifth edition and Namespaces in XML, non-validating). It was
 chosen by measurement, with expat as the reference: of 38 malformed documents it accepted none,
