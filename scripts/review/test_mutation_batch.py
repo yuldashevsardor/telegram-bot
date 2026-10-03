@@ -497,15 +497,30 @@ def run_record(head=HEAD, clean="yes", scope="full", exit_code=0, score="100.00"
     return marker + "\n## `make mutation` run record\n\n- head: `{}`\n".format(head)
 
 
+FIX_HEAD = "b" * 40
+
+
 class CloseTest(unittest.TestCase):
     def setUp(self):
         self.git_dir = tempfile.mkdtemp(prefix="mutation-batch-")
         self.record_file = os.path.join(self.git_dir, "record.md")
-        self.write_run_record(run_record())
+        self.full_record_file = os.path.join(self.git_dir, "full-record.md")
+        self.write_full_run(run_record())
+
+    def write_full_run(self, text):
+        """As the wrapper does after a full run: the record goes into both files."""
+        self.write_run_record(text)
+        with open(self.full_record_file, "w", encoding="utf-8") as file:
+            file.write(text)
 
     def write_run_record(self, text):
         with open(self.record_file, "w", encoding="utf-8") as file:
             file.write(text)
+
+    def red_run_fixed(self, fix_record):
+        """A red full run, then a run over the files of its survivors on FIX_HEAD."""
+        self.write_full_run(run_record(exit_code=1, score="99.50"))
+        self.write_run_record(fix_record)
 
     def github(self, *issues, prs=None, ancestors=(), **failures):
         return FakeGitHub(
@@ -519,6 +534,7 @@ class CloseTest(unittest.TestCase):
             list(survivor_issues),
             github,
             self.record_file,
+            self.full_record_file,
         )
 
     def four_prs(self, *others):
@@ -579,7 +595,7 @@ class CloseTest(unittest.TestCase):
 
     def test_the_closing_comment_lists_the_fates_the_issues_and_the_run_record(self):
         github = self.four_prs()
-        self.write_run_record(run_record(exit_code=1, score="99.50"))
+        self.write_full_run(run_record(exit_code=1, score="99.50"))
 
         self.close(github, survivor_issues=[901, 902])
 
@@ -601,6 +617,9 @@ class CloseTest(unittest.TestCase):
             "Issues filed for the survivors of the run:\n"
             "- #901\n"
             "- #902\n"
+            "\n"
+            "Survivors fixed, checked by a run over their files:\n"
+            "- none\n"
             "\n"
             "{record}"
             "\n"
@@ -698,6 +717,7 @@ class CloseTest(unittest.TestCase):
         self.close(github)
         del github.failures["close"]
         os.remove(self.record_file)
+        os.remove(self.full_record_file)
 
         code, lines, err = self.close(github)
 
@@ -738,15 +758,15 @@ class CloseTest(unittest.TestCase):
 
     def test_a_run_record_that_ties_the_run_to_no_full_clean_commit_stops_before_a_write(self):
         for text, told in (
-            (run_record(scope="files"), "a run over files, not of the whole of src/"),
+            (run_record(scope="files"), "is of a run over files, not of the whole of src/"),
             (run_record(clean="no"), "ties the run to no commit: clean=no"),
             (run_record(head="unknown", clean="unknown"), "clean=unknown, head=unknown"),
-            (run_record(score="none", exit_code=1), "the run broke off before its report"),
-            (run_record(score="NaN"), "the run counted no mutant: score=NaN"),
+            (run_record(score="none", exit_code=1), "broke off before its report"),
+            (run_record(score="NaN"), "counted no mutant: score=NaN"),
             (run_record(exit_code=1, score="99.50"), "the run is red (exit=1)"),
             ("## `make mutation` run record\n", "does not open with the marker of a run record"),
         ):
-            self.write_run_record(text)
+            self.write_full_run(text)
             github = self.four_prs()
 
             code, lines, err = self.close(github)
@@ -756,13 +776,117 @@ class CloseTest(unittest.TestCase):
             self.assertEqual(github.lock_held_on_write, [], told)
             self.assertEqual(github.called("fetch"), [], told)
 
-    def test_no_run_record_stops(self):
-        os.remove(self.record_file)
+    def test_no_full_run_record_stops(self):
+        os.remove(self.full_record_file)
 
         code, _, err = self.close(self.four_prs())
 
         self.assertEqual(code, 1)
-        self.assertIn("Stopped: no run record at {}".format(self.record_file), err)
+        self.assertIn("Stopped: no run record at {}".format(self.full_record_file), err)
+
+    def test_a_green_full_run_closes_without_reading_the_record_of_the_last_run(self):
+        for fix_record in (None, run_record(head=FIX_HEAD, scope="files", exit_code=1)):
+            if fix_record is None:
+                os.remove(self.record_file)
+            else:
+                self.write_run_record(fix_record)
+            github = self.four_prs()
+
+            code, _, err = self.close(github)
+
+            self.assertEqual((code, err), (0, ""))
+            self.assertIn(
+                "Survivors fixed, checked by a run over their files:\n- none\n",
+                github.issues[630]["comments"][-1]["body"],
+            )
+
+    def test_a_red_full_run_closes_on_a_green_run_over_files_that_follows_it(self):
+        github = self.four_prs()
+        github.ancestors.add(HEAD)
+        fix_record = run_record(head=FIX_HEAD, scope="files")
+        self.red_run_fixed(fix_record)
+
+        code, _, err = self.close(github)
+
+        self.assertEqual((code, err), (0, ""))
+        self.assertIn(["git", "merge-base", "--is-ancestor", HEAD, FIX_HEAD], github.calls)
+        body = github.issues[630]["comments"][-1]["body"]
+        self.assertTrue(body.startswith("<!-- mutation-batch-close head={} -->\n".format(HEAD)))
+        self.assertIn(
+            "Issues filed for the survivors of the run:\n"
+            "- none\n"
+            "\n"
+            "Survivors fixed, checked by a run over their files:\n"
+            "- the run on `{fix}`, its record after the one of the full run\n"
+            "\n"
+            "{full}"
+            "\n"
+            "{fix_record}"
+            "\n"
+            "{signature}\n".format(
+                fix=FIX_HEAD,
+                full=run_record(exit_code=1, score="99.50"),
+                fix_record=fix_record,
+                signature=SIGNATURE,
+            ),
+            body,
+        )
+
+    def test_a_run_over_files_that_checks_no_fix_stops_before_a_write(self):
+        for fix_record, ancestors, told in (
+            (
+                run_record(head=FIX_HEAD, scope="files", exit_code=1, score="99.00"),
+                [HEAD],
+                "is red (exit=1): its survivors are not fixed",
+            ),
+            (
+                run_record(head=FIX_HEAD, scope="files"),
+                [],
+                "the run over files on {} does not follow the full run on {}".format(
+                    FIX_HEAD, HEAD
+                ),
+            ),
+            (
+                run_record(head=FIX_HEAD, scope="files", clean="no"),
+                [HEAD],
+                "ties the run to no commit: clean=no",
+            ),
+            (
+                run_record(head=HEAD, scope="files"),
+                [HEAD],
+                "the run over files is on {}, the head of the full run: it checked no fix".format(
+                    HEAD
+                ),
+            ),
+        ):
+            for survivor_issues in ((), (901,)):
+                github = self.four_prs()
+                github.ancestors.update(ancestors)
+                self.red_run_fixed(fix_record)
+
+                code, lines, err = self.close(github, survivor_issues=survivor_issues)
+
+                self.assertEqual((code, lines), (1, []), told)
+                self.assertIn(told, err)
+                self.assertEqual(github.lock_held_on_write, [], told)
+                self.assertEqual(github.called("fetch"), [], told)
+
+    def test_a_red_full_run_closes_on_issues_and_a_run_over_files_together(self):
+        github = self.four_prs()
+        github.ancestors.add(HEAD)
+        self.red_run_fixed(run_record(head=FIX_HEAD, scope="files"))
+
+        code, _, err = self.close(github, survivor_issues=[901])
+
+        self.assertEqual((code, err), (0, ""))
+        self.assertIn(
+            "Issues filed for the survivors of the run:\n"
+            "- #901\n"
+            "\n"
+            "Survivors fixed, checked by a run over their files:\n"
+            "- the run on `{}`, its record after the one of the full run\n".format(FIX_HEAD),
+            github.issues[630]["comments"][-1]["body"],
+        )
 
     def test_a_number_that_is_no_batch_of_the_viewer_stops(self):
         for github in (self.four_prs(), self.github(batch(630, 1, creator="stranger"))):

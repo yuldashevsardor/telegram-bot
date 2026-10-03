@@ -140,6 +140,7 @@ describe("SvgFontValidator.validate", function () {
             await validate(`<!DOCTYPE svg>\n${inline(FONT)}`);
             await validate(`<!DOCTYPE svg SYSTEM "a]" >\n${inline(FONT)}`);
             await validate(`<!DOCTYPE svg SYSTEM 'a[' >\n${inline(FONT)}`);
+            await validate(`<!DOCTYPE svg SYSTEM "a[b" >\n${inline(FONT)}`);
         });
 
         it("with text or a comment inside a glyph", async function () {
