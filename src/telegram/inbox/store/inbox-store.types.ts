@@ -1,4 +1,6 @@
 import type { Update } from "@grammyjs/types";
+import type { InboxFailureKind } from "app/telegram/inbox/failure-classifier/inbox-failure-classifier.types";
+import type { OutboxJsonObject } from "app/telegram/outbox/store/outbox-store.types";
 
 // The values of telegram_inbox.status: the database does not check them, so they are written only
 // through this enum.
@@ -30,14 +32,52 @@ export type InboxUpdateInput = {
     update: Update;
 };
 
+// Who claimed an update, written into its attempt: the node and its worker loop. workerId names the
+// loop, not one of its slots.
+export type InboxWorker = {
+    host: string;
+    pid: number;
+    workerId: string;
+};
+
+// The error an attempt ends with: the caught error as OutboxErrorSerializer writes it, and its class.
+export type InboxAttemptError = OutboxJsonObject & { kind: InboxFailureKind };
+
+// One attempt of an update, as telegram_inbox.attempts keeps it: a completion appends it whole,
+// finished_at is set by the database. error is null for a success. worker is null for the attempt
+// of an expired lease: the worker of its claim is stored nowhere.
+export type InboxAttempt = {
+    started_at: string;
+    worker: { host: string; pid: number; worker_id: string } | null;
+    finished_at: string;
+    error: InboxAttemptError | null;
+};
+
 // What a completion of a claimed update is fenced by: the update and the token of the claim that
-// leased its group.
+// leased its group. The start of the attempt and its worker go with it: the completion writes the
+// attempt. A claimed update is a lease itself, and so is an expired lease the recovery reads.
 export type InboxLease = {
     updateId: number;
     lockToken: string;
+    // The time of the claim by the database clock; derived for an expired lease (ExpiredInboxLease).
+    startedAt: string;
+    // null for an expired lease.
+    worker: InboxWorker | null;
 };
 
-export type ClaimedInboxUpdate = InboxUpdateInput & InboxLease;
+export type ClaimedInboxUpdate = InboxUpdateInput &
+    InboxLease & {
+        worker: InboxWorker;
+        // The attempts the update has made before this one, whatever they ended with.
+        earlierAttempts: number;
+    };
+
+// A lease that passed before its update was completed: the node that claimed the update is presumed
+// dead. Only the lease end is stored, so startedAt is that end minus the lease duration.
+export type ExpiredInboxLease = InboxLease & {
+    worker: null;
+    earlierAttempts: number;
+};
 
 // A claimed row as postgres returns it: a bigint comes as a string.
 export type ClaimedInboxRow = {
@@ -45,6 +85,16 @@ export type ClaimedInboxRow = {
     user_id: string;
     chat_id: string;
     update: Update;
+    started_at: string;
+    earlier_attempts: number;
+};
+
+// An expired lease as postgres returns it.
+export type ExpiredInboxLeaseRow = {
+    update_id: string;
+    lock_token: string;
+    started_at: string;
+    earlier_attempts: number;
 };
 
 // The group row a completion locks, as postgres returns it.

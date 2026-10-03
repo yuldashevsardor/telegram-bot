@@ -1,9 +1,9 @@
 # Font fixtures
 
-The same Roboto-Black in six formats. They are the input for manual conversion runs, for
-`/font_generator` and for the specs. The specs need real fonts: the validators need real headers,
-not invented ones, and the pairs convert real fonts. Which specs take the fixtures —
-`grep -rl fixtures test --include='*.spec.ts'`.
+The same Roboto-Black in six formats, EOT twice: with a raw and with a compressed font. They are
+the input for manual conversion runs, for `/font_generator` and for the specs. The specs need real
+fonts: the validators need real headers, not invented ones, and the pairs convert real fonts. Which
+specs take the fixtures — `grep -rl fixtures test --include='*.spec.ts'`.
 
 The directory lives in `test/`, not in `tmp/` as it used to. Files from `tmp/` never reached the
 container at all: `tmp` is listed in `.dockerignore`, and on top of that the `app-tmp` volume
@@ -47,6 +47,20 @@ byte-for-byte test is the only check in the repository of the envelope against t
 than against itself. Do not rebuild this file with our own code: the check would become a
 tautology.
 
+`test-font-compressed.eot` holds the same font compressed with MicroType Express
+(`TTEMBED_TTCOMPRESSED`), the way a third of real EOT files are. It is made from `test-font.ttf` by
+`SfntTool` of sfntly (Google, Apache-2.0, `googlefonts/sfntly`), another tool that is not in the
+image. The `java/` directory of that repository is built with `ant`, and the command runs from it:
+
+```sh
+java -cp "build/classes:lib/*" com.google.typography.font.tools.sfnttool.SfntTool -e -x test-font.ttf test-font-compressed.eot
+```
+
+A re-run gives the same bytes: 50 334 of them, version `0x00020002`, flags `0x00000004`. The
+decoded sfnt differs from `test-font.ttf` in bytes, since MicroType Express rebuilds `glyf`, `loca`
+and `head`. So `eot-packer.spec.ts` compares the glyphs point by point, not a hash. The domain does
+not compress, so this file, like `test-font.eot`, cannot be rebuilt with our own code.
+
 Every format is checked by its validator: the sign of each file is that its validator accepts it.
 
 | file | sign |
@@ -56,4 +70,5 @@ Every format is checked by its validator: the sign of each file is that its vali
 | `test-font.woff` | `WoffFontValidator` accepts it, see `docs/architecture/font-convertor.md`, "The WOFF validator" |
 | `test-font.woff2` | `Woff2FontValidator` accepts it, see `docs/architecture/font-convertor.md`, "The WOFF2 validator" |
 | `test-font.eot` | `EotFontValidator` accepts it, see `docs/architecture/font-convertor.md`, "The EOT validator" |
+| `test-font-compressed.eot` | `EotFontValidator` accepts it, flags `0x00000004` at offset 12 |
 | `test-font.svg` | `SvgFontValidator` accepts it, see `docs/architecture/font-convertor.md`, "The SVG validator" |

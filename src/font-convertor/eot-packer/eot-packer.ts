@@ -1,14 +1,15 @@
-import { injectable } from "inversify";
+import { inject, injectable } from "inversify";
 import { FileHelper } from "app/shared/fs/file-helper";
 import { EotHeader } from "app/font-convertor/eot-header/eot-header";
 import { InvalidEot } from "app/font-convertor/eot-header/eot-header.errors";
-import { UnsupportedEotFlags } from "app/font-convertor/eot-packer/eot-packer.errors";
+import type { EotPayloadDecoder } from "app/font-convertor/eot-payload-decoder/eot-payload-decoder";
 import { SfntReader } from "app/font-convertor/eot-packer/sfnt-reader/sfnt-reader";
 import type { SfntMetadata } from "app/font-convertor/eot-packer/sfnt-reader/sfnt-reader.types";
+import { Tokens } from "app/shared/tokens";
 
-// EOT is not an outline format of its own but an envelope: a header with metadata, then the
-// untouched sfnt bytes. That is why EOT bypasses the engine: the engine does not read this
-// envelope, and on writing it silently slips in PostScript Type 1
+// EOT is not an outline format of its own but an envelope: a header with metadata, then the sfnt
+// bytes, untouched or encoded (eot-payload-decoder.ts). That is why EOT bypasses the engine: the
+// engine does not read this envelope, and on writing it silently slips in PostScript Type 1
 // (issue https://github.com/yuldashevsardor/telegram-bot/issues/158). The header layout and the
 // versions read are in eot-header.ts.
 
@@ -21,6 +22,10 @@ const PANOSE_SIZE = 10;
 
 @injectable()
 export class EotPacker {
+    public constructor(
+        @inject<EotPayloadDecoder>(Tokens.Font.Envelope.PayloadDecoder) private readonly payloadDecoder: EotPayloadDecoder,
+    ) {}
+
     /**
      * Puts an sfnt into an EOT envelope.
      */
@@ -32,11 +37,13 @@ export class EotPacker {
     }
 
     /**
-     * Takes an sfnt out of an EOT envelope.
+     * Takes an sfnt out of an EOT envelope, decoding a compressed or encrypted one.
      */
     public async unpack(eotPath: string, sfntPath: string): Promise<void> {
         const eot = await FileHelper.read(eotPath);
-        const font = this.readFontData(eot);
+        const header = new EotHeader(eot);
+        const fontData = this.readFontData(eot, header);
+        const font = this.payloadDecoder.decode(fontData, header.flags);
 
         // A consistent header may still enclose something that is not a font. The check is here
         // because both routes pass here: the unpacked file is either the result itself (eot → ttf)
@@ -97,9 +104,7 @@ export class EotPacker {
         return eot;
     }
 
-    private readFontData(eot: Uint8Array): Uint8Array {
-        const header = new EotHeader(eot);
-
+    private readFontData(eot: Uint8Array, header: EotHeader): Uint8Array {
         if (header.magicNumber !== EotHeader.MAGIC_NUMBER) {
             throw InvalidEot.invalidMagic(header.magicNumber);
         }
@@ -110,10 +115,6 @@ export class EotPacker {
 
         // The names also reject an unknown version.
         const names = header.readNames();
-
-        if ((header.flags & EotHeader.ENCODED_FONT_DATA_FLAGS) !== 0) {
-            throw UnsupportedEotFlags.byFlags(header.flags);
-        }
 
         // The font is the tail of the file, so its start is known without parsing the header. The
         // names are still walked in full: this is how the variable part of the header is checked.

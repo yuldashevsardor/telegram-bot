@@ -4,6 +4,7 @@ import os from "os";
 import path from "path";
 import { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory";
 import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
+import { EotPayloadDecoder } from "app/font-convertor/eot-payload-decoder/eot-payload-decoder";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
@@ -20,16 +21,17 @@ const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 // own beyond the input check and the engine call. A stub engine would confirm only the call, not
 // that the pair is reachable. Each pair calls the check itself, so a rejection is pinned for each.
 // The branches of the check itself run in convertor.spec.ts. The EOT pairs run on stubs in
-// eot-convertor.spec.ts; only their SVG route runs here, with the real engine and codec, below.
+// eot-convertor.spec.ts; only two of their routes run here, with the real engine and codec, below:
+// eot → svg and the compressed eot → woff.
 describe("Convertors of the engine pairs", function () {
     const resolver = new FontValidatorResolver(
         new SvgFontValidator(),
         new WoffFontValidator(new SfntFontValidator()),
         new Woff2FontValidator(),
         new SfntFontValidator(),
-        new EotFontValidator(new SfntFontValidator()),
+        new EotFontValidator(new SfntFontValidator(), new EotPayloadDecoder()),
     );
-    const factory = new ConvertorFactory(new FontForge("fontforge"), resolver, new EotPacker());
+    const factory = new ConvertorFactory(new FontForge("fontforge"), resolver, new EotPacker(new EotPayloadDecoder()));
     const engineExtensions = factory.getSupportedExtensions().filter((extension) => extension !== Extension.EOT);
     const nonSvgExtensions = factory.getSupportedExtensions().filter((extension) => extension !== Extension.SVG);
     let workDir: string;
@@ -76,6 +78,16 @@ describe("Convertors of the engine pairs", function () {
         await factory.get(Extension.EOT, Extension.SVG).convert(path.join(fixtureDir, `test-font.${Extension.EOT}`), toPath);
 
         await resolver.get(Extension.SVG).validate(toPath);
+    });
+
+    // The sfnt MicroType Express rebuilds goes the whole way of a pair from EOT: the validator and the
+    // codec decode the compressed fixture, and the engine converts what they decode.
+    it("converts a compressed eot to a woff WoffFontValidator accepts", async function () {
+        const toPath = path.join(workDir, `result.${Extension.WOFF}`);
+
+        await factory.get(Extension.EOT, Extension.WOFF).convert(path.join(fixtureDir, "test-font-compressed.eot"), toPath);
+
+        await resolver.get(Extension.WOFF).validate(toPath);
     });
 
     // Some of the classes of source the validator admits beyond the fixture, each made from the
