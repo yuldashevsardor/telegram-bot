@@ -52,6 +52,8 @@ export type ConfigValues = {
     inbox: {
         // How long a claimed group stays with the node that claimed it.
         leaseDurationMs: number;
+        // The attempts of an update that count towards the limit, the last one included.
+        maxAttempts: number;
     };
 
     bot: BotSettings;
