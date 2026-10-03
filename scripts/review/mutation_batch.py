@@ -43,17 +43,27 @@ same lock as `record`:
    already carries its closing comment, only closing the issue is left, so a repeat call after a
    stop finishes the job, posts nothing twice and reads no run record: by then the record may be
    gone together with the worktree of the run.
-2. Reads the run record reports/mutation/record.md (docs/architecture/testing.md, "The run record")
-   and stops unless the run mutated the whole of `src/` on a clean tree and left a report with a
-   score. A red run (`exit` other than 0) closes only with the issues filed for its survivors
-   named; whether they cover every survivor is the caller's check.
-3. Sorts each recorded PR by `gh pr view`: merged, with its merge commit an ancestor of the run's
-   head — covered; merged later, or not merged — carried over; closed without a merge — dropped.
-4. Records the carried ones into the other open batch, created if there is none, from
+2. Reads the record of the full run, reports/mutation/full-record.md (docs/architecture/testing.md,
+   "The run record"), and stops unless the run mutated the whole of `src/` on a clean tree and left
+   a report with a score.
+3. Reads the record of the last run, reports/mutation/record.md. When it is of a run over files, it
+   is the check of the fixed survivors: it has to be green, on a clean tree, on a descendant of the
+   head of the full run. Each round of fixes runs over the files it changed alone, so the record
+   holds the last round; the earlier rounds and their survivors are the caller's check. The full
+   run is not repeated for the fixes: in batch 1 (#701) it took 637 minutes, the run over the files
+   of its survivors 43.
+4. A red full run (`exit` other than 0) closes only with the issues filed for its survivors named,
+   or with the run over files of item 3, or both. Whether they cover every survivor, the files of
+   that run included, is the caller's check.
+5. Sorts each recorded PR by `gh pr view`: merged, with its merge commit an ancestor of the head of
+   the full run — covered; merged later, or not merged — carried over; closed without a merge —
+   dropped.
+6. Records the carried ones into the other open batch, created if there is none, from
    templates/mutation-batch-carry.md. An issue already recorded there with the same PR is not
    recorded twice.
-5. Comments from templates/mutation-batch-close.md: the head, the three lists, the issues of the
-   survivors and the run record itself. Then closes the issue if it is open.
+7. Comments from templates/mutation-batch-close.md: the head, the three lists, the issues of the
+   survivors, the run over files, the record of the full run and the one of the run over files.
+   Then closes the issue if it is open.
 
 A batch, a record or a closing comment counts only when the viewer wrote it, and a comment only by
 its marker, the first line of its template. The repository is public: anyone can type the title or
@@ -94,8 +104,10 @@ SHA = re.compile(r"[0-9a-f]{40}")
 # `gh issue create` prints the URL of the issue it made; the URL ends in the issue number.
 CREATED_ISSUE = re.compile(r"/issues/(?P<number>[1-9][0-9]*)\s*$")
 LOCK_FILE_NAME = "mutation-batch.lock"
-# Relative to the root of the worktree: the make target runs there, and so did the run.
+# Relative to the root of the worktree: the make target runs there, and so did the run. The record
+# of the last run, and the one of the last full run, which a run over files leaves alone.
 RUN_RECORD_FILE = os.path.join("reports", "mutation", "record.md")
+FULL_RUN_RECORD_FILE = os.path.join("reports", "mutation", "full-record.md")
 TEMPLATES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")
 NOT_MERGED = "not merged"
 MERGED_AFTER_HEAD = "merged after the run's head"
@@ -125,6 +137,7 @@ class Comment(NamedTuple):
 
 class RunRecord(NamedTuple):
     head: str
+    exit: str
     text: str
 
 
@@ -358,37 +371,73 @@ def check_record(pr: int, run: Run = subprocess.run) -> int:
     return 0
 
 
-def read_run_record(path: str, survivor_issues: List[int]) -> RunRecord:
+def read_record_file(path: str) -> Optional[str]:
+    """The text of a run record, None when there is no file."""
     try:
         with open(path, encoding="utf-8") as file:
-            text = file.read()
+            return file.read()
     except FileNotFoundError:
-        raise Stop("no run record at {}: the full run goes first, make mutation".format(path))
+        return None
     except OSError as failure:
         raise Stop("the run record {} was not read — {}".format(path, failure))
+
+
+def parse_run_record(path: str, text: str) -> Tuple[RunRecord, str]:
+    """The record of a run that tested a commit, and its scope."""
     marker = RUN_RECORD_MARKER.fullmatch(text.split("\n", 1)[0].strip())
     if marker is None:
         raise Stop("{} does not open with the marker of a run record".format(path))
-    if marker.group("scope") != "full":
-        raise Stop("the run record is of a run over files, not of the whole of src/")
     if marker.group("clean") != "yes" or not SHA.fullmatch(marker.group("head")):
         raise Stop(
-            "the run record ties the run to no commit: clean={}, head={}".format(
-                marker.group("clean"), marker.group("head")
+            "the run record {} ties the run to no commit: clean={}, head={}".format(
+                path, marker.group("clean"), marker.group("head")
             )
         )
     if marker.group("score") == "none":
-        raise Stop("the run broke off before its report: the run record has no score")
+        raise Stop(
+            "the run of {} broke off before its report: the record has no score".format(path)
+        )
     # A score of NaN is a run without a single valid mutant, a broken `mutate` glob say: it tested
     # nothing, and exits with 0 all the same (docs/architecture/testing.md, "Threshold").
     if marker.group("score") == "NaN":
-        raise Stop("the run counted no mutant: score=NaN")
-    if marker.group("exit") != "0" and not survivor_issues:
+        raise Stop("the run of {} counted no mutant: score=NaN".format(path))
+    return RunRecord(marker.group("head"), marker.group("exit"), text), marker.group("scope")
+
+
+def read_full_run(path: str) -> RunRecord:
+    text = read_record_file(path)
+    if text is None:
+        raise Stop("no run record at {}: the full run goes first, make mutation".format(path))
+    full_run, scope = parse_run_record(path, text)
+    if scope != "full":
         raise Stop(
-            "the run is red (exit={}): name the issues filed for its survivors, "
-            'issues="<N> …"'.format(marker.group("exit"))
+            "the run record {} is of a run over files, not of the whole of src/".format(path)
         )
-    return RunRecord(marker.group("head"), text)
+    return full_run
+
+
+def read_fix_run(path: str, full_run: RunRecord, run: Run) -> Optional[RunRecord]:
+    """The run over the files of the survivors after the full run; None when the last run is the
+    full one."""
+    text = read_record_file(path)
+    if text is None:
+        return None
+    fix_run, scope = parse_run_record(path, text)
+    if scope == "full":
+        return None
+    if fix_run.exit != "0":
+        raise Stop(
+            "the run over files of {} is red (exit={}): its survivors are not fixed".format(
+                path, fix_run.exit
+            )
+        )
+    if not is_ancestor(full_run.head, fix_run.head, run):
+        raise Stop(
+            "the run over files on {} does not follow the full run on {}".format(
+                fix_run.head, full_run.head
+            )
+        )
+    return fix_run
 
 
 def pr_state(pr: int, run: Run) -> Tuple[str, Optional[str]]:
@@ -482,7 +531,8 @@ def bullets(lines: List[str]) -> str:
 
 
 def closing_body(
-    run_record: RunRecord,
+    full_run: RunRecord,
+    fix_run: Optional[RunRecord],
     ordered: Sorted,
     next_batch: Optional[Batch],
     survivor_issues: List[int],
@@ -491,15 +541,22 @@ def closing_body(
         return "issue #{}, PR #{}".format(found.issue, found.pr)
 
     carried = ["{}, {}".format(pair(carry.record), carry.why) for carry in ordered.carried]
+    fixes: List[str] = []
+    fix_record = ""
+    if fix_run is not None:
+        fixes = ["the run on `{}`, its record after the one of the full run".format(fix_run.head)]
+        fix_record = "\n\n" + fix_run.text.rstrip("\n")
     return template(
         "mutation-batch-close.md",
-        head=run_record.head,
+        head=full_run.head,
         covered=bullets([pair(found) for found in ordered.covered]),
         next_batch=" to #{}".format(next_batch.issue) if next_batch else "",
         carried=bullets(carried),
         dropped=bullets([pair(found) for found in ordered.dropped]),
         issues=bullets(["#{}".format(issue) for issue in survivor_issues]),
-        run_record=run_record.text.rstrip("\n"),
+        fixes=bullets(fixes),
+        run_record=full_run.text.rstrip("\n"),
+        fix_record=fix_record,
     )
 
 
@@ -517,7 +574,9 @@ def fetch(run: Run) -> None:
     check(done, "git fetch origin failed")
 
 
-def close_locked(batch_issue: int, survivor_issues: List[int], record_file: str, run: Run) -> None:
+def close_locked(
+    batch_issue: int, survivor_issues: List[int], record_files: Tuple[str, str], run: Run
+) -> None:
     login = viewer(run)
     batches = list_batches(login, run)
     closing = next((batch for batch in batches if batch.issue == batch_issue), None)
@@ -531,15 +590,24 @@ def close_locked(batch_issue: int, survivor_issues: List[int], record_file: str,
         close_issue(closing, run)
         print("already closed: {}".format(closed_before[0].url))
         return
-    run_record = read_run_record(record_file, survivor_issues)
+    record_file, full_record_file = record_files
+    full_run = read_full_run(full_record_file)
+    fix_run = read_fix_run(record_file, full_run, run)
+    if full_run.exit != "0" and not survivor_issues and fix_run is None:
+        raise Stop(
+            "the run is red (exit={}): name the issues filed for its survivors, "
+            'issues="<N> …", or check the fixed ones with a run over their files'.format(
+                full_run.exit
+            )
+        )
     fetch(run)
-    ordered = sort_records(records_among(comments), run_record.head, run)
+    ordered = sort_records(records_among(comments), full_run.head, run)
     for found in ordered.covered:
         print("covered: issue #{}, PR #{}".format(found.issue, found.pr))
     for found in ordered.dropped:
         print("dropped: issue #{}, PR #{}, closed without a merge".format(found.issue, found.pr))
     next_batch = carry_over(closing, batches, ordered.carried, login, run)
-    body = closing_body(run_record, ordered, next_batch, survivor_issues)
+    body = closing_body(full_run, fix_run, ordered, next_batch, survivor_issues)
     url = add_comment(closing, body, run)
     close_issue(closing, run)
     print("closed: {}".format(url))
@@ -549,9 +617,9 @@ def close_batch(
     batch_issue: int,
     survivor_issues: List[int],
     run: Run = subprocess.run,
-    record_file: str = RUN_RECORD_FILE,
+    record_files: Tuple[str, str] = (RUN_RECORD_FILE, FULL_RUN_RECORD_FILE),
 ) -> int:
-    return locked(lambda: close_locked(batch_issue, survivor_issues, record_file, run), run)
+    return locked(lambda: close_locked(batch_issue, survivor_issues, record_files, run), run)
 
 
 USAGE = (

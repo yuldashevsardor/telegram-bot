@@ -194,10 +194,13 @@ mutants silenced by a mark (`Ignored`). Its score is `NaN` (`DEFAULT_SCORE` in
 
 **The run record.** The target runs Stryker through the wrapper `test/mutation-run.ts`. Once the
 run is over, whatever its outcome, the wrapper writes `reports/mutation/record.md` and exits with
-the exit code of Stryker. The record is the summary of a run to publish in a comment. No review
-runs the target or reads the record (#712). Only `make mutation-full-close` parses it: it closes a
-batch on the record of its full run (`scripts/review/mutation_batch.py`). The first line of the
-record is a marker, invisible in a comment:
+the exit code of Stryker. A full run writes the same record into `reports/mutation/full-record.md`
+too, and a run over files leaves that file alone: the run over the files of the survivors that
+checks their fixes would otherwise write over the record of a run of hours. The record is the
+summary of a run to publish in a comment. No review runs the target or reads the record (#712).
+Only `make mutation-full-close` parses it: it closes a batch on the record of its full run and of
+the run over files after it (`scripts/review/mutation_batch.py`). The first line of the record is a
+marker, invisible in a comment:
 
 ```
 <!-- mutation-run head=<sha> clean=<yes|no|unknown> scope=<full|files> exit=<code> score=<score|NaN|none> -->
@@ -234,8 +237,9 @@ taken out of the count by `.gitignore` rather than by a flag of `git status`, as
 The wrapper takes the files, the mutants and the statuses from the JSON report of Stryker (the
 `json` reporter in the config), not from the terminal output. A file without a single mutant is
 absent from the report, so a file of types alone is not listed as mutated even if it was in the
-area. The wrapper deletes the old record and the old reports before the run: a run that breaks off
-will not leave any of its own, and the previous ones would pass themselves off as its result.
+area. The wrapper deletes the old record and the old reports before the run, and before a full run
+the old `full-record.md` too: a run that breaks off will not leave any of its own, and the previous
+ones would pass themselves off as its result.
 
 The record carries only the summary and the mutants that were not killed, because it goes into a
 GitHub comment, the closing one of a batch (`scripts/review/templates/mutation-batch-close.md`),
