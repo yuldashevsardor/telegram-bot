@@ -224,11 +224,13 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   extended.** A lease that ends while the handler still runs lets the recovery of expired leases
   (`InboxFailureHandler.recoverExpiredLeases()`) give the update back to `pending`: another node
   handles it a second time, and the next update of the group may be handled while the first
-  handler still runs, out of order. The late completion of the first node is fenced off and changes
-  nothing. Nothing bounds how long a handler runs, and nothing checks `INBOX_LEASE_DURATION`
-  against it. An extension may extend only a lease that has not passed: the recovery tells its
-  lease by the token, not by `locked_until` ([`inbox.md`](./inbox.md), "Lease recovery"). Nothing
-  extends a lease yet.
+  handler still runs, out of order. On the last attempt of `INBOX_MAX_ATTEMPTS` the recovery fails
+  the update and blocks the group instead: a slow handler that did reply leaves its update `failed`
+  and its group blocked until it is unblocked by hand. The late completion of the first node is
+  fenced off and changes nothing. Nothing bounds how long a handler runs, and nothing checks
+  `INBOX_LEASE_DURATION` against it. An extension may extend only a lease that has not passed: the
+  recovery tells its lease by the token, not by `locked_until` ([`inbox.md`](./inbox.md), "Lease
+  recovery"). Nothing extends a lease yet.
 
 ## Storage: migrations, `sessions`, `User`
 

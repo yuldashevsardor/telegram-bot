@@ -13,9 +13,9 @@ of a failed handler by its error class (`failure-classifier/`) and recovers the 
 
 One migration, `1790980923786_telegram-inbox-tables.ts`, creates both tables with every column
 the inbox needs, the later stages included. The columns and what they mean are in its
-`createTable` calls and `comment`s; those of `status` and `next_attempt_at` are replaced by
-`1791027821646_telegram-inbox-retry-comments.ts`. As in the outbox, the lease is on the group row,
-not on the update, and there are no indexes besides the primary keys.
+`createTable` calls and `comment`s; those of `status`, `attempts` and `next_attempt_at` are
+replaced by `1791027821646_telegram-inbox-failure-comments.ts`. As in the outbox, the lease is on
+the group row, not on the update, and there are no indexes besides the primary keys.
 
 The database does not check the values of `status` and `state`: the store writes them only
 through the `InboxStatus` and `InboxGroupState` enums (`store/inbox-store.types.ts`). Of these,
@@ -117,7 +117,9 @@ long a handler runs ([`invariants.md`](./invariants.md), "The inbox").
 The handling is at least once. A node that dies after the handler ran and before its completion
 commits leaves the update `processing`; once the lease is recovered, the update is handled again:
 the user may get a reply twice, and a conversation may replay a step. The inbox cannot tell such an
-update from one whose handler never ran.
+update from one whose handler never ran. A retry runs the whole handler again too: a transient
+failure after the handler has replied, a lost connection on a later write, gives the user the
+reply once per attempt, up to `INBOX_MAX_ATTEMPTS` (see "Outcomes").
 
 ## Completions
 
@@ -163,8 +165,8 @@ the handler's own error out of it, `BotError.error`, for both the class and the 
 `InboxFailureClassifier.classify(error)` (`failure-classifier/inbox-failure-classifier.ts`) sorts
 the error into the `InboxFailureKind` values, the classes of the epic
 ([#618](https://github.com/yuldashevsardor/telegram-bot/issues/618), "Error classes") without the
-flood. Which error falls into which class is read off the method and its constants. What the code
-does not say is why:
+flood. Which error falls into which class, and why, is read off the method, its constants and
+their comments. In short:
 
 - A `GrammyError` or an `HttpError` is classified by `TelegramBotApiFailureClassifier`
   ([`outbox.md`](./outbox.md), "Error classes"), and its class is mapped: `Undeliverable` stays
