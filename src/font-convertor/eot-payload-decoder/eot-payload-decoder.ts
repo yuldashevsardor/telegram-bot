@@ -29,7 +29,7 @@ export class EotPayloadDecoder {
         try {
             return decompressMtx(fontData, { compressed: isCompressed, encrypted: isEncrypted });
         } catch (error) {
-            throw InvalidEotPayload.byDecoderError(flags, error as Error);
+            throw InvalidEotPayload.byDecoderError(flags, error);
         }
     }
 }

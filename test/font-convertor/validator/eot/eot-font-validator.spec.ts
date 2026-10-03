@@ -15,7 +15,14 @@ import type { InvalidSfntFont } from "app/font-convertor/validator/sfnt/sfnt-fon
 import { BrokenSfnt, NotSfnt } from "app/font-convertor/validator/sfnt/sfnt-font-validator.errors";
 import { SfntRule } from "app/font-convertor/validator/sfnt/sfnt-font-validator.types";
 import { ReadFailed } from "app/shared/fs/file-helper.errors";
-import { TTEMBED_TTCOMPRESSED, TTEMBED_XORENCRYPTDATA, fontDataOf, overwritten, xor } from "test/font-convertor/eot-payload-decoder.helper";
+import {
+    TTEMBED_SUBSET,
+    TTEMBED_TTCOMPRESSED,
+    TTEMBED_XORENCRYPTDATA,
+    fontDataOf,
+    overwritten,
+    xor,
+} from "test/font-convertor/eot-font-data.helper";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 const sfntFontValidator = new SfntFontValidator();
@@ -39,7 +46,6 @@ const BLOCK_PREFIX_BYTES = 4;
 const VERSION_1_0 = 0x00010000;
 const VERSION_2_2 = 0x00020002;
 const ROOT_STRING_CHECKSUM_KEY = 0x50475342;
-const TTEMBED_SUBSET = 0x00000001;
 // §4.2 lists no flag at this bit.
 const UNKNOWN_FLAG = 0x00010000;
 

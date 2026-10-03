@@ -5,12 +5,16 @@ import { EotError } from "mtx-decompressor";
 import { EotPayloadDecoder } from "app/font-convertor/eot-payload-decoder/eot-payload-decoder";
 import { InvalidEotPayload } from "app/font-convertor/eot-payload-decoder/eot-payload-decoder.errors";
 import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
-import { TTEMBED_TTCOMPRESSED, TTEMBED_XORENCRYPTDATA, fontDataOf, overwritten, xor } from "test/font-convertor/eot-payload-decoder.helper";
+import {
+    TTEMBED_SUBSET,
+    TTEMBED_TTCOMPRESSED,
+    TTEMBED_XORENCRYPTDATA,
+    fontDataOf,
+    overwritten,
+    xor,
+} from "test/font-convertor/eot-font-data.helper";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
-
-// A flag of the header that leaves FontData raw (EOT, §4.2).
-const TTEMBED_SUBSET = 0x00000001;
 
 const decoder = new EotPayloadDecoder();
 

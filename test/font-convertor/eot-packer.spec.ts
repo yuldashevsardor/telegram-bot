@@ -10,7 +10,7 @@ import { InvalidSfnt } from "app/font-convertor/sfnt-table-directory/sfnt-table-
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { EotFontValidator } from "app/font-convertor/validator/eot/eot-font-validator";
 import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
-import { TTEMBED_TTCOMPRESSED, TTEMBED_XORENCRYPTDATA, xor } from "test/font-convertor/eot-payload-decoder.helper";
+import { TTEMBED_TTCOMPRESSED, TTEMBED_XORENCRYPTDATA, xor } from "test/font-convertor/eot-font-data.helper";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
@@ -214,6 +214,7 @@ describe("EotPacker", function () {
 
             expect(glyphs).to.have.lengthOf(FIXTURE_GLYPH_COUNT);
             expect(glyphs).to.deep.equal(readGlyphs(ttf));
+            expect(tableTags(unpacked), "the tables of the decoded sfnt").to.deep.equal(tableTags(ttf));
 
             for (const tag of tableTags(ttf).filter((tableTag) => !MTX_REBUILT_TABLES.includes(tableTag))) {
                 const unpackedTable = withoutCheckSumAdjustment(tag, tableBytes(unpacked, tag));
@@ -449,6 +450,8 @@ const NUM_GLYPHS_OFFSET = 4;
 const GLYPH_HEADER_SIZE_BYTES = 10;
 const LONG_LOCA_ENTRY_SIZE_BYTES = 4;
 const SHORT_LOCA_ENTRY_SIZE_BYTES = 2;
+const SHORT_LOCA_OFFSET_FACTOR = 2;
+const UINT16_SIZE_BYTES = 2;
 // The bits of a point's flags.
 const ON_CURVE_POINT = 0x01;
 const X_SHORT_VECTOR = 0x02;
@@ -456,6 +459,17 @@ const Y_SHORT_VECTOR = 0x04;
 const REPEAT_FLAG = 0x08;
 const X_IS_SAME_OR_POSITIVE_X_SHORT_VECTOR = 0x10;
 const Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR = 0x20;
+
+/**
+ * The two flag bits that say how one coordinate of a point is stored.
+ */
+type CoordinateBits = {
+    isShort: number;
+    isSameOrPositive: number;
+};
+
+const X_BITS: CoordinateBits = { isShort: X_SHORT_VECTOR, isSameOrPositive: X_IS_SAME_OR_POSITIVE_X_SHORT_VECTOR };
+const Y_BITS: CoordinateBits = { isShort: Y_SHORT_VECTOR, isSameOrPositive: Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR };
 
 function readGlyphs(font: Uint8Array): Array<Glyph> {
     const view = viewOf(font);
@@ -469,7 +483,7 @@ function readGlyphs(font: Uint8Array): Array<Glyph> {
     const locaEntry = (index: number): number =>
         isLongLoca
             ? view.getUint32(locaOffset + index * LONG_LOCA_ENTRY_SIZE_BYTES)
-            : view.getUint16(locaOffset + index * SHORT_LOCA_ENTRY_SIZE_BYTES) * 2;
+            : view.getUint16(locaOffset + index * SHORT_LOCA_ENTRY_SIZE_BYTES) * SHORT_LOCA_OFFSET_FACTOR;
 
     for (let index = 0; index < numGlyphs; index++) {
         const start = locaEntry(index);
@@ -493,12 +507,13 @@ function readGlyph(view: DataView, offset: number): Glyph {
 
     for (let contour = 0; contour < numberOfContours; contour++) {
         endPoints.push(view.getUint16(cursor));
-        cursor += 2;
+        cursor += UINT16_SIZE_BYTES;
     }
 
     const instructionLength = view.getUint16(cursor);
-    const instructions = Buffer.from(view.buffer, view.byteOffset + cursor + 2, instructionLength).toString("hex");
-    cursor += 2 + instructionLength;
+    cursor += UINT16_SIZE_BYTES;
+    const instructions = Buffer.from(view.buffer, view.byteOffset + cursor, instructionLength).toString("hex");
+    cursor += instructionLength;
 
     const pointCount = (endPoints.at(-1) ?? -1) + 1;
     const flags: Array<number> = [];
@@ -512,37 +527,41 @@ function readGlyph(view: DataView, offset: number): Glyph {
         }
     }
 
-    const xs: Array<number> = [];
-    let x = 0;
-
-    for (const flag of flags) {
-        if ((flag & X_SHORT_VECTOR) !== 0) {
-            const delta = view.getUint8(cursor++);
-            x += (flag & X_IS_SAME_OR_POSITIVE_X_SHORT_VECTOR) === 0 ? -delta : delta;
-        } else if ((flag & X_IS_SAME_OR_POSITIVE_X_SHORT_VECTOR) === 0) {
-            x += view.getInt16(cursor);
-            cursor += 2;
-        }
-
-        xs.push(x);
-    }
-
-    const points: Array<string> = [];
-    let y = 0;
-
-    for (const [index, flag] of flags.entries()) {
-        if ((flag & Y_SHORT_VECTOR) !== 0) {
-            const delta = view.getUint8(cursor++);
-            y += (flag & Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR) === 0 ? -delta : delta;
-        } else if ((flag & Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR) === 0) {
-            y += view.getInt16(cursor);
-            cursor += 2;
-        }
-
-        points.push(`${xs[index]},${y},${(flag & ON_CURVE_POINT) !== 0}`);
-    }
+    const xs = readCoordinates(view, cursor, flags, X_BITS);
+    const ys = readCoordinates(view, xs.cursor, flags, Y_BITS);
+    const points = flags.map((flag, index) => `${xs.values[index]},${ys.values[index]},${(flag & ON_CURVE_POINT) !== 0}`);
 
     return { endPoints: endPoints, instructions: instructions, points: points };
+}
+
+/**
+ * One coordinate per point, made absolute from the deltas, and the cursor past them. A short delta
+ * is one unsigned byte whose sign is the second bit; without the short bit that bit means "the same
+ * as the previous point", otherwise an int16 delta follows.
+ */
+function readCoordinates(
+    view: DataView,
+    start: number,
+    flags: Array<number>,
+    bits: CoordinateBits,
+): { values: Array<number>; cursor: number } {
+    const values: Array<number> = [];
+    let cursor = start;
+    let value = 0;
+
+    for (const flag of flags) {
+        if ((flag & bits.isShort) !== 0) {
+            const delta = view.getUint8(cursor++);
+            value += (flag & bits.isSameOrPositive) === 0 ? -delta : delta;
+        } else if ((flag & bits.isSameOrPositive) === 0) {
+            value += view.getInt16(cursor);
+            cursor += UINT16_SIZE_BYTES;
+        }
+
+        values.push(value);
+    }
+
+    return { values: values, cursor: cursor };
 }
 
 function withoutCheckSumAdjustment(tag: string, table: Uint8Array): Uint8Array {

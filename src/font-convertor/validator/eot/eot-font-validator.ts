@@ -281,7 +281,7 @@ export class EotFontValidator implements FontValidator {
                     value: this.hex(header.flags, EotFontValidator.ULONG_HEX_DIGITS),
                     expected: "FontData that decodes under them",
                 },
-                error as Error,
+                error,
             );
         }
     }

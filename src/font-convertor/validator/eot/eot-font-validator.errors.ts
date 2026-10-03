@@ -37,9 +37,9 @@ export class BrokenEot extends InvalidEotFont {
     }
 
     /**
-     * The error of the parse is the cause: it says what exactly could not be read.
+     * The error of the parse or of the decoder is the cause: it says what exactly could not be read.
      */
-    public static byRuleAndCause(fontPath: string, violation: Violation, error: Error): BrokenEot {
+    public static byRuleAndCause(fontPath: string, violation: Violation, error: unknown): BrokenEot {
         return new BrokenEot(BrokenEot.message(violation), { path: fontPath, ...violation, cause: error });
     }
 

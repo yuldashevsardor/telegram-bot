@@ -404,15 +404,14 @@ before the pair starts, as the font of every other format does. `EotPacker.unpac
 second time. On the 120 real compressed files that took at most 34 ms per file, 1.1 s in all
 ([#741](https://github.com/yuldashevsardor/telegram-bot/issues/741)), and readability comes first.
 The sfnt validator's answer, a subclass of `InvalidSfntFont` naming the EOT file in `path`, passes
-through as the EOT validator's own, as it does for WOFF. Unlike the rebuilt sfnt of a
-WOFF, the sfnt of `FontData` can break the sfnt rules on its size, and then "the file" of the answer
-is that sfnt, not the EOT file its `path` names: the size `NotSfnt` and `DirectoryInFile` give and
-"the file size" of `TableInFile` are those of that sfnt. XOR decodes any
-bytes, so an encrypted `FontData` that holds no font gets the answer of the sfnt validator, not of
-`FontDataDecodes`.
+through as the EOT validator's own, as it does for WOFF. Unlike the rebuilt sfnt of a WOFF, the sfnt
+of `FontData` can break the sfnt rules on its size, and then "the file" of the answer is that sfnt,
+not the EOT file its `path` names: the size `NotSfnt` and `DirectoryInFile` give and "the file size"
+of `TableInFile` are those of that sfnt. XOR decodes any bytes, so an encrypted `FontData` that
+holds no font gets the answer of the sfnt validator, not of `FontDataDecodes`.
 
-`EotPacker.unpack()` keeps its own checks as they were. Every source it unpacks has passed the
-validator first.
+`EotPacker.unpack()` keeps its own checks: the validator replaces none of them. Every source it
+unpacks has passed the validator first.
 
 What is deliberately not checked, with the reasons, is in the class comment of `EotFontValidator`.
 
