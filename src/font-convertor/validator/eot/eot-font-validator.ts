@@ -2,6 +2,7 @@ import { inject, injectable } from "inversify";
 import { EotHeader } from "app/font-convertor/eot-header/eot-header";
 import { InvalidEot } from "app/font-convertor/eot-header/eot-header.errors";
 import type { EotBlock } from "app/font-convertor/eot-header/eot-header.types";
+import type { EotPayloadDecoder } from "app/font-convertor/eot-payload-decoder/eot-payload-decoder";
 import { BrokenEot, NotEot } from "app/font-convertor/validator/eot/eot-font-validator.errors";
 import type { HeaderLayout, NamedBlock, RootStringCheck } from "app/font-convertor/validator/eot/eot-font-validator.types";
 import { EotRule } from "app/font-convertor/validator/eot/eot-font-validator.types";
@@ -16,6 +17,11 @@ import { Tokens } from "app/shared/tokens";
  * them to the end of the file. The header is read through `EotHeader`, the parse the codec reads
  * too. The submission makes the enclosed font part of the format: FontData is "a TrueType or
  * OpenType font" (§3). So it is checked by `SfntFontValidator`, whose answer passes through as is.
+ * A compressed or encrypted FontData is decoded for that by `EotPayloadDecoder`, the decoder the
+ * codec unpacks it with, so its font is checked before the pair starts, as the font of every other
+ * format is. The codec decodes it a second time, which costs at most 34 ms per file on 120 real
+ * compressed files (issue https://github.com/yuldashevsardor/telegram-bot/issues/741): readability
+ * comes first.
  *
  * Deliberately not checked, as the submission gives a reader no rule for them:
  * - The fields that copy the enclosed font: FontPANOSE, Italic, Weight, fsType, UnicodeRange1..4,
@@ -35,18 +41,22 @@ export class EotFontValidator implements FontValidator {
     private static readonly USHORT_HEX_DIGITS = 4;
     private static readonly ULONG_HEX_DIGITS = 8;
 
-    public constructor(@inject<SfntFontValidator>(Tokens.Font.Validator.Sfnt) private readonly sfntFontValidator: SfntFontValidator) {}
+    public constructor(
+        @inject<SfntFontValidator>(Tokens.Font.Validator.Sfnt) private readonly sfntFontValidator: SfntFontValidator,
+        @inject<EotPayloadDecoder>(Tokens.Font.Envelope.PayloadDecoder) private readonly payloadDecoder: EotPayloadDecoder,
+    ) {}
 
     /**
      * Throws when the file is not a valid EOT font. The answers are subclasses of `InvalidEotFont`:
      * `NotEot` for a file shorter than the fixed part of the header or without the MagicNumber,
      * `BrokenEot` for the first broken rule, checked in this order: the fixed part (EOTSize, the
      * version, the reserved fields), where the blocks of the header and the font lie, the values in
-     * the blocks (the paddings, the sizes of the names, RootStringCheckSum), then the flags. The
-     * layout goes before the values: a block read from the wrong place would name a padding that is
-     * only a byte of a neighbour. A valid envelope gets the answer of `SfntFontValidator` on
-     * FontData, a subclass of `InvalidSfntFont` naming the EOT file. A file that cannot be read
-     * throws `ReadFailed` of `FileHelper` instead: an I/O failure, not a verdict on the font.
+     * the blocks (the paddings, the sizes of the names, RootStringCheckSum), then whether FontData
+     * decodes under the flags. The layout goes before the values: a block read from the wrong place
+     * would name a padding that is only a byte of a neighbour. A valid envelope gets the answer of
+     * `SfntFontValidator` on the decoded FontData, a subclass of `InvalidSfntFont` naming the EOT
+     * file. A file that cannot be read throws `ReadFailed` of `FileHelper` instead: an I/O failure,
+     * not a verdict on the font.
      */
     public async validate(fontPath: string): Promise<void> {
         const bytes = await FileHelper.read(fontPath);
@@ -72,8 +82,9 @@ export class EotFontValidator implements FontValidator {
         this.checkLayout(fontPath, header, layout, bytes.length);
         this.checkBlocks(fontPath, layout.blocks);
         this.checkRootStringCheckSum(fontPath, bytes, layout.rootStringCheck);
-        this.checkFlags(fontPath, header);
-        this.sfntFontValidator.validateBytes(fontPath, bytes.subarray(layout.endOffset));
+        const font = this.decodeFontData(fontPath, header, bytes.subarray(layout.endOffset));
+
+        this.sfntFontValidator.validateBytes(fontPath, font);
     }
 
     private checkFixedPart(fontPath: string, header: EotHeader, fileSizeBytes: number): void {
@@ -255,15 +266,24 @@ export class EotFontValidator implements FontValidator {
         }
     }
 
-    private checkFlags(fontPath: string, header: EotHeader): void {
-        if ((header.flags & EotHeader.ENCODED_FONT_DATA_FLAGS) !== 0) {
-            throw BrokenEot.byRule(fontPath, {
-                rule: EotRule.Flags,
-                at: "the header",
-                field: "Flags",
-                value: this.hex(header.flags, EotFontValidator.ULONG_HEX_DIGITS),
-                expected: `no bit of ${this.hex(EotHeader.ENCODED_FONT_DATA_FLAGS, EotFontValidator.ULONG_HEX_DIGITS)}`,
-            });
+    /**
+     * The error of the decoder stays as the cause: it says what exactly could not be decoded.
+     */
+    private decodeFontData(fontPath: string, header: EotHeader, fontData: Uint8Array): Uint8Array {
+        try {
+            return this.payloadDecoder.decode(fontData, header.flags);
+        } catch (error) {
+            throw BrokenEot.byRuleAndCause(
+                fontPath,
+                {
+                    rule: EotRule.FontDataDecodes,
+                    at: "FontData",
+                    field: "Flags",
+                    value: this.hex(header.flags, EotFontValidator.ULONG_HEX_DIGITS),
+                    expected: "FontData that decodes under them",
+                },
+                error as Error,
+            );
         }
     }
 

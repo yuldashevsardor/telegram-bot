@@ -5,6 +5,8 @@ import path from "path";
 import { InvalidEot } from "app/font-convertor/eot-header/eot-header.errors";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { EotFontValidator } from "app/font-convertor/validator/eot/eot-font-validator";
+import { EotPayloadDecoder } from "app/font-convertor/eot-payload-decoder/eot-payload-decoder";
+import { InvalidEotPayload } from "app/font-convertor/eot-payload-decoder/eot-payload-decoder.errors";
 import type { InvalidEotFont } from "app/font-convertor/validator/eot/eot-font-validator.errors";
 import { BrokenEot, NotEot } from "app/font-convertor/validator/eot/eot-font-validator.errors";
 import { EotRule } from "app/font-convertor/validator/eot/eot-font-validator.types";
@@ -16,7 +18,7 @@ import { ReadFailed } from "app/shared/fs/file-helper.errors";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 const sfntFontValidator = new SfntFontValidator();
-const validator = new EotFontValidator(sfntFontValidator);
+const validator = new EotFontValidator(sfntFontValidator, new EotPayloadDecoder());
 
 // The fields of the fixed part by their offset (EOT, §3). The spec keeps its own copies rather
 // than the constants of EotHeader, so that a wrong constant in the class fails its spec.
@@ -41,6 +43,12 @@ const TTEMBED_TTCOMPRESSED = 0x00000004;
 const TTEMBED_XORENCRYPTDATA = 0x10000000;
 // §4.2 lists no flag at this bit.
 const UNKNOWN_FLAG = 0x00010000;
+// §4.4: each byte of an encrypted FontData is XOR this key.
+const XOR_KEY = 0x50;
+// 16 bytes overwritten inside the compressed streams, past the 10-byte MTX header.
+const OVERWRITTEN_OFFSET = 100;
+const OVERWRITTEN_SIZE_BYTES = 16;
+const OVERWRITING_BYTE = 0xff;
 
 // The fixture: version 0x00020001, flags 0, a 180-byte header that ends with an empty RootString,
 // then test-font.ttf byte for byte.
@@ -121,12 +129,15 @@ describe("EotFontValidator.validate", function () {
     let fontPath: string;
     let fixture: Uint8Array;
     let fixtureLayout: Layout;
+    // Made by sfntly: version 0x00020002, TTEMBED_TTCOMPRESSED (test/fixtures/fonts/README.md).
+    let compressedFixture: Uint8Array;
     let otf: Uint8Array;
     let woff: Uint8Array;
 
     before(async function () {
         fixture = await readFixture(Extension.EOT);
         fixtureLayout = parse(fixture);
+        compressedFixture = Uint8Array.from(await fs.readFile(path.join(fixtureDir, "test-font-compressed.eot")));
         otf = await readFixture(Extension.OTF);
         woff = await readFixture(Extension.WOFF);
     });
@@ -205,6 +216,20 @@ describe("EotFontValidator.validate", function () {
 
         it("with the TTF fixture without OS/2 enclosed: a font with TrueType outlines may lack it", async function () {
             await validate(build({ ...fixtureLayout, font: withoutTable(fixtureLayout.font, "OS/2") }));
+        });
+
+        it("with compressed FontData", async function () {
+            await validate(compressedFixture);
+        });
+
+        it("with encrypted FontData", async function () {
+            await validate(build({ ...fixtureLayout, flags: TTEMBED_XORENCRYPTDATA, font: xor(fixtureLayout.font) }));
+        });
+
+        it("with FontData both compressed and encrypted", async function () {
+            const flags = TTEMBED_TTCOMPRESSED | TTEMBED_XORENCRYPTDATA;
+
+            await validate(withFontData(compressedFixture, xor(fontDataOf(compressedFixture)), flags));
         });
     });
 
@@ -469,28 +494,51 @@ describe("EotFontValidator.validate", function () {
         });
     });
 
-    describe("rejects font data the codec cannot take out", function () {
-        for (const [name, flag] of [
-            ["TTEMBED_TTCOMPRESSED", TTEMBED_TTCOMPRESSED],
-            ["TTEMBED_XORENCRYPTDATA", TTEMBED_XORENCRYPTDATA],
-        ] as const) {
-            it(`with ${name}`, async function () {
-                await expectBroken(
-                    build({ ...fixtureLayout, flags: flag | TTEMBED_SUBSET }),
-                    EotRule.Flags,
-                    `At the header: Flags is ${hex(flag | TTEMBED_SUBSET)}, expected no bit of 0x10000004.`,
+    describe("rejects FontData that does not decode under its flags", function () {
+        const cases = [
+            {
+                name: "compressed data cut in half",
+                font: (): Uint8Array => {
+                    const fontData = fontDataOf(compressedFixture);
+
+                    return withFontData(compressedFixture, fontData.slice(0, fontData.length / 2), TTEMBED_TTCOMPRESSED);
+                },
+                flags: TTEMBED_TTCOMPRESSED,
+            },
+            {
+                name: "compressed data with bytes overwritten",
+                font: (): Uint8Array => {
+                    const fontData = fontDataOf(compressedFixture);
+                    fontData.fill(OVERWRITING_BYTE, OVERWRITTEN_OFFSET, OVERWRITTEN_OFFSET + OVERWRITTEN_SIZE_BYTES);
+
+                    return withFontData(compressedFixture, fontData, TTEMBED_TTCOMPRESSED);
+                },
+                flags: TTEMBED_TTCOMPRESSED,
+            },
+            {
+                name: "TTEMBED_TTCOMPRESSED over a plain sfnt",
+                font: (): Uint8Array => build({ ...fixtureLayout, flags: TTEMBED_TTCOMPRESSED | TTEMBED_SUBSET }),
+                flags: TTEMBED_TTCOMPRESSED | TTEMBED_SUBSET,
+            },
+        ];
+
+        for (const { name, font, flags } of cases) {
+            it(name, async function () {
+                const error = await expectBroken(
+                    font(),
+                    EotRule.FontDataDecodes,
+                    `At FontData: Flags is ${hex(flags)}, expected FontData that decodes under them.`,
                 );
+
+                expect(error.cause).to.be.instanceOf(InvalidEotPayload);
             });
         }
 
-        it("by its flags before the enclosed font, which a compressed payload does not hold as an sfnt", async function () {
-            const compressed = new Uint8Array(GARBAGE_SIZE_BYTES).fill(GARBAGE_BYTE);
+        it("TTEMBED_XORENCRYPTDATA over a plain sfnt, with the answer of SfntFontValidator on what it decodes into", async function () {
+            // XOR decodes any bytes, so the decoded garbage is left to the sfnt validator.
+            const error = await expectRejection(() => validate(build({ ...fixtureLayout, flags: TTEMBED_XORENCRYPTDATA })), NotSfnt);
 
-            await expectBroken(
-                build({ ...fixtureLayout, flags: TTEMBED_TTCOMPRESSED, font: compressed }),
-                EotRule.Flags,
-                `At the header: Flags is ${hex(TTEMBED_TTCOMPRESSED)}, expected no bit of 0x10000004.`,
-            );
+            expect(error.payload).to.include({ path: fontPath });
         });
     });
 
@@ -805,6 +853,32 @@ function withUint16(bytes: Uint8Array, offset: number, value: number): Uint8Arra
 
 function withUint32(bytes: Uint8Array, offset: number, value: number): Uint8Array {
     return patch(bytes, (view) => view.setUint32(offset, value));
+}
+
+/**
+ * FontData is the tail of the file, FontDataSize bytes long.
+ */
+function fontDataOf(eot: Uint8Array): Uint8Array {
+    return eot.slice(eot.length - new DataView(eot.buffer, eot.byteOffset, eot.byteLength).getUint32(FONT_DATA_SIZE, true));
+}
+
+/**
+ * The envelope with its FontData replaced and its flags set, the sizes in the header following.
+ */
+function withFontData(eot: Uint8Array, fontData: Uint8Array, flags: number): Uint8Array {
+    const header = eot.subarray(0, eot.length - fontDataOf(eot).length);
+    const replaced = Uint8Array.from(Buffer.concat([header, fontData]));
+    const view = new DataView(replaced.buffer);
+
+    view.setUint32(EOT_SIZE, replaced.length, true);
+    view.setUint32(FONT_DATA_SIZE, fontData.length, true);
+    view.setUint32(FLAGS, flags, true);
+
+    return replaced;
+}
+
+function xor(bytes: Uint8Array): Uint8Array {
+    return bytes.map((byte) => byte ^ XOR_KEY);
 }
 
 function hex(value: number): string {
