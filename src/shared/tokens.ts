@@ -38,6 +38,7 @@ export const Tokens = {
         },
         Envelope: {
             Packer: Symbol.for("FontEnvelopePacker"),
+            PayloadDecoder: Symbol.for("FontEnvelopePayloadDecoder"),
         },
         Engine: {
             FontForge: Symbol.for("FontEngineFontForge"),

@@ -3,12 +3,14 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
+import { EotPayloadDecoder } from "app/font-convertor/eot-payload-decoder/eot-payload-decoder";
 import { InvalidEot } from "app/font-convertor/eot-header/eot-header.errors";
-import { UnsupportedEotFlags } from "app/font-convertor/eot-packer/eot-packer.errors";
+import { InvalidEotPayload } from "app/font-convertor/eot-payload-decoder/eot-payload-decoder.errors";
 import { InvalidSfnt } from "app/font-convertor/sfnt-table-directory/sfnt-table-directory.errors";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { EotFontValidator } from "app/font-convertor/validator/eot/eot-font-validator";
 import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
+import { TTEMBED_TTCOMPRESSED, TTEMBED_XORENCRYPTDATA, xor } from "test/font-convertor/eot-font-data.helper";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
@@ -23,7 +25,15 @@ const EOT_FS_TYPE_OFFSET = 32;
 const EOT_MAGIC_OFFSET = 34;
 const EOT_UNICODE_RANGE_OFFSET = 36;
 const EOT_HEADER_FIXED_SIZE = 82;
-const eotPacker = new EotPacker();
+const FIXTURE_GLYPH_COUNT = 1296;
+// MicroType Express rebuilds these tables, so they differ from the font the envelope was made of
+// in bytes while holding the same glyphs. In head of this fixture it rewrites only
+// checkSumAdjustment, which sums the whole font; with a glyf past 131070 bytes it would also switch
+// indexToLocFormat to the long format.
+const MTX_REBUILT_TABLES = ["glyf", "loca"];
+const HEAD_CHECKSUM_ADJUSTMENT_OFFSET = 8;
+const HEAD_CHECKSUM_ADJUSTMENT_SIZE_BYTES = 4;
+const eotPacker = new EotPacker(new EotPayloadDecoder());
 
 describe("EotPacker", function () {
     let workDir: string;
@@ -71,7 +81,7 @@ describe("EotPacker", function () {
             const packedPath = path.join(workDir, `validated.${Extension.EOT}`);
 
             await fs.writeFile(packedPath, await pack(ttf));
-            await new EotFontValidator(new SfntFontValidator()).validate(packedPath);
+            await new EotFontValidator(new SfntFontValidator(), new EotPayloadDecoder()).validate(packedPath);
         });
 
         it("carries the italic flag of the font into the envelope", async function () {
@@ -196,12 +206,38 @@ describe("EotPacker", function () {
             await expectRejects(() => unpack(unknown), InvalidEot);
         });
 
-        it("rejects an envelope with compressed font data", async function () {
-            const compressed = Uint8Array.from(eot);
-            // TTEMBED_TTCOMPRESSED in Flags: the payload stops being a raw sfnt.
-            new DataView(compressed.buffer).setUint32(EOT_FLAGS_OFFSET, 0x00000004, true);
+        it("returns the glyphs of the font a compressed envelope was made of", async function () {
+            // The fixture was made from the TTF fixture by sfntly (test/fixtures/fonts/README.md).
+            // The decoded sfnt is another sfnt in bytes, so the glyphs are compared point by point.
+            const unpacked = await unpack(Uint8Array.from(await fs.readFile(path.join(fixtureDir, "test-font-compressed.eot"))));
+            const glyphs = readGlyphs(unpacked);
 
-            await expectRejects(() => unpack(compressed), UnsupportedEotFlags);
+            expect(glyphs).to.have.lengthOf(FIXTURE_GLYPH_COUNT);
+            expect(glyphs).to.deep.equal(readGlyphs(ttf));
+            expect(tableTags(unpacked), "the tables of the decoded sfnt").to.deep.equal(tableTags(ttf));
+
+            for (const tag of tableTags(ttf).filter((tableTag) => !MTX_REBUILT_TABLES.includes(tableTag))) {
+                const unpackedTable = withoutCheckSumAdjustment(tag, tableBytes(unpacked, tag));
+
+                expect(hex(unpackedTable), tag).to.equal(hex(withoutCheckSumAdjustment(tag, tableBytes(ttf, tag))));
+            }
+        });
+
+        it("returns the font an encrypted envelope was made of", async function () {
+            const encrypted = Uint8Array.from(eot);
+            const fontDataOffset = eot.length - ttf.length;
+            encrypted.set(xor(ttf), fontDataOffset);
+            new DataView(encrypted.buffer).setUint32(EOT_FLAGS_OFFSET, TTEMBED_XORENCRYPTDATA, true);
+
+            expect(hex(await unpack(encrypted))).to.equal(hex(ttf));
+        });
+
+        it("rejects an envelope whose font data does not decode under its flags", async function () {
+            const compressed = Uint8Array.from(eot);
+            // TTEMBED_TTCOMPRESSED over a raw sfnt: the payload is not MicroType Express data.
+            new DataView(compressed.buffer).setUint32(EOT_FLAGS_OFFSET, TTEMBED_TTCOMPRESSED, true);
+
+            await expectRejects(() => unpack(compressed), InvalidEotPayload);
         });
 
         it("rejects an envelope that declares no font data", async function () {
@@ -298,7 +334,7 @@ describe("EotPacker", function () {
     }
 });
 
-describe("InvalidEot and UnsupportedEotFlags", function () {
+describe("InvalidEot", function () {
     // The factories are checked directly. The unpack() specs above pin the class of the
     // rejection, not the text: which check rejected the input is not a requirement
     // (docs/architecture/testing.md, "Working through survivors"). The hexadecimal values have
@@ -346,13 +382,6 @@ describe("InvalidEot and UnsupportedEotFlags", function () {
             message: "Eot header ends at 1200, past the font data start at 1100.",
             payload: { headerEnd: 1200, fontDataOffset: 1100 },
         },
-        {
-            name: "UnsupportedEotFlags.byFlags",
-            error: UnsupportedEotFlags.byFlags(0x00000004),
-            type: UnsupportedEotFlags,
-            message: "Eot font data is compressed or encrypted: flags 0x00000004.",
-            payload: { flags: 0x00000004 },
-        },
     ];
 
     for (const { name, error, type, message, payload } of cases) {
@@ -369,7 +398,7 @@ function hex(bytes: Uint8Array): string {
 }
 
 function os2Offset(bytes: Uint8Array): number {
-    return new DataView(bytes.buffer).getUint32(tableRecord(bytes, "OS/2") + 8);
+    return tableOffset(bytes, "OS/2");
 }
 
 /**
@@ -380,20 +409,199 @@ function fontFsType(bytes: Uint8Array): number {
 }
 
 /**
- * The offset of a table record in the sfnt directory: a 12-byte header, 16-byte records.
+ * The offset of a table record in the sfnt directory.
  */
 function tableRecord(bytes: Uint8Array, tag: string): number {
-    const view = new DataView(bytes.buffer);
+    const index = tableTags(bytes).indexOf(tag);
 
-    for (let index = 0; index < view.getUint16(4); index++) {
-        const record = 12 + index * 16;
+    if (index === -1) {
+        throw new Error(`Fixture has no ${tag} table.`);
+    }
 
-        if (String.fromCharCode(...bytes.subarray(record, record + 4)) === tag) {
-            return record;
+    return SFNT_HEADER_SIZE_BYTES + index * TABLE_RECORD_SIZE_BYTES;
+}
+
+/**
+ * A simple glyph as its points lie, whatever bytes encode them: the ends of the contours, the
+ * instructions and each point as `x,y,onCurve` in font units (OpenType 1.9.1, glyf). An empty glyph
+ * is `undefined`. The bounding box is left out: MicroType Express computes it from the points, while
+ * the TTF fixture keeps a box one unit wider than its points on some glyphs.
+ */
+type Glyph =
+    | {
+          endPoints: Array<number>;
+          instructions: string;
+          points: Array<string>;
+      }
+    | undefined;
+
+// The sfnt table directory: a 12-byte header with numTables at offset 4, then 16-byte records with
+// the tag, the offset of the table at 8 and its length at 12.
+const SFNT_HEADER_SIZE_BYTES = 12;
+const NUM_TABLES_OFFSET = 4;
+const TABLE_RECORD_SIZE_BYTES = 16;
+const TAG_SIZE_BYTES = 4;
+const TABLE_OFFSET_FIELD_OFFSET = 8;
+const TABLE_LENGTH_FIELD_OFFSET = 12;
+// The fields the walk reads, by their offset in head and maxp, the size of numberOfContours with
+// the bounding box that open a glyph, and the size of a loca entry in either format.
+const INDEX_TO_LOC_FORMAT_OFFSET = 50;
+const NUM_GLYPHS_OFFSET = 4;
+const GLYPH_HEADER_SIZE_BYTES = 10;
+const LONG_LOCA_ENTRY_SIZE_BYTES = 4;
+const SHORT_LOCA_ENTRY_SIZE_BYTES = 2;
+const SHORT_LOCA_OFFSET_FACTOR = 2;
+const UINT16_SIZE_BYTES = 2;
+// The bits of a point's flags.
+const ON_CURVE_POINT = 0x01;
+const X_SHORT_VECTOR = 0x02;
+const Y_SHORT_VECTOR = 0x04;
+const REPEAT_FLAG = 0x08;
+const X_IS_SAME_OR_POSITIVE_X_SHORT_VECTOR = 0x10;
+const Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR = 0x20;
+
+/**
+ * The two flag bits that say how one coordinate of a point is stored.
+ */
+type CoordinateBits = {
+    isShort: number;
+    isSameOrPositive: number;
+};
+
+const X_BITS: CoordinateBits = { isShort: X_SHORT_VECTOR, isSameOrPositive: X_IS_SAME_OR_POSITIVE_X_SHORT_VECTOR };
+const Y_BITS: CoordinateBits = { isShort: Y_SHORT_VECTOR, isSameOrPositive: Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR };
+
+function readGlyphs(font: Uint8Array): Array<Glyph> {
+    const view = viewOf(font);
+    const glyfOffset = tableOffset(font, "glyf");
+    const locaOffset = tableOffset(font, "loca");
+    const isLongLoca = view.getInt16(tableOffset(font, "head") + INDEX_TO_LOC_FORMAT_OFFSET) === 1;
+    const numGlyphs = view.getUint16(tableOffset(font, "maxp") + NUM_GLYPHS_OFFSET);
+    const glyphs: Array<Glyph> = [];
+
+    // The long format keeps each offset as is, the short one keeps it halved (OpenType 1.9.1, loca).
+    const locaEntry = (index: number): number =>
+        isLongLoca
+            ? view.getUint32(locaOffset + index * LONG_LOCA_ENTRY_SIZE_BYTES)
+            : view.getUint16(locaOffset + index * SHORT_LOCA_ENTRY_SIZE_BYTES) * SHORT_LOCA_OFFSET_FACTOR;
+
+    for (let index = 0; index < numGlyphs; index++) {
+        const start = locaEntry(index);
+        const end = locaEntry(index + 1);
+
+        glyphs.push(start === end ? undefined : readGlyph(view, glyfOffset + start));
+    }
+
+    return glyphs;
+}
+
+function readGlyph(view: DataView, offset: number): Glyph {
+    const numberOfContours = view.getInt16(offset);
+
+    if (numberOfContours < 0) {
+        return expect.fail("the fixture has no composite glyphs, and the spec does not read them");
+    }
+
+    const endPoints: Array<number> = [];
+    let cursor = offset + GLYPH_HEADER_SIZE_BYTES;
+
+    for (let contour = 0; contour < numberOfContours; contour++) {
+        endPoints.push(view.getUint16(cursor));
+        cursor += UINT16_SIZE_BYTES;
+    }
+
+    const instructionLength = view.getUint16(cursor);
+    cursor += UINT16_SIZE_BYTES;
+    const instructions = Buffer.from(view.buffer, view.byteOffset + cursor, instructionLength).toString("hex");
+    cursor += instructionLength;
+
+    const pointCount = (endPoints.at(-1) ?? -1) + 1;
+    const flags: Array<number> = [];
+
+    while (flags.length < pointCount) {
+        const flag = view.getUint8(cursor++);
+        const repeatCount = (flag & REPEAT_FLAG) === 0 ? 0 : view.getUint8(cursor++);
+
+        for (let repeat = 0; repeat <= repeatCount; repeat++) {
+            flags.push(flag);
         }
     }
 
-    throw new Error(`Fixture has no ${tag} table.`);
+    const xs = readCoordinates(view, cursor, flags, X_BITS);
+    const ys = readCoordinates(view, xs.cursor, flags, Y_BITS);
+    const points = flags.map((flag, index) => `${xs.values[index]},${ys.values[index]},${(flag & ON_CURVE_POINT) !== 0}`);
+
+    return { endPoints: endPoints, instructions: instructions, points: points };
+}
+
+/**
+ * One coordinate per point, made absolute from the deltas, and the cursor past them. A short delta
+ * is one unsigned byte whose sign is the second bit; without the short bit that bit means "the same
+ * as the previous point", otherwise an int16 delta follows.
+ */
+function readCoordinates(
+    view: DataView,
+    start: number,
+    flags: Array<number>,
+    bits: CoordinateBits,
+): { values: Array<number>; cursor: number } {
+    const values: Array<number> = [];
+    let cursor = start;
+    let value = 0;
+
+    for (const flag of flags) {
+        if ((flag & bits.isShort) !== 0) {
+            const delta = view.getUint8(cursor++);
+            value += (flag & bits.isSameOrPositive) === 0 ? -delta : delta;
+        } else if ((flag & bits.isSameOrPositive) === 0) {
+            value += view.getInt16(cursor);
+            cursor += UINT16_SIZE_BYTES;
+        }
+
+        values.push(value);
+    }
+
+    return { values: values, cursor: cursor };
+}
+
+function withoutCheckSumAdjustment(tag: string, table: Uint8Array): Uint8Array {
+    if (tag !== "head") {
+        return table;
+    }
+
+    const end = HEAD_CHECKSUM_ADJUSTMENT_OFFSET + HEAD_CHECKSUM_ADJUSTMENT_SIZE_BYTES;
+
+    return Uint8Array.from(table).fill(0, HEAD_CHECKSUM_ADJUSTMENT_OFFSET, end);
+}
+
+/**
+ * The tags of the sfnt table directory, in its order.
+ */
+function tableTags(font: Uint8Array): Array<string> {
+    const tags: Array<string> = [];
+
+    for (let index = 0; index < viewOf(font).getUint16(NUM_TABLES_OFFSET); index++) {
+        const record = SFNT_HEADER_SIZE_BYTES + index * TABLE_RECORD_SIZE_BYTES;
+
+        tags.push(String.fromCharCode(...font.subarray(record, record + TAG_SIZE_BYTES)));
+    }
+
+    return tags;
+}
+
+function tableOffset(font: Uint8Array, tag: string): number {
+    return viewOf(font).getUint32(tableRecord(font, tag) + TABLE_OFFSET_FIELD_OFFSET);
+}
+
+function tableBytes(font: Uint8Array, tag: string): Uint8Array {
+    const start = tableOffset(font, tag);
+    const lengthBytes = viewOf(font).getUint32(tableRecord(font, tag) + TABLE_LENGTH_FIELD_OFFSET);
+
+    return font.subarray(start, start + lengthBytes);
+}
+
+function viewOf(bytes: Uint8Array): DataView {
+    return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 }
 
 async function readFixture(extension: Extension): Promise<Uint8Array> {

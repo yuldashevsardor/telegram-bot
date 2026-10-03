@@ -244,8 +244,8 @@ A sibling with neither lies flat in the siblings directory: `filter/has-session-
 
 **Keeps a main file with its companions** — `*.types.ts` and `*.errors.ts` lie in the directory
 together with their main file, and the directory name is the name of the main file:
-`eot-packer/eot-packer.ts` with its `*.errors.ts`. Companions lie the same way in the directories
-the map names itself: `font-convertor/font-convertor.*`, `platform/logger/logger.*`,
+`eot-header/eot-header.ts` with its `*.types.ts` and `*.errors.ts`. Companions lie the same way in
+the directories the map names itself: `font-convertor/font-convertor.*`, `platform/logger/logger.*`,
 `telegram/user/user.*`. The directory name there is the name of the main file as well. A directory
 with companions can also stand inside a hiding one: `eot-packer/sfnt-reader/` keeps `sfnt-reader.ts`
 with its `*.types.ts`, while from outside `eot-packer/` still only `eot-packer.ts` is visible.

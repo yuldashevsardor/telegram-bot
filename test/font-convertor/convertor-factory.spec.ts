@@ -10,6 +10,7 @@ import { FontValidatorResolver } from "app/font-convertor/validator/font-validat
 import { WoffFontValidator } from "app/font-convertor/validator/woff/woff-font-validator";
 import { Woff2FontValidator } from "app/font-convertor/validator/woff2/woff2-font-validator";
 import { EotFontValidator } from "app/font-convertor/validator/eot/eot-font-validator";
+import { EotPayloadDecoder } from "app/font-convertor/eot-payload-decoder/eot-payload-decoder";
 import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 
 const convertorFactory = new ConvertorFactory(
@@ -19,9 +20,9 @@ const convertorFactory = new ConvertorFactory(
         new WoffFontValidator(new SfntFontValidator()),
         new Woff2FontValidator(),
         new SfntFontValidator(),
-        new EotFontValidator(new SfntFontValidator()),
+        new EotFontValidator(new SfntFontValidator(), new EotPayloadDecoder()),
     ),
-    new EotPacker(),
+    new EotPacker(new EotPayloadDecoder()),
 );
 
 // A pair's class name is built the same way as its file name: <from>-to-<to>.ts.
