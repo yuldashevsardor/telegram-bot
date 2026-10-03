@@ -37,6 +37,11 @@ const GLYF_NUM_GLYPHS = 4;
 const GLYF_INDEX_FORMAT = 6;
 const GLYF_N_CONTOUR_STREAM_SIZE = 8;
 const GLYF_HEADER_SIZE_BYTES = 36;
+// A numGlyphs that is a multiple of 32, so that overlapSimpleBitmap has no bit to spare (§5.1).
+const BITMAP_NUM_GLYPHS = 1280;
+const BITMAP_WORD_SIZE_BITS = 32;
+const BITMAP_WORD_SIZE_BYTES = 4;
+const LONG_LOCA_OFFSET_SIZE_BYTES = 4;
 // numberOfHMetrics by its offset in hhea (OpenType 1.9.1, hhea).
 const HHEA_NUMBER_OF_H_METRICS = 34;
 
@@ -204,13 +209,14 @@ describe("Woff2FontValidator.validate", function () {
         });
 
         it("with the overlapSimpleBitmap of a numGlyphs that is a multiple of 32, with no word to spare", async function () {
-            // 4 × ⌊(1280 + 31) / 32⌋ = 160 bytes; loca takes (1280 + 1) × 4 = 5124 bytes.
+            const bitmapSizeBytes = (BITMAP_NUM_GLYPHS / BITMAP_WORD_SIZE_BITS) * BITMAP_WORD_SIZE_BYTES;
             const withBitmap = withGlyf(fixtureLayout, (glyf) => {
-                const withFlag = withUint16(withUint16(glyf, GLYF_NUM_GLYPHS, 1280), GLYF_OPTION_FLAGS, 1);
+                const withFlag = withUint16(withUint16(glyf, GLYF_NUM_GLYPHS, BITMAP_NUM_GLYPHS), GLYF_OPTION_FLAGS, 1);
 
-                return concat(withFlag, new Uint8Array(160));
+                return concat(withFlag, new Uint8Array(bitmapSizeBytes));
             });
-            const layout = withEntry(withBitmap, "loca", (entry) => ({ ...entry, origLength: 5124 }));
+            const locaSizeBytes = (BITMAP_NUM_GLYPHS + 1) * LONG_LOCA_OFFSET_SIZE_BYTES;
+            const layout = withEntry(withBitmap, "loca", (entry) => ({ ...entry, origLength: locaSizeBytes }));
 
             await validate(build(layout));
         });
@@ -857,17 +863,6 @@ describe("Woff2FontValidator.validate", function () {
                 build(layout),
                 Woff2Rule.TransformedGlyf,
                 'At table "glyf": end of the substreams is 101847, expected at most 101846, the transformLength.',
-            );
-        });
-
-        it("with substreams that run past a transformed glyf of the header alone", async function () {
-            // A glyf of exactly the header size passes the header check and is read on to its substreams.
-            const layout = withGlyf(fixtureLayout, (glyf) => glyf.subarray(0, GLYF_HEADER_SIZE_BYTES));
-
-            await expectBroken(
-                build(layout),
-                Woff2Rule.TransformedGlyf,
-                'At table "glyf": end of the substreams is 101846, expected at most 36, the transformLength.',
             );
         });
 

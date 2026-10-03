@@ -243,8 +243,11 @@ ones would pass themselves off as its result.
 
 The record carries only the summary and the mutants that were not killed, because it goes into a
 GitHub comment, the closing one of a batch (`scripts/review/templates/mutation-batch-close.md`),
-and a comment holds 65,536 characters. The limit stands on the record as a whole: once it grows to
-60,000 characters, the wrapper cuts the list of survivors off with a line "and N more".
+and a comment holds 65,536 characters. That comment carries two records: the one of the full run
+and the one of the green run over files that checked its fixes. The limit stands on the record as
+a whole: once it grows to 45,000 characters, the wrapper cuts the list of survivors off with a line
+"and N more". The rest is left to the other record and the lists of the comment (`RECORD_LIMIT` in
+the wrapper).
 Everything before that list (the summary and the mutated files) is not limited. The remainder stays
 in `mutation.html` on the machine of the run and travels nowhere with the record.
 

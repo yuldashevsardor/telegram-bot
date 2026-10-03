@@ -533,7 +533,8 @@ class CloseTest(unittest.TestCase):
             batch_issue,
             list(survivor_issues),
             github,
-            (self.record_file, self.full_record_file),
+            self.record_file,
+            self.full_record_file,
         )
 
     def four_prs(self, *others):
@@ -783,12 +784,21 @@ class CloseTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("Stopped: no run record at {}".format(self.full_record_file), err)
 
-    def test_a_green_full_run_closes_without_the_record_of_the_last_run(self):
-        os.remove(self.record_file)
+    def test_a_green_full_run_closes_without_reading_the_record_of_the_last_run(self):
+        for fix_record in (None, run_record(head=FIX_HEAD, scope="files", exit_code=1)):
+            if fix_record is None:
+                os.remove(self.record_file)
+            else:
+                self.write_run_record(fix_record)
+            github = self.four_prs()
 
-        code, _, err = self.close(self.four_prs())
+            code, _, err = self.close(github)
 
-        self.assertEqual((code, err), (0, ""))
+            self.assertEqual((code, err), (0, ""))
+            self.assertIn(
+                "Survivors fixed, checked by a run over their files:\n- none\n",
+                github.issues[630]["comments"][-1]["body"],
+            )
 
     def test_a_red_full_run_closes_on_a_green_run_over_files_that_follows_it(self):
         github = self.four_prs()
@@ -840,6 +850,13 @@ class CloseTest(unittest.TestCase):
                 run_record(head=FIX_HEAD, scope="files", clean="no"),
                 [HEAD],
                 "ties the run to no commit: clean=no",
+            ),
+            (
+                run_record(head=HEAD, scope="files"),
+                [HEAD],
+                "the run over files is on {}, the head of the full run: it checked no fix".format(
+                    HEAD
+                ),
             ),
         ):
             github = self.four_prs()

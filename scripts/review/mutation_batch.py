@@ -3,7 +3,8 @@ closes the batch after its run.
 
 Any change of code, a `.ts` in `src/` or `test/` or a tool of the mutation run, turns on the
 `mutation-full` gate (docs/agents/review-gates.md): a PR runs no mutants of its own. A full
-`make mutation` takes 15+ minutes, and an area run slows down under the load of parallel sessions.
+`make mutation` takes hours (item 3 of `close`), and an area run slows down under the load of
+parallel sessions.
 Instead of paying either on every review round, the change is recorded in a batch, and the full run
 goes on fresh `main` once per `BATCH_SIZE_ISSUES` recorded issues. A batch is an issue titled
 `Full mutation run <N>`, `<N>` a plain increment from 1; at most one batch is open at a time. No
@@ -50,11 +51,13 @@ same lock as `record`:
    is the check of the fixed survivors: it has to be green, on a clean tree, on a descendant of the
    head of the full run. Each round of fixes runs over the files it changed alone, so the record
    holds the last round; the earlier rounds and their survivors are the caller's check. The full
-   run is not repeated for the fixes: in batch 1 (#701) it took 637 minutes, the run over the files
-   of its survivors 43.
+   run is not repeated for the fixes: in batch 1 (#701) it ran about 190 minutes, not counting 7.5
+   hours the machine slept, while the run over the files of its survivors took 43. A run over files
+   on the head of the full run checked no fix and stops the close.
 4. A red full run (`exit` other than 0) closes only with the issues filed for its survivors named,
    or with the run over files of item 3, or both. Whether they cover every survivor, the files of
-   that run included, is the caller's check.
+   that run included, is the caller's check. A green full run has no survivors to fix, and the
+   record of the last run is not read for it.
 5. Sorts each recorded PR by `gh pr view`: merged, with its merge commit an ancestor of the head of
    the full run — covered; merged later, or not merged — carried over; closed without a merge —
    dropped.
@@ -137,6 +140,7 @@ class Comment(NamedTuple):
 
 class RunRecord(NamedTuple):
     head: str
+    scope: str
     exit: str
     text: str
 
@@ -382,8 +386,8 @@ def read_record_file(path: str) -> Optional[str]:
         raise Stop("the run record {} was not read — {}".format(path, failure))
 
 
-def parse_run_record(path: str, text: str) -> Tuple[RunRecord, str]:
-    """The record of a run that tested a commit, and its scope."""
+def parse_run_record(path: str, text: str) -> RunRecord:
+    """The record of a run that tested a commit."""
     marker = RUN_RECORD_MARKER.fullmatch(text.split("\n", 1)[0].strip())
     if marker is None:
         raise Stop("{} does not open with the marker of a run record".format(path))
@@ -401,15 +405,15 @@ def parse_run_record(path: str, text: str) -> Tuple[RunRecord, str]:
     # nothing, and exits with 0 all the same (docs/architecture/testing.md, "Threshold").
     if marker.group("score") == "NaN":
         raise Stop("the run of {} counted no mutant: score=NaN".format(path))
-    return RunRecord(marker.group("head"), marker.group("exit"), text), marker.group("scope")
+    return RunRecord(marker.group("head"), marker.group("scope"), marker.group("exit"), text)
 
 
 def read_full_run(path: str) -> RunRecord:
     text = read_record_file(path)
     if text is None:
         raise Stop("no run record at {}: the full run goes first, make mutation".format(path))
-    full_run, scope = parse_run_record(path, text)
-    if scope != "full":
+    full_run = parse_run_record(path, text)
+    if full_run.scope != "full":
         raise Stop(
             "the run record {} is of a run over files, not of the whole of src/".format(path)
         )
@@ -422,13 +426,19 @@ def read_fix_run(path: str, full_run: RunRecord, run: Run) -> Optional[RunRecord
     text = read_record_file(path)
     if text is None:
         return None
-    fix_run, scope = parse_run_record(path, text)
-    if scope == "full":
+    fix_run = parse_run_record(path, text)
+    if fix_run.scope == "full":
         return None
     if fix_run.exit != "0":
         raise Stop(
             "the run over files of {} is red (exit={}): its survivors are not fixed".format(
                 path, fix_run.exit
+            )
+        )
+    if fix_run.head == full_run.head:
+        raise Stop(
+            "the run over files is on {}, the head of the full run: it checked no fix".format(
+                fix_run.head
             )
         )
     if not is_ancestor(full_run.head, fix_run.head, run):
@@ -575,7 +585,11 @@ def fetch(run: Run) -> None:
 
 
 def close_locked(
-    batch_issue: int, survivor_issues: List[int], record_files: Tuple[str, str], run: Run
+    batch_issue: int,
+    survivor_issues: List[int],
+    record_file: str,
+    full_record_file: str,
+    run: Run,
 ) -> None:
     login = viewer(run)
     batches = list_batches(login, run)
@@ -590,9 +604,10 @@ def close_locked(
         close_issue(closing, run)
         print("already closed: {}".format(closed_before[0].url))
         return
-    record_file, full_record_file = record_files
     full_run = read_full_run(full_record_file)
-    fix_run = read_fix_run(record_file, full_run, run)
+    fix_run = None
+    if full_run.exit != "0":
+        fix_run = read_fix_run(record_file, full_run, run)
     if full_run.exit != "0" and not survivor_issues and fix_run is None:
         raise Stop(
             "the run is red (exit={}): name the issues filed for its survivors, "
@@ -617,9 +632,12 @@ def close_batch(
     batch_issue: int,
     survivor_issues: List[int],
     run: Run = subprocess.run,
-    record_files: Tuple[str, str] = (RUN_RECORD_FILE, FULL_RUN_RECORD_FILE),
+    record_file: str = RUN_RECORD_FILE,
+    full_record_file: str = FULL_RUN_RECORD_FILE,
 ) -> int:
-    return locked(lambda: close_locked(batch_issue, survivor_issues, record_files, run), run)
+    return locked(
+        lambda: close_locked(batch_issue, survivor_issues, record_file, full_record_file, run), run
+    )
 
 
 USAGE = (

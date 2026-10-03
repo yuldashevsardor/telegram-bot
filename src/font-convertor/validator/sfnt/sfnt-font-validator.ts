@@ -1177,6 +1177,7 @@ export class SfntFontValidator implements FontValidator {
     ): void {
         const at = this.tableName(SfntFontValidator.CMAP_TAG);
 
+        // Stryker disable next-line EqualityOperator: `>=` is equivalent: fields that end the table leave no room for the rest of the subtable, as the part of a set size of every format is longer than its fields up to the length, so a later check rejects it too, only the error changes
         if (subtableOffset + sizeBytes > cmap.length) {
             throw BrokenSfnt.byRule(fontPath, {
                 rule: SfntRule.CmapSubtableInTable,

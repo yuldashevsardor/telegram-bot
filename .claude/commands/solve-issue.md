@@ -85,8 +85,8 @@ An issue `Full mutation run <M>` that reached its threshold is taken with this c
 is the run itself:
 
 1. The worktree as above, from fresh `origin/main`. A full `make mutation`, without `files`, on a
-   clean tree. It takes hours: batch 1 took 637 minutes, 7.5 hours of them asleep. Its record is
-   kept in `reports/mutation/full-record.md`, and that is the input of the close.
+   clean tree. It takes hours. Its record is kept in `reports/mutation/full-record.md`, and that is
+   the input of the close.
 2. The run is red — fix the survivors you can in the same worktree and commit. Then check the fixes
    with `make mutation files="<the files of the fixed survivors>"` on the clean tree, not with a
    second full run: the owner's decision (2026-10-03). That run left survivors of its own — fix

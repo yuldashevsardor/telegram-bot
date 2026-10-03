@@ -13,9 +13,11 @@ const RECORD_FILE = "reports/mutation/record.md";
 // The record of the last full run, kept apart: a run over the files of its survivors writes RECORD_FILE
 // over it, and make mutation-full-close takes both.
 const FULL_RECORD_FILE = "reports/mutation/full-record.md";
-// The record goes into a GitHub comment, and that holds 65,536 characters; the slack is for what the
-// closing comment of a batch adds around it: the lists of its PRs and the signature.
-const RECORD_LIMIT = 60_000;
+// The record goes into a GitHub comment, and that holds 65,536 characters. The closing comment of a
+// batch adds around the record of the full run the lists of its PRs, the signature and the record of
+// the green run over files that checked the fixes: a summary and the files it mutated, with no
+// survivors, under 7,000 characters even over the whole of src/: in batch 1 its 124 files took 5,837.
+const RECORD_LIMIT = 45_000;
 const STATUSES = ["Killed", "Timeout", "Survived", "NoCoverage", "CompileError", "RuntimeError", "Ignored", "Pending"];
 
 type Mutant = {
@@ -71,6 +73,7 @@ function inline(text: string): string {
 }
 
 const area = process.env["MUTATE"] ?? "";
+const isFullRun = area === "";
 
 function record(run: Run): string {
     const head = process.env["MUTATION_HEAD"] ?? "";
@@ -99,14 +102,14 @@ function record(run: Run): string {
     }
 
     const scoreText = typeof report === "string" ? "none" : score(counts);
-    const scope = area === "" ? "full" : "files";
+    const scope = isFullRun ? "full" : "files";
     const lines = [
         `<!-- mutation-run head=${head || "unknown"} clean=${clean} scope=${scope} exit=${run.exitCode} score=${scoreText} -->`,
         "## `make mutation` run record",
         "",
         `- head: ${head === "" ? "unknown, git on the host did not answer" : `\`${head}\``}`,
         `- tree: ${tree[clean]}`,
-        `- files: ${area === "" ? "not passed, the whole `src/`" : `\`${area}\``}`,
+        `- files: ${isFullRun ? "not passed, the whole `src/`" : `\`${area}\``}`,
         `- started: ${run.startedAt.toISOString().replace(/\.\d+Z$/, "Z")} · duration: ${duration(run)} · exit code: ${run.exitCode}`,
     ];
 
@@ -160,7 +163,7 @@ rmSync(HTML_FILE, { force: true });
 rmSync(RECORD_FILE, { force: true });
 
 // A run over files leaves the record of the full run alone: it is what that run checks the fixes of.
-if (area === "") {
+if (isFullRun) {
     rmSync(FULL_RECORD_FILE, { force: true });
 }
 
@@ -182,7 +185,7 @@ function finish(exitCode: number): void {
         mkdirSync("reports/mutation", { recursive: true });
         writeFileSync(RECORD_FILE, text);
 
-        if (area === "") {
+        if (isFullRun) {
             writeFileSync(FULL_RECORD_FILE, text);
         }
 

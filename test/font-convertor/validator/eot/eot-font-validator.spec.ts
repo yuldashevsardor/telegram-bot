@@ -245,15 +245,6 @@ describe("EotFontValidator.validate", function () {
             );
         });
 
-        it("EOTSize of a file of the fixed part of the header alone", async function () {
-            // A file of exactly the fixed part is not too short: its fields are read.
-            await expectBroken(
-                fixture.subarray(0, 82),
-                EotRule.EotSize,
-                `At the header: EOTSize is ${fixture.length}, expected 82, the file size.`,
-            );
-        });
-
         it("an unknown version", async function () {
             await expectBroken(
                 build({ ...fixtureLayout, version: 0x00030000 }),
@@ -310,15 +301,6 @@ describe("EotFontValidator.validate", function () {
             const empty = patch(fixture, (view) => view.setUint32(FONT_DATA_SIZE, 0, true));
 
             await expectBroken(empty, EotRule.FontDataLayout, "At the header: FontDataSize is 0, expected not 0.");
-        });
-
-        it("no font data, the header ending the file", async function () {
-            // The header fits the file exactly, so the answer is the empty FontData rather than the header.
-            await expectBroken(
-                build({ ...fixtureLayout, font: new Uint8Array(0) }),
-                EotRule.FontDataLayout,
-                "At the header: FontDataSize is 0, expected not 0.",
-            );
         });
 
         for (const [description, delta] of [

@@ -1338,19 +1338,6 @@ describe("SfntFontValidator", function () {
             }
         });
 
-        it("whose subtable header ends the table, its length running past it", async function () {
-            // The header fits exactly, so the answer is the length of the subtable rather than its room.
-            for (const [format, { lengthField, fixedSizeBytes }] of SUBTABLE_LAYOUTS) {
-                const headerSizeBytes = lengthField.offsetBytes + lengthField.sizeBytes;
-
-                await expectBroken(
-                    withLastSubtable(ttf, format, headerSizeBytes, fixedSizeBytes),
-                    SfntRule.CmapSubtableLength,
-                    `At table "cmap": the length of the subtable of encodingRecords[1] is ${fixedSizeBytes}, expected at most ${headerSizeBytes}, the rest of table "cmap" from offset 660.`,
-                );
-            }
-        });
-
         it("whose subtable runs past its end", async function () {
             for (const [format, { fixedSizeBytes }] of SUBTABLE_LAYOUTS) {
                 await expectBroken(

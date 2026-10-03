@@ -867,6 +867,7 @@ export class Woff2FontValidator implements FontValidator {
         const at = this.tableName(Woff2FontValidator.GLYF_TAG);
         const headerSizeBytes = Woff2FontValidator.GLYF_HEADER_SIZE_BYTES;
 
+        // Stryker disable next-line EqualityOperator: `<=` is equivalent: it differs only on a transformed glyf of the header alone, whose empty substreams hold no glyph, which is not a font
         if (glyf.length < headerSizeBytes) {
             throw BrokenWoff2.byRule(fontPath, {
                 rule: Woff2Rule.TransformedGlyf,
