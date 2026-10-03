@@ -345,8 +345,8 @@ export class InboxStore {
 
     // The token is the group's, so the group is processing with one update: another update of the
     // group is a wrong id.
-    private async updateProcessingUpdate(lease: InboxLease, update: PendingQuery<Row[]>): Promise<void> {
-        const [updated] = await update;
+    private async updateProcessingUpdate(lease: InboxLease, updateStatement: PendingQuery<Row[]>): Promise<void> {
+        const [updated] = await updateStatement;
 
         if (updated === undefined) {
             throw InboxUpdateNotLeased.byId(lease.updateId);

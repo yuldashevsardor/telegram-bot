@@ -189,7 +189,10 @@ does not say is why:
   top, a restart of PostgreSQL during that save would block the group.
 - Anything else is `Unexpected`, a bug or a timeout waiting for the outbox included
   (`OutboxResultTimeout`): a reply that took too long may still go out, and the epic blocks the
-  group on it.
+  group on it. So is a wait the outbox stopped (`OutboxResultWaiterStopped`), although it says only
+  that the node is shutting down: the loop that handles the updates is to keep such a handler away
+  from `handle()` and release its update, or an ordinary restart blocks the group
+  ([#628](https://github.com/yuldashevsardor/telegram-bot/issues/628)).
 
 ### Outcomes
 
