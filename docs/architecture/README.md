@@ -232,9 +232,9 @@ own only when it has files of its own or a role of its own among the siblings:
 - `middleware/mutation/` is a role inside `middleware/`: a middleware that replaces `ctx.api.raw`
   ([`bot.md`](./bot.md)). There is only one file in it so far;
 - `validator/svg/` keeps `SvgFontValidator` together with its companions and its path data parser,
-  `validator/woff/`, `validator/woff2/`, `validator/eot/` and `validator/sfnt/` keep
-  `WoffFontValidator`, `Woff2FontValidator`, `EotFontValidator` and `SfntFontValidator` with their
-  companions.
+  `validator/woff2/` keeps `Woff2FontValidator` together with its companions and its glyf
+  reconstructor, `validator/woff/`, `validator/eot/` and `validator/sfnt/` keep
+  `WoffFontValidator`, `EotFontValidator` and `SfntFontValidator` with their companions.
 
 A sibling with neither lies flat in the siblings directory: `filter/has-session-key.filter.ts`,
 `middleware/request-log.middleware.ts`. The name is the prefix of the sibling's file name

@@ -8,13 +8,17 @@ import type {
     DecompressedTable,
     ExpectedEnd,
     GapEnd,
+    ReconstructedTables,
+    SfntTable,
     TableEntry,
+    TransformedHmtx,
     TransformVersions,
     Woff2,
     Woff2Header,
 } from "app/font-convertor/validator/woff2/woff2-font-validator.types";
 import { BlockKind, Woff2Rule } from "app/font-convertor/validator/woff2/woff2-font-validator.types";
 import type { FontValidator } from "app/font-convertor/validator/font-validator";
+import { GlyfReconstructor } from "app/font-convertor/validator/woff2/glyf-reconstructor";
 import { FileHelper } from "app/shared/fs/file-helper";
 
 const brotliDecompress = promisify(brotliDecompressOrigin);
@@ -32,9 +36,10 @@ type Decompressed = {
 /**
  * Checks the WOFF2 container against W3C Recommendation "WOFF File Format 2.0" (8 August 2024):
  * the header (§3.2), the table directory (§4), where the blocks lie in the file (§3, §6, §7), the
- * compressed data (§5), and of the transformed tables what their sizes and flags say (§5.1, §5.3,
- * §5.4). It does not decode the glyph records of a transformed glyf, nor rebuild the sfnt the
- * tables make up.
+ * compressed data (§5), and the transformed tables: `GlyfReconstructor` decodes the glyph records
+ * of a transformed glyf and rebuilds glyf, loca and a transformed hmtx from them (§5.1–§5.4). The
+ * rebuilt tables are checked only for the size of the sfnt they make up, not handed to the sfnt
+ * validator.
  *
  * Deliberately not checked:
  * - `reserved`: "a decoder MUST NOT reject a downloaded font file if the reserved header value is
@@ -161,16 +166,10 @@ export class Woff2FontValidator implements FontValidator {
     private static readonly GLYF_TAG = "glyf";
     private static readonly LOCA_TAG = "loca";
     private static readonly HMTX_TAG = "hmtx";
-    // The header of a transformed glyf (§5.1): reserved, optionFlags, numGlyphs, indexFormat, then
-    // the sizes of the seven substreams that follow it, one UInt32 each.
-    private static readonly GLYF_HEADER_SIZE_BYTES = 36;
-    private static readonly GLYF_FIELD_OFFSETS = { optionFlags: 2, numGlyphs: 4, indexFormat: 6, substreamSizes: 8 };
-    private static readonly GLYF_SUBSTREAM_COUNT = 7;
-    private static readonly SUBSTREAM_SIZE_FIELD_BYTES = 4;
-    private static readonly OVERLAP_SIMPLE_BITMAP_FLAG = 0x0001;
-    // The overlapSimpleBitmap holds a bit per glyph, padded to whole 32-bit words: 4 × ⌊(numGlyphs + 31) / 32⌋ bytes.
-    private static readonly BITMAP_WORD_SIZE_BITS = 32;
-    private static readonly BITMAP_WORD_SIZE_BYTES = 4;
+    private static readonly HHEA_TAG = "hhea";
+    // numberOfHMetrics, a UInt16 at offset 34, is the last field of the 36-byte hhea (OpenType 1.9.1, hhea).
+    private static readonly NUMBER_OF_H_METRICS_OFFSET = 34;
+    private static readonly HHEA_MIN_SIZE_BYTES = 36;
     // An offset of loca takes 2 bytes when indexFormat is 0, 4 otherwise (§5.3).
     private static readonly SHORT_LOCA_FORMAT = 0;
     private static readonly SHORT_LOCA_OFFSET_SIZE_BYTES = 2;
@@ -189,15 +188,21 @@ export class Woff2FontValidator implements FontValidator {
     // 70 MB of RSS to refuse with a 64 MiB maxOutputLength.
     private static readonly MAX_DECOMPRESSED_SIZE_BYTES = 30 * 1024 * 1024;
     private static readonly MAX_COMPRESSION_RATIO = 100;
+    // The decoder writes the sfnt into the same 30 MiB buffer, and the reconstruction can make glyf
+    // larger than its transformed form.
+    private static readonly MAX_SFNT_SIZE_BYTES = 30 * 1024 * 1024;
+    private static readonly SFNT_HEADER_SIZE_BYTES = 12;
+    private static readonly SFNT_TABLE_RECORD_SIZE_BYTES = 16;
 
     /**
      * Throws when the file is not a valid WOFF2 container. The answers are subclasses of
      * `InvalidWoff2Font`: `NotWoff2` for a file shorter than the header or without the signature,
      * `BrokenWoff2` for the first broken rule, checked in the order of the file: the header, the
      * table directory entry by entry, then the directory as a whole, the fields of absent blocks,
-     * the layout of the blocks, the size the tables decompress to, the Brotli stream, and the
-     * transformed tables in it. A file that cannot be read throws `ReadFailed` of `FileHelper`
-     * instead: an I/O failure, not a verdict on the font.
+     * the layout of the blocks, the size the tables decompress to, the Brotli stream, the
+     * transformed tables in it glyph record by glyph record, and the size of the rebuilt sfnt. A
+     * file that cannot be read throws `ReadFailed` of `FileHelper` instead: an I/O failure, not a
+     * verdict on the font.
      */
     public async validate(fontPath: string): Promise<void> {
         const bytes = await FileHelper.read(fontPath);
@@ -225,7 +230,7 @@ export class Woff2FontValidator implements FontValidator {
 
         const tables = await this.decompressedTables(woff2);
 
-        this.checkTransformedTables(fontPath, tables);
+        this.checkSfntSize(fontPath, this.sfntTables(fontPath, tables));
     }
 
     private readHeader(view: DataView): Woff2Header {
@@ -842,76 +847,45 @@ export class Woff2FontValidator implements FontValidator {
     }
 
     /**
-     * The transformed glyf as far as its header and the sizes of its substreams, the origLength of
-     * the transformed loca its header gives, and the flags of a transformed hmtx. The directory
-     * has made glyf and loca transformed together.
+     * The tables of the sfnt the WOFF2 rebuilds, in the order of the directory: a plain table as it
+     * is, glyf and loca rebuilt from the transformed glyf, and hmtx from the transformed hmtx. The
+     * directory has made glyf and loca transformed together, and a transformed hmtx lie beside a
+     * transformed glyf. The header of the transformed glyf, the origLength of the transformed loca
+     * and the flags of the transformed hmtx are checked before any glyph record is read.
      */
-    private checkTransformedTables(fontPath: string, tables: ReadonlyArray<DecompressedTable>): void {
+    private sfntTables(fontPath: string, tables: ReadonlyArray<DecompressedTable>): Array<SfntTable> {
         const glyf = tables.find((table) => table.entry.tag === Woff2FontValidator.GLYF_TAG);
         const loca = tables.find((table) => table.entry.tag === Woff2FontValidator.LOCA_TAG);
-
-        if (glyf?.entry.transformLength !== undefined && loca !== undefined) {
-            this.checkTransformedGlyf(fontPath, glyf.bytes, loca.entry);
-        }
-
         const hmtx = tables.find((table) => table.entry.tag === Woff2FontValidator.HMTX_TAG);
 
-        if (hmtx?.entry.transformLength !== undefined) {
-            this.checkTransformedHmtx(fontPath, hmtx.bytes);
+        if (glyf?.entry.transformLength === undefined || loca === undefined) {
+            return tables.map((table) => ({ tag: table.entry.tag, bytes: table.bytes }));
+        }
+
+        const reconstructor = new GlyfReconstructor(fontPath, glyf.bytes);
+
+        this.checkTransformedLoca(fontPath, loca.entry, reconstructor);
+
+        const transformedHmtx = hmtx?.entry.transformLength === undefined ? undefined : this.transformedHmtx(fontPath, hmtx.bytes, tables);
+        const reconstructed = reconstructor.reconstruct(transformedHmtx);
+
+        return tables.map((table) => ({ tag: table.entry.tag, bytes: this.rebuiltBytes(table, reconstructed) }));
+    }
+
+    private rebuiltBytes(table: DecompressedTable, reconstructed: ReconstructedTables): Uint8Array {
+        switch (table.entry.tag) {
+            case Woff2FontValidator.GLYF_TAG:
+                return reconstructed.glyf;
+            case Woff2FontValidator.LOCA_TAG:
+                return reconstructed.loca;
+            case Woff2FontValidator.HMTX_TAG:
+                return reconstructed.hmtx ?? table.bytes;
+            default:
+                return table.bytes;
         }
     }
 
-    private checkTransformedGlyf(fontPath: string, glyf: Uint8Array, locaEntry: TableEntry): void {
-        const at = this.tableName(Woff2FontValidator.GLYF_TAG);
-        const headerSizeBytes = Woff2FontValidator.GLYF_HEADER_SIZE_BYTES;
-
-        if (glyf.length < headerSizeBytes) {
-            throw BrokenWoff2.byRule(fontPath, {
-                rule: Woff2Rule.TransformedGlyf,
-                at: at,
-                field: "transformLength",
-                value: glyf.length,
-                expected: `at least ${headerSizeBytes}, the size of the header`,
-            });
-        }
-
-        const view = new DataView(glyf.buffer, glyf.byteOffset, glyf.byteLength);
-        const fields = Woff2FontValidator.GLYF_FIELD_OFFSETS;
-        const numGlyphs = view.getUint16(fields.numGlyphs);
-        const indexFormat = view.getUint16(fields.indexFormat);
-        let substreamsEnd = headerSizeBytes;
-
-        for (let index = 0; index < Woff2FontValidator.GLYF_SUBSTREAM_COUNT; index++) {
-            substreamsEnd += view.getUint32(fields.substreamSizes + index * Woff2FontValidator.SUBSTREAM_SIZE_FIELD_BYTES);
-        }
-
-        if (substreamsEnd > glyf.length) {
-            throw BrokenWoff2.byRule(fontPath, {
-                rule: Woff2Rule.TransformedGlyf,
-                at: at,
-                field: "end of the substreams",
-                value: substreamsEnd,
-                expected: `at most ${glyf.length}, the transformLength`,
-            });
-        }
-
-        if ((view.getUint16(fields.optionFlags) & Woff2FontValidator.OVERLAP_SIMPLE_BITMAP_FLAG) !== 0) {
-            const wordCount = Math.floor(
-                (numGlyphs + Woff2FontValidator.BITMAP_WORD_SIZE_BITS - 1) / Woff2FontValidator.BITMAP_WORD_SIZE_BITS,
-            );
-            const bitmapEnd = substreamsEnd + wordCount * Woff2FontValidator.BITMAP_WORD_SIZE_BYTES;
-
-            if (bitmapEnd > glyf.length) {
-                throw BrokenWoff2.byRule(fontPath, {
-                    rule: Woff2Rule.TransformedGlyf,
-                    at: at,
-                    field: "end of overlapSimpleBitmap",
-                    value: bitmapEnd,
-                    expected: `at most ${glyf.length}, the transformLength, as bit 0 of optionFlags is set`,
-                });
-            }
-        }
-
+    private checkTransformedLoca(fontPath: string, locaEntry: TableEntry, { numGlyphs, indexFormat }: GlyfReconstructor): void {
         const offsetSizeBytes =
             indexFormat === Woff2FontValidator.SHORT_LOCA_FORMAT
                 ? Woff2FontValidator.SHORT_LOCA_OFFSET_SIZE_BYTES
@@ -925,6 +899,62 @@ export class Woff2FontValidator implements FontValidator {
                 field: "origLength",
                 value: locaEntry.origLength,
                 expected: `${locaSizeBytes}, (numGlyphs ${numGlyphs} + 1) × ${offsetSizeBytes} for indexFormat ${indexFormat} of table "glyf"`,
+            });
+        }
+    }
+
+    /**
+     * The transformed hmtx with numberOfHMetrics of hhea, once its flags are checked: the count of
+     * the advance widths it holds is in hhea alone (§5.4).
+     */
+    private transformedHmtx(fontPath: string, hmtx: Uint8Array, tables: ReadonlyArray<DecompressedTable>): TransformedHmtx {
+        this.checkTransformedHmtx(fontPath, hmtx);
+
+        const hhea = tables.find((table) => table.entry.tag === Woff2FontValidator.HHEA_TAG);
+
+        if (hhea === undefined) {
+            throw BrokenWoff2.byRule(fontPath, {
+                rule: Woff2Rule.TransformedHmtx,
+                at: "the table directory",
+                field: `table ${JSON.stringify(Woff2FontValidator.HHEA_TAG)}`,
+                value: "absent",
+                expected: `present, as table ${JSON.stringify(Woff2FontValidator.HMTX_TAG)} is transformed`,
+            });
+        }
+
+        if (hhea.bytes.length < Woff2FontValidator.HHEA_MIN_SIZE_BYTES) {
+            throw BrokenWoff2.byRule(fontPath, {
+                rule: Woff2Rule.TransformedHmtx,
+                at: this.tableName(Woff2FontValidator.HHEA_TAG),
+                field: "origLength",
+                value: hhea.bytes.length,
+                expected: `at least ${Woff2FontValidator.HHEA_MIN_SIZE_BYTES}, to hold numberOfHMetrics`,
+            });
+        }
+
+        const view = new DataView(hhea.bytes.buffer, hhea.bytes.byteOffset, hhea.bytes.byteLength);
+
+        return { bytes: hmtx, numberOfHMetrics: view.getUint16(Woff2FontValidator.NUMBER_OF_H_METRICS_OFFSET) };
+    }
+
+    /**
+     * The size of the sfnt the decoder writes: the 12-byte header, a 16-byte table record per
+     * table, then each table padded to 4 bytes (`ReconstructFont()` in `woff2_dec.cc` 1.0.2).
+     */
+    private checkSfntSize(fontPath: string, tables: ReadonlyArray<SfntTable>): void {
+        let sfntSizeBytes = Woff2FontValidator.SFNT_HEADER_SIZE_BYTES + tables.length * Woff2FontValidator.SFNT_TABLE_RECORD_SIZE_BYTES;
+
+        for (const table of tables) {
+            sfntSizeBytes += this.padded(table.bytes.length, Woff2FontValidator.ALIGNMENT_BYTES);
+        }
+
+        if (sfntSizeBytes > Woff2FontValidator.MAX_SFNT_SIZE_BYTES) {
+            throw BrokenWoff2.byRule(fontPath, {
+                rule: Woff2Rule.MaxSfntSize,
+                at: "the rebuilt sfnt",
+                field: "size",
+                value: sfntSizeBytes,
+                expected: `at most ${Woff2FontValidator.MAX_SFNT_SIZE_BYTES}`,
             });
         }
     }
