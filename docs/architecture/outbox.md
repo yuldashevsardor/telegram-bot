@@ -323,7 +323,8 @@ the pid and a `randomUUID()` made with the loop.
 
 1. stops the message source, and the loop asks it for nothing more. A pull in progress hands out its
    message first (see "The message source"), and the loop starts it as any other: left unsent, the
-   message would wait for the recovery of its lease;
+   message would wait for the recovery of its lease. A message handed out after the deadline starts
+   with its signal aborted: grammY fails the call before it sends it, and the message is released;
 2. waits for the calls in flight up to `OUTBOX_STOP_TIMEOUT`, counted from the call of `stop()`;
 3. aborts the calls still in flight at the deadline and waits until each has settled: the processor
    releases the message of an aborted call (see "Release on stop").
@@ -695,13 +696,14 @@ node whose last pull found nothing `ready` got `nextPullInMs` of `null`: no time
 notification (see "Limits"). Without it the message could wait for an unrelated push longer than the
 lease the release exists to cut short.
 
-`OutboxMessageProcessor` releases a call once its signal was aborted and the call has thrown, so the
-call has settled by then (see "Sending"); the worker loop aborts the calls the stop deadline cut
-short (see "The worker loop"). The chat is `ready` at once, so another node may send the message and
-the next one behind it while a call of the stopping node is still on its way, and Telegram would
-show the message again after the next one. The lease keeps that order only while it outlasts the
-call (see "The lease"), and the release ends it early. An aborted call may still have reached
-Telegram before the abort: that is the duplicate below, not a change of order.
+`OutboxMessageProcessor` releases a call once its signal was aborted and the call has thrown an
+`HttpError`, so the call has settled by then; a `GrammyError` is Telegram's answer and is handled
+(see "Sending"). The worker loop aborts the calls the stop deadline cut short (see "The worker
+loop"). The chat is `ready` at once, so another node may send the message and the next one behind it
+while a call of the stopping node is still on its way, and Telegram would show the message again
+after the next one. The lease keeps that order only while it outlasts the call (see "The lease"),
+and the release ends it early. An aborted call may still have reached Telegram before the abort:
+that is the duplicate below, not a change of order.
 
 The call may have reached Telegram, so the release writes the attempt and it counts towards
 `OUTBOX_MAX_ATTEMPTS` (see "Outcomes"), although the limit is not checked on it: a stop says nothing

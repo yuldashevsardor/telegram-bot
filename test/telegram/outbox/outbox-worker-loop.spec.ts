@@ -87,6 +87,12 @@ class FakeProcessor {
             fail: (error: unknown) => reject(error),
         };
 
+        // A signal aborted before the call settles it at once, as grammY fails such a call before it
+        // sends it.
+        if (signal.aborted && this.settlesOnAbort) {
+            call.finish();
+        }
+
         signal.addEventListener("abort", () => {
             if (this.settlesOnAbort) {
                 call.finish();
@@ -343,7 +349,7 @@ describe("OutboxWorkerLoop", function () {
         pull.resolve(message(1));
         await settle();
 
-        expect(processor.calls.map((call) => call.message.id)).to.deep.equal([1]);
+        expect(processor.calls.map((call) => [call.message.id, call.signal.aborted])).to.deep.equal([[1, false]]);
         processor.calls[0]?.finish();
         await stopped;
     });
@@ -387,6 +393,33 @@ describe("OutboxWorkerLoop", function () {
         expect(store.retries[0]?.delayMs).to.equal(0);
         expect(store.retries[0]?.options).to.deep.equal({ shouldWakeIdleNodes: true });
         expect(store.done).to.deep.equal([]);
+    });
+
+    it("starts aborted the message a pull in progress hands out after the deadline", async function () {
+        const pull = Promise.withResolvers<PulledOutboxMessage>();
+        const pullingSource = {
+            async *stream(): AsyncGenerator<PulledOutboxMessage, void, undefined> {
+                yield await pull.promise;
+            },
+            stop(): void {},
+        };
+        const loop = new OutboxWorkerLoop(
+            pullingSource as unknown as OutboxMessageSource,
+            processor as unknown as OutboxMessageProcessor,
+            logger,
+            CONCURRENCY,
+            0,
+            WORKER,
+        );
+        loop.start();
+        await settle();
+
+        const stopped = loop.stop();
+        pull.resolve(message(1));
+        await settle();
+
+        expect(processor.calls.map((call) => [call.message.id, call.signal.aborted])).to.deep.equal([[1, true]]);
+        await stopped;
     });
 
     it("stops before it was started", async function () {

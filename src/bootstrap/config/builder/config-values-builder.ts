@@ -23,13 +23,13 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
     // interval. A batch size goes to LIMIT, and 1e21 would reach it as 1e+21, which is no bigint.
     private static readonly CLEANUP_RANGE: IntegerRange = { min: 1, max: Number.MAX_SAFE_INTEGER };
 
-    // The pool deadlines are in seconds: postgres.js multiplies them by 1000 for setTimeout, so the
-    // ceiling is the longest timer delay in seconds. A zero switches the timer off there, while a
-    // negative value is truthy and would close the connection after 1 ms.
     // The connections the outbox takes besides its slots: the pull of the worker loop and the three
     // tasks of OutboxMaintenance, each one query at a time.
     private static readonly OUTBOX_CONNECTIONS_BESIDES_SLOTS = 4;
 
+    // The pool deadlines are in seconds: postgres.js multiplies them by 1000 for setTimeout, so the
+    // ceiling is the longest timer delay in seconds. A zero switches the timer off there, while a
+    // negative value is truthy and would close the connection after 1 ms.
     private static readonly DATABASE_TIMER_RANGE: IntegerRange = {
         min: 0,
         max: Math.floor(ConfigParser.MAX_TIMER_DELAY / 1000),

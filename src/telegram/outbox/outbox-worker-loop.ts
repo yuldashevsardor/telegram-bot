@@ -22,6 +22,8 @@ export class OutboxWorkerLoop {
     // with every message sent.
     private wakeUpLoop: (() => void) | undefined;
     private isStopping = false;
+    // When stop() aborts the calls in flight; none before the stop.
+    private stopDeadlineAt = Number.POSITIVE_INFINITY;
     private loopRun: Promise<void> = Promise.resolve();
 
     public constructor(
@@ -44,16 +46,17 @@ export class OutboxWorkerLoop {
     // aborts the rest and waits until they settle: the processor releases an aborted call, so
     // another node takes its message at once.
     public async stop(): Promise<void> {
-        const deadlineAt = Date.now() + this.stopTimeoutMs;
+        this.stopDeadlineAt = Date.now() + this.stopTimeoutMs;
         this.isStopping = true;
         this.wakeUpLoop?.();
         this.source.stop();
 
         // A pull in progress hands out its message before the loop ends, and the loop starts it:
-        // left unsent, the message would wait for the recovery of its lease.
+        // left unsent, the message would wait for the recovery of its lease. Past the deadline it
+        // starts aborted (startCall()).
         await this.loopRun;
 
-        const haveCallsSettled = await withTimeout(Promise.all(this.callsInFlight.values()), deadlineAt - Date.now());
+        const haveCallsSettled = await withTimeout(Promise.all(this.callsInFlight.values()), this.stopDeadlineAt - Date.now());
 
         if (haveCallsSettled) {
             return;
@@ -95,6 +98,13 @@ export class OutboxWorkerLoop {
     // A message pulled is started at once: its lease and the limit of its chat count from the pull.
     private startCall(message: PulledOutboxMessage): void {
         const abortController = new AbortController();
+
+        // A pull in progress at the stop handed the message out after the deadline: started aborted,
+        // the call fails before grammY sends it, and the message is released without reaching
+        // Telegram rather than sent and cut short on the next tick.
+        if (Date.now() >= this.stopDeadlineAt) {
+            abortController.abort();
+        }
         const settled = this.processor
             .process(message, abortController.signal)
             .catch((error: unknown) => {
