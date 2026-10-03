@@ -16,7 +16,8 @@ export class OutboxErrorSerializer {
     // answer that grammY keeps on its errors (error_code, description, parameters, method) and the
     // error an HttpError wraps. serializeError wraps a value that is not an Error into NonError. Two
     // things stay out:
-    // - the payload of a GrammyError: a copy of the call, which the row already holds;
+    // - the payload of a GrammyError: a copy of the call. An outbox row holds the call already; an
+    //   inbox row holds the update, and its attempt needs the error of the call, not the call;
     // - the bot token: the fetch error an HttpError wraps names the URL of the call, and the URL
     //   carries the token. grammY keeps it out of its own message, the serialized fields bring it
     //   back. It is replaced wherever it shows.
