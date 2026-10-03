@@ -585,7 +585,14 @@ describe("SvgFontValidator.validate", function () {
                 const message =
                     "SVG font breaks a rule: hkern and vkern name both glyphs of the pair, by u1 or g1 and by u2 or g2 (SVG 1.1, §20.7). At line 2: <hkern>.";
 
-                for (const kern of ['<hkern u2="b" k="50"/>', '<hkern g1="a" k="50"/>', '<hkern k="50"/>']) {
+                // A g1 of separators alone names no glyph: fontforge kerns nothing for it.
+                for (const kern of [
+                    '<hkern u2="b" k="50"/>',
+                    '<hkern g1="a" k="50"/>',
+                    '<hkern k="50"/>',
+                    '<hkern g1="" u2="b" k="50"/>',
+                    '<hkern g1=" , " u2="b" k="50"/>',
+                ]) {
                     const error = await expectAnswer(inline(kerned(kern)), BrokenFont, message);
 
                     expect(error.payload).to.deep.equal({ path: fontPath, rule: FontRule.KernedGlyphRequired, element: "hkern", line: 2 });

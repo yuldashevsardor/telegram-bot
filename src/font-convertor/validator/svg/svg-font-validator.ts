@@ -4,7 +4,14 @@ import type { SaxesTagNS, XMLDecl } from "saxes";
 import { FileHelper } from "app/shared/fs/file-helper";
 import { isPathData } from "app/font-convertor/validator/svg/path-data";
 import { BrokenFont, NoFont, NotSvg, NotXml } from "app/font-convertor/validator/svg/svg-font-validator.errors";
-import type { Encoding, NumericElement, OpenElement, Scan, Violation } from "app/font-convertor/validator/svg/svg-font-validator.types";
+import type {
+    Encoding,
+    KernElement,
+    NumericElement,
+    OpenElement,
+    Scan,
+    Violation,
+} from "app/font-convertor/validator/svg/svg-font-validator.types";
 import { FontRule } from "app/font-convertor/validator/svg/svg-font-validator.types";
 import type { FontValidator } from "app/font-convertor/validator/font-validator";
 
@@ -209,7 +216,7 @@ export class SvgFontValidator implements FontValidator {
             this.checkFont(scan, element, tag);
         }
 
-        // `font-face` and `glyph` count only as direct children of `font`: its content model (§20.3).
+        // The font nodes inside `font` count only as its direct children: its content model (§20.3).
         if (parent?.name !== "font") {
             return;
         }
@@ -302,10 +309,11 @@ export class SvgFontValidator implements FontValidator {
     }
 
     /**
-     * Checks a kerning pair (§20.7). `g1` and `g2` are not checked: fontforge splits them at commas
-     * and whitespace, as §20.7 does, and drops a name no glyph has without a word.
+     * Checks a kerning pair (§20.7). The names in `g1` and `g2` are not checked: fontforge splits
+     * them at commas and whitespace, as §20.7 does. A name no glyph has, and a `u1` or `u2`
+     * character no glyph has, fontforge drops without a word.
      */
-    private checkKern(scan: Scan, element: OpenElement, tag: SaxesTagNS, name: "hkern" | "vkern"): void {
+    private checkKern(scan: Scan, element: OpenElement, tag: SaxesTagNS, name: KernElement): void {
         this.checkPrefixes(scan, element, tag, name);
 
         // No number is checked against the range a font can store, `k` included: in fontforge
@@ -318,13 +326,14 @@ export class SvgFontValidator implements FontValidator {
             this.report(scan, FontRule.Number, name, element.line, { attribute: ["k", kerning] });
         }
 
-        this.checkKernedGlyph(scan, element, tag, name, { characters: "u1", glyphNames: "g1" });
-        this.checkKernedGlyph(scan, element, tag, name, { characters: "u2", glyphNames: "g2" });
+        this.checkKernedGlyph(scan, element, tag, name, { characterAttribute: "u1", glyphNamesAttribute: "g1" });
+        this.checkKernedGlyph(scan, element, tag, name, { characterAttribute: "u2", glyphNamesAttribute: "g2" });
     }
 
     /**
      * Checks one side of a kerning pair: it is named, and by a single character when by `u1` or
-     * `u2`. fontforge takes each character of `u1` for a glyph of its own, so the list `a,b` of
+     * `u2`. A `g1` or `g2` of commas and whitespace alone names no glyph, as an empty `u1` does
+     * not. fontforge takes each character of `u1` for a glyph of its own, so the list `a,b` of
      * §20.7 kerns the comma too, a range `U+0061-0062` kerns nothing, and the ligature `ab` kerns
      * `a` and `b`. A character is a code point: `[...value]` does not split a surrogate pair.
      */
@@ -332,13 +341,15 @@ export class SvgFontValidator implements FontValidator {
         scan: Scan,
         element: OpenElement,
         tag: SaxesTagNS,
-        name: "hkern" | "vkern",
-        side: { characters: string; glyphNames: string },
+        name: KernElement,
+        side: { characterAttribute: string; glyphNamesAttribute: string },
     ): void {
-        const characters = tag.attributes[side.characters]?.value;
+        const characters = tag.attributes[side.characterAttribute]?.value;
 
         if (characters === undefined) {
-            if (tag.attributes[side.glyphNames] === undefined) {
+            const glyphNames = tag.attributes[side.glyphNamesAttribute]?.value;
+
+            if (glyphNames === undefined || !/[^,\s]/.test(glyphNames)) {
                 this.report(scan, FontRule.KernedGlyphRequired, name, element.line);
             }
 
@@ -346,7 +357,7 @@ export class SvgFontValidator implements FontValidator {
         }
 
         if ([...characters].length !== 1) {
-            this.report(scan, FontRule.SingleKernedCharacter, name, element.line, { attribute: [side.characters, characters] });
+            this.report(scan, FontRule.SingleKernedCharacter, name, element.line, { attribute: [side.characterAttribute, characters] });
         }
     }
 

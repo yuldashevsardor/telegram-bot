@@ -163,9 +163,9 @@ was rejected.
   `xmlns:xlink` the same way. The parser does not read the DTD, so the validator binds both prefixes
   itself (`resolvePrefix`).
 - **No font, broken font.** Only the fonts are checked against the specification, not the rest of
-  the document; the rules that look at the whole document are ours, below. `font-face` and
-  `glyph` count only as direct children of `font` in the SVG namespace, and only unprefixed
-  attributes are attributes of these elements. The rules are `FontRule` in
+  the document; the rules that look at the whole document are ours, below. The font nodes inside
+  `font` count only as its direct children in the SVG namespace, and only unprefixed attributes
+  are attributes of these elements. The rules are `FontRule` in
   `svg-font-validator.types.ts`; the text of each names its section, or says "ours" where fontforge
   asks more than the specification. Three of ours look at the whole document. It holds one `font`:
   a second font is the case of the `ttcf` collection above, fontforge 20230101 silently converts the
@@ -210,7 +210,8 @@ was rejected.
   as §8.3.9 requires ("must consume as much of a given BNF production as possible"), and `1.` is a
   number, unlike in the other attributes.
   The kerning pairs, `hkern` and `vkern` children of `font`, are checked against §20.7: each has
-  `k`, a `<number>`, and names both glyphs, by `u1` or `g1` and by `u2` or `g2`. fontforge
+  `k`, a `<number>`, and names both glyphs, by `u1` or `g1` and by `u2` or `g2`; a `g1` of commas
+  and whitespace alone names none. fontforge
   (`SVGParseKern`) skips a pair without `k` or without a glyph, and reads the number at the head of
   `k`, so `12garbage` kerns by 12. No number is checked against the range a font can store, `k`
   included: out of a double, `1e999` makes a pair of zero, and past 16 bits `40000` makes 25536,
@@ -218,7 +219,8 @@ was rejected.
   character each. fontforge reads them as a string of characters, not as the comma-separated list
   of §20.7, so the list `a,b` kerns the comma too, the range `U+0061-0062` kerns nothing, and the
   ligature `ab` kerns `a` and `b`. `g1` and `g2` are not checked: fontforge splits them at commas
-  and whitespace, as the list of §20.7 is split, and drops a name no glyph has without a word.
+  and whitespace, as the list of §20.7 is split. A name no glyph has, and a `u1` or `u2` character
+  no glyph has, fontforge drops without a word.
   Measured on 20230101 for [#776](https://github.com/yuldashevsardor/telegram-bot/issues/776), with
   24 real SVG fonts with kerning found on GitHub: 20,882 `hkern` and no `vkern`. Every pair has an
   integer `k` and both glyphs, `u1` and `u2` are always one character, and `g1` and `g2` hold

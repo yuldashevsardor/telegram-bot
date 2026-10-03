@@ -34,6 +34,11 @@ export enum FontRule {
 export type NumericElement = "font" | "glyph" | "missing-glyph";
 
 /**
+ * The elements of a kerning pair (§20.7).
+ */
+export type KernElement = "hkern" | "vkern";
+
+/**
  * An element the scan has opened and not closed yet.
  */
 export type OpenElement = {
