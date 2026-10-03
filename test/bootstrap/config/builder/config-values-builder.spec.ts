@@ -44,9 +44,13 @@ describe("ConfigValuesBuilder", () => {
         expect(result.outbox).to.deep.equal({
             retryDelay: { firstDelayMs: 1000, maxDelayMs: 60000, multiplier: 2 },
             resultWaiter: { timeoutMs: 60000, pollIntervalMs: 1000 },
-            leaseDurationMs: 600000,
+            leaseDurationMs: 90000,
             apiTimeoutMs: 60000,
             maxAttempts: 10,
+            concurrency: 5,
+            stopTimeoutMs: 5000,
+            leaseRecoveryIntervalMs: 10000,
+            cleanupIntervalMs: 600000,
             cleanup: { doneRetentionMs: 604800000, skippedRetentionMs: 2592000000, batchSize: 1000 },
         });
         expect(result.inbox).to.deep.equal({ leaseDurationMs: 600000 });
@@ -90,6 +94,10 @@ describe("ConfigValuesBuilder", () => {
             OUTBOX_DONE_RETENTION: "604800001",
             OUTBOX_SKIPPED_RETENTION: "2592000001",
             OUTBOX_CLEANUP_BATCH_SIZE: "1001",
+            OUTBOX_CONCURRENCY: "6",
+            OUTBOX_STOP_TIMEOUT: "5002",
+            OUTBOX_LEASE_RECOVERY_INTERVAL: "10002",
+            OUTBOX_CLEANUP_INTERVAL: "600003",
             INBOX_LEASE_DURATION: "600002",
             BOT_TOKEN: "own-token",
             BOT_GRACEFUL_SHUTDOWN_TIMEOUT: "3001",
@@ -124,6 +132,10 @@ describe("ConfigValuesBuilder", () => {
             leaseDurationMs: 600001,
             apiTimeoutMs: 60004,
             maxAttempts: 11,
+            concurrency: 6,
+            stopTimeoutMs: 5002,
+            leaseRecoveryIntervalMs: 10002,
+            cleanupIntervalMs: 600003,
             cleanup: { doneRetentionMs: 604800001, skippedRetentionMs: 2592000001, batchSize: 1001 },
         });
         expect(result.inbox).to.deep.equal({ leaseDurationMs: 600002 });
@@ -219,6 +231,10 @@ describe("ConfigValuesBuilder", () => {
         { name: "OUTBOX_DONE_RETENTION", below: "0", range: "between 1 and 9007199254740991" },
         { name: "OUTBOX_SKIPPED_RETENTION", below: "0", range: "between 1 and 9007199254740991" },
         { name: "OUTBOX_CLEANUP_BATCH_SIZE", below: "0", range: "between 1 and 9007199254740991" },
+        { name: "OUTBOX_CONCURRENCY", below: "0", range: "at least 1" },
+        { name: "OUTBOX_STOP_TIMEOUT", below: "-1", range: "between 0 and 2147483647" },
+        { name: "OUTBOX_LEASE_RECOVERY_INTERVAL", below: "0", range: "between 1 and 2147483647" },
+        { name: "OUTBOX_CLEANUP_INTERVAL", below: "0", range: "between 1 and 2147483647" },
         { name: "INBOX_LEASE_DURATION", below: "0", range: "between 1 and 2147483647" },
         { name: "BOT_GRACEFUL_SHUTDOWN_TIMEOUT", below: "-1", range: "between 0 and 2147483647" },
         { name: "TASK_QUEUE_LOG_INTERVAL", below: "0", range: "between 1 and 2147483647" },
@@ -247,9 +263,11 @@ describe("ConfigValuesBuilder", () => {
             TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT: "0",
             DATABASE_CONNECTION_IDLE_TIMEOUT: "0",
             DATABASE_CONNECTION_MAX_LIFETIME: "0",
+            OUTBOX_STOP_TIMEOUT: "0",
         });
 
         expect(result.runner.maxRetries).to.equal(0);
+        expect(result.outbox.stopTimeoutMs).to.equal(0);
         expect(result.bot.gracefulShutdown.timeout).to.equal(0);
         expect(result.taskQueue.gracefulShutdown.timeout).to.equal(0);
         expect(result.database.connection).to.deep.equal({ max: 10, idleTimeout: 0, maxLifetime: 0 });
@@ -292,6 +310,20 @@ describe("ConfigValuesBuilder", () => {
         const result = config({ OUTBOX_LEASE_DURATION: "30001", OUTBOX_API_TIMEOUT: "30000" });
 
         expect(result.outbox).to.include({ leaseDurationMs: 30001, apiTimeoutMs: 30000 });
+    });
+
+    it("rejects an outbox concurrency that leaves no connection besides its slots and the pull", () => {
+        const error = rejection({ OUTBOX_CONCURRENCY: "9", DATABASE_CONNECTION_LIMIT: "10" });
+
+        expect(error.message).to.equal("OUTBOX_CONCURRENCY plus one connection for the pull must be below DATABASE_CONNECTION_LIMIT");
+        expect(error.payload).to.deep.equal({ concurrency: 9, connectionLimit: 10 });
+    });
+
+    it("accepts an outbox concurrency that leaves one connection besides its slots and the pull", () => {
+        const result = config({ OUTBOX_CONCURRENCY: "8", DATABASE_CONNECTION_LIMIT: "10" });
+
+        expect(result.outbox.concurrency).to.equal(8);
+        expect(result.database.connection.max).to.equal(10);
     });
 
     it("rejects a shutdown timeout that does not cover the bot and the task queue", () => {

@@ -138,7 +138,7 @@ src/
     user/                   the entity, the repository interface, the service, the PostgreSQL adapter (user.md)
     outbound-queue/         the outbound queue by keys, limits, the Runner loop (outbound-queue.md)
     inbox/                  the future inbox of incoming updates in PostgreSQL: the store (push, claim, completion) (inbox.md)
-    outbox/                 the future outbox of Bot API calls in PostgreSQL: the store (push, pull, completions), the message source of the worker loop, the processor of one message with the sender of its call and the Api, the outcomes of a failure, the result waiter with its reader, the payload codec and the retry delay (outbox.md)
+    outbox/                 the future outbox of Bot API calls in PostgreSQL: the store (push, pull, completions), the worker loop with its message source, the timers of the lease recovery and the cleanup, the processor of one message with the sender of its call and the Api, the outcomes of a failure, the result waiter with its reader, the payload codec and the retry delay (outbox.md)
   platform/                 adapters that know no module
     database/               Database (storage.md)
     logger/                 the Logger interface, the Level enum, ConsoleLogger, PinoLogger (logging.md)
