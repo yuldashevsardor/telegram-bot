@@ -79,6 +79,16 @@ describe("Convertors of the engine pairs", function () {
         await resolver.get(Extension.SVG).validate(toPath);
     });
 
+    // The sfnt MicroType Express rebuilds goes the whole way of a pair from EOT: the validator and the
+    // codec decode the compressed fixture, and the engine converts what they decode.
+    it("converts a compressed eot to a woff WoffFontValidator accepts", async function () {
+        const toPath = path.join(workDir, `result.${Extension.WOFF}`);
+
+        await factory.get(Extension.EOT, Extension.WOFF).convert(path.join(fixtureDir, "test-font-compressed.eot"), toPath);
+
+        await resolver.get(Extension.WOFF).validate(toPath);
+    });
+
     // Some of the classes of source the validator admits beyond the fixture, each made from the
     // fixture. If the engine failed on one, the domain would accept a source and then fail in the
     // engine.

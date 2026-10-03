@@ -53,7 +53,7 @@ _Avoid_: available format, known format.
 **Envelope**:
 A format that does not describe outlines itself but carries a font of another format inside,
 together with a copy of its metadata. The domain has one such format, EOT. Inside it lies an sfnt,
-untouched or compressed and encrypted by the rules of the format, and its header duplicates the
+untouched or compressed, encrypted or both by the rules of the format, and its header duplicates the
 names, the weight and the slant of the enclosed font.
 The domain splits a pair with an envelope into two parts: the work on the envelope itself and the
 move of the enclosed font.

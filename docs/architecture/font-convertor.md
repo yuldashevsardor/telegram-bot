@@ -46,11 +46,13 @@ pair class gets what it does not need:
   are empty except for declaring the missing extension.
 
 `EotPacker` (`eot-packer/`) is one of the six places on the conversion path where the domain parses
-the content of a font; the others are the SVG, WOFF, WOFF2, EOT and sfnt validators below. The EOT
-header duplicates the metadata of the enclosed font. `SfntReader` takes it from the `OS/2`, `head`
-and `name` tables. The envelope holds four names, in UTF-16LE. The slant is taken from
-`OS/2.fsSelection`, not from `head.macStyle`, which duplicates it. `ttf2eot` does the same. Besides,
-in `macStyle` the slant is bit 1, and bit 1 of `fsSelection` means something else.
+the content of a font; the others are the SVG, WOFF, WOFF2, EOT and sfnt validators below. Two of
+them, the codec and the EOT validator, also hand a compressed `FontData` to `mtx-decompressor`
+through `EotPayloadDecoder` (below), which parses it. The EOT header duplicates the metadata of the
+enclosed font. `SfntReader` takes it from the `OS/2`, `head` and `name` tables. The envelope holds
+four names, in UTF-16LE. The slant is taken from `OS/2.fsSelection`, not from `head.macStyle`,
+which duplicates it. `ttf2eot` does the same. Besides, in `macStyle` the slant is bit 1, and bit 1
+of `fsSelection` means something else.
 
 Names are read from the Windows platform, failing that from Unicode, then from Macintosh. On
 Macintosh only `encodingId 0` is read: only that one is single-byte MacRoman, the other records hold
@@ -396,13 +398,13 @@ A valid envelope is not yet a valid font. The submission makes the enclosed font
 records on unpacking, and on `eot → ttf` the unpacked sfnt is the result: of 15 variants of the
 fixture with a broken enclosed font the codec rejected 4, and `eot → ttf` returned the other 11
 ([#740](https://github.com/yuldashevsardor/telegram-bot/issues/740)). So the validator hands the
-sfnt `FontData` decodes into to `SfntFontValidator.validateBytes()`, last, once the envelope holds.
+decoded `FontData` to `SfntFontValidator.validateBytes()`, last, once the envelope holds.
 A compressed or encrypted `FontData` is decoded by the validator itself, so its font gets an answer
 before the pair starts, as the font of every other format does. `EotPacker.unpack()` decodes it a
-second time. That costs at most 34 ms per file: `mtx-decompressor` decodes the 120 real compressed
-files in 1.1 s ([#741](https://github.com/yuldashevsardor/telegram-bot/issues/741)), and readability
-comes first. The sfnt validator's answer, a subclass of `InvalidSfntFont` naming the EOT file in
-`path`, passes through as the EOT validator's own, as it does for WOFF. Unlike the rebuilt sfnt of a
+second time. On the 120 real compressed files that took at most 34 ms per file, 1.1 s in all
+([#741](https://github.com/yuldashevsardor/telegram-bot/issues/741)), and readability comes first.
+The sfnt validator's answer, a subclass of `InvalidSfntFont` naming the EOT file in `path`, passes
+through as the EOT validator's own, as it does for WOFF. Unlike the rebuilt sfnt of a
 WOFF, the sfnt of `FontData` can break the sfnt rules on its size, and then "the file" of the answer
 is that sfnt, not the EOT file its `path` names: the size `NotSfnt` and `DirectoryInFile` give and
 "the file size" of `TableInFile` are those of that sfnt. XOR decodes any
@@ -577,7 +579,11 @@ not count as supported.
   encrypted `FontData` is decoded on it as well, synchronously and twice, by the validator and by
   the codec. The decoding has no output cap of ours and no timeout: on 600 damaged inputs it never
   hung under a 20 s limit, but nothing guarantees that
-  ([#741](https://github.com/yuldashevsardor/telegram-bot/issues/741)). A WOFF2 source is
+  ([#741](https://github.com/yuldashevsardor/telegram-bot/issues/741)). `mtx-decompressor` 1.8.0
+  caps itself: each of the three compressed streams may declare at most 16 MiB and grow its buffer
+  to at most 64 MiB, and the sfnt it writes is at most 64 MiB (`MAX_OUT_LEN`, `MAX_OUT`,
+  `MAX_OUTPUT_BYTES` in its `dist/index.js`). How much memory a small crafted file takes within
+  those caps is not measured. A WOFF2 source is
   read whole as well: its compressed data is decompressed by the asynchronous
   `zlib.brotliDecompress`, off the event loop, but its table directory and the transformed tables
   are walked on it. The 30 MiB cap bounds the decompressed tables, not the file. Only the sfnt walk

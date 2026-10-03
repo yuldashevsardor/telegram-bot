@@ -5,6 +5,7 @@ import { EotError } from "mtx-decompressor";
 import { EotPayloadDecoder } from "app/font-convertor/eot-payload-decoder/eot-payload-decoder";
 import { InvalidEotPayload } from "app/font-convertor/eot-payload-decoder/eot-payload-decoder.errors";
 import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
+import { fontDataOf, overwritten, xor } from "test/font-convertor/eot-payload-decoder.helper";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
@@ -13,13 +14,6 @@ const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 const TTEMBED_SUBSET = 0x00000001;
 const TTEMBED_TTCOMPRESSED = 0x00000004;
 const TTEMBED_XORENCRYPTDATA = 0x10000000;
-// §4.4: each byte of an encrypted FontData is XOR this key.
-const XOR_KEY = 0x50;
-const FONT_DATA_SIZE_OFFSET = 4;
-// 16 bytes overwritten inside the compressed streams, past the 10-byte MTX header.
-const OVERWRITTEN_OFFSET = 100;
-const OVERWRITTEN_SIZE_BYTES = 16;
-const OVERWRITING_BYTE = 0xff;
 
 const decoder = new EotPayloadDecoder();
 
@@ -83,23 +77,6 @@ function rejectionOf(call: () => unknown): InvalidEotPayload {
     }
 
     return expect.fail("the call did not throw");
-}
-
-/**
- * FontData is the tail of the file, FontDataSize bytes long.
- */
-function fontDataOf(eot: Uint8Array): Uint8Array {
-    const fontDataSizeBytes = new DataView(eot.buffer, eot.byteOffset, eot.byteLength).getUint32(FONT_DATA_SIZE_OFFSET, true);
-
-    return eot.slice(eot.length - fontDataSizeBytes);
-}
-
-function xor(bytes: Uint8Array): Uint8Array {
-    return bytes.map((byte) => byte ^ XOR_KEY);
-}
-
-function overwritten(bytes: Uint8Array): Uint8Array {
-    return Uint8Array.from(bytes).fill(OVERWRITING_BYTE, OVERWRITTEN_OFFSET, OVERWRITTEN_OFFSET + OVERWRITTEN_SIZE_BYTES);
 }
 
 function hex(bytes: Uint8Array): string {

@@ -15,6 +15,7 @@ import type { InvalidSfntFont } from "app/font-convertor/validator/sfnt/sfnt-fon
 import { BrokenSfnt, NotSfnt } from "app/font-convertor/validator/sfnt/sfnt-font-validator.errors";
 import { SfntRule } from "app/font-convertor/validator/sfnt/sfnt-font-validator.types";
 import { ReadFailed } from "app/shared/fs/file-helper.errors";
+import { fontDataOf, overwritten, xor } from "test/font-convertor/eot-payload-decoder.helper";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 const sfntFontValidator = new SfntFontValidator();
@@ -43,12 +44,6 @@ const TTEMBED_TTCOMPRESSED = 0x00000004;
 const TTEMBED_XORENCRYPTDATA = 0x10000000;
 // §4.2 lists no flag at this bit.
 const UNKNOWN_FLAG = 0x00010000;
-// §4.4: each byte of an encrypted FontData is XOR this key.
-const XOR_KEY = 0x50;
-// 16 bytes overwritten inside the compressed streams, past the 10-byte MTX header.
-const OVERWRITTEN_OFFSET = 100;
-const OVERWRITTEN_SIZE_BYTES = 16;
-const OVERWRITING_BYTE = 0xff;
 
 // The fixture: version 0x00020001, flags 0, a 180-byte header that ends with an empty RootString,
 // then test-font.ttf byte for byte.
@@ -507,12 +502,7 @@ describe("EotFontValidator.validate", function () {
             },
             {
                 name: "compressed data with bytes overwritten",
-                font: (): Uint8Array => {
-                    const fontData = fontDataOf(compressedFixture);
-                    fontData.fill(OVERWRITING_BYTE, OVERWRITTEN_OFFSET, OVERWRITTEN_OFFSET + OVERWRITTEN_SIZE_BYTES);
-
-                    return withFontData(compressedFixture, fontData, TTEMBED_TTCOMPRESSED);
-                },
+                font: () => withFontData(compressedFixture, overwritten(fontDataOf(compressedFixture)), TTEMBED_TTCOMPRESSED),
                 flags: TTEMBED_TTCOMPRESSED,
             },
             {
@@ -856,13 +846,6 @@ function withUint32(bytes: Uint8Array, offset: number, value: number): Uint8Arra
 }
 
 /**
- * FontData is the tail of the file, FontDataSize bytes long.
- */
-function fontDataOf(eot: Uint8Array): Uint8Array {
-    return eot.slice(eot.length - new DataView(eot.buffer, eot.byteOffset, eot.byteLength).getUint32(FONT_DATA_SIZE, true));
-}
-
-/**
  * The envelope with its FontData replaced and its flags set, the sizes in the header following.
  */
 function withFontData(eot: Uint8Array, fontData: Uint8Array, flags: number): Uint8Array {
@@ -875,10 +858,6 @@ function withFontData(eot: Uint8Array, fontData: Uint8Array, flags: number): Uin
     view.setUint32(FLAGS, flags, true);
 
     return replaced;
-}
-
-function xor(bytes: Uint8Array): Uint8Array {
-    return bytes.map((byte) => byte ^ XOR_KEY);
 }
 
 function hex(value: number): string {

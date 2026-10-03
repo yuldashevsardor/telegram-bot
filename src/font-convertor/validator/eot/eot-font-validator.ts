@@ -19,9 +19,8 @@ import { Tokens } from "app/shared/tokens";
  * OpenType font" (§3). So it is checked by `SfntFontValidator`, whose answer passes through as is.
  * A compressed or encrypted FontData is decoded for that by `EotPayloadDecoder`, the decoder the
  * codec unpacks it with, so its font is checked before the pair starts, as the font of every other
- * format is. The codec decodes it a second time, which costs at most 34 ms per file on 120 real
- * compressed files (issue https://github.com/yuldashevsardor/telegram-bot/issues/741): readability
- * comes first.
+ * format is. The codec decodes it a second time; the price is in docs/architecture/font-convertor.md,
+ * "The EOT validator".
  *
  * Deliberately not checked, as the submission gives a reader no rule for them:
  * - The fields that copy the enclosed font: FontPANOSE, Italic, Weight, fsType, UnicodeRange1..4,

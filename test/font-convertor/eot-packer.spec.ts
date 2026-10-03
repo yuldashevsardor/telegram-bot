@@ -10,6 +10,7 @@ import { InvalidSfnt } from "app/font-convertor/sfnt-table-directory/sfnt-table-
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { EotFontValidator } from "app/font-convertor/validator/eot/eot-font-validator";
 import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
+import { xor } from "test/font-convertor/eot-payload-decoder.helper";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
@@ -26,12 +27,13 @@ const EOT_UNICODE_RANGE_OFFSET = 36;
 const EOT_HEADER_FIXED_SIZE = 82;
 const TTEMBED_TTCOMPRESSED = 0x00000004;
 const TTEMBED_XORENCRYPTDATA = 0x10000000;
-// §4.4: each byte of an encrypted FontData is XOR this key.
-const XOR_KEY = 0x50;
 const FIXTURE_GLYPH_COUNT = 1296;
 // MicroType Express rebuilds these tables, so they differ from the font the envelope was made of
-// in bytes while holding the same glyphs.
-const MTX_REBUILT_TABLES = ["glyf", "loca", "head"];
+// in bytes while holding the same glyphs. In head it rewrites only checkSumAdjustment, which sums
+// the whole font.
+const MTX_REBUILT_TABLES = ["glyf", "loca"];
+const HEAD_CHECKSUM_ADJUSTMENT_OFFSET = 8;
+const HEAD_CHECKSUM_ADJUSTMENT_SIZE_BYTES = 4;
 const eotPacker = new EotPacker(new EotPayloadDecoder());
 
 describe("EotPacker", function () {
@@ -215,17 +217,16 @@ describe("EotPacker", function () {
             expect(glyphs).to.deep.equal(readGlyphs(ttf));
 
             for (const tag of tableTags(ttf).filter((tableTag) => !MTX_REBUILT_TABLES.includes(tableTag))) {
-                expect(hex(tableBytes(unpacked, tag)), tag).to.equal(hex(tableBytes(ttf, tag)));
+                const unpackedTable = withoutCheckSumAdjustment(tag, tableBytes(unpacked, tag));
+
+                expect(hex(unpackedTable), tag).to.equal(hex(withoutCheckSumAdjustment(tag, tableBytes(ttf, tag))));
             }
         });
 
         it("returns the font an encrypted envelope was made of", async function () {
             const encrypted = Uint8Array.from(eot);
             const fontDataOffset = eot.length - ttf.length;
-            encrypted.set(
-                ttf.map((byte) => byte ^ XOR_KEY),
-                fontDataOffset,
-            );
+            encrypted.set(xor(ttf), fontDataOffset);
             new DataView(encrypted.buffer).setUint32(EOT_FLAGS_OFFSET, TTEMBED_XORENCRYPTDATA, true);
 
             expect(hex(await unpack(encrypted))).to.equal(hex(ttf));
@@ -531,6 +532,16 @@ function readGlyph(view: DataView, offset: number): Glyph {
     }
 
     return { endPoints: endPoints, instructions: instructions, points: points };
+}
+
+function withoutCheckSumAdjustment(tag: string, table: Uint8Array): Uint8Array {
+    if (tag !== "head") {
+        return table;
+    }
+
+    const end = HEAD_CHECKSUM_ADJUSTMENT_OFFSET + HEAD_CHECKSUM_ADJUSTMENT_SIZE_BYTES;
+
+    return Uint8Array.from(table).fill(0, HEAD_CHECKSUM_ADJUSTMENT_OFFSET, end);
 }
 
 function tableTags(font: Uint8Array): Array<string> {
