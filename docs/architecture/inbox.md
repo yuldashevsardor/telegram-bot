@@ -180,8 +180,10 @@ does not say is why:
   failure, which PostgreSQL resolves by rolling one transaction back: the same handler passes once
   it runs again. The outcome may still be unwritable while the connection is down; the lease
   recovery then takes the update back (see "Lease recovery").
-- Only the error itself is read, not its `cause`: a lost connection a caller wrapped into its own
-  error is `Unexpected`. No code of the bot wraps one yet.
+- The `cause` chain is read too, and its first link that has a class of its own decides: a lost
+  connection a caller wrapped into its own error is `Transient`. `UserService` wraps a failed save
+  of the user, made on every update, into `UserCreateError` or `UserEditError`; read only at the
+  top, a restart of PostgreSQL during that save would block the group.
 - Anything else is `Unexpected`, a bug or a timeout waiting for the outbox included
   (`OutboxResultTimeout`): a reply that took too long may still go out, and the epic blocks the
   group on it.

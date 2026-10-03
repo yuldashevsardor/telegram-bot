@@ -10,7 +10,9 @@ import { InboxFailureKind } from "app/telegram/inbox/failure-classifier/inbox-fa
 // wrong. postgres.js gives the first three to a query its own connection lost (Errors.connection()
 // in its src/errors.js); the rest are the codes of the Node socket it passes on as they are, when the
 // connection cannot be opened or breaks. A socket error of another client is a network error, which
-// is transient as well.
+// is transient as well. ENOTFOUND is among them although a mistyped host gives it for good: the DNS
+// of compose answers it for a container that is restarting, and a mistyped host fails
+// Database.check() at the start of the bot, before any update is handled.
 const LOST_CONNECTION_CODES: ReadonlySet<string> = new Set([
     "CONNECTION_CLOSED",
     "CONNECTION_DESTROYED",
@@ -22,6 +24,7 @@ const LOST_CONNECTION_CODES: ReadonlySet<string> = new Set([
     "EHOSTUNREACH",
     "ENETUNREACH",
     "EAI_AGAIN",
+    "ENOTFOUND",
 ]);
 
 // The SQLSTATE class of a connection exception: the server lost or refused the connection.
@@ -42,7 +45,22 @@ export class InboxFailureClassifier {
         private readonly botApiClassifier: TelegramBotApiFailureClassifier,
     ) {}
 
+    // The first link of the cause chain that has a class of its own decides: a wrapper says what failed,
+    // the error it wraps says why. UserService wraps a failed save of the user, made on every update,
+    // into UserCreateError or UserEditError with the error of the database as cause.
     public classify(error: unknown): InboxFailureKind {
+        for (const link of this.causeChain(error)) {
+            const kind = this.classifyLink(link);
+
+            if (kind !== InboxFailureKind.Unexpected) {
+                return kind;
+            }
+        }
+
+        return InboxFailureKind.Unexpected;
+    }
+
+    private classifyLink(error: unknown): InboxFailureKind {
         if (error instanceof GrammyError || error instanceof HttpError) {
             return this.byBotApiFailure(this.botApiClassifier.classify(error).kind);
         }
@@ -52,6 +70,20 @@ export class InboxFailureClassifier {
         }
 
         return InboxFailureKind.Unexpected;
+    }
+
+    // The error and the errors it wraps through cause, each once: a cause that refers back to an
+    // earlier link ends the chain.
+    private causeChain(error: unknown): unknown[] {
+        const chain: unknown[] = [];
+        let link = error;
+
+        while (link !== undefined && !chain.includes(link)) {
+            chain.push(link);
+            link = link instanceof Error ? link.cause : undefined;
+        }
+
+        return chain;
     }
 
     // A flood and a revoked token are transient here. Through the outbox neither reaches a handler:
@@ -71,7 +103,6 @@ export class InboxFailureClassifier {
         }
     }
 
-    // Only the error itself is read, not its cause: an error a caller wrapped is unexpected.
     private isTransientDatabaseOrNetworkFailure(error: unknown): boolean {
         if (error instanceof postgres.PostgresError) {
             return error.code.startsWith(CONNECTION_EXCEPTION_CLASS) || TRANSIENT_SQLSTATES.has(error.code);

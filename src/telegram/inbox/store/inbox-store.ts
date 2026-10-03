@@ -235,12 +235,10 @@ export class InboxStore {
                 `,
             );
 
+            await this.setGroupState(sql, group, InboxGroupState.Ready);
             await sql`
                 UPDATE telegram_inbox_groups
-                SET state = ${InboxGroupState.Ready},
-                    next_attempt_at = now() + ${delayMs}::double precision * interval '1 millisecond',
-                    locked_until = NULL,
-                    lock_token = NULL,
+                SET next_attempt_at = now() + ${delayMs}::double precision * interval '1 millisecond',
                     updated_at = now()
                 WHERE user_id = ${group.user_id}
                   AND chat_id = ${group.chat_id}

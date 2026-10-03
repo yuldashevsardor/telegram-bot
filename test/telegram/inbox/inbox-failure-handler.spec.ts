@@ -1,8 +1,7 @@
 import "reflect-metadata";
 import { expect } from "chai";
-import { BotError, GrammyError, HttpError } from "grammy";
+import { BotError, HttpError } from "grammy";
 import type { Context } from "grammy";
-import type { ApiError } from "grammy/types";
 import { Database } from "app/platform/database/database";
 import type { Logger } from "app/platform/logger/logger";
 import type { UnknownObject } from "app/shared/types";
@@ -25,6 +24,7 @@ import { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializ
 import { OutboxResultTimeout } from "app/telegram/outbox/result-waiter/outbox-result-waiter.errors";
 import { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
 import { testDatabaseSettings } from "test/database.helper";
+import { telegramError } from "test/telegram/telegram-bot-api-failure-classifier.helper";
 
 const USER = 5_000_000_001;
 const OTHER_USER = 5_000_000_002;
@@ -336,13 +336,4 @@ function input(updateId: number, userId = USER): InboxUpdateInput {
 // The error postgres.js gives a query whose connection closed under it.
 function lostConnection(): Error {
     return Object.assign(new Error("write CONNECTION_CLOSED pgsql:5432"), { code: "CONNECTION_CLOSED" });
-}
-
-function telegramError(errorCode: number, description: string): GrammyError {
-    const answer: ApiError = { ok: false, error_code: errorCode, description };
-
-    return new GrammyError(`Call to 'sendMessage' failed! (${errorCode}: ${description})`, answer, "sendMessage", {
-        chat_id: CHAT,
-        text: "hello",
-    });
 }

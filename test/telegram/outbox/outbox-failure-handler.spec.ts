@@ -1,6 +1,5 @@
 import { expect } from "chai";
-import { GrammyError, HttpError } from "grammy";
-import type { ApiError, ResponseParameters } from "grammy/types";
+import { HttpError } from "grammy";
 import type { Logger } from "app/platform/logger/logger";
 import type { UnknownObject } from "app/shared/types";
 import { MS_PER_SECOND } from "app/shared/time";
@@ -18,6 +17,7 @@ import type {
     OutboxRetryOptions,
     PulledOutboxMessage,
 } from "app/telegram/outbox/store/outbox-store.types";
+import { telegramError } from "test/telegram/telegram-bot-api-failure-classifier.helper";
 
 const MAX_ATTEMPTS = 3;
 const FIRST_DELAY_MS = 1_000;
@@ -311,10 +311,4 @@ function attemptError(kind: TelegramBotApiFailureKind): OutboxAttemptError {
 
 function networkError(): HttpError {
     return new HttpError("Network request for 'sendMessage' failed!", new Error("ECONNRESET"));
-}
-
-function telegramError(errorCode: number, description: string, parameters: ResponseParameters = {}): GrammyError {
-    const answer: ApiError = { ok: false, error_code: errorCode, description, parameters };
-
-    return new GrammyError(`Call to 'sendMessage' failed! (${errorCode}: ${description})`, answer, "sendMessage", {});
 }

@@ -1,12 +1,13 @@
 import { expect } from "chai";
-import { GrammyError, HttpError } from "grammy";
-import type { ApiError } from "grammy/types";
+import { HttpError } from "grammy";
 import postgres from "postgres";
 import { RuntimeError } from "app/shared/errors";
+import { UserEditError } from "app/telegram/user/service/user-service.errors";
 import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 import { InboxFailureClassifier } from "app/telegram/inbox/failure-classifier/inbox-failure-classifier";
 import { InboxFailureKind } from "app/telegram/inbox/failure-classifier/inbox-failure-classifier.types";
 import { OutboxResultTimeout } from "app/telegram/outbox/result-waiter/outbox-result-waiter.errors";
+import { telegramError } from "test/telegram/telegram-bot-api-failure-classifier.helper";
 
 describe("InboxFailureClassifier", function () {
     const classifier = new InboxFailureClassifier(new TelegramBotApiFailureClassifier());
@@ -57,6 +58,7 @@ describe("InboxFailureClassifier", function () {
             "EHOSTUNREACH",
             "ENETUNREACH",
             "EAI_AGAIN",
+            "ENOTFOUND",
         ]) {
             it(`takes a connection lost with ${code} for transient`, function () {
                 const error = Object.assign(new Error(`write ${code} pgsql:5432`), { code: code });
@@ -85,11 +87,41 @@ describe("InboxFailureClassifier", function () {
 
             expect(classifier.classify(error)).to.equal(InboxFailureKind.Unexpected);
         });
+    });
 
-        it("takes a lost connection a caller wrapped for unexpected", function () {
+    describe("a wrapped error", function () {
+        // UserService wraps a failed save of the user, made on every update, this way.
+        it("takes a lost connection a caller wrapped for transient", function () {
+            const wrapped = new UserEditError("Error in edit user", { dto: {}, cause: postgresError("57P01") });
+
+            expect(classifier.classify(wrapped)).to.equal(InboxFailureKind.Transient);
+        });
+
+        it("reads the cause chain past more than one wrapper", function () {
             const lostConnection = Object.assign(new Error("write CONNECTION_CLOSED pgsql:5432"), { code: "CONNECTION_CLOSED" });
+            const wrapped = new RuntimeError("The handler failed", new RuntimeError("The user was not saved", lostConnection));
 
-            expect(classifier.classify(new RuntimeError("The user was not saved", lostConnection))).to.equal(InboxFailureKind.Unexpected);
+            expect(classifier.classify(wrapped)).to.equal(InboxFailureKind.Transient);
+        });
+
+        it("takes the class of a wrapped Bot API error", function () {
+            const wrapped = new RuntimeError("The reply was not sent", telegramError(403, "Forbidden: bot was blocked by the user"));
+
+            expect(classifier.classify(wrapped)).to.equal(InboxFailureKind.Undeliverable);
+        });
+
+        it("takes a wrapped bug for unexpected", function () {
+            const wrapped = new RuntimeError("The handler failed", new TypeError("Cannot read properties of undefined"));
+
+            expect(classifier.classify(wrapped)).to.equal(InboxFailureKind.Unexpected);
+        });
+
+        it("ends a cause chain that refers back to itself", function () {
+            const first = new Error("first");
+            const second = new Error("second", { cause: first });
+            first.cause = second;
+
+            expect(classifier.classify(first)).to.equal(InboxFailureKind.Unexpected);
         });
     });
 
@@ -105,15 +137,6 @@ describe("InboxFailureClassifier", function () {
         });
     });
 });
-
-function telegramError(errorCode: number, description: string): GrammyError {
-    const answer: ApiError = { ok: false, error_code: errorCode, description };
-
-    return new GrammyError(`Call to 'sendMessage' failed! (${errorCode}: ${description})`, answer, "sendMessage", {
-        chat_id: 1,
-        text: "hello",
-    });
-}
 
 // postgres.js builds the error from the fields of the server's answer, a constructor its typings do
 // not declare.
