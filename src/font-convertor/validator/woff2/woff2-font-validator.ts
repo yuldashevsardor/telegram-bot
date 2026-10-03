@@ -17,7 +17,7 @@ import type {
 import { BlockKind, TableTag, Woff2Rule } from "app/font-convertor/validator/woff2/woff2-font-validator.types";
 import type { FontValidator } from "app/font-convertor/validator/font-validator";
 import { GlyfReconstructor } from "app/font-convertor/validator/woff2/glyf-reconstructor";
-import type { ReconstructedTables, TransformedHmtx } from "app/font-convertor/validator/woff2/glyf-reconstructor.types";
+import type { ReconstructedTables, TransformedHmtx } from "app/font-convertor/validator/woff2/glyf-reconstructor";
 import { FileHelper } from "app/shared/fs/file-helper";
 import { NumberHelper } from "app/shared/number-helper";
 
