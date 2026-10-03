@@ -18,7 +18,7 @@ const FULL_RECORD_FILE = "reports/mutation/full-record.md";
 // the green run over files that checked the fixes: a summary, the files it was given and the files it
 // mutated, with no survivors, under 14,000 characters even over the whole of src/ given by path: in
 // batch 1 the list of 124 files took 5,837.
-const RECORD_LIMIT = 45_000;
+const RECORD_LIMIT_CHARS = 45_000;
 const STATUSES = ["Killed", "Timeout", "Survived", "NoCoverage", "CompileError", "RuntimeError", "Ignored", "Pending"];
 
 type Mutant = {
@@ -142,7 +142,7 @@ function record(run: Run): string {
     let length = lines.join("\n").length;
 
     for (const [index, line] of undetected.entries()) {
-        if (length + line.length + 1 > RECORD_LIMIT) {
+        if (length + line.length + 1 > RECORD_LIMIT_CHARS) {
             lines.push(
                 `- …and ${undetected.length - index} more: they did not fit into the record, the full list is in ` +
                     `\`reports/mutation/mutation.html\` on the machine of the run`,
@@ -210,7 +210,7 @@ function finish(exitCode: number): void {
 }
 
 // spawn, not ProcessHelper from app/shared/process: that one accumulates the output in memory and
-// treats a non-zero code as a refusal. Here the live output of Stryker over 15 minutes is needed, and
+// treats a non-zero code as a refusal. Here the live output of Stryker over hours is needed, and
 // its exit code is a regular outcome. The invariant about external processes
 // (docs/architecture/invariants.md) holds: the arguments are an array, and there is no shell in the
 // chain.

@@ -87,13 +87,16 @@ is the run itself:
 1. The worktree as above, from fresh `origin/main`. A full `make mutation`, without `files`, on a
    clean tree. It takes hours. Its record is kept in `reports/mutation/full-record.md`, and that is
    the input of the close.
-2. The run is red — fix the survivors you can in the same worktree and commit. Then check the fixes
-   with `make mutation files="<the files of the fixed survivors>"` on the clean tree, not with a
-   second full run: the owner's decision (2026-10-03). That run left survivors of its own — fix
-   them, commit, and run again over the files this round of fixes changed alone: the files of the
-   earlier rounds have their run already. The fixes are done when the run of the last round is
-   green. The survivors left go into one issue per area, each filed on the owner's go-ahead on its
-   text (`CLAUDE.md`, "Scope"), and their files stay out of the runs over files.
+2. The run is red — fix the survivors you can in the same worktree and commit. The survivors left
+   go into one issue per area, each filed on the owner's go-ahead on its text (`CLAUDE.md`,
+   "Scope"), and are silenced by a mark linking to it (`docs/architecture/testing.md`, "Working
+   through survivors"). Then check the fixes with
+   `make mutation files="<the source files of the survivors>"` on the clean tree, not with a second
+   full run: the owner's decision (2026-10-03). That run left survivors of its own — fix them,
+   commit, and run again over the source files whose survivors this round fixed or whose specs it
+   changed: the files of the earlier rounds have their run already. A file of an earlier round that
+   shares a spec helper this round changed is not run again; the full run of the next batch reaches
+   it. The fixes are done when the run of the last round is green.
 3. In the worktree of the runs:
 
    ```bash

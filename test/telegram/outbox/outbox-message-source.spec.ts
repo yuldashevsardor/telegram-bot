@@ -392,8 +392,8 @@ describe("OutboxMessageSource", function () {
 
     it("clears the timer of a sleep that stop cuts short", async function () {
         // A timer left running would hold the process for up to a second after the shutdown.
-        const setTimeoutCalls = mock.method(globalThis, "setTimeout");
-        const clearTimeoutCalls = mock.method(globalThis, "clearTimeout");
+        const setTimeoutMock = mock.method(globalThis, "setTimeout");
+        const clearTimeoutMock = mock.method(globalThis, "clearTimeout");
         const source = build();
         const next = source.stream(WORKER).next();
         await settle();
@@ -401,8 +401,8 @@ describe("OutboxMessageSource", function () {
         source.stop();
         await next;
 
-        const timers = setTimeoutCalls.mock.calls.map((call) => call.result);
-        const clearedTimers = clearTimeoutCalls.mock.calls.map((call) => call.arguments[0]);
+        const timers = setTimeoutMock.mock.calls.map((call) => call.result);
+        const clearedTimers = clearTimeoutMock.mock.calls.map((call) => call.arguments[0]);
 
         expect(timers).to.have.length(1);
         expect(clearedTimers).to.deep.equal(timers);
