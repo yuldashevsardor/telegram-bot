@@ -81,6 +81,7 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
 
             inbox: {
                 leaseDurationMs: parser.getTimerDelay("INBOX_LEASE_DURATION", 10 * 60 * 1000),
+                maxAttempts: parser.getInteger("INBOX_MAX_ATTEMPTS", 10, { min: 1 }),
             },
 
             bot: {

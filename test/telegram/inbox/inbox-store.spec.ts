@@ -5,8 +5,17 @@ import type { Logger } from "app/platform/logger/logger";
 import type { UnknownObject } from "app/shared/types";
 import { MS_PER_SECOND } from "app/shared/time";
 import { sleep } from "app/shared/utils";
+import { InboxFailureKind } from "app/telegram/inbox/failure-classifier/inbox-failure-classifier.types";
 import { InboxStore } from "app/telegram/inbox/store/inbox-store";
-import type { ClaimedInboxUpdate, InboxLease, InboxUpdateInput } from "app/telegram/inbox/store/inbox-store.types";
+import type {
+    ClaimedInboxUpdate,
+    ExpiredInboxLease,
+    InboxAttempt,
+    InboxAttemptError,
+    InboxLease,
+    InboxUpdateInput,
+    InboxWorker,
+} from "app/telegram/inbox/store/inbox-store.types";
 import { InboxGroupState, InboxStatus } from "app/telegram/inbox/store/inbox-store.types";
 import { InboxUpdateNotLeased, InvalidClaimLimit } from "app/telegram/inbox/store/inbox-store.errors";
 import { testDatabaseSettings } from "test/database.helper";
@@ -24,18 +33,32 @@ const SPEC_TIMEOUT_MS = 10_000;
 // machine.
 const CONCURRENT_CLAIMS_TIMEOUT_MS = 20_000;
 const LEASE_DURATION_MS = 600_000;
+// A lease that passes before the spec reads it, after a sleep of twice as long.
+const SHORT_LEASE_MS = 10;
+// A retry delay no spec waits out.
+const LONG_RETRY_DELAY_MS = 60_000;
+// How far the delay read back may fall short of the one written: the time between the two statements.
+const ELAPSED_TOLERANCE_MS = 1_000;
 // A token no claim gave out.
 const OTHER_TOKEN = "00000000-0000-4000-8000-000000000000";
+const WORKER: InboxWorker = { host: "node-1", pid: 101, workerId: "worker-1" };
+const TRANSIENT: InboxAttemptError = { kind: InboxFailureKind.Transient, message: "write CONNECTION_CLOSED pgsql:5432" };
+const UNDELIVERABLE: InboxAttemptError = { kind: InboxFailureKind.Undeliverable, message: "Forbidden: bot was blocked by the user" };
+const UNEXPECTED: InboxAttemptError = { kind: InboxFailureKind.Unexpected, message: "Cannot read properties of undefined" };
+const EXPIRED_LEASE_ERROR: InboxAttemptError = { kind: InboxFailureKind.Transient, message: "The lease of the group passed" };
 
 type GroupRow = { state: string };
 type LogRecord = { message: string; payload: UnknownObject | undefined };
 
 class RecordingLogger implements Logger {
     public readonly warnings: LogRecord[] = [];
+    public readonly errors: LogRecord[] = [];
 
     public critical(): void {}
 
-    public error(): void {}
+    public error(message: string, payload?: UnknownObject): void {
+        this.errors.push({ message: message, payload: payload });
+    }
 
     public warning(message: string, payload?: UnknownObject): void {
         this.warnings.push({ message: message, payload: payload });
@@ -85,7 +108,7 @@ describe("InboxStore", function () {
 
             await store.push(pushed);
 
-            const [claimed] = await store.claim(10);
+            const [claimed] = await store.claim(10, WORKER);
 
             expect(claimed).to.deep.include({ updateId: 10, userId: USER, chatId: GROUP_CHAT, update: pushed.update });
         });
@@ -127,7 +150,7 @@ describe("InboxStore", function () {
             await store.push(input(10));
 
             expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Idle });
-            expect(await store.claim(10)).to.deep.equal([]);
+            expect(await store.claim(10, WORKER)).to.deep.equal([]);
         });
 
         it("makes the group of a new update ready and leaves a blocked group blocked", async function () {
@@ -153,8 +176,8 @@ describe("InboxStore", function () {
         it("never keeps two updates of a group in processing", async function () {
             await store.pushBatch([input(10), input(11), input(12)]);
 
-            expect(await store.claim(10)).to.have.lengthOf(1);
-            expect(await store.claim(10)).to.deep.equal([]);
+            expect(await store.claim(10, WORKER)).to.have.lengthOf(1);
+            expect(await store.claim(10, WORKER)).to.deep.equal([]);
             expect(await statuses()).to.deep.equal([InboxStatus.Processing, InboxStatus.Pending, InboxStatus.Pending]);
             expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Processing });
         });
@@ -164,13 +187,13 @@ describe("InboxStore", function () {
         it("takes one head from each group in one claim, a group being a user in a chat", async function () {
             await store.pushBatch([input(10, USER, CHAT), input(11, USER, GROUP_CHAT), input(12, OTHER_USER, GROUP_CHAT), input(13)]);
 
-            expect((await store.claim(10)).map(({ updateId }) => updateId)).to.deep.equal([10, 11, 12]);
+            expect((await store.claim(10, WORKER)).map(({ updateId }) => updateId)).to.deep.equal([10, 11, 12]);
         });
 
         it("claims no more groups than the limit", async function () {
             await store.pushBatch([input(10, USER, CHAT), input(11, OTHER_USER, CHAT)]);
 
-            expect(await store.claim(1)).to.have.lengthOf(1);
+            expect(await store.claim(1, WORKER)).to.have.lengthOf(1);
         });
 
         it("serves the groups in turn, not one group drained first", async function () {
@@ -185,7 +208,7 @@ describe("InboxStore", function () {
             it(`refuses a claim of ${limit} updates and claims nothing`, async function () {
                 await store.push(input(10));
 
-                const error = await store.claim(limit).then(
+                const error = await store.claim(limit, WORKER).then(
                     () => expect.fail("claim() was expected to reject"),
                     (reason: unknown) => reason,
                 );
@@ -199,7 +222,7 @@ describe("InboxStore", function () {
         it("takes a limit beyond a 32-bit integer", async function () {
             await store.pushBatch([input(10, USER, CHAT), input(11, OTHER_USER, CHAT)]);
 
-            expect(await store.claim(2 ** 31)).to.have.lengthOf(2);
+            expect(await store.claim(2 ** 31, WORKER)).to.have.lengthOf(2);
         });
 
         it("skips a group another claimer holds and takes the next one", async function () {
@@ -208,7 +231,7 @@ describe("InboxStore", function () {
             await other.sql.begin(async (sql) => {
                 await sql`SELECT user_id FROM telegram_inbox_groups WHERE user_id = ${USER} FOR UPDATE`;
 
-                expect((await store.claim(10)).map(({ updateId }) => updateId)).to.deep.equal([11]);
+                expect((await store.claim(10, WORKER)).map(({ updateId }) => updateId)).to.deep.equal([11]);
             });
         });
 
@@ -245,7 +268,7 @@ describe("InboxStore", function () {
                         expect.fail(`${claims.length} of ${updateIds.length} updates claimed by the deadline`);
                     }
 
-                    const batch = await client.claim(2);
+                    const batch = await client.claim(2, WORKER);
 
                     if (batch.length === 0) {
                         await sleep(1);
@@ -288,7 +311,7 @@ describe("InboxStore", function () {
         it("leases the claimed groups under the token of the claim for the lease duration", async function () {
             await store.pushBatch([input(10, USER, CHAT), input(11, OTHER_USER, CHAT)]);
 
-            const claimed = await store.claim(10);
+            const claimed = await store.claim(10, WORKER);
             const [lockToken] = claimed.map((update) => update.lockToken);
             // Both columns are now() of the claim.
             const rows = await database.sql<{ user_id: string; lock_token: string; lease_ms: number }[]>`
@@ -357,15 +380,27 @@ describe("InboxStore", function () {
 
             await database.sql`UPDATE telegram_inbox_groups SET lock_token = ${OTHER_TOKEN}`;
             await store.markAsDone(claimed);
+            await store.retry(claimed, TRANSIENT, 0);
+            await store.markAsFailed(claimed, UNDELIVERABLE);
+            await store.markAsFailedAndBlockGroup(claimed, UNEXPECTED);
 
             expect(await statuses()).to.deep.equal([InboxStatus.Processing]);
             expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Processing });
-            expect(logger.warnings).to.deep.equal([
-                {
+            expect(await attempts(10)).to.deep.equal([]);
+            expect(logger.warnings).to.deep.equal(
+                [null, TRANSIENT, UNDELIVERABLE, UNEXPECTED].map((cause) => ({
                     message: "Inbox completion with a stale lock token changed nothing.",
-                    payload: { updateId: 10, lockToken: claimed.lockToken, userId: USER, chatId: CHAT, groupLockToken: OTHER_TOKEN },
-                },
-            ]);
+                    payload: {
+                        updateId: 10,
+                        lockToken: claimed.lockToken,
+                        userId: USER,
+                        chatId: CHAT,
+                        groupLockToken: OTHER_TOKEN,
+                        cause: cause,
+                    },
+                })),
+            );
+            expect(logger.errors).to.deep.equal([]);
         });
 
         it("changes nothing on a second completion of the same claim", async function () {
@@ -373,11 +408,12 @@ describe("InboxStore", function () {
             const claimed = await claimOne();
 
             await store.markAsDone(claimed);
-            await store.markAsDone(claimed);
+            await store.markAsFailedAndBlockGroup(claimed, UNEXPECTED);
 
             expect(await statuses()).to.deep.equal([InboxStatus.Done, InboxStatus.Pending]);
             expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Ready });
             expect(logger.warnings.map(({ payload }) => payload?.["groupLockToken"])).to.deep.equal([null]);
+            expect(logger.errors).to.deep.equal([]);
         });
 
         it("changes nothing for a token no claim gave out", async function () {
@@ -388,6 +424,165 @@ describe("InboxStore", function () {
             expect(await statuses()).to.deep.equal([InboxStatus.Pending]);
             expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Ready });
             expect(logger.warnings).to.have.lengthOf(1);
+        });
+    });
+
+    describe("the attempts", function () {
+        it("writes no attempt on a claim and one of the worker, without an error, when the update is done", async function () {
+            await store.push(input(10));
+            const claimed = await claimOne();
+
+            expect(await attempts(10)).to.deep.equal([]);
+            expect(claimed.earlierAttempts).to.equal(0);
+
+            await store.markAsDone(claimed);
+            const [attempt] = await attempts(10);
+
+            expect(attempt).to.deep.include({
+                started_at: claimed.startedAt,
+                worker: { host: WORKER.host, pid: WORKER.pid, worker_id: WORKER.workerId },
+                error: null,
+            });
+            expect((attempt?.finished_at as string) >= claimed.startedAt).to.equal(true);
+        });
+
+        it("keeps every attempt of an update in the order they were made", async function () {
+            await store.push(input(10));
+
+            await store.retry(await claimOne(), TRANSIENT, 0);
+            await store.markAsDone(await claimOne());
+
+            const history = await attempts(10);
+
+            expect(history.map(({ error }) => error)).to.deep.equal([TRANSIENT, null]);
+            expect((history[0]?.finished_at as string) <= (history[1]?.started_at as string)).to.equal(true);
+        });
+
+        it("gives out the number of earlier attempts with a claim, whatever they ended with", async function () {
+            await store.push(input(10));
+
+            await store.retry(await claimOne(), TRANSIENT, 0);
+            await store.retry(await claimOne(), UNEXPECTED, 0);
+
+            expect((await claimOne()).earlierAttempts).to.equal(2);
+        });
+    });
+
+    describe("outcomes", function () {
+        it("returns a retried update to pending, closes its attempt with the error and ends the lease", async function () {
+            await store.push(input(10));
+
+            await store.retry(await claimOne(), TRANSIENT, LONG_RETRY_DELAY_MS);
+
+            const [lease] = await database.sql`SELECT locked_until, lock_token FROM telegram_inbox_groups`;
+
+            expect(await statuses()).to.deep.equal([InboxStatus.Pending]);
+            expect(await isFinished(10)).to.equal(false);
+            expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Ready });
+            expect(lease).to.deep.equal({ locked_until: null, lock_token: null });
+            expect((await attempts(10)).map(({ error }) => error)).to.deep.equal([TRANSIENT]);
+        });
+
+        it("holds the group of a head waiting for its retry and lets the other groups through", async function () {
+            await store.pushBatch([input(10), input(11)]);
+            await store.retry(await claimOne(), TRANSIENT, LONG_RETRY_DELAY_MS);
+            await store.push(input(20, OTHER_USER, CHAT));
+
+            const [waiting] = await database.sql<{ wait_ms: number }[]>`
+                SELECT extract(epoch FROM next_attempt_at - now())::double precision * ${MS_PER_SECOND} AS wait_ms
+                FROM telegram_inbox_groups
+                WHERE user_id = ${USER}
+            `;
+
+            expect((await store.claim(10, WORKER)).map(({ updateId }) => updateId)).to.deep.equal([20]);
+            expect(waiting?.wait_ms).to.be.within(LONG_RETRY_DELAY_MS - ELAPSED_TOLERANCE_MS, LONG_RETRY_DELAY_MS);
+
+            await database.sql`UPDATE telegram_inbox_groups SET next_attempt_at = now() WHERE user_id = ${USER}`;
+
+            expect((await store.claim(10, WORKER)).map(({ updateId }) => updateId)).to.deep.equal([10]);
+        });
+
+        it("fails an undeliverable update and goes on to the next update of its group", async function () {
+            await store.pushBatch([input(10), input(11)]);
+
+            await store.markAsFailed(await claimOne(), UNDELIVERABLE);
+
+            expect(await statuses()).to.deep.equal([InboxStatus.Failed, InboxStatus.Pending]);
+            expect(await isFinished(10)).to.equal(true);
+            expect((await attempts(10)).map(({ error }) => error)).to.deep.equal([UNDELIVERABLE]);
+            expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Ready });
+            expect((await claimOne()).updateId).to.equal(11);
+            expect(logger.errors).to.deep.equal([]);
+        });
+
+        it("leaves a group idle when its last update fails without blocking it", async function () {
+            await store.push(input(10));
+
+            await store.markAsFailed(await claimOne(), UNDELIVERABLE);
+
+            expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Idle });
+            expect(await store.claim(10, WORKER)).to.deep.equal([]);
+        });
+
+        it("fails an update and blocks its group, the updates behind it and the new ones included", async function () {
+            await store.pushBatch([input(10), input(11)]);
+
+            await store.markAsFailedAndBlockGroup(await claimOne(), UNEXPECTED);
+            await store.push(input(12));
+
+            expect(await statuses()).to.deep.equal([InboxStatus.Failed, InboxStatus.Pending, InboxStatus.Pending]);
+            expect(await isFinished(10)).to.equal(true);
+            expect((await attempts(10)).map(({ error }) => error)).to.deep.equal([UNEXPECTED]);
+            expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Blocked });
+            expect(await store.claim(10, WORKER)).to.deep.equal([]);
+            expect(logger.errors).to.deep.equal([
+                {
+                    message: "Inbox group is blocked by a failed update.",
+                    payload: { userId: USER, chatId: CHAT, updateId: 10, cause: UNEXPECTED },
+                },
+            ]);
+        });
+    });
+
+    describe("expired leases", function () {
+        beforeEach(function () {
+            store = new InboxStore(database, logger, SHORT_LEASE_MS);
+        });
+
+        it("finds a group whose lease has passed with its update, the start of the claim and no worker", async function () {
+            await store.pushBatch([input(10), input(11)]);
+            await store.retry(await claimOne(), TRANSIENT, 0);
+            const claimed = await claimOne();
+            await sleep(SHORT_LEASE_MS * 2);
+
+            expect(await store.findExpiredLeases()).to.deep.equal([
+                { updateId: 10, lockToken: claimed.lockToken, startedAt: claimed.startedAt, worker: null, earlierAttempts: 1 },
+            ]);
+        });
+
+        it("leaves alone a lease that has not passed and a group that is not leased", async function () {
+            await store.push(input(10, USER, CHAT));
+            await claimOne();
+            const longLeasing = new InboxStore(database, logger, LEASE_DURATION_MS);
+            await longLeasing.push(input(20, OTHER_USER, CHAT));
+            expect((await longLeasing.claim(10, WORKER)).map(({ updateId }) => updateId)).to.deep.equal([20]);
+            await store.push(input(30, USER, GROUP_CHAT));
+            await sleep(SHORT_LEASE_MS * 2);
+
+            expect((await store.findExpiredLeases()).map(({ updateId }) => updateId)).to.deep.equal([10]);
+        });
+
+        it("closes the attempt of an expired lease with no worker", async function () {
+            await store.push(input(10));
+            const claimed = await claimOne();
+            await sleep(SHORT_LEASE_MS * 2);
+            const [expired] = await store.findExpiredLeases();
+
+            await store.retry(expired as ExpiredInboxLease, EXPIRED_LEASE_ERROR, 0);
+
+            const [attempt] = await attempts(10);
+
+            expect(attempt).to.deep.include({ started_at: claimed.startedAt, worker: null, error: EXPIRED_LEASE_ERROR });
         });
     });
 
@@ -427,14 +622,14 @@ describe("InboxStore", function () {
             await race(push, complete);
 
             expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Ready });
-            expect((await store.claim(10)).map(({ updateId }) => updateId)).to.deep.equal([11]);
+            expect((await store.claim(10, WORKER)).map(({ updateId }) => updateId)).to.deep.equal([11]);
         });
 
         it("leaves the group ready with the new head when the completion locks the group first", async function () {
             await race(complete, push);
 
             expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Ready });
-            expect((await store.claim(10)).map(({ updateId }) => updateId)).to.deep.equal([11]);
+            expect((await store.claim(10, WORKER)).map(({ updateId }) => updateId)).to.deep.equal([11]);
         });
     });
 
@@ -455,6 +650,22 @@ describe("InboxStore", function () {
         return rows.map((row) => row.status);
     }
 
+    async function attempts(updateId: number): Promise<InboxAttempt[]> {
+        const [row] = await database.sql<{ attempts: InboxAttempt[] }[]>`SELECT attempts FROM telegram_inbox WHERE update_id = ${updateId}`;
+
+        return row?.attempts ?? [];
+    }
+
+    async function isFinished(updateId: number): Promise<boolean> {
+        const [row] = await database.sql<{ finished: boolean }[]>`
+            SELECT finished_at IS NOT NULL AS finished
+            FROM telegram_inbox
+            WHERE update_id = ${updateId}
+        `;
+
+        return row?.finished ?? false;
+    }
+
     async function expectNotLeased(notLeased: InboxLease): Promise<void> {
         const error = await store.markAsDone(notLeased).then(
             () => expect.fail("markAsDone() was expected to reject"),
@@ -467,7 +678,7 @@ describe("InboxStore", function () {
 
     // The only update a claim gives out.
     async function claimOne(): Promise<ClaimedInboxUpdate> {
-        const claimed = await store.claim(10);
+        const claimed = await store.claim(10, WORKER);
 
         expect(claimed).to.have.lengthOf(1);
 
@@ -518,7 +729,7 @@ function input(updateId: number, userId = USER, chatId = CHAT, text = "text"): I
 
 // A lease the spec makes up rather than takes from a claim.
 function lease(updateId: number, lockToken: string): InboxLease {
-    return { updateId, lockToken };
+    return { updateId, lockToken, startedAt: "2026-01-01T00:00:00+00:00", worker: null };
 }
 
 // Claims one update at a time and marks it done until the inbox is empty; the update ids in claim
@@ -527,7 +738,7 @@ async function drain(store: InboxStore): Promise<number[]> {
     const updateIds: number[] = [];
 
     for (;;) {
-        const [claimed] = await store.claim(1);
+        const [claimed] = await store.claim(1, WORKER);
 
         if (claimed === undefined) {
             return updateIds;

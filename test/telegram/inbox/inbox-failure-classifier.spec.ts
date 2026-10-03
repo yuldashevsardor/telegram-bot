@@ -1,0 +1,124 @@
+import { expect } from "chai";
+import { GrammyError, HttpError } from "grammy";
+import type { ApiError } from "grammy/types";
+import postgres from "postgres";
+import { RuntimeError } from "app/shared/errors";
+import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
+import { InboxFailureClassifier } from "app/telegram/inbox/failure-classifier/inbox-failure-classifier";
+import { InboxFailureKind } from "app/telegram/inbox/failure-classifier/inbox-failure-classifier.types";
+import { OutboxResultTimeout } from "app/telegram/outbox/result-waiter/outbox-result-waiter.errors";
+
+describe("InboxFailureClassifier", function () {
+    const classifier = new InboxFailureClassifier(new TelegramBotApiFailureClassifier());
+
+    describe("a Bot API error", function () {
+        it("takes a network error and a Telegram 5xx for transient", function () {
+            const networkError = new HttpError("Network request for 'sendMessage' failed!", new Error("ECONNRESET"));
+
+            expect(classifier.classify(networkError)).to.equal(InboxFailureKind.Transient);
+            expect(classifier.classify(telegramError(502, "Bad Gateway"))).to.equal(InboxFailureKind.Transient);
+        });
+
+        // Through the outbox neither reaches a handler: one that does came from a call that bypassed it.
+        it("takes a 429 and a 401 for transient", function () {
+            expect(classifier.classify(telegramError(429, "Too Many Requests: retry after 5"))).to.equal(InboxFailureKind.Transient);
+            expect(classifier.classify(telegramError(401, "Unauthorized"))).to.equal(InboxFailureKind.Transient);
+        });
+
+        it("takes a chat the bot cannot reach for undeliverable", function () {
+            expect(classifier.classify(telegramError(403, "Forbidden: bot was blocked by the user"))).to.equal(
+                InboxFailureKind.Undeliverable,
+            );
+            expect(classifier.classify(telegramError(400, "Bad Request: chat not found"))).to.equal(InboxFailureKind.Undeliverable);
+        });
+
+        it("takes a malformed call and a file that is gone for unexpected", function () {
+            const missingFile = Object.assign(new Error("ENOENT: no such file or directory, open '/fonts/a.ttf'"), {
+                code: "ENOENT",
+                syscall: "open",
+            });
+
+            expect(classifier.classify(telegramError(400, "Bad Request: message text is empty"))).to.equal(InboxFailureKind.Unexpected);
+            expect(classifier.classify(new HttpError("Network request for 'sendDocument' failed!", missingFile))).to.equal(
+                InboxFailureKind.Unexpected,
+            );
+        });
+    });
+
+    describe("a database or network error", function () {
+        for (const code of [
+            "CONNECTION_CLOSED",
+            "CONNECTION_DESTROYED",
+            "CONNECT_TIMEOUT",
+            "ECONNREFUSED",
+            "ECONNRESET",
+            "EPIPE",
+            "ETIMEDOUT",
+            "EHOSTUNREACH",
+            "ENETUNREACH",
+            "EAI_AGAIN",
+        ]) {
+            it(`takes a connection lost with ${code} for transient`, function () {
+                const error = Object.assign(new Error(`write ${code} pgsql:5432`), { code: code });
+
+                expect(classifier.classify(error)).to.equal(InboxFailureKind.Transient);
+            });
+        }
+
+        // 08006 is connection_failure, 08P01 protocol_violation: the whole class is taken.
+        for (const code of ["08006", "08P01", "57P01", "57P02", "57P03", "40001", "40P01"]) {
+            it(`takes the SQLSTATE ${code} for transient`, function () {
+                expect(classifier.classify(postgresError(code))).to.equal(InboxFailureKind.Transient);
+            });
+        }
+
+        // 23505 is unique_violation; 22008, datetime_field_overflow, ends with the class of a connection
+        // exception and is not one.
+        for (const code of ["23505", "42P01", "22008"]) {
+            it(`takes the SQLSTATE ${code} for unexpected`, function () {
+                expect(classifier.classify(postgresError(code))).to.equal(InboxFailureKind.Unexpected);
+            });
+        }
+
+        it("takes an error with another code for unexpected", function () {
+            const error = Object.assign(new Error("ENOENT: no such file or directory"), { code: "ENOENT" });
+
+            expect(classifier.classify(error)).to.equal(InboxFailureKind.Unexpected);
+        });
+
+        it("takes a lost connection a caller wrapped for unexpected", function () {
+            const lostConnection = Object.assign(new Error("write CONNECTION_CLOSED pgsql:5432"), { code: "CONNECTION_CLOSED" });
+
+            expect(classifier.classify(new RuntimeError("The user was not saved", lostConnection))).to.equal(InboxFailureKind.Unexpected);
+        });
+    });
+
+    describe("anything else", function () {
+        it("takes a timeout waiting for the outbox for unexpected", function () {
+            expect(classifier.classify(OutboxResultTimeout.of(1, 60_000))).to.equal(InboxFailureKind.Unexpected);
+        });
+
+        it("takes a bug and a value that is not an Error for unexpected", function () {
+            for (const error of [new TypeError("Cannot read properties of undefined"), "failed", null, undefined, { code: 1 }]) {
+                expect(classifier.classify(error), String(error)).to.equal(InboxFailureKind.Unexpected);
+            }
+        });
+    });
+});
+
+function telegramError(errorCode: number, description: string): GrammyError {
+    const answer: ApiError = { ok: false, error_code: errorCode, description };
+
+    return new GrammyError(`Call to 'sendMessage' failed! (${errorCode}: ${description})`, answer, "sendMessage", {
+        chat_id: 1,
+        text: "hello",
+    });
+}
+
+// postgres.js builds the error from the fields of the server's answer, a constructor its typings do
+// not declare.
+function postgresError(code: string): Error {
+    const PostgresError = postgres.PostgresError as unknown as new (fields: { message: string; code: string }) => Error;
+
+    return new PostgresError({ message: `SQLSTATE ${code}`, code: code });
+}

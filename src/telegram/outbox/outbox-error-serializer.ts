@@ -7,7 +7,7 @@ import type { OutboxJsonObject } from "app/telegram/outbox/store/outbox-store.ty
 // What the bot token is replaced with.
 const REDACTED_TOKEN = "***";
 
-// The error of a failed send as its attempt keeps it.
+// The error of a failed attempt as its attempt keeps it: of an outbox send, and of an inbox handler.
 @injectable()
 export class OutboxErrorSerializer {
     public constructor(private readonly botToken: string = configValue("bot.token")) {}

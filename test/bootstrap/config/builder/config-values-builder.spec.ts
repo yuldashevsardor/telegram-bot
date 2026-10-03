@@ -49,7 +49,7 @@ describe("ConfigValuesBuilder", () => {
             maxAttempts: 10,
             cleanup: { doneRetentionMs: 604800000, skippedRetentionMs: 2592000000, batchSize: 1000 },
         });
-        expect(result.inbox).to.deep.equal({ leaseDurationMs: 600000 });
+        expect(result.inbox).to.deep.equal({ leaseDurationMs: 600000, maxAttempts: 10 });
         expect(result.bot).to.deep.equal({ token: "token", gracefulShutdown: { timeout: 3000 } });
         expect(result.taskQueue).to.deep.equal({ logInterval: 10000, gracefulShutdown: { timeout: 5000, interval: 500 } });
         expect(result.gracefulShutdown).to.deep.equal({ timeout: 15000 });
@@ -91,6 +91,7 @@ describe("ConfigValuesBuilder", () => {
             OUTBOX_SKIPPED_RETENTION: "2592000001",
             OUTBOX_CLEANUP_BATCH_SIZE: "1001",
             INBOX_LEASE_DURATION: "600002",
+            INBOX_MAX_ATTEMPTS: "12",
             BOT_TOKEN: "own-token",
             BOT_GRACEFUL_SHUTDOWN_TIMEOUT: "3001",
             TASK_QUEUE_LOG_INTERVAL: "10001",
@@ -126,7 +127,7 @@ describe("ConfigValuesBuilder", () => {
             maxAttempts: 11,
             cleanup: { doneRetentionMs: 604800001, skippedRetentionMs: 2592000001, batchSize: 1001 },
         });
-        expect(result.inbox).to.deep.equal({ leaseDurationMs: 600002 });
+        expect(result.inbox).to.deep.equal({ leaseDurationMs: 600002, maxAttempts: 12 });
         expect(result.bot).to.deep.equal({ token: "own-token", gracefulShutdown: { timeout: 3001 } });
         expect(result.taskQueue).to.deep.equal({ logInterval: 10001, gracefulShutdown: { timeout: 5001, interval: 501 } });
         expect(result.gracefulShutdown).to.deep.equal({ timeout: 15001 });
@@ -220,6 +221,7 @@ describe("ConfigValuesBuilder", () => {
         { name: "OUTBOX_SKIPPED_RETENTION", below: "0", range: "between 1 and 9007199254740991" },
         { name: "OUTBOX_CLEANUP_BATCH_SIZE", below: "0", range: "between 1 and 9007199254740991" },
         { name: "INBOX_LEASE_DURATION", below: "0", range: "between 1 and 2147483647" },
+        { name: "INBOX_MAX_ATTEMPTS", below: "0", range: "at least 1" },
         { name: "BOT_GRACEFUL_SHUTDOWN_TIMEOUT", below: "-1", range: "between 0 and 2147483647" },
         { name: "TASK_QUEUE_LOG_INTERVAL", below: "0", range: "between 1 and 2147483647" },
         { name: "TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT", below: "-1", range: "between 0 and 2147483647" },
