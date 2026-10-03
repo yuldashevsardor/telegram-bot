@@ -151,6 +151,8 @@ const POST_GLYPH_NAMES = new Map([
     [0x00025000, { entries: "offset", entrySizeBytes: 1 }],
 ]);
 const GLYPH_NAME_INDEX_SIZE_BYTES = 2;
+// The Macintosh glyph names of post 2.0: glyphNameIndex from this count on points into stringData.
+const POST_STANDARD_NAME_COUNT = 258;
 // The length the fields of each OS/2 version take, by version. A version 0 table of 68 bytes is a
 // legacy one, without its last five fields.
 const OS2_LENGTHS_BYTES = new Map([
@@ -1203,6 +1205,27 @@ describe("SfntFontValidator", function () {
                 'At table "glyf": the chain of components from glyph 2 is 2 -> 3 -> 2, expected a chain that ends at glyphs without components.',
             );
         });
+
+        it("whose cycle goes through a component past a composite one", async function () {
+            // Glyph 1 leads into glyph 2, followed to its end first, and then into glyph 3, which points back at it.
+            const cycle = withGlyphs(ttf, [
+                [
+                    1,
+                    compositeGlyph([
+                        { glyphIndex: 2, flags: 0 },
+                        { glyphIndex: 3, flags: 0 },
+                    ]),
+                ],
+                [2, compositeGlyph([{ glyphIndex: 0, flags: 0 }])],
+                [3, compositeGlyph([{ glyphIndex: 1, flags: 0 }])],
+            ]);
+
+            await expectBroken(
+                cycle,
+                SfntRule.ComponentCycle,
+                'At table "glyf": the chain of components from glyph 1 is 1 -> 3 -> 1, expected a chain that ends at glyphs without components.',
+            );
+        });
     });
 
     describe("rejects a broken cmap", function () {
@@ -1583,6 +1606,20 @@ describe("SfntFontValidator", function () {
                 `At table "post": the end of string ${TTF_POST_STRING_COUNT} of stringData is ${
                     lengthBytes + 1
                 }, expected at most ${lengthBytes}, the length of table "post", as glyphNameIndex[${TTF_NUM_GLYPHS}] is ${pastStrings}.`,
+            );
+        });
+
+        it("of version 2.0 whose highest glyphNameIndex is the first past the standard names, its string left out", async function () {
+            // The first index past the standard names is string 0 of stringData, which the table, cut right after glyphNameIndex, lacks.
+            const lengthBytes = POST_NUM_GLYPHS_END_BYTES + OTF_NUM_GLYPHS * GLYPH_NAME_INDEX_SIZE_BYTES;
+            const withFirstString = withGlyphNameIndex(withPostGlyphNames(otf, 0x00020000), 0, POST_STANDARD_NAME_COUNT);
+
+            await expectBroken(
+                withFirstString,
+                SfntRule.PostNameStringInTable,
+                `At table "post": the end of string 0 of stringData is ${
+                    lengthBytes + 1
+                }, expected at most ${lengthBytes}, the length of table "post", as glyphNameIndex[0] is ${POST_STANDARD_NAME_COUNT}.`,
             );
         });
 

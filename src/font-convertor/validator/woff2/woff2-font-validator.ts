@@ -534,6 +534,7 @@ export class Woff2FontValidator implements FontValidator {
             });
         }
 
+        // Stryker disable next-line EqualityOperator: `<=` is equivalent: glyf and loca are two entries of different tags, so their indexes never match
         if (locaIndex < glyfIndex) {
             throw BrokenWoff2.byRule(fontPath, {
                 rule: Woff2Rule.GlyfLoca,
@@ -652,6 +653,7 @@ export class Woff2FontValidator implements FontValidator {
                 });
             }
 
+            // Stryker disable next-line EqualityOperator: `<=` is equivalent: the compressed data, the metadata and the private block are one block of each kind, so no block meets a previous one of its own kind
             if (block.kind < previous.kind) {
                 throw BrokenWoff2.byRule(woff2.path, {
                     rule: Woff2Rule.NoExtraneousData,
@@ -865,6 +867,7 @@ export class Woff2FontValidator implements FontValidator {
         const at = this.tableName(Woff2FontValidator.GLYF_TAG);
         const headerSizeBytes = Woff2FontValidator.GLYF_HEADER_SIZE_BYTES;
 
+        // Stryker disable next-line EqualityOperator: `<=` is equivalent: it differs only on a transformed glyf of the header alone, whose empty substreams hold no glyph, which is not a font
         if (glyf.length < headerSizeBytes) {
             throw BrokenWoff2.byRule(fontPath, {
                 rule: Woff2Rule.TransformedGlyf,
