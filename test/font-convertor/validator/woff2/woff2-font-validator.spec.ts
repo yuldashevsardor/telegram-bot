@@ -28,6 +28,7 @@ import {
     GLYF_HEADER_SIZE_BYTES,
     GLYF_INDEX_FORMAT,
     GLYF_N_CONTOUR_STREAM_SIZE,
+    GLYF_NUM_GLYPHS,
     GLYF_OPTION_FLAGS,
     HEADER_SIZE_BYTES,
     HHEA_NUMBER_OF_H_METRICS,
@@ -56,6 +57,10 @@ const validator = new Woff2FontValidator();
 const DECODER_BUFFER_SIZE_BYTES = 30 * 1024 * 1024;
 const MAX_COMPRESSION_RATIO = 100;
 const SFNT_TABLE_RECORD_SIZE_BYTES = 16;
+// A numGlyphs that is a multiple of 32, so that overlapSimpleBitmap has no bit to spare (§5.1).
+const BITMAP_NUM_GLYPHS = 1280;
+const BITMAP_WORD_SIZE_BITS = 32;
+const BITMAP_WORD_SIZE_BYTES = 4;
 
 // The fixture: flavor 0x00010000, 13 tables, the directory 41 bytes long, the compressed data
 // 44 928 bytes long and padded with 3 null bytes, no metadata and no private block. Its transformed
@@ -180,6 +185,19 @@ describe("Woff2FontValidator.validate", function () {
             });
 
             await validate(build(layout));
+        });
+
+        it("with the overlapSimpleBitmap of a numGlyphs that is a multiple of 32, with no word to spare", async function () {
+            // The first 1280 glyphs of the fixture are decoded; the substreams keep the bytes of the
+            // other 16, and no rule reads them.
+            const bitmapSizeBytes = (BITMAP_NUM_GLYPHS / BITMAP_WORD_SIZE_BITS) * BITMAP_WORD_SIZE_BYTES;
+            const withBitmap = withGlyf(fixtureLayout, (glyf) => {
+                const withFlag = withUint16(withUint16(glyf, GLYF_NUM_GLYPHS, BITMAP_NUM_GLYPHS), GLYF_OPTION_FLAGS, 1);
+
+                return concat(withFlag, new Uint8Array(bitmapSizeBytes));
+            });
+
+            await validate(build(withLocaFor(withBitmap, BITMAP_NUM_GLYPHS)));
         });
 
         it("whose rebuilt sfnt is exactly 30 MiB", async function () {
@@ -388,6 +406,19 @@ describe("Woff2FontValidator.validate", function () {
             );
         });
 
+        it("with a transformLength that starts with 0x80", async function () {
+            const layout = withEntry(fixtureLayout, "glyf", (entry) => ({
+                ...entry,
+                transformLengthBytes: concat(Uint8Array.from([0x80]), base128(entry.transformLength ?? 0)),
+            }));
+
+            await expectBroken(
+                build(layout),
+                Woff2Rule.UIntBase128,
+                'At table "glyf": transformLength is 80, expected a first byte other than 80.',
+            );
+        });
+
         it("reads a UIntBase128 of 4294967295 in 5 bytes, then answers by the cap", async function () {
             const layout = withEntry(fixtureLayout, "cmap", (entry) => ({
                 ...entry,
@@ -420,6 +451,26 @@ describe("Woff2FontValidator.validate", function () {
                 Woff2Rule.TransformVersion,
                 'At table "glyf": transform version is 1, expected 0 or 3.',
             );
+        });
+
+        it("names the table of each known tag index as §4.1 lists it", async function () {
+            // Transform version 2 is defined for no table, so the answer names the tag the flags byte decodes to.
+            const definedVersions = new Map([
+                ["hmtx", "0 or 1"],
+                ["glyf", "0 or 3"],
+                ["loca", "0 or 3"],
+            ]);
+
+            for (const tag of KNOWN_TAGS) {
+                const layout = withEntry(fixtureLayout, "cmap", (entry) => ({ ...entry, tag: tag, transformVersion: 2 }));
+                const expected = definedVersions.get(tag) ?? "0";
+
+                await expectBroken(
+                    build(layout),
+                    Woff2Rule.TransformVersion,
+                    `At table ${JSON.stringify(tag)}: transform version is 2, expected ${expected}.`,
+                );
+            }
         });
 
         it("whose transformed tables lack transformLength", async function () {
@@ -1253,7 +1304,7 @@ function encodeEntry(entry: Entry): Uint8Array {
     parts.push(entry.origLengthBytes ?? base128(entry.origLength));
 
     if (entry.transformLength !== undefined) {
-        parts.push(base128(entry.transformLength));
+        parts.push(entry.transformLengthBytes ?? base128(entry.transformLength));
     }
 
     return concat(...parts);

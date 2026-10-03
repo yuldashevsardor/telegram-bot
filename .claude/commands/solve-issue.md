@@ -85,22 +85,28 @@ An issue `Full mutation run <M>` that reached its threshold is taken with this c
 is the run itself:
 
 1. The worktree as above, from fresh `origin/main`. A full `make mutation`, without `files`, on a
-   clean tree. It takes 15+ minutes, and its run record `reports/mutation/record.md` is the input of
-   the close.
-2. The run is red — fix the survivors you can in the same worktree, commit, and run
-   `make mutation` again. The batch closes on a run that is green or whose every survivor has an
-   issue. The rest go into one issue per area, each filed on the owner's go-ahead on its text
-   (`CLAUDE.md`, "Scope").
-3. In the worktree of the last run:
+   clean tree. It takes hours. Its record is kept in `reports/mutation/full-record.md`, and that is
+   the input of the close.
+2. The run is red — fix the survivors you can in the same worktree and commit. The survivors left
+   go into one issue per area, each filed on the owner's go-ahead on its text (`CLAUDE.md`,
+   "Scope"), and are silenced by a mark linking to it (`docs/architecture/testing.md`, "Working
+   through survivors"). Then check the fixes with
+   `make mutation files="<the source files of the survivors>"` on the clean tree, not with a second
+   full run: the owner's decision (2026-10-03). That run left survivors of its own — fix them,
+   commit, and run again over the source files whose survivors this round fixed or whose specs it
+   changed: the files of the earlier rounds have their run already. A file of an earlier round that
+   shares a spec helper this round changed is not run again; the full run of the next batch reaches
+   it. The fixes are done when the run of the last round is green.
+3. In the worktree of the runs:
 
    ```bash
    make mutation-full-close batch=<M> issues="<N> …"
    ```
 
    `issues` names the issues of item 2 and is left out when there are none. The target carries the
-   recorded PRs the run did not cover into the next batch and posts the closing comment with the
-   run record. What it checks before a write is in the docstring of
-   `scripts/review/mutation_batch.py`.
+   recorded PRs the full run did not cover into the next batch and posts the closing comment with
+   the record of the full run and of the run over files. What it checks before a write is in the
+   docstring of `scripts/review/mutation_batch.py`.
 4. Fixes were committed — a PR with `Closes #<M>`: the workflow list of step 2 goes on from its
    item 3. The batch is closed by then, so `make mutation-full-record` puts the PR into the next
    one. No fixes — no PR: the report to the owner, then `make worktree-cleanup`.

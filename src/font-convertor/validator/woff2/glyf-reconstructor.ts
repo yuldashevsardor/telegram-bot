@@ -158,6 +158,7 @@ export class GlyfReconstructor {
     public constructor(private readonly fontPath: string, transformedGlyf: Uint8Array) {
         const headerSizeBytes = GlyfReconstructor.HEADER_SIZE_BYTES;
 
+        // Stryker disable next-line EqualityOperator: `<=` is equivalent: it differs only on a transformed glyf of the header alone, whose empty substreams hold no glyph, which is not a font
         if (transformedGlyf.length < headerSizeBytes) {
             throw this.brokenTable(Woff2Rule.TransformedGlyf, {
                 field: "transformLength",

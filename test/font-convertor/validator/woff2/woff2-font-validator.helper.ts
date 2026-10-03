@@ -4,9 +4,6 @@ import path from "path";
 import zlib from "zlib";
 import { Extension } from "app/font-convertor/font-convertor.types";
 
-// numGlyphs by its offset in a transformed glyf (§5.1).
-const GLYF_NUM_GLYPHS = 4;
-
 // The substreams of a transformed glyf, in the order of their sizes in its header (§5.1).
 const GLYF_STREAMS = ["nContour", "nPoints", "flag", "glyph", "composite", "bbox", "instruction"] as const;
 
@@ -32,6 +29,7 @@ export const PRIV_OFFSET = 40;
 export const PRIV_LENGTH = 44;
 // The fields of a transformed glyf by their offset in it (§5.1).
 export const GLYF_OPTION_FLAGS = 2;
+export const GLYF_NUM_GLYPHS = 4;
 export const GLYF_INDEX_FORMAT = 6;
 export const GLYF_N_CONTOUR_STREAM_SIZE = 8;
 export const GLYF_HEADER_SIZE_BYTES = 36;
@@ -62,6 +60,8 @@ export type Entry = {
     transformLength: number | undefined;
     /** Written in place of the UIntBase128 of origLength. */
     origLengthBytes?: Uint8Array;
+    /** Written in place of the UIntBase128 of transformLength. */
+    transformLengthBytes?: Uint8Array;
     /** The table in the stream: transformLength bytes of it when transformed, origLength otherwise. */
     data: Uint8Array;
 };

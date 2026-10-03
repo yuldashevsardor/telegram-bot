@@ -245,8 +245,8 @@ mutation-full-check: ## Whether the issue a PR closes is recorded together with 
 	@python3 scripts/review/mutation_batch.py check '$(pr)'
 
 # The issues of the survivors go in as one argument, and the action splits them. It reads the run
-# record reports/mutation/record.md from the directory make runs in: the root of the worktree of the
-# run.
+# records reports/mutation/full-record.md and record.md from the directory make runs in: the root of
+# the worktree of the run.
 mutation-full-close: ## Close a batch after its full run, carrying the PRs it did not cover over: make mutation-full-close batch=<N> [issues="<N> …"]
 	@python3 scripts/review/mutation_batch.py close '$(batch)' '$(strip $(issues))'
 
