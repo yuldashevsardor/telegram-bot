@@ -534,6 +534,7 @@ export class Woff2FontValidator implements FontValidator {
             });
         }
 
+        // Stryker disable next-line EqualityOperator: `<=` is equivalent: glyf and loca are two entries of different tags, so their indexes never match
         if (locaIndex < glyfIndex) {
             throw BrokenWoff2.byRule(fontPath, {
                 rule: Woff2Rule.GlyfLoca,
@@ -652,6 +653,7 @@ export class Woff2FontValidator implements FontValidator {
                 });
             }
 
+            // Stryker disable next-line EqualityOperator: `<=` is equivalent: the compressed data, the metadata and the private block are one block of each kind, so no block meets a previous one of its own kind
             if (block.kind < previous.kind) {
                 throw BrokenWoff2.byRule(woff2.path, {
                     rule: Woff2Rule.NoExtraneousData,

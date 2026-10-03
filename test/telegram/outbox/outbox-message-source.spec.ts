@@ -50,6 +50,7 @@ class FakeStore {
     public readonly pulls: { limit: number; worker: OutboxWorker }[] = [];
     public listenCount = 0;
     public shouldFailListening = false;
+    public readonly listeningFailure = new Error("connection refused");
     private readonly results: (OutboxPullResult | Error)[] = [];
     private heldPull: PromiseWithResolvers<OutboxPullResult> | undefined;
     private heldListening: PromiseWithResolvers<void> | undefined;
@@ -113,7 +114,7 @@ class FakeStore {
         this.listenCount += 1;
 
         if (this.shouldFailListening) {
-            throw new Error("connection refused");
+            throw this.listeningFailure;
         }
 
         // Awaited only when held: an await of nothing would still put the start after the first
@@ -320,8 +321,11 @@ describe("OutboxMessageSource", function () {
         void build().stream(WORKER).next();
         await settle();
 
-        expect(logger.warnings.map((record) => record.message)).to.deep.equal([
-            "Listening for ready outbox messages failed, the source pulls on the capped sleep until the listening starts.",
+        expect(logger.warnings).to.deep.equal([
+            {
+                message: "Listening for ready outbox messages failed, the source pulls on the capped sleep until the listening starts.",
+                payload: { cause: store.listeningFailure },
+            },
         ]);
 
         await advance(HALF_CAP_MS);
@@ -383,6 +387,21 @@ describe("OutboxMessageSource", function () {
 
         expect(await next).to.deep.equal({ value: undefined, done: true });
         expect(store.pulls).to.have.length(1);
+    });
+
+    it("leaves no timer behind when stop cuts a sleep short", async function () {
+        // On real timers: a timer left running would hold the process for up to a second after the shutdown.
+        // Counted against the sleep rather than the start: the runtime may hold timers of its own.
+        mock.timers.reset();
+        const source = build();
+        const next = source.stream(WORKER).next();
+        await settle();
+        const timerCountAsleep = activeTimerCount();
+
+        source.stop();
+        await next;
+
+        expect(activeTimerCount()).to.equal(timerCountAsleep - 1);
     });
 
     it("hands out the message of a pull in progress on stop, then ends", async function () {
@@ -473,6 +492,10 @@ function pulledMessage(id: number): PulledOutboxMessage {
 // The answer of a pull that got message.
 function pullOf(message: PulledOutboxMessage): OutboxPullResult {
     return { messages: [message], nextPullInMs: 0 };
+}
+
+function activeTimerCount(): number {
+    return process.getActiveResourcesInfo().filter((resource) => resource === "Timeout").length;
 }
 
 // Lets every pending promise run: setImmediate is not faked, and it runs after the microtasks.

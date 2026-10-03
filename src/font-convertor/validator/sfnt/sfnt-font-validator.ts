@@ -468,6 +468,7 @@ export class SfntFontValidator implements FontValidator {
             });
         }
 
+        // Stryker disable next-line ArithmeticOperator: `-` is equivalent: the field lies at offset 0 of the table
         const majorVersion = view.getUint16(head.offset + offsets.majorVersion);
 
         if (majorVersion !== SfntFontValidator.HEAD_MAJOR_VERSION) {
@@ -539,6 +540,7 @@ export class SfntFontValidator implements FontValidator {
             });
         }
 
+        // Stryker disable next-line ArithmeticOperator: `-` is equivalent: the field lies at offset 0 of the table
         const version = view.getUint32(maxp.offset + SfntFontValidator.MAXP_FIELD_OFFSETS_BYTES.version);
 
         if (version !== expected.version) {
@@ -678,6 +680,7 @@ export class SfntFontValidator implements FontValidator {
 
             const componentGlyphIds = this.checkGlyph(fontPath, view, glyph, numGlyphs);
 
+            // Stryker disable next-line ConditionalExpression,EqualityOperator: `true` and `>=` are equivalent: a glyph without components put into the map walks to no glyph and closes no cycle
             if (componentGlyphIds.length > 0) {
                 componentsByGlyph.set(glyphId, componentGlyphIds);
             }
@@ -703,6 +706,7 @@ export class SfntFontValidator implements FontValidator {
             });
         }
 
+        // Stryker disable next-line ArithmeticOperator: `-` is equivalent: the field lies at offset 0 of the glyph
         const numberOfContours = view.getInt16(glyph.offsetBytes + SfntFontValidator.NUMBER_OF_CONTOURS_OFFSET_BYTES);
 
         if (numberOfContours < 0) {
@@ -1041,6 +1045,7 @@ export class SfntFontValidator implements FontValidator {
 
         this.checkLength(fontPath, cmap, SfntRule.CmapRecordsInTable, headerSizeBytes, "the header");
 
+        // Stryker disable next-line ArithmeticOperator: `-` is equivalent: the field lies at offset 0 of the table
         const version = view.getUint16(cmap.offset + offsets.version);
 
         if (version !== SfntFontValidator.CMAP_VERSION) {
@@ -1193,6 +1198,7 @@ export class SfntFontValidator implements FontValidator {
 
         this.checkLength(fontPath, name, SfntRule.NameRecordsInTable, SfntFontValidator.NAME_HEADER_SIZE_BYTES, "the header");
 
+        // Stryker disable next-line ArithmeticOperator: `-` is equivalent: the field lies at offset 0 of the table
         const version = view.getUint16(name.offset + offsets.version);
 
         if (!SfntFontValidator.NAME_VERSIONS.includes(version)) {
@@ -1309,6 +1315,7 @@ export class SfntFontValidator implements FontValidator {
     private checkOs2(fontPath: string, view: DataView, os2: SfntTableRecord): void {
         this.checkLength(fontPath, os2, SfntRule.Os2Length, SfntFontValidator.OS2_VERSION_SIZE_BYTES, "the version");
 
+        // Stryker disable next-line ArithmeticOperator: `-` is equivalent: the field lies at offset 0 of the table
         const version = view.getUint16(os2.offset + SfntFontValidator.OS2_VERSION_OFFSET_BYTES);
         const minLengthBytes = SfntFontValidator.OS2_LENGTHS_BYTES.get(version);
 
@@ -1331,6 +1338,7 @@ export class SfntFontValidator implements FontValidator {
     private checkPost(fontPath: string, view: DataView, post: SfntTableRecord, maxpNumGlyphs: number): void {
         this.checkLength(fontPath, post, SfntRule.PostLength, SfntFontValidator.POST_HEADER_SIZE_BYTES, "the header");
 
+        // Stryker disable next-line ArithmeticOperator: `-` is equivalent: the field lies at offset 0 of the table
         const version = view.getUint32(post.offset + SfntFontValidator.POST_VERSION_OFFSET_BYTES);
 
         if (!SfntFontValidator.POST_VERSIONS.includes(version)) {
@@ -1412,6 +1420,7 @@ export class SfntFontValidator implements FontValidator {
         }
 
         // Every glyph takes a standard name: no string is read.
+        // Stryker disable next-line ConditionalExpression,BlockStatement: `false` and `{}` are equivalent: below the standard names the count of strings is 0 or less, and the loop below reads none
         if (highestIndex < SfntFontValidator.POST_STANDARD_NAME_COUNT) {
             return;
         }

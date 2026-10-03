@@ -165,6 +165,7 @@ export class SvgFontValidator implements FontValidator {
         // does not read it, so a default `d` of every glyph would pass unseen. The subset opens with
         // the first `[` outside the quoted literals of the external ID: a name holds no `[`. saxes
         // lets text after the subset through, so its end is no sign.
+        // Stryker disable next-line StringLiteral: any replacement without `[` is equivalent: only whether a `[` is left counts
         if (doctype.replace(SvgFontValidator.QUOTED_LITERAL, "").includes("[")) {
             this.report(scan, FontRule.NoInternalSubset, "!DOCTYPE", line);
         }

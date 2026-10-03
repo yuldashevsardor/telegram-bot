@@ -33,6 +33,7 @@ const PRIV_OFFSET = 40;
 const PRIV_LENGTH = 44;
 // The fields of a transformed glyf by their offset in it (§5.1).
 const GLYF_OPTION_FLAGS = 2;
+const GLYF_NUM_GLYPHS = 4;
 const GLYF_INDEX_FORMAT = 6;
 const GLYF_N_CONTOUR_STREAM_SIZE = 8;
 const GLYF_HEADER_SIZE_BYTES = 36;
@@ -196,6 +197,18 @@ describe("Woff2FontValidator.validate", function () {
 
                 return concat(withFlag, new Uint8Array(164));
             });
+
+            await validate(build(layout));
+        });
+
+        it("with the overlapSimpleBitmap of a numGlyphs that is a multiple of 32, with no word to spare", async function () {
+            // 4 × ⌊(1280 + 31) / 32⌋ = 160 bytes; loca takes (1280 + 1) × 4 = 5124 bytes.
+            const withBitmap = withGlyf(fixtureLayout, (glyf) => {
+                const withFlag = withUint16(withUint16(glyf, GLYF_NUM_GLYPHS, 1280), GLYF_OPTION_FLAGS, 1);
+
+                return concat(withFlag, new Uint8Array(160));
+            });
+            const layout = withEntry(withBitmap, "loca", (entry) => ({ ...entry, origLength: 5124 }));
 
             await validate(build(layout));
         });
@@ -411,6 +424,26 @@ describe("Woff2FontValidator.validate", function () {
                 Woff2Rule.TransformVersion,
                 'At table "glyf": transform version is 1, expected 0 or 3.',
             );
+        });
+
+        it("names the table of each known tag index as §4.1 lists it", async function () {
+            // Transform version 2 is defined for no table, so the answer names the tag the flags byte decodes to.
+            const definedVersions = new Map([
+                ["hmtx", "0 or 1"],
+                ["glyf", "0 or 3"],
+                ["loca", "0 or 3"],
+            ]);
+
+            for (const tag of KNOWN_TAGS) {
+                const layout = withEntry(fixtureLayout, "cmap", (entry) => ({ ...entry, tag: tag, transformVersion: 2 }));
+                const expected = definedVersions.get(tag) ?? "0";
+
+                await expectBroken(
+                    build(layout),
+                    Woff2Rule.TransformVersion,
+                    `At table ${JSON.stringify(tag)}: transform version is 2, expected ${expected}.`,
+                );
+            }
         });
 
         it("whose transformed tables lack transformLength", async function () {
@@ -809,6 +842,17 @@ describe("Woff2FontValidator.validate", function () {
                 build(layout),
                 Woff2Rule.TransformedGlyf,
                 'At table "glyf": end of the substreams is 101847, expected at most 101846, the transformLength.',
+            );
+        });
+
+        it("with substreams that run past a transformed glyf of the header alone", async function () {
+            // A glyf of exactly the header size passes the header check and is read on to its substreams.
+            const layout = withGlyf(fixtureLayout, (glyf) => glyf.subarray(0, GLYF_HEADER_SIZE_BYTES));
+
+            await expectBroken(
+                build(layout),
+                Woff2Rule.TransformedGlyf,
+                'At table "glyf": end of the substreams is 101846, expected at most 36, the transformLength.',
             );
         });
 
