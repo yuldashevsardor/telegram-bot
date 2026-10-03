@@ -25,7 +25,8 @@ The runtime sequences live in the files of their subsystems:
   message and removing its files, the failure classes, the outcomes, the retry delay, waiting for
   the result and the payload codec
 - [`inbox.md`](./inbox.md) — the inbox of incoming updates in PostgreSQL being built: the tables,
-  the group, the group states, push without duplicates, the claim, the lease and the completion
+  the group, the group states, push without duplicates, the claim, the lease and the completions,
+  the error classes of a failed handler, the outcomes and the lease recovery
 - [`font-convertor.md`](./font-convertor.md) — format pairs, the EOT codec, signatures, the SVG,
   WOFF, WOFF2, EOT and sfnt validators, running the engine
 - [`user.md`](./user.md) — the entity, the repository, filling the context
@@ -138,7 +139,7 @@ src/
   telegram/                 grammY: commands, conversations, middleware, filters, session, locales (bot.md, i18n.md)
     user/                   the entity, the repository interface, the service, the PostgreSQL adapter (user.md)
     outbound-queue/         the outbound queue by keys, limits, the Runner loop (outbound-queue.md)
-    inbox/                  the future inbox of incoming updates in PostgreSQL: the store (push, claim, completion) (inbox.md)
+    inbox/                  the future inbox of incoming updates in PostgreSQL: the store (push, claim, completions), the error classes and the outcomes of a failed handler (inbox.md)
     outbox/                 the future outbox of Bot API calls in PostgreSQL: the store (push, pull, completions), the worker loop with its message source, the timers of the lease recovery and the cleanup, the processor of one message with the sender of its call and the Api, the outcomes of a failure, the result waiter with its reader, the payload codec and the retry delay (outbox.md)
   platform/                 adapters that know no module
     database/               Database (storage.md)
@@ -243,8 +244,8 @@ A sibling with neither lies flat in the siblings directory: `filter/has-session-
 
 **Keeps a main file with its companions** — `*.types.ts` and `*.errors.ts` lie in the directory
 together with their main file, and the directory name is the name of the main file:
-`eot-packer/eot-packer.ts` with its `*.errors.ts`. Companions lie the same way in the directories
-the map names itself: `font-convertor/font-convertor.*`, `platform/logger/logger.*`,
+`eot-header/eot-header.ts` with its `*.types.ts` and `*.errors.ts`. Companions lie the same way in
+the directories the map names itself: `font-convertor/font-convertor.*`, `platform/logger/logger.*`,
 `telegram/user/user.*`. The directory name there is the name of the main file as well. A directory
 with companions can also stand inside a hiding one: `eot-packer/sfnt-reader/` keeps `sfnt-reader.ts`
 with its `*.types.ts`, while from outside `eot-packer/` still only `eot-packer.ts` is visible.

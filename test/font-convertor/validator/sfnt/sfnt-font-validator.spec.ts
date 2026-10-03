@@ -1612,10 +1612,10 @@ describe("SfntFontValidator", function () {
         it("of version 2.0 whose highest glyphNameIndex is the first past the standard names, its string left out", async function () {
             // The first index past the standard names is string 0 of stringData, which the table, cut right after glyphNameIndex, lacks.
             const lengthBytes = POST_NUM_GLYPHS_END_BYTES + OTF_NUM_GLYPHS * GLYPH_NAME_INDEX_SIZE_BYTES;
-            const withFirstString = withGlyphNameIndex(withPostGlyphNames(otf, 0x00020000), 0, POST_STANDARD_NAME_COUNT);
+            const withoutFirstString = withGlyphNameIndex(withPostGlyphNames(otf, 0x00020000), 0, POST_STANDARD_NAME_COUNT);
 
             await expectBroken(
-                withFirstString,
+                withoutFirstString,
                 SfntRule.PostNameStringInTable,
                 `At table "post": the end of string 0 of stringData is ${
                     lengthBytes + 1

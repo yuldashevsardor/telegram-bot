@@ -463,12 +463,12 @@ describe("Woff2FontValidator.validate", function () {
 
             for (const tag of KNOWN_TAGS) {
                 const layout = withEntry(fixtureLayout, "cmap", (entry) => ({ ...entry, tag: tag, transformVersion: 2 }));
-                const expected = definedVersions.get(tag) ?? "0";
+                const expectedVersions = definedVersions.get(tag) ?? "0";
 
                 await expectBroken(
                     build(layout),
                     Woff2Rule.TransformVersion,
-                    `At table ${JSON.stringify(tag)}: transform version is 2, expected ${expected}.`,
+                    `At table ${JSON.stringify(tag)}: transform version is 2, expected ${expectedVersions}.`,
                 );
             }
         });

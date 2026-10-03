@@ -46,11 +46,13 @@ pair class gets what it does not need:
   are empty except for declaring the missing extension.
 
 `EotPacker` (`eot-packer/`) is one of the six places on the conversion path where the domain parses
-the content of a font; the others are the SVG, WOFF, WOFF2, EOT and sfnt validators below. The EOT
-header duplicates the metadata of the enclosed font. `SfntReader` takes it from the `OS/2`, `head`
-and `name` tables. The envelope holds four names, in UTF-16LE. The slant is taken from
-`OS/2.fsSelection`, not from `head.macStyle`, which duplicates it. `ttf2eot` does the same. Besides,
-in `macStyle` the slant is bit 1, and bit 1 of `fsSelection` means something else.
+the content of a font; the others are the SVG, WOFF, WOFF2, EOT and sfnt validators below. Two of
+them, the codec and the EOT validator, also hand a compressed `FontData` to `mtx-decompressor`
+through `EotPayloadDecoder` (below), which parses it. The EOT header duplicates the metadata of the
+enclosed font. `SfntReader` takes it from the `OS/2`, `head` and `name` tables. The envelope holds
+four names, in UTF-16LE. The slant is taken from `OS/2.fsSelection`, not from `head.macStyle`,
+which duplicates it. `ttf2eot` does the same. Besides, in `macStyle` the slant is bit 1, and bit 1
+of `fsSelection` means something else.
 
 Names are read from the Windows platform, failing that from Unicode, then from Macintosh. On
 Macintosh only `encodingId 0` is read: only that one is single-byte MacRoman, the other records hold
@@ -68,13 +70,31 @@ bounds is packed from a source too.
 `eot-packer.ts` writes version `0x00020001`. The header is read through `EotHeader`
 (`font-convertor/eot-header/`), which lays out the fixed part, the names and the tail of every
 version, and where the font lies. It rejects only what leaves it nothing to read, an empty
-`FontDataSize` included, and exposes the rest: the codec itself checks the magic number, `EOTSize`,
-the flags and that the names end before the font. `EotHeader` lies outside `eot-packer/` because the
-codec is not its only reader: `EotFontValidator` below reads it too, and a second parse of the same
-header would be a second copy of one format rule. The mask of the two flags below is a constant of
-`EotHeader` for the same reason. A compressed (`TTEMBED_TTCOMPRESSED`) or encrypted
-(`TTEMBED_XORENCRYPTDATA`) payload is rejected with an explicit `UnsupportedEotFlags` error; the
-codec does not try to parse it.
+`FontDataSize` included, and exposes the rest: the codec itself checks the magic number, `EOTSize`
+and that the names end before the font. `EotHeader` lies outside `eot-packer/` because the codec is
+not its only reader: `EotFontValidator` below reads it too, and a second parse of the same header
+would be a second copy of one format rule.
+
+`FontData` is not always the raw sfnt. Under `TTEMBED_TTCOMPRESSED` it is compressed by W3C Member
+Submission "MicroType Express (MTX) Font Format" (2008), under `TTEMBED_XORENCRYPTDATA` each byte is
+XOR `0x50` (EOT, §4.4), and both flags may be set at once. `EotPacker.unpack()` hands `FontData`
+with the `Flags` of the header to `EotPayloadDecoder` (`font-convertor/eot-payload-decoder/`), which
+returns the sfnt, or `FontData` itself when neither flag is set. A failure of the decoding is
+`InvalidEotPayload`, with the error of the decoder as its cause. The decoder lies outside
+`eot-packer/` for the same reason as `EotHeader`: the validator decodes with it too. The domain
+writes only the raw sfnt: `EotPacker.pack()` sets no flag.
+
+The decoding is `decompressMtx()` of the npm package `mtx-decompressor`, a TypeScript port of
+libeot under MPL-2.0. The package sees only `FontData`: the envelope stays with `EotHeader`. MPL is
+copyleft per file, so using the package unchanged asks nothing of an MIT project. The version is
+pinned exactly, `1.8.0`, not by a caret range like the rest of `package.json`: the project is from
+2026-03, with one maintainer and 37 versions in six months. An update is a decision of its own,
+with the acceptance run of [#743](https://github.com/yuldashevsardor/telegram-bot/issues/743)
+repeated: the 367 real EOT files of #617, none rejected, the 120 compressed ones passing the sfnt
+validator. Two other ways were rejected
+([#741](https://github.com/yuldashevsardor/telegram-bot/issues/741)). libeot `eot2ttf` 0.01 of
+Debian loses `glyf` bytes on 12 real files, gets the instructions of 1470 glyphs wrong and is killed
+by a signal on 593 of 600 damaged inputs. A decoder of our own is about 2950 lines.
 
 ## Running the engine
 
@@ -163,9 +183,9 @@ was rejected.
   `xmlns:xlink` the same way. The parser does not read the DTD, so the validator binds both prefixes
   itself (`resolvePrefix`).
 - **No font, broken font.** Only the fonts are checked against the specification, not the rest of
-  the document; the rules that look at the whole document are ours, below. `font-face` and
-  `glyph` count only as direct children of `font` in the SVG namespace, and only unprefixed
-  attributes are attributes of these elements. The rules are `FontRule` in
+  the document; the rules that look at the whole document are ours, below. The font nodes inside
+  `font` count only as its direct children in the SVG namespace, and only unprefixed attributes
+  are attributes of these elements. The rules are `FontRule` in
   `svg-font-validator.types.ts`; the text of each names its section, or says "ours" where fontforge
   asks more than the specification. Three of ours look at the whole document. It holds one `font`:
   a second font is the case of the `ttcf` collection above, fontforge 20230101 silently converts the
@@ -201,13 +221,32 @@ was rejected.
   without `d`, or a `use` that refers to its own parent, kills it with a segmentation fault; and an
   `x:unicode="b"` before `unicode="a"`, or a default `unicode` from the subset, maps the glyph to
   `b` without a word. The node rule holds in the prologue too, though fontforge reads only below
-  the root: no real font holds such a node. A foreign element is quoted in Clark notation,
-  `{urn:x}glyph`, so that it does not read as an SVG one, an instruction as `?font?`, the DOCTYPE as
-  `!DOCTYPE`, and a prefixed attribute by its qualified name.
+  the root: no real font holds such a node. It holds for every name alike: a `<?hkern?>` is
+  rejected, though fontforge, finding no `k` on an instruction, skips it. A foreign element is
+  quoted in Clark notation, `{urn:x}glyph`, so that it does not read as an SVG one, an instruction
+  as `?font?`, the DOCTYPE as `!DOCTYPE`, and a prefixed attribute by its qualified name.
   The outline, `d` of `glyph` and `missing-glyph`, is checked by `isPathData()` (`path-data.ts`)
   against the path data grammar of §8.3.9, which §20.4 gives it. Numbers there are read greedily,
   as §8.3.9 requires ("must consume as much of a given BNF production as possible"), and `1.` is a
   number, unlike in the other attributes.
+  The kerning pairs, `hkern` and `vkern` children of `font`, are checked against §20.7: each has
+  `k`, a `<number>`, and names both glyphs, by `u1` or `g1` and by `u2` or `g2`; a `g1` or `g2`
+  of commas and XML whitespace alone names none. fontforge
+  (`SVGParseKern`) skips a pair without `k` or without a glyph, and reads the number at the head of
+  `k`, so `12garbage` kerns by 12. No number is checked against the range a font can store, `k`
+  included: out of a double, `1e999` makes a pair of zero, and past 16 bits `40000` makes 25536,
+  as `horiz-adv-x="70000"` of a glyph makes 4464. One rule is ours: `u1` and `u2` hold one
+  character each. fontforge reads them as a string of characters, not as the comma-separated list
+  of §20.7, so the list `a,b` kerns the comma too, the range `U+0061-0062` kerns nothing, and the
+  ligature `ab` kerns `a` and `b`. The names in `g1` and `g2` are not checked: fontforge splits
+  them at commas and whitespace, as the list of §20.7 is split. A name no glyph has, and a `u1` or
+  `u2` character no glyph has, fontforge drops without a word.
+  Measured on 20230101 for [#776](https://github.com/yuldashevsardor/telegram-bot/issues/776), with
+  24 real SVG fonts with kerning found on GitHub: 20,882 `hkern` and no `vkern`. Every pair has an
+  integer `k` and both glyphs, `u1` and `u2` are always one character, and `g1` and `g2` hold
+  lists in 2,241 pairs. A grammar check of `u1` by §20.7, where the comma separates, would stumble
+  on `u1=","`, which 13 of the 24 fonts hold. None of the fonts breaks a kerning rule; two break
+  older ones, a Batik sample with a `g` in a glyph and a libmsvg sample with `xml:id` on its font.
 
 XML is parsed with `saxes` (XML 1.0 fifth edition and Namespaces in XML, non-validating). It was
 chosen by measurement, with expat as the reference: of 38 malformed documents it accepted none,
@@ -373,30 +412,35 @@ About the envelope it answers with a subclass of `InvalidEotFont` (`eot-font-val
 `BrokenEot` for the first broken rule. The order in which the rules are checked is in the comment of
 `validate()`. A file that cannot be read fails with `ReadFailed` of `FileHelper`, not with an answer
 about the font. Every answer names the source in `path` of its payload. Nothing in the answers is
-cut: the only things from the file they quote are numbers. One answer keeps another error as the
-cause: a file that ends inside a field the parse reads (the Padding or the size of a block, or
-`EUDCFlags` and `EUDCFontSize` of version `0x00020002`) keeps the `InvalidEot` of `EotHeader`.
+cut: the only things from the file they quote are numbers. Two answers keep another error as the
+cause. A file that ends inside a field the parse reads (the Padding or the size of a block, or
+`EUDCFlags` and `EUDCFontSize` of version `0x00020002`) keeps the `InvalidEot` of `EotHeader`. A
+`FontData` that does not decode keeps the `InvalidEotPayload` of the decoder (below).
 
-The rules are `EotRule` in `eot-font-validator.types.ts`, each with its section. One is ours, not
-the submission's, and its text says why: a payload compressed with MicroType Express
-(`TTEMBED_TTCOMPRESSED`) or XOR-encrypted (`TTEMBED_XORENCRYPTDATA`) is rejected, since the codec
-takes out only a raw sfnt, while the submission asks a user agent to decompress (§2.3). Of 367 real
-EOT files from npm packages the validator accepts 247 and rejects 120, all of them by this rule.
+The rules are `EotRule` in `eot-font-validator.types.ts`, each with its section. None is ours: a
+compressed or encrypted `FontData` is read, as the submission asks of a user agent (§2.3). The last
+rule, `FontDataDecodes`, is that `FontData` decodes under its flags by `EotPayloadDecoder` (see
+"EOT"). Its answer names W3C Member Submission "MicroType Express (MTX) Font Format".
 
 A valid envelope is not yet a valid font. The submission makes the enclosed font part of the format:
 `FontData` is "a TrueType or OpenType font" (§3). The codec checks only its sfnt header and table
 records on unpacking, and on `eot → ttf` the unpacked sfnt is the result: of 15 variants of the
 fixture with a broken enclosed font the codec rejected 4, and `eot → ttf` returned the other 11
 ([#740](https://github.com/yuldashevsardor/telegram-bot/issues/740)). So the validator hands the
-`FontData` bytes to `SfntFontValidator.validateBytes()`, last, once the envelope holds. The sfnt
-validator's answer, a subclass of `InvalidSfntFont` naming the EOT file in `path`, passes through as
-the EOT validator's own, as it does for WOFF. Unlike the rebuilt sfnt of a WOFF, `FontData` can
-break the sfnt rules on its size, and then "the file" of the answer is `FontData`, not the EOT file
-its `path` names: the size `NotSfnt` and `DirectoryInFile` give and "the file size" of `TableInFile`
-are those of `FontData`.
+decoded `FontData` to `SfntFontValidator.validateBytes()`, last, once the envelope holds.
+A compressed or encrypted `FontData` is decoded by the validator itself, so its font gets an answer
+before the pair starts, as the font of every other format does. `EotPacker.unpack()` decodes it a
+second time. On the 120 real compressed files that took at most 34 ms per file, 1.1 s in all
+([#741](https://github.com/yuldashevsardor/telegram-bot/issues/741)), and readability comes first.
+The sfnt validator's answer, a subclass of `InvalidSfntFont` naming the EOT file in `path`, passes
+through as the EOT validator's own, as it does for WOFF. Unlike the rebuilt sfnt of a WOFF, the sfnt
+of `FontData` can break the sfnt rules on its size, and then "the file" of the answer is that sfnt,
+not the EOT file its `path` names: the size `NotSfnt` and `DirectoryInFile` give and "the file size"
+of `TableInFile` are those of that sfnt. XOR decodes any bytes, so an encrypted `FontData` that
+holds no font gets the answer of the sfnt validator, not of `FontDataDecodes`.
 
-`EotPacker.unpack()` keeps its own checks as they were. Every source it unpacks has passed the
-validator first.
+`EotPacker.unpack()` keeps its own checks: the validator replaces none of them. Every source it
+unpacks has passed the validator first.
 
 What is deliberately not checked, with the reasons, is in the class comment of `EotFontValidator`.
 
@@ -559,7 +603,16 @@ not count as supported.
   rebuilt sfnt is a second copy of them of the same size. A TTF or OTF source is read whole as well,
   and its table directory, every `loca` offset, every glyph of `glyf` and the references between
   composite glyphs are walked on the event loop, as they are for the sfnt a WOFF or an EOT carries.
-  An EOT source is read whole too, and its header is walked on the event loop. A WOFF2 source is
+  An EOT source is read whole too, and its header is walked on the event loop. A compressed or
+  encrypted `FontData` is decoded on it as well, synchronously and twice, by the validator and by
+  the codec. The decoding has no output cap of ours and no timeout: on 600 damaged inputs it never
+  hung under a 20 s limit, but nothing guarantees that
+  ([#741](https://github.com/yuldashevsardor/telegram-bot/issues/741)). `mtx-decompressor` 1.8.0
+  caps only its input to the rebuild: each of the three compressed streams may declare at most
+  16 MiB and grow its buffer to at most 64 MiB (`MAX_OUT_LEN`, `MAX_OUT` in its `dist/index.js`).
+  The sfnt it rebuilds from them has no cap: `glyf` grows as the streams describe it, and only the
+  decoded `hdmx` table is held to 64 MiB (`MAX_OUTPUT_BYTES`). How much memory a small crafted file
+  takes is not measured. A WOFF2 source is
   read whole as well: its compressed data is decompressed by the asynchronous
   `zlib.brotliDecompress`, off the event loop, but its table directory is walked on it, and its
   transformed `glyf` is decoded and rebuilt there, a second copy beside the decompressed tables. The

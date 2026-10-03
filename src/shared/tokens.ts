@@ -38,6 +38,7 @@ export const Tokens = {
         },
         Envelope: {
             Packer: Symbol.for("FontEnvelopePacker"),
+            PayloadDecoder: Symbol.for("FontEnvelopePayloadDecoder"),
         },
         Engine: {
             FontForge: Symbol.for("FontEngineFontForge"),
@@ -68,6 +69,8 @@ export const Tokens = {
         },
         Inbox: {
             Store: Symbol.for("BotInboxStore"),
+            FailureClassifier: Symbol.for("BotInboxFailureClassifier"),
+            FailureHandler: Symbol.for("BotInboxFailureHandler"),
         },
         ApiFailureClassifier: Symbol.for("BotApiFailureClassifier"),
         User: {

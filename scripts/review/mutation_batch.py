@@ -51,25 +51,23 @@ same lock as `record`:
    is the check of the fixed survivors: it has to be green, on a clean tree, on a descendant of the
    head of the full run. Which files each round of fixes runs over is step 2 of "A batch as the
    issue" in .claude/commands/solve-issue.md; the record holds the last round, and the earlier
-   rounds and their survivors are the caller's check. The full
-   run is not repeated for the fixes: in batch 1 (#701) it ran about 190 minutes, not counting 7.5
-   hours the machine slept, while the run over the files of its survivors took 43. A run over files
-   on the head of the full run checked no fix and stops the close.
+   rounds and their survivors are the caller's check. The full run is not repeated for the fixes: in
+   batch 1 (#701) it ran about 190 minutes, not counting 7.5 hours the machine slept, while the run
+   over the files of its survivors took 43. A run over files on the head of the full run checked no
+   fix and stops the close.
 4. A red full run (`exit` other than 0) closes only with the issues filed for its survivors named,
    or with the run over files of item 3, or both. A red run over files stops the close even with
    issues named: it is the last round of fixes, and a survivor left to an issue carries a mark
    linking to it, so it does not paint the run red. Whether the issues and the runs cover every
-   survivor is the caller's check. A green
-   full run has no survivors to fix, and the record of the last run is not read for it.
+   survivor is the caller's check. A green full run has no survivors to fix, and the record of the
+   last run is not read for it.
 5. Sorts each recorded PR by `gh pr view`: merged, with its merge commit an ancestor of the head of
    the full run — covered; merged later, or not merged — carried over; closed without a merge —
    dropped.
 6. Records the carried ones into the other open batch, created if there is none, from
    templates/mutation-batch-carry.md. An issue already recorded there with the same PR is not
    recorded twice.
-7. Comments from templates/mutation-batch-close.md: the head, the three lists, the issues of the
-   survivors, the run over files, the record of the full run and the one of the run over files.
-   Then closes the issue if it is open.
+7. Comments from templates/mutation-batch-close.md, then closes the issue if it is open.
 
 A batch, a record or a closing comment counts only when the viewer wrote it, and a comment only by
 its marker, the first line of its template. The repository is public: anyone can type the title or

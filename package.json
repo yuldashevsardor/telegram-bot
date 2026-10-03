@@ -104,6 +104,7 @@
         "dotenv": "^17.4.2",
         "grammy": "^1.46.0",
         "inversify": "^6.2.2",
+        "mtx-decompressor": "1.8.0",
         "node-pg-migrate": "^9.0.0",
         "pg": "^8.23.0",
         "pino": "^8.21.0",
