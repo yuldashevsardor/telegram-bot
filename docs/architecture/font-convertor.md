@@ -201,13 +201,30 @@ was rejected.
   without `d`, or a `use` that refers to its own parent, kills it with a segmentation fault; and an
   `x:unicode="b"` before `unicode="a"`, or a default `unicode` from the subset, maps the glyph to
   `b` without a word. The node rule holds in the prologue too, though fontforge reads only below
-  the root: no real font holds such a node. A foreign element is quoted in Clark notation,
-  `{urn:x}glyph`, so that it does not read as an SVG one, an instruction as `?font?`, the DOCTYPE as
-  `!DOCTYPE`, and a prefixed attribute by its qualified name.
+  the root: no real font holds such a node. It holds for every name alike: a `<?hkern?>` is
+  rejected, though fontforge, finding no `k` on an instruction, skips it. A foreign element is
+  quoted in Clark notation, `{urn:x}glyph`, so that it does not read as an SVG one, an instruction
+  as `?font?`, the DOCTYPE as `!DOCTYPE`, and a prefixed attribute by its qualified name.
   The outline, `d` of `glyph` and `missing-glyph`, is checked by `isPathData()` (`path-data.ts`)
   against the path data grammar of §8.3.9, which §20.4 gives it. Numbers there are read greedily,
   as §8.3.9 requires ("must consume as much of a given BNF production as possible"), and `1.` is a
   number, unlike in the other attributes.
+  The kerning pairs, `hkern` and `vkern` children of `font`, are checked against §20.7: each has
+  `k`, a `<number>`, and names both glyphs, by `u1` or `g1` and by `u2` or `g2`. fontforge
+  (`SVGParseKern`) skips a pair without `k` or without a glyph, and reads the number at the head of
+  `k`, so `12garbage` kerns by 12. No number is checked against the range a font can store, `k`
+  included: out of a double, `1e999` makes a pair of zero, and past 16 bits `40000` makes 25536,
+  as `horiz-adv-x="70000"` of a glyph makes 4464. One rule is ours: `u1` and `u2` hold one
+  character each. fontforge reads them as a string of characters, not as the comma-separated list
+  of §20.7, so the list `a,b` kerns the comma too, the range `U+0061-0062` kerns nothing, and the
+  ligature `ab` kerns `a` and `b`. `g1` and `g2` are not checked: fontforge splits them at commas
+  and whitespace, as the list of §20.7 is split, and drops a name no glyph has without a word.
+  Measured on 20230101 for [#776](https://github.com/yuldashevsardor/telegram-bot/issues/776), with
+  24 real SVG fonts with kerning found on GitHub: 20,882 `hkern` and no `vkern`. Every pair has an
+  integer `k` and both glyphs, `u1` and `u2` are always one character, and `g1` and `g2` hold
+  lists in 2,241 pairs. A grammar check of `u1` by §20.7, where the comma separates, would stumble
+  on `u1=","`, which 13 of the 24 fonts hold. None of the fonts breaks a kerning rule; two break
+  older ones, a Batik sample with a `g` in a glyph and a libmsvg sample with `xml:id` on its font.
 
 XML is parsed with `saxes` (XML 1.0 fifth edition and Namespaces in XML, non-validating). It was
 chosen by measurement, with expat as the reference: of 38 malformed documents it accepted none,

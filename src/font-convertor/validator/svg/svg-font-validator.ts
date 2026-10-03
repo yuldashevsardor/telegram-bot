@@ -22,7 +22,7 @@ export class SvgFontValidator implements FontValidator {
     private static readonly SVG_ROOT = `{${SvgFontValidator.SVG_NAMESPACE}}svg`;
     // The names fontforge reads by the local name alone: of an element in any namespace, and of a
     // processing instruction by its target (`_FindSVGFontNodes` and `SVGParseFont` of its `svg.c`).
-    private static readonly FONT_NODE_NAMES: ReadonlyArray<string> = ["font", "font-face", "glyph", "missing-glyph"];
+    private static readonly FONT_NODE_NAMES: ReadonlyArray<string> = ["font", "font-face", "glyph", "missing-glyph", "hkern", "vkern"];
 
     // XML 1.0 §4.3.3 requires the BOM for UTF-16. Without one the file is read as UTF-8, and the
     // zero bytes of UTF-16 make it "not XML".
@@ -228,6 +228,10 @@ export class SvgFontValidator implements FontValidator {
                 element.isGlyph = true;
                 this.checkGlyph(scan, element, tag, "missing-glyph");
                 break;
+            case "hkern":
+            case "vkern":
+                this.checkKern(scan, element, tag, element.name);
+                break;
         }
     }
 
@@ -294,6 +298,55 @@ export class SvgFontValidator implements FontValidator {
 
         if (outline !== undefined && !isPathData(outline)) {
             this.report(scan, FontRule.PathData, name, element.line, { attribute: ["d", outline] });
+        }
+    }
+
+    /**
+     * Checks a kerning pair (§20.7). `g1` and `g2` are not checked: fontforge splits them at commas
+     * and whitespace, as §20.7 does, and drops a name no glyph has without a word.
+     */
+    private checkKern(scan: Scan, element: OpenElement, tag: SaxesTagNS, name: "hkern" | "vkern"): void {
+        this.checkPrefixes(scan, element, tag, name);
+
+        // No number is checked against the range a font can store, `k` included: in fontforge
+        // `1e999`, out of a double, makes a pair of zero, and `40000`, past 16 bits, makes 25536.
+        const kerning = tag.attributes["k"]?.value;
+
+        if (kerning === undefined) {
+            this.report(scan, FontRule.KerningRequired, name, element.line);
+        } else if (!SvgFontValidator.NUMBER.test(kerning)) {
+            this.report(scan, FontRule.Number, name, element.line, { attribute: ["k", kerning] });
+        }
+
+        this.checkKernedGlyph(scan, element, tag, name, { characters: "u1", glyphNames: "g1" });
+        this.checkKernedGlyph(scan, element, tag, name, { characters: "u2", glyphNames: "g2" });
+    }
+
+    /**
+     * Checks one side of a kerning pair: it is named, and by a single character when by `u1` or
+     * `u2`. fontforge takes each character of `u1` for a glyph of its own, so the list `a,b` of
+     * §20.7 kerns the comma too, a range `U+0061-0062` kerns nothing, and the ligature `ab` kerns
+     * `a` and `b`. A character is a code point: `[...value]` does not split a surrogate pair.
+     */
+    private checkKernedGlyph(
+        scan: Scan,
+        element: OpenElement,
+        tag: SaxesTagNS,
+        name: "hkern" | "vkern",
+        side: { characters: string; glyphNames: string },
+    ): void {
+        const characters = tag.attributes[side.characters]?.value;
+
+        if (characters === undefined) {
+            if (tag.attributes[side.glyphNames] === undefined) {
+                this.report(scan, FontRule.KernedGlyphRequired, name, element.line);
+            }
+
+            return;
+        }
+
+        if ([...characters].length !== 1) {
+            this.report(scan, FontRule.SingleKernedCharacter, name, element.line, { attribute: [side.characters, characters] });
         }
     }
 

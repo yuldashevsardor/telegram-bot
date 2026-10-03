@@ -22,6 +22,9 @@ export enum FontRule {
     SvgNamespaceOnly = "the name of a font node is given only to an element in the SVG namespace (ours: fontforge reads a node of that name in any namespace, and a processing instruction by its target)",
     UnprefixedAttribute = "a font node has no prefixed attribute (ours: fontforge reads the first attribute of a local name, in any namespace)",
     ChildlessGlyph = "glyph and missing-glyph have no child elements or processing instructions (ours: fontforge draws a glyph without d from its children as any SVG, and drops them next to d)",
+    KerningRequired = "hkern and vkern have k (SVG 1.1, §20.7)",
+    KernedGlyphRequired = "hkern and vkern name both glyphs of the pair, by u1 or g1 and by u2 or g2 (SVG 1.1, §20.7)",
+    SingleKernedCharacter = "u1 and u2 of hkern and vkern are one character each (ours: fontforge reads them as a string of characters, not the list of §20.7)",
     NoInternalSubset = "the DOCTYPE has no internal subset (ours: fontforge takes attribute defaults from it, which the validator does not read)",
 }
 
