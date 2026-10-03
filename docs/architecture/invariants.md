@@ -215,12 +215,23 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   `InboxGroupState`**, as those of the outbox tables are (above), and for the same reason: an
   update or a group with a mistyped value silently drops out of every query
   ([`inbox.md`](./inbox.md)).
-- **`InboxStore.pushBatch()` and `markAsDone()` lock the group row before they read what their
-  change depends on**, as the push and the completions of the outbox lock the chat row (above):
-  read before the lock, a completion leaves a group `idle` with an update pushed meanwhile, an
-  update never claimed. `claim()` is the exception with a check of its own
-  ([`inbox.md`](./inbox.md), "Claim"). The spec pins a push and a completion in both orders (same
-  file, "Push"); a new write path is checked by nothing.
+- **`InboxStore.pushBatch()` and every completion lock the group row before they read what their
+  change depends on**, as the push and the completions of the outbox lock the chat row (above);
+  every completion goes through the private `complete()`. Read before the lock, a completion leaves
+  a group `idle` with an update pushed meanwhile, an update never claimed. `claim()` is the
+  exception with a check of its own ([`inbox.md`](./inbox.md), "Claim"). The spec pins a push and
+  `markAsDone()` in both orders (same file, "Push"); a new write path is checked by nothing.
+- **The lease of a claimed group must outlast the handling of its update, unless the lease is
+  extended.** A lease that ends while the handler still runs lets the recovery of expired leases
+  (`InboxFailureHandler.recoverExpiredLeases()`) give the update back to `pending`: another node
+  handles it a second time, and the next update of the group may be handled while the first
+  handler still runs, out of order. On the last attempt of `INBOX_MAX_ATTEMPTS` the recovery fails
+  the update and blocks the group instead: a slow handler that did reply leaves its update `failed`
+  and its group blocked until it is unblocked by hand. The late completion of the first node is
+  fenced off and changes nothing. Nothing bounds how long a handler runs, and nothing checks
+  `INBOX_LEASE_DURATION` against it. An extension may extend only a lease that has not passed: the
+  recovery tells its lease by the token, not by `locked_until` ([`inbox.md`](./inbox.md), "Lease
+  recovery"). Nothing extends a lease yet.
 
 ## Storage: migrations, `sessions`, `User`
 

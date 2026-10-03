@@ -2,15 +2,15 @@ import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect } from "chai";
-import { Api, GrammyError, HttpError } from "grammy";
+import { Api, HttpError } from "grammy";
 import type { ApiClientOptions } from "grammy";
-import type { ApiError, ResponseParameters } from "grammy/types";
 import {
     DEFAULT_RETRY_AFTER_SECONDS,
     TelegramBotApiFailureClassifier,
 } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import { PathFile } from "app/telegram/path-file/path-file";
+import { telegramError } from "test/telegram/telegram-bot-api-failure-classifier.helper";
 
 const TOKEN = "123456789:unused";
 // Nothing listens on port 1, so node-fetch fails to connect at once.
@@ -240,18 +240,4 @@ function readsTheBody(): ApiClientOptions["fetch"] {
     };
 
     return fetch as unknown as ApiClientOptions["fetch"];
-}
-
-// An answer without parameters leaves the field out, as Telegram does.
-function telegramError(errorCode: number, description: string, parameters?: ResponseParameters): GrammyError {
-    const answer: ApiError = { ok: false, error_code: errorCode, description };
-
-    if (parameters !== undefined) {
-        answer.parameters = parameters;
-    }
-
-    return new GrammyError(`Call to 'sendMessage' failed! (${errorCode}: ${description})`, answer, "sendMessage", {
-        chat_id: 1,
-        text: "hello",
-    });
 }
