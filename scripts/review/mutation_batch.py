@@ -49,15 +49,17 @@ same lock as `record`:
    a report with a score.
 3. Reads the record of the last run, reports/mutation/record.md. When it is of a run over files, it
    is the check of the fixed survivors: it has to be green, on a clean tree, on a descendant of the
-   head of the full run. Each round of fixes runs over the files it changed alone, so the record
-   holds the last round; the earlier rounds and their survivors are the caller's check. The full
+   head of the full run. Which files each round of fixes runs over is step 2 of "A batch as the
+   issue" in .claude/commands/solve-issue.md; the record holds the last round, and the earlier
+   rounds and their survivors are the caller's check. The full
    run is not repeated for the fixes: in batch 1 (#701) it ran about 190 minutes, not counting 7.5
    hours the machine slept, while the run over the files of its survivors took 43. A run over files
    on the head of the full run checked no fix and stops the close.
 4. A red full run (`exit` other than 0) closes only with the issues filed for its survivors named,
    or with the run over files of item 3, or both. A red run over files stops the close even with
-   issues named: it is the last round of fixes, and the files of the survivors left to issues stay
-   out of it. Whether the issues and the runs cover every survivor is the caller's check. A green
+   issues named: it is the last round of fixes, and a survivor left to an issue carries a mark
+   linking to it, so it does not paint the run red. Whether the issues and the runs cover every
+   survivor is the caller's check. A green
    full run has no survivors to fix, and the record of the last run is not read for it.
 5. Sorts each recorded PR by `gh pr view`: merged, with its merge commit an ancestor of the head of
    the full run — covered; merged later, or not merged — carried over; closed without a merge —

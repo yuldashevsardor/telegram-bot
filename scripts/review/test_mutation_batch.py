@@ -832,7 +832,7 @@ class CloseTest(unittest.TestCase):
             body,
         )
 
-    def test_a_run_over_files_that_fixes_nothing_stops_before_a_write(self):
+    def test_a_run_over_files_that_checks_no_fix_stops_before_a_write(self):
         for fix_record, ancestors, told in (
             (
                 run_record(head=FIX_HEAD, scope="files", exit_code=1, score="99.00"),
@@ -859,16 +859,34 @@ class CloseTest(unittest.TestCase):
                 ),
             ),
         ):
-            github = self.four_prs()
-            github.ancestors.update(ancestors)
-            self.red_run_fixed(fix_record)
+            for survivor_issues in ((), (901,)):
+                github = self.four_prs()
+                github.ancestors.update(ancestors)
+                self.red_run_fixed(fix_record)
 
-            code, lines, err = self.close(github)
+                code, lines, err = self.close(github, survivor_issues=survivor_issues)
 
-            self.assertEqual((code, lines), (1, []), told)
-            self.assertIn(told, err)
-            self.assertEqual(github.lock_held_on_write, [], told)
-            self.assertEqual(github.called("fetch"), [], told)
+                self.assertEqual((code, lines), (1, []), told)
+                self.assertIn(told, err)
+                self.assertEqual(github.lock_held_on_write, [], told)
+                self.assertEqual(github.called("fetch"), [], told)
+
+    def test_a_red_full_run_closes_on_issues_and_a_run_over_files_together(self):
+        github = self.four_prs()
+        github.ancestors.add(HEAD)
+        self.red_run_fixed(run_record(head=FIX_HEAD, scope="files"))
+
+        code, _, err = self.close(github, survivor_issues=[901])
+
+        self.assertEqual((code, err), (0, ""))
+        self.assertIn(
+            "Issues filed for the survivors of the run:\n"
+            "- #901\n"
+            "\n"
+            "Survivors fixed, checked by a run over their files:\n"
+            "- the run on `{}`, its record after the one of the full run\n".format(FIX_HEAD),
+            github.issues[630]["comments"][-1]["body"],
+        )
 
     def test_a_number_that_is_no_batch_of_the_viewer_stops(self):
         for github in (self.four_prs(), self.github(batch(630, 1, creator="stranger"))):

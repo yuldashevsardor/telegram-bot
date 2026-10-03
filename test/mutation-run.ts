@@ -192,13 +192,13 @@ function finish(exitCode: number): void {
     // A failure to write the record does not replace the outcome of the run: whoever runs the target
     // reads ok or fail from the exit code.
     try {
-        const text = record({ exitCode, startedAt, finishedAt: new Date() });
+        const recordText = record({ exitCode, startedAt, finishedAt: new Date() });
 
         mkdirSync("reports/mutation", { recursive: true });
-        writeRecord(RECORD_FILE, text);
+        writeRecord(RECORD_FILE, recordText);
 
         if (isFullRun) {
-            writeRecord(FULL_RECORD_FILE, text);
+            writeRecord(FULL_RECORD_FILE, recordText);
         }
     } catch (error) {
         process.stderr.write(`\nThe run record was not written: ${(error as Error).stack ?? String(error)}\n`);
