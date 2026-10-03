@@ -11,6 +11,7 @@ import type { OutboxMessageSource } from "app/telegram/outbox/outbox-message-sou
 import type { OutboxSender } from "app/telegram/outbox/outbox-sender";
 import { OutboxWorkerLoop } from "app/telegram/outbox/outbox-worker-loop";
 import { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
+import type { OutboxRetryDelaySettings } from "app/telegram/outbox/retry-delay/outbox-retry-delay.types";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type {
     OutboxAttemptError,
@@ -26,6 +27,10 @@ const CONCURRENCY = 2;
 // Longer than any spec waits: a stop that reaches it has aborted a call it should have waited for.
 const LONG_STOP_TIMEOUT_MS = 10_000;
 const SHORT_STOP_TIMEOUT_MS = 50;
+// The retry settings of the real failure handler: a release on stop uses neither the delay nor the
+// limit of attempts, so any values do.
+const RETRY_DELAY_SETTINGS: OutboxRetryDelaySettings = { firstDelayMs: 1_000, maxDelayMs: 60_000, multiplier: 2 };
+const MAX_ATTEMPTS = 10;
 // setTimeout() may fire a little before its delay on some platforms.
 const TIMER_TOLERANCE_MS = 5;
 
@@ -72,11 +77,11 @@ type ProcessCall = {
     fail: (error: unknown) => void;
 };
 
-// Each call runs until the spec finishes or fails it. With settlesOnAbort, an abort settles the call
+// Each call runs until the spec finishes or fails it. With shouldSettleOnAbort, an abort settles the call
 // as the real processor does once it has released the message.
 class FakeProcessor {
     public readonly calls: ProcessCall[] = [];
-    public settlesOnAbort = true;
+    public shouldSettleOnAbort = true;
 
     public process(message: PulledOutboxMessage, signal: AbortSignal): Promise<void> {
         const { promise, resolve, reject } = Promise.withResolvers<void>();
@@ -89,12 +94,12 @@ class FakeProcessor {
 
         // A signal aborted before the call settles it at once, as grammY fails such a call before it
         // sends it.
-        if (signal.aborted && this.settlesOnAbort) {
+        if (signal.aborted && this.shouldSettleOnAbort) {
             call.finish();
         }
 
         signal.addEventListener("abort", () => {
-            if (this.settlesOnAbort) {
+            if (this.shouldSettleOnAbort) {
                 call.finish();
             }
         });
@@ -306,7 +311,7 @@ describe("OutboxWorkerLoop", function () {
 
     it("waits until an aborted call settles before the stop ends", async function () {
         const loop = createLoop(0);
-        processor.settlesOnAbort = false;
+        processor.shouldSettleOnAbort = false;
         source.add(message(1));
         loop.start();
         await settle();
@@ -347,10 +352,10 @@ describe("OutboxWorkerLoop", function () {
         const failureHandler = new OutboxFailureHandler(
             store as unknown as OutboxStore,
             new TelegramBotApiFailureClassifier(),
-            new OutboxRetryDelay({ firstDelayMs: 1_000, maxDelayMs: 60_000, multiplier: 2 }, () => 0),
+            new OutboxRetryDelay(RETRY_DELAY_SETTINGS, () => 0),
             new OutboxErrorSerializer("token"),
             logger,
-            10,
+            MAX_ATTEMPTS,
         );
         const realProcessor = new OutboxMessageProcessor(
             new HangingSender() as unknown as OutboxSender,

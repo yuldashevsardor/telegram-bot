@@ -23,7 +23,7 @@ export class OutboxWorkerLoop {
     private wakeUpLoop: (() => void) | undefined;
     private isStopping = false;
     // When stop() aborts the calls in flight; none before the stop.
-    private stopDeadlineAt = Number.POSITIVE_INFINITY;
+    private stopDeadlineAtMs = Number.POSITIVE_INFINITY;
     private loopRun: Promise<void> = Promise.resolve();
 
     public constructor(
@@ -46,7 +46,7 @@ export class OutboxWorkerLoop {
     // aborts the rest and waits until they settle: the processor releases an aborted call, so
     // another node takes its message at once.
     public async stop(): Promise<void> {
-        this.stopDeadlineAt = Date.now() + this.stopTimeoutMs;
+        this.stopDeadlineAtMs = Date.now() + this.stopTimeoutMs;
         this.isStopping = true;
         this.wakeUpLoop?.();
         this.source.stop();
@@ -56,7 +56,7 @@ export class OutboxWorkerLoop {
         // starts aborted (startCall()).
         await this.loopRun;
 
-        const haveCallsSettled = await withTimeout(Promise.all(this.callsInFlight.values()), this.stopDeadlineAt - Date.now());
+        const haveCallsSettled = await withTimeout(Promise.all(this.callsInFlight.values()), this.stopDeadlineAtMs - Date.now());
 
         if (haveCallsSettled) {
             return;
@@ -102,7 +102,7 @@ export class OutboxWorkerLoop {
         // A pull in progress at the stop handed the message out after the deadline: started aborted,
         // the call fails before grammY sends it, and the message is released without reaching
         // Telegram rather than sent and cut short on the next tick.
-        if (Date.now() >= this.stopDeadlineAt) {
+        if (Date.now() >= this.stopDeadlineAtMs) {
             abortController.abort();
         }
         const settled = this.processor

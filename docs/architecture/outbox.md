@@ -330,9 +330,11 @@ the pid and a `randomUUID()` made with the loop.
    releases the message of an aborted call (see "Release on stop").
 
 The deadline bounds the wait for the calls, not the whole stop. The wait for a pull in progress has
-no bound of its own (see "The message source", what it costs the database), and neither has the
-release of an aborted call, a transaction of the store, or a completion already under way when the
-deadline comes: an abort cuts short only the Bot API call.
+no bound of its own (see "The message source", what it costs the database), and the calls are
+aborted only after it: a pull that outlasts the deadline lets the calls in flight run on, up to
+`OUTBOX_API_TIMEOUT`, until it ends. Neither has a bound the release of an aborted call, a
+transaction of the store, or a completion already under way when the deadline comes: an abort cuts
+short only the Bot API call.
 
 ## Maintenance
 
