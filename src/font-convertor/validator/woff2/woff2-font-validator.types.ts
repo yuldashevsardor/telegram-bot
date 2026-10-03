@@ -20,7 +20,7 @@ export enum Woff2Rule {
     NoExtraneousData = "the compressed data follows the table directory, then the metadata, then the private block, which ends the file; nothing lies between or after them but padding, and no padding follows the metadata when it is last (WOFF 2.0, §3, §6, §7)",
     Padding = "padding is 0 to 3 null bytes (WOFF 2.0, §3)",
     Brotli = "the compressed data is one Brotli stream that decompresses to the sum of origLength of the plain tables and transformLength of the transformed ones (WOFF 2.0, §5)",
-    TransformedGlyf = "the transformed glyf holds its 36-byte header and its seven substreams, then the overlapSimpleBitmap when bit 0 of optionFlags is set (WOFF 2.0, §5.1)",
+    TransformedGlyf = "the transformed glyf holds its 36-byte header and its seven substreams, bboxStream starts with its bboxBitmap, and the overlapSimpleBitmap follows the substreams when bit 0 of optionFlags is set (WOFF 2.0, §5.1)",
     GlyphStreams = "each substream of the transformed glyf holds what its glyph records take from it (WOFF 2.0, §5.1, §5.2)",
     ContourCount = "nContour of a glyph is -1 for a composite glyph, 0 for an empty one or positive for a simple one (WOFF 2.0, §5.1)",
     CompositeBoundingBox = "a composite glyph has an explicit bounding box (WOFF 2.0, §5.1)",
@@ -33,6 +33,16 @@ export enum Woff2Rule {
     MaxDecompressedSize = "the tables decompress to at most 30 MiB (ours: the output buffer fontforge gives its decoder)",
     MaxCompressionRatio = "the tables decompress to at most 100 times the file size (ours: the decoder of fontforge refuses a higher ratio)",
     MaxSfntSize = "the rebuilt sfnt is at most 30 MiB (ours: the output buffer fontforge gives its decoder)",
+}
+
+/**
+ * The tags of the tables the rules name.
+ */
+export enum TableTag {
+    Glyf = "glyf",
+    Loca = "loca",
+    Hmtx = "hmtx",
+    Hhea = "hhea",
 }
 
 /**
@@ -131,6 +141,17 @@ export type Point = {
 export type TransformedHmtx = {
     bytes: Uint8Array;
     hhea: Uint8Array | undefined;
+};
+
+/**
+ * A transformed hmtx that rule `TransformedHmtx` holds for, with its flags read: whether lsb[] and
+ * leftSideBearing[] are in the table.
+ */
+export type RebuildableHmtx = {
+    bytes: Uint8Array;
+    numberOfHMetrics: number;
+    hasLsb: boolean;
+    hasLeftSideBearing: boolean;
 };
 
 /**

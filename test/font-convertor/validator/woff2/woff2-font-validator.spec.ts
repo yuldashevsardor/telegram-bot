@@ -821,6 +821,16 @@ describe("Woff2FontValidator.validate", function () {
             );
         });
 
+        it("with a bboxStream shorter than its bboxBitmap", async function () {
+            const layout = withGlyfParts(fixtureLayout, (parts) => withStream(parts, "bbox", (stream) => stream.subarray(0, 10)));
+
+            await expectBroken(
+                build(layout),
+                Woff2Rule.TransformedGlyf,
+                'At table "glyf": bboxStreamSize is 10, expected at least 164, the size of bboxBitmap for 1296 glyphs.',
+            );
+        });
+
         it("with bit 0 of optionFlags and no overlapSimpleBitmap", async function () {
             // fontforge converts it with exit 0: its decoder knows nothing of the bitmap.
             const layout = withGlyf(fixtureLayout, (glyf) => withUint16(glyf, GLYF_OPTION_FLAGS, 1));

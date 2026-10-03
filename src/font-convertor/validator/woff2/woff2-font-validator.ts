@@ -16,7 +16,7 @@ import type {
     Woff2,
     Woff2Header,
 } from "app/font-convertor/validator/woff2/woff2-font-validator.types";
-import { BlockKind, Woff2Rule } from "app/font-convertor/validator/woff2/woff2-font-validator.types";
+import { BlockKind, TableTag, Woff2Rule } from "app/font-convertor/validator/woff2/woff2-font-validator.types";
 import type { FontValidator } from "app/font-convertor/validator/font-validator";
 import { GlyfReconstructor } from "app/font-convertor/validator/woff2/glyf-reconstructor";
 import { FileHelper } from "app/shared/fs/file-helper";
@@ -164,10 +164,6 @@ export class Woff2FontValidator implements FontValidator {
         ["hmtx", Woff2FontValidator.HMTX_VERSIONS],
     ]);
     private static readonly OTHER_TABLE_VERSIONS: TransformVersions = { plain: 0 };
-    private static readonly GLYF_TAG = "glyf";
-    private static readonly LOCA_TAG = "loca";
-    private static readonly HMTX_TAG = "hmtx";
-    private static readonly HHEA_TAG = "hhea";
     private static readonly HMTX_FLAG_BITS = 0b00000011;
     private static readonly HMTX_RESERVED_BITS = 0b11111100;
     // The metadata and the private block start on it (§6, §7), and so does the end of the file
@@ -362,7 +358,7 @@ export class Woff2FontValidator implements FontValidator {
 
         throw BrokenWoff2.byRule(fontPath, {
             rule: Woff2Rule.TransformVersion,
-            at: this.tableName(tag),
+            at: BrokenWoff2.tableName(tag),
             field: "transform version",
             value: transformVersion,
             expected: defined.toSorted((left, right) => left - right).join(" or "),
@@ -380,7 +376,7 @@ export class Woff2FontValidator implements FontValidator {
         offset: number,
         where: { entryName: string; tag: string; field: string },
     ): { value: number; end: number } {
-        const violation = { rule: Woff2Rule.UIntBase128, at: this.tableName(where.tag), field: where.field };
+        const violation = { rule: Woff2Rule.UIntBase128, at: BrokenWoff2.tableName(where.tag), field: where.field };
         let value = 0;
 
         for (let index = 0; index < Woff2FontValidator.BASE128_MAX_SIZE_BYTES; index++) {
@@ -445,7 +441,7 @@ export class Woff2FontValidator implements FontValidator {
             if (firstIndex !== undefined) {
                 throw BrokenWoff2.byRule(path, {
                     rule: Woff2Rule.SingleEntry,
-                    at: this.tableName(entry.tag),
+                    at: BrokenWoff2.tableName(entry.tag),
                     field: "directory entry",
                     value: index + 1,
                     expected: `none but entry ${firstIndex + 1}, which has the tag already`,
@@ -465,15 +461,15 @@ export class Woff2FontValidator implements FontValidator {
      * transformed glyf (`ReconstructGlyf()` in `woff2_dec.cc` 1.0.2), and refuses the file otherwise.
      */
     private checkHmtx(fontPath: string, entries: Array<TableEntry>): void {
-        const hmtx = entries.find((entry) => entry.tag === Woff2FontValidator.HMTX_TAG);
-        const glyf = entries.find((entry) => entry.tag === Woff2FontValidator.GLYF_TAG);
+        const hmtx = entries.find((entry) => entry.tag === TableTag.Hmtx);
+        const glyf = entries.find((entry) => entry.tag === TableTag.Glyf);
 
         if (hmtx?.transformLength === undefined) {
             return;
         }
 
         const violation = {
-            at: this.tableName(Woff2FontValidator.HMTX_TAG),
+            at: BrokenWoff2.tableName(TableTag.Hmtx),
             field: "transform version",
             value: hmtx.transformVersion,
         };
@@ -496,18 +492,15 @@ export class Woff2FontValidator implements FontValidator {
     }
 
     private checkGlyfLoca(fontPath: string, entries: Array<TableEntry>): void {
-        const glyf = entries.find((entry) => entry.tag === Woff2FontValidator.GLYF_TAG);
-        const loca = entries.find((entry) => entry.tag === Woff2FontValidator.LOCA_TAG);
+        const glyf = entries.find((entry) => entry.tag === TableTag.Glyf);
+        const loca = entries.find((entry) => entry.tag === TableTag.Loca);
 
         if (glyf === undefined && loca === undefined) {
             return;
         }
 
         if (glyf === undefined || loca === undefined) {
-            const [present, absent] =
-                glyf === undefined
-                    ? [Woff2FontValidator.LOCA_TAG, Woff2FontValidator.GLYF_TAG]
-                    : [Woff2FontValidator.GLYF_TAG, Woff2FontValidator.LOCA_TAG];
+            const [present, absent] = glyf === undefined ? [TableTag.Loca, TableTag.Glyf] : [TableTag.Glyf, TableTag.Loca];
 
             throw BrokenWoff2.byRule(fontPath, {
                 rule: Woff2Rule.GlyfLoca,
@@ -520,7 +513,7 @@ export class Woff2FontValidator implements FontValidator {
 
         const glyfIndex = entries.indexOf(glyf);
         const locaIndex = entries.indexOf(loca);
-        const locaName = this.tableName(Woff2FontValidator.LOCA_TAG);
+        const locaName = BrokenWoff2.tableName(TableTag.Loca);
 
         if (glyf.transformVersion !== loca.transformVersion) {
             throw BrokenWoff2.byRule(fontPath, {
@@ -847,9 +840,9 @@ export class Woff2FontValidator implements FontValidator {
      * and the flags of the transformed hmtx are checked before any glyph record is read.
      */
     private sfntTables(fontPath: string, tables: ReadonlyArray<DecompressedTable>): Array<SfntTable> {
-        const glyf = tables.find((table) => table.entry.tag === Woff2FontValidator.GLYF_TAG);
-        const loca = tables.find((table) => table.entry.tag === Woff2FontValidator.LOCA_TAG);
-        const hmtx = tables.find((table) => table.entry.tag === Woff2FontValidator.HMTX_TAG);
+        const glyf = tables.find((table) => table.entry.tag === TableTag.Glyf);
+        const loca = tables.find((table) => table.entry.tag === TableTag.Loca);
+        const hmtx = tables.find((table) => table.entry.tag === TableTag.Hmtx);
 
         if (glyf?.entry.transformLength === undefined || loca === undefined) {
             return tables.map((table) => ({ tag: table.entry.tag, bytes: table.bytes }));
@@ -867,11 +860,11 @@ export class Woff2FontValidator implements FontValidator {
 
     private rebuiltBytes(table: DecompressedTable, reconstructed: ReconstructedTables): Uint8Array {
         switch (table.entry.tag) {
-            case Woff2FontValidator.GLYF_TAG:
+            case TableTag.Glyf:
                 return reconstructed.glyf;
-            case Woff2FontValidator.LOCA_TAG:
+            case TableTag.Loca:
                 return reconstructed.loca;
-            case Woff2FontValidator.HMTX_TAG:
+            case TableTag.Hmtx:
                 return reconstructed.hmtx ?? table.bytes;
             default:
                 return table.bytes;
@@ -885,7 +878,7 @@ export class Woff2FontValidator implements FontValidator {
         if (locaEntry.origLength !== locaSizeBytes) {
             throw BrokenWoff2.byRule(fontPath, {
                 rule: Woff2Rule.LocaTransform,
-                at: this.tableName(Woff2FontValidator.LOCA_TAG),
+                at: BrokenWoff2.tableName(TableTag.Loca),
                 field: "origLength",
                 value: locaEntry.origLength,
                 expected: `${locaSizeBytes}, (numGlyphs ${numGlyphs} + 1) × ${offsetSizeBytes} for indexFormat ${indexFormat} of table "glyf"`,
@@ -894,13 +887,14 @@ export class Woff2FontValidator implements FontValidator {
     }
 
     /**
-     * The transformed hmtx with hhea, once its flags are checked. `GlyfReconstructor` checks the
-     * rest of rule `TransformedHmtx`: hhea and numberOfHMetrics against the glyph count.
+     * The transformed hmtx with hhea, once its flags pass rule `HmtxTransform`. `GlyfReconstructor`
+     * checks rule `TransformedHmtx`: hhea and numberOfHMetrics against the glyph count, and the
+     * length of the table.
      */
     private transformedHmtx(fontPath: string, hmtx: Uint8Array, tables: ReadonlyArray<DecompressedTable>): TransformedHmtx {
-        this.checkTransformedHmtx(fontPath, hmtx);
+        this.checkHmtxFlags(fontPath, hmtx);
 
-        return { bytes: hmtx, hhea: tables.find((table) => table.entry.tag === Woff2FontValidator.HHEA_TAG)?.bytes };
+        return { bytes: hmtx, hhea: tables.find((table) => table.entry.tag === TableTag.Hhea)?.bytes };
     }
 
     /**
@@ -925,8 +919,8 @@ export class Woff2FontValidator implements FontValidator {
         }
     }
 
-    private checkTransformedHmtx(fontPath: string, hmtx: Uint8Array): void {
-        const at = this.tableName(Woff2FontValidator.HMTX_TAG);
+    private checkHmtxFlags(fontPath: string, hmtx: Uint8Array): void {
+        const at = BrokenWoff2.tableName(TableTag.Hmtx);
 
         const flags = hmtx[0];
 
@@ -949,10 +943,6 @@ export class Woff2FontValidator implements FontValidator {
                 expected: "bit 0 or bit 1 set, bits 2–7 clear",
             });
         }
-    }
-
-    private tableName(tag: string): string {
-        return `table ${JSON.stringify(tag)}`;
     }
 
     private hex(value: number): string {

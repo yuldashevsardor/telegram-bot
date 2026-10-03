@@ -29,6 +29,13 @@ export class NotWoff2 extends InvalidWoff2Font {
  * nothing here is cut.
  */
 export class BrokenWoff2 extends InvalidWoff2Font {
+    /**
+     * How an answer names a table in `at` or `field`: `table "glyf"`.
+     */
+    public static tableName(tag: string): string {
+        return `table ${JSON.stringify(tag)}`;
+    }
+
     public static byRule(fontPath: string, violation: Violation): BrokenWoff2 {
         return new BrokenWoff2(BrokenWoff2.message(violation), { path: fontPath, ...violation });
     }

@@ -193,7 +193,8 @@ describe("GlyfReconstructor.reconstruct", function () {
         });
 
         it("taking 0 for the lsb of an empty glyph", function () {
-            // Glyph 1 is empty; its lsb in the fixture is 0 as well, so a stored lsb of 5 is replaced by 0.
+            // Glyph 1 is empty. A stored lsb of 5 is kept while lsb[] is in the table; with lsb[]
+            // dropped, the lsb is rebuilt as 0.
             const stored = metrics(hmtx).map((metric, glyph) => (glyph === 1 ? Uint8Array.from([0x00, 0x05]) : metric.subarray(2, 4)));
             const advanceWidths = metrics(hmtx).map((metric) => metric.subarray(0, 2));
             const fromTable = new GlyfReconstructor(FONT_PATH, glyf).reconstruct({
