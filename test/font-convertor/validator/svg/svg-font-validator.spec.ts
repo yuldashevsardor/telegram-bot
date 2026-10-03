@@ -153,7 +153,7 @@ describe("SvgFontValidator.validate", function () {
         });
 
         it("with kerning pairs in the forms real fonts write", async function () {
-            // A comma is one character, the one u1 of 13 of the 24 real fonts checked for #776 kerns.
+            // u1="," is a single character, not a list: 13 of the 24 real fonts checked for #776 hold it.
             await validate(inline(kerned('<hkern u1="," u2="a" k="-50"/><vkern u1="a" u2="b" k="12.5"/>')));
             await validate(inline(kerned('<hkern g1="a,b c" g2="unknown" k="50"/><hkern u1="a" g1="b" u2="b" k="0"/>')));
             // A no-break space is no XML whitespace: it is a name, though no glyph has it.
@@ -588,21 +588,21 @@ describe("SvgFontValidator.validate", function () {
                     "SVG font breaks a rule: hkern and vkern name both glyphs of the pair, by u1 or g1 and by u2 or g2 (SVG 1.1, §20.7). At line 2: <hkern>.";
 
                 // A g1 of separators alone names no glyph: fontforge kerns nothing for it.
-                for (const kern of [
+                for (const kernMarkup of [
                     '<hkern u2="b" k="50"/>',
                     '<hkern g1="a" k="50"/>',
                     '<hkern k="50"/>',
                     '<hkern g1="" u2="b" k="50"/>',
                     '<hkern g1=" , " u2="b" k="50"/>',
                 ]) {
-                    const error = await expectAnswer(inline(kerned(kern)), BrokenFont, message);
+                    const error = await expectAnswer(inline(kerned(kernMarkup)), BrokenFont, message);
 
                     expect(error.payload).to.deep.equal({ path: fontPath, rule: FontRule.KernedGlyphRequired, element: "hkern", line: 2 });
                 }
 
                 await expectAnswer(inline(kerned('<vkern u1="a" k="50"/>')), BrokenFont, message.replace("<hkern>", "<vkern>"));
                 await expectAnswer(
-                    inline(kerned('<vkern u1="a" g2="&#9;,&#10;" k="50"/>')),
+                    inline(kerned('<vkern u1="a" g2="&#9;,&#10;&#13; " k="50"/>')),
                     BrokenFont,
                     message.replace("<hkern>", "<vkern>"),
                 );
