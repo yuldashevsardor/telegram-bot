@@ -383,15 +383,15 @@ About the envelope it answers with a subclass of `InvalidEotFont` (`eot-font-val
 `BrokenEot` for the first broken rule. The order in which the rules are checked is in the comment of
 `validate()`. A file that cannot be read fails with `ReadFailed` of `FileHelper`, not with an answer
 about the font. Every answer names the source in `path` of its payload. Nothing in the answers is
-cut: the only things from the file they quote are numbers. One answer keeps another error as the
-cause: a file that ends inside a field the parse reads (the Padding or the size of a block, or
-`EUDCFlags` and `EUDCFontSize` of version `0x00020002`) keeps the `InvalidEot` of `EotHeader`.
+cut: the only things from the file they quote are numbers. Two answers keep another error as the
+cause. A file that ends inside a field the parse reads (the Padding or the size of a block, or
+`EUDCFlags` and `EUDCFontSize` of version `0x00020002`) keeps the `InvalidEot` of `EotHeader`. A
+`FontData` that does not decode keeps the `InvalidEotPayload` of the decoder (below).
 
 The rules are `EotRule` in `eot-font-validator.types.ts`, each with its section. None is ours: a
 compressed or encrypted `FontData` is read, as the submission asks of a user agent (§2.3). The last
 rule, `FontDataDecodes`, is that `FontData` decodes under its flags by `EotPayloadDecoder` (see
-"EOT"). Its answer names W3C Member Submission "MicroType Express (MTX) Font Format" and keeps the
-`InvalidEotPayload` of the decoder as the cause.
+"EOT"). Its answer names W3C Member Submission "MicroType Express (MTX) Font Format".
 
 A valid envelope is not yet a valid font. The submission makes the enclosed font part of the format:
 `FontData` is "a TrueType or OpenType font" (§3). The codec checks only its sfnt header and table
@@ -580,10 +580,11 @@ not count as supported.
   the codec. The decoding has no output cap of ours and no timeout: on 600 damaged inputs it never
   hung under a 20 s limit, but nothing guarantees that
   ([#741](https://github.com/yuldashevsardor/telegram-bot/issues/741)). `mtx-decompressor` 1.8.0
-  caps itself: each of the three compressed streams may declare at most 16 MiB and grow its buffer
-  to at most 64 MiB, and the sfnt it writes is at most 64 MiB (`MAX_OUT_LEN`, `MAX_OUT`,
-  `MAX_OUTPUT_BYTES` in its `dist/index.js`). How much memory a small crafted file takes within
-  those caps is not measured. A WOFF2 source is
+  caps only its input to the rebuild: each of the three compressed streams may declare at most
+  16 MiB and grow its buffer to at most 64 MiB (`MAX_OUT_LEN`, `MAX_OUT` in its `dist/index.js`).
+  The sfnt it rebuilds from them has no cap: `glyf` grows as the streams describe it, and only the
+  decoded `hdmx` table is held to 64 MiB (`MAX_OUTPUT_BYTES`). How much memory a small crafted file
+  takes is not measured. A WOFF2 source is
   read whole as well: its compressed data is decompressed by the asynchronous
   `zlib.brotliDecompress`, off the event loop, but its table directory and the transformed tables
   are walked on it. The 30 MiB cap bounds the decompressed tables, not the file. Only the sfnt walk

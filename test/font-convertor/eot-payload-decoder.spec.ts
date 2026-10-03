@@ -5,15 +5,12 @@ import { EotError } from "mtx-decompressor";
 import { EotPayloadDecoder } from "app/font-convertor/eot-payload-decoder/eot-payload-decoder";
 import { InvalidEotPayload } from "app/font-convertor/eot-payload-decoder/eot-payload-decoder.errors";
 import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
-import { fontDataOf, overwritten, xor } from "test/font-convertor/eot-payload-decoder.helper";
+import { TTEMBED_TTCOMPRESSED, TTEMBED_XORENCRYPTDATA, fontDataOf, overwritten, xor } from "test/font-convertor/eot-payload-decoder.helper";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
-// The flags of the header (EOT, §4.2). The spec keeps its own copies rather than the constants of
-// EotHeader, so that a wrong constant in the class fails its spec.
+// A flag of the header that leaves FontData raw (EOT, §4.2).
 const TTEMBED_SUBSET = 0x00000001;
-const TTEMBED_TTCOMPRESSED = 0x00000004;
-const TTEMBED_XORENCRYPTDATA = 0x10000000;
 
 const decoder = new EotPayloadDecoder();
 

@@ -10,7 +10,7 @@ import { InvalidSfnt } from "app/font-convertor/sfnt-table-directory/sfnt-table-
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { EotFontValidator } from "app/font-convertor/validator/eot/eot-font-validator";
 import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
-import { xor } from "test/font-convertor/eot-payload-decoder.helper";
+import { TTEMBED_TTCOMPRESSED, TTEMBED_XORENCRYPTDATA, xor } from "test/font-convertor/eot-payload-decoder.helper";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
@@ -25,12 +25,11 @@ const EOT_FS_TYPE_OFFSET = 32;
 const EOT_MAGIC_OFFSET = 34;
 const EOT_UNICODE_RANGE_OFFSET = 36;
 const EOT_HEADER_FIXED_SIZE = 82;
-const TTEMBED_TTCOMPRESSED = 0x00000004;
-const TTEMBED_XORENCRYPTDATA = 0x10000000;
 const FIXTURE_GLYPH_COUNT = 1296;
 // MicroType Express rebuilds these tables, so they differ from the font the envelope was made of
-// in bytes while holding the same glyphs. In head it rewrites only checkSumAdjustment, which sums
-// the whole font.
+// in bytes while holding the same glyphs. In head of this fixture it rewrites only
+// checkSumAdjustment, which sums the whole font; with a glyf past 131070 bytes it would also switch
+// indexToLocFormat to the long format.
 const MTX_REBUILT_TABLES = ["glyf", "loca"];
 const HEAD_CHECKSUM_ADJUSTMENT_OFFSET = 8;
 const HEAD_CHECKSUM_ADJUSTMENT_SIZE_BYTES = 4;
@@ -398,7 +397,7 @@ function hex(bytes: Uint8Array): string {
 }
 
 function os2Offset(bytes: Uint8Array): number {
-    return new DataView(bytes.buffer).getUint32(tableRecord(bytes, "OS/2") + 8);
+    return tableOffset(bytes, "OS/2");
 }
 
 /**
@@ -409,20 +408,16 @@ function fontFsType(bytes: Uint8Array): number {
 }
 
 /**
- * The offset of a table record in the sfnt directory: a 12-byte header, 16-byte records.
+ * The offset of a table record in the sfnt directory.
  */
 function tableRecord(bytes: Uint8Array, tag: string): number {
-    const view = new DataView(bytes.buffer);
+    const index = tableTags(bytes).indexOf(tag);
 
-    for (let index = 0; index < view.getUint16(4); index++) {
-        const record = 12 + index * 16;
-
-        if (String.fromCharCode(...bytes.subarray(record, record + 4)) === tag) {
-            return record;
-        }
+    if (index === -1) {
+        throw new Error(`Fixture has no ${tag} table.`);
     }
 
-    throw new Error(`Fixture has no ${tag} table.`);
+    return SFNT_HEADER_SIZE_BYTES + index * TABLE_RECORD_SIZE_BYTES;
 }
 
 /**
@@ -439,11 +434,21 @@ type Glyph =
       }
     | undefined;
 
-// The fields the walk reads, by their offset in head and maxp, and the size of numberOfContours with
-// the bounding box that open a glyph.
+// The sfnt table directory: a 12-byte header with numTables at offset 4, then 16-byte records with
+// the tag, the offset of the table at 8 and its length at 12.
+const SFNT_HEADER_SIZE_BYTES = 12;
+const NUM_TABLES_OFFSET = 4;
+const TABLE_RECORD_SIZE_BYTES = 16;
+const TAG_SIZE_BYTES = 4;
+const TABLE_OFFSET_FIELD_OFFSET = 8;
+const TABLE_LENGTH_FIELD_OFFSET = 12;
+// The fields the walk reads, by their offset in head and maxp, the size of numberOfContours with
+// the bounding box that open a glyph, and the size of a loca entry in either format.
 const INDEX_TO_LOC_FORMAT_OFFSET = 50;
 const NUM_GLYPHS_OFFSET = 4;
 const GLYPH_HEADER_SIZE_BYTES = 10;
+const LONG_LOCA_ENTRY_SIZE_BYTES = 4;
+const SHORT_LOCA_ENTRY_SIZE_BYTES = 2;
 // The bits of a point's flags.
 const ON_CURVE_POINT = 0x01;
 const X_SHORT_VECTOR = 0x02;
@@ -453,16 +458,22 @@ const X_IS_SAME_OR_POSITIVE_X_SHORT_VECTOR = 0x10;
 const Y_IS_SAME_OR_POSITIVE_Y_SHORT_VECTOR = 0x20;
 
 function readGlyphs(font: Uint8Array): Array<Glyph> {
-    const view = new DataView(font.buffer, font.byteOffset, font.byteLength);
+    const view = viewOf(font);
     const glyfOffset = tableOffset(font, "glyf");
     const locaOffset = tableOffset(font, "loca");
     const isLongLoca = view.getInt16(tableOffset(font, "head") + INDEX_TO_LOC_FORMAT_OFFSET) === 1;
     const numGlyphs = view.getUint16(tableOffset(font, "maxp") + NUM_GLYPHS_OFFSET);
     const glyphs: Array<Glyph> = [];
 
+    // The long format keeps each offset as is, the short one keeps it halved (OpenType 1.9.1, loca).
+    const locaEntry = (index: number): number =>
+        isLongLoca
+            ? view.getUint32(locaOffset + index * LONG_LOCA_ENTRY_SIZE_BYTES)
+            : view.getUint16(locaOffset + index * SHORT_LOCA_ENTRY_SIZE_BYTES) * 2;
+
     for (let index = 0; index < numGlyphs; index++) {
-        const start = isLongLoca ? view.getUint32(locaOffset + index * 4) : view.getUint16(locaOffset + index * 2) * 2;
-        const end = isLongLoca ? view.getUint32(locaOffset + index * 4 + 4) : view.getUint16(locaOffset + index * 2 + 2) * 2;
+        const start = locaEntry(index);
+        const end = locaEntry(index + 1);
 
         glyphs.push(start === end ? undefined : readGlyph(view, glyfOffset + start));
     }
@@ -544,27 +555,34 @@ function withoutCheckSumAdjustment(tag: string, table: Uint8Array): Uint8Array {
     return Uint8Array.from(table).fill(0, HEAD_CHECKSUM_ADJUSTMENT_OFFSET, end);
 }
 
+/**
+ * The tags of the sfnt table directory, in its order.
+ */
 function tableTags(font: Uint8Array): Array<string> {
-    const view = new DataView(font.buffer, font.byteOffset, font.byteLength);
     const tags: Array<string> = [];
 
-    for (let index = 0; index < view.getUint16(4); index++) {
-        const record = 12 + index * 16;
+    for (let index = 0; index < viewOf(font).getUint16(NUM_TABLES_OFFSET); index++) {
+        const record = SFNT_HEADER_SIZE_BYTES + index * TABLE_RECORD_SIZE_BYTES;
 
-        tags.push(String.fromCharCode(...font.subarray(record, record + 4)));
+        tags.push(String.fromCharCode(...font.subarray(record, record + TAG_SIZE_BYTES)));
     }
 
     return tags;
 }
 
 function tableOffset(font: Uint8Array, tag: string): number {
-    return new DataView(font.buffer).getUint32(tableRecord(font, tag) + 8);
+    return viewOf(font).getUint32(tableRecord(font, tag) + TABLE_OFFSET_FIELD_OFFSET);
 }
 
 function tableBytes(font: Uint8Array, tag: string): Uint8Array {
-    const length = new DataView(font.buffer).getUint32(tableRecord(font, tag) + 12);
+    const start = tableOffset(font, tag);
+    const lengthBytes = viewOf(font).getUint32(tableRecord(font, tag) + TABLE_LENGTH_FIELD_OFFSET);
 
-    return font.subarray(tableOffset(font, tag), tableOffset(font, tag) + length);
+    return font.subarray(start, start + lengthBytes);
+}
+
+function viewOf(bytes: Uint8Array): DataView {
+    return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 }
 
 async function readFixture(extension: Extension): Promise<Uint8Array> {

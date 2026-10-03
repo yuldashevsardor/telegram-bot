@@ -21,7 +21,8 @@ const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 // own beyond the input check and the engine call. A stub engine would confirm only the call, not
 // that the pair is reachable. Each pair calls the check itself, so a rejection is pinned for each.
 // The branches of the check itself run in convertor.spec.ts. The EOT pairs run on stubs in
-// eot-convertor.spec.ts; only their SVG route runs here, with the real engine and codec, below.
+// eot-convertor.spec.ts; only two of their routes run here, with the real engine and codec, below:
+// eot → svg and the compressed eot → woff.
 describe("Convertors of the engine pairs", function () {
     const resolver = new FontValidatorResolver(
         new SvgFontValidator(),
