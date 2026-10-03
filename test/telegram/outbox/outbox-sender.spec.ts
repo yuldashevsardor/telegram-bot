@@ -42,13 +42,18 @@ describe("OutboxSender", function () {
         sender = new OutboxSender({ create: () => api as unknown as Api } as unknown as OutboxApiFactory);
     });
 
-    it("calls the method by its name with the payload alone and resolves with the result", async function () {
+    it("calls the method by its name with the payload and the signal and resolves with the result", async function () {
         const payload = { chat_id: 1, text: "text" };
+        const { signal } = new AbortController();
 
-        const response = await sender.send("sendMessage", payload);
+        const response = await sender.send("sendMessage", payload, signal);
 
         expect(response).to.equal(RESPONSE);
-        expect(api.calls).to.deep.equal([{ method: "sendMessage", args: [payload] }]);
+        expect(api.calls).to.have.lengthOf(1);
+        expect(api.calls[0]?.method).to.equal("sendMessage");
+        expect(api.calls[0]?.args).to.have.lengthOf(2);
+        expect(api.calls[0]?.args[0]).to.equal(payload);
+        expect(api.calls[0]?.args[1]).to.equal(signal);
     });
 
     it("throws the error of the call as it was thrown", async function () {
@@ -60,7 +65,7 @@ describe("OutboxSender", function () {
         );
         api.error = error;
 
-        const thrown = await sender.send("sendMessage", { chat_id: 1, text: "text" }).then(
+        const thrown = await sender.send("sendMessage", { chat_id: 1, text: "text" }, new AbortController().signal).then(
             () => expect.fail("send() was expected to reject"),
             (reason: unknown) => reason,
         );
