@@ -69,6 +69,8 @@ type Entry = {
     transformLength: number | undefined;
     /** Written in place of the UIntBase128 of origLength. */
     origLengthBytes?: Uint8Array;
+    /** Written in place of the UIntBase128 of transformLength. */
+    transformLengthBytes?: Uint8Array;
     /** The table in the stream: transformLength bytes of it when transformed, origLength otherwise. */
     data: Uint8Array;
 };
@@ -389,6 +391,19 @@ describe("Woff2FontValidator.validate", function () {
                 withCmapLength([0x90, 0x80, 0x80, 0x80, 0x00]),
                 Woff2Rule.UIntBase128,
                 `${at} 90 80 80 80 00, expected a value of at most 4294967295.`,
+            );
+        });
+
+        it("with a transformLength that starts with 0x80", async function () {
+            const layout = withEntry(fixtureLayout, "glyf", (entry) => ({
+                ...entry,
+                transformLengthBytes: concat(Uint8Array.from([0x80]), base128(entry.transformLength ?? 0)),
+            }));
+
+            await expectBroken(
+                build(layout),
+                Woff2Rule.UIntBase128,
+                'At table "glyf": transformLength is 80, expected a first byte other than 80.',
             );
         });
 
@@ -1102,7 +1117,7 @@ function encodeEntry(entry: Entry): Uint8Array {
     parts.push(entry.origLengthBytes ?? base128(entry.origLength));
 
     if (entry.transformLength !== undefined) {
-        parts.push(base128(entry.transformLength));
+        parts.push(entry.transformLengthBytes ?? base128(entry.transformLength));
     }
 
     return concat(...parts);
