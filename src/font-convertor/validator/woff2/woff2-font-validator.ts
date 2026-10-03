@@ -20,6 +20,7 @@ import { BlockKind, Woff2Rule } from "app/font-convertor/validator/woff2/woff2-f
 import type { FontValidator } from "app/font-convertor/validator/font-validator";
 import { GlyfReconstructor } from "app/font-convertor/validator/woff2/glyf-reconstructor";
 import { FileHelper } from "app/shared/fs/file-helper";
+import { NumberHelper } from "app/shared/number-helper";
 
 const brotliDecompress = promisify(brotliDecompressOrigin);
 
@@ -167,13 +168,6 @@ export class Woff2FontValidator implements FontValidator {
     private static readonly LOCA_TAG = "loca";
     private static readonly HMTX_TAG = "hmtx";
     private static readonly HHEA_TAG = "hhea";
-    // numberOfHMetrics, a UInt16 at offset 34, is the last field of the 36-byte hhea (OpenType 1.9.1, hhea).
-    private static readonly NUMBER_OF_H_METRICS_OFFSET = 34;
-    private static readonly HHEA_MIN_SIZE_BYTES = 36;
-    // An offset of loca takes 2 bytes when indexFormat is 0, 4 otherwise (§5.3).
-    private static readonly SHORT_LOCA_FORMAT = 0;
-    private static readonly SHORT_LOCA_OFFSET_SIZE_BYTES = 2;
-    private static readonly LONG_LOCA_OFFSET_SIZE_BYTES = 4;
     private static readonly HMTX_FLAG_BITS = 0b00000011;
     private static readonly HMTX_RESERVED_BITS = 0b11111100;
     // The metadata and the private block start on it (§6, §7), and so does the end of the file
@@ -185,12 +179,11 @@ export class Woff2FontValidator implements FontValidator {
     // of `woff2_dec.cc` 1.0.2, which divides the same sum by the file size. The largest of 5796
     // real fonts decompresses to 2 397 699 bytes, and the largest ratio among them is 6.3. A
     // 49 816-byte WOFF2 with an extra table of 512 MiB of zeros took Brotli 227 ms and the process
-    // 70 MB of RSS to refuse with a 64 MiB maxOutputLength.
-    private static readonly MAX_DECOMPRESSED_SIZE_BYTES = 30 * 1024 * 1024;
+    // 70 MB of RSS to refuse with a 64 MiB maxOutputLength. The decoder writes the rebuilt sfnt into
+    // the same buffer, and the reconstruction can make glyf larger than its transformed form, so the
+    // sfnt is capped by it too.
+    private static readonly DECODER_BUFFER_SIZE_BYTES = 30 * 1024 * 1024;
     private static readonly MAX_COMPRESSION_RATIO = 100;
-    // The decoder writes the sfnt into the same 30 MiB buffer, and the reconstruction can make glyf
-    // larger than its transformed form.
-    private static readonly MAX_SFNT_SIZE_BYTES = 30 * 1024 * 1024;
     private static readonly SFNT_HEADER_SIZE_BYTES = 12;
     private static readonly SFNT_TABLE_RECORD_SIZE_BYTES = 16;
 
@@ -728,7 +721,7 @@ export class Woff2FontValidator implements FontValidator {
 
     private expectedPaddedEnd(block: Block): ExpectedEnd {
         return {
-            offset: this.padded(this.endOffset(block), Woff2FontValidator.ALIGNMENT_BYTES),
+            offset: NumberHelper.roundUp(this.endOffset(block), Woff2FontValidator.ALIGNMENT_BYTES),
             description: `the end of ${block.name} padded to ${Woff2FontValidator.ALIGNMENT_BYTES} bytes`,
         };
     }
@@ -788,11 +781,11 @@ export class Woff2FontValidator implements FontValidator {
     private checkDecompressedSize({ path, bytes }: Woff2, streamSizeBytes: number): void {
         const violation = { at: "the table directory", field: "sum of the table lengths", value: streamSizeBytes };
 
-        if (streamSizeBytes > Woff2FontValidator.MAX_DECOMPRESSED_SIZE_BYTES) {
+        if (streamSizeBytes > Woff2FontValidator.DECODER_BUFFER_SIZE_BYTES) {
             throw BrokenWoff2.byRule(path, {
                 ...violation,
                 rule: Woff2Rule.MaxDecompressedSize,
-                expected: `at most ${Woff2FontValidator.MAX_DECOMPRESSED_SIZE_BYTES}`,
+                expected: `at most ${Woff2FontValidator.DECODER_BUFFER_SIZE_BYTES}`,
             });
         }
 
@@ -885,11 +878,8 @@ export class Woff2FontValidator implements FontValidator {
         }
     }
 
-    private checkTransformedLoca(fontPath: string, locaEntry: TableEntry, { numGlyphs, indexFormat }: GlyfReconstructor): void {
-        const offsetSizeBytes =
-            indexFormat === Woff2FontValidator.SHORT_LOCA_FORMAT
-                ? Woff2FontValidator.SHORT_LOCA_OFFSET_SIZE_BYTES
-                : Woff2FontValidator.LONG_LOCA_OFFSET_SIZE_BYTES;
+    private checkTransformedLoca(fontPath: string, locaEntry: TableEntry, reconstructor: GlyfReconstructor): void {
+        const { numGlyphs, indexFormat, locaOffsetSizeBytes: offsetSizeBytes } = reconstructor;
         const locaSizeBytes = (numGlyphs + 1) * offsetSizeBytes;
 
         if (locaEntry.origLength !== locaSizeBytes) {
@@ -904,37 +894,13 @@ export class Woff2FontValidator implements FontValidator {
     }
 
     /**
-     * The transformed hmtx with numberOfHMetrics of hhea, once its flags are checked: the count of
-     * the advance widths it holds is in hhea alone (§5.4).
+     * The transformed hmtx with hhea, once its flags are checked. `GlyfReconstructor` checks the
+     * rest of rule `TransformedHmtx`: hhea and numberOfHMetrics against the glyph count.
      */
     private transformedHmtx(fontPath: string, hmtx: Uint8Array, tables: ReadonlyArray<DecompressedTable>): TransformedHmtx {
         this.checkTransformedHmtx(fontPath, hmtx);
 
-        const hhea = tables.find((table) => table.entry.tag === Woff2FontValidator.HHEA_TAG);
-
-        if (hhea === undefined) {
-            throw BrokenWoff2.byRule(fontPath, {
-                rule: Woff2Rule.TransformedHmtx,
-                at: "the table directory",
-                field: `table ${JSON.stringify(Woff2FontValidator.HHEA_TAG)}`,
-                value: "absent",
-                expected: `present, as table ${JSON.stringify(Woff2FontValidator.HMTX_TAG)} is transformed`,
-            });
-        }
-
-        if (hhea.bytes.length < Woff2FontValidator.HHEA_MIN_SIZE_BYTES) {
-            throw BrokenWoff2.byRule(fontPath, {
-                rule: Woff2Rule.TransformedHmtx,
-                at: this.tableName(Woff2FontValidator.HHEA_TAG),
-                field: "origLength",
-                value: hhea.bytes.length,
-                expected: `at least ${Woff2FontValidator.HHEA_MIN_SIZE_BYTES}, to hold numberOfHMetrics`,
-            });
-        }
-
-        const view = new DataView(hhea.bytes.buffer, hhea.bytes.byteOffset, hhea.bytes.byteLength);
-
-        return { bytes: hmtx, numberOfHMetrics: view.getUint16(Woff2FontValidator.NUMBER_OF_H_METRICS_OFFSET) };
+        return { bytes: hmtx, hhea: tables.find((table) => table.entry.tag === Woff2FontValidator.HHEA_TAG)?.bytes };
     }
 
     /**
@@ -945,16 +911,16 @@ export class Woff2FontValidator implements FontValidator {
         let sfntSizeBytes = Woff2FontValidator.SFNT_HEADER_SIZE_BYTES + tables.length * Woff2FontValidator.SFNT_TABLE_RECORD_SIZE_BYTES;
 
         for (const table of tables) {
-            sfntSizeBytes += this.padded(table.bytes.length, Woff2FontValidator.ALIGNMENT_BYTES);
+            sfntSizeBytes += NumberHelper.roundUp(table.bytes.length, Woff2FontValidator.ALIGNMENT_BYTES);
         }
 
-        if (sfntSizeBytes > Woff2FontValidator.MAX_SFNT_SIZE_BYTES) {
+        if (sfntSizeBytes > Woff2FontValidator.DECODER_BUFFER_SIZE_BYTES) {
             throw BrokenWoff2.byRule(fontPath, {
                 rule: Woff2Rule.MaxSfntSize,
                 at: "the rebuilt sfnt",
                 field: "size",
                 value: sfntSizeBytes,
-                expected: `at most ${Woff2FontValidator.MAX_SFNT_SIZE_BYTES}`,
+                expected: `at most ${Woff2FontValidator.DECODER_BUFFER_SIZE_BYTES}`,
             });
         }
     }
@@ -983,14 +949,6 @@ export class Woff2FontValidator implements FontValidator {
                 expected: "bit 0 or bit 1 set, bits 2–7 clear",
             });
         }
-    }
-
-    /**
-     * Rounded up to a multiple of `unitBytes`. Not with a bit mask: the operands of JavaScript
-     * bitwise operators are 32-bit signed, and an offset read from the file may be up to 2^32 - 1.
-     */
-    private padded(lengthBytes: number, unitBytes: number): number {
-        return Math.ceil(lengthBytes / unitBytes) * unitBytes;
     }
 
     private tableName(tag: string): string {

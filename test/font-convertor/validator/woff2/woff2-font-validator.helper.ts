@@ -219,17 +219,15 @@ export function withNContour(parts: GlyfParts, glyph: number, nContour: number):
 }
 
 /**
- * The parts with the bit of `glyph` in bboxBitmap set to `isSet`. The explicit bounding boxes
- * after the bitmap stay as they are.
+ * The parts with the bit of `glyph` in bboxBitmap set. The explicit bounding boxes after the bitmap
+ * stay as they are.
  */
-export function withBoundingBoxBit(parts: GlyfParts, glyph: number, isSet: boolean): GlyfParts {
+export function withBoundingBoxBitSet(parts: GlyfParts, glyph: number): GlyfParts {
     return withStream(parts, "bbox", (stream) => {
         const copy = Uint8Array.from(stream);
         const index = Math.floor(glyph / 8);
-        const byte = copy[index] ?? 0;
-        const mask = 0x80 >> glyph % 8;
 
-        copy[index] = isSet ? byte | mask : byte & ~mask;
+        copy[index] = (copy[index] ?? 0) | (0x80 >> glyph % 8);
 
         return copy;
     });
@@ -254,7 +252,7 @@ export function withComposite(parts: GlyfParts, composite: Composite): GlyfParts
 
     const boundingBox = composite.boundingBox;
 
-    return withStream(withBoundingBoxBit(withGlyph, glyph, true), "bbox", (stream) => concat(stream, boundingBox));
+    return withStream(withBoundingBoxBitSet(withGlyph, glyph), "bbox", (stream) => concat(stream, boundingBox));
 }
 
 /**

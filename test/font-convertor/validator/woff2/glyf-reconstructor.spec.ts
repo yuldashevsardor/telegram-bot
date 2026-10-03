@@ -6,6 +6,7 @@ import {
     composite,
     concat,
     GLYF_INDEX_FORMAT,
+    HHEA_NUMBER_OF_H_METRICS,
     GLYF_OPTION_FLAGS,
     joinGlyf,
     parse,
@@ -13,7 +14,7 @@ import {
     readUint32,
     splitGlyf,
     tableOf,
-    withBoundingBoxBit,
+    withBoundingBoxBitSet,
     withBytes,
     withComposite,
     withStream,
@@ -36,6 +37,7 @@ const BITMAP_SIZE_BYTES = 164;
 describe("GlyfReconstructor.reconstruct", function () {
     let glyf: Uint8Array;
     let hmtx: Uint8Array;
+    let hhea: Uint8Array;
     let parts: GlyfParts;
 
     before(async function () {
@@ -43,6 +45,7 @@ describe("GlyfReconstructor.reconstruct", function () {
 
         glyf = tableOf(layout, "glyf");
         hmtx = tableOf(layout, "hmtx");
+        hhea = tableOf(layout, "hhea");
         parts = splitGlyf(glyf);
     });
 
@@ -61,7 +64,7 @@ describe("GlyfReconstructor.reconstruct", function () {
     it("writes the explicit bounding box of a simple glyph in place of the one its points give", function () {
         const boundingBox = Uint8Array.from([0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04]);
         const withBox = reconstruct((whole) =>
-            withStream(withBoundingBoxBit(whole, 0, true), "bbox", (stream) =>
+            withStream(withBoundingBoxBitSet(whole, 0), "bbox", (stream) =>
                 concat(stream.subarray(0, BITMAP_SIZE_BYTES), boundingBox, stream.subarray(BITMAP_SIZE_BYTES)),
             ),
         );
@@ -148,7 +151,7 @@ describe("GlyfReconstructor.reconstruct", function () {
         it("for flags 1 and 3, all the glyphs proportional", function () {
             for (const flags of [0x01, 0x03]) {
                 const transformed = concat(Uint8Array.from([flags]), ...metrics(hmtx).map((metric) => metric.subarray(0, 2)));
-                const reconstructed = new GlyfReconstructor(FONT_PATH, glyf).reconstruct({ bytes: transformed, numberOfHMetrics: 1296 });
+                const reconstructed = new GlyfReconstructor(FONT_PATH, glyf).reconstruct({ bytes: transformed, hhea: hhea });
 
                 expect(reconstructed.hmtx).to.deep.equal(hmtx);
             }
@@ -164,7 +167,7 @@ describe("GlyfReconstructor.reconstruct", function () {
             const rebuild = (flags: number, stored: Array<Uint8Array>): Uint8Array | undefined =>
                 new GlyfReconstructor(FONT_PATH, glyf).reconstruct({
                     bytes: concat(Uint8Array.from([flags]), ...advanceWidths, ...stored),
-                    numberOfHMetrics: numberOfHMetrics,
+                    hhea: withUint16(hhea, HHEA_NUMBER_OF_H_METRICS, numberOfHMetrics),
                 }).hmtx;
             const expected = (lsbs: Array<Uint8Array>, leftSideBearings: Array<Uint8Array>): Uint8Array =>
                 concat(
@@ -177,17 +180,29 @@ describe("GlyfReconstructor.reconstruct", function () {
             expect(rebuild(0x03, [])).to.deep.equal(expected(xMinLsbs(proportional), xMinLsbs(monospaced)));
         });
 
+        it("taking the xMin of the bounding box of a composite glyph", function () {
+            // woff2_decompress 1.0.2 writes 10 here too: its nContour is a UInt16, and −1 passes its
+            // n_contours > 0. Glyph 1296 is the composite, a monospaced glyph after 1296 hMetrics.
+            const advanceWidths = metrics(hmtx).map((metric) => metric.subarray(0, 2));
+            const reconstructed = new GlyfReconstructor(FONT_PATH, joinGlyf(withComposite(parts, composite()))).reconstruct({
+                bytes: concat(Uint8Array.from([0x03]), ...advanceWidths),
+                hhea: hhea,
+            });
+
+            expect(reconstructed.hmtx).to.deep.equal(concat(hmtx, Uint8Array.from([0x00, 0x0a])));
+        });
+
         it("taking 0 for the lsb of an empty glyph", function () {
             // Glyph 1 is empty; its lsb in the fixture is 0 as well, so a stored lsb of 5 is replaced by 0.
             const stored = metrics(hmtx).map((metric, glyph) => (glyph === 1 ? Uint8Array.from([0x00, 0x05]) : metric.subarray(2, 4)));
             const advanceWidths = metrics(hmtx).map((metric) => metric.subarray(0, 2));
             const fromTable = new GlyfReconstructor(FONT_PATH, glyf).reconstruct({
                 bytes: concat(Uint8Array.from([0x02]), ...advanceWidths, ...stored),
-                numberOfHMetrics: 1296,
+                hhea: hhea,
             });
             const fromXMin = new GlyfReconstructor(FONT_PATH, glyf).reconstruct({
                 bytes: concat(Uint8Array.from([0x01]), ...advanceWidths),
-                numberOfHMetrics: 1296,
+                hhea: hhea,
             });
 
             expect(fromTable.hmtx?.subarray(6, 8)).to.deep.equal(Uint8Array.from([0x00, 0x05]));

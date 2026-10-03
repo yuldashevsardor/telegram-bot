@@ -7,6 +7,7 @@ import type {
     Violation,
 } from "app/font-convertor/validator/woff2/woff2-font-validator.types";
 import { Woff2Rule } from "app/font-convertor/validator/woff2/woff2-font-validator.types";
+import { NumberHelper } from "app/shared/number-helper";
 
 /**
  * Rebuilds glyf and loca from a transformed glyf (WOFF 2.0, §5.1–§5.3), and a transformed hmtx
@@ -24,7 +25,11 @@ import { Woff2Rule } from "app/font-convertor/validator/woff2/woff2-font-validat
  * - all x bytes, then all y bytes;
  * - each glyph record is padded to 4 bytes;
  * - a composite glyph carries an instruction length and instructions only when one of its
- *   component flags has WE_HAVE_INSTRUCTIONS.
+ *   component flags has WE_HAVE_INSTRUCTIONS;
+ * - the xMin a dropped lsb is rebuilt from is that of the glyph's bounding box, for a composite
+ *   glyph as for a simple one, and 0 for an empty glyph. The decoder reads nContour as a UInt16,
+ *   so its `n_contours > 0` holds for −1 too; `woff2_decompress` writes 10, the xMin of the
+ *   composite of the spec, for its lsb.
  *
  * The OVERLAP_SIMPLE bit the overlapSimpleBitmap gives a simple glyph goes on its first flag, as
  * §5.1 says, before the flag is compared with the next one for "repeat". Decoder 1.0.2 knows
@@ -62,6 +67,12 @@ export class GlyfReconstructor {
     private static readonly FIRST_TWO_BYTES_FLAG = 84;
     private static readonly FIRST_THREE_BYTES_FLAG = 120;
     private static readonly FIRST_FOUR_BYTES_FLAG = 124;
+    private static readonly HIGH_BYTE_BITS = 0b1110;
+    private static readonly ONE_BYTE_DX_BASE_BITS = 0b110000;
+    private static readonly ONE_BYTE_DY_BASE_BITS = 0b1100;
+    private static readonly TWO_BYTES_DX_STEP = 12;
+    private static readonly BITS_PER_NIBBLE = 4;
+    private static readonly LOW_NIBBLE = 0x0f;
     // The flags of a simple glyph of glyf (OpenType 1.9.1, glyf).
     private static readonly ON_CURVE_POINT = 0x01;
     private static readonly X_SHORT_VECTOR = 0x02;
@@ -80,6 +91,14 @@ export class GlyfReconstructor {
     private static readonly WE_HAVE_AN_X_AND_Y_SCALE = 0x0040;
     private static readonly WE_HAVE_A_TWO_BY_TWO = 0x0080;
     private static readonly WE_HAVE_INSTRUCTIONS = 0x0100;
+    // What follows the flags of a component: its glyph index, argument1 and argument2 as words or
+    // bytes, then an F2Dot14 scale, an x and a y scale or a 2 × 2 matrix.
+    private static readonly GLYPH_INDEX_SIZE_BYTES = 2;
+    private static readonly WORD_ARGUMENTS_SIZE_BYTES = 4;
+    private static readonly BYTE_ARGUMENTS_SIZE_BYTES = 2;
+    private static readonly SCALE_SIZE_BYTES = 2;
+    private static readonly X_AND_Y_SCALE_SIZE_BYTES = 4;
+    private static readonly TWO_BY_TWO_SIZE_BYTES = 8;
     // A glyph record of glyf: numberOfContours and the bounding box, xMin first, take 10 bytes.
     private static readonly GLYPH_HEADER_SIZE_BYTES = 10;
     private static readonly X_MIN_OFFSET = 2;
@@ -88,18 +107,25 @@ export class GlyfReconstructor {
     private static readonly GLYPH_ALIGNMENT_BYTES = 4;
     // glyf and hmtx hold 16-bit words: endPtsOfContours, instructionLength, the metrics.
     private static readonly WORD_SIZE_BYTES = 2;
-    // An offset of loca takes 2 bytes, the offset halved, when indexFormat is 0, and 4 otherwise (§5.3).
     private static readonly SHORT_LOCA_FORMAT = 0;
     private static readonly SHORT_LOCA_OFFSET_SIZE_BYTES = 2;
     private static readonly LONG_LOCA_OFFSET_SIZE_BYTES = 4;
     private static readonly SHORT_LOCA_DIVISOR = 2;
     // The transformed hmtx (§5.4): a flags byte, then UInt16 and Int16 values.
     private static readonly HMTX_FLAGS_SIZE_BYTES = 1;
+    private static readonly GLYF_TAG = "glyf";
+    private static readonly HHEA_TAG = "hhea";
+    private static readonly HMTX_TAG = "hmtx";
+    // numberOfHMetrics, a UInt16 at offset 34, is the last field of the 36-byte hhea (OpenType 1.9.1, hhea).
+    private static readonly NUMBER_OF_H_METRICS_OFFSET = 34;
+    private static readonly HHEA_MIN_SIZE_BYTES = 36;
     private static readonly NO_LSB_FLAG = 0x01;
     private static readonly NO_LEFT_SIDE_BEARING_FLAG = 0x02;
 
     public readonly numGlyphs: number;
     public readonly indexFormat: number;
+    // An offset of loca takes 2 bytes, the offset halved, when indexFormat is 0, and 4 otherwise (§5.3).
+    public readonly locaOffsetSizeBytes: number;
     private readonly nContourStream: Substream;
     private readonly nPointsStream: Substream;
     private readonly flagStream: Substream;
@@ -143,6 +169,10 @@ export class GlyfReconstructor {
 
         this.numGlyphs = view.getUint16(fields.numGlyphs);
         this.indexFormat = view.getUint16(fields.indexFormat);
+        this.locaOffsetSizeBytes =
+            this.indexFormat === GlyfReconstructor.SHORT_LOCA_FORMAT
+                ? GlyfReconstructor.SHORT_LOCA_OFFSET_SIZE_BYTES
+                : GlyfReconstructor.LONG_LOCA_OFFSET_SIZE_BYTES;
         this.nContourStream = cut(0, "nContourStream");
         this.nPointsStream = cut(1, "nPointsStream");
         this.flagStream = cut(2, "flagStream");
@@ -179,10 +209,11 @@ export class GlyfReconstructor {
     /**
      * Reads the glyph records one by one, each taking what it needs from the substreams, and lays
      * them out into glyf with their offsets in loca; then rebuilds `transformedHmtx`, if given, from
-     * the xMin of the glyphs. Throws `BrokenWoff2` on the first glyph record that cannot be decoded,
-     * or a transformed hmtx that does not hold what its flags and numberOfHMetrics call for.
+     * the xMin of the glyphs. Throws `BrokenWoff2` on a transformed hmtx that hhea and the glyph count
+     * do not fit, checked first, or on the first glyph record that cannot be decoded.
      */
     public reconstruct(transformedHmtx: TransformedHmtx | undefined): ReconstructedTables {
+        const numberOfHMetrics = transformedHmtx === undefined ? undefined : this.checkTransformedHmtx(transformedHmtx);
         const bboxBitmap = this.take(this.bboxStream, this.bitmapSizeBytes(), "bboxBitmap");
         const records: Array<Uint8Array> = [];
         const offsets: Array<number> = [];
@@ -191,7 +222,7 @@ export class GlyfReconstructor {
 
         for (this.glyphIndex = 0; this.glyphIndex < this.numGlyphs; this.glyphIndex++) {
             const record = this.glyphRecord(this.isBitSet(bboxBitmap, this.glyphIndex));
-            const paddedRecord = new Uint8Array(this.padded(record.length));
+            const paddedRecord = new Uint8Array(NumberHelper.roundUp(record.length, GlyfReconstructor.GLYPH_ALIGNMENT_BYTES));
 
             paddedRecord.set(record);
             records.push(paddedRecord);
@@ -205,7 +236,10 @@ export class GlyfReconstructor {
         return {
             glyf: Buffer.concat(records),
             loca: this.loca(offsets),
-            hmtx: transformedHmtx === undefined ? undefined : this.hmtx(transformedHmtx, xMins),
+            hmtx:
+                transformedHmtx === undefined || numberOfHMetrics === undefined
+                    ? undefined
+                    : this.hmtx(transformedHmtx.bytes, numberOfHMetrics, xMins),
         };
     }
 
@@ -359,19 +393,21 @@ export class GlyfReconstructor {
      * scale or the matrix its flags name (OpenType 1.9.1, glyf).
      */
     private componentArgumentsSizeBytes(flags: number): number {
-        const glyphIndexSizeBytes = 2;
-        const argumentsSizeBytes = (flags & GlyfReconstructor.ARG_1_AND_2_ARE_WORDS) !== 0 ? 4 : 2;
+        const argumentsSizeBytes =
+            (flags & GlyfReconstructor.ARG_1_AND_2_ARE_WORDS) !== 0
+                ? GlyfReconstructor.WORD_ARGUMENTS_SIZE_BYTES
+                : GlyfReconstructor.BYTE_ARGUMENTS_SIZE_BYTES;
         let transformSizeBytes = 0;
 
         if ((flags & GlyfReconstructor.WE_HAVE_A_SCALE) !== 0) {
-            transformSizeBytes = 2;
+            transformSizeBytes = GlyfReconstructor.SCALE_SIZE_BYTES;
         } else if ((flags & GlyfReconstructor.WE_HAVE_AN_X_AND_Y_SCALE) !== 0) {
-            transformSizeBytes = 4;
+            transformSizeBytes = GlyfReconstructor.X_AND_Y_SCALE_SIZE_BYTES;
         } else if ((flags & GlyfReconstructor.WE_HAVE_A_TWO_BY_TWO) !== 0) {
-            transformSizeBytes = 8;
+            transformSizeBytes = GlyfReconstructor.TWO_BY_TWO_SIZE_BYTES;
         }
 
-        return glyphIndexSizeBytes + argumentsSizeBytes + transformSizeBytes;
+        return GlyfReconstructor.GLYPH_INDEX_SIZE_BYTES + argumentsSizeBytes + transformSizeBytes;
     }
 
     /**
@@ -419,38 +455,52 @@ export class GlyfReconstructor {
      */
     private deltas(kind: number, bytes: Uint8Array): [number, number] {
         const [byte0 = 0, byte1 = 0, byte2 = 0, byte3 = 0] = bytes;
+        const byteBits = GlyfReconstructor.BITS_PER_BYTE;
+        const nibbleBits = GlyfReconstructor.BITS_PER_NIBBLE;
+        const lowNibble = GlyfReconstructor.LOW_NIBBLE;
+        const dySign = kind >> 1;
 
+        // Flags 0–9 and 10–19: the high byte of the magnitude is bits 1–3 of the flag within its
+        // range, 0 to 4, and the bit of the sign is the bit 0 below it.
         if (kind < GlyfReconstructor.FIRST_DX_ONLY_FLAG) {
-            return [0, this.withSign(kind, ((kind & 14) << 7) + byte0)];
+            return [0, this.withSign(kind, ((kind & GlyfReconstructor.HIGH_BYTE_BITS) << (byteBits - 1)) + byte0)];
         }
 
         if (kind < GlyfReconstructor.FIRST_ONE_BYTE_FLAG) {
-            return [this.withSign(kind, (((kind - GlyfReconstructor.FIRST_DX_ONLY_FLAG) & 14) << 7) + byte0), 0];
+            const inRange = kind - GlyfReconstructor.FIRST_DX_ONLY_FLAG;
+
+            return [this.withSign(kind, ((inRange & GlyfReconstructor.HIGH_BYTE_BITS) << (byteBits - 1)) + byte0), 0];
         }
 
+        // Flags 20–83: one byte holds a nibble of each; bits 4–5 and 2–3 of the flag within its
+        // range pick 1, 17, 33 or 49 to add to dx and to dy.
         if (kind < GlyfReconstructor.FIRST_TWO_BYTES_FLAG) {
-            const high = kind - GlyfReconstructor.FIRST_ONE_BYTE_FLAG;
+            const inRange = kind - GlyfReconstructor.FIRST_ONE_BYTE_FLAG;
+            const dxBase = 1 + (inRange & GlyfReconstructor.ONE_BYTE_DX_BASE_BITS);
+            const dyBase = 1 + ((inRange & GlyfReconstructor.ONE_BYTE_DY_BASE_BITS) << 2);
 
-            return [
-                this.withSign(kind, 1 + (high & 0x30) + (byte0 >> 4)),
-                this.withSign(kind >> 1, 1 + ((high & 0x0c) << 2) + (byte0 & 0x0f)),
-            ];
+            return [this.withSign(kind, dxBase + (byte0 >> nibbleBits)), this.withSign(dySign, dyBase + (byte0 & lowNibble))];
         }
 
+        // Flags 84–119: a byte each; the flag within its range is 12 × the high byte of dx plus
+        // 4 × the high byte of dy plus the signs.
         if (kind < GlyfReconstructor.FIRST_THREE_BYTES_FLAG) {
-            const high = kind - GlyfReconstructor.FIRST_TWO_BYTES_FLAG;
+            const inRange = kind - GlyfReconstructor.FIRST_TWO_BYTES_FLAG;
+            const dxHighByte = Math.floor(inRange / GlyfReconstructor.TWO_BYTES_DX_STEP);
+            const dyHighByte = inRange % GlyfReconstructor.TWO_BYTES_DX_STEP >> 2;
 
+            return [this.withSign(kind, 1 + (dxHighByte << byteBits) + byte0), this.withSign(dySign, 1 + (dyHighByte << byteBits) + byte1)];
+        }
+
+        // Flags 120–123: 12 bits each in three bytes; flags 124–127: 16 bits each in four.
+        if (kind < GlyfReconstructor.FIRST_FOUR_BYTES_FLAG) {
             return [
-                this.withSign(kind, 1 + (Math.floor(high / 12) << 8) + byte0),
-                this.withSign(kind >> 1, 1 + ((high % 12 >> 2) << 8) + byte1),
+                this.withSign(kind, (byte0 << nibbleBits) + (byte1 >> nibbleBits)),
+                this.withSign(dySign, ((byte1 & lowNibble) << byteBits) + byte2),
             ];
         }
 
-        if (kind < GlyfReconstructor.FIRST_FOUR_BYTES_FLAG) {
-            return [this.withSign(kind, (byte0 << 4) + (byte1 >> 4)), this.withSign(kind >> 1, ((byte1 & 0x0f) << 8) + byte2)];
-        }
-
-        return [this.withSign(kind, (byte0 << 8) + byte1), this.withSign(kind >> 1, (byte2 << 8) + byte3)];
+        return [this.withSign(kind, (byte0 << byteBits) + byte1), this.withSign(dySign, (byte2 << byteBits) + byte3)];
     }
 
     private withSign(signBits: number, magnitude: number): number {
@@ -462,12 +512,10 @@ export class GlyfReconstructor {
      * contours have no points. A coordinate outside Int16 wraps, as in the decoder.
      */
     private boundingBox(points: Array<Point>): Uint8Array {
-        const box = new Uint8Array(GlyfReconstructor.BOUNDING_BOX_SIZE_BYTES);
-        const view = new DataView(box.buffer);
         const [first] = points;
 
         if (first === undefined) {
-            return box;
+            return new Uint8Array(GlyfReconstructor.BOUNDING_BOX_SIZE_BYTES);
         }
 
         let xMin = first.x;
@@ -482,12 +530,7 @@ export class GlyfReconstructor {
             yMax = Math.max(yMax, point.y);
         }
 
-        view.setInt16(0, xMin);
-        view.setInt16(2, yMin);
-        view.setInt16(4, xMax);
-        view.setInt16(6, yMax);
-
-        return box;
+        return this.uint16s([xMin, yMin, xMax, yMax]);
     }
 
     /**
@@ -570,7 +613,7 @@ export class GlyfReconstructor {
      */
     private loca(offsets: Array<number>): Uint8Array {
         const isShort = this.indexFormat === GlyfReconstructor.SHORT_LOCA_FORMAT;
-        const offsetSizeBytes = isShort ? GlyfReconstructor.SHORT_LOCA_OFFSET_SIZE_BYTES : GlyfReconstructor.LONG_LOCA_OFFSET_SIZE_BYTES;
+        const offsetSizeBytes = this.locaOffsetSizeBytes;
         const loca = new Uint8Array(offsets.length * offsetSizeBytes);
         const view = new DataView(loca.buffer);
 
@@ -586,15 +629,36 @@ export class GlyfReconstructor {
     }
 
     /**
-     * hmtx from the transformed one (§5.4): the advance widths as they are, and the left side
-     * bearings each array of which the flags drop taken from the xMin of the glyphs. The flags were
-     * checked with the table directory.
+     * Whether a transformed hmtx can be rebuilt: hhea holds numberOfHMetrics, which is 1 to
+     * numGlyphs, and the table holds the arrays its flags keep (§5.4). Its flags byte is checked by
+     * `Woff2FontValidator` before. Gives numberOfHMetrics.
      */
-    private hmtx({ bytes, numberOfHMetrics }: TransformedHmtx, xMins: Array<number>): Uint8Array {
+    private checkTransformedHmtx({ bytes, hhea }: TransformedHmtx): number {
+        if (hhea === undefined) {
+            throw this.brokenHmtx({
+                at: "the table directory",
+                field: this.tableName(GlyfReconstructor.HHEA_TAG),
+                value: "absent",
+                expected: `present, as ${this.tableName(GlyfReconstructor.HMTX_TAG)} is transformed`,
+            });
+        }
+
+        if (hhea.length < GlyfReconstructor.HHEA_MIN_SIZE_BYTES) {
+            throw this.brokenHmtx({
+                at: this.tableName(GlyfReconstructor.HHEA_TAG),
+                field: "origLength",
+                value: hhea.length,
+                expected: `at least ${GlyfReconstructor.HHEA_MIN_SIZE_BYTES}, to hold numberOfHMetrics`,
+            });
+        }
+
+        const numberOfHMetrics = new DataView(hhea.buffer, hhea.byteOffset, hhea.byteLength).getUint16(
+            GlyfReconstructor.NUMBER_OF_H_METRICS_OFFSET,
+        );
+
         if (numberOfHMetrics < 1 || numberOfHMetrics > this.numGlyphs) {
-            throw BrokenWoff2.byRule(this.fontPath, {
-                rule: Woff2Rule.TransformedHmtx,
-                at: 'table "hhea"',
+            throw this.brokenHmtx({
+                at: this.tableName(GlyfReconstructor.HHEA_TAG),
                 field: "numberOfHMetrics",
                 value: numberOfHMetrics,
                 expected: `1 to ${this.numGlyphs}, numGlyphs of the transformed glyf`,
@@ -602,30 +666,39 @@ export class GlyfReconstructor {
         }
 
         const flags = bytes[0] ?? 0;
-        const hasLsb = (flags & GlyfReconstructor.NO_LSB_FLAG) === 0;
-        const hasLeftSideBearing = (flags & GlyfReconstructor.NO_LEFT_SIDE_BEARING_FLAG) === 0;
-        const monospacedCount = this.numGlyphs - numberOfHMetrics;
-        let valueCount = numberOfHMetrics;
+        let wordCount = numberOfHMetrics;
 
-        if (hasLsb) {
-            valueCount += numberOfHMetrics;
+        if ((flags & GlyfReconstructor.NO_LSB_FLAG) === 0) {
+            wordCount += numberOfHMetrics;
         }
 
-        if (hasLeftSideBearing) {
-            valueCount += monospacedCount;
+        if ((flags & GlyfReconstructor.NO_LEFT_SIDE_BEARING_FLAG) === 0) {
+            wordCount += this.numGlyphs - numberOfHMetrics;
         }
 
-        const sizeBytes = GlyfReconstructor.HMTX_FLAGS_SIZE_BYTES + valueCount * GlyfReconstructor.WORD_SIZE_BYTES;
+        const sizeBytes = GlyfReconstructor.HMTX_FLAGS_SIZE_BYTES + wordCount * GlyfReconstructor.WORD_SIZE_BYTES;
 
         if (bytes.length < sizeBytes) {
-            throw BrokenWoff2.byRule(this.fontPath, {
-                rule: Woff2Rule.TransformedHmtx,
-                at: 'table "hmtx"',
+            throw this.brokenHmtx({
+                at: this.tableName(GlyfReconstructor.HMTX_TAG),
                 field: "transformLength",
                 value: bytes.length,
                 expected: `at least ${sizeBytes}, for flags ${flags} and numberOfHMetrics ${numberOfHMetrics}`,
             });
         }
+
+        return numberOfHMetrics;
+    }
+
+    /**
+     * hmtx from the transformed one (§5.4), once `checkTransformedHmtx()` has passed: the advance
+     * widths as they are, and the left side bearings of each array the flags drop taken from the
+     * xMin of the glyphs.
+     */
+    private hmtx(bytes: Uint8Array, numberOfHMetrics: number, xMins: Array<number>): Uint8Array {
+        const flags = bytes[0] ?? 0;
+        const hasLsb = (flags & GlyfReconstructor.NO_LSB_FLAG) === 0;
+        const hasLeftSideBearing = (flags & GlyfReconstructor.NO_LEFT_SIDE_BEARING_FLAG) === 0;
 
         // The values follow the flags byte in the order of the glyphs: advanceWidth[], then lsb[] of
         // the proportional glyphs, then leftSideBearing[] of the monospaced ones.
@@ -673,10 +746,6 @@ export class GlyfReconstructor {
         const byte = bitmap?.[Math.floor(glyph / GlyfReconstructor.BITS_PER_BYTE)] ?? 0;
 
         return (byte & (GlyfReconstructor.FIRST_GLYPH_BIT >> glyph % GlyfReconstructor.BITS_PER_BYTE)) !== 0;
-    }
-
-    private padded(lengthBytes: number): number {
-        return Math.ceil(lengthBytes / GlyfReconstructor.GLYPH_ALIGNMENT_BYTES) * GlyfReconstructor.GLYPH_ALIGNMENT_BYTES;
     }
 
     /**
@@ -735,11 +804,23 @@ export class GlyfReconstructor {
         return code;
     }
 
+    private brokenHmtx(violation: Omit<Violation, "rule">): BrokenWoff2 {
+        return BrokenWoff2.byRule(this.fontPath, { ...violation, rule: Woff2Rule.TransformedHmtx });
+    }
+
+    private tableName(tag: string): string {
+        return `table ${JSON.stringify(tag)}`;
+    }
+
     private brokenTable(rule: Woff2Rule, violation: Omit<Violation, "rule" | "at">): BrokenWoff2 {
-        return BrokenWoff2.byRule(this.fontPath, { ...violation, rule: rule, at: 'table "glyf"' });
+        return BrokenWoff2.byRule(this.fontPath, { ...violation, rule: rule, at: this.tableName(GlyfReconstructor.GLYF_TAG) });
     }
 
     private brokenGlyph(rule: Woff2Rule, violation: Omit<Violation, "rule" | "at">): BrokenWoff2 {
-        return BrokenWoff2.byRule(this.fontPath, { ...violation, rule: rule, at: `glyph ${this.glyphIndex} of table "glyf"` });
+        return BrokenWoff2.byRule(this.fontPath, {
+            ...violation,
+            rule: rule,
+            at: `glyph ${this.glyphIndex} of ${this.tableName(GlyfReconstructor.GLYF_TAG)}`,
+        });
     }
 }

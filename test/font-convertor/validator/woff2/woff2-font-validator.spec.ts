@@ -19,7 +19,7 @@ import {
     garbage,
     joinGlyf,
     splitGlyf,
-    withBoundingBoxBit,
+    withBoundingBoxBitSet,
     withComposite,
     withNContour,
     withStream,
@@ -52,9 +52,9 @@ import {
 
 const validator = new Woff2FontValidator();
 
-const MAX_DECOMPRESSED_SIZE_BYTES = 30 * 1024 * 1024;
+// The output buffer fontforge gives its decoder: the cap on the decompressed tables and on the rebuilt sfnt.
+const DECODER_BUFFER_SIZE_BYTES = 30 * 1024 * 1024;
 const MAX_COMPRESSION_RATIO = 100;
-const MAX_SFNT_SIZE_BYTES = 30 * 1024 * 1024;
 const SFNT_TABLE_RECORD_SIZE_BYTES = 16;
 
 // The fixture: flavor 0x00010000, 13 tables, the directory 41 bytes long, the compressed data
@@ -185,10 +185,10 @@ describe("Woff2FontValidator.validate", function () {
         it("whose rebuilt sfnt is exactly 30 MiB", async function () {
             // A table of zeros takes a table record and its length in the sfnt. The private block
             // brings the file over 30 MiB / 100, so the ratio cap holds too.
-            const zeroTableBytes = MAX_SFNT_SIZE_BYTES - FIXTURE_SFNT_SIZE_BYTES - SFNT_TABLE_RECORD_SIZE_BYTES;
+            const zeroTableBytes = DECODER_BUFFER_SIZE_BYTES - FIXTURE_SFNT_SIZE_BYTES - SFNT_TABLE_RECORD_SIZE_BYTES;
             const layout = withZeroTable(fixtureLayout, zeroTableBytes);
 
-            await validate(build(withFileSize(layout, Math.ceil(MAX_DECOMPRESSED_SIZE_BYTES / MAX_COMPRESSION_RATIO))));
+            await validate(build(withFileSize(layout, Math.ceil(DECODER_BUFFER_SIZE_BYTES / MAX_COMPRESSION_RATIO))));
         });
 
         it("with a composite glyph of the fixture's own glyphs and its bounding box", async function () {
@@ -700,7 +700,7 @@ describe("Woff2FontValidator.validate", function () {
 
     describe("rejects tables that decompress over a cap of ours, before Brotli runs", function () {
         it("over 30 MiB", async function () {
-            const broken = build(withUnreadTable(fixtureLayout, MAX_DECOMPRESSED_SIZE_BYTES - streamSizeBytes(fixtureLayout) + 1));
+            const broken = build(withUnreadTable(fixtureLayout, DECODER_BUFFER_SIZE_BYTES - streamSizeBytes(fixtureLayout) + 1));
 
             await expectBroken(
                 broken,
@@ -975,7 +975,7 @@ describe("Woff2FontValidator.validate", function () {
         it("with an empty glyph whose bit in bboxBitmap is set", async function () {
             // Glyph 1 of the fixture is empty.
             await expectBroken(
-                build(withGlyfParts(fixtureLayout, (parts) => withBoundingBoxBit(parts, 1, true))),
+                build(withGlyfParts(fixtureLayout, (parts) => withBoundingBoxBitSet(parts, 1))),
                 Woff2Rule.EmptyGlyphBoundingBox,
                 'At glyph 1 of table "glyf": bit in bboxBitmap is 1, expected 0, as nContour is 0.',
             );
@@ -1096,11 +1096,11 @@ describe("Woff2FontValidator.validate", function () {
     describe("rejects a rebuilt sfnt over 30 MiB, by a rule of ours", function () {
         it("by a table of zeros 4 bytes over", async function () {
             // One byte more in the table is 4 more in the sfnt, padded.
-            const zeroTableBytes = MAX_SFNT_SIZE_BYTES - FIXTURE_SFNT_SIZE_BYTES - SFNT_TABLE_RECORD_SIZE_BYTES + 1;
+            const zeroTableBytes = DECODER_BUFFER_SIZE_BYTES - FIXTURE_SFNT_SIZE_BYTES - SFNT_TABLE_RECORD_SIZE_BYTES + 1;
             const layout = withZeroTable(fixtureLayout, zeroTableBytes);
 
             await expectBroken(
-                build(withFileSize(layout, Math.ceil(MAX_DECOMPRESSED_SIZE_BYTES / MAX_COMPRESSION_RATIO))),
+                build(withFileSize(layout, Math.ceil(DECODER_BUFFER_SIZE_BYTES / MAX_COMPRESSION_RATIO))),
                 Woff2Rule.MaxSfntSize,
                 "At the rebuilt sfnt: size is 31457284, expected at most 31457280.",
             );
@@ -1108,10 +1108,10 @@ describe("Woff2FontValidator.validate", function () {
 
         it("whose tables decompress to exactly 30 MiB: the cap on them passes, glyf grows", async function () {
             // The fixture's glyf rebuilds 31 546 bytes larger than its transformed form.
-            const layout = withZeroTable(fixtureLayout, MAX_DECOMPRESSED_SIZE_BYTES - streamSizeBytes(fixtureLayout));
+            const layout = withZeroTable(fixtureLayout, DECODER_BUFFER_SIZE_BYTES - streamSizeBytes(fixtureLayout));
 
             await expectBroken(
-                build(withFileSize(layout, Math.ceil(MAX_DECOMPRESSED_SIZE_BYTES / MAX_COMPRESSION_RATIO))),
+                build(withFileSize(layout, Math.ceil(DECODER_BUFFER_SIZE_BYTES / MAX_COMPRESSION_RATIO))),
                 Woff2Rule.MaxSfntSize,
                 "At the rebuilt sfnt: size is 31494256, expected at most 31457280.",
             );

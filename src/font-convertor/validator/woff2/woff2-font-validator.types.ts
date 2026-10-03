@@ -125,12 +125,12 @@ export type Point = {
 };
 
 /**
- * A transformed hmtx (§5.4) with numberOfHMetrics of hhea, which says how many advance widths it
- * holds.
+ * A transformed hmtx (§5.4) with hhea, whose numberOfHMetrics says how many advance widths it
+ * holds; hhea is undefined when the font has none.
  */
 export type TransformedHmtx = {
     bytes: Uint8Array;
-    numberOfHMetrics: number;
+    hhea: Uint8Array | undefined;
 };
 
 /**

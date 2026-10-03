@@ -338,7 +338,7 @@ are ours, not the standard's, and the text of each says why:
 - the tables decompress to at most 30 MiB, the output buffer fontforge gives the decoder;
 - and to at most 100 times the file size, the ratio above which the decoder refuses a file. Both
   caps are checked on the sum of the table lengths in the directory, before Brotli runs, and the
-  measurement behind them is at `MAX_DECOMPRESSED_SIZE_BYTES`;
+  measurement behind them is at `DECODER_BUFFER_SIZE_BYTES`;
 - the rebuilt sfnt is at most 30 MiB too: the decoder writes it into the same buffer, and the
   reconstruction makes `glyf` larger than its transformed form, by 31 546 bytes on the fixture.
 
@@ -570,7 +570,10 @@ not count as supported.
   [#767](https://github.com/yuldashevsardor/telegram-bot/issues/767)). So was the WOFF2
   reconstruction: `GlyfReconstructor` takes 190–405 ms, the first run the slowest, on
   `IBMPlexSansKR-Light.woff2`, 439 040 bytes and 12 240 glyphs, the slowest of the 5742 TrueType
-  real fonts ([#736](https://github.com/yuldashevsardor/telegram-bot/issues/736)).
+  real fonts. The caps allow far more: a transformed `glyf` of 31 071 818 bytes, 65 535 simple
+  glyphs of 235 points each, takes 1.5–1.9 s over three runs. Brotli packs it into 99 bytes, so a
+  file of about 310 KB passes the ratio cap with it
+  ([#736](https://github.com/yuldashevsardor/telegram-bot/issues/736)).
 - `/font_generator` converts the fixed `test/fixtures/fonts/test-font.woff` into
   EOT/OTF/TTF/WOFF2. It answers with the **path** to the file as text; the file itself is not
   sent. A caught conversion error is written at `error` level through `Logger`
