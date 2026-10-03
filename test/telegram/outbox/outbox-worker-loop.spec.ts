@@ -327,21 +327,7 @@ describe("OutboxWorkerLoop", function () {
     // The source ends a generator whose pull is in progress only once it has handed out what the
     // pull got: left unsent, the message would wait for the recovery of its lease.
     it("sends the message a pull in progress hands out after the stop", async function () {
-        const pull = Promise.withResolvers<PulledOutboxMessage>();
-        const pullingSource = {
-            async *stream(): AsyncGenerator<PulledOutboxMessage, void, undefined> {
-                yield await pull.promise;
-            },
-            stop(): void {},
-        };
-        const loop = new OutboxWorkerLoop(
-            pullingSource as unknown as OutboxMessageSource,
-            processor as unknown as OutboxMessageProcessor,
-            logger,
-            CONCURRENCY,
-            LONG_STOP_TIMEOUT_MS,
-            WORKER,
-        );
+        const { loop, pull } = createLoopOverPullInProgress(LONG_STOP_TIMEOUT_MS);
         loop.start();
         await settle();
 
@@ -396,21 +382,7 @@ describe("OutboxWorkerLoop", function () {
     });
 
     it("starts aborted the message a pull in progress hands out after the deadline", async function () {
-        const pull = Promise.withResolvers<PulledOutboxMessage>();
-        const pullingSource = {
-            async *stream(): AsyncGenerator<PulledOutboxMessage, void, undefined> {
-                yield await pull.promise;
-            },
-            stop(): void {},
-        };
-        const loop = new OutboxWorkerLoop(
-            pullingSource as unknown as OutboxMessageSource,
-            processor as unknown as OutboxMessageProcessor,
-            logger,
-            CONCURRENCY,
-            0,
-            WORKER,
-        );
+        const { loop, pull } = createLoopOverPullInProgress(0);
         loop.start();
         await settle();
 
@@ -440,6 +412,31 @@ describe("OutboxWorkerLoop", function () {
             stopTimeoutMs,
             WORKER,
         );
+    }
+
+    // A loop over a source whose one pull is in progress until the spec resolves pull: the source
+    // hands out what the pull got even after its stop.
+    function createLoopOverPullInProgress(stopTimeoutMs: number): {
+        loop: OutboxWorkerLoop;
+        pull: PromiseWithResolvers<PulledOutboxMessage>;
+    } {
+        const pull = Promise.withResolvers<PulledOutboxMessage>();
+        const pullingSource = {
+            async *stream(): AsyncGenerator<PulledOutboxMessage, void, undefined> {
+                yield await pull.promise;
+            },
+            stop(): void {},
+        };
+        const loop = new OutboxWorkerLoop(
+            pullingSource as unknown as OutboxMessageSource,
+            processor as unknown as OutboxMessageProcessor,
+            logger,
+            CONCURRENCY,
+            stopTimeoutMs,
+            WORKER,
+        );
+
+        return { loop, pull };
     }
 
     // Stops the loop and finishes the calls in flight, so the stop has no deadline to wait for.

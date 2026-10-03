@@ -707,7 +707,9 @@ that is the duplicate below, not a change of order.
 
 The call may have reached Telegram, so the release writes the attempt and it counts towards
 `OUTBOX_MAX_ATTEMPTS` (see "Outcomes"), although the limit is not checked on it: a stop says nothing
-about the message, so it neither blocks the chat nor waits a retry delay. The next transient failure
+about the message, so it neither blocks the chat nor waits a retry delay. A message that the worker
+loop starts with its signal already aborted, past the stop deadline (see "The worker loop"), makes
+no call, yet its release writes the attempt all the same. The next transient failure
 of a message released on its last attempt blocks the chat, and the retry delay of a later transient
 failure grows with the attempt as well (see "Retry delay"). The handler cannot tell a call in flight
 from a message pulled and never sent, so each gets the attempt: a message a node pulls and hands

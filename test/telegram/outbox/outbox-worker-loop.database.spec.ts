@@ -34,6 +34,8 @@ const MAX_CALL_MS = 5;
 // The sends take well under a second with the shortest sleep cap of the source.
 const SEND_DEADLINE_MS = 20_000;
 const SPEC_TIMEOUT_MS = 30_000;
+// How often the spec counts the done messages while the loops send.
+const DONE_POLL_INTERVAL_MS = 20;
 
 type Send = { chatId: number; index: number; host: string };
 
@@ -190,7 +192,7 @@ async function waitForDone(database: Database): Promise<void> {
             return;
         }
 
-        await sleep(20);
+        await sleep(DONE_POLL_INTERVAL_MS);
     }
 
     expect.fail(`the ${MESSAGE_COUNT} messages were expected to be done`);
