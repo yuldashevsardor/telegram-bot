@@ -148,6 +148,7 @@ export class OutboxMessageSource {
     }
 
     private onReady(): void {
+        // Stryker disable next-line AssignmentOperator: `-=` is equivalent: the generator only compares the count before and after a pull
         this.readyNotificationCount += 1;
 
         if (this.currentSleep?.shouldWakeOnReady === true) {

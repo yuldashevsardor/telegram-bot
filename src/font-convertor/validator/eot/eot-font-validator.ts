@@ -60,6 +60,7 @@ export class EotFontValidator implements FontValidator {
     public async validate(fontPath: string): Promise<void> {
         const bytes = await FileHelper.read(fontPath);
 
+        // Stryker disable next-line EqualityOperator: `<=` is equivalent: a file of exactly the fixed part ends right before FamilyNameSize, so the check of the blocks rejects it too, only the error changes
         if (bytes.length < EotHeader.FIXED_SIZE_BYTES) {
             throw NotEot.bySize(fontPath, bytes.length, EotHeader.FIXED_SIZE_BYTES);
         }
@@ -186,6 +187,7 @@ export class EotFontValidator implements FontValidator {
      * by now.
      */
     private checkLayout(fontPath: string, header: EotHeader, layout: HeaderLayout, fileSizeBytes: number): void {
+        // Stryker disable next-line EqualityOperator: `>=` is equivalent: a header that ends the file leaves no room for FontData, so the checks of FontData reject it too, only the error changes
         if (layout.endOffset > fileSizeBytes) {
             throw BrokenEot.byRule(fontPath, {
                 rule: EotRule.BlocksInFile,

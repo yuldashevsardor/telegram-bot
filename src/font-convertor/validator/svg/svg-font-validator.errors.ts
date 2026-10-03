@@ -30,6 +30,7 @@ export class InvalidSvgFont extends RuntimeError {
      * `?target?`. Of an instruction the target alone is cut, so that the quote keeps its `?…?`.
      */
     protected static clipName(name: string): string {
+        // Stryker disable next-line MethodExpression: `endsWith` is equivalent: an XML name holds no `?`, so only an instruction, `?target?`, starts or ends with one
         if (name.startsWith("?")) {
             return `?${InvalidSvgFont.clip(name.slice(1, -1), MAX_QUOTED_LENGTH).join("")}?`;
         }

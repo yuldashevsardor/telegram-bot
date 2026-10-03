@@ -50,6 +50,7 @@ class FakeStore {
     public readonly pulls: { limit: number; worker: OutboxWorker }[] = [];
     public listenCount = 0;
     public shouldFailListening = false;
+    public readonly listeningFailure = new Error("connection refused");
     private readonly results: (OutboxPullResult | Error)[] = [];
     private heldPull: PromiseWithResolvers<OutboxPullResult> | undefined;
     private heldListening: PromiseWithResolvers<void> | undefined;
@@ -113,7 +114,7 @@ class FakeStore {
         this.listenCount += 1;
 
         if (this.shouldFailListening) {
-            throw new Error("connection refused");
+            throw this.listeningFailure;
         }
 
         // Awaited only when held: an await of nothing would still put the start after the first
@@ -138,6 +139,7 @@ describe("OutboxMessageSource", function () {
     });
 
     afterEach(function () {
+        mock.restoreAll();
         mock.timers.reset();
     });
 
@@ -320,8 +322,11 @@ describe("OutboxMessageSource", function () {
         void build().stream(WORKER).next();
         await settle();
 
-        expect(logger.warnings.map((record) => record.message)).to.deep.equal([
-            "Listening for ready outbox messages failed, the source pulls on the capped sleep until the listening starts.",
+        expect(logger.warnings).to.deep.equal([
+            {
+                message: "Listening for ready outbox messages failed, the source pulls on the capped sleep until the listening starts.",
+                payload: { cause: store.listeningFailure },
+            },
         ]);
 
         await advance(HALF_CAP_MS);
@@ -383,6 +388,24 @@ describe("OutboxMessageSource", function () {
 
         expect(await next).to.deep.equal({ value: undefined, done: true });
         expect(store.pulls).to.have.length(1);
+    });
+
+    it("clears the timer of a sleep that stop cuts short", async function () {
+        // A timer left running would hold the process for up to a second after the shutdown.
+        const setTimeoutMock = mock.method(globalThis, "setTimeout");
+        const clearTimeoutMock = mock.method(globalThis, "clearTimeout");
+        const source = build();
+        const next = source.stream(WORKER).next();
+        await settle();
+
+        source.stop();
+        await next;
+
+        const timers = setTimeoutMock.mock.calls.map((call) => call.result);
+        const clearedTimers = clearTimeoutMock.mock.calls.map((call) => call.arguments[0]);
+
+        expect(timers).to.have.length(1);
+        expect(clearedTimers).to.deep.equal(timers);
     });
 
     it("hands out the message of a pull in progress on stop, then ends", async function () {

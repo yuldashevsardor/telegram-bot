@@ -10,9 +10,15 @@ import { constants } from "node:os";
 const REPORT_FILE = "reports/mutation/mutation.json";
 const HTML_FILE = "reports/mutation/mutation.html";
 const RECORD_FILE = "reports/mutation/record.md";
-// The record goes into a GitHub comment, and that holds 65,536 characters; the slack is for what the
-// closing comment of a batch adds around it: the lists of its PRs and the signature.
-const RECORD_LIMIT = 60_000;
+// The record of the last full run, kept apart: a run over the files of its survivors writes RECORD_FILE
+// over it, and make mutation-full-close takes both.
+const FULL_RECORD_FILE = "reports/mutation/full-record.md";
+// The record goes into a GitHub comment, and that holds 65,536 characters. The closing comment of a
+// batch adds around the record of the full run the lists of its PRs, the signature and the record of
+// the green run over files that checked the fixes: a summary, the files it was given and the files it
+// mutated, with no survivors, under 14,000 characters even over the whole of src/ given by path: in
+// batch 1 the list of 124 files took 5,837.
+const RECORD_LIMIT_CHARS = 45_000;
 const STATUSES = ["Killed", "Timeout", "Survived", "NoCoverage", "CompileError", "RuntimeError", "Ignored", "Pending"];
 
 type Mutant = {
@@ -67,13 +73,15 @@ function inline(text: string): string {
     return longest === 0 ? `${fence}${short}${fence}` : `${fence} ${short} ${fence}`;
 }
 
+const area = process.env["MUTATE"] ?? "";
+const isFullRun = area === "";
+
 function record(run: Run): string {
     const head = process.env["MUTATION_HEAD"] ?? "";
     // A number of paths or anything else: the recipe of the target writes unknown here when git did
     // not answer. A bare Number() would not do: Number("") is 0, "clean" for a tree nobody looked at.
     const counted = process.env["MUTATION_DIRTY"] ?? "";
     const dirty = /^\d+$/.test(counted) ? Number(counted) : Number.NaN;
-    const area = process.env["MUTATE"] ?? "";
     const report = readReport();
     const clean = head === "" || Number.isNaN(dirty) ? "unknown" : dirty === 0 ? "yes" : "no";
     const tree = { yes: "clean", no: `dirty, paths in \`git status --porcelain\`: ${dirty}`, unknown: "unknown" };
@@ -95,14 +103,14 @@ function record(run: Run): string {
     }
 
     const scoreText = typeof report === "string" ? "none" : score(counts);
-    const scope = area === "" ? "full" : "files";
+    const scope = isFullRun ? "full" : "files";
     const lines = [
         `<!-- mutation-run head=${head || "unknown"} clean=${clean} scope=${scope} exit=${run.exitCode} score=${scoreText} -->`,
         "## `make mutation` run record",
         "",
         `- head: ${head === "" ? "unknown, git on the host did not answer" : `\`${head}\``}`,
         `- tree: ${tree[clean]}`,
-        `- files: ${area === "" ? "not passed, the whole `src/`" : `\`${area}\``}`,
+        `- files: ${isFullRun ? "not passed, the whole `src/`" : `\`${area}\``}`,
         `- started: ${run.startedAt.toISOString().replace(/\.\d+Z$/, "Z")} · duration: ${duration(run)} · exit code: ${run.exitCode}`,
     ];
 
@@ -134,7 +142,7 @@ function record(run: Run): string {
     let length = lines.join("\n").length;
 
     for (const [index, line] of undetected.entries()) {
-        if (length + line.length + 1 > RECORD_LIMIT) {
+        if (length + line.length + 1 > RECORD_LIMIT_CHARS) {
             lines.push(
                 `- …and ${undetected.length - index} more: they did not fit into the record, the full list is in ` +
                     `\`reports/mutation/mutation.html\` on the machine of the run`,
@@ -155,8 +163,24 @@ rmSync(REPORT_FILE, { force: true });
 rmSync(HTML_FILE, { force: true });
 rmSync(RECORD_FILE, { force: true });
 
+// A run over files leaves the record of the full run alone: it is what that run checks the fixes of.
+if (isFullRun) {
+    rmSync(FULL_RECORD_FILE, { force: true });
+}
+
 const startedAt = new Date();
 let finished = false;
+
+// Each file on its own: a failed write of the full record does not take back the record written
+// before it.
+function writeRecord(file: string, text: string): void {
+    try {
+        writeFileSync(file, text);
+        process.stdout.write(`\nRun record — ${file}\n`);
+    } catch (error) {
+        process.stderr.write(`\nThe run record ${file} was not written: ${(error as Error).stack ?? String(error)}\n`);
+    }
+}
 
 function finish(exitCode: number): void {
     if (finished) {
@@ -168,9 +192,14 @@ function finish(exitCode: number): void {
     // A failure to write the record does not replace the outcome of the run: whoever runs the target
     // reads ok or fail from the exit code.
     try {
+        const recordText = record({ exitCode, startedAt, finishedAt: new Date() });
+
         mkdirSync("reports/mutation", { recursive: true });
-        writeFileSync(RECORD_FILE, record({ exitCode, startedAt, finishedAt: new Date() }));
-        process.stdout.write(`\nRun record — ${RECORD_FILE}\n`);
+        writeRecord(RECORD_FILE, recordText);
+
+        if (isFullRun) {
+            writeRecord(FULL_RECORD_FILE, recordText);
+        }
     } catch (error) {
         process.stderr.write(`\nThe run record was not written: ${(error as Error).stack ?? String(error)}\n`);
     }
@@ -181,7 +210,7 @@ function finish(exitCode: number): void {
 }
 
 // spawn, not ProcessHelper from app/shared/process: that one accumulates the output in memory and
-// treats a non-zero code as a refusal. Here the live output of Stryker over 15 minutes is needed, and
+// treats a non-zero code as a refusal. Here the live output of Stryker over hours is needed, and
 // its exit code is a regular outcome. The invariant about external processes
 // (docs/architecture/invariants.md) holds: the arguments are an array, and there is no shell in the
 // chain.

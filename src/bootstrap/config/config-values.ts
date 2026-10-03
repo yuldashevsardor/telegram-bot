@@ -46,6 +46,14 @@ export type ConfigValues = {
         apiTimeoutMs: number;
         // The attempts of a message that count towards the limit, the last one included.
         maxAttempts: number;
+        // How many messages the worker loop of a node sends at once.
+        concurrency: number;
+        // How long the stop of the worker loop waits for the calls in flight before it aborts them.
+        stopTimeoutMs: number;
+        // How often a node takes back the messages of the expired leases.
+        leaseRecoveryIntervalMs: number;
+        // How often a node runs the cleanup.
+        cleanupIntervalMs: number;
         cleanup: OutboxCleanupSettings;
     };
 

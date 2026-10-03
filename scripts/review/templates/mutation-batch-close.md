@@ -13,6 +13,9 @@ Dropped, closed without a merge:
 Issues filed for the survivors of the run:
 {issues}
 
-{run_record}
+Survivors fixed, checked by a run over their files:
+{fixes}
+
+{run_record}{fix_record}
 
 _🤖 Posted by Claude Code from the owner's account._
