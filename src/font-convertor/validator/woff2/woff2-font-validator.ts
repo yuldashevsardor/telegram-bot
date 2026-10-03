@@ -8,10 +8,8 @@ import type {
     DecompressedTable,
     ExpectedEnd,
     GapEnd,
-    ReconstructedTables,
     SfntTable,
     TableEntry,
-    TransformedHmtx,
     TransformVersions,
     Woff2,
     Woff2Header,
@@ -19,6 +17,7 @@ import type {
 import { BlockKind, TableTag, Woff2Rule } from "app/font-convertor/validator/woff2/woff2-font-validator.types";
 import type { FontValidator } from "app/font-convertor/validator/font-validator";
 import { GlyfReconstructor } from "app/font-convertor/validator/woff2/glyf-reconstructor";
+import type { ReconstructedTables, TransformedHmtx } from "app/font-convertor/validator/woff2/glyf-reconstructor.types";
 import { FileHelper } from "app/shared/fs/file-helper";
 import { NumberHelper } from "app/shared/number-helper";
 
@@ -478,7 +477,7 @@ export class Woff2FontValidator implements FontValidator {
             throw BrokenWoff2.byRule(fontPath, {
                 ...violation,
                 rule: Woff2Rule.HmtxTransform,
-                expected: `${Woff2FontValidator.HMTX_VERSIONS.plain}, as the font has no table "glyf"`,
+                expected: `${Woff2FontValidator.HMTX_VERSIONS.plain}, as the font has no ${BrokenWoff2.tableName(TableTag.Glyf)}`,
             });
         }
 
@@ -486,7 +485,7 @@ export class Woff2FontValidator implements FontValidator {
             throw BrokenWoff2.byRule(fontPath, {
                 ...violation,
                 rule: Woff2Rule.HmtxBesideTransformedGlyf,
-                expected: `${Woff2FontValidator.HMTX_VERSIONS.plain}, as table "glyf" is not transformed`,
+                expected: `${Woff2FontValidator.HMTX_VERSIONS.plain}, as ${BrokenWoff2.tableName(TableTag.Glyf)} is not transformed`,
             });
         }
     }
@@ -505,9 +504,9 @@ export class Woff2FontValidator implements FontValidator {
             throw BrokenWoff2.byRule(fontPath, {
                 rule: Woff2Rule.GlyfLoca,
                 at: "the table directory",
-                field: `table ${JSON.stringify(absent)}`,
+                field: BrokenWoff2.tableName(absent),
                 value: "absent",
-                expected: `present, as table ${JSON.stringify(present)} is`,
+                expected: `present, as ${BrokenWoff2.tableName(present)} is`,
             });
         }
 
@@ -521,7 +520,7 @@ export class Woff2FontValidator implements FontValidator {
                 at: locaName,
                 field: "transform version",
                 value: loca.transformVersion,
-                expected: `${glyf.transformVersion}, the transform version of table "glyf"`,
+                expected: `${glyf.transformVersion}, the transform version of ${BrokenWoff2.tableName(TableTag.Glyf)}`,
             });
         }
 
@@ -531,7 +530,7 @@ export class Woff2FontValidator implements FontValidator {
                 at: locaName,
                 field: "directory entry",
                 value: locaIndex + 1,
-                expected: `any entry after entry ${glyfIndex + 1}, the entry of table "glyf"`,
+                expected: `any entry after entry ${glyfIndex + 1}, the entry of ${BrokenWoff2.tableName(TableTag.Glyf)}`,
             });
         }
 
@@ -844,6 +843,9 @@ export class Woff2FontValidator implements FontValidator {
         const loca = tables.find((table) => table.entry.tag === TableTag.Loca);
         const hmtx = tables.find((table) => table.entry.tag === TableTag.Hmtx);
 
+        // A transformed hmtx does not take this path: checkHmtx() has rejected one beside a glyf that
+        // is absent or plain (rules HmtxTransform and HmtxBesideTransformedGlyf), so its flags are
+        // checked below, in transformedHmtx().
         if (glyf?.entry.transformLength === undefined || loca === undefined) {
             return tables.map((table) => ({ tag: table.entry.tag, bytes: table.bytes }));
         }
@@ -881,7 +883,9 @@ export class Woff2FontValidator implements FontValidator {
                 at: BrokenWoff2.tableName(TableTag.Loca),
                 field: "origLength",
                 value: locaEntry.origLength,
-                expected: `${locaSizeBytes}, (numGlyphs ${numGlyphs} + 1) × ${offsetSizeBytes} for indexFormat ${indexFormat} of table "glyf"`,
+                expected: `${locaSizeBytes}, (numGlyphs ${numGlyphs} + 1) × ${offsetSizeBytes} for indexFormat ${indexFormat} of ${BrokenWoff2.tableName(
+                    TableTag.Glyf,
+                )}`,
             });
         }
     }

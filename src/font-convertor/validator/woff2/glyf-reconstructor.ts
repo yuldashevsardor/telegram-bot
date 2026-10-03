@@ -1,12 +1,12 @@
 import { BrokenWoff2 } from "app/font-convertor/validator/woff2/woff2-font-validator.errors";
+import type { Violation } from "app/font-convertor/validator/woff2/woff2-font-validator.types";
 import type {
     Point,
     RebuildableHmtx,
     ReconstructedTables,
     Substream,
     TransformedHmtx,
-    Violation,
-} from "app/font-convertor/validator/woff2/woff2-font-validator.types";
+} from "app/font-convertor/validator/woff2/glyf-reconstructor.types";
 import { TableTag, Woff2Rule } from "app/font-convertor/validator/woff2/woff2-font-validator.types";
 import { NumberHelper } from "app/shared/number-helper";
 
@@ -31,6 +31,11 @@ import { NumberHelper } from "app/shared/number-helper";
  *   glyph as for a simple one, and 0 for an empty glyph. The decoder reads nContour as a UInt16,
  *   so its `n_contours > 0` holds for −1 too; `woff2_decompress` writes 10, the xMin of the
  *   composite of the spec, for its lsb.
+ *
+ * A contour of 0 points passes, as in the decoder: it ends where the contour before it does, or
+ * at −1, written as 0xFFFF, when it is the first. §5.1 sets no bound on it but the
+ * 65 536 points of `EndPoint`; `SfntFontValidator` rejects such endPtsOfContours by
+ * `EndPtsAscending` once the rebuilt sfnt is handed to it (#737).
  *
  * The OVERLAP_SIMPLE bit the overlapSimpleBitmap gives a simple glyph goes on its first flag, as
  * §5.1 says, before the flag is compared with the next one for "repeat". Decoder 1.0.2 knows
@@ -57,7 +62,9 @@ export class GlyfReconstructor {
     private static readonly WORD_CODE = 253;
     private static readonly ONE_MORE_BYTE_CODE_2 = 254;
     private static readonly ONE_MORE_BYTE_CODE_1 = 255;
-    private static readonly LOWEST_U_CODE = 253;
+    private static readonly ONE_MORE_BYTE_CODE_1_BASE = 253;
+    private static readonly ONE_MORE_BYTE_CODE_2_BASE = 2 * 253;
+    private static readonly CODE_SIZE_BYTES = 1;
     // The flag of a point in the flag stream (§5.2): bit 7 clear for an on-curve point, bits 0–6
     // the kind of its triplet. The first flag of each kind of triplet, as the table of §5.2 lists
     // them: 0–9 a dy alone, 10–19 a dx alone, 20–83 both in one byte, 84–119 in two, 120–123 in
@@ -69,6 +76,10 @@ export class GlyfReconstructor {
     private static readonly FIRST_TWO_BYTES_FLAG = 84;
     private static readonly FIRST_THREE_BYTES_FLAG = 120;
     private static readonly FIRST_FOUR_BYTES_FLAG = 124;
+    private static readonly ONE_BYTE_TRIPLET_SIZE_BYTES = 1;
+    private static readonly TWO_BYTES_TRIPLET_SIZE_BYTES = 2;
+    private static readonly THREE_BYTES_TRIPLET_SIZE_BYTES = 3;
+    private static readonly FOUR_BYTES_TRIPLET_SIZE_BYTES = 4;
     private static readonly HIGH_BYTE_BITS = 0b1110;
     private static readonly ONE_BYTE_DX_BASE_BITS = 0b110000;
     private static readonly ONE_BYTE_DY_BASE_BITS = 0b1100;
@@ -325,7 +336,7 @@ export class GlyfReconstructor {
 
         return Buffer.concat([
             this.glyphHeader(nContour, boundingBox),
-            this.uint16s([...endPoints, instructionLength]),
+            this.words([...endPoints, instructionLength]),
             instructions,
             outline,
         ]);
@@ -367,7 +378,7 @@ export class GlyfReconstructor {
         const instructionLength = this.read255UInt16(this.glyphStream, "instructionLength");
         const instructions = this.take(this.instructionStream, instructionLength, "the instructions");
 
-        return Buffer.concat([header, components, this.uint16s([instructionLength]), instructions]);
+        return Buffer.concat([header, components, this.words([instructionLength]), instructions]);
     }
 
     /**
@@ -386,7 +397,7 @@ export class GlyfReconstructor {
      * The values as big-endian 16-bit words, as glyf and hmtx hold them. A negative value is written
      * in two's complement.
      */
-    private uint16s(values: Array<number>): Uint8Array {
+    private words(values: Array<number>): Uint8Array {
         const bytes = new Uint8Array(values.length * GlyfReconstructor.WORD_SIZE_BYTES);
         const view = new DataView(bytes.buffer);
 
@@ -443,18 +454,18 @@ export class GlyfReconstructor {
 
     private tripletSizeBytes(kind: number): number {
         if (kind < GlyfReconstructor.FIRST_TWO_BYTES_FLAG) {
-            return 1;
+            return GlyfReconstructor.ONE_BYTE_TRIPLET_SIZE_BYTES;
         }
 
         if (kind < GlyfReconstructor.FIRST_THREE_BYTES_FLAG) {
-            return 2;
+            return GlyfReconstructor.TWO_BYTES_TRIPLET_SIZE_BYTES;
         }
 
         if (kind < GlyfReconstructor.FIRST_FOUR_BYTES_FLAG) {
-            return 3;
+            return GlyfReconstructor.THREE_BYTES_TRIPLET_SIZE_BYTES;
         }
 
-        return 4;
+        return GlyfReconstructor.FOUR_BYTES_TRIPLET_SIZE_BYTES;
     }
 
     /**
@@ -539,7 +550,7 @@ export class GlyfReconstructor {
             yMax = Math.max(yMax, point.y);
         }
 
-        return this.uint16s([xMin, yMin, xMax, yMax]);
+        return this.words([xMin, yMin, xMax, yMax]);
     }
 
     /**
@@ -592,15 +603,15 @@ export class GlyfReconstructor {
     /**
      * Appends the bytes of one delta to `bytes` and returns the bits of the flag it sets.
      */
-    private coordinate(delta: number, bytes: Array<number>, shortVector: number, isSameOrPositive: number): number {
+    private coordinate(delta: number, bytes: Array<number>, shortVectorBit: number, sameOrPositiveBit: number): number {
         if (delta === 0) {
-            return isSameOrPositive;
+            return sameOrPositiveBit;
         }
 
         if (Math.abs(delta) <= GlyfReconstructor.MAX_SHORT_DELTA) {
             bytes.push(Math.abs(delta));
 
-            return delta > 0 ? shortVector | isSameOrPositive : shortVector;
+            return delta > 0 ? shortVectorBit | sameOrPositiveBit : shortVectorBit;
         }
 
         // A word of the delta in two's complement: a delta outside Int16 wraps, as in the decoder.
@@ -709,10 +720,10 @@ export class GlyfReconstructor {
     private hmtx({ bytes, numberOfHMetrics, hasLsb, hasLeftSideBearing }: RebuildableHmtx, xMins: Array<number>): Uint8Array {
         // The values follow the flags byte in the order of the glyphs: advanceWidth[], then lsb[] of
         // the proportional glyphs, then leftSideBearing[] of the monospaced ones.
-        const input = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        const transformedHmtxView = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
         let inputOffset = GlyfReconstructor.HMTX_FLAGS_SIZE_BYTES;
         const nextWord = (): number => {
-            const value = input.getUint16(inputOffset);
+            const value = transformedHmtxView.getUint16(inputOffset);
 
             inputOffset += GlyfReconstructor.WORD_SIZE_BYTES;
 
@@ -738,7 +749,7 @@ export class GlyfReconstructor {
             metrics.push(leftSideBearing);
         }
 
-        return this.uint16s(metrics);
+        return this.words(metrics);
     }
 
     private bitmapSizeBytes(): number {
@@ -797,22 +808,22 @@ export class GlyfReconstructor {
     }
 
     private read255UInt16(stream: Substream, purpose: string): number {
-        const [code = 0] = this.take(stream, 1, purpose);
+        const [code = 0] = this.take(stream, GlyfReconstructor.CODE_SIZE_BYTES, purpose);
 
         if (code === GlyfReconstructor.WORD_CODE) {
             return this.readUint16(stream, purpose);
         }
 
         if (code === GlyfReconstructor.ONE_MORE_BYTE_CODE_1) {
-            const [byte = 0] = this.take(stream, 1, purpose);
+            const [byte = 0] = this.take(stream, GlyfReconstructor.CODE_SIZE_BYTES, purpose);
 
-            return byte + GlyfReconstructor.LOWEST_U_CODE;
+            return byte + GlyfReconstructor.ONE_MORE_BYTE_CODE_1_BASE;
         }
 
         if (code === GlyfReconstructor.ONE_MORE_BYTE_CODE_2) {
-            const [byte = 0] = this.take(stream, 1, purpose);
+            const [byte = 0] = this.take(stream, GlyfReconstructor.CODE_SIZE_BYTES, purpose);
 
-            return byte + 2 * GlyfReconstructor.LOWEST_U_CODE;
+            return byte + GlyfReconstructor.ONE_MORE_BYTE_CODE_2_BASE;
         }
 
         return code;

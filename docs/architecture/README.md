@@ -233,7 +233,7 @@ own only when it has files of its own or a role of its own among the siblings:
   ([`bot.md`](./bot.md)). There is only one file in it so far;
 - `validator/svg/` keeps `SvgFontValidator` together with its companions and its path data parser,
   `validator/woff2/` keeps `Woff2FontValidator` together with its companions and its glyf
-  reconstructor, `validator/woff/`, `validator/eot/` and `validator/sfnt/` keep
+  reconstructor with its own, `validator/woff/`, `validator/eot/` and `validator/sfnt/` keep
   `WoffFontValidator`, `EotFontValidator` and `SfntFontValidator` with their companions.
 
 A sibling with neither lies flat in the siblings directory: `filter/has-session-key.filter.ts`,
