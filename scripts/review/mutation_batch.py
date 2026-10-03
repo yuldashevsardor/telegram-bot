@@ -55,9 +55,10 @@ same lock as `record`:
    hours the machine slept, while the run over the files of its survivors took 43. A run over files
    on the head of the full run checked no fix and stops the close.
 4. A red full run (`exit` other than 0) closes only with the issues filed for its survivors named,
-   or with the run over files of item 3, or both. Whether they cover every survivor, the files of
-   that run included, is the caller's check. A green full run has no survivors to fix, and the
-   record of the last run is not read for it.
+   or with the run over files of item 3, or both. A red run over files stops the close even with
+   issues named: it is the last round of fixes, and the files of the survivors left to issues stay
+   out of it. Whether the issues and the runs cover every survivor is the caller's check. A green
+   full run has no survivors to fix, and the record of the last run is not read for it.
 5. Sorts each recorded PR by `gh pr view`: merged, with its merge commit an ancestor of the head of
    the full run — covered; merged later, or not merged — carried over; closed without a merge —
    dropped.
@@ -421,8 +422,8 @@ def read_full_run(path: str) -> RunRecord:
 
 
 def read_fix_run(path: str, full_run: RunRecord, run: Run) -> Optional[RunRecord]:
-    """The run over the files of the survivors after the full run; None when the last run is the
-    full one."""
+    """The run over the files of the survivors after the full run; None when there is no record of
+    the last run or that run is the full one."""
     text = read_record_file(path)
     if text is None:
         return None
@@ -608,13 +609,13 @@ def close_locked(
     fix_run = None
     if full_run.exit != "0":
         fix_run = read_fix_run(record_file, full_run, run)
-    if full_run.exit != "0" and not survivor_issues and fix_run is None:
-        raise Stop(
-            "the run is red (exit={}): name the issues filed for its survivors, "
-            'issues="<N> …", or check the fixed ones with a run over their files'.format(
-                full_run.exit
+        if fix_run is None and not survivor_issues:
+            raise Stop(
+                "the run is red (exit={}): name the issues filed for its survivors, "
+                'issues="<N> …", or check the fixed ones with a run over their files'.format(
+                    full_run.exit
+                )
             )
-        )
     fetch(run)
     ordered = sort_records(records_among(comments), full_run.head, run)
     for found in ordered.covered:

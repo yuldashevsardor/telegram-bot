@@ -15,8 +15,9 @@ const RECORD_FILE = "reports/mutation/record.md";
 const FULL_RECORD_FILE = "reports/mutation/full-record.md";
 // The record goes into a GitHub comment, and that holds 65,536 characters. The closing comment of a
 // batch adds around the record of the full run the lists of its PRs, the signature and the record of
-// the green run over files that checked the fixes: a summary and the files it mutated, with no
-// survivors, under 7,000 characters even over the whole of src/: in batch 1 its 124 files took 5,837.
+// the green run over files that checked the fixes: a summary, the files it was given and the files it
+// mutated, with no survivors, under 14,000 characters even over the whole of src/ given by path: in
+// batch 1 the list of 124 files took 5,837.
 const RECORD_LIMIT = 45_000;
 const STATUSES = ["Killed", "Timeout", "Survived", "NoCoverage", "CompileError", "RuntimeError", "Ignored", "Pending"];
 
@@ -170,6 +171,17 @@ if (isFullRun) {
 const startedAt = new Date();
 let finished = false;
 
+// Each file on its own: a failed write of the full record does not take back the record written
+// before it.
+function writeRecord(file: string, text: string): void {
+    try {
+        writeFileSync(file, text);
+        process.stdout.write(`\nRun record — ${file}\n`);
+    } catch (error) {
+        process.stderr.write(`\nThe run record ${file} was not written: ${(error as Error).stack ?? String(error)}\n`);
+    }
+}
+
 function finish(exitCode: number): void {
     if (finished) {
         return;
@@ -183,13 +195,11 @@ function finish(exitCode: number): void {
         const text = record({ exitCode, startedAt, finishedAt: new Date() });
 
         mkdirSync("reports/mutation", { recursive: true });
-        writeFileSync(RECORD_FILE, text);
+        writeRecord(RECORD_FILE, text);
 
         if (isFullRun) {
-            writeFileSync(FULL_RECORD_FILE, text);
+            writeRecord(FULL_RECORD_FILE, text);
         }
-
-        process.stdout.write(`\nRun record — ${RECORD_FILE}\n`);
     } catch (error) {
         process.stderr.write(`\nThe run record was not written: ${(error as Error).stack ?? String(error)}\n`);
     }

@@ -139,6 +139,7 @@ describe("OutboxMessageSource", function () {
     });
 
     afterEach(function () {
+        mock.restoreAll();
         mock.timers.reset();
     });
 
@@ -389,19 +390,22 @@ describe("OutboxMessageSource", function () {
         expect(store.pulls).to.have.length(1);
     });
 
-    it("leaves no timer behind when stop cuts a sleep short", async function () {
-        // On real timers: a timer left running would hold the process for up to a second after the shutdown.
-        // Counted against the sleep rather than the start: the runtime may hold timers of its own.
-        mock.timers.reset();
+    it("clears the timer of a sleep that stop cuts short", async function () {
+        // A timer left running would hold the process for up to a second after the shutdown.
+        const setTimeoutCalls = mock.method(globalThis, "setTimeout");
+        const clearTimeoutCalls = mock.method(globalThis, "clearTimeout");
         const source = build();
         const next = source.stream(WORKER).next();
         await settle();
-        const timerCountAsleep = activeTimerCount();
 
         source.stop();
         await next;
 
-        expect(activeTimerCount()).to.equal(timerCountAsleep - 1);
+        const timers = setTimeoutCalls.mock.calls.map((call) => call.result);
+        const clearedTimers = clearTimeoutCalls.mock.calls.map((call) => call.arguments[0]);
+
+        expect(timers).to.have.length(1);
+        expect(clearedTimers).to.deep.equal(timers);
     });
 
     it("hands out the message of a pull in progress on stop, then ends", async function () {
@@ -492,10 +496,6 @@ function pulledMessage(id: number): PulledOutboxMessage {
 // The answer of a pull that got message.
 function pullOf(message: PulledOutboxMessage): OutboxPullResult {
     return { messages: [message], nextPullInMs: 0 };
-}
-
-function activeTimerCount(): number {
-    return process.getActiveResourcesInfo().filter((resource) => resource === "Timeout").length;
 }
 
 // Lets every pending promise run: setImmediate is not faked, and it runs after the microtasks.
