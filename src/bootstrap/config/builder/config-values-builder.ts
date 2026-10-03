@@ -26,6 +26,10 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
     // The pool deadlines are in seconds: postgres.js multiplies them by 1000 for setTimeout, so the
     // ceiling is the longest timer delay in seconds. A zero switches the timer off there, while a
     // negative value is truthy and would close the connection after 1 ms.
+    // The connections the outbox takes besides its slots: the pull of the worker loop and the three
+    // tasks of OutboxMaintenance, each one query at a time.
+    private static readonly OUTBOX_CONNECTIONS_BESIDES_SLOTS = 4;
+
     private static readonly DATABASE_TIMER_RANGE: IntegerRange = {
         min: 0,
         max: Math.floor(ConfigParser.MAX_TIMER_DELAY / 1000),
@@ -182,14 +186,17 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
     }
 
     // Each slot of the worker loop completes its message on a connection of the pool, and the pull
-    // takes one more. A pool they fill leaves the rest of the bot, the sessions and the users,
-    // waiting for a connection behind the sends.
+    // and the maintenance take more. A pool they fill leaves the rest of the bot, the sessions and
+    // the users, waiting for a connection behind the sends.
     private static checkOutboxConcurrency({ outbox, database }: ConfigValues): void {
-        if (outbox.concurrency + 1 >= database.connection.max) {
-            throw new InvalidConfigError("OUTBOX_CONCURRENCY plus one connection for the pull must be below DATABASE_CONNECTION_LIMIT", {
-                concurrency: outbox.concurrency,
-                connectionLimit: database.connection.max,
-            });
+        if (outbox.concurrency + ConfigValuesBuilder.OUTBOX_CONNECTIONS_BESIDES_SLOTS >= database.connection.max) {
+            throw new InvalidConfigError(
+                "OUTBOX_CONCURRENCY plus the connections of the pull and the maintenance must be below DATABASE_CONNECTION_LIMIT",
+                {
+                    concurrency: outbox.concurrency,
+                    connectionLimit: database.connection.max,
+                },
+            );
         }
     }
 

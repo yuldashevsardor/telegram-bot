@@ -21,8 +21,9 @@ The runtime sequences live in the files of their subsystems:
   of an outgoing call
 - [`outbox.md`](./outbox.md) — the outbox in PostgreSQL being built to replace the outbound
   queue: the tables, the chat states, push, pull, the limits and the pause, the chat lock, the
-  lease and the completions, sending one message and removing its files, the failure classes, the
-  outcomes, the retry delay, waiting for the result and the payload codec
+  lease and the completions, the worker loop with its stop and the maintenance timers, sending one
+  message and removing its files, the failure classes, the outcomes, the retry delay, waiting for
+  the result and the payload codec
 - [`inbox.md`](./inbox.md) — the inbox of incoming updates in PostgreSQL being built: the tables,
   the group, the group states, push without duplicates, the claim, the lease and the completion
 - [`font-convertor.md`](./font-convertor.md) — format pairs, the EOT codec, signatures, the SVG,
@@ -345,6 +346,9 @@ A siblings directory inside a non-reflected one is reflected without it: a spec 
 `convertor/eot/eot-to-ttf.ts` would go into `test/font-convertor/eot/`. The pairs have no specs
 now.
 
+A spec on the database of a source that has a spec with fakes as well is
+`<source>.database.spec.ts` next to it, as `outbox-worker-loop.database.spec.ts`.
+
 A command prints the divergences: every spec whose path repeats the path of no source with the
 same name. The only deliberate exceptions among them are specs whose path is shorter than the
 source path by non-reflected directories. A spec deeper than its source or in another branch of
@@ -353,7 +357,7 @@ a non-reflected directory: its path matches the source path, and the rule is bro
 
 ```bash
 find test -name '*.spec.ts' | while read -r s; do base=$(basename "$s" .spec.ts); \
-    srcs=$(find src -name "$base.ts"); [ -z "$srcs" ] && continue; \
+    base=${base%.database}; srcs=$(find src -name "$base.ts"); [ -z "$srcs" ] && continue; \
     echo "$srcs" | grep -q "^src$(dirname "$s" | sed 's#^test##')/$base\.ts$" \
     || echo "$s | $(echo "$srcs" | tr '\n' ' ')"; done
 ```

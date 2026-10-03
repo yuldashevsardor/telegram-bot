@@ -16,7 +16,11 @@ export class OutboxWorkerLoop {
     // A call in flight by the controller that aborts it; the promise settles once the processor has
     // written its outcome or released it, and never rejects.
     private readonly callsInFlight = new Map<AbortController, Promise<void>>();
-    private readonly stopRequest = Promise.withResolvers<void>();
+    // Ends the latest wait of a loop with every slot busy: a call that settles or the stop calls it,
+    // and a call after the wait has ended changes nothing. One resolver per wait: a race with a
+    // promise pending until the stop would leave a reaction on it per wait, and the heap would grow
+    // with every message sent.
+    private wakeUpLoop: (() => void) | undefined;
     private isStopping = false;
     private loopRun: Promise<void> = Promise.resolve();
 
@@ -42,7 +46,7 @@ export class OutboxWorkerLoop {
     public async stop(): Promise<void> {
         const deadlineAt = Date.now() + this.stopTimeoutMs;
         this.isStopping = true;
-        this.stopRequest.resolve();
+        this.wakeUpLoop?.();
         this.source.stop();
 
         // A pull in progress hands out its message before the loop ends, and the loop starts it:
@@ -71,18 +75,21 @@ export class OutboxWorkerLoop {
                 continue;
             }
 
-            const next = await messages.next();
+            const nextMessageResult = await messages.next();
 
-            if (next.done === true) {
+            if (nextMessageResult.done === true) {
                 return;
             }
 
-            this.startCall(next.value);
+            this.startCall(nextMessageResult.value);
         }
     }
 
     private async waitForFreeSlotOrStop(): Promise<void> {
-        await Promise.race([...this.callsInFlight.values(), this.stopRequest.promise]);
+        const { promise, resolve } = Promise.withResolvers<void>();
+        this.wakeUpLoop = resolve;
+
+        await promise;
     }
 
     // A message pulled is started at once: its lease and the limit of its chat count from the pull.
@@ -98,6 +105,7 @@ export class OutboxWorkerLoop {
             })
             .finally(() => {
                 this.callsInFlight.delete(abortController);
+                this.wakeUpLoop?.();
             });
 
         this.callsInFlight.set(abortController, settled);

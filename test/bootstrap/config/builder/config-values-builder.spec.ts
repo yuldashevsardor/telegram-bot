@@ -312,17 +312,20 @@ describe("ConfigValuesBuilder", () => {
         expect(result.outbox).to.include({ leaseDurationMs: 30001, apiTimeoutMs: 30000 });
     });
 
-    it("rejects an outbox concurrency that leaves no connection besides its slots and the pull", () => {
-        const error = rejection({ OUTBOX_CONCURRENCY: "9", DATABASE_CONNECTION_LIMIT: "10" });
+    // The pull and the three maintenance tasks take four connections besides the slots.
+    it("rejects an outbox concurrency that leaves no connection besides the outbox", () => {
+        const error = rejection({ OUTBOX_CONCURRENCY: "6", DATABASE_CONNECTION_LIMIT: "10" });
 
-        expect(error.message).to.equal("OUTBOX_CONCURRENCY plus one connection for the pull must be below DATABASE_CONNECTION_LIMIT");
-        expect(error.payload).to.deep.equal({ concurrency: 9, connectionLimit: 10 });
+        expect(error.message).to.equal(
+            "OUTBOX_CONCURRENCY plus the connections of the pull and the maintenance must be below DATABASE_CONNECTION_LIMIT",
+        );
+        expect(error.payload).to.deep.equal({ concurrency: 6, connectionLimit: 10 });
     });
 
-    it("accepts an outbox concurrency that leaves one connection besides its slots and the pull", () => {
-        const result = config({ OUTBOX_CONCURRENCY: "8", DATABASE_CONNECTION_LIMIT: "10" });
+    it("accepts an outbox concurrency that leaves one connection besides the outbox", () => {
+        const result = config({ OUTBOX_CONCURRENCY: "5", DATABASE_CONNECTION_LIMIT: "10" });
 
-        expect(result.outbox.concurrency).to.equal(8);
+        expect(result.outbox.concurrency).to.equal(5);
         expect(result.database.connection.max).to.equal(10);
     });
 

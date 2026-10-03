@@ -10,7 +10,8 @@ import { waitUntil } from "test/telegram/outbox/outbox-store.helper";
 const SHORT_INTERVAL_MS = 5;
 // Longer than any spec runs: a task with it never runs in the spec.
 const LONG_INTERVAL_MS = 60_000;
-const BATCH_SIZE = 3;
+// A count of deleted rows the fake store answers: any count above zero.
+const DELETED_COUNT = 3;
 // Long enough for several runs of a task with SHORT_INTERVAL_MS.
 const SEVERAL_INTERVALS_MS = 20 * SHORT_INTERVAL_MS;
 // Long enough for the spec to see one run end and stop the timers before the next run.
@@ -128,18 +129,19 @@ describe("OutboxMaintenance", function () {
         expect(failureHandler.recoveries).to.equal(0);
     });
 
-    it("deletes again after a full batch and stops at the first batch that is not full", async function () {
-        store.finishedMessagesDeleted.push(BATCH_SIZE, BATCH_SIZE, BATCH_SIZE - 1);
-        store.idleChatsDeleted.push(BATCH_SIZE, 0);
+    it("deletes again after a batch that deleted anything and stops at the first empty one", async function () {
+        store.finishedMessagesDeleted.push(DELETED_COUNT, DELETED_COUNT, DELETED_COUNT - 1);
+        store.idleChatsDeleted.push(DELETED_COUNT);
         const started = start({ leaseRecoveryIntervalMs: LONG_INTERVAL_MS, cleanupIntervalMs: SPACED_INTERVAL_MS });
 
         await waitUntil(
-            () => store.finishedMessagesCalls >= 3 && store.idleChatsCalls >= 2,
+            () => store.finishedMessagesCalls >= 4 && store.idleChatsCalls >= 2,
             "both cleanups were expected to delete every batch",
         );
         await started.stop();
 
-        expect(store.finishedMessagesCalls).to.equal(3);
+        // The last call of each deleted nothing.
+        expect(store.finishedMessagesCalls).to.equal(4);
         expect(store.idleChatsCalls).to.equal(2);
     });
 
@@ -200,7 +202,7 @@ describe("OutboxMaintenance", function () {
     });
 
     it("deletes no further batch after the stop", async function () {
-        store.finishedMessagesDeleted.push(BATCH_SIZE, BATCH_SIZE, BATCH_SIZE);
+        store.finishedMessagesDeleted.push(DELETED_COUNT, DELETED_COUNT, DELETED_COUNT);
         const started = start({ leaseRecoveryIntervalMs: LONG_INTERVAL_MS, cleanupIntervalMs: SHORT_INTERVAL_MS });
         // The stop comes while the first batch is being deleted.
         let stopping: Promise<void> | undefined;
@@ -221,7 +223,6 @@ describe("OutboxMaintenance", function () {
             logger,
             intervals.leaseRecoveryIntervalMs,
             intervals.cleanupIntervalMs,
-            BATCH_SIZE,
         );
         maintenance.start();
 

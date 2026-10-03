@@ -176,6 +176,25 @@ describe("OutboxMessageProcessor", function () {
         expect(store.done).to.deep.equal([]);
     });
 
+    // Telegram refused the call in the same turn as the abort: its answer decides the outcome.
+    it("hands an answer of Telegram to the failure handler although the call was aborted", async function () {
+        const abortController = new AbortController();
+        abortController.abort();
+        const error = new GrammyError(
+            "Call to 'sendMessage' failed! (403: Forbidden: bot was blocked by the user)",
+            { ok: false, error_code: 403, description: "Forbidden: bot was blocked by the user" },
+            "sendMessage",
+            { chat_id: CHAT_ID, text: "text" },
+        );
+        sender.error = error;
+        const message = pulled("sendMessage", { chat_id: CHAT_ID, text: "text" });
+
+        await processor.process(message, abortController.signal);
+
+        expect(failureHandler.calls).to.deep.equal([{ message, error }]);
+        expect(failureHandler.released).to.deep.equal([]);
+    });
+
     // The abort came too late to stop the call: Telegram answered, and the message is sent.
     it("marks the message done when its call answers although it was aborted", async function () {
         const abortController = new AbortController();

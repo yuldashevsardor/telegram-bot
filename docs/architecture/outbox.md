@@ -341,8 +341,9 @@ from the worker loop:
 - the recovery of the expired leases (see "Lease recovery"), every `OUTBOX_LEASE_RECOVERY_INTERVAL`;
 - `deleteFinishedMessages()` and `deleteIdleChats()` (see "Cleanup"), each every
   `OUTBOX_CLEANUP_INTERVAL` on a timer of its own, so a failing one does not hold the other back. A
-  full batch is followed by the next one at once, until a batch is not full or the maintenance
-  stops.
+  batch that deleted anything is followed by the next one at once, until a batch deletes nothing or
+  the maintenance stops. A batch short of `OUTBOX_CLEANUP_BATCH_SIZE` would end the run one query
+  earlier, but the size is the `LIMIT` of the store, and the maintenance keeps no copy of it.
 
 A task runs first one interval after `start()`, and its next run is timed from the end of the
 previous one, so two runs of a task on one node never overlap. A failed run is logged at `error` and
@@ -454,7 +455,8 @@ So the waiter has no SQL: mutation testing reaches it through a fake reader, and
 
 Two methods of the store keep the tables from growing without bound. Each deletes one batch of at
 most `OUTBOX_CLEANUP_BATCH_SIZE` rows in one statement and returns how many it deleted, so a caller
-that gets a full batch calls again, as `OutboxMaintenance` does (see "Maintenance").
+that gets a full batch calls again; `OutboxMaintenance` calls again until a batch deletes nothing
+(see "Maintenance").
 
 - `deleteFinishedMessages()` deletes the `done` messages whose `finished_at` is older than
   `OUTBOX_DONE_RETENTION`, and the `skipped` ones older than `OUTBOX_SKIPPED_RETENTION`. A `failed`
@@ -508,11 +510,12 @@ The processor completes the message:
   `OutboxFailureHandler.handle()` with the error as it was thrown (see "Outcomes"). A wrapped
   `GrammyError` would bring the copy of the call into the attempt: the serializer leaves out the
   payload of a `GrammyError` only at the top level;
-- the call throws after its signal was aborted: `OutboxFailureHandler.releaseOnStop()` (see
-  "Release on stop"). grammY throws an aborted call as an `HttpError`, a transient failure, and
-  `handle()` would give the message a retry delay, or block its chat on its last attempt, for a stop
-  that says nothing about the message. A call that answers although its signal was aborted is done
-  as any other.
+- the call throws an `HttpError` after its signal was aborted:
+  `OutboxFailureHandler.releaseOnStop()` (see "Release on stop"). grammY throws an aborted call as
+  an `HttpError`, a transient failure, and `handle()` would give the message a retry delay, or block
+  its chat on its last attempt, for a stop that says nothing about the message. A call that Telegram
+  answered although its signal was aborted, with its result or with a `GrammyError`, is completed as
+  any other.
 
 The sender calls through an `Api` of its own, from `OutboxApiFactory`
 (`outbox-api-factory.ts`): the bot token, no transformers, and `timeoutSeconds` from

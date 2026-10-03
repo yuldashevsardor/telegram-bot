@@ -25,7 +25,6 @@ export class OutboxMaintenance {
         @inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger,
         private readonly leaseRecoveryIntervalMs: number = configValue("outbox.leaseRecoveryIntervalMs"),
         private readonly cleanupIntervalMs: number = configValue("outbox.cleanupIntervalMs"),
-        private readonly cleanupBatchSize: number = configValue("outbox.cleanup.batchSize"),
     ) {}
 
     // Each task runs first one interval after the start. The next run is timed from the end of the
@@ -92,13 +91,15 @@ export class OutboxMaintenance {
         }
     }
 
-    // A full batch may leave more behind it, so the next one follows at once. The stop ends the
-    // repetition: the rest is left to the cleanup of another node or of the next start.
+    // A batch may leave more behind it, so the next one follows at once until one deletes nothing.
+    // Not until one is short of the batch size: that is the LIMIT of the store, and a copy of it here
+    // could differ. The cost is one empty batch per run. The stop ends the repetition: the rest is
+    // left to the cleanup of another node or of the next start.
     private async deleteInBatches(deleteBatch: () => Promise<number>): Promise<void> {
         while (!this.isStopped) {
             const deletedCount = await deleteBatch();
 
-            if (deletedCount < this.cleanupBatchSize) {
+            if (deletedCount === 0) {
                 return;
             }
         }

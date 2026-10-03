@@ -2,6 +2,7 @@ import { inject, injectable } from "inversify";
 import { Tokens } from "app/shared/tokens";
 import { FileHelper } from "app/shared/fs/file-helper";
 import type { Logger } from "app/platform/logger/logger";
+import { HttpError } from "grammy";
 import { PathFile } from "app/telegram/path-file/path-file";
 import { deserialize } from "app/telegram/outbox/payload-codec/payload-codec";
 import type { OutboxSender } from "app/telegram/outbox/outbox-sender";
@@ -33,9 +34,10 @@ export class OutboxMessageProcessor {
         } catch (error) {
             // grammY throws an aborted call as an HttpError, a transient failure: handled as one, it
             // would wait for a retry delay, or block its chat on the last attempt, for a stop that
-            // says nothing about the message. The call has settled by now, so the release cannot let
-            // it reach Telegram after the next message of its chat.
-            if (signal.aborted) {
+            // says nothing about the message. An answer of Telegram that came with the abort, a
+            // GrammyError, is handled as any other. The call has settled by now, so the release
+            // cannot let it reach Telegram after the next message of its chat.
+            if (signal.aborted && error instanceof HttpError) {
                 await this.failureHandler.releaseOnStop(message);
                 return;
             }
