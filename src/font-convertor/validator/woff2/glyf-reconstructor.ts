@@ -33,9 +33,9 @@ import { NumberHelper } from "app/shared/number-helper";
  *   composite of the spec, for its lsb.
  *
  * A contour of 0 points passes, as in the decoder: it ends where the contour before it does, or
- * at −1, written as 0xFFFF, when it is the first. §5.1 sets no bound on it but the
- * 65 536 points of `EndPoint`; `SfntFontValidator` rejects such endPtsOfContours by
- * `EndPtsAscending` once the rebuilt sfnt is handed to it (#737).
+ * at −1, written as 0xFFFF, when it is the first. §5.1 sets no bound on it but the 65 536 points
+ * of `EndPoint`; `SfntFontValidator` rejects such a glyph once the rebuilt sfnt is handed to it
+ * (#737).
  *
  * The OVERLAP_SIMPLE bit the overlapSimpleBitmap gives a simple glyph goes on its first flag, as
  * §5.1 says, before the flag is compared with the next one for "repeat". Decoder 1.0.2 knows
