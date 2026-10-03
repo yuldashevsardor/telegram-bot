@@ -12,6 +12,7 @@ import { Woff2FontValidator } from "app/font-convertor/validator/woff2/woff2-fon
 import { EotFontValidator } from "app/font-convertor/validator/eot/eot-font-validator";
 import { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
 import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
+import { EotPayloadDecoder } from "app/font-convertor/eot-payload-decoder/eot-payload-decoder";
 import { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory";
 import { FontConvertor } from "app/font-convertor/font-convertor";
 import { TaskQueue } from "app/telegram/outbound-queue/task-queue";
@@ -98,6 +99,7 @@ export class Container extends InversifyContainer {
         this.bind<EotFontValidator>(Tokens.Font.Validator.Eot).to(EotFontValidator).inSingletonScope();
         this.bind<FontValidatorResolver>(Tokens.Font.Validator.Resolver).to(FontValidatorResolver).inSingletonScope();
         this.bind<EotPacker>(Tokens.Font.Envelope.Packer).to(EotPacker).inSingletonScope();
+        this.bind<EotPayloadDecoder>(Tokens.Font.Envelope.PayloadDecoder).to(EotPayloadDecoder).inSingletonScope();
         this.bind<FontConvertor>(Tokens.Font.Convertor.Convertor).to(FontConvertor).inSingletonScope();
     }
 

@@ -4,6 +4,7 @@ import os from "os";
 import path from "path";
 import { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory";
 import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
+import { EotPayloadDecoder } from "app/font-convertor/eot-payload-decoder/eot-payload-decoder";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
@@ -27,9 +28,9 @@ describe("Convertors of the engine pairs", function () {
         new WoffFontValidator(new SfntFontValidator()),
         new Woff2FontValidator(),
         new SfntFontValidator(),
-        new EotFontValidator(new SfntFontValidator()),
+        new EotFontValidator(new SfntFontValidator(), new EotPayloadDecoder()),
     );
-    const factory = new ConvertorFactory(new FontForge("fontforge"), resolver, new EotPacker());
+    const factory = new ConvertorFactory(new FontForge("fontforge"), resolver, new EotPacker(new EotPayloadDecoder()));
     const engineExtensions = factory.getSupportedExtensions().filter((extension) => extension !== Extension.EOT);
     const nonSvgExtensions = factory.getSupportedExtensions().filter((extension) => extension !== Extension.SVG);
     let workDir: string;
