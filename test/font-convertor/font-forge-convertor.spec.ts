@@ -27,7 +27,7 @@ describe("Convertors of the engine pairs", function () {
     const resolver = new FontValidatorResolver(
         new SvgFontValidator(),
         new WoffFontValidator(new SfntFontValidator()),
-        new Woff2FontValidator(),
+        new Woff2FontValidator(new SfntFontValidator()),
         new SfntFontValidator(),
         new EotFontValidator(new SfntFontValidator(), new EotPayloadDecoder()),
     );

@@ -7,6 +7,9 @@ import zlib from "zlib";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { SfntTableDirectory } from "app/font-convertor/sfnt-table-directory/sfnt-table-directory";
 import { SFNT_VERSIONS } from "app/font-convertor/sfnt-version";
+import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
+import { BrokenSfnt } from "app/font-convertor/validator/sfnt/sfnt-font-validator.errors";
+import { SfntRule } from "app/font-convertor/validator/sfnt/sfnt-font-validator.types";
 import { Woff2FontValidator } from "app/font-convertor/validator/woff2/woff2-font-validator";
 import type { InvalidWoff2Font } from "app/font-convertor/validator/woff2/woff2-font-validator.errors";
 import { BrokenWoff2, NotWoff2 } from "app/font-convertor/validator/woff2/woff2-font-validator.errors";
@@ -54,7 +57,7 @@ import {
     withUint32,
 } from "test/font-convertor/validator/woff2/woff2-font-validator.helper";
 
-const validator = new Woff2FontValidator();
+const validator = new Woff2FontValidator(new SfntFontValidator());
 
 // The output buffer fontforge gives its decoder: the cap on the decompressed tables and on the rebuilt sfnt.
 const DECODER_BUFFER_SIZE_BYTES = 30 * 1024 * 1024;
@@ -1274,9 +1277,78 @@ describe("Woff2FontValidator.validate", function () {
         });
     });
 
+    describe("hands the rebuilt sfnt to SfntFontValidator", function () {
+        it("rebuilds the fixture with the directory in tag order, each table padded to 4 bytes", async function () {
+            const rebuilt = await rebuiltSfnt(fixture);
+            const directory = new SfntTableDirectory(rebuilt);
+            const tags = directory.records().map((record) => record.tag);
+
+            expect(tags).to.deep.equal(fixtureLayout.entries.map((entry) => entry.tag).toSorted());
+            expect(rebuilt.length).to.equal(FIXTURE_SFNT_SIZE_BYTES);
+
+            const view = new DataView(rebuilt.buffer, rebuilt.byteOffset, rebuilt.byteLength);
+
+            expect(view.getUint32(0)).to.equal(0x00010000);
+            // 13 tables: the largest power of 2 not above it is 8, so entrySelector 3, searchRange 8 × 16.
+            expect([view.getUint16(4), view.getUint16(6), view.getUint16(8), view.getUint16(10)]).to.deep.equal([13, 128, 3, 80]);
+
+            for (const record of directory.records()) {
+                expect(record.offset % 4).to.equal(0);
+            }
+
+            const hhea = directory.records().find((record) => record.tag === "hhea") ?? expect.fail("no hhea");
+
+            expect(Buffer.compare(rebuilt.subarray(hhea.offset, hhea.offset + hhea.length), entryOf(fixtureLayout, "hhea").data)).to.equal(
+                0,
+            );
+        });
+
+        it("rejects a font without a required table with the answer of SfntFontValidator", async function () {
+            await expectBrokenSfnt(
+                build(withoutEntry(fixtureLayout, "maxp")),
+                SfntRule.RequiredTable,
+                'At the table directory: table "maxp" is absent, expected present.',
+            );
+        });
+
+        it("rejects hhea.numberOfHMetrics of 0", async function () {
+            await expectBrokenSfnt(
+                build(withNumberOfHMetrics(fixtureLayout, 0)),
+                SfntRule.NumberOfHMetrics,
+                'At table "hhea": numberOfHMetrics is 0, expected from 1 to 1296, maxp.numGlyphs.',
+            );
+        });
+
+        it("rejects a plain hmtx beside an hhea cut to 35 bytes, which reaches the decoder of fontforge otherwise", async function () {
+            const layout = withEntry(fixtureLayout, "hhea", (entry) => ({ ...entry, origLength: 35, data: entry.data.subarray(0, 35) }));
+
+            await expectBrokenSfnt(build(layout), SfntRule.HheaLength, 'At table "hhea": length is 35, expected at least 36.');
+        });
+    });
+
     it("throws ReadFailed, not an answer, on a file that cannot be read", async function () {
         await expectRejection(() => validator.validate(path.join(workDir, `missing.${Extension.WOFF2}`)), ReadFailed);
     });
+
+    async function rebuiltSfnt(content: Uint8Array): Promise<Uint8Array> {
+        let rebuilt: Uint8Array | undefined;
+        const recording = new (class extends SfntFontValidator {
+            public override validateBytes(_fontPath: string, bytes: Uint8Array): void {
+                rebuilt = bytes;
+            }
+        })();
+
+        await fs.writeFile(fontPath, content);
+        await new Woff2FontValidator(recording).validate(fontPath);
+
+        return rebuilt ?? expect.fail("the sfnt was not handed to SfntFontValidator");
+    }
+
+    async function expectBrokenSfnt(content: Uint8Array, rule: SfntRule, where: string): Promise<void> {
+        const error = await expectRejection(() => validate(content), BrokenSfnt, `Sfnt font breaks a rule: ${rule}. ${where}`);
+
+        expect(error.payload).to.include({ path: fontPath, rule: rule });
+    }
 
     async function validate(content: Uint8Array): Promise<void> {
         await fs.writeFile(fontPath, content);

@@ -115,6 +115,8 @@ export type DecompressedTable = {
 export type SfntTable = {
     tag: string;
     bytes: Uint8Array;
+    // The length of the table record: the bytes are cut to it or padded with zeros to it.
+    lengthBytes: number;
 };
 
 /**

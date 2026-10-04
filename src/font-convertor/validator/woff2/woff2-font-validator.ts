@@ -1,4 +1,4 @@
-import { injectable } from "inversify";
+import { inject, injectable } from "inversify";
 import { promisify } from "util";
 import { brotliDecompress as brotliDecompressOrigin } from "zlib";
 import { SfntTableDirectory } from "app/font-convertor/sfnt-table-directory/sfnt-table-directory";
@@ -19,8 +19,10 @@ import { BlockKind, TableTag, Woff2Rule } from "app/font-convertor/validator/wof
 import type { FontValidator } from "app/font-convertor/validator/font-validator";
 import { GlyfReconstructor } from "app/font-convertor/validator/woff2/glyf-reconstructor";
 import type { ReconstructedTables, TransformedHmtxWithHhea } from "app/font-convertor/validator/woff2/glyf-reconstructor";
+import type { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
 import { FileHelper } from "app/shared/fs/file-helper";
 import { NumberHelper } from "app/shared/number-helper";
+import { Tokens } from "app/shared/tokens";
 
 const brotliDecompress = promisify(brotliDecompressOrigin);
 
@@ -39,8 +41,8 @@ type Decompressed = {
  * the header (§3.2), the table directory (§4), where the blocks lie in the file (§3, §6, §7), the
  * compressed data (§5), and the transformed tables: `GlyfReconstructor` decodes the glyph records
  * of a transformed glyf and rebuilds glyf, loca and a transformed hmtx from them (§5.1–§5.4). The
- * rebuilt tables are checked only for the size of the sfnt they make up, not handed to the sfnt
- * validator.
+ * standard checks the packaging only, so the sfnt the tables make up is rebuilt in memory and
+ * checked by `SfntFontValidator`, whose answer passes through as is.
  *
  * Deliberately not checked:
  * - `reserved`: "a decoder MUST NOT reject a downloaded font file if the reserved header value is
@@ -54,8 +56,10 @@ type Decompressed = {
  *   block "exactly the same as [WOFF 1]", whose §7 says "A conforming user agent MUST ignore an
  *   invalid metadata block". Only its bounds are checked, and it is never decompressed.
  * - The flavor against the outline tables (W3C tests header-flavor-001/002): the flavor is the
- *   version of the sfnt the tables make up, and a version that disagrees with the outlines passes
- *   the sfnt validator too.
+ *   version of the rebuilt sfnt, and a version that disagrees with the outlines passes the sfnt
+ *   validator too.
+ * - The table checksums and `head.checkSumAdjustment` of the rebuilt sfnt: the sfnt validator does
+ *   not check them, so the records carry 0.
  * - A known tag written out explicitly, flag 63 followed by, say, `cmap`: "The decoder MAY accept"
  *   it (§4.1), and the decoder of fontforge does.
  */
@@ -183,6 +187,8 @@ export class Woff2FontValidator implements FontValidator {
     // Each table of the sfnt the decoder writes starts on it (`ReconstructFont()` in `woff2_dec.cc` 1.0.2).
     private static readonly SFNT_TABLE_ALIGNMENT_BYTES = 4;
 
+    public constructor(@inject<SfntFontValidator>(Tokens.Font.Validator.Sfnt) private readonly sfntFontValidator: SfntFontValidator) {}
+
     /**
      * Throws when the file is not a valid WOFF2 container. The answers are subclasses of
      * `InvalidWoff2Font`: `NotWoff2` for a file shorter than the header or without the signature,
@@ -190,8 +196,9 @@ export class Woff2FontValidator implements FontValidator {
      * table directory entry by entry, then the directory as a whole, the fields of absent blocks,
      * the layout of the blocks, the size the tables decompress to, the Brotli stream, the
      * transformed tables in it glyph record by glyph record, and the size of the rebuilt sfnt. A
-     * file that cannot be read throws `ReadFailed` of `FileHelper` instead: an I/O failure, not a
-     * verdict on the font.
+     * valid container gets the answer of `SfntFontValidator` on the rebuilt sfnt, a subclass of
+     * `InvalidSfntFont` naming the WOFF2 file. A file that cannot be read throws `ReadFailed` of
+     * `FileHelper` instead: an I/O failure, not a verdict on the font.
      */
     public async validate(fontPath: string): Promise<void> {
         const bytes = await FileHelper.read(fontPath);
@@ -219,7 +226,7 @@ export class Woff2FontValidator implements FontValidator {
 
         const tables = await this.decompressedTables(woff2);
 
-        this.checkSfntSize(fontPath, this.sfntTables(fontPath, tables));
+        this.sfntFontValidator.validateBytes(fontPath, this.sfnt(fontPath, header.flavor, this.sfntTables(fontPath, tables)));
     }
 
     private readHeader(view: DataView): Woff2Header {
@@ -875,7 +882,7 @@ export class Woff2FontValidator implements FontValidator {
         // without loca does not either: checkGlyfLoca() has rejected it (rule GlyfLoca). The flags of
         // a transformed hmtx are checked below, in transformedHmtx().
         if (glyf?.entry.transformLength === undefined || loca === undefined) {
-            return tables.map((table) => ({ tag: table.entry.tag, bytes: table.bytes }));
+            return tables.map((table) => ({ tag: table.entry.tag, bytes: table.bytes, lengthBytes: table.bytes.length }));
         }
 
         const reconstructor = new GlyfReconstructor(fontPath, glyf.bytes);
@@ -889,23 +896,31 @@ export class Woff2FontValidator implements FontValidator {
             this.checkHmtxOrigLength(fontPath, hmtx.entry, reconstructed.hmtx);
         }
 
-        return tables.map((table) => ({ tag: table.entry.tag, bytes: this.rebuiltBytes(table, reconstructed) }));
+        return tables.map((table) => this.sfntTable(table, reconstructed));
     }
 
     private tableOf(tables: ReadonlyArray<DecompressedTable>, tag: TableTag): DecompressedTable | undefined {
         return tables.find((table) => table.entry.tag === tag);
     }
 
-    private rebuiltBytes(table: DecompressedTable, reconstructed: ReconstructedTables): Uint8Array {
-        switch (table.entry.tag) {
+    /**
+     * The length of the record is the origLength of the directory, except for glyf and loca: the
+     * decoder replaces theirs with the rebuilt length, and for hmtx it does not, so a transformed
+     * hmtx is cut to origLength or padded with zeros to it (`ReconstructFont()` in `woff2_decompress`
+     * 1.0.2). A plain table is as long as its origLength.
+     */
+    private sfntTable(table: DecompressedTable, reconstructed: ReconstructedTables): SfntTable {
+        const tag = table.entry.tag;
+
+        switch (tag) {
             case TableTag.Glyf:
-                return reconstructed.glyf;
+                return { tag: tag, bytes: reconstructed.glyf, lengthBytes: reconstructed.glyf.length };
             case TableTag.Loca:
-                return reconstructed.loca;
+                return { tag: tag, bytes: reconstructed.loca, lengthBytes: reconstructed.loca.length };
             case TableTag.Hmtx:
-                return reconstructed.hmtx ?? table.bytes;
+                return { tag: tag, bytes: reconstructed.hmtx ?? table.bytes, lengthBytes: table.entry.origLength };
             default:
-                return table.bytes;
+                return { tag: tag, bytes: table.bytes, lengthBytes: table.bytes.length };
         }
     }
 
@@ -958,14 +973,18 @@ export class Woff2FontValidator implements FontValidator {
     }
 
     /**
-     * The size of the sfnt the decoder writes: the 12-byte header, a 16-byte table record per
-     * table, then each table padded to 4 bytes (`ReconstructFont()` in `woff2_dec.cc` 1.0.2).
+     * The sfnt the decoder writes (`ReconstructFont()` in `woff2_dec.cc` 1.0.2), as §5 of
+     * OpenType describes it: the flavor as the version, the directory in ascending tag order (§2 of
+     * WOFF 2.0 asks the decoder to sort it), each table at the next 4-byte boundary after the
+     * one before it, padded with zeros. The records carry no checksum. The size is capped before
+     * the buffer is allocated.
      */
-    private checkSfntSize(fontPath: string, tables: ReadonlyArray<SfntTable>): void {
-        let sfntSizeBytes = SfntTableDirectory.HEADER_SIZE_BYTES + tables.length * SfntTableDirectory.RECORD_SIZE_BYTES;
+    private sfnt(fontPath: string, flavor: number, tables: ReadonlyArray<SfntTable>): Uint8Array {
+        const directorySizeBytes = SfntTableDirectory.HEADER_SIZE_BYTES + tables.length * SfntTableDirectory.RECORD_SIZE_BYTES;
+        let sfntSizeBytes = directorySizeBytes;
 
         for (const table of tables) {
-            sfntSizeBytes += NumberHelper.roundUp(table.bytes.length, Woff2FontValidator.SFNT_TABLE_ALIGNMENT_BYTES);
+            sfntSizeBytes += NumberHelper.roundUp(table.lengthBytes, Woff2FontValidator.SFNT_TABLE_ALIGNMENT_BYTES);
         }
 
         if (sfntSizeBytes > Woff2FontValidator.DECODER_BUFFER_SIZE_BYTES) {
@@ -977,6 +996,39 @@ export class Woff2FontValidator implements FontValidator {
                 expected: `at most ${Woff2FontValidator.DECODER_BUFFER_SIZE_BYTES}`,
             });
         }
+
+        const rebuiltSfnt = new Uint8Array(sfntSizeBytes);
+        const view = new DataView(rebuiltSfnt.buffer);
+        const headerFields = SfntTableDirectory.HEADER_FIELD_OFFSETS_BYTES;
+        const recordSizeBytes = SfntTableDirectory.RECORD_SIZE_BYTES;
+        // entrySelector is the exponent of the largest power of 2 not greater than numTables, and
+        // searchRange is that power of 2 times the record size, in bytes. From 4096 tables on it does
+        // not fit its 16 bits and setUint16 wraps it: OpenType gives no value for that case, and
+        // SfntFontValidator does not read the field.
+        const entrySelector = Math.floor(Math.log2(tables.length));
+        const searchRangeBytes = 2 ** entrySelector * recordSizeBytes;
+
+        view.setUint32(headerFields.version, flavor);
+        view.setUint16(headerFields.numTables, tables.length);
+        view.setUint16(headerFields.searchRange, searchRangeBytes);
+        view.setUint16(headerFields.entrySelector, entrySelector);
+        view.setUint16(headerFields.rangeShift, tables.length * recordSizeBytes - searchRangeBytes);
+
+        const recordFields = SfntTableDirectory.RECORD_FIELD_OFFSETS_BYTES;
+        const inTagOrder = tables.toSorted((left, right) => (left.tag < right.tag ? -1 : 1));
+        let tableOffsetBytes = directorySizeBytes;
+
+        inTagOrder.forEach((table, index) => {
+            const recordOffsetBytes = SfntTableDirectory.HEADER_SIZE_BYTES + index * recordSizeBytes;
+
+            rebuiltSfnt.set(Buffer.from(table.tag, "latin1"), recordOffsetBytes);
+            view.setUint32(recordOffsetBytes + recordFields.offset, tableOffsetBytes);
+            view.setUint32(recordOffsetBytes + recordFields.length, table.lengthBytes);
+            rebuiltSfnt.set(table.bytes.subarray(0, table.lengthBytes), tableOffsetBytes);
+            tableOffsetBytes += NumberHelper.roundUp(table.lengthBytes, Woff2FontValidator.SFNT_TABLE_ALIGNMENT_BYTES);
+        });
+
+        return rebuiltSfnt;
     }
 
     private checkHmtxFlags(fontPath: string, hmtx: Uint8Array): void {
