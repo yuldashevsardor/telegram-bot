@@ -239,16 +239,17 @@ export class InboxStore {
     // lease"). Returns whether the lease was extended; false means the update is no longer the
     // caller's to complete, or will not be once the recovery reaches it.
     public async extendLease(lease: InboxLease): Promise<boolean> {
-        // clock_timestamp(), not now(): the update may wait for the group row a push or a completion
-        // holds, and rechecks the row once it gets it. now() is fixed at the start of the statement,
-        // so a lease that passed during the wait would still be extended.
+        // now() is fixed at the start of the statement. The update may wait for the group row a push
+        // holds, and a push only locks the row, so PostgreSQL does not check it again after the wait:
+        // a lease that passes during the wait is still extended (docs/architecture/inbox.md, "The
+        // lease"). A completion does write the row, and the check of the token refuses it then.
         const extendedRows = await this.sql`
             UPDATE telegram_inbox_groups
             SET locked_until = now() + ${this.leaseDurationMs}::double precision * interval '1 millisecond',
                 updated_at = now()
             WHERE (user_id, chat_id) = (SELECT user_id, chat_id FROM telegram_inbox WHERE update_id = ${lease.updateId})
               AND lock_token = ${lease.lockToken}
-              AND locked_until > clock_timestamp()
+              AND locked_until > now()
             RETURNING user_id
         `;
 

@@ -16,6 +16,7 @@ import type {
 import { InboxStatus } from "app/telegram/inbox/store/inbox-store.types";
 import { testDatabaseSettings } from "test/database.helper";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
+import { messageInput } from "test/telegram/inbox/inbox-store.helper";
 
 const USER = 5_000_000_001;
 const CHAT = 5_000_000_001;
@@ -125,18 +126,5 @@ describe("InboxLeaseReleaser", function () {
 
 // A message update of the user in the chat.
 function input(updateId: number): InboxUpdateInput {
-    return {
-        userId: USER,
-        chatId: CHAT,
-        update: {
-            update_id: updateId,
-            message: {
-                message_id: updateId,
-                date: 0,
-                chat: { id: CHAT, type: "private", first_name: "User" },
-                from: { id: USER, is_bot: false, first_name: "User" },
-                text: "text",
-            },
-        },
-    };
+    return messageInput(updateId, USER, CHAT);
 }

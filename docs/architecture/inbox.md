@@ -134,14 +134,16 @@ the recovery tells its lease by the token, not by `locked_until` (see "Lease rec
 it would leave the update to the recovery and to the handler both. Only the group of the update is
 extended, not the other groups of the same claim, which share its token.
 
-The check reads the clock when the statement checks the row, by `clock_timestamp()`, not `now()`:
-the statement may wait for the group row a push or a completion holds and checks the row again once
-it gets it, and `now()` is fixed at its start. The recovery reads the expired leases without a lock
-(see "Lease recovery"). An extension that checks the row before the lease passes and commits after a
-recovery has read the lease as passed returns `true`, and the recovery then completes the update
-all the same: the extension does not change the token, and the completion is fenced by the token
-alone. The window runs from the check to the commit of one statement, so a caller that extends well
-before the lease passes does not meet it.
+The check is made by `now()`, fixed at the start of the statement, and the recovery reads the
+expired leases without a lock (see "Lease recovery"). An extension whose statement starts before the
+lease passes and commits after a recovery has read the lease as passed returns `true`, and the
+recovery then completes the update all the same: the extension does not change the token, and the
+completion is fenced by the token alone. The window runs from the start of the statement to its
+commit, and it includes a wait for the group row a push of the same group holds: the push only
+locks the row (see "Push", step 1), so PostgreSQL does not check the row again after the wait, and
+a clock read at the check would not help. A completion that holds the row writes it and clears the
+token, and the extension that waited is refused. A caller that extends well before the lease passes
+does not meet the window.
 
 An extension moves `locked_until` only: the recovery of an extended lease still writes the start of
 the claim into the attempt (see "Lease recovery").

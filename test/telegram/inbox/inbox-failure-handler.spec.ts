@@ -25,6 +25,7 @@ import { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-d
 import { testDatabaseSettings } from "test/database.helper";
 import { telegramError } from "test/telegram/telegram-bot-api-failure-classifier.helper";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
+import { messageInput } from "test/telegram/inbox/inbox-store.helper";
 
 const USER = 5_000_000_001;
 const OTHER_USER = 5_000_000_002;
@@ -297,20 +298,7 @@ describe("InboxFailureHandler", function () {
 
 // A message update of the user in the chat.
 function input(updateId: number, userId = USER): InboxUpdateInput {
-    return {
-        userId: userId,
-        chatId: CHAT,
-        update: {
-            update_id: updateId,
-            message: {
-                message_id: updateId,
-                date: 0,
-                chat: { id: CHAT, type: "private", first_name: "User" },
-                from: { id: userId, is_bot: false, first_name: "User" },
-                text: "text",
-            },
-        },
-    };
+    return messageInput(updateId, userId, CHAT);
 }
 
 // The error postgres.js gives a query whose connection closed under it.

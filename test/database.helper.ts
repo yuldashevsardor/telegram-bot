@@ -32,6 +32,14 @@ export async function testDatabaseSettings(): Promise<DatabaseSettings> {
     return { ...settings, database: testDatabaseName() };
 }
 
+// The payloads of the notifications of a channel, from the moment the listening starts.
+export async function listenTo(database: Database, channel: string): Promise<string[]> {
+    const payloads: string[] = [];
+    await database.sql.listen(channel, (payload) => payloads.push(payload));
+
+    return payloads;
+}
+
 // Waits until at least `count` queries of the database wait for a lock. The observer is a client of
 // its own: calls waiting for a lock hold connections of the spec's other clients, and a poll through
 // the same pool would queue behind them at a small DATABASE_CONNECTION_LIMIT, hanging past the

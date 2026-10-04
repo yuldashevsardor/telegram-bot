@@ -19,9 +19,10 @@ import type {
 } from "app/telegram/inbox/store/inbox-store.types";
 import { InboxChannel, InboxGroupState, InboxStatus } from "app/telegram/inbox/store/inbox-store.types";
 import { InboxGroupNotBlocked, InboxUpdateNotLeased, InvalidClaimLimit } from "app/telegram/inbox/store/inbox-store.errors";
-import { testDatabaseSettings, waitForLockWaiters } from "test/database.helper";
+import { listenTo, testDatabaseSettings, waitForLockWaiters } from "test/database.helper";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
-import { listenTo, waitUntil } from "test/telegram/outbox/outbox-store.helper";
+import { messageInput } from "test/telegram/inbox/inbox-store.helper";
+import { waitUntil } from "test/shared/utils.helper";
 
 const USER = 5_000_000_001;
 const OTHER_USER = 5_000_000_002;
@@ -616,8 +617,7 @@ describe("InboxStore", function () {
             await briefLeasing.pushBatch([input(10, USER, CHAT), input(11, OTHER_USER, CHAT)]);
             const [claimed] = await briefLeasing.claim(10, WORKER);
 
-            await store.extendLease(claimed as ClaimedInboxUpdate);
-
+            expect(await store.extendLease(claimed as ClaimedInboxUpdate)).to.equal(true);
             expect(await leasesMs()).to.deep.equal([LEASE_DURATION_MS, BRIEF_LEASE_MS]);
         });
 
@@ -1355,20 +1355,7 @@ describe("InboxStore", function () {
 
 // A message update of the user in the chat.
 function input(updateId: number, userId = USER, chatId = CHAT, text = "text"): InboxUpdateInput {
-    return {
-        userId: userId,
-        chatId: chatId,
-        update: {
-            update_id: updateId,
-            message: {
-                message_id: updateId,
-                date: 0,
-                chat: { id: chatId, type: "private", first_name: "User" },
-                from: { id: userId, is_bot: false, first_name: "User" },
-                text: text,
-            },
-        },
-    };
+    return messageInput(updateId, userId, chatId, text);
 }
 
 // A lease the spec makes up rather than takes from a claim.

@@ -20,7 +20,7 @@ import type {
 import { OutboxChannel, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import { testDatabaseSettings } from "test/database.helper";
-import { NOTIFICATION_DEADLINE_MS, waitUntil } from "test/telegram/outbox/outbox-store.helper";
+import { NOTIFICATION_DEADLINE_MS, waitUntil } from "test/shared/utils.helper";
 
 const CHAT = 5_000_000_001;
 const RESPONSE = { message_id: 1 };
