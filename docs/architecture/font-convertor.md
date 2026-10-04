@@ -402,6 +402,11 @@ the enum text lacks is the measurements:
   the decoder and is not this rule's: it leaves a table record shorter than the bytes written, which
   the sfnt validator would have to catch
   ([#737](https://github.com/yuldashevsardor/telegram-bot/issues/737));
+- a rebuilt `glyf` over 131 070 bytes with `indexFormat` 0: the decoder of `woff2_decompress` 1.0.2
+  cuts each halved offset to 16 bits, so the `loca` it writes wraps past 128 KiB and the later
+  glyphs point at the wrong records, and §5.3 has nothing for an offset that does not fit. The rule
+  `ShortLocaGlyfSize` rejects it in `GlyfReconstructor`, since the sfnt validator gets the rebuilt
+  sfnt only with [#737](https://github.com/yuldashevsardor/telegram-bot/issues/737);
 - the padding of the compressed data that ends the file: fontforge crashes on the fixture cut by
   its 3 padding bytes;
 - the two caps on the decompressed tables, 30 MiB and 100 times the file size, are checked on the
