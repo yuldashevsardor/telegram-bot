@@ -30,6 +30,7 @@ export enum Woff2Rule {
     Flavor = "flavor is an sfnt version the domain accepts (ours: a collection holds several fonts, and fontforge refuses any other flavor)",
     HmtxBesideTransformedGlyf = "a transformed hmtx is in a font whose glyf is transformed (ours: the decoder of fontforge takes the glyph count and the xMin of the glyphs from the transformed glyf alone)",
     HmtxAfterGlyfAndHhea = "a transformed hmtx follows glyf and hhea in the table directory (ours: the decoder of fontforge rebuilds the tables in directory order, and hmtx needs the glyph count and the xMin of the glyphs from glyf and numberOfHMetrics from hhea)",
+    HmtxOrigLength = "origLength of a transformed hmtx is at most the rebuilt table's length padded to 4 bytes (ours: the decoder of fontforge takes the length of the table from origLength and refuses the file when it ends past the sfnt written)",
     EndPadding = "the compressed data that ends the file is padded to a 4-byte boundary (ours: the decoder of fontforge refuses a file that ends before it)",
     MaxDecompressedSize = "the tables decompress to at most 30 MiB (ours: the output buffer fontforge gives its decoder)",
     MaxCompressionRatio = "the tables decompress to at most 100 times the file size (ours: the decoder of fontforge refuses a higher ratio)",

@@ -160,6 +160,13 @@ describe("Woff2FontValidator.validate", function () {
             await validate(build(inTagOrder(withHmtxTransform(fixtureLayout, 0x01))));
         });
 
+        it("with a transformed hmtx whose origLength is the rebuilt length padded to 4 bytes", async function () {
+            // 1295 hMetrics and 1296 glyphs rebuild 5182 bytes, which the decoder pads to 5184.
+            const layout = withHmtxTransform(withNumberOfHMetrics(fixtureLayout, 1295), 0x01);
+
+            await validate(build(withEntry(layout, "hmtx", (entry) => ({ ...entry, origLength: 5184 }))));
+        });
+
         it("with a known tag written out after flag 63", async function () {
             // §4.1: the decoder MAY accept it.
             await validate(build(withEntry(fixtureLayout, "cmap", (entry) => ({ ...entry, isTagExplicit: true }))));
@@ -1184,6 +1191,33 @@ describe("Woff2FontValidator.validate", function () {
         });
     });
 
+    describe("rejects a transformed hmtx whose origLength exceeds the rebuilt table, by a rule of ours", function () {
+        // The decoder of fontforge keeps origLength as the length of the table it writes, and refuses
+        // the file when the padded table ends past the sfnt.
+        const withOrigLength = (layout: Layout, origLength: number): Layout =>
+            withEntry(layout, "hmtx", (entry) => ({ ...entry, origLength: origLength }));
+
+        it("by one byte over a rebuilt length that is a multiple of 4", async function () {
+            const layout = withOrigLength(withHmtxTransform(fixtureLayout, 0x01), 5185);
+
+            await expectBroken(
+                build(layout),
+                Woff2Rule.HmtxOrigLength,
+                'At table "hmtx": origLength is 5185, expected at most 5184, the rebuilt length 5184 padded to 4 bytes.',
+            );
+        });
+
+        it("by one byte over the rebuilt length padded to 4 bytes", async function () {
+            const layout = withOrigLength(withHmtxTransform(withNumberOfHMetrics(fixtureLayout, 1295), 0x01), 5185);
+
+            await expectBroken(
+                build(layout),
+                Woff2Rule.HmtxOrigLength,
+                'At table "hmtx": origLength is 5185, expected at most 5184, the rebuilt length 5182 padded to 4 bytes.',
+            );
+        });
+    });
+
     describe("rejects a rebuilt sfnt over 30 MiB, by a rule of ours", function () {
         it("by a table of zeros 4 bytes over", async function () {
             // One byte more in the table is 4 more in the sfnt, padded.
@@ -1500,7 +1534,10 @@ function withHmtxTransform(layout: Layout, flags: number): Layout {
         const leftSideBearings = (flags & 0x02) === 0 ? monospaced.map((metric) => metric.subarray(2, 4)) : [];
         const data = concat(Uint8Array.from([flags]), ...advanceWidths, ...lsbs, ...leftSideBearings);
 
-        return { ...entry, transformVersion: 1, transformLength: data.length, data: data };
+        // The decoder takes origLength as the length of the rebuilt hmtx: 4 bytes for each of numberOfHMetrics, 2 for the others.
+        const origLength = metrics.length * 2 + numberOfHMetrics * 2;
+
+        return { ...entry, transformVersion: 1, origLength: origLength, transformLength: data.length, data: data };
     });
 }
 
