@@ -392,32 +392,22 @@ fixture with the `hmtx` transform the rebuilt `hmtx` equals the fixture's own, a
 ([#736](https://github.com/yuldashevsardor/telegram-bot/issues/736)).
 
 The rules are `Woff2Rule` in `woff2-font-validator.types.ts`, each with its section. Those marked
-`ours:` are not the standard's, and the text of each says why:
+`ours:` are not the standard's, and the text of each says why;
+`grep -n 'ours:' src/font-convertor/validator/woff2/woff2-font-validator.types.ts` lists them. What
+the enum text lacks is the measurements:
 
-- the flavor is one of `SFNT_VERSIONS` (see "Signatures"): a collection holds several fonts, and
-  fontforge refuses any other flavor;
-- a transformed `hmtx` lies beside a transformed `glyf`, not just beside `glyf`: the decoder takes
-  the glyph count and the `xMin` of the glyphs from the transformed `glyf` alone;
-- a transformed `hmtx` follows `glyf` and `hhea` in the table directory: §5.4 sets no order, but the
-  decoder rebuilds the tables in directory order and reads `numberOfHMetrics` when it reaches
-  `hhea`, so before either one it lacks what it needs from that table and the decoder refuses the
-  file;
-- `origLength` of a transformed `hmtx` is at most the rebuilt table's length padded to 4 bytes: the
-  decoder takes the length of every table of the sfnt from `origLength` and, unlike for `glyf` and
-  `loca`, does not replace it for `hmtx`, then refuses the file when the padded table ends past the
-  sfnt it has written. `woff2_decompress` 1.0.2 refuses the fixture with the `hmtx` transform and
-  `origLength` 5185 against 5184 rebuilt bytes. A smaller `origLength` passes the decoder and is not
-  this rule's: it leaves a table record shorter than the bytes written, which the sfnt validator
-  would have to catch ([#737](https://github.com/yuldashevsardor/telegram-bot/issues/737));
-- the compressed data that ends the file is padded to a 4-byte boundary: the standard asks for the
-  padding only where the metadata or the private block follows, but the decoder refuses a file that
-  ends before the boundary, and fontforge crashes on the fixture cut by its 3 padding bytes;
-- the tables decompress to at most 30 MiB, the output buffer fontforge gives the decoder;
-- and to at most 100 times the file size, the ratio above which the decoder refuses a file. Both
-  caps are checked on the sum of the table lengths in the directory, before Brotli runs, and the
-  measurement behind them is at `DECODER_BUFFER_SIZE_BYTES`;
-- the rebuilt sfnt is at most 30 MiB too: the decoder writes it into the same buffer, and the
-  reconstruction makes `glyf` larger than its transformed form, by 31 546 bytes on the fixture.
+- `origLength` of a transformed `hmtx`: `woff2_decompress` 1.0.2 refuses the fixture with the
+  `hmtx` transform and `origLength` 5185 against 5184 rebuilt bytes. A smaller `origLength` passes
+  the decoder and is not this rule's: it leaves a table record shorter than the bytes written, which
+  the sfnt validator would have to catch
+  ([#737](https://github.com/yuldashevsardor/telegram-bot/issues/737));
+- the padding of the compressed data that ends the file: fontforge crashes on the fixture cut by
+  its 3 padding bytes;
+- the two caps on the decompressed tables, 30 MiB and 100 times the file size, are checked on the
+  sum of the table lengths in the directory, before Brotli runs; the measurement behind them is at
+  `DECODER_BUFFER_SIZE_BYTES`;
+- the cap on the rebuilt sfnt: the reconstruction makes `glyf` larger than its transformed form, by
+  31 546 bytes on the fixture.
 
 What is deliberately not checked, with the reasons, is in the class comment of
 `Woff2FontValidator`: `reserved`, `totalSfntSize` and `origLength` of a transformed `glyf`, on which
