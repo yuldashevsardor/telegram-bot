@@ -34,7 +34,7 @@ the file — run `make restart`.
 The database goes up first: the application finds it by the service name `pgsql` in the
 external network `telegram-bot-db_default`. Its data lies in `./tmp/pgsql` of the main
 worktree. The load-test database joins the same network and keeps its data in a volume of its own
-(`docs/architecture/outbox.md`, "Load test").
+(`docs/architecture/outbox-load-test.md`).
 
 ## Working in several worktrees
 

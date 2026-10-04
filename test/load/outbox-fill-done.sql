@@ -1,4 +1,4 @@
--- The done messages of the outbox load test (docs/architecture/outbox.md, "Load test"): :rows rows
+-- The done messages of the outbox load test (docs/architecture/outbox-load-test.md): :rows rows
 -- over the chats 1 to :chats, the sent history the pull and the completion have to find their way
 -- past. Run by make load-fill-done, once: the pending layouts are swapped over them.
 --

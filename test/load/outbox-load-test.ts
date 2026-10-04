@@ -1,4 +1,4 @@
-// The measurement of the outbox load test (docs/architecture/outbox.md, "Load test"): calls the
+// The measurement of the outbox load test (docs/architecture/outbox-load-test.md): calls the
 // pull, the completion, the lease recovery and the cleanup of the real OutboxStore against the
 // database of docker-compose.load.yml and prints how long each call took. The plans of their
 // statements land in the log of that database through auto_explain; make load-measure prints both.

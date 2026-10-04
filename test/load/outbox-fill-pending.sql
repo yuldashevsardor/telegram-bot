@@ -1,4 +1,4 @@
--- A pending layout of the outbox load test (docs/architecture/outbox.md, "Load test"): :chats ready
+-- A pending layout of the outbox load test (docs/architecture/outbox-load-test.md): :chats ready
 -- chats, 1 to :chats, with :per_chat pending messages each, over the done messages of
 -- outbox-fill-done.sql. Run by make load-fill-pending; it replaces the pending messages and the
 -- chats the previous run left, and puts the bot row back to a full budget. The messages the
@@ -38,5 +38,5 @@ COMMIT;
 -- INDEX_CLEANUP ON: the deleted layout leaves its entries in the indexes, and a plain VACUUM skips
 -- the indexes while the dead rows lie on less than 2% of the pages of the table, some 180 000 of
 -- them here. The next layout would then walk the entries of the previous one to find each head
--- (docs/architecture/outbox.md, "Load test").
+-- (docs/architecture/outbox-load-test.md, "Dead entries of the index").
 VACUUM (ANALYZE, INDEX_CLEANUP ON) telegram_outbox, telegram_outbox_chats;

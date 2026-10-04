@@ -1,4 +1,4 @@
--- The candidate indexes of the outbox load test (docs/architecture/outbox.md, "Load test"), made by
+-- The candidate indexes of the outbox load test (docs/architecture/outbox-load-test.md), made by
 -- make load-indexes: the measurement with them is what the proposal of
 -- https://github.com/yuldashevsardor/telegram-bot/issues/643 rests on. Not a migration: the
 -- migration is that issue.

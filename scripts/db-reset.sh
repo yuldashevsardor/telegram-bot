@@ -15,8 +15,11 @@ DB_PROJECT="telegram-bot-db"
 DB_NETWORK="telegram-bot-db_default"
 # The database of the outbox load test (docker-compose.load.yml) sits in the same network but is no
 # application: it keeps its data in a volume of its own, which the reset does not touch, and it
-# outlives the reset. down then leaves the network in place, in use by it, and says so.
+# outlives the reset. down then leaves the network in place, in use by it, and says so. It is told
+# by its service as well as its project: a task worktree named <main>-load gets the project name
+# telegram-bot-load from its directory too.
 LOAD_PROJECT="telegram-bot-load"
+LOAD_SERVICE="pgsql-load"
 TAB=$(printf '\t')
 
 die() {
@@ -41,20 +44,23 @@ app_containers() {
     # docker ps is checked on its own, not piped into the loop: a pipeline exits with the code
     # of its last command. This is the only guard against irreversible data loss, and a docker
     # failure must not read as "no other worktrees".
-    listing=$(docker ps --filter "network=$DB_NETWORK" \
-        --format "{{.Label \"com.docker.compose.project\"}}$TAB{{.Label \"com.docker.compose.project.working_dir\"}}$TAB{{.Names}}") ||
+    format="{{.Label \"com.docker.compose.service\"}}$TAB{{.Label \"com.docker.compose.project\"}}"
+    format="$format$TAB{{.Label \"com.docker.compose.project.working_dir\"}}$TAB{{.Names}}"
+    listing=$(docker ps --filter "network=$DB_NETWORK" --format "$format") ||
         die "could not query docker: there is no way to make sure other worktrees are not running"
 
     # Fields are cut by hand, not with IFS="$TAB" read: for read a tab is whitespace, so
     # consecutive tabs collapse into one, and a line with an empty label shifts left.
     printf '%s\n' "$listing" | while IFS= read -r line; do
+        service=${line%%"$TAB"*}
+        line=${line#*"$TAB"}
         project=${line%%"$TAB"*}
         rest=${line#*"$TAB"}
         dir=${rest%%"$TAB"*}
         name=${rest#*"$TAB"}
 
         [ -n "$project" ] && [ "$project" != "$DB_PROJECT" ] || continue
-        [ "$project" != "$LOAD_PROJECT" ] || continue
+        [ "$project" != "$LOAD_PROJECT" ] || [ "$service" != "$LOAD_SERVICE" ] || continue
 
         # A container whose directory is not on disk is garbage, not a working session: git
         # worktree remove does not take the container down. It must not block the target, or

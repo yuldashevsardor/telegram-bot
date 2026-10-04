@@ -24,6 +24,8 @@ The runtime sequences live in the files of their subsystems:
   lease and the completions, the runner with its stop and the maintenance timers, sending one
   message and removing its files, the failure classes, the outcomes, unblocking a chat, the retry
   delay, waiting for the result and the payload codec
+- [`outbox-load-test.md`](./outbox-load-test.md) — the outbox store measured on 100 M messages:
+  how to run the test, the data, the threshold, the times and the plans, the verdict
 - [`inbox.md`](./inbox.md) — the inbox of incoming updates in PostgreSQL being built: the tables,
   the group, the group states, push without duplicates, the claim, the lease and the completions,
   the error classes of a failed handler, the outcomes, the lease recovery, unblocking a group and
@@ -167,7 +169,7 @@ test/                       mocha specs; a spec path repeats the source path, th
                             the root holds the mocha hooks and the wrappers of make coverage and
                             make mutation (testing.md)
   load/                     the outbox load test: the fill, the candidate indexes and the
-                            measurement of make load-* (outbox.md)
+                            measurement of make load-* (outbox-load-test.md)
 migrations/                 migrations, common/ holds the shared shorthands and the stub (storage.md)
 scripts/                    host scripts of the make targets; claude-worktree-guard is a hook (testing.md)
   review/                   the Python actions of the review skills and the width check of make check,

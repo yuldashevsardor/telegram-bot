@@ -203,7 +203,7 @@ inbox-skip: ## Skip the failed update of a blocked inbox group: make inbox-skip 
 
 ## Outbox load test
 
-# The load test of the outbox (docs/architecture/outbox.md, "Load test") runs against a Postgres of
+# The load test of the outbox (docs/architecture/outbox-load-test.md) runs against a Postgres of
 # its own, docker-compose.load.yml, reached by the service name pgsql-load from the one-off
 # application containers. The fill goes through psql as the superuser, the measurement through the
 # store as the user of .env. That role gets a statement timeout in load-up, so a pull that scans for
