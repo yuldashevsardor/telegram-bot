@@ -24,8 +24,8 @@ const QUIET_MS = 50;
 const SHORT_TIMEOUT_MS = 200;
 const SHORT_TIMEOUT_SHARE_MS = SHORT_TIMEOUT_MS * 0.6;
 
-const MESSAGE: FinishedOutboxMessage = { id: 7, status: OutboxStatus.Done, response: { message_id: 1 } };
-const OTHER_MESSAGE: FinishedOutboxMessage = { id: 8, status: OutboxStatus.Failed, response: null };
+const MESSAGE: FinishedOutboxMessage = { id: 7, status: OutboxStatus.Done, response: { message_id: 1 }, error: null };
+const OTHER_MESSAGE: FinishedOutboxMessage = { id: 8, status: OutboxStatus.Failed, response: null, error: null };
 
 describe("OutboxResultWaiter", function () {
     this.timeout(SPEC_TIMEOUT_MS);

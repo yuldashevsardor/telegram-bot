@@ -35,9 +35,11 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
 - **A new update type in the handlers requires an edit of `ALLOWED_UPDATES`** (`bot.ts`). A
   `callback_query` or `edited_message` handler compiles and registers. But `getUpdates` never
   returns updates of those types, and the handler is simply never called.
-- **Outgoing calls go through `ctx.api`, not `bot.grammy.api`.** The queue interception lives only
-  on the `ctx.api` of the current update ([`bot.md`](./bot.md)). A direct call of `bot.grammy.api`
-  bypasses the limits.
+- **The outbox transformer is installed on `bot.grammy.api` before any update is handled.**
+  grammY copies the transformers of `bot.api` into the `Api` of an update when the update comes, so
+  the calls of an update handled before the install go straight to Telegram, past the limits and
+  the order of the outbox ([`bot.md`](./bot.md), "The outbox transformer"). `Bot.setup()` installs
+  it first; nothing checks that no update is handled before `setup()`.
 - **`ctx.getUser()` exists only after `FillUserToContextMiddleware`.** Code higher up the pipeline
   or outside it (future background jobs) cannot count on the function.
 - **Everything enumerable in `Context` goes into the conversation op log and into `sessions`.** On
@@ -81,9 +83,10 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   one < the container's `stop_grace_period` (not checked).** The deadlines themselves are in
   [`application.md`](./application.md). The check compares the values of one assembly. After a
   rebuild of the configuration ([`config.md`](./config.md)) they can drift apart: `Application`
-  takes the overall deadline and the queue deadline from the new values, while `Bot` stays on what
-  it copied in its constructor. This is unreachable while the deadlines are set non-blank in the
-  environment: the environment is stronger than the watched file.
+  takes the overall deadline and the queue deadline from the new values, while `Bot` and
+  `OutboxRunner` stay on what they copied in their constructors. This is unreachable while the
+  deadlines are set non-blank in the environment: the environment is stronger than the watched
+  file.
 - **A value taken by `configValue(...)` in a constructor is not changed by a rebuild.** The
   configuration is rebuilt on an edit of the watched file ([`config.md`](./config.md)). But an
   object that copied the value into a field keeps working on the old one. A value becomes "hot"

@@ -42,11 +42,10 @@ Everything written outside it goes without a `requestId`:
 - The `critical` about a failed update goes out that way too. `grammy.catch` → `Bot.handleError`
   is called not from `handleUpdate` but from the sink of `@grammyjs/runner`. It runs on the
   already rejected promise of `handleUpdate`, when the scope is closed.
-- The outbound queue's `Runner` (`telegram/outbound-queue/runner/runner.ts`) runs outside any
-  scope. It calls `task.callback()` from its own `setTimeout` loop, not from the update that
-  enqueued the task. So the two `error` records the `Runner` itself writes about a failed API call
-  ([`outbound-queue.md`](./outbound-queue.md#errors)) go without a `requestId`, even when an
-  update made the call.
+- `OutboxRunner` (`telegram/outbox/outbox-runner.ts`) runs outside any scope: `Application.run()`
+  starts it, not an update, and any node may send the message an update pushed
+  ([`outbox.md`](./outbox.md)). So the records of sending a message go without a `requestId`, even
+  when an update made the call.
 
 ### `RequestContext`
 

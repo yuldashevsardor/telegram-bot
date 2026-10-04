@@ -182,11 +182,13 @@ There is nothing to restart it with: the container does not survive a second `se
    - `Database.check()` is the first resolve of `Database`, so its constructor runs here as well
      ([`storage.md`](./storage.md)). Its `SELECT 1` fails the start here and not on the first
      update.
-   - `container.get()` for `TaskQueue`, `Runner` and `Bot`. All the handlers of the pipeline are
-     instantiated together with `Bot`, before its constructor ([`bot.md`](./bot.md)).
-   - `Bot.setup()` assembles the pipeline ([`bot.md`](./bot.md)). Along the way it reads the
-     `.ftl` from disk ([`i18n.md`](./i18n.md)) and sends a `setMyCommands` over the network for
-     every locale.
+   - `container.get()` for `TaskQueue`, `Runner`, `Bot`, `OutboxRunner` and `OutboxMaintenance`.
+     All the handlers of the pipeline are instantiated together with `Bot`, before its constructor
+     ([`bot.md`](./bot.md)).
+   - `Bot.setup()` installs the outbox transformer and assembles the pipeline
+     ([`bot.md`](./bot.md)). Along the way it reads the `.ftl` from disk ([`i18n.md`](./i18n.md))
+     and sends a `setMyCommands` over the network for every locale, straight to Telegram: the call
+     has no chat.
 
    A second `setup()` does not repeat a failed one; it gets the same failure. After a failure
    `fail()` ends the process.
@@ -194,6 +196,12 @@ There is nothing to restart it with: the container does not survive a second `se
    - `runner.run()` is synchronous: it puts the loop of the queue on a `setTimeout` and returns at
      once ([`outbound-queue.md`](./outbound-queue.md)).
    - `bot.run()` starts long polling in the background ([`bot.md`](./bot.md)).
+   - `OutboxRunner.start()` and `OutboxMaintenance.start()` start the sending of the outbox and its
+     timers ([`outbox.md`](./outbox.md), "The runner", "Maintenance"). They come after the bot with
+     no `await` in between: a bot that fails to start leaves nothing of the outbox to stop, and the
+     runner starts only once ([invariant](./invariants.md)), while the first update comes no sooner
+     than the next turn of the event loop. A stop that came while the bot was starting has stopped
+     the outbox already, and `run()` does not start it then.
 
    `run()` throws a `RuntimeError` before `setup()` is over and on a running application. After
    the stop has begun it does nothing (below).
@@ -244,6 +252,13 @@ for the database or for `setMyCommands`: a temporary network failure at this mom
      updates is closed: no new `getUpdates`. `stop()` does not wait for the updates already handed
      to the pipeline. They play out in parallel with the remaining steps, and `process.exit(0)`
      cuts short whatever did not finish.
+   - `OutboxRunner.stop()` stops the pulls, waits for the calls in flight up to
+     `OUTBOX_STOP_TIMEOUT` and aborts the rest, handing their messages to the other nodes
+     ([`outbox.md`](./outbox.md), "The runner"). A call the updates still in the pipeline push
+     after that stays queued for another node or the next start; its caller waits until step 5
+     stops the waiter.
+   - `OutboxMaintenance.stop()` clears the timers and waits for the runs in progress, with no
+     deadline of its own ([`outbox.md`](./outbox.md), "Maintenance").
    - `waitQueueToEmpty()` polls `taskQueue.isEmpty()` every
      `TASK_QUEUE_GRACEFUL_SHUTDOWN_INTERVAL`, up to `TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT`, and
      logs what is left. On the deadline it writes a `warning` with the number of unfinished tasks.
@@ -255,9 +270,10 @@ for the database or for `setMyCommands`: a temporary network failure at this mom
 5. `container.close()` → `OutboxResultWaiter.stop()`, then `Database.close()` →
    `sql.end({ timeout: 5 })` ([`storage.md`](./storage.md)).
 
-The overall deadline has to be greater than the sum of the two individual ones, and
-`ConfigValuesBuilder` checks that. It also has to be smaller than the container's
-`stop_grace_period: 20s`, and nothing checks that ([invariant](./invariants.md)). The
+The overall deadline has to be greater than the sum of the individual ones of the bot, the outbox
+runner and the queue, and `ConfigValuesBuilder` checks that. It also has to be smaller than the
+container's `stop_grace_period: 20s`, and nothing checks that ([invariant](./invariants.md)). The
 dependencies' own deadlines (`sql.end({ timeout: 5 })`) are not part of the check.
 
-The tasks that did not make it out are lost together with the process.
+The tasks that did not make it out of the in-memory queue are lost together with the process; the
+outbox messages stay in their tables for another node or the next start.

@@ -37,7 +37,6 @@ import { Database } from "app/platform/database/database";
 import type { UserRepository } from "app/telegram/user/user-repository";
 import { PgSqlUserRepository } from "app/telegram/user/pgsql-repository/pgsql-user-repository";
 import { UserService } from "app/telegram/user/service/user-service";
-import { TelegramCallApiMiddleware } from "app/telegram/middleware/mutation/telegram-call-api.middleware";
 import { StartConversation } from "app/telegram/conversation/start/start.conversation";
 import { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
@@ -54,6 +53,7 @@ import { OutboxLeaseRetrier } from "app/telegram/outbox/lease/outbox-lease-retri
 import { OutboxLeaseReleaser } from "app/telegram/outbox/lease/outbox-lease-releaser";
 import { OutboxLeaseRecovery } from "app/telegram/outbox/lease/outbox-lease-recovery";
 import { OutboxMaintenance } from "app/telegram/outbox/maintenance/outbox-maintenance";
+import { OutboxTransformer } from "app/telegram/outbox/transformer/outbox-transformer";
 import { InboxStore } from "app/telegram/inbox/store/inbox-store";
 import { InboxFailureClassifier } from "app/telegram/inbox/failure-classifier/inbox-failure-classifier";
 import { InboxFailureHandler } from "app/telegram/inbox/inbox-failure-handler";
@@ -134,6 +134,7 @@ export class Container extends InversifyContainer {
         this.bind<OutboxRunner>(Tokens.Bot.Outbox.Runner).to(OutboxRunner).inSingletonScope();
         this.bind<OutboxLeaseRecovery>(Tokens.Bot.Outbox.Lease.Recovery).to(OutboxLeaseRecovery).inSingletonScope();
         this.bind<OutboxMaintenance>(Tokens.Bot.Outbox.Maintenance).to(OutboxMaintenance).inSingletonScope();
+        this.bind<OutboxTransformer>(Tokens.Bot.Outbox.Transformer).to(OutboxTransformer).inSingletonScope();
 
         // Inbox
         this.bind<InboxStore>(Tokens.Bot.Inbox.Store).to(InboxStore).inSingletonScope();
@@ -152,10 +153,6 @@ export class Container extends InversifyContainer {
         this.bind<IsPrivateChatFilter>(Tokens.Bot.Filter.IsPrivateChat).to(IsPrivateChatFilter).inSingletonScope();
 
         // Middlewares
-        this.bind<TelegramCallApiMiddleware>(Tokens.Bot.Middleware.Mutation.TelegramCallApi)
-            .to(TelegramCallApiMiddleware)
-            .inSingletonScope();
-
         this.bind<RequestContextMiddleware>(Tokens.Bot.Middleware.RequestContext).to(RequestContextMiddleware).inSingletonScope();
         this.bind<ResponseTimeMiddleware>(Tokens.Bot.Middleware.ResponseTime).to(ResponseTimeMiddleware).inSingletonScope();
         this.bind<RequestLogMiddleware>(Tokens.Bot.Middleware.RequestLog).to(RequestLogMiddleware).inSingletonScope();

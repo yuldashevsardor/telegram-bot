@@ -43,6 +43,13 @@ export type OutboxJson = postgres.JSONValue;
 
 export type OutboxPayload = { readonly [key: string]: OutboxJson };
 
+// The priority of a pushed call. A lower one goes first: the calls of the bot API, a reply to a user
+// among them, go before a bulk batch pushed straight into the store.
+export enum OutboxPriority {
+    Call = 1,
+    Bulk = 2,
+}
+
 // A Bot API call to push. A lower priority goes first.
 export type OutboxMessageInput = {
     chatId: number;
@@ -158,6 +165,9 @@ export type FinishedOutboxMessage = {
     id: number;
     status: FinishedOutboxStatus;
     response: OutboxJson | null;
+    // The error of the last attempt: what a failed message failed with. null when the last attempt
+    // succeeded or there was none.
+    error: OutboxAttemptError | null;
 };
 
 // A finished message as postgres returns it: a bigint comes as a string.
@@ -165,4 +175,5 @@ export type FinishedOutboxRow = {
     id: string;
     status: FinishedOutboxStatus;
     response: OutboxJson | null;
+    error: OutboxAttemptError | null;
 };

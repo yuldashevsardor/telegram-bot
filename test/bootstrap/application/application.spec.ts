@@ -11,6 +11,8 @@ import type { UnknownObject } from "app/shared/types";
 import type { Bot } from "app/telegram/bot/bot";
 import type { Runner } from "app/telegram/outbound-queue/runner/runner";
 import type { TaskQueue } from "app/telegram/outbound-queue/task-queue";
+import type { OutboxRunner } from "app/telegram/outbox/outbox-runner";
+import type { OutboxMaintenance } from "app/telegram/outbox/maintenance/outbox-maintenance";
 import { fillApplicationContext, resetApplicationContext } from "test/bootstrap/application/application-context.helper";
 
 type Log = {
@@ -29,6 +31,7 @@ describe("Application", function () {
     let checkDatabase: () => Promise<void>;
     let runBot: () => Promise<void>;
     let stopBot: () => Promise<void>;
+    let stopOutboxRunner: () => Promise<void>;
     let queueSize: () => number;
     let lastQueueSize = 0;
     let configUnwatches = 0;
@@ -90,6 +93,26 @@ describe("Application", function () {
         },
     } as unknown as Bot;
 
+    const outboxRunner = {
+        start: (): void => {
+            calls.push("outboxRunner.start");
+        },
+        stop: (): Promise<void> => {
+            calls.push("outboxRunner.stop");
+
+            return stopOutboxRunner();
+        },
+    } as unknown as OutboxRunner;
+
+    const outboxMaintenance = {
+        start: (): void => {
+            calls.push("outboxMaintenance.start");
+        },
+        stop: async (): Promise<void> => {
+            calls.push("outboxMaintenance.stop");
+        },
+    } as unknown as OutboxMaintenance;
+
     function resolve<T>(name: string, value: T): () => T {
         return (): T => {
             calls.push(`resolve ${name}`);
@@ -142,6 +165,7 @@ describe("Application", function () {
         checkDatabase = async (): Promise<void> => undefined;
         runBot = async (): Promise<void> => undefined;
         stopBot = async (): Promise<void> => undefined;
+        stopOutboxRunner = async (): Promise<void> => undefined;
         queueSize = (): number => 0;
 
         container.snapshot();
@@ -149,6 +173,8 @@ describe("Application", function () {
         container.bind<TaskQueue>(Tokens.Bot.OutboundQueue.TaskQueue).toDynamicValue(resolve("TaskQueue", taskQueue));
         container.bind<Runner>(Tokens.Bot.OutboundQueue.Runner).toDynamicValue(resolve("Runner", runner));
         container.bind<Bot>(Tokens.Bot.Bot).toDynamicValue(resolve("Bot", bot));
+        container.bind<OutboxRunner>(Tokens.Bot.Outbox.Runner).toDynamicValue(resolve("OutboxRunner", outboxRunner));
+        container.bind<OutboxMaintenance>(Tokens.Bot.Outbox.Maintenance).toDynamicValue(resolve("OutboxMaintenance", outboxMaintenance));
     });
 
     afterEach(function () {
@@ -196,6 +222,8 @@ describe("Application", function () {
                 "resolve TaskQueue",
                 "resolve Runner",
                 "resolve Bot",
+                "resolve OutboxRunner",
+                "resolve OutboxMaintenance",
                 "bot.setup",
             ]);
         });
@@ -236,6 +264,8 @@ describe("Application", function () {
                 "resolve TaskQueue",
                 "resolve Runner",
                 "resolve Bot",
+                "resolve OutboxRunner",
+                "resolve OutboxMaintenance",
                 "bot.setup",
                 "second setup resolved",
             ]);
@@ -286,18 +316,20 @@ describe("Application", function () {
             expect(calls).to.deep.equal([]);
         });
 
-        it("starts the runner before the bot and logs the start", async function () {
+        it("starts the runner, then the bot, then the outbox, and logs the start", async function () {
             const application = await setUp();
 
             await application.run();
 
-            expect(calls).to.deep.equal(["runner.run", "bot.run"]);
+            expect(calls).to.deep.equal(["runner.run", "bot.run", "outboxRunner.start", "outboxMaintenance.start"]);
             expect(logs).to.deep.equal([{ level: "info", message: "Application is successfully started.", payload: undefined }]);
         });
 
         // A failure is logged only by fail() in app.ts: a second critical on the same failure would
         // double the alert count.
-        it("stops the runner and rethrows without logging when the bot fails to start", async function () {
+        // The outbox starts after the bot, so a bot that fails to start leaves it never started: its
+        // runner starts only once.
+        it("stops the runner and rethrows without logging or starting the outbox when the bot fails to start", async function () {
             const error = new Error("getMe failed");
             runBot = (): Promise<void> => Promise.reject(error);
             const application = await setUp();
@@ -316,14 +348,14 @@ describe("Application", function () {
 
             await application.run();
 
-            expect(calls).to.deep.equal(["runner.run", "bot.run"]);
+            expect(calls).to.deep.equal(["runner.run", "bot.run", "outboxRunner.start", "outboxMaintenance.start"]);
         });
 
         // Today there is no window between runner.run() and the end of bot.run(): Bot.run() has no
         // await. This test and the next one hold the behaviour of Application in case an await
         // appears there; what the real Bot.stop() would then do with a bot that is not running yet
         // is not something the stub checks.
-        it("counts as running while the bot is starting, so a stop in between runs the full shutdown", async function () {
+        it("counts as running while the bot is starting, so a stop in between runs the full shutdown and the outbox stays stopped", async function () {
             const botStarted = Promise.withResolvers<void>();
             runBot = (): Promise<void> => botStarted.promise;
             const application = await setUp();
@@ -334,7 +366,16 @@ describe("Application", function () {
             await Promise.all([started, stopped]);
             await application.stop();
 
-            expect(calls).to.deep.equal(["runner.run", "bot.run", "bot.stop", "taskQueue.isEmpty", "runner.stop", "container.close"]);
+            expect(calls).to.deep.equal([
+                "runner.run",
+                "bot.run",
+                "bot.stop",
+                "outboxRunner.stop",
+                "outboxMaintenance.stop",
+                "taskQueue.isEmpty",
+                "runner.stop",
+                "container.close",
+            ]);
         });
 
         // The failure arrives while the stop is still under way: a rollback into ready would let a
@@ -360,6 +401,8 @@ describe("Application", function () {
                 "bot.run",
                 "bot.stop",
                 "runner.stop",
+                "outboxRunner.stop",
+                "outboxMaintenance.stop",
                 "taskQueue.isEmpty",
                 "runner.stop",
                 "container.close",
@@ -405,16 +448,40 @@ describe("Application", function () {
             expect(calls).to.deep.equal(["container.close"]);
         });
 
-        it("stops the bot, waits for the queue, stops the runner and closes the container", async function () {
+        it("stops the bot, then the outbox, waits for the queue, stops the runner and closes the container", async function () {
             const application = await start();
 
             await application.stop();
 
-            expect(calls).to.deep.equal(["bot.stop", "taskQueue.isEmpty", "runner.stop", "container.close"]);
+            expect(calls).to.deep.equal([
+                "bot.stop",
+                "outboxRunner.stop",
+                "outboxMaintenance.stop",
+                "taskQueue.isEmpty",
+                "runner.stop",
+                "container.close",
+            ]);
             expect(logs).to.deep.equal([
                 { level: "info", message: "Stop application...", payload: undefined },
                 { level: "info", message: "Application is successfully stopped.", payload: undefined },
             ]);
+        });
+
+        // The runner waits for its calls in flight up to OUTBOX_STOP_TIMEOUT; the maintenance and the
+        // pool come after it.
+        it("waits for the outbox runner to stop before it stops the maintenance", async function () {
+            const outboxStopped = Promise.withResolvers<void>();
+            stopOutboxRunner = (): Promise<void> => outboxStopped.promise;
+            const application = await start();
+
+            const stopped = application.stop();
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            const callsWhileWaiting = [...calls];
+            outboxStopped.resolve();
+            await stopped;
+
+            expect(callsWhileWaiting).to.deep.equal(["bot.stop", "outboxRunner.stop"]);
+            expect(calls.slice(2, 3)).to.deep.equal(["outboxMaintenance.stop"]);
         });
 
         it("does nothing on a second stop after the first one has finished", async function () {
@@ -454,7 +521,15 @@ describe("Application", function () {
             botStopped.resolve();
             await Promise.all([first, second]);
 
-            expect(calls).to.deep.equal(["bot.stop", "taskQueue.isEmpty", "runner.stop", "container.close", "second stop resolved"]);
+            expect(calls).to.deep.equal([
+                "bot.stop",
+                "outboxRunner.stop",
+                "outboxMaintenance.stop",
+                "taskQueue.isEmpty",
+                "runner.stop",
+                "container.close",
+                "second stop resolved",
+            ]);
             expect(logs.map(({ message }) => message)).to.deep.equal(["Stop application...", "Application is successfully stopped."]);
         });
 
@@ -477,6 +552,8 @@ describe("Application", function () {
                 "resolve TaskQueue",
                 "resolve Runner",
                 "resolve Bot",
+                "resolve OutboxRunner",
+                "resolve OutboxMaintenance",
                 "bot.setup",
                 "container.close",
             ]);
@@ -522,6 +599,7 @@ describe("Application", function () {
             configValues = {
                 GRACEFUL_SHUTDOWN_TIMEOUT: "20",
                 BOT_GRACEFUL_SHUTDOWN_TIMEOUT: "0",
+                OUTBOX_STOP_TIMEOUT: "0",
                 TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT: "0",
             };
             checkDatabase = (): Promise<void> => new Promise(() => undefined);
@@ -547,6 +625,7 @@ describe("Application", function () {
             configValues = {
                 GRACEFUL_SHUTDOWN_TIMEOUT: "20",
                 BOT_GRACEFUL_SHUTDOWN_TIMEOUT: "0",
+                OUTBOX_STOP_TIMEOUT: "0",
                 TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT: "0",
             };
             queueSize = (): number => 0;
@@ -571,6 +650,8 @@ describe("Application", function () {
 
             expect(calls).to.deep.equal([
                 "bot.stop",
+                "outboxRunner.stop",
+                "outboxMaintenance.stop",
                 "taskQueue.isEmpty",
                 "taskQueue.isEmpty",
                 "taskQueue.isEmpty",
@@ -614,7 +695,14 @@ describe("Application", function () {
 
             await application.stop();
 
-            expect(calls).to.deep.equal(["bot.stop", "taskQueue.isEmpty", "runner.stop", "container.close"]);
+            expect(calls).to.deep.equal([
+                "bot.stop",
+                "outboxRunner.stop",
+                "outboxMaintenance.stop",
+                "taskQueue.isEmpty",
+                "runner.stop",
+                "container.close",
+            ]);
             expect(logs).to.deep.equal([
                 { level: "info", message: "Stop application...", payload: undefined },
                 {
@@ -631,6 +719,7 @@ describe("Application", function () {
             configValues = {
                 GRACEFUL_SHUTDOWN_TIMEOUT: "20",
                 BOT_GRACEFUL_SHUTDOWN_TIMEOUT: "0",
+                OUTBOX_STOP_TIMEOUT: "0",
                 TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT: "0",
             };
             stopBot = (): Promise<void> => new Promise(() => undefined);

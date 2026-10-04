@@ -17,6 +17,7 @@ import type {
     PulledOutboxMessage,
 } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxChannel, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
+import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import { testDatabaseSettings } from "test/database.helper";
 import { NOTIFICATION_DEADLINE_MS, waitUntil } from "test/telegram/outbox/outbox-store.helper";
 
@@ -132,9 +133,26 @@ describe("OutboxFinishedMessageReader", function () {
         const finished = await reader.find([done, failed, skipped, pending]);
 
         expect([...finished].sort((a, b) => a.id - b.id)).to.deep.equal([
-            { id: done, status: OutboxStatus.Done, response: RESPONSE },
-            { id: failed, status: OutboxStatus.Failed, response: null },
-            { id: skipped, status: OutboxStatus.Skipped, response: null },
+            { id: done, status: OutboxStatus.Done, response: RESPONSE, error: null },
+            { id: failed, status: OutboxStatus.Failed, response: null, error: null },
+            { id: skipped, status: OutboxStatus.Skipped, response: null, error: null },
+        ]);
+    });
+
+    // The transformer gives the caller of a failed message the answer of Telegram kept there.
+    it("gives the error of the last attempt, and none when the last attempt succeeded", async function () {
+        const failedError = { description: "Forbidden: bot was blocked by the user", kind: TelegramBotApiFailureKind.Undeliverable };
+        const failed = await store.push(message(CHAT, "failed"));
+        await store.markAsFailed(await pullOne(), failedError);
+        const retried = await store.push(message(CHAT, "retried"));
+        await store.retry(await pullOne(), { message: "socket hang up", kind: TelegramBotApiFailureKind.Transient }, 0);
+        await store.markAsDone(await pullOne(), RESPONSE);
+
+        const finished = await reader.find([failed, retried]);
+
+        expect([...finished].sort((a, b) => a.id - b.id)).to.deep.equal([
+            { id: failed, status: OutboxStatus.Failed, response: null, error: failedError },
+            { id: retried, status: OutboxStatus.Done, response: RESPONSE, error: null },
         ]);
     });
 
@@ -170,7 +188,7 @@ describe("OutboxFinishedMessageReader", function () {
             await waitUntil(() => recordingReader.completedLookups === 1, "the listening did not start");
             await store.markAsDone(pulled, RESPONSE);
 
-            expect(await result).to.deep.equal({ id: id, status: OutboxStatus.Done, response: RESPONSE });
+            expect(await result).to.deep.equal({ id: id, status: OutboxStatus.Done, response: RESPONSE, error: null });
         });
 
         it("settles a wait by the poll when the message finishes without a notification", async function () {
@@ -183,7 +201,7 @@ describe("OutboxFinishedMessageReader", function () {
             const result = waiter.wait(id);
             await setStatus(id, OutboxStatus.Done, RESPONSE);
 
-            expect(await result).to.deep.equal({ id: id, status: OutboxStatus.Done, response: RESPONSE });
+            expect(await result).to.deep.equal({ id: id, status: OutboxStatus.Done, response: RESPONSE, error: null });
         });
 
         it("rejects a wait on timeout and does not read its message when it finishes", async function () {
@@ -227,7 +245,7 @@ describe("OutboxFinishedMessageReader", function () {
             await waitUntil(() => recordingReader.completedLookups === 2, "no poll followed the new listening");
             await store.markAsDone(pulled, RESPONSE);
 
-            expect(await result).to.deep.equal({ id: id, status: OutboxStatus.Done, response: RESPONSE });
+            expect(await result).to.deep.equal({ id: id, status: OutboxStatus.Done, response: RESPONSE, error: null });
         });
     });
 

@@ -1,6 +1,7 @@
 import { isAbsolute } from "node:path";
 import { InlineKeyboard, InputFile, Keyboard } from "grammy";
 import { PathFile } from "app/telegram/path-file/path-file";
+import type { OutboxPayload } from "app/telegram/outbox/store/outbox-store.types";
 import {
     InvalidFileMarker,
     ReservedFileKey,
@@ -128,7 +129,7 @@ function readMarker(marker: object): PathFile {
  * does not take and a payload that is not a plain object. Every error names the method and where
  * in the payload the value sits.
  */
-export function serialize(method: string, payload: object | undefined): Record<string, unknown> {
+export function serialize(method: string, payload: object | undefined): OutboxPayload {
     // store() takes an array, a PathFile and a keyboard inside a payload and drops a function there,
     // but a Bot API payload itself is a plain object. Why undefined arrives here and throws too:
     // docs/architecture/outbox.md, "The payload rule".
@@ -136,7 +137,9 @@ export function serialize(method: string, payload: object | undefined): Record<s
         throw UnsupportedValue.atRoot(method);
     }
 
-    return store(payload, method, []) as Record<string, unknown>;
+    // The one place the type is given: store() has let through only what JSON keeps, so the result
+    // goes into OutboxStore.push() as it is, while anything else would need a cast there.
+    return store(payload, method, []) as OutboxPayload;
 }
 
 /** Rebuilds the payload serialize() made, with a PathFile in place of each marker. */

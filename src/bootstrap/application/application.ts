@@ -7,6 +7,8 @@ import type { Database } from "app/platform/database/database";
 import type { Runner } from "app/telegram/outbound-queue/runner/runner";
 import type { TaskQueue } from "app/telegram/outbound-queue/task-queue";
 import type { Bot } from "app/telegram/bot/bot";
+import type { OutboxRunner } from "app/telegram/outbox/outbox-runner";
+import type { OutboxMaintenance } from "app/telegram/outbox/maintenance/outbox-maintenance";
 import { sleep, withTimeout } from "app/shared/utils";
 import { RuntimeError } from "app/shared/errors";
 
@@ -37,6 +39,8 @@ export class Application {
     private taskQueue!: TaskQueue;
     private runner!: Runner;
     private bot!: Bot;
+    private outboxRunner!: OutboxRunner;
+    private outboxMaintenance!: OutboxMaintenance;
 
     private state: State = { name: "created" };
 
@@ -81,6 +85,16 @@ export class Application {
         try {
             this.runner.run();
             await this.bot.run();
+
+            // After the bot, with no await in between: an update comes no sooner than the next turn
+            // of the event loop, so the outbox sends from the first one. Started before, the outbox
+            // would need stopping when the bot fails to start, and its runner starts only once
+            // (docs/architecture/invariants.md, "The outbox"). A stop() while the bot was starting
+            // has already stopped the outbox, which is not to be started after its stop.
+            if (this.state.name === "running") {
+                this.outboxRunner.start();
+                this.outboxMaintenance.start();
+            }
 
             this.logger.info("Application is successfully started.");
         } catch (error) {
@@ -141,6 +155,8 @@ export class Application {
         this.taskQueue = container.get<TaskQueue>(Tokens.Bot.OutboundQueue.TaskQueue);
         this.runner = container.get<Runner>(Tokens.Bot.OutboundQueue.Runner);
         this.bot = container.get<Bot>(Tokens.Bot.Bot);
+        this.outboxRunner = container.get<OutboxRunner>(Tokens.Bot.Outbox.Runner);
+        this.outboxMaintenance = container.get<OutboxMaintenance>(Tokens.Bot.Outbox.Maintenance);
 
         await this.bot.setup();
 
@@ -178,7 +194,7 @@ export class Application {
 
     // Every step has a deadline of its own, and the whole stop has the overall one. The overall one
     // is greater than their sum (checked when the config is assembled), so stopping the runner and
-    // closing the pool have time left even when the bot and the queue use theirs up.
+    // closing the pool have time left even when the bot, the outbox and the queue use theirs up.
     private async shutdown(from: State): Promise<void> {
         // A failure of the setup leaves from here as well (docs/architecture/application.md, "Stop",
         // step 3). Swallowed, it would leave the exit code to a race between exit(0) and exit(1).
@@ -188,6 +204,10 @@ export class Application {
 
         if (from.name === "running") {
             await this.bot.stop();
+            // The calls of the updates still in the pipeline stay queued for another node or the next
+            // start.
+            await this.outboxRunner.stop();
+            await this.outboxMaintenance.stop();
             await this.waitQueueToEmpty();
             this.runner.stop();
         }
