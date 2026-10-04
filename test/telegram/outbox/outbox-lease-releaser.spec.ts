@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
-import { OutboxLeaseReleaser } from "app/telegram/outbox/outbox-lease-releaser";
+import { OutboxLeaseReleaser } from "app/telegram/outbox/lease/outbox-lease-releaser";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxAttemptError, OutboxLease, OutboxRetryOptions } from "app/telegram/outbox/store/outbox-store.types";
 

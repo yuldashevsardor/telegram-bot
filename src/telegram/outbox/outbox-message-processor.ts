@@ -7,7 +7,7 @@ import { PathFile } from "app/telegram/path-file/path-file";
 import { deserialize } from "app/telegram/outbox/payload-codec/payload-codec";
 import type { OutboxSender } from "app/telegram/outbox/outbox-sender";
 import type { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-handler";
-import type { OutboxLeaseReleaser } from "app/telegram/outbox/outbox-lease-releaser";
+import type { OutboxLeaseReleaser } from "app/telegram/outbox/lease/outbox-lease-releaser";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxJson, PulledOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
 
@@ -19,7 +19,7 @@ export class OutboxMessageProcessor {
         @inject<OutboxSender>(Tokens.Bot.Outbox.Sender) private readonly sender: OutboxSender,
         @inject<OutboxStore>(Tokens.Bot.Outbox.Store) private readonly store: OutboxStore,
         @inject<OutboxFailureHandler>(Tokens.Bot.Outbox.FailureHandler) private readonly failureHandler: OutboxFailureHandler,
-        @inject<OutboxLeaseReleaser>(Tokens.Bot.Outbox.LeaseReleaser) private readonly leaseReleaser: OutboxLeaseReleaser,
+        @inject<OutboxLeaseReleaser>(Tokens.Bot.Outbox.Lease.Releaser) private readonly leaseReleaser: OutboxLeaseReleaser,
         @inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger,
     ) {}
 

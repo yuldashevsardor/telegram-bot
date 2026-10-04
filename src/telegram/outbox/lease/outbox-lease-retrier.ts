@@ -9,7 +9,7 @@ import type { OutboxAttemptError, OutboxLease } from "app/telegram/outbox/store/
 // delay, or fails and blocks its chat on the last attempt. What counts and when the limit is
 // checked: docs/architecture/outbox.md, "Outcomes".
 @injectable()
-export class OutboxRetrier {
+export class OutboxLeaseRetrier {
     public constructor(
         @inject<OutboxStore>(Tokens.Bot.Outbox.Store) private readonly store: OutboxStore,
         @inject<OutboxRetryDelay>(Tokens.Bot.Outbox.RetryDelay) private readonly retryDelay: OutboxRetryDelay,

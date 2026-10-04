@@ -10,7 +10,7 @@ import type { OutboxMessageProcessor } from "app/telegram/outbox/outbox-message-
 import type { OutboxWorker, PulledOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
 
 // The sending of a node: one loop over a number of slots, each sending one message at a time
-// (docs/architecture/outbox.md, "The runner"). The loop writes no outcome: the processor does.
+// (docs/architecture/outbox.md, "The runner"). The runner writes no outcome: the processor does.
 @injectable()
 export class OutboxRunner {
     // A call in flight by the controller that aborts it; the promise settles once the processor has
@@ -20,11 +20,11 @@ export class OutboxRunner {
     // and a call after the wait has ended changes nothing. One resolver per wait: a race with a
     // promise pending until the stop would leave a reaction on it per wait, and the heap would grow
     // with every message sent.
-    private wakeUpLoop: (() => void) | undefined;
+    private wakeUpRunner: (() => void) | undefined;
     private isStopping = false;
     // When stop() aborts the calls in flight; none before the stop.
     private stopDeadlineAtMs = Number.POSITIVE_INFINITY;
-    private loopRun: Promise<void> = Promise.resolve();
+    private runCompletion: Promise<void> = Promise.resolve();
 
     public constructor(
         @inject<OutboxMessageSource>(Tokens.Bot.Outbox.MessageSource) private readonly source: OutboxMessageSource,
@@ -39,7 +39,7 @@ export class OutboxRunner {
 
     // Called once: the source serves one generator (docs/architecture/invariants.md, "The outbox").
     public start(): void {
-        this.loopRun = this.run();
+        this.runCompletion = this.run();
     }
 
     // Stops taking messages, waits for the calls in flight up to stopTimeoutMs from the call, then
@@ -48,13 +48,13 @@ export class OutboxRunner {
     public async stop(): Promise<void> {
         this.stopDeadlineAtMs = Date.now() + this.stopTimeoutMs;
         this.isStopping = true;
-        this.wakeUpLoop?.();
+        this.wakeUpRunner?.();
         this.source.stop();
 
         // A pull in progress hands out its message before the loop ends, and the loop starts it:
         // left unsent, the message would wait for the recovery of its lease. Past the deadline it
         // starts aborted (startCall()).
-        await this.loopRun;
+        await this.runCompletion;
 
         // No call starts after the loop has ended, so one wait covers the calls both before and after
         // the abort.
@@ -87,7 +87,7 @@ export class OutboxRunner {
     private async waitForFreeSlotOrStop(): Promise<void> {
         while (!this.isStopping && this.callsInFlight.size >= this.concurrency) {
             const { promise, resolve } = Promise.withResolvers<void>();
-            this.wakeUpLoop = resolve;
+            this.wakeUpRunner = resolve;
 
             await promise;
         }
@@ -113,7 +113,7 @@ export class OutboxRunner {
             })
             .finally(() => {
                 this.callsInFlight.delete(abortController);
-                this.wakeUpLoop?.();
+                this.wakeUpRunner?.();
             });
 
         this.callsInFlight.set(abortController, settled);

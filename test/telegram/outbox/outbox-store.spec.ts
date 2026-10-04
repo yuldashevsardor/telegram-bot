@@ -4,7 +4,7 @@ import type { TelegramLimits } from "app/bootstrap/config/config-values";
 import type { TransactionSql } from "postgres";
 import { Database } from "app/platform/database/database";
 import { OutboxStore } from "app/telegram/outbox/store/outbox-store";
-import { OutboxLeaseReleaser } from "app/telegram/outbox/outbox-lease-releaser";
+import { OutboxLeaseReleaser } from "app/telegram/outbox/lease/outbox-lease-releaser";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import type {
     ExpiredOutboxLease,

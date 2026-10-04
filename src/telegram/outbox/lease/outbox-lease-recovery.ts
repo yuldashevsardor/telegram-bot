@@ -1,7 +1,7 @@
 import { inject, injectable } from "inversify";
 import { Tokens } from "app/shared/tokens";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
-import type { OutboxRetrier } from "app/telegram/outbox/outbox-retrier";
+import type { OutboxLeaseRetrier } from "app/telegram/outbox/lease/outbox-lease-retrier";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxAttemptError } from "app/telegram/outbox/store/outbox-store.types";
 
@@ -17,7 +17,7 @@ const LEASE_EXPIRED: OutboxAttemptError = {
 export class OutboxLeaseRecovery {
     public constructor(
         @inject<OutboxStore>(Tokens.Bot.Outbox.Store) private readonly store: OutboxStore,
-        @inject<OutboxRetrier>(Tokens.Bot.Outbox.Retrier) private readonly retrier: OutboxRetrier,
+        @inject<OutboxLeaseRetrier>(Tokens.Bot.Outbox.Lease.Retrier) private readonly leaseRetrier: OutboxLeaseRetrier,
     ) {}
 
     // The message of every expired lease is a transient failure: whether the node died before the
@@ -28,7 +28,7 @@ export class OutboxLeaseRecovery {
         const expiredLeases = await this.store.findExpiredLeases();
 
         for (const expiredLease of expiredLeases) {
-            await this.retrier.retryOrBlock(expiredLease, LEASE_EXPIRED);
+            await this.leaseRetrier.retryOrBlock(expiredLease, LEASE_EXPIRED);
         }
     }
 }

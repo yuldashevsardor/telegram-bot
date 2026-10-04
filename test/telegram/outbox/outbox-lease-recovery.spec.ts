@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
-import { OutboxLeaseRecovery } from "app/telegram/outbox/outbox-lease-recovery";
-import { OutboxRetrier } from "app/telegram/outbox/outbox-retrier";
+import { OutboxLeaseRecovery } from "app/telegram/outbox/lease/outbox-lease-recovery";
+import { OutboxLeaseRetrier } from "app/telegram/outbox/lease/outbox-lease-retrier";
 import { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { ExpiredOutboxLease, OutboxAttemptError, OutboxLease } from "app/telegram/outbox/store/outbox-store.types";
@@ -60,7 +60,7 @@ describe("OutboxLeaseRecovery", function () {
         store = new RecordingStore();
         recovery = new OutboxLeaseRecovery(
             store as unknown as OutboxStore,
-            new OutboxRetrier(store as unknown as OutboxStore, RETRY_DELAY, MAX_ATTEMPTS),
+            new OutboxLeaseRetrier(store as unknown as OutboxStore, RETRY_DELAY, MAX_ATTEMPTS),
         );
     });
 

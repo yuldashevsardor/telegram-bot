@@ -6,7 +6,7 @@ import { GrammyError, HttpError } from "grammy";
 import { RemoveFailed } from "app/shared/fs/file-helper.errors";
 import { PathFile } from "app/telegram/path-file/path-file";
 import type { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-handler";
-import type { OutboxLeaseReleaser } from "app/telegram/outbox/outbox-lease-releaser";
+import type { OutboxLeaseReleaser } from "app/telegram/outbox/lease/outbox-lease-releaser";
 import { OutboxMessageProcessor } from "app/telegram/outbox/outbox-message-processor";
 import type { OutboxSender } from "app/telegram/outbox/outbox-sender";
 import { serialize } from "app/telegram/outbox/payload-codec/payload-codec";

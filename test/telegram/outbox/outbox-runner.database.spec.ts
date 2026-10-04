@@ -5,7 +5,7 @@ import { Database } from "app/platform/database/database";
 import { sleep } from "app/shared/utils";
 import { MS_PER_SECOND } from "app/shared/time";
 import type { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-handler";
-import type { OutboxLeaseReleaser } from "app/telegram/outbox/outbox-lease-releaser";
+import type { OutboxLeaseReleaser } from "app/telegram/outbox/lease/outbox-lease-releaser";
 import { OutboxMessageProcessor } from "app/telegram/outbox/outbox-message-processor";
 import { OutboxMessageSource } from "app/telegram/outbox/outbox-message-source";
 import type { OutboxSender } from "app/telegram/outbox/outbox-sender";
@@ -107,14 +107,14 @@ describe("OutboxRunner on the database", function () {
         const secondNode = createNode(secondDatabase, "node-2", sends, failureHandler, logger);
         await firstNode.store.pushBatch(messages());
 
-        firstNode.loop.start();
-        secondNode.loop.start();
+        firstNode.runner.start();
+        secondNode.runner.start();
 
         try {
             await waitForDone(firstDatabase);
         } finally {
-            await firstNode.loop.stop();
-            await secondNode.loop.stop();
+            await firstNode.runner.stop();
+            await secondNode.runner.stop();
         }
 
         expect(failureHandler.failures).to.deep.equal([]);
@@ -135,7 +135,7 @@ function createNode(
     sends: Send[],
     failureHandler: RecordingFailureHandler,
     logger: Logger,
-): { store: OutboxStore; loop: OutboxRunner } {
+): { store: OutboxStore; runner: OutboxRunner } {
     const store = new OutboxStore(database, logger, NO_LIMITS, LEASE_DURATION_MS, CLEANUP);
     // The shortest sleep cap: a pull that finds nothing ready waits 100 ms, not up to a second.
     const source = new OutboxMessageSource(store, logger, () => 0);
@@ -146,10 +146,10 @@ function createNode(
         new RecordingLeaseReleaser(failureHandler.failures) as unknown as OutboxLeaseReleaser,
         logger,
     );
-    const worker: OutboxWorker = { host, pid: 1, workerId: `${host}-loop` };
-    const loop = new OutboxRunner(source, processor, logger, CONCURRENCY, LONG_STOP_TIMEOUT_MS, worker);
+    const worker: OutboxWorker = { host, pid: 1, workerId: `${host}-runner` };
+    const runner = new OutboxRunner(source, processor, logger, CONCURRENCY, LONG_STOP_TIMEOUT_MS, worker);
 
-    return { store, loop };
+    return { store, runner };
 }
 
 // The messages of every chat, interleaved across the chats in the order of the ids.

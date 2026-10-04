@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { sleep } from "app/shared/utils";
-import type { OutboxLeaseRecovery } from "app/telegram/outbox/outbox-lease-recovery";
+import type { OutboxLeaseRecovery } from "app/telegram/outbox/lease/outbox-lease-recovery";
 import { OutboxMaintenance } from "app/telegram/outbox/maintenance/outbox-maintenance";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import { waitUntil } from "test/telegram/outbox/outbox-store.helper";
@@ -135,7 +135,7 @@ describe("OutboxMaintenance", function () {
 
         expect(logger.errors[0]).to.deep.equal({
             message: "An outbox maintenance task failed, its next run tries again.",
-            payload: { task: "recoverExpiredLeases", cause: error },
+            payload: { task: "recoverLeases", cause: error },
         });
     });
 

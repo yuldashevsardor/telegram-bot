@@ -6,7 +6,7 @@ import type { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failu
 import type { TelegramBotApiFailure } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import type { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
-import type { OutboxRetrier } from "app/telegram/outbox/outbox-retrier";
+import type { OutboxLeaseRetrier } from "app/telegram/outbox/lease/outbox-lease-retrier";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxAttemptError, PulledOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
 
@@ -27,7 +27,7 @@ export class OutboxFailureHandler {
         @inject<OutboxStore>(Tokens.Bot.Outbox.Store) private readonly store: OutboxStore,
         @inject<TelegramBotApiFailureClassifier>(Tokens.Bot.ApiFailureClassifier)
         private readonly classifier: TelegramBotApiFailureClassifier,
-        @inject<OutboxRetrier>(Tokens.Bot.Outbox.Retrier) private readonly retrier: OutboxRetrier,
+        @inject<OutboxLeaseRetrier>(Tokens.Bot.Outbox.Lease.Retrier) private readonly leaseRetrier: OutboxLeaseRetrier,
         @inject<OutboxErrorSerializer>(Tokens.Bot.Outbox.ErrorSerializer) private readonly errorSerializer: OutboxErrorSerializer,
         @inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger,
     ) {}
@@ -45,7 +45,7 @@ export class OutboxFailureHandler {
     private applyOutcome(message: PulledOutboxMessage, failure: TelegramBotApiFailure, attemptError: OutboxAttemptError): Promise<void> {
         switch (failure.kind) {
             case TelegramBotApiFailureKind.Transient:
-                return this.retrier.retryOrBlock(message, attemptError);
+                return this.leaseRetrier.retryOrBlock(message, attemptError);
             case TelegramBotApiFailureKind.Flood:
                 return this.pauseAndRetry(message, failure.retryAfterSeconds, attemptError);
             case TelegramBotApiFailureKind.Undeliverable:

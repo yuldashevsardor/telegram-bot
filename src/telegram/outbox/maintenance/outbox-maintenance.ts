@@ -2,7 +2,7 @@ import { inject, injectable } from "inversify";
 import { Tokens } from "app/shared/tokens";
 import { configValue } from "app/shared/config-value";
 import type { Logger } from "app/platform/logger/logger";
-import type { OutboxLeaseRecovery } from "app/telegram/outbox/outbox-lease-recovery";
+import type { OutboxLeaseRecovery } from "app/telegram/outbox/lease/outbox-lease-recovery";
 import type { OutboxMaintenanceSettings } from "app/telegram/outbox/maintenance/outbox-maintenance.types";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 
@@ -22,7 +22,7 @@ export class OutboxMaintenance {
 
     public constructor(
         @inject<OutboxStore>(Tokens.Bot.Outbox.Store) private readonly store: OutboxStore,
-        @inject<OutboxLeaseRecovery>(Tokens.Bot.Outbox.LeaseRecovery) private readonly leaseRecovery: OutboxLeaseRecovery,
+        @inject<OutboxLeaseRecovery>(Tokens.Bot.Outbox.Lease.Recovery) private readonly leaseRecovery: OutboxLeaseRecovery,
         @inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger,
         private readonly settings: OutboxMaintenanceSettings = configValue("outbox.maintenance"),
     ) {}
@@ -32,7 +32,7 @@ export class OutboxMaintenance {
     public start(): void {
         const tasks: MaintenanceTask[] = [
             {
-                name: "recoverExpiredLeases",
+                name: "recoverLeases",
                 intervalMs: this.settings.leaseRecoveryIntervalMs,
                 run: () => this.leaseRecovery.recover(),
             },

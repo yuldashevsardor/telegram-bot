@@ -1,23 +1,23 @@
 # Outbox (telegram/outbox/)
 
 The outbox is being built to replace the in-memory outbound queue
-([`outbound-queue.md`](./outbound-queue.md)): outgoing Bot API calls become rows in PostgreSQL,
-any node sends them, the order inside a chat holds across nodes, and a node that dies loses
-nothing (the plan is epic [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)).
-No caller pushes into it yet, and nothing starts its runner
+([`outbound-queue.md`](./outbound-queue.md)): outgoing Bot API calls become rows in PostgreSQL, any
+node sends them, the order inside a chat holds across nodes, and a node that dies loses nothing (the
+plan is epic [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)). No caller pushes
+into it yet, and nothing starts its runner
 ([#625](https://github.com/yuldashevsardor/telegram-bot/issues/625)): so far it holds the tables
 with `OutboxStore` (`store/outbox-store.ts`), which pushes, pulls within the limits, pauses,
 completes a pulled message, finds the expired leases and cleans up, `OutboxRunner`
 (`outbox-runner.ts`), which sends the messages of a node over its slots, `OutboxMaintenance`
 (`maintenance/outbox-maintenance.ts`), which runs the recovery of the expired leases and the cleanup
-on timers, `OutboxLeaseRecovery` (`outbox-lease-recovery.ts`), which takes back the messages of the
-expired leases, `OutboxMessageSource` (`outbox-message-source.ts`), which hands the pulled messages
-to the runner, `OutboxMessageProcessor` (`outbox-message-processor.ts`), which takes one pulled
-message to its outcome, with `OutboxSender`, which makes its Bot API call, `OutboxFailureHandler`
-(`outbox-failure-handler.ts`), which picks the outcome of a failed send, `OutboxRetrier`
-(`outbox-retrier.ts`), which completes a transient failure as a retry or a block,
-`OutboxLeaseReleaser` (`outbox-lease-releaser.ts`), which releases a lease on stop,
-`OutboxResultWaiter`, which waits for the outcome of a message, with
+on timers, `OutboxLeaseRecovery` (`lease/outbox-lease-recovery.ts`), which takes back the messages
+of the expired leases, `OutboxMessageSource` (`outbox-message-source.ts`), which hands the pulled
+messages to the runner, `OutboxMessageProcessor` (`outbox-message-processor.ts`), which takes one
+pulled message to its outcome, with `OutboxSender`, which makes its Bot API call,
+`OutboxFailureHandler` (`outbox-failure-handler.ts`), which picks the outcome of a failed send,
+`OutboxLeaseRetrier` (`lease/outbox-lease-retrier.ts`), which completes a transient failure as a
+retry or a block, `OutboxLeaseReleaser` (`lease/outbox-lease-releaser.ts`), which releases a lease
+on stop, `OutboxResultWaiter`, which waits for the outcome of a message, with
 `OutboxFinishedMessageReader`, the payload codec and the retry delay. The error classes of a failed
 call lie outside it, in `telegram/bot-api-failure-classifier/`.
 
@@ -598,7 +598,7 @@ and why one failure is not classified at all:
 
 `OutboxFailureHandler.handle(message, error)` (`outbox-failure-handler.ts`) classifies the error
 and completes the message by its class; which completion each class gets is read off the branches
-of `applyOutcome()` and `OutboxRetrier.retryOrBlock()`. The error goes into the attempt as
+of `applyOutcome()` and `OutboxLeaseRetrier.retryOrBlock()`. The error goes into the attempt as
 `OutboxErrorSerializer` (`outbox-error-serializer.ts`) writes it, with its class in `kind`; what the
 serializer leaves out and why is in the comment of `serialize()`.
 
@@ -632,8 +632,8 @@ a user among bulk messages, gets one probe per pause and collects them in about
 
 A head with `OUTBOX_MAX_ATTEMPTS - 1` attempts or more, those before the outage included, blocks its
 chat on its first transient failure, with no retry. That can happen during the outage as well: a
-probe answered by an `HttpError` instead of a 401 goes through `OutboxRetrier.retryOrBlock()`, and
-so does the lease of a node that died mid-probe once it is recovered. After the last node is
+probe answered by an `HttpError` instead of a 401 goes through `OutboxLeaseRetrier.retryOrBlock()`,
+and so does the lease of a node that died mid-probe once it is recovered. After the last node is
 restarted, every such head is a transient failure away from the block. That is accepted: a revoked
 token is an incident fixed by hand anyway, the chats it leaves blocked are unblocked in the same
 pass, and leaving a 401 out of the count would move a count by `kind` into the SQL of `pull()`.
@@ -652,19 +652,19 @@ and the message stays `processing` until its lease is recovered.
 
 ### Lease recovery
 
-`OutboxLeaseRecovery.recover()` (`outbox-lease-recovery.ts`) takes back the messages of the chats
-whose lease has passed: the node that pulled them is presumed dead. `OutboxMaintenance` calls it on
-a timer of every node (see "Maintenance").
+`OutboxLeaseRecovery.recover()` (`lease/outbox-lease-recovery.ts`) takes back the messages of the
+chats whose lease has passed: the node that pulled them is presumed dead. `OutboxMaintenance` calls
+it on a timer of every node (see "Maintenance").
 
 1. `OutboxStore.findExpiredLeases()` reads every chat whose `locked_until` is behind `now()`, with
    its `processing` message, as a lease under the chat's own `lock_token`. It reads without a lock
    and leaves the lease as it is.
-2. `OutboxRetrier.retryOrBlock()` takes each lease as a transient failure, completed as
-   one: the message goes back to `pending` with the retry delay of its attempt, or, on the last
-   attempt of `OUTBOX_MAX_ATTEMPTS`, fails and blocks its chat (see "Outcomes"). The completion
-   appends an attempt with the error `OutboxLeaseExpired` of class `transient`. The leases are
-   completed one after another, and a completion that throws ends the call: the leases after it
-   wait for the next one.
+2. The recovery completes each lease as a transient failure through
+   `OutboxLeaseRetrier.retryOrBlock()`: the message goes back to `pending` with the retry delay of
+   its attempt, or, on the last attempt of `OUTBOX_MAX_ATTEMPTS`, fails and blocks its chat (see
+   "Outcomes"). The completion appends an attempt with the error `OutboxLeaseExpired` of class
+   `transient`. The leases are completed one after another, and a completion that throws ends the
+   call: the leases after it wait for the next one.
 
 The recovery completes the message as the node that pulled it would: through the same fenced
 completions, under the token of that pull (see "Completions"). So whichever comes first, the

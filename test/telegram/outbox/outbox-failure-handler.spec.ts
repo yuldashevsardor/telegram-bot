@@ -5,7 +5,7 @@ import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-cl
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
 import { OutboxFailureHandler, UNAUTHORIZED_PAUSE_SECONDS } from "app/telegram/outbox/outbox-failure-handler";
-import { OutboxRetrier } from "app/telegram/outbox/outbox-retrier";
+import { OutboxLeaseRetrier } from "app/telegram/outbox/lease/outbox-lease-retrier";
 import { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type {
@@ -179,7 +179,7 @@ describe("OutboxFailureHandler", function () {
         return new OutboxFailureHandler(
             store as unknown as OutboxStore,
             new TelegramBotApiFailureClassifier(),
-            new OutboxRetrier(store as unknown as OutboxStore, RETRY_DELAY, maxAttempts),
+            new OutboxLeaseRetrier(store as unknown as OutboxStore, RETRY_DELAY, maxAttempts),
             new FixedSerializer(),
             logger,
         );
