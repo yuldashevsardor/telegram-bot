@@ -144,10 +144,9 @@ describe("Woff2FontValidator.validate", function () {
             // §5.5 lets other tables lie between glyf and loca in a single font.
             const loca = entryOf(fixtureLayout, "loca");
             const locaLast = [...fixtureLayout.entries.filter((entry) => entry !== loca), loca];
-            const byTag = fixtureLayout.entries.toSorted((left, right) => (left.tag < right.tag ? -1 : 1));
 
             await validate(build({ ...fixtureLayout, entries: locaLast }));
-            await validate(build({ ...fixtureLayout, entries: byTag }));
+            await validate(build(inTagOrder(fixtureLayout)));
         });
 
         it("with the hmtx transform, flags 1", async function () {
@@ -158,10 +157,7 @@ describe("Woff2FontValidator.validate", function () {
 
         it("with the hmtx transform and the directory in tag order", async function () {
             // Encoders write the directory in tag order, which puts glyf and hhea before hmtx.
-            const layout = withHmtxTransform(fixtureLayout, 0x01);
-            const byTag = layout.entries.toSorted((left, right) => (left.tag < right.tag ? -1 : 1));
-
-            await validate(build({ ...layout, entries: byTag }));
+            await validate(build(inTagOrder(withHmtxTransform(fixtureLayout, 0x01))));
         });
 
         it("with a transformed hmtx whose origLength is the rebuilt length padded to 4 bytes", async function () {
@@ -587,11 +583,12 @@ describe("Woff2FontValidator.validate", function () {
     describe("rejects a transformed hmtx before glyf or hhea in the table directory, by a rule of ours", function () {
         // The decoder of fontforge rebuilds the tables in directory order: hmtx needs the glyph count
         // and the xMin of the glyphs from glyf and numberOfHMetrics from hhea.
-        it("with hmtx before glyf", async function () {
+        it("with hmtx before both, it names the one that comes later in the directory", async function () {
+            // The fixture has hhea after glyf: moving hmtx past hhea clears glyf as well.
             await expectBroken(
                 build(withEntriesFirst(withHmtxTransform(fixtureLayout, 0x01), ["hmtx"])),
                 Woff2Rule.HmtxAfterGlyfAndHhea,
-                'At table "hmtx": directory entry is 1, expected any entry after entry 7, the entry of table "glyf".',
+                'At table "hmtx": directory entry is 1, expected any entry after entry 10, the entry of table "hhea".',
             );
             await expectBroken(
                 build(withEntriesFirst(withHmtxTransform(fixtureLayout, 0x01), ["hhea", "hmtx"])),
@@ -1444,6 +1441,13 @@ function withoutEntry(layout: Layout, tag: string): Layout {
     entryOf(layout, tag);
 
     return { ...layout, entries: layout.entries.filter((entry) => entry.tag !== tag) };
+}
+
+/**
+ * The layout with the directory in tag order, as encoders write it.
+ */
+function inTagOrder(layout: Layout): Layout {
+    return { ...layout, entries: layout.entries.toSorted((left, right) => (left.tag < right.tag ? -1 : 1)) };
 }
 
 /**

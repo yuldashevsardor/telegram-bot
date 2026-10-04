@@ -254,6 +254,9 @@ was rejected.
   negated in the same kind of field, so `40000` kerns by 25536 and `-32768` wraps over to the
   opposite sign; `32768` would fit, and the range is kept symmetric. `units-per-em` is 16 to 16384,
   the range of `unitsPerEm` in the OpenType `head` table; fontforge writes 15 or 16385 as it is.
+  The sfnt validator holds the same bound as a rule of its own (`head.unitsPerEm` in
+  [The sfnt validator](#the-sfnt-validator), with the Apple floor of 64 it leaves out): a change of
+  one is weighed against the other.
   `ascent` and `descent` of `font-face`, numbers by §20.8.3, are -32767 to 32767: fontforge takes
   them when they add up to `units-per-em` and writes them into signed 16-bit fields, so
   `ascent="40000" descent="-39000"` gives an ascender of -25536; they are checked whether or not
@@ -397,7 +400,8 @@ The rules are `Woff2Rule` in `woff2-font-validator.types.ts`, each with its sect
   the glyph count and the `xMin` of the glyphs from the transformed `glyf` alone;
 - a transformed `hmtx` follows `glyf` and `hhea` in the table directory: §5.4 sets no order, but the
   decoder rebuilds the tables in directory order and reads `numberOfHMetrics` when it reaches
-  `hhea`, so before either one it has nothing gathered and refuses the file;
+  `hhea`, so before either one it lacks what it needs from that table and the decoder refuses the
+  file;
 - `origLength` of a transformed `hmtx` is at most the rebuilt table's length padded to 4 bytes: the
   decoder takes the length of every table of the sfnt from `origLength` and, unlike for `glyf` and
   `loca`, does not replace it for `hmtx`, then refuses the file when the padded table ends past the
