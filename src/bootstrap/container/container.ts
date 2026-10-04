@@ -57,6 +57,13 @@ import { OutboxTransformer } from "app/telegram/outbox/transformer/outbox-transf
 import { InboxStore } from "app/telegram/inbox/store/inbox-store";
 import { InboxFailureClassifier } from "app/telegram/inbox/failure-classifier/inbox-failure-classifier";
 import { InboxFailureHandler } from "app/telegram/inbox/inbox-failure-handler";
+import { CliCommandResolver } from "app/cli/cli-command-resolver";
+import { OutboxRetryCommand } from "app/telegram/outbox/command/outbox-retry-command";
+import { OutboxSkipCommand } from "app/telegram/outbox/command/outbox-skip-command";
+import { OutboxCommandResolver } from "app/telegram/outbox/command/outbox-command-resolver";
+import { InboxRetryCommand } from "app/telegram/inbox/command/inbox-retry-command";
+import { InboxSkipCommand } from "app/telegram/inbox/command/inbox-skip-command";
+import { InboxCommandResolver } from "app/telegram/inbox/command/inbox-command-resolver";
 import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 
 export class Container extends InversifyContainer {
@@ -140,6 +147,15 @@ export class Container extends InversifyContainer {
         this.bind<InboxStore>(Tokens.Bot.Inbox.Store).to(InboxStore).inSingletonScope();
         this.bind<InboxFailureClassifier>(Tokens.Bot.Inbox.FailureClassifier).to(InboxFailureClassifier).inSingletonScope();
         this.bind<InboxFailureHandler>(Tokens.Bot.Inbox.FailureHandler).to(InboxFailureHandler).inSingletonScope();
+
+        // The commands of `npm run cli`
+        this.bind<CliCommandResolver>(Tokens.Cli.Resolver).to(CliCommandResolver).inSingletonScope();
+        this.bind<OutboxRetryCommand>(Tokens.Cli.Outbox.Retry).to(OutboxRetryCommand).inSingletonScope();
+        this.bind<OutboxSkipCommand>(Tokens.Cli.Outbox.Skip).to(OutboxSkipCommand).inSingletonScope();
+        this.bind<OutboxCommandResolver>(Tokens.Cli.Outbox.Resolver).to(OutboxCommandResolver).inSingletonScope();
+        this.bind<InboxRetryCommand>(Tokens.Cli.Inbox.Retry).to(InboxRetryCommand).inSingletonScope();
+        this.bind<InboxSkipCommand>(Tokens.Cli.Inbox.Skip).to(InboxSkipCommand).inSingletonScope();
+        this.bind<InboxCommandResolver>(Tokens.Cli.Inbox.Resolver).to(InboxCommandResolver).inSingletonScope();
 
         // Bot API failures
         this.bind<TelegramBotApiFailureClassifier>(Tokens.Bot.ApiFailureClassifier).to(TelegramBotApiFailureClassifier).inSingletonScope();

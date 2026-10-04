@@ -23,11 +23,12 @@ The runtime sequences live in the files of their subsystems:
 - [`outbox.md`](./outbox.md) — the outbox in PostgreSQL that replaces the outbound queue: the
   tables, the chat states, push, pull, the limits and the pause, the chat lock, the lease and the
   completions, the runner with its stop and the maintenance timers, sending one message and
-  removing its files, the failure classes, the outcomes, the retry delay, waiting for the result
-  and the payload codec
+  removing its files, the failure classes, the outcomes, unblocking a chat, the retry delay,
+  waiting for the result and the payload codec
 - [`inbox.md`](./inbox.md) — the inbox of incoming updates in PostgreSQL being built: the tables,
   the group, the group states, push without duplicates, the claim, the lease and the completions,
-  the error classes of a failed handler, the outcomes, the lease recovery and the cleanup
+  the error classes of a failed handler, the outcomes, the lease recovery, unblocking a group and
+  the cleanup
 - [`font-convertor.md`](./font-convertor.md) — format pairs, the EOT codec, signatures, the SVG,
   WOFF, WOFF2, EOT and sfnt validators, running the engine
 - [`user.md`](./user.md) — the entity, the repository, filling the context
@@ -65,7 +66,8 @@ Stack:
 
 - `font-convertor/` — the only domain one;
 - `telegram/` — what exists for the sake of Telegram (above): the bot, `User`, the outbox and the
-  outbound queue it replaces, and the inbox of incoming updates being built beside it.
+  outbound queue it replaces, and the inbox of incoming updates being built beside it, with the
+  command line that unblocks them.
 
 Around them stand three directories named by role:
 
@@ -134,12 +136,14 @@ the whole repository.
 ```
 src/
   app.ts                    entry point: new Application(), signals, fail()
+  cli.ts                    entry point of `npm run cli`: the container without the bot, one command by the arguments (outbox.md)
+  cli/                      what `npm run cli` runs: the CliCommand contract, the first-level resolver, the arguments helper, the base of the queue resolvers (telegram/); the commands lie with their queue (outbox.md)
   font-convertor/           font conversion (font-convertor.md)
   telegram/                 grammY: commands, conversations, middleware, filters, session, locales (bot.md, i18n.md)
     user/                   the entity, the repository interface, the service, the PostgreSQL adapter (user.md)
     outbound-queue/         the outbound queue by keys, limits, the Runner loop (outbound-queue.md)
-    inbox/                  the future inbox of incoming updates in PostgreSQL: the store (push, claim, completions, cleanup), the error classes and the outcomes of a failed handler (inbox.md)
-    outbox/                 the outbox of Bot API calls in PostgreSQL: the transformer that pushes the calls of the bot (transformer/), the store (push, pull, completions), the runner with its message source, the timers of the lease recovery and the cleanup (maintenance/), the lease recovery, retrier and release on stop (lease/), the processor of one message with the sender of its call and the Api, the outcomes of a failure, the result waiter with its reader, the payload codec and the retry delay (outbox.md)
+    inbox/                  the future inbox of incoming updates in PostgreSQL: the store (push, claim, completions, cleanup), the error classes and the outcomes of a failed handler, the unblock of a group (command/) (inbox.md)
+    outbox/                 the outbox of Bot API calls in PostgreSQL: the transformer that pushes the calls of the bot (transformer/), the store (push, pull, completions), the runner with its message source, the timers of the lease recovery and the cleanup (maintenance/), the lease recovery, retrier and release on stop (lease/), the processor of one message with the sender of its call and the Api, the outcomes of a failure, the result waiter with its reader, the payload codec and the retry delay, the commands that unblock a chat (command/) (outbox.md)
   platform/                 adapters that know no module
     database/               Database (storage.md)
     logger/                 the Logger interface, the Level enum, ConsoleLogger, PinoLogger (logging.md)

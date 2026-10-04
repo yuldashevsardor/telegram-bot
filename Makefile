@@ -180,6 +180,27 @@ shell: ## Shell in the running application container
 psql: ## psql in the database container
 	$(DC_DB) exec pgsql sh -c 'psql -U "$$POSTGRES_USER" -d "$$DATABASE_NAME"'
 
+## Unblocking
+
+# A chat or a group is blocked when a failed message or update stops it (docs/architecture/outbox.md,
+# "Unblocking a chat"). The ids go to the command as they are: it refuses what is not a whole number.
+# The ids are in single quotes so that a negative chat id of a group is not taken for an option.
+outbox-retry: ## Put the failed message of a blocked outbox chat back to pending: make outbox-retry chat=<id>
+	@[ -n "$(chat)" ] || { printf 'give it the chat: make outbox-retry chat=<id>\n' >&2; exit 1; }
+	$(DC_APP_RUN) npm run cli -- outbox retry '$(chat)'
+
+outbox-skip: ## Skip the failed message of a blocked outbox chat: make outbox-skip chat=<id>
+	@[ -n "$(chat)" ] || { printf 'give it the chat: make outbox-skip chat=<id>\n' >&2; exit 1; }
+	$(DC_APP_RUN) npm run cli -- outbox skip '$(chat)'
+
+inbox-retry: ## Put the failed update of a blocked inbox group back to pending: make inbox-retry user=<id> chat=<id>
+	@[ -n "$(user)" ] && [ -n "$(chat)" ] || { printf 'give it the group: make inbox-retry user=<id> chat=<id>\n' >&2; exit 1; }
+	$(DC_APP_RUN) npm run cli -- inbox retry '$(user)' '$(chat)'
+
+inbox-skip: ## Skip the failed update of a blocked inbox group: make inbox-skip user=<id> chat=<id>
+	@[ -n "$(user)" ] && [ -n "$(chat)" ] || { printf 'give it the group: make inbox-skip user=<id> chat=<id>\n' >&2; exit 1; }
+	$(DC_APP_RUN) npm run cli -- inbox skip '$(user)' '$(chat)'
+
 ## Worktrees and tokens
 
 worktree-init: ## Prepare this task worktree: shared tmp/pgsql, own .env and BOT_TOKEN
@@ -262,6 +283,7 @@ review-tree-remove: ## Remove a temporary review tree <main worktree>-review-<PR
 .PHONY: up db-up app-up app-down db-down logs restart db-reset \
 	migrate migrate-create build typecheck test test-watch coverage \
 	lint lint-fix format-check format mutation check rebuild shell psql \
+	outbox-retry outbox-skip inbox-retry inbox-skip \
 	worktree-init worktree-cleanup token-acquire token-renew token-release token-status token-add \
 	review-test review-tree-create mutation-full-record mutation-full-check mutation-full-close \
 	review-run review-tree-remove help
