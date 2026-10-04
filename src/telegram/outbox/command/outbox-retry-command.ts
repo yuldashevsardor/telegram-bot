@@ -1,7 +1,7 @@
 import { inject, injectable } from "inversify";
 import { Tokens } from "app/shared/tokens";
 import type { Logger } from "app/platform/logger/logger";
-import { IdArgumentsHelper } from "app/cli/id-arguments-helper";
+import { ArgumentRule, ArgumentsHelper } from "app/cli/arguments-helper";
 import type { CliCommand } from "app/cli/cli-command";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 
@@ -15,7 +15,7 @@ export class OutboxRetryCommand implements CliCommand {
     ) {}
 
     public async run(args: readonly string[]): Promise<void> {
-        const { chatId } = IdArgumentsHelper.parse(args, ["chatId"]);
+        const { chatId } = ArgumentsHelper.parse(args, { chatId: ArgumentRule.Integer });
         const messageId = await this.store.retryBlockedChat(chatId);
 
         this.logger.info("Outbox chat is unblocked: its failed message is pending again.", { chatId: chatId, messageId: messageId });

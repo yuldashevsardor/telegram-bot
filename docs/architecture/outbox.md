@@ -457,8 +457,8 @@ arguments and gives them to the resolver of that queue, `OutboxCommandResolver` 
 the command by its action: `OutboxRetryCommand`,
 `OutboxSkipCommand` and their inbox counterparts (`telegram/outbox/command/`,
 `telegram/inbox/command/`). The rest of the arguments go to the command, which has them read by
-`IdArgumentsHelper` (`cli/`): the same for every command, each naming the ids it expects. A command
-with other arguments gets a check of its own. The command logs the message
+`ArgumentsHelper` (`cli/`): the same for every command, each giving the names of its arguments with
+the rule of each (`ArgumentRule`, a whole number so far). The command logs the message
 it took at `info`. The blocked chats of the outbox are the rows of `telegram_outbox_chats` in the
 state `blocked`, and the store logs each block at `error` with the chat and the message
 (`make psql` reads them). The same two targets for the inbox are in

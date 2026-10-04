@@ -12,9 +12,9 @@ export class UnknownCommand extends RuntimeError {
 }
 
 export class InvalidCommandArguments extends RuntimeError {
-    // expected is how the command writes its arguments, `<chatId>`.
+    // expected is how the command writes its arguments, `<chatId: integer>`.
     public static of(args: readonly string[], expected: string): InvalidCommandArguments {
-        return new InvalidCommandArguments(`The arguments "${args.join(" ")}" are not ${expected}: the ids are whole numbers.`, {
+        return new InvalidCommandArguments(`The arguments "${args.join(" ")}" are not ${expected}.`, {
             args: [...args],
             expected: expected,
         });
