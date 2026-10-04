@@ -642,7 +642,7 @@ With the candidate index the completion and the lease recovery are within the th
 the pull of a few chats, at a median of 4 – 7 ms, while the index is kept clean of dead entries. The
 pull of 100 k ready chats is not, some 16 times over, and neither is the cleanup, some 8 000 times
 over. The proposal is a comment on #643:
-PROPOSAL_LINK
+https://github.com/yuldashevsardor/telegram-bot/issues/643#issuecomment-5984131010
 
 ## Sending
 
