@@ -143,6 +143,30 @@ The full list is `make`. What is worth knowing beyond the target descriptions:
   deleted worktree the target only names; remove it with `docker rm -f <name>`.
   `CONFIRM=1` answers the confirmation question in advance.
 
+## Unblocking a chat or a group
+
+A failed message of the outbox, or a failed update of the inbox, that cannot go on blocks its chat
+or group, and the store logs it at `error`. Nothing sends or handles anything of that chat or group
+until a person unblocks it; the others go on. Find them and unblock them one by one:
+
+```bash
+make psql
+# SELECT chat_id FROM telegram_outbox_chats WHERE state = 'blocked';
+# SELECT user_id, chat_id FROM telegram_inbox_groups WHERE state = 'blocked';
+```
+
+- `make outbox-retry chat=<id>` and `make inbox-retry user=<id> chat=<id>` put the failed message
+  or update back to `pending`: the chat or group goes on from it. Remove the cause first, or it
+  blocks again.
+- `make outbox-skip chat=<id>` and `make inbox-skip user=<id> chat=<id>` give it up: it becomes
+  `skipped`, and the chat or group goes on with the next one. The message is never sent, and its
+  files stay on the disk.
+
+The id of a group chat is negative. A target refuses a chat or group that is not blocked. How it
+works is in [`docs/architecture/outbox.md`](docs/architecture/outbox.md), "Unblocking a chat", and
+[`docs/architecture/inbox.md`](docs/architecture/inbox.md), "Unblocking a group". The targets run
+the `cli` script of `package.json`: after the first pull that brings it, run `make rebuild`.
+
 ## The pre-commit hook
 
 `.husky/pre-commit` runs `lint-staged` (`eslint --fix`, `prettier --write`) over the staged

@@ -131,12 +131,14 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
 
 - **An outbox transaction that changes a chat state from what it reads — the chat state, the active
   messages left — locks the chat row first and reads in a later statement**, as `OutboxStore.push()`
-  and the completions do; every completion goes through the private `complete()`. The locking
+  and the completions do; every completion goes through the private `complete()`, and the unblocks
+  lock the chat in `lockBlockedChat()`. The locking
   statement itself may read the columns of the row it locks: it gets their newest committed version,
   which is how `complete()` reads the lock token. Why, and what breaks otherwise, is in
   [`outbox.md`](./outbox.md), "The chat lock". `pull()` is the exception with a check of its own
-  (same file, "Pull"). The spec lines up only `push()` and `markAsDone()`: a new path that changes a
-  chat state outside `complete()` is checked by nothing.
+  (same file, "Pull"). The spec lines up only `push()` against `markAsDone()` and
+  `skipBlockedChat()`: a new path that changes a chat state outside `complete()` is checked by
+  nothing.
 - **A statement that locks the bot row (`telegram_bot_limits`) takes it before any other row lock
   and holds no other row lock while it waits**, as `OutboxStore.pull()` and `pause()` do, each in
   one statement. Otherwise the wait of a pull for the row can close a lock cycle; how is in
@@ -186,10 +188,10 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   into the outbox SQL compiles.
 - **A transaction that moves an outbox message into `done`, `failed` or `skipped` calls
   `OutboxStore.notifyFinished()` with its `sql`**, as `finishMessage()` does for `markAsDone()`,
-  `markAsFailed()` and `markAsFailedAndBlockChat()`. Without the notification a caller waiting on
-  another node learns the outcome only from the poll, up to `OUTBOX_RESULT_POLL_INTERVAL` later
-  ([`outbox.md`](./outbox.md), "Waiting for the result"). A new path to a final status that skips
-  `finishMessage()` is checked by nothing.
+  `markAsFailed()` and `markAsFailedAndBlockChat()`, and `skipBlockedChat()` itself. Without the
+  notification a caller waiting on another node learns the outcome only from the poll, up to
+  `OUTBOX_RESULT_POLL_INTERVAL` later ([`outbox.md`](./outbox.md), "Waiting for the result"). A
+  new path to a final status that skips `finishMessage()` is checked by nothing.
 - **`status` and `state` of the outbox tables are written only through `OutboxStatus` and
   `OutboxChatState`.** The database has no check on them: a mistyped value is stored, and the row
   or the chat silently drops out of every query.
@@ -217,10 +219,12 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   ([`inbox.md`](./inbox.md)).
 - **`InboxStore.pushBatch()` and every completion lock the group row before they read what their
   change depends on**, as the push and the completions of the outbox lock the chat row (above);
-  every completion goes through the private `complete()`. Read before the lock, a completion leaves
+  every completion goes through the private `complete()`, and the unblocks lock the group in
+  `lockBlockedGroup()`. Read before the lock, a completion leaves
   a group `idle` with an update pushed meanwhile, an update never claimed. `claim()` is the
   exception with a check of its own ([`inbox.md`](./inbox.md), "Claim"). The spec pins a push and
-  `markAsDone()` in both orders (same file, "Push"); a new write path is checked by nothing.
+  `markAsDone()`, and a push and `skipBlockedGroup()`, in both orders (same file, "Push"); a new
+  write path is checked by nothing.
 - **The lease of a claimed group must outlast the handling of its update, unless the lease is
   extended.** A lease that ends while the handler still runs lets the recovery of expired leases
   (`InboxFailureHandler.recoverExpiredLeases()`) give the update back to `pending`: another node
