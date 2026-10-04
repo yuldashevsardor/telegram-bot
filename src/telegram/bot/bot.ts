@@ -22,6 +22,7 @@ import type { BotCommand } from "grammy/types";
 import { createFluent, createFluentMiddleware } from "app/telegram/locale/locale";
 import type { Locale } from "app/telegram/locale/locale.types";
 import { DEFAULT_LOCALE, LOCALES } from "app/telegram/locale/locale.types";
+import type { OutboxTransformer } from "app/telegram/outbox/transformer/outbox-transformer";
 
 // The bot serves only commands and a conversation wait() in private chats: a single message
 // type. The getUpdates default is every type but chat_member and reactions. What the rest would
@@ -40,10 +41,10 @@ export class Bot {
         @inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger,
         @inject<StorageAdapter<SessionPayload>>(Tokens.Bot.Session.Storage)
         private readonly sessionStorage: StorageAdapter<SessionPayload>,
+        @inject<OutboxTransformer>(Tokens.Bot.Outbox.Transformer) private readonly outboxTransformer: OutboxTransformer,
         @inject<Filter>(Tokens.Bot.Filter.HasSessionKey) private readonly hasSessionKeyFilter: Filter,
         @inject<Filter>(Tokens.Bot.Filter.IsPrivateChat) private readonly isPrivateChatFilter: Filter,
         @inject<Middleware>(Tokens.Bot.Middleware.RequestContext) private readonly requestContextMiddleware: Middleware,
-        @inject<Middleware>(Tokens.Bot.Middleware.Mutation.TelegramCallApi) private readonly telegramCallApiMiddleware: Middleware,
         @inject<Middleware>(Tokens.Bot.Middleware.ResponseTime) private readonly responseTimeMiddleware: Middleware,
         @inject<Middleware>(Tokens.Bot.Middleware.RequestLog) private readonly requestLogMiddleware: Middleware,
         @inject<Middleware>(Tokens.Bot.Middleware.FillUserToContext) private readonly fillUserToContextMiddleware: Middleware,
@@ -98,6 +99,10 @@ export class Bot {
             return;
         }
 
+        // First: grammY copies the transformers of bot.api into the Api of an update when the update
+        // comes, so one installed after an update would miss its calls.
+        this.grammy.api.config.use(this.outboxTransformer.transform);
+
         // Filters first: they need no more than ctx.from and ctx.chat. A dropped update needs
         // neither the queue nor the session row, and a group update does have a session key:
         // dropped below session(), it would still leave a row (docs/architecture/invariants.md).
@@ -144,7 +149,6 @@ export class Bot {
         const composer = new Composer<Context>();
         const middlewares = [
             this.requestContextMiddleware,
-            this.telegramCallApiMiddleware,
             this.responseTimeMiddleware,
             this.requestLogMiddleware,
             this.fillUserToContextMiddleware,

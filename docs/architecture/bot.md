@@ -5,7 +5,8 @@
 flavors, plus `ctx.getUser()`. `FluentFlavor` (`locale.types.ts`) is our own, not the flavor of
 the plugin ([`i18n.md`](./i18n.md)).
 
-`Bot.setup()` assembles the pipeline strictly in the order below. An update from the runner
+`Bot.setup()` first installs the outbox transformer on `bot.grammy.api` (see "The outbox
+transformer"), then assembles the pipeline strictly in the order below. An update from the runner
 travels it top to bottom, and every step counts on what the steps above filled in. Every filter,
 middleware, conversation and command comes into the `Bot` constructor by a separate `@inject`.
 `Bot` builds the lists of steps 1-2, 5, 7 and 8 out of those fields itself, so the order in the
@@ -39,8 +40,8 @@ not import the container.
    chain returns, it writes the row back with an upsert (`write`) if the session was read or
    changed. A new session counts as changed from the start. An error thrown below never reaches
    the write. Below this step `ctx.session` is filled in.
-5. Middleware: `RequestContextMiddleware` → `TelegramCallApiMiddleware` →
-   `ResponseTimeMiddleware` → `RequestLogMiddleware` → `FillUserToContextMiddleware`.
+5. Middleware: `RequestContextMiddleware` → `ResponseTimeMiddleware` → `RequestLogMiddleware` →
+   `FillUserToContextMiddleware`.
    - `RequestContextMiddleware` goes first, so everything logged below carries a `requestId`
      ([`logging.md`](./logging.md)).
    - `ResponseTimeMiddleware` logs an `info` with the time around `next()`. It has no
@@ -64,7 +65,9 @@ One update costs the database:
 
 - on `sessions`, a `SELECT` on the way in and an upsert after the chain, if it did not fail;
 - on `users`, one `SELECT` (`existsById`) for a new user or two (`existsById` + `getById`) for an
-  existing one, plus an upsert ([`user.md`](./user.md)).
+  existing one, plus an upsert ([`user.md`](./user.md));
+- on the outbox, for every call to a chat a handler makes, the transaction of the push and the
+  lookups of the wait ([`outbox.md`](./outbox.md), "Push", "Waiting for the result").
 
 An update dropped at steps 1-2 costs no query at all.
 
@@ -104,37 +107,67 @@ into `super()`; one without dependencies declares no constructor at all. A filte
 its own when it needs a different level or extra details: `HasSessionKeyFilter` logs a `warning`
 with the field that was missing.
 
-## TelegramCallApiMiddleware
+## The outbox transformer
 
-`telegram/middleware/mutation/telegram-call-api.middleware.ts` replaces `ctx.api.raw` with a
-`Proxy`. A call whose payload object carries `chat_id` becomes a `TaskQueue` task: the key is
-`chat_id`, the priority `MEDIUM`, `priorityOnError: HIGH`. What happens to the promise of the
-caller meanwhile is in [`outbound-queue.md`](./outbound-queue.md).
+`OutboxTransformer` (`telegram/outbox/transformer/outbox-transformer.ts`) is a grammY API
+transformer on `bot.grammy.api`. grammY gives every update an `Api` of its own with the
+transformers of `bot.api` copied into it (`handleUpdate()` in grammY's `bot.js`), so the calls of
+`ctx.api` and of `bot.grammy.api` go through the same transformer, a call made outside an update
+included. The copy is taken when the update comes, so the transformer is installed before any
+update is handled ([invariant](./invariants.md)).
 
-These calls go past the queue:
+A call to a chat becomes an outbox message ([`outbox.md`](./outbox.md)), and the caller gets its
+outcome:
 
-- a payload that is not built as a literal (the methods of grammY build nothing else, and
-  sending a file goes through the queue as well);
-- a payload without `chat_id`;
-- a `chat_id` that is not a number;
-- the methods of `TELEGRAM_NO_GROUP_RATE_LIMIT_SET`, for group chats only.
+1. `serialize()` stores the payload ([`outbox.md`](./outbox.md), "The payload rule"). A payload the
+   codec refuses rejects the call, and nothing is pushed.
+2. `OutboxStore.push()` with the `chat_id` as the chat and `OutboxPriority.Call`.
+3. `OutboxResultWaiter.wait()` for the outcome of the message.
+4. The outcome becomes the answer grammY expects of the network, so grammY settles the call as one
+   it sent itself:
+   - `done` gives the stored response as the result: `ctx.reply()` resolves to the `Message`;
+   - `failed` with the answer of Telegram in its last attempt gives that answer back with
+     `ok: false`, and grammY throws a `GrammyError`, whatever failed the message: a chat that cannot
+     get the message (403, `chat not found`) fails it without blocking the chat
+     ([`outbox.md`](./outbox.md), "Error classes"), and a 5xx on the last of its retries fails it
+     with the 5xx;
+   - `failed` without such an answer (an `HttpError` on the last of its retries, a lease that
+     expired on the last attempt, a row that did not rebuild) throws `OutboxMessageFailed` with
+     the error of the attempt;
+   - `skipped` throws `OutboxMessageSkipped`.
 
-The `Proxy` passes the arguments of the call to the original `raw` as they came. grammY calls
-methods without parameters (`getMe`, `getWebhookInfo`) without a payload, with a `signal` alone.
-The original `raw` supplies the empty payload for them itself (`createRawApi` in
-`grammy/out/core/client.js`). A payload of our own, added in the replacement, would take the place
-of the `signal` (the test `test/telegram/middleware/mutation/telegram-call-api.middleware.spec.ts`).
+The wait ends with `OutboxResultTimeout` after `OUTBOX_RESULT_TIMEOUT`, and the message stays
+queued and may still go out. That is what every call to a chat that a failed message has blocked
+ends in: the call is pushed behind the blocked head, which holds the chat until it is unblocked by
+hand ([`outbox.md`](./outbox.md), "Tables"). The signal of the caller does not reach a queued
+call: the runner sends the message with a signal of its own.
 
-grammY creates a new `Api` for every update, so the wrappers do not pile up and `bot.grammy.api`
-stays untouched. Code that calls it directly (`BulkMessagesCommand`) pushes its task into the
-queue itself.
+These calls go straight to Telegram, past the outbox:
+
+- a payload that is not a plain object: a raw call without arguments (`api.raw.getMe()`) or a
+  payload built by a class (the methods of grammY build object literals);
+- a payload without `chat_id`. That covers the service calls of the bot (`getMe`,
+  `setMyCommands`, `getUpdates`, `setWebhook`, ...): none of them names a chat, so no list of
+  them is kept;
+- a `chat_id` that is not a number, a chat named by its username (`@channel`);
+- the methods of `OutboxTransformer.GROUP_METHODS_PAST_THE_OUTBOX` for a group chat: Telegram
+  does not count them towards the limit of the group.
+
+`@grammyjs/conversations` installs a transformer of its own on the `Api` of the update, around
+this one. While it replays a conversation it answers each call from its log and does not call the
+transformer below it, so a replayed `ctx.reply()` is not pushed again (the test in
+`test/telegram/bot.spec.ts`). Its log keeps the result the call got the first time, which is why
+the transformer resolves the call to the real `Message` rather than at the push.
+
+A handler that awaits a call to a chat waits for the pull of its message, the limits of the chat
+and of the bot, and the send.
 
 ## Commands
 
 `/start` is the entrance to a conversation. `StartCommand.handle` calls
 `startConversation.enter(ctx)` → `ctx.conversation.enter("start")`. `StartConversation.run()` then
 builds the greeting `ctx.t("start-conversation-welcome", { formats })` ([`i18n.md`](./i18n.md)).
-It sends it as a task through the queue ([`outbound-queue.md`](./outbound-queue.md)) and stops at
+It sends it with `ctx.reply()` through the outbox (see "The outbox transformer") and stops at
 `conversation.wait()`. At `wait()` the execution is suspended. The next update of this chat
 resumes it, with a second full pass of the pipeline, the `users` upsert included. The text of that
 update is echoed back; a non-text one gets `start-conversation-not-text`, a request to send text.
@@ -147,10 +180,15 @@ inside `run()`.
 and the files stay on disk. The conversions go one after another, with an answer after each. The
 first error cuts off the rest, and the user does not see it.
 
-`/bulk_messages` ([overview](./README.md)) pushes 300 000 tasks for three hardcoded chat IDs. It
-is visible in the command menu to everyone. It calls `bot.grammy.api.sendMessage` directly, past
-the replacement of `ctx.api.raw`, so it pushes the task into `TaskQueue` itself. Before every push
-it calls `FileHelper.createDirectoriesByDate()` on a path of the author's machine. On any other
-machine it never gets as far as `push()`: `InvalidPath`, `Promise.all` rejects, and the `info`
-about the push is not logged. The command has no `try/catch`, and the rejection goes to
-`Bot.handleError`.
+`/bulk_messages` ([overview](./README.md)) pushes 10 000 `sendMessage` calls of a random text
+for three hardcoded chat IDs, the chats in turn. It is visible in the command menu to everyone. It
+pushes them straight into `OutboxStore.pushBatch()`, past the transformer, so that they get
+`OutboxPriority.Bulk`, and it waits for none of them to be sent. The priority orders the chats, not
+the messages of a chat: the three chats yield to the chats with calls of the bot, while a reply in
+one of them waits for the bulk messages pushed into it before. The
+batches are of 1000: one batch is one transaction with its messages in one `jsonb` parameter. The
+command has no `try/catch`: a batch that fails rejects it, the rejection goes to
+`Bot.handleError`, and the batches pushed before it stay queued. The rows outlive the process: for a
+chat the bot cannot reach every message fails without blocking the chat, and nothing deletes a
+`failed` row ([`outbox.md`](./outbox.md), "Cleanup"), so each run leaves its share of the 10 000
+rows behind.

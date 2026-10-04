@@ -173,19 +173,23 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
         return { firstDelayMs: firstDelayMs, maxDelayMs: maxDelayMs, multiplier: multiplier };
     }
 
-    // The bot and queue deadlines are spent one after another inside the overall one, so it has to
-    // cover their sum. The check goes no further: the own deadlines of the dependencies are not
-    // summed up (sql.end() inside Database.close() has 5 seconds of its own), and the overall
-    // deadline is taken with a margin instead.
-    private static checkGracefulShutdown({ bot, taskQueue, gracefulShutdown }: ConfigValues): void {
-        const parts = bot.gracefulShutdown.timeout + taskQueue.gracefulShutdown.timeout;
+    // The bot, outbox and queue deadlines are spent one after another inside the overall one, in this
+    // order, so it has to cover their sum. The check goes no further: the own deadlines of the
+    // dependencies are not summed up (sql.end() inside Database.close() has 5 seconds of its own),
+    // and the overall deadline is taken with a margin instead.
+    private static checkGracefulShutdown({ bot, outbox, taskQueue, gracefulShutdown }: ConfigValues): void {
+        const stepTimeoutsSumMs = bot.gracefulShutdown.timeout + outbox.stopTimeoutMs + taskQueue.gracefulShutdown.timeout;
 
-        if (gracefulShutdown.timeout <= parts) {
-            throw new InvalidConfigError("GRACEFUL_SHUTDOWN_TIMEOUT must be greater than the sum of the bot and task queue timeouts", {
-                application: gracefulShutdown.timeout,
-                bot: bot.gracefulShutdown.timeout,
-                taskQueue: taskQueue.gracefulShutdown.timeout,
-            });
+        if (gracefulShutdown.timeout <= stepTimeoutsSumMs) {
+            throw new InvalidConfigError(
+                "GRACEFUL_SHUTDOWN_TIMEOUT must be greater than the sum of the bot, outbox and task queue timeouts",
+                {
+                    application: gracefulShutdown.timeout,
+                    bot: bot.gracefulShutdown.timeout,
+                    outbox: outbox.stopTimeoutMs,
+                    taskQueue: taskQueue.gracefulShutdown.timeout,
+                },
+            );
         }
     }
 

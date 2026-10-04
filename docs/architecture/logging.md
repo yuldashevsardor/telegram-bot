@@ -42,11 +42,14 @@ Everything written outside it goes without a `requestId`:
 - The `critical` about a failed update goes out that way too. `grammy.catch` → `Bot.handleError`
   is called not from `handleUpdate` but from the sink of `@grammyjs/runner`. It runs on the
   already rejected promise of `handleUpdate`, when the scope is closed.
-- The outbound queue's `Runner` (`telegram/outbound-queue/runner/runner.ts`) runs outside any
-  scope. It calls `task.callback()` from its own `setTimeout` loop, not from the update that
-  enqueued the task. So the two `error` records the `Runner` itself writes about a failed API call
-  ([`outbound-queue.md`](./outbound-queue.md#errors)) go without a `requestId`, even when an
-  update made the call.
+- `OutboxRunner` (`telegram/outbox/outbox-runner.ts`) runs outside any scope: `Application.run()`
+  starts it, not an update, and any node may send the message an update pushed
+  ([`outbox.md`](./outbox.md)). So the records of sending a message go without a `requestId`, even
+  when an update made the call.
+- `OutboxResultWaiter` starts its poll timer and its listening through `RequestContext.exit()`,
+  although the first wait comes from an update: both serve the waits of every update, and a timer
+  keeps the scope it was made in. So the records of the poll and of the listening go without a
+  `requestId` too.
 
 ### `RequestContext`
 
@@ -62,7 +65,8 @@ correlation would depend on whether they build it the same way.
 The context is shared, not the logger's own. There is one instance, created by
 `ApplicationContext` ([`application.md`](./application.md)). The logger gets it right there as a
 constructor argument, before any container. It also sits in the container
-(`Tokens.Bootstrap.RequestContext`) for the middleware.
+(`Tokens.Bootstrap.RequestContext`) for the middleware, which opens a scope, and for
+`OutboxResultWaiter`, which leaves it (above).
 
 The keys and the store type are in `request-context.types.ts` next to it: `REQUEST_KEYS` with
 `as const`, `RequestStore` derived from it, the values `unknown`.

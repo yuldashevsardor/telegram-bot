@@ -3,7 +3,7 @@ import path from "path";
 import { expect } from "chai";
 import type { NextFunction, RawApi, StorageAdapter, Transformer } from "grammy";
 import { BotError } from "grammy";
-import type { Chat, Update, UserFromGetMe } from "@grammyjs/types";
+import type { Chat, Message, Update, UserFromGetMe } from "@grammyjs/types";
 import { Bot } from "app/telegram/bot/bot";
 import type { BotSettings, Context, Conversation } from "app/telegram/bot/bot.types";
 import type { Logger } from "app/platform/logger/logger";
@@ -17,6 +17,11 @@ import { HasSessionKeyFilter } from "app/telegram/filter/has-session-key.filter"
 import { IsPrivateChatFilter } from "app/telegram/filter/is-private-chat.filter";
 import { createFluent } from "app/telegram/locale/locale";
 import { DEFAULT_LOCALE, LOCALES } from "app/telegram/locale/locale.types";
+import { OutboxTransformer } from "app/telegram/outbox/transformer/outbox-transformer";
+import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
+import type { OutboxResultWaiter } from "app/telegram/outbox/result-waiter/outbox-result-waiter";
+import type { FinishedOutboxMessage, OutboxMessageInput } from "app/telegram/outbox/store/outbox-store.types";
+import { OutboxPriority, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
 
 type LogRecord = { level: keyof Logger; message: string; payload: UnknownObject | undefined };
 
@@ -29,6 +34,8 @@ type Harness = {
     events: string[];
     logs: LogRecord[];
     calls: ApiCall[];
+    // The calls the outbox transformer pushed: none of them reaches the fake Telegram.
+    pushed: OutboxMessageInput[];
     // The updates the next getUpdates gives back; an empty queue means long polling until cancelled.
     updates: Update[];
     onCommand: { hook: CommandHook };
@@ -39,6 +46,8 @@ const ME = { id: 1, is_bot: true, first_name: "Bot", username: "test_bot" } as U
 const SETTINGS: BotSettings = { token: "test-token", gracefulShutdown: { timeout: 50 } };
 
 const USER_ID = 42;
+
+const GREETING = "greeting";
 
 class RecordingHasSessionKeyFilter extends HasSessionKeyFilter {
     public constructor(logger: Logger, private readonly events: string[]) {
@@ -100,7 +109,9 @@ class RecordingConversation extends ConversationHandler {
         super();
     }
 
-    protected async run(conversation: Conversation): Promise<void> {
+    protected async run(conversation: Conversation, ctx: Context): Promise<void> {
+        const greeting = await ctx.reply(GREETING);
+        this.events.push(`conversation greeted with message ${greeting.message_id}`);
         const next = await conversation.wait();
 
         this.events.push(`conversation got ${next.message?.text}`);
@@ -171,19 +182,43 @@ async function nextUpdates(harness: Harness, signal: Parameters<Transformer<RawA
     });
 }
 
+// The real transformer over an outbox that sends every message at once: the message id is the id
+// of the outbox row.
+function buildOutboxTransformer(pushed: OutboxMessageInput[]): OutboxTransformer {
+    const store = {
+        // The row id is the 1-based position of the message in pushed.
+        push: async (message: OutboxMessageInput): Promise<number> => {
+            pushed.push(message);
+
+            return pushed.length;
+        },
+    } as unknown as OutboxStore;
+    const waiter = {
+        wait: async (messageId: number): Promise<FinishedOutboxMessage> => {
+            const sent = pushed[messageId - 1] as OutboxMessageInput;
+            const response = { message_id: messageId, date: 0, chat: { id: sent.chatId, type: "private" }, text: sent.payload["text"] };
+
+            return { id: messageId, status: OutboxStatus.Done, response: response, error: null };
+        },
+    } as unknown as OutboxResultWaiter;
+
+    return new OutboxTransformer(store, waiter);
+}
+
 function build(settings: BotSettings = SETTINGS): Harness {
     const events: string[] = [];
     const logs: LogRecord[] = [];
     const logger = buildLogger(logs);
     const onCommand = { hook: async (): Promise<void> => undefined };
+    const pushed: OutboxMessageInput[] = [];
 
     const bot = new Bot(
         logger,
         buildStorage(events),
+        buildOutboxTransformer(pushed),
         new RecordingHasSessionKeyFilter(logger, events),
         new RecordingIsPrivateChatFilter(logger, events),
         new RecordingMiddleware("RequestContextMiddleware", events),
-        new RecordingMiddleware("TelegramCallApiMiddleware", events),
         new RecordingMiddleware("ResponseTimeMiddleware", events),
         new RecordingMiddleware("RequestLogMiddleware", events),
         new RecordingMiddleware("FillUserToContextMiddleware", events),
@@ -194,7 +229,8 @@ function build(settings: BotSettings = SETTINGS): Harness {
         settings,
     );
 
-    const harness: Harness = { bot: bot, events: events, logs: logs, calls: [], updates: [], onCommand: onCommand };
+    const harness: Harness = { bot: bot, events: events, logs: logs, calls: [], pushed: pushed, updates: [], onCommand: onCommand };
+    // Before setup(), as the network is under every transformer: the one of the outbox wraps it.
     useFakeTelegram(harness);
 
     return harness;
@@ -206,6 +242,7 @@ async function setUp(): Promise<Harness> {
     harness.bot.grammy.botInfo = ME;
     harness.events.length = 0;
     harness.calls.length = 0;
+    harness.pushed.length = 0;
 
     return harness;
 }
@@ -319,7 +356,6 @@ describe("Bot", function () {
                 "IsPrivateChatFilter",
                 "session read",
                 "RequestContextMiddleware",
-                "TelegramCallApiMiddleware",
                 "ResponseTimeMiddleware",
                 "RequestLogMiddleware",
                 "FillUserToContextMiddleware",
@@ -404,6 +440,59 @@ describe("Bot", function () {
 
             expect(harness.events).to.include("conversation got /font_generator");
             expect(harness.events).to.not.include("/font_generator");
+        });
+    });
+
+    // The cases of the transformer itself are in outbox-transformer.spec.ts; here it stands in the
+    // bot, installed by setup().
+    describe("the outbox", function () {
+        it("queues a reply of a command and resolves it to the message the outbox gives back", async function () {
+            const harness = await setUp();
+            let reply: Message.TextMessage | undefined = undefined;
+            harness.onCommand.hook = async (ctx: Context): Promise<void> => {
+                reply = await ctx.reply("hello");
+            };
+
+            await harness.bot.grammy.handleUpdate(message("/start"));
+
+            expect(harness.pushed.map(({ chatId, method, priority }) => ({ chatId, method, priority }))).to.deep.equal([
+                { chatId: USER_ID, method: "sendMessage", priority: OutboxPriority.Call },
+            ]);
+            expect(harness.pushed[0]?.payload["text"]).to.equal("hello");
+            expect(reply).to.deep.include({ message_id: 1, text: "hello" });
+            expect(harness.calls.filter((call) => call.method === "sendMessage")).to.have.lengthOf(0);
+        });
+
+        it("queues a call of bot.grammy.api made outside an update", async function () {
+            const harness = await setUp();
+
+            const sent = await harness.bot.grammy.api.sendMessage(USER_ID, "broadcast");
+
+            expect(harness.pushed.map(({ chatId, payload }) => ({ chatId, text: payload["text"] }))).to.deep.equal([
+                { chatId: USER_ID, text: "broadcast" },
+            ]);
+            expect(sent.message_id).to.equal(1);
+            expect(harness.calls.filter((call) => call.method === "sendMessage")).to.have.lengthOf(0);
+        });
+
+        // The conversations plugin installs its transformer on the Api of the update, around the one of
+        // the outbox, and answers a replayed call from its log: the greeting is not sent twice.
+        it("does not queue the calls a conversation replays on its next update", async function () {
+            const harness = await setUp();
+            harness.onCommand.hook = async (ctx: Context): Promise<void> => {
+                harness.onCommand.hook = async (): Promise<void> => undefined;
+                await ctx.conversation.enter("recording");
+            };
+
+            await harness.bot.grammy.handleUpdate(message("/start"));
+            await harness.bot.grammy.handleUpdate(message("second"));
+
+            expect(harness.pushed.map(({ payload }) => payload["text"])).to.deep.equal([GREETING]);
+            expect(harness.events.filter((event) => event.startsWith("conversation"))).to.deep.equal([
+                "conversation greeted with message 1",
+                "conversation greeted with message 1",
+                "conversation got second",
+            ]);
         });
     });
 

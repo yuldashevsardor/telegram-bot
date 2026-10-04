@@ -8,22 +8,23 @@ The runtime sequences live in the files of their subsystems:
 
 - start and stop — [`application.md`](./application.md);
 - an incoming update and the commands — [`bot.md`](./bot.md);
-- an outgoing call — [`outbound-queue.md`](./outbound-queue.md);
+- an outgoing call — [`bot.md`](./bot.md), "The outbox transformer", and
+  [`outbox.md`](./outbox.md);
 - loading the locales — [`i18n.md`](./i18n.md).
 
 ## Contents
 
 - [`application.md`](./application.md) — the inversify container, `ApplicationContext`, start
   and stop of the process
-- [`bot.md`](./bot.md) — the update pipeline, filters, middleware, the outbound queue on
-  `ctx.api`, commands
-- [`outbound-queue.md`](./outbound-queue.md) — limits, partitions, the `Runner` loop, the path
-  of an outgoing call
-- [`outbox.md`](./outbox.md) — the outbox in PostgreSQL being built to replace the outbound
-  queue: the tables, the chat states, push, pull, the limits and the pause, the chat lock, the
-  lease and the completions, the runner with its stop and the maintenance timers, sending one
-  message and removing its files, the failure classes, the outcomes, unblocking a chat, the retry
-  delay, waiting for the result and the payload codec
+- [`bot.md`](./bot.md) — the update pipeline, filters, middleware, the outbox transformer on
+  `bot.api`, commands
+- [`outbound-queue.md`](./outbound-queue.md) — the in-memory queue nothing pushes into any more:
+  limits, partitions, the `Runner` loop
+- [`outbox.md`](./outbox.md) — the outbox in PostgreSQL that replaces the outbound queue: the
+  tables, the chat states, push, pull, the limits and the pause, the chat lock, the lease and the
+  completions, the runner with its stop and the maintenance timers, sending one message and
+  removing its files, the failure classes, the outcomes, unblocking a chat, the retry delay,
+  waiting for the result and the payload codec
 - [`inbox.md`](./inbox.md) — the inbox of incoming updates in PostgreSQL being built: the tables,
   the group, the group states, push without duplicates, the claim, the lease and the completions,
   the error classes of a failed handler, the outcomes, the lease recovery, unblocking a group and
@@ -64,9 +65,9 @@ Stack:
 [#245](https://github.com/yuldashevsardor/telegram-bot/issues/245)). There are two modules:
 
 - `font-convertor/` — the only domain one;
-- `telegram/` — what exists for the sake of Telegram (above): the bot, `User`, the outbound
-  queue and the outbox that is being built to replace it, and the inbox of incoming updates being
-  built beside it, with the command line that unblocks them.
+- `telegram/` — what exists for the sake of Telegram (above): the bot, `User`, the outbox and the
+  outbound queue it replaces, and the inbox of incoming updates being built beside it, with the
+  command line that unblocks them.
 
 Around them stand three directories named by role:
 
@@ -121,10 +122,9 @@ are removed before going to production. The only requirement on such a command i
 production. Production standards do not apply to them. These count as a property of a test
 command, not a defect, and need no fixing:
 
-- the tie to the developer's environment: the input font from a test fixture, hardcoded chat IDs
-  and a path of the author's machine;
-- the absence of a permission check;
-- `container.get()` instead of dependency injection.
+- the tie to the developer's environment: the input font from a test fixture and hardcoded chat
+  IDs;
+- the absence of a permission check.
 
 The relaxation does not cover the tests. As long as the command exists, its spec holds the
 behaviour as it is, that tie included ([`testing.md`](./testing.md), "Mutation testing"). Nor does
@@ -143,7 +143,7 @@ src/
     user/                   the entity, the repository interface, the service, the PostgreSQL adapter (user.md)
     outbound-queue/         the outbound queue by keys, limits, the Runner loop (outbound-queue.md)
     inbox/                  the future inbox of incoming updates in PostgreSQL: the store (push, claim, completions, cleanup), the error classes and the outcomes of a failed handler, the unblock of a group (command/) (inbox.md)
-    outbox/                 the future outbox of Bot API calls in PostgreSQL: the store (push, pull, completions), the runner with its message source, the timers of the lease recovery and the cleanup (maintenance/), the lease recovery, retrier and release on stop (lease/), the processor of one message with the sender of its call and the Api, the outcomes of a failure, the result waiter with its reader, the payload codec and the retry delay, the commands that unblock a chat (command/) (outbox.md)
+    outbox/                 the outbox of Bot API calls in PostgreSQL: the transformer that pushes the calls of the bot (transformer/), the store (push, pull, completions), the runner with its message source, the timers of the lease recovery and the cleanup (maintenance/), the lease recovery, retrier and release on stop (lease/), the processor of one message with the sender of its call and the Api, the outcomes of a failure, the result waiter with its reader, the payload codec and the retry delay, the commands that unblock a chat (command/) (outbox.md)
   platform/                 adapters that know no module
     database/               Database (storage.md)
     logger/                 the Logger interface, the Level enum, ConsoleLogger, PinoLogger (logging.md)
@@ -234,8 +234,6 @@ own only when it has files of its own or a role of its own among the siblings:
 
 - `command/start/`, `command/bulk-messages/`, `command/font-generator/` and `conversation/start/`
   keep the command or the conversation together with their `locale/` bundles;
-- `middleware/mutation/` is a role inside `middleware/`: a middleware that replaces `ctx.api.raw`
-  ([`bot.md`](./bot.md)). There is only one file in it so far;
 - `validator/svg/` keeps `SvgFontValidator` together with its companions, its path data parser and
   the range check of the points of an outline,
   `validator/woff2/` keeps `Woff2FontValidator` together with its companions and its glyf
@@ -244,7 +242,7 @@ own only when it has files of its own or a role of its own among the siblings:
 
 A sibling with neither lies flat in the siblings directory: `filter/has-session-key.filter.ts`,
 `middleware/request-log.middleware.ts`. The name is the prefix of the sibling's file name
-(`start/` at `start.command.ts`) or the role (`mutation/`).
+(`start/` at `start.command.ts`) or the role.
 
 **Keeps a main file with its companions** — `*.types.ts` and `*.errors.ts` lie in the directory
 together with their main file, and the directory name is the name of the main file:
@@ -332,8 +330,7 @@ The directory of a subsystem itself is reflected even when it is built the same 
 `test/platform/request-context/`. The same goes for `platform/logger/`, `platform/database/` and
 `telegram/user/`. Of the subdirectories of `bootstrap/config/` it goes for `builder/`, `parser/`
 and `storage/`, which the map names. A directory named by a role rather than after its main file
-does not fall under the rule, no reservation needed: `fs/` at `file-helper.ts`, `mutation/` at
-`telegram-call-api.middleware.ts`.
+does not fall under the rule, no reservation needed: `fs/` at `file-helper.ts`.
 
 A siblings directory and a directory around a sibling fall out of the rule, but on different
 conditions:

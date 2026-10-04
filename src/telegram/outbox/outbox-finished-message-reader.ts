@@ -23,13 +23,13 @@ export class OutboxFinishedMessageReader {
         // parameters: every number of ids would be a text of its own, and a prepared statement of its
         // own on every connection.
         const rows = await this.sql<FinishedOutboxRow[]>`
-            SELECT id, status, response
+            SELECT id, status, response, attempts -> -1 -> 'error' AS error
             FROM telegram_outbox
             WHERE id IN (SELECT jsonb_array_elements_text(${this.sql.json(messageIds)})::bigint)
               AND status IN ${this.sql(FINISHED_STATUSES)}
         `;
 
-        return rows.map((row) => ({ id: Number(row.id), status: row.status, response: row.response }));
+        return rows.map((row) => ({ id: Number(row.id), status: row.status, response: row.response, error: row.error }));
     }
 
     // onFinished gets the id of every message that reaches a final status on any node. onListen is

@@ -9,10 +9,12 @@ picks the group or the private limit by `isGroupChat` from `telegram/telegram-ch
 chat ID is a group. Why the interface and its implementation lie apart is in
 [`README.md`](./README.md).
 
+Nothing pushes into the queue any more: the calls of the bot and `/bulk_messages` go through the
+outbox ([`outbox.md`](./outbox.md), [`bot.md`](./bot.md), "The outbox transformer"), while
+`Application` still starts and stops its `Runner` ([`application.md`](./application.md)).
+
 The queue lies in `telegram/outbound-queue/` because it serves Telegram alone:
 
-- Both consumers are Telegram ones: `TelegramCallApiMiddleware` and `BulkMessagesCommand`
-  ([`bot.md`](./bot.md)).
 - The limits arrive as `TelegramLimits` with the keys `common`, `private` and `group`
   ([`config.md`](./config.md)). Their defaults are Telegram's recommendations
   (`ConfigValuesBuilder.build`, mirrored by `.env.dist` under `### Limits`).
@@ -63,33 +65,9 @@ Runner               → a setTimeout loop: pull(), run the callback without wai
 - `retryTask` puts the task back with its `priorityOnError` and raises its `retryCount`.
 - A task gets exactly `RUNNER_MAX_RETRIES` retries. Then it is dropped, with an `error` in the
   log rather than silently.
-- The caller sees the first rejection, not the outcome of the retries. Otherwise `ctx.reply()`
-  would hang for the whole pause.
 
 ## The sleep of the loop
 
 The sleep is picked at random on every empty iteration, between `RUNNER_SLEEP_INTERVAL_MIN` and
 `..._MAX`. An even step would hit the same point of the cooldown window over and over. The bounds
 are read in `ConfigValuesBuilder.getRunner`, mirrored by `.env.dist` under `### runner`.
-
-## The path of an outgoing call
-
-Any `ctx.api.*` call (`ctx.reply` included) made while an update is handled goes like this:
-
-1. A grammY `Api` method builds the payload and calls `ctx.api.raw[method](payload, signal)`. A
-   method without parameters calls `raw[method](signal)`. `raw` holds a `Proxy` from
-   `TelegramCallApiMiddleware` ([`bot.md`](./bot.md)), which gives out `callApi`.
-2. `callApi` either calls the saved `originRaw` directly (the bypass conditions are in
-   [`bot.md`](./bot.md)) or queues the call. To queue it, `callApi` creates a Promise, builds
-   the `callback`, pushes the task and hands the Promise to the caller. So the caller gets the
-   Promise before the call is made and waits for as long as the task lies in the queue.
-3. The next `pull()` of the `Runner.handleTasks` loop gives out the task (the scheme above), and
-   `handleTask` runs `await task.callback()`.
-4. `callback` waits for the real call and settles the Promise: `messageResolve` on success,
-   `messageReject` and a rethrow on a rejection. Both sides need the rejection: the caller as the
-   rejection of `ctx.reply()`, the queue as the input of [Errors](#errors). Without the `await`
-   inside `callback` an unsettled promise would leave it, and the queue would not see a rejection
-   from Telegram. A retry runs the same `callback`. So a successful second attempt does send the
-   message to the user but no longer changes the Promise, which is already rejected.
-5. There the chain ends: no handler tells the user that delivery failed, and the rejection ends
-   in a log ([`bot.md`](./bot.md)).

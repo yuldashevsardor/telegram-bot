@@ -199,6 +199,19 @@ describe("OutboxMaintenance", function () {
         expect(store.idleChatsCalls).to.equal(0);
     });
 
+    // Application.run() may start the maintenance after a stop that came while the bot was starting.
+    it("runs nothing when started after the stop", async function () {
+        const stopped = start({ leaseRecoveryIntervalMs: SHORT_INTERVAL_MS, cleanupIntervalMs: SHORT_INTERVAL_MS });
+        await stopped.stop();
+
+        stopped.start();
+        await sleep(SEVERAL_INTERVALS_MS);
+
+        expect(leaseRecovery.recoveries).to.equal(0);
+        expect(store.finishedMessagesCalls).to.equal(0);
+        expect(store.idleChatsCalls).to.equal(0);
+    });
+
     it("waits for the run in progress and schedules no next one", async function () {
         leaseRecovery.shouldHold = true;
         const started = start({ leaseRecoveryIntervalMs: SHORT_INTERVAL_MS, cleanupIntervalMs: LONG_INTERVAL_MS });

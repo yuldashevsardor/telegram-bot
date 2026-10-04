@@ -288,8 +288,8 @@ price today is in "The type checker". The precision is worth those minutes: at a
 single false survivor paints a run red.
 
 Going back to `perTest` needs specs that survive a repeated run. Under `perTest` a worker runs mocha
-many times in one process, while `container.spec.ts` and `bulk-messages.command.spec.ts` hold state
-from the load of the file, fail on the second run and give false `Killed`.
+many times in one process, while `container.spec.ts` holds state from the load of the file, fails
+on the second run and gives false `Killed`.
 
 **The database hook is not wired in.** Root hooks from `require` fire on every mocha run, and
 Stryker has a run per mutant (`MochaTestRunner` in `@stryker-mutator/mocha-runner`). So
@@ -363,7 +363,7 @@ and its failure gives no line of its own with the prefix. All that stays in the 
 
 **Timeouts and errors.** The runner creates Mocha with `timeout: 0`. Stryker itself catches a hung
 mutant and counts it as `Timeout`, which is "detected", on a par with `Killed`. The mutants of
-`TelegramCallApiMiddleware`, of `withTimeout()`/`sleep()` and of the fontforge launch hang for
+`withTimeout()`/`sleep()` and of the fontforge launch hang for
 real: an eternal promise, a process waiting for input. `timeoutMS` is left at the default; why is
 in the config.
 
