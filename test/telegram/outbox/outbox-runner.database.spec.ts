@@ -5,6 +5,7 @@ import { Database } from "app/platform/database/database";
 import { sleep } from "app/shared/utils";
 import { MS_PER_SECOND } from "app/shared/time";
 import type { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-handler";
+import type { OutboxLeaseReleaser } from "app/telegram/outbox/outbox-lease-releaser";
 import { OutboxMessageProcessor } from "app/telegram/outbox/outbox-message-processor";
 import { OutboxMessageSource } from "app/telegram/outbox/outbox-message-source";
 import type { OutboxSender } from "app/telegram/outbox/outbox-sender";
@@ -58,6 +59,11 @@ class RecordingFailureHandler {
     public async handle(_message: unknown, error: unknown): Promise<void> {
         this.failures.push(error);
     }
+}
+
+// A release on stop is no outcome of a fake call either: it lands among the failures to be seen.
+class RecordingLeaseReleaser {
+    public constructor(private readonly failures: unknown[]) {}
 
     public async releaseOnStop(): Promise<void> {
         this.failures.push("released on stop");
@@ -137,6 +143,7 @@ function createNode(
         new RecordingSender(sends, host) as unknown as OutboxSender,
         store,
         failureHandler as unknown as OutboxFailureHandler,
+        new RecordingLeaseReleaser(failureHandler.failures) as unknown as OutboxLeaseReleaser,
         logger,
     );
     const worker: OutboxWorker = { host, pid: 1, workerId: `${host}-loop` };

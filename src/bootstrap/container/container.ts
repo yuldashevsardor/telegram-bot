@@ -50,6 +50,8 @@ import { OutboxApiFactory } from "app/telegram/outbox/outbox-api-factory";
 import { OutboxSender } from "app/telegram/outbox/outbox-sender";
 import { OutboxMessageProcessor } from "app/telegram/outbox/outbox-message-processor";
 import { OutboxRunner } from "app/telegram/outbox/outbox-runner";
+import { OutboxRetrier } from "app/telegram/outbox/outbox-retrier";
+import { OutboxLeaseReleaser } from "app/telegram/outbox/outbox-lease-releaser";
 import { OutboxLeaseRecovery } from "app/telegram/outbox/outbox-lease-recovery";
 import { OutboxMaintenance } from "app/telegram/outbox/maintenance/outbox-maintenance";
 import { InboxStore } from "app/telegram/inbox/store/inbox-store";
@@ -122,6 +124,8 @@ export class Container extends InversifyContainer {
         this.bind<OutboxFinishedMessageReader>(Tokens.Bot.Outbox.Result.Reader).to(OutboxFinishedMessageReader).inSingletonScope();
         this.bind<OutboxResultWaiter>(Tokens.Bot.Outbox.Result.Waiter).to(OutboxResultWaiter).inSingletonScope();
         this.bind<OutboxFailureHandler>(Tokens.Bot.Outbox.FailureHandler).to(OutboxFailureHandler).inSingletonScope();
+        this.bind<OutboxRetrier>(Tokens.Bot.Outbox.Retrier).to(OutboxRetrier).inSingletonScope();
+        this.bind<OutboxLeaseReleaser>(Tokens.Bot.Outbox.LeaseReleaser).to(OutboxLeaseReleaser).inSingletonScope();
         this.bind<OutboxErrorSerializer>(Tokens.Bot.Outbox.ErrorSerializer).to(OutboxErrorSerializer).inSingletonScope();
         this.bind<OutboxMessageSource>(Tokens.Bot.Outbox.MessageSource).to(OutboxMessageSource).inSingletonScope();
         this.bind<OutboxApiFactory>(Tokens.Bot.Outbox.ApiFactory).to(OutboxApiFactory).inSingletonScope();

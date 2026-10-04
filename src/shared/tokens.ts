@@ -59,6 +59,8 @@ export const Tokens = {
                 Reader: Symbol.for("BotOutboxResultReader"),
             },
             FailureHandler: Symbol.for("BotOutboxFailureHandler"),
+            Retrier: Symbol.for("BotOutboxRetrier"),
+            LeaseReleaser: Symbol.for("BotOutboxLeaseReleaser"),
             MessageSource: Symbol.for("BotOutboxMessageSource"),
             ErrorSerializer: Symbol.for("BotOutboxErrorSerializer"),
             ApiFactory: Symbol.for("BotOutboxApiFactory"),

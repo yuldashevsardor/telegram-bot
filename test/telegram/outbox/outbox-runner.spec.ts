@@ -4,6 +4,8 @@ import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-cl
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
 import { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-handler";
+import { OutboxLeaseReleaser } from "app/telegram/outbox/outbox-lease-releaser";
+import { OutboxRetrier } from "app/telegram/outbox/outbox-retrier";
 import { OutboxMessageProcessor } from "app/telegram/outbox/outbox-message-processor";
 import type { OutboxMessageSource } from "app/telegram/outbox/outbox-message-source";
 import type { OutboxSender } from "app/telegram/outbox/outbox-sender";
@@ -333,15 +335,15 @@ describe("OutboxRunner", function () {
         const failureHandler = new OutboxFailureHandler(
             store as unknown as OutboxStore,
             new TelegramBotApiFailureClassifier(),
-            new OutboxRetryDelay(RETRY_DELAY_SETTINGS, () => 0),
+            new OutboxRetrier(store as unknown as OutboxStore, new OutboxRetryDelay(RETRY_DELAY_SETTINGS, () => 0), MAX_ATTEMPTS),
             new OutboxErrorSerializer("token"),
             logger,
-            MAX_ATTEMPTS,
         );
         const realProcessor = new OutboxMessageProcessor(
             new HangingSender() as unknown as OutboxSender,
             store as unknown as OutboxStore,
             failureHandler,
+            new OutboxLeaseReleaser(store as unknown as OutboxStore),
             logger,
         );
         const loop = new OutboxRunner(

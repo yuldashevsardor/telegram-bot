@@ -6,6 +6,7 @@ import { GrammyError, HttpError } from "grammy";
 import { RemoveFailed } from "app/shared/fs/file-helper.errors";
 import { PathFile } from "app/telegram/path-file/path-file";
 import type { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-handler";
+import type { OutboxLeaseReleaser } from "app/telegram/outbox/outbox-lease-releaser";
 import { OutboxMessageProcessor } from "app/telegram/outbox/outbox-message-processor";
 import type { OutboxSender } from "app/telegram/outbox/outbox-sender";
 import { serialize } from "app/telegram/outbox/payload-codec/payload-codec";
@@ -49,11 +50,14 @@ class RecordingStore {
 
 class RecordingFailureHandler {
     public readonly calls: Array<{ message: PulledOutboxMessage; error: unknown }> = [];
-    public readonly released: OutboxLease[] = [];
 
     public async handle(message: PulledOutboxMessage, error: unknown): Promise<void> {
         this.calls.push({ message, error });
     }
+}
+
+class RecordingLeaseReleaser {
+    public readonly released: OutboxLease[] = [];
 
     public async releaseOnStop(lease: OutboxLease): Promise<void> {
         this.released.push(lease);
@@ -64,6 +68,7 @@ describe("OutboxMessageProcessor", function () {
     let sender: FakeSender;
     let store: RecordingStore;
     let failureHandler: RecordingFailureHandler;
+    let leaseReleaser: RecordingLeaseReleaser;
     let logger: RecordingLogger;
     let processor: OutboxMessageProcessor;
     let directory: string;
@@ -74,11 +79,13 @@ describe("OutboxMessageProcessor", function () {
         sender = new FakeSender();
         store = new RecordingStore();
         failureHandler = new RecordingFailureHandler();
+        leaseReleaser = new RecordingLeaseReleaser();
         logger = new RecordingLogger();
         processor = new OutboxMessageProcessor(
             sender as unknown as OutboxSender,
             store as unknown as OutboxStore,
             failureHandler as unknown as OutboxFailureHandler,
+            leaseReleaser as unknown as OutboxLeaseReleaser,
             logger,
         );
         directory = await fs.mkdtemp(path.join(os.tmpdir(), "outbox-message-processor-"));
@@ -152,7 +159,7 @@ describe("OutboxMessageProcessor", function () {
 
         await processor.process(message, abortController.signal);
 
-        expect(failureHandler.released).to.deep.equal([message]);
+        expect(leaseReleaser.released).to.deep.equal([message]);
         expect(failureHandler.calls).to.deep.equal([]);
         expect(store.done).to.deep.equal([]);
     });
@@ -173,7 +180,7 @@ describe("OutboxMessageProcessor", function () {
         await processor.process(message, abortController.signal);
 
         expect(failureHandler.calls).to.deep.equal([{ message, error }]);
-        expect(failureHandler.released).to.deep.equal([]);
+        expect(leaseReleaser.released).to.deep.equal([]);
     });
 
     // The abort came too late to stop the call: Telegram answered, and the message is sent.
@@ -185,7 +192,7 @@ describe("OutboxMessageProcessor", function () {
         await processor.process(message, abortController.signal);
 
         expect(store.done).to.deep.equal([{ lease: message, response: RESPONSE }]);
-        expect(failureHandler.released).to.deep.equal([]);
+        expect(leaseReleaser.released).to.deep.equal([]);
     });
 
     it("keeps the files of a message whose call was aborted", async function () {

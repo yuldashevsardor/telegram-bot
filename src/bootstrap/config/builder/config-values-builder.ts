@@ -79,8 +79,8 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
                 concurrency: parser.getInteger("OUTBOX_CONCURRENCY", 5, { min: 1 }),
                 stopTimeoutMs: parser.getTimerDelay("OUTBOX_STOP_TIMEOUT", 5000, { min: 0 }),
                 maintenance: {
-                    leaseRecoveryIntervalMs: parser.getTimerDelay("OUTBOX_LEASE_RECOVERY_INTERVAL", 10 * 1000),
-                    cleanupIntervalMs: parser.getTimerDelay("OUTBOX_CLEANUP_INTERVAL", 10 * 60 * 1000),
+                    leaseRecoveryIntervalMs: parser.getTimerDelay("OUTBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL", 10 * 1000),
+                    cleanupIntervalMs: parser.getTimerDelay("OUTBOX_MAINTENANCE_CLEANUP_INTERVAL", 10 * 60 * 1000),
                 },
                 cleanup: {
                     doneRetentionMs: parser.getInteger("OUTBOX_DONE_RETENTION", 7 * MS_PER_DAY, ConfigValuesBuilder.CLEANUP_RANGE),

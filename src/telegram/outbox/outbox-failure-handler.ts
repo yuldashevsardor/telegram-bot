@@ -1,37 +1,14 @@
 import { inject, injectable } from "inversify";
 import { Tokens } from "app/shared/tokens";
-import { configValue } from "app/shared/config-value";
 import { MS_PER_SECOND } from "app/shared/time";
 import type { Logger } from "app/platform/logger/logger";
 import type { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 import type { TelegramBotApiFailure } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import type { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
-import type { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
+import type { OutboxRetrier } from "app/telegram/outbox/outbox-retrier";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
-import type {
-    ExpiredOutboxLease,
-    OutboxAttemptError,
-    OutboxLease,
-    PulledOutboxMessage,
-} from "app/telegram/outbox/store/outbox-store.types";
-
-// The error of the attempt an expired lease closes: the node that made it reported nothing.
-const LEASE_EXPIRED: OutboxAttemptError = {
-    name: "OutboxLeaseExpired",
-    message: "The lease of the chat passed before its message was completed: the node that pulled it is presumed dead.",
-    kind: TelegramBotApiFailureKind.Transient,
-};
-
-// The error of the attempt a release on stop closes: the call may have reached Telegram or not.
-const NODE_STOPPED: OutboxAttemptError = {
-    name: "OutboxNodeStopped",
-    message: "The node stopped before the call of the message finished: the message is released to any node.",
-    kind: TelegramBotApiFailureKind.Transient,
-};
-
-// A released message waits for no retry delay: the stop says nothing about the message.
-const RELEASE_DELAY_MS = 0;
+import type { OutboxAttemptError, PulledOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
 
 // A retry after a pause, a flood's or a 401's, adds no delay of its own: the pause already stops
 // the pull.
@@ -50,10 +27,9 @@ export class OutboxFailureHandler {
         @inject<OutboxStore>(Tokens.Bot.Outbox.Store) private readonly store: OutboxStore,
         @inject<TelegramBotApiFailureClassifier>(Tokens.Bot.ApiFailureClassifier)
         private readonly classifier: TelegramBotApiFailureClassifier,
-        @inject<OutboxRetryDelay>(Tokens.Bot.Outbox.RetryDelay) private readonly retryDelay: OutboxRetryDelay,
+        @inject<OutboxRetrier>(Tokens.Bot.Outbox.Retrier) private readonly retrier: OutboxRetrier,
         @inject<OutboxErrorSerializer>(Tokens.Bot.Outbox.ErrorSerializer) private readonly errorSerializer: OutboxErrorSerializer,
         @inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger,
-        private readonly maxAttempts: number = configValue("outbox.maxAttempts"),
     ) {}
 
     public async handle(message: PulledOutboxMessage, error: unknown): Promise<void> {
@@ -64,30 +40,12 @@ export class OutboxFailureHandler {
         await this.applyOutcome(message, failure, attemptError);
     }
 
-    // The message of an expired lease is a transient failure: whether the node died before the call
-    // or after Telegram took it cannot be told, so it goes out again (docs/architecture/outbox.md,
-    // "Lease recovery").
-    public async handleExpiredLease(expiredLease: ExpiredOutboxLease): Promise<void> {
-        await this.retryOrBlock(expiredLease, LEASE_EXPIRED);
-    }
-
-    // A message whose call the stopping node did not finish goes back to pending, and its chat is
-    // ready for the next pull on any node. The attempt counts as a transient failure's, although the
-    // limit of attempts is not checked: the stop says nothing about the message, so it blocks no chat.
-    // The call must have settled before: a call still on its way could reach Telegram after the
-    // next message of the chat (docs/architecture/outbox.md, "Release on stop").
-    public async releaseOnStop(lease: OutboxLease): Promise<void> {
-        // The node that would pull the message next is this one, and it stops: an idle node sleeps
-        // until a notification otherwise.
-        await this.store.retry(lease, NODE_STOPPED, RELEASE_DELAY_MS, { shouldWakeIdleNodes: true });
-    }
-
     // Not async on purpose: a switch that misses a kind leaves the end of the function reachable,
     // and a function returning a Promise without undefined in it does not compile then.
     private applyOutcome(message: PulledOutboxMessage, failure: TelegramBotApiFailure, attemptError: OutboxAttemptError): Promise<void> {
         switch (failure.kind) {
             case TelegramBotApiFailureKind.Transient:
-                return this.retryOrBlock(message, attemptError);
+                return this.retrier.retryOrBlock(message, attemptError);
             case TelegramBotApiFailureKind.Flood:
                 return this.pauseAndRetry(message, failure.retryAfterSeconds, attemptError);
             case TelegramBotApiFailureKind.Undeliverable:
@@ -115,16 +73,5 @@ export class OutboxFailureHandler {
         });
 
         await this.pauseAndRetry(message, UNAUTHORIZED_PAUSE_SECONDS, attemptError);
-    }
-
-    // What counts and when the limit is checked: docs/architecture/outbox.md, "Outcomes".
-    private async retryOrBlock(lease: OutboxLease & { earlierAttempts: number }, attemptError: OutboxAttemptError): Promise<void> {
-        const countedAttempts = lease.earlierAttempts + 1;
-
-        if (countedAttempts >= this.maxAttempts) {
-            await this.store.markAsFailedAndBlockChat(lease, attemptError);
-        } else {
-            await this.store.retry(lease, attemptError, this.retryDelay.computeMs(countedAttempts));
-        }
     }
 }

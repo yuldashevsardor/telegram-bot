@@ -14,8 +14,10 @@ on timers, `OutboxLeaseRecovery` (`outbox-lease-recovery.ts`), which takes back 
 expired leases, `OutboxMessageSource` (`outbox-message-source.ts`), which hands the pulled messages
 to the runner, `OutboxMessageProcessor` (`outbox-message-processor.ts`), which takes one pulled
 message to its outcome, with `OutboxSender`, which makes its Bot API call, `OutboxFailureHandler`
-(`outbox-failure-handler.ts`), which picks the outcome of a failed send or of an expired lease
-and releases a lease on stop, `OutboxResultWaiter`, which waits for the outcome of a message, with
+(`outbox-failure-handler.ts`), which picks the outcome of a failed send, `OutboxRetrier`
+(`outbox-retrier.ts`), which completes a transient failure as a retry or a block,
+`OutboxLeaseReleaser` (`outbox-lease-releaser.ts`), which releases a lease on stop,
+`OutboxResultWaiter`, which waits for the outcome of a message, with
 `OutboxFinishedMessageReader`, the payload codec and the retry delay. The error classes of a failed
 call lie outside it, in `telegram/bot-api-failure-classifier/`.
 
@@ -344,19 +346,21 @@ short only the Bot API call.
 node, apart from the runner. It takes its two intervals as one `outbox.maintenance` object
 (`OutboxMaintenanceSettings`):
 
-- `OutboxLeaseRecovery.recover()` (see "Lease recovery"), every `OUTBOX_LEASE_RECOVERY_INTERVAL`;
+- `OutboxLeaseRecovery.recover()` (see "Lease recovery"), every
+  `OUTBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL`;
 - `deleteFinishedMessages()` and `deleteIdleChats()` (see "Cleanup"), each every
-  `OUTBOX_CLEANUP_INTERVAL` on a timer of its own, so a failing one does not hold the other back. A
-  batch that deleted anything is followed by the next one at once, until a batch deletes nothing or
-  the maintenance stops. A batch short of `OUTBOX_CLEANUP_BATCH_SIZE` would end the run one query
-  earlier, but the size is the `LIMIT` of the store, and the maintenance keeps no copy of it.
+  `OUTBOX_MAINTENANCE_CLEANUP_INTERVAL` on a timer of its own, so a failing one does not hold the
+  other back. A batch that deleted anything is followed by the next one at once, until a batch
+  deletes nothing or the maintenance stops. A batch short of `OUTBOX_CLEANUP_BATCH_SIZE` would end
+  the run one query earlier, but the size is the `LIMIT` of the store, and the maintenance keeps no
+  copy of it.
 
 A task runs first one interval after `start()`, and its next run is timed from the end of the
 previous one, so two runs of a task on one node never overlap. A failed run is logged at `error` and
 left to the next one. The nodes run the tasks independently: the cleanup skips the rows another
 node holds, and a lease two nodes recover at once gives the second a warning of a stale token (see
 "Lease recovery"). The chats of a node that died come back after their lease and up to one
-`OUTBOX_LEASE_RECOVERY_INTERVAL` more.
+`OUTBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL` more.
 
 `stop()` clears the timers and waits for the runs in progress, so the database can be closed after
 it.
@@ -517,7 +521,7 @@ The processor completes the message:
   `GrammyError` would bring the copy of the call into the attempt: the serializer leaves out the
   payload of a `GrammyError` only at the top level;
 - the call throws an `HttpError` after its signal was aborted:
-  `OutboxFailureHandler.releaseOnStop()` (see "Release on stop"). grammY throws an aborted call as
+  `OutboxLeaseReleaser.releaseOnStop()` (see "Release on stop"). grammY throws an aborted call as
   an `HttpError`, a transient failure, and `handle()` would give the message a retry delay, or block
   its chat on its last attempt, for a stop that says nothing about the message. A call that Telegram
   answered although its signal was aborted, with its result or with a `GrammyError`, is completed as
@@ -594,7 +598,7 @@ and why one failure is not classified at all:
 
 `OutboxFailureHandler.handle(message, error)` (`outbox-failure-handler.ts`) classifies the error
 and completes the message by its class; which completion each class gets is read off the branches
-of `applyOutcome()` and `retryOrBlock()`. The error goes into the attempt as
+of `applyOutcome()` and `OutboxRetrier.retryOrBlock()`. The error goes into the attempt as
 `OutboxErrorSerializer` (`outbox-error-serializer.ts`) writes it, with its class in `kind`; what the
 serializer leaves out and why is in the comment of `serialize()`.
 
@@ -628,11 +632,11 @@ a user among bulk messages, gets one probe per pause and collects them in about
 
 A head with `OUTBOX_MAX_ATTEMPTS - 1` attempts or more, those before the outage included, blocks its
 chat on its first transient failure, with no retry. That can happen during the outage as well: a
-probe answered by an `HttpError` instead of a 401 goes through `retryOrBlock()`, and so does the
-lease of a node that died mid-probe once it is recovered. After the last node is restarted, every
-such head is a transient failure away from the block. That is accepted: a revoked token is an
-incident fixed by hand anyway, the chats it leaves blocked are unblocked in the same pass, and
-leaving a 401 out of the count would move a count by `kind` into the SQL of `pull()`.
+probe answered by an `HttpError` instead of a 401 goes through `OutboxRetrier.retryOrBlock()`, and
+so does the lease of a node that died mid-probe once it is recovered. After the last node is
+restarted, every such head is a transient failure away from the block. That is accepted: a revoked
+token is an incident fixed by hand anyway, the chats it leaves blocked are unblocked in the same
+pass, and leaving a 401 out of the count would move a count by `kind` into the SQL of `pull()`.
 
 Every attempt counts towards `OUTBOX_MAX_ATTEMPTS`, a flood included: the attempt being handled is
 `earlierAttempts + 1`. The limit is checked on a transient failure only, so a flood never blocks a
@@ -655,7 +659,7 @@ a timer of every node (see "Maintenance").
 1. `OutboxStore.findExpiredLeases()` reads every chat whose `locked_until` is behind `now()`, with
    its `processing` message, as a lease under the chat's own `lock_token`. It reads without a lock
    and leaves the lease as it is.
-2. `OutboxFailureHandler.handleExpiredLease()` takes each lease as a transient failure, completed as
+2. `OutboxRetrier.retryOrBlock()` takes each lease as a transient failure, completed as
    one: the message goes back to `pending` with the retry delay of its attempt, or, on the last
    attempt of `OUTBOX_MAX_ATTEMPTS`, fails and blocks its chat (see "Outcomes"). The completion
    appends an attempt with the error `OutboxLeaseExpired` of class `transient`. The leases are
@@ -689,7 +693,7 @@ most (see "The message source"), so the message goes out within that second of i
 
 ### Release on stop
 
-`OutboxFailureHandler.releaseOnStop(lease)` hands back a message whose call a stopping node did not
+`OutboxLeaseReleaser.releaseOnStop(lease)` hands back a message whose call a stopping node did not
 finish, so another node takes it on its next pull rather than after the lease. It is
 `OutboxStore.retry()` with no delay and the error `OutboxNodeStopped` of class `transient`: the
 message goes back to `pending`, the chat to `ready` with the chat limit the pull set, the lease

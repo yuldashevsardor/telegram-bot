@@ -158,7 +158,7 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   that has not passed: the recovery tells its lease by the token, not by `locked_until`, and takes
   back the message of a passed lease its node has just extended ([`outbox.md`](./outbox.md), "Lease
   recovery").
-- **A call is released on stop only once it has settled.** `OutboxFailureHandler.releaseOnStop()`
+- **A call is released on stop only once it has settled.** `OutboxLeaseReleaser.releaseOnStop()`
   makes the chat `ready` at once, so a call of the stopping node still on its way can reach Telegram
   after the next message of the chat, sent by another node: the order inside the chat breaks.
   `OutboxMessageProcessor` releases only from the `catch` of the call, once it has thrown; a new
