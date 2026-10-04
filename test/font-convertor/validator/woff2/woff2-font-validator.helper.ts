@@ -40,6 +40,9 @@ export const GLYF_NUM_GLYPHS = 4;
 export const GLYF_INDEX_FORMAT = 6;
 export const GLYF_N_CONTOUR_STREAM_SIZE = 8;
 export const GLYF_HEADER_SIZE_BYTES = 36;
+// The glyphs of the fixture, and with the composite that some cases build as one more.
+export const FIXTURE_NUM_GLYPHS = 1296;
+export const NUM_GLYPHS_WITH_COMPOSITE = FIXTURE_NUM_GLYPHS + 1;
 // numberOfHMetrics by its offset in hhea (OpenType 1.9.1, hhea).
 export const HHEA_NUMBER_OF_H_METRICS = 34;
 

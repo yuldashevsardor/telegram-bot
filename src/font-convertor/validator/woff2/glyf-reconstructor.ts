@@ -4,8 +4,8 @@ import { TableTag, Woff2Rule } from "app/font-convertor/validator/woff2/woff2-fo
 import { NumberHelper } from "app/shared/number-helper";
 
 /**
- * One of the seven substreams of a transformed glyf (§5.1), read from the start: `offsetBytes` is
- * where the next glyph record takes its bytes from.
+ * A byte array read from the start, one of the seven substreams of a transformed glyf (§5.1) or the
+ * values of a transformed hmtx: `offsetBytes` is where the next read takes its bytes from.
  */
 type Substream = {
     /** How the standard and a message name it: `nPointsStream`. */
@@ -89,7 +89,16 @@ export class GlyfReconstructor {
     private static readonly HEADER_SIZE_BYTES = 36;
     private static readonly FIELD_OFFSETS_BYTES = { optionFlags: 2, numGlyphs: 4, indexFormat: 6, substreamSizes: 8 };
     private static readonly SUBSTREAM_SIZE_FIELD_BYTES = 4;
-    private static readonly SUBSTREAM_COUNT = 7;
+    // The substreams in the order of their sizes in the header.
+    private static readonly SUBSTREAM_NAMES = [
+        "nContourStream",
+        "nPointsStream",
+        "flagStream",
+        "glyphStream",
+        "compositeStream",
+        "bboxStream",
+        "instructionStream",
+    ] as const;
     private static readonly OVERLAP_SIMPLE_BITMAP_FLAG = 0x0001;
     // bboxBitmap holds a bit per glyph, padded to whole 32-bit words: 4 × ⌊(numGlyphs + 31) / 32⌋
     // bytes; overlapSimpleBitmap pads only to a byte. Glyph 0 is the most significant bit of the
@@ -222,7 +231,7 @@ export class GlyfReconstructor {
 
         const view = new DataView(transformedGlyf.buffer, transformedGlyf.byteOffset, transformedGlyf.byteLength);
         const fields = GlyfReconstructor.FIELD_OFFSETS_BYTES;
-        const substreamsEndBytes = GlyfReconstructor.substreamStartBytes(view, GlyfReconstructor.SUBSTREAM_COUNT);
+        const substreamsEndBytes = GlyfReconstructor.substreamStartBytes(view, GlyfReconstructor.SUBSTREAM_NAMES.length);
 
         this.numGlyphs = view.getUint16(fields.numGlyphs);
         this.indexFormat = view.getUint16(fields.indexFormat);
@@ -230,13 +239,13 @@ export class GlyfReconstructor {
             this.indexFormat === GlyfReconstructor.SHORT_LOCA_FORMAT
                 ? GlyfReconstructor.SHORT_LOCA_OFFSET_SIZE_BYTES
                 : GlyfReconstructor.LONG_LOCA_OFFSET_SIZE_BYTES;
-        this.nContourStream = GlyfReconstructor.substream(transformedGlyf, view, 0, "nContourStream");
-        this.nPointsStream = GlyfReconstructor.substream(transformedGlyf, view, 1, "nPointsStream");
-        this.flagStream = GlyfReconstructor.substream(transformedGlyf, view, 2, "flagStream");
-        this.glyphStream = GlyfReconstructor.substream(transformedGlyf, view, 3, "glyphStream");
-        this.compositeStream = GlyfReconstructor.substream(transformedGlyf, view, 4, "compositeStream");
-        this.bboxStream = GlyfReconstructor.substream(transformedGlyf, view, 5, "bboxStream");
-        this.instructionStream = GlyfReconstructor.substream(transformedGlyf, view, 6, "instructionStream");
+        this.nContourStream = GlyfReconstructor.substream(transformedGlyf, view, "nContourStream");
+        this.nPointsStream = GlyfReconstructor.substream(transformedGlyf, view, "nPointsStream");
+        this.flagStream = GlyfReconstructor.substream(transformedGlyf, view, "flagStream");
+        this.glyphStream = GlyfReconstructor.substream(transformedGlyf, view, "glyphStream");
+        this.compositeStream = GlyfReconstructor.substream(transformedGlyf, view, "compositeStream");
+        this.bboxStream = GlyfReconstructor.substream(transformedGlyf, view, "bboxStream");
+        this.instructionStream = GlyfReconstructor.substream(transformedGlyf, view, "instructionStream");
 
         if (substreamsEndBytes > transformedGlyf.length) {
             throw this.brokenTable(Woff2Rule.TransformedGlyf, {
@@ -279,7 +288,7 @@ export class GlyfReconstructor {
 
     /**
      * Where substream `index` starts in the transformed glyf: after the header and the substreams
-     * before it, which the sizes in the header give. Index 7 gives the end of the last one.
+     * before it, which the sizes in the header give. The number of substreams gives the end of the last one.
      */
     private static substreamStartBytes(view: DataView, index: number): number {
         let startBytes = GlyfReconstructor.HEADER_SIZE_BYTES;
@@ -295,7 +304,12 @@ export class GlyfReconstructor {
         return GlyfReconstructor.FIELD_OFFSETS_BYTES.substreamSizes + index * GlyfReconstructor.SUBSTREAM_SIZE_FIELD_BYTES;
     }
 
-    private static substream(transformedGlyf: Uint8Array, view: DataView, index: number, name: string): Substream {
+    private static substream(
+        transformedGlyf: Uint8Array,
+        view: DataView,
+        name: (typeof GlyfReconstructor.SUBSTREAM_NAMES)[number],
+    ): Substream {
+        const index = GlyfReconstructor.SUBSTREAM_NAMES.indexOf(name);
         const startBytes = GlyfReconstructor.substreamStartBytes(view, index);
         const sizeBytes = view.getUint32(GlyfReconstructor.sizeFieldOffsetBytes(index));
 
@@ -518,7 +532,8 @@ export class GlyfReconstructor {
             const bytes = this.take(this.glyphStream, this.tripletSizeBytes(kind), `the coordinates of point ${index}`);
             const [dx, dy] = this.deltas(kind, bytes);
 
-            // The decoder keeps coordinates in C `int`s: a sum past 2³¹ wraps there, and so here.
+            // The decoder keeps coordinates and their differences in C `int`s: a sum past 2³¹ wraps
+            // there, and so here, in outline() too.
             x = (x + dx) | 0;
             y = (y + dy) | 0;
             points.push({ x: x, y: y, isOnCurve: (flag & GlyfReconstructor.OFF_CURVE_BIT) === 0 });
@@ -654,8 +669,18 @@ export class GlyfReconstructor {
                 flag |= GlyfReconstructor.OVERLAP_SIMPLE;
             }
 
-            flag |= this.coordinate(point.x - lastX, xBytes, GlyfReconstructor.X_SHORT_VECTOR, GlyfReconstructor.X_IS_SAME_OR_POSITIVE);
-            flag |= this.coordinate(point.y - lastY, yBytes, GlyfReconstructor.Y_SHORT_VECTOR, GlyfReconstructor.Y_IS_SAME_OR_POSITIVE);
+            flag |= this.coordinate(
+                (point.x - lastX) | 0,
+                xBytes,
+                GlyfReconstructor.X_SHORT_VECTOR,
+                GlyfReconstructor.X_IS_SAME_OR_POSITIVE,
+            );
+            flag |= this.coordinate(
+                (point.y - lastY) | 0,
+                yBytes,
+                GlyfReconstructor.Y_SHORT_VECTOR,
+                GlyfReconstructor.Y_IS_SAME_OR_POSITIVE,
+            );
             lastX = point.x;
             lastY = point.y;
 

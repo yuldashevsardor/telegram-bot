@@ -5,6 +5,7 @@ import os from "os";
 import path from "path";
 import zlib from "zlib";
 import { Extension } from "app/font-convertor/font-convertor.types";
+import { SfntTableDirectory } from "app/font-convertor/sfnt-table-directory/sfnt-table-directory";
 import { SFNT_VERSIONS } from "app/font-convertor/sfnt-version";
 import { Woff2FontValidator } from "app/font-convertor/validator/woff2/woff2-font-validator";
 import type { InvalidWoff2Font } from "app/font-convertor/validator/woff2/woff2-font-validator.errors";
@@ -23,6 +24,7 @@ import {
     withComposite,
     withNContour,
     withStream,
+    FIXTURE_NUM_GLYPHS,
     FLAVOR,
     fixtureDir,
     GLYF_HEADER_SIZE_BYTES,
@@ -37,6 +39,7 @@ import {
     META_LENGTH,
     META_OFFSET,
     META_ORIG_LENGTH,
+    NUM_GLYPHS_WITH_COMPOSITE,
     NUM_TABLES,
     parse,
     PRIV_LENGTH,
@@ -56,10 +59,6 @@ const validator = new Woff2FontValidator();
 // The output buffer fontforge gives its decoder: the cap on the decompressed tables and on the rebuilt sfnt.
 const DECODER_BUFFER_SIZE_BYTES = 30 * 1024 * 1024;
 const MAX_COMPRESSION_RATIO = 100;
-const SFNT_TABLE_RECORD_SIZE_BYTES = 16;
-// The fixture's glyphs, and with the composite that some cases build as one more.
-const FIXTURE_NUM_GLYPHS = 1296;
-const NUM_GLYPHS_WITH_COMPOSITE = FIXTURE_NUM_GLYPHS + 1;
 // A numGlyphs that is a multiple of neither 8 nor 32: overlapSimpleBitmap ends on a byte that holds
 // one glyph, and a size padded to 32-bit words would differ from ⌈numGlyphs / 8⌉ (§5.1).
 const BITMAP_NUM_GLYPHS = FIXTURE_NUM_GLYPHS + 1;
@@ -206,7 +205,7 @@ describe("Woff2FontValidator.validate", function () {
         it("whose rebuilt sfnt is exactly 30 MiB", async function () {
             // A table of zeros takes a table record and its length in the sfnt. The private block
             // brings the file over 30 MiB / 100, so the ratio cap holds too.
-            const zeroTableBytes = DECODER_BUFFER_SIZE_BYTES - FIXTURE_SFNT_SIZE_BYTES - SFNT_TABLE_RECORD_SIZE_BYTES;
+            const zeroTableBytes = DECODER_BUFFER_SIZE_BYTES - FIXTURE_SFNT_SIZE_BYTES - SfntTableDirectory.RECORD_SIZE_BYTES;
             const layout = withZeroTable(fixtureLayout, zeroTableBytes);
 
             await validate(build(withFileSize(layout, Math.ceil(DECODER_BUFFER_SIZE_BYTES / MAX_COMPRESSION_RATIO))));
@@ -1203,7 +1202,7 @@ describe("Woff2FontValidator.validate", function () {
     describe("rejects a rebuilt sfnt over 30 MiB, by a rule of ours", function () {
         it("by a table of zeros 4 bytes over", async function () {
             // One byte more in the table is 4 more in the sfnt, padded.
-            const zeroTableBytes = DECODER_BUFFER_SIZE_BYTES - FIXTURE_SFNT_SIZE_BYTES - SFNT_TABLE_RECORD_SIZE_BYTES + 1;
+            const zeroTableBytes = DECODER_BUFFER_SIZE_BYTES - FIXTURE_SFNT_SIZE_BYTES - SfntTableDirectory.RECORD_SIZE_BYTES + 1;
             const layout = withZeroTable(fixtureLayout, zeroTableBytes);
 
             await expectBroken(
