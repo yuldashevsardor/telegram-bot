@@ -71,8 +71,9 @@ function store(value: unknown, method: string, place: readonly string[]): unknow
     );
 }
 
-// Only a plain object has Object.prototype as its prototype.
-function isPlainObject(value: unknown): boolean {
+// Only a plain object has Object.prototype as its prototype. OutboxTransformer queues only such a
+// payload, as serialize() takes only such a payload.
+function isPlainObject(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && Object.getPrototypeOf(value) === Object.prototype;
 }
 
@@ -146,3 +147,5 @@ export function serialize(method: string, payload: object | undefined): OutboxPa
 export function deserialize(payload: Record<string, unknown>): Record<string, unknown> {
     return restore(payload) as Record<string, unknown>;
 }
+
+export { isPlainObject };

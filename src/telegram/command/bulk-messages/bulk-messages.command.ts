@@ -12,9 +12,9 @@ import { serialize } from "app/telegram/outbox/payload-codec/payload-codec";
 const CHAT_IDS = [2815426, 5067823410, 858262157];
 const MESSAGE_COUNT = 10_000;
 // One batch is one transaction with the messages as one jsonb parameter, so the load is split.
-const BATCH_SIZE = 1_000;
+const BATCH_MESSAGE_COUNT = 1_000;
 const TEXT_LENGTH_CHARS = 1000;
-const METHOD = "sendMessage";
+const BULK_METHOD = "sendMessage";
 
 @injectable()
 export class BulkMessagesCommand extends Command {
@@ -28,10 +28,11 @@ export class BulkMessagesCommand extends Command {
         super();
     }
 
-    // Pushes the messages straight into the outbox, below the calls of the bot API, and waits for
-    // none of them to be sent.
+    // Pushes the messages straight into the outbox, so that their chats yield to the chats with calls
+    // of the bot API, and waits for none of them to be sent. Inside one of CHAT_IDS a reply still
+    // waits for the bulk messages pushed before it.
     protected async handle(_ctx: Context): Promise<void> {
-        for (let firstIndex = 0; firstIndex < MESSAGE_COUNT; firstIndex += BATCH_SIZE) {
+        for (let firstIndex = 0; firstIndex < MESSAGE_COUNT; firstIndex += BATCH_MESSAGE_COUNT) {
             await this.store.pushBatch(this.buildBatch(firstIndex));
         }
 
@@ -42,11 +43,11 @@ export class BulkMessagesCommand extends Command {
     private buildBatch(firstIndex: number): OutboxMessageInput[] {
         const batch: OutboxMessageInput[] = [];
 
-        for (let index = firstIndex; index < firstIndex + BATCH_SIZE; index++) {
+        for (let index = firstIndex; index < firstIndex + BATCH_MESSAGE_COUNT; index++) {
             const chatId = CHAT_IDS[index % CHAT_IDS.length] as number;
             const payload = { chat_id: chatId, text: StringHelper.generateRandomString(TEXT_LENGTH_CHARS) };
 
-            batch.push({ chatId: chatId, method: METHOD, payload: serialize(METHOD, payload), priority: OutboxPriority.Bulk });
+            batch.push({ chatId: chatId, method: BULK_METHOD, payload: serialize(BULK_METHOD, payload), priority: OutboxPriority.Bulk });
         }
 
         return batch;

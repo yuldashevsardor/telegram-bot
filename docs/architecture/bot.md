@@ -127,10 +127,11 @@ outcome:
    it sent itself:
    - `done` gives the stored response as the result: `ctx.reply()` resolves to the `Message`;
    - `failed` with the answer of Telegram in its last attempt gives that answer back with
-     `ok: false`, and grammY throws a `GrammyError`. That is how a chat that cannot get the message
-     (403, `chat not found`) fails the call: its message fails without blocking the chat
-     ([`outbox.md`](./outbox.md), "Error classes");
-   - `failed` without such an answer (the retries of a transient failure spent, a lease that
+     `ok: false`, and grammY throws a `GrammyError`, whatever failed the message: a chat that cannot
+     get the message (403, `chat not found`) fails it without blocking the chat
+     ([`outbox.md`](./outbox.md), "Error classes"), and a 5xx on the last of its retries fails it
+     with the 5xx;
+   - `failed` without such an answer (an `HttpError` on the last of its retries, a lease that
      expired on the last attempt, a row that did not rebuild) throws `OutboxMessageFailed` with
      the error of the attempt;
    - `skipped` throws `OutboxMessageSkipped`.
@@ -180,7 +181,9 @@ first error cuts off the rest, and the user does not see it.
 `/bulk_messages` ([overview](./README.md)) pushes 10 000 `sendMessage` calls of a random text
 for three hardcoded chat IDs, the chats in turn. It is visible in the command menu to everyone. It
 pushes them straight into `OutboxStore.pushBatch()`, past the transformer, so that they get
-`OutboxPriority.Bulk`, below the calls of the bot, and it waits for none of them to be sent. The
+`OutboxPriority.Bulk`, and it waits for none of them to be sent. The priority orders the chats, not
+the messages of a chat: the three chats yield to the chats with calls of the bot, while a reply in
+one of them waits for the bulk messages pushed into it before. The
 batches are of 1000: one batch is one transaction with its messages in one `jsonb` parameter. The
 command has no `try/catch`: a batch that fails rejects it, the rejection goes to
 `Bot.handleError`, and the batches pushed before it stay queued.

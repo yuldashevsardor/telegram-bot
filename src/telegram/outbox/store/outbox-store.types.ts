@@ -43,8 +43,9 @@ export type OutboxJson = postgres.JSONValue;
 
 export type OutboxPayload = { readonly [key: string]: OutboxJson };
 
-// The priority of a pushed call. A lower one goes first: the calls of the bot API, a reply to a user
-// among them, go before a bulk batch pushed straight into the store.
+// The priority of a pushed call. A lower one goes first, but only across chats: the head of a chat
+// with calls of the bot API goes before the head of a chat with bulk messages. Inside a chat the
+// order is by id, so a reply pushed behind a bulk batch of its own chat waits for the batch.
 export enum OutboxPriority {
     Call = 1,
     Bulk = 2,

@@ -3,7 +3,7 @@ import type { RawApi, Transformer } from "grammy";
 import type { ApiError, ApiResponse, ResponseParameters } from "grammy/types";
 import { Tokens } from "app/shared/tokens";
 import { isGroupChat } from "app/telegram/telegram-chat";
-import { serialize } from "app/telegram/outbox/payload-codec/payload-codec";
+import { isPlainObject, serialize } from "app/telegram/outbox/payload-codec/payload-codec";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxResultWaiter } from "app/telegram/outbox/result-waiter/outbox-result-waiter";
 import type { FinishedOutboxMessage, OutboxAttemptError } from "app/telegram/outbox/store/outbox-store.types";
@@ -27,12 +27,6 @@ const GROUP_METHODS_PAST_THE_OUTBOX = new Set<string>([
     "getChatMember",
     "sendChatAction",
 ]);
-
-// Only a plain object has Object.prototype as its prototype. grammY calls a parameterless method
-// with {} and a raw call without arguments passes undefined.
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && Object.getPrototypeOf(value) === Object.prototype;
-}
 
 // A GrammyError keeps the answer of Telegram; an HttpError, a lease that expired or a row that did
 // not rebuild has none.
