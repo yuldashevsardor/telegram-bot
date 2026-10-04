@@ -61,6 +61,7 @@ export class OutboxMaintenance {
             clearTimeout(timer);
         }
 
+        // Stryker disable next-line CallExpression: `;` (the call deleted) is equivalent: nothing reads the set after the stop: schedule() returns on isStopped and the cleared timers never fire.
         this.timers.clear();
         await Promise.all(this.runsInProgress);
     }

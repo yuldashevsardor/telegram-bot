@@ -364,6 +364,7 @@ export class GlyfReconstructor {
             return this.emptyGlyph();
         }
 
+        // Stryker disable next-line EqualityOperator: `nContour >= 0` is equivalent: nContour 0 has returned above as an empty glyph, so none reaches here
         if (nContour > 0) {
             return this.simpleGlyph(nContour);
         }
@@ -719,6 +720,7 @@ export class GlyfReconstructor {
         if (Math.abs(delta) <= GlyfReconstructor.MAX_SHORT_DELTA) {
             bytes.push(Math.abs(delta));
 
+            // Stryker disable next-line EqualityOperator: `delta >= 0` is equivalent: a delta of 0 has returned above, so no delta here is 0
             return delta > 0 ? shortVectorBit | sameOrPositiveBit : shortVectorBit;
         }
 
@@ -746,6 +748,7 @@ export class GlyfReconstructor {
             return;
         }
 
+        // Stryker disable next-line EqualityOperator: `>=` is equivalent: every glyph record is padded to 4 bytes, so glyfSizeBytes is a multiple of 4 and never equals the limit 131070, which is not
         if (glyfSizeBytes > GlyfReconstructor.MAX_SHORT_LOCA_OFFSET_BYTES) {
             throw this.brokenTable(Woff2Rule.ShortLocaGlyfSize, {
                 field: "rebuilt length",
@@ -846,7 +849,9 @@ export class GlyfReconstructor {
     private hmtx({ bytes, numberOfHMetrics, hasLsb, hasLeftSideBearing }: RebuildableHmtx, xMins: Array<number>): Uint8Array {
         // The values follow the flags byte in the order of the glyphs: advanceWidth[], then lsb[] of
         // the proportional glyphs, then leftSideBearing[] of the monospaced ones.
+        // Stryker disable next-line StringLiteral: `""`: rebuildableHmtx() has checked the table holds every word hmtx() reads, so the substream never runs out and the name and the purpose never reach an error
         const values: Substream = { name: "the transformed hmtx", bytes: bytes, offsetBytes: GlyfReconstructor.HMTX_FLAGS_SIZE_BYTES };
+        // Stryker disable next-line StringLiteral: `""`: rebuildableHmtx() has checked the table holds every word hmtx() reads, so the substream never runs out and the name and the purpose never reach an error
         const nextWord = (): number => this.readUint16(values, "a value of the transformed hmtx");
         const advanceWidths: Array<number> = [];
         const metrics: Array<number> = [];

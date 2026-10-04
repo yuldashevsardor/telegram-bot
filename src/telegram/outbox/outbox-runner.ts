@@ -61,6 +61,7 @@ export class OutboxRunner {
         const callsSettled = Promise.all(this.callsInFlight.values());
         const haveCallsSettled = await withTimeout(callsSettled, this.stopDeadlineAtMs - Date.now());
 
+        // Stryker disable next-line ConditionalExpression,BlockStatement: `false` and `{}` — a settled call has already left callsInFlight (its finally runs before the promise the wait holds), so the abort loop below walks an empty map and the final await resolves at once.
         if (haveCallsSettled) {
             return;
         }

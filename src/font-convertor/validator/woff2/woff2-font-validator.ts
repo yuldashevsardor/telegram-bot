@@ -506,6 +506,7 @@ export class Woff2FontValidator implements FontValidator {
 
         // The later of the two is named: moving hmtx past it clears the earlier one as well.
         const hhea = entries.find((entry) => entry.tag === TableTag.Hhea);
+        // Stryker disable next-line EqualityOperator: `entries.indexOf(hhea) >= entries.indexOf(glyf)` is equivalent: hhea and glyf are different entries, so their indexes are never equal
         const laterPrecedingEntry = hhea !== undefined && entries.indexOf(hhea) > entries.indexOf(glyf) ? hhea : glyf;
 
         this.checkEntryFollows(fontPath, entries, Woff2Rule.HmtxAfterGlyfAndHhea, hmtx, laterPrecedingEntry);

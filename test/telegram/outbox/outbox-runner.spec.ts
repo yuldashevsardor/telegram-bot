@@ -382,6 +382,35 @@ describe("OutboxRunner", function () {
         await stopped;
     });
 
+    it("takes no further message from a source that goes on handing them out after the stop", async function () {
+        const pull = Promise.withResolvers<PulledOutboxMessage>();
+        const stubbornSource = {
+            async *stream(): AsyncGenerator<PulledOutboxMessage, void, undefined> {
+                yield await pull.promise;
+                yield message(2);
+            },
+            stop(): void {},
+        };
+        const runner = new OutboxRunner(
+            stubbornSource as unknown as OutboxMessageSource,
+            processor as unknown as OutboxMessageProcessor,
+            logger,
+            CONCURRENCY,
+            LONG_STOP_TIMEOUT_MS,
+            WORKER,
+        );
+        runner.start();
+        await settle();
+
+        const stopped = runner.stop();
+        pull.resolve(message(1));
+        await settle();
+
+        expect(processor.calls.map((call) => call.message.id)).to.deep.equal([1]);
+        processor.calls[0]?.finish();
+        await stopped;
+    });
+
     it("stops before it was started", async function () {
         const runner = createRunner(LONG_STOP_TIMEOUT_MS);
 

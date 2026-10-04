@@ -76,9 +76,11 @@ export class InboxFailureClassifier {
     // The error and the errors it wraps through cause, each once: a cause that refers back to an
     // earlier link ends the chain.
     private causeChain(error: unknown): unknown[] {
+        // Stryker disable next-line ArrayDeclaration: `["Stryker was here"]` is equivalent: classify() takes the extra string for Unexpected and skips it, as it does any link that decides nothing
         const chain: unknown[] = [];
         let link = error;
 
+        // Stryker disable next-line ConditionalExpression: `true` is equivalent: an undefined link joins the chain once, ends the loop at the next check through chain.includes(), and classify() takes it for Unexpected and skips it
         while (link !== undefined && !chain.includes(link)) {
             chain.push(link);
             link = link instanceof Error ? link.cause : undefined;
