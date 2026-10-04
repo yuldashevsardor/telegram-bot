@@ -3,8 +3,6 @@ import { expect } from "chai";
 import { BotError, HttpError } from "grammy";
 import type { Context } from "grammy";
 import { Database } from "app/platform/database/database";
-import type { Logger } from "app/platform/logger/logger";
-import type { UnknownObject } from "app/shared/types";
 import { MS_PER_SECOND } from "app/shared/time";
 import { sleep } from "app/shared/utils";
 import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
@@ -25,6 +23,7 @@ import { OutboxResultTimeout } from "app/telegram/outbox/result-waiter/outbox-re
 import { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
 import { testDatabaseSettings } from "test/database.helper";
 import { telegramError } from "test/telegram/telegram-bot-api-failure-classifier.helper";
+import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 
 const USER = 5_000_000_001;
 const OTHER_USER = 5_000_000_002;
@@ -49,27 +48,6 @@ const LEASE_EXPIRED: InboxAttemptError = {
     message: "The lease of the group passed before its update was completed: the node that claimed it is presumed dead.",
     kind: InboxFailureKind.Transient,
 };
-
-type LogRecord = { message: string; payload: UnknownObject | undefined };
-
-class RecordingLogger implements Logger {
-    public readonly warnings: LogRecord[] = [];
-    public readonly errors: LogRecord[] = [];
-
-    public critical(): void {}
-
-    public error(message: string, payload?: UnknownObject): void {
-        this.errors.push({ message: message, payload: payload });
-    }
-
-    public warning(message: string, payload?: UnknownObject): void {
-        this.warnings.push({ message: message, payload: payload });
-    }
-
-    public info(): void {}
-
-    public debug(): void {}
-}
 
 // The handler runs over the real store: the outcome of each error class is pinned in the rows it
 // leaves, and the store spec pins how each outcome is written.

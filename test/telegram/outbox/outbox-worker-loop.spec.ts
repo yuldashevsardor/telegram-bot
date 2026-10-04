@@ -1,7 +1,5 @@
 import { expect } from "chai";
 import { HttpError } from "grammy";
-import type { Logger } from "app/platform/logger/logger";
-import type { UnknownObject } from "app/shared/types";
 import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
@@ -21,6 +19,7 @@ import type {
     OutboxWorker,
     PulledOutboxMessage,
 } from "app/telegram/outbox/store/outbox-store.types";
+import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 
 const WORKER: OutboxWorker = { host: "node-1", pid: 101, workerId: "worker-1" };
 const CONCURRENCY = 2;
@@ -135,24 +134,6 @@ class RetryRecordingStore {
 
         return true;
     }
-}
-
-type LogRecord = { message: string; payload: UnknownObject | undefined };
-
-class RecordingLogger implements Logger {
-    public readonly errors: LogRecord[] = [];
-
-    public critical(): void {}
-
-    public error(message: string, payload?: UnknownObject): void {
-        this.errors.push({ message, payload });
-    }
-
-    public warning(): void {}
-
-    public info(): void {}
-
-    public debug(): void {}
 }
 
 describe("OutboxWorkerLoop", function () {

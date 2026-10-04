@@ -8,8 +8,6 @@ import { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-handler
 import { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
 import { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
 import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
-import type { Logger } from "app/platform/logger/logger";
-import type { UnknownObject } from "app/shared/types";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import type {
     ExpiredOutboxLease,
@@ -33,8 +31,9 @@ import { OutboxChannel } from "app/telegram/outbox/store/outbox-store.types";
 import type { DatabaseSettings } from "app/platform/database/database.types";
 import { MS_PER_SECOND } from "app/shared/time";
 import { sleep } from "app/shared/utils";
-import { testDatabaseSettings } from "test/database.helper";
+import { testDatabaseSettings, waitForLockWaiters } from "test/database.helper";
 import { listenTo, waitUntil } from "test/telegram/outbox/outbox-store.helper";
+import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 
 const CHAT = 5_000_000_001;
 const OTHER_CHAT = -1_001_234_567_890;
@@ -74,27 +73,6 @@ const LONG_RETRY_DELAY_MS = 60_000;
 const NOTHING_PULLED: OutboxPullResult = { messages: [], nextPullInMs: null };
 
 type ChatRow = { state: string };
-type LogRecord = { message: string; payload: UnknownObject | undefined };
-
-class RecordingLogger implements Logger {
-    public readonly errors: LogRecord[] = [];
-    public readonly warnings: LogRecord[] = [];
-
-    public critical(): void {}
-
-    public error(message: string, payload?: UnknownObject): void {
-        this.errors.push({ message: message, payload: payload });
-    }
-
-    public warning(message: string, payload?: UnknownObject): void {
-        this.warnings.push({ message: message, payload: payload });
-    }
-
-    public info(): void {}
-
-    public debug(): void {}
-}
-
 describe("OutboxStore", function () {
     this.timeout(SPEC_TIMEOUT_MS);
 
@@ -332,7 +310,7 @@ describe("OutboxStore", function () {
 
             waiting = store.push(message(CHAT, "waiting"));
 
-            await waitForLockWaiters(1);
+            await waitForLockWaiters(observer, 1);
 
             passing = await store.push(message(OTHER_CHAT, "passing"));
         });
@@ -352,7 +330,7 @@ describe("OutboxStore", function () {
 
             waiting = store.pull(10, WORKER);
 
-            await waitForLockWaiters(1);
+            await waitForLockWaiters(observer, 1);
         });
 
         expect((await waiting).messages.map(({ id }) => id)).to.deep.equal([leftMessageId]);
@@ -586,7 +564,7 @@ describe("OutboxStore", function () {
 
                 waiting = limited.pull(1, WORKER);
 
-                await waitForLockWaiters(1);
+                await waitForLockWaiters(observer, 1);
             });
 
             const answer = await waiting;
@@ -605,7 +583,7 @@ describe("OutboxStore", function () {
 
                 waiting = store.pull(10, WORKER);
 
-                await waitForLockWaiters(1);
+                await waitForLockWaiters(observer, 1);
             });
 
             const answer = await waiting;
@@ -630,11 +608,11 @@ describe("OutboxStore", function () {
 
                 await sleep(QUEUED_COOLDOWN_MS + TIMING_MARGIN_MS);
                 const firstQueuedPull = limited.pull(1, WORKER);
-                await waitForLockWaiters(1);
+                await waitForLockWaiters(observer, 1);
 
                 await sleep(QUEUED_COOLDOWN_MS + TIMING_MARGIN_MS);
                 const secondQueuedPull = limited.pull(1, WORKER);
-                await waitForLockWaiters(2);
+                await waitForLockWaiters(observer, 2);
 
                 queued = Promise.all([firstQueuedPull, secondQueuedPull]);
             });
@@ -661,7 +639,7 @@ describe("OutboxStore", function () {
                 expect((await storeOn(sql).pull(1, WORKER)).messages).to.have.lengthOf(1);
 
                 waiting = store.pull(10, WORKER);
-                await waitForLockWaiters(1);
+                await waitForLockWaiters(observer, 1);
 
                 await sleep(DUE_LATER_MS + TIMING_MARGIN_MS);
             });
@@ -1243,11 +1221,11 @@ describe("OutboxStore", function () {
 
                 const firstCall = first();
 
-                await waitForLockWaiters(1);
+                await waitForLockWaiters(observer, 1);
 
                 calls = Promise.all([firstCall, second()]);
 
-                await waitForLockWaiters(2);
+                await waitForLockWaiters(observer, 2);
             });
 
             await calls;
@@ -1483,7 +1461,7 @@ describe("OutboxStore", function () {
 
                 pushing = store.pushBatch([message(CHAT, "first"), message(CHAT, "second")]);
 
-                await waitForLockWaiters(1);
+                await waitForLockWaiters(observer, 1);
 
                 removed = await storeOn(sql).deleteIdleChats();
             });
@@ -1630,29 +1608,6 @@ describe("OutboxStore", function () {
         const rows = await database.sql<{ status: string }[]>`SELECT status FROM telegram_outbox ORDER BY id`;
 
         return rows.map((row) => row.status);
-    }
-
-    async function waitForLockWaiters(count: number): Promise<void> {
-        const deadline = Date.now() + WAIT_DEADLINE_MS;
-
-        for (;;) {
-            if (Date.now() > deadline) {
-                expect.fail(`fewer than ${count} queries waited for a lock by the deadline`);
-            }
-
-            const [row] = await observer.sql<{ waiting: number }[]>`
-                SELECT count(*)::int AS waiting
-                FROM pg_stat_activity
-                WHERE datname = current_database()
-                  AND wait_event_type = 'Lock'
-            `;
-
-            if (row !== undefined && row.waiting >= count) {
-                return;
-            }
-
-            await sleep(5);
-        }
     }
 });
 

@@ -1,7 +1,10 @@
+import { expect } from "chai";
 import { ConfigValuesBuilder } from "app/bootstrap/config/builder/config-values-builder";
 import { ConfigEnvStorage } from "app/bootstrap/config/storage/config-env-storage";
+import type { Database } from "app/platform/database/database";
 import type { DatabaseSettings } from "app/platform/database/database.types";
 import { RuntimeError } from "app/shared/errors";
+import { sleep } from "app/shared/utils";
 
 // The database of a run is created by test/database-hook.ts; why the name arrives in a variable
 // of its own rather than in DATABASE_NAME is there too.
@@ -23,4 +26,35 @@ export async function testDatabaseSettings(): Promise<DatabaseSettings> {
     const settings = new ConfigValuesBuilder().build({ ...env, BOT_TOKEN: "test-token" }).database;
 
     return { ...settings, database: testDatabaseName() };
+}
+
+// Longer than any lock wait of a passing run lasts, shorter than the timeout of the specs: a wait
+// that never comes fails with its own message.
+export const LOCK_WAIT_DEADLINE_MS = 5_000;
+
+// Waits until at least `count` queries of the database wait for a lock. The observer is a client of
+// its own: calls waiting for a lock hold connections of the spec's other clients, and a poll through
+// the same pool would queue behind them at a small DATABASE_CONNECTION_LIMIT, hanging past the
+// deadline instead of failing on it.
+export async function waitForLockWaiters(observer: Database, count: number): Promise<void> {
+    const deadline = Date.now() + LOCK_WAIT_DEADLINE_MS;
+
+    for (;;) {
+        if (Date.now() > deadline) {
+            expect.fail(`fewer than ${count} queries waited for a lock by the deadline`);
+        }
+
+        const [row] = await observer.sql<{ waiting: number }[]>`
+            SELECT count(*)::int AS waiting
+            FROM pg_stat_activity
+            WHERE datname = current_database()
+              AND wait_event_type = 'Lock'
+        `;
+
+        if (row !== undefined && row.waiting >= count) {
+            return;
+        }
+
+        await sleep(5);
+    }
 }
