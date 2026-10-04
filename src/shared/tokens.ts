@@ -59,12 +59,17 @@ export const Tokens = {
                 Reader: Symbol.for("BotOutboxResultReader"),
             },
             FailureHandler: Symbol.for("BotOutboxFailureHandler"),
+            Lease: {
+                Recovery: Symbol.for("BotOutboxLeaseRecovery"),
+                Retrier: Symbol.for("BotOutboxLeaseRetrier"),
+                Releaser: Symbol.for("BotOutboxLeaseReleaser"),
+            },
             MessageSource: Symbol.for("BotOutboxMessageSource"),
             ErrorSerializer: Symbol.for("BotOutboxErrorSerializer"),
             ApiFactory: Symbol.for("BotOutboxApiFactory"),
             Sender: Symbol.for("BotOutboxSender"),
             MessageProcessor: Symbol.for("BotOutboxMessageProcessor"),
-            WorkerLoop: Symbol.for("BotOutboxWorkerLoop"),
+            Runner: Symbol.for("BotOutboxRunner"),
             Maintenance: Symbol.for("BotOutboxMaintenance"),
         },
         Inbox: {

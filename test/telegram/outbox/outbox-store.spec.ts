@@ -4,10 +4,7 @@ import type { TelegramLimits } from "app/bootstrap/config/config-values";
 import type { TransactionSql } from "postgres";
 import { Database } from "app/platform/database/database";
 import { OutboxStore } from "app/telegram/outbox/store/outbox-store";
-import { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-handler";
-import { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
-import { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
-import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
+import { OutboxLeaseReleaser } from "app/telegram/outbox/lease/outbox-lease-releaser";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import type {
     ExpiredOutboxLease,
@@ -980,20 +977,11 @@ describe("OutboxStore", function () {
         });
     });
 
-    // The release is OutboxFailureHandler's decision over a completion of the store: the handler
+    // The release is OutboxLeaseReleaser's decision over a completion of the store: the releaser
     // runs over the real store here, so the specs pin what the release writes.
     describe("a release on stop", function () {
-        // A handler over the store of the spec, with a retry delay of an hour and a limit of one
-        // attempt: a release that applied either would leave the message out of the next pull.
-        function handlerOver(releasingStore: OutboxStore): OutboxFailureHandler {
-            return new OutboxFailureHandler(
-                releasingStore,
-                new TelegramBotApiFailureClassifier(),
-                new OutboxRetryDelay({ firstDelayMs: HOUR_MS, maxDelayMs: HOUR_MS, multiplier: 1 }),
-                new OutboxErrorSerializer("unused-token"),
-                logger,
-                1,
-            );
+        function handlerOver(releasingStore: OutboxStore): OutboxLeaseReleaser {
+            return new OutboxLeaseReleaser(releasingStore);
         }
 
         it("returns the message to pending and ends the lease of its chat", async function () {

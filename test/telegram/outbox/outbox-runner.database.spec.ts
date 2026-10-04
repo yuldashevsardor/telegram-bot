@@ -5,10 +5,11 @@ import { Database } from "app/platform/database/database";
 import { sleep } from "app/shared/utils";
 import { MS_PER_SECOND } from "app/shared/time";
 import type { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-handler";
+import type { OutboxLeaseReleaser } from "app/telegram/outbox/lease/outbox-lease-releaser";
 import { OutboxMessageProcessor } from "app/telegram/outbox/outbox-message-processor";
 import { OutboxMessageSource } from "app/telegram/outbox/outbox-message-source";
 import type { OutboxSender } from "app/telegram/outbox/outbox-sender";
-import { OutboxWorkerLoop } from "app/telegram/outbox/outbox-worker-loop";
+import { OutboxRunner } from "app/telegram/outbox/outbox-runner";
 import { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxCleanupSettings, OutboxJson, OutboxMessageInput, OutboxWorker } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
@@ -58,13 +59,18 @@ class RecordingFailureHandler {
     public async handle(_message: unknown, error: unknown): Promise<void> {
         this.failures.push(error);
     }
+}
+
+// A release on stop is no outcome of a fake call either: it lands among the failures to be seen.
+class RecordingLeaseReleaser {
+    public constructor(private readonly failures: unknown[]) {}
 
     public async releaseOnStop(): Promise<void> {
         this.failures.push("released on stop");
     }
 }
 
-describe("OutboxWorkerLoop on the database", function () {
+describe("OutboxRunner on the database", function () {
     this.timeout(SPEC_TIMEOUT_MS);
 
     // A client per node.
@@ -101,14 +107,14 @@ describe("OutboxWorkerLoop on the database", function () {
         const secondNode = createNode(secondDatabase, "node-2", sends, failureHandler, logger);
         await firstNode.store.pushBatch(messages());
 
-        firstNode.loop.start();
-        secondNode.loop.start();
+        firstNode.runner.start();
+        secondNode.runner.start();
 
         try {
             await waitForDone(firstDatabase);
         } finally {
-            await firstNode.loop.stop();
-            await secondNode.loop.stop();
+            await firstNode.runner.stop();
+            await secondNode.runner.stop();
         }
 
         expect(failureHandler.failures).to.deep.equal([]);
@@ -129,7 +135,7 @@ function createNode(
     sends: Send[],
     failureHandler: RecordingFailureHandler,
     logger: Logger,
-): { store: OutboxStore; loop: OutboxWorkerLoop } {
+): { store: OutboxStore; runner: OutboxRunner } {
     const store = new OutboxStore(database, logger, NO_LIMITS, LEASE_DURATION_MS, CLEANUP);
     // The shortest sleep cap: a pull that finds nothing ready waits 100 ms, not up to a second.
     const source = new OutboxMessageSource(store, logger, () => 0);
@@ -137,12 +143,13 @@ function createNode(
         new RecordingSender(sends, host) as unknown as OutboxSender,
         store,
         failureHandler as unknown as OutboxFailureHandler,
+        new RecordingLeaseReleaser(failureHandler.failures) as unknown as OutboxLeaseReleaser,
         logger,
     );
-    const worker: OutboxWorker = { host, pid: 1, workerId: `${host}-loop` };
-    const loop = new OutboxWorkerLoop(source, processor, logger, CONCURRENCY, LONG_STOP_TIMEOUT_MS, worker);
+    const worker: OutboxWorker = { host, pid: 1, workerId: `${host}-runner` };
+    const runner = new OutboxRunner(source, processor, logger, CONCURRENCY, LONG_STOP_TIMEOUT_MS, worker);
 
-    return { store, loop };
+    return { store, runner };
 }
 
 // The messages of every chat, interleaved across the chats in the order of the ids.

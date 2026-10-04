@@ -21,7 +21,7 @@ The runtime sequences live in the files of their subsystems:
   of an outgoing call
 - [`outbox.md`](./outbox.md) — the outbox in PostgreSQL being built to replace the outbound
   queue: the tables, the chat states, push, pull, the limits and the pause, the chat lock, the
-  lease and the completions, the worker loop with its stop and the maintenance timers, sending one
+  lease and the completions, the runner with its stop and the maintenance timers, sending one
   message and removing its files, the failure classes, the outcomes, the retry delay, waiting for
   the result and the payload codec
 - [`inbox.md`](./inbox.md) — the inbox of incoming updates in PostgreSQL being built: the tables,
@@ -140,7 +140,7 @@ src/
     user/                   the entity, the repository interface, the service, the PostgreSQL adapter (user.md)
     outbound-queue/         the outbound queue by keys, limits, the Runner loop (outbound-queue.md)
     inbox/                  the future inbox of incoming updates in PostgreSQL: the store (push, claim, completions), the error classes and the outcomes of a failed handler (inbox.md)
-    outbox/                 the future outbox of Bot API calls in PostgreSQL: the store (push, pull, completions), the worker loop with its message source, the timers of the lease recovery and the cleanup, the processor of one message with the sender of its call and the Api, the outcomes of a failure, the result waiter with its reader, the payload codec and the retry delay (outbox.md)
+    outbox/                 the future outbox of Bot API calls in PostgreSQL: the store (push, pull, completions), the runner with its message source, the timers of the lease recovery and the cleanup (maintenance/), the lease recovery, retrier and release on stop (lease/), the processor of one message with the sender of its call and the Api, the outcomes of a failure, the result waiter with its reader, the payload codec and the retry delay (outbox.md)
   platform/                 adapters that know no module
     database/               Database (storage.md)
     logger/                 the Logger interface, the Level enum, ConsoleLogger, PinoLogger (logging.md)
@@ -349,7 +349,7 @@ A siblings directory inside a non-reflected one is reflected without it: a spec 
 now.
 
 A spec on the database of a source that has a spec with fakes as well is
-`<source>.database.spec.ts` next to it, as `outbox-worker-loop.database.spec.ts`.
+`<source>.database.spec.ts` next to it, as `outbox-runner.database.spec.ts`.
 
 A command prints the divergences: every spec whose path repeats the path of no source with the
 same name. The only deliberate exceptions among them are specs whose path is shorter than the

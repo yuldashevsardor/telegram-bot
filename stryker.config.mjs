@@ -13,7 +13,7 @@ const DATABASE_SPECS = [
     "test/telegram/inbox/inbox-store.spec.ts",
     "test/telegram/outbox/outbox-finished-message-reader.spec.ts",
     "test/telegram/outbox/outbox-store.spec.ts",
-    "test/telegram/outbox/outbox-worker-loop.database.spec.ts",
+    "test/telegram/outbox/outbox-runner.database.spec.ts",
     "test/telegram/session/pgsql-storage.spec.ts",
     "test/telegram/user/pgsql-user-repository.spec.ts",
 ];

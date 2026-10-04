@@ -4,7 +4,7 @@ import { Tokens } from "app/shared/tokens";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxPullResult, OutboxWorker, PulledOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
 
-// The worker loop asks for the next message only once it has a free slot.
+// The runner asks for the next message only once it has a free slot.
 const PULL_LIMIT = 1;
 // The range of the random cap of a sleep. The cap keeps nextPullInMs within a Node timer and stops
 // a spin on an answer of zero. Being random, it spreads out the nodes that sleep the whole cap
@@ -12,7 +12,7 @@ const PULL_LIMIT = 1;
 const MIN_SLEEP_CAP_MS = 100;
 const MAX_SLEEP_CAP_MS = 1_000;
 
-// The messages of the outbox for the worker loop of this node: one generator that pulls, and sleeps
+// The messages of the outbox for the runner of this node: one generator that pulls, and sleeps
 // when there is nothing to pull. The source serves one generator only (docs/architecture/outbox.md,
 // "The message source").
 @injectable()

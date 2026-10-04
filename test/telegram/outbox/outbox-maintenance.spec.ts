@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import { sleep } from "app/shared/utils";
-import type { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-handler";
-import { OutboxMaintenance } from "app/telegram/outbox/outbox-maintenance";
+import type { OutboxLeaseRecovery } from "app/telegram/outbox/lease/outbox-lease-recovery";
+import { OutboxMaintenance } from "app/telegram/outbox/maintenance/outbox-maintenance";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import { waitUntil } from "test/telegram/outbox/outbox-store.helper";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
@@ -41,14 +41,14 @@ class FakeStore {
     }
 }
 
-class FakeFailureHandler {
+class FakeLeaseRecovery {
     public recoveries = 0;
     public error: unknown = undefined;
     // While set, a recovery goes on until the spec ends it.
     public shouldHold = false;
     public readonly heldRuns: HeldRun[] = [];
 
-    public async recoverExpiredLeases(): Promise<void> {
+    public async recover(): Promise<void> {
         this.recoveries += 1;
 
         if (this.shouldHold) {
@@ -65,19 +65,19 @@ class FakeFailureHandler {
 
 describe("OutboxMaintenance", function () {
     let store: FakeStore;
-    let failureHandler: FakeFailureHandler;
+    let leaseRecovery: FakeLeaseRecovery;
     let logger: RecordingLogger;
     let maintenance: OutboxMaintenance | undefined;
 
     beforeEach(function () {
         store = new FakeStore();
-        failureHandler = new FakeFailureHandler();
+        leaseRecovery = new FakeLeaseRecovery();
         logger = new RecordingLogger();
         maintenance = undefined;
     });
 
     afterEach(async function () {
-        for (const heldRun of failureHandler.heldRuns) {
+        for (const heldRun of leaseRecovery.heldRuns) {
             heldRun.end();
         }
 
@@ -88,7 +88,7 @@ describe("OutboxMaintenance", function () {
         start({ leaseRecoveryIntervalMs: LONG_INTERVAL_MS, cleanupIntervalMs: LONG_INTERVAL_MS });
         await sleep(SEVERAL_INTERVALS_MS);
 
-        expect(failureHandler.recoveries).to.equal(0);
+        expect(leaseRecovery.recoveries).to.equal(0);
         expect(store.finishedMessagesCalls).to.equal(0);
         expect(store.idleChatsCalls).to.equal(0);
     });
@@ -96,7 +96,7 @@ describe("OutboxMaintenance", function () {
     it("recovers the expired leases once per interval", async function () {
         start({ leaseRecoveryIntervalMs: SHORT_INTERVAL_MS, cleanupIntervalMs: LONG_INTERVAL_MS });
 
-        await waitUntil(() => failureHandler.recoveries >= 2, "the recovery was expected to run twice");
+        await waitUntil(() => leaseRecovery.recoveries >= 2, "the recovery was expected to run twice");
 
         expect(store.finishedMessagesCalls).to.equal(0);
         expect(store.idleChatsCalls).to.equal(0);
@@ -107,7 +107,7 @@ describe("OutboxMaintenance", function () {
 
         await waitUntil(() => store.finishedMessagesCalls >= 2 && store.idleChatsCalls >= 2, "both cleanups were expected to run twice");
 
-        expect(failureHandler.recoveries).to.equal(0);
+        expect(leaseRecovery.recoveries).to.equal(0);
     });
 
     it("deletes again after a batch that deleted anything and stops at the first empty one", async function () {
@@ -128,28 +128,28 @@ describe("OutboxMaintenance", function () {
 
     it("logs a failed run and runs the task again on the next interval", async function () {
         const error = new Error("connection lost");
-        failureHandler.error = error;
+        leaseRecovery.error = error;
         start({ leaseRecoveryIntervalMs: SHORT_INTERVAL_MS, cleanupIntervalMs: LONG_INTERVAL_MS });
 
-        await waitUntil(() => failureHandler.recoveries >= 2, "the recovery was expected to run again after a failure");
+        await waitUntil(() => leaseRecovery.recoveries >= 2, "the recovery was expected to run again after a failure");
 
         expect(logger.errors[0]).to.deep.equal({
             message: "An outbox maintenance task failed, its next run tries again.",
-            payload: { task: "recoverExpiredLeases", cause: error },
+            payload: { task: "recoverLeases", cause: error },
         });
     });
 
     it("starts no run of a task while its previous run goes on", async function () {
-        failureHandler.shouldHold = true;
+        leaseRecovery.shouldHold = true;
         start({ leaseRecoveryIntervalMs: SHORT_INTERVAL_MS, cleanupIntervalMs: LONG_INTERVAL_MS });
-        await waitUntil(() => failureHandler.recoveries === 1, "the recovery was expected to start");
+        await waitUntil(() => leaseRecovery.recoveries === 1, "the recovery was expected to start");
 
         await sleep(SEVERAL_INTERVALS_MS);
-        expect(failureHandler.recoveries).to.equal(1);
+        expect(leaseRecovery.recoveries).to.equal(1);
 
-        failureHandler.shouldHold = false;
-        failureHandler.heldRuns[0]?.end();
-        await waitUntil(() => failureHandler.recoveries >= 2, "the recovery was expected to run again once the first run ended");
+        leaseRecovery.shouldHold = false;
+        leaseRecovery.heldRuns[0]?.end();
+        await waitUntil(() => leaseRecovery.recoveries >= 2, "the recovery was expected to run again once the first run ended");
     });
 
     it("runs nothing after the stop", async function () {
@@ -158,15 +158,15 @@ describe("OutboxMaintenance", function () {
         await started.stop();
         await sleep(SEVERAL_INTERVALS_MS);
 
-        expect(failureHandler.recoveries).to.equal(0);
+        expect(leaseRecovery.recoveries).to.equal(0);
         expect(store.finishedMessagesCalls).to.equal(0);
         expect(store.idleChatsCalls).to.equal(0);
     });
 
     it("waits for the run in progress and schedules no next one", async function () {
-        failureHandler.shouldHold = true;
+        leaseRecovery.shouldHold = true;
         const started = start({ leaseRecoveryIntervalMs: SHORT_INTERVAL_MS, cleanupIntervalMs: LONG_INTERVAL_MS });
-        await waitUntil(() => failureHandler.recoveries === 1, "the recovery was expected to start");
+        await waitUntil(() => leaseRecovery.recoveries === 1, "the recovery was expected to start");
 
         let isStopped = false;
         const stopping = started.stop().then(() => {
@@ -175,11 +175,11 @@ describe("OutboxMaintenance", function () {
         await sleep(SEVERAL_INTERVALS_MS);
         expect(isStopped).to.equal(false);
 
-        failureHandler.heldRuns[0]?.end();
+        leaseRecovery.heldRuns[0]?.end();
         await stopping;
         await sleep(SEVERAL_INTERVALS_MS);
 
-        expect(failureHandler.recoveries).to.equal(1);
+        expect(leaseRecovery.recoveries).to.equal(1);
     });
 
     it("deletes no further batch after the stop", async function () {
@@ -200,10 +200,9 @@ describe("OutboxMaintenance", function () {
     function start(intervals: { leaseRecoveryIntervalMs: number; cleanupIntervalMs: number }): OutboxMaintenance {
         maintenance = new OutboxMaintenance(
             store as unknown as OutboxStore,
-            failureHandler as unknown as OutboxFailureHandler,
+            leaseRecovery as unknown as OutboxLeaseRecovery,
             logger,
-            intervals.leaseRecoveryIntervalMs,
-            intervals.cleanupIntervalMs,
+            intervals,
         );
         maintenance.start();
 

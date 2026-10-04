@@ -4,10 +4,12 @@ import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-cl
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
 import { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-handler";
+import { OutboxLeaseReleaser } from "app/telegram/outbox/lease/outbox-lease-releaser";
+import { OutboxLeaseRetrier } from "app/telegram/outbox/lease/outbox-lease-retrier";
 import { OutboxMessageProcessor } from "app/telegram/outbox/outbox-message-processor";
 import type { OutboxMessageSource } from "app/telegram/outbox/outbox-message-source";
 import type { OutboxSender } from "app/telegram/outbox/outbox-sender";
-import { OutboxWorkerLoop } from "app/telegram/outbox/outbox-worker-loop";
+import { OutboxRunner } from "app/telegram/outbox/outbox-runner";
 import { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
 import type { OutboxRetryDelaySettings } from "app/telegram/outbox/retry-delay/outbox-retry-delay.types";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
@@ -136,7 +138,7 @@ class RetryRecordingStore {
     }
 }
 
-describe("OutboxWorkerLoop", function () {
+describe("OutboxRunner", function () {
     let source: FakeSource;
     let processor: FakeProcessor;
     let logger: RecordingLogger;
@@ -148,57 +150,57 @@ describe("OutboxWorkerLoop", function () {
     });
 
     it("takes the messages of its own worker from the source", async function () {
-        const loop = createLoop(LONG_STOP_TIMEOUT_MS);
+        const runner = createRunner(LONG_STOP_TIMEOUT_MS);
 
-        loop.start();
+        runner.start();
         await settle();
 
         expect(source.workers).to.deep.equal([WORKER]);
-        await loop.stop();
+        await runner.stop();
     });
 
     it("sends as many messages at once as it has slots and leaves the rest in the source", async function () {
-        const loop = createLoop(LONG_STOP_TIMEOUT_MS);
+        const runner = createRunner(LONG_STOP_TIMEOUT_MS);
         source.add(message(1), message(2), message(3));
 
-        loop.start();
+        runner.start();
         await settle();
 
         expect(processor.calls.map((call) => call.message.id)).to.deep.equal([1, 2]);
         expect(source.waiting.map((waiting) => waiting.id)).to.deep.equal([3]);
-        await stopFinishingCalls(loop);
+        await stopFinishingCalls(runner);
     });
 
     it("takes the next message once a slot is free", async function () {
-        const loop = createLoop(LONG_STOP_TIMEOUT_MS);
+        const runner = createRunner(LONG_STOP_TIMEOUT_MS);
         source.add(message(1), message(2), message(3));
-        loop.start();
+        runner.start();
         await settle();
 
         processor.calls[1]?.finish();
         await settle();
 
         expect(processor.calls.map((call) => call.message.id)).to.deep.equal([1, 2, 3]);
-        await stopFinishingCalls(loop);
+        await stopFinishingCalls(runner);
     });
 
     it("takes a message added while it waits for one", async function () {
-        const loop = createLoop(LONG_STOP_TIMEOUT_MS);
-        loop.start();
+        const runner = createRunner(LONG_STOP_TIMEOUT_MS);
+        runner.start();
         await settle();
 
         source.add(message(1));
         await settle();
 
         expect(processor.calls.map((call) => call.message.id)).to.deep.equal([1]);
-        await stopFinishingCalls(loop);
+        await stopFinishingCalls(runner);
     });
 
     it("logs a message that was not completed and frees its slot", async function () {
-        const loop = createLoop(LONG_STOP_TIMEOUT_MS);
+        const runner = createRunner(LONG_STOP_TIMEOUT_MS);
         const error = new Error("connection lost");
         source.add(message(1), message(2), message(3));
-        loop.start();
+        runner.start();
         await settle();
 
         processor.calls[0]?.fail(error);
@@ -211,25 +213,25 @@ describe("OutboxWorkerLoop", function () {
             },
         ]);
         expect(processor.calls.map((call) => call.message.id)).to.deep.equal([1, 2, 3]);
-        await stopFinishingCalls(loop);
+        await stopFinishingCalls(runner);
     });
 
     it("stops the source on stop", async function () {
-        const loop = createLoop(LONG_STOP_TIMEOUT_MS);
-        loop.start();
+        const runner = createRunner(LONG_STOP_TIMEOUT_MS);
+        runner.start();
 
-        await loop.stop();
+        await runner.stop();
 
         expect(source.isStopped).to.equal(true);
     });
 
     it("takes no message after the stop while every slot is busy", async function () {
-        const loop = createLoop(LONG_STOP_TIMEOUT_MS);
+        const runner = createRunner(LONG_STOP_TIMEOUT_MS);
         source.add(message(1), message(2));
-        loop.start();
+        runner.start();
         await settle();
 
-        const stopped = loop.stop();
+        const stopped = runner.stop();
         source.add(message(3));
         processor.calls[0]?.finish();
         processor.calls[1]?.finish();
@@ -239,13 +241,13 @@ describe("OutboxWorkerLoop", function () {
     });
 
     it("waits for the calls in flight and aborts none that finish before the deadline", async function () {
-        const loop = createLoop(LONG_STOP_TIMEOUT_MS);
+        const runner = createRunner(LONG_STOP_TIMEOUT_MS);
         source.add(message(1), message(2));
-        loop.start();
+        runner.start();
         await settle();
 
         let isStopped = false;
-        const stopped = loop.stop().then(() => {
+        const stopped = runner.stop().then(() => {
             isStopped = true;
         });
         await settle();
@@ -261,15 +263,15 @@ describe("OutboxWorkerLoop", function () {
     });
 
     it("aborts the calls still in flight at the deadline and leaves the finished ones alone", async function () {
-        const loop = createLoop(SHORT_STOP_TIMEOUT_MS);
+        const runner = createRunner(SHORT_STOP_TIMEOUT_MS);
         source.add(message(1), message(2), message(3));
-        loop.start();
+        runner.start();
         await settle();
         processor.calls[0]?.finish();
         await settle();
         const startedAt = Date.now();
 
-        await loop.stop();
+        await runner.stop();
 
         expect(Date.now() - startedAt).to.be.at.least(SHORT_STOP_TIMEOUT_MS - TIMER_TOLERANCE_MS);
         expect(processor.calls.map((call) => [call.message.id, call.signal.aborted])).to.deep.equal([
@@ -280,25 +282,25 @@ describe("OutboxWorkerLoop", function () {
     });
 
     it("aborts the calls in flight at once with a deadline of zero", async function () {
-        const loop = createLoop(0);
+        const runner = createRunner(0);
         source.add(message(1));
-        loop.start();
+        runner.start();
         await settle();
 
-        await loop.stop();
+        await runner.stop();
 
         expect(processor.calls.map((call) => call.signal.aborted)).to.deep.equal([true]);
     });
 
     it("waits until an aborted call settles before the stop ends", async function () {
-        const loop = createLoop(0);
+        const runner = createRunner(0);
         processor.shouldSettleOnAbort = false;
         source.add(message(1));
-        loop.start();
+        runner.start();
         await settle();
 
         let isStopped = false;
-        const stopped = loop.stop().then(() => {
+        const stopped = runner.stop().then(() => {
             isStopped = true;
         });
         await waitForAbort(processor.calls[0]);
@@ -313,11 +315,11 @@ describe("OutboxWorkerLoop", function () {
     // The source ends a generator whose pull is in progress only once it has handed out what the
     // pull got: left unsent, the message would wait for the recovery of its lease.
     it("sends the message a pull in progress hands out after the stop", async function () {
-        const { loop, pull } = createLoopOverPullInProgress(LONG_STOP_TIMEOUT_MS);
-        loop.start();
+        const { runner, pull } = createRunnerOverPullInProgress(LONG_STOP_TIMEOUT_MS);
+        runner.start();
         await settle();
 
-        const stopped = loop.stop();
+        const stopped = runner.stop();
         pull.resolve(message(1));
         await settle();
 
@@ -333,18 +335,18 @@ describe("OutboxWorkerLoop", function () {
         const failureHandler = new OutboxFailureHandler(
             store as unknown as OutboxStore,
             new TelegramBotApiFailureClassifier(),
-            new OutboxRetryDelay(RETRY_DELAY_SETTINGS, () => 0),
+            new OutboxLeaseRetrier(store as unknown as OutboxStore, new OutboxRetryDelay(RETRY_DELAY_SETTINGS, () => 0), MAX_ATTEMPTS),
             new OutboxErrorSerializer("token"),
             logger,
-            MAX_ATTEMPTS,
         );
         const realProcessor = new OutboxMessageProcessor(
             new HangingSender() as unknown as OutboxSender,
             store as unknown as OutboxStore,
             failureHandler,
+            new OutboxLeaseReleaser(store as unknown as OutboxStore),
             logger,
         );
-        const loop = new OutboxWorkerLoop(
+        const runner = new OutboxRunner(
             source as unknown as OutboxMessageSource,
             realProcessor,
             logger,
@@ -354,10 +356,10 @@ describe("OutboxWorkerLoop", function () {
         );
         const pulled = message(1);
         source.add(pulled);
-        loop.start();
+        runner.start();
         await settle();
 
-        await loop.stop();
+        await runner.stop();
 
         expect(store.retries).to.have.lengthOf(1);
         expect(store.retries[0]?.lease).to.equal(pulled);
@@ -368,11 +370,11 @@ describe("OutboxWorkerLoop", function () {
     });
 
     it("starts aborted the message a pull in progress hands out after the deadline", async function () {
-        const { loop, pull } = createLoopOverPullInProgress(0);
-        loop.start();
+        const { runner, pull } = createRunnerOverPullInProgress(0);
+        runner.start();
         await settle();
 
-        const stopped = loop.stop();
+        const stopped = runner.stop();
         pull.resolve(message(1));
         await settle();
 
@@ -381,16 +383,16 @@ describe("OutboxWorkerLoop", function () {
     });
 
     it("stops before it was started", async function () {
-        const loop = createLoop(LONG_STOP_TIMEOUT_MS);
+        const runner = createRunner(LONG_STOP_TIMEOUT_MS);
 
-        await loop.stop();
+        await runner.stop();
 
         expect(source.isStopped).to.equal(true);
         expect(processor.calls).to.deep.equal([]);
     });
 
-    function createLoop(stopTimeoutMs: number): OutboxWorkerLoop {
-        return new OutboxWorkerLoop(
+    function createRunner(stopTimeoutMs: number): OutboxRunner {
+        return new OutboxRunner(
             source as unknown as OutboxMessageSource,
             processor as unknown as OutboxMessageProcessor,
             logger,
@@ -400,10 +402,10 @@ describe("OutboxWorkerLoop", function () {
         );
     }
 
-    // A loop over a source whose one pull is in progress until the spec resolves pull: the source
+    // A runner over a source whose one pull is in progress until the spec resolves pull: the source
     // hands out what the pull got even after its stop.
-    function createLoopOverPullInProgress(stopTimeoutMs: number): {
-        loop: OutboxWorkerLoop;
+    function createRunnerOverPullInProgress(stopTimeoutMs: number): {
+        runner: OutboxRunner;
         pull: PromiseWithResolvers<PulledOutboxMessage>;
     } {
         const pull = Promise.withResolvers<PulledOutboxMessage>();
@@ -413,7 +415,7 @@ describe("OutboxWorkerLoop", function () {
             },
             stop(): void {},
         };
-        const loop = new OutboxWorkerLoop(
+        const runner = new OutboxRunner(
             pullingSource as unknown as OutboxMessageSource,
             processor as unknown as OutboxMessageProcessor,
             logger,
@@ -422,12 +424,12 @@ describe("OutboxWorkerLoop", function () {
             WORKER,
         );
 
-        return { loop, pull };
+        return { runner, pull };
     }
 
-    // Stops the loop and finishes the calls in flight, so the stop has no deadline to wait for.
-    async function stopFinishingCalls(loop: OutboxWorkerLoop): Promise<void> {
-        const stopped = loop.stop();
+    // Stops the runner and finishes the calls in flight, so the stop has no deadline to wait for.
+    async function stopFinishingCalls(runner: OutboxRunner): Promise<void> {
+        const stopped = runner.stop();
 
         for (const call of processor.calls) {
             call.finish();
@@ -437,7 +439,7 @@ describe("OutboxWorkerLoop", function () {
     }
 });
 
-// Lets every promise chain the spec started run to its end: the loop goes through several awaits
+// Lets every promise chain the spec started run to its end: the runner goes through several awaits
 // between a free slot and the start of the next call.
 async function settle(): Promise<void> {
     await new Promise<void>((resolve) => setImmediate(resolve));

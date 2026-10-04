@@ -4,6 +4,7 @@ import type { RunnerSettings } from "app/telegram/outbound-queue/runner/runner.t
 import type { DatabaseSettings } from "app/platform/database/database.types";
 import type { BotSettings } from "app/telegram/bot/bot.types";
 import type { OutboxRetryDelaySettings } from "app/telegram/outbox/retry-delay/outbox-retry-delay.types";
+import type { OutboxMaintenanceSettings } from "app/telegram/outbox/maintenance/outbox-maintenance.types";
 import type { OutboxResultWaiterSettings } from "app/telegram/outbox/result-waiter/outbox-result-waiter.types";
 import type { OutboxCleanupSettings } from "app/telegram/outbox/store/outbox-store.types";
 
@@ -46,14 +47,11 @@ export type ConfigValues = {
         apiTimeoutMs: number;
         // The attempts of a message that count towards the limit, the last one included.
         maxAttempts: number;
-        // How many messages the worker loop of a node sends at once.
+        // How many messages the runner of a node sends at once.
         concurrency: number;
-        // How long the stop of the worker loop waits for the calls in flight before it aborts them.
+        // How long the stop of the runner waits for the calls in flight before it aborts them.
         stopTimeoutMs: number;
-        // How often a node takes back the messages of the expired leases.
-        leaseRecoveryIntervalMs: number;
-        // How often a node runs the cleanup.
-        cleanupIntervalMs: number;
+        maintenance: OutboxMaintenanceSettings;
         cleanup: OutboxCleanupSettings;
     };
 
