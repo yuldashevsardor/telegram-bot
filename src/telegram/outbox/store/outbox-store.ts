@@ -4,7 +4,7 @@ import type { PendingQuery, Row, TransactionSql } from "postgres";
 import type { Database, Sql } from "app/platform/database/database";
 import type { Logger } from "app/platform/logger/logger";
 import { Tokens } from "app/shared/tokens";
-import type { TelegramLimits } from "app/bootstrap/config/config-values";
+import type { Limit, TelegramLimits } from "app/bootstrap/config/config-values";
 import { configValue } from "app/shared/config-value";
 import { MS_PER_SECOND } from "app/shared/time";
 import type {
@@ -12,6 +12,8 @@ import type {
     ExpiredOutboxLeaseRow,
     OutboxAttempt,
     OutboxAttemptError,
+    OutboxBacklog,
+    OutboxBacklogRow,
     OutboxCleanupSettings,
     OutboxFinalOutcome,
     OutboxJson,
@@ -361,9 +363,9 @@ export class OutboxStore {
         }));
     }
 
-    // The time a limit leaves between two messages, as the in-memory queue spaces them. LIMIT_*_NUMBER
-    // is at least 1, so the cooldown is finite.
-    private cooldownMs(limit: TelegramLimits[keyof TelegramLimits]): number {
+    // The time a limit leaves between two messages. LIMIT_*_NUMBER is at least 1, so the cooldown is
+    // finite.
+    private cooldownMs(limit: Limit): number {
         return limit.interval / limit.number;
     }
 
@@ -537,6 +539,43 @@ export class OutboxStore {
         `;
 
         return deletedRows.length;
+    }
+
+    // What waits in the outbox, for the status line of the maintenance. With no index on status yet
+    // the count reads the whole of telegram_outbox, done messages included (#643).
+    public async readBacklog(): Promise<OutboxBacklog> {
+        const [row] = await this.sql<OutboxBacklogRow[]>`
+            SELECT messages.pending_count,
+                   messages.processing_count,
+                   chats.blocked_chat_count,
+                   -- By the database clock, the one the pause is set by. greatest() skips a NULL
+                   -- paused_until, so no pause is 0.
+                   ceil(greatest(extract(epoch FROM bot.paused_until - now()) * ${MS_PER_SECOND}, 0))::double precision AS pause_left_ms
+            FROM telegram_bot_limits AS bot
+            CROSS JOIN (
+                SELECT count(*) FILTER (WHERE status = ${OutboxStatus.Pending}) AS pending_count,
+                       count(*) FILTER (WHERE status = ${OutboxStatus.Processing}) AS processing_count
+                FROM telegram_outbox
+                WHERE status IN ${this.sql(ACTIVE_STATUSES)}
+            ) AS messages
+            CROSS JOIN (
+                SELECT count(*) AS blocked_chat_count
+                FROM telegram_outbox_chats
+                WHERE state = ${OutboxChatState.Blocked}
+            ) AS chats
+            WHERE bot.id = ${BOT_LIMITS_ID}
+        `;
+
+        if (row === undefined) {
+            throw BotLimitsRowMissing.create();
+        }
+
+        return {
+            pendingCount: Number(row.pending_count),
+            processingCount: Number(row.processing_count),
+            blockedChatCount: Number(row.blocked_chat_count),
+            pauseLeftMs: row.pause_left_ms,
+        };
     }
 
     // Every completion: the lock of the chat, then the fence, then the writes (docs/architecture/outbox.md,

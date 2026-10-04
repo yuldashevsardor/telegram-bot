@@ -15,10 +15,6 @@ import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 import { EotPayloadDecoder } from "app/font-convertor/eot-payload-decoder/eot-payload-decoder";
 import { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory";
 import { FontConvertor } from "app/font-convertor/font-convertor";
-import { TaskQueue } from "app/telegram/outbound-queue/task-queue";
-import { Runner } from "app/telegram/outbound-queue/runner/runner";
-import type { LimitResolver } from "app/telegram/outbound-queue/limit-resolver";
-import { TelegramLimitResolver } from "app/telegram/telegram-limit-resolver";
 import { Bot } from "app/telegram/bot/bot";
 import { BulkMessagesCommand } from "app/telegram/command/bulk-messages/bulk-messages.command";
 import { FontGeneratorCommand } from "app/telegram/command/font-generator/font-generator.command";
@@ -120,11 +116,6 @@ export class Container extends InversifyContainer {
 
     private async setupTelegram(): Promise<void> {
         this.bind<Bot>(Tokens.Bot.Bot).to(Bot).inSingletonScope();
-
-        // Outbound queue
-        this.bind<LimitResolver>(Tokens.Bot.OutboundQueue.LimitResolver).to(TelegramLimitResolver).inSingletonScope();
-        this.bind<TaskQueue>(Tokens.Bot.OutboundQueue.TaskQueue).to(TaskQueue).inSingletonScope();
-        this.bind<Runner>(Tokens.Bot.OutboundQueue.Runner).to(Runner).inSingletonScope();
 
         // Outbox
         this.bind<OutboxStore>(Tokens.Bot.Outbox.Store).to(OutboxStore).inSingletonScope();

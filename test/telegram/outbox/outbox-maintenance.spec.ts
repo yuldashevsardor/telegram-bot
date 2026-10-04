@@ -3,6 +3,8 @@ import { sleep } from "app/shared/utils";
 import type { OutboxLeaseRecovery } from "app/telegram/outbox/lease/outbox-lease-recovery";
 import { OutboxMaintenance } from "app/telegram/outbox/maintenance/outbox-maintenance";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
+import type { OutboxBacklog } from "app/telegram/outbox/store/outbox-store.types";
+import type { OutboxMaintenanceSettings } from "app/telegram/outbox/maintenance/outbox-maintenance.types";
 import { waitUntil } from "test/shared/utils.helper";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 
@@ -16,6 +18,9 @@ const SEVERAL_INTERVALS_MS = 20 * SHORT_INTERVAL_MS;
 // Long enough for the spec to see one run end and stop the timers before the next run.
 const SPACED_INTERVAL_MS = 100;
 
+// Every count differs, so a field read into the wrong one shows.
+const BACKLOG: OutboxBacklog = { pendingCount: 4, processingCount: 2, blockedChatCount: 1, pauseLeftMs: 3000 };
+
 // A run that goes on until the spec ends it.
 type HeldRun = { end: () => void };
 
@@ -28,6 +33,8 @@ class FakeStore {
     public onDeleteFinishedMessages: () => void = () => {};
     public finishedMessagesError: unknown = undefined;
     public idleChatsError: unknown = undefined;
+    public backlogReads = 0;
+    public backlogError: unknown = undefined;
 
     public async deleteFinishedMessages(): Promise<number> {
         this.finishedMessagesCalls += 1;
@@ -48,6 +55,16 @@ class FakeStore {
         }
 
         return this.idleChatsDeleted.shift() ?? 0;
+    }
+
+    public async readBacklog(): Promise<OutboxBacklog> {
+        this.backlogReads += 1;
+
+        if (this.backlogError !== undefined) {
+            throw this.backlogError;
+        }
+
+        return BACKLOG;
     }
 }
 
@@ -95,12 +112,13 @@ describe("OutboxMaintenance", function () {
     });
 
     it("runs nothing before the first interval has passed", async function () {
-        start({ leaseRecoveryIntervalMs: LONG_INTERVAL_MS, cleanupIntervalMs: LONG_INTERVAL_MS });
+        start({ leaseRecoveryIntervalMs: LONG_INTERVAL_MS, cleanupIntervalMs: LONG_INTERVAL_MS, statusLogIntervalMs: LONG_INTERVAL_MS });
         await sleep(SEVERAL_INTERVALS_MS);
 
         expect(leaseRecovery.recoveries).to.equal(0);
         expect(store.finishedMessagesCalls).to.equal(0);
         expect(store.idleChatsCalls).to.equal(0);
+        expect(store.backlogReads).to.equal(0);
     });
 
     it("recovers the expired leases once per interval", async function () {
@@ -110,6 +128,7 @@ describe("OutboxMaintenance", function () {
 
         expect(store.finishedMessagesCalls).to.equal(0);
         expect(store.idleChatsCalls).to.equal(0);
+        expect(store.backlogReads).to.equal(0);
     });
 
     it("runs both cleanups once per interval", async function () {
@@ -118,6 +137,18 @@ describe("OutboxMaintenance", function () {
         await waitUntil(() => store.finishedMessagesCalls >= 2 && store.idleChatsCalls >= 2, "both cleanups were expected to run twice");
 
         expect(leaseRecovery.recoveries).to.equal(0);
+        expect(store.backlogReads).to.equal(0);
+    });
+
+    it("logs the backlog of the outbox once per interval", async function () {
+        start({ leaseRecoveryIntervalMs: LONG_INTERVAL_MS, cleanupIntervalMs: LONG_INTERVAL_MS, statusLogIntervalMs: SHORT_INTERVAL_MS });
+
+        await waitUntil(() => logger.infos.length >= 2, "the status line was expected to be logged twice");
+
+        expect(logger.infos[0]).to.deep.equal({ message: "Outbox status.", payload: BACKLOG });
+        expect(leaseRecovery.recoveries).to.equal(0);
+        expect(store.finishedMessagesCalls).to.equal(0);
+        expect(store.idleChatsCalls).to.equal(0);
     });
 
     it("deletes again after a batch that deleted anything and stops at the first empty one", async function () {
@@ -162,6 +193,20 @@ describe("OutboxMaintenance", function () {
         });
     });
 
+    it("names the failed status line in the log", async function () {
+        const error = new Error("connection lost");
+        store.backlogError = error;
+        start({ leaseRecoveryIntervalMs: LONG_INTERVAL_MS, cleanupIntervalMs: LONG_INTERVAL_MS, statusLogIntervalMs: SHORT_INTERVAL_MS });
+
+        await waitUntil(() => logger.errors.length > 0, "the failure of the status line was expected to be logged");
+
+        expect(logger.errors[0]).to.deep.equal({
+            message: "An outbox maintenance task failed, its next run tries again.",
+            payload: { task: "logStatus", cause: error },
+        });
+        expect(logger.infos).to.deep.equal([]);
+    });
+
     it("names the failed cleanup of the idle chats in the log", async function () {
         const error = new Error("connection lost");
         store.idleChatsError = error;
@@ -189,7 +234,11 @@ describe("OutboxMaintenance", function () {
     });
 
     it("runs nothing after the stop", async function () {
-        const started = start({ leaseRecoveryIntervalMs: SHORT_INTERVAL_MS, cleanupIntervalMs: SHORT_INTERVAL_MS });
+        const started = start({
+            leaseRecoveryIntervalMs: SHORT_INTERVAL_MS,
+            cleanupIntervalMs: SHORT_INTERVAL_MS,
+            statusLogIntervalMs: SHORT_INTERVAL_MS,
+        });
 
         await started.stop();
         await sleep(SEVERAL_INTERVALS_MS);
@@ -197,11 +246,16 @@ describe("OutboxMaintenance", function () {
         expect(leaseRecovery.recoveries).to.equal(0);
         expect(store.finishedMessagesCalls).to.equal(0);
         expect(store.idleChatsCalls).to.equal(0);
+        expect(store.backlogReads).to.equal(0);
     });
 
     // Application.run() may start the maintenance after a stop that came while the bot was starting.
     it("runs nothing when started after the stop", async function () {
-        const stopped = start({ leaseRecoveryIntervalMs: SHORT_INTERVAL_MS, cleanupIntervalMs: SHORT_INTERVAL_MS });
+        const stopped = start({
+            leaseRecoveryIntervalMs: SHORT_INTERVAL_MS,
+            cleanupIntervalMs: SHORT_INTERVAL_MS,
+            statusLogIntervalMs: SHORT_INTERVAL_MS,
+        });
         await stopped.stop();
 
         stopped.start();
@@ -210,6 +264,7 @@ describe("OutboxMaintenance", function () {
         expect(leaseRecovery.recoveries).to.equal(0);
         expect(store.finishedMessagesCalls).to.equal(0);
         expect(store.idleChatsCalls).to.equal(0);
+        expect(store.backlogReads).to.equal(0);
     });
 
     it("waits for the run in progress and schedules no next one", async function () {
@@ -246,13 +301,14 @@ describe("OutboxMaintenance", function () {
         expect(store.finishedMessagesCalls).to.equal(1);
     });
 
-    function start(intervals: { leaseRecoveryIntervalMs: number; cleanupIntervalMs: number }): OutboxMaintenance {
-        maintenance = new OutboxMaintenance(
-            store as unknown as OutboxStore,
-            leaseRecovery as unknown as OutboxLeaseRecovery,
-            logger,
-            intervals,
-        );
+    // The status line is left out of the specs that do not name its interval.
+    function start(
+        intervals: Omit<OutboxMaintenanceSettings, "statusLogIntervalMs"> & Partial<OutboxMaintenanceSettings>,
+    ): OutboxMaintenance {
+        maintenance = new OutboxMaintenance(store as unknown as OutboxStore, leaseRecovery as unknown as OutboxLeaseRecovery, logger, {
+            statusLogIntervalMs: LONG_INTERVAL_MS,
+            ...intervals,
+        });
         maintenance.start();
 
         return maintenance;

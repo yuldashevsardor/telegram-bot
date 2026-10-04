@@ -46,11 +46,6 @@ export const Tokens = {
     },
     Bot: {
         Bot: Symbol.for("BotBot"),
-        OutboundQueue: {
-            TaskQueue: Symbol.for("BotOutboundQueueTaskQueue"),
-            LimitResolver: Symbol.for("BotOutboundQueueLimitResolver"),
-            Runner: Symbol.for("BotOutboundQueueRunner"),
-        },
         Outbox: {
             Store: Symbol.for("BotOutboxStore"),
             RetryDelay: Symbol.for("BotOutboxRetryDelay"),

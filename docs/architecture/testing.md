@@ -419,12 +419,8 @@ Indistinguishable by what is required, not byte by byte:
 - The same holds if the mutant differs only on a file the domain is not obliged to let through:
   twelve bytes of an sfnt header without a single table, which one version lets through and the
   other rejects (the constructor of `SfntTableDirectory`).
-- The same goes for a deadline: `<=` instead of `<` against `Date.now()` in `RateLimit.isFree()`
-  moves the end of the cooldown by a millisecond, while both variants honour the limit "`number`
-  calls per `interval`".
 
-A test on such a boundary would pin down an arbitrary diagnostic, the admission of a non-font or a
-millisecond of a deadline.
+A test on such a boundary would pin down an arbitrary diagnostic or the admission of a non-font.
 
 The text of a message, of a log entry of any level or of an error, is a requirement: an entry is
 searched and read by it, and without it nothing but the details is left. A survived `StringLiteral`

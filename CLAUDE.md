@@ -140,8 +140,8 @@ project's existing decisions.
 Some rules are not checked by the code; breaking one breaks behaviour silently. Read
 `docs/architecture/invariants.md` before editing — in particular when you touch the bot
 pipeline and `Context`, `container.ts` and dependency injection, the configuration,
-migrations and the `sessions` schema, the `User` fields, the shutdown deadlines, the queue
-limits, the outbox, the convertor, running external processes, or the locales.
+migrations and the `sessions` schema, the `User` fields, the shutdown deadlines, the limits,
+the outbox, the convertor, running external processes, or the locales.
 
 ## Agent signature on GitHub
 
