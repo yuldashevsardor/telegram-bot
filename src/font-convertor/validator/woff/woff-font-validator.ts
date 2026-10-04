@@ -501,21 +501,10 @@ export class WoffFontValidator implements FontValidator {
     private sfnt({ header }: Woff, tables: ReadonlyArray<InflatedTable>): Uint8Array {
         const rebuiltSfnt = new Uint8Array(header.totalSfntSize);
         const view = new DataView(rebuiltSfnt.buffer);
-        const headerFields = SfntTableDirectory.HEADER_FIELD_OFFSETS_BYTES;
         const recordSizeBytes = SfntTableDirectory.RECORD_SIZE_BYTES;
         const numTables = tables.length;
-        // entrySelector is the exponent of the largest power of 2 not greater than numTables, and
-        // searchRange is that power of 2 times the record size, in bytes. From 4096 tables on it does
-        // not fit its 16 bits and setUint16 wraps it: OpenType gives no value for that case, and
-        // SfntFontValidator does not read the field.
-        const entrySelector = Math.floor(Math.log2(numTables));
-        const searchRangeBytes = 2 ** entrySelector * recordSizeBytes;
 
-        view.setUint32(headerFields.version, header.flavor);
-        view.setUint16(headerFields.numTables, numTables);
-        view.setUint16(headerFields.searchRange, searchRangeBytes);
-        view.setUint16(headerFields.entrySelector, entrySelector);
-        view.setUint16(headerFields.rangeShift, numTables * recordSizeBytes - searchRangeBytes);
+        SfntTableDirectory.writeHeader(rebuiltSfnt, header.flavor, numTables);
 
         const recordFields = SfntTableDirectory.RECORD_FIELD_OFFSETS_BYTES;
         const withRecordOffsets = tables.map((inflated, index) => ({

@@ -50,8 +50,11 @@ Then the "Workflow" of `CLAUDE.md`, with no exceptions:
    look for a neighbour who took the same issue:
 
    ```bash
-   { git worktree list --porcelain | grep -E '^(worktree|branch) '; git ls-remote --heads origin | cut -f2; } | grep -E '[^0-9]<N>([^0-9]|$)'
+   { git worktree list --porcelain | grep -E '^(worktree|branch) '; git ls-remote --heads origin | cut -f2; } | /usr/bin/grep -E '[^0-9]<N>([^0-9]|$)'
    ```
+
+   The last `grep` is `/usr/bin/grep`: in the Claude Code shell `grep` is a function from the
+   session snapshot, and it drops the matches of `([^0-9]|$)`, so the check passes falsely.
 
    A printed line → do not create the worktree: stop and ask the owner. A session that took
    the issue minutes ago has no PR yet, so step 1 does not see it: its only traces are a local

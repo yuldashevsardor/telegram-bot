@@ -47,6 +47,12 @@ const COMMANDS: ReadonlyMap<string, ReadonlyArray<Parameter>> = new Map([
 ]);
 
 const MOVETO = ["M", "m"];
+// "If a moveto is followed by multiple pairs of coordinates, the subsequent pairs are treated as
+// implicit lineto commands" (§8.3.2), relative after `m`.
+const IMPLICIT_LINETO: ReadonlyMap<string, string> = new Map([
+    ["M", "L"],
+    ["m", "l"],
+]);
 const WHITESPACE = [" ", "\t", "\r", "\n"];
 const DIGITS = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
 const SIGNS = ["+", "-"];
@@ -59,6 +65,7 @@ const FLAGS = ["0", "1"];
  * and "M 0.6.5" is 0.6 and .5.
  */
 class PathDataReader {
+    public readonly segments: Array<PathSegment> = [];
     private position = 0;
 
     public constructor(private readonly text: string) {}
@@ -88,7 +95,8 @@ class PathDataReader {
     }
 
     private readCommand(): boolean {
-        const parameters = COMMANDS.get(this.current());
+        const command = this.current();
+        const parameters = COMMANDS.get(command);
 
         if (parameters === undefined) {
             return false;
@@ -97,15 +105,24 @@ class PathDataReader {
         this.position += 1;
 
         if (parameters.length === 0) {
+            this.segments.push({ command: command, values: [] });
+
             return true;
         }
 
         this.skipAll(WHITESPACE);
 
+        let repetitionCommand = command;
+
         do {
-            if (!this.readArguments(parameters)) {
+            const values = this.readArguments(parameters);
+
+            if (values === undefined) {
                 return false;
             }
+
+            this.segments.push({ command: repetitionCommand, values: values });
+            repetitionCommand = IMPLICIT_LINETO.get(repetitionCommand) ?? repetitionCommand;
         } while (this.skipToNextArguments());
 
         return true;
@@ -124,18 +141,28 @@ class PathDataReader {
         return !this.isAtEnd() && !COMMANDS.has(this.current());
     }
 
-    private readArguments(parameters: ReadonlyArray<Parameter>): boolean {
+    /**
+     * Reads the arguments of one repetition of a command. Gives their values, or `undefined` when
+     * they are not there.
+     */
+    private readArguments(parameters: ReadonlyArray<Parameter>): ReadonlyArray<number> | undefined {
+        const values: Array<number> = [];
+
         for (const [index, parameter] of parameters.entries()) {
             if (index > 0) {
                 this.skipSeparator();
             }
 
+            const start = this.position;
+
             if (!this.readArgument(parameter)) {
-                return false;
+                return undefined;
             }
+
+            values.push(Number(this.text.slice(start, this.position)));
         }
 
-        return true;
+        return values;
     }
 
     private readArgument(parameter: Parameter): boolean {
@@ -221,9 +248,22 @@ class PathDataReader {
 }
 
 /**
- * Says whether `text` is path data by the grammar of SVG 1.1 Second Edition, §8.3.9 "The grammar for
- * path data". The `d` of a glyph takes the same syntax (§20.4).
+ * One repetition of a command: its letter, uppercase for absolute coordinates and lowercase for
+ * relative ones, and its arguments as numbers. A flag of an arc is 0 or 1. The repetitions after the
+ * first of a moveto are given as linetos. `Z` and `z` have no arguments.
  */
-export function isPathData(text: string): boolean {
-    return new PathDataReader(text).readPath();
+export type PathSegment = {
+    command: string;
+    values: ReadonlyArray<number>;
+};
+
+/**
+ * Reads `text` as path data by the grammar of SVG 1.1 Second Edition, §8.3.9 "The grammar for path
+ * data", and gives its commands one repetition at a time; `undefined` when it is not path data. The
+ * `d` of a glyph takes the same syntax (§20.4).
+ */
+export function readPathData(text: string): ReadonlyArray<PathSegment> | undefined {
+    const reader = new PathDataReader(text);
+
+    return reader.readPath() ? reader.segments : undefined;
 }

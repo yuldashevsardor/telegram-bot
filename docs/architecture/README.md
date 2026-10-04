@@ -233,7 +233,8 @@ own only when it has files of its own or a role of its own among the siblings:
   keep the command or the conversation together with their `locale/` bundles;
 - `middleware/mutation/` is a role inside `middleware/`: a middleware that replaces `ctx.api.raw`
   ([`bot.md`](./bot.md)). There is only one file in it so far;
-- `validator/svg/` keeps `SvgFontValidator` together with its companions and its path data parser,
+- `validator/svg/` keeps `SvgFontValidator` together with its companions, its path data parser and
+  the range check of the points of an outline,
   `validator/woff2/` keeps `Woff2FontValidator` together with its companions and its glyf
   reconstructor, `validator/woff/`, `validator/eot/` and `validator/sfnt/` keep
   `WoffFontValidator`, `EotFontValidator` and `SfntFontValidator` with their companions.
