@@ -162,7 +162,7 @@ test/                       mocha specs; a spec path repeats the source path, th
                             source, and for the root hook — next to the hook;
                             the root holds the mocha hooks and the wrappers of make coverage and
                             make mutation (testing.md)
-  load/                     the outbox load test: the fill, the candidate indexes and the
+  load/                     the outbox load test: the fill, the churn of one chat and the
                             measurement of make load-* (outbox-load-test.md)
 migrations/                 migrations, common/ holds the shared shorthands and the stub (storage.md)
 scripts/                    host scripts of the make targets; claude-worktree-guard is a hook (testing.md)

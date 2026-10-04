@@ -6,6 +6,8 @@ name: telegram-bot-db
 
 services:
     pgsql:
+        # 18 at least: the migration of the outbox head index sets autovacuum_vacuum_max_threshold,
+        # which an older server refuses as an unrecognized parameter.
         image: postgres:18-alpine
         restart: unless-stopped
         env_file:
