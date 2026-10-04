@@ -1,29 +1,36 @@
 import { setTimeout as pauseFor } from "node:timers/promises";
-import { Api, Context } from "grammy";
+import type { Api } from "grammy";
+import { Context } from "grammy";
 import type { Update, UserFromGetMe } from "grammy/types";
 import { inject, injectable } from "inversify";
 import postgres from "postgres";
 import { Tokens } from "app/shared/tokens";
 import type { UnknownObject } from "app/shared/types";
-import { configValue } from "app/shared/config-value";
+import { RuntimeError } from "app/shared/errors";
+import { MS_PER_SECOND } from "app/shared/time";
 import type { Logger } from "app/platform/logger/logger";
 import { ALLOWED_UPDATES } from "app/telegram/bot/bot";
+import type { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
+import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
+import type { InboxApiFactory } from "app/telegram/inbox/inbox-api-factory";
 import type { InboxStore } from "app/telegram/inbox/store/inbox-store";
 import type { InboxGroupKey, InboxUpdateInput } from "app/telegram/inbox/store/inbox-store.types";
 import type { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
+import type { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
+import { hasSessionKey } from "app/telegram/session/session.helper";
 
 // How long getUpdates waits for an update before it answers with none.
 const POLL_TIMEOUT_SECONDS = 30;
-// The HTTP call of a poll: the long poll and a margin for the answer. grammY waits 500 s by default,
-// and a call stuck on a dead connection would hold the polling that long.
-const API_TIMEOUT_SECONDS = POLL_TIMEOUT_SECONDS + 10;
+// How long the answer of a getUpdates may take beyond the long poll.
+const ANSWER_MARGIN_SECONDS = 10;
 // The most updates the Bot API gives in one getUpdates: a backlog drains in as few inserts as it can.
 const POLL_LIMIT = 100;
-// The pause after a failed call or insert before the source tries again.
-const RETRY_PAUSE_MS = 3_000;
-// The SQLSTATE class of a data exception: PostgreSQL refused a value of the update itself, such as a
-// \u0000 escape or a lone surrogate in jsonb, and the same update fails every time it is pushed.
-const DATA_EXCEPTION_CLASS = "22";
+// The SQLSTATE codes PostgreSQL refuses the values of an update in jsonb with, and the same update
+// fails every time it is pushed: untranslatable_character for a \u0000 escape and
+// invalid_text_representation for a lone surrogate. Not the whole class 22 of data exceptions: a
+// change of the store that fails every row with another of them would drop every update instead of
+// stalling the source.
+const REFUSED_UPDATE_SQLSTATES: ReadonlySet<string> = new Set(["22P05", "22P02"]);
 
 // The signal as grammY types it: by the abort-controller shim of its Node build. At run time it takes
 // the native one.
@@ -36,25 +43,42 @@ export class InboxPollingSource {
     // Aborts the Bot API call in flight and cuts the pause short.
     private readonly stopController = new AbortController();
     private readonly apiSignal = this.stopController.signal as unknown as ApiSignal;
+    private readonly api: Api;
+    private isStarted = false;
     private runCompletion: Promise<void> = Promise.resolve();
+    // The failed calls and inserts in a row: the pause after each grows with them.
+    private consecutiveFailureCount = 0;
 
     public constructor(
         @inject<InboxStore>(Tokens.Bot.Inbox.Store) private readonly store: InboxStore,
+        @inject<InboxApiFactory>(Tokens.Bot.Inbox.ApiFactory) apiFactory: InboxApiFactory,
+        @inject<OutboxRetryDelay>(Tokens.Bot.Outbox.RetryDelay) private readonly retryDelay: OutboxRetryDelay,
+        @inject<TelegramBotApiFailureClassifier>(Tokens.Bot.ApiFailureClassifier)
+        private readonly botApiClassifier: TelegramBotApiFailureClassifier,
         @inject<OutboxErrorSerializer>(Tokens.Bot.Outbox.ErrorSerializer) private readonly errorSerializer: OutboxErrorSerializer,
         @inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger,
-        // Its own, without the transformers of the bot: getUpdates has nothing to do with the outbox.
-        private readonly api: Api = new Api(configValue("bot.token"), { timeoutSeconds: API_TIMEOUT_SECONDS }),
-        private readonly retryPauseMs: number = RETRY_PAUSE_MS,
-    ) {}
+    ) {
+        this.api = apiFactory.create(POLL_TIMEOUT_SECONDS + ANSWER_MARGIN_SECONDS);
+    }
 
-    // Called once: a second loop would poll the same bot and get 409 from Telegram.
+    // Called once: a second loop would poll the same bot and get 409 from Telegram. The loop catches
+    // every failure it expects; one it does not stops the polling with a critical log rather than
+    // leaving an unhandled rejection.
     public start(): void {
-        this.runCompletion = this.run();
+        if (this.isStarted) {
+            throw new RuntimeError("Inbox polling source is already started!");
+        }
+
+        this.isStarted = true;
+        this.runCompletion = this.run().catch((error: unknown) => {
+            this.logger.critical("The inbox polling stopped on an unexpected error.", { cause: error });
+        });
     }
 
     // No getUpdates after it: the call in flight is aborted, and an insert in flight is awaited, so
     // the updates it got are stored. Telegram learns the offset of the last batch only from the next
     // getUpdates, so the next start gets that batch again, and the push leaves out what it stored.
+    // No deadline of its own: an insert stuck on the database holds it, and the shutdown bounds it.
     public async stop(): Promise<void> {
         this.stopController.abort();
 
@@ -75,19 +99,16 @@ export class InboxPollingSource {
             const updates = await this.getUpdates(offset);
 
             if (updates === undefined) {
-                await this.pause();
-
                 continue;
             }
 
             const isStored = await this.storeUpdates(updates, me);
 
             if (!isStored) {
-                await this.pause();
-
                 continue;
             }
 
+            this.consecutiveFailureCount = 0;
             const lastUpdate = updates.at(-1);
 
             // The offset moves only once the updates are stored: the next getUpdates tells Telegram
@@ -104,18 +125,20 @@ export class InboxPollingSource {
         while (!this.isStopped()) {
             try {
                 await this.api.deleteWebhook({}, this.apiSignal);
+                const me = await this.api.getMe(this.apiSignal);
+                this.consecutiveFailureCount = 0;
 
-                return await this.api.getMe(this.apiSignal);
+                return me;
             } catch (error) {
                 this.logCallFailure("Preparing the polling failed, the source tries again.", error, {});
-                await this.pause();
+                await this.pauseAfterFailure(error);
             }
         }
 
         return undefined;
     }
 
-    // undefined: the call failed or was aborted by the stop.
+    // undefined: the call failed, and the pause after it is over, or the stop aborted it.
     private async getUpdates(offset: number): Promise<Update[] | undefined> {
         try {
             return await this.api.getUpdates(
@@ -124,13 +147,15 @@ export class InboxPollingSource {
             );
         } catch (error) {
             this.logCallFailure("Getting updates failed, the source tries again from the same offset.", error, { offset: offset });
+            await this.pauseAfterFailure(error);
 
             return undefined;
         }
     }
 
     // false: not every update is stored or dropped, and the batch is to be got again from the same
-    // offset; the updates stored already are left out by the push.
+    // offset once the pause after the failure is over; the updates stored already are left out by
+    // the push.
     private async storeUpdates(updates: Update[], me: UserFromGetMe): Promise<boolean> {
         const inputs = this.toInputs(updates, me);
 
@@ -140,7 +165,7 @@ export class InboxPollingSource {
             return true;
         } catch (error) {
             if (!this.isRefusedUpdate(error)) {
-                this.logStoreFailure(inputs, error);
+                await this.handleStoreFailure(inputs, error);
 
                 return false;
             }
@@ -153,12 +178,13 @@ export class InboxPollingSource {
     // every retry from the same offset fails on it again. One at a time, the others go in, and the
     // refused one is dropped.
     private async pushOneByOne(inputs: InboxUpdateInput[]): Promise<boolean> {
-        for (const input of inputs) {
+        for (const [index, input] of inputs.entries()) {
             try {
                 await this.store.push(input);
             } catch (error) {
+                // The ones before it are stored or dropped already.
                 if (!this.isRefusedUpdate(error)) {
-                    this.logStoreFailure(inputs, error);
+                    await this.handleStoreFailure(inputs.slice(index), error);
 
                     return false;
                 }
@@ -171,7 +197,7 @@ export class InboxPollingSource {
     }
 
     private isRefusedUpdate(error: unknown): boolean {
-        return error instanceof postgres.PostgresError && error.code.startsWith(DATA_EXCEPTION_CLASS);
+        return error instanceof postgres.PostgresError && REFUSED_UPDATE_SQLSTATES.has(error.code);
     }
 
     // An update without a session key is dropped, as HasSessionKeyFilter drops it from the pipeline:
@@ -200,18 +226,20 @@ export class InboxPollingSource {
     private findGroup(update: Update, me: UserFromGetMe): InboxGroupKey | undefined {
         const ctx = new Context(update, this.api, me);
 
-        if (ctx.from === undefined || ctx.chat === undefined) {
+        if (!hasSessionKey(ctx)) {
             return undefined;
         }
 
         return { userId: ctx.from.id, chatId: ctx.chat.id };
     }
 
-    private logStoreFailure(inputs: InboxUpdateInput[], error: unknown): void {
+    // inputs: the updates not stored.
+    private async handleStoreFailure(inputs: InboxUpdateInput[], error: unknown): Promise<void> {
         this.logger.error("Storing updates failed, the source gets them again from the same offset.", {
             updateIds: inputs.map((input) => input.update.update_id),
             cause: error,
         });
+        await this.pauseAfterFailure(error);
     }
 
     // A call the stop aborted is not a failure. The error goes through the serializer: the fetch error
@@ -224,9 +252,28 @@ export class InboxPollingSource {
         this.logger.error(message, { ...payload, cause: this.errorSerializer.serialize(error) });
     }
 
+    // The retry delay of the outbox for the failures in a row, so an outage of Telegram, a revoked
+    // token or a lasting 409 is not retried and logged every second; or the wait a 429 asks for, if it
+    // is longer.
+    private async pauseAfterFailure(error: unknown): Promise<void> {
+        this.consecutiveFailureCount += 1;
+
+        const retryDelayMs = this.retryDelay.computeMs(this.consecutiveFailureCount);
+        const failure = this.botApiClassifier.classify(error);
+
+        if (failure.kind === TelegramBotApiFailureKind.Flood) {
+            await this.pause(Math.max(retryDelayMs, failure.retryAfterSeconds * MS_PER_SECOND));
+
+            return;
+        }
+
+        await this.pause(retryDelayMs);
+    }
+
+    // Cut short by the stop. Protected for the spec, which records the durations instead of waiting.
     // pauseFor() rejects only with the AbortError of the stop, which ends the pause.
-    private async pause(): Promise<void> {
-        await pauseFor(this.retryPauseMs, undefined, { signal: this.stopController.signal }).catch(() => undefined);
+    protected async pause(durationMs: number): Promise<void> {
+        await pauseFor(durationMs, undefined, { signal: this.stopController.signal }).catch(() => undefined);
     }
 
     private isStopped(): boolean {

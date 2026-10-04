@@ -360,46 +360,58 @@ that gets a full batch calls again. Nothing calls them yet: the timers are part 
 ## The polling source
 
 `InboxPollingSource` takes the updates from Telegram by long polling and pushes them into the inbox.
-`start()` runs its loop, `stop()` ends it.
+`start()` runs its loop and throws when called a second time; `stop()` ends it. A failure the loop
+does not expect ends the polling with a `critical` log, not an unhandled rejection.
 
 One process polls. Telegram answers a second `getUpdates` of the same bot with 409, and nothing
 keeps two polling processes apart: running several is not a goal now
 ([#828](https://github.com/yuldashevsardor/telegram-bot/issues/828)).
 
-The loop is the source's own, over `getUpdates` of a grammY `Api` of its own, without the
-transformers of the bot. `bot.start()` and the fetcher of `@grammyjs/runner` move the offset
+The loop is the source's own, over `getUpdates` of a grammY `Api` of its own, made by
+`InboxApiFactory` without the transformers of the bot and with a timeout of the long poll and a
+margin. `bot.start()` and the fetcher of `@grammyjs/runner` move the offset
 themselves, on receipt or after their own handling, hand the updates out one at a time, and either
 drop a batch whose handling failed or stop polling for good; neither retries the same batch.
 
 1. `deleteWebhook`: Telegram gives no `getUpdates` while a webhook is set. Then `getMe`: the
    group of an update is read off a grammY `Context`, which takes the bot. A failure of either is
-   logged, and both are tried again after a pause.
+   logged, and both are tried again after a pause (below).
 2. `getUpdates` with the offset, `ALLOWED_UPDATES` of `bot.ts` and the limits read off the
    constants of the source. The first offset is 0, below every `update_id`: Telegram answers it
    from the first update it has not been told of.
 3. Each update gets its group, `from` and `chat` of the `Context`, the pair `getSessionKey()`
    makes the session key of, whatever the type of the update. An update without either is dropped
-   (see "Updates without a session key").
+   (see "Updates without a session key"); `hasSessionKey()` of `session.helper.ts` is the rule of
+   both.
 4. `pushBatch()` of the rest. Only once it has committed does the offset move past the last update
    of the answer, dropped ones included: the next `getUpdates` tells Telegram that the bot has
    them.
 
 A failed `getUpdates` or push is logged and tried again from the same offset after a pause, so
 Telegram gives the same batch again, and the push leaves out what it stored already (see "Push",
-step 2). The error of a Bot API call is logged as `OutboxErrorSerializer` writes it: the fetch
+step 2). The pause is the retry delay of the outbox, `OutboxRetryDelay.computeMs()` of the failures
+in a row, of calls and pushes alike ([`outbox.md`](./outbox.md), "Retry delay"), so an outage, a
+revoked token (401) or a webhook or another poller (409) is not retried and logged every second;
+a 429 waits its `retry_after` when that is longer. A stored batch and a passed preparation start the
+count over. The error of a Bot API call is logged as `OutboxErrorSerializer` writes it: the fetch
 error an `HttpError` wraps names the URL of the call, and the URL carries the bot token.
 
 **A refused update.** PostgreSQL refuses a `\u0000` escape or a lone surrogate in `jsonb`, and
 `pushBatch()` stores the batch in one statement, so one such update rolls the batch back, and
 every retry from the same offset would fail on it again. Whether Telegram ever sends either is
-unverified. A batch that fails with a data exception, SQLSTATE class `22`, is pushed one update at
-a time, and an update refused with that class again is dropped with an error log. Any other
-failure, of the batch or of a single push, leaves the offset where it was. The class is the one
-PostgreSQL gives both values; `test/telegram/inbox/inbox-store.spec.ts` pins it.
+unverified. A batch that fails with the SQLSTATE PostgreSQL gives either value, `22P05` for the
+escape and `22P02` for the surrogate, is pushed one update at a time, and an update refused with
+one of them again is dropped with an error log. Any other failure, of the batch or of a single
+push, leaves the offset where it was, another data exception of class `22` included: a change of
+the store that failed every row with one would otherwise drop every update. The error log of such a
+failure names the updates not stored. `test/telegram/inbox/inbox-store.spec.ts` pins both codes.
 
 **The stop** aborts the Bot API call in flight, ends the pause at once and waits for a push in
-flight, and no `getUpdates` follows. Telegram learns the offset of the last batch only from the next
-`getUpdates`, so the next start gets that batch again, and the push leaves it out.
+flight, and no `getUpdates` follows. It has no deadline of its own: a push stuck on the database
+holds it, so whatever stops the source bounds the wait
+([#829](https://github.com/yuldashevsardor/telegram-bot/issues/829)). Telegram learns the offset
+of the last batch only from the next `getUpdates`, so the next start gets that batch again, and the
+push leaves it out.
 
 ## The store in code
 

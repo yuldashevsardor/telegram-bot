@@ -152,20 +152,20 @@ describe("InboxStore", function () {
             expect(await group(OTHER_USER, CHAT)).to.deep.equal({ state: InboxGroupState.Ready });
         });
 
-        // The polling source tells an update the store refuses for good by this class and pushes the
+        // The polling source tells an update the store refuses for good by these codes and pushes the
         // rest of its batch one at a time (docs/architecture/inbox.md, "The polling source").
-        for (const [name, text] of [
-            ["a NUL character", "before\u0000after"],
-            ["a lone surrogate", "before\ud800after"],
+        for (const [name, text, code] of [
+            ["a NUL character", "before\u0000after", "22P05"],
+            ["a lone surrogate", "before\ud800after", "22P02"],
         ] as const) {
-            it(`refuses a batch with ${name} in an update by a data exception and stores none of it`, async function () {
+            it(`refuses a batch with ${name} in an update by SQLSTATE ${code} and stores none of it`, async function () {
                 const thrown = await store.pushBatch([input(10), input(11, USER, CHAT, text)]).then(
                     () => expect.fail("pushBatch() was expected to reject"),
                     (reason: unknown) => reason,
                 );
 
                 expect(thrown).to.be.instanceOf(postgres.PostgresError);
-                expect((thrown as postgres.PostgresError).code).to.match(/^22/);
+                expect((thrown as postgres.PostgresError).code).to.equal(code);
                 expect(await statuses()).to.deep.equal([]);
             });
         }

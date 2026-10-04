@@ -5,19 +5,26 @@ import type { Update, UserFromGetMe } from "grammy/types";
 import postgres from "postgres";
 import { sleep } from "app/shared/utils";
 import { ALLOWED_UPDATES } from "app/telegram/bot/bot";
+import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
+import type { InboxApiFactory } from "app/telegram/inbox/inbox-api-factory";
 import { InboxPollingSource } from "app/telegram/inbox/inbox-polling-source";
 import type { InboxStore } from "app/telegram/inbox/store/inbox-store";
 import type { InboxUpdateInput } from "app/telegram/inbox/store/inbox-store.types";
 import { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
+import { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
+import { telegramError } from "test/telegram/telegram-bot-api-failure-classifier.helper";
 
 const TOKEN = "123456789:secret";
 const ME = { id: 1, is_bot: true, first_name: "Bot", username: "test_bot" } as UserFromGetMe;
 const USER = 5_000_000_001;
 const OTHER_USER = 5_000_000_002;
 const CHAT = 5_000_000_001;
-// Long enough for a spec to see the source wait in it, never waited out.
-const LONG_PAUSE_MS = 60_000;
+// random() of 0 takes the lower end of the step, half of it: 500 ms after the first failure in a
+// row, 1 s after the second, 2 s after the third.
+const RETRY_DELAY = new OutboxRetryDelay({ firstDelayMs: 1_000, maxDelayMs: 60_000, multiplier: 2 }, () => 0);
+// A pause long enough for a spec to see the source wait in it, never waited out.
+const LONG_RETRY_DELAY = new OutboxRetryDelay({ firstDelayMs: 120_000, maxDelayMs: 120_000, multiplier: 1 }, () => 0);
 // How long a spec gives the source to take a step it must not take.
 const SETTLE_MS = 20;
 
@@ -90,8 +97,8 @@ class FakeStore {
     public readonly calls: Array<{ method: "pushBatch" | "push"; updateIds: number[] }> = [];
     public readonly stored: InboxUpdateInput[] = [];
     public readonly refusedUpdateIds = new Set<number>();
-    // Thrown by the next calls, one per call.
-    public readonly failures: Error[] = [];
+    // Thrown by the next calls, one per call; undefined lets its call through.
+    public readonly failures: Array<Error | undefined> = [];
     // Holds every call until it settles.
     public hold: Promise<void> = Promise.resolve();
 
@@ -132,31 +139,63 @@ class FakeStore {
     }
 }
 
+// Records the pause after a failure instead of waiting it out.
+class RecordingPollingSource extends InboxPollingSource {
+    public readonly pauses: number[] = [];
+
+    protected override async pause(durationMs: number): Promise<void> {
+        this.pauses.push(durationMs);
+    }
+}
+
 describe("InboxPollingSource", function () {
     let api: FakeApi;
     let store: FakeStore;
     let logger: RecordingLogger;
-    let source: InboxPollingSource;
+    // The timeout the source asked the factory to make its Api with.
+    let apiTimeoutSeconds: number | undefined;
+    let source: RecordingPollingSource;
+    // A source that waits its pauses out, for the specs of the pause itself.
+    let waitingSource: InboxPollingSource | undefined;
 
     beforeEach(function () {
         api = new FakeApi();
         store = new FakeStore();
         logger = new RecordingLogger();
-        source = createSource(0);
+        apiTimeoutSeconds = undefined;
+        source = new RecordingPollingSource(...sourceDependencies(RETRY_DELAY));
+        waitingSource = undefined;
     });
 
     afterEach(async function () {
         await source.stop();
+        await waitingSource?.stop();
     });
 
-    function createSource(retryPauseMs: number): InboxPollingSource {
-        return new InboxPollingSource(
+    function sourceDependencies(retryDelay: OutboxRetryDelay): ConstructorParameters<typeof InboxPollingSource> {
+        const apiFactory = {
+            create: (timeoutSeconds: number): Api => {
+                apiTimeoutSeconds = timeoutSeconds;
+
+                return api as unknown as Api;
+            },
+        };
+
+        return [
             store as unknown as InboxStore,
+            apiFactory as unknown as InboxApiFactory,
+            retryDelay,
+            new TelegramBotApiFailureClassifier(),
             new OutboxErrorSerializer(TOKEN),
             logger,
-            api as unknown as Api,
-            retryPauseMs,
-        );
+        ];
+    }
+
+    function startWaitingSource(): InboxPollingSource {
+        waitingSource = new InboxPollingSource(...sourceDependencies(LONG_RETRY_DELAY));
+        waitingSource.start();
+
+        return waitingSource;
     }
 
     describe("polling", function () {
@@ -166,6 +205,16 @@ describe("InboxPollingSource", function () {
 
             expect(api.calls).to.deep.equal(["deleteWebhook", "getMe", "getUpdates"]);
             expect(api.getUpdatesCalls[0]?.params).to.deep.equal({ offset: 0, limit: 100, timeout: 30, allowed_updates: ALLOWED_UPDATES });
+        });
+
+        it("makes its Api with a timeout that outlasts the long poll", function () {
+            expect(apiTimeoutSeconds).to.equal(40);
+        });
+
+        it("refuses a second start", function () {
+            source.start();
+
+            expect(() => source.start()).to.throw("Inbox polling source is already started!");
         });
 
         it("tries the preparation again after a failure, and polls once it goes through", async function () {
@@ -281,45 +330,123 @@ describe("InboxPollingSource", function () {
             expect(logger.errors[0]?.payload?.["cause"]).to.be.instanceOf(postgres.PostgresError);
         });
 
-        it("does not move the offset when a push of one update fails for another reason than a refusal", async function () {
+        it("does not move the offset when a push of one update fails for another reason, and logs the updates not stored", async function () {
             const failure = new Error("write CONNECTION_CLOSED pgsql:5432");
-            api.answers.push([message(10), message(11)]);
-            // The batch is refused, then the single push of update 10 fails on the connection.
-            store.failures.push(postgresError("22P05"), failure);
+            api.answers.push([message(10), message(11), message(12)]);
+            // The batch is refused, update 10 goes in alone, then the push of update 11 fails on the
+            // connection.
+            store.failures.push(postgresError("22P05"), undefined, failure);
 
             source.start();
             await api.waitForGetUpdates(2);
 
             expect(store.calls).to.deep.equal([
-                { method: "pushBatch", updateIds: [10, 11] },
+                { method: "pushBatch", updateIds: [10, 11, 12] },
                 { method: "push", updateIds: [10] },
+                { method: "push", updateIds: [11] },
             ]);
             expect(api.offsets()).to.deep.equal([0, 0]);
             expect(logger.errors).to.deep.equal([
                 {
                     message: "Storing updates failed, the source gets them again from the same offset.",
-                    payload: { updateIds: [10, 11], cause: failure },
+                    payload: { updateIds: [11, 12], cause: failure },
                 },
             ]);
         });
 
-        it("takes only a data exception for a refusal: a batch failed by another SQLSTATE is not pushed one at a time", async function () {
-            store.failures.push(postgresError("40P01"));
+        it("takes the code of a lone surrogate for a refusal too", async function () {
+            store.failures.push(postgresError("22P02"));
             api.answers.push([message(10)]);
 
             source.start();
             await api.waitForGetUpdates(2);
 
-            expect(store.calls).to.deep.equal([{ method: "pushBatch", updateIds: [10] }]);
-            expect(api.offsets()).to.deep.equal([0, 0]);
+            expect(store.calls.map((call) => call.method)).to.deep.equal(["pushBatch", "push"]);
+            expect(api.offsets()).to.deep.equal([0, 11]);
+        });
+
+        // A store change that failed every row with another data exception would otherwise drop every
+        // update.
+        for (const code of ["22003", "40P01"]) {
+            it(`does not take SQLSTATE ${code} for a refusal: the batch is not pushed one at a time`, async function () {
+                store.failures.push(postgresError(code));
+                api.answers.push([message(10)]);
+
+                source.start();
+                await api.waitForGetUpdates(2);
+
+                expect(store.calls).to.deep.equal([{ method: "pushBatch", updateIds: [10] }]);
+                expect(api.offsets()).to.deep.equal([0, 0]);
+            });
+        }
+
+        it("stops the polling on an unexpected error with a critical log", async function () {
+            const failure = new Error("the logger failed");
+            logger.warning = (): void => {
+                throw failure;
+            };
+            api.answers.push([{ update_id: 10 } as Update]);
+
+            source.start();
+            await api.waitForGetUpdates(1);
+            await source.stop();
+
+            expect(logger.criticals).to.deep.equal([
+                { message: "The inbox polling stopped on an unexpected error.", payload: { cause: failure } },
+            ]);
+            expect(api.getUpdatesCalls).to.have.lengthOf(1);
+        });
+    });
+
+    describe("the pause after a failure", function () {
+        it("grows with the failures in a row, of calls and inserts alike, by the retry delay of the outbox", async function () {
+            api.deleteWebhookErrors.push(new Error("deleteWebhook failed"));
+            store.failures.push(new Error("write CONNECTION_CLOSED pgsql:5432"));
+            api.answers.push(new Error("getUpdates failed"), [message(10)], new Error("getUpdates failed"), [message(10)]);
+
+            source.start();
+            await api.waitForGetUpdates(5);
+
+            // The preparation went through and reset the count; the store failure and the second
+            // getUpdates failure come in a row.
+            expect(source.pauses).to.deep.equal([500, 500, 1_000, 2_000]);
+        });
+
+        it("starts over after a stored batch", async function () {
+            api.answers.push(new Error("getUpdates failed"), [message(10)], new Error("getUpdates failed"));
+
+            source.start();
+            await api.waitForGetUpdates(4);
+
+            expect(source.pauses).to.deep.equal([500, 500]);
+        });
+
+        it("waits as long as a 429 asks when that is longer than the retry delay", async function () {
+            api.answers.push(telegramError(429, "Too Many Requests: retry after 5", { retry_after: 5 }));
+
+            source.start();
+            await api.waitForGetUpdates(2);
+
+            expect(source.pauses).to.deep.equal([5_000]);
+        });
+
+        it("keeps the retry delay when a 429 asks for less", async function () {
+            api.answers.push(
+                new Error("getUpdates failed"),
+                new Error("getUpdates failed"),
+                telegramError(429, "Too Many Requests: retry after 1", { retry_after: 1 }),
+            );
+
+            source.start();
+            await api.waitForGetUpdates(4);
+
+            expect(source.pauses).to.deep.equal([500, 1_000, 2_000]);
         });
 
         it("waits the pause out before it calls again", async function () {
-            await source.stop();
-            source = createSource(LONG_PAUSE_MS);
             api.answers.push(new Error("getUpdates failed"));
 
-            source.start();
+            startWaitingSource();
             await api.waitForGetUpdates(1);
             await sleep(SETTLE_MS);
 
@@ -364,25 +491,21 @@ describe("InboxPollingSource", function () {
         });
 
         it("cuts the pause after a failure short", async function () {
-            await source.stop();
-            source = createSource(LONG_PAUSE_MS);
             api.answers.push(new Error("getUpdates failed"));
 
-            source.start();
+            const pausing = startWaitingSource();
             await api.waitForGetUpdates(1);
-            await source.stop();
+            await pausing.stop();
 
             expect(api.getUpdatesCalls).to.have.lengthOf(1);
         });
 
         it("stops a preparation that keeps failing without polling", async function () {
-            await source.stop();
-            source = createSource(LONG_PAUSE_MS);
             api.deleteWebhookErrors.push(new Error("deleteWebhook failed"));
 
-            source.start();
+            const pausing = startWaitingSource();
             await sleep(SETTLE_MS);
-            await source.stop();
+            await pausing.stop();
 
             expect(api.calls).to.deep.equal(["deleteWebhook"]);
         });
