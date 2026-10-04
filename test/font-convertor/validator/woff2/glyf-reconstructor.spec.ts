@@ -6,6 +6,7 @@ import {
     composite,
     concat,
     GLYF_INDEX_FORMAT,
+    GLYF_NUM_GLYPHS,
     HHEA_NUMBER_OF_H_METRICS,
     GLYF_OPTION_FLAGS,
     joinGlyf,
@@ -35,6 +36,13 @@ const GLYPH_0_FIRST_FLAG_OFFSET = 22;
 const BBOX_BITMAP_SIZE_BYTES = 164;
 // ⌈1296 / 8⌉ bytes: overlapSimpleBitmap is not padded to words.
 const OVERLAP_BITMAP_SIZE_BYTES = 162;
+// The fixture's 1296 glyphs and the composite that some cases add.
+const FIXTURE_NUM_GLYPHS = 1296;
+const NUM_GLYPHS_WITH_COMPOSITE = FIXTURE_NUM_GLYPHS + 1;
+// A glyph of one contour whose every point is 65 535 right of the one before: x passes 2³¹ − 1 at
+// the 32 769th point.
+const WRAPPING_POINT_COUNT = 32769;
+const MAX_FOUR_BYTE_DELTA = 0xffff;
 
 describe("GlyfReconstructor.reconstruct", function () {
     let glyf: Uint8Array;
@@ -97,8 +105,38 @@ describe("GlyfReconstructor.reconstruct", function () {
         const record = concat(Uint8Array.from([0xff, 0xff]), boundingBox, components, new Uint8Array(2));
 
         expect(reconstructed.glyf.subarray(REFERENCE_GLYF_SIZE_BYTES)).to.deep.equal(record);
-        expect(readUint32(reconstructed.loca, 4 * 1296)).to.equal(REFERENCE_GLYF_SIZE_BYTES);
-        expect(readUint32(reconstructed.loca, 4 * 1297)).to.equal(REFERENCE_GLYF_SIZE_BYTES + record.length);
+        expect(readUint32(reconstructed.loca, 4 * FIXTURE_NUM_GLYPHS)).to.equal(REFERENCE_GLYF_SIZE_BYTES);
+        expect(readUint32(reconstructed.loca, 4 * NUM_GLYPHS_WITH_COMPOSITE)).to.equal(REFERENCE_GLYF_SIZE_BYTES + record.length);
+    });
+
+    it("wraps the coordinates of a glyph at 2³¹, as the C ints of the decoder do", function () {
+        // Flag 127: a dx and a dy of 16 bits each, both positive. The last point wraps to a negative x,
+        // so xMin is its low 16 bits, 0x7fff, not the 0xffff of the first point.
+        const flags = new Uint8Array(WRAPPING_POINT_COUNT).fill(0x7f);
+        const coordinates = new Uint8Array(WRAPPING_POINT_COUNT * 4 + 1);
+
+        for (let point = 0; point < WRAPPING_POINT_COUNT; point++) {
+            coordinates.set([MAX_FOUR_BYTE_DELTA >> 8, MAX_FOUR_BYTE_DELTA & 0xff], point * 4);
+        }
+
+        const { streams } = splitGlyf(glyf);
+        const wrapping: GlyfParts = {
+            header: withUint16(withUint16(new Uint8Array(8), GLYF_NUM_GLYPHS, 1), GLYF_INDEX_FORMAT, 1),
+            streams: {
+                ...streams,
+                nContour: Uint8Array.from([0x00, 0x01]),
+                nPoints: Uint8Array.from([253, WRAPPING_POINT_COUNT >> 8, WRAPPING_POINT_COUNT & 0xff]),
+                flag: flags,
+                glyph: coordinates,
+                composite: new Uint8Array(0),
+                bbox: new Uint8Array(4),
+                instruction: new Uint8Array(0),
+            },
+            tail: new Uint8Array(0),
+        };
+        const reconstructed = new GlyfReconstructor(FONT_PATH, joinGlyf(wrapping)).reconstruct(undefined);
+
+        expect(reconstructed.glyf.subarray(2, 4)).to.deep.equal(Uint8Array.from([0x7f, 0xff]));
     });
 
     it("adds instructionLength and the instructions to a composite glyph whose component calls for them", function () {

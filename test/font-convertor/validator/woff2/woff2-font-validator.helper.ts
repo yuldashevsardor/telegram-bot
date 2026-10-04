@@ -6,6 +6,13 @@ import { Extension } from "app/font-convertor/font-convertor.types";
 
 // The substreams of a transformed glyf, in the order of their sizes in its header (§5.1).
 const GLYF_STREAMS = ["nContour", "nPoints", "flag", "glyph", "composite", "bbox", "instruction"] as const;
+// The size of each substream is a UInt32 in the header of a transformed glyf.
+const GLYF_SUBSTREAM_SIZE_FIELD_BYTES = 4;
+const NCONTOUR_SIZE_BYTES = 2;
+const UINT16_MASK = 0xffff;
+const BITS_PER_BYTE = 8;
+// Glyph 0 is the most significant bit of the first byte of a bitmap (§5.1).
+const FIRST_GLYPH_BIT = 0x80;
 
 function readUint8(bytes: Uint8Array, offset: number): number {
     return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint8(offset);
@@ -178,7 +185,7 @@ export function splitGlyf(glyf: Uint8Array): GlyfParts {
     let offset = GLYF_HEADER_SIZE_BYTES;
 
     for (const [index, name] of GLYF_STREAMS.entries()) {
-        const sizeBytes = readUint32(glyf, GLYF_N_CONTOUR_STREAM_SIZE + 4 * index);
+        const sizeBytes = readUint32(glyf, GLYF_N_CONTOUR_STREAM_SIZE + index * GLYF_SUBSTREAM_SIZE_FIELD_BYTES);
 
         streams[name] = glyf.subarray(offset, offset + sizeBytes);
         offset += sizeBytes;
@@ -195,10 +202,10 @@ export function splitGlyf(glyf: Uint8Array): GlyfParts {
  * The transformed glyf of `parts`, the size of each substream in its header.
  */
 export function joinGlyf({ header, streams, tail }: GlyfParts): Uint8Array {
-    const sizes = new DataView(new ArrayBuffer(4 * GLYF_STREAMS.length));
+    const sizes = new DataView(new ArrayBuffer(GLYF_STREAMS.length * GLYF_SUBSTREAM_SIZE_FIELD_BYTES));
 
     for (const [index, name] of GLYF_STREAMS.entries()) {
-        sizes.setUint32(4 * index, streams[name].length);
+        sizes.setUint32(index * GLYF_SUBSTREAM_SIZE_FIELD_BYTES, streams[name].length);
     }
 
     return concat(header, new Uint8Array(sizes.buffer), ...GLYF_STREAMS.map((name) => streams[name]), tail);
@@ -212,22 +219,22 @@ export function withStream(parts: GlyfParts, name: GlyfStream, edit: (stream: Ui
 }
 
 /**
- * The parts with nContour of `glyph` set to `nContour`.
+ * The parts with nContour of `glyphIndex` set to `nContour`.
  */
-export function withNContour(parts: GlyfParts, glyph: number, nContour: number): GlyfParts {
-    return withStream(parts, "nContour", (stream) => withUint16(stream, 2 * glyph, nContour & 0xffff));
+export function withNContour(parts: GlyfParts, glyphIndex: number, nContour: number): GlyfParts {
+    return withStream(parts, "nContour", (stream) => withUint16(stream, glyphIndex * NCONTOUR_SIZE_BYTES, nContour & UINT16_MASK));
 }
 
 /**
- * The parts with the bit of `glyph` in bboxBitmap set. The explicit bounding boxes after the bitmap
+ * The parts with the bit of `glyphIndex` in bboxBitmap set. The explicit bounding boxes after the bitmap
  * stay as they are.
  */
-export function withBoundingBoxBitSet(parts: GlyfParts, glyph: number): GlyfParts {
+export function withBoundingBoxBitSet(parts: GlyfParts, glyphIndex: number): GlyfParts {
     return withStream(parts, "bbox", (stream) => {
         const copy = Uint8Array.from(stream);
-        const index = Math.floor(glyph / 8);
+        const byteIndex = Math.floor(glyphIndex / BITS_PER_BYTE);
 
-        copy[index] = (copy[index] ?? 0) | (0x80 >> glyph % 8);
+        copy[byteIndex] = (copy[byteIndex] ?? 0) | (FIRST_GLYPH_BIT >> glyphIndex % BITS_PER_BYTE);
 
         return copy;
     });
@@ -238,8 +245,8 @@ export function withBoundingBoxBitSet(parts: GlyfParts, glyph: number): GlyfPart
  * its records go at their ends. The bitmap of 1296 glyphs takes 41 words, and so does that of 1297.
  */
 export function withComposite(parts: GlyfParts, composite: Composite): GlyfParts {
-    const glyph = readUint16(parts.header, GLYF_NUM_GLYPHS);
-    let withGlyph: GlyfParts = { ...parts, header: withUint16(parts.header, GLYF_NUM_GLYPHS, glyph + 1) };
+    const glyphIndex = readUint16(parts.header, GLYF_NUM_GLYPHS);
+    let withGlyph: GlyfParts = { ...parts, header: withUint16(parts.header, GLYF_NUM_GLYPHS, glyphIndex + 1) };
 
     withGlyph = withStream(withGlyph, "nContour", (stream) => concat(stream, Uint8Array.from([0xff, 0xff])));
     withGlyph = withStream(withGlyph, "composite", (stream) => concat(stream, composite.components));
@@ -252,7 +259,7 @@ export function withComposite(parts: GlyfParts, composite: Composite): GlyfParts
 
     const boundingBox = composite.boundingBox;
 
-    return withStream(withBoundingBoxBitSet(withGlyph, glyph), "bbox", (stream) => concat(stream, boundingBox));
+    return withStream(withBoundingBoxBitSet(withGlyph, glyphIndex), "bbox", (stream) => concat(stream, boundingBox));
 }
 
 /**

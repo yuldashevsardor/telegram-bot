@@ -57,9 +57,12 @@ const validator = new Woff2FontValidator();
 const DECODER_BUFFER_SIZE_BYTES = 30 * 1024 * 1024;
 const MAX_COMPRESSION_RATIO = 100;
 const SFNT_TABLE_RECORD_SIZE_BYTES = 16;
+// The fixture's glyphs, and with the composite that some cases build as one more.
+const FIXTURE_NUM_GLYPHS = 1296;
+const NUM_GLYPHS_WITH_COMPOSITE = FIXTURE_NUM_GLYPHS + 1;
 // A numGlyphs that is a multiple of neither 8 nor 32: overlapSimpleBitmap ends on a byte that holds
 // one glyph, and a size padded to 32-bit words would differ from ⌈numGlyphs / 8⌉ (§5.1).
-const BITMAP_NUM_GLYPHS = 1297;
+const BITMAP_NUM_GLYPHS = FIXTURE_NUM_GLYPHS + 1;
 const BITMAP_SIZE_BYTES = 163;
 
 // The fixture: flavor 0x00010000, 13 tables, the directory 41 bytes long, the compressed data
@@ -211,7 +214,9 @@ describe("Woff2FontValidator.validate", function () {
 
         it("with a composite glyph of the fixture's own glyphs and its bounding box", async function () {
             // The fixture has no composite glyph: one more glyph, glyph 1296, is built of glyphs 5 and 6.
-            await validate(build(withGlyfParts(withLocaFor(fixtureLayout, 1297), (parts) => withComposite(parts, composite()))));
+            await validate(
+                build(withGlyfParts(withLocaFor(fixtureLayout, NUM_GLYPHS_WITH_COMPOSITE), (parts) => withComposite(parts, composite()))),
+            );
         });
 
         it("with a composite glyph whose component calls for instructions", async function () {
@@ -222,7 +227,11 @@ describe("Woff2FontValidator.validate", function () {
                 instructions: Uint8Array.from([0xb0, 0x00, 0x2c]),
             };
 
-            await validate(build(withGlyfParts(withLocaFor(fixtureLayout, 1297), (parts) => withComposite(parts, withInstructions))));
+            await validate(
+                build(
+                    withGlyfParts(withLocaFor(fixtureLayout, NUM_GLYPHS_WITH_COMPOSITE), (parts) => withComposite(parts, withInstructions)),
+                ),
+            );
         });
 
         it("with the hmtx transform and fewer hMetrics than glyphs, flags 1, 2 or 3", async function () {
@@ -1076,7 +1085,7 @@ describe("Woff2FontValidator.validate", function () {
         });
 
         it("with a composite glyph without its bounding box", async function () {
-            const layout = withGlyfParts(withLocaFor(fixtureLayout, 1297), (parts) =>
+            const layout = withGlyfParts(withLocaFor(fixtureLayout, NUM_GLYPHS_WITH_COMPOSITE), (parts) =>
                 withComposite(parts, { ...composite(), boundingBox: undefined }),
             );
 
@@ -1089,7 +1098,11 @@ describe("Woff2FontValidator.validate", function () {
 
         it("with a composite glyph whose components or instructions run past their substreams", async function () {
             const withComponents = (edit: (whole: Composite) => Composite): Uint8Array =>
-                build(withGlyfParts(withLocaFor(fixtureLayout, 1297), (parts) => withComposite(parts, edit(composite()))));
+                build(
+                    withGlyfParts(withLocaFor(fixtureLayout, NUM_GLYPHS_WITH_COMPOSITE), (parts) =>
+                        withComposite(parts, edit(composite())),
+                    ),
+                );
 
             await expectBroken(
                 withComponents((whole) => ({ ...whole, components: whole.components.subarray(0, whole.components.length - 1) })),
@@ -1159,9 +1172,9 @@ describe("Woff2FontValidator.validate", function () {
                 `At table "hhea": numberOfHMetrics is 0, ${expected}`,
             );
             await expectBroken(
-                build(withNumberOfHMetrics(transformed, 1297)),
+                build(withNumberOfHMetrics(transformed, FIXTURE_NUM_GLYPHS + 1)),
                 Woff2Rule.TransformedHmtx,
-                `At table "hhea": numberOfHMetrics is 1297, ${expected}`,
+                `At table "hhea": numberOfHMetrics is ${FIXTURE_NUM_GLYPHS + 1}, ${expected}`,
             );
         });
 

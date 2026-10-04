@@ -4,43 +4,43 @@ import { TableTag, Woff2Rule } from "app/font-convertor/validator/woff2/woff2-fo
 import { NumberHelper } from "app/shared/number-helper";
 
 /**
- * One of the seven substreams of a transformed glyf (§5.1), read from the start: `offset` is where
- * the next glyph record takes its bytes from.
+ * One of the seven substreams of a transformed glyf (§5.1), read from the start: `offsetBytes` is
+ * where the next glyph record takes its bytes from.
  */
-export type Substream = {
+type Substream = {
     /** How the standard and a message name it: `nPointsStream`. */
     name: string;
     bytes: Uint8Array;
-    offset: number;
+    offsetBytes: number;
 };
 
 /**
  * A point of a simple glyph, its coordinates the sum of the deltas before it (§5.2).
  */
-export type Point = {
+type Point = {
     x: number;
     y: number;
     isOnCurve: boolean;
 };
 
 /**
- * A transformed hmtx (§5.4) with hhea, whose numberOfHMetrics says how many advance widths it
- * holds; hhea is undefined when the font has none.
- */
-export type TransformedHmtx = {
-    bytes: Uint8Array;
-    hhea: Uint8Array | undefined;
-};
-
-/**
- * A transformed hmtx that rule `TransformedHmtx` holds for, with its flags read: whether lsb[] and
+ * A transformed hmtx that rule `Woff2Rule.TransformedHmtx` holds for, with its flags read: whether lsb[] and
  * leftSideBearing[] are in the table.
  */
-export type RebuildableHmtx = {
+type RebuildableHmtx = {
     bytes: Uint8Array;
     numberOfHMetrics: number;
     hasLsb: boolean;
     hasLeftSideBearing: boolean;
+};
+
+/**
+ * A transformed hmtx (§5.4) with hhea, whose numberOfHMetrics says how many advance widths it
+ * holds; hhea is undefined when the font has none.
+ */
+export type TransformedHmtxWithHhea = {
+    bytes: Uint8Array;
+    hhea: Uint8Array | undefined;
 };
 
 /**
@@ -87,8 +87,9 @@ export class GlyfReconstructor {
     // The header of a transformed glyf (§5.1): reserved, optionFlags, numGlyphs, indexFormat, then
     // the sizes of the seven substreams that follow it, one UInt32 each.
     private static readonly HEADER_SIZE_BYTES = 36;
-    private static readonly FIELD_OFFSETS = { optionFlags: 2, numGlyphs: 4, indexFormat: 6, substreamSizes: 8 };
+    private static readonly FIELD_OFFSETS_BYTES = { optionFlags: 2, numGlyphs: 4, indexFormat: 6, substreamSizes: 8 };
     private static readonly SUBSTREAM_SIZE_FIELD_BYTES = 4;
+    private static readonly SUBSTREAM_COUNT = 7;
     private static readonly OVERLAP_SIMPLE_BITMAP_FLAG = 0x0001;
     // bboxBitmap holds a bit per glyph, padded to whole 32-bit words: 4 × ⌊(numGlyphs + 31) / 32⌋
     // bytes; overlapSimpleBitmap pads only to a byte. Glyph 0 is the most significant bit of the
@@ -106,7 +107,7 @@ export class GlyfReconstructor {
     private static readonly ONE_MORE_BYTE_CODE_2 = 254;
     private static readonly ONE_MORE_BYTE_CODE_1 = 255;
     private static readonly ONE_MORE_BYTE_CODE_1_BASE = 253;
-    private static readonly ONE_MORE_BYTE_CODE_2_BASE = 2 * 253;
+    private static readonly ONE_MORE_BYTE_CODE_2_BASE = 2 * GlyfReconstructor.ONE_MORE_BYTE_CODE_1_BASE;
     private static readonly CODE_SIZE_BYTES = 1;
     // The flag of a point in the flag stream (§5.2): bit 7 clear for an on-curve point, bits 0–6
     // the kind of its triplet. The first flag of each kind of triplet, as the table of §5.2 lists
@@ -129,6 +130,14 @@ export class GlyfReconstructor {
     private static readonly TWO_BYTES_DX_STEP = 12;
     // Bits 0 and 1 of the flag within a range are the signs of dx and dy.
     private static readonly SIGN_BIT_COUNT = 2;
+    private static readonly DY_SIGN_SHIFT = 1;
+    // withSign() reads the sign from bit 0 of the bits it is given; a set bit is positive.
+    private static readonly POSITIVE_SIGN_BIT = 0x01;
+    // The flags 0–19 carry bits 1–3 of the flag within the range as bits 8–10 of the magnitude: the
+    // bits stay where they are in the mask, and 7 more places take them to their place.
+    private static readonly HIGH_BYTE_SHIFT = 7;
+    // The magnitude of a one-byte or a two-byte triplet counts from 1 (§5.2).
+    private static readonly MAGNITUDE_BIAS = 1;
     private static readonly BITS_PER_NIBBLE = 4;
     private static readonly LOW_NIBBLE = 0x0f;
     // The flags of a simple glyph of glyf (OpenType 1.9.1, glyf).
@@ -159,7 +168,7 @@ export class GlyfReconstructor {
     private static readonly TWO_BY_TWO_SIZE_BYTES = 8;
     // A glyph record of glyf: numberOfContours and the bounding box, xMin first, take 10 bytes.
     private static readonly GLYPH_HEADER_SIZE_BYTES = 10;
-    private static readonly X_MIN_OFFSET = 2;
+    private static readonly X_MIN_OFFSET_BYTES = 2;
     private static readonly BOUNDING_BOX_SIZE_BYTES = 8;
     private static readonly MAX_END_POINT = 0xffff;
     private static readonly GLYPH_ALIGNMENT_BYTES = 4;
@@ -172,8 +181,9 @@ export class GlyfReconstructor {
     // The transformed hmtx (§5.4): a flags byte, then UInt16 and Int16 values.
     private static readonly HMTX_FLAGS_SIZE_BYTES = 1;
     // numberOfHMetrics, a UInt16 at offset 34, is the last field of the 36-byte hhea (OpenType 1.9.1, hhea).
-    private static readonly NUMBER_OF_H_METRICS_OFFSET = 34;
+    private static readonly NUMBER_OF_H_METRICS_OFFSET_BYTES = 34;
     private static readonly HHEA_MIN_SIZE_BYTES = 36;
+    private static readonly MIN_NUMBER_OF_H_METRICS = 1;
     private static readonly NO_LSB_FLAG = 0x01;
     private static readonly NO_LEFT_SIDE_BEARING_FLAG = 0x02;
 
@@ -211,18 +221,8 @@ export class GlyfReconstructor {
         }
 
         const view = new DataView(transformedGlyf.buffer, transformedGlyf.byteOffset, transformedGlyf.byteLength);
-        const fields = GlyfReconstructor.FIELD_OFFSETS;
-        let substreamsEnd = headerSizeBytes;
-
-        // The substreams lie one after another in the order of their sizes in the header.
-        const cut = (index: number, name: string): Substream => {
-            const sizeBytes = view.getUint32(fields.substreamSizes + index * GlyfReconstructor.SUBSTREAM_SIZE_FIELD_BYTES);
-            const substream = { name: name, bytes: transformedGlyf.subarray(substreamsEnd, substreamsEnd + sizeBytes), offset: 0 };
-
-            substreamsEnd += sizeBytes;
-
-            return substream;
-        };
+        const fields = GlyfReconstructor.FIELD_OFFSETS_BYTES;
+        const substreamsEndBytes = GlyfReconstructor.substreamStartBytes(view, GlyfReconstructor.SUBSTREAM_COUNT);
 
         this.numGlyphs = view.getUint16(fields.numGlyphs);
         this.indexFormat = view.getUint16(fields.indexFormat);
@@ -230,18 +230,18 @@ export class GlyfReconstructor {
             this.indexFormat === GlyfReconstructor.SHORT_LOCA_FORMAT
                 ? GlyfReconstructor.SHORT_LOCA_OFFSET_SIZE_BYTES
                 : GlyfReconstructor.LONG_LOCA_OFFSET_SIZE_BYTES;
-        this.nContourStream = cut(0, "nContourStream");
-        this.nPointsStream = cut(1, "nPointsStream");
-        this.flagStream = cut(2, "flagStream");
-        this.glyphStream = cut(3, "glyphStream");
-        this.compositeStream = cut(4, "compositeStream");
-        this.bboxStream = cut(5, "bboxStream");
-        this.instructionStream = cut(6, "instructionStream");
+        this.nContourStream = GlyfReconstructor.substream(transformedGlyf, view, 0, "nContourStream");
+        this.nPointsStream = GlyfReconstructor.substream(transformedGlyf, view, 1, "nPointsStream");
+        this.flagStream = GlyfReconstructor.substream(transformedGlyf, view, 2, "flagStream");
+        this.glyphStream = GlyfReconstructor.substream(transformedGlyf, view, 3, "glyphStream");
+        this.compositeStream = GlyfReconstructor.substream(transformedGlyf, view, 4, "compositeStream");
+        this.bboxStream = GlyfReconstructor.substream(transformedGlyf, view, 5, "bboxStream");
+        this.instructionStream = GlyfReconstructor.substream(transformedGlyf, view, 6, "instructionStream");
 
-        if (substreamsEnd > transformedGlyf.length) {
+        if (substreamsEndBytes > transformedGlyf.length) {
             throw this.brokenTable(Woff2Rule.TransformedGlyf, {
                 field: "end of the substreams",
-                value: substreamsEnd,
+                value: substreamsEndBytes,
                 expected: `at most ${transformedGlyf.length}, the transformLength`,
             });
         }
@@ -256,7 +256,7 @@ export class GlyfReconstructor {
 
         // The bounding boxes follow the bitmap in bboxStream.
         this.bboxBitmap = this.bboxStream.bytes.subarray(0, this.bboxBitmapSizeBytes());
-        this.bboxStream.offset = this.bboxBitmapSizeBytes();
+        this.bboxStream.offsetBytes = this.bboxBitmapSizeBytes();
 
         if ((view.getUint16(fields.optionFlags) & GlyfReconstructor.OVERLAP_SIMPLE_BITMAP_FLAG) === 0) {
             return;
@@ -264,17 +264,42 @@ export class GlyfReconstructor {
 
         // ⌈numGlyphs / 8⌉ bytes, not padded to 32-bit words: §5.1 pads only bboxBitmap, and fontTools
         // and google/woff2 write this one unpadded.
-        const bitmapEnd = substreamsEnd + Math.ceil(this.numGlyphs / GlyfReconstructor.BITS_PER_BYTE);
+        const bitmapEndBytes = substreamsEndBytes + Math.ceil(this.numGlyphs / GlyfReconstructor.BITS_PER_BYTE);
 
-        if (bitmapEnd > transformedGlyf.length) {
+        if (bitmapEndBytes > transformedGlyf.length) {
             throw this.brokenTable(Woff2Rule.TransformedGlyf, {
                 field: "end of overlapSimpleBitmap",
-                value: bitmapEnd,
+                value: bitmapEndBytes,
                 expected: `at most ${transformedGlyf.length}, the transformLength, as bit 0 of optionFlags is set`,
             });
         }
 
-        this.overlapSimpleBitmap = transformedGlyf.subarray(substreamsEnd, bitmapEnd);
+        this.overlapSimpleBitmap = transformedGlyf.subarray(substreamsEndBytes, bitmapEndBytes);
+    }
+
+    /**
+     * Where substream `index` starts in the transformed glyf: after the header and the substreams
+     * before it, which the sizes in the header give. Index 7 gives the end of the last one.
+     */
+    private static substreamStartBytes(view: DataView, index: number): number {
+        let startBytes = GlyfReconstructor.HEADER_SIZE_BYTES;
+
+        for (let previous = 0; previous < index; previous++) {
+            startBytes += view.getUint32(GlyfReconstructor.sizeFieldOffsetBytes(previous));
+        }
+
+        return startBytes;
+    }
+
+    private static sizeFieldOffsetBytes(index: number): number {
+        return GlyfReconstructor.FIELD_OFFSETS_BYTES.substreamSizes + index * GlyfReconstructor.SUBSTREAM_SIZE_FIELD_BYTES;
+    }
+
+    private static substream(transformedGlyf: Uint8Array, view: DataView, index: number, name: string): Substream {
+        const startBytes = GlyfReconstructor.substreamStartBytes(view, index);
+        const sizeBytes = view.getUint32(GlyfReconstructor.sizeFieldOffsetBytes(index));
+
+        return { name: name, bytes: transformedGlyf.subarray(startBytes, startBytes + sizeBytes), offsetBytes: 0 };
     }
 
     /**
@@ -282,8 +307,11 @@ export class GlyfReconstructor {
      * them out into glyf with their offsets in loca; then rebuilds `transformedHmtx`, if given, from
      * the xMin of the glyphs. Throws `BrokenWoff2` on a transformed hmtx that hhea and the glyph count
      * do not fit, checked first, or on the first glyph record that cannot be decoded.
+     *
+     * Called once per object: it goes on from the place each substream has reached, so a second call
+     * would read the records of the glyphs from where the first left off.
      */
-    public reconstruct(transformedHmtx: TransformedHmtx | undefined): ReconstructedTables {
+    public reconstruct(transformedHmtx: TransformedHmtxWithHhea | undefined): ReconstructedTables {
         const rebuildableHmtx = transformedHmtx === undefined ? undefined : this.rebuildableHmtx(transformedHmtx);
         const records: Array<Uint8Array> = [];
         const offsets: Array<number> = [];
@@ -401,7 +429,7 @@ export class GlyfReconstructor {
             });
         }
 
-        const componentsStart = this.compositeStream.offset;
+        const componentsStartBytes = this.compositeStream.offsetBytes;
         let hasInstructions = false;
         let component = 0;
         let flags: number;
@@ -413,7 +441,7 @@ export class GlyfReconstructor {
             this.take(this.compositeStream, this.componentArgumentsSizeBytes(flags), `the arguments of component ${component}`);
         } while ((flags & GlyfReconstructor.MORE_COMPONENTS) !== 0);
 
-        const components = this.compositeStream.bytes.subarray(componentsStart, this.compositeStream.offset);
+        const components = this.compositeStream.bytes.subarray(componentsStartBytes, this.compositeStream.offsetBytes);
         const boundingBox = this.take(this.bboxStream, GlyfReconstructor.BOUNDING_BOX_SIZE_BYTES, "the bounding box");
         const header = this.glyphHeader(GlyfReconstructor.COMPOSITE_CONTOURS, boundingBox);
 
@@ -434,7 +462,7 @@ export class GlyfReconstructor {
         const header = new Uint8Array(GlyfReconstructor.GLYPH_HEADER_SIZE_BYTES);
 
         new DataView(header.buffer).setInt16(0, nContour);
-        header.set(boundingBox, GlyfReconstructor.X_MIN_OFFSET);
+        header.set(boundingBox, GlyfReconstructor.X_MIN_OFFSET_BYTES);
 
         return header;
     }
@@ -490,8 +518,9 @@ export class GlyfReconstructor {
             const bytes = this.take(this.glyphStream, this.tripletSizeBytes(kind), `the coordinates of point ${index}`);
             const [dx, dy] = this.deltas(kind, bytes);
 
-            x += dx;
-            y += dy;
+            // The decoder keeps coordinates in C `int`s: a sum past 2³¹ wraps there, and so here.
+            x = (x + dx) | 0;
+            y = (y + dy) | 0;
             points.push({ x: x, y: y, isOnCurve: (flag & GlyfReconstructor.OFF_CURVE_BIT) === 0 });
         }
 
@@ -524,53 +553,59 @@ export class GlyfReconstructor {
         const byteBits = GlyfReconstructor.BITS_PER_BYTE;
         const nibbleBits = GlyfReconstructor.BITS_PER_NIBBLE;
         const lowNibble = GlyfReconstructor.LOW_NIBBLE;
-        const dySign = kind >> 1;
+        const highByteShift = GlyfReconstructor.HIGH_BYTE_SHIFT;
+        const bias = GlyfReconstructor.MAGNITUDE_BIAS;
+        const dySignBits = kind >> GlyfReconstructor.DY_SIGN_SHIFT;
 
         // Flags 0–9 and 10–19: the high byte of the magnitude is bits 1–3 of the flag within its
         // range, 0 to 4, and the bit of the sign is the bit 0 below it.
         if (kind < GlyfReconstructor.FIRST_DX_ONLY_FLAG) {
-            return [0, this.withSign(kind, ((kind & GlyfReconstructor.HIGH_BYTE_BITS) << (byteBits - 1)) + byte0)];
+            return [0, this.withSign(kind, ((kind & GlyfReconstructor.HIGH_BYTE_BITS) << highByteShift) + byte0)];
         }
 
         if (kind < GlyfReconstructor.FIRST_ONE_BYTE_FLAG) {
-            const inRange = kind - GlyfReconstructor.FIRST_DX_ONLY_FLAG;
+            const indexInRange = kind - GlyfReconstructor.FIRST_DX_ONLY_FLAG;
 
-            return [this.withSign(kind, ((inRange & GlyfReconstructor.HIGH_BYTE_BITS) << (byteBits - 1)) + byte0), 0];
+            return [this.withSign(kind, ((indexInRange & GlyfReconstructor.HIGH_BYTE_BITS) << highByteShift) + byte0), 0];
         }
 
         // Flags 20–83: one byte holds a nibble of each; bits 4–5 and 2–3 of the flag within its
         // range pick 1, 17, 33 or 49 to add to dx and to dy.
         if (kind < GlyfReconstructor.FIRST_TWO_BYTES_FLAG) {
-            const inRange = kind - GlyfReconstructor.FIRST_ONE_BYTE_FLAG;
-            const dxBase = 1 + (inRange & GlyfReconstructor.ONE_BYTE_DX_BASE_BITS);
-            const dyBase = 1 + (((inRange & GlyfReconstructor.ONE_BYTE_DY_BASE_BITS) >> GlyfReconstructor.SIGN_BIT_COUNT) << nibbleBits);
+            const indexInRange = kind - GlyfReconstructor.FIRST_ONE_BYTE_FLAG;
+            const dxBase = bias + (indexInRange & GlyfReconstructor.ONE_BYTE_DX_BASE_BITS);
+            const dyBase =
+                bias + (((indexInRange & GlyfReconstructor.ONE_BYTE_DY_BASE_BITS) >> GlyfReconstructor.SIGN_BIT_COUNT) << nibbleBits);
 
-            return [this.withSign(kind, dxBase + (byte0 >> nibbleBits)), this.withSign(dySign, dyBase + (byte0 & lowNibble))];
+            return [this.withSign(kind, dxBase + (byte0 >> nibbleBits)), this.withSign(dySignBits, dyBase + (byte0 & lowNibble))];
         }
 
         // Flags 84–119: a byte each; the flag within its range is 12 × the high byte of dx plus
         // 4 × the high byte of dy plus the signs.
         if (kind < GlyfReconstructor.FIRST_THREE_BYTES_FLAG) {
-            const inRange = kind - GlyfReconstructor.FIRST_TWO_BYTES_FLAG;
-            const dxHighByte = Math.floor(inRange / GlyfReconstructor.TWO_BYTES_DX_STEP);
-            const dyHighByte = inRange % GlyfReconstructor.TWO_BYTES_DX_STEP >> GlyfReconstructor.SIGN_BIT_COUNT;
+            const indexInRange = kind - GlyfReconstructor.FIRST_TWO_BYTES_FLAG;
+            const dxHighByte = Math.floor(indexInRange / GlyfReconstructor.TWO_BYTES_DX_STEP);
+            const dyHighByte = indexInRange % GlyfReconstructor.TWO_BYTES_DX_STEP >> GlyfReconstructor.SIGN_BIT_COUNT;
 
-            return [this.withSign(kind, 1 + (dxHighByte << byteBits) + byte0), this.withSign(dySign, 1 + (dyHighByte << byteBits) + byte1)];
+            return [
+                this.withSign(kind, bias + (dxHighByte << byteBits) + byte0),
+                this.withSign(dySignBits, bias + (dyHighByte << byteBits) + byte1),
+            ];
         }
 
         // Flags 120–123: 12 bits each in three bytes; flags 124–127: 16 bits each in four.
         if (kind < GlyfReconstructor.FIRST_FOUR_BYTES_FLAG) {
             return [
                 this.withSign(kind, (byte0 << nibbleBits) + (byte1 >> nibbleBits)),
-                this.withSign(dySign, ((byte1 & lowNibble) << byteBits) + byte2),
+                this.withSign(dySignBits, ((byte1 & lowNibble) << byteBits) + byte2),
             ];
         }
 
-        return [this.withSign(kind, (byte0 << byteBits) + byte1), this.withSign(dySign, (byte2 << byteBits) + byte3)];
+        return [this.withSign(kind, (byte0 << byteBits) + byte1), this.withSign(dySignBits, (byte2 << byteBits) + byte3)];
     }
 
     private withSign(signBits: number, magnitude: number): number {
-        return (signBits & 1) !== 0 ? magnitude : -magnitude;
+        return (signBits & GlyfReconstructor.POSITIVE_SIGN_BIT) !== 0 ? magnitude : -magnitude;
     }
 
     /**
@@ -671,7 +706,7 @@ export class GlyfReconstructor {
             return 0;
         }
 
-        return new DataView(record.buffer, record.byteOffset, record.byteLength).getInt16(GlyfReconstructor.X_MIN_OFFSET);
+        return new DataView(record.buffer, record.byteOffset, record.byteLength).getInt16(GlyfReconstructor.X_MIN_OFFSET_BYTES);
     }
 
     /**
@@ -679,8 +714,8 @@ export class GlyfReconstructor {
      * bits as in the decoder: glyf over 128 KiB does not fit the short format.
      */
     private loca(offsets: Array<number>): Uint8Array {
-        const isShort = this.indexFormat === GlyfReconstructor.SHORT_LOCA_FORMAT;
         const offsetSizeBytes = this.locaOffsetSizeBytes;
+        const isShort = offsetSizeBytes === GlyfReconstructor.SHORT_LOCA_OFFSET_SIZE_BYTES;
         const loca = new Uint8Array(offsets.length * offsetSizeBytes);
         const view = new DataView(loca.buffer);
 
@@ -696,11 +731,11 @@ export class GlyfReconstructor {
     }
 
     /**
-     * The transformed hmtx with what its rebuilding needs, once rule `TransformedHmtx` holds: hhea
+     * The transformed hmtx with what its rebuilding needs, once rule `Woff2Rule.TransformedHmtx` holds: hhea
      * holds numberOfHMetrics, which is 1 to numGlyphs, and the table holds the arrays its flags keep
      * (§5.4). Its flags byte is checked by `Woff2FontValidator` before, by rule `HmtxTransform`.
      */
-    private rebuildableHmtx({ bytes, hhea }: TransformedHmtx): RebuildableHmtx {
+    private rebuildableHmtx({ bytes, hhea }: TransformedHmtxWithHhea): RebuildableHmtx {
         if (hhea === undefined) {
             throw this.brokenHmtx({
                 at: "the table directory",
@@ -720,15 +755,15 @@ export class GlyfReconstructor {
         }
 
         const numberOfHMetrics = new DataView(hhea.buffer, hhea.byteOffset, hhea.byteLength).getUint16(
-            GlyfReconstructor.NUMBER_OF_H_METRICS_OFFSET,
+            GlyfReconstructor.NUMBER_OF_H_METRICS_OFFSET_BYTES,
         );
 
-        if (numberOfHMetrics < 1 || numberOfHMetrics > this.numGlyphs) {
+        if (numberOfHMetrics < GlyfReconstructor.MIN_NUMBER_OF_H_METRICS || numberOfHMetrics > this.numGlyphs) {
             throw this.brokenHmtx({
                 at: BrokenWoff2.tableName(TableTag.Hhea),
                 field: "numberOfHMetrics",
                 value: numberOfHMetrics,
-                expected: `1 to ${this.numGlyphs}, numGlyphs of the transformed glyf`,
+                expected: `${GlyfReconstructor.MIN_NUMBER_OF_H_METRICS} to ${this.numGlyphs}, numGlyphs of the transformed glyf`,
             });
         }
 
@@ -766,27 +801,20 @@ export class GlyfReconstructor {
     private hmtx({ bytes, numberOfHMetrics, hasLsb, hasLeftSideBearing }: RebuildableHmtx, xMins: Array<number>): Uint8Array {
         // The values follow the flags byte in the order of the glyphs: advanceWidth[], then lsb[] of
         // the proportional glyphs, then leftSideBearing[] of the monospaced ones.
-        const transformedHmtxView = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-        let inputOffset = GlyfReconstructor.HMTX_FLAGS_SIZE_BYTES;
-        const nextWord = (): number => {
-            const value = transformedHmtxView.getUint16(inputOffset);
-
-            inputOffset += GlyfReconstructor.WORD_SIZE_BYTES;
-
-            return value;
-        };
+        const values: Substream = { name: "the transformed hmtx", bytes: bytes, offsetBytes: GlyfReconstructor.HMTX_FLAGS_SIZE_BYTES };
+        const nextWord = (): number => this.readUint16(values, "a value of the transformed hmtx");
         const advanceWidths: Array<number> = [];
         const metrics: Array<number> = [];
 
-        for (let glyph = 0; glyph < numberOfHMetrics; glyph++) {
+        for (let glyphIndex = 0; glyphIndex < numberOfHMetrics; glyphIndex++) {
             advanceWidths.push(nextWord());
         }
 
-        for (let glyph = 0; glyph < this.numGlyphs; glyph++) {
-            const isProportional = glyph < numberOfHMetrics;
+        for (let glyphIndex = 0; glyphIndex < this.numGlyphs; glyphIndex++) {
+            const isProportional = glyphIndex < numberOfHMetrics;
             const isStored = isProportional ? hasLsb : hasLeftSideBearing;
-            const leftSideBearing = isStored ? nextWord() : xMins[glyph] ?? 0;
-            const advanceWidth = advanceWidths[glyph];
+            const leftSideBearing = isStored ? nextWord() : xMins[glyphIndex] ?? 0;
+            const advanceWidth = advanceWidths[glyphIndex];
 
             if (advanceWidth !== undefined) {
                 metrics.push(advanceWidth);
@@ -813,10 +841,10 @@ export class GlyfReconstructor {
         return this.isBitSet(this.bboxBitmap, this.glyphIndex);
     }
 
-    private isBitSet(bitmap: Uint8Array | undefined, glyph: number): boolean {
-        const byte = bitmap?.[Math.floor(glyph / GlyfReconstructor.BITS_PER_BYTE)] ?? 0;
+    private isBitSet(bitmap: Uint8Array | undefined, glyphIndex: number): boolean {
+        const byte = bitmap?.[Math.floor(glyphIndex / GlyfReconstructor.BITS_PER_BYTE)] ?? 0;
 
-        return (byte & (GlyfReconstructor.FIRST_GLYPH_BIT >> glyph % GlyfReconstructor.BITS_PER_BYTE)) !== 0;
+        return (byte & (GlyfReconstructor.FIRST_GLYPH_BIT >> glyphIndex % GlyfReconstructor.BITS_PER_BYTE)) !== 0;
     }
 
     /**
@@ -824,7 +852,7 @@ export class GlyfReconstructor {
      * says in the answer what the glyph record takes the bytes for.
      */
     private take(stream: Substream, lengthBytes: number, purpose: string): Uint8Array {
-        const bytesLeft = stream.bytes.length - stream.offset;
+        const bytesLeft = stream.bytes.length - stream.offsetBytes;
 
         if (bytesLeft < lengthBytes) {
             throw this.brokenGlyph(Woff2Rule.GlyphStreams, {
@@ -834,9 +862,9 @@ export class GlyfReconstructor {
             });
         }
 
-        const bytes = stream.bytes.subarray(stream.offset, stream.offset + lengthBytes);
+        const bytes = stream.bytes.subarray(stream.offsetBytes, stream.offsetBytes + lengthBytes);
 
-        stream.offset += lengthBytes;
+        stream.offsetBytes += lengthBytes;
 
         return bytes;
     }
