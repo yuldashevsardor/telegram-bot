@@ -518,23 +518,28 @@ The test runs against a Postgres of its own, `docker-compose.load.yml`, so that 
 slow down the shared database of every worktree. The targets are `load-*` of the `Makefile`, in
 this order: `load-up`, `load-fill-done` once, then per layout `load-fill-pending` and
 `load-measure`; `load-indexes` adds the candidate index, `load-down` removes the database with its
-data. The files are in `test/load/`: the fill (`outbox-fill-done.sql`, `outbox-fill-pending.sql`),
-the candidate index (`outbox-candidate-indexes.sql`) and the measurement (`outbox-load-test.ts`).
+data. The files they run are in `test/load/`. A fill stays valid for 6 days: then its done messages
+pass the retention, and the cleanup of a measurement deletes them by the thousand.
 
 The measurement calls the real `OutboxStore` with the settings of `.env` and prints how long each
 call took on the client. The plans are those of the store's own statements: `auto_explain` logs
 them with `ANALYZE` and `BUFFERS` for the user of `.env`, and `load-measure` prints the log of the
-database after the times. The calls are 15 `pull(1)`, what the runner asks for, and 15 `pull(30)`,
-the largest batch the common limit gives, each followed by `markAsDone()` of what it gave out; a
-pull the limits hold back answers nothing and is repeated once they let it through. Then
-`findExpiredLeases()`, `deleteFinishedMessages()` down to the call that deletes nothing, and
-`deleteIdleChats()`.
+database after the times. `EXPLAIN ANALYZE` adds to the time of every statement it runs, so the
+times below come from a run with `plans=off`, and the plans from a run with them.
+
+The calls are 15 `pull(1)`, what the runner asks for, and 15 `pull(30)`, the largest batch the
+common limit gives, each followed by `markAsDone()` of what it gave out. A pull the limits hold back
+answers nothing; it is printed with its 0 messages, left out of the results and repeated once they
+let it through. Then `findExpiredLeases()` twice: with no lease expired, as the call every
+`OUTBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL` finds as a rule, and with the leases of a batch pulled
+and left until `OUTBOX_LEASE_DURATION` passed, as after a node died. Last,
+`deleteFinishedMessages()` down to the call that deletes nothing, and `deleteIdleChats()`.
 
 ### Data
 
 - 100 M `done` messages, 71 GB with the primary key, over the chats 1 to 100 000, finished within
-  the last 6 days, inside `OUTBOX_DONE_RETENTION`; the oldest 5 000 finished 8 days ago, past it.
-  The fill takes 21 minutes.
+  the day before the fill, inside `OUTBOX_DONE_RETENTION`; the oldest 5 000 finished 8 days before
+  it, past it. The fill takes 21 minutes.
 - About 1 M `pending` messages in two layouts, all of priority 0, every chat `ready`: 3 chats ×
   300 000 ("3 chats") and 100 000 chats × 10 ("100 k chats"). Their ids follow the done ones.
 - The defaults of `.env.dist` and of the `postgres:18-alpine` image (`shared_buffers` of 128 MB,
@@ -551,22 +556,25 @@ however many nodes there are. 10 ms leaves the turns of several nodes room withi
 
 ### Results
 
-The times are those of the client, in ms; "first" is the first call of the run, the cold cache.
+The times are those of the client, in ms, from runs with `plans=off`; "first" is the first call of
+the run, the cold cache. The ranges leave out the pulls the limits held back (see "How to run it").
 
 | call | no index, 3 chats | index, 3 chats | index, 100 k chats |
 |---|---|---|---|
-| `pull(1)` | 405 878 – 511 630 | first 43, then 1.3 – 8.2, median 4.4 | first 730, then 149 – 210, median 160 |
-| `pull(30)` | — | 4.6 – 25.8, median 7.4, for 3 messages | first 187, then 176 – 223, median 192, for 30 messages |
-| `markAsDone()` | 72 – 76 | median 2.9, p95 5.2, max 6.1 | median 0.9, p95 1.8, max 8.7 |
-| `findExpiredLeases()` | — | 1.3 | 3.5 |
-| `deleteFinishedMessages()`, a full batch | — | 5 – 69, one of 114 511 | — |
-| `deleteFinishedMessages()`, nothing to delete | — | 121 909 | 81 286 |
-| `deleteIdleChats()` | — | 33 | 45 |
+| `pull(1)` | 405 878 – 511 630 | first 140, then 1.5 – 7.4, median 2.1 | first 398, then 124 – 190, median 144 |
+| `pull(30)` | — | first 5, then 3.6 – 28, median 7.0, for 3 messages | first 131, then 134 – 536, median 228, for 30 messages |
+| `markAsDone()` | 72 – 76 | median 2.1, p95 4.1, max 14 | median 1.2, p95 4.3, max 42 |
+| `findExpiredLeases()`, no lease expired | — | 0.7 | 3.1 |
+| `findExpiredLeases()`, a batch expired | — | 706, 3 leases | 22, 30 leases |
+| `deleteFinishedMessages()`, a full batch | — | 4.6 – 54, one of 86 063 | — |
+| `deleteFinishedMessages()`, nothing to delete | — | 81 462 | 118 604 |
+| `deleteIdleChats()` | — | 32 | 60 |
 
-Without an index only two pulls were measured: each took minutes, and the rest of the run would have
-taken hours. The candidate index is
-`telegram_outbox (chat_id, id) WHERE status IN ('pending', 'processing')`; it took 1 minute 45
-seconds to build.
+Without an index only two pulls and their completions were measured, of an earlier fill and with the
+plans on: each pull took minutes, and the rest of the run would have taken hours. The candidate
+index is `telegram_outbox (chat_id, id) WHERE status IN ('pending', 'processing')`; it took 2
+minutes to build. The plans add to the time: `pull(1)` of 100 k chats took a median of 161 ms with
+them and 144 ms without.
 
 **The head without an index.** The head of each ready chat is found by walking the primary key in
 `id` order and filtering every row, so the walk passes all the done messages before it reaches the
@@ -579,6 +587,24 @@ Index Scan using telegram_outbox_pkey on telegram_outbox
   Buffers: shared hit=7 read=28092413 written=11538
 ```
 
+**The completion with the index.** It locks the chat through the primary key of the message and
+finds the active message left behind it (`releaseChat()`) as the first entry of its chat in the
+index; the rest of its statements go by primary keys.
+
+```
+LockRows  (actual time=0.058..0.059 rows=1.00 loops=1)
+  InitPlan 1
+    ->  Index Scan using telegram_outbox_pkey on telegram_outbox
+          (actual time=0.008..0.014 rows=1.00 loops=1)
+  ->  Seq Scan on telegram_outbox_chats  (actual time=0.020..0.021 rows=1.00 loops=1)
+...
+Limit  (actual time=0.017..0.017 rows=1.00 loops=1)                -- releaseChat()
+  Buffers: shared hit=6
+  ->  Index Only Scan using telegram_outbox_active_chat_id_idx on telegram_outbox
+        (actual time=0.017..0.017 rows=1.00 loops=1)
+        Index Cond: (chat_id = '1'::bigint)
+```
+
 **The pull of 100 k chats with the index.** The index makes each head one lookup, but the pull
 orders the chats by the priority of their head, so it looks up the head of every ready chat before
 it takes the first, and sorts them all, on disk past `work_mem`. A ready chat that does not get into
@@ -586,16 +612,34 @@ the batch costs the pull as much as one that does. On top, `ready` reads every c
 time.
 
 ```
-Sort  (actual time=123.228..123.231 rows=30.00 loops=1)
+Sort  (actual time=145.512..145.516 rows=30.00 loops=1)
   Sort Key: head.priority, chats.next_attempt_at, chats.chat_id
   Sort Method: external merge  Disk: 7944kB
-  ->  Nested Loop  (actual time=0.032..104.159 rows=100000.00 loops=1)
-        ->  Seq Scan on telegram_outbox_chats chats  (actual time=0.006..9.540 rows=100000.00 loops=1)
+  ->  Nested Loop  (actual time=0.047..113.687 rows=100000.00 loops=1)
+        ->  Seq Scan on telegram_outbox_chats chats  (actual time=0.008..9.473 rows=100000.00 loops=1)
         ->  Index Scan using telegram_outbox_active_chat_id_idx on telegram_outbox
               (actual time=0.001..0.001 rows=1.00 loops=100000)
 ...
-Aggregate  (actual time=13.420..13.421 rows=1.00 loops=1)          -- ready: min(next_attempt_at)
-  ->  Seq Scan on telegram_outbox_chats  (actual time=1.545..10.138 rows=99970.00 loops=1)
+Aggregate  (actual time=13.047..13.048 rows=1.00 loops=1)          -- ready: min(next_attempt_at)
+  ->  Seq Scan on telegram_outbox_chats  (actual time=1.458..9.929 rows=99970.00 loops=1)
+```
+
+**The lease recovery with the index.** `findExpiredLeases()` finds the `processing` message of each
+expired chat among all the active messages of the chat: the index gives them by chat, and the status
+is a filter over every one of them, with no `LIMIT` to stop at the head, where the message is. So it
+costs as many rows as the chats it recovers have active messages: 300 000 a chat in the 3 chats
+layout.
+
+```
+Nested Loop  (actual time=0.180..791.463 rows=3.00 loops=1)
+  ->  Seq Scan on telegram_outbox_chats chats  (actual time=0.033..0.040 rows=3.00 loops=1)
+        Filter: (locked_until <= now())
+  ->  Index Scan using telegram_outbox_active_chat_id_idx on telegram_outbox message
+        (actual time=0.118..263.772 rows=1.00 loops=3)
+        Index Cond: (chat_id = chats.chat_id)
+        Filter: (status = 'processing'::text)
+        Rows Removed by Filter: 299958
+        Buffers: shared hit=3929 read=67027 dirtied=1 written=387
 ```
 
 **Dead entries of the index.** A message leaves two dead entries in the candidate index: its
@@ -603,8 +647,8 @@ Aggregate  (actual time=13.420..13.421 rows=1.00 loops=1)          -- ready: min
 (no HOT update), and the version it leaves behind keeps its entry until a vacuum cleans the index.
 A plain `VACUUM` does not always: while the dead rows lie on less than 2% of the pages of the table
 it skips the indexes ("index scan bypassed" in `VACUUM (VERBOSE)`), and 2% of this table is some
-180 000 pages. A rerun of the 3 chats layout over the 2.8 M dead entries the earlier layouts had
-left found each head by walking them:
+180 000 pages. A run of the 3 chats layout over the 2.8 M dead entries the earlier layouts of a fill
+had left found each head by walking them:
 
 ```
 Index Only Scan using telegram_outbox_active_chat_id_idx on telegram_outbox
@@ -625,23 +669,25 @@ index on `finished_at` serves, so the call that finds nothing reads the whole ta
 it slows down the rest only through the disk it reads.
 
 ```
-Seq Scan on telegram_outbox telegram_outbox_1  (actual time=81281.935..81281.936 rows=0.00 loops=1)
+Seq Scan on telegram_outbox telegram_outbox_1  (actual time=114548.029..114548.029 rows=0.00 loops=1)
   Filter: (((status = 'done'::text) AND ((finished_at + '168:00:00'::interval) < now())) OR ...)
-  Buffers: shared hit=2556 read=9180874
+  Buffers: shared hit=6113 read=9132300 dirtied=6
 ```
 
-A batch finds its rows fast only while they lie where the scan starts. The full batches are of the
-first 3 chats run, the only one with rows past the retention, which lie at the start of the table:
-four took 5 – 69 ms, and one 114 s, its scan having passed 100.9 M rows before them. A seq scan of a
-table this large need not start at the first page: with `synchronize_seqscans`, on by default, it
-starts where the last scan of the table reported it was.
+A batch finds its rows fast only while they lie where the scan starts. The full batches are of the 3
+chats run, the first after the fill and the only one with rows past the retention, which lie at the
+start of the table: four took 4.6 – 54 ms, and one 86 s. In an earlier run with the plans on, such a
+batch showed its scan passing 100.9 M rows before them. A seq scan of a table this large need not
+start at the first page: with `synchronize_seqscans`, on by default, it starts where the last scan
+of the table reported it was.
 
 ### Verdict
 
-With the candidate index the completion and the lease recovery are within the threshold, and so is
-the pull of a few chats, at a median of 4 – 7 ms, while the index is kept clean of dead entries. The
-pull of 100 k ready chats is not, some 16 times over, and neither is the cleanup, some 8 000 times
-over. The proposal is a comment on #643:
+With the candidate index the completion is within the threshold, and so is the pull of a few chats
+at its median, 2 – 7 ms, while the index is kept clean of dead entries; a batch of the 3 chats took
+up to 28 ms once. The lease recovery is within it while no lease has expired, and at 706 ms for the
+3 chats of 300 000 messages when their leases have. The pull of 100 k ready chats is not, some 14
+times over, and neither is the cleanup, some 8 000 times over. The proposal is a comment on #643:
 https://github.com/yuldashevsardor/telegram-bot/issues/643#issuecomment-5984131010
 
 ## Sending

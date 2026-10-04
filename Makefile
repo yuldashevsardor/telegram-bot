@@ -185,18 +185,18 @@ psql: ## psql in the database container
 # The load test of the outbox (docs/architecture/outbox.md, "Load test") runs against a Postgres of
 # its own, docker-compose.load.yml, reached by the service name pgsql-load from the one-off
 # application containers. The fill goes through psql as the superuser, the measurement through the
-# store as the user of .env, whose role gets auto_explain and a statement timeout in load-up: the
-# plans are of the measurement alone, and a pull that scans for hours is cancelled.
+# store as the user of .env. That role gets a statement timeout in load-up, so a pull that scans for
+# hours is cancelled, and the auto_explain logging in load-measure, so the plans are of the
+# measurement alone.
 DC_LOAD := docker compose -f docker-compose.load.yml
 # app_user is the user of .env, known inside the container only.
 LOAD_PSQL := $(DC_LOAD) exec -T pgsql-load sh -c 'psql -v ON_ERROR_STOP=1 -v app_user="$$DATABASE_USER_NAME" -U "$$POSTGRES_USER" -d "$$DATABASE_NAME" "$$@"' psql
 LOAD_STATEMENT_TIMEOUT := 10min
 
-load-up: ## Bring up the load-test database, apply the migrations and turn on the plans of the measurement
+load-up: ## Bring up the load-test database and apply the migrations
 	$(DC_LOAD) up -d --wait
-	$(DC_APP) run --rm app sh -c 'DATABASE_URL="postgres://$$DATABASE_USER_NAME:$$DATABASE_USER_PASSWORD@pgsql-load:5432/$$DATABASE_NAME" npm run migrate -- up'
-	printf '%s\n' 'ALTER ROLE :"app_user" SET auto_explain.log_min_duration = 0;' \
-		"ALTER ROLE :\"app_user\" SET statement_timeout = '$(LOAD_STATEMENT_TIMEOUT)';" | $(LOAD_PSQL)
+	$(DC_APP_RUN) sh -c 'DATABASE_URL="postgres://$$DATABASE_USER_NAME:$$DATABASE_USER_PASSWORD@pgsql-load:5432/$$DATABASE_NAME" npm run migrate -- up'
+	printf '%s\n' "ALTER ROLE :\"app_user\" SET statement_timeout = '$(LOAD_STATEMENT_TIMEOUT)';" | $(LOAD_PSQL)
 
 load-fill-done: ## Fill the load-test database with done messages, once: make load-fill-done [rows=100000000]
 	$(LOAD_PSQL) -v rows=$(or $(rows),100000000) -v chats=100000 -v expired_rows=5000 < test/load/outbox-fill-done.sql
@@ -209,11 +209,17 @@ load-indexes: ## Create the candidate indexes on the load-test database (test/lo
 	$(LOAD_PSQL) < test/load/outbox-candidate-indexes.sql
 
 # The plans are taken from the log of the database since the start of the run: auto_explain writes
-# them there, not to the client.
-load-measure: ## Measure the outbox store on the load-test database; the times, then the plans
-	@started_at=$$(date -u +%Y-%m-%dT%H:%M:%SZ) && \
-		$(DC_APP) run --rm -e DATABASE_HOST=pgsql-load app env TSX_TSCONFIG_PATH=./tsconfig.check.json node --require tsx/cjs test/load/outbox-load-test.ts && \
-		$(DC_LOAD) logs --no-log-prefix --since "$$started_at" pgsql-load
+# them there, not to the client. They are printed after a failed run too, up to the call that
+# failed. With them every statement runs under EXPLAIN ANALYZE, which adds to its time, so the times
+# to compare with a threshold are taken with plans=off. The setting is the role's, read by every new
+# connection.
+load-measure: ## Measure the outbox store on the load-test database; the times, then the plans: make load-measure [plans=off]
+	printf '%s\n' 'ALTER ROLE :"app_user" SET auto_explain.log_min_duration = $(if $(filter off,$(plans)),-1,0);' | $(LOAD_PSQL)
+	@started_at=$$(date -u +%Y-%m-%dT%H:%M:%SZ); \
+		$(DC_APP_RUN) env DATABASE_HOST=pgsql-load TSX_TSCONFIG_PATH=./tsconfig.check.json node --require tsx/cjs test/load/outbox-load-test.ts; \
+		status=$$?; \
+		$(DC_LOAD) logs --no-log-prefix --since "$$started_at" pgsql-load; \
+		exit $$status
 
 load-psql: ## psql in the load-test database
 	$(DC_LOAD) exec pgsql-load sh -c 'psql -U "$$POSTGRES_USER" -d "$$DATABASE_NAME"'

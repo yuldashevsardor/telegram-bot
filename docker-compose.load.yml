@@ -18,8 +18,8 @@ services:
         # auto_explain logs the plan of every statement of the store with its run time and buffers,
         # so the measurement reads the plans of the store's own SQL rather than of a copy that can
         # drift from it. It is loaded for every session, but logs only where log_min_duration is set:
-        # make load-up sets it for the user of .env, the one the store connects as, and not for the
-        # superuser of the fill.
+        # make load-measure sets it for the user of .env, the one the store connects as, and not for
+        # the superuser of the fill.
         # The other settings are the defaults of the image, as in the shared database.
         command:
             - postgres

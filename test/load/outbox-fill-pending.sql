@@ -2,7 +2,10 @@
 -- chats, 1 to :chats, with :per_chat pending messages each, over the done messages of
 -- outbox-fill-done.sql. Run by make load-fill-pending; it replaces the pending messages and the
 -- chats the previous run left, and puts the bot row back to a full budget. The messages the
--- measurement completed stay among the done ones: a few dozen against :rows of the fill.
+-- measurement completed stay among the done ones: a few hundred against the 100 M of the fill.
+--
+-- The statuses and the state are the values of OutboxStatus and OutboxChatState; the measurement
+-- stops on a layout it cannot pull.
 
 BEGIN;
 

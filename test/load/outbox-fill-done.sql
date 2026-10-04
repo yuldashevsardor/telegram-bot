@@ -3,9 +3,23 @@
 -- past. Run by make load-fill-done, once: the pending layouts are swapped over them.
 --
 -- The oldest :expired_rows rows finished past OUTBOX_DONE_RETENTION (7 days), the rest within the
--- last 6 days: the cleanup has a few full batches to delete, and then the call that finds nothing,
--- which is what a cleanup that keeps up finds every OUTBOX_MAINTENANCE_CLEANUP_INTERVAL. They are
--- inserted first, so they lie at the start of the table, as the oldest rows do.
+-- day before the fill: the cleanup has a few full batches to delete, and then the call that finds
+-- nothing, which is what a cleanup that keeps up finds every OUTBOX_MAINTENANCE_CLEANUP_INTERVAL.
+-- The day keeps the fill valid for 6 days: after that its rows pass the retention, and the cleanup
+-- of a measurement deletes them by the thousand. The expired rows are inserted first, so they lie
+-- at the start of the table, as the oldest rows do.
+--
+-- The status is the value of OutboxStatus.Done; the measurement stops on a layout it cannot pull.
+
+-- A second fill would add another :rows rows after the first, its expired ones in the middle of the
+-- table.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM telegram_outbox) THEN
+        RAISE EXCEPTION 'telegram_outbox is filled already: make load-down and make load-up give an empty one';
+    END IF;
+END
+$$;
 
 INSERT INTO telegram_outbox (chat_id, method, payload, priority, status, attempts, response, created_at, updated_at, finished_at)
 SELECT chat_id,
@@ -34,7 +48,7 @@ FROM (
            1 + n % :chats AS chat_id,
            CASE
                WHEN n <= :expired_rows THEN now() - interval '8 days'
-               ELSE now() - interval '6 days' + (n - :expired_rows) * (interval '6 days' / :rows)
+               ELSE now() - interval '1 day' + (n - :expired_rows) * (interval '1 day' / :rows)
            END AS finished_at
     FROM generate_series(1, :rows) AS n
 ) AS message;
