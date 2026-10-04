@@ -1,6 +1,7 @@
 import { expect } from "chai";
 import crypto from "crypto";
 import { GlyfReconstructor } from "app/font-convertor/validator/woff2/glyf-reconstructor";
+import { BrokenWoff2 } from "app/font-convertor/validator/woff2/woff2-font-validator.errors";
 import type { GlyfParts } from "test/font-convertor/validator/woff2/woff2-font-validator.helper";
 import {
     composite,
@@ -63,6 +64,22 @@ const WORD_DX_FLAG = 0x21;
 // On-curve, y the same, x a short vector, positive.
 const SHORT_DX_FLAG = 0x33;
 
+// Two simple glyphs of one point each, to lay out a glyf of a size the spec chooses. A record is 16
+// bytes and its instructions, padded to 4: the 10-byte header, an end point, instructionLength, a
+// flag and one x byte. The first takes 65 535 bytes of instructions, the most instructionLength
+// holds, so 65 552 bytes; the second's 65 500 make 65 516 and the glyf 131 068 bytes, the largest
+// the short loca holds in 4-byte records; 65 504 make 131 072.
+const MAX_INSTRUCTION_LENGTH_BYTES = 0xffff;
+const FITTING_INSTRUCTION_LENGTH_BYTES = 65500;
+const OVERFLOWING_INSTRUCTION_LENGTH_BYTES = 65504;
+const FITTING_GLYF_SIZE_BYTES = 131068;
+const OVERFLOWING_GLYF_SIZE_BYTES = 131072;
+const MAX_SHORT_LOCA_GLYF_SIZE_BYTES = 131070;
+const FIRST_GLYPH_SIZE_BYTES = 65552;
+const TWO_GLYPHS_BBOX_BITMAP_SIZE_BYTES = 4;
+const LONG_LOCA_FORMAT = 1;
+const SHORT_LOCA_FORMAT = 0;
+
 describe("GlyfReconstructor.reconstruct", function () {
     let glyf: Uint8Array;
     let hmtx: Uint8Array;
@@ -77,6 +94,34 @@ describe("GlyfReconstructor.reconstruct", function () {
         hhea = tableOf(layout, "hhea");
         parts = splitGlyf(glyf);
     });
+
+    function rebuild(secondInstructionLengthBytes: number, indexFormat: number): { glyf: Uint8Array; loca: Uint8Array } {
+        const instructionLengths = [MAX_INSTRUCTION_LENGTH_BYTES, secondInstructionLengthBytes];
+        const glyphStream = concat(
+            ...instructionLengths.map((lengthBytes) => Uint8Array.from([1, WORD_CODE, lengthBytes >> 8, lengthBytes & 0xff])),
+        );
+        const header = withUint16(
+            withUint16(new Uint8Array(GLYF_N_CONTOUR_STREAM_SIZE), GLYF_NUM_GLYPHS, 2),
+            GLYF_INDEX_FORMAT,
+            indexFormat,
+        );
+        const twoGlyphs: GlyfParts = {
+            header: header,
+            streams: {
+                ...parts.streams,
+                nContour: Uint8Array.from([0x00, 0x01, 0x00, 0x01]),
+                nPoints: Uint8Array.from([1, 1]),
+                flag: Uint8Array.from([DX_ONLY_FLAG, DX_ONLY_FLAG]),
+                glyph: glyphStream,
+                composite: new Uint8Array(0),
+                bbox: new Uint8Array(TWO_GLYPHS_BBOX_BITMAP_SIZE_BYTES),
+                instruction: new Uint8Array(MAX_INSTRUCTION_LENGTH_BYTES + secondInstructionLengthBytes),
+            },
+            tail: new Uint8Array(0),
+        };
+
+        return new GlyfReconstructor(FONT_PATH, joinGlyf(twoGlyphs)).reconstruct(undefined);
+    }
 
     function reconstruct(edit: (whole: GlyfParts) => GlyfParts): { glyf: Uint8Array; loca: Uint8Array } {
         return new GlyfReconstructor(FONT_PATH, joinGlyf(edit(parts))).reconstruct(undefined);
@@ -203,15 +248,26 @@ describe("GlyfReconstructor.reconstruct", function () {
     });
 
     it("writes loca in the short format, the offsets halved, when indexFormat is 0", function () {
-        const long = reconstruct((whole) => whole).loca;
-        const short = reconstruct((whole) => ({ ...whole, header: withUint16(whole.header, GLYF_INDEX_FORMAT, 0) })).loca;
-        const longOffsets = Array.from({ length: long.length / 4 }, (_, glyph) => readUint32(long, 4 * glyph));
-        const shortOffsets = Array.from({ length: short.length / 2 }, (_, glyph) =>
-            new DataView(short.buffer, short.byteOffset).getUint16(2 * glyph),
-        );
+        const longOffsets = locaOffsets(rebuild(FITTING_INSTRUCTION_LENGTH_BYTES, LONG_LOCA_FORMAT).loca, 4);
+        const shortOffsets = locaOffsets(rebuild(FITTING_INSTRUCTION_LENGTH_BYTES, SHORT_LOCA_FORMAT).loca, 2);
 
-        // The fixture's glyf is over 128 KiB: its last offsets do not fit in 16 bits and wrap, as in the decoder.
-        expect(shortOffsets).to.deep.equal(longOffsets.map((offset) => (offset / 2) % 65536));
+        expect(longOffsets).to.deep.equal([0, FIRST_GLYPH_SIZE_BYTES, FITTING_GLYF_SIZE_BYTES]);
+        expect(shortOffsets).to.deep.equal(longOffsets.map((offset) => offset / 2));
+    });
+
+    it("rejects a glyf that a short loca cannot address, which the decoder wraps into wrong offsets", function () {
+        expect(rebuild(FITTING_INSTRUCTION_LENGTH_BYTES, SHORT_LOCA_FORMAT).glyf).to.have.lengthOf(FITTING_GLYF_SIZE_BYTES);
+        expect(() => rebuild(OVERFLOWING_INSTRUCTION_LENGTH_BYTES, SHORT_LOCA_FORMAT)).to.throw(
+            BrokenWoff2,
+            `At table "glyf": rebuilt length is ${OVERFLOWING_GLYF_SIZE_BYTES}, expected at most ${MAX_SHORT_LOCA_GLYF_SIZE_BYTES}, as indexFormat is 0.`,
+        );
+    });
+
+    it("rebuilds a glyf over 131 070 bytes when indexFormat is 1", function () {
+        const reconstructed = rebuild(OVERFLOWING_INSTRUCTION_LENGTH_BYTES, LONG_LOCA_FORMAT);
+
+        expect(reconstructed.glyf).to.have.lengthOf(OVERFLOWING_GLYF_SIZE_BYTES);
+        expect(locaOffsets(reconstructed.loca, 4)).to.deep.equal([0, FIRST_GLYPH_SIZE_BYTES, OVERFLOWING_GLYF_SIZE_BYTES]);
     });
 
     describe("rebuilds hmtx from the advance widths and the xMin of the glyphs", function () {
@@ -280,6 +336,14 @@ describe("GlyfReconstructor.reconstruct", function () {
         });
     });
 });
+
+function locaOffsets(loca: Uint8Array, offsetSizeBytes: number): Array<number> {
+    const view = new DataView(loca.buffer, loca.byteOffset, loca.byteLength);
+
+    return Array.from({ length: loca.length / offsetSizeBytes }, (_, glyph) =>
+        offsetSizeBytes === 2 ? view.getUint16(2 * glyph) : view.getUint32(4 * glyph),
+    );
+}
 
 function metrics(hmtx: Uint8Array): Array<Uint8Array> {
     return Array.from({ length: hmtx.length / 4 }, (_, glyph) => hmtx.subarray(glyph * 4, glyph * 4 + 4));

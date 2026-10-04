@@ -951,6 +951,25 @@ describe("Woff2FontValidator.validate", function () {
             );
         });
 
+        it("with indexFormat 0 and a glyf that rebuilds past what a short loca addresses", async function () {
+            // The loca entry is the size of a short one, so rule LocaTransform holds; the fixture's glyf
+            // rebuilds to 133 392 bytes, where the short offsets of the decoder would wrap.
+            const layout = withEntry(
+                withGlyf(fixtureLayout, (glyf) => withUint16(glyf, GLYF_INDEX_FORMAT, 0)),
+                "loca",
+                (entry) => ({
+                    ...entry,
+                    origLength: 2594,
+                }),
+            );
+
+            await expectBroken(
+                build(layout),
+                Woff2Rule.ShortLocaGlyfSize,
+                'At table "glyf": rebuilt length is 133392, expected at most 131070, as indexFormat is 0.',
+            );
+        });
+
         it("with a transformed hmtx whose flags set neither bit 0 nor bit 1, or a reserved bit", async function () {
             // W3C tabledata-hmtx-transform-002/003.
             const expected = "expected bit 0 or bit 1 set, bits 2–7 clear.";

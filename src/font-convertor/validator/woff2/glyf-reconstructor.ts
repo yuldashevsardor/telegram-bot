@@ -187,6 +187,8 @@ export class GlyfReconstructor {
     private static readonly SHORT_LOCA_OFFSET_SIZE_BYTES = 2;
     private static readonly LONG_LOCA_OFFSET_SIZE_BYTES = 4;
     private static readonly SHORT_LOCA_DIVISOR = 2;
+    // The largest offset of the short format: a uint16 of halved offsets.
+    private static readonly MAX_SHORT_LOCA_OFFSET_BYTES = 0xffff * GlyfReconstructor.SHORT_LOCA_DIVISOR;
     // The transformed hmtx (§5.4): a flags byte, then UInt16 and Int16 values.
     private static readonly HMTX_FLAGS_SIZE_BYTES = 1;
     // numberOfHMetrics, a UInt16 at offset 34, is the last field of the 36-byte hhea (OpenType 1.9.1, hhea).
@@ -343,6 +345,7 @@ export class GlyfReconstructor {
         }
 
         offsets.push(glyfSizeBytes);
+        this.checkGlyfFitsLoca(glyfSizeBytes);
 
         return {
             glyf: Buffer.concat(records),
@@ -735,8 +738,26 @@ export class GlyfReconstructor {
     }
 
     /**
-     * loca in the format indexFormat names (§5.3). A short offset is the offset halved, cut to 16
-     * bits as in the decoder: glyf over 128 KiB does not fit the short format.
+     * The decoder cuts a short offset, the offset halved, to 16 bits, so that the offsets of a glyf
+     * over 128 KiB wrap and point at the wrong glyph records. §5.3 has nothing for an offset that
+     * does not fit, and the sfnt it writes is broken: we reject it.
+     */
+    private checkGlyfFitsLoca(glyfSizeBytes: number): void {
+        if (this.locaOffsetSizeBytes !== GlyfReconstructor.SHORT_LOCA_OFFSET_SIZE_BYTES) {
+            return;
+        }
+
+        if (glyfSizeBytes > GlyfReconstructor.MAX_SHORT_LOCA_OFFSET_BYTES) {
+            throw this.brokenTable(Woff2Rule.ShortLocaGlyfSize, {
+                field: "rebuilt length",
+                value: glyfSizeBytes,
+                expected: `at most ${GlyfReconstructor.MAX_SHORT_LOCA_OFFSET_BYTES}, as indexFormat is ${this.indexFormat}`,
+            });
+        }
+    }
+
+    /**
+     * loca in the format indexFormat names (§5.3): a short offset is the offset halved.
      */
     private loca(offsets: Array<number>): Uint8Array {
         const offsetSizeBytes = this.locaOffsetSizeBytes;

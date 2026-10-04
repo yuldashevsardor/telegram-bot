@@ -12,6 +12,7 @@ export enum Woff2Rule {
     SingleEntry = "the table directory holds a single entry for each table (WOFF 2.0, §4)",
     GlyfLoca = "glyf and loca are both present or both absent, both transformed or both not, and loca follows glyf in the table directory (WOFF 2.0, §5.3, §5.5)",
     LocaTransform = "a transformed loca has transformLength 0 and origLength (numGlyphs + 1) × 2 when indexFormat of the transformed glyf is 0, × 4 otherwise (WOFF 2.0, §5.3)",
+    ShortLocaGlyfSize = "with indexFormat 0 the rebuilt glyf is at most 131070 bytes, the largest offset a loca of halved 16-bit offsets holds (WOFF 2.0, §5.3; OpenType 1.9.1, loca)",
     HmtxTransform = "a transformed hmtx is in a font with glyf, and its flags byte has bit 0 or bit 1 set and bits 2–7 zero (WOFF 2.0, §5.4)",
     BlockAbsence = "an absent metadata or private block has offset and length 0, and absent metadata has metaOrigLength 0 (WOFF 2.0, §3.2; WOFF 1.0, §4)",
     BlockInFile = "neither the compressed data nor the metadata or private block runs past the end of the file (WOFF 2.0, §3)",
