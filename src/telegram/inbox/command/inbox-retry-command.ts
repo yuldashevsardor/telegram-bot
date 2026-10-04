@@ -1,8 +1,8 @@
 import { inject, injectable } from "inversify";
 import { Tokens } from "app/shared/tokens";
 import type { Logger } from "app/platform/logger/logger";
-import type { CliCommand } from "app/telegram/cli-command/cli-command";
-import type { InboxArgumentsValidator } from "app/telegram/inbox/command/inbox-arguments-validator";
+import type { IdArgumentsValidator } from "app/cli/validators/id-arguments-validator";
+import type { CliCommand } from "app/cli/cli-command";
 import type { InboxStore } from "app/telegram/inbox/store/inbox-store";
 
 // `make inbox-retry user=<id> chat=<id>`: the failed update that blocked the group goes back to
@@ -11,12 +11,12 @@ import type { InboxStore } from "app/telegram/inbox/store/inbox-store";
 export class InboxRetryCommand implements CliCommand {
     public constructor(
         @inject<InboxStore>(Tokens.Bot.Inbox.Store) private readonly store: InboxStore,
-        @inject<InboxArgumentsValidator>(Tokens.Bot.Command.Inbox.Validator) private readonly validator: InboxArgumentsValidator,
+        @inject<IdArgumentsValidator>(Tokens.Cli.IdArgumentsValidator) private readonly validator: IdArgumentsValidator,
         @inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger,
     ) {}
 
     public async run(args: readonly string[]): Promise<void> {
-        const groupKey = this.validator.validate(args);
+        const groupKey = this.validator.validate(args, ["userId", "chatId"]);
         const updateId = await this.store.retryBlockedGroup(groupKey);
 
         this.logger.info("Inbox group is unblocked: its failed update is pending again.", { ...groupKey, updateId: updateId });

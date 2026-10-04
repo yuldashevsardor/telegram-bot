@@ -86,20 +86,6 @@ export const Tokens = {
             Start: Symbol.for("BotCommandStart"),
             BulkMessages: Symbol.for("BotCommandBulkMessages"),
             FontGenerator: Symbol.for("BotCommandFontGenerator"),
-            // The commands of `npm run cli`, the targets of the Makefile for a blocked chat or group.
-            Resolver: Symbol.for("BotCommandResolver"),
-            Outbox: {
-                Retry: Symbol.for("BotCommandOutboxRetry"),
-                Skip: Symbol.for("BotCommandOutboxSkip"),
-                Validator: Symbol.for("BotCommandOutboxValidator"),
-                Resolver: Symbol.for("BotCommandOutboxResolver"),
-            },
-            Inbox: {
-                Retry: Symbol.for("BotCommandInboxRetry"),
-                Skip: Symbol.for("BotCommandInboxSkip"),
-                Validator: Symbol.for("BotCommandInboxValidator"),
-                Resolver: Symbol.for("BotCommandInboxResolver"),
-            },
         },
         Filter: {
             HasSessionKey: Symbol.for("BotFilterHasSessionKey"),
@@ -119,6 +105,22 @@ export const Tokens = {
         },
         Session: {
             Storage: Symbol.for("BotSessionStorage"),
+        },
+    },
+    // What `npm run cli` runs: the commands over a blocked chat or group, their resolvers by level
+    // and the check of their arguments.
+    Cli: {
+        Resolver: Symbol.for("CliResolver"),
+        IdArgumentsValidator: Symbol.for("CliIdArgumentsValidator"),
+        Outbox: {
+            Retry: Symbol.for("CliOutboxRetry"),
+            Skip: Symbol.for("CliOutboxSkip"),
+            Resolver: Symbol.for("CliOutboxResolver"),
+        },
+        Inbox: {
+            Retry: Symbol.for("CliInboxRetry"),
+            Skip: Symbol.for("CliInboxSkip"),
+            Resolver: Symbol.for("CliInboxResolver"),
         },
     },
 };

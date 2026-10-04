@@ -1,7 +1,8 @@
 import { expect } from "chai";
-import type { CliCommand, QueueCommandResolver } from "app/telegram/cli-command/cli-command";
-import { CliCommandResolver } from "app/telegram/cli-command/cli-command-resolver";
-import { UnknownCommand } from "app/telegram/cli-command/cli-command.errors";
+import type { CliCommand } from "app/cli/cli-command";
+import type { QueueCommandResolver } from "app/cli/cli-command.types";
+import { CliCommandResolver } from "app/cli/cli-command-resolver";
+import { UnknownCommand } from "app/cli/cli-command.errors";
 
 const OUTBOX_COMMAND: CliCommand = { run: async () => undefined };
 const INBOX_COMMAND: CliCommand = { run: async () => undefined };

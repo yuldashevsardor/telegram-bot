@@ -1,6 +1,6 @@
 import { expect } from "chai";
-import type { CliCommand } from "app/telegram/cli-command/cli-command";
-import { UnknownCommand } from "app/telegram/cli-command/cli-command.errors";
+import type { CliCommand } from "app/cli/cli-command";
+import { UnknownCommand } from "app/cli/cli-command.errors";
 import { OutboxCommandResolver } from "app/telegram/outbox/command/outbox-command-resolver";
 
 const RETRY: CliCommand = { run: async (): Promise<void> => undefined };

@@ -1,15 +1,15 @@
 import { inject, injectable } from "inversify";
 import { Tokens } from "app/shared/tokens";
-import type { QueueCommandResolver, ResolvedCommand } from "app/telegram/cli-command/cli-command";
-import { UnknownCommand } from "app/telegram/cli-command/cli-command.errors";
+import type { QueueCommandResolver, ResolvedCommand } from "app/cli/cli-command.types";
+import { UnknownCommand } from "app/cli/cli-command.errors";
 
 // The first level of the resolving: the queue picks its resolver, which picks the command by the
 // action (docs/architecture/outbox.md, "Unblocking a chat").
 @injectable()
 export class CliCommandResolver {
     public constructor(
-        @inject<QueueCommandResolver>(Tokens.Bot.Command.Outbox.Resolver) private readonly outboxResolver: QueueCommandResolver,
-        @inject<QueueCommandResolver>(Tokens.Bot.Command.Inbox.Resolver) private readonly inboxResolver: QueueCommandResolver,
+        @inject<QueueCommandResolver>(Tokens.Cli.Outbox.Resolver) private readonly outboxResolver: QueueCommandResolver,
+        @inject<QueueCommandResolver>(Tokens.Cli.Inbox.Resolver) private readonly inboxResolver: QueueCommandResolver,
     ) {}
 
     // The arguments are `<queue> <action> <what the command takes>`.

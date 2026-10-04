@@ -3,7 +3,7 @@ import { container } from "app/bootstrap/container/container";
 import { ApplicationContext } from "app/bootstrap/application/context/application-context";
 import { ApplicationContextIsNotCreated } from "app/bootstrap/application/context/application-context.errors";
 import { Tokens } from "app/shared/tokens";
-import type { CliCommandResolver } from "app/telegram/cli-command/cli-command-resolver";
+import type { CliCommandResolver } from "app/cli/cli-command-resolver";
 
 // The entry point of `npm run cli`, which the targets of the Makefile for a blocked chat or group
 // run in a throwaway container: it brings up the container without the bot, resolves the command
@@ -14,7 +14,7 @@ async function runCommand(): Promise<void> {
     await container.setup();
 
     try {
-        const { command, commandArgs } = container.get<CliCommandResolver>(Tokens.Bot.Command.Resolver).resolve(process.argv.slice(2));
+        const { command, commandArgs } = container.get<CliCommandResolver>(Tokens.Cli.Resolver).resolve(process.argv.slice(2));
 
         await command.run(commandArgs);
     } finally {

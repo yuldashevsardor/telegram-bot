@@ -1,8 +1,8 @@
 import { expect } from "chai";
 import type { InboxStore } from "app/telegram/inbox/store/inbox-store";
-import { InboxArgumentsValidator } from "app/telegram/inbox/command/inbox-arguments-validator";
+import { IdArgumentsValidator } from "app/cli/validators/id-arguments-validator";
 import { InboxRetryCommand } from "app/telegram/inbox/command/inbox-retry-command";
-import { InvalidCommandArguments } from "app/telegram/cli-command/cli-command.errors";
+import { InvalidCommandArguments } from "app/cli/cli-command.errors";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 
 const UPDATE_ID = 77;
@@ -25,7 +25,7 @@ describe("InboxRetryCommand", function () {
             },
         };
 
-        command = new InboxRetryCommand(store as unknown as InboxStore, new InboxArgumentsValidator(), logger);
+        command = new InboxRetryCommand(store as unknown as InboxStore, new IdArgumentsValidator(), logger);
     });
 
     it("runs the store with the ids it was given and logs what it took", async function () {

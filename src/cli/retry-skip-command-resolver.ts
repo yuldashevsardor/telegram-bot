@@ -1,5 +1,6 @@
-import type { CliCommand, QueueCommandResolver } from "app/telegram/cli-command/cli-command";
-import { UnknownCommand } from "app/telegram/cli-command/cli-command.errors";
+import type { CliCommand } from "app/cli/cli-command";
+import type { QueueCommandResolver } from "app/cli/cli-command.types";
+import { UnknownCommand } from "app/cli/cli-command.errors";
 
 // The second level of the resolving: the command of a queue by its action, `retry` or `skip`. A
 // queue extends it only to say which commands are its own, by their tokens.

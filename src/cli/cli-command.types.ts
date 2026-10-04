@@ -1,8 +1,4 @@
-// A command of `npm run cli`: the arguments that are left once the queue and the action are
-// taken off. The command checks them itself, since another command may take other ones.
-export interface CliCommand {
-    run(args: readonly string[]): Promise<void>;
-}
+import type { CliCommand } from "app/cli/cli-command";
 
 // Picks the command of one queue, `outbox` or `inbox`, by its action. The whole of the arguments
 // comes along for the error.

@@ -1,8 +1,8 @@
 import { expect } from "chai";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
-import { OutboxArgumentsValidator } from "app/telegram/outbox/command/outbox-arguments-validator";
+import { IdArgumentsValidator } from "app/cli/validators/id-arguments-validator";
 import { OutboxSkipCommand } from "app/telegram/outbox/command/outbox-skip-command";
-import { InvalidCommandArguments } from "app/telegram/cli-command/cli-command.errors";
+import { InvalidCommandArguments } from "app/cli/cli-command.errors";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 
 const MESSAGE_ID = 77;
@@ -25,7 +25,7 @@ describe("OutboxSkipCommand", function () {
             },
         };
 
-        command = new OutboxSkipCommand(store as unknown as OutboxStore, new OutboxArgumentsValidator(), logger);
+        command = new OutboxSkipCommand(store as unknown as OutboxStore, new IdArgumentsValidator(), logger);
     });
 
     it("runs the store with the ids it was given and logs what it took", async function () {
