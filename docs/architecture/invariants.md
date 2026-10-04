@@ -236,9 +236,16 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   the update and blocks the group instead: a slow handler that did reply leaves its update `failed`
   and its group blocked until it is unblocked by hand. The late completion of the first node is
   fenced off and changes nothing. Nothing bounds how long a handler runs, and nothing checks
-  `INBOX_LEASE_DURATION` against it. An extension may extend only a lease that has not passed: the
-  recovery tells its lease by the token, not by `locked_until` ([`inbox.md`](./inbox.md), "Lease
-  recovery"). Nothing extends a lease yet.
+  `INBOX_LEASE_DURATION` against it. `InboxStore.extendLease()` extends only a lease that has not
+  passed: the recovery tells its lease by the token, not by `locked_until`
+  ([`inbox.md`](./inbox.md), "Lease recovery"). A write that moves `locked_until` without that
+  check, or an extension sent as the lease passes, lets the recovery take back an update whose
+  handler still runs ([`inbox.md`](./inbox.md), "The lease"). Nothing calls the extension yet.
+- **An update is released on stop only once its handler has settled.**
+  `InboxLeaseReleaser.releaseOnStop()` makes the group `ready` at once, so a handler of the stopping
+  node still running can reply after another node has handled the next update of the group: the
+  order inside the group breaks. Nothing calls the release yet, and a caller is checked by nothing
+  ([`inbox.md`](./inbox.md), "Release on stop").
 
 ## Storage: migrations, `sessions`, `User`
 
