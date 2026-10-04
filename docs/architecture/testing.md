@@ -147,8 +147,9 @@ preset has one other key, `cache: false`.
 
 - everything outside `src/` (`include`). The tests do not execute the migrations; how those are
   loaded is in the list at the top of this file;
-- `src/app.ts` (`exclude`). On import the entry point immediately starts `Application` and hangs
-  the signal handlers, so a spec will not load it;
+- `src/app.ts` and `src/unblock.ts` (`exclude`). On import the entry point immediately starts
+  `Application`, or runs its command, so a spec will not load it. The logic of the second lies in
+  `UnblockCommandLine`, which has its spec;
 - files without executable code (`skipEmpty`): types and interfaces only, empty error classes.
   There is no list, nyc decides for itself. In `coverage/lcov.info` they stay with `LF:0`.
 
@@ -165,8 +166,8 @@ spaces (a comma is part of a glob, as in `src/{shared,telegram}/**`), `!` exclud
 of exclusions alone is subtracted from the whole of `src/`. Without `files` the whole of `src/` is
 mutated. Any area, and the whole of `src/` too, excludes:
 
-- `src/app.ts`: on import the entry point starts `Application`, and a spec does not load it (as
-  with `exclude` in nyc);
+- `src/app.ts` and `src/unblock.ts`: on import the entry point starts `Application`, or runs its
+  command, and a spec does not load it (as with `exclude` in nyc);
 - the `.ftl` locales: the glob of an area catches them, and Stryker cannot parse them and fails;
 - the code under the database specs: see "The database hook is not wired in" below.
 

@@ -8,6 +8,18 @@ export class InvalidClaimLimit extends RuntimeError {
     }
 }
 
+export class InboxGroupNotBlocked extends RuntimeError {
+    public static byGroup(userId: number, chatId: number): InboxGroupNotBlocked {
+        return new InboxGroupNotBlocked(
+            `Inbox group (${userId}, ${chatId}) is not blocked by a failed update: only a blocked group with its failed update can be unblocked.`,
+            {
+                userId: userId,
+                chatId: chatId,
+            },
+        );
+    }
+}
+
 export class InboxUpdateNotLeased extends RuntimeError {
     public static byId(updateId: number): InboxUpdateNotLeased {
         return new InboxUpdateNotLeased(

@@ -32,6 +32,12 @@ export type InboxUpdateInput = {
     update: Update;
 };
 
+// The key of a group: the user and the chat of the session key.
+export type InboxGroupKey = {
+    userId: number;
+    chatId: number;
+};
+
 // Who claimed an update, written into its attempt: the node and its worker loop. workerId names the
 // loop, not one of its slots.
 export type InboxWorker = {

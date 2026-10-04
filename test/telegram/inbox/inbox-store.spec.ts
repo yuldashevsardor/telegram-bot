@@ -15,7 +15,7 @@ import type {
     InboxWorker,
 } from "app/telegram/inbox/store/inbox-store.types";
 import { InboxGroupState, InboxStatus } from "app/telegram/inbox/store/inbox-store.types";
-import { InboxUpdateNotLeased, InvalidClaimLimit } from "app/telegram/inbox/store/inbox-store.errors";
+import { InboxGroupNotBlocked, InboxUpdateNotLeased, InvalidClaimLimit } from "app/telegram/inbox/store/inbox-store.errors";
 import { testDatabaseSettings, waitForLockWaiters } from "test/database.helper";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 
@@ -608,6 +608,219 @@ describe("InboxStore", function () {
 
             expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Ready });
             expect((await store.claim(10, WORKER)).map(({ updateId }) => updateId)).to.deep.equal([11]);
+        });
+    });
+
+    describe("unblocking a group", function () {
+        const GROUP = { userId: USER, chatId: CHAT };
+
+        // Pushes the updates, fails the first one with its group blocked; the id of the failed one and
+        // of the updates behind it.
+        async function blockGroup(...updateIds: number[]): Promise<{ failedId: number; behindIds: number[] }> {
+            await store.pushBatch(updateIds.map((updateId) => input(updateId)));
+            await store.markAsFailedAndBlockGroup(await claimOne(), UNEXPECTED);
+
+            const [failedId, ...behindIds] = updateIds;
+
+            return { failedId: failedId as number, behindIds };
+        }
+
+        async function expectNotBlocked(unblock: () => Promise<number>): Promise<void> {
+            const error = await unblock().then(
+                () => expect.fail("the unblock was expected to reject"),
+                (reason: unknown) => reason,
+            );
+
+            expect(error).to.be.instanceOf(InboxGroupNotBlocked);
+            expect((error as InboxGroupNotBlocked).payload).to.deep.equal({ userId: USER, chatId: CHAT });
+        }
+
+        // Every update and every group, for a spec that pins that a refused call changed nothing.
+        async function snapshot(): Promise<unknown> {
+            const updates =
+                await database.sql`SELECT update_id, status, finished_at, updated_at, attempts FROM telegram_inbox ORDER BY update_id`;
+            const groups =
+                await database.sql`SELECT user_id, chat_id, state, next_attempt_at, updated_at FROM telegram_inbox_groups ORDER BY user_id, chat_id`;
+
+            return { updates: [...updates], groups: [...groups] };
+        }
+
+        describe("retry", function () {
+            it("puts the failed update back to pending as the head of its group and returns it", async function () {
+                const { failedId, behindIds } = await blockGroup(10, 11);
+
+                expect(await store.retryBlockedGroup(GROUP)).to.equal(failedId);
+
+                expect(await statuses()).to.deep.equal([InboxStatus.Pending, InboxStatus.Pending]);
+                expect(await isFinished(failedId)).to.equal(false);
+                expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Ready });
+                expect(await drain(store)).to.deep.equal([failedId, ...behindIds]);
+            });
+
+            it("keeps the attempts the failed update has made", async function () {
+                const { failedId } = await blockGroup(10);
+
+                await store.retryBlockedGroup(GROUP);
+
+                expect(await attempts(failedId)).to.have.lengthOf(1);
+                expect((await attempts(failedId))[0]?.error).to.deep.equal(UNEXPECTED);
+            });
+
+            it("takes the update that blocked the group, not an earlier one that failed without blocking it", async function () {
+                await store.pushBatch([input(10), input(11)]);
+                await store.markAsFailed(await claimOne(), UNDELIVERABLE);
+                await store.markAsFailedAndBlockGroup(await claimOne(), UNEXPECTED);
+
+                expect(await store.retryBlockedGroup(GROUP)).to.equal(11);
+
+                expect(await statuses()).to.deep.equal([InboxStatus.Failed, InboxStatus.Pending]);
+                expect((await claimOne()).updateId).to.equal(11);
+            });
+
+            for (const [name, prepare] of [
+                ["a group that is not in the inbox", async (): Promise<unknown> => undefined],
+                ["a ready group", async (): Promise<unknown> => store.push(input(10))],
+                [
+                    "a processing group",
+                    async (): Promise<void> => {
+                        await store.push(input(10));
+                        await claimOne();
+                    },
+                ],
+                [
+                    "an idle group",
+                    async (): Promise<unknown> =>
+                        database.sql`INSERT INTO telegram_inbox_groups (user_id, chat_id, state) VALUES (${USER}, ${CHAT}, ${InboxGroupState.Idle})`,
+                ],
+            ] as const) {
+                it(`refuses ${name} and changes nothing`, async function () {
+                    await prepare();
+                    const before = await snapshot();
+
+                    await expectNotBlocked(() => store.retryBlockedGroup(GROUP));
+
+                    expect(await snapshot()).to.deep.equal(before);
+                });
+            }
+
+            it("refuses a blocked group with no failed update and leaves it blocked", async function () {
+                await database.sql`INSERT INTO telegram_inbox_groups (user_id, chat_id, state) VALUES (${USER}, ${CHAT}, ${InboxGroupState.Blocked})`;
+
+                await expectNotBlocked(() => store.retryBlockedGroup(GROUP));
+
+                expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Blocked });
+            });
+
+            it("leaves the other blocked groups blocked", async function () {
+                await blockGroup(10);
+                await store.push(input(20, OTHER_USER, CHAT));
+                await store.markAsFailedAndBlockGroup(await claimOne(), UNEXPECTED);
+
+                await store.retryBlockedGroup(GROUP);
+
+                expect(await group(OTHER_USER, CHAT)).to.deep.equal({ state: InboxGroupState.Blocked });
+            });
+        });
+
+        describe("skip", function () {
+            it("skips the failed update and goes on with the update behind it", async function () {
+                const { failedId, behindIds } = await blockGroup(10, 11);
+
+                expect(await store.skipBlockedGroup(GROUP)).to.equal(failedId);
+
+                expect(await statuses()).to.deep.equal([InboxStatus.Skipped, InboxStatus.Pending]);
+                expect(await isFinished(failedId)).to.equal(true);
+                expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Ready });
+                expect(await drain(store)).to.deep.equal(behindIds);
+            });
+
+            // A ready group with no head would be claimed by nothing, and a loop of the handler would
+            // spin on it.
+            it("leaves a group idle when the skipped update was its only active one", async function () {
+                const { failedId } = await blockGroup(10);
+
+                expect(await store.skipBlockedGroup(GROUP)).to.equal(failedId);
+
+                expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Idle });
+                expect(await store.claim(10, WORKER)).to.deep.equal([]);
+            });
+
+            it("takes the update that blocked the group and leaves an earlier failed one as it is", async function () {
+                await store.pushBatch([input(10), input(11)]);
+                await store.markAsFailed(await claimOne(), UNDELIVERABLE);
+                await store.markAsFailedAndBlockGroup(await claimOne(), UNEXPECTED);
+
+                expect(await store.skipBlockedGroup(GROUP)).to.equal(11);
+
+                expect(await statuses()).to.deep.equal([InboxStatus.Failed, InboxStatus.Skipped]);
+            });
+
+            for (const [name, prepare] of [
+                ["a group that is not in the inbox", async (): Promise<unknown> => undefined],
+                ["a ready group", async (): Promise<unknown> => store.push(input(10))],
+            ] as const) {
+                it(`refuses ${name} and changes nothing`, async function () {
+                    await prepare();
+                    const before = await snapshot();
+
+                    await expectNotBlocked(() => store.skipBlockedGroup(GROUP));
+
+                    expect(await snapshot()).to.deep.equal(before);
+                });
+            }
+
+            it("refuses a blocked group with no failed update and leaves it blocked", async function () {
+                await database.sql`INSERT INTO telegram_inbox_groups (user_id, chat_id, state) VALUES (${USER}, ${CHAT}, ${InboxGroupState.Blocked})`;
+
+                await expectNotBlocked(() => store.skipBlockedGroup(GROUP));
+
+                expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Blocked });
+            });
+        });
+
+        // The third client holds the group row, the unblock and a push queue up behind it in a known
+        // order, and the order decides which of them sees the other.
+        describe("concurrent with a push", function () {
+            async function race(first: () => Promise<unknown>, second: () => Promise<unknown>): Promise<void> {
+                let calls: Promise<unknown> = Promise.resolve();
+
+                await other.sql.begin(async (sql) => {
+                    await sql`SELECT user_id FROM telegram_inbox_groups WHERE user_id = ${USER} AND chat_id = ${CHAT} FOR UPDATE`;
+
+                    const firstCall = first();
+
+                    await waitForLockWaiters(observer, 1);
+
+                    calls = Promise.all([firstCall, second()]);
+
+                    await waitForLockWaiters(observer, 2);
+                });
+
+                await calls;
+            }
+
+            beforeEach(async function () {
+                await blockGroup(10);
+            });
+
+            const skip = async (): Promise<void> => {
+                await store.skipBlockedGroup(GROUP);
+            };
+            const push = (): Promise<void> => store.push(input(11));
+
+            it("leaves the group ready with the new head when the push locks the group first", async function () {
+                await race(push, skip);
+
+                expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Ready });
+                expect((await store.claim(10, WORKER)).map(({ updateId }) => updateId)).to.deep.equal([11]);
+            });
+
+            it("leaves the group ready with the new head when the skip locks the group first", async function () {
+                await race(skip, push);
+
+                expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Ready });
+                expect((await store.claim(10, WORKER)).map(({ updateId }) => updateId)).to.deep.equal([11]);
+            });
         });
     });
 

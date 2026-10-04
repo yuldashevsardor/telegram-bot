@@ -83,6 +83,7 @@ export default {
         ...area,
         // On import the entry point raises Application, a spec does not load it — as exclude in nyc.
         "!src/app.ts",
+        "!src/unblock.ts",
         // An area glob such as src/telegram/** catches the locales too, and Stryker cannot parse
         // a .ftl and fails: "No parser registered for .ftl".
         "!src/**/*.ftl",

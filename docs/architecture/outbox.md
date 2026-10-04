@@ -7,7 +7,8 @@ plan is epic [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618))
 into it yet, and nothing starts its runner
 ([#625](https://github.com/yuldashevsardor/telegram-bot/issues/625)): so far it holds the tables
 with `OutboxStore` (`store/outbox-store.ts`), which pushes, pulls within the limits, pauses,
-completes a pulled message, finds the expired leases and cleans up, `OutboxRunner`
+completes a pulled message, finds the expired leases, cleans up and unblocks a chat by hand,
+`OutboxRunner`
 (`outbox-runner.ts`), which sends the messages of a node over its slots, `OutboxMaintenance`
 (`maintenance/outbox-maintenance.ts`), which runs the recovery of the expired leases and the cleanup
 on timers, `OutboxLeaseRecovery` (`lease/outbox-lease-recovery.ts`), which takes back the messages
@@ -33,7 +34,7 @@ besides the primary keys yet: they will be picked once the queries of every stag
 
 The database does not check the values of `status` and `state`: the store writes them only
 through the `OutboxStatus` and `OutboxChatState` enums (`store/outbox-store.types.ts`). Of these,
-nothing sets `skipped` yet.
+only the unblock of a chat sets `skipped` (see "Unblocking a chat").
 `telegram_bot_limits` holds one row, `id = 1`, inserted by the migration; nothing but the code
 keeps it single. Without the row `pull()` and `pause()` throw `BotLimitsRowMissing`: the pull
 would otherwise answer as if no chat were ready, and the pause would change nothing.
@@ -44,19 +45,18 @@ needed: the chat row keeps no copy.
 
 A `failed` message is not active. The status says what happened to the message, the state of the
 chat says whether the chat waits: a failed message that blocks its chat holds it through `blocked`,
-and one that does not block lets the next message of the chat become the head. To unblock a chat
-by hand, its failed message goes back to `pending`, and its `id` makes it the head again, or goes
-to `skipped` ([#631](https://github.com/yuldashevsardor/telegram-bot/issues/631)). A failed message
-that did not block its chat goes out again only if its chat is made `ready` too, and its chat row
-is inserted first if the cleanup has removed it: the chat of such a message may be `idle`, and no
-pull reaches a message without a `ready` chat row (see "Cleanup").
+and one that does not block lets the next message of the chat become the head. A person unblocks a
+chat by hand with `make outbox-retry` or `make outbox-skip` (see "Unblocking a chat"). A failed
+message that did not block its chat goes out again only if its chat is made `ready` too, and its
+chat row is inserted first if the cleanup has removed it: the chat of such a message may be `idle`,
+and no pull reaches a message without a `ready` chat row (see "Cleanup").
 
 ## Chat states
 
 | state | who sets it |
 |---|---|
-| `idle` | `push` of a new chat, for the moment before its messages are inserted; `markAsDone` and `markAsFailed` of the last active message |
-| `ready` | `push` into an `idle` chat; `markAsDone` and `markAsFailed` when a message is left; `retry` |
+| `idle` | `push` of a new chat, for the moment before its messages are inserted; `markAsDone` and `markAsFailed` of the last active message; `skipBlockedChat` when no active message is left |
+| `ready` | `push` into an `idle` chat; `markAsDone` and `markAsFailed` when a message is left; `retry`; `retryBlockedChat`; `skipBlockedChat` when a message is left |
 | `processing` | `pull` |
 | `blocked` | `markAsFailedAndBlockChat`; `push` leaves it as it is |
 
@@ -412,6 +412,43 @@ are not pulled before it, while the other chats are.
 
 Every update of the store sets `updated_at` itself, to `now()`, and the pull to the time of the
 pull; there is no trigger.
+
+## Unblocking a chat
+
+A chat that a failed message blocked (see "Tables") waits for a person. Two targets of the
+`Makefile` unblock it, each for one chat, a negative id of a group included:
+
+- `make outbox-retry chat=<id>` is `OutboxStore.retryBlockedChat()`: the failed message goes back to
+  `pending` with its attempts kept, and its `id` makes it the head again; the chat is `ready` at
+  once, and the call notifies `telegram_outbox_ready`, as the release on stop does: a node whose
+  last pull answered `null` learns of the chat from nothing else. The message blocks the chat
+  again on its next transient failure, with no retry, since its attempts still count (see
+  "Outcomes");
+- `make outbox-skip chat=<id>` is `OutboxStore.skipBlockedChat()`: the failed message becomes
+  `skipped`, with `finished_at` set so that the cleanup counts its retention from it (see
+  "Cleanup"), and the call notifies `telegram_outbox_finished` (see "Waiting for the result"). The
+  chat goes `ready` while it has an active message left, and `idle` when it has none, read after
+  the lock as `markAsDone()` does. A `ready` chat with no head is never pulled, and its
+  `next_attempt_at` has passed, so `nextPullInMs` is 0 and a sender that sleeps on it would spin.
+
+The message taken is the one of the chat that failed last, by `finished_at`: a blocked chat is not
+pulled, so that is the message that blocked it, and a message that failed earlier without blocking
+the chat stays as it is. Files of the message are not removed by either: only `done` removes them
+(see "Sending"), so skipping a message with a `PathFile` leaves the file on the disk.
+
+A chat that is not `blocked`, a missing one, and a blocked one with no failed message, which only
+a hand-edited row can be, throw `OutboxChatNotBlocked` and change nothing. Both calls lock the chat
+row first and read its state from the locked row, so one that waited behind a completion or another
+unblock sees the chat as it is now, and a message pushed meanwhile is seen by the state of the
+chat (see "The chat lock"). `test/telegram/outbox/outbox-store.spec.ts` lines up a push and a skip
+in both orders.
+
+The targets run `UnblockCommandLine` (`telegram/unblock-command-line/`) through `src/unblock.ts`, in
+a throwaway container that brings up the container of the application without the bot and logs the
+message it took at `info`. The blocked chats of the outbox are the rows of `telegram_outbox_chats`
+in the state `blocked`, and the store logs each block at `error` with the chat and the message
+(`make psql` reads them). The same two targets for the inbox are in [`inbox.md`](./inbox.md),
+"Unblocking a group".
 
 ## Waiting for the result
 

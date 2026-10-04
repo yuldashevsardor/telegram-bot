@@ -12,13 +12,14 @@ import type {
     ExpiredInboxLeaseRow,
     InboxAttempt,
     InboxAttemptError,
+    InboxGroupKey,
     InboxLease,
     InboxUpdateInput,
     InboxWorker,
     LockedInboxGroupRow,
 } from "app/telegram/inbox/store/inbox-store.types";
 import { InboxGroupState, InboxStatus } from "app/telegram/inbox/store/inbox-store.types";
-import { InboxUpdateNotLeased, InvalidClaimLimit } from "app/telegram/inbox/store/inbox-store.errors";
+import { InboxGroupNotBlocked, InboxUpdateNotLeased, InvalidClaimLimit } from "app/telegram/inbox/store/inbox-store.errors";
 
 // The OID of bigint: the user and chat ids of the groups go to the database as bigint[] parameters.
 const BIGINT = 20;
@@ -276,6 +277,51 @@ export class InboxStore {
         });
     }
 
+    // Unblocks a group by hand: the failed update that blocked it goes back to pending, and its
+    // update_id makes it the head again. Returns that update. A group that is not blocked throws
+    // InboxGroupNotBlocked and changes nothing.
+    public async retryBlockedGroup(groupKey: InboxGroupKey): Promise<number> {
+        return this.sql.begin(async (sql) => {
+            const blocked = await this.lockBlockedGroup(sql, groupKey);
+
+            await sql`
+                UPDATE telegram_inbox
+                SET status = ${InboxStatus.Pending},
+                    finished_at = NULL,
+                    updated_at = now()
+                WHERE update_id = ${blocked.updateId}
+            `;
+
+            // The head is pending, so the group has an active update: ready is right.
+            await this.setGroupState(sql, blocked.group, InboxGroupState.Ready);
+
+            return blocked.updateId;
+        });
+    }
+
+    // Unblocks a group by hand: the failed update that blocked it becomes skipped, and the group goes
+    // on with the update behind it, or goes idle when there is none. Returns the skipped update. A
+    // group that is not blocked throws InboxGroupNotBlocked and changes nothing.
+    public async skipBlockedGroup(groupKey: InboxGroupKey): Promise<number> {
+        return this.sql.begin(async (sql) => {
+            const blocked = await this.lockBlockedGroup(sql, groupKey);
+
+            await sql`
+                UPDATE telegram_inbox
+                SET status = ${InboxStatus.Skipped},
+                    finished_at = now(),
+                    updated_at = now()
+                WHERE update_id = ${blocked.updateId}
+            `;
+
+            // A ready group with no head would be claimed by nothing, so the state follows the active
+            // updates left, read after the lock.
+            await this.releaseGroup(sql, blocked.group);
+
+            return blocked.updateId;
+        });
+    }
+
     // Every completion: the lock of the group, then the fence, then the writes
     // (docs/architecture/inbox.md, "Completions"). A missing update throws InboxUpdateNotLeased. A lock
     // token that is not the group's changes nothing and is logged with the error the completion
@@ -319,6 +365,44 @@ export class InboxStore {
 
             return group;
         });
+    }
+
+    // The lock of a group to unblock, then its failed update that blocked it: the one that failed
+    // last, since a blocked group is claimed no more. The state is read from the locked row, so a
+    // group that a completion or another unblock changed while this call waited is seen as it is now.
+    private async lockBlockedGroup(
+        sql: TransactionSql,
+        groupKey: InboxGroupKey,
+    ): Promise<{ group: LockedInboxGroupRow; updateId: number }> {
+        const [group] = await sql<(LockedInboxGroupRow & { state: string })[]>`
+            SELECT user_id, chat_id, lock_token, state
+            FROM telegram_inbox_groups
+            WHERE user_id = ${groupKey.userId}
+              AND chat_id = ${groupKey.chatId}
+            FOR UPDATE
+        `;
+
+        if (group === undefined || group.state !== InboxGroupState.Blocked) {
+            throw InboxGroupNotBlocked.byGroup(groupKey.userId, groupKey.chatId);
+        }
+
+        const [failedUpdate] = await sql<{ update_id: string }[]>`
+            SELECT update_id
+            FROM telegram_inbox
+            WHERE user_id = ${group.user_id}
+              AND chat_id = ${group.chat_id}
+              AND status = ${InboxStatus.Failed}
+            ORDER BY finished_at DESC, update_id DESC
+            LIMIT 1
+        `;
+
+        // Only markAsFailedAndBlockGroup() blocks a group, in the transaction that fails the update,
+        // and a failed update is never deleted: a group blocked without one was edited by hand.
+        if (failedUpdate === undefined) {
+            throw InboxGroupNotBlocked.byGroup(groupKey.userId, groupKey.chatId);
+        }
+
+        return { group: group, updateId: Number(failedUpdate.update_id) };
     }
 
     // The final outcome of an update, with the end of its attempt. finished_at is for the cleanup.

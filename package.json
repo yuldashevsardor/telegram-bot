@@ -48,7 +48,8 @@
         "test:coverage": "TSX_TSCONFIG_PATH=./tsconfig.check.json nyc mocha --require tsx/cjs --require ./test/coverage-hook.ts",
         "check": "npm run typecheck && npm run lint && npm run format:check && npm run test:coverage",
         "mutation": "TSX_TSCONFIG_PATH=./tsconfig.check.json NODE_OPTIONS=--require=./test/stryker-mocha-hook.cjs stryker run",
-        "migrate": "node-pg-migrate -f ./migrate.json"
+        "migrate": "node-pg-migrate -f ./migrate.json",
+        "unblock": "TSX_TSCONFIG_PATH=./tsconfig.check.json node --require tsx/cjs src/unblock.ts"
     },
     "lint-staged": {
         "*.{ts,tsx}": [
@@ -65,7 +66,8 @@
             "src/**/*.ts"
         ],
         "exclude": [
-            "src/app.ts"
+            "src/app.ts",
+            "src/unblock.ts"
         ],
         "parserPlugins": [
             "asyncGenerators",
