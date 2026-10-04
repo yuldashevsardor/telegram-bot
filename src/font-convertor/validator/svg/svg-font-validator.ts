@@ -89,12 +89,13 @@ export class SvgFontValidator implements FontValidator {
     // `unitsPerEm` of the OpenType `head` table. fontforge writes 15 or 16385 as it is.
     private static readonly UNITS_PER_EM_RANGE: NumberRange = { min: 16, max: 16384 };
     // fontforge takes `ascent` and `descent` when they add up to `units-per-em`, and writes them into
-    // signed 16-bit fields: `ascent="40000" descent="-39000"` gives an ascender of -25536.
+    // signed 16-bit fields: `ascent="40000" descent="-39000"` gives an ascender of -25536. They are
+    // checked whether or not fontforge takes them.
     private static readonly FONT_FACE_METRIC_ATTRIBUTES: ReadonlyArray<string> = ["ascent", "descent"];
-    private static readonly FONT_FACE_METRIC_RANGE: NumberRange = { min: -32767, max: 32767 };
-    // fontforge keeps the negated `k` in a signed 16-bit field, so `k="-32768"` wraps over to the
-    // opposite sign; the range is kept symmetric.
-    private static readonly KERNING_RANGE: NumberRange = { min: -32767, max: 32767 };
+    // The range of `ascent`, `descent` and `k`, a signed 16-bit field without its lowest value.
+    // fontforge keeps the negated `k`, so `k="-32768"` wraps over to the opposite sign while
+    // `k="32768"` fits; the range is kept symmetric.
+    private static readonly SYMMETRIC_16_BIT_RANGE: NumberRange = { min: -32767, max: 32767 };
 
     /**
      * Throws when the file is not a valid SVG font. The answers go in this order, each a subclass
@@ -328,11 +329,7 @@ export class SvgFontValidator implements FontValidator {
                 continue;
             }
 
-            if (!SvgFontValidator.NUMBER.test(value)) {
-                this.report(scan, FontRule.Number, "font-face", element.line, { attribute: [attribute, value] });
-            } else if (!this.isWithin(value, SvgFontValidator.FONT_FACE_METRIC_RANGE)) {
-                this.report(scan, FontRule.FontFaceMetricRange, "font-face", element.line, { attribute: [attribute, value] });
-            }
+            this.checkRangedNumber(scan, element, "font-face", [attribute, value], FontRule.FontFaceMetricRange);
         }
     }
 
@@ -342,6 +339,10 @@ export class SvgFontValidator implements FontValidator {
 
         const outline = tag.attributes["d"]?.value;
 
+        // The numbers of the outline have no range: the font stores points, not these numbers, and a
+        // relative command adds to the current point, so `M30000 0l30000 0` reaches 60000 through
+        // numbers in range. A rule has to follow the current point through every command (issue
+        // https://github.com/yuldashevsardor/telegram-bot/issues/798).
         if (outline !== undefined && !isPathData(outline)) {
             this.report(scan, FontRule.PathData, name, element.line, { attribute: ["d", outline] });
         }
@@ -361,10 +362,8 @@ export class SvgFontValidator implements FontValidator {
 
         if (kerning === undefined) {
             this.report(scan, FontRule.KerningRequired, name, element.line);
-        } else if (!SvgFontValidator.NUMBER.test(kerning)) {
-            this.report(scan, FontRule.Number, name, element.line, { attribute: ["k", kerning] });
-        } else if (!this.isWithin(kerning, SvgFontValidator.KERNING_RANGE)) {
-            this.report(scan, FontRule.KerningRange, name, element.line, { attribute: ["k", kerning] });
+        } else {
+            this.checkRangedNumber(scan, element, name, ["k", kerning], FontRule.KerningRange);
         }
 
         this.checkKernedGlyph(scan, element, tag, name, { characterAttribute: "u1", glyphNamesAttribute: "g1" });
@@ -432,11 +431,25 @@ export class SvgFontValidator implements FontValidator {
         }
     }
 
+    /**
+     * Checks an attribute of type <number> whose range is `SYMMETRIC_16_BIT_RANGE`: first its form,
+     * then the range, broken under `rangeRule`.
+     */
+    private checkRangedNumber(scan: Scan, element: OpenElement, name: string, attribute: [string, string], rangeRule: FontRule): void {
+        const value = attribute[1];
+
+        if (!SvgFontValidator.NUMBER.test(value)) {
+            this.report(scan, FontRule.Number, name, element.line, { attribute: attribute });
+        } else if (!this.isWithin(value, SvgFontValidator.SYMMETRIC_16_BIT_RANGE)) {
+            this.report(scan, rangeRule, name, element.line, { attribute: attribute });
+        }
+    }
+
     // `Number()` takes `1e999` to Infinity, past any range.
     private isWithin(value: string, range: NumberRange): boolean {
-        const number = Number(value);
+        const parsedValue = Number(value);
 
-        return number >= range.min && number <= range.max;
+        return parsedValue >= range.min && parsedValue <= range.max;
     }
 
     // The sign is read off the text of a number: `Number()` takes `1e-999` to zero.

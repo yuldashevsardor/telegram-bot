@@ -245,26 +245,32 @@ was rejected.
   lists in 2,241 pairs. A grammar check of `u1` by §20.7, where the comma separates, would stumble
   on `u1=","`, which 13 of the 24 fonts hold. None of the fonts breaks a kerning rule; two break
   older ones, a Batik sample with a `g` in a glyph and a libmsvg sample with `xml:id` on its font.
-  The numbers fontforge carries into the font have a range each, ours, by where fontforge keeps
-  them (`strtod` in its `svg.c`, then a field of the font): past it fontforge writes another value
+  The numbers fontforge carries into the font have a range each, ours, by where fontforge keeps them
+  (`strtod` in its `svg.c`, then a field of the font): past it fontforge writes another value
   without a word. A range holds the number as written, and `1e999`, out of a double, is past every
   range. `horiz-adv-x` and `vert-adv-y` of `font`, `glyph` and `missing-glyph` are 0 to 32767:
   fontforge keeps an advance in a signed 16-bit field, narrower than the unsigned one of `hmtx`, so
   `32768` makes 0 in a TTF and `70000` makes 4464. `k` is -32767 to 32767: fontforge keeps it
   negated in the same kind of field, so `40000` kerns by 25536 and `-32768` wraps over to the
-  opposite sign. `units-per-em` is 16 to 16384, the range of `unitsPerEm` in the OpenType `head`
-  table; fontforge writes 15 or 16385 as it is. `ascent` and `descent` of `font-face`, numbers by
-  §20.8.3, are -32767 to 32767: fontforge takes them when they add up to `units-per-em` and writes
-  them into signed 16-bit fields, so `ascent="40000" descent="-39000"` gives an ascender of -25536.
-  A fraction is let through: fontforge truncates it (rounds `units-per-em`), and real fonts hold
-  fractional advances. The origins, `horiz-origin-x`, `horiz-origin-y`, `vert-origin-x` and
-  `vert-origin-y`, have no range: fontforge does not read them. The other numbers of `font-face`,
-  such as `underline-position` or `slope`, are not checked at all. Within the ranges the targets
-  agree: TTF, OTF, WOFF and WOFF2 were measured, and EOT is built from the TTF. Measured on
-  20230101 for [#792](https://github.com/yuldashevsardor/telegram-bot/issues/792), with 132
+  opposite sign; `32768` would fit, and the range is kept symmetric. `units-per-em` is 16 to 16384,
+  the range of `unitsPerEm` in the OpenType `head` table; fontforge writes 15 or 16385 as it is.
+  `ascent` and `descent` of `font-face`, numbers by §20.8.3, are -32767 to 32767: fontforge takes
+  them when they add up to `units-per-em` and writes them into signed 16-bit fields, so
+  `ascent="40000" descent="-39000"` gives an ascender of -25536; they are checked whether or not
+  they add up. A fraction is let through: fontforge truncates it (rounds `units-per-em`), and real
+  fonts hold fractional advances. One just past a bound is rejected, though fontforge would bring
+  `32767.6` back to 32767: no real font comes near a bound. The origins, `horiz-origin-x`,
+  `horiz-origin-y`, `vert-origin-x` and `vert-origin-y`, have no range: fontforge does not read
+  them. The numbers of `d` have none either: the font stores points, not these numbers, and a
+  relative command adds to the current point, so `M30000 0l30000 0` reaches 60000 through numbers in
+  range; a rule has to follow the current point through every command
+  ([#798](https://github.com/yuldashevsardor/telegram-bot/issues/798)). The other numbers of
+  `font-face`, such as `underline-position` or `slope`, are not checked at all. Within the ranges
+  the targets agree: TTF, OTF, WOFF and WOFF2 were measured, and EOT is built from the TTF. Measured
+  on 20230101 for [#792](https://github.com/yuldashevsardor/telegram-bot/issues/792), with 132
   distinct real SVG fonts gathered for the earlier issues: none holds a number past its range, the
-  widest advance is 3169, `k` stays within ±1024, and `units-per-em` runs from 96 to 2048.
-  fontforge takes `ascent` and `descent` in 22 of them, and 17 glyph advances in 5 are fractional.
+  widest advance is 3169, `k` stays within ±1024, and `units-per-em` runs from 96 to 2048. fontforge
+  takes `ascent` and `descent` in 22 of them, and 17 glyph advances in 5 are fractional.
 
 XML is parsed with `saxes` (XML 1.0 fifth edition and Namespaces in XML, non-validating). It was
 chosen by measurement, with expat as the reference: of 38 malformed documents it accepted none,
