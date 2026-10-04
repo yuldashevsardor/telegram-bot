@@ -2,7 +2,7 @@ import { injectable } from "inversify";
 import { SaxesParser } from "saxes";
 import type { SaxesTagNS, XMLDecl } from "saxes";
 import { FileHelper } from "app/shared/fs/file-helper";
-import { isOutlineWithinRange } from "app/font-convertor/validator/svg/outline-range";
+import { isOutlineWithinRange, MAX_FONT_UNITS } from "app/font-convertor/validator/svg/outline-range";
 import { readPathData } from "app/font-convertor/validator/svg/path-data";
 import { BrokenFont, NoFont, NotSvg, NotXml } from "app/font-convertor/validator/svg/svg-font-validator.errors";
 import type {
@@ -98,7 +98,7 @@ export class SvgFontValidator implements FontValidator {
     // The range of `ascent`, `descent` and `k`, a signed 16-bit field without its lowest value.
     // fontforge keeps the negated `k`, so `k="-32768"` wraps over to the opposite sign while
     // `k="32768"` fits; the range is kept symmetric.
-    private static readonly SYMMETRIC_16_BIT_RANGE: NumberRange = { min: -32767, max: 32767 };
+    private static readonly SYMMETRIC_16_BIT_RANGE: NumberRange = { min: -MAX_FONT_UNITS, max: MAX_FONT_UNITS };
 
     /**
      * Throws when the file is not a valid SVG font. The answers go in this order, each a subclass

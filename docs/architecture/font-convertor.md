@@ -293,11 +293,12 @@ was rejected.
     more than 32767 apart. The second is there because a TrueType outline drops the on-curve point
     between two off-curve ones when it is their midpoint:
     `M2933 -287q27724 21719 2967 3562t-4115 424Z` comes back 64,000 wide.
-  - An arc is checked by its end point and by its radii, each at most 32767; the points fontforge
-    builds on it are not followed. A flat arc of the radius 50000 is rejected though fontforge
-    stores it, and `M0 0a30000 30000 0 1 1 700 0z`, a radius in range, is let through though the
-    header of its TTF says a `yMin` of 5538 for a glyph that reaches -59997. Radii from about
-    46000 broke the readback of OTF and WOFF.
+  - An arc is checked by its end point and by its radii, each at most 32767, unless one radius is
+    zero: such an arc is a straight line (§F.6.2), so only its end point counts. The points
+    fontforge builds on it are not followed. A flat arc of the radius 50000 is rejected though
+    fontforge stores it, and `M0 0a30000 30000 0 1 1 700 0z`, a radius in range, is let through
+    though the header of its TTF says a `yMin` of 5538 for a glyph that reaches -59997. Radii from
+    about 46000 broke the readback of OTF and WOFF.
   - Of about 1,400 outlines, none let through came back wrong in the readback. 300 cubic and 200
     quadratic ones, built to be let through, had control shifts up to 32000.
   - A moveto with nothing drawn after it is checked, though fontforge drops it. One result is not
