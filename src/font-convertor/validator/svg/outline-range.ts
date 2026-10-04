@@ -41,6 +41,7 @@ class OutlineWalker {
     // The last point of the outline in the font: not the current point, which a closepath moves.
     private lastStoredPoint = ORIGIN;
     private contourStart = ORIGIN;
+    // Stryker disable next-line BooleanLiteral: `true` is equivalent: the reader starts every outline with a moveto, which closes the contour before it with a shift from the origin to the origin and then opens its own
     private isContourOpen = false;
     private lastControl: Control | undefined;
     private isWithinRange = true;
@@ -51,6 +52,7 @@ class OutlineWalker {
         for (const segment of this.segments) {
             this.walkSegment(segment);
 
+            // Stryker disable next-line ConditionalExpression,BlockStatement: `false` and `{}` are equivalent: the flag is never set back to true, so the rest of the walk only repeats the answer, and it reads no value that can throw
             if (!this.isWithinRange) {
                 return false;
             }
@@ -169,6 +171,7 @@ class OutlineWalker {
     }
 
     private closeContour(): void {
+        // Stryker disable next-line ConditionalExpression,BlockStatement: `false` and `{}` are equivalent: a contour that is not open was closed already, and neither the last stored point nor the start has moved since, so the second check repeats the first one
         if (!this.isContourOpen) {
             return;
         }

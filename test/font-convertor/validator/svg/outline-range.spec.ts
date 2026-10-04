@@ -36,7 +36,10 @@ describe("isOutlineWithinRange", function () {
                 "M0 0A0 40000 0 0 1 700 0Z",
                 "M0 0a40000 0 0 0 1 700 0z",
             ],
-            "a point after a closepath, which starts at the point the closepath left": ["M-10000 0H0V700ZL10000 0H20000Z"],
+            "a point after a closepath, which starts at the point the closepath left": [
+                "M-10000 0H0V700ZL10000 0H20000Z",
+                "M0 0L-20000 0ZL20000 0",
+            ],
             "a smooth cubic curve right after a closepath, which leaves no control point to reflect": [
                 "M30000 0C0 0 0 0 0 0ZS30000 0 30000 0",
             ],
@@ -60,7 +63,12 @@ describe("isOutlineWithinRange", function () {
 
     describe("rejects", function () {
         const cases: Record<string, Array<string>> = {
-            "a point just past the range": ["M0 0L32768 0L32768 700L0 700Z", "M0 0L-32768 0L-32768 700Z", "M0 0V32768H700Z"],
+            "a point just past the range": [
+                "M0 0L32768 0L32768 700L0 700Z",
+                "M0 0L-32768 0L-32768 700Z",
+                "M0 0V32768H700Z",
+                "M0 0L0 32768L700 700Z",
+            ],
             "a point far past the range": ["M0 0L70000 0L70000 700L0 700Z", "M0 0L1e999 0L0 700Z", "M1e999 0L0 700Z"],
             "a first point reached from the origin past the range": ["M32768 0L32768 700L32769 700Z", "M-60000 0l10 0l0 700z"],
             "a point past the range reached through relative commands in range": [
@@ -73,12 +81,18 @@ describe("isOutlineWithinRange", function () {
                 "M0 -30000V30000H700Z",
                 "M0 0H32767V32767H-1Z",
             ],
-            "a closing line past the range, which a CFF contour draws": ["M-20000 0H0H20000Z", "M0 -20000V0V20000Z"],
+            "a closing line past the range, which a CFF contour draws": [
+                "M-20000 0H0H20000Z",
+                "M0 -20000V0V20000Z",
+                "M-20000 0H0H20000",
+                "M-20000 0H0H20000M0 0",
+            ],
             "a moveto past the range from the start of the contour before, which a CFF contour shifts from": [
                 "M-25000 0H0V700ZM10000 0H11000V700Z",
             ],
             "a moveto past the range from the last point of the contour before, which a TrueType contour shifts from": [
                 "M0 0H25000V700ZM-10000 0H-11000V700Z",
+                "M0 0H-20000M20000 0H0",
             ],
             "a line after a closepath that reaches past the range from the point the closepath left, not from the last point": [
                 "M-20000 0H0V700ZL20000 0Z",
@@ -94,6 +108,7 @@ describe("isOutlineWithinRange", function () {
                 "M0 0c0 -10000 0 -10000 0 20000s0 0 0 0z",
             ],
             "a control point of a quadratic curve past the range": ["M0 0Q40000 0 700 700Z", "M0 0q0 40000 700 700z"],
+            "a quadratic curve with its end past the range": ["M0 0Q0 0 40000 0Z", "M0 0q0 0 0 -40000z"],
             "the controls of two quadratic curves in a row apart past the range": [
                 "M2933 -287q27724 21719 2967 3562t-4115 424Z",
                 "M0 0Q20000 0 0 0Q-20000 0 0 0Z",
