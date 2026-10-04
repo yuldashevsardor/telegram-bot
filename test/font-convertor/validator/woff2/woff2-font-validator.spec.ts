@@ -11,48 +11,56 @@ import type { InvalidWoff2Font } from "app/font-convertor/validator/woff2/woff2-
 import { BrokenWoff2, NotWoff2 } from "app/font-convertor/validator/woff2/woff2-font-validator.errors";
 import { Woff2Rule } from "app/font-convertor/validator/woff2/woff2-font-validator.types";
 import { ReadFailed } from "app/shared/fs/file-helper.errors";
+import type { Composite, Entry, GlyfParts, GlyfStream, Layout } from "test/font-convertor/validator/woff2/woff2-font-validator.helper";
+import {
+    ARBITRARY_TAG_INDEX,
+    composite,
+    concat,
+    garbage,
+    joinGlyf,
+    splitGlyf,
+    withBoundingBoxBitSet,
+    withComposite,
+    withNContour,
+    withStream,
+    FLAVOR,
+    fixtureDir,
+    GLYF_HEADER_SIZE_BYTES,
+    GLYF_INDEX_FORMAT,
+    GLYF_N_CONTOUR_STREAM_SIZE,
+    GLYF_NUM_GLYPHS,
+    GLYF_OPTION_FLAGS,
+    HEADER_SIZE_BYTES,
+    HHEA_NUMBER_OF_H_METRICS,
+    KNOWN_TAGS,
+    LENGTH,
+    META_LENGTH,
+    META_OFFSET,
+    META_ORIG_LENGTH,
+    NUM_TABLES,
+    parse,
+    PRIV_LENGTH,
+    PRIV_OFFSET,
+    readUint16,
+    readUint32,
+    RESERVED,
+    TOTAL_COMPRESSED_SIZE,
+    TOTAL_SFNT_SIZE,
+    withBytes,
+    withUint16,
+    withUint32,
+} from "test/font-convertor/validator/woff2/woff2-font-validator.helper";
 
-const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 const validator = new Woff2FontValidator();
 
-const HEADER_SIZE_BYTES = 48;
-const MAX_DECOMPRESSED_SIZE_BYTES = 30 * 1024 * 1024;
+// The output buffer fontforge gives its decoder: the cap on the decompressed tables and on the rebuilt sfnt.
+const DECODER_BUFFER_SIZE_BYTES = 30 * 1024 * 1024;
 const MAX_COMPRESSION_RATIO = 100;
-
-// The header fields by their offset (WOFF 2.0, §3.2).
-const FLAVOR = 4;
-const LENGTH = 8;
-const NUM_TABLES = 12;
-const RESERVED = 14;
-const TOTAL_SFNT_SIZE = 16;
-const TOTAL_COMPRESSED_SIZE = 20;
-const META_OFFSET = 28;
-const META_LENGTH = 32;
-const META_ORIG_LENGTH = 36;
-const PRIV_OFFSET = 40;
-const PRIV_LENGTH = 44;
-// The fields of a transformed glyf by their offset in it (§5.1).
-const GLYF_OPTION_FLAGS = 2;
-const GLYF_NUM_GLYPHS = 4;
-const GLYF_INDEX_FORMAT = 6;
-const GLYF_N_CONTOUR_STREAM_SIZE = 8;
-const GLYF_HEADER_SIZE_BYTES = 36;
-// A numGlyphs that is a multiple of 32, so that overlapSimpleBitmap has no bit to spare (§5.1).
-const BITMAP_NUM_GLYPHS = 1280;
-const BITMAP_WORD_SIZE_BITS = 32;
-const BITMAP_WORD_SIZE_BYTES = 4;
-const LONG_LOCA_OFFSET_SIZE_BYTES = 4;
-// numberOfHMetrics by its offset in hhea (OpenType 1.9.1, hhea).
-const HHEA_NUMBER_OF_H_METRICS = 34;
-
-// The "Known Table Tags" of §4.1, by their index in the flags byte.
-const KNOWN_TAGS = [
-    ["cmap", "head", "hhea", "hmtx", "maxp", "name", "OS/2", "post", "cvt ", "fpgm", "glyf", "loca", "prep", "CFF ", "VORG", "EBDT"],
-    ["EBLC", "gasp", "hdmx", "kern", "LTSH", "PCLT", "VDMX", "vhea", "vmtx", "BASE", "GDEF", "GPOS", "GSUB", "EBSC", "JSTF", "MATH"],
-    ["CBDT", "CBLC", "COLR", "CPAL", "SVG ", "sbix", "acnt", "avar", "bdat", "bloc", "bsln", "cvar", "fdsc", "feat", "fmtx", "fvar"],
-    ["gvar", "hsty", "just", "lcar", "mort", "morx", "opbd", "prop", "trak", "Zapf", "Silf", "Glat", "Gloc", "Feat", "Sill"],
-].flat();
-const ARBITRARY_TAG_INDEX = 63;
+const SFNT_TABLE_RECORD_SIZE_BYTES = 16;
+// A numGlyphs that is a multiple of neither 8 nor 32: overlapSimpleBitmap ends on a byte that holds
+// one glyph, and a size padded to 32-bit words would differ from ⌈numGlyphs / 8⌉ (§5.1).
+const BITMAP_NUM_GLYPHS = 1297;
+const BITMAP_SIZE_BYTES = 163;
 
 // The fixture: flavor 0x00010000, 13 tables, the directory 41 bytes long, the compressed data
 // 44 928 bytes long and padded with 3 null bytes, no metadata and no private block. Its transformed
@@ -60,40 +68,11 @@ const ARBITRARY_TAG_INDEX = 63;
 const FIXTURE_SIZE_BYTES = 45020;
 const DIRECTORY_END = 89;
 const COMPRESSED_END = 45017;
-
-/**
- * A table directory entry (§4.1) with the bytes the table puts into the decompressed stream.
- */
-type Entry = {
-    tag: string;
-    transformVersion: number;
-    /** The tag is written after flag 63 rather than as its index among the known tags. */
-    isTagExplicit: boolean;
-    origLength: number;
-    /** Written after origLength when set. */
-    transformLength: number | undefined;
-    /** Written in place of the UIntBase128 of origLength. */
-    origLengthBytes?: Uint8Array;
-    /** Written in place of the UIntBase128 of transformLength. */
-    transformLengthBytes?: Uint8Array;
-    /** The table in the stream: transformLength bytes of it when transformed, origLength otherwise. */
-    data: Uint8Array;
-};
-
-/**
- * What `build()` lays out into a WOFF2.
- */
-type Layout = {
-    flavor: number;
-    reserved: number;
-    totalSfntSize: number;
-    /** In directory order, which is the order of the stream (§4.1). */
-    entries: Array<Entry>;
-    /** Written in place of the data of the entries compressed as the fixture is. */
-    compressed?: Uint8Array;
-    metadata?: { stored: Uint8Array; origLength: number };
-    privateData?: Uint8Array | undefined;
-};
+// The sfnt woff2_decompress 1.0.2 rebuilds the fixture into: the header, 13 table records and the
+// tables padded to 4 bytes, glyf rebuilt to 133 392 bytes.
+const FIXTURE_SFNT_SIZE_BYTES = 158864;
+// 4 × ⌊(1296 + 31) / 32⌋ bytes: the bboxBitmap at the head of bboxStream.
+const BBOX_BITMAP_SIZE_BYTES = 164;
 
 describe("Woff2FontValidator.validate", function () {
     let workDir: string;
@@ -206,34 +185,53 @@ describe("Woff2FontValidator.validate", function () {
         });
 
         it("with bit 0 of optionFlags and the overlapSimpleBitmap after the substreams", async function () {
-            // 4 × ⌊(1296 + 31) / 32⌋ = 164 bytes.
+            // ⌈1296 / 8⌉ = 162 bytes.
             const layout = withGlyf(fixtureLayout, (glyf) => {
                 const withFlag = withUint16(glyf, GLYF_OPTION_FLAGS, 1);
 
-                return concat(withFlag, new Uint8Array(164));
+                return concat(withFlag, new Uint8Array(162));
             });
 
             await validate(build(layout));
         });
 
-        it("with the overlapSimpleBitmap of a numGlyphs that is a multiple of 32, with no word to spare", async function () {
-            const bitmapSizeBytes = (BITMAP_NUM_GLYPHS / BITMAP_WORD_SIZE_BITS) * BITMAP_WORD_SIZE_BYTES;
-            const withBitmap = withGlyf(fixtureLayout, (glyf) => {
-                const withFlag = withUint16(withUint16(glyf, GLYF_NUM_GLYPHS, BITMAP_NUM_GLYPHS), GLYF_OPTION_FLAGS, 1);
-
-                return concat(withFlag, new Uint8Array(bitmapSizeBytes));
-            });
-            const locaSizeBytes = (BITMAP_NUM_GLYPHS + 1) * LONG_LOCA_OFFSET_SIZE_BYTES;
-            const layout = withEntry(withBitmap, "loca", (entry) => ({ ...entry, origLength: locaSizeBytes }));
-
-            await validate(build(layout));
+        it("with an overlapSimpleBitmap of ⌈numGlyphs / 8⌉ bytes, not padded to 32-bit words", async function () {
+            // fontTools and google/woff2 write it so: 163 bytes for 1297 glyphs, not 164.
+            await validate(build(withOverlapSimpleBitmap(fixtureLayout, BITMAP_SIZE_BYTES)));
         });
 
-        it("whose tables decompress to exactly 30 MiB", async function () {
-            // The private block brings the file over 30 MiB / 100, so the ratio cap holds too.
-            const layout = withZeroTable(fixtureLayout, MAX_DECOMPRESSED_SIZE_BYTES - streamSizeBytes(fixtureLayout));
+        it("whose rebuilt sfnt is exactly 30 MiB", async function () {
+            // A table of zeros takes a table record and its length in the sfnt. The private block
+            // brings the file over 30 MiB / 100, so the ratio cap holds too.
+            const zeroTableBytes = DECODER_BUFFER_SIZE_BYTES - FIXTURE_SFNT_SIZE_BYTES - SFNT_TABLE_RECORD_SIZE_BYTES;
+            const layout = withZeroTable(fixtureLayout, zeroTableBytes);
 
-            await validate(build(withFileSize(layout, Math.ceil(MAX_DECOMPRESSED_SIZE_BYTES / MAX_COMPRESSION_RATIO))));
+            await validate(build(withFileSize(layout, Math.ceil(DECODER_BUFFER_SIZE_BYTES / MAX_COMPRESSION_RATIO))));
+        });
+
+        it("with a composite glyph of the fixture's own glyphs and its bounding box", async function () {
+            // The fixture has no composite glyph: one more glyph, glyph 1296, is built of glyphs 5 and 6.
+            await validate(build(withGlyfParts(withLocaFor(fixtureLayout, 1297), (parts) => withComposite(parts, composite()))));
+        });
+
+        it("with a composite glyph whose component calls for instructions", async function () {
+            const withInstructions: Composite = {
+                ...composite(),
+                components: Uint8Array.from([0x01, 0x02, 0x00, 0x05, 0x00, 0x00]),
+                instructionLength: Uint8Array.from([3]),
+                instructions: Uint8Array.from([0xb0, 0x00, 0x2c]),
+            };
+
+            await validate(build(withGlyfParts(withLocaFor(fixtureLayout, 1297), (parts) => withComposite(parts, withInstructions))));
+        });
+
+        it("with the hmtx transform and fewer hMetrics than glyphs, flags 1, 2 or 3", async function () {
+            // Glyphs 1000–1295 become monospaced: their advance widths go, their lsb stay in leftSideBearing[].
+            const withHMetrics = withNumberOfHMetrics(fixtureLayout, 1000);
+
+            for (const flags of [0x01, 0x02, 0x03]) {
+                await validate(build(withHmtxTransform(withHMetrics, flags)));
+            }
         });
 
         it("whose tables decompress to exactly 100 times the file size", async function () {
@@ -778,7 +776,7 @@ describe("Woff2FontValidator.validate", function () {
 
     describe("rejects tables that decompress over a cap of ours, before Brotli runs", function () {
         it("over 30 MiB", async function () {
-            const broken = build(withUnreadTable(fixtureLayout, MAX_DECOMPRESSED_SIZE_BYTES - streamSizeBytes(fixtureLayout) + 1));
+            const broken = build(withUnreadTable(fixtureLayout, DECODER_BUFFER_SIZE_BYTES - streamSizeBytes(fixtureLayout) + 1));
 
             await expectBroken(
                 broken,
@@ -899,6 +897,16 @@ describe("Woff2FontValidator.validate", function () {
             );
         });
 
+        it("with a bboxStream shorter than its bboxBitmap", async function () {
+            const layout = withGlyfParts(fixtureLayout, (parts) => withStream(parts, "bbox", (stream) => stream.subarray(0, 10)));
+
+            await expectBroken(
+                build(layout),
+                Woff2Rule.TransformedGlyf,
+                'At table "glyf": bboxStreamSize is 10, expected at least 164, the size of bboxBitmap for 1296 glyphs.',
+            );
+        });
+
         it("with bit 0 of optionFlags and no overlapSimpleBitmap", async function () {
             // fontforge converts it with exit 0: its decoder knows nothing of the bitmap.
             const layout = withGlyf(fixtureLayout, (glyf) => withUint16(glyf, GLYF_OPTION_FLAGS, 1));
@@ -906,7 +914,15 @@ describe("Woff2FontValidator.validate", function () {
             await expectBroken(
                 build(layout),
                 Woff2Rule.TransformedGlyf,
-                'At table "glyf": end of overlapSimpleBitmap is 102010, expected at most 101846, the transformLength, as bit 0 of optionFlags is set.',
+                'At table "glyf": end of overlapSimpleBitmap is 102008, expected at most 101846, the transformLength, as bit 0 of optionFlags is set.',
+            );
+        });
+
+        it("with an overlapSimpleBitmap one byte short of ⌈numGlyphs / 8⌉", async function () {
+            await expectBroken(
+                build(withOverlapSimpleBitmap(fixtureLayout, BITMAP_SIZE_BYTES - 1)),
+                Woff2Rule.TransformedGlyf,
+                'At table "glyf": end of overlapSimpleBitmap is 102011, expected at most 102010, the transformLength, as bit 0 of optionFlags is set.',
             );
         });
 
@@ -956,6 +972,242 @@ describe("Woff2FontValidator.validate", function () {
                 build(layout),
                 Woff2Rule.HmtxTransform,
                 'At table "hmtx": transformLength is 0, expected at least 1, for the flags byte.',
+            );
+        });
+    });
+
+    describe("rejects glyph records of the transformed glyf that cannot be decoded", function () {
+        // fontforge crashes on each of them: its decoder refuses the file, and fontforge does not say so.
+        it("with nContourStream, nPointsStream, flagStream or glyphStream cut by 10 bytes", async function () {
+            const cut = (name: GlyfStream): Uint8Array =>
+                build(withGlyfParts(fixtureLayout, (parts) => withStream(parts, name, (stream) => stream.subarray(0, stream.length - 10))));
+
+            await expectBroken(
+                cut("nContour"),
+                Woff2Rule.GlyphStreams,
+                'At glyph 1291 of table "glyf": bytes left in nContourStream is 0, expected at least 2, for nContour.',
+            );
+            await expectBroken(
+                cut("nPoints"),
+                Woff2Rule.GlyphStreams,
+                'At glyph 1292 of table "glyf": bytes left in nPointsStream is 0, expected at least 1, for the points of contour 1.',
+            );
+            await expectBroken(
+                cut("flag"),
+                Woff2Rule.GlyphStreams,
+                'At glyph 1295 of table "glyf": bytes left in flagStream is 6, expected at least 16, for the flags of 16 points.',
+            );
+            await expectBroken(
+                cut("glyph"),
+                Woff2Rule.GlyphStreams,
+                'At glyph 1295 of table "glyf": bytes left in glyphStream is 0, expected at least 1, for the coordinates of point 7.',
+            );
+        });
+
+        it("with flagStream, glyphStream or nContourStream of garbage", async function () {
+            const withGarbage = (name: GlyfStream): Uint8Array =>
+                build(withGlyfParts(fixtureLayout, (parts) => withStream(parts, name, (stream) => garbage(stream.length))));
+
+            await expectBroken(
+                withGarbage("flag"),
+                Woff2Rule.GlyphStreams,
+                'At glyph 0 of table "glyf": bytes left in instructionStream is 0, expected at least 3, for the instructions.',
+            );
+            await expectBroken(
+                withGarbage("glyph"),
+                Woff2Rule.GlyphStreams,
+                'At glyph 0 of table "glyf": bytes left in instructionStream is 0, expected at least 81, for the instructions.',
+            );
+            // nContour 3508 for glyph 0: more contours than nPointsStream holds for.
+            await expectBroken(
+                withGarbage("nContour"),
+                Woff2Rule.GlyphStreams,
+                'At glyph 0 of table "glyf": bytes left in nPointsStream is 0, expected at least 1, for the points of contour 2606.',
+            );
+        });
+
+        it("with nContour below -1", async function () {
+            await expectBroken(
+                build(withGlyfParts(fixtureLayout, (parts) => withNContour(parts, 0, -2))),
+                Woff2Rule.ContourCount,
+                'At glyph 0 of table "glyf": nContour is -2, expected -1, 0 or a positive number.',
+            );
+        });
+
+        it("with a simple glyph made empty, its points left in the substreams", async function () {
+            // Glyph 0 has 5 contours: the glyphs after it take its points, and a substream runs out.
+            await expectBroken(
+                build(withGlyfParts(fixtureLayout, (parts) => withNContour(parts, 0, 0))),
+                Woff2Rule.GlyphStreams,
+                'At glyph 5 of table "glyf": bytes left in instructionStream is 0, expected at least 69, for the instructions.',
+            );
+        });
+
+        it("with the first contour of 0 points", async function () {
+            await expectBroken(
+                build(withGlyfParts(fixtureLayout, (parts) => withStream(parts, "nPoints", (stream) => withBytes(stream, 0, [0])))),
+                Woff2Rule.GlyphStreams,
+                'At glyph 0 of table "glyf": bytes left in instructionStream is 0, expected at least 1, for the instructions.',
+            );
+        });
+
+        it("with every bit of bboxBitmap set", async function () {
+            // The bboxStream of the fixture is its bboxBitmap alone: glyph 0 finds no bounding box after it.
+            const layout = withGlyfParts(fixtureLayout, (parts) =>
+                withStream(parts, "bbox", (stream) =>
+                    concat(new Uint8Array(BBOX_BITMAP_SIZE_BYTES).fill(0xff), stream.subarray(BBOX_BITMAP_SIZE_BYTES)),
+                ),
+            );
+
+            await expectBroken(
+                build(layout),
+                Woff2Rule.GlyphStreams,
+                'At glyph 0 of table "glyf": bytes left in bboxStream is 0, expected at least 8, for the bounding box.',
+            );
+        });
+
+        it("with an empty glyph whose bit in bboxBitmap is set", async function () {
+            // Glyph 1 of the fixture is empty.
+            await expectBroken(
+                build(withGlyfParts(fixtureLayout, (parts) => withBoundingBoxBitSet(parts, 1))),
+                Woff2Rule.EmptyGlyphBoundingBox,
+                'At glyph 1 of table "glyf": bit in bboxBitmap is 1, expected 0, as nContour is 0.',
+            );
+        });
+
+        it("with a composite glyph without its bounding box", async function () {
+            const layout = withGlyfParts(withLocaFor(fixtureLayout, 1297), (parts) =>
+                withComposite(parts, { ...composite(), boundingBox: undefined }),
+            );
+
+            await expectBroken(
+                build(layout),
+                Woff2Rule.CompositeBoundingBox,
+                'At glyph 1296 of table "glyf": bit in bboxBitmap is 0, expected 1, as nContour is -1.',
+            );
+        });
+
+        it("with a composite glyph whose components or instructions run past their substreams", async function () {
+            const withComponents = (edit: (whole: Composite) => Composite): Uint8Array =>
+                build(withGlyfParts(withLocaFor(fixtureLayout, 1297), (parts) => withComposite(parts, edit(composite()))));
+
+            await expectBroken(
+                withComponents((whole) => ({ ...whole, components: whole.components.subarray(0, whole.components.length - 1) })),
+                Woff2Rule.GlyphStreams,
+                'At glyph 1296 of table "glyf": bytes left in compositeStream is 11, expected at least 12, for the arguments of component 4.',
+            );
+            await expectBroken(
+                withComponents((whole) => ({
+                    ...whole,
+                    components: Uint8Array.from([0x01, 0x02, 0x00, 0x05, 0x00, 0x00]),
+                    instructionLength: Uint8Array.from([3]),
+                    instructions: Uint8Array.from([0xb0, 0x00]),
+                })),
+                Woff2Rule.GlyphStreams,
+                'At glyph 1296 of table "glyf": bytes left in instructionStream is 2, expected at least 3, for the instructions.',
+            );
+        });
+
+        it("with a contour that ends past point 65535", async function () {
+            // Glyph 0 has 5 contours of 4, 3, 3, 3 and 3 points: the first takes a 255UInt16 word
+            // instead, and the fifth ends at point V + 11.
+            const withFirstContour = (pointCount: number): Uint8Array =>
+                build(
+                    withGlyfParts(fixtureLayout, (parts) =>
+                        withStream(parts, "nPoints", (stream) =>
+                            concat(Uint8Array.from([253, pointCount >> 8, pointCount & 0xff]), stream.subarray(1)),
+                        ),
+                    ),
+                );
+
+            await expectBroken(
+                withFirstContour(65525),
+                Woff2Rule.EndPoint,
+                'At glyph 0 of table "glyf": end point of contour 5 is 65536, expected at most 65535.',
+            );
+            await expectBroken(
+                withFirstContour(65524),
+                Woff2Rule.GlyphStreams,
+                'At glyph 0 of table "glyf": bytes left in flagStream is 38927, expected at least 65536, for the flags of 65536 points.',
+            );
+        });
+    });
+
+    describe("rejects a transformed hmtx that hhea and the glyph count do not fit", function () {
+        it("in a font without hhea, or with hhea too short for numberOfHMetrics", async function () {
+            const transformed = withHmtxTransform(fixtureLayout, 0x01);
+
+            await expectBroken(
+                build(withoutEntry(transformed, "hhea")),
+                Woff2Rule.TransformedHmtx,
+                'At the table directory: table "hhea" is absent, expected present, as table "hmtx" is transformed.',
+            );
+            await expectBroken(
+                build(withEntry(transformed, "hhea", (entry) => ({ ...entry, origLength: 35, data: entry.data.subarray(0, 35) }))),
+                Woff2Rule.TransformedHmtx,
+                'At table "hhea": origLength is 35, expected at least 36, to hold numberOfHMetrics.',
+            );
+        });
+
+        it("whose numberOfHMetrics is 0 or over the glyph count", async function () {
+            const transformed = withHmtxTransform(fixtureLayout, 0x01);
+            const expected = "expected 1 to 1296, numGlyphs of the transformed glyf.";
+
+            await expectBroken(
+                build(withNumberOfHMetrics(transformed, 0)),
+                Woff2Rule.TransformedHmtx,
+                `At table "hhea": numberOfHMetrics is 0, ${expected}`,
+            );
+            await expectBroken(
+                build(withNumberOfHMetrics(transformed, 1297)),
+                Woff2Rule.TransformedHmtx,
+                `At table "hhea": numberOfHMetrics is 1297, ${expected}`,
+            );
+        });
+
+        it("shorter than its flags and numberOfHMetrics call for", async function () {
+            // Flags 1: the flags byte and 1296 advance widths; flags 2: 1296 lsb as well.
+            const cut = (layout: Layout): Layout =>
+                withEntry(layout, "hmtx", (entry) => ({
+                    ...entry,
+                    transformLength: entry.data.length - 1,
+                    data: entry.data.subarray(0, -1),
+                }));
+
+            await expectBroken(
+                build(cut(withHmtxTransform(fixtureLayout, 0x01))),
+                Woff2Rule.TransformedHmtx,
+                'At table "hmtx": transformLength is 2592, expected at least 2593, for flags 1 and numberOfHMetrics 1296.',
+            );
+            await expectBroken(
+                build(cut(withHmtxTransform(fixtureLayout, 0x02))),
+                Woff2Rule.TransformedHmtx,
+                'At table "hmtx": transformLength is 5184, expected at least 5185, for flags 2 and numberOfHMetrics 1296.',
+            );
+        });
+    });
+
+    describe("rejects a rebuilt sfnt over 30 MiB, by a rule of ours", function () {
+        it("by a table of zeros 4 bytes over", async function () {
+            // One byte more in the table is 4 more in the sfnt, padded.
+            const zeroTableBytes = DECODER_BUFFER_SIZE_BYTES - FIXTURE_SFNT_SIZE_BYTES - SFNT_TABLE_RECORD_SIZE_BYTES + 1;
+            const layout = withZeroTable(fixtureLayout, zeroTableBytes);
+
+            await expectBroken(
+                build(withFileSize(layout, Math.ceil(DECODER_BUFFER_SIZE_BYTES / MAX_COMPRESSION_RATIO))),
+                Woff2Rule.MaxSfntSize,
+                "At the rebuilt sfnt: size is 31457284, expected at most 31457280.",
+            );
+        });
+
+        it("whose tables decompress to exactly 30 MiB: the cap on them passes, glyf grows", async function () {
+            // The fixture's glyf rebuilds 31 546 bytes larger than its transformed form.
+            const layout = withZeroTable(fixtureLayout, DECODER_BUFFER_SIZE_BYTES - streamSizeBytes(fixtureLayout));
+
+            await expectBroken(
+                build(withFileSize(layout, Math.ceil(DECODER_BUFFER_SIZE_BYTES / MAX_COMPRESSION_RATIO))),
+                Woff2Rule.MaxSfntSize,
+                "At the rebuilt sfnt: size is 31494256, expected at most 31457280.",
             );
         });
     });
@@ -1016,66 +1268,6 @@ async function expectRejection<T extends Error>(
     }
 
     return expect.fail(`the call did not throw ${expected.name}`);
-}
-
-/**
- * Reads a WOFF2 into the layout `build()` takes: the header fields it keeps, the entries with the
- * bytes each takes from the decompressed stream. The fixture has no metadata and no private block.
- */
-function parse(woff2: Uint8Array): Layout {
-    const entries: Array<Entry> = [];
-    let offset = HEADER_SIZE_BYTES;
-
-    const readBase128 = (): number => {
-        let value = 0;
-        let byte: number;
-
-        do {
-            byte = readUint8(woff2, offset);
-            offset += 1;
-            value = value * 128 + (byte & 0x7f);
-        } while ((byte & 0x80) !== 0);
-
-        return value;
-    };
-
-    for (let index = 0; index < readUint16(woff2, NUM_TABLES); index++) {
-        const flags = readUint8(woff2, offset);
-        const isTagExplicit = (flags & 0x3f) === ARBITRARY_TAG_INDEX;
-        const tag = isTagExplicit ? Buffer.from(woff2.subarray(offset + 1, offset + 5)).toString("latin1") : KNOWN_TAGS[flags & 0x3f] ?? "";
-
-        offset += isTagExplicit ? 5 : 1;
-
-        const transformVersion = flags >> 6;
-        const origLength = readBase128();
-        const isTransformed = ["glyf", "loca"].includes(tag) ? transformVersion === 0 : transformVersion !== 0;
-
-        entries.push({
-            tag: tag,
-            transformVersion: transformVersion,
-            isTagExplicit: isTagExplicit,
-            origLength: origLength,
-            transformLength: isTransformed ? readBase128() : undefined,
-            data: new Uint8Array(0),
-        });
-    }
-
-    const decompressed = zlib.brotliDecompressSync(woff2.subarray(offset, offset + readUint32(woff2, TOTAL_COMPRESSED_SIZE)));
-    let streamOffset = 0;
-
-    for (const entry of entries) {
-        const length = entry.transformLength ?? entry.origLength;
-
-        entry.data = decompressed.subarray(streamOffset, streamOffset + length);
-        streamOffset += length;
-    }
-
-    return {
-        flavor: readUint32(woff2, FLAVOR),
-        reserved: readUint16(woff2, RESERVED),
-        totalSfntSize: readUint32(woff2, TOTAL_SFNT_SIZE),
-        entries: entries,
-    };
 }
 
 /**
@@ -1241,6 +1433,35 @@ function withGlyf(layout: Layout, edit: (glyf: Uint8Array) => Uint8Array): Layou
 }
 
 /**
+ * The layout with the parts of the transformed glyf as `edit` makes them.
+ */
+function withGlyfParts(layout: Layout, edit: (parts: GlyfParts) => GlyfParts): Layout {
+    return withGlyf(layout, (glyf) => joinGlyf(edit(splitGlyf(glyf))));
+}
+
+/**
+ * The layout with origLength of the transformed loca of `numGlyphs`, in the long format of the fixture.
+ */
+function withLocaFor(layout: Layout, numGlyphs: number): Layout {
+    return withEntry(layout, "loca", (entry) => ({ ...entry, origLength: (numGlyphs + 1) * 4 }));
+}
+
+/**
+ * The layout with bit 0 of optionFlags set and `bitmapSizeBytes` null bytes of overlapSimpleBitmap
+ * after the substreams of glyf, for BITMAP_NUM_GLYPHS glyphs, with loca sized to match. The
+ * fixture has 1296 glyphs: an empty glyph 1296, nContour 0, makes the 1297th.
+ */
+function withOverlapSimpleBitmap(layout: Layout, bitmapSizeBytes: number): Layout {
+    const withBitmap = withGlyfParts(layout, (parts) => ({
+        ...withStream(parts, "nContour", (stream) => concat(stream, new Uint8Array(2))),
+        header: withUint16(withUint16(parts.header, GLYF_NUM_GLYPHS, BITMAP_NUM_GLYPHS), GLYF_OPTION_FLAGS, 1),
+        tail: new Uint8Array(bitmapSizeBytes),
+    }));
+
+    return withLocaFor(withBitmap, BITMAP_NUM_GLYPHS);
+}
+
+/**
  * The layout with glyf and loca under the null transform (version 3): the tables of the TTF
  * fixture as they are, without transformLength.
  */
@@ -1258,21 +1479,32 @@ function plain(table: Uint8Array): (entry: Entry) => Entry {
 }
 
 /**
- * The layout with hmtx transformed (§5.4): the flags byte, the advance widths, then the lsb of
- * the proportional glyphs unless bit 0 is set. Every glyph of the fixture is proportional, so the
- * leftSideBearing array of the monospaced ones is empty whatever bit 1 says.
+ * The layout with hmtx transformed (§5.4): the flags byte, the advance widths of the proportional
+ * glyphs, then their lsb unless bit 0 is set, then the lsb of the monospaced glyphs unless bit 1 is
+ * set. numberOfHMetrics of hhea says how many glyphs are proportional. The lsb of every glyph of the
+ * fixture equal the xMin of the glyph, so any flags leave the metrics as they were.
  */
 function withHmtxTransform(layout: Layout, flags: number): Layout {
     const numberOfHMetrics = readUint16(entryOf(layout, "hhea").data, HHEA_NUMBER_OF_H_METRICS);
 
     return withEntry(layout, "hmtx", (entry) => {
-        const metrics = Array.from({ length: numberOfHMetrics }, (_, index) => entry.data.subarray(index * 4, index * 4 + 4));
-        const advanceWidths = metrics.map((metric) => metric.subarray(0, 2));
-        const lsbs = (flags & 0x01) === 0 ? metrics.map((metric) => metric.subarray(2, 4)) : [];
-        const data = concat(Uint8Array.from([flags]), ...advanceWidths, ...lsbs);
+        const metrics = Array.from({ length: entry.data.length / 4 }, (_, glyph) => entry.data.subarray(glyph * 4, glyph * 4 + 4));
+        const proportional = metrics.slice(0, numberOfHMetrics);
+        const monospaced = metrics.slice(numberOfHMetrics);
+        const advanceWidths = proportional.map((metric) => metric.subarray(0, 2));
+        const lsbs = (flags & 0x01) === 0 ? proportional.map((metric) => metric.subarray(2, 4)) : [];
+        const leftSideBearings = (flags & 0x02) === 0 ? monospaced.map((metric) => metric.subarray(2, 4)) : [];
+        const data = concat(Uint8Array.from([flags]), ...advanceWidths, ...lsbs, ...leftSideBearings);
 
         return { ...entry, transformVersion: 1, transformLength: data.length, data: data };
     });
+}
+
+/**
+ * The layout with numberOfHMetrics of hhea set.
+ */
+function withNumberOfHMetrics(layout: Layout, numberOfHMetrics: number): Layout {
+    return withEntry(layout, "hhea", (entry) => ({ ...entry, data: withUint16(entry.data, HHEA_NUMBER_OF_H_METRICS, numberOfHMetrics) }));
 }
 
 /**
@@ -1380,44 +1612,4 @@ function withHeader(woff2: Uint8Array, fields: Record<number, number>): Uint8Arr
     }
 
     return edited;
-}
-
-function readUint8(bytes: Uint8Array, offset: number): number {
-    return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint8(offset);
-}
-
-function readUint16(bytes: Uint8Array, offset: number): number {
-    return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint16(offset);
-}
-
-function readUint32(bytes: Uint8Array, offset: number): number {
-    return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(offset);
-}
-
-function withUint16(bytes: Uint8Array, offset: number, value: number): Uint8Array {
-    const copy = Uint8Array.from(bytes);
-
-    new DataView(copy.buffer).setUint16(offset, value);
-
-    return copy;
-}
-
-function withUint32(bytes: Uint8Array, offset: number, value: number): Uint8Array {
-    const copy = Uint8Array.from(bytes);
-
-    new DataView(copy.buffer).setUint32(offset, value);
-
-    return copy;
-}
-
-function withBytes(bytes: Uint8Array, offset: number, replacement: ArrayLike<number>): Uint8Array {
-    const copy = Uint8Array.from(bytes);
-
-    copy.set(replacement, offset);
-
-    return copy;
-}
-
-function concat(...parts: Array<Uint8Array>): Uint8Array {
-    return Buffer.concat(parts);
 }

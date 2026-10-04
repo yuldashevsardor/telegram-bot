@@ -20,13 +20,30 @@ export enum Woff2Rule {
     NoExtraneousData = "the compressed data follows the table directory, then the metadata, then the private block, which ends the file; nothing lies between or after them but padding, and no padding follows the metadata when it is last (WOFF 2.0, §3, §6, §7)",
     Padding = "padding is 0 to 3 null bytes (WOFF 2.0, §3)",
     Brotli = "the compressed data is one Brotli stream that decompresses to the sum of origLength of the plain tables and transformLength of the transformed ones (WOFF 2.0, §5)",
-    TransformedGlyf = "the transformed glyf holds its 36-byte header and its seven substreams, then the overlapSimpleBitmap when bit 0 of optionFlags is set (WOFF 2.0, §5.1)",
+    TransformedGlyf = "the transformed glyf holds its 36-byte header and its seven substreams, bboxStream starts with its bboxBitmap, and the overlapSimpleBitmap follows the substreams when bit 0 of optionFlags is set (WOFF 2.0, §5.1)",
+    GlyphStreams = "each substream of the transformed glyf holds what its glyph records take from it (WOFF 2.0, §5.1, §5.2)",
+    ContourCount = "nContour of a glyph is -1 for a composite glyph, 0 for an empty one or positive for a simple one (WOFF 2.0, §5.1)",
+    CompositeBoundingBox = "a composite glyph has an explicit bounding box (WOFF 2.0, §5.1)",
+    EmptyGlyphBoundingBox = "an empty glyph has no explicit bounding box (WOFF 2.0, §5.1)",
+    EndPoint = "the end point of a contour is at most 65535, as endPtsOfContours of glyf is a uint16 (WOFF 2.0, §5.1; OpenType 1.9.1, glyf)",
+    TransformedHmtx = "a transformed hmtx holds advanceWidth[] for numberOfHMetrics of hhea, then lsb[] and leftSideBearing[] unless its flags drop them, and numberOfHMetrics is 1 to numGlyphs of the transformed glyf (WOFF 2.0, §5.4; OpenType 1.9.1, hmtx)",
     Flavor = "flavor is an sfnt version the domain accepts (ours: a collection holds several fonts, and fontforge refuses any other flavor)",
     HmtxBesideTransformedGlyf = "a transformed hmtx is in a font whose glyf is transformed (ours: the decoder of fontforge takes the glyph count and the xMin of the glyphs from the transformed glyf alone)",
     HmtxAfterGlyfAndHhea = "a transformed hmtx follows glyf and hhea in the table directory (ours: the decoder of fontforge rebuilds the tables in directory order, and hmtx needs the glyph count and the xMin of the glyphs from glyf and numberOfHMetrics from hhea)",
     EndPadding = "the compressed data that ends the file is padded to a 4-byte boundary (ours: the decoder of fontforge refuses a file that ends before it)",
     MaxDecompressedSize = "the tables decompress to at most 30 MiB (ours: the output buffer fontforge gives its decoder)",
     MaxCompressionRatio = "the tables decompress to at most 100 times the file size (ours: the decoder of fontforge refuses a higher ratio)",
+    MaxSfntSize = "the rebuilt sfnt is at most 30 MiB (ours: the output buffer fontforge gives its decoder)",
+}
+
+/**
+ * The tags of the tables the rules name.
+ */
+export enum TableTag {
+    Glyf = "glyf",
+    Loca = "loca",
+    Hmtx = "hmtx",
+    Hhea = "hhea",
 }
 
 /**
@@ -86,6 +103,15 @@ export type TransformVersions = {
  */
 export type DecompressedTable = {
     entry: TableEntry;
+    bytes: Uint8Array;
+};
+
+/**
+ * A table of the sfnt the WOFF2 rebuilds: a plain table as it is in the decompressed stream, a
+ * transformed one as `GlyfReconstructor` rebuilds it.
+ */
+export type SfntTable = {
+    tag: string;
     bytes: Uint8Array;
 };
 
