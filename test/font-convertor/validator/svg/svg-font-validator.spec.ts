@@ -120,10 +120,46 @@ describe("SvgFontValidator.validate", function () {
             await validate(inline(`<font horiz-adv-x="-0">${FONT_FACE}<glyph horiz-adv-x="-0.0e5"/></font>`));
         });
 
-        it("with a units-per-em whose number rounds off its range", async function () {
-            // The sign is read off the text: as a double, 1e-999 is zero and 1e999 is Infinity.
-            await validate(inline(`<font horiz-adv-x="500"><font-face units-per-em="1e-999"/>${GLYPH}</font>`));
-            await validate(inline(`<font horiz-adv-x="500"><font-face units-per-em="1e999"/>${GLYPH}</font>`));
+        it("with advances at either end of their range", async function () {
+            for (const value of ["0", "32767", "3.2767e4"]) {
+                await validate(
+                    inline(
+                        `<font horiz-adv-x="${value}" vert-adv-y="${value}">${FONT_FACE}<missing-glyph horiz-adv-x="${value}" vert-adv-y="${value}"/><glyph horiz-adv-x="${value}" vert-adv-y="${value}"/></font>`,
+                    ),
+                );
+            }
+        });
+
+        it("with a units-per-em at either end of its range", async function () {
+            for (const value of ["16", "16384", "1.6e1"]) {
+                await validate(inline(`<font horiz-adv-x="500"><font-face units-per-em="${value}"/>${GLYPH}</font>`));
+            }
+        });
+
+        it("with ascent and descent at either end of their range", async function () {
+            await validate(
+                inline(`<font horiz-adv-x="500"><font-face units-per-em="1000" ascent="32767" descent="-32767"/>${GLYPH}</font>`),
+            );
+            await validate(
+                inline(`<font horiz-adv-x="500"><font-face units-per-em="1000" ascent="-32767" descent="32767"/>${GLYPH}</font>`),
+            );
+        });
+
+        it("with fractions, which fontforge truncates", async function () {
+            // Real fonts hold fractional advances: Linearicons, VideoJS and octicons among them.
+            await validate(
+                inline(
+                    `<font horiz-adv-x="500.5" vert-adv-y="1000.5"><font-face units-per-em="1000.6" ascent="800.5" descent="-199.5"/><glyph horiz-adv-x="12.6" vert-adv-y="0.5"/></font>`,
+                ),
+            );
+        });
+
+        it("with origins past every range, which fontforge does not read", async function () {
+            await validate(
+                inline(
+                    `<font horiz-adv-x="500" horiz-origin-x="1e999" horiz-origin-y="-1e999" vert-origin-x="70000" vert-origin-y="-70000">${FONT_FACE}<glyph vert-origin-x="1e999" vert-origin-y="-70000"/></font>`,
+                ),
+            );
         });
 
         it("with glyph outlines in path data, an empty one included", async function () {
@@ -163,9 +199,9 @@ describe("SvgFontValidator.validate", function () {
             await validate(inline(kerned('<hkern u1="😀" u2="&#x1F600;" k="50"/>')));
         });
 
-        it("with a k whose number rounds off its range", async function () {
-            // No number is checked for its range: fontforge makes a pair of zero of 1e999.
-            await validate(inline(kerned('<hkern u1="a" u2="b" k="1e999"/><hkern u1="a" u2="b" k="1e-999"/>')));
+        it("with a k at either end of its range, a fraction or one that rounds to zero", async function () {
+            await validate(inline(kerned('<hkern u1="a" u2="b" k="32767"/><vkern u1="a" u2="b" k="-32767"/>')));
+            await validate(inline(kerned('<hkern u1="a" u2="b" k="12.6"/><hkern u1="a" u2="b" k="1e-999"/>')));
         });
     });
 
@@ -479,6 +515,42 @@ describe("SvgFontValidator.validate", function () {
             });
         }
 
+        for (const element of ["font", "glyph", "missing-glyph"]) {
+            for (const attribute of ["horiz-adv-x", "vert-adv-y"]) {
+                it(`to ${attribute} of ${element} past its range`, async function () {
+                    // fontforge keeps an advance in a signed 16-bit field: 32768 makes 0 in a TTF,
+                    // 70000 makes 4464, and so does a negative vert-adv-y.
+                    const values = attribute === "vert-adv-y" ? ["32768", "70000", "1e999", "-1"] : ["32768", "70000", "1e999"];
+
+                    for (const value of values) {
+                        const fonts: Record<string, string> = {
+                            font: `<font ${
+                                attribute === "horiz-adv-x" ? "" : 'horiz-adv-x="500" '
+                            }${attribute}="${value}">${FONT_FACE}${GLYPH}</font>`,
+                            glyph: `<font horiz-adv-x="500">${FONT_FACE}<glyph ${attribute}="${value}"/></font>`,
+                            "missing-glyph": `<font horiz-adv-x="500">${FONT_FACE}<missing-glyph ${attribute}="${value}"/>${GLYPH}</font>`,
+                        };
+
+                        const error = await expectAnswer(
+                            inline(fonts[element] as string),
+                            BrokenFont,
+                            `SVG font breaks a rule: horiz-adv-x and vert-adv-y are 0 to 32767 (ours: fontforge keeps an advance in a signed 16-bit field). At line 2: <${element}> with ${attribute}="${value}".`,
+                        );
+
+                        expect(error.payload).to.deep.equal({
+                            path: fontPath,
+                            rule: FontRule.AdvanceRange,
+                            element: element,
+                            line: 2,
+                            attribute: attribute,
+                            value: value,
+                            valueLength: value.length,
+                        });
+                    }
+                });
+            }
+        }
+
         it("to a negative horiz-adv-x whose number rounds to zero", async function () {
             await expectAnswer(
                 inline(`<font horiz-adv-x="-1e-999">${FONT_FACE}${GLYPH}</font>`),
@@ -546,6 +618,47 @@ describe("SvgFontValidator.validate", function () {
             }
         });
 
+        it("to units-per-em past its range", async function () {
+            // fontforge writes 15 and 16385 as they are, and 70000 makes 4464 in a TTF. As a double,
+            // 1e-999 is zero, though its text is positive.
+            for (const value of ["15", "15.9", "16385", "70000", "1e999", "1e-999"]) {
+                const error = await expectAnswer(
+                    inline(`<font horiz-adv-x="500"><font-face units-per-em="${value}"/>${GLYPH}</font>`),
+                    BrokenFont,
+                    `SVG font breaks a rule: units-per-em is 16 to 16384 (ours: unitsPerEm of the OpenType head table). At line 2: <font-face> with units-per-em="${value}".`,
+                );
+
+                expect(error.payload).to.include({ rule: FontRule.UnitsPerEmRange, attribute: "units-per-em", value: value });
+            }
+        });
+
+        for (const attribute of ["ascent", "descent"]) {
+            it(`to ${attribute} of font-face that is not a number`, async function () {
+                // fontforge reads garbage as zero.
+                const error = await expectAnswer(
+                    inline(`<font horiz-adv-x="500"><font-face units-per-em="1000" ${attribute}="garbage"/>${GLYPH}</font>`),
+                    BrokenFont,
+                    `SVG font breaks a rule: a numeric attribute is a <number> (SVG 1.1, §4.2). At line 2: <font-face> with ${attribute}="garbage".`,
+                );
+
+                expect(error.payload).to.include({ rule: FontRule.Number, attribute: attribute, value: "garbage" });
+            });
+
+            it(`to ${attribute} of font-face past its range`, async function () {
+                // fontforge writes them into signed 16-bit fields: ascent="40000" descent="-39000"
+                // gives an ascender of -25536.
+                for (const value of ["32768", "-32768", "40000", "1e999", "-1e999"]) {
+                    const error = await expectAnswer(
+                        inline(`<font horiz-adv-x="500"><font-face units-per-em="1000" ${attribute}="${value}"/>${GLYPH}</font>`),
+                        BrokenFont,
+                        `SVG font breaks a rule: ascent and descent of font-face are -32767 to 32767 (ours: fontforge writes them into signed 16-bit fields). At line 2: <font-face> with ${attribute}="${value}".`,
+                    );
+
+                    expect(error.payload).to.include({ rule: FontRule.FontFaceMetricRange, attribute: attribute, value: value });
+                }
+            });
+        }
+
         it("to a font without a glyph child", async function () {
             const message =
                 "SVG font breaks a rule: font has a glyph child (ours: fontforge turns a font without glyphs into an empty one). At line 2: <font>.";
@@ -580,6 +693,20 @@ describe("SvgFontValidator.validate", function () {
                         );
 
                         expect(error.payload).to.include({ rule: FontRule.Number, element: element, attribute: "k", value: value });
+                    }
+                });
+
+                it(`on ${element} whose k is past its range`, async function () {
+                    // fontforge keeps the negated k in a signed 16-bit field: 40000 kerns by 25536,
+                    // -32768 wraps over to the opposite sign, and 1e999 makes a pair of zero.
+                    for (const value of ["32768", "-32768", "40000", "1e999", "-1e999"]) {
+                        const error = await expectAnswer(
+                            inline(kerned(`<${element} u1="a" u2="b" k="${value}"/>`)),
+                            BrokenFont,
+                            `SVG font breaks a rule: k of hkern and vkern is -32767 to 32767 (ours: fontforge keeps the negated k in a signed 16-bit field). At line 2: <${element}> with k="${value}".`,
+                        );
+
+                        expect(error.payload).to.include({ rule: FontRule.KerningRange, element: element, attribute: "k", value: value });
                     }
                 });
             }

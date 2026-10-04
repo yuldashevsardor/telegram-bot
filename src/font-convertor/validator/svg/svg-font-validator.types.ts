@@ -13,9 +13,12 @@ export enum FontRule {
     AdvanceRequired = "font has horiz-adv-x (SVG 1.1, Appendix A.3.39)",
     Number = "a numeric attribute is a <number> (SVG 1.1, §4.2)",
     NonNegativeAdvance = "horiz-adv-x is not negative (SVG 1.1, §20.3, §20.4)",
+    AdvanceRange = "horiz-adv-x and vert-adv-y are 0 to 32767 (ours: fontforge keeps an advance in a signed 16-bit field)",
     FontFaceRequired = "font has a font-face child (SVG 1.1, §20.3)",
     UnitsPerEmRequired = "font-face has units-per-em (ours: fontforge does not open a font without it)",
     PositiveUnitsPerEm = "units-per-em is positive (SVG 1.1, §20.8.3)",
+    UnitsPerEmRange = "units-per-em is 16 to 16384 (ours: unitsPerEm of the OpenType head table)",
+    FontFaceMetricRange = "ascent and descent of font-face are -32767 to 32767 (ours: fontforge writes them into signed 16-bit fields)",
     PathData = "d of a glyph or missing-glyph is path data (SVG 1.1, §8.3.9, §20.4, §20.5)",
     GlyphRequired = "font has a glyph child (ours: fontforge turns a font without glyphs into an empty one)",
     SingleFont = "the document has one font element (ours: fontforge converts the first of several and drops the rest)",
@@ -23,6 +26,7 @@ export enum FontRule {
     UnprefixedAttribute = "a font node has no prefixed attribute (ours: fontforge reads the first attribute of a local name, in any namespace)",
     ChildlessGlyph = "glyph and missing-glyph have no child elements or processing instructions (ours: fontforge draws a glyph without d from its children as any SVG, and drops them next to d)",
     KerningRequired = "hkern and vkern have k (SVG 1.1, §20.7)",
+    KerningRange = "k of hkern and vkern is -32767 to 32767 (ours: fontforge keeps the negated k in a signed 16-bit field)",
     KernedGlyphRequired = "hkern and vkern name both glyphs of the pair, by u1 or g1 and by u2 or g2 (SVG 1.1, §20.7)",
     SingleKernedCharacter = "u1 and u2 of hkern and vkern are one character each (ours: fontforge reads them as a string of characters, not the list of §20.7)",
     NoInternalSubset = "the DOCTYPE has no internal subset (ours: fontforge takes attribute defaults from it, which the validator does not read)",
@@ -33,6 +37,14 @@ export enum FontRule {
  * `k` of a kerning pair is checked apart from them.
  */
 export type NumericElement = "font" | "glyph" | "missing-glyph";
+
+/**
+ * The range a number must lie in, both ends included.
+ */
+export type NumberRange = {
+    min: number;
+    max: number;
+};
 
 /**
  * The elements of a kerning pair (§20.7).
