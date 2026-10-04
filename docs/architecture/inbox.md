@@ -6,7 +6,7 @@ epic [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)). It is 
 the outbox ([`outbox.md`](./outbox.md)) and follows its model without the limits and the pause. No
 source or worker uses the directory yet: so far it holds the tables with `InboxStore`
 (`store/inbox-store.ts`), which pushes updates, claims them, completes a claimed update, finds
-the expired leases and unblocks a group by hand, and `InboxFailureHandler`
+the expired leases, cleans up the tables and unblocks a group by hand, and `InboxFailureHandler`
 (`inbox-failure-handler.ts`), which picks the outcome of a failed handler by its error class
 (`failure-classifier/`) and recovers the expired leases.
 
@@ -52,6 +52,9 @@ requested, as the comment of the filter says.
 | `ready` | `push` of a new update into an `idle` group; `markAsDone` and `markAsFailed` when an update is left; `retry`; `retryBlockedGroup`; `skipBlockedGroup` when an update is left |
 | `processing` | `claim` |
 | `blocked` | `markAsFailedAndBlockGroup`; `push` leaves it as it is |
+
+An `idle` group loses its row to `deleteIdleGroups()` (see "Cleanup"); the next `push` inserts it
+again as a new group.
 
 ## Push
 
@@ -130,7 +133,9 @@ the update `claim()` gave out, or an expired lease read by `findExpiredLeases()`
 recovery"). What each does to the update and the group is read off its body. Each is a transaction
 through the private `complete()`:
 
-1. lock the group row of the update; a missing update throws `InboxUpdateNotLeased`;
+1. lock the group row of the update; a missing update throws `InboxUpdateNotLeased`. A group row
+   that is missing while its update is stored changes nothing and is logged as a warning:
+   `deleteIdleGroups()` removed the group once it went `idle`, so no lease is left (see "Cleanup");
 2. the fence: a `lockToken` that is not the group's changes nothing and is logged as a warning,
    with the group, its own token and the error the completion carried. The lease has passed to
    another claim, and the group holds the token of that claim, or an earlier completion of the same
@@ -246,6 +251,34 @@ fenced off and logged as a stale lock token, as in the outbox ([`outbox.md`](./o
 recovery", where the same holds for a second recovery of the lease by another node). The fence
 checks the token, not `locked_until`, so a lease that has passed must never be extended
 ([`invariants.md`](./invariants.md), "The inbox").
+
+## Cleanup
+
+Two methods of the store keep the tables from growing without bound. Each deletes one batch of at
+most `INBOX_CLEANUP_BATCH_SIZE` rows in one statement and returns how many it deleted, so a caller
+that gets a full batch calls again. Nothing calls them yet: the timers are part of the loop
+([#628](https://github.com/yuldashevsardor/telegram-bot/issues/628)).
+
+- `deleteFinishedUpdates()` deletes the `done` updates whose `finished_at` is older than
+  `INBOX_DONE_RETENTION`, and the `skipped` ones older than `INBOX_SKIPPED_RETENTION`. A `failed`
+  update is never deleted: it waits for a person. An update without `finished_at` is not deleted
+  either, so whatever sets `skipped` sets `finished_at` too. The row of a `done` update is what
+  turns a redelivered update away (see "Push", step 2): Telegram redelivers within 24 h, so
+  `INBOX_DONE_RETENTION` may not be less than a day, and the config rejects a shorter one
+  (`INBOX_DONE_RETENTION_RANGE` of `ConfigValuesBuilder`). The retention is added to `finished_at`
+  rather than taken off `now()`, for the reason the outbox gives ([`outbox.md`](./outbox.md),
+  "Cleanup"). The batch is locked `FOR UPDATE SKIP LOCKED`: the lock rechecks the status on the
+  newest version of the row, so an update a person has moved back to `pending` meanwhile is kept,
+  and two nodes cleaning at once take different rows.
+- `deleteIdleGroups()` deletes the `idle` groups. It locks them `FOR UPDATE SKIP LOCKED`: a group a
+  push or a completion holds is left to them, and the lock rechecks the state on the newest version
+  of the row, so a group a push has made `ready` meanwhile is left alone too. A push that waits for
+  a group the removal holds inserts the group again, because the push takes the group row in the
+  statement that inserts it (see "Push", step 1). Unlike the outbox chat, a group has no limit to
+  keep: an `idle` group has no `next_attempt_at` in the future, so every `idle` group goes. The
+  updates of a removed group stay; a late completion of one of them is fenced (see "Completions").
+  A removed group may still hold a `failed` update that did not block it: putting it back by hand
+  needs the group row again.
 
 ## The store in code
 

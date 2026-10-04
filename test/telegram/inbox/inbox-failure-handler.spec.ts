@@ -3,7 +3,7 @@ import { expect } from "chai";
 import { BotError, HttpError } from "grammy";
 import type { Context } from "grammy";
 import { Database } from "app/platform/database/database";
-import { MS_PER_SECOND } from "app/shared/time";
+import { MS_PER_DAY, MS_PER_SECOND } from "app/shared/time";
 import { sleep } from "app/shared/utils";
 import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 import { InboxFailureClassifier } from "app/telegram/inbox/failure-classifier/inbox-failure-classifier";
@@ -14,6 +14,7 @@ import type {
     ClaimedInboxUpdate,
     InboxAttempt,
     InboxAttemptError,
+    InboxCleanupSettings,
     InboxUpdateInput,
     InboxWorker,
 } from "app/telegram/inbox/store/inbox-store.types";
@@ -35,6 +36,7 @@ const MULTIPLIER = 2;
 // random() of 0 takes the lower end of the step: half of it.
 const RETRY_DELAY = new OutboxRetryDelay({ firstDelayMs: FIRST_DELAY_MS, maxDelayMs: 600_000, multiplier: MULTIPLIER }, () => 0);
 const LEASE_DURATION_MS = 600_000;
+const CLEANUP: InboxCleanupSettings = { doneRetentionMs: MS_PER_DAY, skippedRetentionMs: MS_PER_DAY, batchSize: 10 };
 // A lease that passes before the spec recovers it, after a sleep of twice as long.
 const SHORT_LEASE_MS = 10;
 // How far the delay read back may fall short of the one written: the time between the two statements.
@@ -63,7 +65,7 @@ describe("InboxFailureHandler", function () {
 
     beforeEach(async function () {
         logger = new RecordingLogger();
-        useStore(new InboxStore(database, logger, LEASE_DURATION_MS));
+        useStore(new InboxStore(database, logger, LEASE_DURATION_MS, CLEANUP));
         await database.sql`TRUNCATE telegram_inbox, telegram_inbox_groups`;
     });
 
@@ -178,7 +180,7 @@ describe("InboxFailureHandler", function () {
 
     describe("lease recovery", function () {
         beforeEach(function () {
-            useStore(new InboxStore(database, logger, SHORT_LEASE_MS));
+            useStore(new InboxStore(database, logger, SHORT_LEASE_MS, CLEANUP));
         });
 
         it("redelivers the update of an expired lease, with the recovery counted as an attempt", async function () {
@@ -202,7 +204,7 @@ describe("InboxFailureHandler", function () {
         it("leaves alone a lease that has not passed", async function () {
             await store.push(input(10, USER));
             await claimOne();
-            const longLeasing = new InboxStore(database, logger, LEASE_DURATION_MS);
+            const longLeasing = new InboxStore(database, logger, LEASE_DURATION_MS, CLEANUP);
             await longLeasing.push(input(20, OTHER_USER));
             await longLeasing.claim(10, WORKER);
             await sleep(SHORT_LEASE_MS * 2);

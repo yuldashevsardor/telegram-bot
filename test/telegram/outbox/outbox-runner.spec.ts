@@ -17,7 +17,6 @@ import type {
     OutboxAttemptError,
     OutboxJson,
     OutboxLease,
-    OutboxRetryOptions,
     OutboxWorker,
     PulledOutboxMessage,
 } from "app/telegram/outbox/store/outbox-store.types";
@@ -121,14 +120,14 @@ class HangingSender {
     }
 }
 
-type Retry = { lease: OutboxLease; attemptError: OutboxAttemptError; delayMs: number; options: OutboxRetryOptions | undefined };
+type Retry = { lease: OutboxLease; attemptError: OutboxAttemptError; delayMs: number };
 
 class RetryRecordingStore {
     public readonly retries: Retry[] = [];
     public readonly done: OutboxLease[] = [];
 
-    public async retry(lease: OutboxLease, attemptError: OutboxAttemptError, delayMs: number, options?: OutboxRetryOptions): Promise<void> {
-        this.retries.push({ lease, attemptError, delayMs, options });
+    public async retry(lease: OutboxLease, attemptError: OutboxAttemptError, delayMs: number): Promise<void> {
+        this.retries.push({ lease, attemptError, delayMs });
     }
 
     public async markAsDone(lease: OutboxLease): Promise<boolean> {
@@ -365,7 +364,6 @@ describe("OutboxRunner", function () {
         expect(store.retries[0]?.lease).to.equal(pulled);
         expect(store.retries[0]?.attemptError).to.include({ name: "OutboxNodeStopped", kind: TelegramBotApiFailureKind.Transient });
         expect(store.retries[0]?.delayMs).to.equal(0);
-        expect(store.retries[0]?.options).to.deep.equal({ shouldWakeIdleNodes: true });
         expect(store.done).to.deep.equal([]);
     });
 

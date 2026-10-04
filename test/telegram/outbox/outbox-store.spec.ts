@@ -1791,6 +1791,110 @@ describe("OutboxStore", function () {
             await waitUntil(() => payloads.length > 0, "no finished notification came");
             expect(payloads).to.deep.equal([String(done)]);
         });
+
+        // The notifications of the ready channel the operation sends, in the order of the commits: the
+        // sentinel goes after the operation's own, so one that is not in the list was not sent.
+        async function readyNotificationsOf(operation: () => Promise<unknown>): Promise<string[]> {
+            const payloads = await listenTo(listener, OutboxChannel.Ready);
+
+            await operation();
+            await database.sql`SELECT pg_notify(${OutboxChannel.Ready}, 'sentinel')`;
+            await waitUntil(() => payloads.includes("sentinel"), "no sentinel notification came");
+
+            return payloads.filter((payload) => payload !== "sentinel");
+        }
+
+        it("notifies the ready channel when a message done leaves its chat ready", async function () {
+            await store.pushBatch([message(CHAT, "first"), message(CHAT, "second")]);
+            const pulled = await pullOne();
+
+            const payloads = await readyNotificationsOf(() => store.markAsDone(pulled, RESPONSE));
+
+            expect(payloads).to.deep.equal([""]);
+            expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Ready });
+        });
+
+        it("notifies the ready channel when a message failed leaves its chat ready", async function () {
+            await store.pushBatch([message(CHAT, "first"), message(CHAT, "second")]);
+            const pulled = await pullOne();
+
+            const payloads = await readyNotificationsOf(() => store.markAsFailed(pulled, UNDELIVERABLE));
+
+            expect(payloads).to.deep.equal([""]);
+            expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Ready });
+        });
+
+        it("notifies the ready channel when a retry makes its chat ready", async function () {
+            await store.push(message(CHAT, "first"));
+            const pulled = await pullOne();
+
+            const payloads = await readyNotificationsOf(() => store.retry(pulled, TRANSIENT, LONG_RETRY_DELAY_MS));
+
+            expect(payloads).to.deep.equal([""]);
+        });
+
+        it("does not notify the ready channel when the last message done leaves its chat idle", async function () {
+            await store.push(message(CHAT, "only"));
+            const pulled = await pullOne();
+
+            const payloads = await readyNotificationsOf(() => store.markAsDone(pulled, RESPONSE));
+
+            expect(payloads).to.deep.equal([]);
+            expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Idle });
+        });
+
+        it("does not notify the ready channel when the last message failed leaves its chat idle", async function () {
+            await store.push(message(CHAT, "only"));
+            const pulled = await pullOne();
+
+            const payloads = await readyNotificationsOf(() => store.markAsFailed(pulled, UNDELIVERABLE));
+
+            expect(payloads).to.deep.equal([]);
+            expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Idle });
+        });
+
+        it("does not notify the ready channel when a failed message blocks its chat", async function () {
+            await store.pushBatch([message(CHAT, "first"), message(CHAT, "second")]);
+            const pulled = await pullOne();
+
+            const payloads = await readyNotificationsOf(() => store.markAsFailedAndBlockChat(pulled, UNEXPECTED));
+
+            expect(payloads).to.deep.equal([]);
+            expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Blocked });
+        });
+
+        it("does not notify the ready channel of a fenced completion", async function () {
+            await store.pushBatch([message(CHAT, "first"), message(CHAT, "second")]);
+            const stale = await pullOne();
+            await store.retry(stale, TRANSIENT, 0);
+            await pullOne();
+
+            const payloads = await readyNotificationsOf(async () => {
+                await store.markAsDone(stale, RESPONSE);
+                await store.markAsFailed(stale, UNDELIVERABLE);
+                await store.retry(stale, TRANSIENT, 0);
+            });
+
+            expect(payloads).to.deep.equal([]);
+        });
+
+        it("does not notify the ready channel of a completion that rolls back", async function () {
+            await store.pushBatch([message(CHAT, "first"), message(CHAT, "second")]);
+            const pulled = await pullOne();
+
+            const payloads = await readyNotificationsOf(async () => {
+                await other.sql
+                    .begin(async (sql) => {
+                        await storeOn(sql).markAsDone(pulled, RESPONSE);
+
+                        throw new Error("roll back");
+                    })
+                    .catch(() => undefined);
+            });
+
+            expect(payloads).to.deep.equal([]);
+            expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Processing });
+        });
     });
 
     // A store whose statements run in the given transaction.

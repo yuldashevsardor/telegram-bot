@@ -25,8 +25,6 @@ export class OutboxLeaseReleaser {
     // The call must have settled before: a call still on its way could reach Telegram after the
     // next message of the chat.
     public async releaseOnStop(lease: OutboxLease): Promise<void> {
-        // The node that would pull the message next is this one, and it stops: an idle node sleeps
-        // until a notification otherwise.
-        await this.store.retry(lease, NODE_STOPPED, RELEASE_DELAY_MS, { shouldWakeIdleNodes: true });
+        await this.store.retry(lease, NODE_STOPPED, RELEASE_DELAY_MS);
     }
 }

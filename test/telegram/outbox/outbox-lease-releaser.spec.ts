@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import { OutboxLeaseReleaser } from "app/telegram/outbox/lease/outbox-lease-releaser";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
-import type { OutboxAttemptError, OutboxLease, OutboxRetryOptions } from "app/telegram/outbox/store/outbox-store.types";
+import type { OutboxAttemptError, OutboxLease } from "app/telegram/outbox/store/outbox-store.types";
 
 // What the attempt of a release on stop ends with. Spelled out rather than imported: the releaser
 // keeps it private, and the attempts it lands in are read by people.
@@ -12,25 +12,25 @@ const NODE_STOPPED: OutboxAttemptError = {
     kind: TelegramBotApiFailureKind.Transient,
 };
 
-type RetryCall = { lease: OutboxLease; error: OutboxAttemptError; delayMs: number; options?: OutboxRetryOptions };
+type RetryCall = { lease: OutboxLease; error: OutboxAttemptError; delayMs: number };
 
 // Records what the releaser asks of the store: how it is written is pinned by the store spec.
 class RecordingStore {
     public readonly calls: RetryCall[] = [];
 
-    public async retry(lease: OutboxLease, error: OutboxAttemptError, delayMs: number, options?: OutboxRetryOptions): Promise<void> {
-        this.calls.push(options === undefined ? { lease, error, delayMs } : { lease, error, delayMs, options });
+    public async retry(lease: OutboxLease, error: OutboxAttemptError, delayMs: number): Promise<void> {
+        this.calls.push({ lease, error, delayMs });
     }
 }
 
 describe("OutboxLeaseReleaser", function () {
-    it("returns the message to pending with no delay and an attempt of the stopped node, then wakes the idle nodes", async function () {
+    it("returns the message to pending with no delay and an attempt of the stopped node", async function () {
         const store = new RecordingStore();
         const lease = leaseAfter(0);
 
         await new OutboxLeaseReleaser(store as unknown as OutboxStore).releaseOnStop(lease);
 
-        expect(store.calls).to.deep.equal([{ lease, error: NODE_STOPPED, delayMs: 0, options: { shouldWakeIdleNodes: true } }]);
+        expect(store.calls).to.deep.equal([{ lease, error: NODE_STOPPED, delayMs: 0 }]);
     });
 
     it("retries the message even on its hundredth attempt: a stop blocks no chat", async function () {

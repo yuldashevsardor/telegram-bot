@@ -1,15 +1,17 @@
 import "reflect-metadata";
 import { expect } from "chai";
 import { Database } from "app/platform/database/database";
-import { MS_PER_SECOND } from "app/shared/time";
+import { MS_PER_DAY, MS_PER_SECOND } from "app/shared/time";
 import { sleep } from "app/shared/utils";
 import { InboxFailureKind } from "app/telegram/inbox/failure-classifier/inbox-failure-classifier.types";
+import type { TransactionSql } from "postgres";
 import { InboxStore } from "app/telegram/inbox/store/inbox-store";
 import type {
     ClaimedInboxUpdate,
     ExpiredInboxLease,
     InboxAttempt,
     InboxAttemptError,
+    InboxCleanupSettings,
     InboxLease,
     InboxUpdateInput,
     InboxWorker,
@@ -40,6 +42,7 @@ const LONG_RETRY_DELAY_MS = 60_000;
 const ELAPSED_TOLERANCE_MS = 1_000;
 // A token no claim gave out.
 const OTHER_TOKEN = "00000000-0000-4000-8000-000000000000";
+const CLEANUP: InboxCleanupSettings = { doneRetentionMs: MS_PER_DAY, skippedRetentionMs: 2 * MS_PER_DAY, batchSize: 10 };
 const WORKER: InboxWorker = { host: "node-1", pid: 101, workerId: "worker-1" };
 const TRANSIENT: InboxAttemptError = { kind: InboxFailureKind.Transient, message: "write CONNECTION_CLOSED pgsql:5432" };
 const UNDELIVERABLE: InboxAttemptError = { kind: InboxFailureKind.Undeliverable, message: "Forbidden: bot was blocked by the user" };
@@ -69,7 +72,7 @@ describe("InboxStore", function () {
 
     beforeEach(async function () {
         logger = new RecordingLogger();
-        store = new InboxStore(database, logger, LEASE_DURATION_MS);
+        store = new InboxStore(database, logger, LEASE_DURATION_MS, CLEANUP);
         await database.sql`TRUNCATE telegram_inbox, telegram_inbox_groups`;
     });
 
@@ -112,7 +115,7 @@ describe("InboxStore", function () {
         it("does not open a transaction for an empty batch", async function () {
             const unused = { sql: { begin: () => expect.fail("an empty batch opened a transaction") } } as unknown as Database;
 
-            await new InboxStore(unused, logger, LEASE_DURATION_MS).pushBatch([]);
+            await new InboxStore(unused, logger, LEASE_DURATION_MS, CLEANUP).pushBatch([]);
         });
 
         it("inserts an update repeated inside one batch once", async function () {
@@ -275,7 +278,7 @@ describe("InboxStore", function () {
                     throw error;
                 });
 
-            await Promise.all([claimer(store), claimer(new InboxStore(other, logger, LEASE_DURATION_MS))]);
+            await Promise.all([claimer(store), claimer(new InboxStore(other, logger, LEASE_DURATION_MS, CLEANUP))]);
 
             expect([...claims].sort((a, b) => a - b)).to.deep.equal(updateIds);
 
@@ -524,7 +527,7 @@ describe("InboxStore", function () {
 
     describe("expired leases", function () {
         beforeEach(function () {
-            store = new InboxStore(database, logger, SHORT_LEASE_MS);
+            store = new InboxStore(database, logger, SHORT_LEASE_MS, CLEANUP);
         });
 
         it("finds a group whose lease has passed with its update, the start of the claim and no worker", async function () {
@@ -541,7 +544,7 @@ describe("InboxStore", function () {
         it("leaves alone a lease that has not passed and a group that is not leased", async function () {
             await store.push(input(10, USER, CHAT));
             await claimOne();
-            const longLeasing = new InboxStore(database, logger, LEASE_DURATION_MS);
+            const longLeasing = new InboxStore(database, logger, LEASE_DURATION_MS, CLEANUP);
             await longLeasing.push(input(20, OTHER_USER, CHAT));
             expect((await longLeasing.claim(10, WORKER)).map(({ updateId }) => updateId)).to.deep.equal([20]);
             await store.push(input(30, USER, GROUP_CHAT));
@@ -561,6 +564,231 @@ describe("InboxStore", function () {
             const [attempt] = await attempts(10);
 
             expect(attempt).to.deep.include({ started_at: claimed.startedAt, worker: null, error: EXPIRED_LEASE_ERROR });
+        });
+    });
+
+    describe("the cleanup of finished updates", function () {
+        // Updates of one group by status, each ended the given time ago; their ids.
+        async function finishedAgo(...rows: Array<{ status: InboxStatus; agoMs: number }>): Promise<number[]> {
+            const updateIds = rows.map((_, index) => 100 + index);
+            await store.pushBatch(updateIds.map((updateId) => input(updateId)));
+
+            for (const [index, { status, agoMs }] of rows.entries()) {
+                await database.sql`
+                    UPDATE telegram_inbox
+                    SET status = ${status},
+                        finished_at = now() - ${agoMs}::double precision * interval '1 millisecond'
+                    WHERE update_id = ${updateIds[index] as number}
+                `;
+            }
+
+            return updateIds;
+        }
+
+        async function updateIds(): Promise<number[]> {
+            const rows = await database.sql<{ update_id: string }[]>`SELECT update_id FROM telegram_inbox ORDER BY update_id`;
+
+            return rows.map((row) => Number(row.update_id));
+        }
+
+        // A minute on either side of a retention: far more than the spec takes to run.
+        const MARGIN_MS = 60 * MS_PER_SECOND;
+
+        it("deletes a done update once its retention has passed and keeps a younger one", async function () {
+            const [, younger] = await finishedAgo(
+                { status: InboxStatus.Done, agoMs: CLEANUP.doneRetentionMs + MARGIN_MS },
+                { status: InboxStatus.Done, agoMs: CLEANUP.doneRetentionMs - MARGIN_MS },
+            );
+
+            expect(await store.deleteFinishedUpdates()).to.equal(1);
+            expect(await updateIds()).to.deep.equal([younger]);
+        });
+
+        it("keeps a skipped update for its own retention, not that of a done one", async function () {
+            const [, younger] = await finishedAgo(
+                { status: InboxStatus.Skipped, agoMs: CLEANUP.skippedRetentionMs + MARGIN_MS },
+                { status: InboxStatus.Skipped, agoMs: CLEANUP.doneRetentionMs + MARGIN_MS },
+            );
+
+            expect(await store.deleteFinishedUpdates()).to.equal(1);
+            expect(await updateIds()).to.deep.equal([younger]);
+        });
+
+        it("never deletes a failed update or an active one, however old", async function () {
+            const ages = [InboxStatus.Failed, InboxStatus.Pending, InboxStatus.Processing].map((status) => ({
+                status,
+                agoMs: 1000 * CLEANUP.skippedRetentionMs,
+            }));
+            const kept = await finishedAgo(...ages);
+
+            expect(await store.deleteFinishedUpdates()).to.equal(0);
+            expect(await updateIds()).to.deep.equal(kept);
+        });
+
+        it("never deletes a done or a skipped update without its end", async function () {
+            const kept = await finishedAgo(
+                { status: InboxStatus.Done, agoMs: 1000 * CLEANUP.skippedRetentionMs },
+                { status: InboxStatus.Skipped, agoMs: 1000 * CLEANUP.skippedRetentionMs },
+            );
+            await database.sql`UPDATE telegram_inbox SET finished_at = NULL`;
+
+            expect(await store.deleteFinishedUpdates()).to.equal(0);
+            expect(await updateIds()).to.deep.equal(kept);
+        });
+
+        // Another cleanup, or a person moving the update back by hand, holds the row.
+        it("skips an update another transaction holds and deletes the rest", async function () {
+            const old = { status: InboxStatus.Done, agoMs: CLEANUP.doneRetentionMs + MARGIN_MS };
+            const [held] = await finishedAgo(old, old);
+            let deleted = 0;
+
+            await other.sql.begin(async (sql) => {
+                await sql`SELECT update_id FROM telegram_inbox WHERE update_id = ${held as number} FOR UPDATE`;
+
+                deleted = await store.deleteFinishedUpdates();
+            });
+
+            expect(deleted).to.equal(1);
+            expect(await updateIds()).to.deep.equal([held]);
+        });
+
+        it("deletes no more updates in one call than the batch size", async function () {
+            const batched = new InboxStore(database, logger, LEASE_DURATION_MS, { ...CLEANUP, batchSize: 2 });
+            const old = { status: InboxStatus.Done, agoMs: CLEANUP.doneRetentionMs + MARGIN_MS };
+            await finishedAgo(old, old, old);
+
+            expect(await batched.deleteFinishedUpdates()).to.equal(2);
+            expect(await updateIds()).to.have.lengthOf(1);
+            expect(await batched.deleteFinishedUpdates()).to.equal(1);
+            expect(await updateIds()).to.deep.equal([]);
+        });
+
+        it("takes the longest retention the config allows without overflowing a timestamp", async function () {
+            const longest = new InboxStore(database, logger, LEASE_DURATION_MS, {
+                doneRetentionMs: Number.MAX_SAFE_INTEGER,
+                skippedRetentionMs: Number.MAX_SAFE_INTEGER,
+                batchSize: 10,
+            });
+            await finishedAgo({ status: InboxStatus.Done, agoMs: 0 }, { status: InboxStatus.Skipped, agoMs: 0 });
+
+            expect(await longest.deleteFinishedUpdates()).to.equal(0);
+        });
+
+        // The row is what turns a redelivered update away.
+        it("turns a redelivered update away while its done row is kept", async function () {
+            await store.push(input(10));
+            await store.markAsDone(await claimOne());
+            await store.deleteFinishedUpdates();
+
+            await store.push(input(10));
+
+            expect(await statuses()).to.deep.equal([InboxStatus.Done]);
+        });
+    });
+
+    describe("the cleanup of idle groups", function () {
+        async function idleGroup(userId: number): Promise<void> {
+            await store.push(input(userId, userId, CHAT));
+            await store.markAsDone(await claimOne());
+        }
+
+        it("removes an idle group and leaves its updates", async function () {
+            await idleGroup(USER);
+
+            expect(await store.deleteIdleGroups()).to.equal(1);
+            expect(await group(USER, CHAT)).to.equal(undefined);
+            expect(await statuses()).to.deep.equal([InboxStatus.Done]);
+        });
+
+        it("keeps a ready, a processing and a blocked group", async function () {
+            await store.push(input(1, 1, CHAT));
+            await store.markAsFailedAndBlockGroup(await claimOne(), UNEXPECTED);
+            await store.push(input(2, 2, CHAT));
+            await claimOne();
+            await store.push(input(3, 3, CHAT));
+
+            expect(await store.deleteIdleGroups()).to.equal(0);
+            expect(await group(1, CHAT)).to.deep.equal({ state: InboxGroupState.Blocked });
+            expect(await group(2, CHAT)).to.deep.equal({ state: InboxGroupState.Processing });
+            expect(await group(3, CHAT)).to.deep.equal({ state: InboxGroupState.Ready });
+        });
+
+        it("removes no more groups in one call than the batch size", async function () {
+            const batched = new InboxStore(database, logger, LEASE_DURATION_MS, { ...CLEANUP, batchSize: 2 });
+            for (const userId of [1, 2, 3]) {
+                await idleGroup(userId);
+            }
+
+            expect(await batched.deleteIdleGroups()).to.equal(2);
+            expect(await batched.deleteIdleGroups()).to.equal(1);
+        });
+
+        it("changes nothing on a late completion of a removed group, and logs a warning", async function () {
+            await store.push(input(10));
+            const claimed = await claimOne();
+            await store.markAsDone(claimed);
+            await store.deleteIdleGroups();
+
+            await store.markAsDone(claimed);
+            await store.markAsFailedAndBlockGroup(claimed, UNEXPECTED);
+
+            expect(await statuses()).to.deep.equal([InboxStatus.Done]);
+            expect(logger.warnings).to.deep.equal(
+                [null, UNEXPECTED].map((cause) => ({
+                    message: "Inbox completion of a group the cleanup removed changed nothing.",
+                    payload: { updateId: 10, lockToken: claimed.lockToken, cause: cause },
+                })),
+            );
+            expect(logger.errors).to.deep.equal([]);
+        });
+
+        it("still rejects the completion of an update that is not stored", async function () {
+            await expectNotLeased(lease(404, OTHER_TOKEN));
+        });
+    });
+
+    describe("a concurrent push and removal of its group", function () {
+        beforeEach(async function () {
+            await store.push(input(10));
+            await store.markAsDone(await claimOne());
+        });
+
+        // The holder stands in for a push or a completion of the group.
+        it("leaves a group another transaction holds to it", async function () {
+            let removed = -1;
+
+            await other.sql.begin(async (sql) => {
+                await sql`SELECT user_id FROM telegram_inbox_groups WHERE user_id = ${USER} AND chat_id = ${CHAT} FOR UPDATE`;
+
+                removed = await store.deleteIdleGroups();
+            });
+
+            expect(removed).to.equal(0);
+            expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Idle });
+        });
+
+        // The removal runs in the transaction that holds the group, so it takes the group while the push
+        // waits for it. A push that found the row in one statement and locked it in the next would find
+        // it gone and put its update in without a group, where no claim reaches it.
+        it("recreates the group of a push that waited for its removal", async function () {
+            let pushing: Promise<void> = Promise.resolve();
+            let removed = 0;
+
+            await other.sql.begin(async (sql) => {
+                await sql`SELECT user_id FROM telegram_inbox_groups WHERE user_id = ${USER} AND chat_id = ${CHAT} FOR UPDATE`;
+
+                pushing = store.push(input(11));
+
+                await waitForLockWaiters(observer, 1);
+
+                removed = await storeOn(sql).deleteIdleGroups();
+            });
+
+            await pushing;
+
+            expect(removed).to.equal(1);
+            expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Ready });
+            expect((await store.claim(10, WORKER)).map(({ updateId }) => updateId)).to.deep.equal([11]);
         });
     });
 
@@ -610,6 +838,11 @@ describe("InboxStore", function () {
             expect((await store.claim(10, WORKER)).map(({ updateId }) => updateId)).to.deep.equal([11]);
         });
     });
+
+    // A store whose statements run in the given transaction.
+    function storeOn(transaction: TransactionSql): InboxStore {
+        return new InboxStore({ sql: transaction } as unknown as Database, logger, LEASE_DURATION_MS, CLEANUP);
+    }
 
     describe("unblocking a group", function () {
         const GROUP = { userId: USER, chatId: CHAT };

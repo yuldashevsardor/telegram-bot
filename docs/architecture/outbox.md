@@ -222,10 +222,10 @@ queue takes ([`outbound-queue.md`](./outbound-queue.md)). A limit of `number` me
 `nextPullInMs` is the later of the nearest `next_attempt_at` among the `ready` chats not pulled by
 this pull and the bot's own time — `next_send_at` after the pull, or `paused_until` if later —
 counted from the time of the pull and never below zero. It is `null` when no chat is `ready`: there
-is no time to wait for. A push or a completion brings a message then, but another node hears only of
-a push and of a release on stop, the two that notify `telegram_outbox_ready` (see "Release on
-stop"). A ready chat left out by `limit` or skipped as locked no longer holds the answer back: the
-bot's time decides it, the cooldowns the pull has just spent, or zero if it pulled nothing.
+is no time to wait for. A push or a completion brings a message then, and every push and every
+completion that leaves its chat `ready` notifies `telegram_outbox_ready` (see "Completions"). A
+ready chat left out by `limit` or skipped as locked no longer holds the answer back: the bot's time
+decides it, the cooldowns the pull has just spent, or zero if it pulled nothing.
 
 The answer is not capped. A long pause or a long interval of a limit, common or chat, gives more
 than a Node timer takes (`ConfigParser.MAX_TIMER_DELAY`; what Node does with more is in
@@ -255,18 +255,17 @@ outbox"). `OutboxRunner` makes it once, at its start (see "The runner").
   `null` answer sleeps the whole cap, and so does zero: with nothing pulled, zero means that another
   transaction holds a due chat, and pulling again at once would spin until it commits, or that the
   pull waited behind a pull that held the bot row longer than the common cooldown (see "Pull"). The
-  cap keeps the sleep within a Node timer as well (see "Limits"). A completion that leaves its chat
-  `ready` notifies no one, so the next message of that chat waits for a sleep of at most the cap.
-  The cap is random so that the nodes that sleep the whole cap together, as the ones that skipped
-  the same held chat do, wake up apart.
+  cap keeps the sleep within a Node timer as well (see "Limits"). The cap is random so that the
+  nodes that sleep the whole cap together, as the ones that skipped the same held chat do, wake up
+  apart.
 - **The wake-up.** The generator starts `LISTEN` on `telegram_outbox_ready`
   (`OutboxStore.listenReady()`) at its start, on the listening connection of the client
   ([`storage.md`](./storage.md), "LISTEN"). A failed start is logged at `warning` and is not
   repeated, for the reason given in "Waiting for the result": postgres.js subscribes the listener
   again when its listening connection closes. Until the listening starts, the generator goes on
   with the capped sleep. A start that fails after the stop is not logged: a clean shutdown may
-  close the database under it. A notification wakes the sleeping generator, and so does every
-  start of the listening: a push committed while the connection was down reached no one. A
+  close the database under it. A notification wakes the sleeping generator, and so does every start
+  of the listening: a push or a completion committed while the connection was down reached no one. A
   notification that comes while the generator pulls makes it pull again instead of sleeping: the
   pull may have read the tables before the push committed.
 - **A failed pull** is logged at `error`, and the generator sleeps the whole cap and pulls again:
@@ -299,11 +298,11 @@ What it costs the database: the wait for the bot row has no bound. A transaction
 row, such as an `UPDATE telegram_bot_limits` by hand in `psql`, stops the pull of every node, and
 each waiting pull holds a connection of the pool meanwhile. It holds up the stop of a node as well:
 `stop()` ends the generator only once its pull in progress returns. During a pause, or while the
-common limit is spent, a push cannot make a pull succeed, yet its notification wakes the sleeping
-generator of every node, and one that comes during a pull makes the generator pull again. While the
-pushes come faster than a pull takes, each generator pulls at their rate and gets nothing until the
-pause or the cooldown is over. The source cannot tell such a time apart: `pull()` answers with a
-duration, not with its reason.
+common limit is spent, a push or a completion cannot make a pull succeed, yet its notification wakes
+the sleeping generator of every node, and one that comes during a pull makes the generator pull
+again. While the pushes and completions come faster than a pull takes, each generator pulls at their
+rate and gets nothing until the pause or the cooldown is over. The source cannot tell such a time
+apart: `pull()` answers with a duration, not with its reason.
 
 ## The runner
 
@@ -396,7 +395,14 @@ is read off its body. Each is a transaction through the private `complete()`:
    `idle`, and an `idle` chat holds no lease;
 3. the message leaves `processing`. A message that is not `processing` under the chat's own token
    is another message of the chat, and the method throws `OutboxMessageNotLeased`;
-4. the chat state, and the end of the lease.
+4. the chat state, and the end of the lease. A completion that leaves its chat `ready`, a `done` or
+   `failed` message with another active message behind it (`releaseChat()`) and every `retry()`,
+   sends `pg_notify` on `telegram_outbox_ready` in its transaction, as a push does, so it is
+   delivered on commit and a fenced or rolled back completion sends none. Otherwise the message
+   source of every node may be asleep on a pull that found this chat `processing`, and the next
+   message of the chat would wait out the sleep, up to its cap, although the chat limit allows it
+   sooner. The price is one pull per node per such completion. A completion that leaves its chat
+   `idle` or `blocked` notifies no one: the chat has no message to pull.
 
 A completion into `done` or `failed` goes through the private `finishMessage()`, which also sends
 `pg_notify` of the id on `telegram_outbox_finished` in the same transaction (see "Waiting for the
@@ -420,16 +426,17 @@ A chat that a failed message blocked (see "Tables") waits for a person. Two targ
 
 - `make outbox-retry chat=<id>` is `OutboxStore.retryBlockedChat()`: the failed message goes back to
   `pending` with its attempts kept, and its `id` makes it the head again; the chat is `ready` at
-  once, and the call notifies `telegram_outbox_ready`, as the release on stop does: a node whose
-  last pull answered `null` learns of the chat from nothing else. The message blocks the chat
+  once, and the call notifies `telegram_outbox_ready`, as every completion that leaves a chat
+  `ready` does (see "Completions"). The message blocks the chat
   again on its next transient failure, with no retry, since its attempts still count (see
   "Outcomes");
 - `make outbox-skip chat=<id>` is `OutboxStore.skipBlockedChat()`: the failed message becomes
   `skipped`, with `finished_at` set so that the cleanup counts its retention from it (see
   "Cleanup"), and the call notifies `telegram_outbox_finished` (see "Waiting for the result"). The
   chat goes `ready` while it has an active message left, and `idle` when it has none, read after
-  the lock as `markAsDone()` does. A `ready` chat with no head is never pulled, and its
-  `next_attempt_at` has passed, so `nextPullInMs` is 0 and a sender that sleeps on it would spin.
+  the lock as `markAsDone()` does, and a chat left `ready` notifies `telegram_outbox_ready` as
+  there. A `ready` chat with no head is never pulled, and its `next_attempt_at` has passed, so
+  `nextPullInMs` is 0 and a sender that sleeps on it would spin.
 
 The message taken is the one of the chat that failed last, by `finished_at`: a blocked chat is not
 pulled, so that is the message that blocked it, and a message that failed earlier without blocking
@@ -722,11 +729,10 @@ by the difference.
 The message goes out again, although the node may have died after Telegram took the call: the
 delivery is at least once (see "The lease").
 
-The recovery notifies no one, unlike the release on stop: `retry()` gets no `shouldWakeIdleNodes`.
-The message waits for its retry delay first, at least half of `OUTBOX_RETRY_FIRST_DELAY` (see
-"Retry delay"), and a notification would wake the nodes before the chat is due, to a pull that gets
-nothing. A node with a free slot pulls at least once per sleep cap of its message source, 1 s at
-most (see "The message source"), so the message goes out within that second of its delay.
+The recovery notifies like every `retry()` (see "Completions"). The message waits for its retry
+delay first, at least half of `OUTBOX_RETRY_FIRST_DELAY` (see "Retry delay"), so the woken nodes
+pull nothing and sleep on the `nextPullInMs` of that pull, capped (see "The message source"); a
+node that slept on `null` learns the chat is `ready` from the notification alone.
 
 ### Release on stop
 
@@ -736,10 +742,9 @@ finish, so another node takes it on its next pull rather than after the lease. I
 message goes back to `pending`, the chat to `ready` with the chat limit the pull set, the lease
 ends, and a stale token is fenced as in every completion (see "Completions").
 
-The release passes `shouldWakeIdleNodes` to `retry()`, which then sends `pg_notify` on
-`telegram_outbox_ready` in its transaction, delivered on commit as the one of a push; a fenced
-release sends none. The node that would pull the message next is the one that stops, and a
-node whose last pull found nothing `ready` got `nextPullInMs` of `null`: no time to wait for, only a
+Like every `retry()`, the release sends `pg_notify` on `telegram_outbox_ready` in its transaction
+(see "Completions"). The node that would pull the message next is the one that stops, and a node
+whose last pull found nothing `ready` got `nextPullInMs` of `null`: no time to wait for, only a
 notification (see "Limits"). Without it the message could wait for an unrelated push longer than the
 lease the release exists to cut short.
 
