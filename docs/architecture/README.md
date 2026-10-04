@@ -26,9 +26,9 @@ The runtime sequences live in the files of their subsystems:
 - [`outbox-load-test.md`](./outbox-load-test.md) — the outbox store measured on 100 M messages:
   how to run the test, the data, the threshold, the times and the plans, the verdict
 - [`inbox.md`](./inbox.md) — the inbox of incoming updates in PostgreSQL being built: the tables,
-  the group, the group states, push without duplicates, the claim, the lease and the completions,
-  the error classes of a failed handler, the outcomes, the lease recovery, unblocking a group and
-  the cleanup
+  the group, the group states, push without duplicates, the claim, the lease with its extension and
+  the completions, the ready notifications, the error classes of a failed handler, the outcomes,
+  the lease recovery, the release on stop, unblocking a group and the cleanup
 - [`font-convertor.md`](./font-convertor.md) — format pairs, the EOT codec, signatures, the SVG,
   WOFF, WOFF2, EOT and sfnt validators, running the engine
 - [`user.md`](./user.md) — the entity, the repository, filling the context
@@ -138,7 +138,7 @@ src/
   font-convertor/           font conversion (font-convertor.md)
   telegram/                 grammY: commands, conversations, middleware, filters, session, locales (bot.md, i18n.md)
     user/                   the entity, the repository interface, the service, the PostgreSQL adapter (user.md)
-    inbox/                  the future inbox of incoming updates in PostgreSQL: the store (push, claim, completions, cleanup), the error classes and the outcomes of a failed handler, the unblock of a group (command/) (inbox.md)
+    inbox/                  the future inbox of incoming updates in PostgreSQL: the store (push, claim, lease extension, completions, ready notifications, cleanup), the error classes and the outcomes of a failed handler, the release on stop, the unblock of a group (command/) (inbox.md)
     outbox/                 the outbox of Bot API calls in PostgreSQL: the transformer that pushes the calls of the bot (transformer/), the store (push, pull, completions), the runner with its message source, the timers of the lease recovery, the cleanup and the status line (maintenance/), the lease recovery, retrier and release on stop (lease/), the processor of one message with the sender of its call and the Api, the outcomes of a failure, the result waiter with its reader, the payload codec and the retry delay, the commands that unblock a chat (command/) (outbox.md)
   platform/                 adapters that know no module
     database/               Database (storage.md)

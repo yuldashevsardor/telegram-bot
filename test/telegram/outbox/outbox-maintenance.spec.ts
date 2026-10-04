@@ -5,7 +5,7 @@ import { OutboxMaintenance } from "app/telegram/outbox/maintenance/outbox-mainte
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxBacklog } from "app/telegram/outbox/store/outbox-store.types";
 import type { OutboxMaintenanceSettings } from "app/telegram/outbox/maintenance/outbox-maintenance.types";
-import { waitUntil } from "test/telegram/outbox/outbox-store.helper";
+import { waitUntil } from "test/shared/utils.helper";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 
 const SHORT_INTERVAL_MS = 5;

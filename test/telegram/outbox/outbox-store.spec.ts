@@ -29,8 +29,8 @@ import { OutboxChannel } from "app/telegram/outbox/store/outbox-store.types";
 import type { DatabaseSettings } from "app/platform/database/database.types";
 import { MS_PER_SECOND } from "app/shared/time";
 import { sleep } from "app/shared/utils";
-import { testDatabaseSettings, waitForLockWaiters } from "test/database.helper";
-import { listenTo, waitUntil } from "test/telegram/outbox/outbox-store.helper";
+import { listenTo, testDatabaseSettings, waitForLockWaiters } from "test/database.helper";
+import { waitUntil } from "test/shared/utils.helper";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 
 const CHAT = 5_000_000_001;
