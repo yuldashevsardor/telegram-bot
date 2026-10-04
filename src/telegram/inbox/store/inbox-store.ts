@@ -12,6 +12,7 @@ import type {
     ExpiredInboxLeaseRow,
     InboxAttempt,
     InboxAttemptError,
+    InboxCleanupSettings,
     InboxLease,
     InboxUpdateInput,
     InboxWorker,
@@ -37,6 +38,7 @@ export class InboxStore {
         @inject<Database>(Tokens.Platform.Database) database: Database,
         @inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger,
         private readonly leaseDurationMs: number = configValue("inbox.leaseDurationMs"),
+        private readonly cleanupSettings: InboxCleanupSettings = configValue("inbox.cleanup"),
     ) {
         this.sql = database.sql;
     }
@@ -276,11 +278,61 @@ export class InboxStore {
         });
     }
 
+    // One batch of the done and skipped updates whose retention has passed since their end; the
+    // number deleted. A caller that gets a full batch calls again. A failed update is never deleted:
+    // it waits for a person. An update without finished_at is never deleted either.
+    public async deleteFinishedUpdates(): Promise<number> {
+        // finished_at plus the retention, not now() minus it: a long retention would take now()
+        // below the earliest timestamp PostgreSQL has, 4713 BC, while the sum stays below its
+        // latest for any retention the config takes.
+        const deletedRows = await this.sql`
+            DELETE FROM telegram_inbox
+            WHERE update_id IN (
+                SELECT update_id
+                FROM telegram_inbox
+                WHERE (status = ${InboxStatus.Done}
+                       AND finished_at + ${this.cleanupSettings.doneRetentionMs}::double precision * interval '1 millisecond' < now())
+                   OR (status = ${InboxStatus.Skipped}
+                       AND finished_at + ${this.cleanupSettings.skippedRetentionMs}::double precision * interval '1 millisecond' < now())
+                LIMIT ${this.cleanupSettings.batchSize}
+                -- The lock rechecks the status on the newest version of the row, so an update moved
+                -- back to pending meanwhile is kept; a row another cleanup holds is left to it.
+                FOR UPDATE SKIP LOCKED
+            )
+            RETURNING update_id
+        `;
+
+        return deletedRows.length;
+    }
+
+    // One batch of the idle groups; the number deleted. A caller that gets a full batch calls again.
+    // A group another transaction holds is skipped: a push or a completion is changing it. The lock
+    // rechecks the state on the newest version of the row, so a group that a push has made ready
+    // meanwhile is left alone too. A push that waits for a group the removal holds inserts it again
+    // (docs/architecture/inbox.md, "Cleanup").
+    public async deleteIdleGroups(): Promise<number> {
+        const deletedRows = await this.sql`
+            DELETE FROM telegram_inbox_groups
+            WHERE (user_id, chat_id) IN (
+                SELECT user_id, chat_id
+                FROM telegram_inbox_groups
+                WHERE state = ${InboxGroupState.Idle}
+                LIMIT ${this.cleanupSettings.batchSize}
+                FOR UPDATE SKIP LOCKED
+            )
+            RETURNING user_id
+        `;
+
+        return deletedRows.length;
+    }
+
     // Every completion: the lock of the group, then the fence, then the writes
     // (docs/architecture/inbox.md, "Completions"). A missing update throws InboxUpdateNotLeased. A lock
     // token that is not the group's changes nothing and is logged with the error the completion
     // carried: the lease has passed to another claim, or the group was released by an earlier
-    // completion. Returns the group of an applied completion, null for a fenced one.
+    // completion. A group row that is missing while its update is there changes nothing either and is
+    // logged apart: deleteIdleGroups() removed the group once it went idle, so no lease is left.
+    // Returns the group of an applied completion, null for a fenced one.
     private async complete(
         lease: InboxLease,
         attemptError: InboxAttemptError | null,
@@ -295,9 +347,18 @@ export class InboxStore {
                 FOR UPDATE
             `;
 
-            // A stored update always has its group row: nothing deletes one.
             if (group === undefined) {
-                throw InboxUpdateNotLeased.byId(lease.updateId);
+                if (!(await this.hasUpdate(sql, lease.updateId))) {
+                    throw InboxUpdateNotLeased.byId(lease.updateId);
+                }
+
+                this.logger.warning("Inbox completion of a group the cleanup removed changed nothing.", {
+                    updateId: lease.updateId,
+                    lockToken: lease.lockToken,
+                    cause: attemptError,
+                });
+
+                return null;
             }
 
             if (group.lock_token !== lease.lockToken) {
@@ -319,6 +380,12 @@ export class InboxStore {
 
             return group;
         });
+    }
+
+    private async hasUpdate(sql: TransactionSql, updateId: number): Promise<boolean> {
+        const [update] = await sql`SELECT update_id FROM telegram_inbox WHERE update_id = ${updateId}`;
+
+        return update !== undefined;
     }
 
     // The final outcome of an update, with the end of its attempt. finished_at is for the cleanup.

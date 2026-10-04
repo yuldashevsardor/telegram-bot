@@ -103,3 +103,13 @@ export type LockedInboxGroupRow = {
     chat_id: string;
     lock_token: string | null;
 };
+
+export type InboxCleanupSettings = {
+    // How long a done update is kept after its end. Telegram redelivers an update within 24 h, and
+    // the row of the update is what turns the redelivery away.
+    doneRetentionMs: number;
+    // How long a skipped update is kept after its end.
+    skippedRetentionMs: number;
+    // The most rows one call of the cleanup deletes.
+    batchSize: number;
+};

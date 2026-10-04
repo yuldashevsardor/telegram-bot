@@ -52,7 +52,11 @@ describe("ConfigValuesBuilder", () => {
             maintenance: { leaseRecoveryIntervalMs: 10000, cleanupIntervalMs: 600000 },
             cleanup: { doneRetentionMs: 604800000, skippedRetentionMs: 2592000000, batchSize: 1000 },
         });
-        expect(result.inbox).to.deep.equal({ leaseDurationMs: 600000, maxAttempts: 10 });
+        expect(result.inbox).to.deep.equal({
+            leaseDurationMs: 600000,
+            maxAttempts: 10,
+            cleanup: { doneRetentionMs: 604800000, skippedRetentionMs: 2592000000, batchSize: 1000 },
+        });
         expect(result.bot).to.deep.equal({ token: "token", gracefulShutdown: { timeout: 3000 } });
         expect(result.taskQueue).to.deep.equal({ logInterval: 10000, gracefulShutdown: { timeout: 5000, interval: 500 } });
         expect(result.gracefulShutdown).to.deep.equal({ timeout: 15000 });
@@ -99,6 +103,9 @@ describe("ConfigValuesBuilder", () => {
             OUTBOX_MAINTENANCE_CLEANUP_INTERVAL: "600003",
             INBOX_LEASE_DURATION: "600002",
             INBOX_MAX_ATTEMPTS: "12",
+            INBOX_DONE_RETENTION: "604800002",
+            INBOX_SKIPPED_RETENTION: "2592000002",
+            INBOX_CLEANUP_BATCH_SIZE: "1002",
             BOT_TOKEN: "own-token",
             BOT_GRACEFUL_SHUTDOWN_TIMEOUT: "3001",
             TASK_QUEUE_LOG_INTERVAL: "10001",
@@ -137,7 +144,11 @@ describe("ConfigValuesBuilder", () => {
             maintenance: { leaseRecoveryIntervalMs: 10002, cleanupIntervalMs: 600003 },
             cleanup: { doneRetentionMs: 604800001, skippedRetentionMs: 2592000001, batchSize: 1001 },
         });
-        expect(result.inbox).to.deep.equal({ leaseDurationMs: 600002, maxAttempts: 12 });
+        expect(result.inbox).to.deep.equal({
+            leaseDurationMs: 600002,
+            maxAttempts: 12,
+            cleanup: { doneRetentionMs: 604800002, skippedRetentionMs: 2592000002, batchSize: 1002 },
+        });
         expect(result.bot).to.deep.equal({ token: "own-token", gracefulShutdown: { timeout: 3001 } });
         expect(result.taskQueue).to.deep.equal({ logInterval: 10001, gracefulShutdown: { timeout: 5001, interval: 501 } });
         expect(result.gracefulShutdown).to.deep.equal({ timeout: 15001 });
@@ -236,6 +247,8 @@ describe("ConfigValuesBuilder", () => {
         { name: "OUTBOX_MAINTENANCE_CLEANUP_INTERVAL", below: "0", range: "between 1 and 2147483647" },
         { name: "INBOX_LEASE_DURATION", below: "0", range: "between 1 and 2147483647" },
         { name: "INBOX_MAX_ATTEMPTS", below: "0", range: "at least 1" },
+        { name: "INBOX_SKIPPED_RETENTION", below: "0", range: "between 1 and 9007199254740991" },
+        { name: "INBOX_CLEANUP_BATCH_SIZE", below: "0", range: "between 1 and 9007199254740991" },
         { name: "BOT_GRACEFUL_SHUTDOWN_TIMEOUT", below: "-1", range: "between 0 and 2147483647" },
         { name: "TASK_QUEUE_LOG_INTERVAL", below: "0", range: "between 1 and 2147483647" },
         { name: "TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT", below: "-1", range: "between 0 and 2147483647" },
@@ -255,6 +268,14 @@ describe("ConfigValuesBuilder", () => {
             expect(error.payload).to.include({ got: Number(below) });
         });
     }
+
+    // Telegram redelivers an update within 24 h: a shorter retention would let a redelivery in again.
+    it("rejects an inbox done retention below a day and accepts a day", () => {
+        const error = rejection({ INBOX_DONE_RETENTION: "86399999" });
+
+        expect(error.message).to.equal('Config value "INBOX_DONE_RETENTION" must be between 86400000 and 9007199254740991');
+        expect(config({ INBOX_DONE_RETENTION: "86400000" }).inbox.cleanup.doneRetentionMs).to.equal(86400000);
+    });
 
     it("accepts zero where it means not to wait or to switch a timer off", () => {
         const result = config({
