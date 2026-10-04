@@ -4,6 +4,7 @@ import { Database } from "app/platform/database/database";
 import { MS_PER_DAY, MS_PER_SECOND } from "app/shared/time";
 import { sleep } from "app/shared/utils";
 import { InboxFailureKind } from "app/telegram/inbox/failure-classifier/inbox-failure-classifier.types";
+import postgres from "postgres";
 import type { TransactionSql } from "postgres";
 import { InboxStore } from "app/telegram/inbox/store/inbox-store";
 import type {
@@ -143,6 +144,24 @@ describe("InboxStore", function () {
             expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Blocked });
             expect(await group(OTHER_USER, CHAT)).to.deep.equal({ state: InboxGroupState.Ready });
         });
+
+        // The polling source tells an update the store refuses for good by this class and pushes the
+        // rest of its batch one at a time (docs/architecture/inbox.md, "The polling source").
+        for (const [name, text] of [
+            ["a NUL character", "before\u0000after"],
+            ["a lone surrogate", "before\ud800after"],
+        ] as const) {
+            it(`refuses a batch with ${name} in an update by a data exception and stores none of it`, async function () {
+                const thrown = await store.pushBatch([input(10), input(11, USER, CHAT, text)]).then(
+                    () => expect.fail("pushBatch() was expected to reject"),
+                    (reason: unknown) => reason,
+                );
+
+                expect(thrown).to.be.instanceOf(postgres.PostgresError);
+                expect((thrown as postgres.PostgresError).code).to.match(/^22/);
+                expect(await statuses()).to.deep.equal([]);
+            });
+        }
     });
 
     describe("claim", function () {

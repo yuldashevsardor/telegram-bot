@@ -27,7 +27,7 @@ import type { OutboxTransformer } from "app/telegram/outbox/transformer/outbox-t
 // The bot serves only commands and a conversation wait() in private chats: a single message
 // type. The getUpdates default is every type but chat_member and reactions. What the rest would
 // cost, why a file does not widen the list and why it is not a defence: docs/architecture/bot.md.
-const ALLOWED_UPDATES: NonNullable<FetchOptions["allowed_updates"]> = ["message"];
+export const ALLOWED_UPDATES: NonNullable<FetchOptions["allowed_updates"]> = ["message"];
 
 @injectable()
 export class Bot {
