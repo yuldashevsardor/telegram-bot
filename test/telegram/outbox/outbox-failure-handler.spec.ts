@@ -8,13 +8,7 @@ import { OutboxFailureHandler, UNAUTHORIZED_PAUSE_SECONDS } from "app/telegram/o
 import { OutboxLeaseRetrier } from "app/telegram/outbox/lease/outbox-lease-retrier";
 import { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
-import type {
-    OutboxAttemptError,
-    OutboxJsonObject,
-    OutboxLease,
-    OutboxRetryOptions,
-    PulledOutboxMessage,
-} from "app/telegram/outbox/store/outbox-store.types";
+import type { OutboxAttemptError, OutboxJsonObject, OutboxLease, PulledOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
 import { telegramError } from "test/telegram/telegram-bot-api-failure-classifier.helper";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 
@@ -27,7 +21,7 @@ const RETRY_DELAY = new OutboxRetryDelay({ firstDelayMs: FIRST_DELAY_MS, maxDela
 const SERIALIZED: OutboxJsonObject = { name: "Error", message: "serialized", kind: "overwritten" };
 
 type StoreCall =
-    | { method: "retry"; lease: OutboxLease; error: OutboxAttemptError; delayMs: number; options?: OutboxRetryOptions }
+    | { method: "retry"; lease: OutboxLease; error: OutboxAttemptError; delayMs: number }
     | { method: "markAsFailed" | "markAsFailedAndBlockChat"; lease: OutboxLease; error: OutboxAttemptError }
     | { method: "pause"; durationMs: number };
 
@@ -36,11 +30,8 @@ type StoreCall =
 class RecordingStore {
     public readonly calls: StoreCall[] = [];
 
-    public async retry(lease: OutboxLease, error: OutboxAttemptError, delayMs: number, options?: OutboxRetryOptions): Promise<void> {
-        // Only a call that passes options records them, so the other expectations need not spell them out.
-        this.calls.push(
-            options === undefined ? { method: "retry", lease, error, delayMs } : { method: "retry", lease, error, delayMs, options },
-        );
+    public async retry(lease: OutboxLease, error: OutboxAttemptError, delayMs: number): Promise<void> {
+        this.calls.push({ method: "retry", lease, error, delayMs });
     }
 
     public async markAsFailed(lease: OutboxLease, error: OutboxAttemptError): Promise<void> {
