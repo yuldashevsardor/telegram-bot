@@ -4,7 +4,7 @@ import type { PendingQuery, Row, TransactionSql } from "postgres";
 import type { Database, Sql } from "app/platform/database/database";
 import type { Logger } from "app/platform/logger/logger";
 import { Tokens } from "app/shared/tokens";
-import type { TelegramLimits } from "app/bootstrap/config/config-values";
+import type { Limit, TelegramLimits } from "app/bootstrap/config/config-values";
 import { configValue } from "app/shared/config-value";
 import { MS_PER_SECOND } from "app/shared/time";
 import type {
@@ -365,7 +365,7 @@ export class OutboxStore {
 
     // The time a limit leaves between two messages. LIMIT_*_NUMBER is at least 1, so the cooldown is
     // finite.
-    private cooldownMs(limit: TelegramLimits[keyof TelegramLimits]): number {
+    private cooldownMs(limit: Limit): number {
         return limit.interval / limit.number;
     }
 
