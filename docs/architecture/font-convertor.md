@@ -252,7 +252,8 @@ was rejected.
   fontforge keeps an advance in a signed 16-bit field, narrower than the unsigned one of `hmtx`, so
   `32768` makes 0 in a TTF and `70000` makes 4464. `k` is -32767 to 32767: fontforge keeps it
   negated in the same kind of field, so `40000` kerns by 25536 and `-32768` wraps over to the
-  opposite sign; `32768` would fit, and the range is kept symmetric. `units-per-em` is 16 to 16384,
+  opposite sign; `32768` would fit, and the range is kept symmetric. A fraction in range is
+  truncated, as in the other fields: `k="12.6"` kerns by 12. `units-per-em` is 16 to 16384,
   the range of `unitsPerEm` in the OpenType `head` table; fontforge writes 15 or 16385 as it is.
   The sfnt validator holds the same bound as a rule of its own (`head.unitsPerEm` in
   [The sfnt validator](#the-sfnt-validator), with the Apple floor of 64 it leaves out): a change of
