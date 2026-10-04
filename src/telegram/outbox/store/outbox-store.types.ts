@@ -20,7 +20,7 @@ export type FinishedOutboxStatus = (typeof FINISHED_STATUSES)[number];
 // The PostgreSQL channels of the outbox. The payload of a Finished notification is the message id
 // alone: NOTIFY carries at most 8000 bytes, less than a Telegram response can take.
 export enum OutboxChannel {
-    // A push or a release on stop: an idle sender can pull.
+    // A push, or a completion that leaves its chat ready: an idle sender can pull.
     Ready = "telegram_outbox_ready",
     // A message reached a final status.
     Finished = "telegram_outbox_finished",
@@ -140,11 +140,6 @@ export type OutboxPullResultRow = {
     messages: PulledOutboxRow[];
     next_pull_in_ms: number | null;
     has_bot_limits: boolean;
-};
-
-// How a retry ends besides the rows: shouldWakeIdleNodes notifies the ready channel on commit.
-export type OutboxRetryOptions = {
-    shouldWakeIdleNodes: boolean;
 };
 
 // What the cleanup deletes and how much at a time. A failed message has no retention: it is never

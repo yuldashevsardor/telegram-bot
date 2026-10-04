@@ -19,7 +19,6 @@ import type {
     OutboxMessageInput,
     OutboxPullResult,
     OutboxPullResultRow,
-    OutboxRetryOptions,
     OutboxWorker,
 } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxChannel, OutboxChatState, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
@@ -380,15 +379,11 @@ export class OutboxStore {
     }
 
     // The message goes back to pending, and its chat waits delayMs or its chat limit, whichever is
-    // later: the message stays the head, so it holds its chat. shouldWakeIdleNodes notifies the ready
-    // channel as a push does, for a retry whose node pulls no more: a node that sleeps on a null
-    // nextPullInMs learns of the chat from nothing else. A fenced retry notifies no one.
-    public async retry(
-        lease: OutboxLease,
-        attemptError: OutboxAttemptError,
-        delayMs: number,
-        options: OutboxRetryOptions = { shouldWakeIdleNodes: false },
-    ): Promise<void> {
+    // later: the message stays the head, so it holds its chat. The chat is ready again, so the ready
+    // channel is notified on commit as a push does: a node that sleeps on a null nextPullInMs, or
+    // one whose node pulls no more, learns of the chat from nothing else. A fenced retry notifies no
+    // one.
+    public async retry(lease: OutboxLease, attemptError: OutboxAttemptError, delayMs: number): Promise<void> {
         await this.complete(lease, attemptError, async (sql, chatId) => {
             await this.updateProcessingMessage(
                 lease,
@@ -411,9 +406,7 @@ export class OutboxStore {
                 WHERE chat_id = ${chatId}
             `;
 
-            if (options.shouldWakeIdleNodes) {
-                await this.notifyReady(sql);
-            }
+            await this.notifyReady(sql);
         });
     }
 
@@ -618,7 +611,9 @@ export class OutboxStore {
     }
 
     // The chat goes on: ready while it has a message left, idle otherwise. The active messages are
-    // read after the lock, so a message pushed meanwhile is seen.
+    // read after the lock, so a message pushed meanwhile is seen. A ready chat notifies the ready
+    // channel: a source that slept on a pull that found this chat processing would otherwise sleep
+    // out its cap with the next message due.
     private async releaseChat(sql: TransactionSql, chatId: string): Promise<void> {
         const [remainingMessage] = await sql`
             SELECT id
@@ -628,7 +623,14 @@ export class OutboxStore {
             LIMIT 1
         `;
 
-        await this.setChatState(sql, chatId, remainingMessage === undefined ? OutboxChatState.Idle : OutboxChatState.Ready);
+        if (remainingMessage === undefined) {
+            await this.setChatState(sql, chatId, OutboxChatState.Idle);
+
+            return;
+        }
+
+        await this.setChatState(sql, chatId, OutboxChatState.Ready);
+        await this.notifyReady(sql);
     }
 
     // The lease ends with the completion: a late completion of the same pull finds no token.
