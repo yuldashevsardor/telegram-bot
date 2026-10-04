@@ -193,9 +193,10 @@ export class Application {
         this.logger.info("Application is successfully stopped.");
     }
 
-    // Every step has a deadline of its own, and the whole stop has the overall one. The overall one
-    // is greater than their sum (checked when the config is assembled), so stopping the runner and
-    // closing the pool have time left even when the bot, the outbox and the queue use theirs up.
+    // The bot, the outbox runner and the queue have deadlines of their own, and the whole stop has the
+    // overall one, greater than their sum (checked when the config is assembled). The steps without
+    // a deadline, the stop of the outbox maintenance, the stop of the runner and the closing of the
+    // pool, live on what is left of it when those three use theirs up.
     private async shutdown(from: State): Promise<void> {
         // A failure of the setup leaves from here as well (docs/architecture/application.md, "Stop",
         // step 3). Swallowed, it would leave the exit code to a race between exit(0) and exit(1).

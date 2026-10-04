@@ -6,6 +6,7 @@ import { container } from "app/bootstrap/container/container";
 import type { Database } from "app/platform/database/database";
 import type { Logger } from "app/platform/logger/logger";
 import { InvalidConfigError, RuntimeError } from "app/shared/errors";
+import { sleep } from "app/shared/utils";
 import { Tokens } from "app/shared/tokens";
 import type { UnknownObject } from "app/shared/types";
 import type { Bot } from "app/telegram/bot/bot";
@@ -469,14 +470,16 @@ describe("Application", function () {
         });
 
         // The runner waits for its calls in flight up to OUTBOX_STOP_TIMEOUT; the maintenance and the
-        // pool come after it.
+        // pool come after it. The pause is long enough for the stop to reach the runner and wait there.
+        const OUTBOX_STOP_REACHED_MS = 10;
+
         it("waits for the outbox runner to stop before it stops the maintenance", async function () {
             const outboxStopped = Promise.withResolvers<void>();
             stopOutboxRunner = (): Promise<void> => outboxStopped.promise;
             const application = await start();
 
             const stopped = application.stop();
-            await new Promise((resolve) => setTimeout(resolve, 10));
+            await sleep(OUTBOX_STOP_REACHED_MS);
             const callsWhileWaiting = [...calls];
             outboxStopped.resolve();
             await stopped;

@@ -2,7 +2,7 @@
 
 Rules the compiler does not tie together: breaking one compiles and silently breaks behaviour.
 A startup check or a test pins some of them, but such a check knows only today's places. It
-will not see a third shutdown deadline or a new `child_process` call past `ProcessHelper`.
+will not see a new shutdown deadline or a new `child_process` call past `ProcessHelper`.
 `CLAUDE.md` sends here before an edit of the places concerned.
 
 ## The bot pipeline and `Context`
