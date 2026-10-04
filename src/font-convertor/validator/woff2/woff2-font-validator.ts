@@ -459,14 +459,13 @@ export class Woff2FontValidator implements FontValidator {
      * alone; the decoder of fontforge reads the glyph count and the xMin only when it rebuilds a
      * transformed glyf (`ReconstructGlyf()` in `woff2_dec.cc` 1.0.2), and refuses the file otherwise.
      * It also rebuilds the tables in directory order (`ReconstructFont()`) and reads numberOfHMetrics
-     * when it reaches hhea, so a transformed hmtx before glyf or hhea finds nothing gathered yet. An
-     * absent hhea has no place in the order to check: `GlyfReconstructor` answers it with rule
-     * `TransformedHmtx`.
+     * when it reaches hhea, so a transformed hmtx before glyf or hhea lacks what it needs from that
+     * table. An absent hhea has no place in the order to check: `GlyfReconstructor` answers it with
+     * rule `TransformedHmtx`.
      */
     private checkHmtx(fontPath: string, entries: Array<TableEntry>): void {
         const hmtx = entries.find((entry) => entry.tag === TableTag.Hmtx);
         const glyf = entries.find((entry) => entry.tag === TableTag.Glyf);
-        const hhea = entries.find((entry) => entry.tag === TableTag.Hhea);
 
         if (hmtx?.transformLength === undefined) {
             return;
@@ -494,28 +493,34 @@ export class Woff2FontValidator implements FontValidator {
             });
         }
 
-        this.checkHmtxFollows(fontPath, entries, hmtx, glyf);
+        // The later of the two is named: moving hmtx past it clears the earlier one as well.
+        const hhea = entries.find((entry) => entry.tag === TableTag.Hhea);
+        const laterPrecedingEntry = hhea !== undefined && entries.indexOf(hhea) > entries.indexOf(glyf) ? hhea : glyf;
 
-        if (hhea !== undefined) {
-            this.checkHmtxFollows(fontPath, entries, hmtx, hhea);
-        }
+        this.checkEntryFollows(fontPath, entries, Woff2Rule.HmtxAfterGlyfAndHhea, hmtx, laterPrecedingEntry);
     }
 
     /**
-     * A transformed hmtx lies after `table` in the table directory.
+     * `entry` lies after `precedingEntry` in the table directory.
      */
-    private checkHmtxFollows(fontPath: string, entries: Array<TableEntry>, hmtx: TableEntry, table: TableEntry): void {
-        const hmtxIndex = entries.indexOf(hmtx);
-        const tableIndex = entries.indexOf(table);
+    private checkEntryFollows(
+        fontPath: string,
+        entries: Array<TableEntry>,
+        rule: Woff2Rule,
+        entry: TableEntry,
+        precedingEntry: TableEntry,
+    ): void {
+        const entryIndex = entries.indexOf(entry);
+        const precedingIndex = entries.indexOf(precedingEntry);
 
-        // Stryker disable next-line EqualityOperator: `<=` is equivalent: hmtx and the table are two entries of different tags, so their indexes never match
-        if (hmtxIndex < tableIndex) {
+        // Stryker disable next-line EqualityOperator: `<=` is equivalent: the two entries have different tags, so their indexes never match
+        if (entryIndex < precedingIndex) {
             throw BrokenWoff2.byRule(fontPath, {
-                rule: Woff2Rule.HmtxAfterGlyfAndHhea,
-                at: BrokenWoff2.tableName(TableTag.Hmtx),
+                rule,
+                at: BrokenWoff2.tableName(entry.tag),
                 field: "directory entry",
-                value: hmtxIndex + 1,
-                expected: `any entry after entry ${tableIndex + 1}, the entry of ${BrokenWoff2.tableName(table.tag)}`,
+                value: entryIndex + 1,
+                expected: `any entry after entry ${precedingIndex + 1}, the entry of ${BrokenWoff2.tableName(precedingEntry.tag)}`,
             });
         }
     }
@@ -540,8 +545,6 @@ export class Woff2FontValidator implements FontValidator {
             });
         }
 
-        const glyfIndex = entries.indexOf(glyf);
-        const locaIndex = entries.indexOf(loca);
         const locaName = BrokenWoff2.tableName(TableTag.Loca);
 
         if (glyf.transformVersion !== loca.transformVersion) {
@@ -554,16 +557,7 @@ export class Woff2FontValidator implements FontValidator {
             });
         }
 
-        // Stryker disable next-line EqualityOperator: `<=` is equivalent: glyf and loca are two entries of different tags, so their indexes never match
-        if (locaIndex < glyfIndex) {
-            throw BrokenWoff2.byRule(fontPath, {
-                rule: Woff2Rule.GlyfLoca,
-                at: locaName,
-                field: "directory entry",
-                value: locaIndex + 1,
-                expected: `any entry after entry ${glyfIndex + 1}, the entry of ${BrokenWoff2.tableName(TableTag.Glyf)}`,
-            });
-        }
+        this.checkEntryFollows(fontPath, entries, Woff2Rule.GlyfLoca, loca, glyf);
 
         if (loca.transformLength !== undefined && loca.transformLength !== 0) {
             throw BrokenWoff2.byRule(fontPath, {
