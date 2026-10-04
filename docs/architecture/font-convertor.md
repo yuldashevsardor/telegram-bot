@@ -395,6 +395,9 @@ The rules are `Woff2Rule` in `woff2-font-validator.types.ts`, each with its sect
   fontforge refuses any other flavor;
 - a transformed `hmtx` lies beside a transformed `glyf`, not just beside `glyf`: the decoder takes
   the glyph count and the `xMin` of the glyphs from the transformed `glyf` alone;
+- a transformed `hmtx` follows `glyf` and `hhea` in the table directory: §5.4 sets no order, but the
+  decoder rebuilds the tables in directory order and reads `numberOfHMetrics` when it reaches
+  `hhea`, so before either one it has nothing gathered and refuses the file;
 - the compressed data that ends the file is padded to a 4-byte boundary: the standard asks for the
   padding only where the metadata or the private block follows, but the decoder refuses a file that
   ends before the boundary, and fontforge crashes on the fixture cut by its 3 padding bytes;

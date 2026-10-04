@@ -156,6 +156,14 @@ describe("Woff2FontValidator.validate", function () {
             await validate(build(withHmtxTransform(fixtureLayout, 0x01)));
         });
 
+        it("with the hmtx transform and the directory in tag order", async function () {
+            // Encoders write the directory in tag order, which puts glyf and hhea before hmtx.
+            const layout = withHmtxTransform(fixtureLayout, 0x01);
+            const byTag = layout.entries.toSorted((left, right) => (left.tag < right.tag ? -1 : 1));
+
+            await validate(build({ ...layout, entries: byTag }));
+        });
+
         it("with a known tag written out after flag 63", async function () {
             // §4.1: the decoder MAY accept it.
             await validate(build(withEntry(fixtureLayout, "cmap", (entry) => ({ ...entry, isTagExplicit: true }))));
@@ -566,6 +574,31 @@ describe("Woff2FontValidator.validate", function () {
                     'At table "hmtx": transform version is 1, expected 0, as table "glyf" is not transformed.',
                 );
             }
+        });
+    });
+
+    describe("rejects a transformed hmtx before glyf or hhea in the table directory, by a rule of ours", function () {
+        // The decoder of fontforge rebuilds the tables in directory order: hmtx needs the glyph count
+        // and the xMin of the glyphs from glyf and numberOfHMetrics from hhea.
+        it("with hmtx before glyf", async function () {
+            await expectBroken(
+                build(withEntriesFirst(withHmtxTransform(fixtureLayout, 0x01), ["hmtx"])),
+                Woff2Rule.HmtxAfterGlyfAndHhea,
+                'At table "hmtx": directory entry is 1, expected any entry after entry 7, the entry of table "glyf".',
+            );
+            await expectBroken(
+                build(withEntriesFirst(withHmtxTransform(fixtureLayout, 0x01), ["hhea", "hmtx"])),
+                Woff2Rule.HmtxAfterGlyfAndHhea,
+                'At table "hmtx": directory entry is 2, expected any entry after entry 8, the entry of table "glyf".',
+            );
+        });
+
+        it("with hmtx after glyf but before hhea", async function () {
+            await expectBroken(
+                build(withEntriesFirst(withHmtxTransform(fixtureLayout, 0x01), ["glyf", "loca", "hmtx", "hhea"])),
+                Woff2Rule.HmtxAfterGlyfAndHhea,
+                'At table "hmtx": directory entry is 3, expected any entry after entry 4, the entry of table "hhea".',
+            );
         });
     });
 
@@ -1377,6 +1410,15 @@ function withoutEntry(layout: Layout, tag: string): Layout {
     entryOf(layout, tag);
 
     return { ...layout, entries: layout.entries.filter((entry) => entry.tag !== tag) };
+}
+
+/**
+ * The layout with the entries of `tags` moved, in that order, to the start of the directory.
+ */
+function withEntriesFirst(layout: Layout, tags: Array<string>): Layout {
+    const moved = tags.map((tag) => entryOf(layout, tag));
+
+    return { ...layout, entries: [...moved, ...layout.entries.filter((entry) => !moved.includes(entry))] };
 }
 
 /**

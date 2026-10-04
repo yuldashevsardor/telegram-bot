@@ -429,7 +429,7 @@ export class Woff2FontValidator implements FontValidator {
 
     /**
      * The directory as a whole, once every entry is read: one entry per tag, glyf and loca as a
-     * pair, and a transformed hmtx only beside a transformed glyf.
+     * pair, and a transformed hmtx only beside a transformed glyf and after glyf and hhea.
      */
     private checkDirectory({ path, entries }: Woff2): void {
         const indexByTag = new Map<string, number>();
@@ -458,10 +458,15 @@ export class Woff2FontValidator implements FontValidator {
      * A transformed hmtx takes the xMin of the glyphs from glyf (§5.4). The standard asks for glyf
      * alone; the decoder of fontforge reads the glyph count and the xMin only when it rebuilds a
      * transformed glyf (`ReconstructGlyf()` in `woff2_dec.cc` 1.0.2), and refuses the file otherwise.
+     * It also rebuilds the tables in directory order (`ReconstructFont()`) and reads numberOfHMetrics
+     * when it reaches hhea, so a transformed hmtx before glyf or hhea finds nothing gathered yet. An
+     * absent hhea has no place in the order to check: `GlyfReconstructor` answers it with rule
+     * `TransformedHmtx`.
      */
     private checkHmtx(fontPath: string, entries: Array<TableEntry>): void {
         const hmtx = entries.find((entry) => entry.tag === TableTag.Hmtx);
         const glyf = entries.find((entry) => entry.tag === TableTag.Glyf);
+        const hhea = entries.find((entry) => entry.tag === TableTag.Hhea);
 
         if (hmtx?.transformLength === undefined) {
             return;
@@ -486,6 +491,31 @@ export class Woff2FontValidator implements FontValidator {
                 ...violation,
                 rule: Woff2Rule.HmtxBesideTransformedGlyf,
                 expected: `${Woff2FontValidator.HMTX_VERSIONS.plain}, as ${BrokenWoff2.tableName(TableTag.Glyf)} is not transformed`,
+            });
+        }
+
+        this.checkHmtxFollows(fontPath, entries, hmtx, glyf);
+
+        if (hhea !== undefined) {
+            this.checkHmtxFollows(fontPath, entries, hmtx, hhea);
+        }
+    }
+
+    /**
+     * A transformed hmtx lies after `table` in the table directory.
+     */
+    private checkHmtxFollows(fontPath: string, entries: Array<TableEntry>, hmtx: TableEntry, table: TableEntry): void {
+        const hmtxIndex = entries.indexOf(hmtx);
+        const tableIndex = entries.indexOf(table);
+
+        // Stryker disable next-line EqualityOperator: `<=` is equivalent: hmtx and the table are two entries of different tags, so their indexes never match
+        if (hmtxIndex < tableIndex) {
+            throw BrokenWoff2.byRule(fontPath, {
+                rule: Woff2Rule.HmtxAfterGlyfAndHhea,
+                at: BrokenWoff2.tableName(TableTag.Hmtx),
+                field: "directory entry",
+                value: hmtxIndex + 1,
+                expected: `any entry after entry ${tableIndex + 1}, the entry of ${BrokenWoff2.tableName(table.tag)}`,
             });
         }
     }
