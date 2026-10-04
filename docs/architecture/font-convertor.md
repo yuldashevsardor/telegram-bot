@@ -334,13 +334,16 @@ answer names the source in `path` of its payload. Nothing in them is cut: the on
 file they quote is a table tag, four bytes long. A Brotli failure keeps the zlib error as the cause,
 since its message comes from Node's Brotli decoder, not from the file.
 
-The rules are `Woff2Rule` in `woff2-font-validator.types.ts`, each with its section. Five of them
+The rules are `Woff2Rule` in `woff2-font-validator.types.ts`, each with its section. Six of them
 are ours, not the standard's, and the text of each says why:
 
 - the flavor is one of `SFNT_VERSIONS` (see "Signatures"): a collection holds several fonts, and
   fontforge refuses any other flavor;
 - a transformed `hmtx` lies beside a transformed `glyf`, not just beside `glyf`: the decoder takes
   the glyph count and the `xMin` of the glyphs from the transformed `glyf` alone;
+- a transformed `hmtx` follows `glyf` and `hhea` in the table directory: §5.4 sets no order, but the
+  decoder rebuilds the tables in directory order and reads `numberOfHMetrics` when it reaches
+  `hhea`, so before either one it has nothing gathered and refuses the file;
 - the compressed data that ends the file is padded to a 4-byte boundary: the standard asks for the
   padding only where the metadata or the private block follows, but the decoder refuses a file that
   ends before the boundary, and fontforge crashes on the fixture cut by its 3 padding bytes;
