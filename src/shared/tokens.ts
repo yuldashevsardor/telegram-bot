@@ -107,8 +107,8 @@ export const Tokens = {
             Storage: Symbol.for("BotSessionStorage"),
         },
     },
-    // What `npm run cli` runs: the commands over a blocked chat or group, their resolvers by level
-    // and the check of their arguments.
+    // What `npm run cli` runs: the commands over a blocked chat or group and their resolvers by
+    // level.
     Cli: {
         Resolver: Symbol.for("CliResolver"),
         Outbox: {
