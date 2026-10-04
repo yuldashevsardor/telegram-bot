@@ -450,12 +450,17 @@ unblock sees the chat as it is now, and a message pushed meanwhile is seen by th
 chat (see "The chat lock"). `test/telegram/outbox/outbox-store.spec.ts` lines up a push and a skip
 in both orders.
 
-The targets run `UnblockCommandLine` (`telegram/unblock-command-line/`) through `src/unblock.ts`, in
-a throwaway container that brings up the container of the application without the bot and logs the
-message it took at `info`. The blocked chats of the outbox are the rows of `telegram_outbox_chats`
-in the state `blocked`, and the store logs each block at `error` with the chat and the message
-(`make psql` reads them). The same two targets for the inbox are in [`inbox.md`](./inbox.md),
-"Unblocking a group".
+The targets run `npm run cli` (`src/cli.ts`) in a throwaway container that brings up the container
+of the application without the bot. `CliCommandResolver` (`telegram/cli-command/`) takes the queue
+off the arguments and gives them to the resolver of that queue, `OutboxCommandResolver` or
+`InboxCommandResolver`, which picks the command by its action: `OutboxRetryCommand`,
+`OutboxSkipCommand` and their inbox counterparts (`telegram/outbox/command/`,
+`telegram/inbox/command/`). The rest of the arguments go to the command, whose validator reads the
+ids: each queue has its own, and a command with other arguments gets one of its own. The command
+logs the message it took at `info`. The blocked chats of the outbox are the rows of
+`telegram_outbox_chats` in the state `blocked`, and the store logs each block at `error` with the
+chat and the message (`make psql` reads them). The same two targets for the inbox are in
+[`inbox.md`](./inbox.md), "Unblocking a group".
 
 ## Waiting for the result
 

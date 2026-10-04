@@ -165,7 +165,7 @@ make psql
 The id of a group chat is negative. A target refuses a chat or group that is not blocked. How it
 works is in [`docs/architecture/outbox.md`](docs/architecture/outbox.md), "Unblocking a chat", and
 [`docs/architecture/inbox.md`](docs/architecture/inbox.md), "Unblocking a group". The targets run
-the `unblock` script of `package.json`: after the first pull that brings it, run `make rebuild`.
+the `cli` script of `package.json`: after the first pull that brings it, run `make rebuild`.
 
 ## The pre-commit hook
 

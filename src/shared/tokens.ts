@@ -78,7 +78,6 @@ export const Tokens = {
             FailureHandler: Symbol.for("BotInboxFailureHandler"),
         },
         ApiFailureClassifier: Symbol.for("BotApiFailureClassifier"),
-        UnblockCommandLine: Symbol.for("BotUnblockCommandLine"),
         User: {
             Service: Symbol.for("BotUserService"),
             Repository: Symbol.for("BotUserRepository"),
@@ -87,6 +86,20 @@ export const Tokens = {
             Start: Symbol.for("BotCommandStart"),
             BulkMessages: Symbol.for("BotCommandBulkMessages"),
             FontGenerator: Symbol.for("BotCommandFontGenerator"),
+            // The commands of `npm run cli`, the targets of the Makefile for a blocked chat or group.
+            Resolver: Symbol.for("BotCommandResolver"),
+            Outbox: {
+                Retry: Symbol.for("BotCommandOutboxRetry"),
+                Skip: Symbol.for("BotCommandOutboxSkip"),
+                Validator: Symbol.for("BotCommandOutboxValidator"),
+                Resolver: Symbol.for("BotCommandOutboxResolver"),
+            },
+            Inbox: {
+                Retry: Symbol.for("BotCommandInboxRetry"),
+                Skip: Symbol.for("BotCommandInboxSkip"),
+                Validator: Symbol.for("BotCommandInboxValidator"),
+                Resolver: Symbol.for("BotCommandInboxResolver"),
+            },
         },
         Filter: {
             HasSessionKey: Symbol.for("BotFilterHasSessionKey"),

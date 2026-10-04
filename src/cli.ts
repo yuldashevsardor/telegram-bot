@@ -3,17 +3,20 @@ import { container } from "app/bootstrap/container/container";
 import { ApplicationContext } from "app/bootstrap/application/context/application-context";
 import { ApplicationContextIsNotCreated } from "app/bootstrap/application/context/application-context.errors";
 import { Tokens } from "app/shared/tokens";
-import type { UnblockCommandLine } from "app/telegram/unblock-command-line/unblock-command-line";
+import type { CliCommandResolver } from "app/telegram/cli-command/cli-command-resolver";
 
-// The entry point of `npm run unblock`, which the unblock targets of the Makefile run in a
-// throwaway container: it brings up the container without the bot, runs one command and leaves.
-// Like app.ts it has no container to be injected from.
-async function unblock(): Promise<void> {
+// The entry point of `npm run cli`, which the targets of the Makefile for a blocked chat or group
+// run in a throwaway container: it brings up the container without the bot, resolves the command
+// by the arguments, runs it and leaves. Like app.ts it has no container to be injected from, and
+// it checks nothing itself: the resolvers and the commands do.
+async function runCommand(): Promise<void> {
     await ApplicationContext.create();
     await container.setup();
 
     try {
-        await container.get<UnblockCommandLine>(Tokens.Bot.UnblockCommandLine).run(process.argv.slice(2));
+        const { command, commandArgs } = container.get<CliCommandResolver>(Tokens.Bot.Command.Resolver).resolve(process.argv.slice(2));
+
+        await command.run(commandArgs);
     } finally {
         // The polling of the configuration file would keep the process alive.
         ApplicationContext.getConfigContainer().unwatch();
@@ -24,7 +27,7 @@ async function unblock(): Promise<void> {
 // The same fallback as fail() in app.ts: the console, only when the logger cannot write.
 function fail(error: unknown): never {
     try {
-        ApplicationContext.getLogger().error("The unblock failed.", { cause: error });
+        ApplicationContext.getLogger().error("The command failed.", { cause: error });
     } catch (loggerError) {
         if (!(loggerError instanceof ApplicationContextIsNotCreated)) {
             // eslint-disable-next-line no-console
@@ -38,4 +41,4 @@ function fail(error: unknown): never {
     process.exit(1);
 }
 
-unblock().then(() => process.exit(0), fail);
+runCommand().then(() => process.exit(0), fail);

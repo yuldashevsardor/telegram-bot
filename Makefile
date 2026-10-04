@@ -187,19 +187,19 @@ psql: ## psql in the database container
 # The ids are in single quotes so that a negative chat id of a group is not taken for an option.
 outbox-retry: ## Put the failed message of a blocked outbox chat back to pending: make outbox-retry chat=<id>
 	@[ -n "$(chat)" ] || { printf 'give it the chat: make outbox-retry chat=<id>\n' >&2; exit 1; }
-	$(DC_APP_RUN) npm run unblock -- outbox retry '$(chat)'
+	$(DC_APP_RUN) npm run cli -- outbox retry '$(chat)'
 
 outbox-skip: ## Skip the failed message of a blocked outbox chat: make outbox-skip chat=<id>
 	@[ -n "$(chat)" ] || { printf 'give it the chat: make outbox-skip chat=<id>\n' >&2; exit 1; }
-	$(DC_APP_RUN) npm run unblock -- outbox skip '$(chat)'
+	$(DC_APP_RUN) npm run cli -- outbox skip '$(chat)'
 
 inbox-retry: ## Put the failed update of a blocked inbox group back to pending: make inbox-retry user=<id> chat=<id>
 	@[ -n "$(user)" ] && [ -n "$(chat)" ] || { printf 'give it the group: make inbox-retry user=<id> chat=<id>\n' >&2; exit 1; }
-	$(DC_APP_RUN) npm run unblock -- inbox retry '$(user)' '$(chat)'
+	$(DC_APP_RUN) npm run cli -- inbox retry '$(user)' '$(chat)'
 
 inbox-skip: ## Skip the failed update of a blocked inbox group: make inbox-skip user=<id> chat=<id>
 	@[ -n "$(user)" ] && [ -n "$(chat)" ] || { printf 'give it the group: make inbox-skip user=<id> chat=<id>\n' >&2; exit 1; }
-	$(DC_APP_RUN) npm run unblock -- inbox skip '$(user)' '$(chat)'
+	$(DC_APP_RUN) npm run cli -- inbox skip '$(user)' '$(chat)'
 
 ## Worktrees and tokens
 
