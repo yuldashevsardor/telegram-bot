@@ -3,7 +3,7 @@ import { sleep } from "app/shared/utils";
 import type { OutboxLeaseRecovery } from "app/telegram/outbox/lease/outbox-lease-recovery";
 import { OutboxMaintenance } from "app/telegram/outbox/maintenance/outbox-maintenance";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
-import { waitUntil } from "test/telegram/outbox/outbox-store.helper";
+import { waitUntil } from "test/shared/utils.helper";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 
 const SHORT_INTERVAL_MS = 5;

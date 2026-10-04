@@ -5,11 +5,13 @@ them, and the updates of one group are handled one at a time, in order, across n
 epic [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)). It is the counterpart of
 the outbox ([`outbox.md`](./outbox.md)) and follows its model without the limits and the pause. No
 worker uses the directory yet: so far it holds the tables with `InboxStore`
-(`store/inbox-store.ts`), which pushes updates, claims them, completes a claimed update, finds
-the expired leases, cleans up the tables and unblocks a group by hand, `InboxFailureHandler`
-(`inbox-failure-handler.ts`), which picks the outcome of a failed handler by its error class
-(`failure-classifier/`) and recovers the expired leases, and `InboxPollingSource`
-(`inbox-polling-source.ts`), which fills the inbox from Telegram and which nothing starts yet
+(`store/inbox-store.ts`), which pushes updates, claims them, extends a lease, completes a claimed
+update, notifies of the groups that become `ready`, finds the expired leases, cleans up the tables
+and unblocks a group by hand; `InboxFailureHandler` (`inbox-failure-handler.ts`), which picks the
+outcome of a failed handler by its error class (`failure-classifier/`) and recovers the expired
+leases; `InboxLeaseReleaser` (`inbox-lease-releaser.ts`), which hands the update of a stopping
+node back; and `InboxPollingSource` (`inbox-polling-source.ts`), which fills the inbox from
+Telegram and which nothing starts yet
 ([#829](https://github.com/yuldashevsardor/telegram-bot/issues/829)).
 
 ## Tables
@@ -70,7 +72,10 @@ again as a new group.
    in the batch, is left out without failing the batch. The stored update stays; of the copies
    in one batch, whichever PostgreSQL meets first goes in;
 3. every `idle` group that got an update inserted by step 2 becomes `ready`. A group whose
-   updates were all left out stays `idle`: it has no head to claim.
+   updates were all left out stays `idle`: it has no head to claim;
+4. if step 3 made any group `ready`, one notification on the ready channel (see "Ready
+   notifications"). A batch that made none, of redeliveries or of updates of groups already
+   `ready`, `processing` or `blocked`, sends none.
 
 The group row is the lock of its group, and `push` and every completion take it before they read
 what their change depends on, as in the outbox ([`outbox.md`](./outbox.md), "The chat lock"). So
@@ -121,6 +126,31 @@ The completion ends the lease: both columns go back to `NULL`. A lease that pass
 completion is recovered (see "Lease recovery"). Nothing checks how long the lease is against how
 long a handler runs ([`invariants.md`](./invariants.md), "The inbox").
 
+`extendLease(lease)` moves `locked_until` of the update's group to `now()` plus `leaseDurationMs`,
+so a handler that runs longer than one lease, a conversion that runs FontForge up to four times,
+keeps its group. It is one statement, and it extends only a lease that has not passed, under the
+group's own token, and returns whether it did. `false` means the lease has passed, a completion has
+ended it, or it went to another claim: the recovery takes the update back, or has done so already,
+and the completion of the caller will be fenced. A lease that has passed is not extended because
+the recovery tells its lease by the token, not by `locked_until` (see "Lease recovery"): extended,
+it would leave the update to the recovery and to the handler both. Only the group of the update is
+extended, not the other groups of the same claim, which share its token.
+
+The check is made by `now()`, fixed at the start of the statement, and the recovery reads the
+expired leases without a lock (see "Lease recovery"). An extension whose statement starts before the
+lease passes and commits after a recovery has read the lease as passed returns `true`, and the
+recovery then completes the update all the same: the extension does not change the token, and the
+completion is fenced by the token alone. The window runs from the start of the statement to its
+commit, and it includes a wait for the group row that a push of the same group, a fenced
+completion or an unblock refused with `InboxGroupNotBlocked` holds. They only lock the row (see
+"Push", step 1, and "Completions", step 2), so PostgreSQL does not check the row again after
+the wait, and a clock read at the check would not help. An applied completion writes the row and
+clears the token, and the extension that waited is refused. A caller that extends well before the
+lease passes does not meet the window.
+
+An extension moves `locked_until` only: the recovery of an extended lease still writes the start of
+the claim into the attempt (see "Lease recovery").
+
 The handling is at least once. A node that dies after the handler ran and before its completion
 commits leaves the update `processing`; once the lease is recovered, the update is handled again:
 the user may get a reply twice, and a conversation may replay a step. The inbox cannot tell such an
@@ -158,6 +188,27 @@ claimed before it, while the other groups are.
 
 Every update of the store sets `updated_at = now()` itself; there is no trigger.
 
+## Ready notifications
+
+The store sends `pg_notify` on `telegram_inbox_ready` (`InboxChannel.Ready`), with an empty
+payload, in the transaction of every write that leaves a group `ready`: a push that made a group
+`ready` (see "Push"), `markAsDone()` and `markAsFailed()` that leave an update behind, every
+`retry()`, and both unblocks when they leave the group `ready` (see "Unblocking a group"). A
+completion that leaves its group `idle` or `blocked`, a fenced one and one that rolls back send
+none. The notification goes through the transaction, so PostgreSQL delivers it on commit and a
+worker woken by it sees the group, as the ready channel of the outbox does
+([`outbox.md`](./outbox.md), "Push"). It names no group: a worker takes what it claims. Every
+retry notifies, one with a delay too: the store does not tell the release on stop, a retry with no
+delay (see "Release on stop"), from the others. A worker woken by a retry with a delay claims
+nothing until the delay passes, and the end of the delay notifies no one: a worker learns of it from
+a claim of its own, made on a timer.
+
+`listenReady(onReady)` listens on the channel, on the listening connection of the client
+([`storage.md`](./storage.md), "LISTEN"). `onReady` is called on every notification and every time
+the listening starts, the first time and after a reconnect: a write committed while the connection
+was down reached no one. Nothing listens yet: the worker is
+[#827](https://github.com/yuldashevsardor/telegram-bot/issues/827).
+
 ## Unblocking a group
 
 `make inbox-retry user=<id> chat=<id>` is `InboxStore.retryBlockedGroup()` and `make inbox-skip
@@ -166,7 +217,7 @@ outbox do for a blocked chat ([`outbox.md`](./outbox.md), "Unblocking a chat"): 
 that blocked the group, the one that failed last, goes back to `pending` and is the head again, or
 becomes `skipped` with `finished_at` set, and the group is `idle` when no active update is left,
 not `ready`, which no claim would serve. A group that is not blocked throws `InboxGroupNotBlocked`.
-The inbox has no notification channel, so neither call sends one.
+A group left `ready` is notified (see "Ready notifications").
 `test/telegram/inbox/inbox-store.spec.ts` lines up a push and a skip in both orders.
 
 ## Failures
@@ -213,8 +264,8 @@ their comments. In short:
   (`OutboxResultTimeout`): a reply that took too long may still go out, and the epic blocks the
   group on it. So is a wait the outbox stopped (`OutboxResultWaiterStopped`), although it says only
   that the node is shutting down: the loop that handles the updates is to keep such a handler away
-  from `handle()` and release its update, or an ordinary restart blocks the group
-  ([#628](https://github.com/yuldashevsardor/telegram-bot/issues/628)).
+  from `handle()` and release its update (see "Release on stop"), or an ordinary restart blocks the
+  group ([#628](https://github.com/yuldashevsardor/telegram-bot/issues/628)).
 
 ### Outcomes
 
@@ -244,7 +295,9 @@ passed: the node that claimed them is presumed dead. The handling loop is to cal
 2. Each lease is a transient failure, completed as one: the update goes back to `pending` with the
    retry delay of its attempt, or, on the last attempt of `INBOX_MAX_ATTEMPTS`, fails and blocks its
    group. The completion appends an attempt with the error `InboxLeaseExpired` of class `transient`
-   and `worker: null`, and `started_at` of `locked_until` minus `INBOX_LEASE_DURATION`. The leases
+   and `worker: null`, and `started_at` of the claim: `updated_at` of the `processing` update,
+   which the claim sets and nothing writes until the completion. Not `locked_until` minus
+   `INBOX_LEASE_DURATION`, as the outbox derives it: an extension moves `locked_until`. The leases
    are completed one after another, and a completion that throws ends the call.
 
 The recovery completes the update through the same fenced completions as the node that claimed it,
@@ -252,7 +305,29 @@ under the token of that claim, so whichever comes first changes the update and t
 fenced off and logged as a stale lock token, as in the outbox ([`outbox.md`](./outbox.md), "Lease
 recovery", where the same holds for a second recovery of the lease by another node). The fence
 checks the token, not `locked_until`, so a lease that has passed must never be extended
-([`invariants.md`](./invariants.md), "The inbox").
+([`invariants.md`](./invariants.md), "The inbox"), and `extendLease()` refuses one (see "The
+lease").
+
+### Release on stop
+
+`InboxLeaseReleaser.releaseOnStop(lease)` hands back an update whose handler a stopping node did
+not finish, so another node claims it at once rather than after the lease: one claimed and never
+handed to its handler, or one whose handler a stopped outbox wait rejected
+(`OutboxResultWaiterStopped`, see "Error classes"). It is `InboxStore.retry()` with no delay and the
+error `InboxNodeStopped` of class `transient`: the update goes back to `pending`, the group to
+`ready` with the ready notification of every retry (see "Ready notifications"), the lease ends, and
+a stale token is fenced as in every completion (see "Completions"). The release does what
+`OutboxLeaseReleaser` does for the outbox ([`outbox.md`](./outbox.md), "Release on stop").
+
+The release writes the attempt, and it counts towards `INBOX_MAX_ATTEMPTS`, although the limit is
+not checked on it: a stop says nothing about the update, so it neither blocks the group nor waits a
+retry delay. The handler may have replied before the stop, so the update may be handled twice (see
+"The lease"). The next transient failure of an update released on its last attempt blocks the
+group, and the retry delay of a later transient failure grows with the attempt.
+
+The handler must have settled before the release: the group is `ready` at once, and a handler
+still running could reply after another node has handled the next update of the group. Nothing calls
+the release yet: the worker is [#827](https://github.com/yuldashevsardor/telegram-bot/issues/827).
 
 ## Cleanup
 
@@ -332,10 +407,11 @@ The store has no interface of its own: no consumer dictates one yet ([`storage.m
 It is SQL through and through, so it is in `DATABASE_ONLY_SOURCES` of `stryker.config.mjs` and its
 spec is in `DATABASE_SPECS` ([`testing.md`](./testing.md), "Mutation testing").
 
-`InboxFailureHandler` is there too: its spec runs it over the real store, so that each error class
-is pinned by the rows it leaves rather than by the calls a fake store records. Its decisions are a
-`switch` over the class and the count of attempts. The classes themselves are in
-`InboxFailureClassifier`, which needs no database and is mutated.
+`InboxFailureHandler` and `InboxLeaseReleaser` are there too: their specs run them over the real
+store, so that each outcome is pinned by the rows it leaves rather than by the calls a fake store
+records. The decisions of `InboxFailureHandler` are a `switch` over the class and the count of
+attempts. The classes themselves are in `InboxFailureClassifier`, which needs no database and is
+mutated.
 
 The ids come back as numbers: the driver returns `bigint` as a string, and the store converts it,
 as `PgSqlUserRepository` does ([`storage.md`](./storage.md), "`User.id`").

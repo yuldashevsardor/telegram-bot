@@ -77,6 +77,7 @@ export const Tokens = {
             Store: Symbol.for("BotInboxStore"),
             FailureClassifier: Symbol.for("BotInboxFailureClassifier"),
             FailureHandler: Symbol.for("BotInboxFailureHandler"),
+            LeaseReleaser: Symbol.for("BotInboxLeaseReleaser"),
             PollingSource: Symbol.for("BotInboxPollingSource"),
         },
         ApiFailureClassifier: Symbol.for("BotApiFailureClassifier"),

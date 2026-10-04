@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { expect } from "chai";
 import { Database } from "app/platform/database/database";
+import type { DatabaseSettings } from "app/platform/database/database.types";
 import { MS_PER_DAY, MS_PER_SECOND } from "app/shared/time";
 import { sleep } from "app/shared/utils";
 import { InboxFailureKind } from "app/telegram/inbox/failure-classifier/inbox-failure-classifier.types";
@@ -17,10 +18,12 @@ import type {
     InboxUpdateInput,
     InboxWorker,
 } from "app/telegram/inbox/store/inbox-store.types";
-import { InboxGroupState, InboxStatus } from "app/telegram/inbox/store/inbox-store.types";
+import { InboxChannel, InboxGroupState, InboxStatus } from "app/telegram/inbox/store/inbox-store.types";
 import { InboxGroupNotBlocked, InboxUpdateNotLeased, InvalidClaimLimit } from "app/telegram/inbox/store/inbox-store.errors";
-import { testDatabaseSettings, waitForLockWaiters } from "test/database.helper";
+import { listenTo, testDatabaseSettings, waitForLockWaiters } from "test/database.helper";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
+import { messageInput } from "test/telegram/inbox/inbox-store.helper";
+import { waitUntil } from "test/shared/utils.helper";
 
 const USER = 5_000_000_001;
 const OTHER_USER = 5_000_000_002;
@@ -37,6 +40,9 @@ const CONCURRENT_CLAIMS_TIMEOUT_MS = 20_000;
 const LEASE_DURATION_MS = 600_000;
 // A lease that passes before the spec reads it, after a sleep of twice as long.
 const SHORT_LEASE_MS = 10;
+// A lease that outlasts its extension made right after the claim, on a loaded machine too, and
+// passes during a sleep of twice as long.
+const BRIEF_LEASE_MS = 500;
 // A retry delay no spec waits out.
 const LONG_RETRY_DELAY_MS = 60_000;
 // How far the delay read back may fall short of the one written: the time between the two statements.
@@ -54,6 +60,7 @@ type GroupRow = { state: string };
 describe("InboxStore", function () {
     this.timeout(SPEC_TIMEOUT_MS);
 
+    let settings: DatabaseSettings;
     let database: Database;
     // A second postgres() client: a claimer on another node, or a transaction held open.
     let other: Database;
@@ -64,7 +71,7 @@ describe("InboxStore", function () {
     let store: InboxStore;
 
     before(async function () {
-        const settings = await testDatabaseSettings();
+        settings = await testDatabaseSettings();
 
         database = new Database(settings, false);
         other = new Database(settings, false);
@@ -586,6 +593,87 @@ describe("InboxStore", function () {
         });
     });
 
+    describe("extending the lease", function () {
+        // The lease each group has left, from the last write of its row: the claim or the extension;
+        // null for a group not leased.
+        async function leasesMs(): Promise<(number | null)[]> {
+            const rows = await database.sql<{ lease_ms: number | null }[]>`
+                SELECT extract(epoch FROM locked_until - updated_at)::double precision * ${MS_PER_SECOND} AS lease_ms
+                FROM telegram_inbox_groups
+                ORDER BY user_id, chat_id
+            `;
+
+            return rows.map((row) => row.lease_ms);
+        }
+
+        it("moves the end of a lease that has not passed to the lease duration from now, past the recovery", async function () {
+            const briefLeasing = new InboxStore(database, logger, BRIEF_LEASE_MS, CLEANUP);
+            await briefLeasing.push(input(10));
+            const [claimed] = await briefLeasing.claim(10, WORKER);
+
+            expect(await store.extendLease(claimed as ClaimedInboxUpdate)).to.equal(true);
+            expect(await leasesMs()).to.deep.equal([LEASE_DURATION_MS]);
+
+            await sleep(BRIEF_LEASE_MS * 2);
+
+            expect(await briefLeasing.findExpiredLeases()).to.deep.equal([]);
+        });
+
+        it("leaves the start of the claim to the recovery of a lease extended before it passed", async function () {
+            const briefLeasing = new InboxStore(database, logger, BRIEF_LEASE_MS, CLEANUP);
+            const shortLeasing = new InboxStore(database, logger, SHORT_LEASE_MS, CLEANUP);
+            await briefLeasing.push(input(10));
+            const [claimed] = await briefLeasing.claim(10, WORKER);
+
+            expect(await shortLeasing.extendLease(claimed as ClaimedInboxUpdate)).to.equal(true);
+            await sleep(SHORT_LEASE_MS * 2);
+
+            expect((await shortLeasing.findExpiredLeases()).map(({ startedAt }) => startedAt)).to.deep.equal([claimed?.startedAt]);
+        });
+
+        it("extends only the group of the update, not the other groups of the same claim", async function () {
+            const briefLeasing = new InboxStore(database, logger, BRIEF_LEASE_MS, CLEANUP);
+            await briefLeasing.pushBatch([input(10, USER, CHAT), input(11, OTHER_USER, CHAT)]);
+            const [claimed] = await briefLeasing.claim(10, WORKER);
+
+            expect(await store.extendLease(claimed as ClaimedInboxUpdate)).to.equal(true);
+            expect(await leasesMs()).to.deep.equal([LEASE_DURATION_MS, BRIEF_LEASE_MS]);
+        });
+
+        it("does not extend a lease that has passed, and leaves it to the recovery", async function () {
+            const shortLeasing = new InboxStore(database, logger, SHORT_LEASE_MS, CLEANUP);
+            await shortLeasing.push(input(10));
+            const [claimed] = await shortLeasing.claim(10, WORKER);
+            await sleep(SHORT_LEASE_MS * 2);
+
+            expect(await store.extendLease(claimed as ClaimedInboxUpdate)).to.equal(false);
+            expect((await shortLeasing.findExpiredLeases()).map(({ updateId }) => updateId)).to.deep.equal([10]);
+        });
+
+        // An extension by a store of another duration would show in the lease left.
+        const longerLeasing = (): InboxStore => new InboxStore(database, logger, LEASE_DURATION_MS * 2, CLEANUP);
+
+        it("does not extend a lease under a stale token or one no claim gave out", async function () {
+            await store.pushBatch([input(10), input(11)]);
+            const retried = await claimOne();
+            await store.retry(retried, TRANSIENT, 0);
+            await claimOne();
+
+            expect(await longerLeasing().extendLease(retried)).to.equal(false);
+            expect(await longerLeasing().extendLease(lease(10, OTHER_TOKEN))).to.equal(false);
+            expect(await leasesMs()).to.deep.equal([LEASE_DURATION_MS]);
+        });
+
+        it("does not extend a lease its completion has ended", async function () {
+            await store.push(input(10));
+            const done = await claimOne();
+            await store.markAsDone(done);
+
+            expect(await longerLeasing().extendLease(done)).to.equal(false);
+            expect(await leasesMs()).to.deep.equal([null]);
+        });
+    });
+
     describe("the cleanup of finished updates", function () {
         // Updates of one group by status, each ended the given time ago; their ids.
         async function finishedAgo(...rows: Array<{ status: InboxStatus; agoMs: number }>): Promise<number[]> {
@@ -855,6 +943,185 @@ describe("InboxStore", function () {
 
             expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Ready });
             expect((await store.claim(10, WORKER)).map(({ updateId }) => updateId)).to.deep.equal([11]);
+        });
+    });
+
+    describe("ready notifications", function () {
+        // A client of its own per test: closed at the end, it takes its LISTEN connection along, so
+        // the next test counts only its own.
+        let listener: Database;
+
+        beforeEach(function () {
+            listener = new Database(settings, false);
+        });
+
+        afterEach(async function () {
+            await listener.close();
+        });
+
+        // The notifications of the ready channel the operation sends, in the order of the commits: the
+        // sentinel goes after the operation's own, so one that is not in the list was not sent.
+        async function readyNotificationsOf(operation: () => Promise<unknown>): Promise<string[]> {
+            const payloads = await listenTo(listener, InboxChannel.Ready);
+
+            await operation();
+            await database.sql`SELECT pg_notify(${InboxChannel.Ready}, 'sentinel')`;
+            await waitUntil(() => payloads.includes("sentinel"), "no sentinel notification came");
+
+            return payloads.filter((payload) => payload !== "sentinel");
+        }
+
+        it("calls the ready listener when the listening starts and when a push commits", async function () {
+            let readyCount = 0;
+            await new InboxStore(listener, logger, LEASE_DURATION_MS, CLEANUP).listenReady(() => (readyCount += 1));
+
+            expect(readyCount).to.equal(1);
+
+            await store.push(input(10));
+
+            await waitUntil(() => readyCount === 2, "no ready notification came");
+        });
+
+        it("notifies once when a push makes groups ready", async function () {
+            const payloads = await readyNotificationsOf(() => store.pushBatch([input(10, USER, CHAT), input(11, OTHER_USER, CHAT)]));
+
+            expect(payloads).to.deep.equal([""]);
+        });
+
+        it("does not notify of a push that makes no group ready", async function () {
+            await store.push(input(10));
+            await claimOne();
+
+            const payloads = await readyNotificationsOf(async () => {
+                // A redelivery, and a new update of a processing group.
+                await store.push(input(10));
+                await store.push(input(11));
+            });
+
+            expect(payloads).to.deep.equal([]);
+            expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Processing });
+        });
+
+        it("notifies when a done update leaves its group ready", async function () {
+            await store.pushBatch([input(10), input(11)]);
+            const claimed = await claimOne();
+
+            const payloads = await readyNotificationsOf(() => store.markAsDone(claimed));
+
+            expect(payloads).to.deep.equal([""]);
+            expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Ready });
+        });
+
+        it("notifies when a failed update leaves its group ready", async function () {
+            await store.pushBatch([input(10), input(11)]);
+            const claimed = await claimOne();
+
+            const payloads = await readyNotificationsOf(() => store.markAsFailed(claimed, UNDELIVERABLE));
+
+            expect(payloads).to.deep.equal([""]);
+            expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Ready });
+        });
+
+        it("notifies when a retry makes its group ready", async function () {
+            await store.push(input(10));
+            const claimed = await claimOne();
+
+            const payloads = await readyNotificationsOf(() => store.retry(claimed, TRANSIENT, LONG_RETRY_DELAY_MS));
+
+            expect(payloads).to.deep.equal([""]);
+        });
+
+        it("does not notify when the last update done or failed leaves its group idle", async function () {
+            await store.pushBatch([input(10, USER, CHAT), input(11, OTHER_USER, CHAT)]);
+            const [done, failed] = await store.claim(10, WORKER);
+
+            const payloads = await readyNotificationsOf(async () => {
+                await store.markAsDone(done as ClaimedInboxUpdate);
+                await store.markAsFailed(failed as ClaimedInboxUpdate, UNDELIVERABLE);
+            });
+
+            expect(payloads).to.deep.equal([]);
+            expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Idle });
+            expect(await group(OTHER_USER, CHAT)).to.deep.equal({ state: InboxGroupState.Idle });
+        });
+
+        it("does not notify when a failed update blocks its group", async function () {
+            await store.pushBatch([input(10), input(11)]);
+            const claimed = await claimOne();
+
+            const payloads = await readyNotificationsOf(() => store.markAsFailedAndBlockGroup(claimed, UNEXPECTED));
+
+            expect(payloads).to.deep.equal([]);
+        });
+
+        it("notifies when a blocked group is retried or skipped with an update left", async function () {
+            await store.pushBatch([input(10), input(11)]);
+            await store.markAsFailedAndBlockGroup(await claimOne(), UNEXPECTED);
+
+            const payloads = await readyNotificationsOf(async () => {
+                await store.retryBlockedGroup({ userId: USER, chatId: CHAT });
+                await store.markAsFailedAndBlockGroup(await claimOne(), UNEXPECTED);
+                await store.skipBlockedGroup({ userId: USER, chatId: CHAT });
+            });
+
+            expect(payloads).to.deep.equal(["", ""]);
+        });
+
+        it("does not notify of a fenced completion", async function () {
+            await store.pushBatch([input(10), input(11)]);
+            const stale = await claimOne();
+            await store.retry(stale, TRANSIENT, 0);
+            await claimOne();
+
+            const payloads = await readyNotificationsOf(async () => {
+                await store.markAsDone(stale);
+                await store.markAsFailed(stale, UNDELIVERABLE);
+                await store.retry(stale, TRANSIENT, 0);
+            });
+
+            expect(payloads).to.deep.equal([]);
+        });
+
+        // A store whose own transactions run every statement, the notification included, and then
+        // roll back. Not a store on an outer transaction (storeOn()): its sql has no begin(), and the
+        // completion would fail before its first statement.
+        function rollingBackStore(): InboxStore {
+            const sql = new Proxy(database.sql, {
+                get(target, property, receiver): unknown {
+                    if (property !== "begin") {
+                        return Reflect.get(target, property, receiver);
+                    }
+
+                    return (write: (transaction: TransactionSql) => Promise<unknown>) =>
+                        target.begin(async (transaction) => {
+                            await write(transaction);
+
+                            throw new Error("roll back");
+                        });
+                },
+            });
+
+            return new InboxStore({ sql } as unknown as Database, logger, LEASE_DURATION_MS, CLEANUP);
+        }
+
+        it("does not notify of a completion that rolls back", async function () {
+            await store.pushBatch([input(10), input(11)]);
+            const claimed = await claimOne();
+            let rollback: unknown;
+
+            const payloads = await readyNotificationsOf(async () => {
+                rollback = await rollingBackStore()
+                    .markAsDone(claimed)
+                    .then(
+                        () => expect.fail("markAsDone() was expected to roll back"),
+                        (reason: unknown) => reason,
+                    );
+            });
+
+            // The rollback of the spec, not an error of the completion: every statement ran.
+            expect((rollback as Error).message).to.equal("roll back");
+            expect(payloads).to.deep.equal([]);
+            expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Processing });
         });
     });
 
@@ -1131,20 +1398,7 @@ describe("InboxStore", function () {
 
 // A message update of the user in the chat.
 function input(updateId: number, userId = USER, chatId = CHAT, text = "text"): InboxUpdateInput {
-    return {
-        userId: userId,
-        chatId: chatId,
-        update: {
-            update_id: updateId,
-            message: {
-                message_id: updateId,
-                date: 0,
-                chat: { id: chatId, type: "private", first_name: "User" },
-                from: { id: userId, is_bot: false, first_name: "User" },
-                text: text,
-            },
-        },
-    };
+    return messageInput(updateId, userId, chatId, text);
 }
 
 // A lease the spec makes up rather than takes from a claim.
