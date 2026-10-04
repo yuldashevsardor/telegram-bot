@@ -25,7 +25,7 @@ once.
 | any `.sh` or `.py`; any `.ts` — not a comments-only `.ts` diff | `docs-sync` |
 | any `.ts` — not a comments-only `.ts` diff | `bug-hunt-high` |
 | `.sh` or `.py`, and either no `.ts` or only a comments-only `.ts` diff | `bug-hunt-medium` |
-| `.ts` inside `src/font-convertor/`, `src/shared/`, `src/telegram/outbound-queue/`, `src/telegram/outbox/`, `src/telegram/bot-api-failure-classifier/` — not a comments-only `.ts` diff | `smells` |
+| `.ts` inside `src/font-convertor/`, `src/shared/`, `src/telegram/outbound-queue/`, `src/telegram/outbox/`, `src/telegram/worker-loop/`, `src/telegram/bot-api-failure-classifier/` — not a comments-only `.ts` diff | `smells` |
 | any `.ts` — a comments-only `.ts` diff | `comments` |
 | `stryker.config.mjs`, `test/stryker-mocha-hook.cjs`, `test/mutation-run.ts`, `.mocharc.json`, `tsconfig.json`, `tsconfig.check.json` — not a comments-only diff; any `.ts` in `src/` or `test/` — not a comments-only `.ts` diff | `mutation-full` |
 | any `*.md`, including `docs/**` and `.claude/**` | `docs` |
@@ -148,9 +148,10 @@ The sign of `smells` is "the code expresses rules rather than serving someone el
 the gate is decided by directory. `/review-pr` reads a diff only for signs a reading settles,
 such as a key of `package.json` or a comment against a line of code. Whether code expresses
 rules is a judgement, not such a sign. That is why `src/telegram/outbound-queue/`,
-`src/telegram/outbox/` and `src/telegram/bot-api-failure-classifier/` are in the list while the
-rest of `src/telegram/` is not: they hold the algorithm of the queue and of the outbox and the
-rules of which failed call is which class, not a wrapper around grammY. The list is an allowlist
+`src/telegram/outbox/`, `src/telegram/worker-loop/` and `src/telegram/bot-api-failure-classifier/`
+are in the list while the rest of `src/telegram/` is not: they hold the algorithm of the queue, of
+the outbox and of the worker loop and the rules of which failed call is which class, not a wrapper
+around grammY. The list is an allowlist
 on purpose, and that has a price: a new or moved module with rules drops out of the gate silently
 until it is written in here. The PR that creates or moves the module writes it in.
 

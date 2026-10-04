@@ -1,6 +1,7 @@
 import type { Update } from "@grammyjs/types";
 import type { InboxFailureKind } from "app/telegram/inbox/failure-classifier/inbox-failure-classifier.types";
 import type { OutboxJsonObject } from "app/telegram/outbox/store/outbox-store.types";
+import type { LoopWorker } from "app/telegram/worker-loop/worker-loop.types";
 
 // The values of telegram_inbox.status: the database does not check them, so they are written only
 // through this enum.
@@ -32,13 +33,8 @@ export type InboxUpdateInput = {
     update: Update;
 };
 
-// Who claimed an update, written into its attempt: the node and its worker loop. workerId names the
-// loop, not one of its slots.
-export type InboxWorker = {
-    host: string;
-    pid: number;
-    workerId: string;
-};
+// Who claimed an update, written into its attempt: the worker of the loop that handles it.
+export type InboxWorker = LoopWorker;
 
 // The error an attempt ends with: the caught error as OutboxErrorSerializer writes it, and its class.
 export type InboxAttemptError = OutboxJsonObject & { kind: InboxFailureKind };

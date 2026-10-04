@@ -311,10 +311,10 @@ apart: `pull()` answers with a duration, not with its reason.
 `OUTBOX_CONCURRENCY` slots ([#747](https://github.com/yuldashevsardor/telegram-bot/issues/747)).
 The loop is `WorkerLoop` (`telegram/worker-loop/worker-loop.ts`), shared with the inbox worker
 being built ([#628](https://github.com/yuldashevsardor/telegram-bot/issues/628)): it knows only a
-source of items and a processor of one item (`worker-loop.types.ts`). `OutboxRunner` extends it with
-the message source, the message processor, the slots, `OUTBOX_STOP_TIMEOUT`, the worker and the log
-of a message whose processing threw. `start()` makes the generator of the message source, once, with
-the worker of the loop: the host, the pid and a `randomUUID()` made with the loop.
+source of items and a processor of one item (`worker-loop.types.ts`). What `OutboxRunner` gives it
+is read off the abstract members of `WorkerLoop` and the constructor of `OutboxRunner`. `start()`
+makes the generator of the message source, once, with the worker of the loop: the host, the pid and
+a `randomUUID()` made with the loop.
 
 1. The loop takes the messages of the generator with `for await` and hands each to
    `OutboxMessageProcessor.process()` at once, without waiting for the call to end. The lease and
