@@ -650,7 +650,16 @@ not count as supported.
   16 MiB and grow its buffer to at most 64 MiB (`MAX_OUT_LEN`, `MAX_OUT` in its `dist/index.js`).
   The sfnt it rebuilds from them has no cap: `glyf` grows as the streams describe it, and only the
   decoded `hdmx` table is held to 64 MiB (`MAX_OUTPUT_BYTES`). How much memory a small crafted file
-  takes is not measured. A WOFF2 source is
+  takes was never run: building the crafted input was blocked by a safety control of the agent's own
+  tooling ([#789](https://github.com/yuldashevsardor/telegram-bot/issues/789)). Only a ceiling from
+  the library's own caps is recorded, not a measurement: each of the three streams may legitimately
+  return up to `MAX_OUT` (64 MiB) before `unpackMtx()` moves to the next one, so the three together
+  can reach about 192 MiB; `dumpContainer()` then builds one sfnt buffer sized to the sum of those
+  bytes, up to roughly the same 192 MiB again while the streams are still held, a peak on the order
+  of 384 MiB from a `FontData` whose three declared output lengths sit in a handful of header bits,
+  decoupled from the size of the compressed input itself. `populateGlyfAndLoca()` is outside this
+  arithmetic: its per-glyph allocation is driven by `maxp`'s fields, not by the caps above. A WOFF2
+  source is
   read whole as well: its compressed data is decompressed by the asynchronous
   `zlib.brotliDecompress`, off the event loop, but its table directory is walked on it, and its
   transformed `glyf` is decoded and rebuilt there, a second copy beside the decompressed tables. The
