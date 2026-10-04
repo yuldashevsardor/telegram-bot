@@ -2,8 +2,8 @@ import type { EotBlock } from "app/font-convertor/eot-header/eot-header.types";
 
 /**
  * A rule an EOT file breaks. The text names the rule and where it comes from: a section of W3C
- * Member Submission "Embedded OpenType (EOT) File Format", or ours, where the domain asks more than
- * the submission.
+ * Member Submission "Embedded OpenType (EOT) File Format", and for compressed FontData W3C Member
+ * Submission "MicroType Express (MTX) Font Format".
  */
 export enum EotRule {
     EotSize = "EOTSize is the file size (EOT, §3)",
@@ -14,7 +14,7 @@ export enum EotRule {
     BlocksInFile = "every block of the header of its version lies inside the file, the fields version 0x00020002 adds after RootString included (EOT, §3.1–§3.3)",
     FontDataLayout = "FontDataSize is not 0, and FontData follows the header directly and ends the file: the header end + FontDataSize is EOTSize (EOT, §3)",
     RootStringCheckSum = "in version 0x00020002, RootStringCheckSum is the sum of the RootString bytes XOR 0x50475342 (EOT, §4.3.2)",
-    Flags = "Flags have neither TTEMBED_TTCOMPRESSED (0x00000004) nor TTEMBED_XORENCRYPTDATA (0x10000000) (ours: the codec takes out only a raw sfnt)",
+    FontDataDecodes = 'FontData decodes under Flags: under TTEMBED_TTCOMPRESSED (0x00000004) by W3C Member Submission "MicroType Express (MTX) Font Format" (2008), under TTEMBED_XORENCRYPTDATA (0x10000000) by XOR 0x50 (EOT, §4.2, §4.4)',
 }
 
 /**
