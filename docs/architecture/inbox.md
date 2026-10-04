@@ -6,9 +6,9 @@ epic [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)). It is 
 the outbox ([`outbox.md`](./outbox.md)) and follows its model without the limits and the pause. No
 source or worker uses the directory yet: so far it holds the tables with `InboxStore`
 (`store/inbox-store.ts`), which pushes updates, claims them, completes a claimed update, finds
-the expired leases and cleans up the tables, and `InboxFailureHandler` (`inbox-failure-handler.ts`),
-which picks the outcome of a failed handler by its error class (`failure-classifier/`) and
-recovers the expired leases.
+the expired leases, cleans up the tables and unblocks a group by hand, and `InboxFailureHandler`
+(`inbox-failure-handler.ts`), which picks the outcome of a failed handler by its error class
+(`failure-classifier/`) and recovers the expired leases.
 
 ## Tables
 
@@ -20,7 +20,7 @@ the group row, not on the update, and there are no indexes besides the primary k
 
 The database does not check the values of `status` and `state`: the store writes them only
 through the `InboxStatus` and `InboxGroupState` enums (`store/inbox-store.types.ts`). Of these,
-nothing sets `skipped` yet.
+only the unblock of a group sets `skipped` (see "Unblocking a group").
 
 The **group** is `(user_id, chat_id)`, the key `getSessionKey()` gives the session of an update
 (`telegram/session/session.helper.ts`), so the updates that share a session are handled one at a
@@ -33,7 +33,8 @@ not stored twice, and it is the order inside a group.
 
 A `failed` update is not active, as a `failed` message of the outbox is not
 ([`outbox.md`](./outbox.md), "Tables"): a failed update that blocks its group holds it through
-`blocked`, and one that does not block lets the next update of the group become the head.
+`blocked`, and one that does not block lets the next update of the group become the head. A person
+unblocks a group by hand with `make inbox-retry` or `make inbox-skip` (see "Unblocking a group").
 
 ### Updates without a session key
 
@@ -47,8 +48,8 @@ requested, as the comment of the filter says.
 
 | state | who sets it |
 |---|---|
-| `idle` | `push` of a new group, for the moment before its updates are inserted, and of a group whose updates were all stored already; `markAsDone` and `markAsFailed` of the last active update |
-| `ready` | `push` of a new update into an `idle` group; `markAsDone` and `markAsFailed` when an update is left; `retry` |
+| `idle` | `push` of a new group, for the moment before its updates are inserted, and of a group whose updates were all stored already; `markAsDone` and `markAsFailed` of the last active update; `skipBlockedGroup` when no active update is left |
+| `ready` | `push` of a new update into an `idle` group; `markAsDone` and `markAsFailed` when an update is left; `retry`; `retryBlockedGroup`; `skipBlockedGroup` when an update is left |
 | `processing` | `claim` |
 | `blocked` | `markAsFailedAndBlockGroup`; `push` leaves it as it is |
 
@@ -154,6 +155,17 @@ update stays the head of its group, so the group waits with it: the updates behi
 claimed before it, while the other groups are.
 
 Every update of the store sets `updated_at = now()` itself; there is no trigger.
+
+## Unblocking a group
+
+`make inbox-retry user=<id> chat=<id>` is `InboxStore.retryBlockedGroup()` and `make inbox-skip
+user=<id> chat=<id>` is `skipBlockedGroup()`. They do for a blocked group what the targets of the
+outbox do for a blocked chat ([`outbox.md`](./outbox.md), "Unblocking a chat"): the failed update
+that blocked the group, the one that failed last, goes back to `pending` and is the head again, or
+becomes `skipped` with `finished_at` set, and the group is `idle` when no active update is left,
+not `ready`, which no claim would serve. A group that is not blocked throws `InboxGroupNotBlocked`.
+The inbox has no notification channel, so neither call sends one.
+`test/telegram/inbox/inbox-store.spec.ts` lines up a push and a skip in both orders.
 
 ## Failures
 

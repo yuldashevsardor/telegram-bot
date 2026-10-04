@@ -22,6 +22,7 @@ import {
     BotLimitsRowMissing,
     InvalidPauseDuration,
     InvalidPullLimit,
+    OutboxChatNotBlocked,
     OutboxMessageNotLeased,
 } from "app/telegram/outbox/store/outbox-store.errors";
 import { OutboxChannel } from "app/telegram/outbox/store/outbox-store.types";
@@ -1158,6 +1159,223 @@ describe("OutboxStore", function () {
         });
     });
 
+    describe("unblocking a chat", function () {
+        // Pushes the messages, fails the first one with its chat blocked; the id of the failed one
+        // and of the messages behind it.
+        async function blockChat(...texts: string[]): Promise<{ failedId: number; behindIds: number[] }> {
+            const [failedId, ...behindIds] = await store.pushBatch(texts.map((text) => message(CHAT, text)));
+
+            await store.markAsFailedAndBlockChat(await pullOne(), UNEXPECTED);
+
+            return { failedId: failedId as number, behindIds };
+        }
+
+        async function expectNotBlocked(unblock: () => Promise<number>): Promise<void> {
+            const error = await unblock().then(
+                () => expect.fail("the unblock was expected to reject"),
+                (reason: unknown) => reason,
+            );
+
+            expect(error).to.be.instanceOf(OutboxChatNotBlocked);
+            expect((error as OutboxChatNotBlocked).payload).to.deep.equal({ chatId: CHAT });
+        }
+
+        describe("retry", function () {
+            it("puts the failed message back to pending as the head of its chat and returns it", async function () {
+                const { failedId, behindIds } = await blockChat("failed", "behind");
+
+                expect(await store.retryBlockedChat(CHAT)).to.equal(failedId);
+
+                expect(await statuses()).to.deep.equal([OutboxStatus.Pending, OutboxStatus.Pending]);
+                expect(await isFinished(failedId)).to.equal(false);
+                expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Ready });
+                expect(await drain(store)).to.deep.equal([failedId, ...behindIds]);
+            });
+
+            it("keeps the attempts the failed message has made", async function () {
+                const { failedId } = await blockChat("failed");
+
+                await store.retryBlockedChat(CHAT);
+
+                const [attempt] = await attempts(failedId);
+
+                expect(await attempts(failedId)).to.have.lengthOf(1);
+                expect(attempt?.error).to.deep.equal(UNEXPECTED);
+            });
+
+            it("takes the message that blocked the chat, not an earlier one that failed without blocking it", async function () {
+                const [undeliverableId, blockingId] = await store.pushBatch([message(CHAT, "undeliverable"), message(CHAT, "blocking")]);
+                await store.markAsFailed(await pullOne(), UNDELIVERABLE);
+                await store.markAsFailedAndBlockChat(await pullOne(), UNEXPECTED);
+
+                expect(await store.retryBlockedChat(CHAT)).to.equal(blockingId);
+
+                expect(await statuses()).to.deep.equal([OutboxStatus.Failed, OutboxStatus.Pending]);
+                expect((await pullOne()).id).to.equal(blockingId);
+                expect(undeliverableId).to.be.lessThan(blockingId as number);
+            });
+
+            for (const [name, prepare] of [
+                ["a chat that is not in the outbox", async (): Promise<unknown> => undefined],
+                ["a ready chat", async (): Promise<unknown> => store.push(message(CHAT, "text"))],
+                [
+                    "a processing chat",
+                    async (): Promise<void> => {
+                        await store.push(message(CHAT, "text"));
+                        await pullOne();
+                    },
+                ],
+                [
+                    "an idle chat",
+                    async (): Promise<unknown> =>
+                        database.sql`INSERT INTO telegram_outbox_chats (chat_id, state) VALUES (${CHAT}, ${OutboxChatState.Idle})`,
+                ],
+            ] as const) {
+                it(`refuses ${name} and changes nothing`, async function () {
+                    await prepare();
+                    const before = await snapshot();
+
+                    await expectNotBlocked(() => store.retryBlockedChat(CHAT));
+
+                    expect(await snapshot()).to.deep.equal(before);
+                });
+            }
+
+            it("refuses a blocked chat with no failed message and leaves it blocked", async function () {
+                await database.sql`INSERT INTO telegram_outbox_chats (chat_id, state) VALUES (${CHAT}, ${OutboxChatState.Blocked})`;
+
+                await expectNotBlocked(() => store.retryBlockedChat(CHAT));
+
+                expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Blocked });
+            });
+
+            it("leaves the other blocked chats blocked", async function () {
+                await blockChat("failed");
+                await store.push(message(OTHER_CHAT, "other"));
+                await store.markAsFailedAndBlockChat(await pullOne(), UNEXPECTED);
+
+                await store.retryBlockedChat(CHAT);
+
+                expect(await chat(OTHER_CHAT)).to.deep.equal({ state: OutboxChatState.Blocked });
+            });
+        });
+
+        describe("skip", function () {
+            it("skips the failed message and goes on with the message behind it", async function () {
+                const { failedId, behindIds } = await blockChat("failed", "behind");
+
+                expect(await store.skipBlockedChat(CHAT)).to.equal(failedId);
+
+                expect(await statuses()).to.deep.equal([OutboxStatus.Skipped, OutboxStatus.Pending]);
+                expect(await isFinished(failedId)).to.equal(true);
+                expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Ready });
+                expect(await drain(store)).to.deep.equal(behindIds);
+            });
+
+            // A ready chat with no head is seen by no pull: nothing is pulled, nextPullInMs is 0 and a
+            // loop of the sender would spin.
+            it("leaves a chat idle when the skipped message was its only active one", async function () {
+                const { failedId } = await blockChat("failed");
+
+                expect(await store.skipBlockedChat(CHAT)).to.equal(failedId);
+
+                expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Idle });
+                expect(await store.pull(10, WORKER)).to.deep.equal({ messages: [], nextPullInMs: null });
+            });
+
+            it("takes the message that blocked the chat and leaves an earlier failed one as it is", async function () {
+                const [, blockingId] = await store.pushBatch([message(CHAT, "undeliverable"), message(CHAT, "blocking")]);
+                await store.markAsFailed(await pullOne(), UNDELIVERABLE);
+                await store.markAsFailedAndBlockChat(await pullOne(), UNEXPECTED);
+
+                expect(await store.skipBlockedChat(CHAT)).to.equal(blockingId);
+
+                expect(await statuses()).to.deep.equal([OutboxStatus.Failed, OutboxStatus.Skipped]);
+            });
+
+            it("gives the skipped message an end the cleanup counts its retention from", async function () {
+                const { failedId } = await blockChat("failed");
+                await store.skipBlockedChat(CHAT);
+
+                await database.sql`UPDATE telegram_outbox SET finished_at = now() - interval '3 hours' WHERE id = ${failedId}`;
+
+                expect(await store.deleteFinishedMessages()).to.equal(1);
+            });
+
+            for (const [name, prepare] of [
+                ["a chat that is not in the outbox", async (): Promise<unknown> => undefined],
+                ["a ready chat", async (): Promise<unknown> => store.push(message(CHAT, "text"))],
+            ] as const) {
+                it(`refuses ${name} and changes nothing`, async function () {
+                    await prepare();
+                    const before = await snapshot();
+
+                    await expectNotBlocked(() => store.skipBlockedChat(CHAT));
+
+                    expect(await snapshot()).to.deep.equal(before);
+                });
+            }
+
+            it("refuses a blocked chat with no failed message and leaves it blocked", async function () {
+                await database.sql`INSERT INTO telegram_outbox_chats (chat_id, state) VALUES (${CHAT}, ${OutboxChatState.Blocked})`;
+
+                await expectNotBlocked(() => store.skipBlockedChat(CHAT));
+
+                expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Blocked });
+            });
+        });
+
+        // The third client holds the chat row, the unblock and a push queue up behind it in a known
+        // order, and the order decides which of them sees the other.
+        describe("concurrent with a push", function () {
+            async function race(first: () => Promise<unknown>, second: () => Promise<unknown>): Promise<void> {
+                let calls: Promise<unknown> = Promise.resolve();
+
+                await other.sql.begin(async (sql) => {
+                    await sql`SELECT chat_id FROM telegram_outbox_chats WHERE chat_id = ${CHAT} FOR UPDATE`;
+
+                    const firstCall = first();
+
+                    await waitForLockWaiters(observer, 1);
+
+                    calls = Promise.all([firstCall, second()]);
+
+                    await waitForLockWaiters(observer, 2);
+                });
+
+                await calls;
+            }
+
+            let pushed: number | undefined;
+
+            beforeEach(async function () {
+                await blockChat("failed");
+                pushed = undefined;
+            });
+
+            const skip = async (): Promise<void> => {
+                await store.skipBlockedChat(CHAT);
+            };
+            const push = async (): Promise<void> => {
+                pushed = await store.push(message(CHAT, "pushed"));
+            };
+
+            it("leaves the chat ready with the new head when the push locks the chat first", async function () {
+                await race(push, skip);
+
+                expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Ready });
+                expect((await store.pull(10, WORKER)).messages.map(({ id }) => id)).to.deep.equal([pushed]);
+            });
+
+            it("leaves the chat ready with the new head when the skip locks the chat first", async function () {
+                await race(skip, push);
+
+                expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Ready });
+                expect((await store.pull(10, WORKER)).messages.map(({ id }) => id)).to.deep.equal([pushed]);
+            });
+        });
+    });
+
     describe("without the row of the bot limits", function () {
         // The deleted row goes back as it was, so the spec does not repeat its id.
         let deletedRows: Record<string, unknown>[] = [];
@@ -1538,6 +1756,42 @@ describe("OutboxStore", function () {
             expect(payloads).to.deep.equal([String(done)]);
         });
 
+        it("notifies the ready channel when a blocked chat is retried", async function () {
+            await store.push(message(CHAT, "first"));
+            await store.markAsFailedAndBlockChat(await pullOne(), UNEXPECTED);
+            const payloads = await listenTo(listener, OutboxChannel.Ready);
+
+            await store.retryBlockedChat(CHAT);
+
+            await waitUntil(() => payloads.length > 0, "no ready notification came");
+            expect(payloads).to.deep.equal([""]);
+        });
+
+        it("notifies the finished channel with the id of a message skipped to unblock its chat", async function () {
+            const id = await store.push(message(CHAT, "first"));
+            await store.markAsFailedAndBlockChat(await pullOne(), UNEXPECTED);
+            const payloads = await listenTo(listener, OutboxChannel.Finished);
+
+            await store.skipBlockedChat(CHAT);
+
+            await waitUntil(() => payloads.length > 0, "no finished notification came");
+            expect(payloads).to.deep.equal([String(id)]);
+        });
+
+        it("does not notify the finished channel of a retry of a blocked chat", async function () {
+            await store.push(message(CHAT, "first"));
+            await store.markAsFailedAndBlockChat(await pullOne(), UNEXPECTED);
+            const payloads = await listenTo(listener, OutboxChannel.Finished);
+
+            await store.retryBlockedChat(CHAT);
+            const done = await store.push(message(OTHER_CHAT, "second"));
+            const pulled = (await store.pull(10, WORKER)).messages.find(({ id }) => id === done);
+            await store.markAsDone(pulled as PulledOutboxMessage, RESPONSE);
+
+            await waitUntil(() => payloads.length > 0, "no finished notification came");
+            expect(payloads).to.deep.equal([String(done)]);
+        });
+
         // The notifications of the ready channel the operation sends, in the order of the commits: the
         // sentinel goes after the operation's own, so one that is not in the list was not sent.
         async function readyNotificationsOf(operation: () => Promise<unknown>): Promise<string[]> {
@@ -1646,6 +1900,14 @@ describe("OutboxStore", function () {
     // A store whose statements run in the given transaction.
     function storeOn(transaction: TransactionSql, limits: TelegramLimits = NO_LIMITS): OutboxStore {
         return new OutboxStore({ sql: transaction } as unknown as Database, logger, limits, LEASE_DURATION_MS, CLEANUP);
+    }
+
+    // Every message and every chat, for a spec that pins that a refused call changed nothing.
+    async function snapshot(): Promise<unknown> {
+        const messages = await database.sql`SELECT id, status, finished_at, updated_at, attempts FROM telegram_outbox ORDER BY id`;
+        const chats = await database.sql`SELECT chat_id, state, next_attempt_at, updated_at FROM telegram_outbox_chats ORDER BY chat_id`;
+
+        return { messages: [...messages], chats: [...chats] };
     }
 
     async function chat(chatId: number): Promise<ChatRow | undefined> {

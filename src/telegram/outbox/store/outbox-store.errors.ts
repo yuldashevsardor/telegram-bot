@@ -24,6 +24,17 @@ export class InvalidPauseDuration extends RuntimeError {
     }
 }
 
+export class OutboxChatNotBlocked extends RuntimeError {
+    public static byChatId(chatId: number): OutboxChatNotBlocked {
+        return new OutboxChatNotBlocked(
+            `Outbox chat ${chatId} is not blocked by a failed message: only a blocked chat with its failed message can be unblocked.`,
+            {
+                chatId: chatId,
+            },
+        );
+    }
+}
+
 export class OutboxMessageNotLeased extends RuntimeError {
     public static byId(messageId: number): OutboxMessageNotLeased {
         return new OutboxMessageNotLeased(

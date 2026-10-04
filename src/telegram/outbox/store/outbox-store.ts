@@ -26,6 +26,7 @@ import {
     BotLimitsRowMissing,
     InvalidPauseDuration,
     InvalidPullLimit,
+    OutboxChatNotBlocked,
     OutboxMessageNotLeased,
 } from "app/telegram/outbox/store/outbox-store.errors";
 
@@ -440,6 +441,54 @@ export class OutboxStore {
         });
     }
 
+    // Unblocks a chat by hand: the failed message that blocked it goes back to pending, and its id
+    // makes it the head again. Returns that message. A chat that is not blocked throws
+    // OutboxChatNotBlocked and changes nothing.
+    public async retryBlockedChat(chatId: number): Promise<number> {
+        return this.sql.begin(async (sql) => {
+            const blocked = await this.lockBlockedChat(sql, chatId);
+
+            await sql`
+                UPDATE telegram_outbox
+                SET status = ${OutboxStatus.Pending},
+                    finished_at = NULL,
+                    updated_at = now()
+                WHERE id = ${blocked.messageId}
+            `;
+
+            // The head is pending, so the chat has an active message: ready is right.
+            await this.setChatState(sql, blocked.chatId, OutboxChatState.Ready);
+            // A node that sleeps on a null nextPullInMs learns of the chat from nothing else.
+            await this.notifyReady(sql);
+
+            return blocked.messageId;
+        });
+    }
+
+    // Unblocks a chat by hand: the failed message that blocked it becomes skipped, and the chat goes
+    // on with the message behind it, or goes idle when there is none. Returns the skipped message. A
+    // chat that is not blocked throws OutboxChatNotBlocked and changes nothing.
+    public async skipBlockedChat(chatId: number): Promise<number> {
+        return this.sql.begin(async (sql) => {
+            const blocked = await this.lockBlockedChat(sql, chatId);
+
+            await sql`
+                UPDATE telegram_outbox
+                SET status = ${OutboxStatus.Skipped},
+                    finished_at = now(),
+                    updated_at = now()
+                WHERE id = ${blocked.messageId}
+            `;
+            await this.notifyFinished(sql, blocked.messageId);
+
+            // A ready chat with no head would be seen by no pull and spin the sender, so the state
+            // follows the active messages left, read after the lock.
+            await this.releaseChat(sql, blocked.chatId);
+
+            return blocked.messageId;
+        });
+    }
+
     // One batch of the done and skipped messages whose retention has passed since their end; the
     // number deleted. A caller that gets a full batch calls again. A failed message is never deleted:
     // it waits for a person. A message without finished_at is never deleted either.
@@ -539,6 +588,39 @@ export class OutboxStore {
 
             return chat.chat_id;
         });
+    }
+
+    // The lock of a chat to unblock, then its failed message that blocked it: the one that failed
+    // last, since a blocked chat is pulled no more. The state is read from the locked row, so a chat
+    // that a completion or another unblock changed while this call waited is seen as it is now.
+    private async lockBlockedChat(sql: TransactionSql, chatId: number): Promise<{ chatId: string; messageId: number }> {
+        const [chat] = await sql<{ chat_id: string; state: string }[]>`
+            SELECT chat_id, state
+            FROM telegram_outbox_chats
+            WHERE chat_id = ${chatId}
+            FOR UPDATE
+        `;
+
+        if (chat === undefined || chat.state !== OutboxChatState.Blocked) {
+            throw OutboxChatNotBlocked.byChatId(chatId);
+        }
+
+        const [failedMessage] = await sql<{ id: string }[]>`
+            SELECT id
+            FROM telegram_outbox
+            WHERE chat_id = ${chat.chat_id}
+              AND status = ${OutboxStatus.Failed}
+            ORDER BY finished_at DESC, id DESC
+            LIMIT 1
+        `;
+
+        // Only markAsFailedAndBlockChat() blocks a chat, in the transaction that fails the message,
+        // and a failed message is never deleted: a chat blocked without one was edited by hand.
+        if (failedMessage === undefined) {
+            throw OutboxChatNotBlocked.byChatId(chatId);
+        }
+
+        return { chatId: chat.chat_id, messageId: Number(failedMessage.id) };
     }
 
     private async hasMessage(sql: TransactionSql, messageId: number): Promise<boolean> {

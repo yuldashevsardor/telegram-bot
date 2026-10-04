@@ -107,7 +107,7 @@ project's existing decisions.
   - a small utility in `shared/` that knows nothing about the domain or any module (`sleep`,
     `withTimeout`), and `configValue`, which constructor default parameters call outside the
     container;
-  - the entrypoint `src/app.ts`: it has no container to be injected from.
+  - the entrypoints `src/app.ts` and `src/cli.ts`: they have no container to be injected from.
 - A bare `Error` is not thrown outwards. Throw at least `RuntimeError` from
   `app/shared/errors`, better a subclass of your own in `<module>.errors.ts` next to the
   throwing code.
