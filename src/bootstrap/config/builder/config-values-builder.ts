@@ -23,6 +23,10 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
     // interval. A batch size goes to LIMIT, and 1e21 would reach it as 1e+21, which is no bigint.
     private static readonly CLEANUP_RANGE: IntegerRange = { min: 1, max: Number.MAX_SAFE_INTEGER };
 
+    // Telegram redelivers an update within 24 h, and a done update that is still stored is what turns
+    // the redelivery away, so its retention may not fall below a day.
+    private static readonly INBOX_DONE_RETENTION_RANGE: IntegerRange = { min: MS_PER_DAY, max: Number.MAX_SAFE_INTEGER };
+
     // The connections the outbox takes besides its slots: the pull of the runner and the three
     // tasks of OutboxMaintenance, each one query at a time.
     private static readonly OUTBOX_CONNECTIONS_BESIDES_SLOTS = 4;
@@ -92,6 +96,15 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
             inbox: {
                 leaseDurationMs: parser.getTimerDelay("INBOX_LEASE_DURATION", 10 * 60 * 1000),
                 maxAttempts: parser.getInteger("INBOX_MAX_ATTEMPTS", 10, { min: 1 }),
+                cleanup: {
+                    doneRetentionMs: parser.getInteger(
+                        "INBOX_DONE_RETENTION",
+                        7 * MS_PER_DAY,
+                        ConfigValuesBuilder.INBOX_DONE_RETENTION_RANGE,
+                    ),
+                    skippedRetentionMs: parser.getInteger("INBOX_SKIPPED_RETENTION", 30 * MS_PER_DAY, ConfigValuesBuilder.CLEANUP_RANGE),
+                    batchSize: parser.getInteger("INBOX_CLEANUP_BATCH_SIZE", 1000, ConfigValuesBuilder.CLEANUP_RANGE),
+                },
             },
 
             bot: {

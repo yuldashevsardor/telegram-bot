@@ -6,6 +6,7 @@ import type { BotSettings } from "app/telegram/bot/bot.types";
 import type { OutboxRetryDelaySettings } from "app/telegram/outbox/retry-delay/outbox-retry-delay.types";
 import type { OutboxMaintenanceSettings } from "app/telegram/outbox/maintenance/outbox-maintenance.types";
 import type { OutboxResultWaiterSettings } from "app/telegram/outbox/result-waiter/outbox-result-waiter.types";
+import type { InboxCleanupSettings } from "app/telegram/inbox/store/inbox-store.types";
 import type { OutboxCleanupSettings } from "app/telegram/outbox/store/outbox-store.types";
 
 export const Environments = ["production", "development", "testing"] as const;
@@ -60,6 +61,7 @@ export type ConfigValues = {
         leaseDurationMs: number;
         // The attempts of an update that count towards the limit, the last one included.
         maxAttempts: number;
+        cleanup: InboxCleanupSettings;
     };
 
     bot: BotSettings;
