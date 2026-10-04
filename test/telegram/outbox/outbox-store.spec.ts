@@ -29,7 +29,7 @@ import { OutboxChannel } from "app/telegram/outbox/store/outbox-store.types";
 import type { DatabaseSettings } from "app/platform/database/database.types";
 import { MS_PER_SECOND } from "app/shared/time";
 import { sleep } from "app/shared/utils";
-import { listenTo, testDatabaseSettings, waitForLockWaiters } from "test/database.helper";
+import { listenTo, rollingBackDatabase, SPEC_ROLLBACK_MESSAGE, testDatabaseSettings, waitForLockWaiters } from "test/database.helper";
 import { waitUntil } from "test/shared/utils.helper";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 
@@ -1881,17 +1881,19 @@ describe("OutboxStore", function () {
         it("does not notify the ready channel of a completion that rolls back", async function () {
             await store.pushBatch([message(CHAT, "first"), message(CHAT, "second")]);
             const pulled = await pullOne();
+            let rollback: unknown;
 
             const payloads = await readyNotificationsOf(async () => {
-                await other.sql
-                    .begin(async (sql) => {
-                        await storeOn(sql).markAsDone(pulled, RESPONSE);
-
-                        throw new Error("roll back");
-                    })
-                    .catch(() => undefined);
+                rollback = await new OutboxStore(rollingBackDatabase(database), logger, NO_LIMITS, LEASE_DURATION_MS, CLEANUP)
+                    .markAsDone(pulled, RESPONSE)
+                    .then(
+                        () => expect.fail("markAsDone() was expected to roll back"),
+                        (reason: unknown) => reason,
+                    );
             });
 
+            // The rollback of the spec, not an error of the completion: every statement ran.
+            expect((rollback as Error).message).to.equal(SPEC_ROLLBACK_MESSAGE);
             expect(payloads).to.deep.equal([]);
             expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Processing });
         });
