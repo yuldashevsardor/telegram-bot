@@ -481,9 +481,9 @@ finds the answer of Telegram in the error.
   outcome. The store sends it with `pg_notify` through the `sql` of the transaction, not with
   `sql.notify()` of postgres.js: that one runs on the pool whatever `sql` it is called on
   (`notify()` in its `src/index.js`), so inside a transaction it would notify before the commit,
-  and even for a transaction that rolls back. No spec pins this for the finished channel. The ready
-  channel is pinned by a store on `rollingBackDatabase()` (`test/database.helper.ts`), whose
-  transactions run every statement and then roll back.
+  and even for a transaction that rolls back. A spec pins it for both channels with a store on
+  `rollingBackDatabase()` (`test/database.helper.ts`), whose transactions run every statement and
+  then roll back.
 - **The listening** starts once, with the first wait, through `sql.listen()` on a connection of
   its own ([`storage.md`](./storage.md), "LISTEN"). A failed start is logged at `warning` and is
   not repeated: postgres.js keeps the listener of a failed `LISTEN` and subscribes it again when

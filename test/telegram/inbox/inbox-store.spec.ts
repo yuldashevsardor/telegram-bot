@@ -1075,8 +1075,10 @@ describe("InboxStore", function () {
                 );
             });
 
-            // The rollback of the spec, not an error of the completion: every statement ran.
+            // The rollback of the spec, not an error of the completion, and no warning of a fenced one:
+            // the completion ran to its end.
             expect((rollback as Error).message).to.equal(SPEC_ROLLBACK_MESSAGE);
+            expect(logger.warnings).to.deep.equal([]);
             expect(payloads).to.deep.equal([]);
             expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Processing });
         });

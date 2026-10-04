@@ -1878,9 +1878,12 @@ describe("OutboxStore", function () {
             expect(payloads).to.deep.equal([]);
         });
 
-        it("does not notify the ready channel of a completion that rolls back", async function () {
+        it("notifies neither the ready nor the finished channel of a completion that rolls back", async function () {
             await store.pushBatch([message(CHAT, "first"), message(CHAT, "second")]);
             const pulled = await pullOne();
+            // On the connection of the ready channel: the sentinel of readyNotificationsOf() comes
+            // after any notification of the completion.
+            const finishedPayloads = await listenTo(listener, OutboxChannel.Finished);
             let rollback: unknown;
 
             const payloads = await readyNotificationsOf(async () => {
@@ -1892,9 +1895,12 @@ describe("OutboxStore", function () {
                     );
             });
 
-            // The rollback of the spec, not an error of the completion: every statement ran.
+            // The rollback of the spec, not an error of the completion, and no warning of a fenced one:
+            // the completion ran to its end.
             expect((rollback as Error).message).to.equal(SPEC_ROLLBACK_MESSAGE);
+            expect(logger.warnings).to.deep.equal([]);
             expect(payloads).to.deep.equal([]);
+            expect(finishedPayloads).to.deep.equal([]);
             expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Processing });
         });
     });

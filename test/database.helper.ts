@@ -38,8 +38,10 @@ export async function testDatabaseSettings(): Promise<DatabaseSettings> {
 // The message of the error a transaction of rollingBackDatabase() rolls back with.
 export const SPEC_ROLLBACK_MESSAGE = "roll back";
 
-// A client whose transactions run every statement of their callback and then roll back: a store on it
-// makes all its writes, its notifications included, and commits none. Not a store on an outer
+// A client whose transactions run every statement of their callback and then roll back: a store
+// method that writes in a transaction of its own, begin(), makes all its writes, its notifications
+// included, and commits none. Only begin() is rolled back: a single statement outside it, such as
+// OutboxStore.pull() or InboxStore.claim(), goes to the pool and commits. Not a store on an outer
 // transaction: the sql of a transaction has no begin() in postgres.js, so a store method that opens
 // a transaction of its own would fail before its first statement.
 export function rollingBackDatabase(database: Database): Database {
@@ -53,7 +55,7 @@ export function rollingBackDatabase(database: Database): Database {
                 target.begin(async (transaction) => {
                     await write(transaction);
 
-                    throw new Error(SPEC_ROLLBACK_MESSAGE);
+                    throw new RuntimeError(SPEC_ROLLBACK_MESSAGE);
                 });
         },
     });
