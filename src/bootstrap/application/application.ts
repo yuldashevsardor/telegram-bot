@@ -90,7 +90,8 @@ export class Application {
             // of the event loop, so the outbox sends from the first one. Started before, the outbox
             // would need stopping when the bot fails to start, and its runner starts only once
             // (docs/architecture/invariants.md, "The outbox"). A stop() while the bot was starting
-            // has stopped the outbox before this start, and both starts after a stop do nothing.
+            // stops the outbox before this start or after it: both orders are safe, since a start
+            // after a stop does nothing.
             this.outboxRunner.start();
             this.outboxMaintenance.start();
 

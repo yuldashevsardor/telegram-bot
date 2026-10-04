@@ -46,6 +46,10 @@ Everything written outside it goes without a `requestId`:
   starts it, not an update, and any node may send the message an update pushed
   ([`outbox.md`](./outbox.md)). So the records of sending a message go without a `requestId`, even
   when an update made the call.
+- `OutboxResultWaiter` starts its poll timer and its listening through `RequestContext.exit()`,
+  although the first wait comes from an update: both serve the waits of every update, and a timer
+  keeps the scope it was made in. So the records of the poll and of the listening go without a
+  `requestId` too.
 
 ### `RequestContext`
 
@@ -61,7 +65,8 @@ correlation would depend on whether they build it the same way.
 The context is shared, not the logger's own. There is one instance, created by
 `ApplicationContext` ([`application.md`](./application.md)). The logger gets it right there as a
 constructor argument, before any container. It also sits in the container
-(`Tokens.Bootstrap.RequestContext`) for the middleware.
+(`Tokens.Bootstrap.RequestContext`) for the middleware, which opens a scope, and for
+`OutboxResultWaiter`, which leaves it (above).
 
 The keys and the store type are in `request-context.types.ts` next to it: `REQUEST_KEYS` with
 `as const`, `RequestStore` derived from it, the values `unknown`.

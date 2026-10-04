@@ -7,6 +7,7 @@ import type { OutboxFinishedMessageReader } from "app/telegram/outbox/outbox-fin
 import type { FinishedOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
 import type { Logger } from "app/platform/logger/logger";
+import { RequestContext } from "app/platform/request-context/request-context";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 
 // The waiter over the real reader and database is checked in outbox-finished-message-reader.spec.ts.
@@ -101,6 +102,28 @@ describe("OutboxResultWaiter", function () {
         reader.listenStarted();
 
         expect(await result).to.deep.equal(MESSAGE);
+    });
+
+    // The poll and the listening serve the waits of every update: started in the scope of the update
+    // that waits first, their records would carry its request id.
+    it("polls and listens outside the scope of the update that waits first", async function () {
+        const reader = new FakeReader();
+        const requestContext = new RequestContext();
+        reader.requestContext = requestContext;
+        const waiter = build(reader, { pollIntervalMs: SOON_MS }, new RecordingLogger(), requestContext);
+
+        const waitRequestId = requestContext.run(() => {
+            void waiter.wait(MESSAGE.id).catch(() => undefined);
+
+            return requestContext.getRequestId();
+        });
+        await sleep(SOON_MS * 3);
+        waiter.stop();
+
+        expect(waitRequestId).to.be.a("string");
+        expect(reader.listenRequestId).to.equal(null);
+        expect(reader.lookupRequestIds).to.not.be.empty;
+        expect(reader.lookupRequestIds.every((requestId) => requestId === null)).to.equal(true);
     });
 
     it("does not poll when nothing is waited for", async function () {
@@ -431,6 +454,10 @@ describe("OutboxResultWaiter", function () {
 // notifications and the start of the listening.
 class FakeReader implements Pick<OutboxFinishedMessageReader, "find" | "listen"> {
     public readonly lookups: number[][] = [];
+    // The request id each lookup and the listening start in, read from requestContext when it is set.
+    public requestContext: RequestContext | undefined;
+    public readonly lookupRequestIds: Array<string | null> = [];
+    public listenRequestId: string | null | undefined;
     public listenCount = 0;
     public listenError: Error | undefined;
     public lookupError: Error | undefined;
@@ -442,6 +469,7 @@ class FakeReader implements Pick<OutboxFinishedMessageReader, "find" | "listen">
 
     public async find(messageIds: number[]): Promise<FinishedOutboxMessage[]> {
         this.lookups.push(messageIds);
+        this.lookupRequestIds.push(this.requestContext?.getRequestId() ?? null);
         // Read when the lookup starts, as a query reads its snapshot: a message finished while the
         // lookup is held is not in its answer.
         const finishedMessages = messageIds.flatMap((messageId) => this.finished.get(messageId) ?? []);
@@ -456,6 +484,7 @@ class FakeReader implements Pick<OutboxFinishedMessageReader, "find" | "listen">
 
     public async listen(onFinished: (messageId: number) => void, onListen: () => void): Promise<void> {
         this.listenCount += 1;
+        this.listenRequestId = this.requestContext?.getRequestId() ?? null;
 
         if (this.listenError !== undefined) {
             throw this.listenError;
@@ -490,10 +519,11 @@ function build(
     reader: FakeReader,
     settings: Partial<OutboxResultWaiterSettings> = {},
     logger: Logger = new RecordingLogger(),
+    requestContext: RequestContext = new RequestContext(),
 ): OutboxResultWaiter {
     // The waiter calls only the two methods FakeReader has; the private field of the class is not one
     // of them.
-    return new OutboxResultWaiter(reader as unknown as OutboxFinishedMessageReader, logger, {
+    return new OutboxResultWaiter(reader as unknown as OutboxFinishedMessageReader, logger, requestContext, {
         timeoutMs: NEVER_MS,
         pollIntervalMs: NEVER_MS,
         ...settings,

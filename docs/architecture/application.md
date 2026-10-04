@@ -182,9 +182,8 @@ There is nothing to restart it with: the container does not survive a second `se
    - `Database.check()` is the first resolve of `Database`, so its constructor runs here as well
      ([`storage.md`](./storage.md)). Its `SELECT 1` fails the start here and not on the first
      update.
-   - `container.get()` for `TaskQueue`, `Runner`, `Bot`, `OutboxRunner` and `OutboxMaintenance`.
-     All the handlers of the pipeline are instantiated together with `Bot`, before its constructor
-     ([`bot.md`](./bot.md)).
+   - `container.get()` for the services of `assemble()`. All the handlers of the pipeline are
+     instantiated together with `Bot`, before its constructor ([`bot.md`](./bot.md)).
    - `Bot.setup()` installs the outbox transformer and assembles the pipeline
      ([`bot.md`](./bot.md)). Along the way it reads the `.ftl` from disk ([`i18n.md`](./i18n.md))
      and sends a `setMyCommands` over the network for every locale, straight to Telegram: the call
@@ -200,10 +199,10 @@ There is nothing to restart it with: the container does not survive a second `se
      timers ([`outbox.md`](./outbox.md), "The runner", "Maintenance"). They come after the bot with
      no `await` in between: a bot that fails to start leaves nothing of the outbox to stop, and the
      runner starts only once ([invariant](./invariants.md)), while the first update comes no sooner
-     than the next turn of the event loop. A stop that came while the bot was starting has stopped
-     the outbox before `run()` starts it, and a start after the stop does nothing: the generator of
-     the runner ends without a pull ([`outbox.md`](./outbox.md), "The message source"), and the
-     maintenance sets no timers.
+     than the next turn of the event loop. A stop that comes while the bot is starting stops the
+     outbox before `run()` starts it or after. Both orders are safe: a start after the stop does
+     nothing, since the generator of the runner ends without a pull ([`outbox.md`](./outbox.md),
+     "The message source") and the maintenance sets no timers.
 
    `run()` throws a `RuntimeError` before `setup()` is over and on a running application. After
    the stop has begun it does nothing (below).

@@ -4,6 +4,7 @@ import type { TelegramLimits } from "app/bootstrap/config/config-values";
 import { Database } from "app/platform/database/database";
 import type { DatabaseSettings } from "app/platform/database/database.types";
 import type { Logger } from "app/platform/logger/logger";
+import { RequestContext } from "app/platform/request-context/request-context";
 import { OutboxFinishedMessageReader } from "app/telegram/outbox/outbox-finished-message-reader";
 import { OutboxResultWaiter } from "app/telegram/outbox/result-waiter/outbox-result-waiter";
 import { OutboxResultTimeout } from "app/telegram/outbox/result-waiter/outbox-result-waiter.errors";
@@ -178,7 +179,7 @@ describe("OutboxFinishedMessageReader", function () {
         const NO_POLL: OutboxResultWaiterSettings = { timeoutMs: NOTIFICATION_DEADLINE_MS, pollIntervalMs: SPEC_TIMEOUT_MS };
 
         it("settles a wait by the notification of markAsDone", async function () {
-            const waiter = new OutboxResultWaiter(recordingReader, silentLogger(), NO_POLL);
+            const waiter = new OutboxResultWaiter(recordingReader, silentLogger(), new RequestContext(), NO_POLL);
             const id = await store.push(message(CHAT, "first"));
             const pulled = await pullOne();
 
@@ -192,7 +193,7 @@ describe("OutboxFinishedMessageReader", function () {
         });
 
         it("settles a wait by the poll when the message finishes without a notification", async function () {
-            const waiter = new OutboxResultWaiter(recordingReader, silentLogger(), {
+            const waiter = new OutboxResultWaiter(recordingReader, silentLogger(), new RequestContext(), {
                 timeoutMs: NOTIFICATION_DEADLINE_MS,
                 pollIntervalMs: FAST_POLL_MS,
             });
@@ -205,7 +206,7 @@ describe("OutboxFinishedMessageReader", function () {
         });
 
         it("rejects a wait on timeout and does not read its message when it finishes", async function () {
-            const waiter = new OutboxResultWaiter(recordingReader, silentLogger(), {
+            const waiter = new OutboxResultWaiter(recordingReader, silentLogger(), new RequestContext(), {
                 timeoutMs: SHORT_WAIT_TIMEOUT_MS,
                 pollIntervalMs: SPEC_TIMEOUT_MS,
             });
@@ -229,7 +230,7 @@ describe("OutboxFinishedMessageReader", function () {
         // postgres.js listens again on a new connection; the poll it triggers catches a message
         // finished in between, whose notification went nowhere.
         it("listens again after its connection is lost", async function () {
-            const waiter = new OutboxResultWaiter(recordingReader, silentLogger(), NO_POLL);
+            const waiter = new OutboxResultWaiter(recordingReader, silentLogger(), new RequestContext(), NO_POLL);
             const id = await store.push(message(CHAT, "first"));
             const pulled = await pullOne();
 

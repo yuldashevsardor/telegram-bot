@@ -37,6 +37,29 @@ describe("RequestContext", function () {
         expect(after).to.equal(inside);
     });
 
+    it("runs a function outside the scope it is called in, and the timers it starts with it", async function () {
+        const context = new RequestContext();
+
+        const [outside, inTimer] = await context.run(() =>
+            context.exit(() => {
+                const outsideRequestId = context.getRequestId();
+
+                return new Promise<[string | null, string | null]>((resolve) => {
+                    setTimeout(() => resolve([outsideRequestId, context.getRequestId()]), 0);
+                });
+            }),
+        );
+
+        expect(outside).to.equal(null);
+        expect(inTimer).to.equal(null);
+    });
+
+    it("hands back the result of the function run outside the scope", function () {
+        const context = new RequestContext();
+
+        expect(context.run(() => context.exit(() => 42))).to.equal(42);
+    });
+
     it("puts the request id into the values", function () {
         const context = new RequestContext();
 
