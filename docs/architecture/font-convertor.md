@@ -399,7 +399,8 @@ the enum text lacks is the measurements:
 - `origLength` of a transformed `hmtx`: `woff2_decompress` 1.0.2 refuses the fixture with the
   `hmtx` transform and `origLength` 5185 against 5184 rebuilt bytes. A smaller `origLength` passes
   the decoder and is not this rule's: it leaves a table record shorter than the bytes written, which
-  the sfnt validator would have to catch ([#737](https://github.com/yuldashevsardor/telegram-bot/issues/737));
+  the sfnt validator would have to catch
+  ([#737](https://github.com/yuldashevsardor/telegram-bot/issues/737));
 - the padding of the compressed data that ends the file: fontforge crashes on the fixture cut by
   its 3 padding bytes;
 - the two caps on the decompressed tables, 30 MiB and 100 times the file size, are checked on the
