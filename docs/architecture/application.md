@@ -201,7 +201,9 @@ There is nothing to restart it with: the container does not survive a second `se
      no `await` in between: a bot that fails to start leaves nothing of the outbox to stop, and the
      runner starts only once ([invariant](./invariants.md)), while the first update comes no sooner
      than the next turn of the event loop. A stop that came while the bot was starting has stopped
-     the outbox already, and `run()` neither starts it nor logs the start then.
+     the outbox before `run()` starts it, and a start after the stop does nothing: the generator of
+     the runner ends without a pull ([`outbox.md`](./outbox.md), "The message source"), and the
+     maintenance sets no timers.
 
    `run()` throws a `RuntimeError` before `setup()` is over and on a running application. After
    the stop has begun it does nothing (below).

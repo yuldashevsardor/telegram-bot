@@ -90,14 +90,11 @@ export class Application {
             // of the event loop, so the outbox sends from the first one. Started before, the outbox
             // would need stopping when the bot fails to start, and its runner starts only once
             // (docs/architecture/invariants.md, "The outbox"). A stop() while the bot was starting
-            // has already stopped the outbox, which is not to be started after its stop, and the
-            // application was not started either.
-            if (this.state.name === "running") {
-                this.outboxRunner.start();
-                this.outboxMaintenance.start();
+            // has stopped the outbox before this start, and both starts after a stop do nothing.
+            this.outboxRunner.start();
+            this.outboxMaintenance.start();
 
-                this.logger.info("Application is successfully started.");
-            }
+            this.logger.info("Application is successfully started.");
         } catch (error) {
             this.runner.stop();
 

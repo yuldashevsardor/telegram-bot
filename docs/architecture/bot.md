@@ -150,8 +150,8 @@ These calls go straight to Telegram, past the outbox:
   `setMyCommands`, `getUpdates`, `setWebhook`, ...): none of them names a chat, so no list of
   them is kept;
 - a `chat_id` that is not a number, a chat named by its username (`@channel`);
-- the methods of `GROUP_METHODS_PAST_THE_OUTBOX` for a group chat: Telegram does not count them
-  towards the limit of the group.
+- the methods of `OutboxTransformer.GROUP_METHODS_PAST_THE_OUTBOX` for a group chat: Telegram
+  does not count them towards the limit of the group.
 
 `@grammyjs/conversations` installs a transformer of its own on the `Api` of the update, around
 this one. While it replays a conversation it answers each call from its log and does not call the

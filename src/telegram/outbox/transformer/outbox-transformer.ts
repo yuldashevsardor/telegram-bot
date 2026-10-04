@@ -18,32 +18,20 @@ type TelegramErrorAnswer = {
     parameters: ResponseParameters;
 };
 
-// The methods a group chat calls past the outbox: Telegram does not count them towards the limit of
-// the group, so they need not wait behind its messages.
-const GROUP_METHODS_PAST_THE_OUTBOX = new Set<string>([
-    "getChat",
-    "getChatAdministrators",
-    "getChatMembersCount",
-    "getChatMember",
-    "sendChatAction",
-]);
-
-// A GrammyError keeps the answer of Telegram; an HttpError, a lease that expired or a row that did
-// not rebuild has none.
-function isTelegramErrorAnswer(error: OutboxAttemptError | null): error is OutboxAttemptError & TelegramErrorAnswer {
-    return (
-        error !== null &&
-        typeof error["error_code"] === "number" &&
-        typeof error["description"] === "string" &&
-        typeof error["parameters"] === "object" &&
-        error["parameters"] !== null
-    );
-}
-
 // Turns a Bot API call to a chat into an outbox message and gives the caller its outcome
 // (docs/architecture/bot.md, "The outbox transformer").
 @injectable()
 export class OutboxTransformer {
+    // The methods a group chat calls past the outbox: Telegram does not count them towards the limit
+    // of the group, so they need not wait behind its messages.
+    private static readonly GROUP_METHODS_PAST_THE_OUTBOX = new Set<string>([
+        "getChat",
+        "getChatAdministrators",
+        "getChatMembersCount",
+        "getChatMember",
+        "sendChatAction",
+    ]);
+
     public constructor(
         @inject<OutboxStore>(Tokens.Bot.Outbox.Store) private readonly store: OutboxStore,
         @inject<OutboxResultWaiter>(Tokens.Bot.Outbox.Result.Waiter) private readonly waiter: OutboxResultWaiter,
@@ -80,7 +68,7 @@ export class OutboxTransformer {
 
         const chatId = Number(payload["chat_id"]);
 
-        if (isNaN(chatId) || (isGroupChat(chatId) && GROUP_METHODS_PAST_THE_OUTBOX.has(method))) {
+        if (isNaN(chatId) || (isGroupChat(chatId) && OutboxTransformer.GROUP_METHODS_PAST_THE_OUTBOX.has(method))) {
             return undefined;
         }
 
@@ -104,10 +92,22 @@ export class OutboxTransformer {
     private toErrorAnswer(message: FinishedOutboxMessage, method: string): ApiError {
         const { error } = message;
 
-        if (!isTelegramErrorAnswer(error)) {
+        if (!this.isTelegramErrorAnswer(error)) {
             throw OutboxMessageFailed.of(message.id, method, error);
         }
 
         return { ok: false, error_code: error.error_code, description: error.description, parameters: error.parameters };
+    }
+
+    // A GrammyError keeps the answer of Telegram; an HttpError, a lease that expired or a row that did
+    // not rebuild has none.
+    private isTelegramErrorAnswer(error: OutboxAttemptError | null): error is OutboxAttemptError & TelegramErrorAnswer {
+        return (
+            error !== null &&
+            typeof error["error_code"] === "number" &&
+            typeof error["description"] === "string" &&
+            typeof error["parameters"] === "object" &&
+            error["parameters"] !== null
+        );
     }
 }

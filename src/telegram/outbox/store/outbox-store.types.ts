@@ -47,8 +47,8 @@ export type OutboxPayload = { readonly [key: string]: OutboxJson };
 // head of a chat with bulk messages. Inside a chat the order is by id, so a reply pushed behind a
 // bulk batch of its own chat waits for the batch.
 export enum OutboxPriority {
-    Call = 1,
-    Bulk = 2,
+    Call = 100,
+    Bulk = 200,
 }
 
 // A Bot API call to push. A lower priority goes first, across chats only. The store orders by any
