@@ -552,6 +552,11 @@ spec is in `DATABASE_SPECS` ([`testing.md`](./testing.md), "Mutation testing").
 The ids come back as numbers: the driver returns `bigint` as a string, and the store converts it,
 as `PgSqlUserRepository` does ([`storage.md`](./storage.md), "`User.id`").
 
+## Load test
+
+How the store holds up on 100 M messages, measured, and the indexes the measurements propose:
+[`outbox-load-test.md`](./outbox-load-test.md).
+
 ## Sending
 
 Two classes send a pulled message, so that the sending loop only hands it over and Telegram is

@@ -23,16 +23,18 @@ repository. `./src` is mounted from the host, and the bot runs under `node --wat
 restarting on every edit. If the restarts stop — after a `git checkout` the watcher can lose
 the file — run `make restart`.
 
-## The two compose files
+## The compose files
 
-| File                     | Project           | What it brings up                        |
-| ------------------------ | ----------------- | ---------------------------------------- |
-| `docker-compose.db.yml`  | `telegram-bot-db` | PostgreSQL, one per machine              |
-| `docker-compose.app.yml` | directory name    | migrations and the bot; one per worktree |
+| File                      | Project             | What it brings up                                          |
+| ------------------------- | ------------------- | ---------------------------------------------------------- |
+| `docker-compose.db.yml`   | `telegram-bot-db`   | PostgreSQL, one per machine                                |
+| `docker-compose.app.yml`  | directory name      | migrations and the bot; one per worktree                   |
+| `docker-compose.load.yml` | `telegram-bot-load` | PostgreSQL of the outbox load test, only on `make load-up` |
 
 The database goes up first: the application finds it by the service name `pgsql` in the
 external network `telegram-bot-db_default`. Its data lies in `./tmp/pgsql` of the main
-worktree.
+worktree. The load-test database joins the same network and keeps its data in a volume of its own
+(`docs/architecture/outbox-load-test.md`).
 
 ## Working in several worktrees
 
@@ -140,7 +142,8 @@ The full list is `make`. What is worth knowing beyond the target descriptions:
 - `make db-reset` refuses while application containers of other worktrees run in the network
   of the database. The database is shared, and the reset would wipe it out from under them
   mid-work: take them down there with `make app-down` and repeat. A container of an already
-  deleted worktree the target only names; remove it with `docker rm -f <name>`.
+  deleted worktree the target only names; remove it with `docker rm -f <name>`. The load-test
+  database in the same network is no application: the reset leaves it and its volume alone.
   `CONFIRM=1` answers the confirmation question in advance.
 
 ## Unblocking a chat or a group
