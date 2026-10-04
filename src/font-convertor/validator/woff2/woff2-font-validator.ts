@@ -168,9 +168,9 @@ export class Woff2FontValidator implements FontValidator {
     private static readonly GLYF_SUBSTREAM_COUNT = 7;
     private static readonly SUBSTREAM_SIZE_FIELD_BYTES = 4;
     private static readonly OVERLAP_SIMPLE_BITMAP_FLAG = 0x0001;
-    // The overlapSimpleBitmap holds a bit per glyph, padded to whole 32-bit words: 4 × ⌊(numGlyphs + 31) / 32⌋ bytes.
-    private static readonly BITMAP_WORD_SIZE_BITS = 32;
-    private static readonly BITMAP_WORD_SIZE_BYTES = 4;
+    // The overlapSimpleBitmap holds a bit per glyph, padded to a whole byte: ⌈numGlyphs / 8⌉ bytes.
+    // §5.1 pads only bboxBitmap to 32-bit words, and fontTools and google/woff2 write this one unpadded.
+    private static readonly BITS_PER_BYTE = 8;
     // An offset of loca takes 2 bytes when indexFormat is 0, 4 otherwise (§5.3).
     private static readonly SHORT_LOCA_FORMAT = 0;
     private static readonly SHORT_LOCA_OFFSET_SIZE_BYTES = 2;
@@ -899,10 +899,8 @@ export class Woff2FontValidator implements FontValidator {
         }
 
         if ((view.getUint16(fields.optionFlags) & Woff2FontValidator.OVERLAP_SIMPLE_BITMAP_FLAG) !== 0) {
-            const wordCount = Math.floor(
-                (numGlyphs + Woff2FontValidator.BITMAP_WORD_SIZE_BITS - 1) / Woff2FontValidator.BITMAP_WORD_SIZE_BITS,
-            );
-            const bitmapEnd = substreamsEnd + wordCount * Woff2FontValidator.BITMAP_WORD_SIZE_BYTES;
+            const bitmapSizeBytes = Math.ceil(numGlyphs / Woff2FontValidator.BITS_PER_BYTE);
+            const bitmapEnd = substreamsEnd + bitmapSizeBytes;
 
             if (bitmapEnd > glyf.length) {
                 throw BrokenWoff2.byRule(fontPath, {

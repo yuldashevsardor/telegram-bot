@@ -37,10 +37,10 @@ const GLYF_NUM_GLYPHS = 4;
 const GLYF_INDEX_FORMAT = 6;
 const GLYF_N_CONTOUR_STREAM_SIZE = 8;
 const GLYF_HEADER_SIZE_BYTES = 36;
-// A numGlyphs that is a multiple of 32, so that overlapSimpleBitmap has no bit to spare (§5.1).
-const BITMAP_NUM_GLYPHS = 1280;
-const BITMAP_WORD_SIZE_BITS = 32;
-const BITMAP_WORD_SIZE_BYTES = 4;
+// A numGlyphs that is a multiple of neither 8 nor 32: overlapSimpleBitmap ends on a byte that holds
+// one glyph, and a size padded to 32-bit words would differ from ⌈numGlyphs / 8⌉ (§5.1).
+const BITMAP_NUM_GLYPHS = 1297;
+const BITMAP_SIZE_BYTES = 163;
 const LONG_LOCA_OFFSET_SIZE_BYTES = 4;
 // numberOfHMetrics by its offset in hhea (OpenType 1.9.1, hhea).
 const HHEA_NUMBER_OF_H_METRICS = 34;
@@ -198,27 +198,19 @@ describe("Woff2FontValidator.validate", function () {
         });
 
         it("with bit 0 of optionFlags and the overlapSimpleBitmap after the substreams", async function () {
-            // 4 × ⌊(1296 + 31) / 32⌋ = 164 bytes.
+            // ⌈1296 / 8⌉ = 162 bytes.
             const layout = withGlyf(fixtureLayout, (glyf) => {
                 const withFlag = withUint16(glyf, GLYF_OPTION_FLAGS, 1);
 
-                return concat(withFlag, new Uint8Array(164));
+                return concat(withFlag, new Uint8Array(162));
             });
 
             await validate(build(layout));
         });
 
-        it("with the overlapSimpleBitmap of a numGlyphs that is a multiple of 32, with no word to spare", async function () {
-            const bitmapSizeBytes = (BITMAP_NUM_GLYPHS / BITMAP_WORD_SIZE_BITS) * BITMAP_WORD_SIZE_BYTES;
-            const withBitmap = withGlyf(fixtureLayout, (glyf) => {
-                const withFlag = withUint16(withUint16(glyf, GLYF_NUM_GLYPHS, BITMAP_NUM_GLYPHS), GLYF_OPTION_FLAGS, 1);
-
-                return concat(withFlag, new Uint8Array(bitmapSizeBytes));
-            });
-            const locaSizeBytes = (BITMAP_NUM_GLYPHS + 1) * LONG_LOCA_OFFSET_SIZE_BYTES;
-            const layout = withEntry(withBitmap, "loca", (entry) => ({ ...entry, origLength: locaSizeBytes }));
-
-            await validate(build(layout));
+        it("with an overlapSimpleBitmap of ⌈numGlyphs / 8⌉ bytes, not padded to 32-bit words", async function () {
+            // fontTools and google/woff2 write it so: 163 bytes for 1297 glyphs, not 164.
+            await validate(build(withOverlapSimpleBitmap(fixtureLayout, BITMAP_SIZE_BYTES)));
         });
 
         it("whose tables decompress to exactly 30 MiB", async function () {
@@ -873,7 +865,15 @@ describe("Woff2FontValidator.validate", function () {
             await expectBroken(
                 build(layout),
                 Woff2Rule.TransformedGlyf,
-                'At table "glyf": end of overlapSimpleBitmap is 102010, expected at most 101846, the transformLength, as bit 0 of optionFlags is set.',
+                'At table "glyf": end of overlapSimpleBitmap is 102008, expected at most 101846, the transformLength, as bit 0 of optionFlags is set.',
+            );
+        });
+
+        it("with an overlapSimpleBitmap one byte short of ⌈numGlyphs / 8⌉", async function () {
+            await expectBroken(
+                build(withOverlapSimpleBitmap(fixtureLayout, BITMAP_SIZE_BYTES - 1)),
+                Woff2Rule.TransformedGlyf,
+                'At table "glyf": end of overlapSimpleBitmap is 102009, expected at most 102008, the transformLength, as bit 0 of optionFlags is set.',
             );
         });
 
@@ -1196,6 +1196,21 @@ function withGlyf(layout: Layout, edit: (glyf: Uint8Array) => Uint8Array): Layou
 
         return { ...entry, transformLength: data.length, data: data };
     });
+}
+
+/**
+ * The layout with bit 0 of optionFlags set and `bitmapSizeBytes` null bytes of overlapSimpleBitmap
+ * after the substreams of glyf, for BITMAP_NUM_GLYPHS glyphs, with loca sized to match.
+ */
+function withOverlapSimpleBitmap(layout: Layout, bitmapSizeBytes: number): Layout {
+    const withBitmap = withGlyf(layout, (glyf) => {
+        const withFlag = withUint16(withUint16(glyf, GLYF_NUM_GLYPHS, BITMAP_NUM_GLYPHS), GLYF_OPTION_FLAGS, 1);
+
+        return concat(withFlag, new Uint8Array(bitmapSizeBytes));
+    });
+    const locaSizeBytes = (BITMAP_NUM_GLYPHS + 1) * LONG_LOCA_OFFSET_SIZE_BYTES;
+
+    return withEntry(withBitmap, "loca", (entry) => ({ ...entry, origLength: locaSizeBytes }));
 }
 
 /**
