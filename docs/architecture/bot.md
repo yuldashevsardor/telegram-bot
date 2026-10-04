@@ -137,8 +137,10 @@ outcome:
    - `skipped` throws `OutboxMessageSkipped`.
 
 The wait ends with `OutboxResultTimeout` after `OUTBOX_RESULT_TIMEOUT`, and the message stays
-queued and may still go out. The signal of the caller does not reach a queued call: the runner
-sends the message with a signal of its own.
+queued and may still go out. That is what every call to a chat that a failed message has blocked
+ends in: the call is pushed behind the blocked head, which holds the chat until it is unblocked by
+hand ([`outbox.md`](./outbox.md), "Tables"). The signal of the caller does not reach a queued
+call: the runner sends the message with a signal of its own.
 
 These calls go straight to Telegram, past the outbox:
 
@@ -186,4 +188,7 @@ the messages of a chat: the three chats yield to the chats with calls of the bot
 one of them waits for the bulk messages pushed into it before. The
 batches are of 1000: one batch is one transaction with its messages in one `jsonb` parameter. The
 command has no `try/catch`: a batch that fails rejects it, the rejection goes to
-`Bot.handleError`, and the batches pushed before it stay queued.
+`Bot.handleError`, and the batches pushed before it stay queued. The rows outlive the process: for a
+chat the bot cannot reach every message fails without blocking the chat, and nothing deletes a
+`failed` row ([`outbox.md`](./outbox.md), "Cleanup"), so each run leaves its share of the 10 000
+rows behind.

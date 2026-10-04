@@ -71,6 +71,8 @@ export class OutboxTransformer {
 
     // The chat a call is queued for, or undefined for a call that goes straight to Telegram: one
     // without a chat, one to a chat named by its username, and a group call Telegram does not limit.
+    // Only a plain object is queued: serialize() takes nothing else for a payload, and grammY builds
+    // its payloads as literals.
     private findQueuedChatId(method: string, payload: unknown): number | undefined {
         if (!isPlainObject(payload) || !("chat_id" in payload)) {
             return undefined;

@@ -71,12 +71,6 @@ function store(value: unknown, method: string, place: readonly string[]): unknow
     );
 }
 
-// Only a plain object has Object.prototype as its prototype. OutboxTransformer queues only such a
-// payload, as serialize() takes only such a payload.
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && Object.getPrototypeOf(value) === Object.prototype;
-}
-
 // PostgreSQL rejects U+0000 and a lone UTF-16 surrogate anywhere in a jsonb value, keys included.
 function isStorable(text: string): boolean {
     return !text.includes("\u0000") && text.isWellFormed();
@@ -148,4 +142,7 @@ export function deserialize(payload: Record<string, unknown>): Record<string, un
     return restore(payload) as Record<string, unknown>;
 }
 
-export { isPlainObject };
+/** Only a plain object has Object.prototype as its prototype. */
+export function isPlainObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && Object.getPrototypeOf(value) === Object.prototype;
+}
