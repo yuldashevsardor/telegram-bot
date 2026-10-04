@@ -20,7 +20,7 @@ import type {
 import { OutboxChannel, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import { testDatabaseSettings } from "test/database.helper";
-import { NOTIFICATION_DEADLINE_MS, waitUntil } from "test/shared/utils.helper";
+import { WAIT_UNTIL_DEADLINE_MS, waitUntil } from "test/shared/utils.helper";
 
 const CHAT = 5_000_000_001;
 const RESPONSE = { message_id: 1 };
@@ -32,7 +32,7 @@ const NO_LIMIT: TelegramLimits["common"] = { number: 1_000_000, interval: 1 };
 const NO_LIMITS: TelegramLimits = { common: NO_LIMIT, private: NO_LIMIT, group: NO_LIMIT };
 // The poll of the waiter specs that rely on it: many polls within a test.
 const FAST_POLL_MS = 20;
-// The timeout of the waiter spec that times out: over long before NOTIFICATION_DEADLINE_MS.
+// The timeout of the waiter spec that times out: over long before WAIT_UNTIL_DEADLINE_MS.
 const SHORT_WAIT_TIMEOUT_MS = 50;
 const WORKER: OutboxWorker = { host: "node-1", pid: 101, workerId: "worker-1" };
 // Longer than any test here: no lease expires under it.
@@ -176,7 +176,7 @@ describe("OutboxFinishedMessageReader", function () {
         });
 
         // A poll that never comes in a passing test: only a notification can settle the wait.
-        const NO_POLL: OutboxResultWaiterSettings = { timeoutMs: NOTIFICATION_DEADLINE_MS, pollIntervalMs: SPEC_TIMEOUT_MS };
+        const NO_POLL: OutboxResultWaiterSettings = { timeoutMs: WAIT_UNTIL_DEADLINE_MS, pollIntervalMs: SPEC_TIMEOUT_MS };
 
         it("settles a wait by the notification of markAsDone", async function () {
             const waiter = new OutboxResultWaiter(recordingReader, silentLogger(), new RequestContext(), NO_POLL);
@@ -194,7 +194,7 @@ describe("OutboxFinishedMessageReader", function () {
 
         it("settles a wait by the poll when the message finishes without a notification", async function () {
             const waiter = new OutboxResultWaiter(recordingReader, silentLogger(), new RequestContext(), {
-                timeoutMs: NOTIFICATION_DEADLINE_MS,
+                timeoutMs: WAIT_UNTIL_DEADLINE_MS,
                 pollIntervalMs: FAST_POLL_MS,
             });
             const id = await store.push(message(CHAT, "first"));

@@ -139,11 +139,12 @@ expired leases without a lock (see "Lease recovery"). An extension whose stateme
 lease passes and commits after a recovery has read the lease as passed returns `true`, and the
 recovery then completes the update all the same: the extension does not change the token, and the
 completion is fenced by the token alone. The window runs from the start of the statement to its
-commit, and it includes a wait for the group row a push of the same group holds: the push only
-locks the row (see "Push", step 1), so PostgreSQL does not check the row again after the wait, and
-a clock read at the check would not help. A completion that holds the row writes it and clears the
-token, and the extension that waited is refused. A caller that extends well before the lease passes
-does not meet the window.
+commit, and it includes a wait for the group row that a push of the same group, a fenced
+completion or an unblock refused with `InboxGroupNotBlocked` holds. They only lock the row (see
+"Push", step 1, and "Completions", step 2), so PostgreSQL does not check the row again after
+the wait, and a clock read at the check would not help. An applied completion writes the row and
+clears the token, and the extension that waited is refused. A caller that extends well before the
+lease passes does not meet the window.
 
 An extension moves `locked_until` only: the recovery of an extended lease still writes the start of
 the claim into the attempt (see "Lease recovery").

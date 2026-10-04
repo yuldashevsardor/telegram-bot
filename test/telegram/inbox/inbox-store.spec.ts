@@ -1063,20 +1063,44 @@ describe("InboxStore", function () {
             expect(payloads).to.deep.equal([]);
         });
 
+        // A store whose own transactions run every statement, the notification included, and then
+        // roll back. Not a store on an outer transaction (storeOn()): its sql has no begin(), and the
+        // completion would fail before its first statement.
+        function rollingBackStore(): InboxStore {
+            const sql = new Proxy(database.sql, {
+                get(target, property, receiver): unknown {
+                    if (property !== "begin") {
+                        return Reflect.get(target, property, receiver);
+                    }
+
+                    return (write: (transaction: TransactionSql) => Promise<unknown>) =>
+                        target.begin(async (transaction) => {
+                            await write(transaction);
+
+                            throw new Error("roll back");
+                        });
+                },
+            });
+
+            return new InboxStore({ sql } as unknown as Database, logger, LEASE_DURATION_MS, CLEANUP);
+        }
+
         it("does not notify of a completion that rolls back", async function () {
             await store.pushBatch([input(10), input(11)]);
             const claimed = await claimOne();
+            let rollback: unknown;
 
             const payloads = await readyNotificationsOf(async () => {
-                await other.sql
-                    .begin(async (sql) => {
-                        await storeOn(sql).markAsDone(claimed);
-
-                        throw new Error("roll back");
-                    })
-                    .catch(() => undefined);
+                rollback = await rollingBackStore()
+                    .markAsDone(claimed)
+                    .then(
+                        () => expect.fail("markAsDone() was expected to roll back"),
+                        (reason: unknown) => reason,
+                    );
             });
 
+            // The rollback of the spec, not an error of the completion: every statement ran.
+            expect((rollback as Error).message).to.equal("roll back");
             expect(payloads).to.deep.equal([]);
             expect(await group(USER, CHAT)).to.deep.equal({ state: InboxGroupState.Processing });
         });

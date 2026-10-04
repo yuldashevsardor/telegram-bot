@@ -5,6 +5,8 @@ import type { Database } from "app/platform/database/database";
 import type { DatabaseSettings } from "app/platform/database/database.types";
 import { RuntimeError } from "app/shared/errors";
 import { sleep } from "app/shared/utils";
+import type { InboxChannel } from "app/telegram/inbox/store/inbox-store.types";
+import type { OutboxChannel } from "app/telegram/outbox/store/outbox-store.types";
 
 // Longer than any lock wait of a passing run lasts, shorter than the timeout of the specs: a wait
 // that never comes fails with its own message.
@@ -33,7 +35,7 @@ export async function testDatabaseSettings(): Promise<DatabaseSettings> {
 }
 
 // The payloads of the notifications of a channel, from the moment the listening starts.
-export async function listenTo(database: Database, channel: string): Promise<string[]> {
+export async function listenTo(database: Database, channel: OutboxChannel | InboxChannel): Promise<string[]> {
     const payloads: string[] = [];
     await database.sql.listen(channel, (payload) => payloads.push(payload));
 
