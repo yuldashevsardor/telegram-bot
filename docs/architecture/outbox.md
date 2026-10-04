@@ -454,15 +454,14 @@ The targets run `npm run cli` (`src/cli.ts`) in a throwaway container that bring
 of the application without the bot. `CliCommandResolver` (`src/cli/`) takes the queue off the
 arguments and gives them to the resolver of that queue, `OutboxCommandResolver` or
 `InboxCommandResolver` (both extend `TelegramQueueCommandResolver`, `cli/telegram/`), which picks
-the command by its action: `OutboxRetryCommand`,
-`OutboxSkipCommand` and their inbox counterparts (`telegram/outbox/command/`,
-`telegram/inbox/command/`). The rest of the arguments go to the command, which has them read by
-`ArgumentsHelper` (`cli/`): the same for every command, each giving the names of its arguments with
-the rule of each (`ArgumentRule`, a whole number so far). The command logs the message
-it took at `info`. The blocked chats of the outbox are the rows of `telegram_outbox_chats` in the
-state `blocked`, and the store logs each block at `error` with the chat and the message
-(`make psql` reads them). The same two targets for the inbox are in
-[`inbox.md`](./inbox.md), "Unblocking a group".
+the command by its action: `OutboxRetryCommand`, `OutboxSkipCommand` and their inbox counterparts
+(`telegram/outbox/command/`, `telegram/inbox/command/`). The rest of the arguments go to the
+command, which has them read by `ArgumentsHelper` (`cli/`): the same for every command, each
+listing its arguments in an array, a name and a rule (`ArgumentRule`, a whole number so far) for
+each, so the order is the one written. The command logs the message it took at `info`. The blocked
+chats of the outbox are the rows of `telegram_outbox_chats` in the state `blocked`, and the store
+logs each block at `error` with the chat and the message (`make psql` reads them). The same two
+targets for the inbox are in [`inbox.md`](./inbox.md), "Unblocking a group".
 
 ## Waiting for the result
 

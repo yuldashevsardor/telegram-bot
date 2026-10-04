@@ -15,7 +15,7 @@ export class OutboxRetryCommand implements CliCommand {
     ) {}
 
     public async run(args: readonly string[]): Promise<void> {
-        const { chatId } = ArgumentsHelper.parse(args, { chatId: ArgumentRule.Integer });
+        const { chatId } = ArgumentsHelper.parse(args, [{ name: "chatId", rule: ArgumentRule.Integer }]);
         const messageId = await this.store.retryBlockedChat(chatId);
 
         this.logger.info("Outbox chat is unblocked: its failed message is pending again.", { chatId: chatId, messageId: messageId });

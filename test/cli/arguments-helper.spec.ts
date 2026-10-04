@@ -1,9 +1,12 @@
 import { expect } from "chai";
-import { InvalidCommandArguments } from "app/cli/cli-command.errors";
+import { InvalidCommandArguments, UnsupportedArgumentRule } from "app/cli/cli-command.errors";
 import { ArgumentRule, ArgumentsHelper } from "app/cli/arguments-helper";
 
-const CHAT = { chatId: ArgumentRule.Integer };
-const GROUP = { userId: ArgumentRule.Integer, chatId: ArgumentRule.Integer };
+const CHAT = [{ name: "chatId", rule: ArgumentRule.Integer }] as const;
+const GROUP = [
+    { name: "userId", rule: ArgumentRule.Integer },
+    { name: "chatId", rule: ArgumentRule.Integer },
+] as const;
 const GROUP_EXPECTED = "<userId: integer> <chatId: integer>";
 
 describe("ArgumentsHelper", function () {
@@ -32,6 +35,44 @@ describe("ArgumentsHelper", function () {
     it("refuses one argument and three arguments for two names", function () {
         expectInvalid(() => ArgumentsHelper.parse(["1"], GROUP), ["1"], GROUP_EXPECTED);
         expectInvalid(() => ArgumentsHelper.parse(["1", "2", "3"], GROUP), ["1", "2", "3"], GROUP_EXPECTED);
+    });
+
+    it("reads the arguments in the order the specs list them, whatever the names", function () {
+        expect(
+            ArgumentsHelper.parse(
+                ["1", "2"],
+                [
+                    { name: "z", rule: ArgumentRule.Integer },
+                    { name: "1", rule: ArgumentRule.Integer },
+                ],
+            ),
+        ).to.deep.equal({ z: 1, "1": 2 });
+        expectInvalid(
+            () =>
+                ArgumentsHelper.parse(
+                    ["x"],
+                    [
+                        { name: "z", rule: ArgumentRule.Integer },
+                        { name: "1", rule: ArgumentRule.Integer },
+                    ],
+                ),
+            ["x"],
+            "<z: integer> <1: integer>",
+        );
+    });
+
+    it("refuses a rule it has no way to read by instead of leaving the argument undefined", function () {
+        const unknownRule = "text" as ArgumentRule;
+        let error: unknown;
+
+        try {
+            ArgumentsHelper.parse(["a"], [{ name: "title", rule: unknownRule }]);
+        } catch (reason) {
+            error = reason;
+        }
+
+        expect(error).to.be.instanceOf(UnsupportedArgumentRule);
+        expect((error as UnsupportedArgumentRule).payload).to.deep.equal({ rule: "text" });
     });
 
     it("refuses a second argument that is not a number", function () {

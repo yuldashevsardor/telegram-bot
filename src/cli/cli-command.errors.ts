@@ -20,3 +20,9 @@ export class InvalidCommandArguments extends RuntimeError {
         });
     }
 }
+
+export class UnsupportedArgumentRule extends RuntimeError {
+    public static of(rule: unknown): UnsupportedArgumentRule {
+        return new UnsupportedArgumentRule(`There is no rule to read an argument by "${String(rule)}".`, { rule: String(rule) });
+    }
+}

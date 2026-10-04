@@ -15,7 +15,10 @@ export class InboxSkipCommand implements CliCommand {
     ) {}
 
     public async run(args: readonly string[]): Promise<void> {
-        const groupKey = ArgumentsHelper.parse(args, { userId: ArgumentRule.Integer, chatId: ArgumentRule.Integer });
+        const groupKey = ArgumentsHelper.parse(args, [
+            { name: "userId", rule: ArgumentRule.Integer },
+            { name: "chatId", rule: ArgumentRule.Integer },
+        ]);
         const updateId = await this.store.skipBlockedGroup(groupKey);
 
         this.logger.info("Inbox group is unblocked: its failed update is skipped.", { ...groupKey, updateId: updateId });

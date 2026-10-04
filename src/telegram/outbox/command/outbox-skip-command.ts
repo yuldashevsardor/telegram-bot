@@ -15,7 +15,7 @@ export class OutboxSkipCommand implements CliCommand {
     ) {}
 
     public async run(args: readonly string[]): Promise<void> {
-        const { chatId } = ArgumentsHelper.parse(args, { chatId: ArgumentRule.Integer });
+        const { chatId } = ArgumentsHelper.parse(args, [{ name: "chatId", rule: ArgumentRule.Integer }]);
         const messageId = await this.store.skipBlockedChat(chatId);
 
         this.logger.info("Outbox chat is unblocked: its failed message is skipped.", { chatId: chatId, messageId: messageId });
