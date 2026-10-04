@@ -28,9 +28,9 @@ The runtime sequences live in the files of their subsystems:
 - [`outbox-load-test.md`](./outbox-load-test.md) — the outbox store measured on 100 M messages:
   how to run the test, the data, the threshold, the times and the plans, the verdict
 - [`inbox.md`](./inbox.md) — the inbox of incoming updates in PostgreSQL being built: the tables,
-  the group, the group states, push without duplicates, the claim, the lease and the completions,
-  the error classes of a failed handler, the outcomes, the lease recovery, unblocking a group and
-  the cleanup
+  the group, the group states, push without duplicates, the claim, the lease with its extension and
+  the completions, the ready notifications, the error classes of a failed handler, the outcomes,
+  the lease recovery, the release on stop, unblocking a group and the cleanup
 - [`font-convertor.md`](./font-convertor.md) — format pairs, the EOT codec, signatures, the SVG,
   WOFF, WOFF2, EOT and sfnt validators, running the engine
 - [`user.md`](./user.md) — the entity, the repository, filling the context

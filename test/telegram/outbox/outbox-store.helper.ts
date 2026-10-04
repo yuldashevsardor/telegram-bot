@@ -1,5 +1,6 @@
 import { expect } from "chai";
 import type { Database } from "app/platform/database/database";
+import type { InboxChannel } from "app/telegram/inbox/store/inbox-store.types";
 import type { OutboxChannel } from "app/telegram/outbox/store/outbox-store.types";
 import { sleep } from "app/shared/utils";
 
@@ -8,7 +9,7 @@ import { sleep } from "app/shared/utils";
 export const NOTIFICATION_DEADLINE_MS = 5_000;
 
 // The payloads of the notifications of a channel, from the moment the listening starts.
-export async function listenTo(database: Database, channel: OutboxChannel): Promise<string[]> {
+export async function listenTo(database: Database, channel: OutboxChannel | InboxChannel): Promise<string[]> {
     const payloads: string[] = [];
     await database.sql.listen(channel, (payload) => payloads.push(payload));
 
