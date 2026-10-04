@@ -398,6 +398,13 @@ The rules are `Woff2Rule` in `woff2-font-validator.types.ts`, each with its sect
 - a transformed `hmtx` follows `glyf` and `hhea` in the table directory: §5.4 sets no order, but the
   decoder rebuilds the tables in directory order and reads `numberOfHMetrics` when it reaches
   `hhea`, so before either one it has nothing gathered and refuses the file;
+- `origLength` of a transformed `hmtx` is at most the rebuilt table's length padded to 4 bytes: the
+  decoder takes the length of every table of the sfnt from `origLength` and, unlike for `glyf` and
+  `loca`, does not replace it for `hmtx`, then refuses the file when the padded table ends past the
+  sfnt it has written. `woff2_decompress` 1.0.2 refuses the fixture with the `hmtx` transform and
+  `origLength` 5185 against 5184 rebuilt bytes. A smaller `origLength` passes the decoder and is not
+  this rule's: it leaves a table record shorter than the bytes written, which the sfnt validator
+  would have to catch ([#737](https://github.com/yuldashevsardor/telegram-bot/issues/737));
 - the compressed data that ends the file is padded to a 4-byte boundary: the standard asks for the
   padding only where the metadata or the private block follows, but the decoder refuses a file that
   ends before the boundary, and fontforge crashes on the fixture cut by its 3 padding bytes;
