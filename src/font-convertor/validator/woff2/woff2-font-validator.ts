@@ -885,6 +885,10 @@ export class Woff2FontValidator implements FontValidator {
         const transformedHmtx = hmtx?.entry.transformLength === undefined ? undefined : this.transformedHmtx(fontPath, hmtx.bytes, tables);
         const reconstructed = reconstructor.reconstruct(transformedHmtx);
 
+        if (hmtx !== undefined && reconstructed.hmtx !== undefined) {
+            this.checkHmtxOrigLength(fontPath, hmtx.entry, reconstructed.hmtx);
+        }
+
         return tables.map((table) => ({ tag: table.entry.tag, bytes: this.rebuiltBytes(table, reconstructed) }));
     }
 
@@ -902,6 +906,26 @@ export class Woff2FontValidator implements FontValidator {
                 return reconstructed.hmtx ?? table.bytes;
             default:
                 return table.bytes;
+        }
+    }
+
+    /**
+     * The decoder takes the length of every table of the sfnt from origLength, and for a transformed
+     * hmtx does not replace it with the rebuilt length, as it does for glyf and loca. It refuses the
+     * file when a table, padded, ends past the sfnt it has written (`ReconstructFont()` in
+     * `woff2_dec.cc` 1.0.2). A shorter origLength passes it: that is the sfnt validator's to catch.
+     */
+    private checkHmtxOrigLength(fontPath: string, hmtxEntry: TableEntry, rebuiltHmtx: Uint8Array): void {
+        const maxOrigLengthBytes = NumberHelper.roundUp(rebuiltHmtx.length, Woff2FontValidator.ALIGNMENT_BYTES);
+
+        if (hmtxEntry.origLength > maxOrigLengthBytes) {
+            throw BrokenWoff2.byRule(fontPath, {
+                rule: Woff2Rule.HmtxOrigLength,
+                at: BrokenWoff2.tableName(TableTag.Hmtx),
+                field: "origLength",
+                value: hmtxEntry.origLength,
+                expected: `at most ${maxOrigLengthBytes}, the rebuilt length ${rebuiltHmtx.length} padded to ${Woff2FontValidator.ALIGNMENT_BYTES} bytes`,
+            });
         }
     }
 
