@@ -1,20 +1,22 @@
 import { expect } from "chai";
 import type { CliCommand } from "app/cli/cli-command";
-import type { QueueCommandResolver } from "app/cli/cli-command.types";
 import { CliCommandResolver } from "app/cli/cli-command-resolver";
 import { UnknownCommand } from "app/cli/cli-command.errors";
+import { TelegramQueueCommandResolver } from "app/cli/telegram/queue-command-resolver";
 
 const OUTBOX_COMMAND: CliCommand = { run: async () => undefined };
 const INBOX_COMMAND: CliCommand = { run: async () => undefined };
 
 type ResolveCall = { action: string | undefined; args: readonly string[] };
 
-class RecordingResolver implements QueueCommandResolver {
+class RecordingResolver extends TelegramQueueCommandResolver {
     public readonly calls: ResolveCall[] = [];
 
-    public constructor(private readonly command: CliCommand) {}
+    public constructor(private readonly command: CliCommand) {
+        super(command, command);
+    }
 
-    public resolve(action: string | undefined, args: readonly string[]): CliCommand {
+    public override resolve(action: string | undefined, args: readonly string[]): CliCommand {
         this.calls.push({ action, args });
 
         return this.command;

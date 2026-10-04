@@ -58,7 +58,6 @@ import { InboxStore } from "app/telegram/inbox/store/inbox-store";
 import { InboxFailureClassifier } from "app/telegram/inbox/failure-classifier/inbox-failure-classifier";
 import { InboxFailureHandler } from "app/telegram/inbox/inbox-failure-handler";
 import { CliCommandResolver } from "app/cli/cli-command-resolver";
-import { IdArgumentsValidator } from "app/cli/validators/id-arguments-validator";
 import { OutboxRetryCommand } from "app/telegram/outbox/command/outbox-retry-command";
 import { OutboxSkipCommand } from "app/telegram/outbox/command/outbox-skip-command";
 import { OutboxCommandResolver } from "app/telegram/outbox/command/outbox-command-resolver";
@@ -150,7 +149,6 @@ export class Container extends InversifyContainer {
 
         // The commands of `npm run cli`
         this.bind<CliCommandResolver>(Tokens.Cli.Resolver).to(CliCommandResolver).inSingletonScope();
-        this.bind<IdArgumentsValidator>(Tokens.Cli.IdArgumentsValidator).to(IdArgumentsValidator).inSingletonScope();
         this.bind<OutboxRetryCommand>(Tokens.Cli.Outbox.Retry).to(OutboxRetryCommand).inSingletonScope();
         this.bind<OutboxSkipCommand>(Tokens.Cli.Outbox.Skip).to(OutboxSkipCommand).inSingletonScope();
         this.bind<OutboxCommandResolver>(Tokens.Cli.Outbox.Resolver).to(OutboxCommandResolver).inSingletonScope();

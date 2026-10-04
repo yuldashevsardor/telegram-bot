@@ -111,7 +111,6 @@ export const Tokens = {
     // and the check of their arguments.
     Cli: {
         Resolver: Symbol.for("CliResolver"),
-        IdArgumentsValidator: Symbol.for("CliIdArgumentsValidator"),
         Outbox: {
             Retry: Symbol.for("CliOutboxRetry"),
             Skip: Symbol.for("CliOutboxSkip"),

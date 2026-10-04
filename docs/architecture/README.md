@@ -137,7 +137,7 @@ the whole repository.
 src/
   app.ts                    entry point: new Application(), signals, fail()
   cli.ts                    entry point of `npm run cli`: the container without the bot, one command by the arguments (outbox.md)
-  cli/                      what `npm run cli` runs: the CliCommand contract, the first-level resolver, the base of the queue resolvers, the id validator (validators/); the commands lie with their queue (outbox.md)
+  cli/                      what `npm run cli` runs: the CliCommand contract, the first-level resolver, the id helper, the base of the queue resolvers (telegram/); the commands lie with their queue (outbox.md)
   font-convertor/           font conversion (font-convertor.md)
   telegram/                 grammY: commands, conversations, middleware, filters, session, locales (bot.md, i18n.md)
     user/                   the entity, the repository interface, the service, the PostgreSQL adapter (user.md)

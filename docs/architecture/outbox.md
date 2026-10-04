@@ -453,11 +453,12 @@ in both orders.
 The targets run `npm run cli` (`src/cli.ts`) in a throwaway container that brings up the container
 of the application without the bot. `CliCommandResolver` (`src/cli/`) takes the queue off the
 arguments and gives them to the resolver of that queue, `OutboxCommandResolver` or
-`InboxCommandResolver`, which picks the command by its action: `OutboxRetryCommand`,
+`InboxCommandResolver` (both extend `TelegramQueueCommandResolver`, `cli/telegram/`), which picks
+the command by its action: `OutboxRetryCommand`,
 `OutboxSkipCommand` and their inbox counterparts (`telegram/outbox/command/`,
 `telegram/inbox/command/`). The rest of the arguments go to the command, which has them read by
-`IdArgumentsValidator` (`cli/validators/`): the same for every command, each naming the ids it
-expects. A command with other arguments gets a validator of its own. The command logs the message
+`IdArgumentsHelper` (`cli/`): the same for every command, each naming the ids it expects. A command
+with other arguments gets a check of its own. The command logs the message
 it took at `info`. The blocked chats of the outbox are the rows of `telegram_outbox_chats` in the
 state `blocked`, and the store logs each block at `error` with the chat and the message
 (`make psql` reads them). The same two targets for the inbox are in
