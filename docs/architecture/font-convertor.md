@@ -152,7 +152,8 @@ turn the check into a search for the marker anywhere.
 (`font-convertor/sfnt-table-directory/`), which checks the header size and the version and holds
 the records by tag and in the order of the directory. It lies outside `eot-packer/` because the
 codec is not its only reader: a second parse of the same directory would be a second copy of one
-format rule. The validator checks the header before the directory parses it: the directory rejects
+format rule. Its static `writeHeader()` writes the header of the sfnt that `WoffFontValidator` and
+`Woff2FontValidator` rebuild in memory, so the search fields have one implementation too. The validator checks the header before the directory parses it: the directory rejects
 a short file or an unknown version with the codec's `InvalidSfnt`, while the validator names the
 rule broken.
 

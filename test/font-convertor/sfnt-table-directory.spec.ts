@@ -118,6 +118,43 @@ describe("SfntTableDirectory", function () {
         expectThrows(() => new SfntTableDirectory(patch(ttf, (view) => view.setUint16(TABLE_COUNT_OFFSET, 0xffff))));
     });
 
+    describe("writeHeader", function () {
+        // [tables, searchRange, entrySelector, rangeShift]: the largest power of 2 not above the count, times 16.
+        const headers: ReadonlyArray<[number, number, number, number]> = [
+            [1, 16, 0, 0],
+            [2, 32, 1, 0],
+            [13, 128, 3, 80],
+            [16, 256, 4, 0],
+        ];
+
+        for (const [tableCount, searchRange, entrySelector, rangeShift] of headers) {
+            it(`writes the version, the count and the search fields for ${tableCount} tables`, function () {
+                const sfnt = new Uint8Array(HEADER_SIZE_BYTES);
+
+                SfntTableDirectory.writeHeader(sfnt, 0x00010000, tableCount);
+
+                const view = new DataView(sfnt.buffer);
+
+                expect([view.getUint32(0), view.getUint16(4), view.getUint16(6), view.getUint16(8), view.getUint16(10)]).to.deep.equal([
+                    0x00010000,
+                    tableCount,
+                    searchRange,
+                    entrySelector,
+                    rangeShift,
+                ]);
+            });
+        }
+
+        it("writes into a view of a larger buffer at the offset of the view", function () {
+            const buffer = new Uint8Array(HEADER_SIZE_BYTES + 2);
+
+            SfntTableDirectory.writeHeader(buffer.subarray(2), 0x4f54544f, 3);
+
+            expect(new DataView(buffer.buffer).getUint32(2)).to.equal(0x4f54544f);
+            expect(buffer.subarray(0, 2)).to.deep.equal(Uint8Array.from([0, 0]));
+        });
+    });
+
     function expectHeadRecord(bytes: Uint8Array): void {
         const head = new SfntTableDirectory(bytes).find("head");
 

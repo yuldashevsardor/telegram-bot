@@ -1013,20 +1013,9 @@ export class Woff2FontValidator implements FontValidator {
         const directorySizeBytes = SfntTableDirectory.HEADER_SIZE_BYTES + tables.length * SfntTableDirectory.RECORD_SIZE_BYTES;
         const rebuiltSfnt = new Uint8Array(this.sfntSizeBytes(tables));
         const view = new DataView(rebuiltSfnt.buffer);
-        const headerFields = SfntTableDirectory.HEADER_FIELD_OFFSETS_BYTES;
         const recordSizeBytes = SfntTableDirectory.RECORD_SIZE_BYTES;
-        // entrySelector is the exponent of the largest power of 2 not greater than numTables, and
-        // searchRange is that power of 2 times the record size, in bytes. From 4096 tables on it does
-        // not fit its 16 bits and setUint16 wraps it: OpenType gives no value for that case, and
-        // SfntFontValidator does not read the field.
-        const entrySelector = Math.floor(Math.log2(tables.length));
-        const searchRangeBytes = (1 << entrySelector) * recordSizeBytes;
 
-        view.setUint32(headerFields.version, flavor);
-        view.setUint16(headerFields.numTables, tables.length);
-        view.setUint16(headerFields.searchRange, searchRangeBytes);
-        view.setUint16(headerFields.entrySelector, entrySelector);
-        view.setUint16(headerFields.rangeShift, tables.length * recordSizeBytes - searchRangeBytes);
+        SfntTableDirectory.writeHeader(rebuiltSfnt, flavor, tables.length);
 
         const recordFields = SfntTableDirectory.RECORD_FIELD_OFFSETS_BYTES;
         const inTagOrder = tables.toSorted((left, right) =>
