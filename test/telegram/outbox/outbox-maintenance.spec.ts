@@ -26,16 +26,26 @@ class FakeStore {
     public finishedMessagesCalls = 0;
     public idleChatsCalls = 0;
     public onDeleteFinishedMessages: () => void = () => {};
+    public finishedMessagesError: unknown = undefined;
+    public idleChatsError: unknown = undefined;
 
     public async deleteFinishedMessages(): Promise<number> {
         this.finishedMessagesCalls += 1;
         this.onDeleteFinishedMessages();
+
+        if (this.finishedMessagesError !== undefined) {
+            throw this.finishedMessagesError;
+        }
 
         return this.finishedMessagesDeleted.shift() ?? 0;
     }
 
     public async deleteIdleChats(): Promise<number> {
         this.idleChatsCalls += 1;
+
+        if (this.idleChatsError !== undefined) {
+            throw this.idleChatsError;
+        }
 
         return this.idleChatsDeleted.shift() ?? 0;
     }
@@ -136,6 +146,32 @@ describe("OutboxMaintenance", function () {
         expect(logger.errors[0]).to.deep.equal({
             message: "An outbox maintenance task failed, its next run tries again.",
             payload: { task: "recoverLeases", cause: error },
+        });
+    });
+
+    it("names the failed cleanup of the finished messages in the log", async function () {
+        const error = new Error("connection lost");
+        store.finishedMessagesError = error;
+        start({ leaseRecoveryIntervalMs: LONG_INTERVAL_MS, cleanupIntervalMs: SHORT_INTERVAL_MS });
+
+        await waitUntil(() => logger.errors.length > 0, "the failure of the cleanup was expected to be logged");
+
+        expect(logger.errors[0]).to.deep.equal({
+            message: "An outbox maintenance task failed, its next run tries again.",
+            payload: { task: "deleteFinishedMessages", cause: error },
+        });
+    });
+
+    it("names the failed cleanup of the idle chats in the log", async function () {
+        const error = new Error("connection lost");
+        store.idleChatsError = error;
+        start({ leaseRecoveryIntervalMs: LONG_INTERVAL_MS, cleanupIntervalMs: SHORT_INTERVAL_MS });
+
+        await waitUntil(() => logger.errors.length > 0, "the failure of the cleanup was expected to be logged");
+
+        expect(logger.errors[0]).to.deep.equal({
+            message: "An outbox maintenance task failed, its next run tries again.",
+            payload: { task: "deleteIdleChats", cause: error },
         });
     });
 

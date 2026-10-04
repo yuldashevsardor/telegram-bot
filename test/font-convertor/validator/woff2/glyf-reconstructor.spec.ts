@@ -2,7 +2,7 @@ import { expect } from "chai";
 import crypto from "crypto";
 import { GlyfReconstructor } from "app/font-convertor/validator/woff2/glyf-reconstructor";
 import { BrokenWoff2 } from "app/font-convertor/validator/woff2/woff2-font-validator.errors";
-import type { GlyfParts } from "test/font-convertor/validator/woff2/woff2-font-validator.helper";
+import type { GlyfParts, GlyfStream } from "test/font-convertor/validator/woff2/woff2-font-validator.helper";
 import {
     composite,
     concat,
@@ -79,6 +79,20 @@ const FIRST_GLYPH_SIZE_BYTES = 65552;
 const TWO_GLYPHS_BBOX_BITMAP_SIZE_BYTES = 4;
 const LONG_LOCA_FORMAT = 1;
 const SHORT_LOCA_FORMAT = 0;
+// A bboxBitmap of one glyph is one 32-bit word; its first bit, the most significant of the first
+// byte, is that of glyph 0.
+const ONE_GLYPH_BBOX_BITMAP_SET = Uint8Array.from([0x80, 0x00, 0x00, 0x00]);
+const ONE_GLYPH_BBOX_BITMAP_CLEAR = new Uint8Array(4);
+const EXPLICIT_BOUNDING_BOX = Uint8Array.from([0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04]);
+// The most glyphs a bboxBitmap of one 32-bit word holds.
+const ONE_WORD_BITMAP_GLYPH_COUNT = 32;
+// §5.2 flag 124 is the first of the four-byte triplets; its bit 0 and bit 1 of its kind are clear: a
+// negative dx and dy. The bytes 0x01 0x02 and 0x03 0x04 are 258 and 772.
+const FIRST_FOUR_BYTE_TRIPLET_FLAG = 124;
+// numberOfContours and the 8 bytes of the bounding box.
+const BOUNDING_BOX_END_BYTES = 10;
+// A transformed hmtx of 1296 glyphs that keeps one word per glyph: the flags byte and 1296 words, a byte short.
+const SHORT_HMTX_SIZE_BYTES = 1 + 2 * FIXTURE_NUM_GLYPHS - 1;
 
 describe("GlyfReconstructor.reconstruct", function () {
     let glyf: Uint8Array;
@@ -270,6 +284,85 @@ describe("GlyfReconstructor.reconstruct", function () {
         expect(locaOffsets(reconstructed.loca, 4)).to.deep.equal([0, FIRST_GLYPH_SIZE_BYTES, OVERFLOWING_GLYF_SIZE_BYTES]);
     });
 
+    it("rebuilds a bboxBitmap of 32 glyphs as one word, not two", function () {
+        // ⌊(32 + 31) / 32⌋ = 1 word of 4 bytes: a bboxStream of just that word holds the bitmap.
+        const emptyGlyphs = glyfOf(ONE_WORD_BITMAP_GLYPH_COUNT, {
+            nContour: new Uint8Array(ONE_WORD_BITMAP_GLYPH_COUNT * UINT16_SIZE_BYTES),
+            bbox: ONE_GLYPH_BBOX_BITMAP_CLEAR,
+        });
+        const reconstructed = new GlyfReconstructor(FONT_PATH, emptyGlyphs).reconstruct(undefined);
+
+        expect(reconstructed.glyf).to.have.lengthOf(0);
+        expect(reconstructed.loca).to.deep.equal(new Uint8Array((ONE_WORD_BITMAP_GLYPH_COUNT + 1) * FOUR_BYTE_TRIPLET_SIZE_BYTES));
+    });
+
+    it("decodes flag 124 as a dx and a dy of 16 bits each in four bytes", function () {
+        // One simple glyph of one point: dx = -(0x0102), dy = -(0x0304); instructionLength 0 follows.
+        const glyph = glyfOf(1, {
+            nContour: Uint8Array.from([0x00, 0x01]),
+            nPoints: Uint8Array.from([1]),
+            flag: Uint8Array.from([FIRST_FOUR_BYTE_TRIPLET_FLAG]),
+            glyph: Uint8Array.from([0x01, 0x02, 0x03, 0x04, 0x00]),
+            bbox: ONE_GLYPH_BBOX_BITMAP_CLEAR,
+        });
+        const reconstructed = new GlyfReconstructor(FONT_PATH, glyph).reconstruct(undefined);
+
+        // xMin, yMin, xMax and yMax of the only point: x −258 = 0xfefe, y −772 = 0xfcfc.
+        expect(reconstructed.glyf.subarray(UINT16_SIZE_BYTES, BOUNDING_BOX_END_BYTES)).to.deep.equal(
+            Uint8Array.from([0xfe, 0xfe, 0xfc, 0xfc, 0xfe, 0xfe, 0xfc, 0xfc]),
+        );
+    });
+
+    describe("names the substream and what it was read for when a glyph record runs past it", function () {
+        const simpleGlyph = {
+            nContour: Uint8Array.from([0x00, 0x01]),
+            nPoints: Uint8Array.from([1]),
+            flag: Uint8Array.from([DX_ONLY_FLAG]),
+        };
+        // WE_HAVE_INSTRUCTIONS, ARGS_ARE_XY_VALUES; glyph 5; dx 0, dy 0.
+        const instructedComponent = Uint8Array.from([0x01, 0x02, 0x00, 0x05, 0x00, 0x00]);
+        const compositeNContour = Uint8Array.from([0xff, 0xff]);
+
+        function expectBroken(streams: Partial<Record<GlyfStream, Uint8Array>>, message: string): void {
+            expect(() => new GlyfReconstructor(FONT_PATH, glyfOf(1, streams)).reconstruct(undefined)).to.throw(
+                BrokenWoff2,
+                `At glyph 0 of table "glyf": ${message}`,
+            );
+        }
+
+        it("for the instructionLength of a simple glyph", function () {
+            expectBroken(
+                { ...simpleGlyph, glyph: Uint8Array.from([5]), bbox: ONE_GLYPH_BBOX_BITMAP_CLEAR },
+                "bytes left in glyphStream is 0, expected at least 1, for instructionLength.",
+            );
+        });
+
+        it("for the flags of a component", function () {
+            expectBroken(
+                { nContour: compositeNContour, bbox: ONE_GLYPH_BBOX_BITMAP_SET },
+                "bytes left in compositeStream is 0, expected at least 2, for the flags of component 1.",
+            );
+        });
+
+        it("for the bounding box of a composite glyph", function () {
+            expectBroken(
+                { nContour: compositeNContour, composite: instructedComponent, bbox: ONE_GLYPH_BBOX_BITMAP_SET },
+                "bytes left in bboxStream is 0, expected at least 8, for the bounding box.",
+            );
+        });
+
+        it("for the instructionLength of a composite glyph", function () {
+            expectBroken(
+                {
+                    nContour: compositeNContour,
+                    composite: instructedComponent,
+                    bbox: concat(ONE_GLYPH_BBOX_BITMAP_SET, EXPLICIT_BOUNDING_BOX),
+                },
+                "bytes left in glyphStream is 0, expected at least 1, for instructionLength.",
+            );
+        });
+    });
+
     describe("rebuilds hmtx from the advance widths and the xMin of the glyphs", function () {
         // The lsb of every glyph of the fixture equal its xMin, so the fixture's own hmtx is what any
         // flags rebuild; a stored lsb is set 1 off it to tell which source a value came from.
@@ -280,6 +373,36 @@ describe("GlyfReconstructor.reconstruct", function () {
 
                 expect(reconstructed.hmtx).to.deep.equal(hmtx);
             }
+        });
+
+        it("for a single proportional glyph, numberOfHMetrics 1", function () {
+            const [firstMetric = new Uint8Array(0)] = metrics(hmtx);
+            const advanceWidth = firstMetric.subarray(0, 2);
+            const reconstructed = new GlyfReconstructor(FONT_PATH, glyf).reconstruct({
+                bytes: concat(Uint8Array.from([0x03]), advanceWidth),
+                hhea: withUint16(hhea, HHEA_NUMBER_OF_H_METRICS, 1),
+            });
+
+            expect(reconstructed.hmtx).to.deep.equal(concat(advanceWidth, ...metrics(hmtx).map((metric) => metric.subarray(2, 4))));
+        });
+
+        it("rejecting a table too short for the lsb of its monospaced glyphs", function () {
+            // Flags 1 drop lsb[] of the 1000 proportional glyphs and keep leftSideBearing[] of the other 296.
+            const shortHmtx = new Uint8Array(SHORT_HMTX_SIZE_BYTES);
+
+            shortHmtx[0] = 0x01;
+
+            expect(() =>
+                new GlyfReconstructor(FONT_PATH, glyf).reconstruct({
+                    bytes: shortHmtx,
+                    hhea: withUint16(hhea, HHEA_NUMBER_OF_H_METRICS, 1000),
+                }),
+            ).to.throw(
+                BrokenWoff2,
+                `At table "hmtx": transformLength is ${SHORT_HMTX_SIZE_BYTES}, expected at least ${
+                    SHORT_HMTX_SIZE_BYTES + 1
+                }, for flags 1 and numberOfHMetrics 1000.`,
+            );
         });
 
         it("taking each array of lsb from the table unless its flag drops it", function () {
@@ -336,6 +459,29 @@ describe("GlyfReconstructor.reconstruct", function () {
         });
     });
 });
+
+const EMPTY_STREAMS: Record<GlyfStream, Uint8Array> = {
+    nContour: new Uint8Array(0),
+    nPoints: new Uint8Array(0),
+    flag: new Uint8Array(0),
+    glyph: new Uint8Array(0),
+    composite: new Uint8Array(0),
+    bbox: new Uint8Array(0),
+    instruction: new Uint8Array(0),
+};
+
+/**
+ * A transformed glyf of `numGlyphs` glyphs whose substreams are the given ones, the rest empty, with the long loca.
+ */
+function glyfOf(numGlyphs: number, streams: Partial<Record<GlyfStream, Uint8Array>>): Uint8Array {
+    const header = withUint16(
+        withUint16(new Uint8Array(GLYF_N_CONTOUR_STREAM_SIZE), GLYF_NUM_GLYPHS, numGlyphs),
+        GLYF_INDEX_FORMAT,
+        LONG_LOCA_FORMAT,
+    );
+
+    return joinGlyf({ header: header, streams: { ...EMPTY_STREAMS, ...streams }, tail: new Uint8Array(0) });
+}
 
 function locaOffsets(loca: Uint8Array, offsetSizeBytes: number): Array<number> {
     const view = new DataView(loca.buffer, loca.byteOffset, loca.byteLength);

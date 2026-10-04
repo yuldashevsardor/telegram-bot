@@ -61,6 +61,7 @@ export class OutboxMaintenance {
             clearTimeout(timer);
         }
 
+        // Stryker disable next-line CallExpression: `;` (the call deleted) is equivalent: nothing reads the set after the stop: schedule() returns on isStopped and the cleared timers never fire.
         this.timers.clear();
         await Promise.all(this.runsInProgress);
     }
@@ -71,8 +72,10 @@ export class OutboxMaintenance {
         }
 
         const timer = setTimeout(() => {
+            // Stryker disable next-line CallExpression: `;` (the call deleted) is equivalent: stop() reads the set only to clear its timers, and clearing a timer that has fired does nothing, so what the call keeps out is the growth of the set by one entry per run, which only a read of the private set sees
             this.timers.delete(timer);
             const runInProgress = this.runTask(task).finally(() => {
+                // Stryker disable next-line CallExpression: `;` (the call deleted) is equivalent: stop() reads the set only to await its runs, and a run that has settled is awaited at once, so what the call keeps out is the growth of the set by one entry per run, which only a read of the private set sees
                 this.runsInProgress.delete(runInProgress);
                 this.schedule(task);
             });

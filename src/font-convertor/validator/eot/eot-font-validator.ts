@@ -161,6 +161,7 @@ export class EotFontValidator implements FontValidator {
                 endOffset: tail.endOffset,
             };
         } catch (error) {
+            // Stryker disable next-line BlockStatement,ConditionalExpression: `{}` and `false` are unreachable: readNames() and readTail() guard every read with requireBytes() and throw InvalidEot only, so the rethrow is a guard against a future bug, and no input of the file reaches it
             if (!(error instanceof InvalidEot)) {
                 throw error;
             }
