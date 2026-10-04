@@ -6,6 +6,10 @@ import type { DatabaseSettings } from "app/platform/database/database.types";
 import { RuntimeError } from "app/shared/errors";
 import { sleep } from "app/shared/utils";
 
+// Longer than any lock wait of a passing run lasts, shorter than the timeout of the specs: a wait
+// that never comes fails with its own message.
+const LOCK_WAIT_DEADLINE_MS = 5_000;
+
 // The database of a run is created by test/database-hook.ts; why the name arrives in a variable
 // of its own rather than in DATABASE_NAME is there too.
 export function testDatabaseName(): string {
@@ -27,10 +31,6 @@ export async function testDatabaseSettings(): Promise<DatabaseSettings> {
 
     return { ...settings, database: testDatabaseName() };
 }
-
-// Longer than any lock wait of a passing run lasts, shorter than the timeout of the specs: a wait
-// that never comes fails with its own message.
-export const LOCK_WAIT_DEADLINE_MS = 5_000;
 
 // Waits until at least `count` queries of the database wait for a lock. The observer is a client of
 // its own: calls waiting for a lock hold connections of the spec's other clients, and a poll through
