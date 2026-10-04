@@ -618,6 +618,42 @@ describe("SvgFontValidator.validate", function () {
             });
         }
 
+        for (const element of ["glyph", "missing-glyph"]) {
+            it(`to d of ${element} with a point past the range of the converted font`, async function () {
+                // fontforge takes the outline without a word and writes another one: in a TTF
+                // `32768` wraps to -32768, and `70000` makes 4464.
+                const outline = "M0 0L70000 0L70000 700L0 700Z";
+                const glyphs: Record<string, string> = {
+                    glyph: `<glyph d="${outline}"/>`,
+                    "missing-glyph": `<missing-glyph d="${outline}"/>${GLYPH}`,
+                };
+
+                const error = await expectAnswer(
+                    inline(`<font horiz-adv-x="500">${FONT_FACE}${glyphs[element] as string}</font>`),
+                    BrokenFont,
+                    `SVG font breaks a rule: the points of d of a glyph or missing-glyph, and the shifts between neighbouring points, are within 32767 (ours: the converted font stores them in signed 16-bit fields). At line 2: <${element}> with d="${outline}".`,
+                );
+
+                expect(error.payload).to.deep.equal({
+                    path: fontPath,
+                    rule: FontRule.OutlineRange,
+                    element: element,
+                    line: 2,
+                    attribute: "d",
+                    value: outline,
+                    valueLength: outline.length,
+                });
+            });
+        }
+
+        it("to d that is not path data before the range of its points", async function () {
+            await expectAnswer(
+                inline(`<font horiz-adv-x="500">${FONT_FACE}<glyph d="M0 0L70000"/></font>`),
+                BrokenFont,
+                'SVG font breaks a rule: d of a glyph or missing-glyph is path data (SVG 1.1, §8.3.9, §20.4, §20.5). At line 2: <glyph> with d="M0 0L70000".',
+            );
+        });
+
         it("to a font without a font-face child", async function () {
             const message = "SVG font breaks a rule: font has a font-face child (SVG 1.1, §20.3). At line 2: <font>.";
 

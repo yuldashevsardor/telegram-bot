@@ -20,6 +20,7 @@ export enum FontRule {
     UnitsPerEmRange = "units-per-em is 16 to 16384 (ours: unitsPerEm of the OpenType head table)",
     FontFaceMetricRange = "ascent and descent of font-face are -32767 to 32767 (ours: fontforge writes them into signed 16-bit fields)",
     PathData = "d of a glyph or missing-glyph is path data (SVG 1.1, §8.3.9, §20.4, §20.5)",
+    OutlineRange = "the points of d of a glyph or missing-glyph, and the shifts between neighbouring points, are within 32767 (ours: the converted font stores them in signed 16-bit fields)",
     GlyphRequired = "font has a glyph child (ours: fontforge turns a font without glyphs into an empty one)",
     SingleFont = "the document has one font element (ours: fontforge converts the first of several and drops the rest)",
     SvgNamespaceOnly = "the name of a font node is given only to an element in the SVG namespace (ours: fontforge reads a node of that name in any namespace, and a processing instruction by its target)",
