@@ -226,7 +226,10 @@ export class Woff2FontValidator implements FontValidator {
 
         const tables = await this.decompressedTables(woff2);
 
-        this.sfntFontValidator.validateBytes(fontPath, this.sfnt(fontPath, header.flavor, this.sfntTables(fontPath, tables)));
+        const sfntTables = this.sfntTables(fontPath, tables);
+
+        this.checkSfntSize(fontPath, sfntTables);
+        this.sfntFontValidator.validateBytes(fontPath, this.sfnt(header.flavor, sfntTables));
     }
 
     private readHeader(view: DataView): Woff2Header {
@@ -973,19 +976,11 @@ export class Woff2FontValidator implements FontValidator {
     }
 
     /**
-     * The sfnt the decoder writes (`ReconstructFont()` in `woff2_dec.cc` 1.0.2), as §5 of
-     * OpenType describes it: the flavor as the version, the directory in ascending tag order (§2 of
-     * WOFF 2.0 asks the decoder to sort it), each table at the next 4-byte boundary after the
-     * one before it, padded with zeros. The records carry no checksum. The size is capped before
-     * the buffer is allocated.
+     * The size of the sfnt the decoder writes: the 12-byte header, a 16-byte table record per
+     * table, then each table padded to 4 bytes (`ReconstructFont()` in `woff2_dec.cc` 1.0.2).
      */
-    private sfnt(fontPath: string, flavor: number, tables: ReadonlyArray<SfntTable>): Uint8Array {
-        const directorySizeBytes = SfntTableDirectory.HEADER_SIZE_BYTES + tables.length * SfntTableDirectory.RECORD_SIZE_BYTES;
-        let sfntSizeBytes = directorySizeBytes;
-
-        for (const table of tables) {
-            sfntSizeBytes += NumberHelper.roundUp(table.lengthBytes, Woff2FontValidator.SFNT_TABLE_ALIGNMENT_BYTES);
-        }
+    private checkSfntSize(fontPath: string, tables: ReadonlyArray<SfntTable>): void {
+        const sfntSizeBytes = this.sfntSizeBytes(tables);
 
         if (sfntSizeBytes > Woff2FontValidator.DECODER_BUFFER_SIZE_BYTES) {
             throw BrokenWoff2.byRule(fontPath, {
@@ -996,8 +991,27 @@ export class Woff2FontValidator implements FontValidator {
                 expected: `at most ${Woff2FontValidator.DECODER_BUFFER_SIZE_BYTES}`,
             });
         }
+    }
 
-        const rebuiltSfnt = new Uint8Array(sfntSizeBytes);
+    private sfntSizeBytes(tables: ReadonlyArray<SfntTable>): number {
+        let sfntSizeBytes = SfntTableDirectory.HEADER_SIZE_BYTES + tables.length * SfntTableDirectory.RECORD_SIZE_BYTES;
+
+        for (const table of tables) {
+            sfntSizeBytes += NumberHelper.roundUp(table.lengthBytes, Woff2FontValidator.SFNT_TABLE_ALIGNMENT_BYTES);
+        }
+
+        return sfntSizeBytes;
+    }
+
+    /**
+     * The sfnt the decoder writes, as §5 of OpenType describes it: the flavor as the version, the
+     * directory in ascending tag order (§2 of WOFF 2.0 asks the decoder to sort it), each table at
+     * the next 4-byte boundary after the one before it, padded with zeros. The records carry no
+     * checksum.
+     */
+    private sfnt(flavor: number, tables: ReadonlyArray<SfntTable>): Uint8Array {
+        const directorySizeBytes = SfntTableDirectory.HEADER_SIZE_BYTES + tables.length * SfntTableDirectory.RECORD_SIZE_BYTES;
+        const rebuiltSfnt = new Uint8Array(this.sfntSizeBytes(tables));
         const view = new DataView(rebuiltSfnt.buffer);
         const headerFields = SfntTableDirectory.HEADER_FIELD_OFFSETS_BYTES;
         const recordSizeBytes = SfntTableDirectory.RECORD_SIZE_BYTES;
@@ -1006,7 +1020,7 @@ export class Woff2FontValidator implements FontValidator {
         // not fit its 16 bits and setUint16 wraps it: OpenType gives no value for that case, and
         // SfntFontValidator does not read the field.
         const entrySelector = Math.floor(Math.log2(tables.length));
-        const searchRangeBytes = 2 ** entrySelector * recordSizeBytes;
+        const searchRangeBytes = (1 << entrySelector) * recordSizeBytes;
 
         view.setUint32(headerFields.version, flavor);
         view.setUint16(headerFields.numTables, tables.length);
@@ -1015,7 +1029,9 @@ export class Woff2FontValidator implements FontValidator {
         view.setUint16(headerFields.rangeShift, tables.length * recordSizeBytes - searchRangeBytes);
 
         const recordFields = SfntTableDirectory.RECORD_FIELD_OFFSETS_BYTES;
-        const inTagOrder = tables.toSorted((left, right) => (left.tag < right.tag ? -1 : 1));
+        const inTagOrder = tables.toSorted((left, right) =>
+            Buffer.compare(Buffer.from(left.tag, "latin1"), Buffer.from(right.tag, "latin1")),
+        );
         let tableOffsetBytes = directorySizeBytes;
 
         inTagOrder.forEach((table, index) => {

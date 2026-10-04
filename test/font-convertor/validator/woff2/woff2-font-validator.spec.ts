@@ -1311,6 +1311,17 @@ describe("Woff2FontValidator.validate", function () {
             );
         });
 
+        it("rejects a hmtx whose origLength cuts the rebuilt table, as the record of the sfnt carries it", async function () {
+            // The decoder keeps origLength as the length of the table it writes, so the record is shorter than the rebuilt bytes.
+            const layout = withEntry(withHmtxTransform(fixtureLayout, 0x01), "hmtx", (entry) => ({ ...entry, origLength: 5180 }));
+
+            await expectBrokenSfnt(
+                build(layout),
+                SfntRule.HmtxLength,
+                'At table "hmtx": length is 5180, expected at least 5184 for hMetrics[1296] and leftSideBearings[0].',
+            );
+        });
+
         it("rejects hhea.numberOfHMetrics of 0", async function () {
             await expectBrokenSfnt(
                 build(withNumberOfHMetrics(fixtureLayout, 0)),
