@@ -3,6 +3,7 @@ import type { Logger } from "app/platform/logger/logger";
 import { Tokens } from "app/shared/tokens";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxPullResult, OutboxWorker, PulledOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
+import type { WorkItemSource } from "app/telegram/worker-loop/work-item-source";
 
 // The runner asks for the next message only once it has a free slot.
 const PULL_LIMIT = 1;
@@ -16,7 +17,7 @@ const MAX_SLEEP_CAP_MS = 1_000;
 // when there is nothing to pull. The source serves one generator only (docs/architecture/outbox.md,
 // "The message source").
 @injectable()
-export class OutboxMessageSource {
+export class OutboxMessageSource implements WorkItemSource<PulledOutboxMessage> {
     private isStopped = false;
     // Counts the ready notifications: a notification that comes while the generator pulls finds it
     // awake, and the pull may have read the tables before the push it announces committed.

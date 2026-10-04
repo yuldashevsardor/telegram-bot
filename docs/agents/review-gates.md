@@ -151,9 +151,9 @@ rules is a judgement, not such a sign. That is why `src/telegram/outbound-queue/
 `src/telegram/outbox/`, `src/telegram/worker-loop/` and `src/telegram/bot-api-failure-classifier/`
 are in the list while the rest of `src/telegram/` is not: they hold the algorithm of the queue, of
 the outbox and of the worker loop and the rules of which failed call is which class, not a wrapper
-around grammY. The list is an allowlist
-on purpose, and that has a price: a new or moved module with rules drops out of the gate silently
-until it is written in here. The PR that creates or moves the module writes it in.
+around grammY. The list is an allowlist on purpose, and that has a price: a new or moved module
+with rules drops out of the gate silently until it is written in here. The PR that creates or moves
+the module writes it in.
 
 The level is built into the gate's name: the skill calls the built-in `code-review` with it.
 `bug-hunt-high` and `bug-hunt-medium` are a pair of rows that does not accumulate: there is

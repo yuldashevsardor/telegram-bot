@@ -1,6 +1,8 @@
 import { injectable } from "inversify";
 import { withTimeout } from "app/shared/utils";
-import type { LoopWorker, WorkItemProcessor, WorkItemSource } from "app/telegram/worker-loop/worker-loop.types";
+import type { WorkerIdentity } from "app/telegram/worker-loop/worker-loop.types";
+import type { WorkItemSource } from "app/telegram/worker-loop/work-item-source";
+import type { WorkItemProcessor } from "app/telegram/worker-loop/work-item-processor";
 
 // The work of a node: one loop over a number of slots, each processing one item at a time. The loop
 // writes no outcome: the processor does. A subclass names the source, the processor, the slots, the
@@ -13,10 +15,10 @@ export abstract class WorkerLoop<Item> {
     protected abstract readonly concurrency: number;
     // How long the stop waits for the items in flight before it aborts them.
     protected abstract readonly stopTimeoutMs: number;
-    protected abstract readonly worker: LoopWorker;
+    protected abstract readonly worker: WorkerIdentity;
 
     // An item in flight by the controller that aborts it; the promise settles once the processor has
-    // settled the item, and never rejects.
+    // settled the item, and rejects only if logUnfinished() throws.
     private readonly itemsInFlight = new Map<AbortController, Promise<void>>();
     // Ends the latest wait of a loop with every slot busy: an item that settles or the stop calls it,
     // and a call after the wait has ended changes nothing. One resolver per wait: a race with a
@@ -63,8 +65,8 @@ export abstract class WorkerLoop<Item> {
         await itemsSettled;
     }
 
-    // An item whose processing rejected: the processor wrote no outcome. Must not throw: the stop
-    // would reject with it.
+    // An item whose processing rejected: the processor wrote no outcome. Must not throw: the item
+    // would reject unhandled, which app.ts logs at critical and ends the process with.
     protected abstract logUnfinished(item: Item, error: unknown): void;
 
     private async run(): Promise<void> {

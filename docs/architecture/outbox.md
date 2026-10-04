@@ -311,7 +311,8 @@ apart: `pull()` answers with a duration, not with its reason.
 `OUTBOX_CONCURRENCY` slots ([#747](https://github.com/yuldashevsardor/telegram-bot/issues/747)).
 The loop is `WorkerLoop` (`telegram/worker-loop/worker-loop.ts`), shared with the inbox worker
 being built ([#628](https://github.com/yuldashevsardor/telegram-bot/issues/628)): it knows only a
-source of items and a processor of one item (`worker-loop.types.ts`). What `OutboxRunner` gives it
+source of items and a processor of one item, whose contracts are `WorkItemSource` and
+`WorkItemProcessor` (`work-item-source.ts`, `work-item-processor.ts`). What `OutboxRunner` gives it
 is read off the abstract members of `WorkerLoop` and the constructor of `OutboxRunner`. `start()`
 makes the generator of the message source, once, with the worker of the loop: the host, the pid and
 a `randomUUID()` made with the loop.

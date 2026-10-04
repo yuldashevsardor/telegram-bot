@@ -1,6 +1,6 @@
 import type postgres from "postgres";
 import type { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
-import type { LoopWorker } from "app/telegram/worker-loop/worker-loop.types";
+import type { WorkerIdentity } from "app/telegram/worker-loop/worker-loop.types";
 
 // The values of telegram_outbox.status: the database does not check them, so they are written only
 // through this enum.
@@ -53,7 +53,7 @@ export type OutboxMessageInput = {
 };
 
 // Who pulled a message, written into its attempt: the worker of the loop that sends it.
-export type OutboxWorker = LoopWorker;
+export type OutboxWorker = WorkerIdentity;
 
 // A JSON object, as a jsonb column takes it.
 export type OutboxJsonObject = { [field: string]: OutboxJson };

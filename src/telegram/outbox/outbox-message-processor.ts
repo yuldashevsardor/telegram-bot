@@ -10,11 +10,12 @@ import type { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-ha
 import type { OutboxLeaseReleaser } from "app/telegram/outbox/lease/outbox-lease-releaser";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxJson, PulledOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
+import type { WorkItemProcessor } from "app/telegram/worker-loop/work-item-processor";
 
 // Takes a pulled message to its outcome: the call, then the outcome written to the outbox and the
 // files of a sent message removed (docs/architecture/outbox.md, "Sending").
 @injectable()
-export class OutboxMessageProcessor {
+export class OutboxMessageProcessor implements WorkItemProcessor<PulledOutboxMessage> {
     public constructor(
         @inject<OutboxSender>(Tokens.Bot.Outbox.Sender) private readonly sender: OutboxSender,
         @inject<OutboxStore>(Tokens.Bot.Outbox.Store) private readonly store: OutboxStore,
