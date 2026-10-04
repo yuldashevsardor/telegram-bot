@@ -24,6 +24,12 @@ export enum InboxGroupState {
     Blocked = "blocked",
 }
 
+// The notification channels of the inbox.
+export enum InboxChannel {
+    // A push or a completion that leaves its group ready: an idle worker can claim.
+    Ready = "telegram_inbox_ready",
+}
+
 // An update to store, with its group: the user and the chat of the session key. An update without
 // either is not stored (docs/architecture/inbox.md, "Updates without a session key").
 export type InboxUpdateInput = {
@@ -79,7 +85,7 @@ export type ClaimedInboxUpdate = InboxUpdateInput &
     };
 
 // A lease that passed before its update was completed: the node that claimed the update is presumed
-// dead. Only the lease end is stored, so startedAt is that end minus the lease duration.
+// dead. startedAt is updated_at of the processing update, which only the claim writes.
 export type ExpiredInboxLease = InboxLease & {
     worker: null;
     earlierAttempts: number;
