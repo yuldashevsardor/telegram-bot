@@ -1,7 +1,7 @@
 import { expect } from "chai";
-import { isPathData } from "app/font-convertor/validator/svg/path-data";
+import { readPathData } from "app/font-convertor/validator/svg/path-data";
 
-describe("isPathData", function () {
+describe("readPathData", function () {
     describe("accepts", function () {
         const cases: Record<string, Array<string>> = {
             "an empty value and whitespace alone": ["", " \t\r\n"],
@@ -65,7 +65,7 @@ describe("isPathData", function () {
         for (const [behaviour, values] of Object.entries(cases)) {
             it(behaviour, function () {
                 for (const value of values) {
-                    expect(isPathData(value), JSON.stringify(value)).to.equal(true);
+                    expect(readPathData(value), JSON.stringify(value)).to.not.equal(undefined);
                 }
             });
         }
@@ -95,9 +95,59 @@ describe("isPathData", function () {
         for (const [behaviour, values] of Object.entries(cases)) {
             it(behaviour, function () {
                 for (const value of values) {
-                    expect(isPathData(value), JSON.stringify(value)).to.equal(false);
+                    expect(readPathData(value), JSON.stringify(value)).to.equal(undefined);
                 }
             });
         }
+    });
+
+    describe("gives the commands", function () {
+        it("with their numbers, signs and exponents read as written", function () {
+            expect(readPathData("M-1.5 +2 l.5e1,-3E-1")).to.deep.equal([
+                { command: "M", values: [-1.5, 2] },
+                { command: "l", values: [5, -0.3] },
+            ]);
+        });
+
+        it("with the pairs after a moveto as linetos, relative after a relative moveto", function () {
+            expect(readPathData("M1 2 3 4 5 6")).to.deep.equal([
+                { command: "M", values: [1, 2] },
+                { command: "L", values: [3, 4] },
+                { command: "L", values: [5, 6] },
+            ]);
+            expect(readPathData("m1 2 3 4")).to.deep.equal([
+                { command: "m", values: [1, 2] },
+                { command: "l", values: [3, 4] },
+            ]);
+        });
+
+        it("with the arguments after the letter of any other command repeated as the same command", function () {
+            expect(readPathData("M0 0 H1 2 c1 2 3 4 5 6 7 8 9 10 11 12")).to.deep.equal([
+                { command: "M", values: [0, 0] },
+                { command: "H", values: [1] },
+                { command: "H", values: [2] },
+                { command: "c", values: [1, 2, 3, 4, 5, 6] },
+                { command: "c", values: [7, 8, 9, 10, 11, 12] },
+            ]);
+        });
+
+        it("with the flags of an arc as 0 or 1, glued to the next number", function () {
+            expect(readPathData("M0 0a25 26 -30 0150 -25")).to.deep.equal([
+                { command: "M", values: [0, 0] },
+                { command: "a", values: [25, 26, -30, 0, 1, 50, -25] },
+            ]);
+        });
+
+        it("with a closepath without arguments", function () {
+            expect(readPathData("M0 0Zz")).to.deep.equal([
+                { command: "M", values: [0, 0] },
+                { command: "Z", values: [] },
+                { command: "z", values: [] },
+            ]);
+        });
+
+        it("as an empty list for an empty value", function () {
+            expect(readPathData(" ")).to.deep.equal([]);
+        });
     });
 });

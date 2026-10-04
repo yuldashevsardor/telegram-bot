@@ -2,7 +2,8 @@ import { injectable } from "inversify";
 import { SaxesParser } from "saxes";
 import type { SaxesTagNS, XMLDecl } from "saxes";
 import { FileHelper } from "app/shared/fs/file-helper";
-import { isPathData } from "app/font-convertor/validator/svg/path-data";
+import { isOutlineWithinRange } from "app/font-convertor/validator/svg/outline-range";
+import { readPathData } from "app/font-convertor/validator/svg/path-data";
 import { BrokenFont, NoFont, NotSvg, NotXml } from "app/font-convertor/validator/svg/svg-font-validator.errors";
 import type {
     Encoding,
@@ -339,12 +340,16 @@ export class SvgFontValidator implements FontValidator {
 
         const outline = tag.attributes["d"]?.value;
 
-        // The numbers of the outline have no range: the font stores points, not these numbers, and a
-        // relative command adds to the current point, so `M30000 0l30000 0` reaches 60000 through
-        // numbers in range. A rule has to follow the current point through every command (issue
-        // https://github.com/yuldashevsardor/telegram-bot/issues/798).
-        if (outline !== undefined && !isPathData(outline)) {
+        if (outline === undefined) {
+            return;
+        }
+
+        const segments = readPathData(outline);
+
+        if (segments === undefined) {
             this.report(scan, FontRule.PathData, name, element.line, { attribute: ["d", outline] });
+        } else if (!isOutlineWithinRange(segments)) {
+            this.report(scan, FontRule.OutlineRange, name, element.line, { attribute: ["d", outline] });
         }
     }
 

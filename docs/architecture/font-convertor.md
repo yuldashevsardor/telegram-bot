@@ -225,10 +225,12 @@ was rejected.
   rejected, though fontforge, finding no `k` on an instruction, skips it. A foreign element is
   quoted in Clark notation, `{urn:x}glyph`, so that it does not read as an SVG one, an instruction
   as `?font?`, the DOCTYPE as `!DOCTYPE`, and a prefixed attribute by its qualified name.
-  The outline, `d` of `glyph` and `missing-glyph`, is checked by `isPathData()` (`path-data.ts`)
+  The outline, `d` of `glyph` and `missing-glyph`, is read by `readPathData()` (`path-data.ts`)
   against the path data grammar of §8.3.9, which §20.4 gives it. Numbers there are read greedily,
   as §8.3.9 requires ("must consume as much of a given BNF production as possible"), and `1.` is a
-  number, unlike in the other attributes.
+  number, unlike in the other attributes. Past the grammar `isOutlineWithinRange()`
+  (`outline-range.ts`) follows the current point through the commands and checks the points of the
+  outline, described below with the other ranges.
   The kerning pairs, `hkern` and `vkern` children of `font`, are checked against §20.7: each has
   `k`, a `<number>`, and names both glyphs, by `u1` or `g1` and by `u2` or `g2`; a `g1` or `g2`
   of commas and XML whitespace alone names none. fontforge
@@ -261,16 +263,49 @@ was rejected.
   fonts hold fractional advances. One just past a bound is rejected, though fontforge would bring
   `32767.6` back to 32767: no real font comes near a bound. The origins, `horiz-origin-x`,
   `horiz-origin-y`, `vert-origin-x` and `vert-origin-y`, have no range: fontforge does not read
-  them. The numbers of `d` have none either: the font stores points, not these numbers, and a
-  relative command adds to the current point, so `M30000 0l30000 0` reaches 60000 through numbers in
-  range; a rule has to follow the current point through every command
-  ([#798](https://github.com/yuldashevsardor/telegram-bot/issues/798)). The other numbers of
-  `font-face`, such as `underline-position` or `slope`, are not checked at all. Within the ranges
-  the targets agree: TTF, OTF, WOFF and WOFF2 were measured, and EOT is built from the TTF. Measured
-  on 20230101 for [#792](https://github.com/yuldashevsardor/telegram-bot/issues/792), with 132
-  distinct real SVG fonts gathered for the earlier issues: none holds a number past its range, the
-  widest advance is 3169, `k` stays within ±1024, and `units-per-em` runs from 96 to 2048. fontforge
-  takes `ascent` and `descent` in 22 of them, and 17 glyph advances in 5 are fractional.
+  them. The other numbers of `font-face`, such as `underline-position` or `slope`, are not checked
+  at all. The numbers of `d` have no range of their own: the font stores points, not these numbers,
+  and a relative command adds to the current point. What is bounded is the points
+  (`isOutlineWithinRange()`; measured on 20230101 for
+  [#798](https://github.com/yuldashevsardor/telegram-bot/issues/798) with about 1,400 random
+  outlines, run through `fontforge.open()` and `generate()` to all four targets, the box of each
+  glyph read back):
+  - A TrueType outline (TTF, WOFF2) stores each point as a signed 16-bit shift from the point
+    before it, from the origin for the first point and from the last point of the contour before
+    for the first point of the next contour. A shift of `32768` wraps: `M0 0l32768 0l0 700z`
+    comes back from -32768 to 0. A CFF outline (OTF, WOFF) shifts the same way, but draws the
+    closing line of a contour and shifts the next moveto from the start of the contour before, so a
+    closing line or a moveto past the range breaks it. The validator does not know which target the
+    font goes to, so a shift past the range in either is rejected.
+  - The box of a glyph, in the `glyf` header and in `hmtx`, is signed 16-bit as well. fontforge
+    reads points past it back right, so a readback does not show it; the file does. For
+    `M30000 0l30000 0l0 700l-30000 0z`, which reaches 60000 through shifts in range, the header
+    says an `xMax` of -5536. So each point must lie in -32767 to 32767 too, however it was reached.
+  - The points checked are the end points, the control points of curves (a curve lies in the hull
+    of its control points), the end point of an arc and the control points a smooth command
+    reflects. Two cases are rejected though fontforge would store them: a control point past the
+    range of a curve whose points are within it, and the controls of two quadratic curves in a row
+    more than 32767 apart. The second is there because a TrueType outline drops the on-curve point
+    between two off-curve ones when it is their midpoint:
+    `M2933 -287q27724 21719 2967 3562t-4115 424Z` comes back 64,000 wide.
+  - An arc is checked by its end point and by its radii, each at most 32767; the points fontforge
+    builds on it are not followed. A flat arc of the radius 50000 is rejected though fontforge
+    stores it, and `M0 0a30000 30000 0 1 1 700 0z`, a radius in range, is let through though the
+    header of its TTF says a `yMin` of 5538 for a glyph that reaches -59997. Radii from about
+    46000 broke the readback of OTF and WOFF.
+  - Of about 1,400 outlines, none let through came back wrong in the readback. 300 cubic and 200
+    quadratic ones, built to be let through, had control shifts up to 32000.
+  - A moveto with nothing drawn after it is checked, though fontforge drops it. One result is not
+    explained: `M32767 0l10 0l0 700z` comes back whole from an OTF and empty from a WOFF.
+
+  Within the ranges of the attributes the targets agree: TTF, OTF, WOFF and WOFF2 were measured, and
+  EOT is built from the TTF. Measured on 20230101 for
+  [#792](https://github.com/yuldashevsardor/telegram-bot/issues/792), with 132 distinct real SVG
+  fonts gathered for the earlier issues: none holds a number past its range, the widest advance is
+  3169, `k` stays within ±1024, and `units-per-em` runs from 96 to 2048. fontforge takes `ascent`
+  and `descent` in 22 of them, and 17 glyph advances in 5 are fractional.
+  The outline rule was run on 163 other real SVG fonts found on GitHub with `gh search code`
+  (8,180 outlines of `glyph` and `missing-glyph`): all are path data, none is rejected.
 
 XML is parsed with `saxes` (XML 1.0 fifth edition and Namespaces in XML, non-validating). It was
 chosen by measurement, with expat as the reference: of 38 malformed documents it accepted none,
