@@ -355,11 +355,11 @@ version to the outlines.
 `Woff2FontValidator` (`validator/woff2/`, a singleton in the container) reads the whole file and
 checks the container against W3C Recommendation "WOFF File Format 2.0" (8 August 2024): the header
 (§3.2), the table directory (§4), where the blocks lie in the file (§3, §6, §7), the compressed data
-(§5), and of the transformed tables what their sizes and flags say (§5.1, §5.3, §5.4). The header
-and the metadata block are those of "WOFF File Format 1.0" apart from Brotli (§3.2, §6), so some
-rules come from it. `FontValidatorResolver` gives it out for a WOFF2 source, and its answer reaches
-the caller the way the SVG one does: as the cause of `FontConvertorError`, before the engine is
-called. The engine's WOFF2 output is not checked.
+(§5), and the transformed tables (§5.1–§5.4). The header and the metadata block are those of "WOFF
+File Format 1.0" apart from Brotli (§3.2, §6), so some rules come from it. `FontValidatorResolver`
+gives it out for a WOFF2 source, and its answer reaches the caller the way the SVG one does: as the
+cause of `FontConvertorError`, before the engine is called. The engine's WOFF2 output is not
+checked.
 
 The validator exists because the engine does not answer a broken container. fontforge 20230101
 reads WOFF2 through Google's reference decoder, `libwoff2dec` 1.0.2. When the decoder refuses a
@@ -378,8 +378,18 @@ answer names the source in `path` of its payload. Nothing in them is cut: the on
 file they quote is a table tag, four bytes long. A Brotli failure keeps the zlib error as the cause,
 since its message comes from Node's Brotli decoder, not from the file.
 
-The rules are `Woff2Rule` in `woff2-font-validator.types.ts`, each with its section. Five of them
-are ours, not the standard's, and the text of each says why:
+`GlyfReconstructor` (`validator/woff2/glyf-reconstructor.ts`) reads a transformed `glyf` glyph
+record by glyph record, rebuilds `glyf` and `loca` from it and a transformed `hmtx` from the `xMin`
+of the glyphs, and answers on the first record it cannot decode. Without it a broken record reached
+the engine, which crashed on each of 12 such variants of the fixture. Where §5.1 leaves the bytes
+open, it writes them the way the engine's decoder does, so that the decoder's output checks it: its
+class comment lists those choices. The rebuilt `glyf` and `loca` equal those of `woff2_decompress`
+1.0.2, byte for byte, on all 5742 TrueType fonts of the 5796. No real font transforms `hmtx`: on the
+fixture with the `hmtx` transform the rebuilt `hmtx` equals the fixture's own, as the decoder's does
+([#736](https://github.com/yuldashevsardor/telegram-bot/issues/736)).
+
+The rules are `Woff2Rule` in `woff2-font-validator.types.ts`, each with its section. Those marked
+`ours:` are not the standard's, and the text of each says why:
 
 - the flavor is one of `SFNT_VERSIONS` (see "Signatures"): a collection holds several fonts, and
   fontforge refuses any other flavor;
@@ -391,7 +401,9 @@ are ours, not the standard's, and the text of each says why:
 - the tables decompress to at most 30 MiB, the output buffer fontforge gives the decoder;
 - and to at most 100 times the file size, the ratio above which the decoder refuses a file. Both
   caps are checked on the sum of the table lengths in the directory, before Brotli runs, and the
-  measurement behind them is at `MAX_DECOMPRESSED_SIZE_BYTES`.
+  measurement behind them is at `DECODER_BUFFER_SIZE_BYTES`;
+- the rebuilt sfnt is at most 30 MiB too: the decoder writes it into the same buffer, and the
+  reconstruction makes `glyf` larger than its transformed form, by 31 546 bytes on the fixture.
 
 What is deliberately not checked, with the reasons, is in the class comment of
 `Woff2FontValidator`: `reserved`, `totalSfntSize` and `origLength` of a transformed `glyf`, on which
@@ -399,12 +411,10 @@ the standard forbids a reader to reject a file (§3.2, §5.1); the content of th
 which a reader ignores (§6, WOFF 1.0 §7), so only its bounds are checked; the flavor against the
 outline tables; and a known tag written out after flag 63, which the standard lets a decoder accept.
 
-Two more are not checked yet. The glyph records of a transformed `glyf` are not decoded, so a broken
-one still reaches the engine, which crashed on each of 12 such variants of the fixture
-([#736](https://github.com/yuldashevsardor/telegram-bot/issues/736)). Nor is the sfnt the tables
-make up checked: of 25 variants of the fixture with the enclosed sfnt broken in one place,
-fontforge converted 24 with exit 0, 18 of them into an output that differs from the fixture's, such
-as lost glyphs or encodings ([#737](https://github.com/yuldashevsardor/telegram-bot/issues/737)).
+The sfnt the tables make up is not checked yet: the rebuilt tables go no further than the size cap.
+Of 25 variants of the fixture with the enclosed sfnt broken in one place, fontforge converted 24
+with exit 0, 18 of them into an output that differs from the fixture's, such as lost glyphs or
+encodings ([#737](https://github.com/yuldashevsardor/telegram-bot/issues/737)).
 
 ## The EOT validator
 
@@ -628,12 +638,19 @@ not count as supported.
   decoded `hdmx` table is held to 64 MiB (`MAX_OUTPUT_BYTES`). How much memory a small crafted file
   takes is not measured. A WOFF2 source is
   read whole as well: its compressed data is decompressed by the asynchronous
-  `zlib.brotliDecompress`, off the event loop, but its table directory and the transformed tables
-  are walked on it. The 30 MiB cap bounds the decompressed tables, not the file. Only the sfnt walk
-  was measured: `validateBytes()` takes 34 ms on `Arial Unicode.ttf`, 22 MB and 50377 glyphs,
-  against 29 ms in the same run with the components of composite glyphs left unread; the engine
-  converts the file in 2.5 s ([#684](https://github.com/yuldashevsardor/telegram-bot/issues/684),
-  [#767](https://github.com/yuldashevsardor/telegram-bot/issues/767)).
+  `zlib.brotliDecompress`, off the event loop, but its table directory is walked on it, and its
+  transformed `glyf` is decoded and rebuilt there, a second copy beside the decompressed tables. The
+  30 MiB caps bound the decompressed tables and the rebuilt sfnt, not the file. The sfnt walk was
+  measured: `validateBytes()` takes 34 ms on `Arial Unicode.ttf`, 22 MB and 50377 glyphs, against
+  29 ms in the same run with the components of composite glyphs left unread; the engine converts
+  the file in 2.5 s ([#684](https://github.com/yuldashevsardor/telegram-bot/issues/684),
+  [#767](https://github.com/yuldashevsardor/telegram-bot/issues/767)). So was the WOFF2
+  reconstruction: `GlyfReconstructor` takes 190–405 ms, the first run the slowest, on
+  `IBMPlexSansKR-Light.woff2`, 439 040 bytes and 12 240 glyphs, among the slowest of the 5742
+  TrueType real fonts. The caps allow far more: a transformed `glyf` of 31 071 818 bytes, 65 535
+  simple glyphs of 235 points each, takes 1.5–1.9 s over three runs. Brotli packs it into 99 bytes,
+  so a file of about 310 KB passes the ratio cap with it
+  ([#736](https://github.com/yuldashevsardor/telegram-bot/issues/736)).
 - `/font_generator` converts the fixed `test/fixtures/fonts/test-font.woff` into
   EOT/OTF/TTF/WOFF2. It answers with the **path** to the file as text; the file itself is not
   sent. A caught conversion error is written at `error` level through `Logger`
