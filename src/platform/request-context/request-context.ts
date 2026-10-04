@@ -15,6 +15,13 @@ export class RequestContext {
         return this.als.run({ [REQUEST_KEYS.REQUEST_ID]: uuid() }, fn);
     }
 
+    // Runs fn outside any scope. A timer or a listener that fn starts carries the scope it was made
+    // in, so one that outlives the update and serves other updates is started through here, or its
+    // records would carry the request id of the update that happened to start it.
+    public exit<Result>(fn: () => Result): Result {
+        return this.als.exit(fn);
+    }
+
     // null rather than an error: no value is a normal case. A scope covers only what stands below
     // RequestContextMiddleware in the pipeline of an update. Everything else runs without one, the
     // steps above it included.

@@ -1,5 +1,6 @@
 import { inject, injectable } from "inversify";
 import type { Logger } from "app/platform/logger/logger";
+import type { RequestContext } from "app/platform/request-context/request-context";
 import { Tokens } from "app/shared/tokens";
 import { configValue } from "app/shared/config-value";
 import type { FinishedOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
@@ -35,6 +36,7 @@ export class OutboxResultWaiter {
     public constructor(
         @inject<OutboxFinishedMessageReader>(Tokens.Bot.Outbox.Result.Reader) private readonly reader: OutboxFinishedMessageReader,
         @inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger,
+        @inject<RequestContext>(Tokens.Bootstrap.RequestContext) private readonly requestContext: RequestContext,
         private readonly settings: OutboxResultWaiterSettings = configValue("outbox.resultWaiter"),
     ) {}
 
@@ -81,14 +83,18 @@ export class OutboxResultWaiter {
 
         this.hasStartedListening = true;
 
-        this.reader
-            .listen(
-                (messageId) => void this.onFinished(messageId),
-                () => void this.pollOnListenStart(),
-            )
-            .catch((error: unknown) => {
-                this.logger.warning("Listening for finished outbox messages failed, the waits rely on the poll.", { cause: error });
-            });
+        // Outside the scope of the update that waits first: the listening serves the waits of every
+        // update, and its records would carry the request id of that one.
+        this.requestContext.exit(() => {
+            this.reader
+                .listen(
+                    (messageId) => void this.onFinished(messageId),
+                    () => void this.pollOnListenStart(),
+                )
+                .catch((error: unknown) => {
+                    this.logger.warning("Listening for finished outbox messages failed, the waits rely on the poll.", { cause: error });
+                });
+        });
     }
 
     private async pollOnListenStart(): Promise<void> {
@@ -116,7 +122,9 @@ export class OutboxResultWaiter {
             return;
         }
 
-        this.pollTimer = setInterval(() => void this.poll(), this.settings.pollIntervalMs);
+        // Outside the scope of the update that waits first, as the listening is: the poll serves the
+        // waits of every update.
+        this.pollTimer = this.requestContext.exit(() => setInterval(() => void this.poll(), this.settings.pollIntervalMs));
     }
 
     // One query for every id waited for. A tick that comes while the previous poll is still running

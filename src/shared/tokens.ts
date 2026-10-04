@@ -71,6 +71,7 @@ export const Tokens = {
             MessageProcessor: Symbol.for("BotOutboxMessageProcessor"),
             Runner: Symbol.for("BotOutboxRunner"),
             Maintenance: Symbol.for("BotOutboxMaintenance"),
+            Transformer: Symbol.for("BotOutboxTransformer"),
         },
         Inbox: {
             Store: Symbol.for("BotInboxStore"),
@@ -92,9 +93,6 @@ export const Tokens = {
             IsPrivateChat: Symbol.for("BotFilterIsPrivateChat"),
         },
         Middleware: {
-            Mutation: {
-                TelegramCallApi: Symbol.for("BotMiddlewareMutationTelegramCallApi"),
-            },
             RequestContext: Symbol.for("BotMiddlewareRequestContext"),
             ResponseTime: Symbol.for("BotMiddlewareResponseTime"),
             RequestLog: Symbol.for("BotMiddlewareRequestLog"),

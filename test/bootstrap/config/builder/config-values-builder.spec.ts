@@ -350,24 +350,26 @@ describe("ConfigValuesBuilder", () => {
         expect(result.database.connection.max).to.equal(10);
     });
 
-    it("rejects a shutdown timeout that does not cover the bot and the task queue", () => {
+    it("rejects a shutdown timeout that does not cover the bot, the outbox and the task queue", () => {
         const error = rejection({
-            GRACEFUL_SHUTDOWN_TIMEOUT: "8000",
+            GRACEFUL_SHUTDOWN_TIMEOUT: "10000",
             BOT_GRACEFUL_SHUTDOWN_TIMEOUT: "3000",
+            OUTBOX_STOP_TIMEOUT: "2000",
             TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT: "5000",
         });
 
-        expect(error.message).to.equal("GRACEFUL_SHUTDOWN_TIMEOUT must be greater than the sum of the bot and task queue timeouts");
-        expect(error.payload).to.deep.equal({ application: 8000, bot: 3000, taskQueue: 5000 });
+        expect(error.message).to.equal("GRACEFUL_SHUTDOWN_TIMEOUT must be greater than the sum of the bot, outbox and task queue timeouts");
+        expect(error.payload).to.deep.equal({ application: 10000, bot: 3000, outbox: 2000, taskQueue: 5000 });
     });
 
-    it("accepts a shutdown timeout that covers the bot and the task queue", () => {
+    it("accepts a shutdown timeout that covers the bot, the outbox and the task queue", () => {
         const result = config({
-            GRACEFUL_SHUTDOWN_TIMEOUT: "8001",
+            GRACEFUL_SHUTDOWN_TIMEOUT: "10001",
             BOT_GRACEFUL_SHUTDOWN_TIMEOUT: "3000",
+            OUTBOX_STOP_TIMEOUT: "2000",
             TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT: "5000",
         });
 
-        expect(result.gracefulShutdown.timeout).to.equal(8001);
+        expect(result.gracefulShutdown.timeout).to.equal(10001);
     });
 });

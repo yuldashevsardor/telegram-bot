@@ -1,14 +1,15 @@
 # Outbox (telegram/outbox/)
 
-The outbox is being built to replace the in-memory outbound queue
+The outbox replaces the in-memory outbound queue
 ([`outbound-queue.md`](./outbound-queue.md)): outgoing Bot API calls become rows in PostgreSQL, any
 node sends them, the order inside a chat holds across nodes, and a node that dies loses nothing (the
-plan is epic [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)). No caller pushes
-into it yet, and nothing starts its runner
-([#625](https://github.com/yuldashevsardor/telegram-bot/issues/625)): so far it holds the tables
-with `OutboxStore` (`store/outbox-store.ts`), which pushes, pulls within the limits, pauses,
-completes a pulled message, finds the expired leases, cleans up and unblocks a chat by hand,
-`OutboxRunner`
+plan is epic [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)). The Bot API
+calls to a chat go into it through `OutboxTransformer` (`transformer/outbox-transformer.ts`), which
+pushes a call and gives the caller its outcome; which calls it lets past is in [`bot.md`](./bot.md),
+"The outbox transformer". `Application` starts its runner and its maintenance
+([`application.md`](./application.md)). It holds the tables with `OutboxStore`
+(`store/outbox-store.ts`), which pushes, pulls within the limits, pauses, completes a pulled
+message, finds the expired leases, cleans up and unblocks a chat by hand, `OutboxRunner`
 (`outbox-runner.ts`), which sends the messages of a node over its slots, `OutboxMaintenance`
 (`maintenance/outbox-maintenance.ts`), which runs the recovery of the expired leases and the cleanup
 on timers, `OutboxLeaseRecovery` (`lease/outbox-lease-recovery.ts`), which takes back the messages
@@ -467,8 +468,9 @@ targets for the inbox are in [`inbox.md`](./inbox.md), "Unblocking a group".
 
 The node that pushes a message waits for its outcome, while any node may send it.
 `OutboxResultWaiter.wait(messageId)` (`result-waiter/outbox-result-waiter.ts`) resolves with the
-message once it is `done`, `failed` or `skipped`: its id, status and `response`. A failed message
-resolves too: the caller reads the status.
+message once it is `done`, `failed` or `skipped`: its id, status, `response` and the error of its
+last attempt. A failed message resolves too: the caller reads the status, and the transformer
+finds the answer of Telegram in the error.
 
 - **The notification.** A transaction that moves a message into one of those statuses sends
   `pg_notify` on `telegram_outbox_finished` with the message id as the payload
@@ -829,8 +831,8 @@ else, so no part of the payload reaches the row unchecked:
   an array, a `PathFile` and a keyboard inside one and drops a function there. `undefined` throws
   too, although a transformer gets it for a raw call without arguments to a method that has
   parameters (`api.raw.getUpdates()`; `api.getUpdates()` passes `{}`, `core/api.js`): grammY's
-  `ApiClient` swaps it for `{}` only after the transformers (`core/client.js`), so a caller in a
-  transformer passes `{}` in its place.
+  `ApiClient` swaps it for `{}` only after the transformers (`core/client.js`). `OutboxTransformer`
+  never passes it: such a call names no chat and goes straight to Telegram.
 
 An error of `serialize()` names the method and where the value sits in the payload
 (`media.1.thumbnail`), in the message and in `payload`.

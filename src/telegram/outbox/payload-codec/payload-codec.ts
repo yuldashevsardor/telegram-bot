@@ -1,6 +1,7 @@
 import { isAbsolute } from "node:path";
 import { InlineKeyboard, InputFile, Keyboard } from "grammy";
 import { PathFile } from "app/telegram/path-file/path-file";
+import type { OutboxPayload } from "app/telegram/outbox/store/outbox-store.types";
 import {
     InvalidFileMarker,
     ReservedFileKey,
@@ -70,11 +71,6 @@ function store(value: unknown, method: string, place: readonly string[]): unknow
     );
 }
 
-// Only a plain object has Object.prototype as its prototype.
-function isPlainObject(value: unknown): boolean {
-    return typeof value === "object" && value !== null && Object.getPrototypeOf(value) === Object.prototype;
-}
-
 // PostgreSQL rejects U+0000 and a lone UTF-16 surrogate anywhere in a jsonb value, keys included.
 function isStorable(text: string): boolean {
     return !text.includes("\u0000") && text.isWellFormed();
@@ -128,7 +124,7 @@ function readMarker(marker: object): PathFile {
  * does not take and a payload that is not a plain object. Every error names the method and where
  * in the payload the value sits.
  */
-export function serialize(method: string, payload: object | undefined): Record<string, unknown> {
+export function serialize(method: string, payload: object | undefined): OutboxPayload {
     // store() takes an array, a PathFile and a keyboard inside a payload and drops a function there,
     // but a Bot API payload itself is a plain object. Why undefined arrives here and throws too:
     // docs/architecture/outbox.md, "The payload rule".
@@ -136,10 +132,17 @@ export function serialize(method: string, payload: object | undefined): Record<s
         throw UnsupportedValue.atRoot(method);
     }
 
-    return store(payload, method, []) as Record<string, unknown>;
+    // The one place the type is given: store() has let through only what JSON keeps, so the result
+    // goes into OutboxStore.push() as it is, while anything else would need a cast there.
+    return store(payload, method, []) as OutboxPayload;
 }
 
 /** Rebuilds the payload serialize() made, with a PathFile in place of each marker. */
 export function deserialize(payload: Record<string, unknown>): Record<string, unknown> {
     return restore(payload) as Record<string, unknown>;
+}
+
+/** Only a plain object has Object.prototype as its prototype. */
+export function isPlainObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && Object.getPrototypeOf(value) === Object.prototype;
 }
