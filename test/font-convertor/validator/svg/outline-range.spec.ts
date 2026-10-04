@@ -32,7 +32,21 @@ describe("isOutlineWithinRange", function () {
             "a quadratic curve and a smooth one after it": ["M0 0Q10000 10000 20000 0T30000 0Z", "M0 0T20000 0Z"],
             "a quadratic curve after a cubic one, with the controls apart": ["M0 0C0 10000 10000 10000 10000 0Q-20000 0 0 0Z"],
             "an arc of the radius on the edge of the range": ["M0 0A32767 32767 0 0 1 700 0Z", "M0 0a32767 1 0 1 0 700 700Z"],
+            "an arc with a zero radius, which is a straight line, and the other radius past the range": [
+                "M0 0A0 40000 0 0 1 700 0Z",
+                "M0 0a40000 0 0 0 1 700 0z",
+            ],
             "a point after a closepath, which starts at the point the closepath left": ["M-10000 0H0V700ZL10000 0H20000Z"],
+            "a smooth cubic curve right after a closepath, which leaves no control point to reflect": [
+                "M30000 0C0 0 0 0 0 0ZS30000 0 30000 0",
+            ],
+            "a smooth quadratic curve right after a closepath, which leaves no control point to reflect": ["M30000 0Q0 0 0 0ZT30000 0"],
+            "a smooth cubic curve right after a relative moveto, which leaves no control point to reflect": [
+                "M0 0C0 0 0 0 0 0m30000 0S30000 0 30000 0",
+            ],
+            "a smooth quadratic curve right after a relative moveto, which leaves no control point to reflect": [
+                "M0 0Q0 0 0 0m30000 0T30000 0",
+            ],
         };
 
         for (const [behaviour, values] of Object.entries(cases)) {
@@ -66,7 +80,9 @@ describe("isOutlineWithinRange", function () {
             "a moveto past the range from the last point of the contour before, which a TrueType contour shifts from": [
                 "M0 0H25000V700ZM-10000 0H-11000V700Z",
             ],
-            "a line after a closepath that starts past the range from the last point": ["M-20000 0H0V700ZL20000 0Z"],
+            "a line after a closepath that reaches past the range from the point the closepath left, not from the last point": [
+                "M-20000 0H0V700ZL20000 0Z",
+            ],
             "a control point of a cubic curve past the range": [
                 "M0 0C40000 0 0 700 700 700Z",
                 "M0 0C0 0 40000 700 700 700Z",
@@ -89,6 +105,8 @@ describe("isOutlineWithinRange", function () {
                 "M0 0A1e999 1 0 0 1 700 0Z",
             ],
             "an arc with its end past the range": ["M0 0A100 100 0 0 1 40000 0Z", "M0 0a100 100 0 0 1 0 -40000z"],
+            "an arc right after a closepath, which starts at the point the closepath left": ["M-20000 0H0V700ZA100 100 0 0 1 20000 0Z"],
+            "an arc right after a relative moveto, which adds to the point the moveto reached": ["m20000 0a100 100 0 0 1 20000 0z"],
         };
 
         for (const [behaviour, values] of Object.entries(cases)) {

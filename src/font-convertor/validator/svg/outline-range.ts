@@ -43,18 +43,22 @@ class OutlineWalker {
     private contourStart = ORIGIN;
     private isContourOpen = false;
     private lastControl: Control | undefined;
-    private fits = true;
+    private isWithinRange = true;
 
     public constructor(private readonly segments: ReadonlyArray<PathSegment>) {}
 
     public walk(): boolean {
         for (const segment of this.segments) {
             this.walkSegment(segment);
+
+            if (!this.isWithinRange) {
+                return false;
+            }
         }
 
         this.closeContour();
 
-        return this.fits;
+        return this.isWithinRange;
     }
 
     private walkSegment(segment: PathSegment): void {
@@ -137,11 +141,16 @@ class OutlineWalker {
 
     /**
      * The arguments of an arc are the two radii, the rotation, the two flags and the end point
-     * (§8.3.8).
+     * (§8.3.8). An arc with a zero radius is a straight line (§F.6.2), so its other radius is not
+     * checked.
      */
     private arcTo(values: ReadonlyArray<number>, endPoint: Point): void {
-        if (this.argument(values, 0) > MAX_FONT_UNITS || this.argument(values, 1) > MAX_FONT_UNITS) {
-            this.fits = false;
+        const radiusX = this.argument(values, 0);
+        const radiusY = this.argument(values, 1);
+        const isStraightLine = radiusX === 0 || radiusY === 0;
+
+        if (!isStraightLine && (radiusX > MAX_FONT_UNITS || radiusY > MAX_FONT_UNITS)) {
+            this.isWithinRange = false;
         }
 
         this.lineTo(endPoint);
@@ -172,7 +181,7 @@ class OutlineWalker {
         this.checkShift(this.lastStoredPoint, point);
 
         if (!this.isWithin(point.x) || !this.isWithin(point.y)) {
-            this.fits = false;
+            this.isWithinRange = false;
         }
 
         this.lastStoredPoint = point;
@@ -180,7 +189,7 @@ class OutlineWalker {
 
     private checkShift(from: Point, to: Point): void {
         if (!this.isWithin(to.x - from.x) || !this.isWithin(to.y - from.y)) {
-            this.fits = false;
+            this.isWithinRange = false;
         }
     }
 
@@ -217,3 +226,5 @@ class OutlineWalker {
 export function isOutlineWithinRange(segments: ReadonlyArray<PathSegment>): boolean {
     return new OutlineWalker(segments).walk();
 }
+
+export { MAX_FONT_UNITS };
