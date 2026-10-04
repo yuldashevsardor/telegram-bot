@@ -90,8 +90,9 @@ export class GlyfReconstructor {
     private static readonly FIELD_OFFSETS = { optionFlags: 2, numGlyphs: 4, indexFormat: 6, substreamSizes: 8 };
     private static readonly SUBSTREAM_SIZE_FIELD_BYTES = 4;
     private static readonly OVERLAP_SIMPLE_BITMAP_FLAG = 0x0001;
-    // bboxBitmap and overlapSimpleBitmap hold a bit per glyph, padded to whole 32-bit words:
-    // 4 × ⌊(numGlyphs + 31) / 32⌋ bytes. Glyph 0 is the most significant bit of the first byte.
+    // bboxBitmap holds a bit per glyph, padded to whole 32-bit words: 4 × ⌊(numGlyphs + 31) / 32⌋
+    // bytes; overlapSimpleBitmap pads only to a byte. Glyph 0 is the most significant bit of the
+    // first byte of each.
     private static readonly BITMAP_WORD_SIZE_BITS = 32;
     private static readonly BITMAP_WORD_SIZE_BYTES = 4;
     private static readonly BITS_PER_BYTE = 8;
@@ -245,23 +246,25 @@ export class GlyfReconstructor {
             });
         }
 
-        if (this.bboxStream.bytes.length < this.bitmapSizeBytes()) {
+        if (this.bboxStream.bytes.length < this.bboxBitmapSizeBytes()) {
             throw this.brokenTable(Woff2Rule.TransformedGlyf, {
                 field: "bboxStreamSize",
                 value: this.bboxStream.bytes.length,
-                expected: `at least ${this.bitmapSizeBytes()}, the size of bboxBitmap for ${this.numGlyphs} glyphs`,
+                expected: `at least ${this.bboxBitmapSizeBytes()}, the size of bboxBitmap for ${this.numGlyphs} glyphs`,
             });
         }
 
         // The bounding boxes follow the bitmap in bboxStream.
-        this.bboxBitmap = this.bboxStream.bytes.subarray(0, this.bitmapSizeBytes());
-        this.bboxStream.offset = this.bitmapSizeBytes();
+        this.bboxBitmap = this.bboxStream.bytes.subarray(0, this.bboxBitmapSizeBytes());
+        this.bboxStream.offset = this.bboxBitmapSizeBytes();
 
         if ((view.getUint16(fields.optionFlags) & GlyfReconstructor.OVERLAP_SIMPLE_BITMAP_FLAG) === 0) {
             return;
         }
 
-        const bitmapEnd = substreamsEnd + this.bitmapSizeBytes();
+        // ⌈numGlyphs / 8⌉ bytes, not padded to 32-bit words: §5.1 pads only bboxBitmap, and fontTools
+        // and google/woff2 write this one unpadded.
+        const bitmapEnd = substreamsEnd + Math.ceil(this.numGlyphs / GlyfReconstructor.BITS_PER_BYTE);
 
         if (bitmapEnd > transformedGlyf.length) {
             throw this.brokenTable(Woff2Rule.TransformedGlyf, {
@@ -795,7 +798,7 @@ export class GlyfReconstructor {
         return this.words(metrics);
     }
 
-    private bitmapSizeBytes(): number {
+    private bboxBitmapSizeBytes(): number {
         const wordCount = Math.floor(
             (this.numGlyphs + GlyfReconstructor.BITMAP_WORD_SIZE_BITS - 1) / GlyfReconstructor.BITMAP_WORD_SIZE_BITS,
         );

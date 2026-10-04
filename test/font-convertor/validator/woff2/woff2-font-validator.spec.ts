@@ -57,10 +57,10 @@ const validator = new Woff2FontValidator();
 const DECODER_BUFFER_SIZE_BYTES = 30 * 1024 * 1024;
 const MAX_COMPRESSION_RATIO = 100;
 const SFNT_TABLE_RECORD_SIZE_BYTES = 16;
-// A numGlyphs that is a multiple of 32, so that overlapSimpleBitmap has no bit to spare (§5.1).
-const BITMAP_NUM_GLYPHS = 1280;
-const BITMAP_WORD_SIZE_BITS = 32;
-const BITMAP_WORD_SIZE_BYTES = 4;
+// A numGlyphs that is a multiple of neither 8 nor 32: overlapSimpleBitmap ends on a byte that holds
+// one glyph, and a size padded to 32-bit words would differ from ⌈numGlyphs / 8⌉ (§5.1).
+const BITMAP_NUM_GLYPHS = 1297;
+const BITMAP_SIZE_BYTES = 163;
 
 // The fixture: flavor 0x00010000, 13 tables, the directory 41 bytes long, the compressed data
 // 44 928 bytes long and padded with 3 null bytes, no metadata and no private block. Its transformed
@@ -177,27 +177,19 @@ describe("Woff2FontValidator.validate", function () {
         });
 
         it("with bit 0 of optionFlags and the overlapSimpleBitmap after the substreams", async function () {
-            // 4 × ⌊(1296 + 31) / 32⌋ = 164 bytes.
+            // ⌈1296 / 8⌉ = 162 bytes.
             const layout = withGlyf(fixtureLayout, (glyf) => {
                 const withFlag = withUint16(glyf, GLYF_OPTION_FLAGS, 1);
 
-                return concat(withFlag, new Uint8Array(164));
+                return concat(withFlag, new Uint8Array(162));
             });
 
             await validate(build(layout));
         });
 
-        it("with the overlapSimpleBitmap of a numGlyphs that is a multiple of 32, with no word to spare", async function () {
-            // The first 1280 glyphs of the fixture are decoded; the substreams keep the bytes of the
-            // other 16, and no rule reads them.
-            const bitmapSizeBytes = (BITMAP_NUM_GLYPHS / BITMAP_WORD_SIZE_BITS) * BITMAP_WORD_SIZE_BYTES;
-            const withBitmap = withGlyf(fixtureLayout, (glyf) => {
-                const withFlag = withUint16(withUint16(glyf, GLYF_NUM_GLYPHS, BITMAP_NUM_GLYPHS), GLYF_OPTION_FLAGS, 1);
-
-                return concat(withFlag, new Uint8Array(bitmapSizeBytes));
-            });
-
-            await validate(build(withLocaFor(withBitmap, BITMAP_NUM_GLYPHS)));
+        it("with an overlapSimpleBitmap of ⌈numGlyphs / 8⌉ bytes, not padded to 32-bit words", async function () {
+            // fontTools and google/woff2 write it so: 163 bytes for 1297 glyphs, not 164.
+            await validate(build(withOverlapSimpleBitmap(fixtureLayout, BITMAP_SIZE_BYTES)));
         });
 
         it("whose rebuilt sfnt is exactly 30 MiB", async function () {
@@ -889,7 +881,15 @@ describe("Woff2FontValidator.validate", function () {
             await expectBroken(
                 build(layout),
                 Woff2Rule.TransformedGlyf,
-                'At table "glyf": end of overlapSimpleBitmap is 102010, expected at most 101846, the transformLength, as bit 0 of optionFlags is set.',
+                'At table "glyf": end of overlapSimpleBitmap is 102008, expected at most 101846, the transformLength, as bit 0 of optionFlags is set.',
+            );
+        });
+
+        it("with an overlapSimpleBitmap one byte short of ⌈numGlyphs / 8⌉", async function () {
+            await expectBroken(
+                build(withOverlapSimpleBitmap(fixtureLayout, BITMAP_SIZE_BYTES - 1)),
+                Woff2Rule.TransformedGlyf,
+                'At table "glyf": end of overlapSimpleBitmap is 102011, expected at most 102010, the transformLength, as bit 0 of optionFlags is set.',
             );
         });
 
@@ -1402,6 +1402,21 @@ function withGlyfParts(layout: Layout, edit: (parts: GlyfParts) => GlyfParts): L
  */
 function withLocaFor(layout: Layout, numGlyphs: number): Layout {
     return withEntry(layout, "loca", (entry) => ({ ...entry, origLength: (numGlyphs + 1) * 4 }));
+}
+
+/**
+ * The layout with bit 0 of optionFlags set and `bitmapSizeBytes` null bytes of overlapSimpleBitmap
+ * after the substreams of glyf, for BITMAP_NUM_GLYPHS glyphs, with loca sized to match. The
+ * fixture has 1296 glyphs: an empty glyph 1296, nContour 0, makes the 1297th.
+ */
+function withOverlapSimpleBitmap(layout: Layout, bitmapSizeBytes: number): Layout {
+    const withBitmap = withGlyfParts(layout, (parts) => ({
+        ...withStream(parts, "nContour", (stream) => concat(stream, new Uint8Array(2))),
+        header: withUint16(withUint16(parts.header, GLYF_NUM_GLYPHS, BITMAP_NUM_GLYPHS), GLYF_OPTION_FLAGS, 1),
+        tail: new Uint8Array(bitmapSizeBytes),
+    }));
+
+    return withLocaFor(withBitmap, BITMAP_NUM_GLYPHS);
 }
 
 /**

@@ -32,7 +32,9 @@ const REFERENCE_GLYF_SIZE_BYTES = 133392;
 // 10-byte header, 5 end points and instructionLength.
 const GLYPH_0_FIRST_FLAG_OFFSET = 22;
 // 4 × ⌊(1296 + 31) / 32⌋ bytes.
-const BITMAP_SIZE_BYTES = 164;
+const BBOX_BITMAP_SIZE_BYTES = 164;
+// ⌈1296 / 8⌉ bytes: overlapSimpleBitmap is not padded to words.
+const OVERLAP_BITMAP_SIZE_BYTES = 162;
 
 describe("GlyfReconstructor.reconstruct", function () {
     let glyf: Uint8Array;
@@ -65,7 +67,7 @@ describe("GlyfReconstructor.reconstruct", function () {
         const boundingBox = Uint8Array.from([0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04]);
         const withBox = reconstruct((whole) =>
             withStream(withBoundingBoxBitSet(whole, 0), "bbox", (stream) =>
-                concat(stream.subarray(0, BITMAP_SIZE_BYTES), boundingBox, stream.subarray(BITMAP_SIZE_BYTES)),
+                concat(stream.subarray(0, BBOX_BITMAP_SIZE_BYTES), boundingBox, stream.subarray(BBOX_BITMAP_SIZE_BYTES)),
             ),
         );
         const plain = reconstruct((whole) => whole);
@@ -78,7 +80,7 @@ describe("GlyfReconstructor.reconstruct", function () {
         // Bits for glyph 0, simple, and glyph 1, empty: only glyph 0 changes. Its first two flags
         // are equal, 0x21, and written as 0x29 with a repeat count of 1; OVERLAP_SIMPLE on the first
         // sets them apart: 0x61, then 0x21.
-        const bitmap = new Uint8Array(BITMAP_SIZE_BYTES);
+        const bitmap = new Uint8Array(OVERLAP_BITMAP_SIZE_BYTES);
 
         bitmap[0] = 0b11000000;
 
