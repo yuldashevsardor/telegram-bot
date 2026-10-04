@@ -50,14 +50,14 @@ allowed paths and the result type of `get()`. The same file holds:
   other, so it lives in the shared file.
 
 `config-values.ts` is the shape of the configuration as a whole: `ConfigValues` and the types
-declared for the config itself (`Environment`, `LoggerConfig`, `TelegramLimits`). `ConfigValues`
-imports the settings types of every side (the list is the imports of the file), so the directory
-belongs to the composition root. Config keeps no copies of those types on purpose. The shape of
-the settings is declared where it is consumed. A copy would have to be fixed twice, and neither
-the compiler nor the tests would catch a drift in an optional field. The one exception is
-`TelegramLimits`: it is declared in `config-values.ts`, and its consumers in `telegram/`
-(`git grep -l TelegramLimits src/telegram`) import it from the composition root, so the arrow
-points backwards.
+declared for the config itself (`Environment`, `LoggerConfig`, `Limit`, `TelegramLimits`).
+`ConfigValues` imports the settings types of every side (the list is the imports of the file), so
+the directory belongs to the composition root. Config keeps no copies of those types on purpose.
+The shape of the settings is declared where it is consumed. A copy would have to be fixed twice, and
+neither the compiler nor the tests would catch a drift in an optional field. The one exception is
+`TelegramLimits` with its `Limit`: they are declared in `config-values.ts`, and their consumers in
+`telegram/` (`git grep -l TelegramLimits src/telegram`) import them from the composition root, so
+the arrow points backwards.
 
 The files of `storage/` import from outside their directory only `dotenv`, `fs` with
 `fs/promises`, the `RawConfig` type and `RuntimeError` for their own error. They are the mechanics

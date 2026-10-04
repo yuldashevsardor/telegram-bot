@@ -1,6 +1,7 @@
 import { expect } from "chai";
 import { ConfigValuesBuilder } from "app/bootstrap/config/builder/config-values-builder";
 import { ConfigEnvStorage } from "app/bootstrap/config/storage/config-env-storage";
+import type { TransactionSql } from "postgres";
 import type { Database } from "app/platform/database/database";
 import type { DatabaseSettings } from "app/platform/database/database.types";
 import { RuntimeError } from "app/shared/errors";
@@ -32,6 +33,34 @@ export async function testDatabaseSettings(): Promise<DatabaseSettings> {
     const settings = new ConfigValuesBuilder().build({ ...env, BOT_TOKEN: "test-token" }).database;
 
     return { ...settings, database: testDatabaseName() };
+}
+
+// The message of the error a transaction of rollingBackDatabase() rolls back with.
+export const SPEC_ROLLBACK_MESSAGE = "roll back";
+
+// A client whose transactions run every statement of their callback and then roll back: a store
+// method that writes in a transaction of its own, begin(), makes all its writes, its notifications
+// included, and commits none. Only begin() is rolled back: a single statement outside it, such as
+// OutboxStore.pull() or InboxStore.claim(), goes to the pool and commits. Not a store on an outer
+// transaction: the sql of a transaction has no begin() in postgres.js, so a store method that opens
+// a transaction of its own would fail before its first statement.
+export function rollingBackDatabase(database: Database): Database {
+    const sql = new Proxy(database.sql, {
+        get(target, property, receiver): unknown {
+            if (property !== "begin") {
+                return Reflect.get(target, property, receiver);
+            }
+
+            return (write: (transaction: TransactionSql) => Promise<unknown>) =>
+                target.begin(async (transaction) => {
+                    await write(transaction);
+
+                    throw new RuntimeError(SPEC_ROLLBACK_MESSAGE);
+                });
+        },
+    });
+
+    return { sql } as unknown as Database;
 }
 
 // The payloads of the notifications of a channel, from the moment the listening starts.

@@ -29,7 +29,7 @@ import { OutboxChannel } from "app/telegram/outbox/store/outbox-store.types";
 import type { DatabaseSettings } from "app/platform/database/database.types";
 import { MS_PER_SECOND } from "app/shared/time";
 import { sleep } from "app/shared/utils";
-import { listenTo, testDatabaseSettings, waitForLockWaiters } from "test/database.helper";
+import { listenTo, rollingBackDatabase, SPEC_ROLLBACK_MESSAGE, testDatabaseSettings, waitForLockWaiters } from "test/database.helper";
 import { waitUntil } from "test/shared/utils.helper";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 
@@ -1413,6 +1413,15 @@ describe("OutboxStore", function () {
 
             expect(error).to.be.instanceOf(BotLimitsRowMissing);
         });
+
+        it("refuses to read the backlog instead of reporting no pause", async function () {
+            const error = await store.readBacklog().then(
+                () => expect.fail("readBacklog() was expected to reject"),
+                (reason: unknown) => reason,
+            );
+
+            expect(error).to.be.instanceOf(BotLimitsRowMissing);
+        });
     });
 
     describe("a concurrent push and completion", function () {
@@ -1632,6 +1641,41 @@ describe("OutboxStore", function () {
 
             expect(await batched.deleteIdleChats()).to.equal(2);
             expect(await batched.deleteIdleChats()).to.equal(1);
+        });
+    });
+
+    describe("the backlog", function () {
+        const PAUSE_MS = 60_000;
+
+        it("counts nothing in an empty outbox", async function () {
+            expect(await store.readBacklog()).to.deep.equal({ pendingCount: 0, processingCount: 0, blockedChatCount: 0, pauseLeftMs: 0 });
+        });
+
+        it("counts the pending and processing messages and the blocked chats, and leaves the finished messages out", async function () {
+            const [blockedChat, doneChat, processingChat, readyChat] = [1, 2, 3, 4];
+            await store.push(message(blockedChat, "failed"));
+            await store.markAsFailedAndBlockChat(await pullOne(), UNEXPECTED);
+            await store.push(message(blockedChat, "behind the block"));
+            await store.push(message(doneChat, "done"));
+            await store.markAsDone(await pullOne(), RESPONSE);
+            await store.push(message(processingChat, "processing"));
+            await pullOne();
+            await store.push(message(processingChat, "behind the head"));
+            await store.push(message(readyChat, "pending"));
+
+            expect(await store.readBacklog()).to.deep.equal({ pendingCount: 3, processingCount: 1, blockedChatCount: 1, pauseLeftMs: 0 });
+        });
+
+        it("gives what is left of the pause", async function () {
+            await store.pause(PAUSE_MS);
+
+            expect((await store.readBacklog()).pauseLeftMs).to.be.within(PAUSE_MS - ELAPSED_TOLERANCE_MS, PAUSE_MS);
+        });
+
+        it("gives no pause once it has passed", async function () {
+            await database.sql`UPDATE telegram_bot_limits SET paused_until = now() - interval '1 minute'`;
+
+            expect((await store.readBacklog()).pauseLeftMs).to.equal(0);
         });
     });
 
@@ -1878,21 +1922,29 @@ describe("OutboxStore", function () {
             expect(payloads).to.deep.equal([]);
         });
 
-        it("does not notify the ready channel of a completion that rolls back", async function () {
+        it("notifies neither the ready nor the finished channel of a completion that rolls back", async function () {
             await store.pushBatch([message(CHAT, "first"), message(CHAT, "second")]);
             const pulled = await pullOne();
+            // On the connection of the ready channel: the sentinel of readyNotificationsOf() comes
+            // after any notification of the completion.
+            const finishedPayloads = await listenTo(listener, OutboxChannel.Finished);
+            let rollback: unknown;
 
             const payloads = await readyNotificationsOf(async () => {
-                await other.sql
-                    .begin(async (sql) => {
-                        await storeOn(sql).markAsDone(pulled, RESPONSE);
-
-                        throw new Error("roll back");
-                    })
-                    .catch(() => undefined);
+                rollback = await new OutboxStore(rollingBackDatabase(database), logger, NO_LIMITS, LEASE_DURATION_MS, CLEANUP)
+                    .markAsDone(pulled, RESPONSE)
+                    .then(
+                        () => expect.fail("markAsDone() was expected to roll back"),
+                        (reason: unknown) => reason,
+                    );
             });
 
+            // The rollback of the spec, not an error of the completion, and no warning of a fenced one:
+            // the completion ran to its end.
+            expect((rollback as Error).message).to.equal(SPEC_ROLLBACK_MESSAGE);
+            expect(logger.warnings).to.deep.equal([]);
             expect(payloads).to.deep.equal([]);
+            expect(finishedPayloads).to.deep.equal([]);
             expect(await chat(CHAT)).to.deep.equal({ state: OutboxChatState.Processing });
         });
     });

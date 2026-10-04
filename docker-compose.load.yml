@@ -20,6 +20,8 @@ services:
         # drift from it. It is loaded for every session, but logs only where log_min_duration is set:
         # make load-measure sets it for the user of .env, the one the store connects as, and not for
         # the superuser of the fill.
+        # log_autovacuum_min_duration logs every autovacuum run with its time, its index scans and
+        # the pages it read: the cost of the vacuum settings of the outbox.
         # The other settings are the defaults of the image, as in the shared database.
         command:
             - postgres
@@ -31,6 +33,8 @@ services:
             - auto_explain.log_buffers=on
             - -c
             - auto_explain.log_nested_statements=on
+            - -c
+            - log_autovacuum_min_duration=0
         # A named volume and not a directory of the host: the fill writes through the file sharing of
         # Docker Desktop several times slower. make load-down removes it.
         volumes:

@@ -3,4 +3,6 @@ export type OutboxMaintenanceSettings = {
     leaseRecoveryIntervalMs: number;
     // How often a node runs the cleanup.
     cleanupIntervalMs: number;
+    // How often a node writes the status line of the outbox.
+    statusLogIntervalMs: number;
 };

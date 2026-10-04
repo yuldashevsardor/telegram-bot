@@ -30,8 +30,7 @@ function createQuietLogger(requestContext: RequestContext): Logger {
 // Fills the context whole, as create() does, but builds the config from the given variables, not
 // from the environment of the process: the config requires BOT_TOKEN, and a run need not have a
 // real one. A config that failed leaves the context empty, as in create(). By default the logger
-// writes only critical: TaskQueue starts intervals with an info log every 10 s on construction,
-// nothing stops them, and under test-watch they pile up between runs in the output of mocha.
+// writes only critical, so the info logs of the code under test stay out of the output of mocha.
 export async function fillApplicationContext(values: RawConfig = {}, logger?: Logger): Promise<void> {
     const cc = new ConfigContainer<ConfigValues>(
         { load: async (): Promise<RawConfig> => ({ BOT_TOKEN: "test-token", ...values }) },

@@ -11,9 +11,12 @@ The test runs against a Postgres of its own, `docker-compose.load.yml`, so that 
 slow down the shared database of every worktree. The targets are `load-*` of the `Makefile`, in this
 order, with the shared database up (`make db-up`), whose network the application containers and the
 load-test database join: `load-up`, `load-fill-done` once, then per layout `load-fill-pending` and
-`load-measure`; `load-indexes` adds the candidate index, `load-down` removes the database with its
-data. The files they run are in `test/load/`. A fill stays valid for 6 days: then its done messages
-pass the retention, and the cleanup of a measurement deletes them by the thousand.
+`load-measure`; `load-churn` sends the messages of one chat (see "Vacuum of the head index"),
+`load-down` removes the database with its data. `load-up` applies the migrations, the head index and
+the vacuum settings of the outbox among them; on a volume of the earlier runs, where the index was
+made by hand under the same name, the migration fails, and `load-down` gives a fresh one. The files
+they run are in `test/load/`. A fill stays valid for 6 days: then its done messages pass the
+retention, and the cleanup of a measurement deletes them by the thousand.
 
 The measurement calls the real `OutboxStore` with the settings of `.env` and prints how long each
 call took on the client. The plans are those of the store's own statements: `auto_explain` logs them
@@ -67,10 +70,11 @@ limits held back (see "How to run it").
 | `deleteIdleChats()` | — | 32 | 60 |
 
 Without an index only two pulls and their completions were measured, of an earlier fill and with the
-plans on: each pull took minutes, and the rest of the run would have taken hours. The candidate
-index is `telegram_outbox (chat_id, id) WHERE status IN ('pending', 'processing')`; it took 2
-minutes to build. The plans add to the time: `pull(1)` of 100 k chats took a median of 161 ms with
-them and 144 ms without.
+plans on: each pull took minutes, and the rest of the run would have taken hours. The index is
+`telegram_outbox (chat_id, id) WHERE status IN ('pending', 'processing')`, made then by hand over
+the filled table, where it took 2 minutes to build; it is now the migration
+`1791153270752_telegram-outbox-head-index.ts`. The plans add to the time: `pull(1)` of 100 k chats
+took a median of 161 ms with them and 144 ms without.
 
 ### Why the index is partial
 
@@ -167,7 +171,7 @@ Nested Loop  (actual time=0.180..791.463 rows=3.00 loops=1)
 
 ### Dead entries of the index
 
-A message leaves two dead entries in the candidate index: its `status` is in the index predicate, so
+A message leaves two dead entries in the head index: its `status` is in the index predicate, so
 neither the pull nor the completion updates the row in place (no HOT update), and the version it
 leaves behind keeps its entry until a vacuum cleans the index. A plain `VACUUM` does not always:
 while the dead rows lie on less than 2% of the pages of the table it skips the indexes ("index scan
@@ -186,7 +190,57 @@ so `pull(30)` of the 3 chats took 7 – 58 ms, median 20. After `VACUUM (INDEX_C
 telegram_outbox` the same lookup read 7 buffers in 0.4 ms. The fill of a layout runs that vacuum, so
 the table above is measured without them. At the common limit of 30 messages a second the outbox
 leaves some 5 M such entries a day, and autovacuum at its defaults comes to a table of 100 M rows
-once it has 20 M dead rows.
+once it has 20 M dead rows. What the migration sets against both is in the next section.
+
+### Vacuum of the head index
+
+The migration sets two options of `telegram_outbox`: `vacuum_index_cleanup = ON`, so a vacuum never
+skips the indexes, and `autovacuum_vacuum_max_threshold = 100000`, so autovacuum comes after at most
+100 000 dead rows, whatever the size of the done history; a table under half a million rows keeps
+the default fifth of its rows, which comes sooner. The dead entries a head lookup walks are those of
+its own chat, so the worst case is one chat that sends all of them: `make load-churn chat=1
+messages=45000` over the 3 chats layout, each message pulled and completed in transactions of its
+own, as the store does, leaves 90 000 dead rows, all of chat 1, just under the threshold. Its head
+lookup then read 180 buffers in 0.36 ms, warm, against 11 after 1 000 messages: some 500 dead
+entries a page.
+
+6 000 more messages took the table past the threshold, and autovacuum came within 20 seconds:
+
+```
+automatic vacuum of table "docker_db.public.telegram_outbox": index scans: 1
+	pages: 0 removed, 9113609 remain, 4117 scanned (0.05% of total), 0 eagerly scanned
+	index scan needed: 4057 pages from table (0.04% of total) had 102000 dead item identifiers removed
+	index "telegram_outbox_pkey": pages: 276655 in total, 0 newly deleted, 0 currently deleted, 0 reusable
+	index "telegram_outbox_active_chat_id_idx": pages: 3473 in total, 196 newly deleted, 196 currently deleted, 0 reusable
+	avg read rate: 183.073 MB/s, avg write rate: 0.004 MB/s
+	buffer usage: 16948 hits, 279523 reads, 6 dirtied
+	system usage: CPU: user: 1.32 s, system: 0.16 s, elapsed: 11.92 s
+```
+
+After it the head lookup read 7 buffers. The run took 12 s, nearly all of it reading the primary
+key, 2.2 GB of 100 M rows: an index vacuum reads every index whole, however few dead rows it
+removes. At the common limit of 30 messages a second the messages leave 60 dead rows a second, and
+the cleanup, once the retention has passed, deletes 30 more, so autovacuum comes every 18 to 28
+minutes, 12 s of reading each time. One chat alone, at the private limit of 3 a second, takes 4.6
+hours to reach the threshold, with the 180 buffers above at the end. The run above was made with
+`autovacuum_vacuum_scale_factor = 0` and `autovacuum_vacuum_threshold = 100000`, the same trigger at
+this size; repeated with the option of the migration, it gave the same 180 buffers before
+autovacuum, a run of 12.8 s and 7 buffers after.
+
+The same churn with `vacuum_index_cleanup` back at its default, `auto`, shows why the option is
+there: autovacuum came on the threshold as well, but skipped the indexes, and the dead entries
+stayed for the next lookups to walk, 203 buffers, growing with every message after it:
+
+```
+automatic vacuum of table "docker_db.public.telegram_outbox": index scans: 0
+	index scan bypassed: 4935 pages from table (0.05% of total) have 102000 dead item identifiers
+	index "telegram_outbox_active_chat_id_idx": pages: 3473 in total, 0 newly deleted, 196 currently deleted, 196 reusable
+	system usage: CPU: user: 0.15 s, system: 0.01 s, elapsed: 0.44 s
+```
+
+The runs are logged by `log_autovacuum_min_duration = 0` of `docker-compose.load.yml`. No target
+prints them after `make load-churn`: `docker compose -f docker-compose.load.yml logs pgsql-load`
+does, and `make load-measure` prints those that fall within its own run, with the plans.
 
 ### The cleanup
 
@@ -212,7 +266,7 @@ of the table reported it was.
 
 ## Verdict
 
-With the candidate index the completion is within the threshold at its median, 1 – 2 ms, and at its
+With the head index the completion is within the threshold at its median, 1 – 2 ms, and at its
 95th percentile, 4 ms, though not at its maximum, 14 and 42 ms. So is the pull of a few chats at its
 median, 2 – 7 ms, while the index is kept clean of dead entries; a batch of the 3 chats took up to
 28 ms once. The pull of 100 k ready chats is not: a batch takes a median of 228 ms, some 23 times

@@ -1,27 +1,27 @@
 # Outbox (telegram/outbox/)
 
-The outbox replaces the in-memory outbound queue
-([`outbound-queue.md`](./outbound-queue.md)): outgoing Bot API calls become rows in PostgreSQL, any
-node sends them, the order inside a chat holds across nodes, and a node that dies loses nothing (the
-plan is epic [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)). The Bot API
-calls to a chat go into it through `OutboxTransformer` (`transformer/outbox-transformer.ts`), which
-pushes a call and gives the caller its outcome; which calls it lets past is in [`bot.md`](./bot.md),
-"The outbox transformer". `Application` starts its runner and its maintenance
+Outgoing Bot API calls become rows in PostgreSQL, any node sends them, the order inside a chat holds
+across nodes, and a node that dies loses nothing (the plan is epic
+[#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)). The Bot API calls to a chat go
+into it through `OutboxTransformer` (`transformer/outbox-transformer.ts`), which pushes a call and
+gives the caller its outcome; which calls it lets past is in [`bot.md`](./bot.md), "The outbox
+transformer". `Application` starts its runner and its maintenance
 ([`application.md`](./application.md)). It holds the tables with `OutboxStore`
 (`store/outbox-store.ts`), which pushes, pulls within the limits, pauses, completes a pulled
-message, finds the expired leases, cleans up and unblocks a chat by hand, `OutboxRunner`
-(`outbox-runner.ts`), which sends the messages of a node over its slots, `OutboxMaintenance`
-(`maintenance/outbox-maintenance.ts`), which runs the recovery of the expired leases and the cleanup
-on timers, `OutboxLeaseRecovery` (`lease/outbox-lease-recovery.ts`), which takes back the messages
-of the expired leases, `OutboxMessageSource` (`outbox-message-source.ts`), which hands the pulled
-messages to the runner, `OutboxMessageProcessor` (`outbox-message-processor.ts`), which takes one
-pulled message to its outcome, with `OutboxSender`, which makes its Bot API call,
-`OutboxFailureHandler` (`outbox-failure-handler.ts`), which picks the outcome of a failed send,
-`OutboxLeaseRetrier` (`lease/outbox-lease-retrier.ts`), which completes a transient failure as a
-retry or a block, `OutboxLeaseReleaser` (`lease/outbox-lease-releaser.ts`), which releases a lease
-on stop, `OutboxResultWaiter`, which waits for the outcome of a message, with
-`OutboxFinishedMessageReader`, the payload codec and the retry delay. The error classes of a failed
-call lie outside it, in `telegram/bot-api-failure-classifier/`.
+message, finds the expired leases, cleans up, counts what waits and unblocks a chat by hand,
+`OutboxRunner` (`outbox-runner.ts`), which sends the messages of a node over its slots,
+`OutboxMaintenance` (`maintenance/outbox-maintenance.ts`), which runs the recovery of the expired
+leases, the cleanup and the status line on timers, `OutboxLeaseRecovery`
+(`lease/outbox-lease-recovery.ts`), which takes back the messages of the expired leases,
+`OutboxMessageSource` (`outbox-message-source.ts`), which hands the pulled messages to the runner,
+`OutboxMessageProcessor` (`outbox-message-processor.ts`), which takes one pulled message to its
+outcome, with `OutboxSender`, which makes its Bot API call, `OutboxFailureHandler`
+(`outbox-failure-handler.ts`), which picks the outcome of a failed send, `OutboxLeaseRetrier`
+(`lease/outbox-lease-retrier.ts`), which completes a transient failure as a retry or a block,
+`OutboxLeaseReleaser` (`lease/outbox-lease-releaser.ts`), which releases a lease on stop,
+`OutboxResultWaiter`, which waits for the outcome of a message, with `OutboxFinishedMessageReader`,
+the payload codec and the retry delay. The error classes of a failed call lie outside it, in
+`telegram/bot-api-failure-classifier/`.
 
 ## Tables
 
@@ -30,8 +30,18 @@ column the outbox needs. The columns and what they mean are in its `createTable`
 `comment`s; the comment of `next_attempt_at` is replaced by
 `1790666223510_telegram-outbox-chat-limit-comment.ts` and then, with that of `status`, by
 `1790682156623_telegram-outbox-retry-comments.ts`; those of `attempts` and `lock_token` are
-replaced by `1790716587328_telegram-outbox-attempt-worker-comment.ts`. There are no indexes
-besides the primary keys yet: they will be picked once the queries of every stage are settled.
+replaced by `1790716587328_telegram-outbox-attempt-worker-comment.ts`.
+
+The indexes are picked by the plans of the load test (see "Load test"), not ahead of the queries.
+`1791153270752_telegram-outbox-head-index.ts` adds the one index besides the primary keys,
+`telegram_outbox_active_chat_id_idx`, on `(chat_id, id)` of the active messages: the head of a
+chat for the pull and for `releaseChat()` is its first entry, and the lease recovery finds the
+`processing` message of a chat among its entries. Its `status` is in the predicate, so
+no update of a message is HOT, and a `fillfactor` would buy nothing; every message leaves two dead
+entries in it, which the head lookup walks until a vacuum cleans them. So the same migration caps
+the dead rows that bring autovacuum to `telegram_outbox`, whatever the size of the done history,
+and makes the vacuum always clean the indexes; the values and their measurement are in
+[`outbox-load-test.md`](./outbox-load-test.md), "Vacuum of the head index".
 
 The database does not check the values of `status` and `state`: the store writes them only
 through the `OutboxStatus` and `OutboxChatState` enums (`store/outbox-store.types.ts`). Of these,
@@ -186,8 +196,7 @@ nothing.
 
 ## Limits
 
-The limits are `limits.*` of the configuration (`TelegramLimits`), the same values the in-memory
-queue takes ([`outbound-queue.md`](./outbound-queue.md)). A limit of `number` messages per
+The limits are `limits.*` of the configuration (`TelegramLimits`). A limit of `number` messages per
 `interval` ms spaces the messages by its cooldown, `interval / number`.
 
 - **The chat limit.** A pull moves `next_attempt_at` of a chat to the time of the pull (see "Pull")
@@ -201,7 +210,7 @@ queue takes ([`outbound-queue.md`](./outbound-queue.md)). A limit of `number` me
   due at the time of the pull, capped by `limit`. The pull moves `next_send_at` to that time plus
   one cooldown per message it pulled: the slots it did not use are dropped, and a batch of the whole
   `number` holds the next one back for the whole `interval`. So no window of `interval` gets more
-  than `number` messages, as with the in-memory queue. Counted from the slots saved up instead, a
+  than `number` messages. Counted from the slots saved up instead, a
   burst of `number` would be followed by a slot every cooldown: nearly twice the limit in one
   interval. The cooldown counts from the pull, not from the slot, and `nextPullInMs` rounds it up to
   a whole millisecond, so both the rounding and the latency of the caller come off the rate. With a
@@ -342,8 +351,8 @@ short only the Bot API call.
 
 ## Maintenance
 
-`OutboxMaintenance` (`maintenance/outbox-maintenance.ts`) runs three tasks on the timers of every
-node, apart from the runner. It takes its two intervals as one `outbox.maintenance` object
+`OutboxMaintenance` (`maintenance/outbox-maintenance.ts`) runs four tasks on the timers of every
+node, apart from the runner. It takes its three intervals as one `outbox.maintenance` object
 (`OutboxMaintenanceSettings`):
 
 - `OutboxLeaseRecovery.recover()` (see "Lease recovery"), every
@@ -353,7 +362,13 @@ node, apart from the runner. It takes its two intervals as one `outbox.maintenan
   other back. A batch that deleted anything is followed by the next one at once, until a batch
   deletes nothing or the maintenance stops. A batch short of `OUTBOX_CLEANUP_BATCH_SIZE` would end
   the run one query earlier, but the size is the `LIMIT` of the store, and the maintenance keeps no
-  copy of it.
+  copy of it;
+- the status line, every `OUTBOX_MAINTENANCE_STATUS_LOG_INTERVAL`: an `info` "Outbox status." with
+  what `OutboxStore.readBacklog()` counts, the `pending` and the `processing` messages, the
+  `blocked` chats and the milliseconds left of the pause, 0 without one. The counts come from the
+  tables, so every node writes the state of the whole outbox, not of its own sends. With no index on
+  `status` yet the count reads the whole of `telegram_outbox`, `done` messages included
+  ([#643](https://github.com/yuldashevsardor/telegram-bot/issues/643)).
 
 A task runs first one interval after `start()`, and its next run is timed from the end of the
 previous one, so two runs of a task on one node never overlap. A failed run is logged at `error` and
@@ -481,8 +496,9 @@ finds the answer of Telegram in the error.
   outcome. The store sends it with `pg_notify` through the `sql` of the transaction, not with
   `sql.notify()` of postgres.js: that one runs on the pool whatever `sql` it is called on
   (`notify()` in its `src/index.js`), so inside a transaction it would notify before the commit,
-  and even for a transaction that rolls back. No spec pins this: `pg_notify` is the last statement
-  before the commit, and nothing outside the store can hold the transaction open between them.
+  and even for a transaction that rolls back. A spec pins it for both channels with a store on
+  `rollingBackDatabase()` (`test/database.helper.ts`), whose transactions run every statement and
+  then roll back.
 - **The listening** starts once, with the first wait, through `sql.listen()` on a connection of
   its own ([`storage.md`](./storage.md), "LISTEN"). A failed start is logged at `warning` and is
   not repeated: postgres.js keeps the listener of a failed `LISTEN` and subscribes it again when
@@ -554,7 +570,7 @@ as `PgSqlUserRepository` does ([`storage.md`](./storage.md), "`User.id`").
 
 ## Load test
 
-How the store holds up on 100 M messages, measured, and the indexes the measurements propose:
+How the store holds up on 100 M messages, measured, and what the measurements propose:
 [`outbox-load-test.md`](./outbox-load-test.md).
 
 ## Sending

@@ -3,7 +3,6 @@ import { Level, Levels } from "app/platform/logger/logger.types";
 import { InvalidConfigError } from "app/shared/errors";
 import { ConfigParser } from "app/bootstrap/config/parser/config-parser";
 import type { IntegerRange } from "app/bootstrap/config/parser/config-parser";
-import type { RunnerSettings } from "app/telegram/outbound-queue/runner/runner.types";
 import type { OutboxRetryDelaySettings } from "app/telegram/outbox/retry-delay/outbox-retry-delay.types";
 import type { DatabaseSettings } from "app/platform/database/database.types";
 import type { RawConfig } from "app/bootstrap/config/container/config-container.types";
@@ -14,8 +13,8 @@ import { MS_PER_DAY } from "app/shared/time";
 
 // Checks that tie several variables together live here; parsing a single variable lives in ConfigParser.
 export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
-    // The cooldown of a RateLimit slot is interval / number: a zero in number makes it infinite and
-    // the slot is never freed, while a zero in interval makes it nil and the limit stops limiting.
+    // The outbox spaces the messages by interval / number: a zero in number makes the cooldown
+    // infinite, while a zero in interval makes it nil and the limit stops limiting.
     private static readonly LIMIT_RANGE: IntegerRange = { min: 1 };
 
     // The numbers of the outbox cleanup SQL. It adds a retention to finished_at: up to this many ms
@@ -27,9 +26,9 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
     // the redelivery away, so its retention may not fall below a day.
     private static readonly INBOX_DONE_RETENTION_RANGE: IntegerRange = { min: MS_PER_DAY, max: Number.MAX_SAFE_INTEGER };
 
-    // The connections the outbox takes besides its slots: the pull of the runner and the three
+    // The connections the outbox takes besides its slots: the pull of the runner and the four
     // tasks of OutboxMaintenance, each one query at a time.
-    private static readonly OUTBOX_CONNECTIONS_BESIDES_SLOTS = 4;
+    private static readonly OUTBOX_CONNECTIONS_BESIDES_SLOTS = 5;
 
     // The pool deadlines are in seconds: postgres.js multiplies them by 1000 for setTimeout, so the
     // ceiling is the longest timer delay in seconds. A zero switches the timer off there, while a
@@ -69,8 +68,6 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
                 },
             },
 
-            runner: ConfigValuesBuilder.getRunner(parser),
-
             outbox: {
                 retryDelay: ConfigValuesBuilder.getOutboxRetryDelay(parser),
                 resultWaiter: {
@@ -85,6 +82,7 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
                 maintenance: {
                     leaseRecoveryIntervalMs: parser.getTimerDelay("OUTBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL", 10 * 1000),
                     cleanupIntervalMs: parser.getTimerDelay("OUTBOX_MAINTENANCE_CLEANUP_INTERVAL", 10 * 60 * 1000),
+                    statusLogIntervalMs: parser.getTimerDelay("OUTBOX_MAINTENANCE_STATUS_LOG_INTERVAL", 10 * 1000),
                 },
                 cleanup: {
                     doneRetentionMs: parser.getInteger("OUTBOX_DONE_RETENTION", 7 * MS_PER_DAY, ConfigValuesBuilder.CLEANUP_RANGE),
@@ -114,14 +112,6 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
                 },
             },
 
-            taskQueue: {
-                logInterval: parser.getTimerDelay("TASK_QUEUE_LOG_INTERVAL", 10 * 1000),
-                gracefulShutdown: {
-                    timeout: parser.getTimerDelay("TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT", 5000, { min: 0 }),
-                    interval: parser.getTimerDelay("TASK_QUEUE_GRACEFUL_SHUTDOWN_INTERVAL", 500),
-                },
-            },
-
             gracefulShutdown: {
                 timeout: parser.getTimerDelay("GRACEFUL_SHUTDOWN_TIMEOUT", 15000),
             },
@@ -135,26 +125,6 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
         ConfigValuesBuilder.checkOutboxConcurrency(values);
 
         return values;
-    }
-
-    // The Runner picks a pause at random from these bounds on every empty iteration, so an empty
-    // range breaks the choice silently.
-    private static getRunner(parser: ConfigParser): RunnerSettings {
-        const min = parser.getTimerDelay("RUNNER_SLEEP_INTERVAL_MIN", 10);
-        const max = parser.getTimerDelay("RUNNER_SLEEP_INTERVAL_MAX", 1000);
-        const maxRetries = parser.getInteger("RUNNER_MAX_RETRIES", 3, { min: 0 });
-
-        if (max < min) {
-            throw new InvalidConfigError("RUNNER_SLEEP_INTERVAL_MAX must not be less than RUNNER_SLEEP_INTERVAL_MIN", {
-                min: min,
-                max: max,
-            });
-        }
-
-        return {
-            sleepInterval: { min: min, max: max },
-            maxRetries: maxRetries,
-        };
     }
 
     // A cap below the first step would make every step the cap, and the growth would never show.
@@ -173,23 +143,19 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
         return { firstDelayMs: firstDelayMs, maxDelayMs: maxDelayMs, multiplier: multiplier };
     }
 
-    // The bot, outbox and queue deadlines are spent one after another inside the overall one, in this
-    // order, so it has to cover their sum. The check goes no further: the own deadlines of the
+    // The bot and outbox deadlines are spent one after another inside the overall one, in this order,
+    // so it has to cover their sum. The check goes no further: the own deadlines of the
     // dependencies are not summed up (sql.end() inside Database.close() has 5 seconds of its own),
     // and the overall deadline is taken with a margin instead.
-    private static checkGracefulShutdown({ bot, outbox, taskQueue, gracefulShutdown }: ConfigValues): void {
-        const stepTimeoutsSumMs = bot.gracefulShutdown.timeout + outbox.stopTimeoutMs + taskQueue.gracefulShutdown.timeout;
+    private static checkGracefulShutdown({ bot, outbox, gracefulShutdown }: ConfigValues): void {
+        const stepTimeoutsSumMs = bot.gracefulShutdown.timeout + outbox.stopTimeoutMs;
 
         if (gracefulShutdown.timeout <= stepTimeoutsSumMs) {
-            throw new InvalidConfigError(
-                "GRACEFUL_SHUTDOWN_TIMEOUT must be greater than the sum of the bot, outbox and task queue timeouts",
-                {
-                    application: gracefulShutdown.timeout,
-                    bot: bot.gracefulShutdown.timeout,
-                    outbox: outbox.stopTimeoutMs,
-                    taskQueue: taskQueue.gracefulShutdown.timeout,
-                },
-            );
+            throw new InvalidConfigError("GRACEFUL_SHUTDOWN_TIMEOUT must be greater than the sum of the bot and outbox timeouts", {
+                application: gracefulShutdown.timeout,
+                bot: bot.gracefulShutdown.timeout,
+                outbox: outbox.stopTimeoutMs,
+            });
         }
     }
 
@@ -236,7 +202,7 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
             username: parser.getString("DATABASE_USER_NAME", "docker"),
             password: parser.getString("DATABASE_USER_PASSWORD", ""),
             connection: {
-                max: parser.getInteger("DATABASE_CONNECTION_LIMIT", 10, { min: 1 }),
+                max: parser.getInteger("DATABASE_CONNECTION_LIMIT", 15, { min: 1 }),
                 idleTimeout: parser.getInteger("DATABASE_CONNECTION_IDLE_TIMEOUT", 10, ConfigValuesBuilder.DATABASE_TIMER_RANGE),
                 maxLifetime: parser.getInteger("DATABASE_CONNECTION_MAX_LIFETIME", 60 * 10, ConfigValuesBuilder.DATABASE_TIMER_RANGE),
             },

@@ -152,6 +152,23 @@ export type OutboxPullResultRow = {
     has_bot_limits: boolean;
 };
 
+// The backlog as postgres returns it: a count comes as a bigint, that is, a string.
+export type OutboxBacklogRow = {
+    pending_count: string;
+    processing_count: string;
+    blocked_chat_count: string;
+    pause_left_ms: number;
+};
+
+// What waits in the outbox at the moment of the read.
+export type OutboxBacklog = {
+    pendingCount: number;
+    processingCount: number;
+    blockedChatCount: number;
+    // What is left of the pause after a 429, 0 when there is none.
+    pauseLeftMs: number;
+};
+
 // What the cleanup deletes and how much at a time. A failed message has no retention: it is never
 // deleted automatically.
 export type OutboxCleanupSettings = {
