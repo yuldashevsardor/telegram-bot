@@ -1,10 +1,9 @@
 import { mock } from "node:test";
 import { expect } from "chai";
-import type { Logger } from "app/platform/logger/logger";
-import type { UnknownObject } from "app/shared/types";
 import { OutboxMessageSource } from "app/telegram/outbox/outbox-message-source";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxPullResult, OutboxWorker, PulledOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
+import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 
 // The pull of the source over the real store is checked in outbox-store.spec.ts.
 
@@ -22,27 +21,6 @@ const NEXT_PULL_IN_MS = 200;
 // Beyond the 2^31 - 1 ms a Node timer takes: Node would fire such a timer after 1 ms.
 const BEYOND_TIMER_MS = 2 ** 31;
 const NOTHING_READY: OutboxPullResult = { messages: [], nextPullInMs: null };
-
-type LogRecord = { message: string; payload: UnknownObject | undefined };
-
-class RecordingLogger implements Logger {
-    public readonly errors: LogRecord[] = [];
-    public readonly warnings: LogRecord[] = [];
-
-    public critical(): void {}
-
-    public error(message: string, payload?: UnknownObject): void {
-        this.errors.push({ message: message, payload: payload });
-    }
-
-    public warning(message: string, payload?: UnknownObject): void {
-        this.warnings.push({ message: message, payload: payload });
-    }
-
-    public info(): void {}
-
-    public debug(): void {}
-}
 
 // Answers the pulls from a queue of results, NOTHING_READY once it is empty. A pull can be held
 // until the spec settles it.

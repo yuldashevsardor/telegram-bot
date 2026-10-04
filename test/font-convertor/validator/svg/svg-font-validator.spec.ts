@@ -189,10 +189,16 @@ describe("SvgFontValidator.validate", function () {
             await validate(inline(`<font horiz-adv-x="500">${FONT_FACE}<glyph d="M0 0"> <!-- path --> </glyph></font>`));
         });
 
+        it("with kerning pairs that name no glyph or kern by a fraction, which fontforge tolerates", async function () {
+            // Not forms of real fonts: every real pair has an integer `k` and both glyphs. The rules are
+            // deliberately no stricter than fontforge, which drops an unknown glyph and truncates `12.5`.
+            await validate(inline(kerned('<hkern g1="a" g2="unknown" k="12.5"/><vkern u1="a" u2="b" k="0"/>')));
+        });
+
         it("with kerning pairs in the forms real fonts write", async function () {
             // u1="," is a single character, not a list: 13 of the 24 real fonts checked for #776 hold it.
-            await validate(inline(kerned('<hkern u1="," u2="a" k="-50"/><vkern u1="a" u2="b" k="12.5"/>')));
-            await validate(inline(kerned('<hkern g1="a,b c" g2="unknown" k="50"/><hkern u1="a" g1="b" u2="b" k="0"/>')));
+            await validate(inline(kerned('<hkern u1="," u2="a" k="-50"/><vkern u1="a" u2="b" k="50"/>')));
+            await validate(inline(kerned('<hkern g1="a,b c" g2="b" k="50"/><hkern u1="a" g1="b" u2="b" k="-50"/>')));
             // A no-break space is no XML whitespace: it is a name, though no glyph has it.
             await validate(inline(kerned('<hkern g1="&#xA0;" u2="b" k="50"/>')));
             // A character outside the BMP is one code point, though two UTF-16 units.
@@ -515,40 +521,68 @@ describe("SvgFontValidator.validate", function () {
             });
         }
 
-        for (const element of ["font", "glyph", "missing-glyph"]) {
-            for (const attribute of ["horiz-adv-x", "vert-adv-y"]) {
-                it(`to ${attribute} of ${element} past its range`, async function () {
-                    // fontforge keeps an advance in a signed 16-bit field: 32768 makes 0 in a TTF,
-                    // 70000 makes 4464, and so does a negative vert-adv-y.
-                    const values = attribute === "vert-adv-y" ? ["32768", "70000", "1e999", "-1"] : ["32768", "70000", "1e999"];
+        // fontforge keeps an advance in a signed 16-bit field: 32768 makes 0 in a TTF, 70000 makes
+        // 4464, and so does a negative vert-adv-y.
+        const advanceValuesPastRange = (attribute: string): Array<string> => {
+            const values = ["32768", "70000", "1e999"];
 
-                    for (const value of values) {
-                        const fonts: Record<string, string> = {
-                            font: `<font ${
-                                attribute === "horiz-adv-x" ? "" : 'horiz-adv-x="500" '
-                            }${attribute}="${value}">${FONT_FACE}${GLYPH}</font>`,
-                            glyph: `<font horiz-adv-x="500">${FONT_FACE}<glyph ${attribute}="${value}"/></font>`,
-                            "missing-glyph": `<font horiz-adv-x="500">${FONT_FACE}<missing-glyph ${attribute}="${value}"/>${GLYPH}</font>`,
-                        };
+            return attribute === "vert-adv-y" ? [...values, "-1"] : values;
+        };
 
-                        const error = await expectAnswer(
-                            inline(fonts[element] as string),
-                            BrokenFont,
-                            `SVG font breaks a rule: horiz-adv-x and vert-adv-y are 0 to 32767 (ours: fontforge keeps an advance in a signed 16-bit field). At line 2: <${element}> with ${attribute}="${value}".`,
-                        );
+        const expectAdvanceRange = async (fontXml: string, element: string, attribute: string, value: string): Promise<void> => {
+            const error = await expectAnswer(
+                inline(fontXml),
+                BrokenFont,
+                `SVG font breaks a rule: horiz-adv-x and vert-adv-y are 0 to 32767 (ours: fontforge keeps an advance in a signed 16-bit field). At line 2: <${element}> with ${attribute}="${value}".`,
+            );
 
-                        expect(error.payload).to.deep.equal({
-                            path: fontPath,
-                            rule: FontRule.AdvanceRange,
-                            element: element,
-                            line: 2,
-                            attribute: attribute,
-                            value: value,
-                            valueLength: value.length,
-                        });
-                    }
-                });
-            }
+            expect(error.payload).to.deep.equal({
+                path: fontPath,
+                rule: FontRule.AdvanceRange,
+                element: element,
+                line: 2,
+                attribute: attribute,
+                value: value,
+                valueLength: value.length,
+            });
+        };
+
+        for (const attribute of ["horiz-adv-x", "vert-adv-y"]) {
+            it(`to ${attribute} of font past its range`, async function () {
+                // `horiz-adv-x` of `font` is required, so it stays when the attribute under test is the other one.
+                const requiredAdvance = attribute === "horiz-adv-x" ? "" : 'horiz-adv-x="500" ';
+
+                for (const value of advanceValuesPastRange(attribute)) {
+                    await expectAdvanceRange(
+                        `<font ${requiredAdvance}${attribute}="${value}">${FONT_FACE}${GLYPH}</font>`,
+                        "font",
+                        attribute,
+                        value,
+                    );
+                }
+            });
+
+            it(`to ${attribute} of glyph past its range`, async function () {
+                for (const value of advanceValuesPastRange(attribute)) {
+                    await expectAdvanceRange(
+                        `<font horiz-adv-x="500">${FONT_FACE}<glyph ${attribute}="${value}"/></font>`,
+                        "glyph",
+                        attribute,
+                        value,
+                    );
+                }
+            });
+
+            it(`to ${attribute} of missing-glyph past its range`, async function () {
+                for (const value of advanceValuesPastRange(attribute)) {
+                    await expectAdvanceRange(
+                        `<font horiz-adv-x="500">${FONT_FACE}<missing-glyph ${attribute}="${value}"/>${GLYPH}</font>`,
+                        "missing-glyph",
+                        attribute,
+                        value,
+                    );
+                }
+            });
         }
 
         it("to a negative horiz-adv-x whose number rounds to zero", async function () {

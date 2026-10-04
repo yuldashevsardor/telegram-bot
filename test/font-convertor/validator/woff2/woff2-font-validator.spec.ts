@@ -5,6 +5,7 @@ import os from "os";
 import path from "path";
 import zlib from "zlib";
 import { Extension } from "app/font-convertor/font-convertor.types";
+import { SfntTableDirectory } from "app/font-convertor/sfnt-table-directory/sfnt-table-directory";
 import { SFNT_VERSIONS } from "app/font-convertor/sfnt-version";
 import { Woff2FontValidator } from "app/font-convertor/validator/woff2/woff2-font-validator";
 import type { InvalidWoff2Font } from "app/font-convertor/validator/woff2/woff2-font-validator.errors";
@@ -23,6 +24,7 @@ import {
     withComposite,
     withNContour,
     withStream,
+    FIXTURE_NUM_GLYPHS,
     FLAVOR,
     fixtureDir,
     GLYF_HEADER_SIZE_BYTES,
@@ -37,6 +39,7 @@ import {
     META_LENGTH,
     META_OFFSET,
     META_ORIG_LENGTH,
+    NUM_GLYPHS_WITH_COMPOSITE,
     NUM_TABLES,
     parse,
     PRIV_LENGTH,
@@ -56,10 +59,9 @@ const validator = new Woff2FontValidator();
 // The output buffer fontforge gives its decoder: the cap on the decompressed tables and on the rebuilt sfnt.
 const DECODER_BUFFER_SIZE_BYTES = 30 * 1024 * 1024;
 const MAX_COMPRESSION_RATIO = 100;
-const SFNT_TABLE_RECORD_SIZE_BYTES = 16;
 // A numGlyphs that is a multiple of neither 8 nor 32: overlapSimpleBitmap ends on a byte that holds
 // one glyph, and a size padded to 32-bit words would differ from ⌈numGlyphs / 8⌉ (§5.1).
-const BITMAP_NUM_GLYPHS = 1297;
+const BITMAP_NUM_GLYPHS = FIXTURE_NUM_GLYPHS + 1;
 const BITMAP_SIZE_BYTES = 163;
 
 // The fixture: flavor 0x00010000, 13 tables, the directory 41 bytes long, the compressed data
@@ -144,10 +146,9 @@ describe("Woff2FontValidator.validate", function () {
             // §5.5 lets other tables lie between glyf and loca in a single font.
             const loca = entryOf(fixtureLayout, "loca");
             const locaLast = [...fixtureLayout.entries.filter((entry) => entry !== loca), loca];
-            const byTag = fixtureLayout.entries.toSorted((left, right) => (left.tag < right.tag ? -1 : 1));
 
             await validate(build({ ...fixtureLayout, entries: locaLast }));
-            await validate(build({ ...fixtureLayout, entries: byTag }));
+            await validate(build(inTagOrder(fixtureLayout)));
         });
 
         it("with the hmtx transform, flags 1", async function () {
@@ -158,10 +159,14 @@ describe("Woff2FontValidator.validate", function () {
 
         it("with the hmtx transform and the directory in tag order", async function () {
             // Encoders write the directory in tag order, which puts glyf and hhea before hmtx.
-            const layout = withHmtxTransform(fixtureLayout, 0x01);
-            const byTag = layout.entries.toSorted((left, right) => (left.tag < right.tag ? -1 : 1));
+            await validate(build(inTagOrder(withHmtxTransform(fixtureLayout, 0x01))));
+        });
 
-            await validate(build({ ...layout, entries: byTag }));
+        it("with a transformed hmtx whose origLength is the rebuilt length padded to 4 bytes", async function () {
+            // 1295 hMetrics and 1296 glyphs rebuild 5182 bytes, which the decoder pads to 5184.
+            const layout = withHmtxTransform(withNumberOfHMetrics(fixtureLayout, 1295), 0x01);
+
+            await validate(build(withEntry(layout, "hmtx", (entry) => ({ ...entry, origLength: 5184 }))));
         });
 
         it("with a known tag written out after flag 63", async function () {
@@ -203,7 +208,7 @@ describe("Woff2FontValidator.validate", function () {
         it("whose rebuilt sfnt is exactly 30 MiB", async function () {
             // A table of zeros takes a table record and its length in the sfnt. The private block
             // brings the file over 30 MiB / 100, so the ratio cap holds too.
-            const zeroTableBytes = DECODER_BUFFER_SIZE_BYTES - FIXTURE_SFNT_SIZE_BYTES - SFNT_TABLE_RECORD_SIZE_BYTES;
+            const zeroTableBytes = DECODER_BUFFER_SIZE_BYTES - FIXTURE_SFNT_SIZE_BYTES - SfntTableDirectory.RECORD_SIZE_BYTES;
             const layout = withZeroTable(fixtureLayout, zeroTableBytes);
 
             await validate(build(withFileSize(layout, Math.ceil(DECODER_BUFFER_SIZE_BYTES / MAX_COMPRESSION_RATIO))));
@@ -211,7 +216,9 @@ describe("Woff2FontValidator.validate", function () {
 
         it("with a composite glyph of the fixture's own glyphs and its bounding box", async function () {
             // The fixture has no composite glyph: one more glyph, glyph 1296, is built of glyphs 5 and 6.
-            await validate(build(withGlyfParts(withLocaFor(fixtureLayout, 1297), (parts) => withComposite(parts, composite()))));
+            await validate(
+                build(withGlyfParts(withLocaFor(fixtureLayout, NUM_GLYPHS_WITH_COMPOSITE), (parts) => withComposite(parts, composite()))),
+            );
         });
 
         it("with a composite glyph whose component calls for instructions", async function () {
@@ -222,7 +229,11 @@ describe("Woff2FontValidator.validate", function () {
                 instructions: Uint8Array.from([0xb0, 0x00, 0x2c]),
             };
 
-            await validate(build(withGlyfParts(withLocaFor(fixtureLayout, 1297), (parts) => withComposite(parts, withInstructions))));
+            await validate(
+                build(
+                    withGlyfParts(withLocaFor(fixtureLayout, NUM_GLYPHS_WITH_COMPOSITE), (parts) => withComposite(parts, withInstructions)),
+                ),
+            );
         });
 
         it("with the hmtx transform and fewer hMetrics than glyphs, flags 1, 2 or 3", async function () {
@@ -580,11 +591,12 @@ describe("Woff2FontValidator.validate", function () {
     describe("rejects a transformed hmtx before glyf or hhea in the table directory, by a rule of ours", function () {
         // The decoder of fontforge rebuilds the tables in directory order: hmtx needs the glyph count
         // and the xMin of the glyphs from glyf and numberOfHMetrics from hhea.
-        it("with hmtx before glyf", async function () {
+        it("with hmtx before both, it names the one that comes later in the directory", async function () {
+            // The fixture has hhea after glyf: moving hmtx past hhea clears glyf as well.
             await expectBroken(
                 build(withEntriesFirst(withHmtxTransform(fixtureLayout, 0x01), ["hmtx"])),
                 Woff2Rule.HmtxAfterGlyfAndHhea,
-                'At table "hmtx": directory entry is 1, expected any entry after entry 7, the entry of table "glyf".',
+                'At table "hmtx": directory entry is 1, expected any entry after entry 10, the entry of table "hhea".',
             );
             await expectBroken(
                 build(withEntriesFirst(withHmtxTransform(fixtureLayout, 0x01), ["hhea", "hmtx"])),
@@ -939,6 +951,25 @@ describe("Woff2FontValidator.validate", function () {
             );
         });
 
+        it("with indexFormat 0 and a glyf that rebuilds past what a short loca addresses", async function () {
+            // The loca entry is the size of a short one, so rule LocaTransform holds; the fixture's glyf
+            // rebuilds to 133 392 bytes, where the short offsets of the decoder would wrap.
+            const layout = withEntry(
+                withGlyf(fixtureLayout, (glyf) => withUint16(glyf, GLYF_INDEX_FORMAT, 0)),
+                "loca",
+                (entry) => ({
+                    ...entry,
+                    origLength: 2594,
+                }),
+            );
+
+            await expectBroken(
+                build(layout),
+                Woff2Rule.ShortLocaGlyfSize,
+                'At table "glyf": rebuilt length is 133392, expected at most 131070, as indexFormat is 0.',
+            );
+        });
+
         it("with a transformed hmtx whose flags set neither bit 0 nor bit 1, or a reserved bit", async function () {
             // W3C tabledata-hmtx-transform-002/003.
             const expected = "expected bit 0 or bit 1 set, bits 2–7 clear.";
@@ -1076,7 +1107,7 @@ describe("Woff2FontValidator.validate", function () {
         });
 
         it("with a composite glyph without its bounding box", async function () {
-            const layout = withGlyfParts(withLocaFor(fixtureLayout, 1297), (parts) =>
+            const layout = withGlyfParts(withLocaFor(fixtureLayout, NUM_GLYPHS_WITH_COMPOSITE), (parts) =>
                 withComposite(parts, { ...composite(), boundingBox: undefined }),
             );
 
@@ -1089,7 +1120,11 @@ describe("Woff2FontValidator.validate", function () {
 
         it("with a composite glyph whose components or instructions run past their substreams", async function () {
             const withComponents = (edit: (whole: Composite) => Composite): Uint8Array =>
-                build(withGlyfParts(withLocaFor(fixtureLayout, 1297), (parts) => withComposite(parts, edit(composite()))));
+                build(
+                    withGlyfParts(withLocaFor(fixtureLayout, NUM_GLYPHS_WITH_COMPOSITE), (parts) =>
+                        withComposite(parts, edit(composite())),
+                    ),
+                );
 
             await expectBroken(
                 withComponents((whole) => ({ ...whole, components: whole.components.subarray(0, whole.components.length - 1) })),
@@ -1159,9 +1194,9 @@ describe("Woff2FontValidator.validate", function () {
                 `At table "hhea": numberOfHMetrics is 0, ${expected}`,
             );
             await expectBroken(
-                build(withNumberOfHMetrics(transformed, 1297)),
+                build(withNumberOfHMetrics(transformed, FIXTURE_NUM_GLYPHS + 1)),
                 Woff2Rule.TransformedHmtx,
-                `At table "hhea": numberOfHMetrics is 1297, ${expected}`,
+                `At table "hhea": numberOfHMetrics is ${FIXTURE_NUM_GLYPHS + 1}, ${expected}`,
             );
         });
 
@@ -1187,10 +1222,37 @@ describe("Woff2FontValidator.validate", function () {
         });
     });
 
+    describe("rejects a transformed hmtx whose origLength exceeds the rebuilt table, by a rule of ours", function () {
+        // The decoder of fontforge keeps origLength as the length of the table it writes, and refuses
+        // the file when the padded table ends past the sfnt.
+        const withOrigLength = (layout: Layout, origLength: number): Layout =>
+            withEntry(layout, "hmtx", (entry) => ({ ...entry, origLength: origLength }));
+
+        it("by one byte over a rebuilt length that is a multiple of 4", async function () {
+            const layout = withOrigLength(withHmtxTransform(fixtureLayout, 0x01), 5185);
+
+            await expectBroken(
+                build(layout),
+                Woff2Rule.HmtxOrigLength,
+                'At table "hmtx": origLength is 5185, expected at most 5184, the rebuilt length 5184 padded to 4 bytes.',
+            );
+        });
+
+        it("by one byte over the rebuilt length padded to 4 bytes", async function () {
+            const layout = withOrigLength(withHmtxTransform(withNumberOfHMetrics(fixtureLayout, 1295), 0x01), 5185);
+
+            await expectBroken(
+                build(layout),
+                Woff2Rule.HmtxOrigLength,
+                'At table "hmtx": origLength is 5185, expected at most 5184, the rebuilt length 5182 padded to 4 bytes.',
+            );
+        });
+    });
+
     describe("rejects a rebuilt sfnt over 30 MiB, by a rule of ours", function () {
         it("by a table of zeros 4 bytes over", async function () {
             // One byte more in the table is 4 more in the sfnt, padded.
-            const zeroTableBytes = DECODER_BUFFER_SIZE_BYTES - FIXTURE_SFNT_SIZE_BYTES - SFNT_TABLE_RECORD_SIZE_BYTES + 1;
+            const zeroTableBytes = DECODER_BUFFER_SIZE_BYTES - FIXTURE_SFNT_SIZE_BYTES - SfntTableDirectory.RECORD_SIZE_BYTES + 1;
             const layout = withZeroTable(fixtureLayout, zeroTableBytes);
 
             await expectBroken(
@@ -1413,6 +1475,13 @@ function withoutEntry(layout: Layout, tag: string): Layout {
 }
 
 /**
+ * The layout with the directory in tag order, as encoders write it.
+ */
+function inTagOrder(layout: Layout): Layout {
+    return { ...layout, entries: layout.entries.toSorted((left, right) => (left.tag < right.tag ? -1 : 1)) };
+}
+
+/**
  * The layout with the entries of `tags` moved, in that order, to the start of the directory.
  */
 function withEntriesFirst(layout: Layout, tags: Array<string>): Layout {
@@ -1496,7 +1565,10 @@ function withHmtxTransform(layout: Layout, flags: number): Layout {
         const leftSideBearings = (flags & 0x02) === 0 ? monospaced.map((metric) => metric.subarray(2, 4)) : [];
         const data = concat(Uint8Array.from([flags]), ...advanceWidths, ...lsbs, ...leftSideBearings);
 
-        return { ...entry, transformVersion: 1, transformLength: data.length, data: data };
+        // The decoder takes origLength as the length of the rebuilt hmtx: 4 bytes for each of numberOfHMetrics, 2 for the others.
+        const origLength = metrics.length * 2 + numberOfHMetrics * 2;
+
+        return { ...entry, transformVersion: 1, origLength: origLength, transformLength: data.length, data: data };
     });
 }
 

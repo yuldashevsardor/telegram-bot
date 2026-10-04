@@ -254,8 +254,12 @@ was rejected.
   fontforge keeps an advance in a signed 16-bit field, narrower than the unsigned one of `hmtx`, so
   `32768` makes 0 in a TTF and `70000` makes 4464. `k` is -32767 to 32767: fontforge keeps it
   negated in the same kind of field, so `40000` kerns by 25536 and `-32768` wraps over to the
-  opposite sign; `32768` would fit, and the range is kept symmetric. `units-per-em` is 16 to 16384,
+  opposite sign; `32768` would fit, and the range is kept symmetric. A fraction in range is
+  truncated, as in the other fields: `k="12.6"` kerns by 12. `units-per-em` is 16 to 16384,
   the range of `unitsPerEm` in the OpenType `head` table; fontforge writes 15 or 16385 as it is.
+  The sfnt validator holds the same bound as a rule of its own (`head.unitsPerEm` in
+  [The sfnt validator](#the-sfnt-validator), with the Apple floor of 64 it leaves out): a change of
+  one is weighed against the other.
   `ascent` and `descent` of `font-face`, numbers by §20.8.3, are -32767 to 32767: fontforge takes
   them when they add up to `units-per-em` and writes them into signed 16-bit fields, so
   `ascent="40000" descent="-39000"` gives an ascender of -25536; they are checked whether or not
@@ -424,24 +428,27 @@ fixture with the `hmtx` transform the rebuilt `hmtx` equals the fixture's own, a
 ([#736](https://github.com/yuldashevsardor/telegram-bot/issues/736)).
 
 The rules are `Woff2Rule` in `woff2-font-validator.types.ts`, each with its section. Those marked
-`ours:` are not the standard's, and the text of each says why:
+`ours:` are not the standard's, and the text of each says why;
+`grep -n 'ours:' src/font-convertor/validator/woff2/woff2-font-validator.types.ts` lists them. What
+the enum text lacks is the measurements:
 
-- the flavor is one of `SFNT_VERSIONS` (see "Signatures"): a collection holds several fonts, and
-  fontforge refuses any other flavor;
-- a transformed `hmtx` lies beside a transformed `glyf`, not just beside `glyf`: the decoder takes
-  the glyph count and the `xMin` of the glyphs from the transformed `glyf` alone;
-- a transformed `hmtx` follows `glyf` and `hhea` in the table directory: §5.4 sets no order, but the
-  decoder rebuilds the tables in directory order and reads `numberOfHMetrics` when it reaches
-  `hhea`, so before either one it has nothing gathered and refuses the file;
-- the compressed data that ends the file is padded to a 4-byte boundary: the standard asks for the
-  padding only where the metadata or the private block follows, but the decoder refuses a file that
-  ends before the boundary, and fontforge crashes on the fixture cut by its 3 padding bytes;
-- the tables decompress to at most 30 MiB, the output buffer fontforge gives the decoder;
-- and to at most 100 times the file size, the ratio above which the decoder refuses a file. Both
-  caps are checked on the sum of the table lengths in the directory, before Brotli runs, and the
-  measurement behind them is at `DECODER_BUFFER_SIZE_BYTES`;
-- the rebuilt sfnt is at most 30 MiB too: the decoder writes it into the same buffer, and the
-  reconstruction makes `glyf` larger than its transformed form, by 31 546 bytes on the fixture.
+- `origLength` of a transformed `hmtx`: `woff2_decompress` 1.0.2 refuses the fixture with the
+  `hmtx` transform and `origLength` 5185 against 5184 rebuilt bytes. A smaller `origLength` passes
+  the decoder and is not this rule's: it leaves a table record shorter than the bytes written, which
+  the sfnt validator would have to catch
+  ([#737](https://github.com/yuldashevsardor/telegram-bot/issues/737));
+- a rebuilt `glyf` over 131 070 bytes with `indexFormat` 0: the decoder of `woff2_decompress` 1.0.2
+  cuts each halved offset to 16 bits, so the `loca` it writes wraps past 128 KiB and the later
+  glyphs point at the wrong records, and §5.3 has nothing for an offset that does not fit. The rule
+  `ShortLocaGlyfSize` rejects it in `GlyfReconstructor`, since the sfnt validator gets the rebuilt
+  sfnt only with [#737](https://github.com/yuldashevsardor/telegram-bot/issues/737);
+- the padding of the compressed data that ends the file: fontforge crashes on the fixture cut by
+  its 3 padding bytes;
+- the two caps on the decompressed tables, 30 MiB and 100 times the file size, are checked on the
+  sum of the table lengths in the directory, before Brotli runs; the measurement behind them is at
+  `DECODER_BUFFER_SIZE_BYTES`;
+- the cap on the rebuilt sfnt: the reconstruction makes `glyf` larger than its transformed form, by
+  31 546 bytes on the fixture.
 
 What is deliberately not checked, with the reasons, is in the class comment of
 `Woff2FontValidator`: `reserved`, `totalSfntSize` and `origLength` of a transformed `glyf`, on which
@@ -674,7 +681,16 @@ not count as supported.
   16 MiB and grow its buffer to at most 64 MiB (`MAX_OUT_LEN`, `MAX_OUT` in its `dist/index.js`).
   The sfnt it rebuilds from them has no cap: `glyf` grows as the streams describe it, and only the
   decoded `hdmx` table is held to 64 MiB (`MAX_OUTPUT_BYTES`). How much memory a small crafted file
-  takes is not measured. A WOFF2 source is
+  takes was never run: building the crafted input was blocked by a safety control of the agent's own
+  tooling ([#789](https://github.com/yuldashevsardor/telegram-bot/issues/789)). Only a ceiling from
+  the library's own caps is recorded, not a measurement: each of the three streams may legitimately
+  return up to `MAX_OUT` (64 MiB) before `unpackMtx()` moves to the next one, so the three together
+  can reach about 192 MiB; `dumpContainer()` then builds one sfnt buffer sized to the sum of those
+  bytes, up to roughly the same 192 MiB again while the streams are still held, a peak on the order
+  of 384 MiB from a `FontData` whose three declared output lengths sit in a handful of header bits,
+  decoupled from the size of the compressed input itself. `populateGlyfAndLoca()` is outside this
+  arithmetic: its per-glyph allocation is driven by `maxp`'s fields, not by the caps above. A WOFF2
+  source is
   read whole as well: its compressed data is decompressed by the asynchronous
   `zlib.brotliDecompress`, off the event loop, but its table directory is walked on it, and its
   transformed `glyf` is decoded and rebuilt there, a second copy beside the decompressed tables. The

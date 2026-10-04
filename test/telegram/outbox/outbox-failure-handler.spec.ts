@@ -1,7 +1,5 @@
 import { expect } from "chai";
 import { HttpError } from "grammy";
-import type { Logger } from "app/platform/logger/logger";
-import type { UnknownObject } from "app/shared/types";
 import { MS_PER_SECOND } from "app/shared/time";
 import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
@@ -18,6 +16,7 @@ import type {
     PulledOutboxMessage,
 } from "app/telegram/outbox/store/outbox-store.types";
 import { telegramError } from "test/telegram/telegram-bot-api-failure-classifier.helper";
+import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 
 const MAX_ATTEMPTS = 3;
 const FIRST_DELAY_MS = 1_000;
@@ -75,24 +74,6 @@ class RecordingStore {
     public async pause(durationMs: number): Promise<void> {
         this.calls.push({ method: "pause", durationMs });
     }
-}
-
-type LogRecord = { message: string; payload: UnknownObject | undefined };
-
-class RecordingLogger implements Logger {
-    public readonly errors: LogRecord[] = [];
-
-    public critical(): void {}
-
-    public error(message: string, payload?: UnknownObject): void {
-        this.errors.push({ message: message, payload: payload });
-    }
-
-    public warning(): void {}
-
-    public info(): void {}
-
-    public debug(): void {}
 }
 
 class FixedSerializer extends OutboxErrorSerializer {

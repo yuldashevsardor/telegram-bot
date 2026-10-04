@@ -1,6 +1,4 @@
 import { expect } from "chai";
-import type { Logger } from "app/platform/logger/logger";
-import type { UnknownObject } from "app/shared/types";
 import { sleep } from "app/shared/utils";
 import { OutboxResultWaiter } from "app/telegram/outbox/result-waiter/outbox-result-waiter";
 import { OutboxResultTimeout, OutboxResultWaiterStopped } from "app/telegram/outbox/result-waiter/outbox-result-waiter.errors";
@@ -8,6 +6,8 @@ import type { OutboxResultWaiterSettings } from "app/telegram/outbox/result-wait
 import type { OutboxFinishedMessageReader } from "app/telegram/outbox/outbox-finished-message-reader";
 import type { FinishedOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
+import type { Logger } from "app/platform/logger/logger";
+import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 
 // The waiter over the real reader and database is checked in outbox-finished-message-reader.spec.ts.
 
@@ -484,22 +484,6 @@ class FakeReader implements Pick<OutboxFinishedMessageReader, "find" | "listen">
 
         return { resolve: resolve };
     }
-}
-
-class RecordingLogger implements Logger {
-    public readonly warnings: Array<{ message: string; payload: UnknownObject | undefined }> = [];
-
-    public critical(): void {}
-
-    public error(): void {}
-
-    public warning(message: string, payload?: UnknownObject): void {
-        this.warnings.push({ message: message, payload: payload });
-    }
-
-    public info(): void {}
-
-    public debug(): void {}
 }
 
 function build(

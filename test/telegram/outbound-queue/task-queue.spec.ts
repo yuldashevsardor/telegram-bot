@@ -1,10 +1,11 @@
 import { expect } from "chai";
 import type { Limit } from "app/telegram/outbound-queue/rate-limit/rate-limit.types";
 import type { LimitResolver } from "app/telegram/outbound-queue/limit-resolver";
-import type { Logger } from "app/platform/logger/logger";
 import type { PartitionKey, Task } from "app/telegram/outbound-queue/task";
 import { Priority } from "app/telegram/outbound-queue/task";
 import { TaskQueue } from "app/telegram/outbound-queue/task-queue";
+import type { Logger } from "app/platform/logger/logger";
+import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 
 // The limits are taken small so that the run does not stall on cooldowns: the common slot is
 // released in 1 ms, the slot of a key in 10 ms.
@@ -187,9 +188,9 @@ describe("TaskQueue", function () {
         queue.push(task(111, "a2"), Priority.MEDIUM);
         queue.push(task(222, "b1"), Priority.MEDIUM);
 
-        await waitFor(() => logger.infos.length > 0);
+        await waitFor(() => infoMessages(logger).length > 0);
 
-        expect(logger.infos[0]).to.equal("Number of tasks in the queue: 3. Number of partitions: 2");
+        expect(infoMessages(logger)[0]).to.equal("Number of tasks in the queue: 3. Number of partitions: 2");
     });
 
     it("logs how long the ban lasts", async function () {
@@ -197,17 +198,17 @@ describe("TaskQueue", function () {
         const queue = build({ logger: logger, logInterval: logInterval });
         queue.ban(1500);
 
-        await waitFor(() => logger.infos.some(isBanLog));
+        await waitFor(() => infoMessages(logger).some(isBanLog));
 
-        expect(logger.infos.filter(isBanLog)[0]).to.equal("Ban expires in 1 second.");
+        expect(infoMessages(logger).filter(isBanLog)[0]).to.equal("Ban expires in 1 second.");
     });
 
     it("does not log a ban that is absent or already over", async function () {
         const logger = new RecordingLogger();
         const queue = build({ logger: logger, logInterval: logInterval });
 
-        await waitFor(() => logger.infos.length >= 1);
-        expect(logger.infos.filter(isBanLog)).to.be.empty;
+        await waitFor(() => infoMessages(logger).length >= 1);
+        expect(infoMessages(logger).filter(isBanLog)).to.be.empty;
 
         queue.ban(1);
         // A log tick queued together with the wait may fire in the same millisecond as ban(1) and rightly
@@ -215,28 +216,12 @@ describe("TaskQueue", function () {
         // certainly expired. The task count is logged before the pause, so a second record after that
         // point means the pause check behind it has already run.
         await delay(5);
-        const expired = logger.infos.length;
-        await waitFor(() => logger.infos.length >= expired + 2);
+        const expired = infoMessages(logger).length;
+        await waitFor(() => infoMessages(logger).length >= expired + 2);
 
-        expect(logger.infos.slice(expired).filter(isBanLog)).to.be.empty;
+        expect(infoMessages(logger).slice(expired).filter(isBanLog)).to.be.empty;
     });
 });
-
-class RecordingLogger implements Logger {
-    public readonly infos: string[] = [];
-
-    public critical(): void {}
-
-    public error(): void {}
-
-    public warning(): void {}
-
-    public info(message: string): void {
-        this.infos.push(message);
-    }
-
-    public debug(): void {}
-}
 
 type BuildOptions = {
     keyLimit?: (key: PartitionKey) => Limit;
@@ -297,6 +282,10 @@ async function namesByKey(tasks: Task[]): Promise<Map<PartitionKey, unknown[]>> 
     }
 
     return names;
+}
+
+function infoMessages(logger: RecordingLogger): string[] {
+    return logger.infos.map((record) => record.message);
 }
 
 function isBanLog(message: string): boolean {

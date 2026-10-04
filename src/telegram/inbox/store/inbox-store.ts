@@ -222,7 +222,7 @@ export class InboxStore {
     // holds its group.
     public async retry(lease: InboxLease, attemptError: InboxAttemptError, delayMs: number): Promise<void> {
         await this.complete(lease, attemptError, async (sql, group) => {
-            await this.updateProcessingUpdate(
+            await this.writeProcessingUpdateOrThrow(
                 lease,
                 sql`
                     UPDATE telegram_inbox
@@ -328,7 +328,7 @@ export class InboxStore {
         status: InboxStatus.Done | InboxStatus.Failed,
         attemptError: InboxAttemptError | null,
     ): Promise<void> {
-        await this.updateProcessingUpdate(
+        await this.writeProcessingUpdateOrThrow(
             lease,
             sql`
                 UPDATE telegram_inbox
@@ -345,7 +345,7 @@ export class InboxStore {
 
     // The token is the group's, so the group is processing with one update: another update of the
     // group is a wrong id.
-    private async updateProcessingUpdate(lease: InboxLease, updateStatement: PendingQuery<Row[]>): Promise<void> {
+    private async writeProcessingUpdateOrThrow(lease: InboxLease, updateStatement: PendingQuery<Row[]>): Promise<void> {
         const [updated] = await updateStatement;
 
         if (updated === undefined) {
