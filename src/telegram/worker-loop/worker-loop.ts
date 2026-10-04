@@ -6,7 +6,10 @@ import type { WorkItemProcessor } from "app/telegram/worker-loop/work-item-proce
 
 // The work of a node: one loop over a number of slots, each processing one item at a time. The loop
 // writes no outcome: the processor does. A subclass names the source, the processor, the slots, the
-// stop deadline and the worker, and logs an item whose processing rejected.
+// stop deadline and the worker, and logs an item whose processing rejected. The loop catches only
+// that rejection: a generator that throws, a process() that throws synchronously or a
+// logUnfinished() that throws leaves a rejection nobody handles, which the unhandledRejection of
+// app.ts logs at critical and ends the process with.
 @injectable()
 export abstract class WorkerLoop<Item> {
     protected abstract readonly source: WorkItemSource<Item>;
@@ -65,8 +68,7 @@ export abstract class WorkerLoop<Item> {
         await itemsSettled;
     }
 
-    // An item whose processing rejected: the processor wrote no outcome. Must not throw: the item
-    // would reject unhandled, which app.ts logs at critical and ends the process with.
+    // An item whose processing rejected: the processor wrote no outcome. Does not throw (above).
     protected abstract logUnfinished(item: Item, error: unknown): void;
 
     private async run(): Promise<void> {
