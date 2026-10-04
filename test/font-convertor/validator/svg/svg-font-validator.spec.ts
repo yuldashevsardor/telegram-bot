@@ -189,10 +189,16 @@ describe("SvgFontValidator.validate", function () {
             await validate(inline(`<font horiz-adv-x="500">${FONT_FACE}<glyph d="M0 0"> <!-- path --> </glyph></font>`));
         });
 
+        it("with kerning pairs that name no glyph or kern by a fraction, which fontforge tolerates", async function () {
+            // Not forms of real fonts: every real pair has an integer `k` and both glyphs. The rules are
+            // deliberately no stricter than fontforge, which drops an unknown glyph and truncates `12.5`.
+            await validate(inline(kerned('<hkern g1="a" g2="unknown" k="12.5"/><vkern u1="a" u2="b" k="0"/>')));
+        });
+
         it("with kerning pairs in the forms real fonts write", async function () {
             // u1="," is a single character, not a list: 13 of the 24 real fonts checked for #776 hold it.
-            await validate(inline(kerned('<hkern u1="," u2="a" k="-50"/><vkern u1="a" u2="b" k="12.5"/>')));
-            await validate(inline(kerned('<hkern g1="a,b c" g2="unknown" k="50"/><hkern u1="a" g1="b" u2="b" k="0"/>')));
+            await validate(inline(kerned('<hkern u1="," u2="a" k="-50"/><vkern u1="a" u2="b" k="50"/>')));
+            await validate(inline(kerned('<hkern g1="a,b c" g2="b" k="50"/><hkern u1="a" g1="b" u2="b" k="-50"/>')));
             // A no-break space is no XML whitespace: it is a name, though no glyph has it.
             await validate(inline(kerned('<hkern g1="&#xA0;" u2="b" k="50"/>')));
             // A character outside the BMP is one code point, though two UTF-16 units.

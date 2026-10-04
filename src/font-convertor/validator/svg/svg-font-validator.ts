@@ -375,16 +375,17 @@ export class SvgFontValidator implements FontValidator {
     /**
      * Checks one side of a kerning pair: it is named, and by a single character when by `u1` or
      * `u2`. A `g1` or `g2` of commas and whitespace alone leaves the side unnamed; an empty `u1`
-     * breaks the one-character rule instead. fontforge takes each character of `u1` for a glyph of its own, so the list `a,b` of
-     * §20.7 kerns the comma too, a range `U+0061-0062` kerns nothing, and the ligature `ab` kerns
-     * `a` and `b`. A character is a code point: `[...value]` does not split a surrogate pair.
+     * breaks the one-character rule instead. fontforge takes each character of `u1` for a glyph of
+     * its own, so the list `a,b` of §20.7 kerns the comma too, a range `U+0061-0062` kerns nothing,
+     * and the ligature `ab` kerns `a` and `b`. A character is a code point: `[...characters]` does
+     * not split a surrogate pair.
      */
     private checkKernedGlyph(
         scan: Scan,
         element: OpenElement,
         tag: SaxesTagNS,
         name: KernElement,
-        side: { characterAttribute: string; glyphNamesAttribute: string },
+        side: { characterAttribute: "u1" | "u2"; glyphNamesAttribute: "g1" | "g2" },
     ): void {
         const characters = tag.attributes[side.characterAttribute]?.value;
 
