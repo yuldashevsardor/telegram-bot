@@ -1,5 +1,4 @@
 import { expect } from "chai";
-import type { Logger } from "app/platform/logger/logger";
 import type { UnknownObject } from "app/shared/types";
 import type { LimitResolver } from "app/telegram/outbound-queue/limit-resolver";
 import type { Limit } from "app/telegram/outbound-queue/rate-limit/rate-limit.types";
@@ -10,6 +9,8 @@ import type { PartitionKey, Task } from "app/telegram/outbound-queue/task";
 import { Priority } from "app/telegram/outbound-queue/task";
 import { TaskQueue } from "app/telegram/outbound-queue/task-queue";
 import { DEFAULT_RETRY_AFTER_SECONDS } from "app/telegram/outbound-queue/telegram-error";
+import type { Logger } from "app/platform/logger/logger";
+import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 
 // The common slot and the slot of a key are released in 1 ms: the pace of giving out is not checked
 // here and must not stretch the run.
@@ -25,31 +26,6 @@ const DROPPED = "Task is dropped: retry limit is reached.";
 // would keep the polling loop spinning after the test has failed, and mocha without --exit would not
 // finish.
 const waitLimit = 1000;
-
-type LogRecord = {
-    message: string;
-    payload: UnknownObject | undefined;
-};
-
-class RecordingLogger implements Logger {
-    public readonly errors: LogRecord[] = [];
-
-    public critical(): void {}
-
-    public error(message: string, payload?: UnknownObject): void {
-        this.errors.push({ message: message, payload: payload });
-    }
-
-    public warning(): void {}
-
-    public info(): void {}
-
-    public debug(): void {}
-
-    public countDropped(): number {
-        return this.errors.filter((record) => record.message === DROPPED).length;
-    }
-}
 
 // Records the pause of the queue without setting it: otherwise the loop would really wait it out. This
 // spec checks the duration Runner assigns; the TaskQueue spec pins the pause itself.
@@ -221,7 +197,7 @@ describe("Runner", function () {
         );
 
         start(queue, logger);
-        await waitForCount(() => logger.countDropped(), 1, "dropped tasks");
+        await waitForCount(() => countDropped(logger), 1, "dropped tasks");
 
         expect(calls).to.equal(settings.maxRetries + 1);
         expect(queue.pushes.map((push) => push.task.retryCount)).to.deep.equal([undefined, 1, 2]);
@@ -238,7 +214,7 @@ describe("Runner", function () {
         queue.push(failingTask(111, tooManyRequests({ retry_after: 7 })), Priority.MEDIUM);
 
         start(queue, logger, { ...settings, maxRetries: 0 });
-        await waitForCount(() => logger.countDropped(), 1, "dropped tasks");
+        await waitForCount(() => countDropped(logger), 1, "dropped tasks");
 
         expect(queue.bans).to.deep.equal([7 * 1000]);
     });
@@ -255,7 +231,7 @@ describe("Runner", function () {
         failures.forEach((failure, index) => queue.push(failingTask(index, failure), Priority.MEDIUM));
 
         start(queue, logger, { ...settings, maxRetries: 0 });
-        await waitForCount(() => logger.countDropped(), failures.length, "dropped tasks");
+        await waitForCount(() => countDropped(logger), failures.length, "dropped tasks");
 
         expect(queue.bans).to.deep.equal(failures.map(() => DEFAULT_RETRY_AFTER_SECONDS * 1000));
     });
@@ -267,7 +243,7 @@ describe("Runner", function () {
         failures.forEach((failure, index) => queue.push(failingTask(index, failure), Priority.MEDIUM));
 
         start(queue, logger, { ...settings, maxRetries: 0 });
-        await waitForCount(() => logger.countDropped(), failures.length, "dropped tasks");
+        await waitForCount(() => countDropped(logger), failures.length, "dropped tasks");
 
         expect(queue.bans).to.be.empty;
     });
@@ -323,4 +299,8 @@ async function waitFor(condition: () => boolean): Promise<void> {
 
 function delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function countDropped(logger: RecordingLogger): number {
+    return logger.errors.filter((record) => record.message === DROPPED).length;
 }

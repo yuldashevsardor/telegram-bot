@@ -2,8 +2,6 @@ import "reflect-metadata";
 import { expect } from "chai";
 import type { TelegramLimits } from "app/bootstrap/config/config-values";
 import { Database } from "app/platform/database/database";
-import type { Logger } from "app/platform/logger/logger";
-import type { UnknownObject } from "app/shared/types";
 import { sleep } from "app/shared/utils";
 import { MS_PER_SECOND } from "app/shared/time";
 import type { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-handler";
@@ -15,6 +13,8 @@ import { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxCleanupSettings, OutboxJson, OutboxMessageInput, OutboxWorker } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
 import { testDatabaseSettings } from "test/database.helper";
+import type { Logger } from "app/platform/logger/logger";
+import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 
 const CHATS = [5_000_000_001, 5_000_000_002, 5_000_000_003, 5_000_000_004, 5_000_000_005];
 const MESSAGES_PER_CHAT = 20;
@@ -62,26 +62,6 @@ class RecordingFailureHandler {
     public async releaseOnStop(): Promise<void> {
         this.failures.push("released on stop");
     }
-}
-
-class RecordingLogger implements Logger {
-    public readonly records: Array<{ message: string; payload: UnknownObject | undefined }> = [];
-
-    public critical(message: string, payload?: UnknownObject): void {
-        this.records.push({ message, payload });
-    }
-
-    public error(message: string, payload?: UnknownObject): void {
-        this.records.push({ message, payload });
-    }
-
-    public warning(message: string, payload?: UnknownObject): void {
-        this.records.push({ message, payload });
-    }
-
-    public info(): void {}
-
-    public debug(): void {}
 }
 
 describe("OutboxWorkerLoop on the database", function () {
@@ -132,7 +112,7 @@ describe("OutboxWorkerLoop on the database", function () {
         }
 
         expect(failureHandler.failures).to.deep.equal([]);
-        expect(logger.records).to.deep.equal([]);
+        expect([...logger.criticals, ...logger.errors, ...logger.warnings]).to.deep.equal([]);
         expect(sends).to.have.lengthOf(MESSAGE_COUNT);
         for (const chatId of CHATS) {
             const indexes = sends.filter((send) => send.chatId === chatId).map((send) => send.index);

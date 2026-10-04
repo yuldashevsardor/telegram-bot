@@ -1,11 +1,10 @@
 import { expect } from "chai";
-import type { Logger } from "app/platform/logger/logger";
-import type { UnknownObject } from "app/shared/types";
 import { sleep } from "app/shared/utils";
 import type { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-handler";
 import { OutboxMaintenance } from "app/telegram/outbox/outbox-maintenance";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import { waitUntil } from "test/telegram/outbox/outbox-store.helper";
+import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 
 const SHORT_INTERVAL_MS = 5;
 // Longer than any spec runs: a task with it never runs in the spec.
@@ -62,24 +61,6 @@ class FakeFailureHandler {
             throw this.error;
         }
     }
-}
-
-type LogRecord = { message: string; payload: UnknownObject | undefined };
-
-class RecordingLogger implements Logger {
-    public readonly errors: LogRecord[] = [];
-
-    public critical(): void {}
-
-    public error(message: string, payload?: UnknownObject): void {
-        this.errors.push({ message, payload });
-    }
-
-    public warning(): void {}
-
-    public info(): void {}
-
-    public debug(): void {}
 }
 
 describe("OutboxMaintenance", function () {

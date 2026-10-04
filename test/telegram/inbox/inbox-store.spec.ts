@@ -1,8 +1,6 @@
 import "reflect-metadata";
 import { expect } from "chai";
 import { Database } from "app/platform/database/database";
-import type { Logger } from "app/platform/logger/logger";
-import type { UnknownObject } from "app/shared/types";
 import { MS_PER_SECOND } from "app/shared/time";
 import { sleep } from "app/shared/utils";
 import { InboxFailureKind } from "app/telegram/inbox/failure-classifier/inbox-failure-classifier.types";
@@ -18,7 +16,8 @@ import type {
 } from "app/telegram/inbox/store/inbox-store.types";
 import { InboxGroupState, InboxStatus } from "app/telegram/inbox/store/inbox-store.types";
 import { InboxUpdateNotLeased, InvalidClaimLimit } from "app/telegram/inbox/store/inbox-store.errors";
-import { testDatabaseSettings } from "test/database.helper";
+import { testDatabaseSettings, waitForLockWaiters } from "test/database.helper";
+import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 
 const USER = 5_000_000_001;
 const OTHER_USER = 5_000_000_002;
@@ -48,27 +47,6 @@ const UNEXPECTED: InboxAttemptError = { kind: InboxFailureKind.Unexpected, messa
 const EXPIRED_LEASE_ERROR: InboxAttemptError = { kind: InboxFailureKind.Transient, message: "The lease of the group passed" };
 
 type GroupRow = { state: string };
-type LogRecord = { message: string; payload: UnknownObject | undefined };
-
-class RecordingLogger implements Logger {
-    public readonly warnings: LogRecord[] = [];
-    public readonly errors: LogRecord[] = [];
-
-    public critical(): void {}
-
-    public error(message: string, payload?: UnknownObject): void {
-        this.errors.push({ message: message, payload: payload });
-    }
-
-    public warning(message: string, payload?: UnknownObject): void {
-        this.warnings.push({ message: message, payload: payload });
-    }
-
-    public info(): void {}
-
-    public debug(): void {}
-}
-
 describe("InboxStore", function () {
     this.timeout(SPEC_TIMEOUT_MS);
 
@@ -598,11 +576,11 @@ describe("InboxStore", function () {
 
                 const firstCall = first();
 
-                await waitForLockWaiters(1);
+                await waitForLockWaiters(observer, 1);
 
                 calls = Promise.all([firstCall, second()]);
 
-                await waitForLockWaiters(2);
+                await waitForLockWaiters(observer, 2);
             });
 
             await calls;
@@ -683,29 +661,6 @@ describe("InboxStore", function () {
         expect(claimed).to.have.lengthOf(1);
 
         return claimed[0] as ClaimedInboxUpdate;
-    }
-
-    async function waitForLockWaiters(count: number): Promise<void> {
-        const deadline = Date.now() + WAIT_DEADLINE_MS;
-
-        for (;;) {
-            if (Date.now() > deadline) {
-                expect.fail(`fewer than ${count} queries waited for a lock by the deadline`);
-            }
-
-            const [row] = await observer.sql<{ waiting: number }[]>`
-                SELECT count(*)::int AS waiting
-                FROM pg_stat_activity
-                WHERE datname = current_database()
-                  AND wait_event_type = 'Lock'
-            `;
-
-            if (row !== undefined && row.waiting >= count) {
-                return;
-            }
-
-            await sleep(5);
-        }
     }
 });
 

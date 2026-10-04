@@ -3,9 +3,7 @@ import os from "os";
 import path from "path";
 import { expect } from "chai";
 import { GrammyError, HttpError } from "grammy";
-import type { Logger } from "app/platform/logger/logger";
 import { RemoveFailed } from "app/shared/fs/file-helper.errors";
-import type { UnknownObject } from "app/shared/types";
 import { PathFile } from "app/telegram/path-file/path-file";
 import type { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-handler";
 import { OutboxMessageProcessor } from "app/telegram/outbox/outbox-message-processor";
@@ -14,6 +12,7 @@ import { serialize } from "app/telegram/outbox/payload-codec/payload-codec";
 import { InvalidFileMarker } from "app/telegram/outbox/payload-codec/payload-codec.errors";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxJson, OutboxLease, OutboxPayload, PulledOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
+import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 
 const CHAT_ID = 5_000_000_001;
 const RESPONSE: OutboxJson = { message_id: 42, chat: { id: CHAT_ID } };
@@ -59,24 +58,6 @@ class RecordingFailureHandler {
     public async releaseOnStop(lease: OutboxLease): Promise<void> {
         this.released.push(lease);
     }
-}
-
-type LogRecord = { message: string; payload: UnknownObject | undefined };
-
-class RecordingLogger implements Logger {
-    public readonly warnings: LogRecord[] = [];
-
-    public critical(): void {}
-
-    public error(): void {}
-
-    public warning(message: string, payload?: UnknownObject): void {
-        this.warnings.push({ message, payload });
-    }
-
-    public info(): void {}
-
-    public debug(): void {}
 }
 
 describe("OutboxMessageProcessor", function () {
