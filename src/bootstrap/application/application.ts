@@ -4,12 +4,10 @@ import type { CC } from "app/bootstrap/config/container/config-container.types";
 import type { Logger } from "app/platform/logger/logger";
 import { Tokens } from "app/shared/tokens";
 import type { Database } from "app/platform/database/database";
-import type { Runner } from "app/telegram/outbound-queue/runner/runner";
-import type { TaskQueue } from "app/telegram/outbound-queue/task-queue";
 import type { Bot } from "app/telegram/bot/bot";
 import type { OutboxRunner } from "app/telegram/outbox/outbox-runner";
 import type { OutboxMaintenance } from "app/telegram/outbox/maintenance/outbox-maintenance";
-import { sleep, withTimeout } from "app/shared/utils";
+import { withTimeout } from "app/shared/utils";
 import { RuntimeError } from "app/shared/errors";
 
 // One field for the whole lifecycle, not a flag per step raised at its end. Such a flag cannot tell
@@ -36,8 +34,6 @@ export class Application {
     private logger!: Logger;
     // Filled in assemble() and read by nobody until it is over: run() goes only from ready, and
     // shutdown() touches them only from running.
-    private taskQueue!: TaskQueue;
-    private runner!: Runner;
     private bot!: Bot;
     private outboxRunner!: OutboxRunner;
     private outboxMaintenance!: OutboxMaintenance;
@@ -83,7 +79,6 @@ export class Application {
         this.state = { name: "running" };
 
         try {
-            this.runner.run();
             await this.bot.run();
 
             // After the bot, with no await in between: an update comes no sooner than the next turn
@@ -97,8 +92,6 @@ export class Application {
 
             this.logger.info("Application is successfully started.");
         } catch (error) {
-            this.runner.stop();
-
             // A stop() during the start has already moved the application into the shutdown, and
             // that cannot be cancelled.
             if (this.state.name === "running") {
@@ -151,8 +144,6 @@ export class Application {
 
         this.logger.info("Database connection is alive.");
 
-        this.taskQueue = container.get<TaskQueue>(Tokens.Bot.OutboundQueue.TaskQueue);
-        this.runner = container.get<Runner>(Tokens.Bot.OutboundQueue.Runner);
         this.bot = container.get<Bot>(Tokens.Bot.Bot);
         this.outboxRunner = container.get<OutboxRunner>(Tokens.Bot.Outbox.Runner);
         this.outboxMaintenance = container.get<OutboxMaintenance>(Tokens.Bot.Outbox.Maintenance);
@@ -191,10 +182,10 @@ export class Application {
         this.logger.info("Application is successfully stopped.");
     }
 
-    // The bot, the outbox runner and the queue have deadlines of their own, and the whole stop has the
-    // overall one, greater than their sum (checked when the config is assembled). The steps without
-    // a deadline, the stop of the outbox maintenance, the stop of the runner and the closing of the
-    // pool, live on what is left of it when those three use theirs up.
+    // The bot and the outbox runner have deadlines of their own, and the whole stop has the overall
+    // one, greater than their sum (checked when the config is assembled). The steps without a
+    // deadline, the stop of the outbox maintenance and the closing of the pool, live on what is left
+    // of it when those two use theirs up.
     private async shutdown(from: State): Promise<void> {
         // A failure of the setup leaves from here as well (docs/architecture/application.md, "Stop",
         // step 3). Swallowed, it would leave the exit code to a race between exit(0) and exit(1).
@@ -208,32 +199,8 @@ export class Application {
             // start.
             await this.outboxRunner.stop();
             await this.outboxMaintenance.stop();
-            await this.waitQueueToEmpty();
-            this.runner.stop();
         }
 
         await container.close();
-    }
-
-    private async waitQueueToEmpty(): Promise<void> {
-        const { timeout, interval } = this.cc.get("taskQueue.gracefulShutdown");
-        const deadline = Date.now() + timeout;
-
-        while (!this.taskQueue.isEmpty()) {
-            const timeLeft = deadline - Date.now();
-
-            if (timeLeft <= 0) {
-                this.logger.warning("Shutdown timeout is over, remaining tasks will not be done.", {
-                    tasksLeft: this.taskQueue.getTaskCount(),
-                    timeout: timeout,
-                });
-
-                return;
-            }
-
-            this.logger.info(`Waiting for the outgoing queue to empty: ${this.taskQueue.getTaskCount()} tasks left.`);
-
-            await sleep(Math.min(interval, timeLeft));
-        }
     }
 }

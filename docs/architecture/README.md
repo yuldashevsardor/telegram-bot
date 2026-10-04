@@ -18,11 +18,9 @@ The runtime sequences live in the files of their subsystems:
   and stop of the process
 - [`bot.md`](./bot.md) — the update pipeline, filters, middleware, the outbox transformer on
   `bot.api`, commands
-- [`outbound-queue.md`](./outbound-queue.md) — the in-memory queue nothing pushes into any more:
-  limits, partitions, the `Runner` loop
-- [`outbox.md`](./outbox.md) — the outbox in PostgreSQL that replaces the outbound queue: the
-  tables, the chat states, push, pull, the limits and the pause, the chat lock, the lease and the
-  completions, the runner with its stop and the maintenance timers, sending one message and
+- [`outbox.md`](./outbox.md) — the outbox of outgoing Bot API calls in PostgreSQL: the tables, the
+  chat states, push, pull, the limits and the pause, the chat lock, the lease and the completions,
+  the runner with its stop and the maintenance timers, the status line, sending one message and
   removing its files, the failure classes, the outcomes, unblocking a chat, the retry delay,
   waiting for the result and the payload codec
 - [`outbox-load-test.md`](./outbox-load-test.md) — the outbox store measured on 100 M messages:
@@ -67,9 +65,9 @@ Stack:
 [#245](https://github.com/yuldashevsardor/telegram-bot/issues/245)). There are two modules:
 
 - `font-convertor/` — the only domain one;
-- `telegram/` — what exists for the sake of Telegram (above): the bot, `User`, the outbox and the
-  outbound queue it replaces, and the inbox of incoming updates being built beside it, with the
-  command line that unblocks them.
+- `telegram/` — what exists for the sake of Telegram (above): the bot, `User`, the outbox of
+  outgoing calls and the inbox of incoming updates being built beside it, with the command line
+  that unblocks them.
 
 Around them stand three directories named by role:
 
@@ -81,10 +79,7 @@ Around them stand three directories named by role:
 An interface and its implementation are not split into layers, however many implementations there
 are. The `Logger` interface and both adapters lie in `platform/logger/`; `UserRepository` and
 `PgSqlUserRepository` lie in `telegram/user/` ([`storage.md`](./storage.md)). Such a pair can
-still end up in different directories, but not by layer. `LimitResolver` is declared in
-`telegram/outbound-queue/`, where it is called. `TelegramLimitResolver` lies higher, in
-`telegram/`: picking a limit by chat ID is knowledge about Telegram, not about the queue
-([`outbound-queue.md`](./outbound-queue.md)).
+still end up in different directories, but not by layer.
 
 Errors: only `RuntimeError` (`shared/errors.ts`) goes outwards, or its subclass from a
 `<module>.errors.ts` next to the throwing code. `<module>` is the file name prefix, not the
@@ -143,9 +138,8 @@ src/
   font-convertor/           font conversion (font-convertor.md)
   telegram/                 grammY: commands, conversations, middleware, filters, session, locales (bot.md, i18n.md)
     user/                   the entity, the repository interface, the service, the PostgreSQL adapter (user.md)
-    outbound-queue/         the outbound queue by keys, limits, the Runner loop (outbound-queue.md)
     inbox/                  the future inbox of incoming updates in PostgreSQL: the store (push, claim, completions, cleanup), the error classes and the outcomes of a failed handler, the unblock of a group (command/) (inbox.md)
-    outbox/                 the outbox of Bot API calls in PostgreSQL: the transformer that pushes the calls of the bot (transformer/), the store (push, pull, completions), the runner with its message source, the timers of the lease recovery and the cleanup (maintenance/), the lease recovery, retrier and release on stop (lease/), the processor of one message with the sender of its call and the Api, the outcomes of a failure, the result waiter with its reader, the payload codec and the retry delay, the commands that unblock a chat (command/) (outbox.md)
+    outbox/                 the outbox of Bot API calls in PostgreSQL: the transformer that pushes the calls of the bot (transformer/), the store (push, pull, completions), the runner with its message source, the timers of the lease recovery, the cleanup and the status line (maintenance/), the lease recovery, retrier and release on stop (lease/), the processor of one message with the sender of its call and the Api, the outcomes of a failure, the result waiter with its reader, the payload codec and the retry delay, the commands that unblock a chat (command/) (outbox.md)
   platform/                 adapters that know no module
     database/               Database (storage.md)
     logger/                 the Logger interface, the Level enum, ConsoleLogger, PinoLogger (logging.md)

@@ -75,7 +75,7 @@ Two properties follow:
   configuration falls on the start.
 - A test passes its own value, `new FontConvertor(factory, "/tmp")`, without touching
   `ApplicationContext`. The former `@ConfigValue` needed the container to be up;
-  `test/telegram/outbound-queue/task-queue.spec.ts` now substitutes nothing else.
+  `test/telegram/outbox/outbox-store.spec.ts` passes the limits of `OutboxStore` the same way.
 
 The path is a string literal, but not an arbitrary one. Its type, `ConfigPath`
 (`bootstrap/config/container/config-container.types.ts`), is built from `ConfigValues`, and the
@@ -192,8 +192,6 @@ There is nothing to restart it with: the container does not survive a second `se
    A second `setup()` does not repeat a failed one; it gets the same failure. After a failure
    `fail()` ends the process.
 3. `application.run()`:
-   - `runner.run()` is synchronous: it puts the loop of the queue on a `setTimeout` and returns at
-     once ([`outbound-queue.md`](./outbound-queue.md)).
    - `bot.run()` starts long polling in the background ([`bot.md`](./bot.md)).
    - `OutboxRunner.start()` and `OutboxMaintenance.start()` start the sending of the outbox and its
      timers ([`outbox.md`](./outbox.md), "The runner", "Maintenance"). They come after the bot with
@@ -209,9 +207,9 @@ There is nothing to restart it with: the container does not survive a second `se
 
 **Errors:** any failure of the start goes into `fail()` (`bootstrap().catch(fail)`): a `critical`
 and exit code 1. `unhandledRejection` and `uncaughtException` lead there too. Only `fail()` logs:
-two `critical` on one failure would double the alert count. That is why `run()`, on a failure,
-silently stops the `runner` it has already started and rethrows the error. There are no retries
-for the database or for `setMyCommands`: a temporary network failure at this moment is fatal.
+two `critical` on one failure would double the alert count. That is why `run()` rethrows a failure
+without logging it. There are no retries for the database or for `setMyCommands`: a temporary
+network failure at this moment is fatal.
 
 ### Stop
 
@@ -260,21 +258,12 @@ for the database or for `setMyCommands`: a temporary network failure at this mom
      stops the waiter.
    - `OutboxMaintenance.stop()` clears the timers and waits for the runs in progress, with no
      deadline of its own ([`outbox.md`](./outbox.md), "Maintenance").
-   - `waitQueueToEmpty()` polls `taskQueue.isEmpty()` every
-     `TASK_QUEUE_GRACEFUL_SHUTDOWN_INTERVAL`, up to `TASK_QUEUE_GRACEFUL_SHUTDOWN_TIMEOUT`, and
-     logs what is left. On the deadline it writes a `warning` with the number of unfinished tasks.
-     `isEmpty()` counts only what lies in the queue: a task the `Runner` has already taken is
-     invisible to it.
-   - `runner.stop()` only lowers a flag, and the loop leaves on its next iteration
-     ([`outbound-queue.md`](./outbound-queue.md)). `Runner.run()` and `Runner.stop()` are
-     synchronous ([invariant](./invariants.md)).
 5. `container.close()` → `OutboxResultWaiter.stop()`, then `Database.close()` →
    `sql.end({ timeout: 5 })` ([`storage.md`](./storage.md)).
 
-The overall deadline has to be greater than the sum of the individual ones of the bot, the outbox
-runner and the queue, and `ConfigValuesBuilder` checks that. It also has to be smaller than the
+The overall deadline has to be greater than the sum of the individual ones of the bot and the
+outbox runner, and `ConfigValuesBuilder` checks that. It also has to be smaller than the
 container's `stop_grace_period: 20s`, and nothing checks that ([invariant](./invariants.md)). The
 dependencies' own deadlines (`sql.end({ timeout: 5 })`) are not part of the check.
 
-The tasks that did not make it out of the in-memory queue are lost together with the process; the
-outbox messages stay in their tables for another node or the next start.
+The outbox messages that did not go out stay in their tables for another node or the next start.

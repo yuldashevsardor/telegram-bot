@@ -83,17 +83,16 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   one < the container's `stop_grace_period` (not checked).** The deadlines themselves are in
   [`application.md`](./application.md). The check compares the values of one assembly. After a
   rebuild of the configuration ([`config.md`](./config.md)) they can drift apart: `Application`
-  takes the overall deadline and the queue deadline from the new values, while `Bot` and
-  `OutboxRunner` stay on what they copied in their constructors. This is unreachable while the
-  deadlines are set non-blank in the environment: the environment is stronger than the watched
-  file.
+  takes the overall deadline from the new values, while `Bot` and `OutboxRunner` stay on what they
+  copied in their constructors. This is unreachable while the deadlines are set non-blank in the
+  environment: the environment is stronger than the watched file.
 - **A value taken by `configValue(...)` in a constructor is not changed by a rebuild.** The
   configuration is rebuilt on an edit of the watched file ([`config.md`](./config.md)). But an
   object that copied the value into a field keeps working on the old one. A value becomes "hot"
   only with an `onChange()` subscription and code that applies the new value. So after an edit
   `get("logger.level")` already returns the new threshold, while the logger, `Bot`, the `Database`
-  pool and the queue limits stay on the previous values. The divergence is silent, and the
-  application has no `onChange()` subscriber yet.
+  pool and the limits of `OutboxStore` stay on the previous values. The divergence is silent, and
+  the application has no `onChange()` subscriber yet.
 - **A set environment variable is stronger than the watched file.** `.runtime.env` is laid under
   the `process.env` snapshot ([`config.md`](./config.md)). So only what is absent from the
   environment or declared blank there can be changed on the fly; a blank value counts on neither
@@ -114,21 +113,14 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   directory. The start then fails with `ConfigFileUnreadable`, and the directory has to be removed
   with sudo. The file is created by `DC_APP` in the `Makefile` and by `scripts/worktree-init.sh`.
   Running `docker compose` by hand, past `make`, has no such safeguard.
-- **`LIMIT_*_NUMBER > 0`** (the config checks it). The in-memory queue and the outbox pull both
-  space the messages by `interval / number`, and a zero gives an infinite cooldown:
-  - in the queue `reserveDuration = Infinity`: the slot is taken forever and the partition is
-    never removed ([`outbound-queue.md`](./outbound-queue.md));
-  - in the outbox, for a private or group limit, `next_attempt_at` of a pulled chat becomes
-    `infinity`, which PostgreSQL accepts, and the chat is never pulled again;
-  - in the outbox, for the common limit, the budget is zero: nothing is pulled, `next_send_at`
-    stays in the past, and `nextPullInMs` is 0 while a chat is ready: the message source does not
-    spin on it, but pulls again after every sleep of up to 1 s and on every push, for good
+- **`LIMIT_*_NUMBER > 0`** (the config checks it). The outbox pull spaces the messages by
+  `interval / number`, and a zero gives an infinite cooldown:
+  - for a private or group limit, `next_attempt_at` of a pulled chat becomes `infinity`, which
+    PostgreSQL accepts, and the chat is never pulled again;
+  - for the common limit, the budget is zero: nothing is pulled, `next_send_at` stays in the past,
+    and `nextPullInMs` is 0 while a chat is ready: the message source does not spin on it, but
+    pulls again after every sleep of up to 1 s and on every push, for good
     ([`outbox.md`](./outbox.md), "Limits", "The message source").
-
-## The outbound queue
-
-- **`Runner.run()`/`stop()` are synchronous.** `stop()` only lowers a flag and does not wait for a
-  task the loop has already taken: `handleTasks()` does not await its call to Telegram.
 
 ## The outbox
 

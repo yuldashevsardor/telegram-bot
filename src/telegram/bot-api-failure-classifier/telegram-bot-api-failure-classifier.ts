@@ -20,9 +20,7 @@ const MISSING_FILE_CODE = "ENOENT";
 const FILE_OPEN_SYSCALL = "open";
 
 // The Bot API always sends retry_after with a 429. If it is missing or unreadable, the pause must
-// still be non-zero, or the caller would retry at once and run into the same 429. The outbound
-// queue has a constant of the same name and parses retry_after the same way; the classifier keeps
-// its own because its consumer, the outbox, replaces that queue, and the queue's copy goes with it.
+// still be non-zero, or the caller would retry at once and run into the same 429.
 export const DEFAULT_RETRY_AFTER_SECONDS = 1;
 
 @injectable()

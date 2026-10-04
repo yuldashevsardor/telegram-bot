@@ -12,8 +12,8 @@ type MaintenanceTask = {
     run: () => Promise<void>;
 };
 
-// The timers of a node besides the sending: the recovery of the expired leases and the cleanup
-// (docs/architecture/outbox.md, "Maintenance").
+// The timers of a node besides the sending: the recovery of the expired leases, the cleanup and the
+// status line (docs/architecture/outbox.md, "Maintenance").
 @injectable()
 export class OutboxMaintenance {
     private isStopped = false;
@@ -45,6 +45,11 @@ export class OutboxMaintenance {
                 name: "deleteIdleChats",
                 intervalMs: this.settings.cleanupIntervalMs,
                 run: () => this.deleteInBatches(() => this.store.deleteIdleChats()),
+            },
+            {
+                name: "logStatus",
+                intervalMs: this.settings.statusLogIntervalMs,
+                run: () => this.logStatus(),
             },
         ];
 
@@ -106,5 +111,13 @@ export class OutboxMaintenance {
                 return;
             }
         }
+    }
+
+    // The counts come from the tables, so a node writes the state of the whole outbox, not of its own
+    // sends.
+    private async logStatus(): Promise<void> {
+        const backlog = await this.store.readBacklog();
+
+        this.logger.info("Outbox status.", backlog);
     }
 }
