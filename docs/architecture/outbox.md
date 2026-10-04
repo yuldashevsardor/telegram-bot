@@ -8,7 +8,8 @@ into it yet, and nothing starts its runner
 ([#625](https://github.com/yuldashevsardor/telegram-bot/issues/625)): so far it holds the tables
 with `OutboxStore` (`store/outbox-store.ts`), which pushes, pulls within the limits, pauses,
 completes a pulled message, finds the expired leases and cleans up, `OutboxRunner`
-(`outbox-runner.ts`), which sends the messages of a node over its slots, `OutboxMaintenance`
+(`outbox-runner.ts`), which sends the messages of a node over its slots on the shared worker loop
+(`telegram/worker-loop/`), `OutboxMaintenance`
 (`maintenance/outbox-maintenance.ts`), which runs the recovery of the expired leases and the cleanup
 on timers, `OutboxLeaseRecovery` (`lease/outbox-lease-recovery.ts`), which takes back the messages
 of the expired leases, `OutboxMessageSource` (`outbox-message-source.ts`), which hands the pulled
@@ -308,8 +309,12 @@ apart: `pull()` answers with a duration, not with its reason.
 
 `OutboxRunner` (`outbox-runner.ts`) sends the messages of a node: one loop over
 `OUTBOX_CONCURRENCY` slots ([#747](https://github.com/yuldashevsardor/telegram-bot/issues/747)).
-`start()` makes the generator of the message source, once, with the worker of the loop: the host,
-the pid and a `randomUUID()` made with the loop.
+The loop is `WorkerLoop` (`telegram/worker-loop/worker-loop.ts`), shared with the inbox worker
+being built ([#628](https://github.com/yuldashevsardor/telegram-bot/issues/628)): it knows only a
+source of items and a processor of one item (`worker-loop.types.ts`). `OutboxRunner` extends it with
+the message source, the message processor, the slots, `OUTBOX_STOP_TIMEOUT`, the worker and the log
+of a message whose processing threw. `start()` makes the generator of the message source, once, with
+the worker of the loop: the host, the pid and a `randomUUID()` made with the loop.
 
 1. The loop takes the messages of the generator with `for await` and hands each to
    `OutboxMessageProcessor.process()` at once, without waiting for the call to end. The lease and
