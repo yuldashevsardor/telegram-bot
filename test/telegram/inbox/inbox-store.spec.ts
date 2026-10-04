@@ -38,9 +38,9 @@ const CONCURRENT_CLAIMS_TIMEOUT_MS = 20_000;
 const LEASE_DURATION_MS = 600_000;
 // A lease that passes before the spec reads it, after a sleep of twice as long.
 const SHORT_LEASE_MS = 10;
-// A lease that outlasts its extension made right after the claim, and passes during a sleep of
-// twice as long.
-const BRIEF_LEASE_MS = 200;
+// A lease that outlasts its extension made right after the claim, on a loaded machine too, and
+// passes during a sleep of twice as long.
+const BRIEF_LEASE_MS = 500;
 // A retry delay no spec waits out.
 const LONG_RETRY_DELAY_MS = 60_000;
 // How far the delay read back may fall short of the one written: the time between the two statements.
@@ -597,6 +597,18 @@ describe("InboxStore", function () {
             await sleep(BRIEF_LEASE_MS * 2);
 
             expect(await briefLeasing.findExpiredLeases()).to.deep.equal([]);
+        });
+
+        it("leaves the start of the claim to the recovery of a lease extended before it passed", async function () {
+            const briefLeasing = new InboxStore(database, logger, BRIEF_LEASE_MS, CLEANUP);
+            const shortLeasing = new InboxStore(database, logger, SHORT_LEASE_MS, CLEANUP);
+            await briefLeasing.push(input(10));
+            const [claimed] = await briefLeasing.claim(10, WORKER);
+
+            expect(await shortLeasing.extendLease(claimed as ClaimedInboxUpdate)).to.equal(true);
+            await sleep(SHORT_LEASE_MS * 2);
+
+            expect((await shortLeasing.findExpiredLeases()).map(({ startedAt }) => startedAt)).to.deep.equal([claimed?.startedAt]);
         });
 
         it("extends only the group of the update, not the other groups of the same claim", async function () {

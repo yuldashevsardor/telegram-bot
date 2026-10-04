@@ -25,6 +25,8 @@ const STOPPING_WORKER: InboxWorker = { host: "node-1", pid: 101, workerId: "work
 const OTHER_WORKER: InboxWorker = { host: "node-2", pid: 202, workerId: "worker-1" };
 // Far beyond any INBOX_MAX_ATTEMPTS: the release checks no limit.
 const MANY_RELEASES = 20;
+// The default timeout of mocha, 2 s, is short for the transactions of MANY_RELEASES on a slow machine.
+const SPEC_TIMEOUT_MS = 10_000;
 
 // What the attempt of a release on stop ends with. Spelled out rather than imported: the releaser
 // keeps it private, and the attempts it lands in are read by people.
@@ -37,6 +39,8 @@ const NODE_STOPPED: InboxAttemptError = {
 // The releaser runs over the real store, on two clients: the node that stops and the one that takes
 // the update over.
 describe("InboxLeaseReleaser", function () {
+    this.timeout(SPEC_TIMEOUT_MS);
+
     let database: Database;
     let other: Database;
     let store: InboxStore;

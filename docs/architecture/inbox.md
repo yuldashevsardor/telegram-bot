@@ -134,12 +134,17 @@ the recovery tells its lease by the token, not by `locked_until` (see "Lease rec
 it would leave the update to the recovery and to the handler both. Only the group of the update is
 extended, not the other groups of the same claim, which share its token.
 
-The check is made at the start of the statement, by `now()`, and the recovery reads the expired
-leases without a lock (see "Lease recovery"). An extension whose statement starts before the lease
-passes and commits after a recovery has read the lease as passed returns `true`, and the recovery
-then completes the update all the same: the extension does not change the token, and the
-completion is fenced by the token alone. The window is the run of one statement, so a caller that
-extends well before the lease passes does not meet it.
+The check reads the clock when the statement checks the row, by `clock_timestamp()`, not `now()`:
+the statement may wait for the group row a push or a completion holds and checks the row again once
+it gets it, and `now()` is fixed at its start. The recovery reads the expired leases without a lock
+(see "Lease recovery"). An extension that checks the row before the lease passes and commits after a
+recovery has read the lease as passed returns `true`, and the recovery then completes the update
+all the same: the extension does not change the token, and the completion is fenced by the token
+alone. The window runs from the check to the commit of one statement, so a caller that extends well
+before the lease passes does not meet it.
+
+An extension moves `locked_until` only: the recovery of an extended lease still writes the start of
+the claim into the attempt (see "Lease recovery").
 
 The handling is at least once. A node that dies after the handler ran and before its completion
 commits leaves the update `processing`; once the lease is recovered, the update is handled again:
@@ -189,7 +194,9 @@ none. The notification goes through the transaction, so PostgreSQL delivers it o
 worker woken by it sees the group, as the ready channel of the outbox does
 ([`outbox.md`](./outbox.md), "Push"). It names no group: a worker takes what it claims. Every
 retry notifies, one with a delay too: the store does not tell the release on stop, a retry with no
-delay (see "Release on stop"), from the others.
+delay (see "Release on stop"), from the others. A worker woken by a retry with a delay claims
+nothing until the delay passes, and the end of the delay notifies no one: a worker learns of it from
+a claim of its own, made on a timer.
 
 `listenReady(onReady)` listens on the channel, on the listening connection of the client
 ([`storage.md`](./storage.md), "LISTEN"). `onReady` is called on every notification and every time
@@ -283,7 +290,9 @@ passed: the node that claimed them is presumed dead. The handling loop is to cal
 2. Each lease is a transient failure, completed as one: the update goes back to `pending` with the
    retry delay of its attempt, or, on the last attempt of `INBOX_MAX_ATTEMPTS`, fails and blocks its
    group. The completion appends an attempt with the error `InboxLeaseExpired` of class `transient`
-   and `worker: null`, and `started_at` of `locked_until` minus `INBOX_LEASE_DURATION`. The leases
+   and `worker: null`, and `started_at` of the claim: `updated_at` of the `processing` update,
+   which the claim sets and nothing writes until the completion. Not `locked_until` minus
+   `INBOX_LEASE_DURATION`, as the outbox derives it: an extension moves `locked_until`. The leases
    are completed one after another, and a completion that throws ends the call.
 
 The recovery completes the update through the same fenced completions as the node that claimed it,
@@ -351,9 +360,9 @@ spec is in `DATABASE_SPECS` ([`testing.md`](./testing.md), "Mutation testing").
 
 `InboxFailureHandler` and `InboxLeaseReleaser` are there too: their specs run them over the real
 store, so that each outcome is pinned by the rows it leaves rather than by the calls a fake store
-records. Its decisions are a
-`switch` over the class and the count of attempts. The classes themselves are in
-`InboxFailureClassifier`, which needs no database and is mutated.
+records. The decisions of `InboxFailureHandler` are a `switch` over the class and the count of
+attempts. The classes themselves are in `InboxFailureClassifier`, which needs no database and is
+mutated.
 
 The ids come back as numbers: the driver returns `bigint` as a string, and the store converts it,
 as `PgSqlUserRepository` does ([`storage.md`](./storage.md), "`User.id`").

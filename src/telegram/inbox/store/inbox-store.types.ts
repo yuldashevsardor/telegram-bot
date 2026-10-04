@@ -85,7 +85,7 @@ export type ClaimedInboxUpdate = InboxUpdateInput &
     };
 
 // A lease that passed before its update was completed: the node that claimed the update is presumed
-// dead. Only the lease end is stored, so startedAt is that end minus the lease duration.
+// dead. startedAt is updated_at of the processing update, which only the claim writes.
 export type ExpiredInboxLease = InboxLease & {
     worker: null;
     earlierAttempts: number;

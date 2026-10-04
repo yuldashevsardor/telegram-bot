@@ -207,8 +207,11 @@ export class InboxStore {
         const rows = await this.sql<ExpiredInboxLeaseRow[]>`
             SELECT inbox_update.update_id,
                    inbox_group.lock_token,
-                   -- The start of the claim, in the form the claim gives it out.
-                   to_jsonb(inbox_group.locked_until - ${this.leaseDurationMs}::double precision * interval '1 millisecond') #>> '{}' AS started_at,
+                   -- The start of the claim, in the form the claim gives it out: the claim sets
+                   -- updated_at of the update it makes processing, and nothing else writes a
+                   -- processing update. Not locked_until minus the lease duration: an extension
+                   -- moves locked_until.
+                   to_jsonb(inbox_update.updated_at) #>> '{}' AS started_at,
                    jsonb_array_length(inbox_update.attempts) AS earlier_attempts
             FROM telegram_inbox_groups AS inbox_group
             JOIN telegram_inbox AS inbox_update
@@ -236,13 +239,16 @@ export class InboxStore {
     // lease"). Returns whether the lease was extended; false means the update is no longer the
     // caller's to complete, or will not be once the recovery reaches it.
     public async extendLease(lease: InboxLease): Promise<boolean> {
+        // clock_timestamp(), not now(): the update may wait for the group row a push or a completion
+        // holds, and rechecks the row once it gets it. now() is fixed at the start of the statement,
+        // so a lease that passed during the wait would still be extended.
         const extendedRows = await this.sql`
             UPDATE telegram_inbox_groups
             SET locked_until = now() + ${this.leaseDurationMs}::double precision * interval '1 millisecond',
                 updated_at = now()
             WHERE (user_id, chat_id) = (SELECT user_id, chat_id FROM telegram_inbox WHERE update_id = ${lease.updateId})
               AND lock_token = ${lease.lockToken}
-              AND locked_until > now()
+              AND locked_until > clock_timestamp()
             RETURNING user_id
         `;
 
@@ -259,8 +265,9 @@ export class InboxStore {
 
     // The update goes back to pending, and its group waits delayMs: the update stays the head, so it
     // holds its group. The group is ready again, so the ready channel is notified on commit, as a push
-    // does: a worker with nothing to claim learns of the group from nothing else. A fenced retry
-    // notifies no one.
+    // does: a worker with nothing to claim learns of the group from nothing else. A retry with a
+    // delay notifies too, before the group can be claimed, and the end of the delay notifies no one.
+    // A fenced retry notifies no one.
     public async retry(lease: InboxLease, attemptError: InboxAttemptError, delayMs: number): Promise<void> {
         await this.complete(lease, attemptError, async (sql, group) => {
             await this.writeProcessingUpdateOrThrow(
