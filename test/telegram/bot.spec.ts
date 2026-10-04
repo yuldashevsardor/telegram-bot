@@ -186,7 +186,12 @@ async function nextUpdates(harness: Harness, signal: Parameters<Transformer<RawA
 // of the outbox row.
 function buildOutboxTransformer(pushed: OutboxMessageInput[]): OutboxTransformer {
     const store = {
-        push: async (message: OutboxMessageInput): Promise<number> => pushed.push(message),
+        // The row id is the 1-based position of the message in pushed.
+        push: async (message: OutboxMessageInput): Promise<number> => {
+            pushed.push(message);
+
+            return pushed.length;
+        },
     } as unknown as OutboxStore;
     const waiter = {
         wait: async (messageId: number): Promise<FinishedOutboxMessage> => {
