@@ -109,8 +109,8 @@ class OutboxLoadTest {
 
     // The call of every OUTBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL finds no lease as a rule, and the
     // one after a node died finds the chats it held: a batch is pulled and left until its lease
-    // expires. Its messages are completed afterwards, as the recovery would, so the cleanup that
-    // follows sees the chats as the pulls leave them.
+    // expires. Its messages are then marked done, not retried as OutboxLeaseRecovery would, so that
+    // the cleanup that follows sees the chats as the pulls leave them.
     private async measureLeaseRecovery(): Promise<void> {
         await this.measure("findExpiredLeases()", () => this.store.findExpiredLeases());
 

@@ -78,11 +78,13 @@ An index over every status, `telegram_outbox (chat_id, id, status)`, finds the h
 in the key lets it skip the done entries without reading the rows. It was built once on the 3 chats
 layout, for comparison: 3.9 GB against 96 MB of the partial one, 2 minutes 18 seconds to build. Its
 head lookup reads the entries of every done message of the chat before the first active one, some
-200 to a page: 11 buffers for chat 1 with its 1 064 done messages, against 5 of the partial index.
-So it grows with the history of the chat inside the retention: a chat with a million done messages a
-week, by that count, takes some 5 000 pages a lookup, while the partial index stays at the first
-entry of the chat. It also holds an entry for every done message, which every completion writes and
-every vacuum after the cleanup has to clean, where the partial index holds the active ones alone.
+200 to a page: 11 buffers for chat 1 with its 1 064 done messages, against 5 of the partial index in
+the same run, which had its dead entries cleaned (see "Dead entries of the index"; the 7 buffers
+there are of another fill). So it grows with the history of the chat inside the retention: a chat
+with a million done messages a week, by that count, takes some 5 000 pages a lookup, while the
+partial index stays at the first entry of the chat. It also holds an entry for every done message,
+which every completion writes and every vacuum after the cleanup has to clean, where the partial
+index holds the active ones alone.
 
 ```
 Index Only Scan using telegram_outbox_chat_id_id_status_idx on telegram_outbox

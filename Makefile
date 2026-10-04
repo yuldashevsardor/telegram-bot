@@ -235,6 +235,7 @@ load-indexes: ## Create the candidate indexes on the load-test database (test/lo
 # to compare with a threshold are taken with plans=off. The setting is the role's, read by every new
 # connection.
 load-measure: ## Measure the outbox store on the load-test database; the times, then the plans: make load-measure [plans=off]
+	@[ -z "$(plans)" ] || [ "$(plans)" = off ] || { printf 'plans takes off alone: make load-measure plans=off\n' >&2; exit 1; }
 	printf '%s\n' 'ALTER ROLE :"app_user" SET auto_explain.log_min_duration = $(if $(filter off,$(plans)),-1,0);' | $(LOAD_PSQL)
 	@started_at=$$(date -u +%Y-%m-%dT%H:%M:%SZ); \
 		$(DC_APP_RUN) env DATABASE_HOST=pgsql-load TSX_TSCONFIG_PATH=./tsconfig.check.json node --require tsx/cjs test/load/outbox-load-test.ts; \
