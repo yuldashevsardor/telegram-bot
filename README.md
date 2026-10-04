@@ -142,7 +142,8 @@ The full list is `make`. What is worth knowing beyond the target descriptions:
 - `make db-reset` refuses while application containers of other worktrees run in the network
   of the database. The database is shared, and the reset would wipe it out from under them
   mid-work: take them down there with `make app-down` and repeat. A container of an already
-  deleted worktree the target only names; remove it with `docker rm -f <name>`.
+  deleted worktree the target only names; remove it with `docker rm -f <name>`. The load-test
+  database in the same network is no application: the reset leaves it and its volume alone.
   `CONFIRM=1` answers the confirmation question in advance.
 
 ## The pre-commit hook

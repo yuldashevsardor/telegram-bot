@@ -38,8 +38,11 @@ services:
             # The same user and database as in the shared Postgres, so the migrations and the store
             # connect with the settings of .env, only the host differs.
             - ./docker/pgsql/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d:ro
+        # Over TCP, unlike the shared database: on a fresh volume the image first runs a temporary
+        # server for the init scripts that listens on the unix socket alone, and a check through
+        # the socket would let load-up migrate before the real server listens on 5432.
         healthcheck:
-            test: ["CMD-SHELL", "psql -U \"$$POSTGRES_USER\" -d \"$$DATABASE_NAME\" -c 'SELECT 1' > /dev/null 2>&1"]
+            test: ["CMD-SHELL", "psql -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$DATABASE_NAME\" -c 'SELECT 1' > /dev/null 2>&1"]
             interval: 5s
             timeout: 5s
             retries: 12

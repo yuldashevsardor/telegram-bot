@@ -515,8 +515,9 @@ The pull, the completion, the lease recovery and the cleanup measured on a large
 ### How to run it
 
 The test runs against a Postgres of its own, `docker-compose.load.yml`, so that the fill does not
-slow down the shared database of every worktree. The targets are `load-*` of the `Makefile`, in
-this order: `load-up`, `load-fill-done` once, then per layout `load-fill-pending` and
+slow down the shared database of every worktree. The targets are `load-*` of the `Makefile`, in this
+order, with the shared database up (`make db-up`), whose network the application containers and the
+load-test database join: `load-up`, `load-fill-done` once, then per layout `load-fill-pending` and
 `load-measure`; `load-indexes` adds the candidate index, `load-down` removes the database with its
 data. The files they run are in `test/load/`. A fill stays valid for 6 days: then its done messages
 pass the retention, and the cleanup of a measurement deletes them by the thousand.
@@ -556,8 +557,9 @@ however many nodes there are. 10 ms leaves the turns of several nodes room withi
 
 ### Results
 
-The times are those of the client, in ms, from runs with `plans=off`; "first" is the first call of
-the run, the cold cache. The ranges leave out the pulls the limits held back (see "How to run it").
+The times are those of the client, in ms, from runs with `plans=off`, except the column without an
+index; "first" is the first call of the run, the cold cache. The ranges leave out the pulls the
+limits held back (see "How to run it").
 
 | call | no index, 3 chats | index, 3 chats | index, 100 k chats |
 |---|---|---|---|
@@ -683,11 +685,13 @@ of the table reported it was.
 
 ### Verdict
 
-With the candidate index the completion is within the threshold, and so is the pull of a few chats
-at its median, 2 – 7 ms, while the index is kept clean of dead entries; a batch of the 3 chats took
-up to 28 ms once. The lease recovery is within it while no lease has expired, and at 706 ms for the
-3 chats of 300 000 messages when their leases have. The pull of 100 k ready chats is not, some 14
-times over, and neither is the cleanup, some 8 000 times over. The proposal is a comment on #643:
+With the candidate index the completion is within the threshold at its median, 1 – 2 ms, and at its
+95th percentile, 4 ms, though not at its maximum, 14 and 42 ms. So is the pull of a few chats at its
+median, 2 – 7 ms, while the index is kept clean of dead entries; a batch of the 3 chats took up to
+28 ms once. The lease recovery is within it while no lease has expired, and far past it, at 706 ms,
+for the 3 chats of 300 000 messages whose leases have. The pull of 100 k ready chats is not: a batch
+takes a median of 228 ms, some 23 times over, and the pull of one message 144 ms. Nor is the
+cleanup, some 8 000 times over. The proposal is a comment on #643:
 https://github.com/yuldashevsardor/telegram-bot/issues/643#issuecomment-5984131010
 
 ## Sending

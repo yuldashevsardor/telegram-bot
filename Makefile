@@ -199,7 +199,7 @@ load-up: ## Bring up the load-test database and apply the migrations
 	printf '%s\n' "ALTER ROLE :\"app_user\" SET statement_timeout = '$(LOAD_STATEMENT_TIMEOUT)';" | $(LOAD_PSQL)
 
 load-fill-done: ## Fill the load-test database with done messages, once: make load-fill-done [rows=100000000]
-	$(LOAD_PSQL) -v rows=$(or $(rows),100000000) -v chats=100000 -v expired_rows=5000 < test/load/outbox-fill-done.sql
+	$(LOAD_PSQL) -v rows=$(or $(rows),100000000) -v chats=100000 < test/load/outbox-fill-done.sql
 
 load-fill-pending: ## Replace the pending layout of the load test: make load-fill-pending chats=3 per_chat=300000
 	@[ -n "$(chats)" ] && [ -n "$(per_chat)" ] || { printf 'give it the layout: make load-fill-pending chats=3 per_chat=300000\n' >&2; exit 1; }

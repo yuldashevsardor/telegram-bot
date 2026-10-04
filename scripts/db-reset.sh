@@ -13,6 +13,10 @@ set -eu
 COMPOSE_FILE="docker-compose.db.yml"
 DB_PROJECT="telegram-bot-db"
 DB_NETWORK="telegram-bot-db_default"
+# The database of the outbox load test (docker-compose.load.yml) sits in the same network but is no
+# application: it keeps its data in a volume of its own, which the reset does not touch, and it
+# outlives the reset. down then leaves the network in place, in use by it, and says so.
+LOAD_PROJECT="telegram-bot-load"
 TAB=$(printf '\t')
 
 die() {
@@ -29,7 +33,7 @@ real_path() {
 
 # Finds application containers by the database network: the applications of all worktrees
 # sit in it, both running bots and the throwaway containers of one-off targets
-# (make migrate/build/test).
+# (make migrate/build/test), and so does the load-test database, which is skipped.
 # Prints a line per container: <state> <TAB> <name> <TAB> <worktree>.
 # The check is best-effort: a container that has used up restart: on-failure drops out of
 # docker ps, although the session in its worktree is at work.
@@ -50,6 +54,7 @@ app_containers() {
         name=${rest#*"$TAB"}
 
         [ -n "$project" ] && [ "$project" != "$DB_PROJECT" ] || continue
+        [ "$project" != "$LOAD_PROJECT" ] || continue
 
         # A container whose directory is not on disk is garbage, not a working session: git
         # worktree remove does not take the container down. It must not block the target, or

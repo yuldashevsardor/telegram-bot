@@ -25,6 +25,9 @@ const PULLS_PER_LIMIT = 15;
 const BATCH_IDLE_INTERVALS = 2;
 // Past the end of the lease, so that the leases left by the pull have expired by the database clock.
 const LEASE_EXPIRY_MARGIN_MS = 1_000;
+// The limits hold back a pull or two in a row between two that give out messages; this many in a row
+// means the ready chats have no head the store can pull.
+const MAX_EMPTY_PULLS_IN_A_ROW = 20;
 
 const WORKER: OutboxWorker = { host: hostname(), pid: process.pid, workerId: "load-test" };
 const RESPONSE = { message_id: 1, date: 0, chat: { id: 1, type: "private" }, text: "load test" };
@@ -69,7 +72,7 @@ class OutboxLoadTest {
     private async measurePulls(limit: number, idleMs: number): Promise<void> {
         for (let pullNumber = 1; pullNumber <= PULLS_PER_LIMIT; pullNumber++) {
             await sleep(idleMs);
-            const pullResult = await this.pullDue(limit);
+            const pullResult = await this.pullDue(`pull(${limit})`, limit);
 
             for (const message of pullResult.messages) {
                 await this.measure(`markAsDone() of message ${message.id}, chat ${message.chatId}`, () =>
@@ -80,25 +83,28 @@ class OutboxLoadTest {
     }
 
     // A pull that answers nothing while the limits hold it back is printed with its 0 messages, and
-    // the results of the load test leave it out: it waits out nextPullInMs and pulls again. A pull
-    // with no ready chat at all ends the run: the layout is missing, or the fill wrote a status or a
-    // state the store does not know.
-    private async pullDue(limit: number): Promise<OutboxPullResult> {
-        for (;;) {
-            const pullResult = await this.measure(`pull(${limit})`, () => this.store.pull(limit, WORKER));
+    // the results of the load test leave it out: it waits out nextPullInMs and pulls again. The run
+    // ends on a layout the store cannot pull: with no ready chat (a missing layout, or a chat state
+    // the store does not know) the pull answers a null nextPullInMs, and with ready chats whose
+    // messages have a status it does not know it answers nothing again and again.
+    private async pullDue(label: string, limit: number): Promise<OutboxPullResult> {
+        for (let emptyPullCount = 0; emptyPullCount < MAX_EMPTY_PULLS_IN_A_ROW; emptyPullCount++) {
+            const pullResult = await this.measure(label, () => this.store.pull(limit, WORKER));
 
             if (pullResult.messages.length > 0) {
                 return pullResult;
             }
 
             if (pullResult.nextPullInMs === null) {
-                throw new RuntimeError(
-                    "No ready chat to pull: fill a layout (make load-fill-pending) with the values of OutboxStatus and OutboxChatState",
-                );
+                break;
             }
 
             await sleep(pullResult.nextPullInMs);
         }
+
+        throw new RuntimeError(
+            "No message to pull: fill a layout (make load-fill-pending) with the values of OutboxStatus and OutboxChatState",
+        );
     }
 
     // The call of every OUTBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL finds no lease as a rule, and the
@@ -109,7 +115,7 @@ class OutboxLoadTest {
         await this.measure("findExpiredLeases()", () => this.store.findExpiredLeases());
 
         await sleep(this.batchIdleMs());
-        const abandonedPull = await this.pullDue(this.commonLimit.number);
+        const abandonedPull = await this.pullDue(`pull(${this.commonLimit.number}), left to expire`, this.commonLimit.number);
         await sleep(this.leaseDurationMs + LEASE_EXPIRY_MARGIN_MS);
         await this.measure("findExpiredLeases()", () => this.store.findExpiredLeases());
 

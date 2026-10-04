@@ -4,8 +4,8 @@
 -- chats the previous run left, and puts the bot row back to a full budget. The messages the
 -- measurement completed stay among the done ones: a few hundred against the 100 M of the fill.
 --
--- The statuses and the state are the values of OutboxStatus and OutboxChatState; the measurement
--- stops on a layout it cannot pull.
+-- The status and the state are the values of OutboxStatus and OutboxChatState; the measurement
+-- stops on a layout it cannot pull (outbox-load-test.ts).
 
 BEGIN;
 
