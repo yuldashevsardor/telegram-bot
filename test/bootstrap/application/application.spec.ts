@@ -487,7 +487,14 @@ describe("Application", function () {
             await stopped;
 
             expect(callsWhileWaiting).to.deep.equal(["bot.stop", "outboxRunner.stop"]);
-            expect(calls.slice(2, 3)).to.deep.equal(["outboxMaintenance.stop"]);
+            expect(calls).to.deep.equal([
+                "bot.stop",
+                "outboxRunner.stop",
+                "outboxMaintenance.stop",
+                "taskQueue.isEmpty",
+                "runner.stop",
+                "container.close",
+            ]);
         });
 
         it("does nothing on a second stop after the first one has finished", async function () {

@@ -18,6 +18,8 @@ const SPEC_TIMEOUT_MS = 2_000;
 // fires in a passing test, and a wait that is never settled fails with its own error.
 const NEVER_MS = 1_000;
 const SOON_MS = 10;
+// Several ticks of a poll every SOON_MS.
+const SEVERAL_SOON_TICKS_MS = SOON_MS * 3;
 // How long a test waits for something that must not happen.
 const QUIET_MS = 50;
 // A timeout two sleeps of 60% of it are measured against: wide enough to hold under the load of a
@@ -117,7 +119,7 @@ describe("OutboxResultWaiter", function () {
 
             return requestContext.getRequestId();
         });
-        await sleep(SOON_MS * 3);
+        await sleep(SEVERAL_SOON_TICKS_MS);
         waiter.stop();
 
         expect(waitRequestId).to.be.a("string");

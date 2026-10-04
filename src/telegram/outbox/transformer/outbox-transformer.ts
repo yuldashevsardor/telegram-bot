@@ -54,6 +54,9 @@ export class OutboxTransformer {
             priority: OutboxPriority.Call,
         });
 
+        // The id is known only once the push has committed, so a message finished before the wait
+        // starts sends its notification to no one, and the poll of the waiter settles it, up to
+        // OUTBOX_RESULT_POLL_INTERVAL later (docs/architecture/outbox.md, "Waiting for the result").
         return this.toResponse(await this.waiter.wait(messageId), method);
     };
 
@@ -84,7 +87,7 @@ export class OutboxTransformer {
                 return { ok: true, result: message.response as never };
             case OutboxStatus.Failed:
                 return this.toErrorAnswer(message, method);
-            case OutboxStatus.Skipped:
+            default:
                 throw OutboxMessageSkipped.of(message.id, method);
         }
     }

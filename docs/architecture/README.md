@@ -64,9 +64,8 @@ Stack:
 [#245](https://github.com/yuldashevsardor/telegram-bot/issues/245)). There are two modules:
 
 - `font-convertor/` — the only domain one;
-- `telegram/` — what exists for the sake of Telegram (above): the bot, `User`, the outbound
-  queue and the outbox that is being built to replace it, and the inbox of incoming updates being
-  built beside it.
+- `telegram/` — what exists for the sake of Telegram (above): the bot, `User`, the outbox and the
+  outbound queue it replaces, and the inbox of incoming updates being built beside it.
 
 Around them stand three directories named by role:
 

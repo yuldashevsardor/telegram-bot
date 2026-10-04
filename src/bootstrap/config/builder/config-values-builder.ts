@@ -178,9 +178,9 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
     // dependencies are not summed up (sql.end() inside Database.close() has 5 seconds of its own),
     // and the overall deadline is taken with a margin instead.
     private static checkGracefulShutdown({ bot, outbox, taskQueue, gracefulShutdown }: ConfigValues): void {
-        const parts = bot.gracefulShutdown.timeout + outbox.stopTimeoutMs + taskQueue.gracefulShutdown.timeout;
+        const stepTimeoutsSumMs = bot.gracefulShutdown.timeout + outbox.stopTimeoutMs + taskQueue.gracefulShutdown.timeout;
 
-        if (gracefulShutdown.timeout <= parts) {
+        if (gracefulShutdown.timeout <= stepTimeoutsSumMs) {
             throw new InvalidConfigError(
                 "GRACEFUL_SHUTDOWN_TIMEOUT must be greater than the sum of the bot, outbox and task queue timeouts",
                 {

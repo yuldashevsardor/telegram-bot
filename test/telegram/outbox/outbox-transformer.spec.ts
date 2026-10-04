@@ -12,6 +12,7 @@ import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxResultWaiter } from "app/telegram/outbox/result-waiter/outbox-result-waiter";
 import type { FinishedOutboxMessage, OutboxMessageInput } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxPriority, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
+import { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 
 type TelegramCall = { method: string; payload: unknown; signal: unknown };
@@ -159,6 +160,32 @@ describe("OutboxTransformer", function () {
     });
 
     describe("the outcome of a message that was not sent", function () {
+        // The transformer reads back what OutboxErrorSerializer keeps of a GrammyError: a field the
+        // serializer stops keeping would turn every such failure into OutboxMessageFailed.
+        it("rejects with the GrammyError the serializer kept in the attempt", async function () {
+            const { api, outbox } = setup();
+            const sendFailure = new GrammyError(
+                "Call to 'sendMessage' failed!",
+                { ok: false, error_code: 400, description: "Bad Request: chat not found", parameters: { retry_after: 3 } },
+                "sendMessage",
+                { chat_id: PRIVATE_CHAT_ID, text: "text" },
+            );
+            const attemptError = {
+                ...new OutboxErrorSerializer("test-token").serialize(sendFailure),
+                kind: TelegramBotApiFailureKind.Undeliverable,
+            };
+            outbox.outcome = Promise.resolve(failed(attemptError));
+
+            const error = await caught(api.sendMessage(PRIVATE_CHAT_ID, "text"));
+
+            expect(error).to.be.instanceOf(GrammyError);
+            expect(error).to.deep.include({
+                error_code: 400,
+                description: "Bad Request: chat not found",
+                parameters: { retry_after: 3 },
+            });
+        });
+
         // grammY builds the GrammyError itself, from the answer the transformer gives back.
         it("rejects with a GrammyError of the answer Telegram gave its last attempt", async function () {
             const { api, outbox } = setup();
