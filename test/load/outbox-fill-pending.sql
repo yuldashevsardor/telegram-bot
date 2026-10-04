@@ -35,8 +35,9 @@ SET next_send_at = now() - interval '1 hour',
 
 COMMIT;
 
--- INDEX_CLEANUP ON: the deleted layout leaves its entries in the indexes, and a plain VACUUM skips
--- the indexes while the dead rows lie on less than 2% of the pages of the table, some 180 000 of
--- them here. The next layout would then walk the entries of the previous one to find each head
--- (docs/architecture/outbox-load-test.md, "Dead entries of the index").
+-- The deleted layout leaves its entries in the indexes, and the next layout would walk them to find
+-- each head (docs/architecture/outbox-load-test.md, "Dead entries of the index"). telegram_outbox
+-- has vacuum_index_cleanup = on of its own, from the migration of the head index; INDEX_CLEANUP ON
+-- does the same for telegram_outbox_chats, where a plain VACUUM skips the indexes while the dead
+-- rows lie on less than 2% of the pages.
 VACUUM (ANALYZE, INDEX_CLEANUP ON) telegram_outbox, telegram_outbox_chats;

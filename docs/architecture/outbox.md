@@ -35,11 +35,12 @@ replaced by `1790716587328_telegram-outbox-attempt-worker-comment.ts`.
 The indexes are picked by the plans of the load test (see "Load test"), not ahead of the queries.
 `1791153270752_telegram-outbox-head-index.ts` adds the one index besides the primary keys,
 `telegram_outbox_active_chat_id_idx`, on `(chat_id, id)` of the active messages: the head of a
-chat for the pull and for `releaseChat()` is its first entry. Its `status` is in the predicate, so
+chat for the pull and for `releaseChat()` is its first entry, and the lease recovery finds the
+`processing` message of a chat among its entries. Its `status` is in the predicate, so
 no update of a message is HOT, and a `fillfactor` would buy nothing; every message leaves two dead
-entries in it, which the head lookup walks until a vacuum cleans them. So the same migration sets
-the vacuum of `telegram_outbox` by the number of dead rows alone, whatever the size of the done
-history, and makes it always clean the indexes; the values and their measurement are in
+entries in it, which the head lookup walks until a vacuum cleans them. So the same migration caps
+the dead rows that bring autovacuum to `telegram_outbox`, whatever the size of the done history,
+and makes the vacuum always clean the indexes; the values and their measurement are in
 [`outbox-load-test.md`](./outbox-load-test.md), "Vacuum of the head index".
 
 The database does not check the values of `status` and `state`: the store writes them only
