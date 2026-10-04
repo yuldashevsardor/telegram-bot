@@ -9,7 +9,12 @@ import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifi
 import type { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
 import type { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
-import type { OutboxAttemptError, OutboxLease, PulledOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
+import type {
+    ExpiredOutboxLease,
+    OutboxAttemptError,
+    OutboxLease,
+    PulledOutboxMessage,
+} from "app/telegram/outbox/store/outbox-store.types";
 
 // The error of the attempt an expired lease closes: the node that made it reported nothing.
 const LEASE_EXPIRED: OutboxAttemptError = {
@@ -59,15 +64,11 @@ export class OutboxFailureHandler {
         await this.applyOutcome(message, failure, attemptError);
     }
 
-    // The message of every expired lease is a transient failure: whether the node died before the
-    // call or after Telegram took it cannot be told, so it goes out again (docs/architecture/outbox.md,
+    // The message of an expired lease is a transient failure: whether the node died before the call
+    // or after Telegram took it cannot be told, so it goes out again (docs/architecture/outbox.md,
     // "Lease recovery").
-    public async recoverExpiredLeases(): Promise<void> {
-        const expiredLeases = await this.store.findExpiredLeases();
-
-        for (const expiredLease of expiredLeases) {
-            await this.retryOrBlock(expiredLease, LEASE_EXPIRED);
-        }
+    public async handleExpiredLease(expiredLease: ExpiredOutboxLease): Promise<void> {
+        await this.retryOrBlock(expiredLease, LEASE_EXPIRED);
     }
 
     // A message whose call the stopping node did not finish goes back to pending, and its chat is

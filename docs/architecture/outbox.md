@@ -4,16 +4,17 @@ The outbox is being built to replace the in-memory outbound queue
 ([`outbound-queue.md`](./outbound-queue.md)): outgoing Bot API calls become rows in PostgreSQL,
 any node sends them, the order inside a chat holds across nodes, and a node that dies loses
 nothing (the plan is epic [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)).
-No caller pushes into it yet, and nothing starts its worker loop
+No caller pushes into it yet, and nothing starts its runner
 ([#625](https://github.com/yuldashevsardor/telegram-bot/issues/625)): so far it holds the tables
 with `OutboxStore` (`store/outbox-store.ts`), which pushes, pulls within the limits, pauses,
-completes a pulled message, finds the expired leases and cleans up, `OutboxWorkerLoop`
-(`outbox-worker-loop.ts`), which sends the messages of a node over its slots, `OutboxMaintenance`
-(`outbox-maintenance.ts`), which runs the recovery of the expired leases and the cleanup on timers,
-`OutboxMessageSource` (`outbox-message-source.ts`), which hands the pulled messages to the worker
-loop, `OutboxMessageProcessor` (`outbox-message-processor.ts`), which takes one pulled message to
-its outcome, with `OutboxSender`, which makes its Bot API call, `OutboxFailureHandler`
-(`outbox-failure-handler.ts`), which picks the outcome of a failed send, recovers the expired leases
+completes a pulled message, finds the expired leases and cleans up, `OutboxRunner`
+(`outbox-runner.ts`), which sends the messages of a node over its slots, `OutboxMaintenance`
+(`maintenance/outbox-maintenance.ts`), which runs the recovery of the expired leases and the cleanup
+on timers, `OutboxLeaseRecovery` (`outbox-lease-recovery.ts`), which takes back the messages of the
+expired leases, `OutboxMessageSource` (`outbox-message-source.ts`), which hands the pulled messages
+to the runner, `OutboxMessageProcessor` (`outbox-message-processor.ts`), which takes one pulled
+message to its outcome, with `OutboxSender`, which makes its Bot API call, `OutboxFailureHandler`
+(`outbox-failure-handler.ts`), which picks the outcome of a failed send or of an expired lease
 and releases a lease on stop, `OutboxResultWaiter`, which waits for the outcome of a message, with
 `OutboxFinishedMessageReader`, the payload codec and the retry delay. The error classes of a failed
 call lie outside it, in `telegram/bot-api-failure-classifier/`.
@@ -97,7 +98,7 @@ no pull reaches them. The spec has the removal take the chat while a push waits 
 3. every `idle` chat of the batch becomes `ready`; a chat in any other state already has an older
    head;
 4. `pg_notify` on `telegram_outbox_ready` with an empty payload, delivered on commit, so that an
-   idle sender wakes up at once. `OutboxMessageSource` listens on it once the worker loop asks it
+   idle sender wakes up at once. `OutboxMessageSource` listens on it once the runner asks it
    for a message (see "The message source").
 
 ## Pull
@@ -235,7 +236,7 @@ outbox".
 
 ## The message source
 
-`OutboxMessageSource` (`outbox-message-source.ts`) is what the worker loop of a node takes the
+`OutboxMessageSource` (`outbox-message-source.ts`) is what the runner of a node takes the
 pulled messages from. `stream(worker)` makes the one async generator of the node. The loop sends
 several messages at once, each in a slot of its own
 ([#747](https://github.com/yuldashevsardor/telegram-bot/issues/747)), and awaits the next message
@@ -243,7 +244,7 @@ of the generator whenever a slot is free: the slots are the loop's, the source k
 them. The `worker` passed in names the loop, not a slot, and
 goes into every attempt the generator pulls. The source serves one generator: it keeps one sleep in
 progress, and a second generator is checked by nothing ([`invariants.md`](./invariants.md), "The
-outbox"). `OutboxWorkerLoop` makes it once, at its start (see "The worker loop").
+outbox"). `OutboxRunner` makes it once, at its start (see "The runner").
 
 - **One message per pull.** The generator pulls with a `limit` of 1, and only when the loop asks
   for the next message, so the loop never holds a leased message it has not started on.
@@ -302,17 +303,18 @@ pushes come faster than a pull takes, each generator pulls at their rate and get
 pause or the cooldown is over. The source cannot tell such a time apart: `pull()` answers with a
 duration, not with its reason.
 
-## The worker loop
+## The runner
 
-`OutboxWorkerLoop` (`outbox-worker-loop.ts`) sends the messages of a node: one loop over
+`OutboxRunner` (`outbox-runner.ts`) sends the messages of a node: one loop over
 `OUTBOX_CONCURRENCY` slots ([#747](https://github.com/yuldashevsardor/telegram-bot/issues/747)).
 `start()` makes the generator of the message source, once, with the worker of the loop: the host,
 the pid and a `randomUUID()` made with the loop.
 
-1. While a slot is free, the loop awaits the next message of the generator and hands it to
+1. The loop takes the messages of the generator with `for await` and hands each to
    `OutboxMessageProcessor.process()` at once, without waiting for the call to end. The lease and
    the chat limit count from the pull (see "The lease", "Limits"), so a pulled message does not wait
-   in a queue. A loop with every slot busy waits for a slot to free and asks the generator for
+   in a queue. After starting a call the loop waits until a slot is free, and only then does `for
+   await` ask the generator for the next message: a loop with every slot busy asks the generator for
    nothing, so it pulls nothing either.
 2. The loop writes no outcome: the processor does (see "Sending"). A `process()` that throws, a
    completion whose database went away or a `retry_after` that `pause()` refuses (see "Outcomes"),
@@ -338,10 +340,11 @@ short only the Bot API call.
 
 ## Maintenance
 
-`OutboxMaintenance` (`outbox-maintenance.ts`) runs three tasks on the timers of every node, apart
-from the worker loop:
+`OutboxMaintenance` (`maintenance/outbox-maintenance.ts`) runs three tasks on the timers of every
+node, apart from the runner. It takes its two intervals as one `outbox.maintenance` object
+(`OutboxMaintenanceSettings`):
 
-- the recovery of the expired leases (see "Lease recovery"), every `OUTBOX_LEASE_RECOVERY_INTERVAL`;
+- `OutboxLeaseRecovery.recover()` (see "Lease recovery"), every `OUTBOX_LEASE_RECOVERY_INTERVAL`;
 - `deleteFinishedMessages()` and `deleteIdleChats()` (see "Cleanup"), each every
   `OUTBOX_CLEANUP_INTERVAL` on a timer of its own, so a failing one does not hold the other back. A
   batch that deleted anything is followed by the next one at once, until a batch deletes nothing or
@@ -500,8 +503,8 @@ called from one place:
 
 - `OutboxMessageProcessor.process(message, signal)` (`outbox-message-processor.ts`) takes the
   message to its outcome: it rebuilds the payload with `deserialize()`, has the sender call the
-  method, and completes the message (below). `OutboxWorkerLoop` calls it for each message, with the
-  signal that aborts the call on stop (see "The worker loop");
+  method, and completes the message (below). `OutboxRunner` calls it for each message, with the
+  signal that aborts the call on stop (see "The runner");
 - `OutboxSender.send(method, payload, signal)` (`outbox-sender.ts`) makes the call: the method by
   its name, with the payload and the signal. It resolves with Telegram's result and throws the
   error of the call as grammY throws it; it knows neither the store nor the files.
@@ -645,18 +648,19 @@ and the message stays `processing` until its lease is recovered.
 
 ### Lease recovery
 
-`OutboxFailureHandler.recoverExpiredLeases()` takes back the messages of the chats whose lease has
-passed: the node that pulled them is presumed dead. `OutboxMaintenance` calls it on a timer of every
-node (see "Maintenance").
+`OutboxLeaseRecovery.recover()` (`outbox-lease-recovery.ts`) takes back the messages of the chats
+whose lease has passed: the node that pulled them is presumed dead. `OutboxMaintenance` calls it on
+a timer of every node (see "Maintenance").
 
 1. `OutboxStore.findExpiredLeases()` reads every chat whose `locked_until` is behind `now()`, with
    its `processing` message, as a lease under the chat's own `lock_token`. It reads without a lock
    and leaves the lease as it is.
-2. Each lease is a transient failure, completed as one: the message goes back to `pending` with the
-   retry delay of its attempt, or, on the last attempt of `OUTBOX_MAX_ATTEMPTS`, fails and blocks
-   its chat (see "Outcomes"). The completion appends an attempt with the error `OutboxLeaseExpired`
-   of class `transient`. The leases are completed one after another, and a completion that throws
-   ends the call: the leases after it wait for the next one.
+2. `OutboxFailureHandler.handleExpiredLease()` takes each lease as a transient failure, completed as
+   one: the message goes back to `pending` with the retry delay of its attempt, or, on the last
+   attempt of `OUTBOX_MAX_ATTEMPTS`, fails and blocks its chat (see "Outcomes"). The completion
+   appends an attempt with the error `OutboxLeaseExpired` of class `transient`. The leases are
+   completed one after another, and a completion that throws ends the call: the leases after it
+   wait for the next one.
 
 The recovery completes the message as the node that pulled it would: through the same fenced
 completions, under the token of that pull (see "Completions"). So whichever comes first, the
@@ -700,17 +704,17 @@ lease the release exists to cut short.
 
 `OutboxMessageProcessor` releases a call once its signal was aborted and the call has thrown an
 `HttpError`, so the call has settled by then; a `GrammyError` is Telegram's answer and is handled
-(see "Sending"). The worker loop aborts the calls the stop deadline cut short (see "The worker
-loop"). The chat is `ready` at once, so another node may send the message and the next one behind it
-while a call of the stopping node is still on its way, and Telegram would show the message again
-after the next one. The lease keeps that order only while it outlasts the call (see "The lease"),
-and the release ends it early. An aborted call may still have reached Telegram before the abort:
-that is the duplicate below, not a change of order.
+(see "Sending"). The runner aborts the calls the stop deadline cut short (see "The runner"). The
+chat is `ready` at once, so another node may send the message and the next one behind it while a
+call of the stopping node is still on its way, and Telegram would show the message again after the
+next one. The lease keeps that order only while it outlasts the call (see "The lease"), and the
+release ends it early. An aborted call may still have reached Telegram before the abort: that is
+the duplicate below, not a change of order.
 
 The call may have reached Telegram, so the release writes the attempt and it counts towards
 `OUTBOX_MAX_ATTEMPTS` (see "Outcomes"), although the limit is not checked on it: a stop says nothing
-about the message, so it neither blocks the chat nor waits a retry delay. A message that the worker
-loop starts with its signal already aborted, past the stop deadline (see "The worker loop"), makes
+about the message, so it neither blocks the chat nor waits a retry delay. A message that the runner
+starts with its signal already aborted, past the stop deadline (see "The runner"), makes
 no call, yet its release writes the attempt all the same. The next transient failure
 of a message released on its last attempt blocks the chat, and the retry delay of a later transient
 failure grows with the attempt as well (see "Retry delay"). The handler cannot tell a call in flight

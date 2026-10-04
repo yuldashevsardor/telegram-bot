@@ -121,7 +121,7 @@ describe("OutboxMessageSource", function () {
         mock.timers.reset();
     });
 
-    it("pulls one message for the worker loop", async function () {
+    it("pulls one message for the runner", async function () {
         const message = pulledMessage(1);
         store.answer(pullOf(message));
 

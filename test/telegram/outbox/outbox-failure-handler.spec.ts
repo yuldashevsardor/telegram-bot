@@ -50,11 +50,6 @@ type StoreCall =
 // written is pinned by the store spec.
 class RecordingStore {
     public readonly calls: StoreCall[] = [];
-    public expiredLeases: ExpiredOutboxLease[] = [];
-
-    public async findExpiredLeases(): Promise<ExpiredOutboxLease[]> {
-        return this.expiredLeases;
-    }
 
     public async retry(lease: OutboxLease, error: OutboxAttemptError, delayMs: number, options?: OutboxRetryOptions): Promise<void> {
         // Only a call that passes options records them, so the other expectations need not spell them out.
@@ -195,34 +190,24 @@ describe("OutboxFailureHandler", function () {
         ]);
     });
 
-    describe("the recovery of expired leases", function () {
-        it("retries the message of every expired lease as a transient failure after the delay of its attempt", async function () {
-            const first = expiredAfter(7, 0);
-            const second = expiredAfter(8, 1);
-            store.expiredLeases = [first, second];
+    describe("an expired lease", function () {
+        it("retries the message as a transient failure after the delay of its attempt", async function () {
+            const expired = expiredAfter(7, 1);
 
-            await handler.recoverExpiredLeases();
+            await handler.handleExpiredLease(expired);
 
-            // The first attempt waits half of the first step, the second half of the doubled one.
+            // The second attempt: the step is doubled once, and the delay is half of it.
             expect(store.calls).to.deep.equal([
-                { method: "retry", lease: first, error: LEASE_EXPIRED, delayMs: FIRST_DELAY_MS / 2 },
-                { method: "retry", lease: second, error: LEASE_EXPIRED, delayMs: (FIRST_DELAY_MS * MULTIPLIER) / 2 },
+                { method: "retry", lease: expired, error: LEASE_EXPIRED, delayMs: (FIRST_DELAY_MS * MULTIPLIER) / 2 },
             ]);
         });
 
-        it("fails the message of an expired lease on its last attempt and blocks its chat", async function () {
+        it("fails the message on its last attempt and blocks its chat", async function () {
             const expired = expiredAfter(7, MAX_ATTEMPTS - 1);
-            store.expiredLeases = [expired];
 
-            await handler.recoverExpiredLeases();
+            await handler.handleExpiredLease(expired);
 
             expect(store.calls).to.deep.equal([{ method: "markAsFailedAndBlockChat", lease: expired, error: LEASE_EXPIRED }]);
-        });
-
-        it("changes nothing when no lease has expired", async function () {
-            await handler.recoverExpiredLeases();
-
-            expect(store.calls).to.deep.equal([]);
         });
     });
 

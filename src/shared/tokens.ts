@@ -64,7 +64,8 @@ export const Tokens = {
             ApiFactory: Symbol.for("BotOutboxApiFactory"),
             Sender: Symbol.for("BotOutboxSender"),
             MessageProcessor: Symbol.for("BotOutboxMessageProcessor"),
-            WorkerLoop: Symbol.for("BotOutboxWorkerLoop"),
+            Runner: Symbol.for("BotOutboxRunner"),
+            LeaseRecovery: Symbol.for("BotOutboxLeaseRecovery"),
             Maintenance: Symbol.for("BotOutboxMaintenance"),
         },
         Inbox: {

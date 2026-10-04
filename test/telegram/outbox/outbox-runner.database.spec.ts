@@ -8,7 +8,7 @@ import type { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-ha
 import { OutboxMessageProcessor } from "app/telegram/outbox/outbox-message-processor";
 import { OutboxMessageSource } from "app/telegram/outbox/outbox-message-source";
 import type { OutboxSender } from "app/telegram/outbox/outbox-sender";
-import { OutboxWorkerLoop } from "app/telegram/outbox/outbox-worker-loop";
+import { OutboxRunner } from "app/telegram/outbox/outbox-runner";
 import { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxCleanupSettings, OutboxJson, OutboxMessageInput, OutboxWorker } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
@@ -64,7 +64,7 @@ class RecordingFailureHandler {
     }
 }
 
-describe("OutboxWorkerLoop on the database", function () {
+describe("OutboxRunner on the database", function () {
     this.timeout(SPEC_TIMEOUT_MS);
 
     // A client per node.
@@ -129,7 +129,7 @@ function createNode(
     sends: Send[],
     failureHandler: RecordingFailureHandler,
     logger: Logger,
-): { store: OutboxStore; loop: OutboxWorkerLoop } {
+): { store: OutboxStore; loop: OutboxRunner } {
     const store = new OutboxStore(database, logger, NO_LIMITS, LEASE_DURATION_MS, CLEANUP);
     // The shortest sleep cap: a pull that finds nothing ready waits 100 ms, not up to a second.
     const source = new OutboxMessageSource(store, logger, () => 0);
@@ -140,7 +140,7 @@ function createNode(
         logger,
     );
     const worker: OutboxWorker = { host, pid: 1, workerId: `${host}-loop` };
-    const loop = new OutboxWorkerLoop(source, processor, logger, CONCURRENCY, LONG_STOP_TIMEOUT_MS, worker);
+    const loop = new OutboxRunner(source, processor, logger, CONCURRENCY, LONG_STOP_TIMEOUT_MS, worker);
 
     return { store, loop };
 }

@@ -49,8 +49,7 @@ describe("ConfigValuesBuilder", () => {
             maxAttempts: 10,
             concurrency: 5,
             stopTimeoutMs: 5000,
-            leaseRecoveryIntervalMs: 10000,
-            cleanupIntervalMs: 600000,
+            maintenance: { leaseRecoveryIntervalMs: 10000, cleanupIntervalMs: 600000 },
             cleanup: { doneRetentionMs: 604800000, skippedRetentionMs: 2592000000, batchSize: 1000 },
         });
         expect(result.inbox).to.deep.equal({ leaseDurationMs: 600000, maxAttempts: 10 });
@@ -135,8 +134,7 @@ describe("ConfigValuesBuilder", () => {
             maxAttempts: 11,
             concurrency: 6,
             stopTimeoutMs: 5002,
-            leaseRecoveryIntervalMs: 10002,
-            cleanupIntervalMs: 600003,
+            maintenance: { leaseRecoveryIntervalMs: 10002, cleanupIntervalMs: 600003 },
             cleanup: { doneRetentionMs: 604800001, skippedRetentionMs: 2592000001, batchSize: 1001 },
         });
         expect(result.inbox).to.deep.equal({ leaseDurationMs: 600002, maxAttempts: 12 });

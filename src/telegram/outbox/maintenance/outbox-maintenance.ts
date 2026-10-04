@@ -2,7 +2,8 @@ import { inject, injectable } from "inversify";
 import { Tokens } from "app/shared/tokens";
 import { configValue } from "app/shared/config-value";
 import type { Logger } from "app/platform/logger/logger";
-import type { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-handler";
+import type { OutboxLeaseRecovery } from "app/telegram/outbox/outbox-lease-recovery";
+import type { OutboxMaintenanceSettings } from "app/telegram/outbox/maintenance/outbox-maintenance.types";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 
 type MaintenanceTask = {
@@ -21,10 +22,9 @@ export class OutboxMaintenance {
 
     public constructor(
         @inject<OutboxStore>(Tokens.Bot.Outbox.Store) private readonly store: OutboxStore,
-        @inject<OutboxFailureHandler>(Tokens.Bot.Outbox.FailureHandler) private readonly failureHandler: OutboxFailureHandler,
+        @inject<OutboxLeaseRecovery>(Tokens.Bot.Outbox.LeaseRecovery) private readonly leaseRecovery: OutboxLeaseRecovery,
         @inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger,
-        private readonly leaseRecoveryIntervalMs: number = configValue("outbox.leaseRecoveryIntervalMs"),
-        private readonly cleanupIntervalMs: number = configValue("outbox.cleanupIntervalMs"),
+        private readonly settings: OutboxMaintenanceSettings = configValue("outbox.maintenance"),
     ) {}
 
     // Each task runs first one interval after the start. The next run is timed from the end of the
@@ -33,17 +33,17 @@ export class OutboxMaintenance {
         const tasks: MaintenanceTask[] = [
             {
                 name: "recoverExpiredLeases",
-                intervalMs: this.leaseRecoveryIntervalMs,
-                run: () => this.failureHandler.recoverExpiredLeases(),
+                intervalMs: this.settings.leaseRecoveryIntervalMs,
+                run: () => this.leaseRecovery.recover(),
             },
             {
                 name: "deleteFinishedMessages",
-                intervalMs: this.cleanupIntervalMs,
+                intervalMs: this.settings.cleanupIntervalMs,
                 run: () => this.deleteInBatches(() => this.store.deleteFinishedMessages()),
             },
             {
                 name: "deleteIdleChats",
-                intervalMs: this.cleanupIntervalMs,
+                intervalMs: this.settings.cleanupIntervalMs,
                 run: () => this.deleteInBatches(() => this.store.deleteIdleChats()),
             },
         ];

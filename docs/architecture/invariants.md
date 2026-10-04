@@ -147,11 +147,11 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   their chat row are never pulled ([`outbox.md`](./outbox.md), "The chat lock"). The spec lines up
   only `push()` against the removal.
 - **The lease of a pulled chat must outlast the send of its message.** Nothing extends a lease:
-  `OutboxWorkerLoop` pulls one message per free slot and starts it at once, so the lease covers one
-  call ([`outbox.md`](./outbox.md), "The worker loop"). Every chat of a pull is leased from the
+  `OutboxRunner` pulls one message per free slot and starts it at once, so the lease covers one
+  call ([`outbox.md`](./outbox.md), "The runner"). Every chat of a pull is leased from the
   pull, so a caller that pulled several messages and sent them one call after another would need
   the lease to cover them all. A lease that ends while its message is still being sent lets the
-  recovery of expired leases (`OutboxFailureHandler.recoverExpiredLeases()`) hand the message to
+  recovery of expired leases (`OutboxLeaseRecovery.recover()`) hand the message to
   another node, and it goes out twice; the late completion of the first node is fenced off and
   changes nothing. The start rejects a lease not above `OUTBOX_API_TIMEOUT`, the timeout of one call
   (`ConfigValuesBuilder.checkOutboxLease()`). An extension, if one is added, may extend only a lease
@@ -163,8 +163,8 @@ will not see a third shutdown deadline or a new `child_process` call past `Proce
   after the next message of the chat, sent by another node: the order inside the chat breaks.
   `OutboxMessageProcessor` releases only from the `catch` of the call, once it has thrown; a new
   caller of the release is checked by nothing ([`outbox.md`](./outbox.md), "Release on stop").
-- **`OutboxMessageSource` serves one generator: the worker loop of a node takes every message from
-  one `stream(worker)`, so `OutboxWorkerLoop.start()` is called once.** The source keeps one sleep
+- **`OutboxMessageSource` serves one generator: the runner of a node takes every message from
+  one `stream(worker)`, so `OutboxRunner.start()` is called once.** The source keeps one sleep
   in progress (`currentSleep`), the one of the latest generator to fall asleep. With a second
   generator, a ready notification and `stop()` reach only that sleep: the other generator wakes on
   its own timer, up to the cap of 1 s later, and a sleep that ends first leaves the other one with

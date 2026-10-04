@@ -10,9 +10,9 @@ import type { OutboxMessageProcessor } from "app/telegram/outbox/outbox-message-
 import type { OutboxWorker, PulledOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
 
 // The sending of a node: one loop over a number of slots, each sending one message at a time
-// (docs/architecture/outbox.md, "The worker loop"). The loop writes no outcome: the processor does.
+// (docs/architecture/outbox.md, "The runner"). The loop writes no outcome: the processor does.
 @injectable()
-export class OutboxWorkerLoop {
+export class OutboxRunner {
     // A call in flight by the controller that aborts it; the promise settles once the processor has
     // written its outcome or released it, and never rejects.
     private readonly callsInFlight = new Map<AbortController, Promise<void>>();
@@ -56,7 +56,10 @@ export class OutboxWorkerLoop {
         // starts aborted (startCall()).
         await this.loopRun;
 
-        const haveCallsSettled = await withTimeout(Promise.all(this.callsInFlight.values()), this.stopDeadlineAtMs - Date.now());
+        // No call starts after the loop has ended, so one wait covers the calls both before and after
+        // the abort.
+        const callsSettled = Promise.all(this.callsInFlight.values());
+        const haveCallsSettled = await withTimeout(callsSettled, this.stopDeadlineAtMs - Date.now());
 
         if (haveCallsSettled) {
             return;
@@ -66,33 +69,28 @@ export class OutboxWorkerLoop {
             abortController.abort();
         }
 
-        await Promise.all(this.callsInFlight.values());
+        await callsSettled;
     }
 
     private async run(): Promise<void> {
-        const messages = this.source.stream(this.worker);
+        for await (const message of this.source.stream(this.worker)) {
+            this.startCall(message);
+            await this.waitForFreeSlotOrStop();
 
-        while (!this.isStopping) {
-            if (this.callsInFlight.size >= this.concurrency) {
-                await this.waitForFreeSlotOrStop();
-                continue;
-            }
-
-            const nextMessageResult = await messages.next();
-
-            if (nextMessageResult.done === true) {
+            if (this.isStopping) {
                 return;
             }
-
-            this.startCall(nextMessageResult.value);
         }
     }
 
+    // Returns at once while a slot is free.
     private async waitForFreeSlotOrStop(): Promise<void> {
-        const { promise, resolve } = Promise.withResolvers<void>();
-        this.wakeUpLoop = resolve;
+        while (!this.isStopping && this.callsInFlight.size >= this.concurrency) {
+            const { promise, resolve } = Promise.withResolvers<void>();
+            this.wakeUpLoop = resolve;
 
-        await promise;
+            await promise;
+        }
     }
 
     // A message pulled is started at once: its lease and the limit of its chat count from the pull.

@@ -7,7 +7,7 @@ import { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-handler
 import { OutboxMessageProcessor } from "app/telegram/outbox/outbox-message-processor";
 import type { OutboxMessageSource } from "app/telegram/outbox/outbox-message-source";
 import type { OutboxSender } from "app/telegram/outbox/outbox-sender";
-import { OutboxWorkerLoop } from "app/telegram/outbox/outbox-worker-loop";
+import { OutboxRunner } from "app/telegram/outbox/outbox-runner";
 import { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
 import type { OutboxRetryDelaySettings } from "app/telegram/outbox/retry-delay/outbox-retry-delay.types";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
@@ -136,7 +136,7 @@ class RetryRecordingStore {
     }
 }
 
-describe("OutboxWorkerLoop", function () {
+describe("OutboxRunner", function () {
     let source: FakeSource;
     let processor: FakeProcessor;
     let logger: RecordingLogger;
@@ -344,7 +344,7 @@ describe("OutboxWorkerLoop", function () {
             failureHandler,
             logger,
         );
-        const loop = new OutboxWorkerLoop(
+        const loop = new OutboxRunner(
             source as unknown as OutboxMessageSource,
             realProcessor,
             logger,
@@ -389,8 +389,8 @@ describe("OutboxWorkerLoop", function () {
         expect(processor.calls).to.deep.equal([]);
     });
 
-    function createLoop(stopTimeoutMs: number): OutboxWorkerLoop {
-        return new OutboxWorkerLoop(
+    function createLoop(stopTimeoutMs: number): OutboxRunner {
+        return new OutboxRunner(
             source as unknown as OutboxMessageSource,
             processor as unknown as OutboxMessageProcessor,
             logger,
@@ -403,7 +403,7 @@ describe("OutboxWorkerLoop", function () {
     // A loop over a source whose one pull is in progress until the spec resolves pull: the source
     // hands out what the pull got even after its stop.
     function createLoopOverPullInProgress(stopTimeoutMs: number): {
-        loop: OutboxWorkerLoop;
+        loop: OutboxRunner;
         pull: PromiseWithResolvers<PulledOutboxMessage>;
     } {
         const pull = Promise.withResolvers<PulledOutboxMessage>();
@@ -413,7 +413,7 @@ describe("OutboxWorkerLoop", function () {
             },
             stop(): void {},
         };
-        const loop = new OutboxWorkerLoop(
+        const loop = new OutboxRunner(
             pullingSource as unknown as OutboxMessageSource,
             processor as unknown as OutboxMessageProcessor,
             logger,
@@ -426,7 +426,7 @@ describe("OutboxWorkerLoop", function () {
     }
 
     // Stops the loop and finishes the calls in flight, so the stop has no deadline to wait for.
-    async function stopFinishingCalls(loop: OutboxWorkerLoop): Promise<void> {
+    async function stopFinishingCalls(loop: OutboxRunner): Promise<void> {
         const stopped = loop.stop();
 
         for (const call of processor.calls) {
