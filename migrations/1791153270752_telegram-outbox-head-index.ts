@@ -30,7 +30,7 @@ export async function up(pgm: MigrationBuilder): Promise<void> {
     });
     pgm.sql(`
         ALTER TABLE ${outbox} SET (
-            vacuum_index_cleanup = on,
+            vacuum_index_cleanup = ON,
             autovacuum_vacuum_max_threshold = ${autovacuumMaxThresholdRows}
         )
     `);

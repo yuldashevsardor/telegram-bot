@@ -194,7 +194,7 @@ once it has 20 M dead rows. What the migration sets against both is in the next 
 
 ### Vacuum of the head index
 
-The migration sets two options of `telegram_outbox`: `vacuum_index_cleanup = on`, so a vacuum never
+The migration sets two options of `telegram_outbox`: `vacuum_index_cleanup = ON`, so a vacuum never
 skips the indexes, and `autovacuum_vacuum_max_threshold = 100000`, so autovacuum comes after at most
 100 000 dead rows, whatever the size of the done history; a table under half a million rows keeps
 the default fifth of its rows, which comes sooner. The dead entries a head lookup walks are those of
