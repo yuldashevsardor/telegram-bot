@@ -230,8 +230,8 @@ passed: the node that claimed them is presumed dead. The handling loop is to cal
 The recovery completes the update through the same fenced completions as the node that claimed it,
 under the token of that claim, so whichever comes first changes the update and the other one is
 fenced off and logged as a stale lock token, as in the outbox ([`outbox.md`](./outbox.md), "Lease
-recovery", where the rest of the reasoning holds for the inbox as well). The fence checks the token,
-not `locked_until`, so a lease that has passed must never be extended
+recovery", where the same holds for a second recovery of the lease by another node). The fence
+checks the token, not `locked_until`, so a lease that has passed must never be extended
 ([`invariants.md`](./invariants.md), "The inbox").
 
 ## The store in code

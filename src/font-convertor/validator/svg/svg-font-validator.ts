@@ -86,7 +86,9 @@ export class SvgFontValidator implements FontValidator {
     // TTF, narrower than the unsigned `hmtx` and `vmtx` fields.
     private static readonly ADVANCE_ATTRIBUTES: ReadonlyArray<string> = ["horiz-adv-x", "vert-adv-y"];
     private static readonly ADVANCE_RANGE: NumberRange = { min: 0, max: 32767 };
-    // `unitsPerEm` of the OpenType `head` table. fontforge writes 15 or 16385 as it is.
+    // `unitsPerEm` of the OpenType `head` table. fontforge writes 15 or 16385 as it is. The sfnt
+    // validator holds the same bound (`SfntFontValidator.MIN_UNITS_PER_EM`, `MAX_UNITS_PER_EM`) as a
+    // rule of its own: a change of it here, the Apple floor of 64 included, is weighed there too.
     private static readonly UNITS_PER_EM_RANGE: NumberRange = { min: 16, max: 16384 };
     // fontforge takes `ascent` and `descent` when they add up to `units-per-em`, and writes them into
     // signed 16-bit fields: `ascent="40000" descent="-39000"` gives an ascender of -25536. They are
@@ -329,7 +331,7 @@ export class SvgFontValidator implements FontValidator {
                 continue;
             }
 
-            this.checkRangedNumber(scan, element, "font-face", [attribute, value], FontRule.FontFaceMetricRange);
+            this.checkSigned16BitNumber(scan, element, "font-face", [attribute, value], FontRule.FontFaceMetricRange);
         }
     }
 
@@ -363,7 +365,7 @@ export class SvgFontValidator implements FontValidator {
         if (kerning === undefined) {
             this.report(scan, FontRule.KerningRequired, name, element.line);
         } else {
-            this.checkRangedNumber(scan, element, name, ["k", kerning], FontRule.KerningRange);
+            this.checkSigned16BitNumber(scan, element, name, ["k", kerning], FontRule.KerningRange);
         }
 
         this.checkKernedGlyph(scan, element, tag, name, { characterAttribute: "u1", glyphNamesAttribute: "g1" });
@@ -421,11 +423,15 @@ export class SvgFontValidator implements FontValidator {
             this.report(scan, FontRule.NonNegativeAdvance, name, element.line, { attribute: ["horiz-adv-x", advance] });
         }
 
-        // A value that is not a number is already reported above, and the first report stands.
         for (const attribute of SvgFontValidator.ADVANCE_ATTRIBUTES) {
             const value = tag.attributes[attribute]?.value;
 
-            if (value !== undefined && !this.isWithin(value, SvgFontValidator.ADVANCE_RANGE)) {
+            // A value that is not a number is reported above.
+            if (value === undefined || !SvgFontValidator.NUMBER.test(value)) {
+                continue;
+            }
+
+            if (!this.isWithin(value, SvgFontValidator.ADVANCE_RANGE)) {
                 this.report(scan, FontRule.AdvanceRange, name, element.line, { attribute: [attribute, value] });
             }
         }
@@ -435,7 +441,7 @@ export class SvgFontValidator implements FontValidator {
      * Checks an attribute of type <number> whose range is `SYMMETRIC_16_BIT_RANGE`: first its form,
      * then the range, broken under `rangeRule`.
      */
-    private checkRangedNumber(scan: Scan, element: OpenElement, name: string, attribute: [string, string], rangeRule: FontRule): void {
+    private checkSigned16BitNumber(scan: Scan, element: OpenElement, name: string, attribute: [string, string], rangeRule: FontRule): void {
         const value = attribute[1];
 
         if (!SvgFontValidator.NUMBER.test(value)) {
