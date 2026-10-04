@@ -66,6 +66,28 @@ export class SfntTableDirectory {
     }
 
     /**
+     * Writes the header of an sfnt that has `tableCount` records: the version and the table count,
+     * with `searchRange`, `entrySelector` and `rangeShift` computed as OpenType 1.9.1 (Table
+     * Directory) asks. The WOFF and WOFF2 validators rebuild the sfnt they carry with it.
+     */
+    public static writeHeader(sfnt: Uint8Array, version: number, tableCount: number): void {
+        const view = new DataView(sfnt.buffer, sfnt.byteOffset, sfnt.byteLength);
+        const headerFields = SfntTableDirectory.HEADER_FIELD_OFFSETS_BYTES;
+        // entrySelector is the exponent of the largest power of 2 not greater than the table count,
+        // and searchRange is that power of 2 times the record size, in bytes. From 4096 tables on it
+        // does not fit its 16 bits and setUint16 wraps it: OpenType gives no value for that case, and
+        // SfntFontValidator does not read the field.
+        const entrySelector = Math.floor(Math.log2(tableCount));
+        const searchRangeBytes = 2 ** entrySelector * SfntTableDirectory.RECORD_SIZE_BYTES;
+
+        view.setUint32(headerFields.version, version);
+        view.setUint16(headerFields.numTables, tableCount);
+        view.setUint16(headerFields.searchRange, searchRangeBytes);
+        view.setUint16(headerFields.entrySelector, entrySelector);
+        view.setUint16(headerFields.rangeShift, tableCount * SfntTableDirectory.RECORD_SIZE_BYTES - searchRangeBytes);
+    }
+
+    /**
      * The record of the table by its tag. Of several records with one tag, the last one.
      */
     public find(tag: string): SfntTableRecord | undefined {

@@ -149,12 +149,13 @@ Every offset is counted from the start of the file. A prefix is not skipped: a s
 turn the check into a search for the marker anywhere.
 
 `SfntReader` and `SfntFontValidator` read the table records through `SfntTableDirectory`
-(`font-convertor/sfnt-table-directory/`), which checks the header size and the version and holds
-the records by tag and in the order of the directory. It lies outside `eot-packer/` because the
-codec is not its only reader: a second parse of the same directory would be a second copy of one
-format rule. The validator checks the header before the directory parses it: the directory rejects
-a short file or an unknown version with the codec's `InvalidSfnt`, while the validator names the
-rule broken.
+(`font-convertor/sfnt-table-directory/`), which checks the header size and the version and holds the
+records by tag and in the order of the directory. It lies outside `eot-packer/` because the codec is
+not its only reader: a second parse of the same directory would be a second copy of one format rule.
+Its static `writeHeader()` writes the header of the sfnt that `WoffFontValidator` and
+`Woff2FontValidator` rebuild in memory, so the search fields have one implementation too. The
+validator checks the header before the directory parses it: the directory rejects a short file or an
+unknown version with the codec's `InvalidSfnt`, while the validator names the rule broken.
 
 ## The SVG validator
 
@@ -399,14 +400,13 @@ the enum text lacks is the measurements:
 
 - `origLength` of a transformed `hmtx`: `woff2_decompress` 1.0.2 refuses the fixture with the
   `hmtx` transform and `origLength` 5185 against 5184 rebuilt bytes. A smaller `origLength` passes
-  the decoder and is not this rule's: it leaves a table record shorter than the bytes written, which
-  the sfnt validator would have to catch
-  ([#737](https://github.com/yuldashevsardor/telegram-bot/issues/737));
+  the decoder and is not this rule's: it leaves a table record shorter than the bytes written, so
+  the rebuilt `hmtx` record carries `origLength` and the sfnt validator catches the table that is
+  too short for its glyphs;
 - a rebuilt `glyf` over 131 070 bytes with `indexFormat` 0: the decoder of `woff2_decompress` 1.0.2
   cuts each halved offset to 16 bits, so the `loca` it writes wraps past 128 KiB and the later
   glyphs point at the wrong records, and §5.3 has nothing for an offset that does not fit. The rule
-  `ShortLocaGlyfSize` rejects it in `GlyfReconstructor`, since the sfnt validator gets the rebuilt
-  sfnt only with [#737](https://github.com/yuldashevsardor/telegram-bot/issues/737);
+  `ShortLocaGlyfSize` rejects it in `GlyfReconstructor`, before the sfnt is rebuilt;
 - the padding of the compressed data that ends the file: fontforge crashes on the fixture cut by
   its 3 padding bytes;
 - the two caps on the decompressed tables, 30 MiB and 100 times the file size, are checked on the
@@ -421,10 +421,15 @@ the standard forbids a reader to reject a file (§3.2, §5.1); the content of th
 which a reader ignores (§6, WOFF 1.0 §7), so only its bounds are checked; the flavor against the
 outline tables; and a known tag written out after flag 63, which the standard lets a decoder accept.
 
-The sfnt the tables make up is not checked yet: the rebuilt tables go no further than the size cap.
-Of 25 variants of the fixture with the enclosed sfnt broken in one place, fontforge converted 24
-with exit 0, 18 of them into an output that differs from the fixture's, such as lost glyphs or
-encodings ([#737](https://github.com/yuldashevsardor/telegram-bot/issues/737)).
+The standard checks the packaging only, so once the container passes, the sfnt it carries is
+rebuilt in memory and handed to `SfntFontValidator.validateBytes()`, whose answer passes through as
+the WOFF2 validator's: the flavor is the version, the directory is in ascending tag order (§2), each
+table lies on a 4-byte boundary, and the records carry no checksums, which the sfnt validator does
+not check. The table rules, CFF2 among them, are the sfnt validator's. It is the same hand-over as
+in the WOFF validator. Without it fontforge converted 24 of 25 variants of the fixture with the
+enclosed sfnt broken in one place with exit 0, 18 of them into an output that differs from the
+fixture's, such as lost glyphs or encodings
+([#737](https://github.com/yuldashevsardor/telegram-bot/issues/737)).
 
 ## The EOT validator
 
