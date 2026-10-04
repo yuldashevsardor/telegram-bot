@@ -1,0 +1,57 @@
+# The database of the outbox load test (docs/architecture/outbox.md, "Load test"): a Postgres of its
+# own, apart from the shared one of docker-compose.db.yml. The fill writes some 70 GB for 20 minutes,
+# and in the shared database it would slow down the specs and the bots of every worktree. One instance per machine, as the shared one: the project name is fixed.
+name: telegram-bot-load
+
+services:
+    pgsql-load:
+        image: postgres:18-alpine
+        env_file:
+            - .env
+        environment:
+            POSTGRES_USER: ${DATABASE_SUPERUSER_NAME}
+            POSTGRES_PASSWORD: ${DATABASE_SUPERUSER_PASSWORD}
+            TZ: ${DATABASE_TIMEZONE}
+            PGTZ: ${DATABASE_TIMEZONE}
+            PGDATESTYLE: ${DATABASE_DATE_STYLE}
+        # auto_explain logs the plan of every statement of the store with its run time and buffers,
+        # so the measurement reads the plans of the store's own SQL rather than of a copy that can
+        # drift from it. It is loaded for every session, but logs only where log_min_duration is set:
+        # make load-up sets it for the user of .env, the one the store connects as, and not for the
+        # superuser of the fill.
+        # The other settings are the defaults of the image, as in the shared database.
+        command:
+            - postgres
+            - -c
+            - shared_preload_libraries=auto_explain
+            - -c
+            - auto_explain.log_analyze=on
+            - -c
+            - auto_explain.log_buffers=on
+            - -c
+            - auto_explain.log_nested_statements=on
+        # A named volume and not a directory of the host: the fill writes through the file sharing of
+        # Docker Desktop several times slower. make load-down removes it.
+        volumes:
+            - pgsql-load-data:/var/lib/postgresql
+            # The same user and database as in the shared Postgres, so the migrations and the store
+            # connect with the settings of .env, only the host differs.
+            - ./docker/pgsql/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d:ro
+        healthcheck:
+            test: ["CMD-SHELL", "psql -U \"$$POSTGRES_USER\" -d \"$$DATABASE_NAME\" -c 'SELECT 1' > /dev/null 2>&1"]
+            interval: 5s
+            timeout: 5s
+            retries: 12
+            start_period: 30s
+        # The network of the shared database: the one-off application containers of make load-*
+        # are in it, and reach this database by the service name.
+        networks:
+            - db
+
+networks:
+    db:
+        name: telegram-bot-db_default
+        external: true
+
+volumes:
+    pgsql-load-data:

@@ -23,16 +23,18 @@ repository. `./src` is mounted from the host, and the bot runs under `node --wat
 restarting on every edit. If the restarts stop — after a `git checkout` the watcher can lose
 the file — run `make restart`.
 
-## The two compose files
+## The compose files
 
-| File                     | Project           | What it brings up                        |
-| ------------------------ | ----------------- | ---------------------------------------- |
-| `docker-compose.db.yml`  | `telegram-bot-db` | PostgreSQL, one per machine              |
-| `docker-compose.app.yml` | directory name    | migrations and the bot; one per worktree |
+| File                      | Project             | What it brings up                                          |
+| ------------------------- | ------------------- | ---------------------------------------------------------- |
+| `docker-compose.db.yml`   | `telegram-bot-db`   | PostgreSQL, one per machine                                |
+| `docker-compose.app.yml`  | directory name      | migrations and the bot; one per worktree                   |
+| `docker-compose.load.yml` | `telegram-bot-load` | PostgreSQL of the outbox load test, only on `make load-up` |
 
 The database goes up first: the application finds it by the service name `pgsql` in the
 external network `telegram-bot-db_default`. Its data lies in `./tmp/pgsql` of the main
-worktree.
+worktree. The load-test database joins the same network and keeps its data in a volume of its own
+(`docs/architecture/outbox.md`, "Load test").
 
 ## Working in several worktrees
 

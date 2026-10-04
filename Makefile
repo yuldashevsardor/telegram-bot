@@ -180,6 +180,47 @@ shell: ## Shell in the running application container
 psql: ## psql in the database container
 	$(DC_DB) exec pgsql sh -c 'psql -U "$$POSTGRES_USER" -d "$$DATABASE_NAME"'
 
+## Outbox load test
+
+# The load test of the outbox (docs/architecture/outbox.md, "Load test") runs against a Postgres of
+# its own, docker-compose.load.yml, reached by the service name pgsql-load from the one-off
+# application containers. The fill goes through psql as the superuser, the measurement through the
+# store as the user of .env, whose role gets auto_explain and a statement timeout in load-up: the
+# plans are of the measurement alone, and a pull that scans for hours is cancelled.
+DC_LOAD := docker compose -f docker-compose.load.yml
+# app_user is the user of .env, known inside the container only.
+LOAD_PSQL := $(DC_LOAD) exec -T pgsql-load sh -c 'psql -v ON_ERROR_STOP=1 -v app_user="$$DATABASE_USER_NAME" -U "$$POSTGRES_USER" -d "$$DATABASE_NAME" "$$@"' psql
+LOAD_STATEMENT_TIMEOUT := 10min
+
+load-up: ## Bring up the load-test database, apply the migrations and turn on the plans of the measurement
+	$(DC_LOAD) up -d --wait
+	$(DC_APP) run --rm app sh -c 'DATABASE_URL="postgres://$$DATABASE_USER_NAME:$$DATABASE_USER_PASSWORD@pgsql-load:5432/$$DATABASE_NAME" npm run migrate -- up'
+	printf '%s\n' 'ALTER ROLE :"app_user" SET auto_explain.log_min_duration = 0;' \
+		"ALTER ROLE :\"app_user\" SET statement_timeout = '$(LOAD_STATEMENT_TIMEOUT)';" | $(LOAD_PSQL)
+
+load-fill-done: ## Fill the load-test database with done messages, once: make load-fill-done [rows=100000000]
+	$(LOAD_PSQL) -v rows=$(or $(rows),100000000) -v chats=100000 -v expired_rows=5000 < test/load/outbox-fill-done.sql
+
+load-fill-pending: ## Replace the pending layout of the load test: make load-fill-pending chats=3 per_chat=300000
+	@[ -n "$(chats)" ] && [ -n "$(per_chat)" ] || { printf 'give it the layout: make load-fill-pending chats=3 per_chat=300000\n' >&2; exit 1; }
+	$(LOAD_PSQL) -v chats=$(chats) -v per_chat=$(per_chat) < test/load/outbox-fill-pending.sql
+
+load-indexes: ## Create the candidate indexes on the load-test database (test/load/outbox-candidate-indexes.sql)
+	$(LOAD_PSQL) < test/load/outbox-candidate-indexes.sql
+
+# The plans are taken from the log of the database since the start of the run: auto_explain writes
+# them there, not to the client.
+load-measure: ## Measure the outbox store on the load-test database; the times, then the plans
+	@started_at=$$(date -u +%Y-%m-%dT%H:%M:%SZ) && \
+		$(DC_APP) run --rm -e DATABASE_HOST=pgsql-load app env TSX_TSCONFIG_PATH=./tsconfig.check.json node --require tsx/cjs test/load/outbox-load-test.ts && \
+		$(DC_LOAD) logs --no-log-prefix --since "$$started_at" pgsql-load
+
+load-psql: ## psql in the load-test database
+	$(DC_LOAD) exec pgsql-load sh -c 'psql -U "$$POSTGRES_USER" -d "$$DATABASE_NAME"'
+
+load-down: ## Take down the load-test database and delete its data
+	$(DC_LOAD) down --volumes
+
 ## Worktrees and tokens
 
 worktree-init: ## Prepare this task worktree: shared tmp/pgsql, own .env and BOT_TOKEN
@@ -264,4 +305,5 @@ review-tree-remove: ## Remove a temporary review tree <main worktree>-review-<PR
 	lint lint-fix format-check format mutation check rebuild shell psql \
 	worktree-init worktree-cleanup token-acquire token-renew token-release token-status token-add \
 	review-test review-tree-create mutation-full-record mutation-full-check mutation-full-close \
-	review-run review-tree-remove help
+	review-run review-tree-remove help \
+	load-up load-fill-done load-fill-pending load-indexes load-measure load-psql load-down

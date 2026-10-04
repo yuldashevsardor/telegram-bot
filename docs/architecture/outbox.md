@@ -506,6 +506,144 @@ spec is in `DATABASE_SPECS` ([`testing.md`](./testing.md), "Mutation testing").
 The ids come back as numbers: the driver returns `bigint` as a string, and the store converts it,
 as `PgSqlUserRepository` does ([`storage.md`](./storage.md), "`User.id`").
 
+## Load test
+
+The pull, the completion, the lease recovery and the cleanup measured on a large table
+([#632](https://github.com/yuldashevsardor/telegram-bot/issues/632)), the input of the indexes of
+[#643](https://github.com/yuldashevsardor/telegram-bot/issues/643).
+
+### How to run it
+
+The test runs against a Postgres of its own, `docker-compose.load.yml`, so that the fill does not
+slow down the shared database of every worktree. The targets are `load-*` of the `Makefile`, in
+this order: `load-up`, `load-fill-done` once, then per layout `load-fill-pending` and
+`load-measure`; `load-indexes` adds the candidate index, `load-down` removes the database with its
+data. The files are in `test/load/`: the fill (`outbox-fill-done.sql`, `outbox-fill-pending.sql`),
+the candidate index (`outbox-candidate-indexes.sql`) and the measurement (`outbox-load-test.ts`).
+
+The measurement calls the real `OutboxStore` with the settings of `.env` and prints how long each
+call took on the client. The plans are those of the store's own statements: `auto_explain` logs
+them with `ANALYZE` and `BUFFERS` for the user of `.env`, and `load-measure` prints the log of the
+database after the times. The calls are 15 `pull(1)`, what the runner asks for, and 15 `pull(30)`,
+the largest batch the common limit gives, each followed by `markAsDone()` of what it gave out; a
+pull the limits hold back answers nothing and is repeated once they let it through. Then
+`findExpiredLeases()`, `deleteFinishedMessages()` down to the call that deletes nothing, and
+`deleteIdleChats()`.
+
+### Data
+
+- 100 M `done` messages, 71 GB with the primary key, over the chats 1 to 100 000, finished within
+  the last 6 days, inside `OUTBOX_DONE_RETENTION`; the oldest 5 000 finished 8 days ago, past it.
+  The fill takes 21 minutes.
+- About 1 M `pending` messages in two layouts, all of priority 0, every chat `ready`: 3 chats ×
+  300 000 ("3 chats") and 100 000 chats × 10 ("100 k chats"). Their ids follow the done ones.
+- The defaults of `.env.dist` and of the `postgres:18-alpine` image (`shared_buffers` of 128 MB,
+  `work_mem` of 4 MB), on a laptop: Docker Desktop with 11 CPUs and 16 GB of memory.
+- One process calls the store, with nothing else on the database: how the pulls of several nodes
+  wait for each other on the bot row is not measured.
+
+### Threshold
+
+A pull of a batch is to take at most **10 ms**, and so is a completion. The pulls of all the nodes
+take turns on the bot row (see "Pull"), and at the default common limit of 30 messages a second a
+slot comes due every 33 ms: a pull that holds the row longer than that leaves the limit unspent,
+however many nodes there are. 10 ms leaves the turns of several nodes room within one slot.
+
+### Results
+
+The times are those of the client, in ms; "first" is the first call of the run, the cold cache.
+
+| call | no index, 3 chats | index, 3 chats | index, 100 k chats |
+|---|---|---|---|
+| `pull(1)` | 405 878 – 511 630 | first 43, then 1.3 – 8.2, median 4.4 | first 730, then 149 – 210, median 160 |
+| `pull(30)` | — | 4.6 – 25.8, median 7.4, for 3 messages | first 187, then 176 – 223, median 192, for 30 messages |
+| `markAsDone()` | 72 – 76 | median 2.9, p95 5.2, max 6.1 | median 0.9, p95 1.8, max 8.7 |
+| `findExpiredLeases()` | — | 1.3 | 3.5 |
+| `deleteFinishedMessages()`, a full batch | — | 5 – 69, one of 114 511 | — |
+| `deleteFinishedMessages()`, nothing to delete | — | 121 909 | 81 286 |
+| `deleteIdleChats()` | — | 33 | 45 |
+
+Without an index only two pulls were measured: each took minutes, and the rest of the run would have
+taken hours. The candidate index is
+`telegram_outbox (chat_id, id) WHERE status IN ('pending', 'processing')`; it took 1 minute 45
+seconds to build.
+
+**The head without an index.** The head of each ready chat is found by walking the primary key in
+`id` order and filtering every row, so the walk passes all the done messages before it reaches the
+first pending one: 170 s a chat, 28 M pages read for 3 chats.
+
+```
+Index Scan using telegram_outbox_pkey on telegram_outbox
+    (actual time=170300.550..170300.550 rows=1.00 loops=3)
+  Rows Removed by Filter: 100000001
+  Buffers: shared hit=7 read=28092413 written=11538
+```
+
+**The pull of 100 k chats with the index.** The index makes each head one lookup, but the pull
+orders the chats by the priority of their head, so it looks up the head of every ready chat before
+it takes the first, and sorts them all, on disk past `work_mem`. A ready chat that does not get into
+the batch costs the pull as much as one that does. On top, `ready` reads every chat for the next due
+time.
+
+```
+Sort  (actual time=123.228..123.231 rows=30.00 loops=1)
+  Sort Key: head.priority, chats.next_attempt_at, chats.chat_id
+  Sort Method: external merge  Disk: 7944kB
+  ->  Nested Loop  (actual time=0.032..104.159 rows=100000.00 loops=1)
+        ->  Seq Scan on telegram_outbox_chats chats  (actual time=0.006..9.540 rows=100000.00 loops=1)
+        ->  Index Scan using telegram_outbox_active_chat_id_idx on telegram_outbox
+              (actual time=0.001..0.001 rows=1.00 loops=100000)
+...
+Aggregate  (actual time=13.420..13.421 rows=1.00 loops=1)          -- ready: min(next_attempt_at)
+  ->  Seq Scan on telegram_outbox_chats  (actual time=1.545..10.138 rows=99970.00 loops=1)
+```
+
+**Dead entries of the index.** A message leaves two dead entries in the candidate index: its
+`status` is in the index predicate, so neither the pull nor the completion updates the row in place
+(no HOT update), and the version it leaves behind keeps its entry until a vacuum cleans the index.
+A plain `VACUUM` does not always: while the dead rows lie on less than 2% of the pages of the table
+it skips the indexes ("index scan bypassed" in `VACUUM (VERBOSE)`), and 2% of this table is some
+180 000 pages. A rerun of the 3 chats layout over the 2.8 M dead entries the earlier layouts had
+left found each head by walking them:
+
+```
+Index Only Scan using telegram_outbox_active_chat_id_idx on telegram_outbox
+    (actual time=9.004..9.004 rows=1.00 loops=1)
+  Index Cond: (chat_id = 1)
+  Buffers: shared hit=2305
+```
+
+so `pull(30)` of the 3 chats took 7 – 58 ms, median 20. After
+`VACUUM (INDEX_CLEANUP ON) telegram_outbox` the same lookup read 7 buffers in 0.4 ms. The fill of a
+layout runs that vacuum, so the table above is measured without them. At the common limit of 30
+messages a second the outbox leaves some 5 M such entries a day, and autovacuum at its defaults
+comes to a table of 100 M rows once it has 20 M dead rows.
+
+**The cleanup.** `deleteFinishedMessages()` filters on `finished_at` plus the retention, which no
+index on `finished_at` serves, so the call that finds nothing reads the whole table, every
+`OUTBOX_MAINTENANCE_CLEANUP_INTERVAL` on every node. It does not hold the bot row or the chats, so
+it slows down the rest only through the disk it reads.
+
+```
+Seq Scan on telegram_outbox telegram_outbox_1  (actual time=81281.935..81281.936 rows=0.00 loops=1)
+  Filter: (((status = 'done'::text) AND ((finished_at + '168:00:00'::interval) < now())) OR ...)
+  Buffers: shared hit=2556 read=9180874
+```
+
+A batch finds its rows fast only while they lie where the scan starts. The full batches are of the
+first 3 chats run, the only one with rows past the retention, which lie at the start of the table:
+four took 5 – 69 ms, and one 114 s, its scan having passed 100.9 M rows before them. A seq scan of a
+table this large need not start at the first page: with `synchronize_seqscans`, on by default, it
+starts where the last scan of the table reported it was.
+
+### Verdict
+
+With the candidate index the completion and the lease recovery are within the threshold, and so is
+the pull of a few chats, at a median of 4 – 7 ms, while the index is kept clean of dead entries. The
+pull of 100 k ready chats is not, some 16 times over, and neither is the cleanup, some 8 000 times
+over. The proposal is a comment on #643:
+PROPOSAL_LINK
+
 ## Sending
 
 Two classes send a pulled message, so that the sending loop only hands it over and Telegram is
