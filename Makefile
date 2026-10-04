@@ -226,8 +226,9 @@ load-fill-pending: ## Replace the pending layout of the load test: make load-fil
 	@[ -n "$(chats)" ] && [ -n "$(per_chat)" ] || { printf 'give it the layout: make load-fill-pending chats=3 per_chat=300000\n' >&2; exit 1; }
 	$(LOAD_PSQL) -v chats=$(chats) -v per_chat=$(per_chat) < test/load/outbox-fill-pending.sql
 
-load-indexes: ## Create the candidate indexes on the load-test database (test/load/outbox-candidate-indexes.sql)
-	$(LOAD_PSQL) < test/load/outbox-candidate-indexes.sql
+load-churn: ## Send messages of one chat of the layout and print the head lookup of the chat: make load-churn chat=1 messages=45000
+	@[ -n "$(chat)" ] && [ -n "$(messages)" ] || { printf 'give it the chat and the count: make load-churn chat=1 messages=45000\n' >&2; exit 1; }
+	$(LOAD_PSQL) -v chat=$(chat) -v messages=$(messages) < test/load/outbox-churn.sql
 
 # The plans are taken from the log of the database since the start of the run: auto_explain writes
 # them there, not to the client. They are printed after a failed run too, up to the call that
@@ -335,4 +336,4 @@ review-tree-remove: ## Remove a temporary review tree <main worktree>-review-<PR
 	worktree-init worktree-cleanup token-acquire token-renew token-release token-status token-add \
 	review-test review-tree-create mutation-full-record mutation-full-check mutation-full-close \
 	review-run review-tree-remove help \
-	load-up load-fill-done load-fill-pending load-indexes load-measure load-psql load-down
+	load-up load-fill-done load-fill-pending load-churn load-measure load-psql load-down

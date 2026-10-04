@@ -30,8 +30,17 @@ column the outbox needs. The columns and what they mean are in its `createTable`
 `comment`s; the comment of `next_attempt_at` is replaced by
 `1790666223510_telegram-outbox-chat-limit-comment.ts` and then, with that of `status`, by
 `1790682156623_telegram-outbox-retry-comments.ts`; those of `attempts` and `lock_token` are
-replaced by `1790716587328_telegram-outbox-attempt-worker-comment.ts`. There are no indexes
-besides the primary keys yet: they will be picked once the queries of every stage are settled.
+replaced by `1790716587328_telegram-outbox-attempt-worker-comment.ts`.
+
+The indexes are picked by the plans of the load test (see "Load test"), not ahead of the queries.
+`1791153270752_telegram-outbox-head-index.ts` adds the one index besides the primary keys,
+`telegram_outbox_active_chat_id_idx`, on `(chat_id, id)` of the active messages: the head of a
+chat for the pull and for `releaseChat()` is its first entry. Its `status` is in the predicate, so
+no update of a message is HOT, and a `fillfactor` would buy nothing; every message leaves two dead
+entries in it, which the head lookup walks until a vacuum cleans them. So the same migration sets
+the vacuum of `telegram_outbox` by the number of dead rows alone, whatever the size of the done
+history, and makes it always clean the indexes; the values and their measurement are in
+[`outbox-load-test.md`](./outbox-load-test.md), "Vacuum of the head index".
 
 The database does not check the values of `status` and `state`: the store writes them only
 through the `OutboxStatus` and `OutboxChatState` enums (`store/outbox-store.types.ts`). Of these,
@@ -554,7 +563,7 @@ as `PgSqlUserRepository` does ([`storage.md`](./storage.md), "`User.id`").
 
 ## Load test
 
-How the store holds up on 100 M messages, measured, and the indexes the measurements propose:
+How the store holds up on 100 M messages, measured, and what the measurements propose:
 [`outbox-load-test.md`](./outbox-load-test.md).
 
 ## Sending
