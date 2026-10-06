@@ -19,8 +19,9 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
 
     // The numbers of the cleanup SQL. A retention becomes an interval, and 1e16 ms is past the range
     // of its interval. The inbox adds it to finished_at, and up to this many ms the sum stays within
-    // the timestamps PostgreSQL takes; the outbox takes it off now() and stops at the earliest of
-    // them. A batch size goes to LIMIT, and 1e21 would reach it as 1e+21, which is no bigint.
+    // the timestamps PostgreSQL takes; the outbox takes it off now(), and one that reaches past
+    // 4713 BC fails its cleanup. A batch size goes to LIMIT, and 1e21 would reach it as 1e+21, which
+    // is no bigint.
     private static readonly CLEANUP_RANGE: IntegerRange = { min: 1, max: Number.MAX_SAFE_INTEGER };
 
     // Telegram redelivers an update within 24 h, and a done update that is still stored is what turns

@@ -341,10 +341,12 @@ that gets a full batch calls again. Nothing calls them yet: the timers are part 
   turns a redelivered update away (see "Push", step 2): Telegram redelivers within 24 h, so
   `INBOX_DONE_RETENTION` may not be less than a day, and the config rejects a shorter one
   (`INBOX_DONE_RETENTION_RANGE` of `ConfigValuesBuilder`). The retention is added to `finished_at`
-  rather than taken off `now()`, for the reason the outbox gives ([`outbox.md`](./outbox.md),
-  "Cleanup"). The batch is locked `FOR UPDATE SKIP LOCKED`: the lock rechecks the status on the
-  newest version of the row, so an update a person has moved back to `pending` meanwhile is kept,
-  and two nodes cleaning at once take different rows.
+  rather than taken off `now()`: the config takes a retention up to `Number.MAX_SAFE_INTEGER` ms
+  (`CLEANUP_RANGE`), and `now()` minus that falls below 4713 BC, the earliest timestamp PostgreSQL
+  has. No index serves the sum; the outbox takes the other form for its index
+  ([`outbox.md`](./outbox.md), "Cleanup"). The batch is locked `FOR UPDATE SKIP LOCKED`: the lock
+  rechecks the status on the newest version of the row, so an update a person has moved back to
+  `pending` meanwhile is kept, and two nodes cleaning at once take different rows.
 - `deleteIdleGroups()` deletes the `idle` groups. It locks them `FOR UPDATE SKIP LOCKED`: a group a
   push or a completion holds is left to them, and the lock rechecks the state on the newest version
   of the row, so a group a push has made `ready` meanwhile is left alone too. A push that waits for

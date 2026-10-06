@@ -270,15 +270,23 @@ Bitmap Heap Scan on telegram_outbox telegram_outbox_1  (actual time=0.050..0.051
   Buffers: shared hit=5 read=3
   ->  BitmapOr  (actual time=0.025..0.025 rows=0.00 loops=1)
         ->  Bitmap Index Scan on telegram_outbox_finished_at_idx  (actual time=0.020..0.020 rows=0.00 loops=1)
-              Index Cond: (finished_at < CASE WHEN ('168:00:00'::interval < (now() - ...)) THEN (now() - '168:00:00'::interval) ELSE '-infinity'::timestamp with time zone END)
+              Index Cond: (finished_at < (now() - '168:00:00'::interval))
         ->  Bitmap Index Scan on telegram_outbox_finished_at_idx  (actual time=0.001..0.001 rows=0.00 loops=1)
-              Index Cond: (finished_at < CASE WHEN ('720:00:00'::interval < (now() - ...)) THEN (now() - '720:00:00'::interval) ELSE '-infinity'::timestamp with time zone END)
+              Index Cond: (finished_at < (now() - '720:00:00'::interval))
 ```
 
 Every completion adds an entry to it. In the same runs the completion took a median of 2.4 ms for
 3 chats and 0.7 ms for 100 k chats, 4.6 and 1.5 ms at the 95th percentile: within the spread of the
 table above. The full batches, the 5 000 messages past the retention at the start of the table,
 took 4.3 – 8.5 ms.
+
+Every vacuum of the table now reads it whole as well: `vacuum_index_cleanup = ON` makes a vacuum
+clean every index (see "Vacuum of the head index"). `make load-churn chat=1 messages=51000` over the
+3 chats layout brought autovacuum, which removed 74 409 dead rows and read 570 536 pages, 4.4 GB,
+twice the 2.2 GB of the run without the index, in 39.6 s against 12 s. A `VACUUM (ANALYZE)` of
+`telegram_inbox`, run by another load test at the same time, read the same disk, so part of the
+40 s is its share. At the common limit of 30 messages a second autovacuum comes every 18 to 28
+minutes, so the outbox reads its indexes for some 40 s out of each such span.
 
 A backlog takes the batch back to the seq scan. 1 M done messages were moved 8 days back with an
 `UPDATE` and a `VACUUM (ANALYZE)`, so their new versions lie all over the table. The planner then

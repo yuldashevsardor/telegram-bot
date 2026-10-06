@@ -45,8 +45,9 @@ their measurement are in [`outbox-load-test.md`](./outbox-load-test.md), "Vacuum
 `1791320758530_telegram-outbox-finished-index.ts` adds `telegram_outbox_finished_at_idx`, on
 `finished_at` of the `done` and `skipped` messages, the ones the cleanup deletes (see "Cleanup"):
 without it the call that finds nothing to delete reads the whole table. It is the opposite of the
-head index: it holds an entry for every finished message inside the retention, as large as the
-primary key, and every completion adds one.
+head index: it holds an entry for every `done` and `skipped` message the cleanup has not deleted
+yet, as large as the primary key; every completion but a failure adds one, and every vacuum of the
+table reads it whole ([`outbox-load-test.md`](./outbox-load-test.md), "The cleanup").
 
 The database does not check the values of `status` and `state`: the store writes them only
 through the `OutboxStatus` and `OutboxChatState` enums (`store/outbox-store.types.ts`). Of these,
@@ -548,9 +549,9 @@ that gets a full batch calls again; `OutboxMaintenance` calls again until a batc
   The filter bounds `finished_at` alone, `finished_at < now() - retention`, so that
   `telegram_outbox_finished_at_idx` serves it (see "Tables"); `finished_at` plus the retention,
   compared with `now()`, would leave the index aside. The config takes a retention up to
-  `Number.MAX_SAFE_INTEGER` ms (`CLEANUP_RANGE` of `ConfigValuesBuilder`), and `now()` minus that
-  falls below 4713 BC, the earliest timestamp PostgreSQL has, and fails: a retention that reaches
-  past it gets `-infinity` as its cutoff, and deletes nothing (`retentionCutoff()` of the store).
+  `Number.MAX_SAFE_INTEGER` ms (`CLEANUP_RANGE` of `ConfigValuesBuilder`), some 285 000 years,
+  while `now()` minus a retention that reaches past 4713 BC, the earliest timestamp PostgreSQL has,
+  fails out of range: the cleanup then fails on every run, and its error is in the log.
   The batch is locked `FOR UPDATE SKIP LOCKED`: the lock rechecks the status on the newest version
   of the row, so a message a person has moved back to `pending` meanwhile is kept, and two nodes
   cleaning at once take different rows.

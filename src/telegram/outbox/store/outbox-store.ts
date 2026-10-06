@@ -495,15 +495,17 @@ export class OutboxStore {
     // number deleted. A caller that gets a full batch calls again. A failed message is never deleted:
     // it waits for a person. A message without finished_at is never deleted either.
     public async deleteFinishedMessages(): Promise<number> {
+        // now() minus the retention, a bound of finished_at alone: the index on finished_at serves
+        // it. A retention that reaches past 4713 BC, the earliest timestamp, fails it out of range.
         const deletedRows = await this.sql`
             DELETE FROM telegram_outbox
             WHERE id IN (
                 SELECT id
                 FROM telegram_outbox
                 WHERE (status = ${OutboxStatus.Done}
-                       AND finished_at < ${this.retentionCutoff(this.cleanupSettings.doneRetentionMs)})
+                       AND finished_at < now() - ${this.cleanupSettings.doneRetentionMs}::double precision * interval '1 millisecond')
                    OR (status = ${OutboxStatus.Skipped}
-                       AND finished_at < ${this.retentionCutoff(this.cleanupSettings.skippedRetentionMs)})
+                       AND finished_at < now() - ${this.cleanupSettings.skippedRetentionMs}::double precision * interval '1 millisecond')
                 LIMIT ${this.cleanupSettings.batchSize}
                 -- The lock rechecks the status on the newest version of the row, so a message moved
                 -- back to pending meanwhile is kept; a row another cleanup holds is left to it.
@@ -703,25 +705,6 @@ export class OutboxStore {
     // ids could outgrow the 8000 bytes of a NOTIFY payload.
     private async notifyReady(sql: TransactionSql): Promise<void> {
         await sql`SELECT pg_notify(${OutboxChannel.Ready}, '')`;
-    }
-
-    // The finished_at before which a message has outlived the retention: now() minus it, a bound of
-    // finished_at alone, which the index on finished_at serves. A retention the config takes can reach
-    // past the earliest timestamp PostgreSQL has, the start of its Julian day 0, documented as
-    // 4713 BC, and now() minus it fails out of range: then no message is that old, and the cutoff is
-    // -infinity. The check compares a retention with no days in it, so the subtraction it lets through
-    // is exact, while the days of an interval are added in the time zone of the session. The earliest
-    // timestamp is a literal: as a parameter it would be a timestamptz, which postgres.js sends
-    // through a JS Date, and a Date takes no BC string.
-    private retentionCutoff(retentionMs: number): PendingQuery<Row[]> {
-        const retention = this.sql`${retentionMs}::double precision * interval '1 millisecond'`;
-
-        return this.sql`
-            CASE
-                WHEN ${retention} < now() - '4714-11-24 00:00:00+00 BC'::timestamptz THEN now() - ${retention}
-                ELSE '-infinity'::timestamptz
-            END
-        `;
     }
 
     // The token is the chat's, so the chat is processing with one message: another message of the
