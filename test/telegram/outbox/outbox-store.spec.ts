@@ -1502,6 +1502,7 @@ describe("OutboxStore", function () {
 
         // A minute on either side of a retention: far more than the spec takes to run.
         const MARGIN_MS = 60 * MS_PER_SECOND;
+        const THOUSAND_YEARS_MS = 1000 * 365 * 24 * HOUR_MS;
 
         it("deletes a done message once its retention has passed and keeps a younger one", async function () {
             const [, younger] = await finishedAgo(
@@ -1581,6 +1582,19 @@ describe("OutboxStore", function () {
             await finishedAgo({ status: OutboxStatus.Done, agoMs: 0 }, { status: OutboxStatus.Skipped, agoMs: 0 });
 
             expect(await longest.deleteFinishedMessages()).to.equal(0);
+        });
+
+        // The cutoff is -infinity only for a retention that reaches past the earliest timestamp.
+        it("deletes a message from the earliest timestamp PostgreSQL has under a retention of a thousand years", async function () {
+            const millennial = new OutboxStore(database, logger, NO_LIMITS, LEASE_DURATION_MS, {
+                ...CLEANUP,
+                doneRetentionMs: THOUSAND_YEARS_MS,
+            });
+            await finishedAgo({ status: OutboxStatus.Done, agoMs: 0 });
+            await database.sql`UPDATE telegram_outbox SET finished_at = '4714-11-24 00:00:00+00 BC'`;
+
+            expect(await millennial.deleteFinishedMessages()).to.equal(1);
+            expect(await ids()).to.deep.equal([]);
         });
     });
 

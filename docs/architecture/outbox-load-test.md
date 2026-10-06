@@ -3,7 +3,8 @@
 The pull, the completion, the lease recovery and the cleanup of the outbox store
 ([`outbox.md`](./outbox.md)) measured on a large table
 ([#632](https://github.com/yuldashevsardor/telegram-bot/issues/632)), the input of the indexes of
-[#643](https://github.com/yuldashevsardor/telegram-bot/issues/643).
+[#643](https://github.com/yuldashevsardor/telegram-bot/issues/643) and
+[#837](https://github.com/yuldashevsardor/telegram-bot/issues/837).
 
 ## How to run it
 
@@ -12,7 +13,7 @@ slow down the shared database of every worktree. The targets are `load-*` of the
 order, with the shared database up (`make db-up`), whose network the application containers and the
 load-test database join: `load-up`, `load-fill-done` once, then per layout `load-fill-pending` and
 `load-measure`; `load-churn` sends the messages of one chat (see "Vacuum of the head index"),
-`load-down` removes the database with its data. `load-up` applies the migrations, the head index and
+`load-down` removes the database with its data. `load-up` applies the migrations, the indexes and
 the vacuum settings of the outbox among them; on a volume of the earlier runs, where the index was
 made by hand under the same name, the migration fails, and `load-down` gives a fresh one. The files
 they run are in `test/load/`. A fill stays valid for 6 days: then its done messages pass the
@@ -65,8 +66,8 @@ limits held back (see "How to run it").
 | `markAsDone()` | 72 – 76 | median 2.1, p95 4.1, max 14 | median 1.2, p95 4.3, max 42 |
 | `findExpiredLeases()`, no lease expired | — | 0.7 | 3.1 |
 | `findExpiredLeases()`, a batch expired | — | 706, 3 leases | 22, 30 leases |
-| `deleteFinishedMessages()`, a full batch | — | 4.6 – 54, one of 86 063 | — |
-| `deleteFinishedMessages()`, nothing to delete | — | 81 462 | 118 604 |
+| `deleteFinishedMessages()`, a full batch | — | 4.3 – 8.5 | — |
+| `deleteFinishedMessages()`, nothing to delete | — | 0.8 | 1.0 |
 | `deleteIdleChats()` | — | 32 | 60 |
 
 Without an index only two pulls and their completions were measured, of an earlier fill and with the
@@ -74,7 +75,9 @@ plans on: each pull took minutes, and the rest of the run would have taken hours
 `telegram_outbox (chat_id, id) WHERE status IN ('pending', 'processing')`, made then by hand over
 the filled table, where it took 2 minutes to build; it is now the migration
 `1791153270752_telegram-outbox-head-index.ts`. The plans add to the time: `pull(1)` of 100 k chats
-took a median of 161 ms with them and 144 ms without.
+took a median of 161 ms with them and 144 ms without. The cleanup rows are with the index of the
+cleanup as well (see "The cleanup"), measured later, on the same fill; without it the call that
+deletes nothing took 81 462 and 118 604 ms.
 
 ### Why the index is partial
 
@@ -244,12 +247,11 @@ does, and `make load-measure` prints those that fall within its own run, with th
 
 ### The cleanup
 
-`deleteFinishedMessages()` filters on `finished_at` plus the retention, which no index on
-`finished_at` serves, so the call that finds nothing reads the whole table, every
-`OUTBOX_MAINTENANCE_CLEANUP_INTERVAL` on every node. It does not hold the bot row or the chats, but
-it is one statement, and for the whole of its run it holds its snapshot: no vacuum removes the row
-versions, and the dead entries of the index with them, that the pulls and the completions leave
-meanwhile. So the cleanup adds to the dead entries above, besides the disk it reads.
+Without an index on `finished_at` the call that finds nothing read the whole table, every
+`OUTBOX_MAINTENANCE_CLEANUP_INTERVAL` on every node. It did not hold the bot row or the chats, but
+it is one statement, and for the whole of its run it held its snapshot: no vacuum removed the row
+versions, and the dead entries of the head index with them, that the pulls and the completions left
+meanwhile.
 
 ```
 Seq Scan on telegram_outbox telegram_outbox_1  (actual time=114548.029..114548.029 rows=0.00 loops=1)
@@ -257,12 +259,54 @@ Seq Scan on telegram_outbox telegram_outbox_1  (actual time=114548.029..114548.0
   Buffers: shared hit=6113 read=9132300 dirtied=6
 ```
 
-A batch finds its rows fast only while they lie where the scan starts. The full batches are of the 3
-chats run, the first after the fill and the only one with rows past the retention, which lie at the
-start of the table: four took 4.6 – 54 ms, and one 86 s. In an earlier run with the plans on, such a
-batch showed its scan passing 100.9 M rows before them. A seq scan of a table this large need not
-start at the first page: with `synchronize_seqscans`, on by default, it starts where the last scan
-of the table reported it was.
+`1791320758530_telegram-outbox-finished-index.ts` adds `telegram_outbox_finished_at_idx`,
+`telegram_outbox (finished_at) WHERE status IN ('done', 'skipped')`, and the filter bounds
+`finished_at` alone ([`outbox.md`](./outbox.md), "Cleanup"). It took 2 minutes to build on the
+filled table and takes 2.1 GB, as much as the primary key: it holds every done message. The call
+that finds nothing reads 8 buffers of it, 0.8 and 1.0 ms on the client:
+
+```
+Bitmap Heap Scan on telegram_outbox telegram_outbox_1  (actual time=0.050..0.051 rows=0.00 loops=1)
+  Buffers: shared hit=5 read=3
+  ->  BitmapOr  (actual time=0.025..0.025 rows=0.00 loops=1)
+        ->  Bitmap Index Scan on telegram_outbox_finished_at_idx  (actual time=0.020..0.020 rows=0.00 loops=1)
+              Index Cond: (finished_at < CASE WHEN ('168:00:00'::interval < (now() - ...)) THEN (now() - '168:00:00'::interval) ELSE '-infinity'::timestamp with time zone END)
+        ->  Bitmap Index Scan on telegram_outbox_finished_at_idx  (actual time=0.001..0.001 rows=0.00 loops=1)
+              Index Cond: (finished_at < CASE WHEN ('720:00:00'::interval < (now() - ...)) THEN (now() - '720:00:00'::interval) ELSE '-infinity'::timestamp with time zone END)
+```
+
+Every completion adds an entry to it. In the same runs the completion took a median of 2.4 ms for
+3 chats and 0.7 ms for 100 k chats, 4.6 and 1.5 ms at the 95th percentile: within the spread of the
+table above. The full batches, the 5 000 messages past the retention at the start of the table,
+took 4.3 – 8.5 ms.
+
+A backlog takes the batch back to the seq scan. 1 M done messages were moved 8 days back with an
+`UPDATE` and a `VACUUM (ANALYZE)`, so their new versions lie all over the table. The planner then
+estimates 1.5 M rows past the retention and expects the seq scan to meet a batch of them soon; its
+plan, with the values of the store in `psql`, read 191 pages for a batch:
+
+```
+Limit  (actual time=0.221..2.957 rows=1000.00 loops=1)
+  ->  LockRows  (actual time=0.220..2.906 rows=1000.00 loops=1)
+        ->  Seq Scan on telegram_outbox telegram_outbox_1  (actual time=0.187..1.776 rows=1000.00 loops=1)
+              Buffers: shared read=191
+```
+
+Through the store the 1 000 batches took 30 – 403 ms, a median of 68, 69 s in all. Such a batch is
+fast only while the rows past the retention are dense where the scan starts, and a seq scan of a
+table this large need not start at the first page: with `synchronize_seqscans`, on by default, it
+starts where the last scan of the table reported it was. Before the index, a batch of the first fill
+took 86 s once, its scan passing 100.9 M rows before its own. The call that found nothing right
+after the backlog took 105 ms: the deleted messages leave their dead entries at the start of the
+index, and the call walks them. The deletes took the table past the threshold of autovacuum (see
+"Vacuum of the head index"), and after it the same call read 8 buffers again.
+
+The statement is prepared: postgres.js prepares every statement, and after five runs PostgreSQL may
+switch one to a generic plan, built without the values. Without the values of the status no
+partial index is proven to cover the filter, so the generic plan is the seq scan, which it
+estimates at 13 M against the 17 k of the custom one: PostgreSQL keeps the custom plan. Seven runs
+of the statement prepared in `psql` with the parameters of the store were all custom
+(`pg_prepared_statements`).
 
 ## Verdict
 
@@ -273,5 +317,6 @@ median, 2 – 7 ms, while the index is kept clean of dead entries; a batch of th
 over, and the pull of one message 144 ms. The threshold is not set for the lease recovery and the
 cleanup, which hold neither the bot row nor a caller waiting: the lease recovery takes 1 – 3 ms
 while no lease has expired and 706 ms for the 3 chats of 300 000 messages whose leases have, and the
-cleanup that finds nothing reads the whole table for 81 – 119 s. The proposal is a comment on #643:
+cleanup that finds nothing reads its index in 1 ms, while a backlog of 1 M takes its batches back to
+the seq scan, a median of 68 ms each. The proposal is a comment on #643:
 https://github.com/yuldashevsardor/telegram-bot/issues/643#issuecomment-5984131010
