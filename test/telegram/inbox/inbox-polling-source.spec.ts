@@ -23,6 +23,10 @@ const CHAT = 5_000_000_001;
 // random() of 0 takes the lower end of the step, half of it: 500 ms after the first failure in a
 // row, 1 s after the second, 2 s after the third.
 const RETRY_DELAY = new OutboxRetryDelay({ firstDelayMs: 1_000, maxDelayMs: 60_000, multiplier: 2 }, () => 0);
+// The values jsonb refuses in a string.
+const NUL_TEXT = "before\u0000after";
+const SURROGATE_TEXT = "before\ud800after";
+const DETAIL = "the detail of the server";
 // A pause long enough for a spec to see the source wait in it, never waited out.
 const LONG_RETRY_DELAY = new OutboxRetryDelay({ firstDelayMs: 120_000, maxDelayMs: 120_000, multiplier: 1 }, () => 0);
 // How long a spec gives the source to take a step it must not take.
@@ -91,12 +95,11 @@ class FakeApi {
     }
 }
 
-// Stands for InboxStore: it refuses an update as PostgreSQL refuses a value of jsonb, the whole batch
-// with it, and fails a call by the failures queued.
+// Stands for InboxStore: it refuses an update with a NUL character or a lone surrogate by the code
+// PostgreSQL gives each in jsonb, the whole batch with it, and fails a call by the failures queued.
 class FakeStore {
     public readonly calls: Array<{ method: "pushBatch" | "push"; updateIds: number[] }> = [];
     public readonly stored: InboxUpdateInput[] = [];
-    public readonly refusedUpdateIds = new Set<number>();
     // Thrown by the next calls, one per call; undefined lets its call through.
     public readonly failures: Array<Error | undefined> = [];
     // Holds every call until it settles.
@@ -131,8 +134,15 @@ class FakeStore {
             throw failure;
         }
 
-        if (inputs.some((input) => this.refusedUpdateIds.has(input.update.update_id))) {
+        // JSON.stringify() writes both as escapes, as the store sends them.
+        const json = JSON.stringify(inputs);
+
+        if (json.includes("\\u0000")) {
             throw postgresError("22P05");
+        }
+
+        if (json.includes("\\ud800")) {
+            throw postgresError("22P02");
         }
 
         this.stored.push(...inputs);
@@ -327,8 +337,7 @@ describe("InboxPollingSource", function () {
         });
 
         it("pushes a refused batch one update at a time, drops the refused update with an error and moves on", async function () {
-            store.refusedUpdateIds.add(11);
-            api.answers.push([message(10), message(11), message(12)]);
+            api.answers.push([message(10), message(11, USER, NUL_TEXT), message(12)]);
 
             source.start();
             await api.waitForGetUpdates(2);
@@ -341,18 +350,21 @@ describe("InboxPollingSource", function () {
             ]);
             expect(store.storedUpdateIds()).to.deep.equal([10, 12]);
             expect(api.offsets()).to.deep.equal([0, 13]);
-            expect(logger.errors).to.have.lengthOf(1);
-            expect(logger.errors[0]?.message).to.equal("The inbox refused an update, it is dropped.");
-            expect(logger.errors[0]?.payload?.["updateId"]).to.equal(11);
-            expect(logger.errors[0]?.payload?.["cause"]).to.be.instanceOf(postgres.PostgresError);
+            // Not the error as a whole: the CONTEXT PostgreSQL gives it holds the text of the message.
+            expect(logger.errors).to.deep.equal([
+                {
+                    message: "The inbox refused an update, it is dropped.",
+                    payload: { updateId: 11, code: "22P05", message: "SQLSTATE 22P05", detail: DETAIL },
+                },
+            ]);
         });
 
         it("does not move the offset when a push of one update fails for another reason, and logs the updates not stored", async function () {
             const failure = new Error("write CONNECTION_CLOSED pgsql:5432");
-            api.answers.push([message(10), message(11), message(12)]);
-            // The batch is refused, update 10 goes in alone, then the push of update 11 fails on the
-            // connection.
-            store.failures.push(postgresError("22P05"), undefined, failure);
+            api.answers.push([message(10), message(11), message(12, USER, NUL_TEXT)]);
+            // The batch is refused for update 12, update 10 goes in alone, then the push of update 11
+            // fails on the connection.
+            store.failures.push(undefined, undefined, failure);
 
             source.start();
             await api.waitForGetUpdates(2);
@@ -371,21 +383,38 @@ describe("InboxPollingSource", function () {
             ]);
         });
 
-        it("takes the code of a lone surrogate for a refusal too", async function () {
-            store.failures.push(postgresError("22P02"));
-            api.answers.push([message(10)]);
+        it("drops an update with a lone surrogate too, wherever in the update it is", async function () {
+            const keyboard = { inline_keyboard: [[{ text: SURROGATE_TEXT, callback_data: "1" }]] };
+            const withSurrogate = { update_id: 10, message: { ...message(10).message, reply_markup: keyboard } } as Update;
+            api.answers.push([withSurrogate, message(11)]);
 
             source.start();
             await api.waitForGetUpdates(2);
 
-            expect(store.calls.map((call) => call.method)).to.deep.equal(["pushBatch", "push"]);
-            expect(api.offsets()).to.deep.equal([0, 11]);
+            expect(store.calls.map((call) => call.method)).to.deep.equal(["pushBatch", "push", "push"]);
+            expect(store.storedUpdateIds()).to.deep.equal([11]);
+            expect(logger.errors.map((record) => record.payload?.["code"])).to.deep.equal(["22P02"]);
+            expect(api.offsets()).to.deep.equal([0, 12]);
         });
 
         // A store change that failed every row with another data exception would otherwise drop every
         // update.
         for (const code of ["22003", "40P01"]) {
-            it(`does not take SQLSTATE ${code} for a refusal: the batch is not pushed one at a time`, async function () {
+            it(`does not take SQLSTATE ${code} for a refusal, though an update holds a refused value`, async function () {
+                store.failures.push(postgresError(code));
+                api.answers.push([message(10, USER, NUL_TEXT)]);
+
+                source.start();
+                await api.waitForGetUpdates(2);
+
+                expect(store.calls).to.deep.equal([{ method: "pushBatch", updateIds: [10] }]);
+                expect(api.offsets()).to.deep.equal([0, 0]);
+            });
+        }
+
+        // 22P02 is the code of any malformed input: a store change that broke every row would give it.
+        for (const code of ["22P02", "22P05"]) {
+            it(`does not take SQLSTATE ${code} for a refusal when no update holds a refused value`, async function () {
                 store.failures.push(postgresError(code));
                 api.answers.push([message(10)]);
 
@@ -394,6 +423,9 @@ describe("InboxPollingSource", function () {
 
                 expect(store.calls).to.deep.equal([{ method: "pushBatch", updateIds: [10] }]);
                 expect(api.offsets()).to.deep.equal([0, 0]);
+                expect(logger.errors.map((record) => record.message)).to.deep.equal([
+                    "Storing updates failed, the source gets them again from the same offset.",
+                ]);
             });
         }
 
@@ -538,7 +570,7 @@ describe("InboxPollingSource", function () {
 });
 
 // A private message of the user.
-function message(updateId: number, userId = USER): Update {
+function message(updateId: number, userId = USER, text = "text"): Update {
     return {
         update_id: updateId,
         message: {
@@ -546,7 +578,7 @@ function message(updateId: number, userId = USER): Update {
             date: 0,
             chat: { id: CHAT, type: "private", first_name: "User" },
             from: { id: userId, is_bot: false, first_name: "User" },
-            text: "text",
+            text: text,
         },
     };
 }
@@ -573,7 +605,7 @@ function callbackQuery(updateId: number, userId: number): Update {
 // postgres.js builds the error from the fields of the server's answer, a constructor its typings do
 // not declare.
 function postgresError(code: string): Error {
-    const PostgresError = postgres.PostgresError as unknown as new (fields: { message: string; code: string }) => Error;
+    const PostgresError = postgres.PostgresError as unknown as new (fields: { message: string; code: string; detail: string }) => Error;
 
-    return new PostgresError({ message: `SQLSTATE ${code}`, code: code });
+    return new PostgresError({ message: `SQLSTATE ${code}`, code: code, detail: DETAIL });
 }

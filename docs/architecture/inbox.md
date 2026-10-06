@@ -382,7 +382,7 @@ drop a batch whose handling failed or stop polling for good; neither retries the
 3. Each update gets its group, `from` and `chat` of the `Context`, the pair `getSessionKey()`
    makes the session key of, whatever the type of the update. An update without either is dropped
    (see "Updates without a session key"); `hasSessionKey()` of `session.helper.ts` is the rule of
-   both.
+   both, and `HasSessionKeyFilter.warnDropped()` the warning of both.
 4. `pushBatch()` of the rest. Only once it has committed does the offset move past the last update
    of the answer, dropped ones included: the next `getUpdates` tells Telegram that the bot has
    them.
@@ -399,12 +399,16 @@ error an `HttpError` wraps names the URL of the call, and the URL carries the bo
 **A refused update.** PostgreSQL refuses a `\u0000` escape or a lone surrogate in `jsonb`, and
 `pushBatch()` stores the batch in one statement, so one such update rolls the batch back, and
 every retry from the same offset would fail on it again. Whether Telegram ever sends either is
-unverified. A batch that fails with the SQLSTATE PostgreSQL gives either value, `22P05` for the
-escape and `22P02` for the surrogate, is pushed one update at a time, and an update refused with
-one of them again is dropped with an error log. Any other failure, of the batch or of a single
-push, leaves the offset where it was, another data exception of class `22` included: a change of
-the store that failed every row with one would otherwise drop every update. The error log of such a
-failure names the updates not stored. `test/telegram/inbox/inbox-store.spec.ts` pins both codes.
+unverified. A refusal is a failure with the SQLSTATE PostgreSQL gives either value, `22P05` for
+the escape and `22P02` for the surrogate, of a push whose updates hold such a value in a string; the
+source looks for it itself. The code alone is not enough: `22P02` is the code of any malformed
+input, and a change of the store that broke every row would give it too. A refused batch is pushed
+one update at a time, and an update refused again is dropped with an error log of its id and of the
+code, the message and the detail of the error, not the error as a whole: the CONTEXT PostgreSQL
+gives it holds the update up to the refused value, the text of the message included. Any other
+failure, of the batch or of a single push, leaves the offset where it was, another data exception
+of class `22` included, and its error log names the updates not stored.
+`test/telegram/inbox/inbox-store.spec.ts` pins both codes.
 
 **The stop** aborts the Bot API call in flight, ends the pause at once and waits for a push in
 flight, and no `getUpdates` follows. It has no deadline of its own: a push stuck on the database

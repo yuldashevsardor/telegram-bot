@@ -18,6 +18,7 @@ import type { InboxGroupKey, InboxUpdateInput } from "app/telegram/inbox/store/i
 import type { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
 import type { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
 import { hasSessionKey } from "app/telegram/session/session.helper";
+import { HasSessionKeyFilter } from "app/telegram/filter/has-session-key.filter";
 
 // How long getUpdates waits for an update before it answers with none.
 const POLL_TIMEOUT_SECONDS = 30;
@@ -31,6 +32,8 @@ const POLL_LIMIT = 100;
 // change of the store that fails every row with another of them would drop every update instead of
 // stalling the source.
 const REFUSED_UPDATE_SQLSTATES: ReadonlySet<string> = new Set(["22P05", "22P02"]);
+// The character jsonb refuses in a string; a lone surrogate is the other value it refuses.
+const NUL_CHARACTER = "\u0000";
 
 // The signal as grammY types it: by the abort-controller shim of its Node build. At run time it takes
 // the native one.
@@ -164,7 +167,7 @@ export class InboxPollingSource {
 
             return true;
         } catch (error) {
-            if (!this.isRefusedUpdate(error)) {
+            if (!this.isRefusal(error, inputs)) {
                 await this.handleStoreFailure(inputs, error);
 
                 return false;
@@ -183,21 +186,48 @@ export class InboxPollingSource {
                 await this.store.push(input);
             } catch (error) {
                 // The ones before it are stored or dropped already.
-                if (!this.isRefusedUpdate(error)) {
+                if (!this.isRefusal(error, [input])) {
                     await this.handleStoreFailure(inputs.slice(index), error);
 
                     return false;
                 }
 
-                this.logger.error("The inbox refused an update, it is dropped.", { updateId: input.update.update_id, cause: error });
+                // Not the error as a whole: the CONTEXT PostgreSQL gives it, in its where field, holds
+                // the update up to the refused value, the text of the message included.
+                this.logger.error("The inbox refused an update, it is dropped.", {
+                    updateId: input.update.update_id,
+                    code: error.code,
+                    message: error.message,
+                    detail: error.detail,
+                });
             }
         }
 
         return true;
     }
 
-    private isRefusedUpdate(error: unknown): boolean {
-        return error instanceof postgres.PostgresError && REFUSED_UPDATE_SQLSTATES.has(error.code);
+    // A failure the updates themselves cause: one of the refusal codes, and a value jsonb refuses in
+    // one of the updates. 22P02 is the code of any malformed input, so a store change that broke every
+    // row would give it too, and the code alone would drop every update.
+    private isRefusal(error: unknown, inputs: InboxUpdateInput[]): error is postgres.PostgresError {
+        if (!(error instanceof postgres.PostgresError) || !REFUSED_UPDATE_SQLSTATES.has(error.code)) {
+            return false;
+        }
+
+        return inputs.some((input) => this.holdsValueJsonbRefuses(input.update));
+    }
+
+    // A string with a NUL character or a lone surrogate anywhere in the value.
+    private holdsValueJsonbRefuses(value: unknown): boolean {
+        if (typeof value === "string") {
+            return value.includes(NUL_CHARACTER) || !value.isWellFormed();
+        }
+
+        if (typeof value !== "object" || value === null) {
+            return false;
+        }
+
+        return Object.values(value).some((nested) => this.holdsValueJsonbRefuses(nested));
     }
 
     private toInputs(updates: Update[], me: UserFromGetMe): InboxUpdateInput[] {
@@ -220,16 +250,12 @@ export class InboxPollingSource {
     // reads it: the group is the session key (docs/architecture/inbox.md, "Tables"), whatever the type
     // of the update. undefined: the update has no session key and is dropped, with the warning
     // HasSessionKeyFilter gives it in the pipeline; the inbox stores none (docs/architecture/inbox.md,
-    // "Updates without a session key"). The contents of the update stay out of the log.
+    // "Updates without a session key").
     private findGroup(update: Update, me: UserFromGetMe): InboxGroupKey | undefined {
         const ctx = new Context(update, this.api, me);
 
         if (!hasSessionKey(ctx)) {
-            this.logger.warning("Update is dropped, because its session key cannot be resolved.", {
-                updateId: update.update_id,
-                hasFrom: ctx.from !== undefined,
-                hasChat: ctx.chat !== undefined,
-            });
+            HasSessionKeyFilter.warnDropped(this.logger, ctx);
 
             return undefined;
         }
