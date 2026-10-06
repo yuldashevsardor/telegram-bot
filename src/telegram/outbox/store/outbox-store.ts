@@ -495,18 +495,17 @@ export class OutboxStore {
     // number deleted. A caller that gets a full batch calls again. A failed message is never deleted:
     // it waits for a person. A message without finished_at is never deleted either.
     public async deleteFinishedMessages(): Promise<number> {
-        // finished_at plus the retention, not now() minus it: a long retention would take now()
-        // below the earliest timestamp PostgreSQL has, 4713 BC, while the sum stays below its
-        // latest for any retention the config takes.
+        // now() minus the retention, a bound of finished_at alone: the index on finished_at serves
+        // it. A retention that reaches past 4713 BC, the earliest timestamp, fails it out of range.
         const deletedRows = await this.sql`
             DELETE FROM telegram_outbox
             WHERE id IN (
                 SELECT id
                 FROM telegram_outbox
                 WHERE (status = ${OutboxStatus.Done}
-                       AND finished_at + ${this.cleanupSettings.doneRetentionMs}::double precision * interval '1 millisecond' < now())
+                       AND finished_at < now() - ${this.cleanupSettings.doneRetentionMs}::double precision * interval '1 millisecond')
                    OR (status = ${OutboxStatus.Skipped}
-                       AND finished_at + ${this.cleanupSettings.skippedRetentionMs}::double precision * interval '1 millisecond' < now())
+                       AND finished_at < now() - ${this.cleanupSettings.skippedRetentionMs}::double precision * interval '1 millisecond')
                 LIMIT ${this.cleanupSettings.batchSize}
                 -- The lock rechecks the status on the newest version of the row, so a message moved
                 -- back to pending meanwhile is kept; a row another cleanup holds is left to it.

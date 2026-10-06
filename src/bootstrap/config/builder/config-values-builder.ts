@@ -17,9 +17,11 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
     // infinite, while a zero in interval makes it nil and the limit stops limiting.
     private static readonly LIMIT_RANGE: IntegerRange = { min: 1 };
 
-    // The numbers of the outbox cleanup SQL. It adds a retention to finished_at: up to this many ms
-    // the sum stays within the timestamps PostgreSQL takes, while 1e16 ms is past the range of its
-    // interval. A batch size goes to LIMIT, and 1e21 would reach it as 1e+21, which is no bigint.
+    // The numbers of the cleanup SQL. A retention becomes an interval, and 1e16 ms is past the range
+    // of its interval. The inbox adds it to finished_at, and up to this many ms the sum stays within
+    // the timestamps PostgreSQL takes; the outbox takes it off now(), and one that reaches past
+    // 4713 BC fails its cleanup. A batch size goes to LIMIT, and 1e21 would reach it as 1e+21, which
+    // is no bigint.
     private static readonly CLEANUP_RANGE: IntegerRange = { min: 1, max: Number.MAX_SAFE_INTEGER };
 
     // Telegram redelivers an update within 24 h, and a done update that is still stored is what turns
@@ -95,6 +97,12 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
             inbox: {
                 leaseDurationMs: parser.getTimerDelay("INBOX_LEASE_DURATION", 10 * 60 * 1000),
                 maxAttempts: parser.getInteger("INBOX_MAX_ATTEMPTS", 10, { min: 1 }),
+                concurrency: parser.getInteger("INBOX_CONCURRENCY", 5, { min: 1 }),
+                stopTimeoutMs: parser.getTimerDelay("INBOX_STOP_TIMEOUT", 5000, { min: 0 }),
+                maintenance: {
+                    leaseRecoveryIntervalMs: parser.getTimerDelay("INBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL", 10 * 1000),
+                    cleanupIntervalMs: parser.getTimerDelay("INBOX_MAINTENANCE_CLEANUP_INTERVAL", 10 * 60 * 1000),
+                },
                 cleanup: {
                     doneRetentionMs: parser.getInteger(
                         "INBOX_DONE_RETENTION",

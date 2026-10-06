@@ -54,6 +54,9 @@ describe("ConfigValuesBuilder", () => {
         expect(result.inbox).to.deep.equal({
             leaseDurationMs: 600000,
             maxAttempts: 10,
+            concurrency: 5,
+            stopTimeoutMs: 5000,
+            maintenance: { leaseRecoveryIntervalMs: 10000, cleanupIntervalMs: 600000 },
             cleanup: { doneRetentionMs: 604800000, skippedRetentionMs: 2592000000, batchSize: 1000 },
         });
         expect(result.bot).to.deep.equal({ token: "token", gracefulShutdown: { timeout: 3000 } });
@@ -99,6 +102,10 @@ describe("ConfigValuesBuilder", () => {
             OUTBOX_MAINTENANCE_STATUS_LOG_INTERVAL: "10003",
             INBOX_LEASE_DURATION: "600002",
             INBOX_MAX_ATTEMPTS: "12",
+            INBOX_CONCURRENCY: "7",
+            INBOX_STOP_TIMEOUT: "5003",
+            INBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL: "10004",
+            INBOX_MAINTENANCE_CLEANUP_INTERVAL: "600004",
             INBOX_DONE_RETENTION: "604800002",
             INBOX_SKIPPED_RETENTION: "2592000002",
             INBOX_CLEANUP_BATCH_SIZE: "1002",
@@ -139,6 +146,9 @@ describe("ConfigValuesBuilder", () => {
         expect(result.inbox).to.deep.equal({
             leaseDurationMs: 600002,
             maxAttempts: 12,
+            concurrency: 7,
+            stopTimeoutMs: 5003,
+            maintenance: { leaseRecoveryIntervalMs: 10004, cleanupIntervalMs: 600004 },
             cleanup: { doneRetentionMs: 604800002, skippedRetentionMs: 2592000002, batchSize: 1002 },
         });
         expect(result.bot).to.deep.equal({ token: "own-token", gracefulShutdown: { timeout: 3001 } });
@@ -236,6 +246,10 @@ describe("ConfigValuesBuilder", () => {
         { name: "OUTBOX_MAINTENANCE_STATUS_LOG_INTERVAL", below: "0", range: "between 1 and 2147483647" },
         { name: "INBOX_LEASE_DURATION", below: "0", range: "between 1 and 2147483647" },
         { name: "INBOX_MAX_ATTEMPTS", below: "0", range: "at least 1" },
+        { name: "INBOX_CONCURRENCY", below: "0", range: "at least 1" },
+        { name: "INBOX_STOP_TIMEOUT", below: "-1", range: "between 0 and 2147483647" },
+        { name: "INBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL", below: "0", range: "between 1 and 2147483647" },
+        { name: "INBOX_MAINTENANCE_CLEANUP_INTERVAL", below: "0", range: "between 1 and 2147483647" },
         { name: "INBOX_SKIPPED_RETENTION", below: "0", range: "between 1 and 9007199254740991" },
         { name: "INBOX_CLEANUP_BATCH_SIZE", below: "0", range: "between 1 and 9007199254740991" },
         { name: "BOT_GRACEFUL_SHUTDOWN_TIMEOUT", below: "-1", range: "between 0 and 2147483647" },
