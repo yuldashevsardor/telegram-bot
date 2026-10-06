@@ -30,6 +30,7 @@ class FakeGrammy {
     public handlerError: unknown = undefined;
     public heldInit: PromiseWithResolvers<void> | undefined;
     public heldHandler: PromiseWithResolvers<void> | undefined;
+    public onHandleUpdate: () => void = () => {};
 
     public async init(signal: AbortSignal): Promise<void> {
         this.initCount += 1;
@@ -49,6 +50,7 @@ class FakeGrammy {
 
     public async handleUpdate(update: Update): Promise<void> {
         this.handledUpdates.push(update);
+        this.onHandleUpdate();
 
         if (this.heldHandler !== undefined) {
             await this.heldHandler.promise;
@@ -67,9 +69,14 @@ class RecordingStore {
     public isExtended = true;
     public extensionError: unknown = undefined;
     public heldExtension: PromiseWithResolvers<void> | undefined;
+    public heldCompletion: PromiseWithResolvers<void> | undefined;
 
     public async markAsDone(lease: InboxLease): Promise<void> {
         this.done.push(lease);
+
+        if (this.heldCompletion !== undefined) {
+            await this.heldCompletion.promise;
+        }
     }
 
     public async extendLease(lease: InboxLease): Promise<boolean> {
@@ -111,6 +118,11 @@ describe("InboxUpdateProcessor", function () {
     let logger: RecordingLogger;
     let processor: InboxUpdateProcessor;
     let abortController: AbortController;
+    // How many times the processor said the handler starts.
+    let handlerStarts: number;
+    const onHandlerStart = (): void => {
+        handlerStarts += 1;
+    };
 
     beforeEach(function () {
         mock.timers.enable({ apis: ["setTimeout"] });
@@ -128,6 +140,7 @@ describe("InboxUpdateProcessor", function () {
             LEASE_DURATION_MS,
         );
         abortController = new AbortController();
+        handlerStarts = 0;
     });
 
     afterEach(function () {
@@ -137,7 +150,7 @@ describe("InboxUpdateProcessor", function () {
     it("hands the update to the bot once it knows itself, and marks it done", async function () {
         const update = claimedUpdate(1);
 
-        await processor.process(update, abortController.signal);
+        await processor.process(update, abortController.signal, onHandlerStart);
 
         expect(grammy.initCount).to.equal(1);
         expect(grammy.initSignals).to.deep.equal([abortController.signal]);
@@ -147,12 +160,40 @@ describe("InboxUpdateProcessor", function () {
         expect(leaseReleaser.released).to.deep.equal([]);
     });
 
+    it("reports the start of the handler right before it calls the handler", async function () {
+        const handlerStartsAtHandler: number[] = [];
+        grammy.onHandleUpdate = (): void => {
+            handlerStartsAtHandler.push(handlerStarts);
+        };
+
+        await processor.process(claimedUpdate(1), abortController.signal, onHandlerStart);
+
+        expect(handlerStartsAtHandler).to.deep.equal([1]);
+        expect(handlerStarts).to.equal(1);
+    });
+
+    it("reports no start of the handler for an update it releases before the handler", async function () {
+        abortController.abort();
+
+        await processor.process(claimedUpdate(1), abortController.signal, onHandlerStart);
+
+        expect(handlerStarts).to.equal(0);
+    });
+
+    it("reports no start of the handler for a failed init()", async function () {
+        grammy.initError = new Error("401: Unauthorized");
+
+        await processor.process(claimedUpdate(1), abortController.signal, onHandlerStart);
+
+        expect(handlerStarts).to.equal(0);
+    });
+
     it("hands the error of a failed handler to the failure handler as grammY threw it", async function () {
         const error = new BotError(new Error("handler failed"), {} as Context);
         grammy.handlerError = error;
         const update = claimedUpdate(1);
 
-        await processor.process(update, abortController.signal);
+        await processor.process(update, abortController.signal, onHandlerStart);
 
         expect(failureHandler.calls).to.have.lengthOf(1);
         expect(failureHandler.calls[0]?.update).to.equal(update);
@@ -166,7 +207,7 @@ describe("InboxUpdateProcessor", function () {
         grammy.handlerError = new BotError(OutboxResultWaiterStopped.of(7), {} as Context);
         const update = claimedUpdate(1);
 
-        await processor.process(update, abortController.signal);
+        await processor.process(update, abortController.signal, onHandlerStart);
 
         expect(leaseReleaser.released).to.deep.equal([update]);
         expect(failureHandler.calls).to.deep.equal([]);
@@ -177,7 +218,7 @@ describe("InboxUpdateProcessor", function () {
         grammy.handlerError = OutboxResultWaiterStopped.of(7);
         const update = claimedUpdate(1);
 
-        await processor.process(update, abortController.signal);
+        await processor.process(update, abortController.signal, onHandlerStart);
 
         expect(leaseReleaser.released).to.deep.equal([update]);
         expect(failureHandler.calls).to.deep.equal([]);
@@ -187,7 +228,7 @@ describe("InboxUpdateProcessor", function () {
         abortController.abort();
         const update = claimedUpdate(1);
 
-        await processor.process(update, abortController.signal);
+        await processor.process(update, abortController.signal, onHandlerStart);
 
         expect(grammy.handledUpdates).to.deep.equal([]);
         expect(leaseReleaser.released).to.deep.equal([update]);
@@ -198,7 +239,7 @@ describe("InboxUpdateProcessor", function () {
     it("releases without handling an update whose init() the abort cut short", async function () {
         grammy.heldInit = Promise.withResolvers<void>();
         const update = claimedUpdate(1);
-        const processed = processor.process(update, abortController.signal);
+        const processed = processor.process(update, abortController.signal, onHandlerStart);
         await settle();
 
         abortController.abort();
@@ -213,7 +254,7 @@ describe("InboxUpdateProcessor", function () {
         const initDone = Promise.withResolvers<void>();
         grammy.init = (): Promise<void> => initDone.promise;
         const update = claimedUpdate(1);
-        const processed = processor.process(update, abortController.signal);
+        const processed = processor.process(update, abortController.signal, onHandlerStart);
         await settle();
 
         abortController.abort();
@@ -229,7 +270,7 @@ describe("InboxUpdateProcessor", function () {
         grammy.initError = error;
         const update = claimedUpdate(1);
 
-        await processor.process(update, abortController.signal);
+        await processor.process(update, abortController.signal, onHandlerStart);
 
         expect(grammy.handledUpdates).to.deep.equal([]);
         expect(failureHandler.calls).to.deep.equal([{ update: update, error: error }]);
@@ -239,7 +280,7 @@ describe("InboxUpdateProcessor", function () {
     it("extends the lease every third of it while the handler runs", async function () {
         grammy.heldHandler = Promise.withResolvers<void>();
         const update = claimedUpdate(1);
-        const processed = processor.process(update, abortController.signal);
+        const processed = processor.process(update, abortController.signal, onHandlerStart);
 
         await advance(EXTENSION_INTERVAL_MS - 1);
         expect(store.extensions).to.have.lengthOf(0);
@@ -256,7 +297,7 @@ describe("InboxUpdateProcessor", function () {
 
     it("stops extending the lease once the update has settled", async function () {
         grammy.heldHandler = Promise.withResolvers<void>();
-        const processed = processor.process(claimedUpdate(1), abortController.signal);
+        const processed = processor.process(claimedUpdate(1), abortController.signal, onHandlerStart);
         await advance(EXTENSION_INTERVAL_MS);
 
         grammy.heldHandler.resolve();
@@ -267,9 +308,46 @@ describe("InboxUpdateProcessor", function () {
     });
 
     // The stop has given the update up, and the database is closed after the stop.
+    // The completion ends the lease: an extension after it would be refused and logged for nothing.
+    it("stops extending the lease before it writes the outcome", async function () {
+        store.heldCompletion = Promise.withResolvers<void>();
+        const processed = processor.process(claimedUpdate(1), abortController.signal, onHandlerStart);
+        await settle();
+
+        await advance(3 * EXTENSION_INTERVAL_MS);
+
+        expect(store.done).to.have.lengthOf(1);
+        expect(store.extensions).to.deep.equal([]);
+        store.heldCompletion.resolve();
+        await processed;
+    });
+
+    it("rejects nothing when the warning of an extension throws", async function () {
+        const unhandledRejections: unknown[] = [];
+        const listener = (reason: unknown): void => {
+            unhandledRejections.push(reason);
+        };
+        process.on("unhandledRejection", listener);
+        logger.warning = (): void => {
+            throw new Error("the log failed");
+        };
+        grammy.heldHandler = Promise.withResolvers<void>();
+        store.isExtended = false;
+        const processed = processor.process(claimedUpdate(1), abortController.signal, onHandlerStart);
+
+        await advance(EXTENSION_INTERVAL_MS);
+        await settle();
+        grammy.heldHandler.resolve();
+        await processed;
+        process.off("unhandledRejection", listener);
+
+        expect(store.extensions).to.have.lengthOf(1);
+        expect(unhandledRejections).to.deep.equal([]);
+    });
+
     it("stops extending the lease on the abort, with the handler still running", async function () {
         grammy.heldHandler = Promise.withResolvers<void>();
-        const processed = processor.process(claimedUpdate(1), abortController.signal);
+        const processed = processor.process(claimedUpdate(1), abortController.signal, onHandlerStart);
         await advance(EXTENSION_INTERVAL_MS);
 
         abortController.abort();
@@ -283,7 +361,7 @@ describe("InboxUpdateProcessor", function () {
     it("does not extend the lease of an update that comes with its signal aborted", async function () {
         grammy.heldHandler = Promise.withResolvers<void>();
         abortController.abort();
-        const processed = processor.process(claimedUpdate(1), abortController.signal);
+        const processed = processor.process(claimedUpdate(1), abortController.signal, onHandlerStart);
 
         await advance(3 * EXTENSION_INTERVAL_MS);
 
@@ -295,7 +373,7 @@ describe("InboxUpdateProcessor", function () {
     it("stops extending a lease that was refused, and logs it", async function () {
         grammy.heldHandler = Promise.withResolvers<void>();
         store.isExtended = false;
-        const processed = processor.process(claimedUpdate(1), abortController.signal);
+        const processed = processor.process(claimedUpdate(1), abortController.signal, onHandlerStart);
 
         await advance(3 * EXTENSION_INTERVAL_MS);
 
@@ -314,7 +392,7 @@ describe("InboxUpdateProcessor", function () {
         grammy.heldHandler = Promise.withResolvers<void>();
         const error = new Error("connection lost");
         store.extensionError = error;
-        const processed = processor.process(claimedUpdate(1), abortController.signal);
+        const processed = processor.process(claimedUpdate(1), abortController.signal, onHandlerStart);
 
         await advance(EXTENSION_INTERVAL_MS);
         store.extensionError = undefined;
@@ -334,7 +412,7 @@ describe("InboxUpdateProcessor", function () {
     // The completion ends the lease, so an extension it overtakes is refused.
     it("does not log a refusal of an extension the update settled during", async function () {
         grammy.heldHandler = Promise.withResolvers<void>();
-        const processed = processor.process(claimedUpdate(1), abortController.signal);
+        const processed = processor.process(claimedUpdate(1), abortController.signal, onHandlerStart);
         store.heldExtension = Promise.withResolvers<void>();
         await advance(EXTENSION_INTERVAL_MS);
 
@@ -349,7 +427,7 @@ describe("InboxUpdateProcessor", function () {
 
     it("does not log a failed extension the update settled during", async function () {
         grammy.heldHandler = Promise.withResolvers<void>();
-        const processed = processor.process(claimedUpdate(1), abortController.signal);
+        const processed = processor.process(claimedUpdate(1), abortController.signal, onHandlerStart);
         store.heldExtension = Promise.withResolvers<void>();
         await advance(EXTENSION_INTERVAL_MS);
 

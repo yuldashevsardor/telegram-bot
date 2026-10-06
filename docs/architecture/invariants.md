@@ -248,7 +248,7 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   ([`inbox.md`](./inbox.md), "The update source"). Nothing checks this.
 - **`InboxUpdateSource` claims one update at a time.** At the stop `InboxRunner` starts the one
   update the generator has handed out and closes the generator, so whatever a claim got beyond it is
-  dropped and stays claimed by the stopping node until its lease passes, the default ten minutes
+  dropped and stays claimed by the stopping node until its lease of `INBOX_LEASE_DURATION` passes
   ([`inbox.md`](./inbox.md), "The runner"). Nothing checks `CLAIM_LIMIT` against this.
 
 ## Storage: migrations, `sessions`, `User`

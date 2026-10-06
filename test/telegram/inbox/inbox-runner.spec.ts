@@ -66,12 +66,14 @@ type ProcessCall = {
 };
 
 // Each call runs until the spec finishes or fails it, as a handler does: an abort does not cut it
-// short. A signal aborted before the call settles it at once, as the real processor releases such an
-// update without handling it.
+// short. A call starts its handler at once; with shouldStartHandler off it stays before its handler, as
+// one in init() does. A signal aborted before the call settles it at once, as the real processor
+// releases such an update.
 class FakeProcessor {
     public readonly calls: ProcessCall[] = [];
+    public shouldStartHandler = true;
 
-    public process(update: ClaimedInboxUpdate, signal: AbortSignal): Promise<void> {
+    public process(update: ClaimedInboxUpdate, signal: AbortSignal, onHandlerStart: () => void): Promise<void> {
         const { promise, resolve, reject } = Promise.withResolvers<void>();
         const call: ProcessCall = {
             update,
@@ -79,12 +81,13 @@ class FakeProcessor {
             finish: () => resolve(),
             fail: (error: unknown) => reject(error),
         };
+        this.calls.push(call);
 
         if (signal.aborted) {
             call.finish();
+        } else if (this.shouldStartHandler) {
+            onHandlerStart();
         }
-
-        this.calls.push(call);
 
         return promise;
     }
@@ -348,6 +351,46 @@ describe("InboxRunner", function () {
         processor.calls[2]?.finish();
     });
 
+    // The release is a write to the database, which is closed after the stop.
+    it("waits at the deadline for the release of an update its handler has not reached", async function () {
+        const runner = createRunner(SHORT_STOP_TIMEOUT_MS);
+        processor.shouldStartHandler = false;
+        source.add(update(1));
+        runner.start();
+        await settle();
+        processor.shouldStartHandler = true;
+        source.add(update(2));
+        await settle();
+
+        let isStopped = false;
+        const stopped = runner.stop().then(() => {
+            isStopped = true;
+        });
+        await waitForAbort(processor.calls[0]);
+        await settle();
+
+        expect(isStopped).to.equal(false);
+        processor.calls[0]?.finish();
+        await stopped;
+        expect(logger.warnings.map((record) => record.payload)).to.deep.equal([{ updateIds: [2] }]);
+        processor.calls[1]?.finish();
+    });
+
+    it("logs no handler left running when every update at the deadline was kept from its handler", async function () {
+        const runner = createRunner(SHORT_STOP_TIMEOUT_MS);
+        processor.shouldStartHandler = false;
+        source.add(update(1));
+        runner.start();
+        await settle();
+
+        const stopped = runner.stop();
+        await waitForAbort(processor.calls[0]);
+        processor.calls[0]?.finish();
+        await stopped;
+
+        expect(logger.warnings).to.deep.equal([]);
+    });
+
     it("gives up on the handlers in flight at once with a deadline of zero", async function () {
         const runner = createRunner(0);
         source.add(update(1));
@@ -418,7 +461,6 @@ describe("InboxRunner", function () {
         const stopped = runner.stop();
         claim.resolve(claimed);
         await stopped;
-        await settle();
 
         expect(grammy.handledUpdateIds).to.deep.equal([]);
         expect(store.retries).to.have.lengthOf(1);
@@ -513,6 +555,18 @@ describe("InboxRunner", function () {
         await stopped;
     }
 });
+
+async function waitForAbort(call: ProcessCall | undefined): Promise<void> {
+    if (call === undefined) {
+        expect.fail("the call was expected to have started");
+    }
+
+    if (call.signal.aborted) {
+        return;
+    }
+
+    await new Promise<void>((resolve) => call.signal.addEventListener("abort", () => resolve()));
+}
 
 // Collects the rejections nobody handled until stop(): the runner promises none.
 function recordUnhandledRejections(): { stop: () => unknown[] } {

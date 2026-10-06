@@ -252,7 +252,8 @@ source") without its limits. The source serves one generator ([`invariants.md`](
 2. An update whose signal is aborted by now is released without reaching its handler: one a claim in
    progress handed out after the stop deadline, or one whose `init()` the deadline came during
    (see "The runner").
-3. `handleUpdate()` of the grammY bot, then the outcome:
+3. `handleUpdate()` of the grammY bot, with the runner told right before it that the handler starts
+   (see "The runner"), then the outcome:
    - success: `markAsDone()`;
    - `OutboxResultWaiterStopped` as the handler's own error, the one grammY wraps into
      `BotError.error`: the release on stop, never `handle()` (see "Error classes"). The handler has
@@ -260,16 +261,18 @@ source") without its limits. The source serves one generator ([`invariants.md`](
      of its own is not told apart and fails as `Unexpected`;
    - any other error: `InboxFailureHandler.handle()`, with the error as grammY threw it.
 
-The lease is extended while the update is processed, `init()` included: every third of
-`INBOX_LEASE_DURATION` (`EXTENSIONS_PER_LEASE`), each extension timed from the end of the previous
-one, so a handler that runs longer than one lease keeps its group (see "The lease"). A refused
+The lease is extended by `InboxLeaseExtension` (`inbox-lease-extension.ts`) from the start of
+`init()` to the end of the handler: every third of `INBOX_LEASE_DURATION` (`EXTENSIONS_PER_LEASE`),
+each extension timed from the end of the previous one, so a handler that runs longer than one lease
+keeps its group (see "The lease"). A refused
 extension is logged at `warning` and ends the extension: the lease has passed or gone to another
 claim, the recovery takes the update back, and the completion of this node will be fenced. The
 handler runs on all the same: nothing can cut it short. A failed extension is logged at `warning`
-and left to the next one. The extension ends when the update settles, and when the signal aborts:
-the stop has given the update up, and the database is closed after the stop. An extension that was
-in flight as the update settled logs neither its refusal nor its failure: the completion ended the
-lease itself.
+and left to the next one. A warning that throws is dropped: the extension runs from a timer, and
+nothing awaits it. The extension ends before the outcome is written, so the completion that ends the
+lease meets no extension of its own node: one still in flight then has its answer dropped. It ends
+when the signal aborts too: the stop has given the update up, and the database is closed after the
+stop.
 
 A completion or a release that throws is not caught here: the runner logs it (see "The runner").
 
@@ -296,11 +299,14 @@ the worker of the loop: the host, the pid and a `randomUUID()` made with the loo
    first, and the loop starts it as any other; one handed out after the deadline starts with its
    signal aborted, and the processor releases it without handling it;
 2. waits for the handlers in flight up to `INBOX_STOP_TIMEOUT`, counted from the call of `stop()`;
-3. aborts the ones still running at the deadline, which ends the extension of their leases, logs
-   their update ids at `warning` and returns without them. grammY gives a handler no signal, so it
-   cannot be cut short, and a wait for it would hold the stop up for as long as it runs. Such a
-   handler runs on until the process ends: if it settles while the database is open, its outcome is
-   written as any other; otherwise the recovery takes its update back once the lease passes.
+3. aborts the updates still in flight at the deadline, which ends the extension of their leases.
+   One whose handler has not started never starts it: the processor releases it, and the stop waits
+   for the release, a write the database must still be open for. One in its handler is left
+   running: grammY gives a handler no signal, so it cannot be cut short, and a wait for it would
+   hold the stop up for as long as it runs. The stop logs the update ids of those at `warning` and
+   returns without them. Such a handler runs on until the process ends: if it settles while the
+   database is open, its outcome is written as any other; otherwise the recovery takes its update
+   back once the lease passes.
 
 The deadline does not bound the wait for a claim in progress, as in the outbox.
 `ConfigValuesBuilder` does not count `INBOX_STOP_TIMEOUT` in the sum it checks against

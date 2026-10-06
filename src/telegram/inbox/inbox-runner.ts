@@ -11,10 +11,12 @@ import type { InboxUpdateProcessor } from "app/telegram/inbox/inbox-update-proce
 import type { ClaimedInboxUpdate, InboxWorker } from "app/telegram/inbox/store/inbox-store.types";
 
 // An update in flight: its promise settles once the processor has written its outcome or released
-// it, and never rejects.
+// it, and never rejects. hasHandlerStarted tells an update in its handler, which an abort does not cut
+// short, from one the abort keeps away from it.
 type HandlingInFlight = {
     updateId: number;
     settled: Promise<void>;
+    hasHandlerStarted: boolean;
 };
 
 // The handling of a node: one loop over a number of slots, each handling one update at a time
@@ -48,10 +50,12 @@ export class InboxRunner {
         this.runCompletion = this.run();
     }
 
-    // Stops taking updates and waits for the handlers in flight up to stopTimeoutMs from the call.
-    // A handler cannot be cut short: the ones still running then are aborted, which ends the
-    // extension of their lease, and left to run on. Each writes its outcome if it settles while the
-    // database is open; otherwise the recovery takes its update back after the lease.
+    // Stops taking updates and waits for the updates in flight up to stopTimeoutMs from the call, then
+    // aborts the rest. An update that has not reached its handler is released by the processor, and
+    // the stop waits for the release: the database is closed after the stop. A handler cannot be cut
+    // short: the abort ends the extension of its lease, and it is left to run on. It writes its
+    // outcome if it settles while the database is open; otherwise the recovery takes its update back
+    // after the lease.
     public async stop(): Promise<void> {
         this.stopDeadlineAtMs = Date.now() + this.stopTimeoutMs;
         this.isStopping = true;
@@ -70,17 +74,31 @@ export class InboxRunner {
             return;
         }
 
-        const unsettledUpdateIds: number[] = [];
+        const releases: Promise<void>[] = [];
+        const updateIdsLeftRunning: number[] = [];
 
+        // The processor reads the signal right before it starts the handler, so an update whose handler
+        // has not started by the abort never starts it.
         for (const [abortController, handling] of this.handlingsInFlight) {
             abortController.abort();
-            unsettledUpdateIds.push(handling.updateId);
+
+            if (handling.hasHandlerStarted) {
+                updateIdsLeftRunning.push(handling.updateId);
+            } else {
+                releases.push(handling.settled);
+            }
+        }
+
+        await Promise.all(releases);
+
+        if (updateIdsLeftRunning.length === 0) {
+            return;
         }
 
         this.logger.warning(
             "The inbox runner stopped with handlers still running, their updates wait for their own outcome or the lease.",
             {
-                updateIds: unsettledUpdateIds,
+                updateIds: updateIdsLeftRunning,
             },
         );
     }
@@ -122,19 +140,24 @@ export class InboxRunner {
             abortController.abort();
         }
 
-        const settled = this.handle(update, abortController.signal).finally(() => {
+        const handling: HandlingInFlight = { updateId: update.updateId, settled: Promise.resolve(), hasHandlerStarted: false };
+        const onHandlerStart = (): void => {
+            handling.hasHandlerStarted = true;
+        };
+
+        handling.settled = this.handle(update, abortController.signal, onHandlerStart).finally(() => {
             this.handlingsInFlight.delete(abortController);
             this.wakeUpLoop?.();
         });
 
-        this.handlingsInFlight.set(abortController, { updateId: update.updateId, settled: settled });
+        this.handlingsInFlight.set(abortController, handling);
     }
 
     // Never rejects: an async function turns a synchronous throw of process() into a rejection, and
     // the catch takes it.
-    private async handle(update: ClaimedInboxUpdate, signal: AbortSignal): Promise<void> {
+    private async handle(update: ClaimedInboxUpdate, signal: AbortSignal, onHandlerStart: () => void): Promise<void> {
         try {
-            await this.processor.process(update, signal);
+            await this.processor.process(update, signal, onHandlerStart);
         } catch (error) {
             this.logError("An inbox update was not completed, the recovery of its lease takes it back.", {
                 updateId: update.updateId,
