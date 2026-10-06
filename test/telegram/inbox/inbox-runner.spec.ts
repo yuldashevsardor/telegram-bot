@@ -5,6 +5,7 @@ import { InboxFailureKind } from "app/telegram/inbox/failure-classifier/inbox-fa
 import { InboxLeaseReleaser } from "app/telegram/inbox/inbox-lease-releaser";
 import { InboxRunner } from "app/telegram/inbox/inbox-runner";
 import { InboxUpdateProcessor } from "app/telegram/inbox/inbox-update-processor";
+import type { InboxHandlerProgress } from "app/telegram/inbox/inbox-update-processor";
 import type { InboxUpdateSource } from "app/telegram/inbox/inbox-update-source";
 import type { InboxStore } from "app/telegram/inbox/store/inbox-store";
 import type { ClaimedInboxUpdate, InboxAttemptError, InboxLease, InboxWorker } from "app/telegram/inbox/store/inbox-store.types";
@@ -61,6 +62,8 @@ class FakeSource {
 type ProcessCall = {
     update: ClaimedInboxUpdate;
     signal: AbortSignal;
+    // Ends the handler and leaves the call writing its outcome until finish().
+    endHandler: () => void;
     finish: () => void;
     fail: (error: unknown) => void;
 };
@@ -73,11 +76,12 @@ class FakeProcessor {
     public readonly calls: ProcessCall[] = [];
     public shouldStartHandler = true;
 
-    public process(update: ClaimedInboxUpdate, signal: AbortSignal, onHandlerStart: () => void): Promise<void> {
+    public process(update: ClaimedInboxUpdate, signal: AbortSignal, handlerProgress: InboxHandlerProgress): Promise<void> {
         const { promise, resolve, reject } = Promise.withResolvers<void>();
         const call: ProcessCall = {
             update,
             signal,
+            endHandler: () => handlerProgress.onEnd(),
             finish: () => resolve(),
             fail: (error: unknown) => reject(error),
         };
@@ -86,7 +90,7 @@ class FakeProcessor {
         if (signal.aborted) {
             call.finish();
         } else if (this.shouldStartHandler) {
-            onHandlerStart();
+            handlerProgress.onStart();
         }
 
         return promise;
@@ -361,6 +365,28 @@ describe("InboxRunner", function () {
         processor.shouldStartHandler = true;
         source.add(update(2));
         await settle();
+
+        let isStopped = false;
+        const stopped = runner.stop().then(() => {
+            isStopped = true;
+        });
+        await waitForAbort(processor.calls[0]);
+        await settle();
+
+        expect(isStopped).to.equal(false);
+        processor.calls[0]?.finish();
+        await stopped;
+        expect(logger.warnings.map((record) => record.payload)).to.deep.equal([{ updateIds: [2] }]);
+        processor.calls[1]?.finish();
+    });
+
+    // The write is to the database, which is closed after the stop.
+    it("waits at the deadline for the outcome write of an update whose handler has ended", async function () {
+        const runner = createRunner(SHORT_STOP_TIMEOUT_MS);
+        source.add(update(1), update(2));
+        runner.start();
+        await settle();
+        processor.calls[0]?.endHandler();
 
         let isStopped = false;
         const stopped = runner.stop().then(() => {

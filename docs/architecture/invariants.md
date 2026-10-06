@@ -84,8 +84,9 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   [`application.md`](./application.md). The check compares the values of one assembly. After a
   rebuild of the configuration ([`config.md`](./config.md)) they can drift apart: `Application`
   takes the overall deadline from the new values, while `Bot` and `OutboxRunner` stay on what they
-  copied in their constructors. This is unreachable while the deadlines are set non-blank in the
-  environment: the environment is stronger than the watched file.
+  copied in their constructors. `InboxRunner` copies `INBOX_STOP_TIMEOUT` the same way, and the sum
+  does not count it yet ([`inbox.md`](./inbox.md), "The runner"). This is unreachable while the
+  deadlines are set non-blank in the environment: the environment is stronger than the watched file.
 - **A value taken by `configValue(...)` in a constructor is not changed by a rebuild.** The
   configuration is rebuilt on an edit of the watched file ([`config.md`](./config.md)). But an
   object that copied the value into a field keeps working on the old one. A value becomes "hot"

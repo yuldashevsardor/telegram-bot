@@ -23,6 +23,13 @@ type HandlingOutcome = { kind: "done" } | { kind: "release" } | { kind: "failure
 // passes is not met by the recovery (docs/architecture/inbox.md, "The lease").
 const EXTENSIONS_PER_LEASE = 3;
 
+// Told when the handler of the update starts and when it ends: the stop of the runner waits for an
+// update outside its handler, and leaves one in it running.
+export type InboxHandlerProgress = {
+    onStart: () => void;
+    onEnd: () => void;
+};
+
 // Takes a claimed update to its outcome: the handler of the bot, with the lease extended while it
 // runs, then the outcome written to the inbox (docs/architecture/inbox.md, "The update processor").
 @injectable()
@@ -43,9 +50,8 @@ export class InboxUpdateProcessor {
     // signal is aborted when the stop of the node gives up waiting. A handler cannot be cut short, so
     // the abort only keeps an update that has not reached its handler away from it, and ends the
     // extension of the lease. The signal may come aborted already: an update a claim in progress
-    // handed out after the stop deadline. onHandlerStart is called right before the handler: the stop
-    // waits for the release of an update that has not reached it.
-    public async process(update: ClaimedInboxUpdate, signal: AbortSignal, onHandlerStart: () => void): Promise<void> {
+    // handed out after the stop deadline.
+    public async process(update: ClaimedInboxUpdate, signal: AbortSignal, handlerProgress: InboxHandlerProgress): Promise<void> {
         const leaseExtension = new InboxLeaseExtension(this.store, this.logger, update, this.leaseExtensionIntervalMs, signal);
         let outcome: HandlingOutcome;
 
@@ -54,7 +60,7 @@ export class InboxUpdateProcessor {
         // Stopped before the outcome is written: the completion ends the lease, and an extension that
         // came after it would be refused and logged for nothing.
         try {
-            outcome = await this.handle(update, signal, onHandlerStart);
+            outcome = await this.handle(update, signal, handlerProgress);
         } finally {
             leaseExtension.stop();
         }
@@ -62,7 +68,7 @@ export class InboxUpdateProcessor {
         await this.writeOutcome(update, outcome);
     }
 
-    private async handle(update: ClaimedInboxUpdate, signal: AbortSignal, onHandlerStart: () => void): Promise<HandlingOutcome> {
+    private async handle(update: ClaimedInboxUpdate, signal: AbortSignal, handlerProgress: InboxHandlerProgress): Promise<HandlingOutcome> {
         // A no-op once the bot knows itself: grammY keeps the answer of getMe. init() retries getMe on
         // a network failure until the signal aborts it; one thrown on the abort is released below.
         try {
@@ -79,7 +85,7 @@ export class InboxUpdateProcessor {
             return { kind: "release" };
         }
 
-        onHandlerStart();
+        handlerProgress.onStart();
 
         try {
             await this.bot.grammy.handleUpdate(update.update);
@@ -92,6 +98,8 @@ export class InboxUpdateProcessor {
             }
 
             return { kind: "failure", error: error };
+        } finally {
+            handlerProgress.onEnd();
         }
 
         return { kind: "done" };

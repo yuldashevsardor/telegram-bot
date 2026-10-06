@@ -7,16 +7,17 @@ import { withTimeout } from "app/shared/utils";
 import type { Logger } from "app/platform/logger/logger";
 import type { UnknownObject } from "app/shared/types";
 import type { InboxUpdateSource } from "app/telegram/inbox/inbox-update-source";
-import type { InboxUpdateProcessor } from "app/telegram/inbox/inbox-update-processor";
+import type { InboxHandlerProgress, InboxUpdateProcessor } from "app/telegram/inbox/inbox-update-processor";
 import type { ClaimedInboxUpdate, InboxWorker } from "app/telegram/inbox/store/inbox-store.types";
 
 // An update in flight: its promise settles once the processor has written its outcome or released
-// it, and never rejects. hasHandlerStarted tells an update in its handler, which an abort does not cut
-// short, from one the abort keeps away from it.
+// it, and never rejects. isHandlerRunning tells an update in its handler, which an abort does not cut
+// short, from one before or after it, which the abort lets settle soon: a release, or the write of
+// an outcome.
 type HandlingInFlight = {
     updateId: number;
     settled: Promise<void>;
-    hasHandlerStarted: boolean;
+    isHandlerRunning: () => boolean;
 };
 
 // The handling of a node: one loop over a number of slots, each handling one update at a time
@@ -51,11 +52,11 @@ export class InboxRunner {
     }
 
     // Stops taking updates and waits for the updates in flight up to stopTimeoutMs from the call, then
-    // aborts the rest. An update that has not reached its handler is released by the processor, and
-    // the stop waits for the release: the database is closed after the stop. A handler cannot be cut
-    // short: the abort ends the extension of its lease, and it is left to run on. It writes its
-    // outcome if it settles while the database is open; otherwise the recovery takes its update back
-    // after the lease.
+    // aborts the rest. The stop waits for an update outside its handler: one that has not reached it
+    // is released by the processor, one past it is having its outcome written, and both writes need
+    // the database, which is closed after the stop. A handler cannot be cut short: the abort ends the
+    // extension of its lease, and it is left to run on. It writes its outcome if it settles while the
+    // database is open; otherwise the recovery takes its update back after the lease.
     public async stop(): Promise<void> {
         this.stopDeadlineAtMs = Date.now() + this.stopTimeoutMs;
         this.isStopping = true;
@@ -74,7 +75,7 @@ export class InboxRunner {
             return;
         }
 
-        const releases: Promise<void>[] = [];
+        const writesOutsideHandlers: Promise<void>[] = [];
         const updateIdsLeftRunning: number[] = [];
 
         // The processor reads the signal right before it starts the handler, so an update whose handler
@@ -82,14 +83,14 @@ export class InboxRunner {
         for (const [abortController, handling] of this.handlingsInFlight) {
             abortController.abort();
 
-            if (handling.hasHandlerStarted) {
+            if (handling.isHandlerRunning()) {
                 updateIdsLeftRunning.push(handling.updateId);
             } else {
-                releases.push(handling.settled);
+                writesOutsideHandlers.push(handling.settled);
             }
         }
 
-        await Promise.all(releases);
+        await Promise.all(writesOutsideHandlers);
 
         if (updateIdsLeftRunning.length === 0) {
             return;
@@ -140,24 +141,33 @@ export class InboxRunner {
             abortController.abort();
         }
 
-        const handling: HandlingInFlight = { updateId: update.updateId, settled: Promise.resolve(), hasHandlerStarted: false };
-        const onHandlerStart = (): void => {
-            handling.hasHandlerStarted = true;
+        let isHandlerRunning = false;
+        const handlerProgress: InboxHandlerProgress = {
+            onStart: () => {
+                isHandlerRunning = true;
+            },
+            onEnd: () => {
+                isHandlerRunning = false;
+            },
         };
 
-        handling.settled = this.handle(update, abortController.signal, onHandlerStart).finally(() => {
+        const settled = this.handle(update, abortController.signal, handlerProgress).finally(() => {
             this.handlingsInFlight.delete(abortController);
             this.wakeUpLoop?.();
         });
 
-        this.handlingsInFlight.set(abortController, handling);
+        this.handlingsInFlight.set(abortController, {
+            updateId: update.updateId,
+            settled: settled,
+            isHandlerRunning: () => isHandlerRunning,
+        });
     }
 
     // Never rejects: an async function turns a synchronous throw of process() into a rejection, and
     // the catch takes it.
-    private async handle(update: ClaimedInboxUpdate, signal: AbortSignal, onHandlerStart: () => void): Promise<void> {
+    private async handle(update: ClaimedInboxUpdate, signal: AbortSignal, handlerProgress: InboxHandlerProgress): Promise<void> {
         try {
-            await this.processor.process(update, signal, onHandlerStart);
+            await this.processor.process(update, signal, handlerProgress);
         } catch (error) {
             this.logError("An inbox update was not completed, the recovery of its lease takes it back.", {
                 updateId: update.updateId,

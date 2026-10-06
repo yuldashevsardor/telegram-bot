@@ -252,8 +252,8 @@ source") without its limits. The source serves one generator ([`invariants.md`](
 2. An update whose signal is aborted by now is released without reaching its handler: one a claim in
    progress handed out after the stop deadline, or one whose `init()` the deadline came during
    (see "The runner").
-3. `handleUpdate()` of the grammY bot, with the runner told right before it that the handler starts
-   (see "The runner"), then the outcome:
+3. `handleUpdate()` of the grammY bot, with the runner told when the handler starts and when it
+   ends (see "The runner"), then the outcome:
    - success: `markAsDone()`;
    - `OutboxResultWaiterStopped` as the handler's own error, the one grammY wraps into
      `BotError.error`: the release on stop, never `handle()` (see "Error classes"). The handler has
@@ -300,15 +300,17 @@ the worker of the loop: the host, the pid and a `randomUUID()` made with the loo
    signal aborted, and the processor releases it without handling it;
 2. waits for the handlers in flight up to `INBOX_STOP_TIMEOUT`, counted from the call of `stop()`;
 3. aborts the updates still in flight at the deadline, which ends the extension of their leases.
-   One whose handler has not started never starts it: the processor releases it, and the stop waits
-   for the release, a write the database must still be open for. One in its handler is left
-   running: grammY gives a handler no signal, so it cannot be cut short, and a wait for it would
-   hold the stop up for as long as it runs. The stop logs the update ids of those at `warning` and
-   returns without them. Such a handler runs on until the process ends: if it settles while the
+   The stop waits for each one outside its handler: one whose handler has not started never starts
+   it, and the processor releases it; one whose handler has ended is having its outcome written.
+   Both are writes the database must still be open for. One in its handler is left running: grammY
+   gives a handler no signal, so it cannot be cut short, and a wait for it would hold the stop up
+   for as long as it runs. The stop logs the update ids of those at `warning` and returns without
+   them. Such a handler runs on until the process ends: if it settles while the
    database is open, its outcome is written as any other; otherwise the recovery takes its update
    back once the lease passes.
 
-The deadline does not bound the wait for a claim in progress, as in the outbox.
+The deadline bounds neither the wait for a claim in progress, as in the outbox, nor the wait for the
+writes of step 3.
 `ConfigValuesBuilder` does not count `INBOX_STOP_TIMEOUT` in the sum it checks against
 `GRACEFUL_SHUTDOWN_TIMEOUT` ([`application.md`](./application.md), "Stop"), nor the connections
 of the runner against `DATABASE_CONNECTION_LIMIT`: nothing starts the runner yet.
