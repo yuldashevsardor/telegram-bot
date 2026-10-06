@@ -200,8 +200,6 @@ export class InboxPollingSource {
         return error instanceof postgres.PostgresError && REFUSED_UPDATE_SQLSTATES.has(error.code);
     }
 
-    // An update without a session key is dropped, as HasSessionKeyFilter drops it from the pipeline:
-    // the inbox stores none (docs/architecture/inbox.md, "Updates without a session key").
     private toInputs(updates: Update[], me: UserFromGetMe): InboxUpdateInput[] {
         const inputs: InboxUpdateInput[] = [];
 
@@ -209,8 +207,6 @@ export class InboxPollingSource {
             const group = this.findGroup(update, me);
 
             if (group === undefined) {
-                this.logger.warning("Update is dropped, because its session key cannot be resolved.", { updateId: update.update_id });
-
                 continue;
             }
 
@@ -222,11 +218,19 @@ export class InboxPollingSource {
 
     // The pair getSessionKey() makes the session key of, read off the Context of grammY as session()
     // reads it: the group is the session key (docs/architecture/inbox.md, "Tables"), whatever the type
-    // of the update.
+    // of the update. undefined: the update has no session key and is dropped, with the warning
+    // HasSessionKeyFilter gives it in the pipeline; the inbox stores none (docs/architecture/inbox.md,
+    // "Updates without a session key"). The contents of the update stay out of the log.
     private findGroup(update: Update, me: UserFromGetMe): InboxGroupKey | undefined {
         const ctx = new Context(update, this.api, me);
 
         if (!hasSessionKey(ctx)) {
+            this.logger.warning("Update is dropped, because its session key cannot be resolved.", {
+                updateId: update.update_id,
+                hasFrom: ctx.from !== undefined,
+                hasChat: ctx.chat !== undefined,
+            });
+
             return undefined;
         }
 

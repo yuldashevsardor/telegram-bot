@@ -260,6 +260,20 @@ describe("InboxPollingSource", function () {
             expect(store.stored.map((input) => [input.userId, input.chatId])).to.deep.equal([[OTHER_USER, CHAT]]);
         });
 
+        // A channel post has a chat but no user.
+        it("names in the warning which half of the session key an update lacks", async function () {
+            const channelPost = {
+                update_id: 10,
+                channel_post: { message_id: 1, date: 0, chat: { id: CHAT, type: "channel", title: "Channel" }, text: "text" },
+            } as Update;
+            api.answers.push([channelPost]);
+
+            source.start();
+            await api.waitForGetUpdates(2);
+
+            expect(logger.warnings.map((record) => record.payload)).to.deep.equal([{ updateId: 10, hasFrom: false, hasChat: true }]);
+        });
+
         it("drops an update without a user or a chat with a warning and stores the rest", async function () {
             const withoutUser = { update_id: 11, poll: { id: "1" } } as unknown as Update;
             api.answers.push([message(10), withoutUser, message(12)]);
@@ -270,7 +284,10 @@ describe("InboxPollingSource", function () {
             expect(store.storedUpdateIds()).to.deep.equal([10, 12]);
             expect(api.offsets()).to.deep.equal([0, 13]);
             expect(logger.warnings).to.deep.equal([
-                { message: "Update is dropped, because its session key cannot be resolved.", payload: { updateId: 11 } },
+                {
+                    message: "Update is dropped, because its session key cannot be resolved.",
+                    payload: { updateId: 11, hasFrom: false, hasChat: false },
+                },
             ]);
         });
     });
