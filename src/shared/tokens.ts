@@ -73,6 +73,10 @@ export const Tokens = {
             FailureClassifier: Symbol.for("BotInboxFailureClassifier"),
             FailureHandler: Symbol.for("BotInboxFailureHandler"),
             LeaseReleaser: Symbol.for("BotInboxLeaseReleaser"),
+            UpdateSource: Symbol.for("BotInboxUpdateSource"),
+            UpdateProcessor: Symbol.for("BotInboxUpdateProcessor"),
+            Runner: Symbol.for("BotInboxRunner"),
+            Maintenance: Symbol.for("BotInboxMaintenance"),
         },
         ApiFailureClassifier: Symbol.for("BotApiFailureClassifier"),
         User: {

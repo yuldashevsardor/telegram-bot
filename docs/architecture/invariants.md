@@ -232,12 +232,24 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   passed: the recovery tells its lease by the token, not by `locked_until`
   ([`inbox.md`](./inbox.md), "Lease recovery"). A write that moves `locked_until` without that
   check, or an extension sent as the lease passes, lets the recovery take back an update whose
-  handler still runs ([`inbox.md`](./inbox.md), "The lease"). Nothing calls the extension yet.
+  handler still runs ([`inbox.md`](./inbox.md), "The lease"). `InboxUpdateProcessor` extends every
+  third of the lease, timed from the end of the previous extension, and stops at the first refusal
+  ([`inbox.md`](./inbox.md), "The update processor"); a slow extension query eats into that margin,
+  and nothing bounds it.
 - **An update is released on stop only once its handler has settled.**
   `InboxLeaseReleaser.releaseOnStop()` makes the group `ready` at once, so a handler of the stopping
   node still running can reply after another node has handled the next update of the group: the
-  order inside the group breaks. Nothing calls the release yet, and a caller is checked by nothing
+  order inside the group breaks. `InboxUpdateProcessor` releases only an update whose handler has
+  not started or has thrown; a new caller of the release is checked by nothing
   ([`inbox.md`](./inbox.md), "Release on stop").
+- **`InboxUpdateSource` serves one generator: the runner of a node takes every update from one
+  `stream(worker)`, so `InboxRunner.start()` is called once**, for the reason the outbox source
+  gives (above): one sleep in progress, and a `LISTEN` per generator
+  ([`inbox.md`](./inbox.md), "The update source"). Nothing checks this.
+- **`InboxUpdateSource` claims one update at a time.** At the stop `InboxRunner` starts the one
+  update the generator has handed out and closes the generator, so whatever a claim got beyond it is
+  dropped and stays claimed by the stopping node until its lease passes, the default ten minutes
+  ([`inbox.md`](./inbox.md), "The runner"). Nothing checks `CLAIM_LIMIT` against this.
 
 ## Storage: migrations, `sessions`, `User`
 

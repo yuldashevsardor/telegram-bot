@@ -5,6 +5,7 @@ import type { OutboxRetryDelaySettings } from "app/telegram/outbox/retry-delay/o
 import type { OutboxMaintenanceSettings } from "app/telegram/outbox/maintenance/outbox-maintenance.types";
 import type { OutboxResultWaiterSettings } from "app/telegram/outbox/result-waiter/outbox-result-waiter.types";
 import type { InboxCleanupSettings } from "app/telegram/inbox/store/inbox-store.types";
+import type { InboxMaintenanceSettings } from "app/telegram/inbox/maintenance/inbox-maintenance.types";
 import type { OutboxCleanupSettings } from "app/telegram/outbox/store/outbox-store.types";
 
 export const Environments = ["production", "development", "testing"] as const;
@@ -62,6 +63,11 @@ export type ConfigValues = {
         leaseDurationMs: number;
         // The attempts of an update that count towards the limit, the last one included.
         maxAttempts: number;
+        // How many updates the runner of a node handles at once.
+        concurrency: number;
+        // How long the stop of the runner waits for the handlers in flight before it leaves them.
+        stopTimeoutMs: number;
+        maintenance: InboxMaintenanceSettings;
         cleanup: InboxCleanupSettings;
     };
 
