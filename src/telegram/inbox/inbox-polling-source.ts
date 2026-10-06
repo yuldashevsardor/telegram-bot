@@ -15,10 +15,8 @@ import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifi
 import type { InboxApiFactory } from "app/telegram/inbox/inbox-api-factory";
 import type { InboxStore } from "app/telegram/inbox/store/inbox-store";
 import type { InboxGroupKey, InboxUpdateInput } from "app/telegram/inbox/store/inbox-store.types";
-import type { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
-import type { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
+import type { RetryDelay } from "app/telegram/retry-delay/retry-delay";
 import { hasSessionKey } from "app/telegram/session/session.helper";
-import { HasSessionKeyFilter } from "app/telegram/filter/has-session-key.filter";
 
 // How long getUpdates waits for an update before it answers with none.
 const POLL_TIMEOUT_SECONDS = 30;
@@ -55,10 +53,9 @@ export class InboxPollingSource {
     public constructor(
         @inject<InboxStore>(Tokens.Bot.Inbox.Store) private readonly store: InboxStore,
         @inject<InboxApiFactory>(Tokens.Bot.Inbox.ApiFactory) apiFactory: InboxApiFactory,
-        @inject<OutboxRetryDelay>(Tokens.Bot.Outbox.RetryDelay) private readonly retryDelay: OutboxRetryDelay,
+        @inject<RetryDelay>(Tokens.Bot.RetryDelay) private readonly retryDelay: RetryDelay,
         @inject<TelegramBotApiFailureClassifier>(Tokens.Bot.ApiFailureClassifier)
         private readonly botApiClassifier: TelegramBotApiFailureClassifier,
-        @inject<OutboxErrorSerializer>(Tokens.Bot.Outbox.ErrorSerializer) private readonly errorSerializer: OutboxErrorSerializer,
         @inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger,
     ) {
         this.api = apiFactory.create(POLL_TIMEOUT_SECONDS + ANSWER_MARGIN_SECONDS);
@@ -95,7 +92,11 @@ export class InboxPollingSource {
             return;
         }
 
-        // Lower than any update_id: Telegram answers it from the first update it has not been told of.
+        // Lower than any update_id: Telegram answers it from the first update it has not been told of. An
+        // update is told of by a getUpdates with an offset past it, and never comes again. So a restart
+        // gets again only the last batch before the stop, which no getUpdates has told of, and the
+        // push leaves out the updates of it stored already: the inbox gets no duplicate
+        // (docs/architecture/inbox.md, "The polling source").
         let offset = 0;
 
         while (!this.isStopped()) {
@@ -250,12 +251,16 @@ export class InboxPollingSource {
     // reads it: the group is the session key (docs/architecture/inbox.md, "Tables"), whatever the type
     // of the update. undefined: the update has no session key and is dropped, with the warning
     // HasSessionKeyFilter gives it in the pipeline; the inbox stores none (docs/architecture/inbox.md,
-    // "Updates without a session key").
+    // "Updates without a session key"). The contents of the update stay out of the log.
     private findGroup(update: Update, me: UserFromGetMe): InboxGroupKey | undefined {
         const ctx = new Context(update, this.api, me);
 
         if (!hasSessionKey(ctx)) {
-            HasSessionKeyFilter.warnDropped(this.logger, ctx);
+            this.logger.warning("Update is dropped, because its session key cannot be resolved.", {
+                updateId: update.update_id,
+                hasFrom: ctx.from !== undefined,
+                hasChat: ctx.chat !== undefined,
+            });
 
             return undefined;
         }
@@ -272,17 +277,16 @@ export class InboxPollingSource {
         await this.pauseAfterFailure(error);
     }
 
-    // A call the stop aborted is not a failure. The error goes through the serializer: the fetch error
-    // an HttpError wraps names the URL of the call, and the URL carries the bot token.
+    // A call the stop aborted is not a failure.
     private logCallFailure(message: string, error: unknown, payload: UnknownObject): void {
         if (this.isStopped()) {
             return;
         }
 
-        this.logger.error(message, { ...payload, cause: this.errorSerializer.serialize(error) });
+        this.logger.error(message, { ...payload, cause: error });
     }
 
-    // The retry delay of the outbox for the failures in a row, so an outage of Telegram, a revoked
+    // The retry delay for the failures in a row, so an outage of Telegram, a revoked
     // token or a lasting 409 is not retried and logged every second; or the wait a 429 asks for, if it
     // is longer.
     private async pauseAfterFailure(error: unknown): Promise<void> {

@@ -279,7 +279,7 @@ Every attempt counts towards `INBOX_MAX_ATTEMPTS`, whatever it ended with: the a
 is `earlierAttempts + 1`, checked on a transient failure only. The count covers the whole history of
 the update, as in the outbox ([`outbox.md`](./outbox.md), "Outcomes").
 
-The retry delay is the outbox's: `OutboxRetryDelay.computeMs()` of the counted attempts, with the
+The retry delay is the outbox's: `RetryDelay.computeMs()` of the counted attempts, with the
 `OUTBOX_RETRY_` variables ([`outbox.md`](./outbox.md), "Retry delay"). The error goes into the
 attempt as `OutboxErrorSerializer` writes it, with its class in `kind`
 ([`outbox.md`](./outbox.md), "Outcomes").
@@ -382,19 +382,27 @@ drop a batch whose handling failed or stop polling for good; neither retries the
 3. Each update gets its group, `from` and `chat` of the `Context`, the pair `getSessionKey()`
    makes the session key of, whatever the type of the update. An update without either is dropped
    (see "Updates without a session key"); `hasSessionKey()` of `session.helper.ts` is the rule of
-   both, and `HasSessionKeyFilter.warnDropped()` the warning of both.
+   both.
 4. `pushBatch()` of the rest. Only once it has committed does the offset move past the last update
    of the answer, dropped ones included: the next `getUpdates` tells Telegram that the bot has
    them.
 
 A failed `getUpdates` or push is logged and tried again from the same offset after a pause, so
 Telegram gives the same batch again, and the push leaves out what it stored already (see "Push",
-step 2). The pause is the retry delay of the outbox, `OutboxRetryDelay.computeMs()` of the failures
-in a row, of calls and pushes alike ([`outbox.md`](./outbox.md), "Retry delay"), so an outage, a
-revoked token (401) or a webhook or another poller (409) is not retried and logged every second;
-a 429 waits its `retry_after` when that is longer. A stored batch and a passed preparation start the
-count over. The error of a Bot API call is logged as `OutboxErrorSerializer` writes it: the fetch
-error an `HttpError` wraps names the URL of the call, and the URL carries the bot token.
+step 2). The pause is the retry delay the outbox and the inbox share, `RetryDelay.computeMs()` of
+the failures in a row, of calls and pushes alike ([`outbox.md`](./outbox.md), "Retry delay"), so an
+outage, a revoked token (401) or a webhook or another poller (409) is not retried and logged every
+second; a 429 waits its `retry_after` when that is longer. A stored batch and a passed preparation
+start the count over. The error of a Bot API call is logged as it is thrown: the fetch error an
+`HttpError` wraps names the URL of the call, and the URL carries the bot token, so the token can
+reach the log: the owner's decision in
+[PR #839](https://github.com/yuldashevsardor/telegram-bot/pull/839).
+
+A restart gets no duplicate into the inbox. The first offset of every start is 0, and Telegram
+answers it from the first update it has not been told of; an update is told of by a `getUpdates`
+whose offset is past it, and never comes again. So only the last batch before the stop comes again,
+and the push leaves out its updates stored already, while their rows are kept: the retention of a
+`done` update outlasts the 24 h Telegram keeps an update (see "Cleanup").
 
 **A refused update.** PostgreSQL refuses a `\u0000` escape or a lone surrogate in `jsonb`, and
 `pushBatch()` stores the batch in one statement, so one such update rolls the batch back, and
@@ -413,9 +421,7 @@ of class `22` included, and its error log names the updates not stored.
 **The stop** aborts the Bot API call in flight, ends the pause at once and waits for a push in
 flight, and no `getUpdates` follows. It has no deadline of its own: a push stuck on the database
 holds it, so whatever stops the source bounds the wait
-([#829](https://github.com/yuldashevsardor/telegram-bot/issues/829)). Telegram learns the offset
-of the last batch only from the next `getUpdates`, so the next start gets that batch again, and the
-push leaves it out.
+([#829](https://github.com/yuldashevsardor/telegram-bot/issues/829)).
 
 ## The store in code
 

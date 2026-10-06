@@ -48,7 +48,6 @@ export const Tokens = {
         Bot: Symbol.for("BotBot"),
         Outbox: {
             Store: Symbol.for("BotOutboxStore"),
-            RetryDelay: Symbol.for("BotOutboxRetryDelay"),
             Result: {
                 Waiter: Symbol.for("BotOutboxResultWaiter"),
                 Reader: Symbol.for("BotOutboxResultReader"),
@@ -77,6 +76,7 @@ export const Tokens = {
             PollingSource: Symbol.for("BotInboxPollingSource"),
         },
         ApiFailureClassifier: Symbol.for("BotApiFailureClassifier"),
+        RetryDelay: Symbol.for("BotRetryDelay"),
         User: {
             Service: Symbol.for("BotUserService"),
             Repository: Symbol.for("BotUserRepository"),

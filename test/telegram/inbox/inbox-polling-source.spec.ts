@@ -10,25 +10,23 @@ import type { InboxApiFactory } from "app/telegram/inbox/inbox-api-factory";
 import { InboxPollingSource } from "app/telegram/inbox/inbox-polling-source";
 import type { InboxStore } from "app/telegram/inbox/store/inbox-store";
 import type { InboxUpdateInput } from "app/telegram/inbox/store/inbox-store.types";
-import { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
-import { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
+import { RetryDelay } from "app/telegram/retry-delay/retry-delay";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 import { telegramError } from "test/telegram/telegram-bot-api-failure-classifier.helper";
 
-const TOKEN = "123456789:secret";
 const ME = { id: 1, is_bot: true, first_name: "Bot", username: "test_bot" } as UserFromGetMe;
 const USER = 5_000_000_001;
 const OTHER_USER = 5_000_000_002;
 const CHAT = 5_000_000_001;
 // random() of 0 takes the lower end of the step, half of it: 500 ms after the first failure in a
 // row, 1 s after the second, 2 s after the third.
-const RETRY_DELAY = new OutboxRetryDelay({ firstDelayMs: 1_000, maxDelayMs: 60_000, multiplier: 2 }, () => 0);
+const RETRY_DELAY = new RetryDelay({ firstDelayMs: 1_000, maxDelayMs: 60_000, multiplier: 2 }, () => 0);
 // The values jsonb refuses in a string.
 const NUL_TEXT = "before\u0000after";
 const SURROGATE_TEXT = "before\ud800after";
 const DETAIL = "the detail of the server";
 // A pause long enough for a spec to see the source wait in it, never waited out.
-const LONG_RETRY_DELAY = new OutboxRetryDelay({ firstDelayMs: 120_000, maxDelayMs: 120_000, multiplier: 1 }, () => 0);
+const LONG_RETRY_DELAY = new RetryDelay({ firstDelayMs: 120_000, maxDelayMs: 120_000, multiplier: 1 }, () => 0);
 // How long a spec gives the source to take a step it must not take.
 const SETTLE_MS = 20;
 
@@ -182,7 +180,7 @@ describe("InboxPollingSource", function () {
         await waitingSource?.stop();
     });
 
-    function sourceDependencies(retryDelay: OutboxRetryDelay): ConstructorParameters<typeof InboxPollingSource> {
+    function sourceDependencies(retryDelay: RetryDelay): ConstructorParameters<typeof InboxPollingSource> {
         const apiFactory = {
             create: (timeoutSeconds: number): Api => {
                 apiTimeoutSeconds = timeoutSeconds;
@@ -196,7 +194,6 @@ describe("InboxPollingSource", function () {
             apiFactory as unknown as InboxApiFactory,
             retryDelay,
             new TelegramBotApiFailureClassifier(),
-            new OutboxErrorSerializer(TOKEN),
             logger,
         ];
     }
@@ -303,18 +300,20 @@ describe("InboxPollingSource", function () {
     });
 
     describe("a failure", function () {
-        it("gets the updates again from the same offset after a failed getUpdates, and logs it without the bot token", async function () {
-            const fetchError = new Error(`request to https://api.telegram.org/bot${TOKEN}/getUpdates failed, reason: socket hang up`);
-            api.answers.push([message(10)], new HttpError("Network request for 'getUpdates' failed!", fetchError), [message(11)]);
+        it("gets the updates again from the same offset after a failed getUpdates, and logs the error", async function () {
+            const failure = new HttpError("Network request for 'getUpdates' failed!", new Error("socket hang up"));
+            api.answers.push([message(10)], failure, [message(11)]);
 
             source.start();
             await api.waitForGetUpdates(4);
 
             expect(api.offsets()).to.deep.equal([0, 11, 11, 12]);
-            expect(logger.errors).to.have.lengthOf(1);
-            expect(logger.errors[0]?.message).to.equal("Getting updates failed, the source tries again from the same offset.");
-            expect(logger.errors[0]?.payload?.["offset"]).to.equal(11);
-            expect(JSON.stringify(logger.errors[0]?.payload)).to.include("socket hang up").and.not.include(TOKEN);
+            expect(logger.errors).to.deep.equal([
+                {
+                    message: "Getting updates failed, the source tries again from the same offset.",
+                    payload: { offset: 11, cause: failure },
+                },
+            ]);
         });
 
         it("does not move the offset over a batch that failed to store, and stores it on the next getUpdates", async function () {

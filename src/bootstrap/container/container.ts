@@ -35,7 +35,7 @@ import { PgSqlUserRepository } from "app/telegram/user/pgsql-repository/pgsql-us
 import { UserService } from "app/telegram/user/service/user-service";
 import { StartConversation } from "app/telegram/conversation/start/start.conversation";
 import { OutboxStore } from "app/telegram/outbox/store/outbox-store";
-import { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
+import { RetryDelay } from "app/telegram/retry-delay/retry-delay";
 import { OutboxFinishedMessageReader } from "app/telegram/outbox/outbox-finished-message-reader";
 import { OutboxResultWaiter } from "app/telegram/outbox/result-waiter/outbox-result-waiter";
 import { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-handler";
@@ -121,7 +121,6 @@ export class Container extends InversifyContainer {
 
         // Outbox
         this.bind<OutboxStore>(Tokens.Bot.Outbox.Store).to(OutboxStore).inSingletonScope();
-        this.bind<OutboxRetryDelay>(Tokens.Bot.Outbox.RetryDelay).to(OutboxRetryDelay).inSingletonScope();
         this.bind<OutboxFinishedMessageReader>(Tokens.Bot.Outbox.Result.Reader).to(OutboxFinishedMessageReader).inSingletonScope();
         this.bind<OutboxResultWaiter>(Tokens.Bot.Outbox.Result.Waiter).to(OutboxResultWaiter).inSingletonScope();
         this.bind<OutboxFailureHandler>(Tokens.Bot.Outbox.FailureHandler).to(OutboxFailureHandler).inSingletonScope();
@@ -156,6 +155,9 @@ export class Container extends InversifyContainer {
 
         // Bot API failures
         this.bind<TelegramBotApiFailureClassifier>(Tokens.Bot.ApiFailureClassifier).to(TelegramBotApiFailureClassifier).inSingletonScope();
+
+        // The retry delay of the outbox and the inbox
+        this.bind<RetryDelay>(Tokens.Bot.RetryDelay).to(RetryDelay).inSingletonScope();
 
         // User
         this.bind<UserRepository>(Tokens.Bot.User.Repository).to(PgSqlUserRepository).inSingletonScope();

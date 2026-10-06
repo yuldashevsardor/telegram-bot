@@ -1,7 +1,7 @@
 import type { Level } from "app/platform/logger/logger.types";
 import type { DatabaseSettings } from "app/platform/database/database.types";
 import type { BotSettings } from "app/telegram/bot/bot.types";
-import type { OutboxRetryDelaySettings } from "app/telegram/outbox/retry-delay/outbox-retry-delay.types";
+import type { RetryDelaySettings } from "app/telegram/retry-delay/retry-delay.types";
 import type { OutboxMaintenanceSettings } from "app/telegram/outbox/maintenance/outbox-maintenance.types";
 import type { OutboxResultWaiterSettings } from "app/telegram/outbox/result-waiter/outbox-result-waiter.types";
 import type { InboxCleanupSettings } from "app/telegram/inbox/store/inbox-store.types";
@@ -41,7 +41,7 @@ export type ConfigValues = {
     limits: TelegramLimits;
 
     outbox: {
-        retryDelay: OutboxRetryDelaySettings;
+        retryDelay: RetryDelaySettings;
         resultWaiter: OutboxResultWaiterSettings;
         // How long a pulled chat stays with the node that pulled it.
         leaseDurationMs: number;

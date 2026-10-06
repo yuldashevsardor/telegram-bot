@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import { OutboxLeaseRecovery } from "app/telegram/outbox/lease/outbox-lease-recovery";
 import { OutboxLeaseRetrier } from "app/telegram/outbox/lease/outbox-lease-retrier";
-import { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
+import { RetryDelay } from "app/telegram/retry-delay/retry-delay";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { ExpiredOutboxLease, OutboxAttemptError, OutboxLease } from "app/telegram/outbox/store/outbox-store.types";
 
@@ -10,7 +10,7 @@ const MAX_ATTEMPTS = 3;
 const FIRST_DELAY_MS = 1_000;
 const MULTIPLIER = 2;
 // random() of 0 takes the lower end of the step: half of it.
-const RETRY_DELAY = new OutboxRetryDelay({ firstDelayMs: FIRST_DELAY_MS, maxDelayMs: 60_000, multiplier: MULTIPLIER }, () => 0);
+const RETRY_DELAY = new RetryDelay({ firstDelayMs: FIRST_DELAY_MS, maxDelayMs: 60_000, multiplier: MULTIPLIER }, () => 0);
 
 // What the attempt of an expired lease ends with. Spelled out rather than imported: the recovery
 // keeps it private, and the attempts it lands in are read by people.

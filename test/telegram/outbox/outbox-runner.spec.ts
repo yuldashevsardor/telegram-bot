@@ -10,8 +10,8 @@ import { OutboxMessageProcessor } from "app/telegram/outbox/outbox-message-proce
 import type { OutboxMessageSource } from "app/telegram/outbox/outbox-message-source";
 import type { OutboxSender } from "app/telegram/outbox/outbox-sender";
 import { OutboxRunner } from "app/telegram/outbox/outbox-runner";
-import { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
-import type { OutboxRetryDelaySettings } from "app/telegram/outbox/retry-delay/outbox-retry-delay.types";
+import { RetryDelay } from "app/telegram/retry-delay/retry-delay";
+import type { RetryDelaySettings } from "app/telegram/retry-delay/retry-delay.types";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type {
     OutboxAttemptError,
@@ -29,7 +29,7 @@ const LONG_STOP_TIMEOUT_MS = 10_000;
 const SHORT_STOP_TIMEOUT_MS = 50;
 // The retry settings of the real failure handler: a release on stop uses neither the delay nor the
 // limit of attempts, so any values do.
-const RETRY_DELAY_SETTINGS: OutboxRetryDelaySettings = { firstDelayMs: 1_000, maxDelayMs: 60_000, multiplier: 2 };
+const RETRY_DELAY_SETTINGS: RetryDelaySettings = { firstDelayMs: 1_000, maxDelayMs: 60_000, multiplier: 2 };
 const MAX_ATTEMPTS = 10;
 // setTimeout() may fire a little before its delay on some platforms.
 const TIMER_TOLERANCE_MS = 5;
@@ -334,7 +334,7 @@ describe("OutboxRunner", function () {
         const failureHandler = new OutboxFailureHandler(
             store as unknown as OutboxStore,
             new TelegramBotApiFailureClassifier(),
-            new OutboxLeaseRetrier(store as unknown as OutboxStore, new OutboxRetryDelay(RETRY_DELAY_SETTINGS, () => 0), MAX_ATTEMPTS),
+            new OutboxLeaseRetrier(store as unknown as OutboxStore, new RetryDelay(RETRY_DELAY_SETTINGS, () => 0), MAX_ATTEMPTS),
             new OutboxErrorSerializer("token"),
             logger,
         );

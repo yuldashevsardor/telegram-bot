@@ -798,12 +798,13 @@ back on every rolling stop comes nearer to the block and to a longer delay each 
 
 ### Retry delay
 
-`OutboxRetryDelay.computeMs()` (`retry-delay/outbox-retry-delay.ts`) is how long a message waits
+`RetryDelay.computeMs()` (`telegram/retry-delay/retry-delay.ts`) is how long a message waits
 before its retry after a transient failure. The step, its cap, the jitter and why the jitter takes
 the upper half of the step are in the comment above the method. The first step, the cap and the
-multiplier come from the `OUTBOX_RETRY_` variables of `.env.dist`. The inbox retries its updates
-with the same delay ([`inbox.md`](./inbox.md), "Outcomes"), and its polling source pauses by it
-after a failure (the same file, "The polling source").
+multiplier come from the `OUTBOX_RETRY_` variables of `.env.dist`. The class lies beside the outbox
+and the inbox in `telegram/`, since both use it. The inbox retries its updates with the same delay
+([`inbox.md`](./inbox.md), "Outcomes"), and its polling source pauses by it after a failure (the
+same file, "The polling source").
 
 ## The payload rule
 
