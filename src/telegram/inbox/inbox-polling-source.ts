@@ -9,14 +9,15 @@ import type { UnknownObject } from "app/shared/types";
 import { RuntimeError } from "app/shared/errors";
 import { MS_PER_SECOND } from "app/shared/time";
 import type { Logger } from "app/platform/logger/logger";
-import { ALLOWED_UPDATES } from "app/telegram/bot/bot";
+import { ALLOWED_UPDATES } from "app/telegram/bot/bot.types";
 import type { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
-import type { InboxApiFactory } from "app/telegram/inbox/inbox-api-factory";
+import type { TelegramApiFactory } from "app/telegram/telegram-api-factory";
 import type { InboxStore } from "app/telegram/inbox/store/inbox-store";
-import type { InboxGroupKey, InboxUpdateInput } from "app/telegram/inbox/store/inbox-store.types";
+import type { InboxUpdateInput } from "app/telegram/inbox/store/inbox-store.types";
 import type { RetryDelay } from "app/telegram/retry-delay/retry-delay";
 import { hasSessionKey } from "app/telegram/session/session.helper";
+import { isJsonbStorable } from "app/telegram/jsonb-string";
 
 // How long getUpdates waits for an update before it answers with none.
 const POLL_TIMEOUT_SECONDS = 30;
@@ -30,8 +31,8 @@ const POLL_LIMIT = 100;
 // change of the store that fails every row with another of them would drop every update instead of
 // stalling the source.
 const REFUSED_UPDATE_SQLSTATES: ReadonlySet<string> = new Set(["22P05", "22P02"]);
-// The character jsonb refuses in a string; a lone surrogate is the other value it refuses.
-const NUL_CHARACTER = "\u0000";
+// The longest delay a Node timer takes: a longer one fires at once.
+const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
 
 // The signal as grammY types it: by the abort-controller shim of its Node build. At run time it takes
 // the native one.
@@ -52,7 +53,7 @@ export class InboxPollingSource {
 
     public constructor(
         @inject<InboxStore>(Tokens.Bot.Inbox.Store) private readonly store: InboxStore,
-        @inject<InboxApiFactory>(Tokens.Bot.Inbox.ApiFactory) apiFactory: InboxApiFactory,
+        @inject<TelegramApiFactory>(Tokens.Bot.ApiFactory) apiFactory: TelegramApiFactory,
         @inject<RetryDelay>(Tokens.Bot.RetryDelay) private readonly retryDelay: RetryDelay,
         @inject<TelegramBotApiFailureClassifier>(Tokens.Bot.ApiFailureClassifier)
         private readonly botApiClassifier: TelegramBotApiFailureClassifier,
@@ -183,6 +184,12 @@ export class InboxPollingSource {
     // refused one is dropped.
     private async pushOneByOne(inputs: InboxUpdateInput[]): Promise<boolean> {
         for (const [index, input] of inputs.entries()) {
+            // The stop waits for the push in flight, not for the rest of the batch: the next start gets
+            // it again.
+            if (this.isStopped()) {
+                return false;
+            }
+
             try {
                 await this.store.push(input);
             } catch (error) {
@@ -193,13 +200,9 @@ export class InboxPollingSource {
                     return false;
                 }
 
-                // Not the error as a whole: the CONTEXT PostgreSQL gives it, in its where field, holds
-                // the update up to the refused value, the text of the message included.
                 this.logger.error("The inbox refused an update, it is dropped.", {
                     updateId: input.update.update_id,
-                    code: error.code,
-                    message: error.message,
-                    detail: error.detail,
+                    cause: this.describeStoreError(error),
                 });
             }
         }
@@ -218,63 +221,71 @@ export class InboxPollingSource {
         return inputs.some((input) => this.holdsValueJsonbRefuses(input.update));
     }
 
-    // A string with a NUL character or a lone surrogate anywhere in the value.
+    // A string jsonb refuses anywhere in the value, a key included.
     private holdsValueJsonbRefuses(value: unknown): boolean {
         if (typeof value === "string") {
-            return value.includes(NUL_CHARACTER) || !value.isWellFormed();
+            return !isJsonbStorable(value);
         }
 
         if (typeof value !== "object" || value === null) {
             return false;
         }
 
-        return Object.values(value).some((nested) => this.holdsValueJsonbRefuses(nested));
+        return Object.entries(value).some(([key, nested]) => !isJsonbStorable(key) || this.holdsValueJsonbRefuses(nested));
     }
 
+    // The group of an update is the pair getSessionKey() makes the session key of, read off the
+    // Context of grammY as session() reads it: the group is the session key
+    // (docs/architecture/inbox.md, "Tables"), whatever the type of the update. An update without a
+    // session key is dropped with the warning HasSessionKeyFilter gives it in the pipeline; the inbox
+    // stores none (docs/architecture/inbox.md, "Updates without a session key"). The contents of the
+    // update stay out of the log.
     private toInputs(updates: Update[], me: UserFromGetMe): InboxUpdateInput[] {
         const inputs: InboxUpdateInput[] = [];
 
         for (const update of updates) {
-            const group = this.findGroup(update, me);
+            const ctx = new Context(update, this.api, me);
 
-            if (group === undefined) {
+            if (!hasSessionKey(ctx)) {
+                this.logger.warning("Update is dropped, because its session key cannot be resolved.", {
+                    updateId: update.update_id,
+                    hasFrom: ctx.from !== undefined,
+                    hasChat: ctx.chat !== undefined,
+                });
+
                 continue;
             }
 
-            inputs.push({ userId: group.userId, chatId: group.chatId, update: update });
+            inputs.push({ userId: ctx.from.id, chatId: ctx.chat.id, update: update });
         }
 
         return inputs;
     }
 
-    // The pair getSessionKey() makes the session key of, read off the Context of grammY as session()
-    // reads it: the group is the session key (docs/architecture/inbox.md, "Tables"), whatever the type
-    // of the update. undefined: the update has no session key and is dropped, with the warning
-    // HasSessionKeyFilter gives it in the pipeline; the inbox stores none (docs/architecture/inbox.md,
-    // "Updates without a session key"). The contents of the update stay out of the log.
-    private findGroup(update: Update, me: UserFromGetMe): InboxGroupKey | undefined {
-        const ctx = new Context(update, this.api, me);
+    // inputs: the updates not stored. A push that fails after the stop has no retry: the next start
+    // gets the updates again.
+    private async handleStoreFailure(inputs: InboxUpdateInput[], error: unknown): Promise<void> {
+        const payload = { updateIds: inputs.map((input) => input.update.update_id), cause: this.describeStoreError(error) };
 
-        if (!hasSessionKey(ctx)) {
-            this.logger.warning("Update is dropped, because its session key cannot be resolved.", {
-                updateId: update.update_id,
-                hasFrom: ctx.from !== undefined,
-                hasChat: ctx.chat !== undefined,
-            });
+        if (this.isStopped()) {
+            this.logger.warning("Storing updates failed after the stop, the next start gets them again.", payload);
 
-            return undefined;
+            return;
         }
 
-        return { userId: ctx.from.id, chatId: ctx.chat.id };
+        this.logger.error("Storing updates failed, the source gets them again from the same offset.", payload);
+        await this.pauseAfterFailure(error);
     }
 
-    // inputs: the updates not stored.
-    private async handleStoreFailure(inputs: InboxUpdateInput[], error: unknown): Promise<void> {
-        this.logger.error("Storing updates failed, the source gets them again from the same offset.", {
-            updateIds: inputs.map((input) => input.update.update_id),
-            cause: error,
-        });
-        await this.pauseAfterFailure(error);
+    // An error of PostgreSQL as its code, message and detail, not as a whole: the CONTEXT it gives a
+    // refused value, in its where field, holds the update up to that value, the text of the message
+    // included.
+    private describeStoreError(error: unknown): unknown {
+        if (error instanceof postgres.PostgresError) {
+            return { code: error.code, message: error.message, detail: error.detail };
+        }
+
+        return error;
     }
 
     // A call the stop aborted is not a failure.
@@ -296,7 +307,9 @@ export class InboxPollingSource {
         const failure = this.botApiClassifier.classify(error);
 
         if (failure.kind === TelegramBotApiFailureKind.Flood) {
-            await this.pause(Math.max(retryDelayMs, failure.retryAfterSeconds * MS_PER_SECOND));
+            const floodWaitMs = Math.max(retryDelayMs, failure.retryAfterSeconds * MS_PER_SECOND);
+
+            await this.pause(Math.min(floodWaitMs, MAX_TIMER_DELAY_MS));
 
             return;
         }

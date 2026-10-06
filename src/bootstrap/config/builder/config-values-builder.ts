@@ -68,8 +68,9 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
                 },
             },
 
+            retryDelay: ConfigValuesBuilder.getRetryDelay(parser),
+
             outbox: {
-                retryDelay: ConfigValuesBuilder.getRetryDelay(parser),
                 resultWaiter: {
                     timeoutMs: parser.getTimerDelay("OUTBOX_RESULT_TIMEOUT", 60 * 1000),
                     pollIntervalMs: parser.getTimerDelay("OUTBOX_RESULT_POLL_INTERVAL", 1000),

@@ -4,9 +4,9 @@ import { HttpError } from "grammy";
 import type { Update, UserFromGetMe } from "grammy/types";
 import postgres from "postgres";
 import { sleep } from "app/shared/utils";
-import { ALLOWED_UPDATES } from "app/telegram/bot/bot";
+import { ALLOWED_UPDATES } from "app/telegram/bot/bot.types";
 import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
-import type { InboxApiFactory } from "app/telegram/inbox/inbox-api-factory";
+import type { TelegramApiFactory } from "app/telegram/telegram-api-factory";
 import { InboxPollingSource } from "app/telegram/inbox/inbox-polling-source";
 import type { InboxStore } from "app/telegram/inbox/store/inbox-store";
 import type { InboxUpdateInput } from "app/telegram/inbox/store/inbox-store.types";
@@ -191,7 +191,7 @@ describe("InboxPollingSource", function () {
 
         return [
             store as unknown as InboxStore,
-            apiFactory as unknown as InboxApiFactory,
+            apiFactory as unknown as TelegramApiFactory,
             retryDelay,
             new TelegramBotApiFailureClassifier(),
             logger,
@@ -353,7 +353,7 @@ describe("InboxPollingSource", function () {
             expect(logger.errors).to.deep.equal([
                 {
                     message: "The inbox refused an update, it is dropped.",
-                    payload: { updateId: 11, code: "22P05", message: "SQLSTATE 22P05", detail: DETAIL },
+                    payload: { updateId: 11, cause: { code: "22P05", message: "SQLSTATE 22P05", detail: DETAIL } },
                 },
             ]);
         });
@@ -392,7 +392,20 @@ describe("InboxPollingSource", function () {
 
             expect(store.calls.map((call) => call.method)).to.deep.equal(["pushBatch", "push", "push"]);
             expect(store.storedUpdateIds()).to.deep.equal([11]);
-            expect(logger.errors.map((record) => record.payload?.["code"])).to.deep.equal(["22P02"]);
+            expect(logger.errors.map((record) => record.payload?.["cause"])).to.deep.equal([
+                { code: "22P02", message: "SQLSTATE 22P02", detail: DETAIL },
+            ]);
+            expect(api.offsets()).to.deep.equal([0, 12]);
+        });
+
+        it("drops an update with a refused value in a key", async function () {
+            const withKey = { update_id: 10, message: { ...message(10).message, ["key" + NUL_TEXT]: "value" } } as unknown as Update;
+            api.answers.push([withKey, message(11)]);
+
+            source.start();
+            await api.waitForGetUpdates(2);
+
+            expect(store.storedUpdateIds()).to.deep.equal([11]);
             expect(api.offsets()).to.deep.equal([0, 12]);
         });
 
@@ -422,8 +435,12 @@ describe("InboxPollingSource", function () {
 
                 expect(store.calls).to.deep.equal([{ method: "pushBatch", updateIds: [10] }]);
                 expect(api.offsets()).to.deep.equal([0, 0]);
-                expect(logger.errors.map((record) => record.message)).to.deep.equal([
-                    "Storing updates failed, the source gets them again from the same offset.",
+                // An error of PostgreSQL goes into the log by its code, message and detail.
+                expect(logger.errors).to.deep.equal([
+                    {
+                        message: "Storing updates failed, the source gets them again from the same offset.",
+                        payload: { updateIds: [10], cause: { code: code, message: `SQLSTATE ${code}`, detail: DETAIL } },
+                    },
                 ]);
             });
         }
@@ -447,7 +464,7 @@ describe("InboxPollingSource", function () {
     });
 
     describe("the pause after a failure", function () {
-        it("grows with the failures in a row, of calls and inserts alike, by the retry delay of the outbox", async function () {
+        it("grows with the failures in a row, of calls and inserts alike, by the retry delay", async function () {
             api.deleteWebhookErrors.push(new Error("deleteWebhook failed"));
             store.failures.push(new Error("write CONNECTION_CLOSED pgsql:5432"));
             api.answers.push(new Error("getUpdates failed"), [message(10)], new Error("getUpdates failed"), [message(10)]);
@@ -476,6 +493,15 @@ describe("InboxPollingSource", function () {
             await api.waitForGetUpdates(2);
 
             expect(source.pauses).to.deep.equal([5_000]);
+        });
+
+        it("caps the wait of a 429 at the longest delay of a Node timer", async function () {
+            api.answers.push(telegramError(429, "Too Many Requests: retry after 3000000", { retry_after: 3_000_000 }));
+
+            source.start();
+            await api.waitForGetUpdates(2);
+
+            expect(source.pauses).to.deep.equal([2 ** 31 - 1]);
         });
 
         it("keeps the retry delay when a 429 asks for less", async function () {
@@ -536,6 +562,43 @@ describe("InboxPollingSource", function () {
 
             expect(store.storedUpdateIds()).to.deep.equal([10]);
             expect(api.getUpdatesCalls).to.have.lengthOf(1);
+        });
+
+        it("does not go on with the single pushes of a refused batch after the stop", async function () {
+            const { promise, resolve } = Promise.withResolvers<void>();
+            store.hold = promise;
+            api.answers.push([message(10), message(11, USER, NUL_TEXT), message(12)]);
+
+            source.start();
+            await store.waitForCalls(1);
+            const stopped = source.stop();
+            resolve();
+            await stopped;
+
+            expect(store.calls.map((call) => call.method)).to.deep.equal(["pushBatch"]);
+            expect(store.stored).to.deep.equal([]);
+        });
+
+        it("logs a push that fails after the stop as a warning, with no retry promised", async function () {
+            const failure = new Error("write CONNECTION_CLOSED pgsql:5432");
+            const { promise, resolve } = Promise.withResolvers<void>();
+            store.hold = promise;
+            store.failures.push(failure);
+            api.answers.push([message(10)]);
+
+            source.start();
+            await store.waitForCalls(1);
+            const stopped = source.stop();
+            resolve();
+            await stopped;
+
+            expect(logger.errors).to.deep.equal([]);
+            expect(logger.warnings).to.deep.equal([
+                {
+                    message: "Storing updates failed after the stop, the next start gets them again.",
+                    payload: { updateIds: [10], cause: failure },
+                },
+            ]);
         });
 
         it("cuts the pause after a failure short", async function () {

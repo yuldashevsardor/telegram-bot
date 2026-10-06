@@ -40,8 +40,10 @@ export type ConfigValues = {
 
     limits: TelegramLimits;
 
+    // The retry delay of the outbox and the inbox, and the pause of the polling source of the inbox.
+    retryDelay: RetryDelaySettings;
+
     outbox: {
-        retryDelay: RetryDelaySettings;
         resultWaiter: OutboxResultWaiterSettings;
         // How long a pulled chat stays with the node that pulled it.
         leaseDurationMs: number;

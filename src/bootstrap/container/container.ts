@@ -41,7 +41,6 @@ import { OutboxResultWaiter } from "app/telegram/outbox/result-waiter/outbox-res
 import { OutboxFailureHandler } from "app/telegram/outbox/outbox-failure-handler";
 import { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
 import { OutboxMessageSource } from "app/telegram/outbox/outbox-message-source";
-import { OutboxApiFactory } from "app/telegram/outbox/outbox-api-factory";
 import { OutboxSender } from "app/telegram/outbox/outbox-sender";
 import { OutboxMessageProcessor } from "app/telegram/outbox/outbox-message-processor";
 import { OutboxRunner } from "app/telegram/outbox/outbox-runner";
@@ -54,7 +53,7 @@ import { InboxStore } from "app/telegram/inbox/store/inbox-store";
 import { InboxFailureClassifier } from "app/telegram/inbox/failure-classifier/inbox-failure-classifier";
 import { InboxFailureHandler } from "app/telegram/inbox/inbox-failure-handler";
 import { InboxLeaseReleaser } from "app/telegram/inbox/inbox-lease-releaser";
-import { InboxApiFactory } from "app/telegram/inbox/inbox-api-factory";
+import { TelegramApiFactory } from "app/telegram/telegram-api-factory";
 import { InboxPollingSource } from "app/telegram/inbox/inbox-polling-source";
 import { CliCommandResolver } from "app/cli/cli-command-resolver";
 import { OutboxRetryCommand } from "app/telegram/outbox/command/outbox-retry-command";
@@ -128,7 +127,6 @@ export class Container extends InversifyContainer {
         this.bind<OutboxLeaseReleaser>(Tokens.Bot.Outbox.Lease.Releaser).to(OutboxLeaseReleaser).inSingletonScope();
         this.bind<OutboxErrorSerializer>(Tokens.Bot.Outbox.ErrorSerializer).to(OutboxErrorSerializer).inSingletonScope();
         this.bind<OutboxMessageSource>(Tokens.Bot.Outbox.MessageSource).to(OutboxMessageSource).inSingletonScope();
-        this.bind<OutboxApiFactory>(Tokens.Bot.Outbox.ApiFactory).to(OutboxApiFactory).inSingletonScope();
         this.bind<OutboxSender>(Tokens.Bot.Outbox.Sender).to(OutboxSender).inSingletonScope();
         this.bind<OutboxMessageProcessor>(Tokens.Bot.Outbox.MessageProcessor).to(OutboxMessageProcessor).inSingletonScope();
         this.bind<OutboxRunner>(Tokens.Bot.Outbox.Runner).to(OutboxRunner).inSingletonScope();
@@ -141,7 +139,6 @@ export class Container extends InversifyContainer {
         this.bind<InboxFailureClassifier>(Tokens.Bot.Inbox.FailureClassifier).to(InboxFailureClassifier).inSingletonScope();
         this.bind<InboxFailureHandler>(Tokens.Bot.Inbox.FailureHandler).to(InboxFailureHandler).inSingletonScope();
         this.bind<InboxLeaseReleaser>(Tokens.Bot.Inbox.LeaseReleaser).to(InboxLeaseReleaser).inSingletonScope();
-        this.bind<InboxApiFactory>(Tokens.Bot.Inbox.ApiFactory).to(InboxApiFactory).inSingletonScope();
         this.bind<InboxPollingSource>(Tokens.Bot.Inbox.PollingSource).to(InboxPollingSource).inSingletonScope();
 
         // The commands of `npm run cli`
@@ -156,8 +153,9 @@ export class Container extends InversifyContainer {
         // Bot API failures
         this.bind<TelegramBotApiFailureClassifier>(Tokens.Bot.ApiFailureClassifier).to(TelegramBotApiFailureClassifier).inSingletonScope();
 
-        // The retry delay of the outbox and the inbox
+        // What the outbox and the inbox share: the retry delay and the Api of their own
         this.bind<RetryDelay>(Tokens.Bot.RetryDelay).to(RetryDelay).inSingletonScope();
+        this.bind<TelegramApiFactory>(Tokens.Bot.ApiFactory).to(TelegramApiFactory).inSingletonScope();
 
         // User
         this.bind<UserRepository>(Tokens.Bot.User.Repository).to(PgSqlUserRepository).inSingletonScope();

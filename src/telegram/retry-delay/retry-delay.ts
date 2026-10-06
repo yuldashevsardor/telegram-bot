@@ -7,7 +7,7 @@ import type { RetryDelaySettings } from "app/telegram/retry-delay/retry-delay.ty
 @injectable()
 export class RetryDelay {
     public constructor(
-        private readonly settings: RetryDelaySettings = configValue("outbox.retryDelay"),
+        private readonly settings: RetryDelaySettings = configValue("retryDelay"),
         private readonly random: () => number = Math.random,
     ) {}
 

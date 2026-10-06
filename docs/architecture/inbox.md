@@ -45,8 +45,8 @@ unblocks a group by hand with `make inbox-retry` or `make inbox-skip` (see "Unbl
 An update without a user or a chat is not stored: `user_id` and `chat_id` are `NOT NULL`, and the
 polling source drops such an update before the push, logging a warning, as `HasSessionKeyFilter`
 drops it from the pipeline today ([`bot.md`](./bot.md)). Such an update has no session, so the
-pipeline would drop it anyway, and with `ALLOWED_UPDATES` of `message` alone (`bot.ts`) none is
-requested, as the comment of the filter says.
+pipeline would drop it anyway, and with `ALLOWED_UPDATES` of `message` alone (`bot.types.ts`) none
+is requested, as the comment of the filter says.
 
 ## Group states
 
@@ -279,9 +279,9 @@ Every attempt counts towards `INBOX_MAX_ATTEMPTS`, whatever it ended with: the a
 is `earlierAttempts + 1`, checked on a transient failure only. The count covers the whole history of
 the update, as in the outbox ([`outbox.md`](./outbox.md), "Outcomes").
 
-The retry delay is the outbox's: `RetryDelay.computeMs()` of the counted attempts, with the
-`OUTBOX_RETRY_` variables ([`outbox.md`](./outbox.md), "Retry delay"). The error goes into the
-attempt as `OutboxErrorSerializer` writes it, with its class in `kind`
+The retry delay is the one the outbox and the inbox share: `RetryDelay.computeMs()` of the counted
+attempts, with the `OUTBOX_RETRY_` variables ([`outbox.md`](./outbox.md), "Retry delay"). The
+error goes into the attempt as `OutboxErrorSerializer` writes it, with its class in `kind`
 ([`outbox.md`](./outbox.md), "Outcomes").
 
 ### Lease recovery
@@ -368,7 +368,7 @@ keeps two polling processes apart: running several is not a goal now
 ([#828](https://github.com/yuldashevsardor/telegram-bot/issues/828)).
 
 The loop is the source's own, over `getUpdates` of a grammY `Api` of its own, made by
-`InboxApiFactory` without the transformers of the bot and with a timeout of the long poll and a
+`TelegramApiFactory` without the transformers of the bot and with a timeout of the long poll and a
 margin. `bot.start()` and the fetcher of `@grammyjs/runner` move the offset
 themselves, on receipt or after their own handling, hand the updates out one at a time, and either
 drop a batch whose handling failed or stop polling for good; neither retries the same batch.
@@ -376,7 +376,7 @@ drop a batch whose handling failed or stop polling for good; neither retries the
 1. `deleteWebhook`: Telegram gives no `getUpdates` while a webhook is set. Then `getMe`: the
    group of an update is read off a grammY `Context`, which takes the bot. A failure of either is
    logged, and both are tried again after a pause (below).
-2. `getUpdates` with the offset, `ALLOWED_UPDATES` of `bot.ts` and the limits read off the
+2. `getUpdates` with the offset, `ALLOWED_UPDATES` of `bot.types.ts` and the limits read off the
    constants of the source. The first offset is 0, below every `update_id`: Telegram answers it
    from the first update it has not been told of.
 3. Each update gets its group, `from` and `chat` of the `Context`, the pair `getSessionKey()`
@@ -392,7 +392,8 @@ Telegram gives the same batch again, and the push leaves out what it stored alre
 step 2). The pause is the retry delay the outbox and the inbox share, `RetryDelay.computeMs()` of
 the failures in a row, of calls and pushes alike ([`outbox.md`](./outbox.md), "Retry delay"), so an
 outage, a revoked token (401) or a webhook or another poller (409) is not retried and logged every
-second; a 429 waits its `retry_after` when that is longer. A stored batch and a passed preparation
+second; a 429 waits its `retry_after` when that is longer, up to the longest delay of a Node timer,
+some 24.8 days. A stored batch and a passed preparation
 start the count over. The error of a Bot API call is logged as it is thrown: the fetch error an
 `HttpError` wraps names the URL of the call, and the URL carries the bot token, so the token can
 reach the log: the owner's decision in
@@ -408,18 +409,21 @@ and the push leaves out its updates stored already, while their rows are kept: t
 `pushBatch()` stores the batch in one statement, so one such update rolls the batch back, and
 every retry from the same offset would fail on it again. Whether Telegram ever sends either is
 unverified. A refusal is a failure with the SQLSTATE PostgreSQL gives either value, `22P05` for
-the escape and `22P02` for the surrogate, of a push whose updates hold such a value in a string; the
-source looks for it itself. The code alone is not enough: `22P02` is the code of any malformed
-input, and a change of the store that broke every row would give it too. A refused batch is pushed
-one update at a time, and an update refused again is dropped with an error log of its id and of the
-code, the message and the detail of the error, not the error as a whole: the CONTEXT PostgreSQL
-gives it holds the update up to the refused value, the text of the message included. Any other
-failure, of the batch or of a single push, leaves the offset where it was, another data exception
-of class `22` included, and its error log names the updates not stored.
+the escape and `22P02` for the surrogate, of a push whose updates hold such a value in a string or
+a key; the source looks for it itself, by `isJsonbStorable()` of `telegram/jsonb-string.ts`, the
+rule the payload codec of the outbox refuses a payload by. The code alone is not enough: `22P02` is
+the code of any malformed input, and a change of the store that broke every row would give it too.
+A refused batch is pushed one update at a time, and an update refused again is dropped with an error
+log. Any other failure, of the batch or of a single push, leaves the offset where it was, another
+data exception of class `22` included, and its error log names the updates not stored. Both logs
+write an error of PostgreSQL by its code, message and detail, not as a whole: the CONTEXT it gives a
+refused value holds the update up to that value, the text of the message included.
 `test/telegram/inbox/inbox-store.spec.ts` pins both codes.
 
 **The stop** aborts the Bot API call in flight, ends the pause at once and waits for a push in
-flight, and no `getUpdates` follows. It has no deadline of its own: a push stuck on the database
+flight, and no `getUpdates` follows; nor does the next single push of a refused batch. A push that
+fails after the stop is logged as a warning, not an error: no retry follows, the next start gets
+its updates again. It has no deadline of its own: a push stuck on the database
 holds it, so whatever stops the source bounds the wait
 ([#829](https://github.com/yuldashevsardor/telegram-bot/issues/829)).
 
