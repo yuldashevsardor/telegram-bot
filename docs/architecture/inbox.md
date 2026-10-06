@@ -3,14 +3,16 @@
 The inbox is being built so that incoming updates become rows in PostgreSQL, any node handles
 them, and the updates of one group are handled one at a time, in order, across nodes (the plan is
 epic [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)). It is the counterpart of
-the outbox ([`outbox.md`](./outbox.md)) and follows its model without the limits and the pause. No
-source or worker uses the directory yet: so far it holds the tables with `InboxStore`
-(`store/inbox-store.ts`), which pushes updates, claims them, extends a lease, completes a claimed
-update, notifies of the groups that become `ready`, finds the expired leases, cleans up the tables
-and unblocks a group by hand; `InboxFailureHandler` (`inbox-failure-handler.ts`), which picks the
-outcome of a failed handler by its error class (`failure-classifier/`) and recovers the expired
-leases; and `InboxLeaseReleaser` (`inbox-lease-releaser.ts`), which hands the update of a stopping
-node back.
+the outbox ([`outbox.md`](./outbox.md)) and follows its model without the limits and the pause.
+The directory holds the tables with `InboxStore` (`store/inbox-store.ts`), which pushes updates,
+claims them, extends a lease, completes a claimed update, notifies of the groups that become
+`ready`, finds the expired leases, cleans up the tables and unblocks a group by hand;
+`InboxFailureHandler` (`inbox-failure-handler.ts`), which picks the outcome of a failed handler by
+its error class (`failure-classifier/`) and recovers the expired leases; `InboxLeaseReleaser`
+(`inbox-lease-releaser.ts`), which hands the update of a stopping node back; and the worker that
+handles the updates through the bot: `InboxRunner` with its update source and update processor,
+and the timers of `InboxMaintenance`. Nothing starts the worker yet: `Bot.run()` still takes the
+updates from `@grammyjs/runner`, and nothing pushes into the inbox.
 
 ## Tables
 
@@ -204,8 +206,133 @@ a claim of its own, made on a timer.
 `listenReady(onReady)` listens on the channel, on the listening connection of the client
 ([`storage.md`](./storage.md), "LISTEN"). `onReady` is called on every notification and every time
 the listening starts, the first time and after a reconnect: a write committed while the connection
-was down reached no one. Nothing listens yet: the worker is
-[#827](https://github.com/yuldashevsardor/telegram-bot/issues/827).
+was down reached no one. `InboxUpdateSource` listens (see "The update source").
+
+## The update source
+
+`InboxUpdateSource` (`inbox-update-source.ts`) is what the runner of a node takes the claimed
+updates from. `stream(worker)` makes the one async generator of the node, with the `worker` of the
+loop, and follows the message source of the outbox ([`outbox.md`](./outbox.md), "The message
+source") without its limits. The source serves one generator ([`invariants.md`](./invariants.md),
+"The inbox").
+
+- **One update per claim.** The generator claims with a `limit` of 1 (`CLAIM_LIMIT`), and only when
+  the loop asks for the next update. At the stop the runner starts the one update it has got and
+  closes the generator (see "The runner"): a claim of more would leave the rest claimed by the
+  stopping node until their lease passes.
+- **The sleep.** A claim that got nothing puts the generator to sleep for a random point from
+  100 ms to 1 s (`MIN_SLEEP_MS`, `MAX_SLEEP_MS`), drawn for each sleep. A claim answers with no
+  time to wait for, and the end of a retry delay notifies no one (see "Ready notifications"): the
+  sleep is how a node learns of it. Being random, it spreads out the nodes that found nothing
+  together.
+- **The wake-up.** The generator starts listening on the ready channel
+  (`InboxStore.listenReady()`) at its start. A failed start is logged at `warning` and is not
+  repeated, for the reason the outbox gives; until the listening starts, the timed sleep serves. A
+  start that fails after the stop is not logged: a clean shutdown may close the database under it. A
+  notification wakes the sleeping generator, and so does every start of the listening. A
+  notification that comes during a claim makes the generator claim again instead of sleeping: the
+  claim may have read the tables before the write it announces committed.
+- **A failed claim** is logged at `error`, and the generator sleeps and claims again: the source
+  ends only on stop. No notification cuts that sleep short: pushes go on while the claims fail, and
+  the generator would retry and log at their rate. A claim that fails after the stop is logged at
+  `warning` and ends the generator.
+- **The stop.** `stop()` ends the generator: a sleeping one at once, one whose claim is in progress
+  once it has handed out what the claim got, and one waiting for the loop at its next update. A
+  generator made after the stop ends without a claim and does not start the listening: the database
+  may be closed by then.
+
+## The update processor
+
+`InboxUpdateProcessor` (`inbox-update-processor.ts`) takes one claimed update to its outcome:
+
+1. `init()` of the grammY bot with the signal of the update: a no-op once grammY knows the bot,
+   otherwise a `getMe` that grammY retries on a network failure until the signal aborts it. An
+   `init()` that throws with the signal aborted is released (see "Release on stop"); one that throws
+   otherwise goes to `InboxFailureHandler.handle()`, as a failed handler does.
+2. An update whose signal is aborted by now is released without reaching its handler: one a claim in
+   progress handed out after the stop deadline, or one whose `init()` the deadline came during
+   (see "The runner").
+3. `handleUpdate()` of the grammY bot, with the runner told when the handler starts and when it
+   ends (see "The runner"), then the outcome:
+   - success: `markAsDone()`;
+   - `OutboxResultWaiterStopped` as the handler's own error, the one grammY wraps into
+     `BotError.error`: the release on stop, never `handle()` (see "Error classes"). The handler has
+     settled by then, as the release requires. A stopped wait that the handler wrapped into an error
+     of its own is not told apart and fails as `Unexpected`;
+   - any other error: `InboxFailureHandler.handle()`, with the error as grammY threw it.
+
+The lease is extended by `InboxLeaseExtension` (`inbox-lease-extension.ts`) from the start of
+`init()` to the end of the handler: every third of `INBOX_LEASE_DURATION` (`EXTENSIONS_PER_LEASE`),
+each extension timed from the end of the previous one, so a handler that runs longer than one lease
+keeps its group (see "The lease"). A refused
+extension is logged at `warning` and ends the extension: the lease has passed or gone to another
+claim, the recovery takes the update back, and the completion of this node will be fenced. The
+handler runs on all the same: nothing can cut it short. A failed extension is logged at `warning`
+and left to the next one. A warning that throws is dropped: the extension runs from a timer, and
+nothing awaits it. The extension ends before the outcome is written, so the completion that ends the
+lease meets no extension of its own node: one still in flight then has its answer dropped. It ends
+when the signal aborts too: the stop has given the update up, and the database is closed after the
+stop.
+
+A completion or a release that throws is not caught here: the runner logs it (see "The runner").
+
+## The runner
+
+`InboxRunner` (`inbox-runner.ts`) handles the updates of a node: one loop over `INBOX_CONCURRENCY`
+slots. It is a loop of its own beside `OutboxRunner` and is built as that one is
+([`outbox.md`](./outbox.md), "The runner"). `start()` makes the generator of the source, once, with
+the worker of the loop: the host, the pid and a `randomUUID()` made with the loop.
+
+1. The loop hands each update of the generator to the processor at once, without waiting for it
+   to settle: the lease counts from the claim. Then it waits until a slot is free, and only then
+   asks the generator for the next update.
+2. The loop writes no outcome: the processor does. A `process()` that rejects, or throws
+   synchronously, is logged at `error` and frees its slot; its update stays `processing` until the
+   recovery of its lease. A source that throws is logged at `error` and ends the loop: the node
+   takes no more updates until it restarts. A log that throws in either case is dropped: the
+   rejection of a promise nobody awaits would reach `unhandledRejection`, which ends the process
+   (`src/app.ts`).
+
+`stop()`:
+
+1. stops the source, and the loop asks it for nothing more. A claim in progress hands out its update
+   first, and the loop starts it as any other; one handed out after the deadline starts with its
+   signal aborted, and the processor releases it without handling it;
+2. waits for the handlers in flight up to `INBOX_STOP_TIMEOUT`, counted from the call of `stop()`;
+3. aborts the updates still in flight at the deadline, which ends the extension of their leases.
+   The stop waits for each one outside its handler: one whose handler has not started never starts
+   it, and the processor releases it; one whose handler has ended is having its outcome written.
+   Both are writes the database must still be open for. One in its handler is left running: grammY
+   gives a handler no signal, so it cannot be cut short, and a wait for it would hold the stop up
+   for as long as it runs. The stop logs the update ids of those at `warning` and returns without
+   them. Such a handler runs on until the process ends: if it settles while the
+   database is open, its outcome is written as any other; otherwise the recovery takes its update
+   back once the lease passes.
+
+The deadline bounds neither the wait for a claim in progress, as in the outbox, nor the wait for the
+writes of step 3.
+`ConfigValuesBuilder` does not count `INBOX_STOP_TIMEOUT` in the sum it checks against
+`GRACEFUL_SHUTDOWN_TIMEOUT` ([`application.md`](./application.md), "Stop"), nor the connections
+of the runner against `DATABASE_CONNECTION_LIMIT`: nothing starts the runner yet.
+
+## Maintenance
+
+`InboxMaintenance` (`maintenance/inbox-maintenance.ts`) runs the tasks of the inbox on the timers of
+every node, apart from the runner, as `OutboxMaintenance` runs those of the outbox
+([`outbox.md`](./outbox.md), "Maintenance"), with no status line. It takes its two intervals as one
+`inbox.maintenance` object (`InboxMaintenanceSettings`):
+
+- `InboxFailureHandler.recoverExpiredLeases()` (see "Lease recovery"), every
+  `INBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL`;
+- `deleteFinishedUpdates()` and `deleteIdleGroups()` (see "Cleanup"), each every
+  `INBOX_MAINTENANCE_CLEANUP_INTERVAL` on a timer of its own. A batch that deleted anything is
+  followed by the next one at once, until a batch deletes nothing or the maintenance stops.
+
+A task runs first one interval after `start()`, and its next run is timed from the end of the
+previous one, so two runs of a task on one node never overlap. A failed run is logged at `error` and
+left to the next one. The update of a node that died is claimed again after its lease, up to one
+`INBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL` more and the retry delay of its attempt. `stop()` clears
+the timers and waits for the runs in progress, so the database can be closed after it.
 
 ## Unblocking a group
 
@@ -221,9 +348,8 @@ A group left `ready` is notified (see "Ready notifications").
 ## Failures
 
 `InboxFailureHandler.handle(update, error)` takes a claimed update whose handler threw, with the
-error as the handling threw it, and completes the update by the class of the error. Nothing calls it
-yet: the loop that handles the updates is
-[#628](https://github.com/yuldashevsardor/telegram-bot/issues/628).
+error as the handling threw it, and completes the update by the class of the error.
+`InboxUpdateProcessor` calls it (see "The update processor").
 
 `Bot.handleUpdate()` wraps an error of the middleware into a `BotError` whose `ctx` holds the whole
 context, the `Api` and its token included (`handleUpdate()` in grammY's `bot.js`). The handler takes
@@ -261,9 +387,9 @@ their comments. In short:
 - Anything else is `Unexpected`, a bug or a timeout waiting for the outbox included
   (`OutboxResultTimeout`): a reply that took too long may still go out, and the epic blocks the
   group on it. So is a wait the outbox stopped (`OutboxResultWaiterStopped`), although it says only
-  that the node is shutting down: the loop that handles the updates is to keep such a handler away
-  from `handle()` and release its update (see "Release on stop"), or an ordinary restart blocks the
-  group ([#628](https://github.com/yuldashevsardor/telegram-bot/issues/628)).
+  that the node is shutting down: `InboxUpdateProcessor` keeps such a handler away from `handle()`
+  and releases its update (see "The update processor"), or an ordinary restart would block the group
+  of every update in flight.
 
 ### Outcomes
 
@@ -285,7 +411,8 @@ attempt as `OutboxErrorSerializer` writes it, with its class in `kind`
 ### Lease recovery
 
 `InboxFailureHandler.recoverExpiredLeases()` takes back the updates of the groups whose lease has
-passed: the node that claimed them is presumed dead. The handling loop is to call it on a timer.
+passed: the node that claimed them is presumed dead. `InboxMaintenance` calls it on a timer (see
+"Maintenance").
 
 1. `InboxStore.findExpiredLeases()` reads every group whose `locked_until` is behind `now()`, with
    its `processing` update, as a lease under the group's own `lock_token`. It reads without a lock
@@ -324,15 +451,15 @@ retry delay. The handler may have replied before the stop, so the update may be 
 group, and the retry delay of a later transient failure grows with the attempt.
 
 The handler must have settled before the release: the group is `ready` at once, and a handler
-still running could reply after another node has handled the next update of the group. Nothing calls
-the release yet: the worker is [#827](https://github.com/yuldashevsardor/telegram-bot/issues/827).
+still running could reply after another node has handled the next update of the group.
+`InboxUpdateProcessor` releases only an update whose handler has not started or has thrown (see "The
+update processor").
 
 ## Cleanup
 
 Two methods of the store keep the tables from growing without bound. Each deletes one batch of at
 most `INBOX_CLEANUP_BATCH_SIZE` rows in one statement and returns how many it deleted, so a caller
-that gets a full batch calls again. Nothing calls them yet: the timers are part of the loop
-([#628](https://github.com/yuldashevsardor/telegram-bot/issues/628)).
+that gets a full batch calls again. `InboxMaintenance` calls them on timers (see "Maintenance").
 
 - `deleteFinishedUpdates()` deletes the `done` updates whose `finished_at` is older than
   `INBOX_DONE_RETENTION`, and the `skipped` ones older than `INBOX_SKIPPED_RETENTION`. A `failed`

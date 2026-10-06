@@ -94,6 +94,12 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
             inbox: {
                 leaseDurationMs: parser.getTimerDelay("INBOX_LEASE_DURATION", 10 * 60 * 1000),
                 maxAttempts: parser.getInteger("INBOX_MAX_ATTEMPTS", 10, { min: 1 }),
+                concurrency: parser.getInteger("INBOX_CONCURRENCY", 5, { min: 1 }),
+                stopTimeoutMs: parser.getTimerDelay("INBOX_STOP_TIMEOUT", 5000, { min: 0 }),
+                maintenance: {
+                    leaseRecoveryIntervalMs: parser.getTimerDelay("INBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL", 10 * 1000),
+                    cleanupIntervalMs: parser.getTimerDelay("INBOX_MAINTENANCE_CLEANUP_INTERVAL", 10 * 60 * 1000),
+                },
                 cleanup: {
                     doneRetentionMs: parser.getInteger(
                         "INBOX_DONE_RETENTION",

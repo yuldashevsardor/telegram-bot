@@ -54,6 +54,10 @@ import { InboxStore } from "app/telegram/inbox/store/inbox-store";
 import { InboxFailureClassifier } from "app/telegram/inbox/failure-classifier/inbox-failure-classifier";
 import { InboxFailureHandler } from "app/telegram/inbox/inbox-failure-handler";
 import { InboxLeaseReleaser } from "app/telegram/inbox/inbox-lease-releaser";
+import { InboxUpdateSource } from "app/telegram/inbox/inbox-update-source";
+import { InboxUpdateProcessor } from "app/telegram/inbox/inbox-update-processor";
+import { InboxRunner } from "app/telegram/inbox/inbox-runner";
+import { InboxMaintenance } from "app/telegram/inbox/maintenance/inbox-maintenance";
 import { CliCommandResolver } from "app/cli/cli-command-resolver";
 import { OutboxRetryCommand } from "app/telegram/outbox/command/outbox-retry-command";
 import { OutboxSkipCommand } from "app/telegram/outbox/command/outbox-skip-command";
@@ -140,6 +144,10 @@ export class Container extends InversifyContainer {
         this.bind<InboxFailureClassifier>(Tokens.Bot.Inbox.FailureClassifier).to(InboxFailureClassifier).inSingletonScope();
         this.bind<InboxFailureHandler>(Tokens.Bot.Inbox.FailureHandler).to(InboxFailureHandler).inSingletonScope();
         this.bind<InboxLeaseReleaser>(Tokens.Bot.Inbox.LeaseReleaser).to(InboxLeaseReleaser).inSingletonScope();
+        this.bind<InboxUpdateSource>(Tokens.Bot.Inbox.UpdateSource).to(InboxUpdateSource).inSingletonScope();
+        this.bind<InboxUpdateProcessor>(Tokens.Bot.Inbox.UpdateProcessor).to(InboxUpdateProcessor).inSingletonScope();
+        this.bind<InboxRunner>(Tokens.Bot.Inbox.Runner).to(InboxRunner).inSingletonScope();
+        this.bind<InboxMaintenance>(Tokens.Bot.Inbox.Maintenance).to(InboxMaintenance).inSingletonScope();
 
         // The commands of `npm run cli`
         this.bind<CliCommandResolver>(Tokens.Cli.Resolver).to(CliCommandResolver).inSingletonScope();
