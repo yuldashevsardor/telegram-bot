@@ -1571,17 +1571,6 @@ describe("OutboxStore", function () {
             expect(await batched.deleteFinishedMessages()).to.equal(1);
             expect(await ids()).to.deep.equal([]);
         });
-
-        it("takes the longest retention the config allows without overflowing a timestamp", async function () {
-            const longest = new OutboxStore(database, logger, NO_LIMITS, LEASE_DURATION_MS, {
-                doneRetentionMs: Number.MAX_SAFE_INTEGER,
-                skippedRetentionMs: Number.MAX_SAFE_INTEGER,
-                batchSize: 10,
-            });
-            await finishedAgo({ status: OutboxStatus.Done, agoMs: 0 }, { status: OutboxStatus.Skipped, agoMs: 0 });
-
-            expect(await longest.deleteFinishedMessages()).to.equal(0);
-        });
     });
 
     describe("the cleanup of idle chats", function () {

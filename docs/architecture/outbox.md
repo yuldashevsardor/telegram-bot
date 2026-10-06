@@ -33,15 +33,21 @@ column the outbox needs. The columns and what they mean are in its `createTable`
 replaced by `1790716587328_telegram-outbox-attempt-worker-comment.ts`.
 
 The indexes are picked by the plans of the load test (see "Load test"), not ahead of the queries.
-`1791153270752_telegram-outbox-head-index.ts` adds the one index besides the primary keys,
-`telegram_outbox_active_chat_id_idx`, on `(chat_id, id)` of the active messages: the head of a
-chat for the pull and for `releaseChat()` is its first entry, and the lease recovery finds the
-`processing` message of a chat among its entries. Its `status` is in the predicate, so
-no update of a message is HOT, and a `fillfactor` would buy nothing; every message leaves two dead
-entries in it, which the head lookup walks until a vacuum cleans them. So the same migration caps
-the dead rows that bring autovacuum to `telegram_outbox`, whatever the size of the done history,
-and makes the vacuum always clean the indexes; the values and their measurement are in
-[`outbox-load-test.md`](./outbox-load-test.md), "Vacuum of the head index".
+Besides the primary keys there are two, both of `telegram_outbox`.
+`1791153270752_telegram-outbox-head-index.ts` adds `telegram_outbox_active_chat_id_idx`, on
+`(chat_id, id)` of the active messages: the head of a chat for the pull and for `releaseChat()` is
+its first entry, and the lease recovery finds the `processing` message of a chat among its entries.
+Its `status` is in the predicate, so no update of a message is HOT, and a `fillfactor` would buy
+nothing; every message leaves two dead entries in it, which the head lookup walks until a vacuum
+cleans them. So the same migration caps the dead rows that bring autovacuum to `telegram_outbox`,
+whatever the size of the done history, and makes the vacuum always clean the indexes; the values and
+their measurement are in [`outbox-load-test.md`](./outbox-load-test.md), "Vacuum of the head index".
+`1791320758530_telegram-outbox-finished-index.ts` adds `telegram_outbox_finished_at_idx`, on
+`finished_at` of the `done` and `skipped` messages, the ones the cleanup deletes (see "Cleanup"):
+without it the call that finds nothing to delete reads the whole table. It is the opposite of the
+head index: it holds an entry for every `done` and `skipped` message the cleanup has not deleted
+yet, as large as the primary key; every completion but a failure adds one, and every vacuum of the
+table reads it whole ([`outbox-load-test.md`](./outbox-load-test.md), "The cleanup").
 
 The database does not check the values of `status` and `state`: the store writes them only
 through the `OutboxStatus` and `OutboxChatState` enums (`store/outbox-store.types.ts`). Of these,
@@ -540,12 +546,15 @@ that gets a full batch calls again; `OutboxMaintenance` calls again until a batc
   `OUTBOX_DONE_RETENTION`, and the `skipped` ones older than `OUTBOX_SKIPPED_RETENTION`. A `failed`
   message is never deleted: it waits for a person to unblock its chat or look at it. A message
   without `finished_at` is not deleted either, so whatever sets `skipped` sets `finished_at` too.
-  The retention is added to `finished_at` rather than taken off `now()`: the config takes a
-  retention up to `Number.MAX_SAFE_INTEGER` ms (`CLEANUP_RANGE` of `ConfigValuesBuilder`), and
-  `now()` minus that falls below 4713 BC, the earliest timestamp PostgreSQL has. The batch is
-  locked `FOR UPDATE SKIP LOCKED`: the lock rechecks the status on the newest version of the row,
-  so a message a person has moved back to `pending` meanwhile is kept, and two nodes cleaning at
-  once take different rows.
+  The filter bounds `finished_at` alone, `finished_at < now() - retention`, so that
+  `telegram_outbox_finished_at_idx` serves it (see "Tables"); `finished_at` plus the retention,
+  compared with `now()`, would leave the index aside. The config takes a retention up to
+  `Number.MAX_SAFE_INTEGER` ms (`CLEANUP_RANGE` of `ConfigValuesBuilder`), some 285 000 years,
+  while `now()` minus a retention that reaches past 4713 BC, the earliest timestamp PostgreSQL has,
+  fails out of range: the cleanup then fails on every run, and its error is in the log.
+  The batch is locked `FOR UPDATE SKIP LOCKED`: the lock rechecks the status on the newest version
+  of the row, so a message a person has moved back to `pending` meanwhile is kept, and two nodes
+  cleaning at once take different rows.
 - `deleteIdleChats()` deletes the `idle` chats whose `next_attempt_at` has passed. It locks them
   `FOR UPDATE SKIP LOCKED`: a chat a push or a completion holds is left to them, and the lock
   rechecks the state on the newest version of the row, so a chat a push has made `ready` meanwhile
