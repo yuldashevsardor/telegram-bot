@@ -27,8 +27,8 @@ The indexes are picked by the plans of the load test
 ([`inbox-load-test.md`](./inbox-load-test.md)), not ahead of the queries. Besides the primary keys
 there are two. `1791417600000_telegram-inbox-head-index.ts` adds
 `telegram_inbox_active_group_idx` on `(user_id, chat_id, update_id)` of the active updates: the head
-of a group for the claim and for `releaseGroup()` is its first entry, and the `processing` update
-the lease recovery looks for is, as a rule, that entry too (see "Lease recovery"). Its
+of a group for the claim and for `releaseGroup()` is its first entry, and the lease recovery reads
+the entries of a group up to its first `processing` one (see "Lease recovery"). Its
 `status` is in the predicate, so no update is HOT, and every update leaves dead entries a head
 lookup walks until a vacuum cleans them. So the same migration sets the vacuum options of
 `telegram_inbox` that the head index migration of the outbox sets for `telegram_outbox`:
@@ -107,9 +107,10 @@ handled after it.
 `update_id` grows only while updates keep coming: after a week without updates Telegram picks the
 next one at random (`update_id` of `Update` in the Bot API docs). An update still active from
 before such a gap would then be claimed after the newer updates of its group, and a new id equal to
-a stored one would be left out as a redelivery. Only a stop of the bot keeps an update active that
-long: its updates wait for the next start, and a `processing` one, of a node that died, for the
-lease recovery (see "Lease recovery").
+a stored one would be left out as a redelivery. An update can stay active that long: a blocked
+group keeps its updates until a person unblocks it (see "Unblocking a group"), and a stop of the
+bot keeps every active update until the next start, a `processing` one of a node that died until
+the lease recovery after it (see "Lease recovery").
 
 ## Claim
 
@@ -364,7 +365,8 @@ the timers and waits for the runs in progress, so the database can be closed aft
 `make inbox-retry user=<id> chat=<id>` is `InboxStore.retryBlockedGroup()` and `make inbox-skip
 user=<id> chat=<id>` is `skipBlockedGroup()`. They do for a blocked group what the targets of the
 outbox do for a blocked chat ([`outbox.md`](./outbox.md), "Unblocking a chat"): the failed update
-that blocked the group, the one that failed last, goes back to `pending` and is the head again, or
+that blocked the group, the one that failed last, goes back to `pending` and is the head again,
+unless an update pushed with a smaller `update_id` is before it (see "Push"), or
 becomes `skipped` with `finished_at` set, and the group is `idle` when no active update is left,
 not `ready`, which no claim would serve. A group that is not blocked throws `InboxGroupNotBlocked`.
 A group left `ready` is notified (see "Ready notifications").

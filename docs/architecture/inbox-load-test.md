@@ -58,9 +58,9 @@ another, so the time of a claim bounds how many updates one worker loop can star
 The times are those of the client, in ms, from runs with `plans=off`, except the column without an
 index; "first" is the first call of the run, the cold cache. The last column is the claim that
 limits the groups before it looks up their heads (see "The claim of 100 k groups"); the calls it
-did not change were not measured again. The expired batch of `findExpiredLeases()` in the 3 groups
-column and in the last one is of the lookup that stops at the `processing` update, the 13 ms of
-the lookup before it (see "The lease recovery").
+did not change were not measured again. The lease recovery of an expired batch has two rows: the
+lookup that read every active update of a group, and the one that stops at the `processing` update
+(see "The lease recovery").
 
 | call | no index, 3 groups | head index, 3 groups | head index, 100 k groups | head and ready-groups index, 100 k groups |
 |---|---|---|---|---|
@@ -68,7 +68,8 @@ the lookup before it (see "The lease recovery").
 | `claim(30)` | — | 0.5 – 1.8, median 0.6, for 3 updates | 97 – 110, median 102, for 30 updates | 1.1 – 2.4, median 1.4, for 30 updates |
 | `markAsDone()` | 73 556, 292 | median 0.7, p95 1.5, max 3.7 | median 0.6, p95 1.2, max 8.1 | — |
 | `findExpiredLeases()`, no lease expired | — | 0.5 | 3.1 | — |
-| `findExpiredLeases()`, a batch expired | — | 2.3, 3 leases | 13, 30 leases | 5.4, 30 leases |
+| `findExpiredLeases()`, a batch expired, every active update read | — | 1 458, 3 leases | 13, 30 leases | — |
+| `findExpiredLeases()`, a batch expired, up to the `processing` one | — | 2.3, 3 leases | — | 5.4, 30 leases |
 | `deleteFinishedUpdates()`, a full batch | — | 4.9 – 280, one of 82 549 | — | — |
 | `deleteFinishedUpdates()`, nothing to delete | — | 84 156 | 84 219 | — |
 | `deleteIdleGroups()`, nothing to delete | — | 18 | 35 | — |
@@ -204,11 +205,9 @@ nothing, where the inner join dropped it and went on to the next group. No write
 
 ### The lease recovery
 
-`findExpiredLeases()` finds the `processing` update of each expired group as the first entry of the
-group in the head index whose status is `processing`, `ORDER BY update_id LIMIT 1`. The claim makes
-the head `processing`, so as a rule that is the first entry, and the lookup reads one live entry a
-group, however many active updates the group holds (`inbox.md`, "Lease recovery", has why it is not
-the head alone, as in the outbox):
+`findExpiredLeases()` stops at the first `processing` entry of each expired group in the head
+index, as a rule its first entry ([`inbox.md`](./inbox.md), "Lease recovery"), so it reads one live
+entry a group, however many active updates the group holds:
 
 ```
 Nested Loop  (actual time=2.107..2.155 rows=3.00 loops=1)

@@ -192,11 +192,9 @@ export class InboxStore {
                    to_jsonb(inbox_update.updated_at) #>> '{}' AS started_at,
                    jsonb_array_length(inbox_update.attempts) AS earlier_attempts
             FROM telegram_inbox_groups AS inbox_group
-            -- The first processing update of the group by update_id, so the lookup stops at it: the
-            -- claim makes the head processing, and with no LIMIT the lookup read every active update
-            -- of the group behind it (docs/architecture/inbox-load-test.md, "The lease recovery").
-            -- Not the head alone, as the outbox takes it: an update pushed with a smaller update_id
-            -- comes before the processing one (docs/architecture/inbox.md, "Lease recovery").
+            -- The first processing update of the group by update_id, so the lookup stops at it rather
+            -- than reading every active update of the group behind it. Why not the head alone, as the
+            -- outbox takes it: docs/architecture/inbox.md, "Lease recovery".
             CROSS JOIN LATERAL (
                 SELECT update_id, updated_at, attempts
                 FROM telegram_inbox
@@ -317,7 +315,8 @@ export class InboxStore {
     }
 
     // Unblocks a group by hand: the failed update that blocked it goes back to pending, and its
-    // update_id makes it the head again. Returns that update. A group that is not blocked throws
+    // update_id makes it the head again, unless an update pushed with a smaller update_id is before
+    // it (docs/architecture/inbox.md, "Push"). Returns that update. A group that is not blocked throws
     // InboxGroupNotBlocked and changes nothing.
     public async retryBlockedGroup(groupKey: InboxGroupKey): Promise<number> {
         return this.sql.begin(async (sql) => {
