@@ -10,8 +10,10 @@ import { commonShorthands } from "./common/utils";
 // it the pull read every chat for it.
 //
 // The UPDATE fills the copy of the chats already there. A node on the code before this migration
-// that pushes after it makes a chat ready with a NULL copy, and the chat goes behind every other
-// until its head moves: the nodes that push are to run the new code once the migration is applied.
+// that writes to the outbox after it leaves the copy stale: its push makes a chat ready with a NULL
+// copy, which goes behind every other chat, and its completions and unblocks move the head without
+// the copy, so the chat keeps the priority of the head before. Every node that writes to the outbox
+// is to run the new code once the migration is applied.
 
 const outbox = "telegram_outbox";
 const chats = "telegram_outbox_chats";

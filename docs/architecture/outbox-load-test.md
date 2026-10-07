@@ -80,7 +80,7 @@ the filled table, where it took 2 minutes to build; it is now the migration
 took a median of 161 ms with them and 144 ms without. The cleanup rows are with the index of the
 cleanup as well (see "The cleanup"), measured later, on the same fill; without it the call that
 deletes nothing took 81 462 and 118 604 ms. The last column is of the head priority on the chat row
-and its two indexes, `1791590400000_telegram-outbox-chat-head-priority.ts`, with every index before
+and its two indexes, `1791763200000_telegram-outbox-chat-head-priority.ts`, with every index before
 it, measured later still, on the same fill (see "The pull of 100 k chats with the head priority").
 
 ### Why the index is partial

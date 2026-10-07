@@ -27,7 +27,7 @@ the payload codec and the retry delay. The error classes of a failed call lie ou
 
 One migration, `1790546834232_telegram-outbox-tables.ts`, creates the three tables with every
 column but `telegram_outbox_chats.head_priority`, which
-`1791590400000_telegram-outbox-chat-head-priority.ts` adds with its `comment` (see the head below).
+`1791763200000_telegram-outbox-chat-head-priority.ts` adds with its `comment` (see the head below).
 The columns and what they mean are in the `createTable` calls and `comment`s; the comment of
 `next_attempt_at` is replaced by `1790666223510_telegram-outbox-chat-limit-comment.ts` and then,
 with that of `status`, by `1790682156623_telegram-outbox-retry-comments.ts`; those of `attempts`
@@ -49,7 +49,7 @@ without it the call that finds nothing to delete reads the whole table. It is th
 head index: it holds an entry for every `done` and `skipped` message the cleanup has not deleted
 yet, as large as the primary key; every completion but a failure adds one, and every vacuum of the
 table reads it whole ([`outbox-load-test.md`](./outbox-load-test.md), "The cleanup").
-`1791590400000_telegram-outbox-chat-head-priority.ts` adds the two of the `ready` chats, for the
+`1791763200000_telegram-outbox-chat-head-priority.ts` adds the two of the `ready` chats, for the
 pull (see "Pull"): `telegram_outbox_chats_ready_pull_idx`, on `(head_priority, next_attempt_at,
 chat_id)`, the order of the pull, and `telegram_outbox_chats_ready_next_attempt_at_idx`, on
 `next_attempt_at`, for the nearest due time the pull answers with. Without them the pull read every
@@ -80,18 +80,20 @@ The copy is right only while every write that moves the head reads it again
 again, and every such write ends in `setChatState()`, which sets `head_priority` from the head in
 the same statement as the state: the completions, `retry`, the unblocks. A push makes an `idle`
 chat `ready` with the copy of its first message; in a chat with a head it puts its messages behind
-it, so the copy stays. The pull keeps the head, the message only goes to `processing`. One copy
-can be stale: a push into a `blocked` chat with no active message gives it a head and leaves the
-copy NULL, and only the unblock, through `setChatState()`, reads it. A stale copy breaks nothing
-loud: the chat is pulled in the wrong turn among the priorities.
+it, so the copy stays. The pull keeps the head, the message only goes to `processing`. A copy
+the store writes can be stale in one case: a push into a `blocked` chat with no active message
+gives it a head and leaves the copy NULL, and only the unblock, through `setChatState()`, reads
+it. A stale copy breaks nothing loud: the chat is pulled in the wrong turn among the priorities.
 
 A `failed` message is not active. The status says what happened to the message, the state of the
 chat says whether the chat waits: a failed message that blocks its chat holds it through `blocked`,
 and one that does not block lets the next message of the chat become the head. A person unblocks a
 chat by hand with `make outbox-retry` or `make outbox-skip` (see "Unblocking a chat"). A failed
-message that did not block its chat goes out again only if its chat is made `ready` too, and its
-chat row is inserted first if the cleanup has removed it: the chat of such a message may be `idle`,
-and no pull reaches a message without a `ready` chat row (see "Cleanup").
+message that did not block its chat goes out again only if its chat is made `ready` too, with its
+`head_priority` set from its head, and its chat row is inserted first if the cleanup has removed it:
+the chat of such a message may be `idle`, and no pull reaches a message without a `ready` chat row
+(see "Cleanup"). The message put back is older than the rest of its chat, so it becomes the head
+even of a `ready` chat, and a copy not set again is stale like the one above.
 
 ## Chat states
 
