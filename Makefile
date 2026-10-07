@@ -201,14 +201,16 @@ inbox-skip: ## Skip the failed update of a blocked inbox group: make inbox-skip 
 	@[ -n "$(user)" ] && [ -n "$(chat)" ] || { printf 'give it the group: make inbox-skip user=<id> chat=<id>\n' >&2; exit 1; }
 	$(DC_APP_RUN) npm run cli -- inbox skip '$(user)' '$(chat)'
 
-## Outbox load test
+## Load tests
 
-# The load test of the outbox (docs/architecture/outbox-load-test.md) runs against a Postgres of
-# its own, docker-compose.load.yml, reached by the service name pgsql-load from the one-off
-# application containers. The fill goes through psql as the superuser, the measurement through the
-# store as the user of .env. That role gets a statement timeout in load-up, so a pull that scans for
-# hours is cancelled, and the auto_explain logging in load-measure, so the plans are of the
-# measurement alone.
+# The load tests of the outbox (docs/architecture/outbox-load-test.md) and of the inbox
+# (docs/architecture/inbox-load-test.md) run against a Postgres of their own, docker-compose.load.yml,
+# reached by the service name pgsql-load from the one-off application containers. The fill goes
+# through psql as the superuser, the measurement through the store as the user of .env. That role
+# gets a statement timeout in load-up, so a pull or a claim that scans for hours is cancelled, and
+# the auto_explain logging in the measurement, so the plans are of the measurement alone. The
+# targets of the outbox are load-*, those of the inbox load-inbox-*; the database, load-up,
+# load-psql and load-down are shared.
 DC_LOAD := docker compose -f docker-compose.load.yml
 # app_user is the user of .env, known inside the container only.
 LOAD_PSQL := $(DC_LOAD) exec -T pgsql-load sh -c 'psql -v ON_ERROR_STOP=1 -v app_user="$$DATABASE_USER_NAME" -U "$$POSTGRES_USER" -d "$$DATABASE_NAME" "$$@"' psql
@@ -234,15 +236,32 @@ load-churn: ## Send messages of one chat of the layout and print the head lookup
 # them there, not to the client. They are printed after a failed run too, up to the call that
 # failed. With them every statement runs under EXPLAIN ANALYZE, which adds to its time, so the times
 # to compare with a threshold are taken with plans=off. The setting is the role's, read by every new
-# connection.
-load-measure: ## Measure the outbox store on the load-test database; the times, then the plans: make load-measure [plans=off]
-	@[ -z "$(plans)" ] || [ "$(plans)" = off ] || { printf 'plans takes off alone: make load-measure plans=off\n' >&2; exit 1; }
+# connection. $(1) is the script of the measurement.
+define LOAD_MEASURE
+	@[ -z "$(plans)" ] || [ "$(plans)" = off ] || { printf 'plans takes off alone: make $@ plans=off\n' >&2; exit 1; }
 	printf '%s\n' 'ALTER ROLE :"app_user" SET auto_explain.log_min_duration = $(if $(filter off,$(plans)),-1,0);' | $(LOAD_PSQL)
 	@started_at=$$(date -u +%Y-%m-%dT%H:%M:%SZ); \
-		$(DC_APP_RUN) env DATABASE_HOST=pgsql-load TSX_TSCONFIG_PATH=./tsconfig.check.json node --require tsx/cjs test/load/outbox-load-test.ts; \
+		$(DC_APP_RUN) env DATABASE_HOST=pgsql-load TSX_TSCONFIG_PATH=./tsconfig.check.json node --require tsx/cjs $(1); \
 		status=$$?; \
 		$(DC_LOAD) logs --no-log-prefix --since "$$started_at" pgsql-load; \
 		exit $$status
+endef
+
+load-measure: ## Measure the outbox store on the load-test database; the times, then the plans: make load-measure [plans=off]
+	$(call LOAD_MEASURE,test/load/outbox-load-test.ts)
+
+load-inbox-fill-done: ## Fill the load-test database with done inbox updates, once: make load-inbox-fill-done [rows=100000000]
+	$(LOAD_PSQL) -v rows=$(or $(rows),100000000) -v groups=100000 < test/load/inbox-fill-done.sql
+
+load-inbox-fill-pending: ## Replace the pending inbox layout of the load test: make load-inbox-fill-pending groups=3 per_group=300000
+	@[ -n "$(groups)" ] && [ -n "$(per_group)" ] || { printf 'give it the layout: make load-inbox-fill-pending groups=3 per_group=300000\n' >&2; exit 1; }
+	$(LOAD_PSQL) -v groups=$(groups) -v per_group=$(per_group) < test/load/inbox-fill-pending.sql
+
+load-inbox-index: ## Build the candidate head index of the inbox over the filled table
+	$(LOAD_PSQL) < test/load/inbox-candidate-index.sql
+
+load-inbox-measure: ## Measure the inbox store on the load-test database; the times, then the plans: make load-inbox-measure [plans=off]
+	$(call LOAD_MEASURE,test/load/inbox-load-test.ts)
 
 load-psql: ## psql in the load-test database
 	$(DC_LOAD) exec pgsql-load sh -c 'psql -U "$$POSTGRES_USER" -d "$$DATABASE_NAME"'
@@ -336,4 +355,5 @@ review-tree-remove: ## Remove a temporary review tree <main worktree>-review-<PR
 	worktree-init worktree-cleanup token-acquire token-renew token-release token-status token-add \
 	review-test review-tree-create mutation-full-record mutation-full-check mutation-full-close \
 	review-run review-tree-remove help \
-	load-up load-fill-done load-fill-pending load-churn load-measure load-psql load-down
+	load-up load-fill-done load-fill-pending load-churn load-measure load-psql load-down \
+	load-inbox-fill-done load-inbox-fill-pending load-inbox-index load-inbox-measure

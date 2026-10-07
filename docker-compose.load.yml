@@ -1,7 +1,8 @@
-# The database of the outbox load test (docs/architecture/outbox-load-test.md): a Postgres of its
-# own, apart from the shared one of docker-compose.db.yml. The fill writes some 70 GB for 20 minutes,
-# and in the shared database it would slow down the specs and the bots of every worktree. One
-# instance per machine, as the shared one: the project name is fixed.
+# The database of the outbox and inbox load tests (docs/architecture/outbox-load-test.md,
+# docs/architecture/inbox-load-test.md): a Postgres of its own, apart from the shared one of
+# docker-compose.db.yml. Each fill writes some 70 to 80 GB for 20 to 30 minutes, and in the shared
+# database it would slow down the specs and the bots of every worktree. One instance per machine, as
+# the shared one: the project name is fixed.
 name: telegram-bot-load
 
 services:
@@ -18,8 +19,8 @@ services:
         # auto_explain logs the plan of every statement of the store with its run time and buffers,
         # so the measurement reads the plans of the store's own SQL rather than of a copy that can
         # drift from it. It is loaded for every session, but logs only where log_min_duration is set:
-        # make load-measure sets it for the user of .env, the one the store connects as, and not for
-        # the superuser of the fill.
+        # make load-measure and make load-inbox-measure set it for the user of .env, the one the store
+        # connects as, and not for the superuser of the fill.
         # log_autovacuum_min_duration logs every autovacuum run with its time, its index scans and
         # the pages it read: the cost of the vacuum settings of the outbox.
         # The other settings are the defaults of the image, as in the shared database.

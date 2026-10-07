@@ -573,3 +573,8 @@ as `PgSqlUserRepository` does ([`storage.md`](./storage.md), "`User.id`").
 
 The updates go to the database as JSON text cast to `jsonb`, not through `sql.json()`; why is in
 the comment of `pushBatch()`.
+
+## Load test
+
+How the store holds up on 100 M updates, measured, and what the measurements propose:
+[`inbox-load-test.md`](./inbox-load-test.md).
