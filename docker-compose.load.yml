@@ -1,7 +1,8 @@
-# The database of the outbox load test (docs/architecture/outbox-load-test.md): a Postgres of its
-# own, apart from the shared one of docker-compose.db.yml. The fill writes some 70 GB for 20 minutes,
-# and in the shared database it would slow down the specs and the bots of every worktree. One
-# instance per machine, as the shared one: the project name is fixed.
+# The database of the outbox and inbox load tests (docs/architecture/outbox-load-test.md,
+# docs/architecture/inbox-load-test.md): a Postgres of its own, apart from the shared one of
+# docker-compose.db.yml. A fill writes some 70 GB for 20 minutes, and in the shared database it
+# would slow down the specs and the bots of every worktree. One instance per machine, as the shared
+# one: the project name is fixed.
 name: telegram-bot-load
 
 services:
