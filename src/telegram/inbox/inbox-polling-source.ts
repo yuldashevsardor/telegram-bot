@@ -3,21 +3,20 @@ import type { Api } from "grammy";
 import { Context } from "grammy";
 import type { Update, UserFromGetMe } from "grammy/types";
 import { inject, injectable } from "inversify";
-import postgres from "postgres";
 import { Tokens } from "app/shared/tokens";
 import type { UnknownObject } from "app/shared/types";
 import { RuntimeError } from "app/shared/errors";
-import { MS_PER_SECOND } from "app/shared/time";
+import { MAX_TIMER_DELAY_MS, MS_PER_SECOND } from "app/shared/time";
 import type { Logger } from "app/platform/logger/logger";
 import { ALLOWED_UPDATES } from "app/telegram/bot/bot.types";
 import type { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import type { TelegramApiFactory } from "app/telegram/telegram-api-factory";
 import type { InboxStore } from "app/telegram/inbox/store/inbox-store";
+import { InboxUpdateRefused } from "app/telegram/inbox/store/inbox-store.errors";
 import type { InboxUpdateInput } from "app/telegram/inbox/store/inbox-store.types";
 import type { RetryDelay } from "app/telegram/retry-delay/retry-delay";
 import { hasSessionKey } from "app/telegram/session/session.helper";
-import { isJsonbStorable } from "app/telegram/jsonb-string";
 
 // How long getUpdates waits for an update before it answers with none.
 const POLL_TIMEOUT_SECONDS = 30;
@@ -25,14 +24,6 @@ const POLL_TIMEOUT_SECONDS = 30;
 const ANSWER_MARGIN_SECONDS = 10;
 // The most updates the Bot API gives in one getUpdates: a backlog drains in as few inserts as it can.
 const POLL_LIMIT = 100;
-// The SQLSTATE codes PostgreSQL refuses the values of an update in jsonb with, and the same update
-// fails every time it is pushed: untranslatable_character for a \u0000 escape and
-// invalid_text_representation for a lone surrogate. Not the whole class 22 of data exceptions: a
-// change of the store that fails every row with another of them would drop every update instead of
-// stalling the source.
-const REFUSED_UPDATE_SQLSTATES: ReadonlySet<string> = new Set(["22P05", "22P02"]);
-// The longest delay a Node timer takes: a longer one fires at once.
-const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
 
 // The signal as grammY types it: by the abort-controller shim of its Node build. At run time it takes
 // the native one.
@@ -136,7 +127,7 @@ export class InboxPollingSource {
                 return me;
             } catch (error) {
                 this.logCallFailure("Preparing the polling failed, the source tries again.", error, {});
-                await this.pauseAfterFailure(error);
+                await this.pauseAfterCallFailure(error);
             }
         }
 
@@ -152,7 +143,7 @@ export class InboxPollingSource {
             );
         } catch (error) {
             this.logCallFailure("Getting updates failed, the source tries again from the same offset.", error, { offset: offset });
-            await this.pauseAfterFailure(error);
+            await this.pauseAfterCallFailure(error);
 
             return undefined;
         }
@@ -169,7 +160,7 @@ export class InboxPollingSource {
 
             return true;
         } catch (error) {
-            if (!this.isRefusal(error, inputs)) {
+            if (!(error instanceof InboxUpdateRefused)) {
                 await this.handleStoreFailure(inputs, error);
 
                 return false;
@@ -194,44 +185,17 @@ export class InboxPollingSource {
                 await this.store.push(input);
             } catch (error) {
                 // The ones before it are stored or dropped already.
-                if (!this.isRefusal(error, [input])) {
+                if (!(error instanceof InboxUpdateRefused)) {
                     await this.handleStoreFailure(inputs.slice(index), error);
 
                     return false;
                 }
 
-                this.logger.error("The inbox refused an update, it is dropped.", {
-                    updateId: input.update.update_id,
-                    cause: this.describeStoreError(error),
-                });
+                this.logger.error("The inbox refused an update, it is dropped.", { updateId: input.update.update_id, cause: error });
             }
         }
 
         return true;
-    }
-
-    // A failure the updates themselves cause: one of the refusal codes, and a value jsonb refuses in
-    // one of the updates. 22P02 is the code of any malformed input, so a store change that broke every
-    // row would give it too, and the code alone would drop every update.
-    private isRefusal(error: unknown, inputs: InboxUpdateInput[]): error is postgres.PostgresError {
-        if (!(error instanceof postgres.PostgresError) || !REFUSED_UPDATE_SQLSTATES.has(error.code)) {
-            return false;
-        }
-
-        return inputs.some((input) => this.holdsValueJsonbRefuses(input.update));
-    }
-
-    // A string jsonb refuses anywhere in the value, a key included.
-    private holdsValueJsonbRefuses(value: unknown): boolean {
-        if (typeof value === "string") {
-            return !isJsonbStorable(value);
-        }
-
-        if (typeof value !== "object" || value === null) {
-            return false;
-        }
-
-        return Object.entries(value).some(([key, nested]) => !isJsonbStorable(key) || this.holdsValueJsonbRefuses(nested));
     }
 
     // The group of an update is the pair getSessionKey() makes the session key of, read off the
@@ -265,7 +229,7 @@ export class InboxPollingSource {
     // inputs: the updates not stored. A push that fails after the stop has no retry: the next start
     // gets the updates again.
     private async handleStoreFailure(inputs: InboxUpdateInput[], error: unknown): Promise<void> {
-        const payload = { updateIds: inputs.map((input) => input.update.update_id), cause: this.describeStoreError(error) };
+        const payload = { updateIds: inputs.map((input) => input.update.update_id), cause: error };
 
         if (this.isStopped()) {
             this.logger.warning("Storing updates failed after the stop, the next start gets them again.", payload);
@@ -274,18 +238,7 @@ export class InboxPollingSource {
         }
 
         this.logger.error("Storing updates failed, the source gets them again from the same offset.", payload);
-        await this.pauseAfterFailure(error);
-    }
-
-    // An error of PostgreSQL as its code, message and detail, not as a whole: the CONTEXT it gives a
-    // refused value, in its where field, holds the update up to that value, the text of the message
-    // included.
-    private describeStoreError(error: unknown): unknown {
-        if (error instanceof postgres.PostgresError) {
-            return { code: error.code, message: error.message, detail: error.detail };
-        }
-
-        return error;
+        await this.pauseAfterStoreFailure();
     }
 
     // A call the stop aborted is not a failure.
@@ -297,10 +250,10 @@ export class InboxPollingSource {
         this.logger.error(message, { ...payload, cause: error });
     }
 
-    // The retry delay for the failures in a row, so an outage of Telegram, a revoked
-    // token or a lasting 409 is not retried and logged every second; or the wait a 429 asks for, if it
-    // is longer.
-    private async pauseAfterFailure(error: unknown): Promise<void> {
+    // The retry delay for the failures in a row, of calls and pushes alike, so an outage of Telegram,
+    // a revoked token or a lasting 409 is not retried and logged every second; or the wait a 429 asks
+    // for, if it is longer.
+    private async pauseAfterCallFailure(error: unknown): Promise<void> {
         this.consecutiveFailureCount += 1;
 
         const retryDelayMs = this.retryDelay.computeMs(this.consecutiveFailureCount);
@@ -315,6 +268,14 @@ export class InboxPollingSource {
         }
 
         await this.pause(retryDelayMs);
+    }
+
+    // The retry delay alone: a 429 comes from Telegram, so the Bot API classifier has no say over a
+    // failure of the store.
+    private async pauseAfterStoreFailure(): Promise<void> {
+        this.consecutiveFailureCount += 1;
+
+        await this.pause(this.retryDelay.computeMs(this.consecutiveFailureCount));
     }
 
     // Cut short by the stop. Protected for the spec, which records the durations instead of waiting.
