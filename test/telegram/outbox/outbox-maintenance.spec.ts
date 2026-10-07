@@ -38,7 +38,7 @@ class FakeStore {
     public backlogReads = 0;
     public backlogError: unknown = undefined;
     public blockedChatCount = 0;
-    public blockedChatCounts = 0;
+    public blockedChatCountCalls = 0;
     public blockedChatCountError: unknown = undefined;
 
     public async deleteFinishedMessages(): Promise<number> {
@@ -73,7 +73,7 @@ class FakeStore {
     }
 
     public async countBlockedChats(): Promise<number> {
-        this.blockedChatCounts += 1;
+        this.blockedChatCountCalls += 1;
 
         if (this.blockedChatCountError !== undefined) {
             throw this.blockedChatCountError;
@@ -139,7 +139,7 @@ describe("OutboxMaintenance", function () {
         expect(store.finishedMessagesCalls).to.equal(0);
         expect(store.idleChatsCalls).to.equal(0);
         expect(store.backlogReads).to.equal(0);
-        expect(store.blockedChatCounts).to.equal(0);
+        expect(store.blockedChatCountCalls).to.equal(0);
     });
 
     it("recovers the expired leases once per interval", async function () {
@@ -150,7 +150,7 @@ describe("OutboxMaintenance", function () {
         expect(store.finishedMessagesCalls).to.equal(0);
         expect(store.idleChatsCalls).to.equal(0);
         expect(store.backlogReads).to.equal(0);
-        expect(store.blockedChatCounts).to.equal(0);
+        expect(store.blockedChatCountCalls).to.equal(0);
     });
 
     it("runs both cleanups once per interval", async function () {
@@ -171,26 +171,36 @@ describe("OutboxMaintenance", function () {
         expect(leaseRecovery.recoveries).to.equal(0);
         expect(store.finishedMessagesCalls).to.equal(0);
         expect(store.idleChatsCalls).to.equal(0);
-        expect(store.blockedChatCounts).to.equal(0);
+        expect(store.blockedChatCountCalls).to.equal(0);
     });
 
     it("logs the number of the blocked chats at error once per interval while there are any", async function () {
         store.blockedChatCount = BLOCKED_CHAT_COUNT;
-        start({ leaseRecoveryIntervalMs: LONG_INTERVAL_MS, cleanupIntervalMs: LONG_INTERVAL_MS, blockedLogIntervalMs: SHORT_INTERVAL_MS });
-
-        await waitUntil(() => logger.errors.length >= 2, "the line of the blocked chats was expected to be logged twice");
-
-        expect(logger.errors[0]).to.deep.equal({
-            message: "Outbox chats are blocked, unblock each with make outbox-retry or make outbox-skip.",
-            payload: { blockedChatCount: BLOCKED_CHAT_COUNT },
+        const started = start({
+            leaseRecoveryIntervalMs: LONG_INTERVAL_MS,
+            cleanupIntervalMs: LONG_INTERVAL_MS,
+            blockedLogIntervalMs: SHORT_INTERVAL_MS,
         });
+
+        await waitUntil(() => store.blockedChatCountCalls >= 2, "the blocked chats were expected to be counted twice");
+        await started.stop();
+
+        // One line per count: a run that logged twice would show here.
+        expect(logger.errors).to.have.length(store.blockedChatCountCalls);
+        for (const loggedError of logger.errors) {
+            expect(loggedError).to.deep.equal({
+                message:
+                    'Outbox chats are blocked: find them and unblock each with make outbox-retry chat=<id> or make outbox-skip chat=<id> (README.md, "Unblocking a chat or a group").',
+                payload: { blockedChatCount: BLOCKED_CHAT_COUNT },
+            });
+        }
         expect(store.backlogReads).to.equal(0);
     });
 
     it("logs nothing while no chat is blocked", async function () {
         start({ leaseRecoveryIntervalMs: LONG_INTERVAL_MS, cleanupIntervalMs: LONG_INTERVAL_MS, blockedLogIntervalMs: SHORT_INTERVAL_MS });
 
-        await waitUntil(() => store.blockedChatCounts >= 2, "the blocked chats were expected to be counted twice");
+        await waitUntil(() => store.blockedChatCountCalls >= 2, "the blocked chats were expected to be counted twice");
 
         expect(logger.errors).to.deep.equal([]);
     });
@@ -256,7 +266,7 @@ describe("OutboxMaintenance", function () {
         store.blockedChatCountError = error;
         start({ leaseRecoveryIntervalMs: LONG_INTERVAL_MS, cleanupIntervalMs: LONG_INTERVAL_MS, blockedLogIntervalMs: SHORT_INTERVAL_MS });
 
-        await waitUntil(() => store.blockedChatCounts >= 2, "the count was expected to run again after a failure");
+        await waitUntil(() => store.blockedChatCountCalls >= 2, "the count was expected to run again after a failure");
 
         expect(logger.errors[0]).to.deep.equal({
             message: "An outbox maintenance task failed, its next run tries again.",
@@ -305,7 +315,7 @@ describe("OutboxMaintenance", function () {
         expect(store.finishedMessagesCalls).to.equal(0);
         expect(store.idleChatsCalls).to.equal(0);
         expect(store.backlogReads).to.equal(0);
-        expect(store.blockedChatCounts).to.equal(0);
+        expect(store.blockedChatCountCalls).to.equal(0);
     });
 
     // The stop is final: a start that follows it sets no timers.
@@ -325,7 +335,7 @@ describe("OutboxMaintenance", function () {
         expect(store.finishedMessagesCalls).to.equal(0);
         expect(store.idleChatsCalls).to.equal(0);
         expect(store.backlogReads).to.equal(0);
-        expect(store.blockedChatCounts).to.equal(0);
+        expect(store.blockedChatCountCalls).to.equal(0);
     });
 
     it("waits for the run in progress and schedules no next one", async function () {

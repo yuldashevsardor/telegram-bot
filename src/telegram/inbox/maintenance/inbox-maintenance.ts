@@ -120,8 +120,11 @@ export class InboxMaintenance {
             return;
         }
 
-        this.logger.error("Inbox groups are blocked, unblock each with make inbox-retry or make inbox-skip.", {
-            blockedGroupCount: blockedGroupCount,
-        });
+        this.logger.error(
+            'Inbox groups are blocked: find them and unblock each with make inbox-retry user=<id> chat=<id> or make inbox-skip user=<id> chat=<id> (README.md, "Unblocking a chat or a group").',
+            {
+                blockedGroupCount: blockedGroupCount,
+            },
+        );
     }
 }

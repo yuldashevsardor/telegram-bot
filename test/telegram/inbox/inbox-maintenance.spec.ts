@@ -32,7 +32,7 @@ class FakeStore {
     public finishedUpdatesError: unknown = undefined;
     public idleGroupsError: unknown = undefined;
     public blockedGroupCount = 0;
-    public blockedGroupCounts = 0;
+    public blockedGroupCountCalls = 0;
     public blockedGroupCountError: unknown = undefined;
 
     public async deleteFinishedUpdates(): Promise<number> {
@@ -57,7 +57,7 @@ class FakeStore {
     }
 
     public async countBlockedGroups(): Promise<number> {
-        this.blockedGroupCounts += 1;
+        this.blockedGroupCountCalls += 1;
 
         if (this.blockedGroupCountError !== undefined) {
             throw this.blockedGroupCountError;
@@ -117,7 +117,7 @@ describe("InboxMaintenance", function () {
         expect(failureHandler.recoveries).to.equal(0);
         expect(store.finishedUpdatesCalls).to.equal(0);
         expect(store.idleGroupsCalls).to.equal(0);
-        expect(store.blockedGroupCounts).to.equal(0);
+        expect(store.blockedGroupCountCalls).to.equal(0);
     });
 
     it("recovers the expired leases once per interval", async function () {
@@ -127,7 +127,7 @@ describe("InboxMaintenance", function () {
 
         expect(store.finishedUpdatesCalls).to.equal(0);
         expect(store.idleGroupsCalls).to.equal(0);
-        expect(store.blockedGroupCounts).to.equal(0);
+        expect(store.blockedGroupCountCalls).to.equal(0);
     });
 
     it("runs both cleanups once per interval", async function () {
@@ -136,19 +136,29 @@ describe("InboxMaintenance", function () {
         await waitUntil(() => store.finishedUpdatesCalls >= 2 && store.idleGroupsCalls >= 2, "both cleanups were expected to run twice");
 
         expect(failureHandler.recoveries).to.equal(0);
-        expect(store.blockedGroupCounts).to.equal(0);
+        expect(store.blockedGroupCountCalls).to.equal(0);
     });
 
     it("logs the number of the blocked groups at error once per interval while there are any", async function () {
         store.blockedGroupCount = BLOCKED_GROUP_COUNT;
-        start({ leaseRecoveryIntervalMs: LONG_INTERVAL_MS, cleanupIntervalMs: LONG_INTERVAL_MS, blockedLogIntervalMs: SHORT_INTERVAL_MS });
-
-        await waitUntil(() => logger.errors.length >= 2, "the line of the blocked groups was expected to be logged twice");
-
-        expect(logger.errors[0]).to.deep.equal({
-            message: "Inbox groups are blocked, unblock each with make inbox-retry or make inbox-skip.",
-            payload: { blockedGroupCount: BLOCKED_GROUP_COUNT },
+        const started = start({
+            leaseRecoveryIntervalMs: LONG_INTERVAL_MS,
+            cleanupIntervalMs: LONG_INTERVAL_MS,
+            blockedLogIntervalMs: SHORT_INTERVAL_MS,
         });
+
+        await waitUntil(() => store.blockedGroupCountCalls >= 2, "the blocked groups were expected to be counted twice");
+        await started.stop();
+
+        // One line per count: a run that logged twice would show here.
+        expect(logger.errors).to.have.length(store.blockedGroupCountCalls);
+        for (const loggedError of logger.errors) {
+            expect(loggedError).to.deep.equal({
+                message:
+                    'Inbox groups are blocked: find them and unblock each with make inbox-retry user=<id> chat=<id> or make inbox-skip user=<id> chat=<id> (README.md, "Unblocking a chat or a group").',
+                payload: { blockedGroupCount: BLOCKED_GROUP_COUNT },
+            });
+        }
         expect(failureHandler.recoveries).to.equal(0);
         expect(store.finishedUpdatesCalls).to.equal(0);
         expect(store.idleGroupsCalls).to.equal(0);
@@ -157,7 +167,7 @@ describe("InboxMaintenance", function () {
     it("logs nothing while no group is blocked", async function () {
         start({ leaseRecoveryIntervalMs: LONG_INTERVAL_MS, cleanupIntervalMs: LONG_INTERVAL_MS, blockedLogIntervalMs: SHORT_INTERVAL_MS });
 
-        await waitUntil(() => store.blockedGroupCounts >= 2, "the blocked groups were expected to be counted twice");
+        await waitUntil(() => store.blockedGroupCountCalls >= 2, "the blocked groups were expected to be counted twice");
 
         expect(logger.errors).to.deep.equal([]);
     });
@@ -222,7 +232,7 @@ describe("InboxMaintenance", function () {
         store.blockedGroupCountError = error;
         start({ leaseRecoveryIntervalMs: LONG_INTERVAL_MS, cleanupIntervalMs: LONG_INTERVAL_MS, blockedLogIntervalMs: SHORT_INTERVAL_MS });
 
-        await waitUntil(() => store.blockedGroupCounts >= 2, "the count was expected to run again after a failure");
+        await waitUntil(() => store.blockedGroupCountCalls >= 2, "the count was expected to run again after a failure");
 
         expect(logger.errors[0]).to.deep.equal({
             message: "An inbox maintenance task failed, its next run tries again.",
@@ -256,7 +266,7 @@ describe("InboxMaintenance", function () {
         expect(failureHandler.recoveries).to.equal(0);
         expect(store.finishedUpdatesCalls).to.equal(0);
         expect(store.idleGroupsCalls).to.equal(0);
-        expect(store.blockedGroupCounts).to.equal(0);
+        expect(store.blockedGroupCountCalls).to.equal(0);
     });
 
     // The stop is final: a start that follows it sets no timers.
@@ -274,7 +284,7 @@ describe("InboxMaintenance", function () {
         expect(failureHandler.recoveries).to.equal(0);
         expect(store.finishedUpdatesCalls).to.equal(0);
         expect(store.idleGroupsCalls).to.equal(0);
-        expect(store.blockedGroupCounts).to.equal(0);
+        expect(store.blockedGroupCountCalls).to.equal(0);
     });
 
     it("waits for the run in progress and schedules no next one", async function () {

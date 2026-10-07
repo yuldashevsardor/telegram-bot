@@ -135,8 +135,11 @@ export class OutboxMaintenance {
             return;
         }
 
-        this.logger.error("Outbox chats are blocked, unblock each with make outbox-retry or make outbox-skip.", {
-            blockedChatCount: blockedChatCount,
-        });
+        this.logger.error(
+            'Outbox chats are blocked: find them and unblock each with make outbox-retry chat=<id> or make outbox-skip chat=<id> (README.md, "Unblocking a chat or a group").',
+            {
+                blockedChatCount: blockedChatCount,
+            },
+        );
     }
 }

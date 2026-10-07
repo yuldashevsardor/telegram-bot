@@ -380,7 +380,8 @@ node, apart from the runner. It takes its four intervals as one `outbox.maintena
   the number `OutboxStore.countBlockedChats()` counts in `telegram_outbox_chats`, written only while
   it is above 0. A blocked chat waits for a person (see "Unblocking a chat"), and production
   writes no `info`, so the status line does not show it there. The line names the targets that
-  unblock a chat, and every node writes it.
+  unblock a chat, with their arguments, and the section of `README.md` that finds the chats; every
+  node writes it.
 
 A task runs first one interval after `start()`, and its next run is timed from the end of the
 previous one, so two runs of a task on one node never overlap. A failed run is logged at `error` and
