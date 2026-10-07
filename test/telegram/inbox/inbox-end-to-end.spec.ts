@@ -1,5 +1,6 @@
 import "reflect-metadata";
 import http from "http";
+import { constants as httpStatus } from "node:http2";
 import type { AddressInfo } from "net";
 import path from "path";
 import { expect } from "chai";
@@ -25,6 +26,8 @@ import { TelegramApiFactory } from "app/telegram/telegram-api-factory";
 import { fillApplicationContext, resetApplicationContext } from "test/bootstrap/application/application-context.helper";
 import { testDatabaseName } from "test/database.helper";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
+import { waitUntil } from "test/shared/utils.helper";
+import { messageInput } from "test/telegram/inbox/inbox-store.helper";
 
 const TOKEN = "123456789:secret";
 const ME = { id: 123456789, is_bot: true, first_name: "Bot", username: "test_bot" } as UserFromGetMe;
@@ -32,7 +35,8 @@ const ME = { id: 123456789, is_bot: true, first_name: "Bot", username: "test_bot
 const FIRST_USER = 5_000_000_001;
 const SECOND_USER = 5_000_000_002;
 const MAX_ATTEMPTS = 3;
-// What the spec sets in the config of the application; the rest is its defaults and the database of the run.
+// What the spec sets in the config of the application; the rest is its defaults and the database of
+// the run.
 const CONFIG = {
     BOT_TOKEN: TOKEN,
     INBOX_MAX_ATTEMPTS: String(MAX_ATTEMPTS),
@@ -43,12 +47,10 @@ const CONFIG = {
     OUTBOX_RESULT_POLL_INTERVAL: "50",
 };
 // Longer than the two replies of the parallel check take to come together, shorter than the wait
-// for the done updates: a handling one group after another fails with the order of the calls.
+// for the done updates (WAIT_UNTIL_DEADLINE_MS): a handling one group after another fails with the
+// order of the calls.
 const HOLD_TIMEOUT_MS = 3_000;
 const HOLD_POLL_INTERVAL_MS = 10;
-// The handling takes well under a second with the longest sleep of the update source.
-const WAIT_DEADLINE_MS = 20_000;
-const WAIT_POLL_INTERVAL_MS = 20;
 const SPEC_TIMEOUT_MS = 30_000;
 
 type BotApiCall = { method: string; payload: Record<string, unknown> };
@@ -62,7 +64,8 @@ type SendEvent = { kind: "came" | "answered"; chatId: number };
 type UpdateRow = { update_id: string; status: InboxStatus; attempts: InboxAttempt[] };
 
 // A Bot API on a local port that answers as Telegram does: getMe with the bot, setMyCommands with
-// true, sendMessage with the message it has sent, and a method it does not know with 404.
+// true, sendMessage with the message it has sent, and a method it does not know with 404, in the HTTP
+// status as in the body.
 class FakeBotApi {
     public readonly calls: BotApiCall[] = [];
     // The messages sendMessage answered with, in the order of the answers.
@@ -106,8 +109,10 @@ class FakeBotApi {
         const payload = JSON.parse(await readBody(request)) as Record<string, unknown>;
         this.calls.push({ method: method, payload: payload });
 
+        const answer = await this.resultOf(method, payload);
+        response.statusCode = answer.ok ? httpStatus.HTTP_STATUS_OK : answer.error_code;
         response.setHeader("content-type", "application/json");
-        response.end(JSON.stringify(await this.resultOf(method, payload)));
+        response.end(JSON.stringify(answer));
     }
 
     private async resultOf(method: string, payload: Record<string, unknown>): Promise<ApiResponse<unknown>> {
@@ -119,7 +124,7 @@ class FakeBotApi {
             case "sendMessage":
                 return { ok: true, result: await this.sendMessage(payload) };
             default:
-                return { ok: false, error_code: 404, description: "Not Found: method not found" };
+                return { ok: false, error_code: httpStatus.HTTP_STATUS_NOT_FOUND, description: "Not Found: method not found" };
         }
     }
 
@@ -231,17 +236,25 @@ describe("Inbox end to end on the database", function () {
     let answers: BotApiAnswer[];
     let welcomeReply: string;
     let notTextReply: string;
+    // What afterEach undoes, in the reverse order: only what this beforeEach got to start, so a failed
+    // one neither leaves the new objects open nor stops those of the previous test again.
+    let cleanups: (() => Promise<void> | void)[] = [];
 
     beforeEach(async function () {
         fakeBotApi = new FakeBotApi();
         const apiRoot = await fakeBotApi.start();
+        cleanups.push(() => fakeBotApi.stop());
         logger = new RecordingLogger();
-        // The variables of the database come from the environment, as in testDatabaseSettings().
+        // Only the variables of the database come from the environment, as in testDatabaseSettings():
+        // another setting of a developer's .env, a concurrency of 1, would change what the spec checks.
         const env = await new ConfigEnvStorage().load();
-        await fillApplicationContext({ ...env, ...CONFIG, DATABASE_NAME: testDatabaseName() }, logger);
+        const databaseEnv = Object.fromEntries(Object.entries(env).filter(([name]) => name.startsWith("DATABASE_")));
+        await fillApplicationContext({ ...databaseEnv, ...CONFIG, DATABASE_NAME: testDatabaseName() }, logger);
+        cleanups.push(resetApplicationContext);
 
         container = new Container();
         await container.setup();
+        cleanups.push(() => container.close());
         database = container.get<Database>(Tokens.Platform.Database);
         await clearTables();
 
@@ -263,18 +276,17 @@ describe("Inbox end to end on the database", function () {
         inboxRunner = container.get<InboxRunner>(Tokens.Bot.Inbox.Runner);
         // As Application starts them: the outbox first, the handlers await its results.
         outboxRunner.start();
+        cleanups.push(() => outboxRunner.stop());
         inboxRunner.start();
+        cleanups.push(() => inboxRunner.stop());
     });
 
     afterEach(async function () {
-        // A failed beforeEach may leave any of them unassigned, and a failure here would hide its cause.
-        try {
-            await inboxRunner?.stop();
-            await outboxRunner?.stop();
-            await container?.close();
-        } finally {
-            resetApplicationContext();
-            await fakeBotApi?.stop();
+        const undone = cleanups.reverse();
+        cleanups = [];
+
+        for (const cleanup of undone) {
+            await cleanup();
         }
     });
 
@@ -349,8 +361,8 @@ describe("Inbox end to end on the database", function () {
         ]);
 
         await waitUntil(
-            "the group of the first user to be blocked",
             async () => (await groupState(FIRST_USER)) === InboxGroupState.Blocked,
+            "the group of the first user was expected to be blocked",
         );
         // Pushed after the block: the runner goes on handling the other groups.
         await store.push(textInput(4, SECOND_USER, "after the block"));
@@ -393,25 +405,11 @@ describe("Inbox end to end on the database", function () {
     }
 
     async function waitUntilDone(updateIds: number[]): Promise<void> {
-        await waitUntil(`updates ${updateIds.join(", ")} to be done`, async () => {
+        await waitUntil(async () => {
             const rows = await updateRows();
 
             return updateIds.every((updateId) => rows.some((row) => Number(row.update_id) === updateId && row.status === InboxStatus.Done));
-        });
-    }
-
-    async function waitUntil(description: string, isReached: () => Promise<boolean>): Promise<void> {
-        const deadline = Date.now() + WAIT_DEADLINE_MS;
-
-        while (Date.now() <= deadline) {
-            if (await isReached()) {
-                return;
-            }
-
-            await sleep(WAIT_POLL_INTERVAL_MS);
-        }
-
-        expect.fail(`waited in vain for ${description}`);
+        }, `updates ${updateIds.join(", ")} were expected to be done`);
     }
 
     async function updateRows(): Promise<UpdateRow[]> {
@@ -479,21 +477,22 @@ async function readBody(request: http.IncomingMessage): Promise<string> {
 function commandInput(updateId: number, userId: number, command: string): InboxUpdateInput {
     const entities: MessageEntity[] = [{ type: "bot_command", offset: 0, length: command.length }];
 
-    return messageInput(updateId, userId, { text: command, entities: entities });
+    return messageInputWith(updateId, userId, { text: command, entities: entities });
 }
 
 function textInput(updateId: number, userId: number, text: string): InboxUpdateInput {
-    return messageInput(updateId, userId, { text: text });
+    return messageInput(updateId, userId, userId, text);
 }
 
 function documentInput(updateId: number, userId: number): InboxUpdateInput {
     const document: Document = { file_id: "file-id", file_unique_id: "file-unique-id", file_name: "font.ttf" };
 
-    return messageInput(updateId, userId, { document: document });
+    return messageInputWith(updateId, userId, { document: document });
 }
 
-// A message of the user in their private chat, with its group.
-function messageInput(
+// A message of the user in their private chat, with its group, as messageInput() of the store spec
+// makes it, but with content a text alone does not give.
+function messageInputWith(
     updateId: number,
     userId: number,
     content: { text: string; entities?: MessageEntity[] } | { document: Document },

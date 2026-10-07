@@ -649,8 +649,9 @@ the comment of `insertBatch()`, which `pushBatch()` calls.
 pushed into `telegram_inbox` with `InboxStore.pushBatch()`, where the webhook will push it, reaches
 the handler of the bot, and what the handler sends reaches a fake Bot API through the outbox. The
 spec takes everything from the `Container` of the application, on the database of the run, with
-the config `fillApplicationContext()` builds from the variables of the environment and the `CONFIG`
-of the spec: `InboxRunner` with its source and processor, `Bot` with its filters, middleware,
+the config `fillApplicationContext()` builds from the `DATABASE_*` variables of the environment, the
+`CONFIG` of the spec and the defaults, so a setting of a developer's `.env` does not reach it:
+`InboxRunner` with its source and processor, `Bot` with its filters, middleware,
 session and conversation, the outbox transformer on `bot.api`, the result waiter and `OutboxRunner`.
 It rebinds two tokens: `Tokens.Bot.ApiFactory` to point the outbox at the fake Bot API, and
 `Tokens.Bot.Session.Storage` to the real `PgsqlStorage` behind a wrapper whose reads of a chosen
