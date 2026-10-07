@@ -17,7 +17,7 @@ const HALF_RANDOM = 0.5;
 const HALF_SLEEP_MS = 550;
 const MIN_SLEEP_MS = 100;
 // The largest value Math.random returns, the largest double below 1: the sleep rounds to the whole
-// 1 s in floating point, as in outbox-retry-delay.spec.ts.
+// 1 s in floating point, as in retry-delay.spec.ts.
 const LARGEST_RANDOM = 1 - Number.EPSILON / 2;
 const MAX_SLEEP_MS = 1_000;
 

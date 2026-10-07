@@ -48,7 +48,6 @@ export const Tokens = {
         Bot: Symbol.for("BotBot"),
         Outbox: {
             Store: Symbol.for("BotOutboxStore"),
-            RetryDelay: Symbol.for("BotOutboxRetryDelay"),
             Result: {
                 Waiter: Symbol.for("BotOutboxResultWaiter"),
                 Reader: Symbol.for("BotOutboxResultReader"),
@@ -61,7 +60,6 @@ export const Tokens = {
             },
             MessageSource: Symbol.for("BotOutboxMessageSource"),
             ErrorSerializer: Symbol.for("BotOutboxErrorSerializer"),
-            ApiFactory: Symbol.for("BotOutboxApiFactory"),
             Sender: Symbol.for("BotOutboxSender"),
             MessageProcessor: Symbol.for("BotOutboxMessageProcessor"),
             Runner: Symbol.for("BotOutboxRunner"),
@@ -77,8 +75,11 @@ export const Tokens = {
             UpdateProcessor: Symbol.for("BotInboxUpdateProcessor"),
             Runner: Symbol.for("BotInboxRunner"),
             Maintenance: Symbol.for("BotInboxMaintenance"),
+            PollingSource: Symbol.for("BotInboxPollingSource"),
         },
         ApiFailureClassifier: Symbol.for("BotApiFailureClassifier"),
+        RetryDelay: Symbol.for("BotRetryDelay"),
+        ApiFactory: Symbol.for("BotApiFactory"),
         User: {
             Service: Symbol.for("BotUserService"),
             Repository: Symbol.for("BotUserRepository"),

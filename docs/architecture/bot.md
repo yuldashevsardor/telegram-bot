@@ -75,7 +75,7 @@ An update dropped at steps 1-2 costs no query at all.
 a `critical` and nothing more: the user gets no answer and sees no sign of the failure.
 
 Then `Bot.run()` starts `run(grammy)` from `@grammyjs/runner` with
-`runner.fetch.allowed_updates = ["message"]` (the `ALLOWED_UPDATES` constant in `bot.ts`).
+`runner.fetch.allowed_updates = ["message"]` (the `ALLOWED_UPDATES` constant in `bot.types.ts`).
 Commands and `conversation.wait()` in private chats need messages alone. The `getUpdates` default
 would also bring every type the bot does not serve. Each of those costs the network, and one that
 passes the filters also costs the `sessions` read and write, the middleware and a `users` write.

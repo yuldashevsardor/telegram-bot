@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import type { Context } from "app/telegram/bot/bot.types";
-import { getSessionKey, initialPayload } from "app/telegram/session/session.helper";
+import { getSessionKey, hasSessionKey, initialPayload } from "app/telegram/session/session.helper";
 
 type ContextWithoutSession = Omit<Context, "session">;
 
@@ -19,6 +19,20 @@ describe("getSessionKey", function () {
 
     it("returns undefined without chat", function () {
         expect(getSessionKey(buildContext({ id: 42 }, undefined))).to.be.undefined;
+    });
+});
+
+describe("hasSessionKey", function () {
+    it("holds for a context with from and chat", function () {
+        expect(hasSessionKey(buildContext({ id: 42 }, { id: 99 }))).to.equal(true);
+    });
+
+    it("does not hold without from", function () {
+        expect(hasSessionKey(buildContext(undefined, { id: 99 }))).to.equal(false);
+    });
+
+    it("does not hold without chat", function () {
+        expect(hasSessionKey(buildContext({ id: 42 }, undefined))).to.equal(false);
     });
 });
 

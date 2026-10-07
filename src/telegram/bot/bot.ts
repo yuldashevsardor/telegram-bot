@@ -7,8 +7,9 @@ import { configValue } from "app/shared/config-value";
 import type { Command } from "app/telegram/command/command";
 import type { Middleware } from "app/telegram/middleware/middleware";
 import type { BotSettings, Context } from "app/telegram/bot/bot.types";
+import { ALLOWED_UPDATES } from "app/telegram/bot/bot.types";
 import type { Logger } from "app/platform/logger/logger";
-import type { FetchOptions, RunnerHandle } from "@grammyjs/runner";
+import type { RunnerHandle } from "@grammyjs/runner";
 import { run, sequentialize } from "@grammyjs/runner";
 import { getSessionKey, initialPayload } from "app/telegram/session/session.helper";
 import type { SessionPayload } from "app/telegram/session/session.types";
@@ -23,11 +24,6 @@ import { createFluent, createFluentMiddleware } from "app/telegram/locale/locale
 import type { Locale } from "app/telegram/locale/locale.types";
 import { DEFAULT_LOCALE, LOCALES } from "app/telegram/locale/locale.types";
 import type { OutboxTransformer } from "app/telegram/outbox/transformer/outbox-transformer";
-
-// The bot serves only commands and a conversation wait() in private chats: a single message
-// type. The getUpdates default is every type but chat_member and reactions. What the rest would
-// cost, why a file does not widen the list and why it is not a defence: docs/architecture/bot.md.
-const ALLOWED_UPDATES: NonNullable<FetchOptions["allowed_updates"]> = ["message"];
 
 @injectable()
 export class Bot {

@@ -40,8 +40,8 @@ describe("ConfigValuesBuilder", () => {
             private: { number: 3, interval: 1000 },
             group: { number: 20, interval: 60000 },
         });
+        expect(result.retryDelay).to.deep.equal({ firstDelayMs: 1000, maxDelayMs: 60000, multiplier: 2 });
         expect(result.outbox).to.deep.equal({
-            retryDelay: { firstDelayMs: 1000, maxDelayMs: 60000, multiplier: 2 },
             resultWaiter: { timeoutMs: 60000, pollIntervalMs: 1000 },
             leaseDurationMs: 90000,
             apiTimeoutMs: 60000,
@@ -132,8 +132,8 @@ describe("ConfigValuesBuilder", () => {
             private: { number: 4, interval: 1002 },
             group: { number: 21, interval: 60001 },
         });
+        expect(result.retryDelay).to.deep.equal({ firstDelayMs: 1004, maxDelayMs: 60002, multiplier: 3 });
         expect(result.outbox).to.deep.equal({
-            retryDelay: { firstDelayMs: 1004, maxDelayMs: 60002, multiplier: 3 },
             resultWaiter: { timeoutMs: 60003, pollIntervalMs: 1005 },
             leaseDurationMs: 600001,
             apiTimeoutMs: 60004,
@@ -300,7 +300,7 @@ describe("ConfigValuesBuilder", () => {
     it("accepts an outbox retry delay cap equal to the first step and a multiplier of 1", () => {
         const result = config({ OUTBOX_RETRY_FIRST_DELAY: "5000", OUTBOX_RETRY_MAX_DELAY: "5000", OUTBOX_RETRY_DELAY_MULTIPLIER: "1" });
 
-        expect(result.outbox.retryDelay).to.deep.equal({ firstDelayMs: 5000, maxDelayMs: 5000, multiplier: 1 });
+        expect(result.retryDelay).to.deep.equal({ firstDelayMs: 5000, maxDelayMs: 5000, multiplier: 1 });
     });
 
     it("rejects an outbox lease not above the Bot API call timeout", () => {

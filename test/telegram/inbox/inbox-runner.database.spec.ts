@@ -21,7 +21,7 @@ import type { InboxAttempt, InboxCleanupSettings, InboxUpdateInput, InboxWorker 
 import { InboxGroupState, InboxStatus } from "app/telegram/inbox/store/inbox-store.types";
 import { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
 import { OutboxResultWaiterStopped } from "app/telegram/outbox/result-waiter/outbox-result-waiter.errors";
-import { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
+import { RetryDelay } from "app/telegram/retry-delay/retry-delay";
 import { testDatabaseSettings } from "test/database.helper";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 import { messageInput } from "test/telegram/inbox/inbox-store.helper";
@@ -41,7 +41,7 @@ const LEASE_RECOVERY_INTERVAL_MS = 50;
 const LONG_INTERVAL_MS = 60_000;
 const CLEANUP: InboxCleanupSettings = { doneRetentionMs: MS_PER_DAY, skippedRetentionMs: MS_PER_DAY, batchSize: 10 };
 // A retry with a delay of a millisecond: random() of 0 takes the lower end of the step, half of it.
-const RETRY_DELAY = new OutboxRetryDelay({ firstDelayMs: 2, maxDelayMs: 2, multiplier: 1 }, () => 0);
+const RETRY_DELAY = new RetryDelay({ firstDelayMs: 2, maxDelayMs: 2, multiplier: 1 }, () => 0);
 const MAX_ATTEMPTS = 10;
 const TOKEN = "123456789:secret";
 // The longest a fake handler takes: long enough for the handlers of two nodes to overlap.
