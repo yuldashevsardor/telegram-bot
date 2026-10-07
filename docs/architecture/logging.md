@@ -42,7 +42,8 @@ Everything written outside it goes without a `requestId`:
 - The inbox (`telegram/inbox/`) runs outside any scope: `Application.run()` starts its runner and
   its polling source, not an update. The outcome of a failed update is written on the already
   rejected promise of `handleUpdate`, when the scope is closed, so the `error` of a blocked group
-  goes without a `requestId` ([`inbox.md`](./inbox.md), "Outcomes").
+  goes without a `requestId` ([`inbox.md`](./inbox.md), "Outcomes"). It is the only failure of an
+  update that is logged: a retried one and an undeliverable one leave no line.
 - `OutboxRunner` (`telegram/outbox/outbox-runner.ts`) runs outside any scope: `Application.run()`
   starts it, not an update, and any node may send the message an update pushed
   ([`outbox.md`](./outbox.md)). So the records of sending a message go without a `requestId`, even

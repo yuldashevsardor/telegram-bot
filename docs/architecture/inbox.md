@@ -399,7 +399,9 @@ Which completion each class gets is read off `applyOutcome()` and `retryOrBlock(
 a `Transient` failure is retried, or fails and blocks the group on the last attempt; an
 `Undeliverable` one fails without blocking; an `Unexpected` one fails and blocks. A blocked group is
 logged at `error` by the store, with the group, the update and the error; a fenced completion logs
-no error.
+no error. Nothing else is logged: a `Transient` failure that is retried and an `Undeliverable` one
+leave their error in the `attempts` of the update and in no log line, so during an outage of
+PostgreSQL the retries show only in the inbox tables.
 
 Every attempt counts towards `INBOX_MAX_ATTEMPTS`, whatever it ended with: the attempt being handled
 is `earlierAttempts + 1`, checked on a transient failure only. The count covers the whole history of
