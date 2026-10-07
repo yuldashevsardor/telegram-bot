@@ -15,7 +15,8 @@ load-test database join: `load-up`, `load-fill-done` once, then per layout `load
 `load-measure`; `load-churn` sends the messages of one chat (see "Vacuum of the head index"),
 `load-down` removes the database with its data. `load-up` applies the migrations, the indexes and
 the vacuum settings of the outbox among them; on a volume of the earlier runs, where the index was
-made by hand under the same name, the migration fails, and `load-down` gives a fresh one. The files
+made by hand under the same name, the migration fails, and `load-down` gives a fresh one, without
+the fill of the inbox load test either ([`inbox-load-test.md`](./inbox-load-test.md)). The files
 they run are in `test/load/`. A fill stays valid for 6 days: then its done messages pass the
 retention, and the cleanup of a measurement deletes them by the thousand.
 

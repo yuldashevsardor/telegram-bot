@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { inject, injectable } from "inversify";
+import postgres from "postgres";
 import type { PendingQuery, Row, TransactionSql } from "postgres";
 import type { Database, Sql } from "app/platform/database/database";
 import type { Logger } from "app/platform/logger/logger";
 import { Tokens } from "app/shared/tokens";
 import { configValue } from "app/shared/config-value";
+import { isJsonbStorable } from "app/telegram/jsonb-string";
 import type {
     ClaimedInboxRow,
     ClaimedInboxUpdate,
@@ -20,7 +22,13 @@ import type {
     LockedInboxGroupRow,
 } from "app/telegram/inbox/store/inbox-store.types";
 import { InboxChannel, InboxGroupState, InboxStatus } from "app/telegram/inbox/store/inbox-store.types";
-import { InboxGroupNotBlocked, InboxUpdateNotLeased, InvalidClaimLimit } from "app/telegram/inbox/store/inbox-store.errors";
+import {
+    InboxGroupNotBlocked,
+    InboxPushFailed,
+    InboxUpdateNotLeased,
+    InboxUpdateRefused,
+    InvalidClaimLimit,
+} from "app/telegram/inbox/store/inbox-store.errors";
 
 // The OID of bigint: the user and chat ids of the groups go to the database as bigint[] parameters.
 const BIGINT = 20;
@@ -29,6 +37,13 @@ const BIGINT = 20;
 // not among them: the group it blocks is held by its state, and one that does not block lets the
 // next update through.
 const ACTIVE_STATUSES = [InboxStatus.Pending, InboxStatus.Processing];
+
+// The SQLSTATE codes PostgreSQL refuses the values of an update in jsonb with, and the same update
+// fails every time it is pushed: untranslatable_character for a \u0000 escape and
+// invalid_text_representation for a lone surrogate. Not the whole class 22 of data exceptions: a
+// change of the store that fails every row with another of them would drop every update instead of
+// stalling the polling source.
+const REFUSED_UPDATE_SQLSTATES: ReadonlySet<string> = new Set(["22P05", "22P02"]);
 
 // The rows and the group states of the inbox: the model is in docs/architecture/inbox.md.
 @injectable()
@@ -50,69 +65,27 @@ export class InboxStore {
 
     // The updates and their groups commit together. An update whose update_id is stored already is
     // left out: Telegram delivers an update again when it did not learn that the bot got it
-    // (docs/architecture/inbox.md, "Push").
+    // (docs/architecture/inbox.md, "Push"). An error of PostgreSQL is thrown as InboxUpdateRefused
+    // when the updates themselves caused it, and as InboxPushFailed otherwise.
     public async pushBatch(inputs: InboxUpdateInput[]): Promise<void> {
         // An empty getUpdates is the common answer of a poll: it costs no transaction.
         if (inputs.length === 0) {
             return;
         }
 
-        const groups = this.uniqueGroups(inputs);
-        const userIds = groups.map((group) => group.userId);
-        const chatIds = groups.map((group) => group.chatId);
-
-        await this.sql.begin(async (sql) => {
-            // Inserts the group row or locks the one there, in one statement, as OutboxStore.pushBatch()
-            // does with its chats. WHERE false is not a mistake: PostgreSQL locks the row before it
-            // checks the condition, and the false one keeps the lock without writing a new version of
-            // the row. The groups go in key order, so two batches lock the groups they share in the
-            // same order; the update of the states below would take the locks in whatever order it
-            // meets the rows, and two batches could deadlock.
-            await sql`
-                INSERT INTO telegram_inbox_groups (user_id, chat_id, state)
-                SELECT user_id, chat_id, ${InboxGroupState.Idle}
-                FROM unnest(${sql.array(userIds, BIGINT)}::bigint[], ${sql.array(chatIds, BIGINT)}::bigint[]) AS input(user_id, chat_id)
-                ORDER BY user_id, chat_id
-                ON CONFLICT (user_id, chat_id) DO UPDATE
-                SET state = telegram_inbox_groups.state
-                WHERE false
-            `;
-
-            // An idle group gets its first update, but only from an update inserted here: a group
-            // whose updates were all stored already has no head to claim. A ready or processing group
-            // already has an older head, and a blocked one stays blocked. The updates go as JSON text:
-            // sql.json() takes only a type with an index signature, which grammY's Update interface
-            // lacks, and it would send the same JSON.stringify() text. The parameter is text: one the
-            // statement types as jsonb postgres.js passes through JSON.stringify() once more, into a
-            // JSON string.
-            const readyGroups = await sql`
-                WITH inserted AS (
-                    INSERT INTO telegram_inbox (update_id, user_id, chat_id, update, status)
-                    SELECT (input -> 'update' ->> 'update_id')::bigint,
-                           (input ->> 'userId')::bigint,
-                           (input ->> 'chatId')::bigint,
-                           input -> 'update',
-                           ${InboxStatus.Pending}
-                    FROM jsonb_array_elements(${JSON.stringify(inputs)}::text::jsonb) AS input
-                    ON CONFLICT (update_id) DO NOTHING
-                    RETURNING user_id, chat_id
-                )
-                UPDATE telegram_inbox_groups
-                SET state = ${InboxGroupState.Ready},
-                    updated_at = now()
-                FROM (SELECT DISTINCT user_id, chat_id FROM inserted) AS inserted_group
-                WHERE telegram_inbox_groups.user_id = inserted_group.user_id
-                  AND telegram_inbox_groups.chat_id = inserted_group.chat_id
-                  AND telegram_inbox_groups.state = ${InboxGroupState.Idle}
-                RETURNING telegram_inbox_groups.user_id
-            `;
-
-            // A group that was ready or processing already has been claimed, or will be after the
-            // completion that notifies; a redelivered batch made nothing ready and wakes no one.
-            if (readyGroups.length > 0) {
-                await this.notifyReady(sql);
+        try {
+            await this.insertBatch(inputs);
+        } catch (error) {
+            if (!(error instanceof postgres.PostgresError)) {
+                throw error;
             }
-        });
+
+            if (this.isRefusal(error, inputs)) {
+                throw InboxUpdateRefused.byPostgresError(error);
+            }
+
+            throw InboxPushFailed.byPostgresError(error);
+        }
     }
 
     // onReady is called on the commit of every push or completion that leaves a group ready on any
@@ -420,6 +393,89 @@ export class InboxStore {
         `;
 
         return deletedRows.length;
+    }
+
+    private async insertBatch(inputs: InboxUpdateInput[]): Promise<void> {
+        const groups = this.uniqueGroups(inputs);
+        const userIds = groups.map((group) => group.userId);
+        const chatIds = groups.map((group) => group.chatId);
+
+        await this.sql.begin(async (sql) => {
+            // Inserts the group row or locks the one there, in one statement, as OutboxStore.pushBatch()
+            // does with its chats. WHERE false is not a mistake: PostgreSQL locks the row before it
+            // checks the condition, and the false one keeps the lock without writing a new version of
+            // the row. The groups go in key order, so two batches lock the groups they share in the
+            // same order; the update of the states below would take the locks in whatever order it
+            // meets the rows, and two batches could deadlock.
+            await sql`
+                INSERT INTO telegram_inbox_groups (user_id, chat_id, state)
+                SELECT user_id, chat_id, ${InboxGroupState.Idle}
+                FROM unnest(${sql.array(userIds, BIGINT)}::bigint[], ${sql.array(chatIds, BIGINT)}::bigint[]) AS input(user_id, chat_id)
+                ORDER BY user_id, chat_id
+                ON CONFLICT (user_id, chat_id) DO UPDATE
+                SET state = telegram_inbox_groups.state
+                WHERE false
+            `;
+
+            // An idle group gets its first update, but only from an update inserted here: a group
+            // whose updates were all stored already has no head to claim. A ready or processing group
+            // already has an older head, and a blocked one stays blocked. The updates go as JSON text:
+            // sql.json() takes only a type with an index signature, which grammY's Update interface
+            // lacks, and it would send the same JSON.stringify() text. The parameter is text: one the
+            // statement types as jsonb postgres.js passes through JSON.stringify() once more, into a
+            // JSON string.
+            const readyGroups = await sql`
+                WITH inserted AS (
+                    INSERT INTO telegram_inbox (update_id, user_id, chat_id, update, status)
+                    SELECT (input -> 'update' ->> 'update_id')::bigint,
+                           (input ->> 'userId')::bigint,
+                           (input ->> 'chatId')::bigint,
+                           input -> 'update',
+                           ${InboxStatus.Pending}
+                    FROM jsonb_array_elements(${JSON.stringify(inputs)}::text::jsonb) AS input
+                    ON CONFLICT (update_id) DO NOTHING
+                    RETURNING user_id, chat_id
+                )
+                UPDATE telegram_inbox_groups
+                SET state = ${InboxGroupState.Ready},
+                    updated_at = now()
+                FROM (SELECT DISTINCT user_id, chat_id FROM inserted) AS inserted_group
+                WHERE telegram_inbox_groups.user_id = inserted_group.user_id
+                  AND telegram_inbox_groups.chat_id = inserted_group.chat_id
+                  AND telegram_inbox_groups.state = ${InboxGroupState.Idle}
+                RETURNING telegram_inbox_groups.user_id
+            `;
+
+            // A group that was ready or processing already has been claimed, or will be after the
+            // completion that notifies; a redelivered batch made nothing ready and wakes no one.
+            if (readyGroups.length > 0) {
+                await this.notifyReady(sql);
+            }
+        });
+    }
+
+    // A failure the updates themselves cause: one of the refusal codes, and a value jsonb refuses in
+    // one of the updates. 22P02 is the code of any malformed input, so a store change that broke every
+    // row would give it too, and the code alone would drop every update.
+    private isRefusal(error: postgres.PostgresError, inputs: InboxUpdateInput[]): boolean {
+        if (!REFUSED_UPDATE_SQLSTATES.has(error.code)) {
+            return false;
+        }
+
+        return inputs.some((input) => this.holdsValueJsonbRefuses(input.update));
+    }
+
+    // A string jsonb refuses anywhere in the value, a key included.
+    private holdsValueJsonbRefuses(value: unknown): boolean {
+        if (typeof value === "string") {
+            return !isJsonbStorable(value);
+        }
+
+        if (typeof value !== "object" || value === null) {
+            return false;
+        }
+
+        return Object.entries(value).some(([key, nested]) => !isJsonbStorable(key) || this.holdsValueJsonbRefuses(nested));
     }
 
     // Every completion: the lock of the group, then the fence, then the writes

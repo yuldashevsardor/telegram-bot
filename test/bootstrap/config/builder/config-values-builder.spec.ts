@@ -250,7 +250,6 @@ describe("ConfigValuesBuilder", () => {
         { name: "INBOX_STOP_TIMEOUT", below: "-1", range: "between 0 and 2147483647" },
         { name: "INBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL", below: "0", range: "between 1 and 2147483647" },
         { name: "INBOX_MAINTENANCE_CLEANUP_INTERVAL", below: "0", range: "between 1 and 2147483647" },
-        { name: "INBOX_SKIPPED_RETENTION", below: "0", range: "between 1 and 9007199254740991" },
         { name: "INBOX_CLEANUP_BATCH_SIZE", below: "0", range: "between 1 and 9007199254740991" },
         { name: "BOT_GRACEFUL_SHUTDOWN_TIMEOUT", below: "-1", range: "between 0 and 2147483647" },
         { name: "GRACEFUL_SHUTDOWN_TIMEOUT", below: "0", range: "between 1 and 2147483647" },
@@ -275,6 +274,14 @@ describe("ConfigValuesBuilder", () => {
 
         expect(error.message).to.equal('Config value "INBOX_DONE_RETENTION" must be between 86400000 and 9007199254740991');
         expect(config({ INBOX_DONE_RETENTION: "86400000" }).inbox.cleanup.doneRetentionMs).to.equal(86400000);
+    });
+
+    // A skipped update cleaned before the redelivery would be handled again.
+    it("rejects an inbox skipped retention below a day and accepts a day", () => {
+        const error = rejection({ INBOX_SKIPPED_RETENTION: "86399999" });
+
+        expect(error.message).to.equal('Config value "INBOX_SKIPPED_RETENTION" must be between 86400000 and 9007199254740991');
+        expect(config({ INBOX_SKIPPED_RETENTION: "86400000" }).inbox.cleanup.skippedRetentionMs).to.equal(86400000);
     });
 
     it("accepts zero where it means not to wait or to switch a timer off", () => {

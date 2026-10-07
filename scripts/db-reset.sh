@@ -13,7 +13,7 @@ set -eu
 COMPOSE_FILE="docker-compose.db.yml"
 DB_PROJECT="telegram-bot-db"
 DB_NETWORK="telegram-bot-db_default"
-# The database of the outbox load test (docker-compose.load.yml) sits in the same network but is no
+# The database of the load tests (docker-compose.load.yml) sits in the same network but is no
 # application: it keeps its data in a volume of its own, which the reset does not touch, and it
 # outlives the reset. down then leaves the network in place, in use by it, and says so. It is told
 # by its service as well as its project: a task worktree named <main>-load gets the project name
