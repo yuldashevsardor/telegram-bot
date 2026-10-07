@@ -940,6 +940,15 @@ describe("OutboxStore", function () {
             expect((await store.findExpiredLeases()).map(({ id }) => id)).to.deep.equal([expired.id]);
         });
 
+        it("gives no lease for an expired chat whose head is not processing", async function () {
+            await store.push(message(CHAT, "text"));
+            const pulled = await pullOne();
+            await database.sql`UPDATE telegram_outbox SET status = ${OutboxStatus.Pending} WHERE id = ${pulled.id}`;
+            await sleep(SHORT_LEASE_MS * 2);
+
+            expect(await store.findExpiredLeases()).to.deep.equal([]);
+        });
+
         it("takes the message of an expired lease back to pending with an attempt that has no worker", async function () {
             const { pulled, expired } = await pullAndExpire();
 

@@ -165,10 +165,10 @@ Limit  (actual time=128.222..128.223 rows=1.00 loops=1)
 
 `findExpiredLeases()` finds the `processing` update of each expired group among all the active
 updates of the group: the index gives them by group, and the status is a filter over every one of
-them, as in the lease recovery of the outbox ([`outbox-load-test.md`](./outbox-load-test.md), "The
-lease recovery with the index"). So it costs as many rows as the groups it recovers have active
-updates: 300 000 a group in the 3 groups layout, 1.3 s with the plans on. With no lease expired it
-reads the groups alone.
+them, where the outbox reads the head of the chat alone
+([`outbox-load-test.md`](./outbox-load-test.md), "The lease recovery"). So it costs as many rows as
+the groups it recovers have active updates: 300 000 a group in the 3 groups layout, 1.3 s with the
+plans on. With no lease expired it reads the groups alone.
 
 ```
 Nested Loop  (actual time=0.145..1314.966 rows=3.00 loops=1)

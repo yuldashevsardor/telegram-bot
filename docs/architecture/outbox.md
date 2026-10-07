@@ -35,8 +35,8 @@ replaced by `1790716587328_telegram-outbox-attempt-worker-comment.ts`.
 The indexes are picked by the plans of the load test (see "Load test"), not ahead of the queries.
 Besides the primary keys there are two, both of `telegram_outbox`.
 `1791153270752_telegram-outbox-head-index.ts` adds `telegram_outbox_active_chat_id_idx`, on
-`(chat_id, id)` of the active messages: the head of a chat for the pull and for `releaseChat()` is
-its first entry, and the lease recovery finds the `processing` message of a chat among its entries.
+`(chat_id, id)` of the active messages: the head of a chat for the pull, for `releaseChat()` and
+for the lease recovery is its first entry.
 Its `status` is in the predicate, so no update of a message is HOT, and a `fillfactor` would buy
 nothing; every message leaves two dead entries in it, which the head lookup walks until a vacuum
 cleans them. So the same migration caps the dead rows that bring autovacuum to `telegram_outbox`,
@@ -741,7 +741,11 @@ it on a timer of every node (see "Maintenance").
 
 1. `OutboxStore.findExpiredLeases()` reads every chat whose `locked_until` is behind `now()`, with
    its `processing` message, as a lease under the chat's own `lock_token`. It reads without a lock
-   and leaves the lease as it is.
+   and leaves the lease as it is. The message is found as the head of the chat, the first active
+   message by `id`, and taken only while its status is `processing`: a leased chat holds one such
+   message, and it is the head (see "Pull"). The lookup reads one entry of the head index a chat,
+   while a search by the status read every active message of the chat
+   ([`outbox-load-test.md`](./outbox-load-test.md), "The lease recovery").
 2. The recovery completes each lease as a transient failure through
    `OutboxLeaseRetrier.retryOrBlock()`: the message goes back to `pending` with the retry delay of
    its attempt, or, on the last attempt of `OUTBOX_MAX_ATTEMPTS`, fails and blocks its chat (see
