@@ -2,13 +2,12 @@ import "reflect-metadata";
 import path from "path";
 import { expect } from "chai";
 import type { NextFunction, RawApi, StorageAdapter, Transformer } from "grammy";
-import { BotError } from "grammy";
 import type { Chat, Message, Update, UserFromGetMe } from "@grammyjs/types";
 import { Bot } from "app/telegram/bot/bot";
 import type { BotSettings, Context, Conversation } from "app/telegram/bot/bot.types";
 import type { Logger } from "app/platform/logger/logger";
 import type { UnknownObject } from "app/shared/types";
-import { InvalidConfigError, RuntimeError } from "app/shared/errors";
+import { InvalidConfigError } from "app/shared/errors";
 import type { SessionPayload } from "app/telegram/session/session.types";
 import { Command } from "app/telegram/command/command";
 import { Middleware } from "app/telegram/middleware/middleware";
@@ -36,14 +35,12 @@ type Harness = {
     calls: ApiCall[];
     // The calls the outbox transformer pushed: none of them reaches the fake Telegram.
     pushed: OutboxMessageInput[];
-    // The updates the next getUpdates gives back; an empty queue means long polling until cancelled.
-    updates: Update[];
     onCommand: { hook: CommandHook };
 };
 
 const ME = { id: 1, is_bot: true, first_name: "Bot", username: "test_bot" } as UserFromGetMe;
 
-const SETTINGS: BotSettings = { token: "test-token", gracefulShutdown: { timeout: 50 } };
+const SETTINGS: BotSettings = { token: "test-token" };
 
 const USER_ID = 42;
 
@@ -152,34 +149,17 @@ function buildStorage(events: string[]): StorageAdapter<SessionPayload> {
 // Telegram is stubbed by a transformer of the grammY client: grammY builds the Api of an update
 // with the same transformers as bot.grammy.api has, so not a single call reaches the network.
 function useFakeTelegram(harness: Harness): void {
-    const transformer: Transformer<RawApi> = async (_prev, method, payload, signal) => {
+    const transformer: Transformer<RawApi> = async (_prev, method, payload) => {
         harness.calls.push({ method: method, payload: payload as Record<string, unknown> });
 
         if (method === "getMe") {
             return { ok: true, result: ME } as never;
         }
 
-        if (method === "getUpdates") {
-            return { ok: true, result: await nextUpdates(harness, signal) } as never;
-        }
-
         return { ok: true, result: true } as never;
     };
 
     harness.bot.grammy.api.config.use(transformer);
-}
-
-async function nextUpdates(harness: Harness, signal: Parameters<Transformer<RawApi>>[3]): Promise<Update[]> {
-    if (harness.updates.length > 0) {
-        return harness.updates.splice(0);
-    }
-
-    return new Promise<Update[]>((_resolve, reject) => {
-        signal?.addEventListener("abort", () => {
-            harness.events.push("getUpdates aborted");
-            reject(new RuntimeError("getUpdates is aborted"));
-        });
-    });
 }
 
 // The real transformer over an outbox that sends every message at once: the message id is the id
@@ -229,7 +209,7 @@ function build(settings: BotSettings = SETTINGS): Harness {
         settings,
     );
 
-    const harness: Harness = { bot: bot, events: events, logs: logs, calls: [], pushed: pushed, updates: [], onCommand: onCommand };
+    const harness: Harness = { bot: bot, events: events, logs: logs, calls: [], pushed: pushed, onCommand: onCommand };
     // Before setup(), as the network is under every transformer: the one of the outbox wraps it.
     useFakeTelegram(harness);
 
@@ -268,18 +248,6 @@ function message(text: string, options: { chat?: Chat.PrivateChat | Chat.GroupCh
             ...(isCommand ? { entities: [{ type: "bot_command" as const, offset: 0, length: text.length }] } : {}),
         },
     };
-}
-
-async function waitFor(predicate: () => boolean): Promise<void> {
-    const deadline = Date.now() + 1000;
-
-    while (!predicate()) {
-        if (Date.now() > deadline) {
-            throw new RuntimeError("Condition is not met in time");
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, 1));
-    }
 }
 
 describe("Bot", function () {
@@ -493,154 +461,6 @@ describe("Bot", function () {
                 "conversation greeted with message 1",
                 "conversation got second",
             ]);
-        });
-    });
-
-    describe("run", function () {
-        it("refuses to run before setup", async function () {
-            const { bot } = build();
-
-            let caught: unknown = undefined;
-            await bot.run().catch((error: unknown) => {
-                caught = error;
-            });
-
-            expect(caught).to.be.instanceOf(RuntimeError);
-            expect((caught as RuntimeError).message).to.equal("Bot is not set up!");
-        });
-
-        // The list of update types is ALLOWED_UPDATES in bot.types.ts: without it getUpdates would drag
-        // in every type the bot does not serve.
-        it("polls only messages", async function () {
-            const harness = await setUp();
-
-            await harness.bot.run();
-            await waitFor(() => harness.calls.some((call) => call.method === "getUpdates"));
-            await harness.bot.stop();
-
-            const getUpdates = harness.calls.find((call) => call.method === "getUpdates");
-
-            expect(getUpdates?.payload["allowed_updates"]).to.deep.equal(["message"]);
-        });
-
-        it("logs an error of the pipeline as critical and answers nothing", async function () {
-            const harness = await setUp();
-            const error = new RuntimeError("command failed");
-            harness.onCommand.hook = (): Promise<void> => Promise.reject(error);
-            harness.updates.push(message("/start"));
-
-            await harness.bot.run();
-            await waitFor(() => harness.logs.some((log) => log.level === "critical"));
-            await harness.bot.stop();
-
-            const critical = harness.logs.filter((log) => log.level === "critical");
-            const cause = critical[0]?.payload?.["cause"];
-
-            expect(critical).to.have.lengthOf(1);
-            expect(critical[0]?.message).to.equal("Unhandled error on bot");
-            expect(cause).to.be.instanceOf(BotError);
-            expect((cause as BotError).error).to.equal(error);
-            expect(harness.calls.filter((call) => call.method !== "getMe" && call.method !== "getUpdates")).to.have.lengthOf(0);
-        });
-    });
-
-    describe("stop", function () {
-        it("does nothing before run", async function () {
-            const harness = await setUp();
-
-            await harness.bot.stop();
-
-            expect(harness.logs.map((log) => log.message)).to.include("Bot is not running!");
-            expect(harness.calls.filter((call) => call.method === "getUpdates")).to.have.lengthOf(0);
-        });
-
-        it("aborts the pending getUpdates and stops within the timeout", async function () {
-            const harness = await setUp();
-
-            await harness.bot.run();
-            await waitFor(() => harness.calls.some((call) => call.method === "getUpdates"));
-            await harness.bot.stop();
-
-            expect(harness.events).to.include("getUpdates aborted");
-            expect(harness.logs.filter((log) => log.level === "info").map((log) => log.message)).to.deep.equal([
-                "Bot is successfully started.",
-                "Stop bot...",
-                "Bot is successfully stopped.",
-            ]);
-            expect(harness.logs.filter((log) => log.level === "warning")).to.have.lengthOf(0);
-        });
-
-        it("does nothing on a second stop after the first one has finished", async function () {
-            const harness = await setUp();
-
-            await harness.bot.run();
-            await waitFor(() => harness.calls.some((call) => call.method === "getUpdates"));
-            await harness.bot.stop();
-            harness.logs.length = 0;
-
-            await harness.bot.stop();
-
-            expect(harness.logs.map((log) => log.message)).to.deep.equal(["Stop bot...", "Bot is not running!"]);
-        });
-
-        describe("when getUpdates does not give way", function () {
-            let release = (): void => undefined;
-
-            // Long polling that does not listen for cancellation: the runner will not stop until the request returns.
-            async function runStuck(): Promise<Harness> {
-                const harness = await setUp();
-                const stuck = new Promise<void>((resolve) => {
-                    release = resolve;
-                });
-                harness.bot.grammy.api.config.use(async (prev, method, payload, signal) => {
-                    if (method === "getUpdates") {
-                        harness.calls.push({ method: method, payload: payload as Record<string, unknown> });
-                        await stuck;
-
-                        return { ok: true, result: [] } as never;
-                    }
-
-                    return prev(method, payload, signal);
-                });
-
-                await harness.bot.run();
-                await waitFor(() => harness.calls.some((call) => call.method === "getUpdates"));
-
-                return harness;
-            }
-
-            afterEach(function () {
-                release();
-            });
-
-            it("warns once the timeout is over and leaves the runner stopping", async function () {
-                const harness = await runStuck();
-
-                await harness.bot.stop();
-
-                expect(harness.logs.filter((log) => log.level === "warning")).to.deep.equal([
-                    {
-                        level: "warning",
-                        message: "Bot shutdown timeout is over, the runner was left stopping.",
-                        payload: { timeout: SETTINGS.gracefulShutdown.timeout },
-                    },
-                ]);
-                expect(harness.logs.map((log) => log.message)).to.include("Bot is successfully stopped.");
-            });
-
-            // A repeated signal (SIGINT, then SIGTERM) calls stop() a second time while the first one is still waiting.
-            it("does not wait again on a second stop while the first one is waiting", async function () {
-                const harness = await runStuck();
-                const finished: string[] = [];
-
-                await Promise.all([
-                    harness.bot.stop().then(() => finished.push("first")),
-                    harness.bot.stop().then(() => finished.push("second")),
-                ]);
-
-                expect(finished).to.deep.equal(["second", "first"]);
-                expect(harness.logs.filter((log) => log.level === "warning")).to.have.lengthOf(1);
-            });
         });
     });
 });

@@ -22,8 +22,9 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
 - **Filters are registered before `sequentialize()`, `session()` and the middleware.** Below them
   `RequestLogMiddleware` touches `ctx.session` without checking the key, and
   `FillUserToContextMiddleware` throws `UpdateWithoutFrom` without `ctx.from`. Move
-  `HasSessionKeyFilter` lower, and an update without a session key ends in a `critical` from
-  `Bot.handleError()` instead of the filter's `warning`.
+  `HasSessionKeyFilter` lower, and an update without a session key throws in the pipeline instead
+  of meeting the filter's `warning`. Through the inbox none comes: the polling source drops it
+  before the push ([`inbox.md`](./inbox.md), "Updates without a session key").
 - **A filter below `session()` drops the update after the write to the database.** `session()`
   reads the row on the way in and writes it on the way out, whether `ctx.session` was touched or
   not.
@@ -83,10 +84,10 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   one < the container's `stop_grace_period` (not checked).** The deadlines themselves are in
   [`application.md`](./application.md). The check compares the values of one assembly. After a
   rebuild of the configuration ([`config.md`](./config.md)) they can drift apart: `Application`
-  takes the overall deadline from the new values, while `Bot` and `OutboxRunner` stay on what they
-  copied in their constructors. `InboxRunner` copies `INBOX_STOP_TIMEOUT` the same way, and the sum
-  does not count it yet ([`inbox.md`](./inbox.md), "The runner"). This is unreachable while the
-  deadlines are set non-blank in the environment: the environment is stronger than the watched file.
+  takes the overall deadline and `INBOX_POLLING_STOP_TIMEOUT` from the new values, while
+  `InboxRunner` and `OutboxRunner` stay on what they copied in their constructors. This is
+  unreachable while the deadlines are set non-blank in the environment: the environment is
+  stronger than the watched file.
 - **A value taken by `configValue(...)` in a constructor is not changed by a rebuild.** The
   configuration is rebuilt on an edit of the watched file ([`config.md`](./config.md)). But an
   object that copied the value into a field keeps working on the old one. A value becomes "hot"
@@ -209,6 +210,14 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
 
 ## The inbox
 
+- **The group of an update is the key `getSessionKey()` makes its session of: `from.id` and
+  `chat.id`.** The inbox hands out one update of a group at a time across nodes, and `session()`
+  reads and writes the row of the key around the handler. `InboxPollingSource` reads the group off
+  a grammY `Context` by `hasSessionKey()` of `session.helper.ts`, the rule of `getSessionKey()`. A
+  group that splits one session lets two of its updates run at once, on two nodes the queue of
+  `sequentialize()` does not join: the second writes its session over the first, losing
+  `requestCount` and the conversation step. Nothing checks this ([`inbox.md`](./inbox.md),
+  "Tables").
 - **`status` and `state` of the inbox tables are written only through `InboxStatus` and
   `InboxGroupState`**, as those of the outbox tables are (above), and for the same reason: an
   update or a group with a mistyped value silently drops out of every query

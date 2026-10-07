@@ -25,7 +25,7 @@ The runtime sequences live in the files of their subsystems:
   waiting for the result and the payload codec
 - [`outbox-load-test.md`](./outbox-load-test.md) — the outbox store measured on 100 M messages:
   how to run the test, the data, the threshold, the times and the plans, the verdict
-- [`inbox.md`](./inbox.md) — the inbox of incoming updates in PostgreSQL being built: the tables,
+- [`inbox.md`](./inbox.md) — the inbox of incoming updates in PostgreSQL: the tables,
   the group, the group states, push without duplicates, the claim, the lease with its extension and
   the completions, the ready notifications, the update source, the update processor, the runner
   with its stop and the maintenance timers, the error classes of a failed handler, the outcomes,
@@ -52,8 +52,8 @@ Telegram front end.
 
 Stack:
 
-- **grammY** + `@grammyjs/runner` (long polling, concurrent processing of updates)
-  + `@grammyjs/conversations`.
+- **grammY** + `@grammyjs/conversations`; `@grammyjs/runner` only for `sequentialize()`. The
+  updates come by long polling through the inbox ([`inbox.md`](./inbox.md)).
 - **inversify** — DI, bindings by hand.
 - **PostgreSQL** — the `postgres` client (porsager) at runtime, `node-pg-migrate` for migrations.
 - **pino** in production, `console` in the other modes — behind the `Logger` interface.
@@ -67,7 +67,7 @@ Stack:
 
 - `font-convertor/` — the only domain one;
 - `telegram/` — what exists for the sake of Telegram (above): the bot, `User`, the outbox of
-  outgoing calls and the inbox of incoming updates being built beside it, with the command line
+  outgoing calls and the inbox of incoming updates beside it, with the command line
   that unblocks them.
 
 Around them stand three directories named by role:
@@ -139,7 +139,7 @@ src/
   font-convertor/           font conversion (font-convertor.md)
   telegram/                 grammY: commands, conversations, middleware, filters, session, locales (bot.md, i18n.md); what the outbox and the inbox share: the retry delay (retry-delay/), the Api factory, the jsonb string rule (outbox.md, inbox.md)
     user/                   the entity, the repository interface, the service, the PostgreSQL adapter (user.md)
-    inbox/                  the future inbox of incoming updates in PostgreSQL: the store (push, claim, lease extension, completions, ready notifications, cleanup), the runner with its update source and the processor of one update over the bot, the timers of the lease recovery and the cleanup (maintenance/), the error classes and the outcomes of a failed handler, the release on stop, the polling source, the unblock of a group (command/) (inbox.md)
+    inbox/                  the inbox of incoming updates in PostgreSQL: the store (push, claim, lease extension, completions, ready notifications, cleanup), the runner with its update source and the processor of one update over the bot, the timers of the lease recovery and the cleanup (maintenance/), the error classes and the outcomes of a failed handler, the release on stop, the polling source, the unblock of a group (command/) (inbox.md)
     outbox/                 the outbox of Bot API calls in PostgreSQL: the transformer that pushes the calls of the bot (transformer/), the store (push, pull, completions), the runner with its message source, the timers of the lease recovery, the cleanup and the status line (maintenance/), the lease recovery, retrier and release on stop (lease/), the processor of one message with the sender of its call, the outcomes of a failure, the result waiter with its reader, the payload codec, the commands that unblock a chat (command/) (outbox.md)
   platform/                 adapters that know no module
     database/               Database (storage.md)

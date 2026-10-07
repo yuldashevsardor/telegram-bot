@@ -1,10 +1,10 @@
 # Inbox (telegram/inbox/)
 
-The inbox is being built so that incoming updates become rows in PostgreSQL, any node handles
-them, and the updates of one group are handled one at a time, in order, across nodes (the plan is
-epic [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)). It is the counterpart of
-the outbox ([`outbox.md`](./outbox.md)) and follows its model without the limits and the pause.
-The directory holds the tables with `InboxStore` (`store/inbox-store.ts`), which pushes updates,
+The inbox makes incoming updates rows in PostgreSQL, so that any node handles them, and the
+updates of one group are handled one at a time, in order, across nodes (the plan is epic
+[#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)). It is the counterpart of the
+outbox ([`outbox.md`](./outbox.md)) and follows its model without the limits and the pause. The
+directory holds the tables with `InboxStore` (`store/inbox-store.ts`), which pushes updates,
 claims them, extends a lease, completes a claimed update, notifies of the groups that become
 `ready`, finds the expired leases, cleans up the tables and unblocks a group by hand;
 `InboxFailureHandler` (`inbox-failure-handler.ts`), which picks the outcome of a failed handler by
@@ -12,9 +12,8 @@ its error class (`failure-classifier/`) and recovers the expired leases; `InboxL
 (`inbox-lease-releaser.ts`), which hands the update of a stopping node back; the worker that
 handles the updates through the bot: `InboxRunner` with its update source and update processor,
 and the timers of `InboxMaintenance`; and `InboxPollingSource` (`inbox-polling-source.ts`), which
-fills the inbox from Telegram. Nothing starts the worker or the polling source yet: `Bot.run()`
-still takes the updates from `@grammyjs/runner`
-([#829](https://github.com/yuldashevsardor/telegram-bot/issues/829)).
+fills the inbox from Telegram. `Application` starts and stops the worker and the polling source
+([`application.md`](./application.md), "Start", "Stop").
 
 ## Tables
 
@@ -313,9 +312,10 @@ the worker of the loop: the host, the pid and a `randomUUID()` made with the loo
 
 The deadline bounds neither the wait for a claim in progress, as in the outbox, nor the wait for the
 writes of step 3.
-`ConfigValuesBuilder` does not count `INBOX_STOP_TIMEOUT` in the sum it checks against
-`GRACEFUL_SHUTDOWN_TIMEOUT` ([`application.md`](./application.md), "Stop"), nor the connections
-of the runner against `DATABASE_CONNECTION_LIMIT`: nothing starts the runner yet.
+`ConfigValuesBuilder` counts `INBOX_STOP_TIMEOUT` in the sum it checks against
+`GRACEFUL_SHUTDOWN_TIMEOUT` ([`application.md`](./application.md), "Stop"). Nothing checks the
+connections of the runner against `DATABASE_CONNECTION_LIMIT`, as `checkOutboxConcurrency()` checks
+those of the outbox.
 
 ## Maintenance
 
@@ -553,8 +553,8 @@ refused value holds the update up to that value, the text of the message include
 flight, and no `getUpdates` follows; nor does the next single push of a refused batch. A push that
 fails after the stop is logged as a warning, not an error: no retry follows, the next start gets
 its updates again. It has no deadline of its own: a push stuck on the database
-holds it, so whatever stops the source bounds the wait
-([#829](https://github.com/yuldashevsardor/telegram-bot/issues/829)).
+holds it, so the stop of the application waits for it no longer than `INBOX_POLLING_STOP_TIMEOUT`
+([`application.md`](./application.md), "Stop").
 
 ## The store in code
 

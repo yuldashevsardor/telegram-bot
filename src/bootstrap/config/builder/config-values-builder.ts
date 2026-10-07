@@ -99,6 +99,7 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
                 maxAttempts: parser.getInteger("INBOX_MAX_ATTEMPTS", 10, { min: 1 }),
                 concurrency: parser.getInteger("INBOX_CONCURRENCY", 5, { min: 1 }),
                 stopTimeoutMs: parser.getTimerDelay("INBOX_STOP_TIMEOUT", 5000, { min: 0 }),
+                pollingStopTimeoutMs: parser.getTimerDelay("INBOX_POLLING_STOP_TIMEOUT", 3000, { min: 0 }),
                 maintenance: {
                     leaseRecoveryIntervalMs: parser.getTimerDelay("INBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL", 10 * 1000),
                     cleanupIntervalMs: parser.getTimerDelay("INBOX_MAINTENANCE_CLEANUP_INTERVAL", 10 * 60 * 1000),
@@ -116,9 +117,6 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
 
             bot: {
                 token: parser.getString("BOT_TOKEN"),
-                gracefulShutdown: {
-                    timeout: parser.getTimerDelay("BOT_GRACEFUL_SHUTDOWN_TIMEOUT", 3000, { min: 0 }),
-                },
             },
 
             gracefulShutdown: {
@@ -152,19 +150,24 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
         return { firstDelayMs: firstDelayMs, maxDelayMs: maxDelayMs, multiplier: multiplier };
     }
 
-    // The bot and outbox deadlines are spent one after another inside the overall one, in this order,
-    // so it has to cover their sum. The check goes no further: the own deadlines of the
-    // dependencies are not summed up (sql.end() inside Database.close() has 5 seconds of its own),
-    // and the overall deadline is taken with a margin instead.
-    private static checkGracefulShutdown({ bot, outbox, gracefulShutdown }: ConfigValues): void {
-        const stepTimeoutsSumMs = bot.gracefulShutdown.timeout + outbox.stopTimeoutMs;
+    // The deadlines of the polling source, the inbox runner and the outbox runner are spent one after
+    // another inside the overall one, in this order, so it has to cover their sum. The check goes no
+    // further: the own deadlines of the dependencies are not summed up (sql.end() inside
+    // Database.close() has 5 seconds of its own), and the overall deadline is taken with a margin
+    // instead.
+    private static checkGracefulShutdown({ inbox, outbox, gracefulShutdown }: ConfigValues): void {
+        const stepTimeoutsSumMs = inbox.pollingStopTimeoutMs + inbox.stopTimeoutMs + outbox.stopTimeoutMs;
 
         if (gracefulShutdown.timeout <= stepTimeoutsSumMs) {
-            throw new InvalidConfigError("GRACEFUL_SHUTDOWN_TIMEOUT must be greater than the sum of the bot and outbox timeouts", {
-                application: gracefulShutdown.timeout,
-                bot: bot.gracefulShutdown.timeout,
-                outbox: outbox.stopTimeoutMs,
-            });
+            throw new InvalidConfigError(
+                "GRACEFUL_SHUTDOWN_TIMEOUT must be greater than the sum of the inbox polling, inbox and outbox timeouts",
+                {
+                    application: gracefulShutdown.timeout,
+                    inboxPolling: inbox.pollingStopTimeoutMs,
+                    inbox: inbox.stopTimeoutMs,
+                    outbox: outbox.stopTimeoutMs,
+                },
+            );
         }
     }
 

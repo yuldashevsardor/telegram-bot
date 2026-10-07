@@ -69,6 +69,8 @@ export type ConfigValues = {
         concurrency: number;
         // How long the stop of the runner waits for the handlers in flight before it leaves them.
         stopTimeoutMs: number;
+        // How long the stop of the application waits for the stop of the polling source.
+        pollingStopTimeoutMs: number;
         maintenance: InboxMaintenanceSettings;
         cleanup: InboxCleanupSettings;
     };

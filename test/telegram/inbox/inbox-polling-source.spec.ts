@@ -214,6 +214,15 @@ describe("InboxPollingSource", function () {
             expect(api.getUpdatesCalls[0]?.params).to.deep.equal({ offset: 0, limit: 100, timeout: 30, allowed_updates: ALLOWED_UPDATES });
         });
 
+        // The list is ALLOWED_UPDATES in bot.types.ts: without it getUpdates would drag in every type the
+        // bot does not serve.
+        it("polls only messages", async function () {
+            source.start();
+            await api.waitForGetUpdates(1);
+
+            expect(api.getUpdatesCalls[0]?.params.allowed_updates).to.deep.equal(["message"]);
+        });
+
         it("makes its Api with a timeout that outlasts the long poll", function () {
             expect(apiTimeoutSeconds).to.equal(40);
         });

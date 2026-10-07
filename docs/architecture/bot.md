@@ -6,7 +6,7 @@ flavors, plus `ctx.getUser()`. `FluentFlavor` (`locale.types.ts`) is our own, no
 the plugin ([`i18n.md`](./i18n.md)).
 
 `Bot.setup()` first installs the outbox transformer on `bot.grammy.api` (see "The outbox
-transformer"), then assembles the pipeline strictly in the order below. An update from the runner
+transformer"), then assembles the pipeline strictly in the order below. An update from the inbox
 travels it top to bottom, and every step counts on what the steps above filled in. Every filter,
 middleware, conversation and command comes into the `Bot` constructor by a separate `@inject`.
 `Bot` builds the lists of steps 1-2, 5, 7 and 8 out of those fields itself, so the order in the
@@ -18,7 +18,9 @@ not import the container.
    that `session()` gets at step 4. The chain breaks without an error. Below the filter
    `ctx.from` and `ctx.chat` are filled in.
 
-   The drop is rare: with `allowed_updates` set (see below) such updates are no longer requested.
+   The drop does not happen today: with `allowed_updates` set (see below) such updates are not
+   requested, and the polling source drops one before it reaches the inbox
+   ([`inbox.md`](./inbox.md), "Updates without a session key").
    The filter logs a `warning` on top of the common `debug` of the base `Filter`. The level is
    higher because below the filter there will be no dump of the update ([`user.md`](./user.md)).
    The line has no `requestId`, since `RequestContextMiddleware` stands lower
@@ -29,10 +31,13 @@ not import the container.
    first. Both filters stand above the session: a group update does have a session key, and
    step 4 would create a `sessions` row for it before the drop ([invariant](./invariants.md)).
 3. `sequentialize()`, on the same `getSessionKey` as `session()`, serializes the updates of one
-   session. Without it the concurrent runner would race on the session and on the check-then-act
-   in `FillUserToContextMiddleware` ([`user.md`](./user.md)). It stands above `session()`:
-   `session()` is not lazy, it reads the row before its `next()` and writes it after the return,
-   while the queue slot is released inside that `next()` ([invariant](./invariants.md)).
+   session. Without it concurrent updates of one session would race on the session and on the
+   check-then-act in `FillUserToContextMiddleware` ([`user.md`](./user.md)). The inbox already
+   hands out the updates of one group, the same key, one at a time ([`inbox.md`](./inbox.md)), so
+   the queue never holds two of them; it stays until its removal
+   ([#630](https://github.com/yuldashevsardor/telegram-bot/issues/630)). It stands above
+   `session()`: `session()` is not lazy, it reads the row before its `next()` and writes it after
+   the return, while the queue slot is released inside that `next()` ([invariant](./invariants.md)).
    `sequentialize()` would let updates without a key past the queue, but they never get here:
    step 1 dropped them.
 4. `session()`: the key is `${from.id}:${chat.id}`, the storage `PgsqlStorage` (table
@@ -71,11 +76,15 @@ One update costs the database:
 
 An update dropped at steps 1-2 costs no query at all.
 
-`Bot.run()` attaches `grammy.catch(handleError)`, the only interceptor of pipeline errors. It logs
-a `critical` and nothing more: the user gets no answer and sees no sign of the failure.
+`Bot` neither polls nor runs anything. `InboxPollingSource` takes the updates from Telegram into
+the inbox, and `InboxUpdateProcessor` hands each one to `bot.grammy.handleUpdate()`
+([`inbox.md`](./inbox.md), "The polling source", "The update processor"); `Application` starts and
+stops both ([`application.md`](./application.md)). `handleUpdate()` wraps an error of the pipeline
+into a `BotError` and throws it on, so no `bot.catch()` is set: the inbox picks the outcome of the
+update by the class of the error ([`inbox.md`](./inbox.md), "Failures"). The user gets no answer
+and sees no sign of the failure.
 
-Then `Bot.run()` starts `run(grammy)` from `@grammyjs/runner` with
-`runner.fetch.allowed_updates = ["message"]` (the `ALLOWED_UPDATES` constant in `bot.types.ts`).
+The polling source asks only for `ALLOWED_UPDATES` of `bot.types.ts`, `["message"]`.
 Commands and `conversation.wait()` in private chats need messages alone. The `getUpdates` default
 would also bring every type the bot does not serve. Each of those costs the network, and one that
 passes the filters also costs the `sessions` read and write, the middleware and a `users` write.
@@ -85,9 +94,6 @@ with a `document`, so accepting fonts does not widen the list.
 The list is not a security filter, so the filters stay where they are. Telegram applies the list
 on its side, and after the list changes, updates of the old types accumulated before can still
 arrive.
-
-`Bot.stop()` stops the runner within `BOT_GRACEFUL_SHUTDOWN_TIMEOUT`
-([`application.md`](./application.md)).
 
 `Command`, `Filter` and `Middleware` are abstract bases of the shape "`handle` +
 `setup(composer)`". `ConversationHandler` does not attach itself: a subclass implements `run`, and
@@ -187,8 +193,9 @@ pushes them straight into `OutboxStore.pushBatch()`, past the transformer, so th
 the messages of a chat: the three chats yield to the chats with calls of the bot, while a reply in
 one of them waits for the bulk messages pushed into it before. The
 batches are of 1000: one batch is one transaction with its messages in one `jsonb` parameter. The
-command has no `try/catch`: a batch that fails rejects it, the rejection goes to
-`Bot.handleError`, and the batches pushed before it stay queued. The rows outlive the process: for a
+command has no `try/catch`: a batch that fails rejects it, the inbox picks the outcome of the
+update by the error ([`inbox.md`](./inbox.md), "Failures"), and the batches pushed before it stay
+queued; a retry of the update pushes them all again. The rows outlive the process: for a
 chat the bot cannot reach every message fails without blocking the chat, and nothing deletes a
 `failed` row ([`outbox.md`](./outbox.md), "Cleanup"), so each run leaves its share of the 10 000
 rows behind.
