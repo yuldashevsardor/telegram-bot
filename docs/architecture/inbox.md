@@ -580,4 +580,4 @@ The ids come back as numbers: the driver returns `bigint` as a string, and the s
 as `PgSqlUserRepository` does ([`storage.md`](./storage.md), "`User.id`").
 
 The updates go to the database as JSON text cast to `jsonb`, not through `sql.json()`; why is in
-the comment of `pushBatch()`.
+the comment of `insertBatch()`, which `pushBatch()` calls.

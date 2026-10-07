@@ -28,7 +28,7 @@ import {
 } from "app/telegram/inbox/store/inbox-store.errors";
 import { listenTo, rollingBackDatabase, SPEC_ROLLBACK_MESSAGE, testDatabaseSettings, waitForLockWaiters } from "test/database.helper";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
-import { messageInput } from "test/telegram/inbox/inbox-store.helper";
+import { messageInput, NUL_TEXT, SURROGATE_TEXT } from "test/telegram/inbox/inbox-store.helper";
 import { waitUntil } from "test/shared/utils.helper";
 
 const USER = 5_000_000_001;
@@ -37,9 +37,6 @@ const CHAT = 5_000_000_001;
 const GROUP_CHAT = -1_001_234_567_890;
 // A user id past the range of bigint.
 const BEYOND_BIGINT = 1e20;
-// The values jsonb refuses in a string.
-const NUL_TEXT = "before\u0000after";
-const SURROGATE_TEXT = "before\ud800after";
 // Longer than any wait of a passing run, shorter than SPEC_TIMEOUT_MS: a hung wait fails with its
 // own message and stops before after() closes the clients.
 const WAIT_DEADLINE_MS = 5_000;

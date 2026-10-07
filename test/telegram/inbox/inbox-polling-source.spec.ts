@@ -13,6 +13,7 @@ import type { InboxUpdateInput } from "app/telegram/inbox/store/inbox-store.type
 import { RetryDelay } from "app/telegram/retry-delay/retry-delay";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 import { telegramError } from "test/telegram/telegram-bot-api-failure-classifier.helper";
+import { NUL_TEXT } from "test/telegram/inbox/inbox-store.helper";
 
 const ME = { id: 1, is_bot: true, first_name: "Bot", username: "test_bot" } as UserFromGetMe;
 const USER = 5_000_000_001;
@@ -21,8 +22,6 @@ const CHAT = 5_000_000_001;
 // random() of 0 takes the lower end of the step, half of it: 500 ms after the first failure in a
 // row, 1 s after the second, 2 s after the third.
 const RETRY_DELAY = new RetryDelay({ firstDelayMs: 1_000, maxDelayMs: 60_000, multiplier: 2 }, () => 0);
-// A value jsonb refuses in a string.
-const NUL_TEXT = "before\u0000after";
 // A pause long enough for a spec to see the source wait in it, never waited out.
 const LONG_RETRY_DELAY = new RetryDelay({ firstDelayMs: 120_000, maxDelayMs: 120_000, multiplier: 1 }, () => 0);
 // How long a spec gives the source to take a step it must not take.
