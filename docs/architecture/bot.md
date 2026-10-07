@@ -9,13 +9,13 @@ the plugin ([`i18n.md`](./i18n.md)).
 transformer"), then assembles the pipeline strictly in the order below. An update from the inbox
 travels it top to bottom, and every step counts on what the steps above filled in. Every filter,
 middleware, conversation and command comes into the `Bot` constructor by a separate `@inject`.
-`Bot` builds the lists of steps 1-2, 5, 7 and 8 out of those fields itself, so the order in the
+`Bot` builds the lists of steps 1-2, 4, 6 and 7 out of those fields itself, so the order in the
 pipeline is the order in those lists, not the order of the bindings in `container.ts`. `Bot` does
 not import the container.
 
 1. `HasSessionKeyFilter` gets the raw update. It drops updates without `from` or `chat`: they
    have no session, and everything below counts on one. It decides with the same `getSessionKey`
-   that `session()` gets at step 4. The chain breaks without an error. Below the filter
+   that `session()` gets at step 3. The chain breaks without an error. Below the filter
    `ctx.from` and `ctx.chat` are filled in.
 
    The drop does not happen today: with `allowed_updates` set (see below) such updates are not
@@ -29,23 +29,18 @@ not import the container.
    would drop an update without a session key as well, but it logs no line of its own, only the
    common `debug` of the base. So such updates must meet `HasSessionKeyFilter` and its `warning`
    first. Both filters stand above the session: a group update does have a session key, and
-   step 4 would create a `sessions` row for it before the drop ([invariant](./invariants.md)).
-3. `sequentialize()`, on the same `getSessionKey` as `session()`, serializes the updates of one
-   session. Without it concurrent updates of one session would race on the session and on the
-   check-then-act in `FillUserToContextMiddleware` ([`user.md`](./user.md)). The inbox already
-   hands out the updates of one group, the same key, one at a time ([`inbox.md`](./inbox.md)), so
-   the queue never holds two of them; it stays until its removal
-   ([#630](https://github.com/yuldashevsardor/telegram-bot/issues/630)). It stands above
-   `session()`: `session()` is not lazy, it reads the row before its `next()` and writes it after
-   the return, while the queue slot is released inside that `next()` ([invariant](./invariants.md)).
-   `sequentialize()` would let updates without a key past the queue, but they never get here:
-   step 1 dropped them.
-4. `session()`: the key is `${from.id}:${chat.id}`, the storage `PgsqlStorage` (table
+   step 3 would create a `sessions` row for it before the drop ([invariant](./invariants.md)).
+3. `session()`: the key is `${from.id}:${chat.id}`, the storage `PgsqlStorage` (table
    `sessions`), the payload `{ requestCount }`. It reads the row right away (`read`). After the
    chain returns, it writes the row back with an upsert (`write`) if the session was read or
    changed. A new session counts as changed from the start. An error thrown below never reaches
    the write. Below this step `ctx.session` is filled in.
-5. Middleware: `RequestContextMiddleware` → `ResponseTimeMiddleware` → `RequestLogMiddleware` →
+
+   Nothing in the pipeline serializes the updates of one session: the read and the write wrap the
+   whole chain, so two updates of a session running at once would lose the first one's state. The
+   inbox is what prevents it: it hands out one update of a group, the same key, at a time across
+   nodes ([`inbox.md`](./inbox.md); [invariant](./invariants.md)).
+4. Middleware: `RequestContextMiddleware` → `ResponseTimeMiddleware` → `RequestLogMiddleware` →
    `FillUserToContextMiddleware`.
    - `RequestContextMiddleware` goes first, so everything logged below carries a `requestId`
      ([`logging.md`](./logging.md)).
@@ -53,15 +48,15 @@ not import the container.
      `try/catch`, so a failed update gets no timing line.
    - `RequestLogMiddleware` increments `requestCount` and dumps the whole `ctx.update` at
      `debug` ([`user.md`](./user.md)). The increment touches the session on every update, so
-     step 4 always writes the row back.
+     step 3 always writes the row back.
    - `FillUserToContextMiddleware` catches no errors. Below it `ctx.getUser()` is filled in
      ([`user.md`](./user.md)).
-6. Fluent ([`i18n.md`](./i18n.md)). Below it `ctx.t` and `ctx.getFluent()` are filled in.
-7. `conversations()`, plus a `createConversation` for every conversation in the list of
+5. Fluent ([`i18n.md`](./i18n.md)). Below it `ctx.t` and `ctx.getFluent()` are filled in.
+6. `conversations()`, plus a `createConversation` for every conversation in the list of
    `Bot.setupConversations()`. An update of a chat that is inside a conversation goes to its
-   `wait()` point and never reaches step 8: `createConversation` calls `next()` only when the
+   `wait()` point and never reaches step 7: `createConversation` calls `next()` only when the
    conversation did not take the update.
-8. The commands from the list of `Bot.setupCommands()`: `command.setup(composer)` for each, then
+7. The commands from the list of `Bot.setupCommands()`: `command.setup(composer)` for each, then
    `api.setMyCommands()` for every locale ([`i18n.md`](./i18n.md)). That is a network call per
    locale on every start. This is the last step: an update that matched no command goes nowhere
    further.
@@ -99,7 +94,7 @@ arrive.
 
 `Command`, `Filter` and `Middleware` are abstract bases of the shape "`handle` +
 `setup(composer)`". `ConversationHandler` does not attach itself: a subclass implements `run`, and
-`createConversation()` wraps its `handle` (step 7).
+`createConversation()` wraps its `handle` (step 6).
 
 `Filter.setup()` breaks the chain itself: it calls `next()` only when `handle()` is true.
 `composer.filter()` of grammY cannot do that. It does not drop the update: it only puts the
@@ -180,7 +175,7 @@ It sends it with `ctx.reply()` through the outbox (see "The outbox transformer")
 resumes it, with a second full pass of the pipeline, the `users` upsert included. The text of that
 update is echoed back; a non-text one gets `start-conversation-not-text`, a request to send text.
 Then the conversation ends. The plugin keeps the state of the conversation in the same session
-([invariant](./invariants.md)), so the order of step 3 protects it as well. Nobody catches errors
+([invariant](./invariants.md)), so the inbox group protects it as well. Nobody catches errors
 inside `run()`.
 
 `/font_generator` is a debugging conversion of a fixture into four formats

@@ -100,7 +100,6 @@
     },
     "dependencies": {
         "@grammyjs/conversations": "^1.2.0",
-        "@grammyjs/runner": "^2.0.3",
         "@moebius/fluent": "^1.1.0",
         "dayjs": "^1.11.23",
         "dotenv": "^17.4.2",

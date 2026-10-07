@@ -7,19 +7,20 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
 
 ## The bot pipeline and `Context`
 
-- **`sequentialize()` is registered above `session()`.** `session()` is not lazy: it reads the
-  row before its `next()` and writes it after the return. The queue slot is released inside that
-  `next()`. So below `session()` both ends would stay outside the serialized section, and a second
-  update of the same user would write its state over the first one. More than `requestCount` is
-  lost: `@grammyjs/conversations` keeps the conversation step in the same session.
-- **`sequentialize()` takes the `getSessionKey` key, as `session()` does.** The key is the pair
-  `from.id` and `chat.id`, so the queue does not tie together updates of one user from different
-  chats.
-- **The queue protects the check-then-act in `FillUserToContextMiddleware` only while
+- **The pipeline has no queue: the updates of one session never run at once only because the
+  inbox hands out one update of a group at a time.** `session()` is not lazy: it reads the row
+  before its `next()` and writes it after the return. Two updates of the same user in the same chat
+  running at once would both read the same state, and the second would write its state over the
+  first one. More than `requestCount` is lost: `@grammyjs/conversations` keeps the conversation
+  step in the same session. The group of an update is the key `session()` uses
+  ([The inbox](#the-inbox)). Handing an update to `bot.grammy.handleUpdate()` from anywhere but
+  `InboxUpdateProcessor` (a webhook, a second runner, a script) goes past that guarantee.
+- **The inbox group protects the check-then-act in `FillUserToContextMiddleware` only while
   `IsPrivateChatFilter` leaves the user a single chat.** Let group chats into the pipeline, and the
-  first two updates of a new user will both see `existsById() === false`. The data is not corrupted
-  (upsert), but the choice between the `create` and `edit` branches becomes unreliable.
-- **Filters are registered before `sequentialize()`, `session()` and the middleware.** Below them
+  first two updates of a new user, from two chats, will run at once and both see
+  `existsById() === false`. The data is not corrupted (upsert), but the choice between the `create`
+  and `edit` branches becomes unreliable.
+- **Filters are registered before `session()` and the middleware.** Below them
   `RequestLogMiddleware` touches `ctx.session` without checking the key, and
   `FillUserToContextMiddleware` throws `UpdateWithoutFrom` without `ctx.from`. Move
   `HasSessionKeyFilter` lower, and an update without a session key throws in the pipeline instead
@@ -30,7 +31,7 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   not.
 - **Pipeline handlers keep no update state in fields.** `Command`, `Filter`, `Middleware` and
   `ConversationHandler` live as one instance per process. Updates of different users run
-  concurrently: `sequentialize()` queues only the same `chat.id` + `from.id`. A field written before
+  concurrently: the inbox serializes only the same `from.id` + `chat.id`. A field written before
   an `await` may belong to someone else's update by the next line. So `ctx` and everything derived
   from it travel as parameters.
 - **A new update type in the handlers requires an edit of `ALLOWED_UPDATES`** (`bot.types.ts`). A
@@ -214,9 +215,8 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   `chat.id`.** The inbox hands out one update of a group at a time across nodes, and `session()`
   reads and writes the row of the key around the handler; how the polling source reads the group is
   in [`inbox.md`](./inbox.md), "The polling source". A group that splits one session lets two of
-  its updates run at once, on two nodes the queue of `sequentialize()` does not join: the second
-  writes its session over the first, losing `requestCount` and the conversation step. Nothing
-  checks this.
+  its updates run at once, on one node or two, and nothing else queues them: the second writes its
+  session over the first, losing `requestCount` and the conversation step. Nothing checks this.
 - **`status` and `state` of the inbox tables are written only through `InboxStatus` and
   `InboxGroupState`**, as those of the outbox tables are (above), and for the same reason: an
   update or a group with a mistyped value silently drops out of every query

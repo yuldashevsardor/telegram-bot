@@ -521,7 +521,7 @@ keeps two polling processes apart: running several is not a goal now
 
 The loop is the source's own, over `getUpdates` of a grammY `Api` of its own, made by
 `TelegramApiFactory` without the transformers of the bot and with a timeout of the long poll and a
-margin. `bot.start()` and the fetcher of `@grammyjs/runner` move the offset
+margin. `bot.start()` and the fetcher of a grammY runner move the offset
 themselves, on receipt or after their own handling, hand the updates out one at a time, and either
 drop a batch whose handling failed or stop polling for good; neither retries the same batch.
 

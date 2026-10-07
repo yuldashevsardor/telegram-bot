@@ -123,6 +123,9 @@ describe("InboxRunner on the database", function () {
         await secondDatabase?.close();
     });
 
+    // What keeps two updates of a session from overlapping: the bot has no queue of its own, so the
+    // session row and the check-then-act of FillUserToContextMiddleware rely on this
+    // (docs/architecture/invariants.md).
     it("handles the updates of every group one after another, in order, across two nodes", async function () {
         const firstNode = createNode(firstDatabase, "node-1", logger);
         const secondNode = createNode(secondDatabase, "node-2", logger);
