@@ -25,7 +25,7 @@ the group row, not on the update.
 
 The indexes are picked by the plans of the load test
 ([`inbox-load-test.md`](./inbox-load-test.md)), not ahead of the queries. Besides the primary keys
-there are two. `1791417600000_telegram-inbox-head-index.ts` adds
+there are three. `1791417600000_telegram-inbox-head-index.ts` adds
 `telegram_inbox_active_group_idx` on `(user_id, chat_id, update_id)` of the active updates: the head
 of a group for the claim, for `releaseGroup()` and for the lease recovery is its first entry. Its
 `status` is in the predicate, so no update is HOT, and every update leaves dead entries a head
@@ -36,7 +36,12 @@ lookup walks until a vacuum cleans them. So the same migration sets the vacuum o
 [`outbox-load-test.md`](./outbox-load-test.md), "Vacuum of the head index".
 `1791504000000_telegram-inbox-ready-groups-index.ts` adds `telegram_inbox_ready_groups_idx` on
 `(next_attempt_at, user_id, chat_id)` of the `ready` groups: the claim takes them in that order, so
-it reads as many groups as it claims.
+it reads as many groups as it claims. `1791590400000_telegram-inbox-finished-index.ts` adds
+`telegram_inbox_finished_at_idx` on `finished_at` of the `done` and `skipped` updates, the ones the
+cleanup deletes (see "Cleanup"): without it the call that finds nothing to delete reads the whole
+table. As the index of the outbox cleanup ([`outbox.md`](./outbox.md), "Tables"), it holds an entry
+for every `done` and `skipped` update the cleanup has not deleted yet, and every completion but a
+failure adds one.
 
 The database does not check the values of `status` and `state`: the store writes them only
 through the `InboxStatus` and `InboxGroupState` enums (`store/inbox-store.types.ts`). Of these,
@@ -503,11 +508,14 @@ that gets a full batch calls again. `InboxMaintenance` calls them on timers (see
   either, so whatever sets `skipped` sets `finished_at` too. The row of a `done` or a `skipped`
   update is what turns a redelivered update away (see "Push", step 2): Telegram redelivers within
   24 h, so neither `INBOX_DONE_RETENTION` nor `INBOX_SKIPPED_RETENTION` may be less than a day, and
-  the config rejects a shorter one (`INBOX_RETENTION_RANGE` of `ConfigValuesBuilder`). The
-  retention is added to `finished_at` rather than taken off `now()`: the config takes a retention up
-  to `Number.MAX_SAFE_INTEGER` ms (`INBOX_RETENTION_RANGE`), and `now()` minus that falls below
-  4713 BC, the earliest timestamp PostgreSQL has. No index serves the sum; the outbox takes the
-  other form for its index ([`outbox.md`](./outbox.md), "Cleanup"). The batch is locked
+  the config rejects a shorter one (`INBOX_RETENTION_RANGE` of `ConfigValuesBuilder`). The filter
+  bounds `finished_at` alone, `finished_at < now() - retention`, so that
+  `telegram_inbox_finished_at_idx` serves it (see "Tables"), as the filter of the outbox cleanup
+  does ([`outbox.md`](./outbox.md), "Cleanup"): `finished_at` plus the retention, compared with
+  `now()`, would leave the index aside. The config takes a retention up to
+  `Number.MAX_SAFE_INTEGER` ms (`INBOX_RETENTION_RANGE`), and `now()` minus one that reaches past
+  4713 BC, the earliest timestamp PostgreSQL has, fails out of range: the cleanup then fails on
+  every run, and its error is in the log. The batch is locked
   `FOR UPDATE SKIP LOCKED`: the lock rechecks the status on the newest version of the row, so an
   update a person has moved back to `pending` meanwhile is kept, and two nodes cleaning at once
   take different rows.

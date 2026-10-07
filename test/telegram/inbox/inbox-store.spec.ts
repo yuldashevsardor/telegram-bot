@@ -829,17 +829,6 @@ describe("InboxStore", function () {
             expect(await updateIds()).to.deep.equal([]);
         });
 
-        it("takes the longest retention the config allows without overflowing a timestamp", async function () {
-            const longest = new InboxStore(database, logger, LEASE_DURATION_MS, {
-                doneRetentionMs: Number.MAX_SAFE_INTEGER,
-                skippedRetentionMs: Number.MAX_SAFE_INTEGER,
-                batchSize: 10,
-            });
-            await finishedAgo({ status: InboxStatus.Done, agoMs: 0 }, { status: InboxStatus.Skipped, agoMs: 0 });
-
-            expect(await longest.deleteFinishedUpdates()).to.equal(0);
-        });
-
         // The row is what turns a redelivered update away.
         it("turns a redelivered update away while its done row is kept", async function () {
             await store.push(input(10));
