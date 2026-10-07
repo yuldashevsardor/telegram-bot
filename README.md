@@ -25,11 +25,11 @@ the file — run `make restart`.
 
 ## The compose files
 
-| File                      | Project             | What it brings up                                          |
-| ------------------------- | ------------------- | ---------------------------------------------------------- |
-| `docker-compose.db.yml`   | `telegram-bot-db`   | PostgreSQL, one per machine                                |
-| `docker-compose.app.yml`  | directory name      | migrations and the bot; one per worktree                   |
-| `docker-compose.load.yml` | `telegram-bot-load` | PostgreSQL of the outbox load test, only on `make load-up` |
+| File                      | Project             | What it brings up                                                     |
+| ------------------------- | ------------------- | --------------------------------------------------------------------- |
+| `docker-compose.db.yml`   | `telegram-bot-db`   | PostgreSQL, one per machine                                           |
+| `docker-compose.app.yml`  | directory name      | migrations and the bot; one per worktree                              |
+| `docker-compose.load.yml` | `telegram-bot-load` | PostgreSQL of the outbox and inbox load tests, only on `make load-up` |
 
 The database goes up first: the application finds it by the service name `pgsql` in the
 external network `telegram-bot-db_default`. Its data lies in `./tmp/pgsql` of the main
