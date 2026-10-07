@@ -1677,6 +1677,27 @@ describe("OutboxStore", function () {
         });
     });
 
+    describe("the blocked chats", function () {
+        it("counts nothing in an empty outbox", async function () {
+            expect(await store.countBlockedChats()).to.equal(0);
+        });
+
+        it("counts the blocked chats alone", async function () {
+            const [firstBlockedChat, secondBlockedChat, idleChat, processingChat, readyChat] = [1, 2, 3, 4, 5];
+            for (const blockedChat of [firstBlockedChat, secondBlockedChat]) {
+                await store.push(message(blockedChat, "failed"));
+                await store.markAsFailedAndBlockChat(await pullOne(), UNEXPECTED);
+            }
+            await store.push(message(idleChat, "done"));
+            await store.markAsDone(await pullOne(), RESPONSE);
+            await store.push(message(processingChat, "processing"));
+            await pullOne();
+            await store.push(message(readyChat, "pending"));
+
+            expect(await store.countBlockedChats()).to.equal(2);
+        });
+    });
+
     describe("a concurrent push and removal of its chat", function () {
         beforeEach(async function () {
             await store.push(message(CHAT, "done"));

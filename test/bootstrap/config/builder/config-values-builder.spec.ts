@@ -48,7 +48,12 @@ describe("ConfigValuesBuilder", () => {
             maxAttempts: 10,
             concurrency: 5,
             stopTimeoutMs: 5000,
-            maintenance: { leaseRecoveryIntervalMs: 10000, cleanupIntervalMs: 600000, statusLogIntervalMs: 10000 },
+            maintenance: {
+                leaseRecoveryIntervalMs: 10000,
+                cleanupIntervalMs: 600000,
+                statusLogIntervalMs: 10000,
+                blockedLogIntervalMs: 300000,
+            },
             cleanup: { doneRetentionMs: 604800000, skippedRetentionMs: 2592000000, batchSize: 1000 },
         });
         expect(result.inbox).to.deep.equal({
@@ -57,7 +62,7 @@ describe("ConfigValuesBuilder", () => {
             concurrency: 5,
             stopTimeoutMs: 5000,
             pollingStopTimeoutMs: 3000,
-            maintenance: { leaseRecoveryIntervalMs: 10000, cleanupIntervalMs: 600000 },
+            maintenance: { leaseRecoveryIntervalMs: 10000, cleanupIntervalMs: 600000, blockedLogIntervalMs: 300000 },
             cleanup: { doneRetentionMs: 604800000, skippedRetentionMs: 2592000000, batchSize: 1000 },
         });
         expect(result.bot).to.deep.equal({ token: "token" });
@@ -101,6 +106,7 @@ describe("ConfigValuesBuilder", () => {
             OUTBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL: "10002",
             OUTBOX_MAINTENANCE_CLEANUP_INTERVAL: "600003",
             OUTBOX_MAINTENANCE_STATUS_LOG_INTERVAL: "10003",
+            OUTBOX_MAINTENANCE_BLOCKED_LOG_INTERVAL: "300001",
             INBOX_LEASE_DURATION: "600002",
             INBOX_MAX_ATTEMPTS: "12",
             INBOX_CONCURRENCY: "7",
@@ -108,6 +114,7 @@ describe("ConfigValuesBuilder", () => {
             INBOX_POLLING_STOP_TIMEOUT: "3001",
             INBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL: "10004",
             INBOX_MAINTENANCE_CLEANUP_INTERVAL: "600004",
+            INBOX_MAINTENANCE_BLOCKED_LOG_INTERVAL: "300002",
             INBOX_DONE_RETENTION: "604800002",
             INBOX_SKIPPED_RETENTION: "2592000002",
             INBOX_CLEANUP_BATCH_SIZE: "1002",
@@ -119,7 +126,7 @@ describe("ConfigValuesBuilder", () => {
             DATABASE_NAME: "bot",
             DATABASE_USER_NAME: "bot_user",
             DATABASE_USER_PASSWORD: "secret",
-            DATABASE_CONNECTION_LIMIT: "12",
+            DATABASE_CONNECTION_LIMIT: "16",
             DATABASE_CONNECTION_IDLE_TIMEOUT: "13",
             DATABASE_CONNECTION_MAX_LIFETIME: "601",
         });
@@ -141,7 +148,12 @@ describe("ConfigValuesBuilder", () => {
             maxAttempts: 11,
             concurrency: 6,
             stopTimeoutMs: 5002,
-            maintenance: { leaseRecoveryIntervalMs: 10002, cleanupIntervalMs: 600003, statusLogIntervalMs: 10003 },
+            maintenance: {
+                leaseRecoveryIntervalMs: 10002,
+                cleanupIntervalMs: 600003,
+                statusLogIntervalMs: 10003,
+                blockedLogIntervalMs: 300001,
+            },
             cleanup: { doneRetentionMs: 604800001, skippedRetentionMs: 2592000001, batchSize: 1001 },
         });
         expect(result.inbox).to.deep.equal({
@@ -150,7 +162,7 @@ describe("ConfigValuesBuilder", () => {
             concurrency: 7,
             stopTimeoutMs: 5003,
             pollingStopTimeoutMs: 3001,
-            maintenance: { leaseRecoveryIntervalMs: 10004, cleanupIntervalMs: 600004 },
+            maintenance: { leaseRecoveryIntervalMs: 10004, cleanupIntervalMs: 600004, blockedLogIntervalMs: 300002 },
             cleanup: { doneRetentionMs: 604800002, skippedRetentionMs: 2592000002, batchSize: 1002 },
         });
         expect(result.bot).to.deep.equal({ token: "own-token" });
@@ -162,7 +174,7 @@ describe("ConfigValuesBuilder", () => {
             database: "bot",
             username: "bot_user",
             password: "secret",
-            connection: { max: 12, idleTimeout: 13, maxLifetime: 601 },
+            connection: { max: 16, idleTimeout: 13, maxLifetime: 601 },
         });
     });
 
@@ -327,20 +339,20 @@ describe("ConfigValuesBuilder", () => {
         expect(result.outbox).to.include({ leaseDurationMs: 30001, apiTimeoutMs: 30000 });
     });
 
-    // The pull and the four maintenance tasks take five connections besides the slots.
+    // The pull and the five maintenance tasks take six connections besides the slots.
     it("rejects an outbox concurrency that leaves no connection besides the outbox", () => {
-        const error = rejection({ OUTBOX_CONCURRENCY: "5", DATABASE_CONNECTION_LIMIT: "10" });
+        const error = rejection({ OUTBOX_CONCURRENCY: "4", DATABASE_CONNECTION_LIMIT: "10" });
 
         expect(error.message).to.equal(
             "OUTBOX_CONCURRENCY plus the connections of the pull and the maintenance must be below DATABASE_CONNECTION_LIMIT",
         );
-        expect(error.payload).to.deep.equal({ concurrency: 5, connectionLimit: 10 });
+        expect(error.payload).to.deep.equal({ concurrency: 4, connectionLimit: 10 });
     });
 
     it("accepts an outbox concurrency that leaves one connection besides the outbox", () => {
-        const result = config({ OUTBOX_CONCURRENCY: "4", DATABASE_CONNECTION_LIMIT: "10" });
+        const result = config({ OUTBOX_CONCURRENCY: "3", DATABASE_CONNECTION_LIMIT: "10" });
 
-        expect(result.outbox.concurrency).to.equal(4);
+        expect(result.outbox.concurrency).to.equal(3);
         expect(result.database.connection.max).to.equal(10);
     });
 

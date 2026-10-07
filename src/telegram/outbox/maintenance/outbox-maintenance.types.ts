@@ -5,4 +5,6 @@ export type OutboxMaintenanceSettings = {
     cleanupIntervalMs: number;
     // How often a node writes the status line of the outbox.
     statusLogIntervalMs: number;
+    // How often a node counts the blocked chats and, while there are any, writes the error line.
+    blockedLogIntervalMs: number;
 };

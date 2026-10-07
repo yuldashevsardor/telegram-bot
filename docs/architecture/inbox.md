@@ -6,7 +6,8 @@ updates of one group are handled one at a time, in order, across nodes (the plan
 outbox ([`outbox.md`](./outbox.md)) and follows its model without the limits and the pause. The
 directory holds the tables with `InboxStore` (`store/inbox-store.ts`), which pushes updates,
 claims them, extends a lease, completes a claimed update, notifies of the groups that become
-`ready`, finds the expired leases, cleans up the tables and unblocks a group by hand;
+`ready`, finds the expired leases, cleans up the tables, counts the blocked groups and unblocks a
+group by hand;
 `InboxFailureHandler` (`inbox-failure-handler.ts`), which picks the outcome of a failed handler by
 its error class (`failure-classifier/`) and recovers the expired leases; `InboxLeaseReleaser`
 (`inbox-lease-releaser.ts`), which hands the update of a stopping node back; the worker that
@@ -351,14 +352,20 @@ those of the outbox.
 
 `InboxMaintenance` (`maintenance/inbox-maintenance.ts`) runs the tasks of the inbox on the timers of
 every node, apart from the runner, as `OutboxMaintenance` runs those of the outbox
-([`outbox.md`](./outbox.md), "Maintenance"), with no status line. It takes its two intervals as one
-`inbox.maintenance` object (`InboxMaintenanceSettings`):
+([`outbox.md`](./outbox.md), "Maintenance"), with no status line. It takes its three intervals as
+one `inbox.maintenance` object (`InboxMaintenanceSettings`):
 
 - `InboxFailureHandler.recoverExpiredLeases()` (see "Lease recovery"), every
   `INBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL`;
 - `deleteFinishedUpdates()` and `deleteIdleGroups()` (see "Cleanup"), each every
   `INBOX_MAINTENANCE_CLEANUP_INTERVAL` on a timer of its own. A batch that deleted anything is
-  followed by the next one at once, until a batch deletes nothing or the maintenance stops.
+  followed by the next one at once, until a batch deletes nothing or the maintenance stops;
+- the line of the blocked groups, every `INBOX_MAINTENANCE_BLOCKED_LOG_INTERVAL`: an `error` with
+  the number `InboxStore.countBlockedGroups()` counts in `telegram_inbox_groups`, written only
+  while it is above 0, as the line of the blocked chats of the outbox. It names the targets that
+  unblock a group, with their arguments, and the same section of `README.md` (see "Unblocking a
+  group"). The outbox writes its own line, so while both queues have something blocked a node
+  writes two.
 
 A task runs first one interval after `start()`, and its next run is timed from the end of the
 previous one, so two runs of a task on one node never overlap. A failed run is logged at `error` and

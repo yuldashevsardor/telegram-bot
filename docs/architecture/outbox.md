@@ -11,8 +11,9 @@ transformer". `Application` starts its runner and its maintenance
 message, finds the expired leases, cleans up, counts what waits and unblocks a chat by hand,
 `OutboxRunner` (`outbox-runner.ts`), which sends the messages of a node over its slots,
 `OutboxMaintenance` (`maintenance/outbox-maintenance.ts`), which runs the recovery of the expired
-leases, the cleanup and the status line on timers, `OutboxLeaseRecovery`
-(`lease/outbox-lease-recovery.ts`), which takes back the messages of the expired leases,
+leases, the cleanup, the status line and the line of the blocked chats on timers,
+`OutboxLeaseRecovery` (`lease/outbox-lease-recovery.ts`), which takes back the messages of the
+expired leases,
 `OutboxMessageSource` (`outbox-message-source.ts`), which hands the pulled messages to the runner,
 `OutboxMessageProcessor` (`outbox-message-processor.ts`), which takes one pulled message to its
 outcome, with `OutboxSender`, which makes its Bot API call, `OutboxFailureHandler`
@@ -357,8 +358,8 @@ short only the Bot API call.
 
 ## Maintenance
 
-`OutboxMaintenance` (`maintenance/outbox-maintenance.ts`) runs four tasks on the timers of every
-node, apart from the runner. It takes its three intervals as one `outbox.maintenance` object
+`OutboxMaintenance` (`maintenance/outbox-maintenance.ts`) runs five tasks on the timers of every
+node, apart from the runner. It takes its four intervals as one `outbox.maintenance` object
 (`OutboxMaintenanceSettings`):
 
 - `OutboxLeaseRecovery.recover()` (see "Lease recovery"), every
@@ -374,7 +375,13 @@ node, apart from the runner. It takes its three intervals as one `outbox.mainten
   `blocked` chats and the milliseconds left of the pause, 0 without one. The counts come from the
   tables, so every node writes the state of the whole outbox, not of its own sends. With no index on
   `status` yet the count reads the whole of `telegram_outbox`, `done` messages included
-  ([#643](https://github.com/yuldashevsardor/telegram-bot/issues/643)).
+  ([#643](https://github.com/yuldashevsardor/telegram-bot/issues/643));
+- the line of the blocked chats, every `OUTBOX_MAINTENANCE_BLOCKED_LOG_INTERVAL`: an `error` with
+  the number `OutboxStore.countBlockedChats()` counts in `telegram_outbox_chats`, written only while
+  it is above 0. A blocked chat waits for a person (see "Unblocking a chat"), and production
+  writes no `info`, so the status line does not show it there. The line names the targets that
+  unblock a chat, with their arguments, and the section of `README.md` that finds the chats; every
+  node writes it.
 
 A task runs first one interval after `start()`, and its next run is timed from the end of the
 previous one, so two runs of a task on one node never overlap. A failed run is logged at `error` and
@@ -482,7 +489,8 @@ command, which has them read by `ArgumentsHelper` (`cli/`): the same for every c
 listing its arguments in an array, a name and a rule (`ArgumentRule`, a whole number so far) for
 each, so the order is the one written. The command logs the message it took at `info`. The blocked
 chats of the outbox are the rows of `telegram_outbox_chats` in the state `blocked`, and the store
-logs each block at `error` with the chat and the message (`make psql` reads them). The same two
+logs each block at `error` with the chat and the message (`make psql` reads them); their number
+comes at `error` from the maintenance while any is left (see "Maintenance"). The same two
 targets for the inbox are in [`inbox.md`](./inbox.md), "Unblocking a group".
 
 ## Waiting for the result

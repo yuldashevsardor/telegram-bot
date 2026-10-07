@@ -922,6 +922,26 @@ describe("InboxStore", function () {
         });
     });
 
+    describe("the blocked groups", function () {
+        it("counts nothing in an empty inbox", async function () {
+            expect(await store.countBlockedGroups()).to.equal(0);
+        });
+
+        it("counts the blocked groups alone", async function () {
+            for (const userId of [1, 2]) {
+                await store.push(input(userId, userId, CHAT));
+                await store.markAsFailedAndBlockGroup(await claimOne(), UNEXPECTED);
+            }
+            await store.push(input(3, 3, CHAT));
+            await store.markAsDone(await claimOne());
+            await store.push(input(4, 4, CHAT));
+            await claimOne();
+            await store.push(input(5, 5, CHAT));
+
+            expect(await store.countBlockedGroups()).to.equal(2);
+        });
+    });
+
     describe("a concurrent push and removal of its group", function () {
         beforeEach(async function () {
             await store.push(input(10));

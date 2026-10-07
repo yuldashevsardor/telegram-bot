@@ -8,6 +8,7 @@ import { Tokens } from "app/shared/tokens";
 import { configValue } from "app/shared/config-value";
 import { isJsonbStorable } from "app/telegram/jsonb-string";
 import type {
+    BlockedInboxGroupCountRow,
     ClaimedInboxRow,
     ClaimedInboxUpdate,
     ExpiredInboxLease,
@@ -407,6 +408,22 @@ export class InboxStore {
         `;
 
         return deletedRows.length;
+    }
+
+    // The groups waiting to be unblocked by hand, for the error line of the maintenance. No index for
+    // blocked: the table holds only the groups with work, and its full read is expected to cost about
+    // what that of the outbox chats does (OutboxStore.countBlockedChats()); the inbox load test does
+    // not measure it.
+    public async countBlockedGroups(): Promise<number> {
+        // An aggregate without GROUP BY gives one row, an empty table included, so the row is
+        // asserted, not checked.
+        const [row] = await this.sql<BlockedInboxGroupCountRow[]>`
+            SELECT count(*) AS blocked_group_count
+            FROM telegram_inbox_groups
+            WHERE state = ${InboxGroupState.Blocked}
+        `;
+
+        return Number(row!.blocked_group_count);
     }
 
     private async insertBatch(inputs: InboxUpdateInput[]): Promise<void> {

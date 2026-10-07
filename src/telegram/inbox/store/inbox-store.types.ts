@@ -116,6 +116,11 @@ export type LockedInboxGroupRow = {
     lock_token: string | null;
 };
 
+// The count of the blocked groups as postgres returns it: a bigint, that is, a string.
+export type BlockedInboxGroupCountRow = {
+    blocked_group_count: string;
+};
+
 export type InboxCleanupSettings = {
     // How long a done update is kept after its end. Telegram redelivers an update within 24 h, and
     // the row of the update is what turns the redelivery away.
