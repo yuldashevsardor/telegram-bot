@@ -192,10 +192,18 @@ export class InboxStore {
                    to_jsonb(inbox_update.updated_at) #>> '{}' AS started_at,
                    jsonb_array_length(inbox_update.attempts) AS earlier_attempts
             FROM telegram_inbox_groups AS inbox_group
-            JOIN telegram_inbox AS inbox_update
-                ON inbox_update.user_id = inbox_group.user_id
-               AND inbox_update.chat_id = inbox_group.chat_id
-               AND inbox_update.status = ${InboxStatus.Processing}
+            -- The first processing update of the group by update_id, so the lookup stops at it rather
+            -- than reading every active update of the group behind it. Why not the head alone, as the
+            -- outbox takes it: docs/architecture/inbox.md, "Lease recovery".
+            CROSS JOIN LATERAL (
+                SELECT update_id, updated_at, attempts
+                FROM telegram_inbox
+                WHERE user_id = inbox_group.user_id
+                  AND chat_id = inbox_group.chat_id
+                  AND status = ${InboxStatus.Processing}
+                ORDER BY update_id
+                LIMIT 1
+            ) AS inbox_update
             -- Only a claimed group is leased: a completion clears the lease.
             WHERE inbox_group.locked_until <= now()
             ORDER BY inbox_group.locked_until, inbox_group.user_id, inbox_group.chat_id
@@ -243,8 +251,9 @@ export class InboxStore {
         });
     }
 
-    // The update goes back to pending, and its group waits delayMs: the update stays the head, so it
-    // holds its group. The group is ready again, so the ready channel is notified on commit, as a push
+    // The update goes back to pending, and its group waits delayMs: the update stays the head, unless
+    // an update pushed with a smaller update_id is before it (docs/architecture/inbox.md, "Push"), so
+    // it holds its group. The group is ready again, so the ready channel is notified on commit, as a push
     // does: a worker with nothing to claim learns of the group from nothing else. A retry with a
     // delay notifies too, before the group can be claimed, and the end of the delay notifies no one.
     // A fenced retry notifies no one.
@@ -307,7 +316,8 @@ export class InboxStore {
     }
 
     // Unblocks a group by hand: the failed update that blocked it goes back to pending, and its
-    // update_id makes it the head again. Returns that update. A group that is not blocked throws
+    // update_id makes it the head again, unless an update pushed with a smaller update_id is before
+    // it (docs/architecture/inbox.md, "Push"). Returns that update. A group that is not blocked throws
     // InboxGroupNotBlocked and changes nothing.
     public async retryBlockedGroup(groupKey: InboxGroupKey): Promise<number> {
         return this.sql.begin(async (sql) => {
@@ -423,7 +433,7 @@ export class InboxStore {
 
             // An idle group gets its first update, but only from an update inserted here: a group
             // whose updates were all stored already has no head to claim. A ready or processing group
-            // already has an older head, and a blocked one stays blocked. The updates go as JSON text:
+            // already has a head, and a blocked one stays blocked. The updates go as JSON text:
             // sql.json() takes only a type with an index signature, which grammY's Update interface
             // lacks, and it would send the same JSON.stringify() text. The parameter is text: one the
             // statement types as jsonb postgres.js passes through JSON.stringify() once more, into a

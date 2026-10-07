@@ -638,6 +638,26 @@ describe("InboxStore", function () {
             expect((await store.findExpiredLeases()).map(({ updateId }) => updateId)).to.deep.equal([10]);
         });
 
+        it("finds the processing update of an expired group behind an update pushed with a smaller update_id", async function () {
+            await store.push(input(10));
+            await claimOne();
+            await store.push(input(5));
+            await sleep(SHORT_LEASE_MS * 2);
+
+            expect((await store.findExpiredLeases()).map(({ updateId }) => updateId)).to.deep.equal([10]);
+        });
+
+        it("gives one lease per expired group, its first processing update by update_id, however many are processing", async function () {
+            await store.push(input(10));
+            await claimOne();
+            await store.push(input(5));
+            // No writer makes a second processing update in a group.
+            await database.sql`UPDATE telegram_inbox SET status = ${InboxStatus.Processing} WHERE update_id = 5`;
+            await sleep(SHORT_LEASE_MS * 2);
+
+            expect((await store.findExpiredLeases()).map(({ updateId }) => updateId)).to.deep.equal([5]);
+        });
+
         it("closes the attempt of an expired lease with no worker", async function () {
             await store.push(input(10));
             const claimed = await claimOne();
