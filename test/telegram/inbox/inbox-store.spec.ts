@@ -1,11 +1,11 @@
 import "reflect-metadata";
 import { expect } from "chai";
+import type { Update } from "grammy/types";
 import { Database } from "app/platform/database/database";
 import type { DatabaseSettings } from "app/platform/database/database.types";
 import { MS_PER_DAY, MS_PER_SECOND } from "app/shared/time";
 import { sleep } from "app/shared/utils";
 import { InboxFailureKind } from "app/telegram/inbox/failure-classifier/inbox-failure-classifier.types";
-import postgres from "postgres";
 import type { TransactionSql } from "postgres";
 import { InboxStore } from "app/telegram/inbox/store/inbox-store";
 import type {
@@ -19,16 +19,24 @@ import type {
     InboxWorker,
 } from "app/telegram/inbox/store/inbox-store.types";
 import { InboxChannel, InboxGroupState, InboxStatus } from "app/telegram/inbox/store/inbox-store.types";
-import { InboxGroupNotBlocked, InboxUpdateNotLeased, InvalidClaimLimit } from "app/telegram/inbox/store/inbox-store.errors";
+import {
+    InboxGroupNotBlocked,
+    InboxPushFailed,
+    InboxUpdateNotLeased,
+    InboxUpdateRefused,
+    InvalidClaimLimit,
+} from "app/telegram/inbox/store/inbox-store.errors";
 import { listenTo, rollingBackDatabase, SPEC_ROLLBACK_MESSAGE, testDatabaseSettings, waitForLockWaiters } from "test/database.helper";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
-import { messageInput } from "test/telegram/inbox/inbox-store.helper";
+import { messageInput, NUL_TEXT, SURROGATE_TEXT } from "test/telegram/inbox/inbox-store.helper";
 import { waitUntil } from "test/shared/utils.helper";
 
 const USER = 5_000_000_001;
 const OTHER_USER = 5_000_000_002;
 const CHAT = 5_000_000_001;
 const GROUP_CHAT = -1_001_234_567_890;
+// A user id past the range of bigint.
+const BEYOND_BIGINT = 1e20;
 // Longer than any wait of a passing run, shorter than SPEC_TIMEOUT_MS: a hung wait fails with its
 // own message and stops before after() closes the clients.
 const WAIT_DEADLINE_MS = 5_000;
@@ -152,22 +160,73 @@ describe("InboxStore", function () {
             expect(await group(OTHER_USER, CHAT)).to.deep.equal({ state: InboxGroupState.Ready });
         });
 
-        // The polling source tells an update the store refuses for good by these codes and pushes the
-        // rest of its batch one at a time (docs/architecture/inbox.md, "The polling source").
+        // The polling source pushes the rest of a refused batch one at a time and drops the refused
+        // update (docs/architecture/inbox.md, "The polling source").
         for (const [name, text, code] of [
-            ["a NUL character", "before\u0000after", "22P05"],
-            ["a lone surrogate", "before\ud800after", "22P02"],
+            ["a NUL character", NUL_TEXT, "22P05"],
+            ["a lone surrogate", SURROGATE_TEXT, "22P02"],
         ] as const) {
             it(`refuses a batch with ${name} in an update by SQLSTATE ${code} and stores none of it`, async function () {
-                const thrown = await store.pushBatch([input(10), input(11, USER, CHAT, text)]).then(
-                    () => expect.fail("pushBatch() was expected to reject"),
-                    (reason: unknown) => reason,
-                );
+                const thrown = await pushFailure(store, [input(10), input(11, USER, CHAT, text)]);
 
-                expect(thrown).to.be.instanceOf(postgres.PostgresError);
-                expect((thrown as postgres.PostgresError).code).to.equal(code);
+                expect(thrown).to.be.instanceOf(InboxUpdateRefused);
+                expect((thrown as InboxUpdateRefused).payload).to.include({ code: code });
                 expect(await statuses()).to.deep.equal([]);
             });
+
+            it(`refuses an update with ${name} in a key deep inside it`, async function () {
+                const pushed = input(10);
+                const update = { ...pushed.update, nested: [{ ["key" + text]: "value" }] } as Update;
+
+                expect(await pushFailure(store, [{ ...pushed, update: update }])).to.be.instanceOf(InboxUpdateRefused);
+            });
+        }
+
+        // Not the error as a whole: the CONTEXT PostgreSQL gives a refused value, in its where field,
+        // holds the text of the message.
+        it("throws a refusal by the code, message and detail of PostgreSQL, without the update", async function () {
+            const thrown = await pushFailure(store, [input(10, USER, CHAT, NUL_TEXT)]);
+
+            expect(thrown).to.be.instanceOf(InboxUpdateRefused);
+            expect((thrown as InboxUpdateRefused).payload).to.have.all.keys("code", "detail");
+            expect((thrown as InboxUpdateRefused).cause).to.equal(undefined);
+            expect(JSON.stringify(thrown)).not.to.include("before");
+        });
+
+        // 22P02 is the code of any malformed input: a change of the store that broke every row would
+        // give it, and the code alone would drop every update.
+        it("does not take SQLSTATE 22P02 for a refusal when no update holds a refused value", async function () {
+            const pushed = input(10);
+            const update = { ...pushed.update, update_id: "not a number" } as unknown as Update;
+
+            const thrown = await pushFailure(store, [{ ...pushed, update: update }]);
+
+            expect(thrown).to.be.instanceOf(InboxPushFailed).and.not.to.be.instanceOf(InboxUpdateRefused);
+            expect((thrown as InboxPushFailed).payload).to.include({ code: "22P02" });
+        });
+
+        // The groups go in before the updates are cast to jsonb, so a user id past bigint fails first.
+        it("does not take another data exception for a refusal, though an update holds a refused value", async function () {
+            const thrown = await pushFailure(store, [input(10, BEYOND_BIGINT, CHAT, NUL_TEXT)]);
+
+            expect(thrown).to.be.instanceOf(InboxPushFailed).and.not.to.be.instanceOf(InboxUpdateRefused);
+            expect((thrown as InboxPushFailed).payload).to.include({ code: "22003" });
+        });
+
+        it("lets a failure that is not an error of PostgreSQL through as it is", async function () {
+            const failure = new Error("write CONNECTION_CLOSED pgsql:5432");
+            const failing = { sql: { begin: () => Promise.reject(failure) } } as unknown as Database;
+
+            const thrown = await pushFailure(new InboxStore(failing, logger, LEASE_DURATION_MS, CLEANUP), [input(10)]);
+
+            expect(thrown).to.equal(failure);
+        });
+
+        async function pushFailure(target: InboxStore, inputs: InboxUpdateInput[]): Promise<unknown> {
+            return await target.pushBatch(inputs).then(
+                () => expect.fail("pushBatch() was expected to reject"),
+                (reason: unknown) => reason,
+            );
         }
     });
 

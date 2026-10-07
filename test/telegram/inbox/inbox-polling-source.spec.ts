@@ -2,17 +2,18 @@ import { expect } from "chai";
 import type { Api } from "grammy";
 import { HttpError } from "grammy";
 import type { Update, UserFromGetMe } from "grammy/types";
-import postgres from "postgres";
 import { sleep } from "app/shared/utils";
 import { ALLOWED_UPDATES } from "app/telegram/bot/bot.types";
 import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 import type { TelegramApiFactory } from "app/telegram/telegram-api-factory";
 import { InboxPollingSource } from "app/telegram/inbox/inbox-polling-source";
 import type { InboxStore } from "app/telegram/inbox/store/inbox-store";
+import { InboxPushFailed, InboxUpdateRefused } from "app/telegram/inbox/store/inbox-store.errors";
 import type { InboxUpdateInput } from "app/telegram/inbox/store/inbox-store.types";
 import { RetryDelay } from "app/telegram/retry-delay/retry-delay";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 import { telegramError } from "test/telegram/telegram-bot-api-failure-classifier.helper";
+import { NUL_TEXT } from "test/telegram/inbox/inbox-store.helper";
 
 const ME = { id: 1, is_bot: true, first_name: "Bot", username: "test_bot" } as UserFromGetMe;
 const USER = 5_000_000_001;
@@ -21,10 +22,6 @@ const CHAT = 5_000_000_001;
 // random() of 0 takes the lower end of the step, half of it: 500 ms after the first failure in a
 // row, 1 s after the second, 2 s after the third.
 const RETRY_DELAY = new RetryDelay({ firstDelayMs: 1_000, maxDelayMs: 60_000, multiplier: 2 }, () => 0);
-// The values jsonb refuses in a string.
-const NUL_TEXT = "before\u0000after";
-const SURROGATE_TEXT = "before\ud800after";
-const DETAIL = "the detail of the server";
 // A pause long enough for a spec to see the source wait in it, never waited out.
 const LONG_RETRY_DELAY = new RetryDelay({ firstDelayMs: 120_000, maxDelayMs: 120_000, multiplier: 1 }, () => 0);
 // How long a spec gives the source to take a step it must not take.
@@ -93,11 +90,13 @@ class FakeApi {
     }
 }
 
-// Stands for InboxStore: it refuses an update with a NUL character or a lone surrogate by the code
-// PostgreSQL gives each in jsonb, the whole batch with it, and fails a call by the failures queued.
+// Stands for InboxStore: it refuses a push with a NUL character in an update, the whole batch with
+// it, and fails a call by the failures queued.
 class FakeStore {
     public readonly calls: Array<{ method: "pushBatch" | "push"; updateIds: number[] }> = [];
     public readonly stored: InboxUpdateInput[] = [];
+    // The refusals it threw, in order.
+    public readonly refusals: InboxUpdateRefused[] = [];
     // Thrown by the next calls, one per call; undefined lets its call through.
     public readonly failures: Array<Error | undefined> = [];
     // Holds every call until it settles.
@@ -132,15 +131,11 @@ class FakeStore {
             throw failure;
         }
 
-        // JSON.stringify() writes both as escapes, as the store sends them.
-        const json = JSON.stringify(inputs);
+        if (inputs.some((input) => input.update.message?.text === NUL_TEXT)) {
+            const refusal = new InboxUpdateRefused("unsupported Unicode escape sequence", { code: "22P05" });
+            this.refusals.push(refusal);
 
-        if (json.includes("\\u0000")) {
-            throw postgresError("22P05");
-        }
-
-        if (json.includes("\\ud800")) {
-            throw postgresError("22P02");
+            throw refusal;
         }
 
         this.stored.push(...inputs);
@@ -349,12 +344,9 @@ describe("InboxPollingSource", function () {
             ]);
             expect(store.storedUpdateIds()).to.deep.equal([10, 12]);
             expect(api.offsets()).to.deep.equal([0, 13]);
-            // Not the error as a whole: the CONTEXT PostgreSQL gives it holds the text of the message.
+            // The refusal of the single push of update 11, the one after the refusal of the batch.
             expect(logger.errors).to.deep.equal([
-                {
-                    message: "The inbox refused an update, it is dropped.",
-                    payload: { updateId: 11, cause: { code: "22P05", message: "SQLSTATE 22P05", detail: DETAIL } },
-                },
+                { message: "The inbox refused an update, it is dropped.", payload: { updateId: 11, cause: store.refusals[1] } },
             ]);
         });
 
@@ -382,68 +374,23 @@ describe("InboxPollingSource", function () {
             ]);
         });
 
-        it("drops an update with a lone surrogate too, wherever in the update it is", async function () {
-            const keyboard = { inline_keyboard: [[{ text: SURROGATE_TEXT, callback_data: "1" }]] };
-            const withSurrogate = { update_id: 10, message: { ...message(10).message, reply_markup: keyboard } } as Update;
-            api.answers.push([withSurrogate, message(11)]);
+        it("does not take a push failed for another reason for a refusal", async function () {
+            const failure = new InboxPushFailed('invalid input syntax for type bigint: "x"', { code: "22P02" });
+            store.failures.push(failure);
+            api.answers.push([message(10)]);
 
             source.start();
             await api.waitForGetUpdates(2);
 
-            expect(store.calls.map((call) => call.method)).to.deep.equal(["pushBatch", "push", "push"]);
-            expect(store.storedUpdateIds()).to.deep.equal([11]);
-            expect(logger.errors.map((record) => record.payload?.["cause"])).to.deep.equal([
-                { code: "22P02", message: "SQLSTATE 22P02", detail: DETAIL },
+            expect(store.calls).to.deep.equal([{ method: "pushBatch", updateIds: [10] }]);
+            expect(api.offsets()).to.deep.equal([0, 0]);
+            expect(logger.errors).to.deep.equal([
+                {
+                    message: "Storing updates failed, the source gets them again from the same offset.",
+                    payload: { updateIds: [10], cause: failure },
+                },
             ]);
-            expect(api.offsets()).to.deep.equal([0, 12]);
         });
-
-        it("drops an update with a refused value in a key", async function () {
-            const withKey = { update_id: 10, message: { ...message(10).message, ["key" + NUL_TEXT]: "value" } } as unknown as Update;
-            api.answers.push([withKey, message(11)]);
-
-            source.start();
-            await api.waitForGetUpdates(2);
-
-            expect(store.storedUpdateIds()).to.deep.equal([11]);
-            expect(api.offsets()).to.deep.equal([0, 12]);
-        });
-
-        // A store change that failed every row with another data exception would otherwise drop every
-        // update.
-        for (const code of ["22003", "40P01"]) {
-            it(`does not take SQLSTATE ${code} for a refusal, though an update holds a refused value`, async function () {
-                store.failures.push(postgresError(code));
-                api.answers.push([message(10, USER, NUL_TEXT)]);
-
-                source.start();
-                await api.waitForGetUpdates(2);
-
-                expect(store.calls).to.deep.equal([{ method: "pushBatch", updateIds: [10] }]);
-                expect(api.offsets()).to.deep.equal([0, 0]);
-            });
-        }
-
-        // 22P02 is the code of any malformed input: a store change that broke every row would give it.
-        for (const code of ["22P02", "22P05"]) {
-            it(`does not take SQLSTATE ${code} for a refusal when no update holds a refused value`, async function () {
-                store.failures.push(postgresError(code));
-                api.answers.push([message(10)]);
-
-                source.start();
-                await api.waitForGetUpdates(2);
-
-                expect(store.calls).to.deep.equal([{ method: "pushBatch", updateIds: [10] }]);
-                expect(api.offsets()).to.deep.equal([0, 0]);
-                // An error of PostgreSQL goes into the log by its code, message and detail.
-                expect(logger.errors).to.deep.equal([
-                    {
-                        message: "Storing updates failed, the source gets them again from the same offset.",
-                        payload: { updateIds: [10], cause: { code: code, message: `SQLSTATE ${code}`, detail: DETAIL } },
-                    },
-                ]);
-            });
-        }
 
         it("stops the polling on an unexpected error with a critical log", async function () {
             const failure = new Error("the logger failed");
@@ -502,6 +449,17 @@ describe("InboxPollingSource", function () {
             await api.waitForGetUpdates(2);
 
             expect(source.pauses).to.deep.equal([2 ** 31 - 1]);
+        });
+
+        // A 429 comes from Telegram: the Bot API classifier has no say over a failure of the store.
+        it("waits the retry delay alone after a failed push, whatever the failure looks like", async function () {
+            store.failures.push(telegramError(429, "Too Many Requests: retry after 5", { retry_after: 5 }));
+            api.answers.push([message(10)]);
+
+            source.start();
+            await api.waitForGetUpdates(2);
+
+            expect(source.pauses).to.deep.equal([500]);
         });
 
         it("keeps the retry delay when a 429 asks for less", async function () {
@@ -662,12 +620,4 @@ function callbackQuery(updateId: number, userId: number): Update {
             },
         },
     };
-}
-
-// postgres.js builds the error from the fields of the server's answer, a constructor its typings do
-// not declare.
-function postgresError(code: string): Error {
-    const PostgresError = postgres.PostgresError as unknown as new (fields: { message: string; code: string; detail: string }) => Error;
-
-    return new PostgresError({ message: `SQLSTATE ${code}`, code: code, detail: DETAIL });
 }
