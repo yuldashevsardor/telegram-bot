@@ -267,11 +267,13 @@ source").
    - `OutboxMaintenance.stop()` clears the timers and waits for the runs in progress, with no
      deadline of its own ([`outbox.md`](./outbox.md), "Maintenance").
 5. `container.close()` → `OutboxResultWaiter.stop()`, then `Database.close()` →
-   `sql.end({ timeout: 5 })` ([`storage.md`](./storage.md)).
+   `sql.end({ timeout: 5 })` ([`storage.md`](./storage.md)). A handler the inbox runner left
+   running in a wait for the outbox is rejected here, and its release meets the closed pool: its
+   update waits for its lease ([`inbox.md`](./inbox.md), "Release on stop").
 
 The overall deadline has to be greater than the sum of the individual ones of the polling source,
 the inbox runner and the outbox runner, and `ConfigValuesBuilder` checks that. It also has to be
-smaller than the container's `stop_grace_period: 20s`, and nothing checks that
+smaller than the container's `stop_grace_period: 25s`, and nothing checks that
 ([invariant](./invariants.md)). The dependencies' own deadlines (`sql.end({ timeout: 5 })`) are
 not part of the check.
 

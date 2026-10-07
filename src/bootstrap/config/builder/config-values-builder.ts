@@ -120,7 +120,7 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
             },
 
             gracefulShutdown: {
-                timeout: parser.getTimerDelay("GRACEFUL_SHUTDOWN_TIMEOUT", 18000),
+                timeout: parser.getTimerDelay("GRACEFUL_SHUTDOWN_TIMEOUT", 20000),
             },
 
             logger: ConfigValuesBuilder.getLogger(parser, isProduction),

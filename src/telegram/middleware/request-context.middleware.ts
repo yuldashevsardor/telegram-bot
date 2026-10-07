@@ -15,8 +15,8 @@ export class RequestContextMiddleware extends Middleware {
     }
 
     // The first of the middleware: everything logged inside the chain has to carry a requestId.
-    // The filters above the middleware and grammy.catch run outside the scope and get no request
-    // data (docs/architecture/logging.md).
+    // The filters above the middleware, and the inbox that writes the outcome of a failed update,
+    // run outside the scope and get no request data (docs/architecture/logging.md).
     public async handle(_context: Context, next: NextFunction): Promise<void> {
         return this.requestContext.run(next);
     }

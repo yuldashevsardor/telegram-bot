@@ -61,7 +61,7 @@ describe("ConfigValuesBuilder", () => {
             cleanup: { doneRetentionMs: 604800000, skippedRetentionMs: 2592000000, batchSize: 1000 },
         });
         expect(result.bot).to.deep.equal({ token: "token" });
-        expect(result.gracefulShutdown).to.deep.equal({ timeout: 18000 });
+        expect(result.gracefulShutdown).to.deep.equal({ timeout: 20000 });
         expect(result.logger).to.deep.equal({ level: Level.DEBUG });
         expect(result.database).to.deep.equal({
             host: "localhost",

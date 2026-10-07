@@ -9,7 +9,7 @@ services:
         restart: on-failure:5
         # Longer than GRACEFUL_SHUTDOWN_TIMEOUT (.env): otherwise SIGKILL arrives before the
         # application has stopped, and the graceful shutdown loses its point.
-        stop_grace_period: 20s
+        stop_grace_period: 25s
         # The migrations run in the same container before the bot starts. node-pg-migrate loads
         # the .ts migrations with its built-in jiti, so no separate transpiler is needed.
         # Nothing waits for the healthcheck of the database: it is brought up separately. If the

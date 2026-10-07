@@ -249,7 +249,7 @@ describe("OutboxMaintenance", function () {
         expect(store.backlogReads).to.equal(0);
     });
 
-    // Application.run() may start the maintenance after a stop that came while the bot was starting.
+    // The stop is final: a start that follows it sets no timers.
     it("runs nothing when started after the stop", async function () {
         const stopped = start({
             leaseRecoveryIntervalMs: SHORT_INTERVAL_MS,

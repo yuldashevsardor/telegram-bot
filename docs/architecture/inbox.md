@@ -457,6 +457,14 @@ still running could reply after another node has handled the next update of the 
 `InboxUpdateProcessor` releases only an update whose handler has not started or has thrown (see "The
 update processor").
 
+**Under `Application` a stopped wait is not released.** The result waiter stops in
+`container.close()`, right before the pool closes ([`application.md`](./application.md), "Stop",
+step 5), and postgres.js refuses the queries that come after that. A handler the runner left running
+in a wait for the outbox ends with `OutboxResultWaiterStopped` only then: its release fails with
+`CONNECTION_ENDED`, the runner logs it at `error`, and the update stays `processing` until the
+recovery of its lease, up to `INBOX_LEASE_DURATION` later. At the stop of the application only an
+update that has not reached its handler is released.
+
 ## Cleanup
 
 Two methods of the store keep the tables from growing without bound. Each deletes one batch of at
