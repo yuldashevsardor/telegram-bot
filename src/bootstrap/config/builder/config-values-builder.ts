@@ -163,10 +163,10 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
             throw new InvalidConfigError(
                 "GRACEFUL_SHUTDOWN_TIMEOUT must be greater than the sum of the inbox polling, inbox and outbox timeouts",
                 {
-                    application: gracefulShutdown.timeout,
-                    inboxPolling: inbox.pollingStopTimeoutMs,
-                    inbox: inbox.stopTimeoutMs,
-                    outbox: outbox.stopTimeoutMs,
+                    gracefulShutdownTimeoutMs: gracefulShutdown.timeout,
+                    inboxPollingStopTimeoutMs: inbox.pollingStopTimeoutMs,
+                    inboxStopTimeoutMs: inbox.stopTimeoutMs,
+                    outboxStopTimeoutMs: outbox.stopTimeoutMs,
                 },
             );
         }

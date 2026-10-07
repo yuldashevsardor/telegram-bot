@@ -82,7 +82,9 @@ the inbox, and `InboxUpdateProcessor` hands each one to `bot.grammy.handleUpdate
 stops both ([`application.md`](./application.md)). `handleUpdate()` wraps an error of the pipeline
 into a `BotError` and throws it on, so no `bot.catch()` is set: the inbox picks the outcome of the
 update by the class of the error ([`inbox.md`](./inbox.md), "Failures"). The user gets no answer
-and sees no sign of the failure.
+and sees no sign of the failure. The log gets none either, except for a blocked group
+([`inbox.md`](./inbox.md), "Outcomes"): a retried or an undeliverable failure is seen in the
+`attempts` of the inbox tables only.
 
 The polling source asks only for `ALLOWED_UPDATES` of `bot.types.ts`, `["message"]`.
 Commands and `conversation.wait()` in private chats need messages alone. The `getUpdates` default

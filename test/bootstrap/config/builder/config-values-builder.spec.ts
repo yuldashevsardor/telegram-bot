@@ -355,7 +355,12 @@ describe("ConfigValuesBuilder", () => {
         expect(error.message).to.equal(
             "GRACEFUL_SHUTDOWN_TIMEOUT must be greater than the sum of the inbox polling, inbox and outbox timeouts",
         );
-        expect(error.payload).to.deep.equal({ application: 6000, inboxPolling: 3000, inbox: 1000, outbox: 2000 });
+        expect(error.payload).to.deep.equal({
+            gracefulShutdownTimeoutMs: 6000,
+            inboxPollingStopTimeoutMs: 3000,
+            inboxStopTimeoutMs: 1000,
+            outboxStopTimeoutMs: 2000,
+        });
     });
 
     it("accepts a shutdown timeout that covers the inbox polling, the inbox and the outbox", () => {
