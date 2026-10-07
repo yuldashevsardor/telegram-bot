@@ -378,11 +378,11 @@ the timers and waits for the runs in progress, so the database can be closed aft
 `make inbox-retry user=<id> chat=<id>` is `InboxStore.retryBlockedGroup()` and `make inbox-skip
 user=<id> chat=<id>` is `skipBlockedGroup()`. They do for a blocked group what the targets of the
 outbox do for a blocked chat ([`outbox.md`](./outbox.md), "Unblocking a chat"): the failed update
-that blocked the group, the one that failed last, goes back to `pending` and is the head again,
-unless an update pushed with a smaller `update_id` is before it (see "Push"), or
-becomes `skipped` with `finished_at` set, and the group is `idle` when no active update is left,
-not `ready`, which no claim would serve. A group that is not blocked throws `InboxGroupNotBlocked`.
-A group left `ready` is notified (see "Ready notifications").
+that blocked the group, the one that failed last, goes back to `pending` and is the head again, or
+becomes `skipped` with `finished_at` set. A retried update is not the head when an update pushed
+with a smaller `update_id` is before it (see "Push"). Afterwards the group is `idle` when no active
+update is left, not `ready`, which no claim would serve. A group that is not blocked throws
+`InboxGroupNotBlocked`. A group left `ready` is notified (see "Ready notifications").
 `test/telegram/inbox/inbox-store.spec.ts` lines up a push and a skip in both orders.
 
 ## Failures
@@ -460,8 +460,8 @@ passed: the node that claimed them is presumed dead. `InboxMaintenance` calls it
    its `processing` update, as a lease under the group's own `lock_token`. It reads without a lock
    and leaves the lease as it is. The update is the first `processing` one of the group by
    `update_id`, in the head index, so the lookup stops at it: the claim makes the head
-   `processing`, and the lookup reads one entry a group, where a search by the status alone read
-   every active update of the group ([`inbox-load-test.md`](./inbox-load-test.md), "The lease
+   `processing`, and the lookup reads one live entry a group, where a search by the status alone
+   read every active update of the group ([`inbox-load-test.md`](./inbox-load-test.md), "The lease
    recovery"). Not the head alone, as the outbox takes it ([`outbox.md`](./outbox.md), "Lease
    recovery"): an update pushed with a smaller `update_id` while the group is `processing` (see
    "Push", on `update_id` after a week without updates) is the head before the `processing` one, and

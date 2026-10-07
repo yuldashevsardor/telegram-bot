@@ -137,6 +137,14 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   (same file, "Pull"). The spec lines up only `push()` against `markAsDone()` and
   `skipBlockedChat()`: a new path that changes a chat state outside `complete()` is checked by
   nothing.
+- **A write that moves the head of an outbox chat or makes the chat `ready` sets
+  `head_priority` of the chat row from its head**, as `OutboxStore.setChatState()` and the
+  `idle` → `ready` update of `pushBatch()` do. The pull orders the `ready` chats by the copy
+  alone, so a stale one sends the chat in the wrong turn among the priorities, silently: a reply
+  to a user waits behind bulk messages, or bulk messages overtake it
+  ([`outbox.md`](./outbox.md), "Tables"). `test/telegram/outbox/outbox-store.spec.ts` pins the
+  completion and the retry of a blocked chat, each with the new head more and less urgent than
+  another chat; a new path that moves the head outside `setChatState()` is checked by nothing.
 - **A statement that locks the bot row (`telegram_bot_limits`) takes it before any other row lock
   and holds no other row lock while it waits**, as `OutboxStore.pull()` and `pause()` do, each in
   one statement. Otherwise the wait of a pull for the row can close a lock cycle; how is in

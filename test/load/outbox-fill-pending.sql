@@ -24,9 +24,21 @@ FROM generate_series(1, :per_chat) AS position
 CROSS JOIN generate_series(1, :chats) AS chat_id
 ORDER BY position, chat_id;
 
-INSERT INTO telegram_outbox_chats (chat_id, state, next_attempt_at)
-SELECT chat_id, 'ready', now() - interval '1 minute'
-FROM generate_series(1, :chats) AS chat_id;
+-- head_priority is the copy of the priority of the head that the store keeps (outbox-store.ts),
+-- read from the head as the store reads it.
+INSERT INTO telegram_outbox_chats (chat_id, state, next_attempt_at, head_priority)
+SELECT chats.chat_id,
+       'ready',
+       now() - interval '1 minute',
+       (
+           SELECT priority
+           FROM telegram_outbox
+           WHERE telegram_outbox.chat_id = chats.chat_id
+             AND status IN ('pending', 'processing')
+           ORDER BY id
+           LIMIT 1
+       )
+FROM generate_series(1, :chats) AS chats(chat_id);
 
 UPDATE telegram_bot_limits
 SET next_send_at = now() - interval '1 hour',

@@ -252,12 +252,12 @@ export class InboxStore {
         });
     }
 
-    // The update goes back to pending, and its group waits delayMs: the update stays the head, unless
-    // an update pushed with a smaller update_id is before it (docs/architecture/inbox.md, "Push"), so
-    // it holds its group. The group is ready again, so the ready channel is notified on commit, as a push
-    // does: a worker with nothing to claim learns of the group from nothing else. A retry with a
-    // delay notifies too, before the group can be claimed, and the end of the delay notifies no one.
-    // A fenced retry notifies no one.
+    // The update goes back to pending, and its group waits delayMs: next_attempt_at of the group holds
+    // it, so the updates behind the update are not claimed before it. The update stays the head, unless
+    // an update pushed with a smaller update_id is before it (docs/architecture/inbox.md, "Push"). The
+    // group is ready again, so the ready channel is notified on commit, as a push does: a worker with
+    // nothing to claim learns of the group from nothing else. A retry with a delay notifies too, before
+    // the group can be claimed, and the end of the delay notifies no one. A fenced retry notifies no one.
     public async retry(lease: InboxLease, attemptError: InboxAttemptError, delayMs: number): Promise<void> {
         await this.complete(lease, attemptError, async (sql, group) => {
             await this.writeProcessingUpdateOrThrow(
