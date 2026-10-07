@@ -411,9 +411,9 @@ export class InboxStore {
     }
 
     // The groups waiting to be unblocked by hand, for the error line of the maintenance. No index for
-    // blocked: the table holds only the groups with work, and a full read of 100 000 of them takes
-    // about 10 ms (docs/architecture/inbox-load-test.md, "The claim of 100 k groups with the index"),
-    // once per interval of the maintenance.
+    // blocked: the table holds only the groups with work, and a full read of 100 000 of them that
+    // matches none takes about 3 ms, as findExpiredLeases() with no lease expired does
+    // (docs/architecture/inbox-load-test.md), once per interval of the maintenance.
     public async countBlockedGroups(): Promise<number> {
         // An aggregate without GROUP BY gives one row, an empty table included, so the row is
         // asserted, not checked.
