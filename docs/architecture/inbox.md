@@ -36,7 +36,7 @@ lookup walks until a vacuum cleans them. So the same migration sets the vacuum o
 [`outbox-load-test.md`](./outbox-load-test.md), "Vacuum of the head index".
 `1791504000000_telegram-inbox-ready-groups-index.ts` adds `telegram_inbox_ready_groups_idx` on
 `(next_attempt_at, user_id, chat_id)` of the `ready` groups: the claim takes them in that order, so
-it reads as many groups as it claims. `1791590400000_telegram-inbox-finished-index.ts` adds
+it reads as many groups as it claims. `1791676800000_telegram-inbox-finished-index.ts` adds
 `telegram_inbox_finished_at_idx` on `finished_at` of the `done` and `skipped` updates, the ones the
 cleanup deletes (see "Cleanup"): without it the call that finds nothing to delete reads the whole
 table. As the index of the outbox cleanup ([`outbox.md`](./outbox.md), "Tables"), it holds an entry
