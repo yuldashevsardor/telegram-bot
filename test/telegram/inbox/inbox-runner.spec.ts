@@ -525,6 +525,35 @@ describe("InboxRunner", function () {
         await stopped;
     });
 
+    // The release of a handler a stopped outbox wait rejects is a write to the database, and the caller
+    // closes the pool once this has returned.
+    it("waits for the handlers left running to settle after the stop", async function () {
+        const runner = createRunner(SHORT_STOP_TIMEOUT_MS);
+        source.add(update(1));
+        runner.start();
+        await settle();
+        await runner.stop();
+        let haveHandlersSettled = false;
+
+        const waiting = runner.waitForHandlersLeftRunning().then(() => {
+            haveHandlersSettled = true;
+        });
+        await settle();
+
+        expect(haveHandlersSettled).to.equal(false);
+        processor.calls[0]?.finish();
+        await waiting;
+        expect(haveHandlersSettled).to.equal(true);
+    });
+
+    it("has nothing to wait for when no handler is left running", async function () {
+        const runner = createRunner(LONG_STOP_TIMEOUT_MS);
+
+        await runner.stop();
+
+        await runner.waitForHandlersLeftRunning();
+    });
+
     it("stops before it was started", async function () {
         const runner = createRunner(LONG_STOP_TIMEOUT_MS);
 

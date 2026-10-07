@@ -6,6 +6,7 @@ import { Tokens } from "app/shared/tokens";
 import type { Database } from "app/platform/database/database";
 import type { Bot } from "app/telegram/bot/bot";
 import type { OutboxRunner } from "app/telegram/outbox/outbox-runner";
+import type { OutboxResultWaiter } from "app/telegram/outbox/result-waiter/outbox-result-waiter";
 import type { OutboxMaintenance } from "app/telegram/outbox/maintenance/outbox-maintenance";
 import type { InboxPollingSource } from "app/telegram/inbox/inbox-polling-source";
 import type { InboxRunner } from "app/telegram/inbox/inbox-runner";
@@ -38,6 +39,7 @@ export class Application {
     // Filled in assemble() and read by nobody until it is over: run() goes only from ready, and
     // shutdown() touches them only from running.
     private outboxRunner!: OutboxRunner;
+    private outboxResultWaiter!: OutboxResultWaiter;
     private outboxMaintenance!: OutboxMaintenance;
     private inboxPollingSource!: InboxPollingSource;
     private inboxRunner!: InboxRunner;
@@ -135,6 +137,7 @@ export class Application {
 
         const bot = container.get<Bot>(Tokens.Bot.Bot);
         this.outboxRunner = container.get<OutboxRunner>(Tokens.Bot.Outbox.Runner);
+        this.outboxResultWaiter = container.get<OutboxResultWaiter>(Tokens.Bot.Outbox.Result.Waiter);
         this.outboxMaintenance = container.get<OutboxMaintenance>(Tokens.Bot.Outbox.Maintenance);
         this.inboxRunner = container.get<InboxRunner>(Tokens.Bot.Inbox.Runner);
         this.inboxMaintenance = container.get<InboxMaintenance>(Tokens.Bot.Inbox.Maintenance);
@@ -192,10 +195,20 @@ export class Application {
             await this.inboxMaintenance.stop();
             // The calls of the handlers left running stay queued for another node or the next start.
             await this.outboxRunner.stop();
+            await this.stopOutboxResultWaiter();
             await this.outboxMaintenance.stop();
         }
 
         await container.close();
+    }
+
+    // A handler the inbox runner left running in a wait for the outbox is rejected here, and not
+    // earlier: the outbox runner is still sending the calls it awaits. Its update is released
+    // while the pool is open (docs/architecture/inbox.md, "Release on stop"), so the stop waits for
+    // that, under the overall deadline alone: the handlers left running have none of their own.
+    private async stopOutboxResultWaiter(): Promise<void> {
+        this.outboxResultWaiter.stop();
+        await this.inboxRunner.waitForHandlersLeftRunning();
     }
 
     // The source has no deadline of its own: a push stuck on the database holds its stop

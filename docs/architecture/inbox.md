@@ -308,7 +308,8 @@ the worker of the loop: the host, the pid and a `randomUUID()` made with the loo
    for as long as it runs. The stop logs the update ids of those at `warning` and returns without
    them. Such a handler runs on until the process ends: if it settles while the
    database is open, its outcome is written as any other; otherwise the recovery takes its update
-   back once the lease passes.
+   back once the lease passes. `Application` keeps the database open for them with
+   `waitForHandlersLeftRunning()` (see "Release on stop").
 
 The deadline bounds neither the wait for a claim in progress, as in the outbox, nor the wait for the
 writes of step 3.
@@ -457,13 +458,17 @@ still running could reply after another node has handled the next update of the 
 `InboxUpdateProcessor` releases only an update whose handler has not started or has thrown (see "The
 update processor").
 
-**Under `Application` a stopped wait is not released.** The result waiter stops in
-`container.close()`, right before the pool closes ([`application.md`](./application.md), "Stop",
-step 5), and postgres.js refuses the queries that come after that. A handler the runner left running
-in a wait for the outbox ends with `OutboxResultWaiterStopped` only then: its release fails with
-`CONNECTION_ENDED`, the runner logs it at `error`, and the update stays `processing` until the
-recovery of its lease, up to `INBOX_LEASE_DURATION` later. At the stop of the application only an
-update that has not reached its handler is released.
+**Under `Application` the release of a stopped wait is waited for.** A handler the runner left
+running in a wait for the outbox ends with `OutboxResultWaiterStopped` once `Application` stops the
+result waiter, after `OutboxRunner.stop()` ([`application.md`](./application.md), "Stop", step 4):
+earlier, the waiter would reject handlers whose replies the outbox is still about to send. Its
+release is a write, so `Application` then awaits `InboxRunner.waitForHandlersLeftRunning()`, which
+resolves once every handler `stop()` left running has settled and its update is released or has its
+outcome written, and only then closes the pool. A closed pool refuses the release with
+`CONNECTION_ENDED`, and the update would stay `processing` until the recovery of its lease, up to
+`INBOX_LEASE_DURATION` later. The wait has no deadline of its own and lives on the overall one
+(`GRACEFUL_SHUTDOWN_TIMEOUT`): a handler that neither ends nor waits for the outbox holds the stop
+to it, and past it the update waits for the recovery as before.
 
 ## Cleanup
 
