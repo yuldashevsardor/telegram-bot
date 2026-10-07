@@ -363,9 +363,9 @@ one `inbox.maintenance` object (`InboxMaintenanceSettings`):
 - the line of the blocked groups, every `INBOX_MAINTENANCE_BLOCKED_LOG_INTERVAL`: an `error` with
   the number `InboxStore.countBlockedGroups()` counts in `telegram_inbox_groups`, written only
   while it is above 0, as the line of the blocked chats of the outbox. It names the targets that
-  unblock a group, with their arguments, and the same section of `README.md` (see "Unblocking a
-  group"). The outbox writes its own line, so while both queues have something blocked a node
-  writes two.
+  unblock a group, with their arguments, and the section of `README.md` that finds the groups,
+  "Unblocking a chat or a group". The outbox writes its own line, so while both queues have
+  something blocked a node writes two.
 
 A task runs first one interval after `start()`, and its next run is timed from the end of the
 previous one, so two runs of a task on one node never overlap. A failed run is logged at `error` and
