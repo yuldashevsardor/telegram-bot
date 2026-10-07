@@ -232,6 +232,24 @@ describe("OutboxStore", function () {
         expect((await store.pull(1, WORKER)).messages.map(({ id }) => id)).to.deep.equal([other]);
     });
 
+    it("pulls a chat by the priority of its next message once its head is done", async function () {
+        await store.pushBatch([message(CHAT, "urgent", 100), message(CHAT, "later", 300)]);
+        await store.markAsDone(await pullOne(), RESPONSE);
+        const middle = await store.push(message(OTHER_CHAT, "middle", 200));
+
+        expect((await store.pull(1, WORKER)).messages.map(({ id }) => id)).to.deep.equal([middle]);
+    });
+
+    it("pulls a retried blocked chat by the priority of the failed message, its head again", async function () {
+        await store.pushBatch([message(CHAT, "failed", 300), message(CHAT, "urgent", 100)]);
+        await store.markAsFailedAndBlockChat(await pullOne(), UNEXPECTED);
+        const middle = await store.push(message(OTHER_CHAT, "middle", 200));
+
+        await store.retryBlockedChat(CHAT);
+
+        expect((await store.pull(1, WORKER)).messages.map(({ id }) => id)).to.deep.equal([middle]);
+    });
+
     it("stores the response and the end of a done message, and says the message is done", async function () {
         const id = await store.push(message(CHAT, "text"));
 

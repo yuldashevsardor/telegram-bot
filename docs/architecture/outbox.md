@@ -33,7 +33,7 @@ column the outbox needs. The columns and what they mean are in its `createTable`
 replaced by `1790716587328_telegram-outbox-attempt-worker-comment.ts`.
 
 The indexes are picked by the plans of the load test (see "Load test"), not ahead of the queries.
-Besides the primary keys there are two, both of `telegram_outbox`.
+Besides the primary keys there are two of `telegram_outbox` and two of `telegram_outbox_chats`.
 `1791153270752_telegram-outbox-head-index.ts` adds `telegram_outbox_active_chat_id_idx`, on
 `(chat_id, id)` of the active messages: the head of a chat for the pull, for `releaseChat()` and
 for the lease recovery is its first entry.
@@ -48,6 +48,12 @@ without it the call that finds nothing to delete reads the whole table. It is th
 head index: it holds an entry for every `done` and `skipped` message the cleanup has not deleted
 yet, as large as the primary key; every completion but a failure adds one, and every vacuum of the
 table reads it whole ([`outbox-load-test.md`](./outbox-load-test.md), "The cleanup").
+`1791590400000_telegram-outbox-chat-head-priority.ts` adds the two of the `ready` chats, for the
+pull (see "Pull"): `telegram_outbox_chats_ready_pull_idx`, on `(head_priority, next_attempt_at,
+chat_id)`, the order of the pull, and `telegram_outbox_chats_ready_next_attempt_at_idx`, on
+`next_attempt_at`, for the nearest due time the pull answers with. Without them the pull read every
+`ready` chat for each ([`outbox-load-test.md`](./outbox-load-test.md), "The pull of 100 k chats
+with the index").
 
 The database does not check the values of `status` and `state`: the store writes them only
 through the `OutboxStatus` and `OutboxChatState` enums (`store/outbox-store.types.ts`). Of these,
@@ -57,8 +63,22 @@ keeps it single. Without the row `pull()` and `pause()` throw `BotLimitsRowMissi
 would otherwise answer as if no chat were ready, and the pause would change nothing.
 
 The **head** of a chat is its first message by `id` among the active statuses (`pending`,
-`processing`). The priority of a chat is the priority of its head, read from the head itself when
-needed: the chat row keeps no copy.
+`processing`). The priority of a chat is the priority of its head. The chat row keeps a copy of it,
+`head_priority`, added by the migration of the pull indexes, NULL for a chat without an active
+message: the pull orders the `ready` chats by it, so it reads them in the order of its index and
+looks up the heads of its batch alone. Read from the heads, the order cost a lookup of the head of
+every `ready` chat and a sort of them all before the first was taken: 228 ms a batch of 100 000
+ready chats ([`outbox-load-test.md`](./outbox-load-test.md)).
+
+The copy is right only while every write that moves the head reads it again
+([invariant](./invariants.md)). The head moves when a message stops being active or becomes active
+again, and every such write ends in `setChatState()`, which sets `head_priority` from the head in
+the same statement as the state: the completions, `retry`, the unblocks. A push makes an `idle`
+chat `ready` with the copy of its first message; in a chat with a head it puts its messages behind
+it, so the copy stays. The pull keeps the head, the message only goes to `processing`. One copy
+can be stale: a push into a `blocked` chat with no active message gives it a head and leaves the
+copy NULL, and only the unblock, through `setChatState()`, reads it. A stale copy breaks nothing
+loud: the chat is pulled in the wrong turn among the priorities.
 
 A `failed` message is not active. The status says what happened to the message, the state of the
 chat says whether the chat waits: a failed message that blocks its chat holds it through `blocked`,
@@ -132,9 +152,11 @@ no pull reaches them. The spec has the removal take the chat while a push waits 
    the pull (see "Limits"); a pause, a spent common limit or nothing to pull means a budget of zero.
    A pull with nothing to take does not lock the row, so it does not hold back a pull that has;
 2. up to the budget of `ready` chats whose `next_attempt_at` has passed by the time of the pull,
-   with the head of each (`CROSS JOIN LATERAL`), by the priority of the head, then by
-   `next_attempt_at`, then by `chat_id`, `FOR UPDATE OF chats SKIP LOCKED`: a chat another puller
-   holds is skipped, not waited for;
+   with the head of each (`CROSS JOIN LATERAL`), by the priority of the head, its copy
+   `head_priority` on the chat row (see "Tables"), then by `next_attempt_at`, then by `chat_id`,
+   `FOR UPDATE OF chats SKIP LOCKED`: a chat another puller holds is skipped, not waited for. The
+   order is that of the pull index, so the pull reads the chats of its batch, not every `ready`
+   one;
 3. the head goes to `processing`, but only if it is still `pending`; its `attempts` stay as they
    are, the completion writes the attempt (see "Completions");
 4. the chats whose head was pulled go to `processing`, `next_attempt_at` moves to the time of the

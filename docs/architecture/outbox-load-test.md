@@ -3,8 +3,9 @@
 The pull, the completion, the lease recovery and the cleanup of the outbox store
 ([`outbox.md`](./outbox.md)) measured on a large table
 ([#632](https://github.com/yuldashevsardor/telegram-bot/issues/632)), the input of the indexes of
-[#643](https://github.com/yuldashevsardor/telegram-bot/issues/643) and
-[#837](https://github.com/yuldashevsardor/telegram-bot/issues/837).
+[#643](https://github.com/yuldashevsardor/telegram-bot/issues/643),
+[#837](https://github.com/yuldashevsardor/telegram-bot/issues/837) and
+[#838](https://github.com/yuldashevsardor/telegram-bot/issues/838).
 
 ## How to run it
 
@@ -60,16 +61,16 @@ The times are those of the client, in ms, from runs with `plans=off`, except the
 index; "first" is the first call of the run, the cold cache. The ranges leave out the pulls the
 limits held back (see "How to run it").
 
-| call | no index, 3 chats | index, 3 chats | index, 100 k chats |
-|---|---|---|---|
-| `pull(1)` | 405 878 – 511 630 | first 140, then 1.5 – 7.4, median 2.1 | first 398, then 124 – 190, median 144 |
-| `pull(30)` | — | first 5, then 3.6 – 28, median 7.0, for 3 messages | first 131, then 134 – 536, median 228, for 30 messages |
-| `markAsDone()` | 72 – 76 | median 2.1, p95 4.1, max 14 | median 1.2, p95 4.3, max 42 |
-| `findExpiredLeases()`, no lease expired | — | 0.7 | 3.1 |
-| `findExpiredLeases()`, a batch expired | — | 28, 3 leases | 33, 30 leases |
-| `deleteFinishedMessages()`, a full batch | — | 4.3 – 8.5 | — |
-| `deleteFinishedMessages()`, nothing to delete | — | 0.8 | 1.0 |
-| `deleteIdleChats()` | — | 32 | 60 |
+| call | no index, 3 chats | index, 3 chats | index, 100 k chats | pull indexes, 100 k chats |
+|---|---|---|---|---|
+| `pull(1)` | 405 878 – 511 630 | first 140, then 1.5 – 7.4, median 2.1 | first 398, then 124 – 190, median 144 | first 30, then 1.1 – 4.3, median 1.5 |
+| `pull(30)` | — | first 5, then 3.6 – 28, median 7.0, for 3 messages | first 131, then 134 – 536, median 228, for 30 messages | first 12, then 3.5 – 36, median 10.6, for 30 messages |
+| `markAsDone()` | 72 – 76 | median 2.1, p95 4.1, max 14 | median 1.2, p95 4.3, max 42 | median 1.1, p95 2.5, max 5.9 |
+| `findExpiredLeases()`, no lease expired | — | 0.7 | 3.1 | 13 |
+| `findExpiredLeases()`, a batch expired | — | 28, 3 leases | 33, 30 leases | 38, 30 leases |
+| `deleteFinishedMessages()`, a full batch | — | 4.3 – 8.5 | — | — |
+| `deleteFinishedMessages()`, nothing to delete | — | 0.8 | 1.0 | 1.3 |
+| `deleteIdleChats()` | — | 32 | 60 | 3.3 |
 
 Without an index only two pulls and their completions were measured, of an earlier fill and with the
 plans on: each pull took minutes, and the rest of the run would have taken hours. The index is
@@ -78,7 +79,9 @@ the filled table, where it took 2 minutes to build; it is now the migration
 `1791153270752_telegram-outbox-head-index.ts`. The plans add to the time: `pull(1)` of 100 k chats
 took a median of 161 ms with them and 144 ms without. The cleanup rows are with the index of the
 cleanup as well (see "The cleanup"), measured later, on the same fill; without it the call that
-deletes nothing took 81 462 and 118 604 ms.
+deletes nothing took 81 462 and 118 604 ms. The last column is of the head priority on the chat row
+and its two indexes, `1791590400000_telegram-outbox-chat-head-priority.ts`, with every index before
+it, measured later still, on the same fill (see "The pull of 100 k chats with the head priority").
 
 ### Why the index is partial
 
@@ -153,6 +156,45 @@ Sort  (actual time=145.512..145.516 rows=30.00 loops=1)
 Aggregate  (actual time=13.047..13.048 rows=1.00 loops=1)          -- ready: min(next_attempt_at)
   ->  Seq Scan on telegram_outbox_chats  (actual time=1.458..9.929 rows=99970.00 loops=1)
 ```
+
+### The pull of 100 k chats with the head priority
+
+The chat row keeps the priority of its head, and the pull orders the `ready` chats by it
+([`outbox.md`](./outbox.md), "Tables"), the order of `telegram_outbox_chats_ready_pull_idx`: it
+reads the 30 chats of its batch from the index and looks up their 30 heads. `ready` takes the
+first entry of `telegram_outbox_chats_ready_next_attempt_at_idx`. A `pull(30)`, the whole
+statement 2.2 ms in the database:
+
+```
+Limit  (actual time=0.254..0.503 rows=30.00 loops=1)
+  ->  LockRows  (actual time=0.226..0.470 rows=30.00 loops=1)
+        ->  Nested Loop  (actual time=0.220..0.439 rows=30.00 loops=1)
+              ->  Index Scan using telegram_outbox_chats_ready_pull_idx on telegram_outbox_chats chats
+                    (actual time=0.071..0.121 rows=30.00 loops=1)
+                    Index Cond: (next_attempt_at <= (InitPlan 4).col1)
+              ->  Index Only Scan using telegram_outbox_active_chat_id_idx on telegram_outbox
+                    (actual time=0.009..0.009 rows=1.00 loops=30)
+...
+Limit  (actual time=0.050..0.050 rows=1.00 loops=1)                -- ready: min(next_attempt_at)
+  ->  Index Scan using telegram_outbox_chats_ready_next_attempt_at_idx on telegram_outbox_chats
+        (actual time=0.049..0.050 rows=1.00 loops=1)
+```
+
+On the client a batch still takes a median of 10.6 ms (see "Results"), and the 2 s the measurement
+idles before each batch, to save up its budget, make most of it. A one-off script, not kept, pulled
+the same `pull(30)` through the store, 16 times each way, and gave the bot row its budget by an
+`UPDATE`: right after it a pull took 1.4 – 2.4 ms, after 2 s of idle 7.6 – 33 ms, a median of
+10. With `log_min_duration_statement` the database logged for the pulls after the idle 1.5 –
+3.8 ms to plan the statement (the `bind` of the prepared statement) and 2.0 – 2.7 ms to run it; the
+rest is the wait of the client. A pull holds the bot row while its statement runs, not while it is
+planned or on its way, and that hold is what the threshold is for (see "Threshold"): 2 – 3 ms. So
+the pull of 100 k ready chats is taken as within the threshold. In both runs of the measurement,
+with the plans and without, the 5th, the 10th and the 15th batch took 28 – 36 ms; why is not
+measured.
+
+The lease recovery that finds no lease took 13 ms against the 3.1 before: the same seq scan of the
+100 000 chats, 1 873 buffers, but the pulls no longer read every chat right before it. Repeated in
+`psql`, the scan took 13 – 18 ms first and 2.5 – 3.1 ms right after.
 
 ### The lease recovery
 
@@ -349,11 +391,14 @@ of the statement prepared in `psql` with the parameters of the store were all cu
 With the head index the completion is within the threshold at its median, 1 – 2 ms, and at its
 95th percentile, 4 ms, though not at its maximum, 14 and 42 ms. So is the pull of a few chats at its
 median, 2 – 7 ms, while the index is kept clean of dead entries; a batch of the 3 chats took up to
-28 ms once. The pull of 100 k ready chats is not: a batch takes a median of 228 ms, some 23 times
-over, and the pull of one message 144 ms. The threshold is not set for the lease recovery and the
-cleanup, which hold neither the bot row nor a caller waiting: the lease recovery takes 1 – 3 ms
-while no lease has expired and under 1 ms in the database for the 3 chats of 300 000 messages whose
-leases have, 28 ms on the client with its new connection, and the cleanup that finds nothing reads
-its index in 1 ms, while a backlog of 1 M takes its batches back to the seq scan, a median of 68 ms
-each. The proposal is a comment on #643:
+28 ms once. The pull of 100 k ready chats was not while the pull read the priority from the heads:
+a batch took a median of 228 ms, some 23 times over, and the pull of one message 144 ms. With the
+head priority on the chat row a batch holds the bot row 2 – 3 ms, and the pull of one message takes
+a median of 1.5 ms on the client (see "The pull of 100 k chats with the head priority"). The
+threshold is not set for the lease recovery and the cleanup, which hold neither the bot row nor a
+caller waiting: the lease recovery takes 1 – 3 ms while no lease has expired, 13 ms over 100 k
+chats the pulls no longer read, and under 1 ms in the database for the 3 chats of 300 000 messages
+whose leases have, 28 ms on the client with its new connection, and the cleanup that finds nothing
+reads its index in 1 ms, while a backlog of 1 M takes its batches back to the seq scan, a median of
+68 ms each. The proposal is a comment on #643:
 https://github.com/yuldashevsardor/telegram-bot/issues/643#issuecomment-5984131010
