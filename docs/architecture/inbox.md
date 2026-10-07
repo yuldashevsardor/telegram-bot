@@ -643,6 +643,44 @@ as `PgSqlUserRepository` does ([`storage.md`](./storage.md), "`User.id`").
 The updates go to the database as JSON text cast to `jsonb`, not through `sql.json()`; why is in
 the comment of `insertBatch()`, which `pushBatch()` calls.
 
+## Testing
+
+`test/telegram/inbox/inbox-end-to-end.spec.ts` runs the whole chain but the webhook: an update
+pushed into `telegram_inbox` with `InboxStore.pushBatch()`, where the webhook will push it, reaches
+the handler of the bot, and what the handler sends reaches a fake Bot API through the outbox. The
+spec takes everything from the `Container` of the application, on the database of the run, with
+the config `fillApplicationContext()` builds from the variables of the environment and the `CONFIG`
+of the spec: `InboxRunner` with its source and processor, `Bot` with its filters, middleware,
+session and conversation, the outbox transformer on `bot.api`, the result waiter and `OutboxRunner`.
+It rebinds two tokens: `Tokens.Bot.ApiFactory` to point the outbox at the fake Bot API, and
+`Tokens.Bot.Session.Storage` to the real `PgsqlStorage` behind a wrapper whose reads of a chosen
+session throw first. Neither maintenance nor the polling source is started.
+
+The fake Bot API is `FakeBotApi` of the spec, an HTTP server on a free port of `127.0.0.1`: it
+records every call and answers it as Telegram does; which methods it knows is read off its
+`resultOf()`. It can also hold the replies to the chats it is given until a reply to each of them
+has come, which is how the spec sees the handlers of two groups run at the same time. grammY takes
+the API root of an `Api` only when it builds one, and `Bot` builds its own from the token alone, so
+the spec points the two Apis at the server in two ways. The `Api` the outbox sends with comes from
+`TelegramApiFactory`, rebound to a subclass that passes `apiRoot`. The calls of the bot's own `Api`
+that pass the outbox, `getMe` of `init()` and `setMyCommands` of `setup()`, go through a transformer
+installed before `setup()`, under the outbox one, which sends them to the server with `fetch`.
+Another transformer, installed after `setup()` and so the outermost one, records what each call of
+a handler resolves to: the spec compares the result of `ctx.reply()` with the message the server
+sent.
+
+A handler fails through the session, not through the fake Bot API: the wrapper throws an error with
+the code `ECONNRESET`, which `InboxFailureClassifier` takes for a lost database connection, a
+transient failure. Through the outbox no answer of the Bot API gives a handler a transient failure
+whose retry can pass. A 5xx reaches the handler only once the outbox has failed the message on its
+last attempt, and that blocks the outbox chat; the retried update replies into the blocked chat, and
+its wait ends with `OutboxResultTimeout`, an `Unexpected` failure that blocks the group whatever
+attempts are left (see "Error classes").
+
+Not covered here: the webhook, the polling source (`inbox-polling-source.spec.ts`), two nodes and
+the lease handover (`inbox-runner.database.spec.ts`, with a stub handler), the stop, a failure the
+outbox gives the handler, and the conversion of a real font.
+
 ## Load test
 
 How the store holds up on 100 M updates, measured, and what the measurements propose:
