@@ -3,4 +3,6 @@ export type InboxMaintenanceSettings = {
     leaseRecoveryIntervalMs: number;
     // How often a node runs the cleanup.
     cleanupIntervalMs: number;
+    // How often a node counts the blocked groups and, while there are any, writes the error line.
+    blockedLogIntervalMs: number;
 };

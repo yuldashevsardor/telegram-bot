@@ -217,6 +217,7 @@ describe("InboxRunner on the database", function () {
         const maintenance = new InboxMaintenance(store, failureHandler, nodeLogger, {
             leaseRecoveryIntervalMs: leaseRecoveryIntervalMs,
             cleanupIntervalMs: LONG_INTERVAL_MS,
+            blockedLogIntervalMs: LONG_INTERVAL_MS,
         });
         const node = { store, grammy, runner, maintenance };
         nodes.push(node);

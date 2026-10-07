@@ -29,9 +29,9 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
     // PostgreSQL takes.
     private static readonly INBOX_RETENTION_RANGE: IntegerRange = { min: MS_PER_DAY, max: Number.MAX_SAFE_INTEGER };
 
-    // The connections the outbox takes besides its slots: the pull of the runner and the four
+    // The connections the outbox takes besides its slots: the pull of the runner and the five
     // tasks of OutboxMaintenance, each one query at a time.
-    private static readonly OUTBOX_CONNECTIONS_BESIDES_SLOTS = 5;
+    private static readonly OUTBOX_CONNECTIONS_BESIDES_SLOTS = 6;
 
     // The pool deadlines are in seconds: postgres.js multiplies them by 1000 for setTimeout, so the
     // ceiling is the longest timer delay in seconds. A zero switches the timer off there, while a
@@ -87,6 +87,7 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
                     leaseRecoveryIntervalMs: parser.getTimerDelay("OUTBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL", 10 * 1000),
                     cleanupIntervalMs: parser.getTimerDelay("OUTBOX_MAINTENANCE_CLEANUP_INTERVAL", 10 * 60 * 1000),
                     statusLogIntervalMs: parser.getTimerDelay("OUTBOX_MAINTENANCE_STATUS_LOG_INTERVAL", 10 * 1000),
+                    blockedLogIntervalMs: parser.getTimerDelay("OUTBOX_MAINTENANCE_BLOCKED_LOG_INTERVAL", 5 * 60 * 1000),
                 },
                 cleanup: {
                     doneRetentionMs: parser.getInteger("OUTBOX_DONE_RETENTION", 7 * MS_PER_DAY, ConfigValuesBuilder.CLEANUP_RANGE),
@@ -104,6 +105,7 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
                 maintenance: {
                     leaseRecoveryIntervalMs: parser.getTimerDelay("INBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL", 10 * 1000),
                     cleanupIntervalMs: parser.getTimerDelay("INBOX_MAINTENANCE_CLEANUP_INTERVAL", 10 * 60 * 1000),
+                    blockedLogIntervalMs: parser.getTimerDelay("INBOX_MAINTENANCE_BLOCKED_LOG_INTERVAL", 5 * 60 * 1000),
                 },
                 cleanup: {
                     doneRetentionMs: parser.getInteger("INBOX_DONE_RETENTION", 7 * MS_PER_DAY, ConfigValuesBuilder.INBOX_RETENTION_RANGE),

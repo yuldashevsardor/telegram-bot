@@ -12,8 +12,8 @@ type MaintenanceTask = {
     run: () => Promise<void>;
 };
 
-// The timers of a node besides the handling: the recovery of the expired leases and the cleanup
-// (docs/architecture/inbox.md, "Maintenance").
+// The timers of a node besides the handling: the recovery of the expired leases, the cleanup and the
+// line of the blocked groups (docs/architecture/inbox.md, "Maintenance").
 @injectable()
 export class InboxMaintenance {
     private isStopped = false;
@@ -45,6 +45,11 @@ export class InboxMaintenance {
                 name: "deleteIdleGroups",
                 intervalMs: this.settings.cleanupIntervalMs,
                 run: () => this.deleteInBatches(() => this.store.deleteIdleGroups()),
+            },
+            {
+                name: "logBlockedGroups",
+                intervalMs: this.settings.blockedLogIntervalMs,
+                run: () => this.logBlockedGroups(),
             },
         ];
 
@@ -105,5 +110,18 @@ export class InboxMaintenance {
                 return;
             }
         }
+    }
+
+    // A blocked group waits for a person, so the line is an error, as in OutboxMaintenance.
+    private async logBlockedGroups(): Promise<void> {
+        const blockedGroupCount = await this.store.countBlockedGroups();
+
+        if (blockedGroupCount === 0) {
+            return;
+        }
+
+        this.logger.error("Inbox groups are blocked, unblock each with make inbox-retry or make inbox-skip.", {
+            blockedGroupCount: blockedGroupCount,
+        });
     }
 }

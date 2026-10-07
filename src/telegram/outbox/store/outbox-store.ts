@@ -8,6 +8,7 @@ import type { Limit, TelegramLimits } from "app/bootstrap/config/config-values";
 import { configValue } from "app/shared/config-value";
 import { MS_PER_SECOND } from "app/shared/time";
 import type {
+    BlockedOutboxChatCountRow,
     ExpiredOutboxLease,
     ExpiredOutboxLeaseRow,
     OutboxAttempt,
@@ -585,6 +586,19 @@ export class OutboxStore {
             blockedChatCount: Number(row.blocked_chat_count),
             pauseLeftMs: row.pause_left_ms,
         };
+    }
+
+    // The chats waiting to be unblocked by hand, for the error line of the maintenance. Apart from
+    // readBacklog(), which reads the whole of telegram_outbox (#643): this reads the chats alone.
+    public async countBlockedChats(): Promise<number> {
+        // An aggregate without GROUP BY gives one row, an empty table included.
+        const [row] = await this.sql<BlockedOutboxChatCountRow[]>`
+            SELECT count(*) AS blocked_chat_count
+            FROM telegram_outbox_chats
+            WHERE state = ${OutboxChatState.Blocked}
+        `;
+
+        return Number(row?.blocked_chat_count);
     }
 
     // Every completion: the lock of the chat, then the fence, then the writes (docs/architecture/outbox.md,

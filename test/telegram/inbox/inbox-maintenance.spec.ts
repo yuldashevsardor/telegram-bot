@@ -16,6 +16,8 @@ const DELETED_COUNT = 3;
 const SEVERAL_INTERVALS_MS = 20 * SHORT_INTERVAL_MS;
 // Long enough for the spec to see one run end and stop the timers before the next run.
 const SPACED_INTERVAL_MS = 100;
+// A number of blocked groups the fake store answers: any number above zero.
+const BLOCKED_GROUP_COUNT = 2;
 
 // A run that goes on until the spec ends it.
 type HeldRun = { end: () => void };
@@ -29,6 +31,9 @@ class FakeStore {
     public onDeleteFinishedUpdates: () => void = () => {};
     public finishedUpdatesError: unknown = undefined;
     public idleGroupsError: unknown = undefined;
+    public blockedGroupCount = 0;
+    public blockedGroupCounts = 0;
+    public blockedGroupCountError: unknown = undefined;
 
     public async deleteFinishedUpdates(): Promise<number> {
         this.finishedUpdatesCalls += 1;
@@ -49,6 +54,16 @@ class FakeStore {
         }
 
         return this.idleGroupsDeleted.shift() ?? 0;
+    }
+
+    public async countBlockedGroups(): Promise<number> {
+        this.blockedGroupCounts += 1;
+
+        if (this.blockedGroupCountError !== undefined) {
+            throw this.blockedGroupCountError;
+        }
+
+        return this.blockedGroupCount;
     }
 }
 
@@ -96,12 +111,13 @@ describe("InboxMaintenance", function () {
     });
 
     it("runs nothing before the first interval has passed", async function () {
-        start({ leaseRecoveryIntervalMs: LONG_INTERVAL_MS, cleanupIntervalMs: LONG_INTERVAL_MS });
+        start({ leaseRecoveryIntervalMs: LONG_INTERVAL_MS, cleanupIntervalMs: LONG_INTERVAL_MS, blockedLogIntervalMs: LONG_INTERVAL_MS });
         await sleep(SEVERAL_INTERVALS_MS);
 
         expect(failureHandler.recoveries).to.equal(0);
         expect(store.finishedUpdatesCalls).to.equal(0);
         expect(store.idleGroupsCalls).to.equal(0);
+        expect(store.blockedGroupCounts).to.equal(0);
     });
 
     it("recovers the expired leases once per interval", async function () {
@@ -111,6 +127,7 @@ describe("InboxMaintenance", function () {
 
         expect(store.finishedUpdatesCalls).to.equal(0);
         expect(store.idleGroupsCalls).to.equal(0);
+        expect(store.blockedGroupCounts).to.equal(0);
     });
 
     it("runs both cleanups once per interval", async function () {
@@ -119,6 +136,30 @@ describe("InboxMaintenance", function () {
         await waitUntil(() => store.finishedUpdatesCalls >= 2 && store.idleGroupsCalls >= 2, "both cleanups were expected to run twice");
 
         expect(failureHandler.recoveries).to.equal(0);
+        expect(store.blockedGroupCounts).to.equal(0);
+    });
+
+    it("logs the number of the blocked groups at error once per interval while there are any", async function () {
+        store.blockedGroupCount = BLOCKED_GROUP_COUNT;
+        start({ leaseRecoveryIntervalMs: LONG_INTERVAL_MS, cleanupIntervalMs: LONG_INTERVAL_MS, blockedLogIntervalMs: SHORT_INTERVAL_MS });
+
+        await waitUntil(() => logger.errors.length >= 2, "the line of the blocked groups was expected to be logged twice");
+
+        expect(logger.errors[0]).to.deep.equal({
+            message: "Inbox groups are blocked, unblock each with make inbox-retry or make inbox-skip.",
+            payload: { blockedGroupCount: BLOCKED_GROUP_COUNT },
+        });
+        expect(failureHandler.recoveries).to.equal(0);
+        expect(store.finishedUpdatesCalls).to.equal(0);
+        expect(store.idleGroupsCalls).to.equal(0);
+    });
+
+    it("logs nothing while no group is blocked", async function () {
+        start({ leaseRecoveryIntervalMs: LONG_INTERVAL_MS, cleanupIntervalMs: LONG_INTERVAL_MS, blockedLogIntervalMs: SHORT_INTERVAL_MS });
+
+        await waitUntil(() => store.blockedGroupCounts >= 2, "the blocked groups were expected to be counted twice");
+
+        expect(logger.errors).to.deep.equal([]);
     });
 
     it("deletes again after a batch that deleted anything and stops at the first empty one", async function () {
@@ -176,6 +217,19 @@ describe("InboxMaintenance", function () {
         });
     });
 
+    it("names the failed count of the blocked groups in the log and counts again on the next interval", async function () {
+        const error = new Error("connection lost");
+        store.blockedGroupCountError = error;
+        start({ leaseRecoveryIntervalMs: LONG_INTERVAL_MS, cleanupIntervalMs: LONG_INTERVAL_MS, blockedLogIntervalMs: SHORT_INTERVAL_MS });
+
+        await waitUntil(() => store.blockedGroupCounts >= 2, "the count was expected to run again after a failure");
+
+        expect(logger.errors[0]).to.deep.equal({
+            message: "An inbox maintenance task failed, its next run tries again.",
+            payload: { task: "logBlockedGroups", cause: error },
+        });
+    });
+
     it("starts no run of a task while its previous run goes on", async function () {
         failureHandler.shouldHold = true;
         start({ leaseRecoveryIntervalMs: SHORT_INTERVAL_MS, cleanupIntervalMs: LONG_INTERVAL_MS });
@@ -193,6 +247,7 @@ describe("InboxMaintenance", function () {
         const started = start({
             leaseRecoveryIntervalMs: SHORT_INTERVAL_MS,
             cleanupIntervalMs: SHORT_INTERVAL_MS,
+            blockedLogIntervalMs: SHORT_INTERVAL_MS,
         });
 
         await started.stop();
@@ -201,6 +256,7 @@ describe("InboxMaintenance", function () {
         expect(failureHandler.recoveries).to.equal(0);
         expect(store.finishedUpdatesCalls).to.equal(0);
         expect(store.idleGroupsCalls).to.equal(0);
+        expect(store.blockedGroupCounts).to.equal(0);
     });
 
     // The stop is final: a start that follows it sets no timers.
@@ -208,6 +264,7 @@ describe("InboxMaintenance", function () {
         const stopped = start({
             leaseRecoveryIntervalMs: SHORT_INTERVAL_MS,
             cleanupIntervalMs: SHORT_INTERVAL_MS,
+            blockedLogIntervalMs: SHORT_INTERVAL_MS,
         });
         await stopped.stop();
 
@@ -217,6 +274,7 @@ describe("InboxMaintenance", function () {
         expect(failureHandler.recoveries).to.equal(0);
         expect(store.finishedUpdatesCalls).to.equal(0);
         expect(store.idleGroupsCalls).to.equal(0);
+        expect(store.blockedGroupCounts).to.equal(0);
     });
 
     it("waits for the run in progress and schedules no next one", async function () {
@@ -253,13 +311,14 @@ describe("InboxMaintenance", function () {
         expect(store.finishedUpdatesCalls).to.equal(1);
     });
 
-    function start(settings: InboxMaintenanceSettings): InboxMaintenance {
-        maintenance = new InboxMaintenance(
-            store as unknown as InboxStore,
-            failureHandler as unknown as InboxFailureHandler,
-            logger,
-            settings,
-        );
+    // The line of the blocked groups is left out of the specs that do not name its interval.
+    function start(
+        intervals: Omit<InboxMaintenanceSettings, "blockedLogIntervalMs"> & Partial<InboxMaintenanceSettings>,
+    ): InboxMaintenance {
+        maintenance = new InboxMaintenance(store as unknown as InboxStore, failureHandler as unknown as InboxFailureHandler, logger, {
+            blockedLogIntervalMs: LONG_INTERVAL_MS,
+            ...intervals,
+        });
         maintenance.start();
 
         return maintenance;

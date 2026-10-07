@@ -12,8 +12,8 @@ type MaintenanceTask = {
     run: () => Promise<void>;
 };
 
-// The timers of a node besides the sending: the recovery of the expired leases, the cleanup and the
-// status line (docs/architecture/outbox.md, "Maintenance").
+// The timers of a node besides the sending: the recovery of the expired leases, the cleanup, the
+// status line and the line of the blocked chats (docs/architecture/outbox.md, "Maintenance").
 @injectable()
 export class OutboxMaintenance {
     private isStopped = false;
@@ -50,6 +50,11 @@ export class OutboxMaintenance {
                 name: "logStatus",
                 intervalMs: this.settings.statusLogIntervalMs,
                 run: () => this.logStatus(),
+            },
+            {
+                name: "logBlockedChats",
+                intervalMs: this.settings.blockedLogIntervalMs,
+                run: () => this.logBlockedChats(),
             },
         ];
 
@@ -119,5 +124,19 @@ export class OutboxMaintenance {
         const backlog = await this.store.readBacklog();
 
         this.logger.info("Outbox status.", backlog);
+    }
+
+    // A blocked chat waits for a person, so the line is an error: production does not write the info
+    // of the status line.
+    private async logBlockedChats(): Promise<void> {
+        const blockedChatCount = await this.store.countBlockedChats();
+
+        if (blockedChatCount === 0) {
+            return;
+        }
+
+        this.logger.error("Outbox chats are blocked, unblock each with make outbox-retry or make outbox-skip.", {
+            blockedChatCount: blockedChatCount,
+        });
     }
 }

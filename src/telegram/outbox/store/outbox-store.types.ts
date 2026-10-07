@@ -160,6 +160,11 @@ export type OutboxBacklogRow = {
     pause_left_ms: number;
 };
 
+// The count of the blocked chats as postgres returns it: a bigint, that is, a string.
+export type BlockedOutboxChatCountRow = {
+    blocked_chat_count: string;
+};
+
 // What waits in the outbox at the moment of the read.
 export type OutboxBacklog = {
     pendingCount: number;
