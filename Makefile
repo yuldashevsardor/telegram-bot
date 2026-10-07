@@ -257,9 +257,6 @@ load-inbox-fill-pending: ## Replace the pending inbox layout of the load test: m
 	@[ -n "$(groups)" ] && [ -n "$(per_group)" ] || { printf 'give it the layout: make load-inbox-fill-pending groups=3 per_group=300000\n' >&2; exit 1; }
 	$(LOAD_PSQL) -v groups=$(groups) -v per_group=$(per_group) < test/load/inbox-fill-pending.sql
 
-load-inbox-index: ## Build the candidate head index of the inbox over the filled table
-	$(LOAD_PSQL) < test/load/inbox-candidate-index.sql
-
 load-inbox-measure: ## Measure the inbox store on the load-test database; the times, then the plans: make load-inbox-measure [plans=off]
 	$(call LOAD_MEASURE,test/load/inbox-load-test.ts)
 
@@ -356,4 +353,4 @@ review-tree-remove: ## Remove a temporary review tree <main worktree>-review-<PR
 	review-test review-tree-create mutation-full-record mutation-full-check mutation-full-close \
 	review-run review-tree-remove help \
 	load-up load-fill-done load-fill-pending load-churn load-measure load-psql load-down \
-	load-inbox-fill-done load-inbox-fill-pending load-inbox-index load-inbox-measure
+	load-inbox-fill-done load-inbox-fill-pending load-inbox-measure

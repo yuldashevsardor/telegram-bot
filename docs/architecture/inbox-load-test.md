@@ -9,14 +9,16 @@ The claim, the completion, the lease recovery and the cleanup of the inbox store
 
 The test shares the database, `load-up`, `load-psql` and `load-down` with the outbox load test, and
 the way the times and the plans are taken: see "How to run it" there. Its own targets, in this
-order: `load-inbox-fill-done` once, `load-inbox-index`, which builds the candidate head index (see
-"Results") over the filled table, then per layout `load-inbox-fill-pending` and
-`load-inbox-measure [plans=off]`. Without the index a claim takes some 5 minutes, so a measurement
-without it is to be cut short after a call or two, as the one in "Results" was: stop `make` and the
-application container of the run, which `docker ps` names after the worktree. The statement it left
-runs on in the database until it ends or reaches the statement timeout, holding the group rows it
-locked, so the next fill waits for it, and `make` prints no plans: they are in
-`docker compose -f docker-compose.load.yml logs pgsql-load`. The files they run are in
+order: `load-inbox-fill-done` once, then per layout `load-inbox-fill-pending` and
+`load-inbox-measure [plans=off]`. The head index (see "Results") is a migration, so `load-up` makes
+it and the fills insert under it: the done updates are not in the partial index, so the fill does
+not pay the 1 minute 39 seconds its build over the filled table took. Without the index a claim
+takes some 5 minutes, so a measurement without it is to be cut short after a call or two, as the one
+in "Results" was: stop `make` and the application container of the run, which `docker ps` names
+after the worktree. The statement it left runs on in the database until it ends or reaches the
+statement timeout, holding the group rows it locked, so the next fill waits for it, and `make`
+prints no plans: they are in `docker compose -f docker-compose.load.yml logs pgsql-load`. The files
+they run are in
 `test/load/`. A fill stays valid for 6 days, as the outbox one does.
 
 The measurement calls the real `InboxStore` with the settings of `.env`: 15 `claim(1)`, what the
@@ -68,19 +70,18 @@ index; "first" is the first call of the run, the cold cache.
 | `deleteIdleGroups()`, nothing to delete | — | 18 | 35 |
 
 Without an index only two claims and their completions were measured, with the plans on: each claim
-took minutes, and the rest of the run would have taken hours. The candidate index is
-`test/load/inbox-candidate-index.sql`, `telegram_inbox (user_id, chat_id, update_id) WHERE status
-IN ('pending', 'processing')`, the counterpart of the head index of the outbox
-([`outbox-load-test.md`](./outbox-load-test.md), "Why the index is partial"); built over the filled
-table it took 1 minute 39 seconds. It stays on the volume under the name
-`telegram_inbox_active_group_idx`: a migration that adds the head index
-([#844](https://github.com/yuldashevsardor/telegram-bot/issues/844)) fails on `load-up` if it takes
-the same name and builds a second copy of the index if it takes another, so
-`DROP INDEX telegram_inbox_active_group_idx` in `make load-psql` comes first. The plans add to the
-time: `claim(1)` of 100 k groups took a median of 131 ms with them and 101 ms without. The first run
-with the plans of the 100 k groups layout had its call of `deleteFinishedUpdates()` that finds
-nothing cancelled by the statement timeout of 10 minutes; its rerun took 83 s, as the run without
-the plans did, and the cause was not found.
+took minutes, and the rest of the run would have taken hours. The index is
+`telegram_inbox (user_id, chat_id, update_id) WHERE status IN ('pending', 'processing')`, the
+counterpart of the head index of the outbox ([`outbox-load-test.md`](./outbox-load-test.md), "Why
+the index is partial"); made then by hand over the filled table, where it took 1 minute 39 seconds,
+it is now the migration `1791417600000_telegram-inbox-head-index.ts`, named
+`telegram_inbox_active_group_idx`. A volume of the load test made before the migration keeps the
+hand-made index under that name, so the migration fails on its `load-up`: `DROP INDEX
+telegram_inbox_active_group_idx` in `make load-psql` comes first, or `make load-down` and a new
+fill. The plans add to the time: `claim(1)` of 100 k groups took a median of 131 ms with them and
+101 ms without. The first run with the plans of the 100 k groups layout had its call of
+`deleteFinishedUpdates()` that finds nothing cancelled by the statement timeout of 10 minutes; its
+rerun took 83 s, as the run without the plans did, and the cause was not found.
 
 ### The head without an index
 

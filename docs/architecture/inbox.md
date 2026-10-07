@@ -21,7 +21,19 @@ One migration, `1790980923786_telegram-inbox-tables.ts`, creates both tables wit
 the inbox needs, the later stages included. The columns and what they mean are in its
 `createTable` calls and `comment`s; those of `status`, `attempts` and `next_attempt_at` are
 replaced by `1791027821646_telegram-inbox-failure-comments.ts`. As in the outbox, the lease is on
-the group row, not on the update, and there are no indexes besides the primary keys.
+the group row, not on the update.
+
+The indexes are picked by the plans of the load test
+([`inbox-load-test.md`](./inbox-load-test.md)), not ahead of the queries. Besides the primary keys
+there is one, `1791417600000_telegram-inbox-head-index.ts`, which adds
+`telegram_inbox_active_group_idx` on `(user_id, chat_id, update_id)` of the active updates: the head
+of a group for the claim, for `releaseGroup()` and for the lease recovery is its first entry. Its
+`status` is in the predicate, so no update is HOT, and every update leaves dead entries a head
+lookup walks until a vacuum cleans them. So the same migration sets the vacuum options of
+`telegram_inbox` that the head index migration of the outbox sets for `telegram_outbox`:
+`vacuum_index_cleanup = ON` and a cap on the dead rows that bring autovacuum
+(`autovacuum_vacuum_max_threshold`); their reasons are in
+[`outbox-load-test.md`](./outbox-load-test.md), "Vacuum of the head index".
 
 The database does not check the values of `status` and `state`: the store writes them only
 through the `InboxStatus` and `InboxGroupState` enums (`store/inbox-store.types.ts`). Of these,
