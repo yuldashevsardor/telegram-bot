@@ -72,6 +72,9 @@ const RETRY_AFTER_SECONDS = 1;
 // The longest a call waits for its answer in the spec of the order: long enough for the calls of
 // several chats to be in flight at once.
 const MAX_CALL_MS = 5;
+// Well under any lease and above the stop timeout with the pull of the other node: a message
+// released on stop is sent again within it.
+const RELEASED_RESEND_MS = 1_000;
 
 // A call as the fake Bot API received it.
 type BotApiCall = {
@@ -98,6 +101,8 @@ const NEVER_ANSWERED = new Promise<BotApiAnswer>(() => undefined);
 // `<apiRoot>/bot<token>/<method>`, a JSON body, or multipart/form-data for a call with a file.
 class FakeBotApi {
     public readonly calls: BotApiCall[] = [];
+    // The first call of each token, by the token.
+    private readonly firstCalls = new Map<string, PromiseWithResolvers<void>>();
     private answer: BotApiAnswerScript = (call, callIndex) => sentMessage(call, callIndex);
     private readonly server: Server = createServer((request, response) => void this.handle(request, response));
 
@@ -120,6 +125,11 @@ class FakeBotApi {
         this.answer = script;
     }
 
+    // Resolves once a call made with the token has arrived.
+    public firstCallOf(token: string): Promise<void> {
+        return this.firstCallResolvers(token).promise;
+    }
+
     public callsOf(chatId: number): BotApiCall[] {
         return this.calls.filter((call) => call.chatId === chatId);
     }
@@ -137,10 +147,18 @@ class FakeBotApi {
             receivedAtMs: receivedAtMs,
         };
         const callIndex = this.calls.push(call) - 1;
+        this.firstCallResolvers(token).resolve();
         const answer = await this.answer(call, callIndex);
 
         response.writeHead(answer.status, { "content-type": "application/json" });
         response.end(JSON.stringify(answer.body));
+    }
+
+    private firstCallResolvers(token: string): PromiseWithResolvers<void> {
+        const resolvers = this.firstCalls.get(token) ?? Promise.withResolvers<void>();
+        this.firstCalls.set(token, resolvers);
+
+        return resolvers;
     }
 }
 
@@ -169,7 +187,7 @@ class DeafFinishedMessageReader extends OutboxFinishedMessageReader {
 class ObservedFinishedMessageReader extends OutboxFinishedMessageReader {
     private readonly firstFind = Promise.withResolvers<void>();
 
-    public get hasRead(): Promise<void> {
+    public get firstRead(): Promise<void> {
         return this.firstFind.promise;
     }
 
@@ -296,6 +314,16 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
         return node;
     }
 
+    // The answer to a call of one node waits until the other node has made a call too. With one
+    // slot a node pulls nothing while its call waits, so the other node is the one to pull next,
+    // and the calls of both nodes reach the fake Bot API whichever wins the first pull.
+    async function answerOnceBothNodesCalled(call: BotApiCall, callIndex: number): Promise<BotApiAnswer> {
+        const otherToken = call.token === FIRST_NODE_TOKEN ? SECOND_NODE_TOKEN : FIRST_NODE_TOKEN;
+        await fakeBotApi.firstCallOf(otherToken);
+
+        return sentMessage(call, callIndex);
+    }
+
     async function writeFile(name: string, content: string): Promise<string> {
         const filePath = path.join(workDir, name);
         await fs.writeFile(filePath, content);
@@ -335,7 +363,7 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
                 resultWaiter: { timeoutMs: RESULT_TIMEOUT_MS, pollIntervalMs: NO_RESULT_POLL_INTERVAL_MS },
             });
             fakeBotApi.answerWith(async (call, callIndex) => {
-                await reader.hasRead;
+                await reader.firstRead;
 
                 return sentMessage(call, callIndex);
             });
@@ -399,7 +427,7 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
         });
     });
 
-    it("sends the messages of each chat in the order of their calls", async function () {
+    it("sends the messages of each chat in the order they were pushed in", async function () {
         const node = createNode(firstDatabase, FIRST_NODE);
         const chatIds = PRIVATE_CHAT_IDS.slice(0, 2);
         const texts = ["0", "1", "2", "3", "4"];
@@ -436,8 +464,9 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
         it("let no more calls of two nodes through per interval than the common limit", async function () {
             const common = { number: 3, interval: 600 };
             const limits = { ...NO_LIMITS, common: common };
-            const firstNode = createNode(firstDatabase, { ...FIRST_NODE, limits: limits, concurrency: 2 });
-            const secondNode = createNode(secondDatabase, { ...SECOND_NODE, limits: limits, concurrency: 2 });
+            const firstNode = createNode(firstDatabase, { ...FIRST_NODE, limits: limits, concurrency: 1 });
+            const secondNode = createNode(secondDatabase, { ...SECOND_NODE, limits: limits, concurrency: 1 });
+            fakeBotApi.answerWith(answerOnceBothNodesCalled);
             firstNode.runner.start();
             secondNode.runner.start();
 
@@ -445,6 +474,7 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
 
             const arrivalsMs = fakeBotApi.calls.map((call) => call.receivedAtMs);
             expect(arrivalsMs).to.have.lengthOf(PRIVATE_CHAT_IDS.length * 2);
+            expect(new Set(fakeBotApi.calls.map((call) => call.token))).to.deep.equal(new Set([FIRST_NODE_TOKEN, SECOND_NODE_TOKEN]));
             // Any number + 1 calls in a row span at least the interval.
             for (let index = common.number; index < arrivalsMs.length; index += 1) {
                 const spanMs = arrivalsMs[index]! - arrivalsMs[index - common.number]!;
@@ -475,28 +505,30 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
     });
 
     it("pauses the sending of every node for the retry_after of a 429", async function () {
-        // A cooldown far longer than a 429 takes to come back and pause the outbox: no node pulls
-        // another message between the call that got the 429 and the pause.
-        const limits = { ...NO_LIMITS, common: { number: 5, interval: 1_000 } };
-        const firstNode = createNode(firstDatabase, { ...FIRST_NODE, limits: limits });
-        const secondNode = createNode(secondDatabase, { ...SECOND_NODE, limits: limits });
+        // A cooldown far longer than a 429 takes to come back and pause the outbox, even on a machine
+        // slowed by other runs: no node pulls another message between the call that got the 429 and
+        // the pause.
+        const limits = { ...NO_LIMITS, common: { number: 2, interval: 1_000 } };
+        const firstNode = createNode(firstDatabase, { ...FIRST_NODE, limits: limits, concurrency: 1 });
+        const secondNode = createNode(secondDatabase, { ...SECOND_NODE, limits: limits, concurrency: 1 });
         fakeBotApi.answerWith((call, callIndex) => {
             if (callIndex === 0) {
                 return failure(429, `Too Many Requests: retry after ${RETRY_AFTER_SECONDS}`, { retry_after: RETRY_AFTER_SECONDS });
             }
 
-            return sentMessage(call, callIndex);
+            return answerOnceBothNodesCalled(call, callIndex);
         });
         firstNode.runner.start();
         secondNode.runner.start();
 
-        const calls = PRIVATE_CHAT_IDS.slice(0, 3).flatMap((chatId) => ["0", "1"].map((text) => ({ chatId: chatId, text: text })));
+        const calls = PRIVATE_CHAT_IDS.slice(0, 2).flatMap((chatId) => ["0", "1"].map((text) => ({ chatId: chatId, text: text })));
         const sent = await Promise.all(calls.map((call) => firstNode.api.sendMessage(call.chatId, call.text)));
 
         // The message that got the 429 is sent again after the pause, and its caller gets that answer.
         expect(sent.map((message) => [message.chat.id, message.text])).to.deep.equal(calls.map((call) => [call.chatId, call.text]));
         const [floodedCall, nextCall] = fakeBotApi.calls;
         expect(fakeBotApi.calls).to.have.lengthOf(calls.length + 1);
+        expect(new Set(fakeBotApi.calls.map((call) => call.token))).to.deep.equal(new Set([FIRST_NODE_TOKEN, SECOND_NODE_TOKEN]));
         expect(nextCall!.receivedAtMs - floodedCall!.receivedAtMs).to.be.at.least(RETRY_AFTER_SECONDS * MS_PER_SECOND - ARRIVAL_JITTER_MS);
     });
 
@@ -604,7 +636,7 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
             expect(sent).to.deep.include({ message_id: 2, text: "hello" });
             const [stoppedCall, releasedCall] = fakeBotApi.calls;
             expect([stoppedCall!.token, releasedCall!.token]).to.deep.equal([FIRST_NODE_TOKEN, SECOND_NODE_TOKEN]);
-            expect(releasedCall!.receivedAtMs - stoppedCall!.receivedAtMs).to.be.below(LONG_LEASE_DURATION_MS);
+            expect(releasedCall!.receivedAtMs - stoppedCall!.receivedAtMs).to.be.below(RELEASED_RESEND_MS);
             expect(await chatMessages(chatId)).to.deep.equal([{ status: OutboxStatus.Done, errors: ["OutboxNodeStopped", null] }]);
         });
     });

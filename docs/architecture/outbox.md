@@ -625,9 +625,9 @@ How the store holds up on 100 M messages, measured, and what the measurements pr
 
 ## The end-to-end spec
 
-`test/telegram/outbox/outbox-transformer.database.spec.ts` runs the outbox as the container puts
-it together, on the test database, with Telegram replaced by a local HTTP server. A call made
-through `bot.api` is pushed by `OutboxTransformer`, pulled by `OutboxRunner`, sent by
+`test/telegram/outbox/outbox-transformer.database.spec.ts` runs the outbox with the classes the
+container puts together, on the test database, with Telegram replaced by a local HTTP server. A
+call made through `bot.api` is pushed by `OutboxTransformer`, pulled by `OutboxRunner`, sent by
 `OutboxSender` over HTTP, and its result comes back to the caller through `OutboxResultWaiter`.
 The other specs of the outbox stop short of that: `outbox-runner.database.spec.ts` checks the order
 across two nodes with a sender that never leaves the process, and the specs of the classes run them
