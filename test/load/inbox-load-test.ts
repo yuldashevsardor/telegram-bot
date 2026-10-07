@@ -85,10 +85,10 @@ class InboxLoadTest {
         return claimedUpdates;
     }
 
-    // The call of every INBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL finds no lease as a rule, and the one after a node died finds
-    // the groups it held: a batch is claimed and left until its lease expires. Its updates are then
-    // marked done, not retried as InboxFailureHandler would, so that the cleanup that follows sees
-    // the groups as the claims leave them.
+    // The call of every INBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL finds no lease as a rule, and the one
+    // after a node died finds the groups it held: a batch is claimed and left until its lease expires.
+    // Its updates are then marked done, not retried as InboxFailureHandler would, so that the cleanup
+    // that follows sees the groups as the claims leave them.
     private async measureLeaseRecovery(): Promise<void> {
         await this.measure("findExpiredLeases()", () => this.store.findExpiredLeases());
 

@@ -18,7 +18,7 @@
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM telegram_inbox) THEN
-        RAISE EXCEPTION 'telegram_inbox is filled already: make load-down and make load-up give an empty one';
+        RAISE EXCEPTION 'telegram_inbox is filled already: TRUNCATE telegram_inbox, telegram_inbox_groups in make load-psql empties it';
     END IF;
 END
 $$;

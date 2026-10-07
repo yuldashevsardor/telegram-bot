@@ -18,7 +18,7 @@ $$;
 
 BEGIN;
 
-DELETE FROM telegram_inbox WHERE status <> 'done';
+DELETE FROM telegram_inbox WHERE status IN ('pending', 'processing');
 DELETE FROM telegram_inbox_groups;
 
 -- The update_id follow the done ones, and the updates of a group lie apart from each other, as
