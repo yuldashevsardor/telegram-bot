@@ -96,6 +96,8 @@ class FakeApi {
 class FakeStore {
     public readonly calls: Array<{ method: "pushBatch" | "push"; updateIds: number[] }> = [];
     public readonly stored: InboxUpdateInput[] = [];
+    // The refusals it threw, in order.
+    public readonly refusals: InboxUpdateRefused[] = [];
     // Thrown by the next calls, one per call; undefined lets its call through.
     public readonly failures: Array<Error | undefined> = [];
     // Holds every call until it settles.
@@ -131,7 +133,10 @@ class FakeStore {
         }
 
         if (inputs.some((input) => input.update.message?.text === NUL_TEXT)) {
-            throw new InboxUpdateRefused("unsupported Unicode escape sequence", { code: "22P05" });
+            const refusal = new InboxUpdateRefused("unsupported Unicode escape sequence", { code: "22P05" });
+            this.refusals.push(refusal);
+
+            throw refusal;
         }
 
         this.stored.push(...inputs);
@@ -340,9 +345,10 @@ describe("InboxPollingSource", function () {
             ]);
             expect(store.storedUpdateIds()).to.deep.equal([10, 12]);
             expect(api.offsets()).to.deep.equal([0, 13]);
-            expect(logger.errors.map((record) => record.message)).to.deep.equal(["The inbox refused an update, it is dropped."]);
-            expect(logger.errors[0]?.payload?.["updateId"]).to.equal(11);
-            expect(logger.errors[0]?.payload?.["cause"]).to.be.instanceOf(InboxUpdateRefused);
+            // The refusal of the single push of update 11, the one after the refusal of the batch.
+            expect(logger.errors).to.deep.equal([
+                { message: "The inbox refused an update, it is dropped.", payload: { updateId: 11, cause: store.refusals[1] } },
+            ]);
         });
 
         it("does not move the offset when a push of one update fails for another reason, and logs the updates not stored", async function () {

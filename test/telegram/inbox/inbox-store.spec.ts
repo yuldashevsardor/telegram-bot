@@ -170,7 +170,7 @@ describe("InboxStore", function () {
             ["a lone surrogate", SURROGATE_TEXT, "22P02"],
         ] as const) {
             it(`refuses a batch with ${name} in an update by SQLSTATE ${code} and stores none of it`, async function () {
-                const thrown = await pushFailure([input(10), input(11, USER, CHAT, text)]);
+                const thrown = await pushFailure(store, [input(10), input(11, USER, CHAT, text)]);
 
                 expect(thrown).to.be.instanceOf(InboxUpdateRefused);
                 expect((thrown as InboxUpdateRefused).payload).to.include({ code: code });
@@ -186,14 +186,14 @@ describe("InboxStore", function () {
                 const pushed = input(10);
                 const update = { ...pushed.update, nested: [{ ["key" + text]: "value" }] } as Update;
 
-                expect(await pushFailure([{ ...pushed, update: update }])).to.be.instanceOf(InboxUpdateRefused);
+                expect(await pushFailure(store, [{ ...pushed, update: update }])).to.be.instanceOf(InboxUpdateRefused);
             });
         }
 
         // Not the error as a whole: the CONTEXT PostgreSQL gives a refused value, in its where field,
         // holds the text of the message.
         it("throws a refusal by the code, message and detail of PostgreSQL, without the update", async function () {
-            const thrown = await pushFailure([input(10, USER, CHAT, NUL_TEXT)]);
+            const thrown = await pushFailure(store, [input(10, USER, CHAT, NUL_TEXT)]);
 
             expect(thrown).to.be.instanceOf(InboxUpdateRefused);
             expect((thrown as InboxUpdateRefused).payload).to.have.all.keys("code", "detail");
@@ -207,7 +207,7 @@ describe("InboxStore", function () {
             const pushed = input(10);
             const update = { ...pushed.update, update_id: "not a number" } as unknown as Update;
 
-            const thrown = await pushFailure([{ ...pushed, update: update }]);
+            const thrown = await pushFailure(store, [{ ...pushed, update: update }]);
 
             expect(thrown).to.be.instanceOf(InboxPushFailed).and.not.to.be.instanceOf(InboxUpdateRefused);
             expect((thrown as InboxPushFailed).payload).to.include({ code: "22P02" });
@@ -215,7 +215,7 @@ describe("InboxStore", function () {
 
         // The groups go in before the updates are cast to jsonb, so a user id past bigint fails first.
         it("does not take another data exception for a refusal, though an update holds a refused value", async function () {
-            const thrown = await pushFailure([input(10, BEYOND_BIGINT, CHAT, NUL_TEXT)]);
+            const thrown = await pushFailure(store, [input(10, BEYOND_BIGINT, CHAT, NUL_TEXT)]);
 
             expect(thrown).to.be.instanceOf(InboxPushFailed).and.not.to.be.instanceOf(InboxUpdateRefused);
             expect((thrown as InboxPushFailed).payload).to.include({ code: "22003" });
@@ -225,16 +225,13 @@ describe("InboxStore", function () {
             const failure = new Error("write CONNECTION_CLOSED pgsql:5432");
             const failing = { sql: { begin: () => Promise.reject(failure) } } as unknown as Database;
 
-            const thrown = await new InboxStore(failing, logger, LEASE_DURATION_MS, CLEANUP).pushBatch([input(10)]).then(
-                () => expect.fail("pushBatch() was expected to reject"),
-                (reason: unknown) => reason,
-            );
+            const thrown = await pushFailure(new InboxStore(failing, logger, LEASE_DURATION_MS, CLEANUP), [input(10)]);
 
             expect(thrown).to.equal(failure);
         });
 
-        async function pushFailure(inputs: InboxUpdateInput[]): Promise<unknown> {
-            return await store.pushBatch(inputs).then(
+        async function pushFailure(target: InboxStore, inputs: InboxUpdateInput[]): Promise<unknown> {
+            return await target.pushBatch(inputs).then(
                 () => expect.fail("pushBatch() was expected to reject"),
                 (reason: unknown) => reason,
             );

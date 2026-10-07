@@ -250,13 +250,9 @@ export class InboxPollingSource {
         this.logger.error(message, { ...payload, cause: error });
     }
 
-    // The retry delay for the failures in a row, so an outage of Telegram, a revoked token or a lasting
-    // 409 is not retried and logged every second; or the wait a 429 asks for, if it is longer. The
-    // failures in a row are counted for calls and pushes alike.
+    // The retry delay, or the wait a 429 asks for, if it is longer.
     private async pauseAfterCallFailure(error: unknown): Promise<void> {
-        this.consecutiveFailureCount += 1;
-
-        const retryDelayMs = this.retryDelay.computeMs(this.consecutiveFailureCount);
+        const retryDelayMs = this.countFailureAndGetRetryDelayMs();
         const failure = this.botApiClassifier.classify(error);
 
         if (failure.kind === TelegramBotApiFailureKind.Flood) {
@@ -273,9 +269,16 @@ export class InboxPollingSource {
     // The retry delay alone: a 429 comes from Telegram, so the Bot API classifier has no say over a
     // failure of the store.
     private async pauseAfterStoreFailure(): Promise<void> {
+        await this.pause(this.countFailureAndGetRetryDelayMs());
+    }
+
+    // The failures in a row are counted for calls and pushes alike, and the retry delay grows with
+    // them, so an outage of Telegram, a revoked token or a lasting 409 is not retried and logged every
+    // second.
+    private countFailureAndGetRetryDelayMs(): number {
         this.consecutiveFailureCount += 1;
 
-        await this.pause(this.retryDelay.computeMs(this.consecutiveFailureCount));
+        return this.retryDelay.computeMs(this.consecutiveFailureCount);
     }
 
     // Cut short by the stop. Protected for the spec, which records the durations instead of waiting.
