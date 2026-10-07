@@ -368,34 +368,7 @@ describe("Bot", function () {
             expect(translated).to.equal(fluent.withLocale("en")("start-command-description"));
         });
 
-        // sequentialize() above session(): the second update of the same user reads the session
-        // only after the first one has written it, otherwise it would wipe out the first one's state.
-        it("reads the session of a user only after the previous update of this user has written it", async function () {
-            const harness = await setUp();
-            let release = (): void => undefined;
-            const gate = new Promise<void>((resolve) => {
-                release = resolve;
-            });
-            harness.onCommand.hook = async (): Promise<void> => {
-                harness.onCommand.hook = async (): Promise<void> => undefined;
-                await gate;
-            };
-
-            const first = harness.bot.grammy.handleUpdate(message("/start"));
-            const second = harness.bot.grammy.handleUpdate(message("/start"));
-            await new Promise((resolve) => setTimeout(resolve, 10));
-            release();
-            await Promise.all([first, second]);
-
-            const reads = harness.events.flatMap((event, index) => (event === "session read" ? [index] : []));
-            const writes = harness.events.flatMap((event, index) => (event === "session write" ? [index] : []));
-
-            expect(reads).to.have.lengthOf(2);
-            expect(writes).to.have.lengthOf(2);
-            expect(reads[1]).to.be.greaterThan(writes[0] as number);
-        });
-
-        // Step 7 above step 8: an update of a chat inside a conversation goes to wait(), even when it is a command.
+        // Step 6 above step 7: an update of a chat inside a conversation goes to wait(), even when it is a command.
         it("hands the next update of a chat inside a conversation to the conversation, not to the commands", async function () {
             const harness = await setUp();
             harness.onCommand.hook = async (ctx: Context): Promise<void> => {

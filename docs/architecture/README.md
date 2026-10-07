@@ -54,8 +54,8 @@ Telegram front end.
 
 Stack:
 
-- **grammY** + `@grammyjs/conversations`; `@grammyjs/runner` only for `sequentialize()`. The
-  updates come by long polling through the inbox ([`inbox.md`](./inbox.md)).
+- **grammY** + `@grammyjs/conversations`. The updates come by long polling through the inbox
+  ([`inbox.md`](./inbox.md)).
 - **inversify** — DI, bindings by hand.
 - **PostgreSQL** — the `postgres` client (porsager) at runtime, `node-pg-migrate` for migrations.
 - **pino** in production, `console` in the other modes — behind the `Logger` interface.

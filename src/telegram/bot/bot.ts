@@ -8,7 +8,6 @@ import type { Command } from "app/telegram/command/command";
 import type { Middleware } from "app/telegram/middleware/middleware";
 import type { BotSettings, Context } from "app/telegram/bot/bot.types";
 import type { Logger } from "app/platform/logger/logger";
-import { sequentialize } from "@grammyjs/runner";
 import { getSessionKey, initialPayload } from "app/telegram/session/session.helper";
 import type { SessionPayload } from "app/telegram/session/session.types";
 import type { ConversationHandler } from "app/telegram/conversation/conversation-handler";
@@ -61,17 +60,12 @@ export class Bot {
         // comes, so one installed after an update would miss its calls.
         this.grammy.api.config.use(this.outboxTransformer.transform);
 
-        // Filters first: they need no more than ctx.from and ctx.chat. A dropped update needs
-        // neither the queue nor the session row, and a group update does have a session key:
-        // dropped below session(), it would still leave a row (docs/architecture/invariants.md).
+        // Filters first: they need no more than ctx.from and ctx.chat. A group update does
+        // have a session key: dropped below session(), it would still leave a row
+        // (docs/architecture/invariants.md).
         // HasSessionKey goes before IsPrivateChat: the latter drops updates without chat too,
         // but silently, so those must meet the warning of HasSessionKey first.
         await this.setupFilters([this.hasSessionKeyFilter, this.isPrivateChatFilter]);
-        // sequentialize() strictly above session(): session() reads the row before next() and
-        // writes it after, and below it the queue would cover neither end. Two updates of one
-        // user would read the same state, and the second would write over the first, losing
-        // requestCount and the conversation step (docs/architecture/invariants.md).
-        await this.setupSequential();
         await this.setupSession();
         await this.setupMiddlewares();
         // The commands need Fluent too: the same instance translates their descriptions for
@@ -91,14 +85,6 @@ export class Bot {
                 storage: this.sessionStorage,
             }),
         );
-    }
-
-    // The key is the getSessionKey of session(): what must be serialized is the updates of one
-    // sessions row. The key carries from.id, so it also protects the check-then-act in
-    // FillUserToContextMiddleware: the filters above let through only the private chat of the
-    // user (docs/architecture/invariants.md).
-    private async setupSequential(): Promise<void> {
-        this.grammy.use(sequentialize<Context>(getSessionKey));
     }
 
     private async setupMiddlewares(): Promise<void> {

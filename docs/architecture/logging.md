@@ -36,7 +36,7 @@ is one per process and is never swapped.
 The scope of `run()` is only what stands below `RequestContextMiddleware` in the pipeline.
 Everything written outside it goes without a `requestId`:
 
-- The filters, `sequentialize()` and `session()` stand above the middleware
+- The filters and `session()` stand above the middleware
   ([`bot.md`](./bot.md)), so they run outside the scope. That includes the record the base
   `Filter` writes when it drops an update.
 - The inbox (`telegram/inbox/`) runs outside any scope: `Application.run()` starts its runner and
