@@ -529,7 +529,9 @@ A second wait for an id still waited for gets the same promise.
 
 `stop()` rejects every pending wait with `OutboxResultWaiterStopped` and clears the timers: a node
 that shuts down neither polls its closed database nor is held up by a wait until its timeout.
-`Container.close()` calls it before it closes the database, which ends the listening.
+`Application` calls it after `OutboxRunner.stop()` and waits for the releases it causes
+([`inbox.md`](./inbox.md), "Release on stop"); `Container.close()` calls it again before it closes
+the database, which ends the listening.
 
 The waiter does not depend on the store: it takes `OutboxFinishedMessageReader`, which only reads.
 So the waiter has no SQL: mutation testing reaches it through a fake reader, and

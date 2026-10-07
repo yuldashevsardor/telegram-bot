@@ -104,6 +104,14 @@ export class InboxRunner {
         );
     }
 
+    // Waits until every handler stop() left running has settled and its update has the outcome
+    // written or is released. Not part of stop(): what ends such a handler, a wait for the outbox,
+    // is stopped by the caller after stop(). No deadline of its own, a handler may run for as long
+    // as it likes.
+    public async waitForHandlersLeftRunning(): Promise<void> {
+        await Promise.all([...this.handlingsInFlight.values()].map((handling) => handling.settled));
+    }
+
     // Catches what the source throws: the rejection of an unawaited run() would reach
     // unhandledRejection, which ends the process (src/app.ts).
     private async run(): Promise<void> {

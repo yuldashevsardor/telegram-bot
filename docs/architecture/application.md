@@ -91,7 +91,8 @@ value it found to `ValueByPath`, and `onChange()` casts the pair of values it ha
 by dots. The walk itself needs no cast, because it narrows the type with a guard.
 
 The container is single-use per process. `Container.close()` stops the outbox result waiter
-([`outbox.md`](./outbox.md), "Waiting for the result"), closes the Postgres pool and resets
+([`outbox.md`](./outbox.md), "Waiting for the result"; `Application` has stopped it already),
+closes the Postgres pool and resets
 `alreadySetup`, but keeps the bindings. A repeated `setup()` would pass silently, and the
 duplicates would fail the very first resolve with "Ambiguous match". That includes the resolve of
 `Database` inside `close()` itself.
@@ -262,14 +263,19 @@ source").
    - `OutboxRunner.stop()` stops the pulls, waits for the calls in flight up to
      `OUTBOX_STOP_TIMEOUT` and aborts the rest, handing their messages to the other nodes
      ([`outbox.md`](./outbox.md), "The runner"). A call the handlers left running push after that
-     stays queued for another node or the next start; its caller waits until step 5 stops the
-     waiter.
+     stays queued for another node or the next start; its caller waits until the next item stops
+     the waiter.
+   - `OutboxResultWaiter.stop()` rejects the waits of the handlers `InboxRunner.stop()` left
+     running, and `InboxRunner.waitForHandlersLeftRunning()` waits until each of those has released
+     its update ([`inbox.md`](./inbox.md), "Release on stop"). After the outbox runner, which still
+     sends the calls those waits await, and before the pool closes, which the releases need. The
+     handlers left running have no deadline of their own, so this wait lives on the overall one: a
+     handler that never settles holds the stop to it.
    - `OutboxMaintenance.stop()` clears the timers and waits for the runs in progress, with no
      deadline of its own ([`outbox.md`](./outbox.md), "Maintenance").
-5. `container.close()` → `OutboxResultWaiter.stop()`, then `Database.close()` →
-   `sql.end({ timeout: 5 })` ([`storage.md`](./storage.md)). A handler the inbox runner left
-   running in a wait for the outbox is rejected here, and its release meets the closed pool: its
-   update waits for its lease ([`inbox.md`](./inbox.md), "Release on stop").
+5. `container.close()` → `OutboxResultWaiter.stop()` again, which changes nothing after step 4 and
+   serves a container closed without a running application, then `Database.close()` →
+   `sql.end({ timeout: 5 })` ([`storage.md`](./storage.md)).
 
 The overall deadline has to be greater than the sum of the individual ones of the polling source,
 the inbox runner and the outbox runner, and `ConfigValuesBuilder` checks that. It also has to be

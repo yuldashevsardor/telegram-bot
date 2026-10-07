@@ -11,6 +11,7 @@ import { Tokens } from "app/shared/tokens";
 import type { UnknownObject } from "app/shared/types";
 import type { Bot } from "app/telegram/bot/bot";
 import type { OutboxRunner } from "app/telegram/outbox/outbox-runner";
+import type { OutboxResultWaiter } from "app/telegram/outbox/result-waiter/outbox-result-waiter";
 import type { OutboxMaintenance } from "app/telegram/outbox/maintenance/outbox-maintenance";
 import type { InboxPollingSource } from "app/telegram/inbox/inbox-polling-source";
 import type { InboxRunner } from "app/telegram/inbox/inbox-runner";
@@ -34,6 +35,7 @@ describe("Application", function () {
     let stopInboxPollingSource: () => Promise<void>;
     let stopInboxRunner: () => Promise<void>;
     let stopOutboxRunner: () => Promise<void>;
+    let waitForHandlersLeftRunning: () => Promise<void>;
     let configUnwatches = 0;
 
     function write(level: keyof Logger): (message: string, payload?: UnknownObject) => void {
@@ -75,6 +77,12 @@ describe("Application", function () {
         },
     } as unknown as OutboxRunner;
 
+    const outboxResultWaiter = {
+        stop: (): void => {
+            calls.push("outboxResultWaiter.stop");
+        },
+    } as unknown as OutboxResultWaiter;
+
     const outboxMaintenance = {
         start: (): void => {
             calls.push("outboxMaintenance.start");
@@ -103,6 +111,11 @@ describe("Application", function () {
             calls.push("inboxRunner.stop");
 
             return stopInboxRunner();
+        },
+        waitForHandlersLeftRunning: (): Promise<void> => {
+            calls.push("inboxRunner.waitForHandlersLeftRunning");
+
+            return waitForHandlersLeftRunning();
         },
     } as unknown as InboxRunner;
 
@@ -168,11 +181,15 @@ describe("Application", function () {
         stopInboxPollingSource = async (): Promise<void> => undefined;
         stopInboxRunner = async (): Promise<void> => undefined;
         stopOutboxRunner = async (): Promise<void> => undefined;
+        waitForHandlersLeftRunning = async (): Promise<void> => undefined;
 
         container.snapshot();
         container.bind<Database>(Tokens.Platform.Database).toConstantValue(database);
         container.bind<Bot>(Tokens.Bot.Bot).toDynamicValue(resolve("Bot", bot));
         container.bind<OutboxRunner>(Tokens.Bot.Outbox.Runner).toDynamicValue(resolve("OutboxRunner", outboxRunner));
+        container
+            .bind<OutboxResultWaiter>(Tokens.Bot.Outbox.Result.Waiter)
+            .toDynamicValue(resolve("OutboxResultWaiter", outboxResultWaiter));
         container.bind<OutboxMaintenance>(Tokens.Bot.Outbox.Maintenance).toDynamicValue(resolve("OutboxMaintenance", outboxMaintenance));
         container.bind<InboxRunner>(Tokens.Bot.Inbox.Runner).toDynamicValue(resolve("InboxRunner", inboxRunner));
         container.bind<InboxMaintenance>(Tokens.Bot.Inbox.Maintenance).toDynamicValue(resolve("InboxMaintenance", inboxMaintenance));
@@ -225,6 +242,7 @@ describe("Application", function () {
                 "database.check",
                 "resolve Bot",
                 "resolve OutboxRunner",
+                "resolve OutboxResultWaiter",
                 "resolve OutboxMaintenance",
                 "resolve InboxRunner",
                 "resolve InboxMaintenance",
@@ -268,6 +286,7 @@ describe("Application", function () {
                 "database.check",
                 "resolve Bot",
                 "resolve OutboxRunner",
+                "resolve OutboxResultWaiter",
                 "resolve OutboxMaintenance",
                 "resolve InboxRunner",
                 "resolve InboxMaintenance",
@@ -367,6 +386,8 @@ describe("Application", function () {
             "inboxRunner.stop",
             "inboxMaintenance.stop",
             "outboxRunner.stop",
+            "outboxResultWaiter.stop",
+            "inboxRunner.waitForHandlersLeftRunning",
             "outboxMaintenance.stop",
             "container.close",
         ];
@@ -436,6 +457,40 @@ describe("Application", function () {
                 "inboxMaintenance.stop",
                 "outboxRunner.stop",
             ]);
+            expect(calls).to.deep.equal(FULL_STOP);
+        });
+
+        // The outbox runner is still sending the calls the handlers await: a waiter stopped before it
+        // would reject handlers whose replies are about to go out.
+        it("stops the outbox result waiter only after the outbox runner has stopped", async function () {
+            const outboxStopped = Promise.withResolvers<void>();
+            stopOutboxRunner = (): Promise<void> => outboxStopped.promise;
+            const application = await start();
+
+            const stopped = application.stop();
+            await sleep(RUNNER_STOP_REACHED_MS);
+            const callsWhileWaiting = [...calls];
+            outboxStopped.resolve();
+            await stopped;
+
+            expect(callsWhileWaiting).to.not.include("outboxResultWaiter.stop");
+            expect(calls).to.deep.equal(FULL_STOP);
+        });
+
+        // The release of the update of a rejected handler is a write: the pool closes after it.
+        it("waits for the handlers left running before it closes the container", async function () {
+            const handlersSettled = Promise.withResolvers<void>();
+            waitForHandlersLeftRunning = (): Promise<void> => handlersSettled.promise;
+            const application = await start();
+
+            const stopped = application.stop();
+            await sleep(RUNNER_STOP_REACHED_MS);
+            const callsWhileWaiting = [...calls];
+            handlersSettled.resolve();
+            await stopped;
+
+            expect(callsWhileWaiting).to.not.include("container.close");
+            expect(callsWhileWaiting).to.include("outboxResultWaiter.stop");
             expect(calls).to.deep.equal(FULL_STOP);
         });
 
@@ -517,6 +572,7 @@ describe("Application", function () {
                 "database.check",
                 "resolve Bot",
                 "resolve OutboxRunner",
+                "resolve OutboxResultWaiter",
                 "resolve OutboxMaintenance",
                 "resolve InboxRunner",
                 "resolve InboxMaintenance",
