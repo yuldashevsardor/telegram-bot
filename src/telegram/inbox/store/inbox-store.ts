@@ -251,8 +251,9 @@ export class InboxStore {
         });
     }
 
-    // The update goes back to pending, and its group waits delayMs: the update stays the head, so it
-    // holds its group. The group is ready again, so the ready channel is notified on commit, as a push
+    // The update goes back to pending, and its group waits delayMs: the update stays the head, unless
+    // an update pushed with a smaller update_id is before it (docs/architecture/inbox.md, "Push"), so
+    // it holds its group. The group is ready again, so the ready channel is notified on commit, as a push
     // does: a worker with nothing to claim learns of the group from nothing else. A retry with a
     // delay notifies too, before the group can be claimed, and the end of the delay notifies no one.
     // A fenced retry notifies no one.
@@ -433,7 +434,7 @@ export class InboxStore {
 
             // An idle group gets its first update, but only from an update inserted here: a group
             // whose updates were all stored already has no head to claim. A ready or processing group
-            // already has an older head, and a blocked one stays blocked. The updates go as JSON text:
+            // already has a head, and a blocked one stays blocked. The updates go as JSON text:
             // sql.json() takes only a type with an index signature, which grammY's Update interface
             // lacks, and it would send the same JSON.stringify() text. The parameter is text: one the
             // statement types as jsonb postgres.js passes through JSON.stringify() once more, into a

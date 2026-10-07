@@ -207,8 +207,9 @@ completion, so a node that dies while it handles an update leaves no trace of th
 recovery of its lease appends one.
 
 `retry` sets `next_attempt_at` of the group to `now()` plus the delay it is given. The retried
-update stays the head of its group, so the group waits with it: the updates behind it are not
-claimed before it, while the other groups are.
+update stays the head of its group, unless an update pushed with a smaller `update_id` is before it
+(see "Push"), so the group waits with it: the updates behind it are not claimed before it, while
+the other groups are.
 
 Every update of the store sets `updated_at = now()` itself; there is no trigger.
 
