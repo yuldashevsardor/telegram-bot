@@ -232,6 +232,38 @@ describe("OutboxStore", function () {
         expect((await store.pull(1, WORKER)).messages.map(({ id }) => id)).to.deep.equal([other]);
     });
 
+    // The chat row keeps a copy of the priority of its head, and the pull orders by the copy. The
+    // head that takes over is less urgent than the other chat in one case and more urgent in the
+    // other: a copy left as it was fails the one, a copy lost to NULL, which sorts last, the other.
+    const OTHER_CHAT_PRIORITY = 200;
+    for (const { headPriority, nextPriority, pulledFirst } of [
+        { headPriority: 100, nextPriority: 300, pulledFirst: OTHER_CHAT },
+        { headPriority: 300, nextPriority: 100, pulledFirst: CHAT },
+    ]) {
+        it(`pulls a chat by the priority ${nextPriority} of its next message once its head of ${headPriority} is done`, async function () {
+            await store.pushBatch([message(CHAT, "head", headPriority), message(CHAT, "next", nextPriority)]);
+            await store.markAsDone(await pullOne(), RESPONSE);
+            await store.push(message(OTHER_CHAT, "middle", OTHER_CHAT_PRIORITY));
+
+            expect((await store.pull(1, WORKER)).messages.map(({ chatId }) => chatId)).to.deep.equal([pulledFirst]);
+        });
+    }
+
+    for (const { failedPriority, behindPriority, pulledFirst } of [
+        { failedPriority: 300, behindPriority: 100, pulledFirst: OTHER_CHAT },
+        { failedPriority: 100, behindPriority: 300, pulledFirst: CHAT },
+    ]) {
+        it(`pulls a retried blocked chat by the priority ${failedPriority} of the failed message, its head again`, async function () {
+            await store.pushBatch([message(CHAT, "failed", failedPriority), message(CHAT, "behind", behindPriority)]);
+            await store.markAsFailedAndBlockChat(await pullOne(), UNEXPECTED);
+            await store.push(message(OTHER_CHAT, "middle", OTHER_CHAT_PRIORITY));
+
+            await store.retryBlockedChat(CHAT);
+
+            expect((await store.pull(1, WORKER)).messages.map(({ chatId }) => chatId)).to.deep.equal([pulledFirst]);
+        });
+    }
+
     it("stores the response and the end of a done message, and says the message is done", async function () {
         const id = await store.push(message(CHAT, "text"));
 

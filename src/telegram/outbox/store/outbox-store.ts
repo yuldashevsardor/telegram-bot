@@ -111,6 +111,7 @@ export class OutboxStore {
             await sql`
                 UPDATE telegram_outbox_chats
                 SET state = ${OutboxChatState.Ready},
+                    head_priority = ${this.headPrioritySubquery(sql)},
                     updated_at = now()
                 WHERE chat_id = ANY(${sql.array(chatIds, BIGINT)}::bigint[])
                   AND state = ${OutboxChatState.Idle}
@@ -194,7 +195,7 @@ export class OutboxStore {
                 SELECT chats.chat_id, head.id
                 FROM telegram_outbox_chats AS chats
                 CROSS JOIN LATERAL (
-                    SELECT id, priority
+                    SELECT id
                     FROM telegram_outbox
                     WHERE chat_id = chats.chat_id
                       AND status IN ${this.sql(ACTIVE_STATUSES)}
@@ -206,7 +207,9 @@ export class OutboxStore {
                   -- waited for the bot row is taken. Without the row pulled_at is NULL, and so is
                   -- the budget.
                   AND chats.next_attempt_at <= (SELECT pulled_at FROM pull_time)
-                ORDER BY head.priority, chats.next_attempt_at, chats.chat_id
+                -- The copy of the head's priority, not head.priority: in the order of the pull index,
+                -- the pull looks up the heads of its batch alone, not of every ready chat.
+                ORDER BY chats.head_priority, chats.next_attempt_at, chats.chat_id
                 -- No budget: a pause, a spent limit or nothing to pull. NULL would lift the limit.
                 LIMIT coalesce((SELECT budget FROM budget), 0)
                 FOR UPDATE OF chats SKIP LOCKED
@@ -779,15 +782,32 @@ export class OutboxStore {
         await this.notifyReady(sql);
     }
 
-    // The lease ends with the completion: a late completion of the same pull finds no token.
+    // The lease ends with the completion: a late completion of the same pull finds no token. The
+    // head may have moved with the message the caller changed, so its priority is read again.
     private async setChatState(sql: TransactionSql, chatId: string, state: OutboxChatState): Promise<void> {
         await sql`
             UPDATE telegram_outbox_chats
             SET state = ${state},
+                head_priority = ${this.headPrioritySubquery(sql)},
                 locked_until = NULL,
                 lock_token = NULL,
                 updated_at = now()
             WHERE chat_id = ${chatId}
         `;
+    }
+
+    // The copy of the head's priority on the chat row, for the SET of an UPDATE of
+    // telegram_outbox_chats without an alias: the subquery names the chat by that table. The pull
+    // orders the ready chats by it from an index instead of looking up the head of each
+    // (docs/architecture/outbox.md, "Tables"). NULL for a chat with no active message.
+    private headPrioritySubquery(sql: TransactionSql): PendingQuery<Row[]> {
+        return sql`(
+            SELECT priority
+            FROM telegram_outbox
+            WHERE chat_id = telegram_outbox_chats.chat_id
+              AND status IN ${sql(ACTIVE_STATUSES)}
+            ORDER BY id
+            LIMIT 1
+        )`;
     }
 }
