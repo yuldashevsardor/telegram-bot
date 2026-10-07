@@ -26,11 +26,12 @@ the payload codec and the retry delay. The error classes of a failed call lie ou
 ## Tables
 
 One migration, `1790546834232_telegram-outbox-tables.ts`, creates the three tables with every
-column the outbox needs. The columns and what they mean are in its `createTable` calls and
-`comment`s; the comment of `next_attempt_at` is replaced by
-`1790666223510_telegram-outbox-chat-limit-comment.ts` and then, with that of `status`, by
-`1790682156623_telegram-outbox-retry-comments.ts`; those of `attempts` and `lock_token` are
-replaced by `1790716587328_telegram-outbox-attempt-worker-comment.ts`.
+column but `telegram_outbox_chats.head_priority`, which
+`1791590400000_telegram-outbox-chat-head-priority.ts` adds with its `comment` (see the head below).
+The columns and what they mean are in the `createTable` calls and `comment`s; the comment of
+`next_attempt_at` is replaced by `1790666223510_telegram-outbox-chat-limit-comment.ts` and then,
+with that of `status`, by `1790682156623_telegram-outbox-retry-comments.ts`; those of `attempts`
+and `lock_token` are replaced by `1790716587328_telegram-outbox-attempt-worker-comment.ts`.
 
 The indexes are picked by the plans of the load test (see "Load test"), not ahead of the queries.
 Besides the primary keys there are two of `telegram_outbox` and two of `telegram_outbox_chats`.
@@ -53,7 +54,11 @@ pull (see "Pull"): `telegram_outbox_chats_ready_pull_idx`, on `(head_priority, n
 chat_id)`, the order of the pull, and `telegram_outbox_chats_ready_next_attempt_at_idx`, on
 `next_attempt_at`, for the nearest due time the pull answers with. Without them the pull read every
 `ready` chat for each ([`outbox-load-test.md`](./outbox-load-test.md), "The pull of 100 k chats
-with the index").
+with the index"). Their `state` is in the predicate and `next_attempt_at` in the key, so no update
+of a chat row that changes either is HOT any more: a push into an `idle` chat, every pull and every
+completion leave dead entries in them, and a pull leaves its own at the front of the pull index,
+where the next pull starts. How many such entries the pull walks between two vacuums is not
+measured: the load test ran right after a vacuum of the chats.
 
 The database does not check the values of `status` and `state`: the store writes them only
 through the `OutboxStatus` and `OutboxChatState` enums (`store/outbox-store.types.ts`). Of these,

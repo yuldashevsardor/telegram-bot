@@ -233,8 +233,9 @@ describe("OutboxStore", function () {
     });
 
     // The chat row keeps a copy of the priority of its head, and the pull orders by the copy. The
-    // head that takes over is less urgent than the other chat (200) in one case and more urgent in
-    // the other: a copy left as it was fails the one, a copy lost to NULL, which sorts last, the other.
+    // head that takes over is less urgent than the other chat in one case and more urgent in the
+    // other: a copy left as it was fails the one, a copy lost to NULL, which sorts last, the other.
+    const OTHER_CHAT_PRIORITY = 200;
     for (const { headPriority, nextPriority, pulledFirst } of [
         { headPriority: 100, nextPriority: 300, pulledFirst: OTHER_CHAT },
         { headPriority: 300, nextPriority: 100, pulledFirst: CHAT },
@@ -242,7 +243,7 @@ describe("OutboxStore", function () {
         it(`pulls a chat by the priority ${nextPriority} of its next message once its head of ${headPriority} is done`, async function () {
             await store.pushBatch([message(CHAT, "head", headPriority), message(CHAT, "next", nextPriority)]);
             await store.markAsDone(await pullOne(), RESPONSE);
-            await store.push(message(OTHER_CHAT, "middle", 200));
+            await store.push(message(OTHER_CHAT, "middle", OTHER_CHAT_PRIORITY));
 
             expect((await store.pull(1, WORKER)).messages.map(({ chatId }) => chatId)).to.deep.equal([pulledFirst]);
         });
@@ -255,7 +256,7 @@ describe("OutboxStore", function () {
         it(`pulls a retried blocked chat by the priority ${failedPriority} of the failed message, its head again`, async function () {
             await store.pushBatch([message(CHAT, "failed", failedPriority), message(CHAT, "behind", behindPriority)]);
             await store.markAsFailedAndBlockChat(await pullOne(), UNEXPECTED);
-            await store.push(message(OTHER_CHAT, "middle", 200));
+            await store.push(message(OTHER_CHAT, "middle", OTHER_CHAT_PRIORITY));
 
             await store.retryBlockedChat(CHAT);
 
