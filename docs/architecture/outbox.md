@@ -244,7 +244,7 @@ ready chat left out by `limit` or skipped as locked no longer holds the answer b
 decides it, the cooldowns the pull has just spent, or zero if it pulled nothing.
 
 The answer is not capped. A long pause or a long interval of a limit, common or chat, gives more
-than a Node timer takes (`ConfigParser.MAX_TIMER_DELAY`; what Node does with more is in
+than a Node timer takes (`MAX_TIMER_DELAY_MS` of `shared/time.ts`; what Node does with more is in
 [`config.md`](./config.md)), so a caller that sleeps on the answer caps it first, as the message
 source does.
 

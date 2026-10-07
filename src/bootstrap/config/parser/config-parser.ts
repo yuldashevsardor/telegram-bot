@@ -1,4 +1,5 @@
 import { InvalidConfigError } from "app/shared/errors";
+import { MAX_TIMER_DELAY_MS } from "app/shared/time";
 import type { RawConfig } from "app/bootstrap/config/container/config-container.types";
 
 const Booleans = new Map([
@@ -17,9 +18,6 @@ export type IntegerRange = {
 // rather than private methods of the builder: noUnusedLocals rejects a private helper that has no
 // call site yet (getBoolean, getArray).
 export class ConfigParser {
-    // The longest delay of a Node timer: a signed 32-bit integer.
-    public static readonly MAX_TIMER_DELAY = 2 ** 31 - 1;
-
     public constructor(private readonly raw: RawConfig) {}
 
     // Without a default the variable is required.
@@ -63,7 +61,7 @@ export class ConfigParser {
     // fire at once, and an interval log would be written on every turn of the event loop. A zero is
     // allowed only where it means "do not wait".
     public getTimerDelay(name: string, defaultValue: number, { min = 1 }: { min?: number } = {}): number {
-        return this.getInteger(name, defaultValue, { min: min, max: ConfigParser.MAX_TIMER_DELAY });
+        return this.getInteger(name, defaultValue, { min: min, max: MAX_TIMER_DELAY_MS });
     }
 
     // Not through parseInt: "MAYBE" would give a NaN coerced to false, and a typo could not be told

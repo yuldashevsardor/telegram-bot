@@ -1,3 +1,4 @@
+import type postgres from "postgres";
 import { RuntimeError } from "app/shared/errors";
 
 export class InvalidClaimLimit extends RuntimeError {
@@ -30,3 +31,19 @@ export class InboxUpdateNotLeased extends RuntimeError {
         );
     }
 }
+
+// A push PostgreSQL failed, by the code, message and detail of its error, not the error as a whole:
+// the CONTEXT it gives a refused value, in its where field, holds the update up to that value, the
+// text of the message included.
+export class InboxPushFailed extends RuntimeError {
+    public static byPostgresError<T extends InboxPushFailed>(
+        this: new (...params: ConstructorParameters<typeof RuntimeError>) => T,
+        error: postgres.PostgresError,
+    ): T {
+        return new this(error.message, { code: error.code, detail: error.detail });
+    }
+}
+
+// A push PostgreSQL failed for a value of the updates themselves: the same updates fail every time
+// they are pushed (docs/architecture/inbox.md, "The polling source").
+export class InboxUpdateRefused extends InboxPushFailed {}

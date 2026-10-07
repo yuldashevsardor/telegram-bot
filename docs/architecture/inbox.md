@@ -474,16 +474,17 @@ that gets a full batch calls again. `InboxMaintenance` calls them on timers (see
 - `deleteFinishedUpdates()` deletes the `done` updates whose `finished_at` is older than
   `INBOX_DONE_RETENTION`, and the `skipped` ones older than `INBOX_SKIPPED_RETENTION`. A `failed`
   update is never deleted: it waits for a person. An update without `finished_at` is not deleted
-  either, so whatever sets `skipped` sets `finished_at` too. The row of a `done` update is what
-  turns a redelivered update away (see "Push", step 2): Telegram redelivers within 24 h, so
-  `INBOX_DONE_RETENTION` may not be less than a day, and the config rejects a shorter one
-  (`INBOX_DONE_RETENTION_RANGE` of `ConfigValuesBuilder`). The retention is added to `finished_at`
-  rather than taken off `now()`: the config takes a retention up to `Number.MAX_SAFE_INTEGER` ms
-  (`CLEANUP_RANGE`), and `now()` minus that falls below 4713 BC, the earliest timestamp PostgreSQL
-  has. No index serves the sum; the outbox takes the other form for its index
-  ([`outbox.md`](./outbox.md), "Cleanup"). The batch is locked `FOR UPDATE SKIP LOCKED`: the lock
-  rechecks the status on the newest version of the row, so an update a person has moved back to
-  `pending` meanwhile is kept, and two nodes cleaning at once take different rows.
+  either, so whatever sets `skipped` sets `finished_at` too. The row of a `done` or a `skipped`
+  update is what turns a redelivered update away (see "Push", step 2): Telegram redelivers within
+  24 h, so neither `INBOX_DONE_RETENTION` nor `INBOX_SKIPPED_RETENTION` may be less than a day, and
+  the config rejects a shorter one (`INBOX_RETENTION_RANGE` of `ConfigValuesBuilder`). The
+  retention is added to `finished_at` rather than taken off `now()`: the config takes a retention up
+  to `Number.MAX_SAFE_INTEGER` ms (`INBOX_RETENTION_RANGE`), and `now()` minus that falls below
+  4713 BC, the earliest timestamp PostgreSQL has. No index serves the sum; the outbox takes the
+  other form for its index ([`outbox.md`](./outbox.md), "Cleanup"). The batch is locked
+  `FOR UPDATE SKIP LOCKED`: the lock rechecks the status on the newest version of the row, so an
+  update a person has moved back to `pending` meanwhile is kept, and two nodes cleaning at once
+  take different rows.
 - `deleteIdleGroups()` deletes the `idle` groups. It locks them `FOR UPDATE SKIP LOCKED`: a group a
   push or a completion holds is left to them, and the lock rechecks the state on the newest version
   of the row, so a group a push has made `ready` meanwhile is left alone too. A push that waits for
@@ -529,8 +530,9 @@ Telegram gives the same batch again, and the push leaves out what it stored alre
 step 2). The pause is the retry delay the outbox and the inbox share, `RetryDelay.computeMs()` of
 the failures in a row, of calls and pushes alike ([`outbox.md`](./outbox.md), "Retry delay"), so an
 outage, a revoked token (401) or a webhook or another poller (409) is not retried and logged every
-second; a 429 waits its `retry_after` when that is longer, up to the longest delay of a Node timer,
-some 24.8 days. A stored batch and a passed preparation
+second; a 429 of a Bot API call waits its `retry_after` when that is longer, up to the longest
+delay of a Node timer, some 24.8 days. A failed push waits the retry delay alone: it never reaches
+the Bot API classifier. A stored batch and a passed preparation
 start the count over. The error of a Bot API call is logged as it is thrown: the fetch error an
 `HttpError` wraps names the URL of the call, and the URL carries the bot token, so the token can
 reach the log: the owner's decision in
@@ -540,22 +542,25 @@ A restart gets no duplicate into the inbox. The first offset of every start is 0
 answers it from the first update it has not been told of; an update is told of by a `getUpdates`
 whose offset is past it, and never comes again. So only the last batch before the stop comes again,
 and the push leaves out its updates stored already, while their rows are kept: the retention of a
-`done` update outlasts the 24 h Telegram keeps an update (see "Cleanup").
+`done` or a `skipped` update is at least the 24 h Telegram keeps an update (see "Cleanup").
 
 **A refused update.** PostgreSQL refuses a `\u0000` escape or a lone surrogate in `jsonb`, and
 `pushBatch()` stores the batch in one statement, so one such update rolls the batch back, and
 every retry from the same offset would fail on it again. Whether Telegram ever sends either is
-unverified. A refusal is a failure with the SQLSTATE PostgreSQL gives either value, `22P05` for
-the escape and `22P02` for the surrogate, of a push whose updates hold such a value in a string or
-a key; the source looks for it itself, by `isJsonbStorable()` of `telegram/jsonb-string.ts`, the
-rule the payload codec of the outbox refuses a payload by. The code alone is not enough: `22P02` is
-the code of any malformed input, and a change of the store that broke every row would give it too.
-A refused batch is pushed one update at a time, and an update refused again is dropped with an error
-log. Any other failure, of the batch or of a single push, leaves the offset where it was, another
-data exception of class `22` included, and its error log names the updates not stored. Both logs
-write an error of PostgreSQL by its code, message and detail, not as a whole: the CONTEXT it gives a
-refused value holds the update up to that value, the text of the message included.
-`test/telegram/inbox/inbox-store.spec.ts` pins both codes.
+unverified. The store tells a refusal and throws `InboxUpdateRefused` of `inbox-store.errors.ts`:
+a failure with the SQLSTATE PostgreSQL gives either value, `22P05` for the escape and `22P02` for
+the surrogate, of a push whose updates hold such a value in a string or a key, by
+`isJsonbStorable()` of `telegram/jsonb-string.ts`, the rule the payload codec of the outbox refuses
+a payload by. The code alone is not enough: `22P02` is the code of any malformed input, and a change
+of the store that broke every row would give it too. Any other error of PostgreSQL in a push is
+`InboxPushFailed`, the parent class of the refusal. Both carry the code, message and detail of the
+error, not the error itself: the CONTEXT PostgreSQL gives a refused value holds the update up to
+that value, the text of the message included. A failure that is no error of PostgreSQL, a dropped
+connection, goes through as it is. The source pushes a refused batch one update at a time, and an
+update refused again is dropped with an error log. Any other failure, of the batch or of a single
+push, leaves the offset where it was, another data exception of class `22` included, and its error
+log names the updates not stored. `test/telegram/inbox/inbox-store.spec.ts` pins both codes and
+both classes. The store is out of mutation testing (see "The store in code").
 
 **The stop** aborts the Bot API call in flight, ends the pause at once and waits for a push in
 flight, and no `getUpdates` follows; nor does the next single push of a refused batch. A push that
@@ -567,8 +572,10 @@ holds it, so the stop of the application waits for it no longer than `INBOX_POLL
 ## The store in code
 
 The store has no interface of its own: no consumer dictates one yet ([`storage.md`](./storage.md)).
-It is SQL through and through, so it is in `DATABASE_ONLY_SOURCES` of `stryker.config.mjs` and its
-spec is in `DATABASE_SPECS` ([`testing.md`](./testing.md), "Mutation testing").
+It is SQL besides one rule that needs no database, the refusal of a push (see "The polling
+source"), so it is in `DATABASE_ONLY_SOURCES` of `stryker.config.mjs` and its spec is in
+`DATABASE_SPECS` ([`testing.md`](./testing.md), "Mutation testing"). No mutant tests that rule:
+only the database specs of the store pin it.
 
 `InboxFailureHandler` and `InboxLeaseReleaser` are there too: their specs run them over the real
 store, so that each outcome is pinned by the rows it leaves rather than by the calls a fake store
@@ -580,7 +587,7 @@ The ids come back as numbers: the driver returns `bigint` as a string, and the s
 as `PgSqlUserRepository` does ([`storage.md`](./storage.md), "`User.id`").
 
 The updates go to the database as JSON text cast to `jsonb`, not through `sql.json()`; why is in
-the comment of `pushBatch()`.
+the comment of `insertBatch()`, which `pushBatch()` calls.
 
 ## Load test
 

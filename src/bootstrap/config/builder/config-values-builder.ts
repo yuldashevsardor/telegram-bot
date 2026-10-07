@@ -9,7 +9,7 @@ import type { RawConfig } from "app/bootstrap/config/container/config-container.
 import type { ConfigBuilder } from "app/bootstrap/config/builder/config-builder";
 import { Environments } from "app/bootstrap/config/config-values";
 import type { ConfigValues, LoggerConfig } from "app/bootstrap/config/config-values";
-import { MS_PER_DAY } from "app/shared/time";
+import { MAX_TIMER_DELAY_MS, MS_PER_DAY, MS_PER_SECOND } from "app/shared/time";
 
 // Checks that tie several variables together live here; parsing a single variable lives in ConfigParser.
 export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
@@ -18,15 +18,16 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
     private static readonly LIMIT_RANGE: IntegerRange = { min: 1 };
 
     // The numbers of the cleanup SQL. A retention becomes an interval, and 1e16 ms is past the range
-    // of its interval. The inbox adds it to finished_at, and up to this many ms the sum stays within
-    // the timestamps PostgreSQL takes; the outbox takes it off now(), and one that reaches past
-    // 4713 BC fails its cleanup. A batch size goes to LIMIT, and 1e21 would reach it as 1e+21, which
-    // is no bigint.
+    // of its interval. The outbox takes a retention off now(), and one that reaches past 4713 BC
+    // fails its cleanup. A batch size goes to LIMIT, and 1e21 would reach it as 1e+21, which is no
+    // bigint. The inbox retentions have a range of their own, below.
     private static readonly CLEANUP_RANGE: IntegerRange = { min: 1, max: Number.MAX_SAFE_INTEGER };
 
-    // Telegram redelivers an update within 24 h, and a done update that is still stored is what turns
-    // the redelivery away, so its retention may not fall below a day.
-    private static readonly INBOX_DONE_RETENTION_RANGE: IntegerRange = { min: MS_PER_DAY, max: Number.MAX_SAFE_INTEGER };
+    // Telegram redelivers an update within 24 h, and a done or a skipped update that is still stored
+    // is what turns the redelivery away, so neither retention may fall below a day. The inbox adds a
+    // retention to finished_at, and up to this many ms the sum stays within the timestamps
+    // PostgreSQL takes.
+    private static readonly INBOX_RETENTION_RANGE: IntegerRange = { min: MS_PER_DAY, max: Number.MAX_SAFE_INTEGER };
 
     // The connections the outbox takes besides its slots: the pull of the runner and the four
     // tasks of OutboxMaintenance, each one query at a time.
@@ -37,7 +38,7 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
     // negative value is truthy and would close the connection after 1 ms.
     private static readonly DATABASE_TIMER_RANGE: IntegerRange = {
         min: 0,
-        max: Math.floor(ConfigParser.MAX_TIMER_DELAY / 1000),
+        max: Math.floor(MAX_TIMER_DELAY_MS / MS_PER_SECOND),
     };
 
     public build(raw: RawConfig): ConfigValues {
@@ -105,12 +106,12 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
                     cleanupIntervalMs: parser.getTimerDelay("INBOX_MAINTENANCE_CLEANUP_INTERVAL", 10 * 60 * 1000),
                 },
                 cleanup: {
-                    doneRetentionMs: parser.getInteger(
-                        "INBOX_DONE_RETENTION",
-                        7 * MS_PER_DAY,
-                        ConfigValuesBuilder.INBOX_DONE_RETENTION_RANGE,
+                    doneRetentionMs: parser.getInteger("INBOX_DONE_RETENTION", 7 * MS_PER_DAY, ConfigValuesBuilder.INBOX_RETENTION_RANGE),
+                    skippedRetentionMs: parser.getInteger(
+                        "INBOX_SKIPPED_RETENTION",
+                        30 * MS_PER_DAY,
+                        ConfigValuesBuilder.INBOX_RETENTION_RANGE,
                     ),
-                    skippedRetentionMs: parser.getInteger("INBOX_SKIPPED_RETENTION", 30 * MS_PER_DAY, ConfigValuesBuilder.CLEANUP_RANGE),
                     batchSize: parser.getInteger("INBOX_CLEANUP_BATCH_SIZE", 1000, ConfigValuesBuilder.CLEANUP_RANGE),
                 },
             },
