@@ -402,8 +402,9 @@ export class InboxStore {
     }
 
     // The groups waiting to be unblocked by hand, for the error line of the maintenance. No index for
-    // blocked: the table holds only the groups with work, and a full read of it is as cheap as in
-    // OutboxStore.countBlockedChats().
+    // blocked: the table holds only the groups with work, and its full read is expected to cost about
+    // what that of the outbox chats does (OutboxStore.countBlockedChats()); the inbox load test does
+    // not measure it.
     public async countBlockedGroups(): Promise<number> {
         // An aggregate without GROUP BY gives one row, an empty table included, so the row is
         // asserted, not checked.

@@ -588,10 +588,9 @@ export class OutboxStore {
         };
     }
 
-    // The chats waiting to be unblocked by hand, for the error line of the maintenance. No index on
-    // state: the table holds only the chats with work, a full read of 100 000 of them takes about
-    // 10 ms (docs/architecture/outbox-load-test.md), and an index on state would take HOT away from
-    // every change of a chat state, which the pull and every completion make.
+    // The chats waiting to be unblocked by hand, for the error line of the maintenance. No index for
+    // blocked: the table holds only the chats with work, and a full read of 100 000 of them takes
+    // about 10 ms (docs/architecture/outbox-load-test.md), once per interval of the maintenance.
     public async countBlockedChats(): Promise<number> {
         // An aggregate without GROUP BY gives one row, an empty table included, so the row is
         // asserted, not checked.
