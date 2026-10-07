@@ -1,13 +1,27 @@
--- A pending layout of the inbox load test (docs/architecture/inbox-load-test.md): :groups ready
--- groups, 1 to :groups, with :per_group pending updates each, over the done updates of
--- inbox-fill-done.sql. Run by make load-inbox-fill-pending; it replaces the active updates and the
--- groups the previous run left. The updates the measurement completed stay among the done ones: a
--- few hundred against the 100 M of the fill.
+-- A pending layout of the inbox load test (docs/architecture/inbox-load-test.md) over the history of
+-- inbox-fill-done.sql: :updates pending updates over the groups by the skew of the history, and
+-- :hot_updates more in group 1. Run by make load-inbox-fill-pending; it replaces what the previous
+-- layout and its measurement left.
+--
+-- A pending update goes to the group of a history update drawn by a hash of its number, so a group
+-- gets pending updates in proportion to its history, and the heavy groups get the most. The draw
+-- leaves out the oldest updates, which the cleanup of a measurement deletes.
+--
+-- Every thousandth group of the 1 M, 1 000 in all, is blocked by a failed update newer than its
+-- history, so the calls on blocked groups have work; the pending updates the draw gives such a group
+-- wait behind it, as the pushes to a blocked group do.
 --
 -- The status and the state are the values of InboxStatus and InboxGroupState; the measurement stops
 -- on a layout it cannot claim (inbox-load-test.ts).
 
--- The update_id follow the done ones, so a layout without the done fill would have none to follow.
+-- The update_id of a layout start far past the history, so the next layout deletes all that this
+-- one and its measurement wrote by update_id alone: the updates the measurement completed, failed or
+-- skipped included.
+\set layout_first_update_id 1000000000000
+\set blocked_group_count 1000
+\set blocked_group_spacing 1000
+
+-- A layout without the history would have no groups to draw.
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM telegram_inbox WHERE status = 'done') THEN
@@ -16,13 +30,55 @@ BEGIN
 END
 $$;
 
+SELECT max(update_id) AS history_update_count
+FROM telegram_inbox
+WHERE update_id < :layout_first_update_id
+\gset
+
 BEGIN;
 
-DELETE FROM telegram_inbox WHERE status IN ('pending', 'processing');
+DELETE FROM telegram_inbox WHERE update_id >= :layout_first_update_id;
 DELETE FROM telegram_inbox_groups;
 
--- The update_id follow the done ones, and the updates of a group lie apart from each other, as
--- updates that came over time from many groups do: the inner loop is the group.
+INSERT INTO telegram_inbox (update_id, user_id, chat_id, update, status, attempts, updated_at, finished_at)
+SELECT :layout_first_update_id + blocked_number,
+       blocked_number * :blocked_group_spacing,
+       blocked_number * :blocked_group_spacing,
+       jsonb_build_object(
+           'update_id', :layout_first_update_id + blocked_number,
+           'message', jsonb_build_object(
+               'message_id', blocked_number,
+               'date', extract(epoch FROM now())::bigint,
+               'chat', jsonb_build_object('id', blocked_number * :blocked_group_spacing, 'type', 'private', 'first_name', 'User'),
+               'from', jsonb_build_object('id', blocked_number * :blocked_group_spacing, 'is_bot', false, 'first_name', 'User', 'language_code', 'ru'),
+               'document', jsonb_build_object(
+                   'file_name', 'font-blocked-' || blocked_number || '.ttf',
+                   'mime_type', 'font/ttf',
+                   'file_id', 'BQACAgIAAxkBAAIBY2Zk' || md5('blocked-' || blocked_number),
+                   'file_unique_id', 'AgAD' || left(md5('blocked-' || blocked_number), 12),
+                   'file_size', 100000 + blocked_number
+               )
+           )
+       ),
+       'failed',
+       jsonb_build_array(jsonb_build_object(
+           'started_at', now() - interval '2 seconds',
+           'finished_at', now(),
+           'worker', jsonb_build_object('host', 'bot-node-1', 'pid', 42, 'worker_id', 'inbox'),
+           'error', jsonb_build_object(
+               'kind', 'unexpected',
+               'name', 'RuntimeError',
+               'message', 'The font could not be converted',
+               'stack', 'RuntimeError: The font could not be converted' || chr(10) || '    at FontConvertor.convert (/app/src/font-convertor/font-convertor.ts:42:15)'
+           )
+       )),
+       now(),
+       now()
+FROM generate_series(1, :blocked_group_count) AS blocked_number
+ORDER BY blocked_number;
+
+-- The update_id follow the order of the draws, so the updates of a group lie apart from each other,
+-- as updates that came over time from many groups do.
 INSERT INTO telegram_inbox (update_id, user_id, chat_id, update, status)
 SELECT update_id,
        group_id,
@@ -30,12 +86,12 @@ SELECT update_id,
        jsonb_build_object(
            'update_id', update_id,
            'message', jsonb_build_object(
-               'message_id', position,
+               'message_id', pending_number,
                'date', extract(epoch FROM now())::bigint,
                'chat', jsonb_build_object('id', group_id, 'type', 'private', 'first_name', 'User'),
                'from', jsonb_build_object('id', group_id, 'is_bot', false, 'first_name', 'User', 'language_code', 'ru'),
                'document', jsonb_build_object(
-                   'file_name', 'font-' || position || '.ttf',
+                   'file_name', 'font-' || update_id || '.ttf',
                    'mime_type', 'font/ttf',
                    'file_id', 'BQACAgIAAxkBAAIBY2Zk' || md5(update_id::text),
                    'file_unique_id', 'AgAD' || left(md5(update_id::text), 12),
@@ -45,16 +101,52 @@ SELECT update_id,
        ),
        'pending'
 FROM (
-    SELECT done.last_update_id + row_number() OVER (ORDER BY position, group_id) AS update_id, position, group_id
-    FROM generate_series(1, :per_group) AS position
-    CROSS JOIN generate_series(1, :groups) AS group_id
-    CROSS JOIN (SELECT max(update_id) AS last_update_id FROM telegram_inbox) AS done
+    SELECT :layout_first_update_id + :blocked_group_count + pending_number AS update_id,
+           pending_number,
+           history_update.user_id AS group_id
+    FROM generate_series(1, :updates::bigint) AS pending_number
+    JOIN telegram_inbox AS history_update
+      ON history_update.update_id = :history_update_count / 20000 + 1
+                                    + abs(hashint8extended(pending_number, 4) % (:history_update_count - :history_update_count / 20000))
 ) AS inbox_update
 ORDER BY update_id;
 
+INSERT INTO telegram_inbox (update_id, user_id, chat_id, update, status)
+SELECT update_id,
+       1,
+       1,
+       jsonb_build_object(
+           'update_id', update_id,
+           'message', jsonb_build_object(
+               'message_id', hot_number,
+               'date', extract(epoch FROM now())::bigint,
+               'chat', jsonb_build_object('id', 1, 'type', 'private', 'first_name', 'User'),
+               'from', jsonb_build_object('id', 1, 'is_bot', false, 'first_name', 'User', 'language_code', 'ru'),
+               'document', jsonb_build_object(
+                   'file_name', 'font-' || update_id || '.ttf',
+                   'mime_type', 'font/ttf',
+                   'file_id', 'BQACAgIAAxkBAAIBY2Zk' || md5(update_id::text),
+                   'file_unique_id', 'AgAD' || left(md5(update_id::text), 12),
+                   'file_size', 100000 + update_id % 400000
+               )
+           )
+       ),
+       'pending'
+FROM (
+    SELECT :layout_first_update_id + :blocked_group_count + :updates + hot_number AS update_id, hot_number
+    FROM generate_series(1, :hot_updates::bigint) AS hot_number
+) AS inbox_update
+ORDER BY update_id;
+
+-- A group with the failed update of the layout is blocked, every other group of the layout is ready.
 INSERT INTO telegram_inbox_groups (user_id, chat_id, state, next_attempt_at)
-SELECT group_id, group_id, 'ready', now() - interval '1 minute'
-FROM generate_series(1, :groups) AS group_id;
+SELECT user_id,
+       chat_id,
+       CASE WHEN bool_or(status = 'failed') THEN 'blocked' ELSE 'ready' END,
+       now() - interval '1 minute'
+FROM telegram_inbox
+WHERE update_id >= :layout_first_update_id
+GROUP BY user_id, chat_id;
 
 COMMIT;
 
