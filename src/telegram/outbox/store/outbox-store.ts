@@ -339,18 +339,28 @@ export class OutboxStore {
     // lease change nothing (docs/architecture/outbox.md, "Lease recovery").
     public async findExpiredLeases(): Promise<ExpiredOutboxLease[]> {
         const rows = await this.sql<ExpiredOutboxLeaseRow[]>`
-            SELECT message.id,
+            SELECT head.id,
                    chats.lock_token,
                    -- As jsonb writes a timestamp, the form of started_at the pull gives out: the
                    -- attempts of a message keep one form.
-                   to_jsonb(chats.locked_until - ${this.leaseDurationMs}::double precision * interval '1 millisecond') #>> '{}' AS started_at,
-                   jsonb_array_length(message.attempts) AS earlier_attempts
+                   to_jsonb(chats.locked_until - ${this.leaseDurationMs}::double precision * interval '1 millisecond')
+                       #>> '{}' AS started_at,
+                   jsonb_array_length(head.attempts) AS earlier_attempts
             FROM telegram_outbox_chats AS chats
-            JOIN telegram_outbox AS message
-                ON message.chat_id = chats.chat_id
-               AND message.status = ${OutboxStatus.Processing}
+            -- The processing message of a chat is its head, so the lookup stops at the first active
+            -- message of the chat: filtered by the status alone, it read every active message of the
+            -- chat behind the head (docs/architecture/outbox-load-test.md, "The lease recovery").
+            CROSS JOIN LATERAL (
+                SELECT id, status, attempts
+                FROM telegram_outbox
+                WHERE chat_id = chats.chat_id
+                  AND status IN ${this.sql(ACTIVE_STATUSES)}
+                ORDER BY id
+                LIMIT 1
+            ) AS head
             -- Only a pulled chat is leased: a completion clears the lease.
             WHERE chats.locked_until <= now()
+              AND head.status = ${OutboxStatus.Processing}
             ORDER BY chats.locked_until, chats.chat_id
         `;
 

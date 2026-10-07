@@ -65,7 +65,7 @@ limits held back (see "How to run it").
 | `pull(30)` | — | first 5, then 3.6 – 28, median 7.0, for 3 messages | first 131, then 134 – 536, median 228, for 30 messages |
 | `markAsDone()` | 72 – 76 | median 2.1, p95 4.1, max 14 | median 1.2, p95 4.3, max 42 |
 | `findExpiredLeases()`, no lease expired | — | 0.7 | 3.1 |
-| `findExpiredLeases()`, a batch expired | — | 706, 3 leases | 22, 30 leases |
+| `findExpiredLeases()`, a batch expired | — | 28, 3 leases | 33, 30 leases |
 | `deleteFinishedMessages()`, a full batch | — | 4.3 – 8.5 | — |
 | `deleteFinishedMessages()`, nothing to delete | — | 0.8 | 1.0 |
 | `deleteIdleChats()` | — | 32 | 60 |
@@ -153,12 +153,38 @@ Aggregate  (actual time=13.047..13.048 rows=1.00 loops=1)          -- ready: min
   ->  Seq Scan on telegram_outbox_chats  (actual time=1.458..9.929 rows=99970.00 loops=1)
 ```
 
-### The lease recovery with the index
+### The lease recovery
 
-`findExpiredLeases()` finds the `processing` message of each expired chat among all the active
-messages of the chat: the index gives them by chat, and the status is a filter over every one of
-them, with no `LIMIT` to stop at the head, where the message is. So it costs as many rows as the
-chats it recovers have active messages: 300 000 a chat in the 3 chats layout.
+`findExpiredLeases()` finds the `processing` message of each expired chat as the head of the chat,
+the first entry of the chat in the head index: a chat holds one `processing` message at a time, and
+it is the head ([`outbox.md`](./outbox.md), "Lease recovery"). So it reads one entry a chat,
+however many active messages the chat holds:
+
+```
+Nested Loop  (actual time=0.371..0.560 rows=3.00 loops=1)
+  Buffers: shared hit=19
+  ->  Seq Scan on telegram_outbox_chats chats  (actual time=0.081..0.082 rows=3.00 loops=1)
+        Filter: (locked_until <= now())
+  ->  Subquery Scan on head  (actual time=0.126..0.126 rows=1.00 loops=3)
+        Filter: (head.status = 'processing'::text)
+        ->  Limit  (actual time=0.125..0.125 rows=1.00 loops=3)
+              ->  Index Scan using telegram_outbox_active_chat_id_idx on telegram_outbox
+                    (actual time=0.118..0.118 rows=1.00 loops=3)
+                    Index Cond: (chat_id = chats.chat_id)
+                    Buffers: shared hit=16
+```
+
+The statement took 0.66 ms in the database for the 3 chats and 22 ms for the 30 chats of 100 k,
+nearly all of the latter the seq scan of the 100 000 chats for their `locked_until`; the 30 head
+lookups read 147 buffers in all. The rest of the time in the table is the client's: the measurement
+waits out `OUTBOX_LEASE_DURATION`, 90 s, longer than `DATABASE_CONNECTION_IDLE_TIMEOUT`, 10 s, so
+the call opens a new connection, and the log shows postgres.js reading `pg_type` on it right before
+the statement.
+
+Before ([#836](https://github.com/yuldashevsardor/telegram-bot/issues/836)) the lookup joined the
+chat to its messages with the status `processing`: the index gave every active message of the chat,
+the status was a filter over each, and with no `LIMIT` to stop at the head it read them all, 300 000
+a chat in the 3 chats layout, 706 ms on the client:
 
 ```
 Nested Loop  (actual time=0.180..791.463 rows=3.00 loops=1)
@@ -324,7 +350,8 @@ median, 2 – 7 ms, while the index is kept clean of dead entries; a batch of th
 28 ms once. The pull of 100 k ready chats is not: a batch takes a median of 228 ms, some 23 times
 over, and the pull of one message 144 ms. The threshold is not set for the lease recovery and the
 cleanup, which hold neither the bot row nor a caller waiting: the lease recovery takes 1 – 3 ms
-while no lease has expired and 706 ms for the 3 chats of 300 000 messages whose leases have, and the
+while no lease has expired and under 1 ms in the database for the 3 chats of 300 000 messages whose
+leases have, 28 ms on the client with its new connection, and the
 cleanup that finds nothing reads its index in 1 ms, while a backlog of 1 M takes its batches back to
 the seq scan, a median of 68 ms each. The proposal is a comment on #643:
 https://github.com/yuldashevsardor/telegram-bot/issues/643#issuecomment-5984131010
