@@ -212,12 +212,11 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
 
 - **The group of an update is the key `getSessionKey()` makes its session of: `from.id` and
   `chat.id`.** The inbox hands out one update of a group at a time across nodes, and `session()`
-  reads and writes the row of the key around the handler. `InboxPollingSource` reads the group off
-  a grammY `Context` by `hasSessionKey()` of `session.helper.ts`, the rule of `getSessionKey()`. A
-  group that splits one session lets two of its updates run at once, on two nodes the queue of
-  `sequentialize()` does not join: the second writes its session over the first, losing
-  `requestCount` and the conversation step. Nothing checks this ([`inbox.md`](./inbox.md),
-  "Tables").
+  reads and writes the row of the key around the handler; how the polling source reads the group is
+  in [`inbox.md`](./inbox.md), "The polling source". A group that splits one session lets two of
+  its updates run at once, on two nodes the queue of `sequentialize()` does not join: the second
+  writes its session over the first, losing `requestCount` and the conversation step. Nothing
+  checks this.
 - **`status` and `state` of the inbox tables are written only through `InboxStatus` and
   `InboxGroupState`**, as those of the outbox tables are (above), and for the same reason: an
   update or a group with a mistyped value silently drops out of every query

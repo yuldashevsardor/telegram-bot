@@ -660,9 +660,9 @@ and why one failure is not classified at all:
   until the process is restarted with a new one. As `Unexpected` it would block every chat the
   outbox tries, each to be unblocked by hand, so the outbox pauses instead (see "Outcomes"). A 404
   is not `Unauthorized` although Telegram answers it to a token of a wrong format as well as to an
-  unknown method: such a token fails the `getMe` the runner calls when the bot starts
-  (`bot.init()`), so a 404 while the bot runs is an unknown method, a bug of the call, and it is
-  `Unexpected`.
+  unknown method: such a token fails the `setMyCommands` of `Bot.setup()` at the start
+  ([`application.md`](./application.md), "Start"), so a 404 while the bot runs is an unknown
+  method, a bug of the call, and it is `Unexpected`.
 - An `HttpError` is `Transient` although grammY throws it also after Telegram may have taken the
   call: its own timeout, a connection reset while the answer is on its way. The retry can deliver
   the message twice. The delivery is at least once anyway (see "The lease"), and a duplicate costs

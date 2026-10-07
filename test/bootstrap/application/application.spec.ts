@@ -452,7 +452,7 @@ describe("Application", function () {
                 {
                     level: "warning",
                     message: "Inbox polling stop timeout is over, the source was left stopping.",
-                    payload: { timeout: 20 },
+                    payload: { timeoutMs: 20 },
                 },
             ]);
             expect(logs.map(({ message }) => message)).to.include("Application is successfully stopped.");

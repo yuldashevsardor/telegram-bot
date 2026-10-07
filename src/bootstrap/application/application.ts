@@ -37,7 +37,6 @@ export class Application {
     private logger!: Logger;
     // Filled in assemble() and read by nobody until it is over: run() goes only from ready, and
     // shutdown() touches them only from running.
-    private bot!: Bot;
     private outboxRunner!: OutboxRunner;
     private outboxMaintenance!: OutboxMaintenance;
     private inboxPollingSource!: InboxPollingSource;
@@ -134,14 +133,14 @@ export class Application {
 
         this.logger.info("Database connection is alive.");
 
-        this.bot = container.get<Bot>(Tokens.Bot.Bot);
+        const bot = container.get<Bot>(Tokens.Bot.Bot);
         this.outboxRunner = container.get<OutboxRunner>(Tokens.Bot.Outbox.Runner);
         this.outboxMaintenance = container.get<OutboxMaintenance>(Tokens.Bot.Outbox.Maintenance);
         this.inboxRunner = container.get<InboxRunner>(Tokens.Bot.Inbox.Runner);
         this.inboxMaintenance = container.get<InboxMaintenance>(Tokens.Bot.Inbox.Maintenance);
         this.inboxPollingSource = container.get<InboxPollingSource>(Tokens.Bot.Inbox.PollingSource);
 
-        await this.bot.setup();
+        await bot.setup();
 
         // A stop() in the middle of the setup has already moved the application into the shutdown,
         // and that cannot be cancelled.
@@ -200,13 +199,14 @@ export class Application {
     }
 
     // The source has no deadline of its own: a push stuck on the database holds its stop
-    // (docs/architecture/inbox.md, "The polling source"). The push left behind is cut off by the closing of the pool.
+    // (docs/architecture/inbox.md, "The polling source"). The push left behind is cut off by the
+    // closing of the pool.
     private async stopInboxPollingSource(): Promise<void> {
-        const timeout = this.cc.get("inbox.pollingStopTimeoutMs");
+        const timeoutMs = this.cc.get("inbox.pollingStopTimeoutMs");
 
-        if (!(await withTimeout(this.inboxPollingSource.stop(), timeout))) {
+        if (!(await withTimeout(this.inboxPollingSource.stop(), timeoutMs))) {
             this.logger.warning("Inbox polling stop timeout is over, the source was left stopping.", {
-                timeout: timeout,
+                timeoutMs: timeoutMs,
             });
         }
     }
