@@ -232,23 +232,36 @@ describe("OutboxStore", function () {
         expect((await store.pull(1, WORKER)).messages.map(({ id }) => id)).to.deep.equal([other]);
     });
 
-    it("pulls a chat by the priority of its next message once its head is done", async function () {
-        await store.pushBatch([message(CHAT, "urgent", 100), message(CHAT, "later", 300)]);
-        await store.markAsDone(await pullOne(), RESPONSE);
-        const middle = await store.push(message(OTHER_CHAT, "middle", 200));
+    // The chat row keeps a copy of the priority of its head, and the pull orders by the copy. The
+    // head that takes over is less urgent than the other chat (200) in one case and more urgent in
+    // the other: a copy left as it was fails the one, a copy lost to NULL, which sorts last, the other.
+    for (const { headPriority, nextPriority, pulledFirst } of [
+        { headPriority: 100, nextPriority: 300, pulledFirst: OTHER_CHAT },
+        { headPriority: 300, nextPriority: 100, pulledFirst: CHAT },
+    ]) {
+        it(`pulls a chat by the priority ${nextPriority} of its next message once its head of ${headPriority} is done`, async function () {
+            await store.pushBatch([message(CHAT, "head", headPriority), message(CHAT, "next", nextPriority)]);
+            await store.markAsDone(await pullOne(), RESPONSE);
+            await store.push(message(OTHER_CHAT, "middle", 200));
 
-        expect((await store.pull(1, WORKER)).messages.map(({ id }) => id)).to.deep.equal([middle]);
-    });
+            expect((await store.pull(1, WORKER)).messages.map(({ chatId }) => chatId)).to.deep.equal([pulledFirst]);
+        });
+    }
 
-    it("pulls a retried blocked chat by the priority of the failed message, its head again", async function () {
-        await store.pushBatch([message(CHAT, "failed", 300), message(CHAT, "urgent", 100)]);
-        await store.markAsFailedAndBlockChat(await pullOne(), UNEXPECTED);
-        const middle = await store.push(message(OTHER_CHAT, "middle", 200));
+    for (const { failedPriority, behindPriority, pulledFirst } of [
+        { failedPriority: 300, behindPriority: 100, pulledFirst: OTHER_CHAT },
+        { failedPriority: 100, behindPriority: 300, pulledFirst: CHAT },
+    ]) {
+        it(`pulls a retried blocked chat by the priority ${failedPriority} of the failed message, its head again`, async function () {
+            await store.pushBatch([message(CHAT, "failed", failedPriority), message(CHAT, "behind", behindPriority)]);
+            await store.markAsFailedAndBlockChat(await pullOne(), UNEXPECTED);
+            await store.push(message(OTHER_CHAT, "middle", 200));
 
-        await store.retryBlockedChat(CHAT);
+            await store.retryBlockedChat(CHAT);
 
-        expect((await store.pull(1, WORKER)).messages.map(({ id }) => id)).to.deep.equal([middle]);
-    });
+            expect((await store.pull(1, WORKER)).messages.map(({ chatId }) => chatId)).to.deep.equal([pulledFirst]);
+        });
+    }
 
     it("stores the response and the end of a done message, and says the message is done", async function () {
         const id = await store.push(message(CHAT, "text"));

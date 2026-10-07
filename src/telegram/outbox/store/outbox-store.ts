@@ -110,7 +110,7 @@ export class OutboxStore {
             await sql`
                 UPDATE telegram_outbox_chats
                 SET state = ${OutboxChatState.Ready},
-                    head_priority = ${this.headPriority(sql)},
+                    head_priority = ${this.headPrioritySubquery(sql)},
                     updated_at = now()
                 WHERE chat_id = ANY(${sql.array(chatIds, BIGINT)}::bigint[])
                   AND state = ${OutboxChatState.Idle}
@@ -772,7 +772,7 @@ export class OutboxStore {
         await sql`
             UPDATE telegram_outbox_chats
             SET state = ${state},
-                head_priority = ${this.headPriority(sql)},
+                head_priority = ${this.headPrioritySubquery(sql)},
                 locked_until = NULL,
                 lock_token = NULL,
                 updated_at = now()
@@ -780,10 +780,11 @@ export class OutboxStore {
         `;
     }
 
-    // The copy of the head's priority on the chat row, for an UPDATE of telegram_outbox_chats: the
-    // pull orders the ready chats by it from an index instead of looking up the head of each
+    // The copy of the head's priority on the chat row, for the SET of an UPDATE of
+    // telegram_outbox_chats without an alias: the subquery names the chat by that table. The pull
+    // orders the ready chats by it from an index instead of looking up the head of each
     // (docs/architecture/outbox.md, "Tables"). NULL for a chat with no active message.
-    private headPriority(sql: TransactionSql): PendingQuery<Row[]> {
+    private headPrioritySubquery(sql: TransactionSql): PendingQuery<Row[]> {
         return sql`(
             SELECT priority
             FROM telegram_outbox

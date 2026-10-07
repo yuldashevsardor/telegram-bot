@@ -194,7 +194,9 @@ measured.
 
 The lease recovery that finds no lease took 13 ms against the 3.1 before: the same seq scan of the
 100 000 chats, 1 873 buffers, but the pulls no longer read every chat right before it. Repeated in
-`psql`, the scan took 13 – 18 ms first and 2.5 – 3.1 ms right after.
+`psql`, the scan took 13 – 18 ms first and 2.5 – 3.1 ms right after. `deleteIdleChats()` took
+3.3 ms against the 60 before, and not by the new indexes: both are of the `ready` chats, and it
+reads the `idle` ones by the same seq scan of the chats; why it took less is not measured.
 
 ### The lease recovery
 

@@ -155,8 +155,10 @@ no pull reaches them. The spec has the removal take the chat while a push waits 
    with the head of each (`CROSS JOIN LATERAL`), by the priority of the head, its copy
    `head_priority` on the chat row (see "Tables"), then by `next_attempt_at`, then by `chat_id`,
    `FOR UPDATE OF chats SKIP LOCKED`: a chat another puller holds is skipped, not waited for. The
-   order is that of the pull index, so the pull reads the chats of its batch, not every `ready`
-   one;
+   order is that of the pull index, so the pull reads the `ready` chats from it in order and stops
+   at its batch. Past the due chats it walks only the `ready` chats not due yet of every priority
+   more urgent than the last one it takes: the index leads on `head_priority`, not on
+   `next_attempt_at`;
 3. the head goes to `processing`, but only if it is still `pending`; its `attempts` stay as they
    are, the completion writes the attempt (see "Completions");
 4. the chats whose head was pulled go to `processing`, `next_attempt_at` moves to the time of the
