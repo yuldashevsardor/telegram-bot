@@ -928,15 +928,16 @@ describe("InboxStore", function () {
         });
 
         it("counts the blocked groups alone", async function () {
-            for (const userId of [1, 2]) {
-                await store.push(input(userId, userId, CHAT));
+            const [firstBlockedUser, secondBlockedUser, idleUser, processingUser, readyUser] = [1, 2, 3, 4, 5];
+            for (const blockedUser of [firstBlockedUser, secondBlockedUser]) {
+                await store.push(input(blockedUser, blockedUser, CHAT));
                 await store.markAsFailedAndBlockGroup(await claimOne(), UNEXPECTED);
             }
-            await store.push(input(3, 3, CHAT));
+            await store.push(input(idleUser, idleUser, CHAT));
             await store.markAsDone(await claimOne());
-            await store.push(input(4, 4, CHAT));
+            await store.push(input(processingUser, processingUser, CHAT));
             await claimOne();
-            await store.push(input(5, 5, CHAT));
+            await store.push(input(readyUser, readyUser, CHAT));
 
             expect(await store.countBlockedGroups()).to.equal(2);
         });
