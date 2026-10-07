@@ -25,7 +25,7 @@ the group row, not on the update.
 
 The indexes are picked by the plans of the load test
 ([`inbox-load-test.md`](./inbox-load-test.md)), not ahead of the queries. Besides the primary keys
-there is one, `1791417600000_telegram-inbox-head-index.ts`, which adds
+there are two. `1791417600000_telegram-inbox-head-index.ts` adds
 `telegram_inbox_active_group_idx` on `(user_id, chat_id, update_id)` of the active updates: the head
 of a group for the claim, for `releaseGroup()` and for the lease recovery is its first entry. Its
 `status` is in the predicate, so no update is HOT, and every update leaves dead entries a head
@@ -34,6 +34,9 @@ lookup walks until a vacuum cleans them. So the same migration sets the vacuum o
 `vacuum_index_cleanup = ON` and a cap on the dead rows that bring autovacuum
 (`autovacuum_vacuum_max_threshold`); their reasons are in
 [`outbox-load-test.md`](./outbox-load-test.md), "Vacuum of the head index".
+`1791504000000_telegram-inbox-ready-groups-index.ts` adds `telegram_inbox_ready_groups_idx` on
+`(next_attempt_at, user_id, chat_id)` of the `ready` groups: the claim takes them in that order, so
+it reads as many groups as it claims.
 
 The database does not check the values of `status` and `state`: the store writes them only
 through the `InboxStatus` and `InboxGroupState` enums (`store/inbox-store.types.ts`). Of these,
@@ -110,23 +113,27 @@ a stored one would be left out as a redelivery. Nothing keeps an update active f
 `claim(limit, worker)` throws `InvalidClaimLimit` on a `limit` that is not a whole number from 1 to
 `Number.MAX_SAFE_INTEGER`. Otherwise it is one statement, atomic without a transaction:
 
-1. up to `limit` `ready` groups whose `next_attempt_at` has passed, with the head of each
-   (`CROSS JOIN LATERAL`), by `next_attempt_at`, then by the group key,
-   `FOR UPDATE OF … SKIP LOCKED`: a group another claimer holds is skipped, not waited for;
-2. the head goes to `processing`, but only if it is still `pending`; its `attempts` stay as they
+1. up to `limit` `ready` groups whose `next_attempt_at` has passed, by `next_attempt_at`, then by
+   the group key, `FOR UPDATE SKIP LOCKED`: a group another claimer holds is skipped, not waited
+   for. The groups are taken before their heads are looked up, so the claim reads as many heads as
+   it takes groups (`inbox-load-test.md`, "The claim of 100 k groups"). A `ready` group always has
+   a pending head (see "Group states"), so the order needs nothing from it; a `ready` group without
+   one would take a place among the `limit` groups and claim nothing;
+2. the head of each of those groups (`CROSS JOIN LATERAL`);
+3. the head goes to `processing`, but only if it is still `pending`; its `attempts` stay as they
    are, the completion writes the attempt (see "Completions");
-3. the groups whose head was claimed go to `processing`, `next_attempt_at` moves to `now()`, and
+4. the groups whose head was claimed go to `processing`, `next_attempt_at` moves to `now()`, and
    the group is leased to the claim (see "The lease");
-4. the answer: the claimed updates by `update_id`, each with its group, the update, the
+5. the answer: the claimed updates by `update_id`, each with its group, the update, the
    `lockToken` of the claim, `startedAt` (`now()` of the claim), the `worker` passed to the claim
    and `earlierAttempts`, the length of its `attempts`.
 
-Step 3 is what serves the groups in turn: a group just served goes behind the groups that waited.
+Step 4 is what serves the groups in turn: a group just served goes behind the groups that waited.
 Only one head per group is taken, and a `processing` group is not `ready`, so a group never has two
 updates in `processing`.
 
-Step 1 reads the head from the snapshot of the statement, taken before the lock, so a head
-completed after the snapshot is turned away by the check of step 2 and its group is left `ready`
+Step 2 reads the head from the snapshot of the statement, taken before the lock, so a head
+completed after the snapshot is turned away by the check of step 3 and its group is left `ready`
 for the next claim, as in the outbox ([`outbox.md`](./outbox.md), "Pull").
 
 ## The lease
