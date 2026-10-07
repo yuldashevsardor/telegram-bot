@@ -37,8 +37,9 @@ const CHAT = 5_000_000_001;
 const GROUP_CHAT = -1_001_234_567_890;
 // A user id past the range of bigint.
 const BEYOND_BIGINT = 1e20;
-// A value jsonb refuses in a string.
+// The values jsonb refuses in a string.
 const NUL_TEXT = "before\u0000after";
+const SURROGATE_TEXT = "before\ud800after";
 // Longer than any wait of a passing run, shorter than SPEC_TIMEOUT_MS: a hung wait fails with its
 // own message and stops before after() closes the clients.
 const WAIT_DEADLINE_MS = 5_000;
@@ -165,8 +166,8 @@ describe("InboxStore", function () {
         // The polling source pushes the rest of a refused batch one at a time and drops the refused
         // update (docs/architecture/inbox.md, "The polling source").
         for (const [name, text, code] of [
-            ["a NUL character", "before\u0000after", "22P05"],
-            ["a lone surrogate", "before\ud800after", "22P02"],
+            ["a NUL character", NUL_TEXT, "22P05"],
+            ["a lone surrogate", SURROGATE_TEXT, "22P02"],
         ] as const) {
             it(`refuses a batch with ${name} in an update by SQLSTATE ${code} and stores none of it`, async function () {
                 const thrown = await pushFailure([input(10), input(11, USER, CHAT, text)]);
@@ -177,12 +178,17 @@ describe("InboxStore", function () {
             });
         }
 
-        it("refuses an update with a refused value in a key deep inside it", async function () {
-            const pushed = input(10);
-            const update = { ...pushed.update, nested: [{ ["key" + NUL_TEXT]: "value" }] } as Update;
+        for (const [name, text] of [
+            ["a NUL character", NUL_TEXT],
+            ["a lone surrogate", SURROGATE_TEXT],
+        ] as const) {
+            it(`refuses an update with ${name} in a key deep inside it`, async function () {
+                const pushed = input(10);
+                const update = { ...pushed.update, nested: [{ ["key" + text]: "value" }] } as Update;
 
-            expect(await pushFailure([{ ...pushed, update: update }])).to.be.instanceOf(InboxUpdateRefused);
-        });
+                expect(await pushFailure([{ ...pushed, update: update }])).to.be.instanceOf(InboxUpdateRefused);
+            });
+        }
 
         // Not the error as a whole: the CONTEXT PostgreSQL gives a refused value, in its where field,
         // holds the text of the message.

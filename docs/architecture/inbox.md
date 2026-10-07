@@ -565,8 +565,10 @@ holds it, so whatever stops the source bounds the wait
 ## The store in code
 
 The store has no interface of its own: no consumer dictates one yet ([`storage.md`](./storage.md)).
-It is SQL through and through, so it is in `DATABASE_ONLY_SOURCES` of `stryker.config.mjs` and its
-spec is in `DATABASE_SPECS` ([`testing.md`](./testing.md), "Mutation testing").
+It is SQL besides one rule that needs no database, the refusal of a push (see "The polling
+source"), so it is in `DATABASE_ONLY_SOURCES` of `stryker.config.mjs` and its spec is in
+`DATABASE_SPECS` ([`testing.md`](./testing.md), "Mutation testing"). No mutant tests that rule:
+only the database specs of the store pin it.
 
 `InboxFailureHandler` and `InboxLeaseReleaser` are there too: their specs run them over the real
 store, so that each outcome is pinned by the rows it leaves rather than by the calls a fake store

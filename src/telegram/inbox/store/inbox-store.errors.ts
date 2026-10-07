@@ -36,15 +36,14 @@ export class InboxUpdateNotLeased extends RuntimeError {
 // the CONTEXT it gives a refused value, in its where field, holds the update up to that value, the
 // text of the message included.
 export class InboxPushFailed extends RuntimeError {
-    public static byPostgresError(error: postgres.PostgresError): InboxPushFailed {
-        return new InboxPushFailed(error.message, { code: error.code, detail: error.detail });
+    public static byPostgresError<T extends InboxPushFailed>(
+        this: new (...params: ConstructorParameters<typeof RuntimeError>) => T,
+        error: postgres.PostgresError,
+    ): T {
+        return new this(error.message, { code: error.code, detail: error.detail });
     }
 }
 
 // A push PostgreSQL failed for a value of the updates themselves: the same updates fail every time
 // they are pushed (docs/architecture/inbox.md, "The polling source").
-export class InboxUpdateRefused extends InboxPushFailed {
-    public static override byPostgresError(error: postgres.PostgresError): InboxUpdateRefused {
-        return new InboxUpdateRefused(error.message, { code: error.code, detail: error.detail });
-    }
-}
+export class InboxUpdateRefused extends InboxPushFailed {}

@@ -250,9 +250,9 @@ export class InboxPollingSource {
         this.logger.error(message, { ...payload, cause: error });
     }
 
-    // The retry delay for the failures in a row, of calls and pushes alike, so an outage of Telegram,
-    // a revoked token or a lasting 409 is not retried and logged every second; or the wait a 429 asks
-    // for, if it is longer.
+    // The retry delay for the failures in a row, so an outage of Telegram, a revoked token or a lasting
+    // 409 is not retried and logged every second; or the wait a 429 asks for, if it is longer. The
+    // failures in a row are counted for calls and pushes alike.
     private async pauseAfterCallFailure(error: unknown): Promise<void> {
         this.consecutiveFailureCount += 1;
 
