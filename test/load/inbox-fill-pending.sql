@@ -7,6 +7,15 @@
 -- The status and the state are the values of InboxStatus and InboxGroupState; the measurement stops
 -- on a layout it cannot claim (inbox-load-test.ts).
 
+-- The update_id follow the done ones, so a layout without the done fill would have none to follow.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM telegram_inbox WHERE status = 'done') THEN
+        RAISE EXCEPTION 'telegram_inbox has no done updates: make load-inbox-fill-done first';
+    END IF;
+END
+$$;
+
 BEGIN;
 
 DELETE FROM telegram_inbox WHERE status <> 'done';

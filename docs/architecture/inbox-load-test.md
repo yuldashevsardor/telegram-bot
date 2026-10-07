@@ -9,10 +9,11 @@ The claim, the completion, the lease recovery and the cleanup of the inbox store
 
 The test shares the database, `load-up`, `load-psql` and `load-down` with the outbox load test, and
 the way the times and the plans are taken: see "How to run it" there. Its own targets, in this
-order: `load-inbox-fill-done` once, then per layout `load-inbox-fill-pending` and
-`load-inbox-measure [plans=off]`; `load-inbox-index` builds the candidate head index (see
-"Results") over the filled table. The files they run are in `test/load/`. A fill stays valid for 6
-days, as the outbox one does.
+order: `load-inbox-fill-done` once, `load-inbox-index`, which builds the candidate head index (see
+"Results") over the filled table, then per layout `load-inbox-fill-pending` and
+`load-inbox-measure [plans=off]`. Without the index a claim takes some 5 minutes, so a measurement
+without it is to be cut short after a call or two, as the one in "Results" was. The files they run
+are in `test/load/`. A fill stays valid for 6 days, as the outbox one does.
 
 The measurement calls the real `InboxStore` with the settings of `.env`: 15 `claim(1)`, what the
 worker asks for (`CLAIM_LIMIT` of `InboxUpdateSource`), and 15 `claim(30)`, a batch the size of the

@@ -150,7 +150,7 @@ format: ## Reformat with prettier: make format [files="src/app.ts"]
 # check leaves the target as it is.
 mutation: ## Mutation testing, report and run record in ./reports: make mutation [files="src/shared/**"]
 	@mkdir -p reports
-	{ command -v caffeinate >/dev/null && caffeinate -i -w $$; } & \
+	{ command -v caffeinate >/dev/null && caffeinate -i -w $$$$; } & \
 		tree=$$(git status --porcelain) && dirty=$$(printf '%s' "$$tree" | awk 'END { print NR }') || dirty=unknown; \
 		$(DC_APP_RUN) env MUTATION_HEAD="$$(git rev-parse HEAD)" MUTATION_DIRTY="$$dirty" \
 		TSX_TSCONFIG_PATH=./tsconfig.check.json $(if $(FILES),MUTATE='$(FILES)') \
