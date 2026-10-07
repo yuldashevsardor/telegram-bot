@@ -12,6 +12,9 @@ import type { UnknownObject } from "app/shared/types";
 import type { Bot } from "app/telegram/bot/bot";
 import type { OutboxRunner } from "app/telegram/outbox/outbox-runner";
 import type { OutboxMaintenance } from "app/telegram/outbox/maintenance/outbox-maintenance";
+import type { InboxPollingSource } from "app/telegram/inbox/inbox-polling-source";
+import type { InboxRunner } from "app/telegram/inbox/inbox-runner";
+import type { InboxMaintenance } from "app/telegram/inbox/maintenance/inbox-maintenance";
 import { fillApplicationContext, resetApplicationContext } from "test/bootstrap/application/application-context.helper";
 
 type Log = {
@@ -28,8 +31,8 @@ describe("Application", function () {
 
     let configValues: Record<string, string>;
     let checkDatabase: () => Promise<void>;
-    let runBot: () => Promise<void>;
-    let stopBot: () => Promise<void>;
+    let stopInboxPollingSource: () => Promise<void>;
+    let stopInboxRunner: () => Promise<void>;
     let stopOutboxRunner: () => Promise<void>;
     let configUnwatches = 0;
 
@@ -59,16 +62,6 @@ describe("Application", function () {
         setup: async (): Promise<void> => {
             calls.push("bot.setup");
         },
-        run: (): Promise<void> => {
-            calls.push("bot.run");
-
-            return runBot();
-        },
-        stop: (): Promise<void> => {
-            calls.push("bot.stop");
-
-            return stopBot();
-        },
     } as unknown as Bot;
 
     const outboxRunner = {
@@ -90,6 +83,37 @@ describe("Application", function () {
             calls.push("outboxMaintenance.stop");
         },
     } as unknown as OutboxMaintenance;
+
+    const inboxPollingSource = {
+        start: (): void => {
+            calls.push("inboxPollingSource.start");
+        },
+        stop: (): Promise<void> => {
+            calls.push("inboxPollingSource.stop");
+
+            return stopInboxPollingSource();
+        },
+    } as unknown as InboxPollingSource;
+
+    const inboxRunner = {
+        start: (): void => {
+            calls.push("inboxRunner.start");
+        },
+        stop: (): Promise<void> => {
+            calls.push("inboxRunner.stop");
+
+            return stopInboxRunner();
+        },
+    } as unknown as InboxRunner;
+
+    const inboxMaintenance = {
+        start: (): void => {
+            calls.push("inboxMaintenance.start");
+        },
+        stop: async (): Promise<void> => {
+            calls.push("inboxMaintenance.stop");
+        },
+    } as unknown as InboxMaintenance;
 
     function resolve<T>(name: string, value: T): () => T {
         return (): T => {
@@ -141,8 +165,8 @@ describe("Application", function () {
         configUnwatches = 0;
         configValues = {};
         checkDatabase = async (): Promise<void> => undefined;
-        runBot = async (): Promise<void> => undefined;
-        stopBot = async (): Promise<void> => undefined;
+        stopInboxPollingSource = async (): Promise<void> => undefined;
+        stopInboxRunner = async (): Promise<void> => undefined;
         stopOutboxRunner = async (): Promise<void> => undefined;
 
         container.snapshot();
@@ -150,6 +174,11 @@ describe("Application", function () {
         container.bind<Bot>(Tokens.Bot.Bot).toDynamicValue(resolve("Bot", bot));
         container.bind<OutboxRunner>(Tokens.Bot.Outbox.Runner).toDynamicValue(resolve("OutboxRunner", outboxRunner));
         container.bind<OutboxMaintenance>(Tokens.Bot.Outbox.Maintenance).toDynamicValue(resolve("OutboxMaintenance", outboxMaintenance));
+        container.bind<InboxRunner>(Tokens.Bot.Inbox.Runner).toDynamicValue(resolve("InboxRunner", inboxRunner));
+        container.bind<InboxMaintenance>(Tokens.Bot.Inbox.Maintenance).toDynamicValue(resolve("InboxMaintenance", inboxMaintenance));
+        container
+            .bind<InboxPollingSource>(Tokens.Bot.Inbox.PollingSource)
+            .toDynamicValue(resolve("InboxPollingSource", inboxPollingSource));
     });
 
     afterEach(function () {
@@ -197,6 +226,9 @@ describe("Application", function () {
                 "resolve Bot",
                 "resolve OutboxRunner",
                 "resolve OutboxMaintenance",
+                "resolve InboxRunner",
+                "resolve InboxMaintenance",
+                "resolve InboxPollingSource",
                 "bot.setup",
             ]);
         });
@@ -237,6 +269,9 @@ describe("Application", function () {
                 "resolve Bot",
                 "resolve OutboxRunner",
                 "resolve OutboxMaintenance",
+                "resolve InboxRunner",
+                "resolve InboxMaintenance",
+                "resolve InboxPollingSource",
                 "bot.setup",
                 "second setup resolved",
             ]);
@@ -287,87 +322,20 @@ describe("Application", function () {
             expect(calls).to.deep.equal([]);
         });
 
-        it("starts the bot, then the outbox, and logs the start", async function () {
+        // The outbox first: the handlers of the updates await its results. The polling source last.
+        it("starts the outbox, then the inbox, then the polling source, and logs the start", async function () {
             const application = await setUp();
 
             await application.run();
-
-            expect(calls).to.deep.equal(["bot.run", "outboxRunner.start", "outboxMaintenance.start"]);
-            expect(logs).to.deep.equal([{ level: "info", message: "Application is successfully started.", payload: undefined }]);
-        });
-
-        // A failure is logged only by fail() in app.ts: a second critical on the same failure would
-        // double the alert count.
-        // The outbox starts after the bot, so a bot that fails to start leaves it never started: its
-        // runner starts only once.
-        it("rethrows without logging or starting the outbox when the bot fails to start", async function () {
-            const error = new Error("getMe failed");
-            runBot = (): Promise<void> => Promise.reject(error);
-            const application = await setUp();
-
-            expect(await caught(application.run())).to.equal(error);
-            expect(calls).to.deep.equal(["bot.run"]);
-            expect(logs).to.deep.equal([]);
-        });
-
-        it("starts again after the bot has failed to start", async function () {
-            runBot = (): Promise<void> => Promise.reject(new Error("getMe failed"));
-            const application = await setUp();
-            await caught(application.run());
-            calls.length = 0;
-            runBot = async (): Promise<void> => undefined;
-
-            await application.run();
-
-            expect(calls).to.deep.equal(["bot.run", "outboxRunner.start", "outboxMaintenance.start"]);
-        });
-
-        // Today there is no window between the start of run() and the end of bot.run(): Bot.run() has
-        // no await. This test and the next one hold the behaviour of Application in case an await
-        // appears there; what the real Bot.stop() would then do with a bot that is not running yet
-        // is not something the stub checks.
-        // The outbox starts after its stop here: both starts after a stop do nothing.
-        it("counts as running while the bot is starting, so a stop in between runs the full shutdown", async function () {
-            const botStarted = Promise.withResolvers<void>();
-            runBot = (): Promise<void> => botStarted.promise;
-            const application = await setUp();
-
-            const started = application.run();
-            const stopped = application.stop();
-            botStarted.resolve();
-            await Promise.all([started, stopped]);
-            await application.stop();
 
             expect(calls).to.deep.equal([
-                "bot.run",
-                "bot.stop",
-                "outboxRunner.stop",
                 "outboxRunner.start",
                 "outboxMaintenance.start",
-                "outboxMaintenance.stop",
-                "container.close",
+                "inboxRunner.start",
+                "inboxMaintenance.start",
+                "inboxPollingSource.start",
             ]);
-        });
-
-        // The failure arrives while the stop is still under way: a rollback into ready would let a
-        // repeated stop() start a second one, and the end of the first will set stopped anyway.
-        it("stays stopping when the bot fails to start while a stop is in progress", async function () {
-            const error = new Error("getMe failed");
-            const botStarted = Promise.withResolvers<void>();
-            const botStopped = Promise.withResolvers<void>();
-            runBot = (): Promise<void> => botStarted.promise;
-            stopBot = (): Promise<void> => botStopped.promise;
-            const application = await setUp();
-
-            const started = caught(application.run());
-            const stopped = application.stop();
-            botStarted.reject(error);
-            expect(await started).to.equal(error);
-            const repeated = application.stop();
-            botStopped.resolve();
-            await Promise.all([stopped, repeated]);
-
-            expect(calls).to.deep.equal(["bot.run", "bot.stop", "outboxRunner.stop", "outboxMaintenance.stop", "container.close"]);
+            expect(logs).to.deep.equal([{ level: "info", message: "Application is successfully started.", payload: undefined }]);
         });
 
         it("rejects when already running without starting anything again", async function () {
@@ -394,6 +362,15 @@ describe("Application", function () {
     });
 
     describe("stop()", function () {
+        const FULL_STOP = [
+            "inboxPollingSource.stop",
+            "inboxRunner.stop",
+            "inboxMaintenance.stop",
+            "outboxRunner.stop",
+            "outboxMaintenance.stop",
+            "container.close",
+        ];
+
         it("does nothing before setup", async function () {
             await new Application().stop();
 
@@ -409,21 +386,38 @@ describe("Application", function () {
             expect(calls).to.deep.equal(["container.close"]);
         });
 
-        it("stops the bot, then the outbox, and closes the container", async function () {
+        it("stops the polling source, then the inbox, then the outbox, and closes the container", async function () {
             const application = await start();
 
             await application.stop();
 
-            expect(calls).to.deep.equal(["bot.stop", "outboxRunner.stop", "outboxMaintenance.stop", "container.close"]);
+            expect(calls).to.deep.equal(FULL_STOP);
             expect(logs).to.deep.equal([
                 { level: "info", message: "Stop application...", payload: undefined },
                 { level: "info", message: "Application is successfully stopped.", payload: undefined },
             ]);
         });
 
-        // The runner waits for its calls in flight up to OUTBOX_STOP_TIMEOUT; the maintenance and the
-        // pool come after it. The pause is long enough for the stop to reach the runner and wait there.
-        const OUTBOX_STOP_REACHED_MS = 10;
+        // A runner waits for its work in flight up to its own deadline, and what follows it waits for
+        // the runner. The pause is long enough for the stop to reach the runner and wait there.
+        const RUNNER_STOP_REACHED_MS = 10;
+
+        // The handlers in flight await the results of the outbox: stopped first, the outbox would leave
+        // them waiting for nothing.
+        it("drains the inbox before it stops the outbox", async function () {
+            const inboxStopped = Promise.withResolvers<void>();
+            stopInboxRunner = (): Promise<void> => inboxStopped.promise;
+            const application = await start();
+
+            const stopped = application.stop();
+            await sleep(RUNNER_STOP_REACHED_MS);
+            const callsWhileWaiting = [...calls];
+            inboxStopped.resolve();
+            await stopped;
+
+            expect(callsWhileWaiting).to.deep.equal(["inboxPollingSource.stop", "inboxRunner.stop"]);
+            expect(calls).to.deep.equal(FULL_STOP);
+        });
 
         it("waits for the outbox runner to stop before it stops the maintenance", async function () {
             const outboxStopped = Promise.withResolvers<void>();
@@ -431,13 +425,37 @@ describe("Application", function () {
             const application = await start();
 
             const stopped = application.stop();
-            await sleep(OUTBOX_STOP_REACHED_MS);
+            await sleep(RUNNER_STOP_REACHED_MS);
             const callsWhileWaiting = [...calls];
             outboxStopped.resolve();
             await stopped;
 
-            expect(callsWhileWaiting).to.deep.equal(["bot.stop", "outboxRunner.stop"]);
-            expect(calls).to.deep.equal(["bot.stop", "outboxRunner.stop", "outboxMaintenance.stop", "container.close"]);
+            expect(callsWhileWaiting).to.deep.equal([
+                "inboxPollingSource.stop",
+                "inboxRunner.stop",
+                "inboxMaintenance.stop",
+                "outboxRunner.stop",
+            ]);
+            expect(calls).to.deep.equal(FULL_STOP);
+        });
+
+        // The source has no deadline of its own: a push stuck on the database would hold the whole stop.
+        it("waits for the polling source no longer than its timeout, warns and stops the rest", async function () {
+            configValues = { INBOX_POLLING_STOP_TIMEOUT: "20" };
+            stopInboxPollingSource = (): Promise<void> => new Promise(() => undefined);
+            const application = await start();
+
+            await application.stop();
+
+            expect(calls).to.deep.equal(FULL_STOP);
+            expect(logs.filter(({ level }) => level === "warning")).to.deep.equal([
+                {
+                    level: "warning",
+                    message: "Inbox polling stop timeout is over, the source was left stopping.",
+                    payload: { timeoutMs: 20 },
+                },
+            ]);
+            expect(logs.map(({ message }) => message)).to.include("Application is successfully stopped.");
         });
 
         it("does nothing on a second stop after the first one has finished", async function () {
@@ -454,7 +472,7 @@ describe("Application", function () {
 
         it("rejects again with the same error without repeating a failed stop", async function () {
             const error = new Error("runner stop failed");
-            stopBot = (): Promise<void> => Promise.reject(error);
+            stopInboxRunner = (): Promise<void> => Promise.reject(error);
             const application = await start();
             expect(await caught(application.stop())).to.equal(error);
             calls.length = 0;
@@ -468,22 +486,16 @@ describe("Application", function () {
         // This is how app.ts handles a signal of the other kind that arrived during the stop: a
         // second stop() returning before the first would let process.exit(0) cut the stop short.
         it("waits for the stop in progress instead of starting another one", async function () {
-            const botStopped = Promise.withResolvers<void>();
-            stopBot = (): Promise<void> => botStopped.promise;
+            const inboxStopped = Promise.withResolvers<void>();
+            stopInboxRunner = (): Promise<void> => inboxStopped.promise;
             const application = await start();
 
             const first = application.stop();
             const second = application.stop().then(() => calls.push("second stop resolved"));
-            botStopped.resolve();
+            inboxStopped.resolve();
             await Promise.all([first, second]);
 
-            expect(calls).to.deep.equal([
-                "bot.stop",
-                "outboxRunner.stop",
-                "outboxMaintenance.stop",
-                "container.close",
-                "second stop resolved",
-            ]);
+            expect(calls).to.deep.equal([...FULL_STOP, "second stop resolved"]);
             expect(logs.map(({ message }) => message)).to.deep.equal(["Stop application...", "Application is successfully stopped."]);
         });
 
@@ -506,6 +518,9 @@ describe("Application", function () {
                 "resolve Bot",
                 "resolve OutboxRunner",
                 "resolve OutboxMaintenance",
+                "resolve InboxRunner",
+                "resolve InboxMaintenance",
+                "resolve InboxPollingSource",
                 "bot.setup",
                 "container.close",
             ]);
@@ -550,7 +565,8 @@ describe("Application", function () {
         it("waits for the setup in progress no longer than the graceful shutdown timeout", async function () {
             configValues = {
                 GRACEFUL_SHUTDOWN_TIMEOUT: "20",
-                BOT_GRACEFUL_SHUTDOWN_TIMEOUT: "0",
+                INBOX_POLLING_STOP_TIMEOUT: "0",
+                INBOX_STOP_TIMEOUT: "0",
                 OUTBOX_STOP_TIMEOUT: "0",
             };
             checkDatabase = (): Promise<void> => new Promise(() => undefined);
@@ -575,10 +591,11 @@ describe("Application", function () {
         it("unwatches the config even when the shutdown timeout is over", async function () {
             configValues = {
                 GRACEFUL_SHUTDOWN_TIMEOUT: "20",
-                BOT_GRACEFUL_SHUTDOWN_TIMEOUT: "0",
+                INBOX_POLLING_STOP_TIMEOUT: "0",
+                INBOX_STOP_TIMEOUT: "0",
                 OUTBOX_STOP_TIMEOUT: "0",
             };
-            stopBot = (): Promise<void> => new Promise(() => undefined);
+            stopInboxRunner = (): Promise<void> => new Promise(() => undefined);
             const application = await start();
 
             await application.stop();
@@ -593,15 +610,16 @@ describe("Application", function () {
         it("returns with a warning when the shutdown outlives the graceful shutdown timeout", async function () {
             configValues = {
                 GRACEFUL_SHUTDOWN_TIMEOUT: "20",
-                BOT_GRACEFUL_SHUTDOWN_TIMEOUT: "0",
+                INBOX_POLLING_STOP_TIMEOUT: "0",
+                INBOX_STOP_TIMEOUT: "0",
                 OUTBOX_STOP_TIMEOUT: "0",
             };
-            stopBot = (): Promise<void> => new Promise(() => undefined);
+            stopInboxRunner = (): Promise<void> => new Promise(() => undefined);
             const application = await start();
 
             await application.stop();
 
-            expect(calls).to.deep.equal(["bot.stop"]);
+            expect(calls).to.deep.equal(["inboxPollingSource.stop", "inboxRunner.stop"]);
             expect(logs.filter(({ level }) => level === "warning")).to.deep.equal([
                 {
                     level: "warning",

@@ -7,6 +7,9 @@ import type { Database } from "app/platform/database/database";
 import type { Bot } from "app/telegram/bot/bot";
 import type { OutboxRunner } from "app/telegram/outbox/outbox-runner";
 import type { OutboxMaintenance } from "app/telegram/outbox/maintenance/outbox-maintenance";
+import type { InboxPollingSource } from "app/telegram/inbox/inbox-polling-source";
+import type { InboxRunner } from "app/telegram/inbox/inbox-runner";
+import type { InboxMaintenance } from "app/telegram/inbox/maintenance/inbox-maintenance";
 import { withTimeout } from "app/shared/utils";
 import { RuntimeError } from "app/shared/errors";
 
@@ -34,9 +37,11 @@ export class Application {
     private logger!: Logger;
     // Filled in assemble() and read by nobody until it is over: run() goes only from ready, and
     // shutdown() touches them only from running.
-    private bot!: Bot;
     private outboxRunner!: OutboxRunner;
     private outboxMaintenance!: OutboxMaintenance;
+    private inboxPollingSource!: InboxPollingSource;
+    private inboxRunner!: InboxRunner;
+    private inboxMaintenance!: InboxMaintenance;
 
     private state: State = { name: "created" };
 
@@ -72,34 +77,18 @@ export class Application {
             throw new RuntimeError("Application is not set up!");
         }
 
-        // Running from the beginning of the start: a stop() that catches the bot starting goes
-        // through the full shutdown, not only the closing of the container. Whether Bot.stop() stops
-        // a bot that has not raised its isRun yet is up to Bot. Today it skips such a bot, and there
-        // is no window only because Bot.run() has no await.
+        // Every start is synchronous, so a stop() comes before them all or after them all.
         this.state = { name: "running" };
 
-        try {
-            await this.bot.run();
+        // In the reverse order of the stop. The outbox first: the handlers of the updates await its
+        // results. The polling source last: the inbox it fills is handled from the first update.
+        this.outboxRunner.start();
+        this.outboxMaintenance.start();
+        this.inboxRunner.start();
+        this.inboxMaintenance.start();
+        this.inboxPollingSource.start();
 
-            // After the bot, with no await in between: an update comes no sooner than the next turn
-            // of the event loop, so the outbox sends from the first one. Started before, the outbox
-            // would need stopping when the bot fails to start, and its runner starts only once
-            // (docs/architecture/invariants.md, "The outbox"). A stop() while the bot was starting
-            // stops the outbox before this start or after it: both orders are safe, since a start
-            // after a stop does nothing.
-            this.outboxRunner.start();
-            this.outboxMaintenance.start();
-
-            this.logger.info("Application is successfully started.");
-        } catch (error) {
-            // A stop() during the start has already moved the application into the shutdown, and
-            // that cannot be cancelled.
-            if (this.state.name === "running") {
-                this.state = { name: "ready" };
-            }
-
-            throw error;
-        }
+        this.logger.info("Application is successfully started.");
     }
 
     public async stop(): Promise<void> {
@@ -144,11 +133,14 @@ export class Application {
 
         this.logger.info("Database connection is alive.");
 
-        this.bot = container.get<Bot>(Tokens.Bot.Bot);
+        const bot = container.get<Bot>(Tokens.Bot.Bot);
         this.outboxRunner = container.get<OutboxRunner>(Tokens.Bot.Outbox.Runner);
         this.outboxMaintenance = container.get<OutboxMaintenance>(Tokens.Bot.Outbox.Maintenance);
+        this.inboxRunner = container.get<InboxRunner>(Tokens.Bot.Inbox.Runner);
+        this.inboxMaintenance = container.get<InboxMaintenance>(Tokens.Bot.Inbox.Maintenance);
+        this.inboxPollingSource = container.get<InboxPollingSource>(Tokens.Bot.Inbox.PollingSource);
 
-        await this.bot.setup();
+        await bot.setup();
 
         // A stop() in the middle of the setup has already moved the application into the shutdown,
         // and that cannot be cancelled.
@@ -182,10 +174,10 @@ export class Application {
         this.logger.info("Application is successfully stopped.");
     }
 
-    // The bot and the outbox runner have deadlines of their own, and the whole stop has the overall
-    // one, greater than their sum (checked when the config is assembled). The steps without a
-    // deadline, the stop of the outbox maintenance and the closing of the pool, live on what is left
-    // of it when those two use theirs up.
+    // The runners of the inbox and the outbox have deadlines of their own, the polling source the one
+    // stopInboxPollingSource() gives it, and the whole stop has the overall one, greater than their
+    // sum (checked when the config is assembled). The steps without a deadline, the stops of the maintenance and the closing of the
+    // pool, live on what is left of it when those three use theirs up.
     private async shutdown(from: State): Promise<void> {
         // A failure of the setup leaves from here as well (docs/architecture/application.md, "Stop",
         // step 3). Swallowed, it would leave the exit code to a race between exit(0) and exit(1).
@@ -194,13 +186,28 @@ export class Application {
         }
 
         if (from.name === "running") {
-            await this.bot.stop();
-            // The calls of the updates still in the pipeline stay queued for another node or the next
-            // start.
+            await this.stopInboxPollingSource();
+            // The inbox before the outbox: the handlers in flight await the results of the outbox.
+            await this.inboxRunner.stop();
+            await this.inboxMaintenance.stop();
+            // The calls of the handlers left running stay queued for another node or the next start.
             await this.outboxRunner.stop();
             await this.outboxMaintenance.stop();
         }
 
         await container.close();
+    }
+
+    // The source has no deadline of its own: a push stuck on the database holds its stop
+    // (docs/architecture/inbox.md, "The polling source"). The push left behind is cut off by the
+    // closing of the pool.
+    private async stopInboxPollingSource(): Promise<void> {
+        const timeoutMs = this.cc.get("inbox.pollingStopTimeoutMs");
+
+        if (!(await withTimeout(this.inboxPollingSource.stop(), timeoutMs))) {
+            this.logger.warning("Inbox polling stop timeout is over, the source was left stopping.", {
+                timeoutMs: timeoutMs,
+            });
+        }
     }
 }

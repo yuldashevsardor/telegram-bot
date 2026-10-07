@@ -56,11 +56,12 @@ describe("ConfigValuesBuilder", () => {
             maxAttempts: 10,
             concurrency: 5,
             stopTimeoutMs: 5000,
+            pollingStopTimeoutMs: 3000,
             maintenance: { leaseRecoveryIntervalMs: 10000, cleanupIntervalMs: 600000 },
             cleanup: { doneRetentionMs: 604800000, skippedRetentionMs: 2592000000, batchSize: 1000 },
         });
-        expect(result.bot).to.deep.equal({ token: "token", gracefulShutdown: { timeout: 3000 } });
-        expect(result.gracefulShutdown).to.deep.equal({ timeout: 15000 });
+        expect(result.bot).to.deep.equal({ token: "token" });
+        expect(result.gracefulShutdown).to.deep.equal({ timeout: 20000 });
         expect(result.logger).to.deep.equal({ level: Level.DEBUG });
         expect(result.database).to.deep.equal({
             host: "localhost",
@@ -104,13 +105,13 @@ describe("ConfigValuesBuilder", () => {
             INBOX_MAX_ATTEMPTS: "12",
             INBOX_CONCURRENCY: "7",
             INBOX_STOP_TIMEOUT: "5003",
+            INBOX_POLLING_STOP_TIMEOUT: "3001",
             INBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL: "10004",
             INBOX_MAINTENANCE_CLEANUP_INTERVAL: "600004",
             INBOX_DONE_RETENTION: "604800002",
             INBOX_SKIPPED_RETENTION: "2592000002",
             INBOX_CLEANUP_BATCH_SIZE: "1002",
             BOT_TOKEN: "own-token",
-            BOT_GRACEFUL_SHUTDOWN_TIMEOUT: "3001",
             GRACEFUL_SHUTDOWN_TIMEOUT: "15001",
             LOGGER_LEVEL: "INFO",
             DATABASE_HOST: "pgsql",
@@ -148,10 +149,11 @@ describe("ConfigValuesBuilder", () => {
             maxAttempts: 12,
             concurrency: 7,
             stopTimeoutMs: 5003,
+            pollingStopTimeoutMs: 3001,
             maintenance: { leaseRecoveryIntervalMs: 10004, cleanupIntervalMs: 600004 },
             cleanup: { doneRetentionMs: 604800002, skippedRetentionMs: 2592000002, batchSize: 1002 },
         });
-        expect(result.bot).to.deep.equal({ token: "own-token", gracefulShutdown: { timeout: 3001 } });
+        expect(result.bot).to.deep.equal({ token: "own-token" });
         expect(result.gracefulShutdown).to.deep.equal({ timeout: 15001 });
         expect(result.logger).to.deep.equal({ level: Level.INFO });
         expect(result.database).to.deep.equal({
@@ -248,10 +250,10 @@ describe("ConfigValuesBuilder", () => {
         { name: "INBOX_MAX_ATTEMPTS", below: "0", range: "at least 1" },
         { name: "INBOX_CONCURRENCY", below: "0", range: "at least 1" },
         { name: "INBOX_STOP_TIMEOUT", below: "-1", range: "between 0 and 2147483647" },
+        { name: "INBOX_POLLING_STOP_TIMEOUT", below: "-1", range: "between 0 and 2147483647" },
         { name: "INBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL", below: "0", range: "between 1 and 2147483647" },
         { name: "INBOX_MAINTENANCE_CLEANUP_INTERVAL", below: "0", range: "between 1 and 2147483647" },
         { name: "INBOX_CLEANUP_BATCH_SIZE", below: "0", range: "between 1 and 9007199254740991" },
-        { name: "BOT_GRACEFUL_SHUTDOWN_TIMEOUT", below: "-1", range: "between 0 and 2147483647" },
         { name: "GRACEFUL_SHUTDOWN_TIMEOUT", below: "0", range: "between 1 and 2147483647" },
         { name: "DATABASE_PORT", below: "0", range: "between 1 and 65535" },
         { name: "DATABASE_CONNECTION_LIMIT", below: "0", range: "at least 1" },
@@ -286,14 +288,16 @@ describe("ConfigValuesBuilder", () => {
 
     it("accepts zero where it means not to wait or to switch a timer off", () => {
         const result = config({
-            BOT_GRACEFUL_SHUTDOWN_TIMEOUT: "0",
+            INBOX_POLLING_STOP_TIMEOUT: "0",
+            INBOX_STOP_TIMEOUT: "0",
             DATABASE_CONNECTION_IDLE_TIMEOUT: "0",
             DATABASE_CONNECTION_MAX_LIFETIME: "0",
             OUTBOX_STOP_TIMEOUT: "0",
         });
 
         expect(result.outbox.stopTimeoutMs).to.equal(0);
-        expect(result.bot.gracefulShutdown.timeout).to.equal(0);
+        expect(result.inbox.stopTimeoutMs).to.equal(0);
+        expect(result.inbox.pollingStopTimeoutMs).to.equal(0);
         expect(result.database.connection).to.deep.equal({ max: 15, idleTimeout: 0, maxLifetime: 0 });
     });
 
@@ -340,16 +344,28 @@ describe("ConfigValuesBuilder", () => {
         expect(result.database.connection.max).to.equal(10);
     });
 
-    it("rejects a shutdown timeout that does not cover the bot and the outbox", () => {
-        const error = rejection({ GRACEFUL_SHUTDOWN_TIMEOUT: "5000", BOT_GRACEFUL_SHUTDOWN_TIMEOUT: "3000", OUTBOX_STOP_TIMEOUT: "2000" });
+    it("rejects a shutdown timeout that does not cover the inbox polling, the inbox and the outbox", () => {
+        const error = rejection({
+            GRACEFUL_SHUTDOWN_TIMEOUT: "6000",
+            INBOX_POLLING_STOP_TIMEOUT: "3000",
+            INBOX_STOP_TIMEOUT: "1000",
+            OUTBOX_STOP_TIMEOUT: "2000",
+        });
 
-        expect(error.message).to.equal("GRACEFUL_SHUTDOWN_TIMEOUT must be greater than the sum of the bot and outbox timeouts");
-        expect(error.payload).to.deep.equal({ application: 5000, bot: 3000, outbox: 2000 });
+        expect(error.message).to.equal(
+            "GRACEFUL_SHUTDOWN_TIMEOUT must be greater than the sum of the inbox polling, inbox and outbox timeouts",
+        );
+        expect(error.payload).to.deep.equal({ application: 6000, inboxPolling: 3000, inbox: 1000, outbox: 2000 });
     });
 
-    it("accepts a shutdown timeout that covers the bot and the outbox", () => {
-        const result = config({ GRACEFUL_SHUTDOWN_TIMEOUT: "5001", BOT_GRACEFUL_SHUTDOWN_TIMEOUT: "3000", OUTBOX_STOP_TIMEOUT: "2000" });
+    it("accepts a shutdown timeout that covers the inbox polling, the inbox and the outbox", () => {
+        const result = config({
+            GRACEFUL_SHUTDOWN_TIMEOUT: "6001",
+            INBOX_POLLING_STOP_TIMEOUT: "3000",
+            INBOX_STOP_TIMEOUT: "1000",
+            OUTBOX_STOP_TIMEOUT: "2000",
+        });
 
-        expect(result.gracefulShutdown.timeout).to.equal(5001);
+        expect(result.gracefulShutdown.timeout).to.equal(6001);
     });
 });

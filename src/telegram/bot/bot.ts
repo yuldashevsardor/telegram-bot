@@ -7,17 +7,14 @@ import { configValue } from "app/shared/config-value";
 import type { Command } from "app/telegram/command/command";
 import type { Middleware } from "app/telegram/middleware/middleware";
 import type { BotSettings, Context } from "app/telegram/bot/bot.types";
-import { ALLOWED_UPDATES } from "app/telegram/bot/bot.types";
 import type { Logger } from "app/platform/logger/logger";
-import type { RunnerHandle } from "@grammyjs/runner";
-import { run, sequentialize } from "@grammyjs/runner";
+import { sequentialize } from "@grammyjs/runner";
 import { getSessionKey, initialPayload } from "app/telegram/session/session.helper";
 import type { SessionPayload } from "app/telegram/session/session.types";
 import type { ConversationHandler } from "app/telegram/conversation/conversation-handler";
 import { conversations, createConversation } from "@grammyjs/conversations";
 import type { Filter } from "app/telegram/filter/filter";
-import { withTimeout } from "app/shared/utils";
-import { InvalidConfigError, RuntimeError } from "app/shared/errors";
+import { InvalidConfigError } from "app/shared/errors";
 import type { Fluent } from "@moebius/fluent";
 import type { BotCommand } from "grammy/types";
 import { createFluent, createFluentMiddleware } from "app/telegram/locale/locale";
@@ -29,8 +26,6 @@ import type { OutboxTransformer } from "app/telegram/outbox/transformer/outbox-t
 export class Bot {
     public readonly grammy: TelegramBot<Context>;
 
-    private runner?: RunnerHandle;
-    private isRun = false;
     private isSetup = false;
 
     public constructor(
@@ -55,39 +50,6 @@ export class Bot {
         }
 
         this.grammy = new TelegramBot<Context>(this.settings.token);
-    }
-
-    public async run(): Promise<void> {
-        if (!this.isSetup) {
-            throw new RuntimeError("Bot is not set up!");
-        }
-
-        this.grammy.catch(this.handleError.bind(this));
-        this.runner = run(this.grammy, { runner: { fetch: { allowed_updates: ALLOWED_UPDATES } } });
-        this.isRun = true;
-
-        this.logger.info("Bot is successfully started.");
-    }
-
-    public async stop(): Promise<void> {
-        this.logger.info("Stop bot...");
-
-        if (!this.isRun) {
-            this.logger.info("Bot is not running!");
-            return;
-        }
-
-        const { timeout } = this.settings.gracefulShutdown;
-
-        if (this.runner?.isRunning() && !(await withTimeout(this.runner.stop(), timeout))) {
-            this.logger.warning("Bot shutdown timeout is over, the runner was left stopping.", {
-                timeout: timeout,
-            });
-        }
-
-        this.isRun = false;
-
-        this.logger.info("Bot is successfully stopped.");
     }
 
     public async setup(): Promise<void> {
@@ -235,9 +197,5 @@ export class Bot {
                 description: translate(command.descriptionKey),
             };
         });
-    }
-
-    private async handleError(error: unknown): Promise<void> {
-        this.logger.critical("Unhandled error on bot", { cause: error });
     }
 }

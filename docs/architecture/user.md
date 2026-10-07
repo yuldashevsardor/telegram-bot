@@ -20,8 +20,10 @@ as a string ([`storage.md`](./storage.md)). Only the adapter knows it.
 
 `FillUserToContextMiddleware` runs on every update: `existsById`, then `edit` (with
 `lastActiveTime = now`) or `create`, then `ctx.getUser()`. No transaction ties the check to the
-action. Only `sequentialize()` protects them from a race, and only while nothing but private
-chats reaches the pipeline ([invariant](./invariants.md)). `create()` does not guard against
+action. The inbox, which hands out one update of a group, `from.id` and `chat.id`, at a time
+across nodes ([`inbox.md`](./inbox.md)), and `sequentialize()` on the same key within a node
+protect them from a race, and only while nothing but private chats reaches the pipeline: a user
+then has one group ([invariant](./invariants.md)). `create()` does not guard against
 duplicates itself: it relies on the upsert.
 
 `UserService.edit()` reads the user with `getById` before `save`, because it has nothing to build

@@ -191,25 +191,28 @@ There is nothing to restart it with: the container does not survive a second `se
 
    A second `setup()` does not repeat a failed one; it gets the same failure. After a failure
    `fail()` ends the process.
-3. `application.run()`:
-   - `bot.run()` starts long polling in the background ([`bot.md`](./bot.md)).
-   - `OutboxRunner.start()` and `OutboxMaintenance.start()` start the sending of the outbox and its
-     timers ([`outbox.md`](./outbox.md), "The runner", "Maintenance"). They come after the bot with
-     no `await` in between: a bot that fails to start leaves nothing of the outbox to stop, and the
-     runner starts only once ([invariant](./invariants.md)), while the first update comes no sooner
-     than the next turn of the event loop. A stop that comes while the bot is starting stops the
-     outbox before `run()` starts it or after. Both orders are safe: a start after the stop does
-     nothing, since the generator of the runner ends without a pull ([`outbox.md`](./outbox.md),
-     "The message source") and the maintenance sets no timers.
+3. `application.run()` starts, with no `await` in between, in this order:
+   - `OutboxRunner.start()` and `OutboxMaintenance.start()`: the sending of the outbox and its
+     timers ([`outbox.md`](./outbox.md), "The runner", "Maintenance"). First, since the handlers of
+     the updates await the results of the outbox;
+   - `InboxRunner.start()` and `InboxMaintenance.start()`: the handling of the inbox through the bot
+     and its timers ([`inbox.md`](./inbox.md), "The runner", "Maintenance");
+   - `InboxPollingSource.start()`: long polling into the inbox, in the background
+     ([`inbox.md`](./inbox.md), "The polling source").
+
+   Every start is synchronous, so a stop comes before all of them or after all of them. A stop that
+   comes first leaves `run()` doing nothing (below).
 
    `run()` throws a `RuntimeError` before `setup()` is over and on a running application. After
    the stop has begun it does nothing (below).
 
 **Errors:** any failure of the start goes into `fail()` (`bootstrap().catch(fail)`): a `critical`
 and exit code 1. `unhandledRejection` and `uncaughtException` lead there too. Only `fail()` logs:
-two `critical` on one failure would double the alert count. That is why `run()` rethrows a failure
-without logging it. There are no retries for the database or for `setMyCommands`: a temporary
-network failure at this moment is fatal.
+two `critical` on one failure would double the alert count. That is why `setup()` and `run()` throw
+a failure without logging it. There are no retries for the database or for `setMyCommands`: a
+temporary network failure at this moment is fatal. The polling source meets Telegram only after the
+start, in the background, and retries its failures itself ([`inbox.md`](./inbox.md), "The polling
+source").
 
 ### Stop
 
@@ -239,31 +242,40 @@ network failure at this moment is fatal.
      `stop()` hands that failure on.
    - Then `shutdown()` waits for the rest of the setup, inside the overall deadline this time, and
      goes on to step 5.
-   - The bot is not running. `bootstrap()` calls `run()` right after the setup, and once the stop
+   - Nothing is started. `bootstrap()` calls `run()` right after the setup, and once the stop
      has begun `run()` does nothing and throws nothing. Otherwise `bootstrap()` would go into
      `fail()` with code 1.
    - `stop()` hands a failure of the setup itself outwards. `gracefulStop()` and `bootstrap()`
      both come to `fail()` with the one error, and the first call ends the process synchronously:
      one `critical`, code 1.
-4. `shutdown()`, if the application is running:
-   - `Bot.stop()`: if the grammY runner is still working, it calls the runner's `stop()` within
-     `BOT_GRACEFUL_SHUTDOWN_TIMEOUT` and writes a `warning` if that did not make it. The source of
-     updates is closed: no new `getUpdates`. `stop()` does not wait for the updates already handed
-     to the pipeline. They play out in parallel with the remaining steps, and `process.exit(0)`
-     cuts short whatever did not finish.
+4. `shutdown()`, if the application is running, stops in the reverse order of the start:
+   - `InboxPollingSource.stop()`: no new `getUpdates`, and a push in flight is awaited. The source
+     has no deadline of its own, so `shutdown()` waits for it no longer than
+     `INBOX_POLLING_STOP_TIMEOUT` and writes a `warning` if that did not make it; a push left behind
+     is cut off by the closing of the pool in step 5 ([`inbox.md`](./inbox.md), "The polling
+     source").
+   - `InboxRunner.stop()` takes no more updates, waits for the handlers in flight up to
+     `INBOX_STOP_TIMEOUT` and leaves the rest running ([`inbox.md`](./inbox.md), "The runner").
+     Before the outbox: the handlers in flight await its results.
+   - `InboxMaintenance.stop()` clears the timers and waits for the runs in progress, with no
+     deadline of its own ([`inbox.md`](./inbox.md), "Maintenance").
    - `OutboxRunner.stop()` stops the pulls, waits for the calls in flight up to
      `OUTBOX_STOP_TIMEOUT` and aborts the rest, handing their messages to the other nodes
-     ([`outbox.md`](./outbox.md), "The runner"). A call the updates still in the pipeline push
-     after that stays queued for another node or the next start; its caller waits until step 5
-     stops the waiter.
+     ([`outbox.md`](./outbox.md), "The runner"). A call the handlers left running push after that
+     stays queued for another node or the next start; its caller waits until step 5 stops the
+     waiter.
    - `OutboxMaintenance.stop()` clears the timers and waits for the runs in progress, with no
      deadline of its own ([`outbox.md`](./outbox.md), "Maintenance").
 5. `container.close()` → `OutboxResultWaiter.stop()`, then `Database.close()` →
-   `sql.end({ timeout: 5 })` ([`storage.md`](./storage.md)).
+   `sql.end({ timeout: 5 })` ([`storage.md`](./storage.md)). A handler the inbox runner left
+   running in a wait for the outbox is rejected here, and its release meets the closed pool: its
+   update waits for its lease ([`inbox.md`](./inbox.md), "Release on stop").
 
-The overall deadline has to be greater than the sum of the individual ones of the bot and the
-outbox runner, and `ConfigValuesBuilder` checks that. It also has to be smaller than the
-container's `stop_grace_period: 20s`, and nothing checks that ([invariant](./invariants.md)). The
-dependencies' own deadlines (`sql.end({ timeout: 5 })`) are not part of the check.
+The overall deadline has to be greater than the sum of the individual ones of the polling source,
+the inbox runner and the outbox runner, and `ConfigValuesBuilder` checks that. It also has to be
+smaller than the container's `stop_grace_period: 25s`, and nothing checks that
+([invariant](./invariants.md)). The dependencies' own deadlines (`sql.end({ timeout: 5 })`) are
+not part of the check.
 
-The outbox messages that did not go out stay in their tables for another node or the next start.
+The outbox messages that did not go out stay in their tables for another node or the next start,
+and so do the inbox updates that were not handled.
