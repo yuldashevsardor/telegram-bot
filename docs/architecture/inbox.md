@@ -552,8 +552,7 @@ connection, goes through as it is. The source pushes a refused batch one update 
 update refused again is dropped with an error log. Any other failure, of the batch or of a single
 push, leaves the offset where it was, another data exception of class `22` included, and its error
 log names the updates not stored. `test/telegram/inbox/inbox-store.spec.ts` pins both codes and
-both classes. The store is out of mutation testing (see "The store in code"), so these specs are
-what holds the rule.
+both classes. The store is out of mutation testing (see "The store in code").
 
 **The stop** aborts the Bot API call in flight, ends the pause at once and waits for a push in
 flight, and no `getUpdates` follows; nor does the next single push of a refused batch. A push that

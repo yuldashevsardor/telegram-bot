@@ -18,14 +18,15 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
     private static readonly LIMIT_RANGE: IntegerRange = { min: 1 };
 
     // The numbers of the cleanup SQL. A retention becomes an interval, and 1e16 ms is past the range
-    // of its interval. The inbox adds it to finished_at, and up to this many ms the sum stays within
-    // the timestamps PostgreSQL takes; the outbox takes it off now(), and one that reaches past
-    // 4713 BC fails its cleanup. A batch size goes to LIMIT, and 1e21 would reach it as 1e+21, which
-    // is no bigint.
+    // of its interval. The outbox takes a retention off now(), and one that reaches past 4713 BC
+    // fails its cleanup. A batch size goes to LIMIT, and 1e21 would reach it as 1e+21, which is no
+    // bigint. The inbox retentions have a range of their own, below.
     private static readonly CLEANUP_RANGE: IntegerRange = { min: 1, max: Number.MAX_SAFE_INTEGER };
 
     // Telegram redelivers an update within 24 h, and a done or a skipped update that is still stored
-    // is what turns the redelivery away, so neither retention may fall below a day.
+    // is what turns the redelivery away, so neither retention may fall below a day. The inbox adds a
+    // retention to finished_at, and up to this many ms the sum stays within the timestamps
+    // PostgreSQL takes.
     private static readonly INBOX_RETENTION_RANGE: IntegerRange = { min: MS_PER_DAY, max: Number.MAX_SAFE_INTEGER };
 
     // The connections the outbox takes besides its slots: the pull of the runner and the four
