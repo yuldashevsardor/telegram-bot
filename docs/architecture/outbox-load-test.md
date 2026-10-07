@@ -158,8 +158,9 @@ Aggregate  (actual time=13.047..13.048 rows=1.00 loops=1)          -- ready: min
 
 `findExpiredLeases()` finds the `processing` message of each expired chat as the head of the chat,
 the first entry of the chat in the head index: a chat holds one `processing` message at a time, and
-it is the head ([`outbox.md`](./outbox.md), "Lease recovery"). So it reads one entry a chat,
-however many active messages the chat holds:
+it is the head ([`outbox.md`](./outbox.md), "Lease recovery"). So it reads one live entry a chat,
+however many active messages the chat holds, and the dead ones before it until a vacuum cleans them
+(see "Dead entries of the index"):
 
 ```
 Nested Loop  (actual time=0.371..0.560 rows=3.00 loops=1)
@@ -352,7 +353,7 @@ median, 2 – 7 ms, while the index is kept clean of dead entries; a batch of th
 over, and the pull of one message 144 ms. The threshold is not set for the lease recovery and the
 cleanup, which hold neither the bot row nor a caller waiting: the lease recovery takes 1 – 3 ms
 while no lease has expired and under 1 ms in the database for the 3 chats of 300 000 messages whose
-leases have, 28 ms on the client with its new connection, and the
-cleanup that finds nothing reads its index in 1 ms, while a backlog of 1 M takes its batches back to
-the seq scan, a median of 68 ms each. The proposal is a comment on #643:
+leases have, 28 ms on the client with its new connection, and the cleanup that finds nothing reads
+its index in 1 ms, while a backlog of 1 M takes its batches back to the seq scan, a median of 68 ms
+each. The proposal is a comment on #643:
 https://github.com/yuldashevsardor/telegram-bot/issues/643#issuecomment-5984131010
