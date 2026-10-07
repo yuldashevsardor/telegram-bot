@@ -509,7 +509,7 @@ describe("Bot", function () {
             expect((caught as RuntimeError).message).to.equal("Bot is not set up!");
         });
 
-        // The list of update types is ALLOWED_UPDATES in bot.ts: without it getUpdates would drag
+        // The list of update types is ALLOWED_UPDATES in bot.types.ts: without it getUpdates would drag
         // in every type the bot does not serve.
         it("polls only messages", async function () {
             const harness = await setUp();

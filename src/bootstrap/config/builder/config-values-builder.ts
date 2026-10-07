@@ -3,7 +3,7 @@ import { Level, Levels } from "app/platform/logger/logger.types";
 import { InvalidConfigError } from "app/shared/errors";
 import { ConfigParser } from "app/bootstrap/config/parser/config-parser";
 import type { IntegerRange } from "app/bootstrap/config/parser/config-parser";
-import type { OutboxRetryDelaySettings } from "app/telegram/outbox/retry-delay/outbox-retry-delay.types";
+import type { RetryDelaySettings } from "app/telegram/retry-delay/retry-delay.types";
 import type { DatabaseSettings } from "app/platform/database/database.types";
 import type { RawConfig } from "app/bootstrap/config/container/config-container.types";
 import type { ConfigBuilder } from "app/bootstrap/config/builder/config-builder";
@@ -17,9 +17,11 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
     // infinite, while a zero in interval makes it nil and the limit stops limiting.
     private static readonly LIMIT_RANGE: IntegerRange = { min: 1 };
 
-    // The numbers of the outbox cleanup SQL. It adds a retention to finished_at: up to this many ms
-    // the sum stays within the timestamps PostgreSQL takes, while 1e16 ms is past the range of its
-    // interval. A batch size goes to LIMIT, and 1e21 would reach it as 1e+21, which is no bigint.
+    // The numbers of the cleanup SQL. A retention becomes an interval, and 1e16 ms is past the range
+    // of its interval. The inbox adds it to finished_at, and up to this many ms the sum stays within
+    // the timestamps PostgreSQL takes; the outbox takes it off now(), and one that reaches past
+    // 4713 BC fails its cleanup. A batch size goes to LIMIT, and 1e21 would reach it as 1e+21, which
+    // is no bigint.
     private static readonly CLEANUP_RANGE: IntegerRange = { min: 1, max: Number.MAX_SAFE_INTEGER };
 
     // Telegram redelivers an update within 24 h, and a done update that is still stored is what turns
@@ -68,8 +70,9 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
                 },
             },
 
+            retryDelay: ConfigValuesBuilder.getRetryDelay(parser),
+
             outbox: {
-                retryDelay: ConfigValuesBuilder.getOutboxRetryDelay(parser),
                 resultWaiter: {
                     timeoutMs: parser.getTimerDelay("OUTBOX_RESULT_TIMEOUT", 60 * 1000),
                     pollIntervalMs: parser.getTimerDelay("OUTBOX_RESULT_POLL_INTERVAL", 1000),
@@ -94,6 +97,12 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
             inbox: {
                 leaseDurationMs: parser.getTimerDelay("INBOX_LEASE_DURATION", 10 * 60 * 1000),
                 maxAttempts: parser.getInteger("INBOX_MAX_ATTEMPTS", 10, { min: 1 }),
+                concurrency: parser.getInteger("INBOX_CONCURRENCY", 5, { min: 1 }),
+                stopTimeoutMs: parser.getTimerDelay("INBOX_STOP_TIMEOUT", 5000, { min: 0 }),
+                maintenance: {
+                    leaseRecoveryIntervalMs: parser.getTimerDelay("INBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL", 10 * 1000),
+                    cleanupIntervalMs: parser.getTimerDelay("INBOX_MAINTENANCE_CLEANUP_INTERVAL", 10 * 60 * 1000),
+                },
                 cleanup: {
                     doneRetentionMs: parser.getInteger(
                         "INBOX_DONE_RETENTION",
@@ -128,7 +137,7 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
     }
 
     // A cap below the first step would make every step the cap, and the growth would never show.
-    private static getOutboxRetryDelay(parser: ConfigParser): OutboxRetryDelaySettings {
+    private static getRetryDelay(parser: ConfigParser): RetryDelaySettings {
         const firstDelayMs = parser.getTimerDelay("OUTBOX_RETRY_FIRST_DELAY", 1000);
         const maxDelayMs = parser.getTimerDelay("OUTBOX_RETRY_MAX_DELAY", 60 * 1000);
         const multiplier = parser.getInteger("OUTBOX_RETRY_DELAY_MULTIPLIER", 2, { min: 1 });

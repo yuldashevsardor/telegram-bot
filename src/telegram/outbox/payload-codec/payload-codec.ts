@@ -2,6 +2,7 @@ import { isAbsolute } from "node:path";
 import { InlineKeyboard, InputFile, Keyboard } from "grammy";
 import { PathFile } from "app/telegram/path-file/path-file";
 import type { OutboxPayload } from "app/telegram/outbox/store/outbox-store.types";
+import { isJsonbStorable } from "app/telegram/jsonb-string";
 import {
     InvalidFileMarker,
     ReservedFileKey,
@@ -30,7 +31,7 @@ function store(value: unknown, method: string, place: readonly string[]): unknow
     }
 
     if (typeof value === "string") {
-        if (!isStorable(value)) {
+        if (!isJsonbStorable(value)) {
             throw UnstorableString.inMethod(method, place);
         }
 
@@ -62,18 +63,13 @@ function store(value: unknown, method: string, place: readonly string[]): unknow
                 throw ReservedFileKey.inMethod(method, FILE_KEY, place);
             }
 
-            if (!isStorable(key)) {
+            if (!isJsonbStorable(key)) {
                 throw UnstorableString.inMethod(method, [...place, key]);
             }
 
             return [key, store(item, method, [...place, key])];
         }),
     );
-}
-
-// PostgreSQL rejects U+0000 and a lone UTF-16 surrogate anywhere in a jsonb value, keys included.
-function isStorable(text: string): boolean {
-    return !text.includes("\u0000") && text.isWellFormed();
 }
 
 // The row comes back from JSON, so only arrays and plain objects are walked.

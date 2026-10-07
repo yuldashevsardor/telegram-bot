@@ -1,7 +1,9 @@
 import type { Api, RawApi } from "grammy";
 import { inject, injectable } from "inversify";
 import { Tokens } from "app/shared/tokens";
-import type { OutboxApiFactory } from "app/telegram/outbox/outbox-api-factory";
+import { configValue } from "app/shared/config-value";
+import { MS_PER_SECOND } from "app/shared/time";
+import type { TelegramApiFactory } from "app/telegram/telegram-api-factory";
 import type { OutboxJson } from "app/telegram/outbox/store/outbox-store.types";
 
 // A Bot API method as the outbox calls it: by a name read from the row, with the payload and the
@@ -14,8 +16,11 @@ type OutboxApiMethod = (payload: Record<string, unknown>, signal: AbortSignal) =
 export class OutboxSender {
     private readonly api: Api;
 
-    public constructor(@inject<OutboxApiFactory>(Tokens.Bot.Outbox.ApiFactory) apiFactory: OutboxApiFactory) {
-        this.api = apiFactory.create();
+    public constructor(
+        @inject<TelegramApiFactory>(Tokens.Bot.ApiFactory) apiFactory: TelegramApiFactory,
+        apiTimeoutMs: number = configValue("outbox.apiTimeoutMs"),
+    ) {
+        this.api = apiFactory.create(apiTimeoutMs / MS_PER_SECOND);
     }
 
     // Resolves with Telegram's result and throws the error of the call as grammY throws it; an abort

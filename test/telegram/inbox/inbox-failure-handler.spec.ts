@@ -21,7 +21,7 @@ import type {
 import { InboxGroupState, InboxStatus } from "app/telegram/inbox/store/inbox-store.types";
 import { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
 import { OutboxResultTimeout } from "app/telegram/outbox/result-waiter/outbox-result-waiter.errors";
-import { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
+import { RetryDelay } from "app/telegram/retry-delay/retry-delay";
 import { testDatabaseSettings } from "test/database.helper";
 import { telegramError } from "test/telegram/telegram-bot-api-failure-classifier.helper";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
@@ -35,7 +35,7 @@ const MAX_ATTEMPTS = 3;
 const FIRST_DELAY_MS = 60_000;
 const MULTIPLIER = 2;
 // random() of 0 takes the lower end of the step: half of it.
-const RETRY_DELAY = new OutboxRetryDelay({ firstDelayMs: FIRST_DELAY_MS, maxDelayMs: 600_000, multiplier: MULTIPLIER }, () => 0);
+const RETRY_DELAY = new RetryDelay({ firstDelayMs: FIRST_DELAY_MS, maxDelayMs: 600_000, multiplier: MULTIPLIER }, () => 0);
 const LEASE_DURATION_MS = 600_000;
 const CLEANUP: InboxCleanupSettings = { doneRetentionMs: MS_PER_DAY, skippedRetentionMs: MS_PER_DAY, batchSize: 10 };
 // A lease that passes before the spec recovers it, after a sleep of twice as long.

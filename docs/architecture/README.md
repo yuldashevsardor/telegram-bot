@@ -27,8 +27,9 @@ The runtime sequences live in the files of their subsystems:
   how to run the test, the data, the threshold, the times and the plans, the verdict
 - [`inbox.md`](./inbox.md) — the inbox of incoming updates in PostgreSQL being built: the tables,
   the group, the group states, push without duplicates, the claim, the lease with its extension and
-  the completions, the ready notifications, the error classes of a failed handler, the outcomes,
-  the lease recovery, the release on stop, unblocking a group and the cleanup
+  the completions, the ready notifications, the update source, the update processor, the runner
+  with its stop and the maintenance timers, the error classes of a failed handler, the outcomes,
+  the lease recovery, the release on stop, unblocking a group, the cleanup and the polling source
 - [`inbox-load-test.md`](./inbox-load-test.md) — the inbox store measured on 100 M updates: how to
   run the test, the data, the threshold, the times and the plans, the verdict
 - [`font-convertor.md`](./font-convertor.md) — format pairs, the EOT codec, signatures, the SVG,
@@ -138,10 +139,10 @@ src/
   cli.ts                    entry point of `npm run cli`: the container without the bot, one command by the arguments (outbox.md)
   cli/                      what `npm run cli` runs: the CliCommand contract, the first-level resolver, the arguments helper, the base of the queue resolvers (telegram/); the commands lie with their queue (outbox.md)
   font-convertor/           font conversion (font-convertor.md)
-  telegram/                 grammY: commands, conversations, middleware, filters, session, locales (bot.md, i18n.md)
+  telegram/                 grammY: commands, conversations, middleware, filters, session, locales (bot.md, i18n.md); what the outbox and the inbox share: the retry delay (retry-delay/), the Api factory, the jsonb string rule (outbox.md, inbox.md)
     user/                   the entity, the repository interface, the service, the PostgreSQL adapter (user.md)
-    inbox/                  the future inbox of incoming updates in PostgreSQL: the store (push, claim, lease extension, completions, ready notifications, cleanup), the error classes and the outcomes of a failed handler, the release on stop, the unblock of a group (command/) (inbox.md)
-    outbox/                 the outbox of Bot API calls in PostgreSQL: the transformer that pushes the calls of the bot (transformer/), the store (push, pull, completions), the runner with its message source, the timers of the lease recovery, the cleanup and the status line (maintenance/), the lease recovery, retrier and release on stop (lease/), the processor of one message with the sender of its call and the Api, the outcomes of a failure, the result waiter with its reader, the payload codec and the retry delay, the commands that unblock a chat (command/) (outbox.md)
+    inbox/                  the future inbox of incoming updates in PostgreSQL: the store (push, claim, lease extension, completions, ready notifications, cleanup), the runner with its update source and the processor of one update over the bot, the timers of the lease recovery and the cleanup (maintenance/), the error classes and the outcomes of a failed handler, the release on stop, the polling source, the unblock of a group (command/) (inbox.md)
+    outbox/                 the outbox of Bot API calls in PostgreSQL: the transformer that pushes the calls of the bot (transformer/), the store (push, pull, completions), the runner with its message source, the timers of the lease recovery, the cleanup and the status line (maintenance/), the lease recovery, retrier and release on stop (lease/), the processor of one message with the sender of its call, the outcomes of a failure, the result waiter with its reader, the payload codec, the commands that unblock a chat (command/) (outbox.md)
   platform/                 adapters that know no module
     database/               Database (storage.md)
     logger/                 the Logger interface, the Level enum, ConsoleLogger, PinoLogger (logging.md)

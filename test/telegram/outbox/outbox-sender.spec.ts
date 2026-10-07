@@ -1,11 +1,12 @@
 import { expect } from "chai";
 import type { Api } from "grammy";
 import { GrammyError } from "grammy";
-import type { OutboxApiFactory } from "app/telegram/outbox/outbox-api-factory";
+import type { TelegramApiFactory } from "app/telegram/telegram-api-factory";
 import { OutboxSender } from "app/telegram/outbox/outbox-sender";
 import type { OutboxJson } from "app/telegram/outbox/store/outbox-store.types";
 
 const RESPONSE: OutboxJson = { message_id: 42 };
+const API_TIMEOUT_MS = 2_500;
 
 type ApiCall = { method: string; args: unknown[] };
 
@@ -35,11 +36,25 @@ class FakeApi {
 
 describe("OutboxSender", function () {
     let api: FakeApi;
+    // The timeout the sender asked the factory to make its Api with.
+    let apiTimeoutSeconds: number | undefined;
     let sender: OutboxSender;
 
     beforeEach(function () {
         api = new FakeApi();
-        sender = new OutboxSender({ create: () => api as unknown as Api } as unknown as OutboxApiFactory);
+        apiTimeoutSeconds = undefined;
+        const apiFactory = {
+            create: (timeoutSeconds: number): Api => {
+                apiTimeoutSeconds = timeoutSeconds;
+
+                return api as unknown as Api;
+            },
+        };
+        sender = new OutboxSender(apiFactory as unknown as TelegramApiFactory, API_TIMEOUT_MS);
+    });
+
+    it("makes its Api with the call timeout in seconds", function () {
+        expect(apiTimeoutSeconds).to.equal(2.5);
     });
 
     it("calls the method by its name with the payload and the signal and resolves with the result", async function () {

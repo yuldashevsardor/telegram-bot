@@ -11,6 +11,7 @@ const DATABASE_SPECS = [
     "test/platform/database/database.spec.ts",
     "test/telegram/inbox/inbox-failure-handler.spec.ts",
     "test/telegram/inbox/inbox-lease-releaser.spec.ts",
+    "test/telegram/inbox/inbox-runner.database.spec.ts",
     "test/telegram/inbox/inbox-store.spec.ts",
     "test/telegram/outbox/outbox-finished-message-reader.spec.ts",
     "test/telegram/outbox/outbox-store.spec.ts",

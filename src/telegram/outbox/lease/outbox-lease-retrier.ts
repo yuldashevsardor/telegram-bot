@@ -1,7 +1,7 @@
 import { inject, injectable } from "inversify";
 import { Tokens } from "app/shared/tokens";
 import { configValue } from "app/shared/config-value";
-import type { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
+import type { RetryDelay } from "app/telegram/retry-delay/retry-delay";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxAttemptError, OutboxLease } from "app/telegram/outbox/store/outbox-store.types";
 
@@ -12,7 +12,7 @@ import type { OutboxAttemptError, OutboxLease } from "app/telegram/outbox/store/
 export class OutboxLeaseRetrier {
     public constructor(
         @inject<OutboxStore>(Tokens.Bot.Outbox.Store) private readonly store: OutboxStore,
-        @inject<OutboxRetryDelay>(Tokens.Bot.Outbox.RetryDelay) private readonly retryDelay: OutboxRetryDelay,
+        @inject<RetryDelay>(Tokens.Bot.RetryDelay) private readonly retryDelay: RetryDelay,
         private readonly maxAttempts: number = configValue("outbox.maxAttempts"),
     ) {}
 

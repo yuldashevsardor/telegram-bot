@@ -32,7 +32,7 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   concurrently: `sequentialize()` queues only the same `chat.id` + `from.id`. A field written before
   an `await` may belong to someone else's update by the next line. So `ctx` and everything derived
   from it travel as parameters.
-- **A new update type in the handlers requires an edit of `ALLOWED_UPDATES`** (`bot.ts`). A
+- **A new update type in the handlers requires an edit of `ALLOWED_UPDATES`** (`bot.types.ts`). A
   `callback_query` or `edited_message` handler compiles and registers. But `getUpdates` never
   returns updates of those types, and the handler is simply never called.
 - **The outbox transformer is installed on `bot.grammy.api` before any update is handled.**
@@ -84,8 +84,9 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   [`application.md`](./application.md). The check compares the values of one assembly. After a
   rebuild of the configuration ([`config.md`](./config.md)) they can drift apart: `Application`
   takes the overall deadline from the new values, while `Bot` and `OutboxRunner` stay on what they
-  copied in their constructors. This is unreachable while the deadlines are set non-blank in the
-  environment: the environment is stronger than the watched file.
+  copied in their constructors. `InboxRunner` copies `INBOX_STOP_TIMEOUT` the same way, and the sum
+  does not count it yet ([`inbox.md`](./inbox.md), "The runner"). This is unreachable while the
+  deadlines are set non-blank in the environment: the environment is stronger than the watched file.
 - **A value taken by `configValue(...)` in a constructor is not changed by a rebuild.** The
   configuration is rebuilt on an edit of the watched file ([`config.md`](./config.md)). But an
   object that copied the value into a field keeps working on the old one. A value becomes "hot"
@@ -232,12 +233,24 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   passed: the recovery tells its lease by the token, not by `locked_until`
   ([`inbox.md`](./inbox.md), "Lease recovery"). A write that moves `locked_until` without that
   check, or an extension sent as the lease passes, lets the recovery take back an update whose
-  handler still runs ([`inbox.md`](./inbox.md), "The lease"). Nothing calls the extension yet.
+  handler still runs ([`inbox.md`](./inbox.md), "The lease"). `InboxUpdateProcessor` extends every
+  third of the lease, timed from the end of the previous extension, and stops at the first refusal
+  ([`inbox.md`](./inbox.md), "The update processor"); a slow extension query eats into that margin,
+  and nothing bounds it.
 - **An update is released on stop only once its handler has settled.**
   `InboxLeaseReleaser.releaseOnStop()` makes the group `ready` at once, so a handler of the stopping
   node still running can reply after another node has handled the next update of the group: the
-  order inside the group breaks. Nothing calls the release yet, and a caller is checked by nothing
+  order inside the group breaks. `InboxUpdateProcessor` releases only an update whose handler has
+  not started or has thrown; a new caller of the release is checked by nothing
   ([`inbox.md`](./inbox.md), "Release on stop").
+- **`InboxUpdateSource` serves one generator: the runner of a node takes every update from one
+  `stream(worker)`, so `InboxRunner.start()` is called once**, for the reason the outbox source
+  gives (above): one sleep in progress, and a `LISTEN` per generator
+  ([`inbox.md`](./inbox.md), "The update source"). Nothing checks this.
+- **`InboxUpdateSource` claims one update at a time.** At the stop `InboxRunner` starts the one
+  update the generator has handed out and closes the generator, so whatever a claim got beyond it is
+  dropped and stays claimed by the stopping node until its lease of `INBOX_LEASE_DURATION` passes
+  ([`inbox.md`](./inbox.md), "The runner"). Nothing checks `CLAIM_LIMIT` against this.
 
 ## Storage: migrations, `sessions`, `User`
 

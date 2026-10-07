@@ -1,12 +1,13 @@
 import { injectable } from "inversify";
 import { configValue } from "app/shared/config-value";
-import type { OutboxRetryDelaySettings } from "app/telegram/outbox/retry-delay/outbox-retry-delay.types";
+import type { RetryDelaySettings } from "app/telegram/retry-delay/retry-delay.types";
 
-// How long a message, or an inbox update, waits before its retry after a transient failure.
+// How long a message of the outbox, or an inbox update, waits before its retry after a transient
+// failure, and how long the polling source of the inbox pauses after a failure.
 @injectable()
-export class OutboxRetryDelay {
+export class RetryDelay {
     public constructor(
-        private readonly settings: OutboxRetryDelaySettings = configValue("outbox.retryDelay"),
+        private readonly settings: RetryDelaySettings = configValue("retryDelay"),
         private readonly random: () => number = Math.random,
     ) {}
 

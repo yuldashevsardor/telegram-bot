@@ -14,7 +14,7 @@ import { sleep } from "app/shared/utils";
 import { InboxStore } from "app/telegram/inbox/store/inbox-store";
 import type { ClaimedInboxUpdate, InboxWorker } from "app/telegram/inbox/store/inbox-store.types";
 
-// What the update source of the worker asks for (#827): one update per claim.
+// CLAIM_LIMIT of InboxUpdateSource: what the worker asks for.
 const WORKER_CLAIM_LIMIT = 1;
 // A batch: nothing in the inbox sets one yet, so it is the largest batch of the outbox load test,
 // for comparison.
@@ -85,7 +85,7 @@ class InboxLoadTest {
         return claimedUpdates;
     }
 
-    // The call of the recovery timer finds no lease as a rule, and the one after a node died finds
+    // The call of every INBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL finds no lease as a rule, and the one after a node died finds
     // the groups it held: a batch is claimed and left until its lease expires. Its updates are then
     // marked done, not retried as InboxFailureHandler would, so that the cleanup that follows sees
     // the groups as the claims leave them.
@@ -105,8 +105,8 @@ class InboxLoadTest {
         }
     }
 
-    // A full batch is followed by another call, as the maintenance timers of the outbox do, down to
-    // the call that deletes nothing.
+    // A full batch is followed by another call, as InboxMaintenance does, down to the call that
+    // deletes nothing.
     private async measureCleanup(): Promise<void> {
         for (;;) {
             const deletedCount = await this.measure("deleteFinishedUpdates()", () => this.store.deleteFinishedUpdates());

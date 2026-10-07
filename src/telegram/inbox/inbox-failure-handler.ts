@@ -7,7 +7,7 @@ import { InboxFailureKind } from "app/telegram/inbox/failure-classifier/inbox-fa
 import type { InboxStore } from "app/telegram/inbox/store/inbox-store";
 import type { ClaimedInboxUpdate, InboxAttemptError, InboxLease } from "app/telegram/inbox/store/inbox-store.types";
 import type { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
-import type { OutboxRetryDelay } from "app/telegram/outbox/retry-delay/outbox-retry-delay";
+import type { RetryDelay } from "app/telegram/retry-delay/retry-delay";
 
 // The error of the attempt an expired lease closes: the node that claimed the update reported nothing.
 const LEASE_EXPIRED: InboxAttemptError = {
@@ -23,7 +23,7 @@ export class InboxFailureHandler {
     public constructor(
         @inject<InboxStore>(Tokens.Bot.Inbox.Store) private readonly store: InboxStore,
         @inject<InboxFailureClassifier>(Tokens.Bot.Inbox.FailureClassifier) private readonly classifier: InboxFailureClassifier,
-        @inject<OutboxRetryDelay>(Tokens.Bot.Outbox.RetryDelay) private readonly retryDelay: OutboxRetryDelay,
+        @inject<RetryDelay>(Tokens.Bot.RetryDelay) private readonly retryDelay: RetryDelay,
         @inject<OutboxErrorSerializer>(Tokens.Bot.Outbox.ErrorSerializer) private readonly errorSerializer: OutboxErrorSerializer,
         private readonly maxAttempts: number = configValue("inbox.maxAttempts"),
     ) {}

@@ -40,8 +40,8 @@ describe("ConfigValuesBuilder", () => {
             private: { number: 3, interval: 1000 },
             group: { number: 20, interval: 60000 },
         });
+        expect(result.retryDelay).to.deep.equal({ firstDelayMs: 1000, maxDelayMs: 60000, multiplier: 2 });
         expect(result.outbox).to.deep.equal({
-            retryDelay: { firstDelayMs: 1000, maxDelayMs: 60000, multiplier: 2 },
             resultWaiter: { timeoutMs: 60000, pollIntervalMs: 1000 },
             leaseDurationMs: 90000,
             apiTimeoutMs: 60000,
@@ -54,6 +54,9 @@ describe("ConfigValuesBuilder", () => {
         expect(result.inbox).to.deep.equal({
             leaseDurationMs: 600000,
             maxAttempts: 10,
+            concurrency: 5,
+            stopTimeoutMs: 5000,
+            maintenance: { leaseRecoveryIntervalMs: 10000, cleanupIntervalMs: 600000 },
             cleanup: { doneRetentionMs: 604800000, skippedRetentionMs: 2592000000, batchSize: 1000 },
         });
         expect(result.bot).to.deep.equal({ token: "token", gracefulShutdown: { timeout: 3000 } });
@@ -99,6 +102,10 @@ describe("ConfigValuesBuilder", () => {
             OUTBOX_MAINTENANCE_STATUS_LOG_INTERVAL: "10003",
             INBOX_LEASE_DURATION: "600002",
             INBOX_MAX_ATTEMPTS: "12",
+            INBOX_CONCURRENCY: "7",
+            INBOX_STOP_TIMEOUT: "5003",
+            INBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL: "10004",
+            INBOX_MAINTENANCE_CLEANUP_INTERVAL: "600004",
             INBOX_DONE_RETENTION: "604800002",
             INBOX_SKIPPED_RETENTION: "2592000002",
             INBOX_CLEANUP_BATCH_SIZE: "1002",
@@ -125,8 +132,8 @@ describe("ConfigValuesBuilder", () => {
             private: { number: 4, interval: 1002 },
             group: { number: 21, interval: 60001 },
         });
+        expect(result.retryDelay).to.deep.equal({ firstDelayMs: 1004, maxDelayMs: 60002, multiplier: 3 });
         expect(result.outbox).to.deep.equal({
-            retryDelay: { firstDelayMs: 1004, maxDelayMs: 60002, multiplier: 3 },
             resultWaiter: { timeoutMs: 60003, pollIntervalMs: 1005 },
             leaseDurationMs: 600001,
             apiTimeoutMs: 60004,
@@ -139,6 +146,9 @@ describe("ConfigValuesBuilder", () => {
         expect(result.inbox).to.deep.equal({
             leaseDurationMs: 600002,
             maxAttempts: 12,
+            concurrency: 7,
+            stopTimeoutMs: 5003,
+            maintenance: { leaseRecoveryIntervalMs: 10004, cleanupIntervalMs: 600004 },
             cleanup: { doneRetentionMs: 604800002, skippedRetentionMs: 2592000002, batchSize: 1002 },
         });
         expect(result.bot).to.deep.equal({ token: "own-token", gracefulShutdown: { timeout: 3001 } });
@@ -236,6 +246,10 @@ describe("ConfigValuesBuilder", () => {
         { name: "OUTBOX_MAINTENANCE_STATUS_LOG_INTERVAL", below: "0", range: "between 1 and 2147483647" },
         { name: "INBOX_LEASE_DURATION", below: "0", range: "between 1 and 2147483647" },
         { name: "INBOX_MAX_ATTEMPTS", below: "0", range: "at least 1" },
+        { name: "INBOX_CONCURRENCY", below: "0", range: "at least 1" },
+        { name: "INBOX_STOP_TIMEOUT", below: "-1", range: "between 0 and 2147483647" },
+        { name: "INBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL", below: "0", range: "between 1 and 2147483647" },
+        { name: "INBOX_MAINTENANCE_CLEANUP_INTERVAL", below: "0", range: "between 1 and 2147483647" },
         { name: "INBOX_SKIPPED_RETENTION", below: "0", range: "between 1 and 9007199254740991" },
         { name: "INBOX_CLEANUP_BATCH_SIZE", below: "0", range: "between 1 and 9007199254740991" },
         { name: "BOT_GRACEFUL_SHUTDOWN_TIMEOUT", below: "-1", range: "between 0 and 2147483647" },
@@ -286,7 +300,7 @@ describe("ConfigValuesBuilder", () => {
     it("accepts an outbox retry delay cap equal to the first step and a multiplier of 1", () => {
         const result = config({ OUTBOX_RETRY_FIRST_DELAY: "5000", OUTBOX_RETRY_MAX_DELAY: "5000", OUTBOX_RETRY_DELAY_MULTIPLIER: "1" });
 
-        expect(result.outbox.retryDelay).to.deep.equal({ firstDelayMs: 5000, maxDelayMs: 5000, multiplier: 1 });
+        expect(result.retryDelay).to.deep.equal({ firstDelayMs: 5000, maxDelayMs: 5000, multiplier: 1 });
     });
 
     it("rejects an outbox lease not above the Bot API call timeout", () => {

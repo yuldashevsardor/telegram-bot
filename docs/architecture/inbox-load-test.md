@@ -15,14 +15,14 @@ order: `load-inbox-fill-done` once, then per layout `load-inbox-fill-pending` an
 days, as the outbox one does.
 
 The measurement calls the real `InboxStore` with the settings of `.env`: 15 `claim(1)`, what the
-update source of the worker asks for
-([#827](https://github.com/yuldashevsardor/telegram-bot/issues/827)), and 15 `claim(30)`, a batch
-of the size of the largest outbox one, since nothing in the inbox sets a batch yet; each is
-followed by `markAsDone()` of what it gave out. Then `findExpiredLeases()` twice: with no lease
-expired, and with the leases of a batch claimed and left to expire, as after a node died. That
-batch is claimed by a store with a lease of 1 s rather than the 10 minutes of
-`INBOX_LEASE_DURATION`: the recovery reads a lease the same way whatever its length. Last,
-`deleteFinishedUpdates()` down to the call that deletes nothing, and `deleteIdleGroups()`.
+worker asks for (`CLAIM_LIMIT` of `InboxUpdateSource`), and 15 `claim(30)`, a batch the size of the
+largest outbox one, since nothing in the inbox claims a batch; each is followed by `markAsDone()` of
+what it gave out. Then `findExpiredLeases()` twice: with no lease expired, as the call every
+`INBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL` finds as a rule, and with the leases of a batch claimed
+and left to expire, as after a node died. That batch is claimed by a store with a lease of 1 s
+rather than the 10 minutes of `INBOX_LEASE_DURATION`: the recovery reads a lease the same way
+whatever its length. Last, `deleteFinishedUpdates()` down to the call that deletes nothing, and
+`deleteIdleGroups()`.
 
 ## Data
 
@@ -42,8 +42,8 @@ batch is claimed by a store with a lease of 1 s rather than the 10 minutes of
 
 A claim of one update or of a batch is to take at most **10 ms**, and so is a completion: the
 threshold of the outbox pull. The claim holds no shared row as the pull holds the bot row (claims
-skip the groups others hold), but the update source of #827 claims one update per call, one call
-after another, so the time of a claim bounds how many updates one worker loop can start a second:
+skip the groups others hold), but `InboxUpdateSource` claims one update per call, one call after
+another, so the time of a claim bounds how many updates one worker loop can start a second:
 100 at 10 ms.
 
 ## Results
