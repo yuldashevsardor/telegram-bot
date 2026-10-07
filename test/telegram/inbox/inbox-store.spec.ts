@@ -638,6 +638,15 @@ describe("InboxStore", function () {
             expect((await store.findExpiredLeases()).map(({ updateId }) => updateId)).to.deep.equal([10]);
         });
 
+        it("finds the processing update of an expired group behind an update pushed with a smaller update_id", async function () {
+            await store.push(input(10));
+            await claimOne();
+            await store.push(input(5));
+            await sleep(SHORT_LEASE_MS * 2);
+
+            expect((await store.findExpiredLeases()).map(({ updateId }) => updateId)).to.deep.equal([10]);
+        });
+
         it("closes the attempt of an expired lease with no worker", async function () {
             await store.push(input(10));
             const claimed = await claimOne();

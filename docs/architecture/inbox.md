@@ -27,7 +27,8 @@ The indexes are picked by the plans of the load test
 ([`inbox-load-test.md`](./inbox-load-test.md)), not ahead of the queries. Besides the primary keys
 there are two. `1791417600000_telegram-inbox-head-index.ts` adds
 `telegram_inbox_active_group_idx` on `(user_id, chat_id, update_id)` of the active updates: the head
-of a group for the claim, for `releaseGroup()` and for the lease recovery is its first entry. Its
+of a group for the claim and for `releaseGroup()` is its first entry, and the `processing` update
+the lease recovery looks for is, as a rule, that entry too (see "Lease recovery"). Its
 `status` is in the predicate, so no update is HOT, and every update leaves dead entries a head
 lookup walks until a vacuum cleans them. So the same migration sets the vacuum options of
 `telegram_inbox` that the head index migration of the outbox sets for `telegram_outbox`:
@@ -106,7 +107,9 @@ handled after it.
 `update_id` grows only while updates keep coming: after a week without updates Telegram picks the
 next one at random (`update_id` of `Update` in the Bot API docs). An update still active from
 before such a gap would then be claimed after the newer updates of its group, and a new id equal to
-a stored one would be left out as a redelivery. Nothing keeps an update active for a week yet.
+a stored one would be left out as a redelivery. Only a stop of the bot keeps an update active that
+long: its updates wait for the next start, and a `processing` one, of a node that died, for the
+lease recovery (see "Lease recovery").
 
 ## Claim
 
@@ -440,7 +443,14 @@ passed: the node that claimed them is presumed dead. `InboxMaintenance` calls it
 
 1. `InboxStore.findExpiredLeases()` reads every group whose `locked_until` is behind `now()`, with
    its `processing` update, as a lease under the group's own `lock_token`. It reads without a lock
-   and leaves the lease as it is.
+   and leaves the lease as it is. The update is the first `processing` one of the group by
+   `update_id`, in the head index, so the lookup stops at it: the claim makes the head
+   `processing`, and the lookup reads one entry a group, where a search by the status alone read
+   every active update of the group ([`inbox-load-test.md`](./inbox-load-test.md), "The lease
+   recovery"). Not the head alone, as the outbox takes it ([`outbox.md`](./outbox.md), "Lease
+   recovery"): an update pushed with a smaller `update_id` while the group is `processing` (see
+   "Push", on `update_id` after a week without updates) is the head before the `processing` one, and
+   a lookup of the head would leave such a group `processing` for good, its lease never recovered.
 2. Each lease is a transient failure, completed as one: the update goes back to `pending` with the
    retry delay of its attempt, or, on the last attempt of `INBOX_MAX_ATTEMPTS`, fails and blocks its
    group. The completion appends an attempt with the error `InboxLeaseExpired` of class `transient`

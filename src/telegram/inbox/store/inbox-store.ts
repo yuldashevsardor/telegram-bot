@@ -192,10 +192,20 @@ export class InboxStore {
                    to_jsonb(inbox_update.updated_at) #>> '{}' AS started_at,
                    jsonb_array_length(inbox_update.attempts) AS earlier_attempts
             FROM telegram_inbox_groups AS inbox_group
-            JOIN telegram_inbox AS inbox_update
-                ON inbox_update.user_id = inbox_group.user_id
-               AND inbox_update.chat_id = inbox_group.chat_id
-               AND inbox_update.status = ${InboxStatus.Processing}
+            -- The first processing update of the group by update_id, so the lookup stops at it: the
+            -- claim makes the head processing, and with no LIMIT the lookup read every active update
+            -- of the group behind it (docs/architecture/inbox-load-test.md, "The lease recovery").
+            -- Not the head alone, as the outbox takes it: an update pushed with a smaller update_id
+            -- comes before the processing one (docs/architecture/inbox.md, "Lease recovery").
+            CROSS JOIN LATERAL (
+                SELECT update_id, updated_at, attempts
+                FROM telegram_inbox
+                WHERE user_id = inbox_group.user_id
+                  AND chat_id = inbox_group.chat_id
+                  AND status = ${InboxStatus.Processing}
+                ORDER BY update_id
+                LIMIT 1
+            ) AS inbox_update
             -- Only a claimed group is leased: a completion clears the lease.
             WHERE inbox_group.locked_until <= now()
             ORDER BY inbox_group.locked_until, inbox_group.user_id, inbox_group.chat_id

@@ -58,7 +58,9 @@ another, so the time of a claim bounds how many updates one worker loop can star
 The times are those of the client, in ms, from runs with `plans=off`, except the column without an
 index; "first" is the first call of the run, the cold cache. The last column is the claim that
 limits the groups before it looks up their heads (see "The claim of 100 k groups"); the calls it
-did not change were not measured again.
+did not change were not measured again. The expired batch of `findExpiredLeases()` in the 3 groups
+column and in the last one is of the lookup that stops at the `processing` update, the 13 ms of
+the lookup before it (see "The lease recovery").
 
 | call | no index, 3 groups | head index, 3 groups | head index, 100 k groups | head and ready-groups index, 100 k groups |
 |---|---|---|---|---|
@@ -66,7 +68,7 @@ did not change were not measured again.
 | `claim(30)` | — | 0.5 – 1.8, median 0.6, for 3 updates | 97 – 110, median 102, for 30 updates | 1.1 – 2.4, median 1.4, for 30 updates |
 | `markAsDone()` | 73 556, 292 | median 0.7, p95 1.5, max 3.7 | median 0.6, p95 1.2, max 8.1 | — |
 | `findExpiredLeases()`, no lease expired | — | 0.5 | 3.1 | — |
-| `findExpiredLeases()`, a batch expired | — | 1 458, 3 leases | 13, 30 leases | — |
+| `findExpiredLeases()`, a batch expired | — | 2.3, 3 leases | 13, 30 leases | 5.4, 30 leases |
 | `deleteFinishedUpdates()`, a full batch | — | 4.9 – 280, one of 82 549 | — | — |
 | `deleteFinishedUpdates()`, nothing to delete | — | 84 156 | 84 219 | — |
 | `deleteIdleGroups()`, nothing to delete | — | 18 | 35 | — |
@@ -200,14 +202,36 @@ A `ready` group without an active update would take a place among the `limit` gr
 nothing, where the inner join dropped it and went on to the next group. No writer makes one
 (`inbox.md`, "Group states"), and the claim does not guard against it.
 
-### The lease recovery with the index
+### The lease recovery
 
-`findExpiredLeases()` finds the `processing` update of each expired group among all the active
-updates of the group: the index gives them by group, and the status is a filter over every one of
-them, where the outbox reads the head of the chat alone
-([`outbox-load-test.md`](./outbox-load-test.md), "The lease recovery"). So it costs as many rows as
-the groups it recovers have active updates: 300 000 a group in the 3 groups layout, 1.3 s with the
-plans on. With no lease expired it reads the groups alone.
+`findExpiredLeases()` finds the `processing` update of each expired group as the first entry of the
+group in the head index whose status is `processing`, `ORDER BY update_id LIMIT 1`. The claim makes
+the head `processing`, so as a rule that is the first entry, and the lookup reads one live entry a
+group, however many active updates the group holds (`inbox.md`, "Lease recovery", has why it is not
+the head alone, as in the outbox):
+
+```
+Nested Loop  (actual time=2.107..2.155 rows=3.00 loops=1)
+  Buffers: shared hit=971
+  ->  Seq Scan on telegram_inbox_groups inbox_group  (actual time=1.941..1.943 rows=3.00 loops=1)
+        Filter: (locked_until <= now())
+        Buffers: shared hit=958
+  ->  Limit  (actual time=0.047..0.047 rows=1.00 loops=3)
+        ->  Index Scan using telegram_inbox_active_group_idx on telegram_inbox
+              (actual time=0.045..0.045 rows=1.00 loops=3)
+              Index Cond: ((user_id = inbox_group.user_id) AND (chat_id = inbox_group.chat_id))
+              Filter: (status = 'processing'::text)
+              Buffers: shared hit=12
+```
+
+The statement took 2.2 ms in the database for the 3 groups and 6 ms for the 30 groups of 100 k, the
+30 lookups reading 146 buffers. Nearly all of either is the seq scan of `telegram_inbox_groups` for
+`locked_until`: 958 pages for the 3 groups, 1 874 for the 100 000.
+
+Before ([#846](https://github.com/yuldashevsardor/telegram-bot/issues/846)) the lookup joined the
+group to its updates with the status `processing`: the index gave every active update of the group,
+the status was a filter over each, and with no `LIMIT` to stop at the first match it read them all,
+300 000 a group in the 3 groups layout, 1.5 s on the client and 1.3 s with the plans on:
 
 ```
 Nested Loop  (actual time=0.145..1314.966 rows=3.00 loops=1)
@@ -247,7 +271,8 @@ and 8 ms at most, and so is the claim of a few groups, 0.4 – 1.8 ms after the 
 29 ms. The claim of 100 k ready groups is not: 101 ms for one update or for 30, ten times over,
 since it looks up the head of every ready group. The threshold is not set for the lease recovery
 and the cleanup, which run on timers with no caller waiting: the recovery takes 0.5 – 3 ms while no
-lease has expired and 1.5 s for 3 groups of 300 000 updates whose leases have, and the cleanup that
+lease has expired and took 1.5 s for 3 groups of 300 000 updates whose leases have, 2.3 ms since
+it stops at the `processing` update (see "The lease recovery"), and the cleanup that
 finds nothing reads the whole table for 84 s. The proposal is in four issues:
 
 - the head index with the vacuum of `telegram_inbox`,
