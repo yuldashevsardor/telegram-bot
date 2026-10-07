@@ -366,18 +366,17 @@ export class InboxStore {
     // number deleted. A caller that gets a full batch calls again. A failed update is never deleted:
     // it waits for a person. An update without finished_at is never deleted either.
     public async deleteFinishedUpdates(): Promise<number> {
-        // finished_at plus the retention, not now() minus it: a long retention would take now()
-        // below the earliest timestamp PostgreSQL has, 4713 BC, while the sum stays below its
-        // latest for any retention the config takes.
+        // now() minus the retention, a bound of finished_at alone: the index on finished_at serves
+        // it. A retention that reaches past 4713 BC, the earliest timestamp, fails it out of range.
         const deletedRows = await this.sql`
             DELETE FROM telegram_inbox
             WHERE update_id IN (
                 SELECT update_id
                 FROM telegram_inbox
                 WHERE (status = ${InboxStatus.Done}
-                       AND finished_at + ${this.cleanupSettings.doneRetentionMs}::double precision * interval '1 millisecond' < now())
+                       AND finished_at < now() - ${this.cleanupSettings.doneRetentionMs}::double precision * interval '1 millisecond')
                    OR (status = ${InboxStatus.Skipped}
-                       AND finished_at + ${this.cleanupSettings.skippedRetentionMs}::double precision * interval '1 millisecond' < now())
+                       AND finished_at < now() - ${this.cleanupSettings.skippedRetentionMs}::double precision * interval '1 millisecond')
                 LIMIT ${this.cleanupSettings.batchSize}
                 -- The lock rechecks the status on the newest version of the row, so an update moved
                 -- back to pending meanwhile is kept; a row another cleanup holds is left to it.
