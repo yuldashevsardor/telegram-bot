@@ -173,12 +173,7 @@ describe("InboxStore", function () {
                 expect((thrown as InboxUpdateRefused).payload).to.include({ code: code });
                 expect(await statuses()).to.deep.equal([]);
             });
-        }
 
-        for (const [name, text] of [
-            ["a NUL character", NUL_TEXT],
-            ["a lone surrogate", SURROGATE_TEXT],
-        ] as const) {
             it(`refuses an update with ${name} in a key deep inside it`, async function () {
                 const pushed = input(10);
                 const update = { ...pushed.update, nested: [{ ["key" + text]: "value" }] } as Update;
