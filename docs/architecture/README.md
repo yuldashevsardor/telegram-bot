@@ -30,6 +30,8 @@ The runtime sequences live in the files of their subsystems:
   the completions, the ready notifications, the update source, the update processor, the runner
   with its stop and the maintenance timers, the error classes of a failed handler, the outcomes,
   the lease recovery, the release on stop, unblocking a group, the cleanup and the polling source
+- [`inbox-load-test.md`](./inbox-load-test.md) — the inbox store measured on 100 M updates: how to
+  run the test, the data, the threshold, the times and the plans, the verdict
 - [`font-convertor.md`](./font-convertor.md) — format pairs, the EOT codec, signatures, the SVG,
   WOFF, WOFF2, EOT and sfnt validators, running the engine
 - [`user.md`](./user.md) — the entity, the repository, filling the context
@@ -163,8 +165,9 @@ test/                       mocha specs; a spec path repeats the source path, th
                             source, and for the root hook — next to the hook;
                             the root holds the mocha hooks and the wrappers of make coverage and
                             make mutation (testing.md)
-  load/                     the outbox load test: the fill, the churn of one chat and the
-                            measurement of make load-* (outbox-load-test.md)
+  load/                     the outbox and inbox load tests: the fills, the churn of one chat, the
+                            candidate index of the inbox and the measurements of make load-*
+                            (outbox-load-test.md, inbox-load-test.md)
 migrations/                 migrations, common/ holds the shared shorthands and the stub (storage.md)
 scripts/                    host scripts of the make targets; claude-worktree-guard is a hook (testing.md)
   review/                   the Python actions of the review skills and the width check of make check,
