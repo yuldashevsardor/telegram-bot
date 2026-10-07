@@ -22,7 +22,7 @@ The runtime sequences live in the files of their subsystems:
   chat states, push, pull, the limits and the pause, the chat lock, the lease and the completions,
   the runner with its stop and the maintenance timers, the status line, sending one message and
   removing its files, the failure classes, the outcomes, unblocking a chat, the retry delay,
-  waiting for the result and the payload codec
+  waiting for the result, the payload codec and the end-to-end spec on a fake Bot API
 - [`outbox-load-test.md`](./outbox-load-test.md) — the outbox store measured on 100 M messages:
   how to run the test, the data, the threshold, the times and the plans, the verdict
 - [`inbox.md`](./inbox.md) — the inbox of incoming updates in PostgreSQL: the tables,
