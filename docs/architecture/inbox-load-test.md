@@ -19,7 +19,12 @@ after the worktree. The statement it left runs on in the database until it ends 
 statement timeout, holding the group rows it locked, so the next fill waits for it, and `make`
 prints no plans: they are in `docker compose -f docker-compose.load.yml logs pgsql-load`. The files
 they run are in
-`test/load/`. A fill stays valid for 6 days, as the outbox one does.
+`test/load/`. A fill stays valid for 6 days, as the outbox one does. The cleanup of a measurement
+deletes the 5 000 done updates past the retention, so a later run finds only the call that deletes
+nothing; the runs of "The cleanup" put them back before each run with the `INSERT` of
+`inbox-fill-done.sql` over `n` from 1 to 5 000. The index of the cleanup (see "The cleanup") is a
+migration too, and unlike the head index it holds every done update: a fill made under it fills it
+as well, which no run has timed.
 
 The measurement calls the real `InboxStore` with the settings of `.env`: 15 `claim(1)`, what the
 worker asks for (`CLAIM_LIMIT` of `InboxUpdateSource`), and 15 `claim(30)`, a batch the size of the
@@ -56,18 +61,20 @@ another, so the time of a claim bounds how many updates one worker loop can star
 ## Results
 
 The times are those of the client, in ms, from runs with `plans=off`, except the column without an
-index; "first" is the first call of the run, the cold cache.
+index; "first" is the first call of the run, the cold cache. The last column is the claim that
+limits the groups before it looks up their heads (see "The claim of 100 k groups"); the calls it
+did not change were not measured again.
 
-| call | no index, 3 groups | index, 3 groups | index, 100 k groups |
-|---|---|---|---|
-| `claim(1)` | 276 136, 301 307 | first 29, then 0.4 – 1.6, median 0.6 | first 397, then 98 – 115, median 101 |
-| `claim(30)` | — | 0.5 – 1.8, median 0.6, for 3 updates | 97 – 110, median 102, for 30 updates |
-| `markAsDone()` | 73 556, 292 | median 0.7, p95 1.5, max 3.7 | median 0.6, p95 1.2, max 8.1 |
-| `findExpiredLeases()`, no lease expired | — | 0.5 | 3.1 |
-| `findExpiredLeases()`, a batch expired | — | 1 458, 3 leases | 13, 30 leases |
-| `deleteFinishedUpdates()`, a full batch | — | 4.9 – 280, one of 82 549 | — |
-| `deleteFinishedUpdates()`, nothing to delete | — | 84 156 | 84 219 |
-| `deleteIdleGroups()`, nothing to delete | — | 18 | 35 |
+| call | no index, 3 groups | head index, 3 groups | head index, 100 k groups | head and ready-groups index, 100 k groups |
+|---|---|---|---|---|
+| `claim(1)` | 276 136, 301 307 | first 29, then 0.4 – 1.6, median 0.6 | first 397, then 98 – 115, median 101 | first 32, then 0.6 – 4.2, median 1.8 |
+| `claim(30)` | — | 0.5 – 1.8, median 0.6, for 3 updates | 97 – 110, median 102, for 30 updates | 1.1 – 2.4, median 1.4, for 30 updates |
+| `markAsDone()` | 73 556, 292 | median 0.7, p95 1.5, max 3.7 | median 0.6, p95 1.2, max 8.1 | — |
+| `findExpiredLeases()`, no lease expired | — | 0.5 | 3.1 | — |
+| `findExpiredLeases()`, a batch expired | — | 1 458, 3 leases | 13, 30 leases | — |
+| `deleteFinishedUpdates()`, a full batch | — | 4.9 – 280, one of 82 549 | — | — |
+| `deleteFinishedUpdates()`, nothing to delete | — | 84 156 | 84 219 | — |
+| `deleteIdleGroups()`, nothing to delete | — | 18 | 35 | — |
 
 Without an index only two claims and their completions were measured, with the plans on: each claim
 took minutes, and the rest of the run would have taken hours. The index is
@@ -140,11 +147,13 @@ Limit  (actual time=0.043..0.043 rows=1.00 loops=1)                -- releaseGro
 
 ### The claim of 100 k groups with the index
 
-The order of the claim is that of the groups alone, `next_attempt_at` and the key, but the head is
-an inner join: a ready group without an active update would drop out. So the plan looks up the head
-of every ready group before it sorts them and takes the first, as the pull of the outbox does
+The first form of the claim joined each ready group to its head and ordered the result by the
+columns of the group. The head was an inner join, so a ready group without an active update would
+have dropped out, and the plan looked up the head of every ready group before it sorted them and
+took the first, as the pull of the outbox does
 ([`outbox-load-test.md`](./outbox-load-test.md), "The pull of 100 k chats with the index"): 100 000
-lookups, 300 000 buffers, and a sort that spills past `work_mem`, for one update or for 30.
+lookups, 300 000 buffers, and a sort that spills past `work_mem`, for one update or for 30. It took
+a median of 101 ms.
 
 ```
 Limit  (actual time=128.222..128.223 rows=1.00 loops=1)
@@ -161,6 +170,40 @@ Limit  (actual time=128.222..128.223 rows=1.00 loops=1)
                                       (actual time=0.001..0.001 rows=1.00 loops=100000)
                                       Buffers: shared hit=300017
 ```
+
+### The claim of 100 k groups
+
+The order needs nothing from the head, so the claim takes the groups first, `ORDER BY
+next_attempt_at, user_id, chat_id LIMIT … FOR UPDATE SKIP LOCKED`, and looks up the heads of those
+alone. With the heads rewritten and no index on the groups the plan still read all 100 000 of them
+and sorted the ready ones: 20 – 28 ms a claim, whatever the limit. The index
+`telegram_inbox_groups (next_attempt_at, user_id, chat_id) WHERE state = 'ready'`
+(`1791504000000_telegram-inbox-ready-groups-index.ts`) gives the groups already in the order, so the
+plan reads as many of them as the claim takes. The plan of `claim(30)`, the head lookups of which
+are 30, as many as the groups taken:
+
+```
+Sort  (actual time=1.276..1.279 rows=30.00 loops=1)
+  CTE ready_groups
+    ->  Limit  (actual time=0.016..0.052 rows=30.00 loops=1)
+          ->  LockRows  (actual time=0.016..0.049 rows=30.00 loops=1)
+                ->  Index Scan using telegram_inbox_ready_groups_idx on telegram_inbox_groups
+                      (actual time=0.012..0.026 rows=30.00 loops=1)
+                      Index Cond: (next_attempt_at <= now())
+                      Filter: (state = 'ready'::text)
+  CTE claimed
+    ->  Update on telegram_inbox  (actual time=0.103..1.215 rows=30.00 loops=1)
+          ->  Nested Loop  (actual time=0.083..0.719 rows=30.00 loops=1)
+                ->  Nested Loop  (actual time=0.044..0.510 rows=30.00 loops=1)
+                      ->  CTE Scan on ready_groups  (actual time=0.018..0.066 rows=30.00 loops=1)
+                      ->  Subquery Scan on head  (actual time=0.014..0.014 rows=1.00 loops=30)
+                            ->  Index Only Scan using telegram_inbox_active_group_idx on telegram_inbox
+                                  (actual time=0.014..0.014 rows=1.00 loops=30)
+```
+
+A `ready` group without an active update would take a place among the `limit` groups and claim
+nothing, where the inner join dropped it and went on to the next group. No writer makes one
+(`inbox.md`, "Group states"), and the claim does not guard against it.
 
 ### The lease recovery with the index
 
@@ -185,12 +228,12 @@ Nested Loop  (actual time=0.145..1314.966 rows=3.00 loops=1)
 
 ### The cleanup
 
-`deleteFinishedUpdates()` filters on `finished_at` plus the retention, which no index serves, so
-the call that finds nothing reads the whole table, 84 s in both layouts, as the cleanup of the
-outbox did before its index ([`outbox-load-test.md`](./outbox-load-test.md), "The cleanup"). The
-full batches are of the 3 groups run, the only one with updates past the retention, which lie at
-the start of the table: four took 4.9 – 280 ms, and one 83 s, its scan started elsewhere in the
-table (`synchronize_seqscans`).
+Without an index on `finished_at` the cleanup filtered on `finished_at` plus the retention, so the
+call that finds nothing read the whole table, 84 s in both layouts, as the cleanup of the outbox
+did before its index ([`outbox-load-test.md`](./outbox-load-test.md), "The cleanup"). The full
+batches were of the 3 groups run, the only one with updates past the retention, which lie at the
+start of the table: four took 4.9 – 280 ms, and one 83 s, its scan started elsewhere in the table
+(`synchronize_seqscans`).
 
 ```
 Limit  (actual time=84580.333..84580.333 rows=0.00 loops=1)
@@ -201,6 +244,43 @@ Limit  (actual time=84580.333..84580.333 rows=0.00 loops=1)
               Buffers: shared hit=15088 read=10123344 dirtied=3 written=3
 ```
 
+`1791676800000_telegram-inbox-finished-index.ts` adds `telegram_inbox_finished_at_idx`,
+`telegram_inbox (finished_at) WHERE status IN ('done', 'skipped')`, and the filter bounds
+`finished_at` alone ([`inbox.md`](./inbox.md), "Cleanup"). Over the filled table of the 100 k
+groups layout its migration took 94 s, the start of the application container included, and the
+index takes 2.1 GB, as much as the primary key. Three runs over that layout, each with the 5 000
+updates past the retention put back (see "How to run it"), the last one with the plans:
+
+| call | run 1 | run 2 | run 3, plans |
+|---|---|---|---|
+| `deleteFinishedUpdates()`, a full batch | 3.9 – 16.4 | 6.4 – 8.9 | 4.9 – 10.5 |
+| `deleteFinishedUpdates()`, nothing to delete | 1.2 | 2.0 | 1.3 |
+| `markAsDone()` | — | median 1.1, p95 2.2, max 8.1 | median 0.8, p95 1.7, max 6.4 |
+
+The completion adds an entry to the index and stays within the threshold; it took a median of
+0.6 ms in the run without the index (see "Results"). The call that finds nothing reads the index,
+not the table. In the run with the plans it walked 15 000 entries: the updates the three runs had
+deleted, which keep their entries until a vacuum of the table, and the heap pages they point to,
+1 520 buffers in 0.7 ms:
+
+```
+Bitmap Heap Scan on telegram_inbox telegram_inbox_1  (actual time=0.661..0.661 rows=0.00 loops=1)
+  Filter: (((status = 'done'::text) AND (finished_at < (now() - '168:00:00'::interval))) OR ...)
+  Heap Blocks: exact=1501
+  Buffers: shared hit=1520
+  ->  BitmapOr  (actual time=0.210..0.211 rows=0.00 loops=1)
+        ->  Bitmap Index Scan on telegram_inbox_finished_at_idx  (actual time=0.208..0.208 rows=15000.00 loops=1)
+              Index Cond: (finished_at < (now() - '168:00:00'::interval))
+              Buffers: shared hit=15
+        ->  Bitmap Index Scan on telegram_inbox_finished_at_idx  (actual time=0.002..0.002 rows=0.00 loops=1)
+              Index Cond: (finished_at < (now() - '720:00:00'::interval))
+              Buffers: shared hit=4
+```
+
+The plan is a custom one, with the values of the statuses: as in the outbox, a generic plan without
+them could not use the partial index. What the outbox measured besides, a backlog of 1 M past the
+retention and the vacuum that reads the index whole, was not measured for the inbox.
+
 ## Verdict
 
 Without an index nothing is within the threshold: a claim takes 5 minutes and a completion up to
@@ -210,7 +290,9 @@ and 8 ms at most, and so is the claim of a few groups, 0.4 – 1.8 ms after the 
 since it looks up the head of every ready group. The threshold is not set for the lease recovery
 and the cleanup, which run on timers with no caller waiting: the recovery takes 0.5 – 3 ms while no
 lease has expired and 1.5 s for 3 groups of 300 000 updates whose leases have, and the cleanup that
-finds nothing reads the whole table for 84 s. The proposal is in four issues:
+finds nothing read the whole table for 84 s, 1 – 2 ms with the index of
+[#847](https://github.com/yuldashevsardor/telegram-bot/issues/847) (see "The cleanup"). The proposal
+is in four issues:
 
 - the head index with the vacuum of `telegram_inbox`,
   [#844](https://github.com/yuldashevsardor/telegram-bot/issues/844);

@@ -98,8 +98,9 @@ export class InboxStore {
     }
 
     // One statement, so it is atomic without a transaction: up to limit ready groups, the head of
-    // each, the groups that waited longest first (docs/architecture/inbox.md, "Claim"). A group
-    // locked by another claimer is skipped, not waited for. A claimed group moves behind the groups
+    // each, the groups that waited longest first (docs/architecture/inbox.md, "Claim"). The groups
+    // are limited before their heads are looked up: a ready group always has a pending head, so the
+    // order needs nothing from the head. A group locked by another claimer is skipped, not waited for. A claimed group moves behind the groups
     // that wait, so they are served in turn. The claimed groups are leased to the caller for
     // leaseDurationMs under the token of this claim. Each claimed update carries the start of its
     // attempt and the worker, which its completion writes.
@@ -113,23 +114,27 @@ export class InboxStore {
         const lockToken = randomUUID();
 
         const claimedRows = await this.sql<ClaimedInboxRow[]>`
-            WITH heads AS (
+            WITH ready_groups AS (
+                SELECT user_id, chat_id
+                FROM telegram_inbox_groups
+                WHERE state = ${InboxGroupState.Ready}
+                  AND next_attempt_at <= now()
+                ORDER BY next_attempt_at, user_id, chat_id
+                LIMIT ${limit}::bigint
+                FOR UPDATE SKIP LOCKED
+            ),
+            heads AS (
                 SELECT head.update_id
-                FROM telegram_inbox_groups AS inbox_group
+                FROM ready_groups
                 CROSS JOIN LATERAL (
                     SELECT update_id
                     FROM telegram_inbox
-                    WHERE user_id = inbox_group.user_id
-                      AND chat_id = inbox_group.chat_id
+                    WHERE user_id = ready_groups.user_id
+                      AND chat_id = ready_groups.chat_id
                       AND status IN ${this.sql(ACTIVE_STATUSES)}
                     ORDER BY update_id
                     LIMIT 1
                 ) AS head
-                WHERE inbox_group.state = ${InboxGroupState.Ready}
-                  AND inbox_group.next_attempt_at <= now()
-                ORDER BY inbox_group.next_attempt_at, inbox_group.user_id, inbox_group.chat_id
-                LIMIT ${limit}::bigint
-                FOR UPDATE OF inbox_group SKIP LOCKED
             ),
             claimed AS (
                 -- The head comes from the snapshot of the statement (docs/architecture/inbox.md, "Claim").
@@ -351,18 +356,17 @@ export class InboxStore {
     // number deleted. A caller that gets a full batch calls again. A failed update is never deleted:
     // it waits for a person. An update without finished_at is never deleted either.
     public async deleteFinishedUpdates(): Promise<number> {
-        // finished_at plus the retention, not now() minus it: a long retention would take now()
-        // below the earliest timestamp PostgreSQL has, 4713 BC, while the sum stays below its
-        // latest for any retention the config takes.
+        // now() minus the retention, a bound of finished_at alone: the index on finished_at serves
+        // it. A retention that reaches past 4713 BC, the earliest timestamp, fails it out of range.
         const deletedRows = await this.sql`
             DELETE FROM telegram_inbox
             WHERE update_id IN (
                 SELECT update_id
                 FROM telegram_inbox
                 WHERE (status = ${InboxStatus.Done}
-                       AND finished_at + ${this.cleanupSettings.doneRetentionMs}::double precision * interval '1 millisecond' < now())
+                       AND finished_at < now() - ${this.cleanupSettings.doneRetentionMs}::double precision * interval '1 millisecond')
                    OR (status = ${InboxStatus.Skipped}
-                       AND finished_at + ${this.cleanupSettings.skippedRetentionMs}::double precision * interval '1 millisecond' < now())
+                       AND finished_at < now() - ${this.cleanupSettings.skippedRetentionMs}::double precision * interval '1 millisecond')
                 LIMIT ${this.cleanupSettings.batchSize}
                 -- The lock rechecks the status on the newest version of the row, so an update moved
                 -- back to pending meanwhile is kept; a row another cleanup holds is left to it.

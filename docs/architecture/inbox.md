@@ -25,7 +25,7 @@ the group row, not on the update.
 
 The indexes are picked by the plans of the load test
 ([`inbox-load-test.md`](./inbox-load-test.md)), not ahead of the queries. Besides the primary keys
-there is one, `1791417600000_telegram-inbox-head-index.ts`, which adds
+there are three. `1791417600000_telegram-inbox-head-index.ts` adds
 `telegram_inbox_active_group_idx` on `(user_id, chat_id, update_id)` of the active updates: the head
 of a group for the claim, for `releaseGroup()` and for the lease recovery is its first entry. Its
 `status` is in the predicate, so no update is HOT, and every update leaves dead entries a head
@@ -34,6 +34,14 @@ lookup walks until a vacuum cleans them. So the same migration sets the vacuum o
 `vacuum_index_cleanup = ON` and a cap on the dead rows that bring autovacuum
 (`autovacuum_vacuum_max_threshold`); their reasons are in
 [`outbox-load-test.md`](./outbox-load-test.md), "Vacuum of the head index".
+`1791504000000_telegram-inbox-ready-groups-index.ts` adds `telegram_inbox_ready_groups_idx` on
+`(next_attempt_at, user_id, chat_id)` of the `ready` groups: the claim takes them in that order, so
+it reads as many groups as it claims. `1791676800000_telegram-inbox-finished-index.ts` adds
+`telegram_inbox_finished_at_idx` on `finished_at` of the `done` and `skipped` updates, the ones the
+cleanup deletes (see "Cleanup"): without it the call that finds nothing to delete reads the whole
+table. As the index of the outbox cleanup ([`outbox.md`](./outbox.md), "Tables"), it holds an entry
+for every `done` and `skipped` update the cleanup has not deleted yet, and every completion but a
+failure adds one.
 
 The database does not check the values of `status` and `state`: the store writes them only
 through the `InboxStatus` and `InboxGroupState` enums (`store/inbox-store.types.ts`). Of these,
@@ -110,23 +118,27 @@ a stored one would be left out as a redelivery. Nothing keeps an update active f
 `claim(limit, worker)` throws `InvalidClaimLimit` on a `limit` that is not a whole number from 1 to
 `Number.MAX_SAFE_INTEGER`. Otherwise it is one statement, atomic without a transaction:
 
-1. up to `limit` `ready` groups whose `next_attempt_at` has passed, with the head of each
-   (`CROSS JOIN LATERAL`), by `next_attempt_at`, then by the group key,
-   `FOR UPDATE OF … SKIP LOCKED`: a group another claimer holds is skipped, not waited for;
-2. the head goes to `processing`, but only if it is still `pending`; its `attempts` stay as they
+1. up to `limit` `ready` groups whose `next_attempt_at` has passed, by `next_attempt_at`, then by
+   the group key, `FOR UPDATE SKIP LOCKED`: a group another claimer holds is skipped, not waited
+   for. The groups are taken before their heads are looked up, so the claim reads as many heads as
+   it takes groups (`inbox-load-test.md`, "The claim of 100 k groups"). A `ready` group always has
+   a pending head (see "Group states"), so the order needs nothing from it; a `ready` group without
+   one would take a place among the `limit` groups and claim nothing;
+2. the head of each of those groups (`CROSS JOIN LATERAL`);
+3. the head goes to `processing`, but only if it is still `pending`; its `attempts` stay as they
    are, the completion writes the attempt (see "Completions");
-3. the groups whose head was claimed go to `processing`, `next_attempt_at` moves to `now()`, and
+4. the groups whose head was claimed go to `processing`, `next_attempt_at` moves to `now()`, and
    the group is leased to the claim (see "The lease");
-4. the answer: the claimed updates by `update_id`, each with its group, the update, the
+5. the answer: the claimed updates by `update_id`, each with its group, the update, the
    `lockToken` of the claim, `startedAt` (`now()` of the claim), the `worker` passed to the claim
    and `earlierAttempts`, the length of its `attempts`.
 
-Step 3 is what serves the groups in turn: a group just served goes behind the groups that waited.
+Step 4 is what serves the groups in turn: a group just served goes behind the groups that waited.
 Only one head per group is taken, and a `processing` group is not `ready`, so a group never has two
 updates in `processing`.
 
-Step 1 reads the head from the snapshot of the statement, taken before the lock, so a head
-completed after the snapshot is turned away by the check of step 2 and its group is left `ready`
+Step 2 reads the head from the snapshot of the statement, taken before the lock, so a head
+completed after the snapshot is turned away by the check of step 3 and its group is left `ready`
 for the next claim, as in the outbox ([`outbox.md`](./outbox.md), "Pull").
 
 ## The lease
@@ -496,11 +508,14 @@ that gets a full batch calls again. `InboxMaintenance` calls them on timers (see
   either, so whatever sets `skipped` sets `finished_at` too. The row of a `done` or a `skipped`
   update is what turns a redelivered update away (see "Push", step 2): Telegram redelivers within
   24 h, so neither `INBOX_DONE_RETENTION` nor `INBOX_SKIPPED_RETENTION` may be less than a day, and
-  the config rejects a shorter one (`INBOX_RETENTION_RANGE` of `ConfigValuesBuilder`). The
-  retention is added to `finished_at` rather than taken off `now()`: the config takes a retention up
-  to `Number.MAX_SAFE_INTEGER` ms (`INBOX_RETENTION_RANGE`), and `now()` minus that falls below
-  4713 BC, the earliest timestamp PostgreSQL has. No index serves the sum; the outbox takes the
-  other form for its index ([`outbox.md`](./outbox.md), "Cleanup"). The batch is locked
+  the config rejects a shorter one (`INBOX_RETENTION_RANGE` of `ConfigValuesBuilder`). The filter
+  bounds `finished_at` alone, `finished_at < now() - retention`, so that
+  `telegram_inbox_finished_at_idx` serves it (see "Tables"), as the filter of the outbox cleanup
+  does ([`outbox.md`](./outbox.md), "Cleanup"): `finished_at` plus the retention, compared with
+  `now()`, would leave the index aside. The config takes a retention up to
+  `Number.MAX_SAFE_INTEGER` ms (`INBOX_RETENTION_RANGE`), and `now()` minus one that reaches past
+  4713 BC, the earliest timestamp PostgreSQL has, fails out of range: the cleanup then fails on
+  every run, and its error is in the log. The batch is locked
   `FOR UPDATE SKIP LOCKED`: the lock rechecks the status on the newest version of the row, so an
   update a person has moved back to `pending` meanwhile is kept, and two nodes cleaning at once
   take different rows.
