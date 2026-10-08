@@ -12,8 +12,9 @@ export function isLocale(value: string): value is Locale {
 }
 
 // Telegram sends language_code as an IETF tag ("ru", "en-US", "pt-br"), while the bundles are
-// keyed by language, so the region is dropped. An unknown language goes to the default locale:
-// Fluent would find no bundle for it, and the user would get key names instead of text.
+// keyed by language, so the region is dropped. An unknown language goes to the default locale.
+// Fluent would come to the same text by itself: it negotiates "en-US" to "en", and the isDefault
+// bundle of createFluent() ends every lookup chain.
 export function resolveLocale(languageCode: string | undefined): Locale {
     const language = languageCode?.split("-")[0]?.toLowerCase();
 
@@ -72,14 +73,11 @@ export async function createFluent(localeDir: string): Promise<Fluent> {
     return fluent;
 }
 
-// Plugs Fluent into the pipeline instead of `useFluent()` from `@grammyjs/fluent`. Its
-// enumerable `fluent` field the conversations plugin clones into the op-log and `sessions` on
-// every `wait()`, and on replay returns it as an empty shell (docs/architecture/i18n.md).
-// The plugin does not make the property name configurable, so it is replaced entirely.
+// Plugs Fluent into the pipeline instead of `useFluent()` from `@grammyjs/fluent`, whose
+// enumerable `fluent` field, under a name it does not let us change, would travel into the
+// conversation op-log and `sessions` and come back an empty shell (docs/architecture/i18n.md).
 // Parsing the `.ftl` and translating stay with `@moebius/fluent`; only the three lines of the
 // plugin without `fluent` are repeated here.
-// `getFluent()` and `ctx.t` are functions: those the conversations plugin does not clone but
-// restores bound to the live context, so both work on replay, inside a conversation.
 export function createFluentMiddleware(fluent: Fluent): MiddlewareFn<Context> {
     return (ctx, next) => {
         ctx.getFluent = (): Fluent => fluent;

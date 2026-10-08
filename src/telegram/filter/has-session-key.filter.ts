@@ -5,12 +5,10 @@ import { getSessionKey } from "app/telegram/session/session.helper";
 
 @injectable()
 export class HasSessionKeyFilter extends Filter {
-    // The same getSessionKey that is passed to session(). An update without a session key gets
-    // no session, and its first touch of ctx.session throws. It has nothing to do further down
-    // the chain, so it is dropped here, before the middleware and before any work with the
-    // database. allowed_updates = ["message"] no longer requests updates without from or chat:
-    // only leftovers of the old types after a change of the list get here. That is rare, and the
-    // warning below means exactly "unexpected".
+    // The same getSessionKey that session() gets: an update without a key has no session, and its
+    // first touch of ctx.session throws, so it is dropped before the middleware and the database.
+    // None is expected: ALLOWED_UPDATES requests none, and the polling source of the inbox drops one
+    // before the push, so the warning below means "unexpected" (docs/architecture/bot.md, step 1).
     protected handle(ctx: Context): boolean {
         if (getSessionKey(ctx) !== undefined) {
             return true;

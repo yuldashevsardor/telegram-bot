@@ -28,9 +28,8 @@ export class BulkMessagesCommand extends Command {
         super();
     }
 
-    // Pushes the messages straight into the outbox, so that their chats yield to the chats with calls
-    // of the bot API, and waits for none of them to be sent. Inside one of CHAT_IDS a reply still
-    // waits for the bulk messages pushed before it.
+    // Straight into the outbox, so that the chats yield to the chats with calls of the bot, and
+    // waiting for none of the messages (docs/architecture/bot.md, "Commands").
     protected async handle(_ctx: Context): Promise<void> {
         for (let firstIndex = 0; firstIndex < MESSAGE_COUNT; firstIndex += BATCH_MESSAGE_COUNT) {
             await this.store.pushBatch(this.buildBatch(firstIndex));
@@ -39,7 +38,6 @@ export class BulkMessagesCommand extends Command {
         this.logger.info("Bulk messages are pushed to the outbox.", { messageCount: MESSAGE_COUNT });
     }
 
-    // The chats take the messages in turn.
     private buildBatch(firstIndex: number): OutboxMessageInput[] {
         const batch: OutboxMessageInput[] = [];
 

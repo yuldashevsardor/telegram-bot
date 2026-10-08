@@ -46,11 +46,8 @@ export class FillUserToContextMiddleware extends Middleware {
             });
         }
 
-        // A function, not a field: the conversations plugin clones enumerable context properties
-        // into the op log and sessions, and a clone of User is an empty object
-        // (docs/architecture/invariants.md). Functions it restores bound to the live context, so
-        // inside a conversation getUser() gives the user of the current update, not a snapshot
-        // taken when the conversation was entered.
+        // A function, not a field: a clone of User in the conversation op log is an empty object,
+        // and a function is restored bound to the live context (docs/architecture/user.md).
         ctx.getUser = (): User => user;
 
         return next();
