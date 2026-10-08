@@ -20,6 +20,8 @@ export class FontFactsReader {
     // `unicode` attribute. An alternate encoding of a glyph (altuni) counts unless it goes with a
     // variation selector. A code point that several glyphs share, as the `lang` variants of one
     // character in an SVG font do, keeps the width of each of them, so a change of any one shows.
+    // The widths are sorted, since the glyph order differs between formats; two variants that swap
+    // their widths therefore pass unseen.
     private readonly readScript = [
         "import fontforge, json, sys",
         "font = fontforge.open(sys.argv[1])",
