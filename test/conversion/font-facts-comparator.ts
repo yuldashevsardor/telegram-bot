@@ -38,15 +38,36 @@ export class FontFactsComparator {
             });
         }
 
-        // A code point present on one side only is already a codePoints difference.
+        // A code point present on one side only is already a codePoints difference. One that encodes
+        // another number of glyphs is a glyph that lost or gained its encoding, not a changed width.
+        const changedGlyphCounts: Array<string> = [];
         const changedWidths: Array<string> = [];
 
-        for (const [codePoint, expectedWidth] of expectedFacts.advanceWidths) {
-            const resultWidth = resultFacts.advanceWidths.get(codePoint);
+        for (const [codePoint, expectedWidths] of expectedFacts.advanceWidths) {
+            const resultWidths = resultFacts.advanceWidths.get(codePoint);
 
-            if (resultWidth !== undefined && resultWidth !== expectedWidth) {
-                changedWidths.push(`${this.formatCodePoints([codePoint])} expected ${expectedWidth}, got ${resultWidth}`);
+            if (resultWidths === undefined) {
+                continue;
             }
+
+            if (resultWidths.length !== expectedWidths.length) {
+                changedGlyphCounts.push(
+                    `${this.formatCodePoints([codePoint])} expected ${expectedWidths.length}, got ${resultWidths.length}`,
+                );
+                continue;
+            }
+
+            const isWidthChanged = expectedWidths.some((width, index) => width !== resultWidths[index]);
+
+            if (isWidthChanged) {
+                changedWidths.push(
+                    `${this.formatCodePoints([codePoint])} expected ${expectedWidths.join("/")}, got ${resultWidths.join("/")}`,
+                );
+            }
+        }
+
+        if (changedGlyphCounts.length > 0) {
+            differences.push({ fact: "glyphsPerCodePoint", details: changedGlyphCounts.join(", ") });
         }
 
         if (changedWidths.length > 0) {
@@ -56,7 +77,7 @@ export class FontFactsComparator {
         return differences;
     }
 
-    private codePointsOnlyIn(widths: Map<number, number>, otherWidths: Map<number, number>): Array<number> {
+    private codePointsOnlyIn(widths: Map<number, Array<number>>, otherWidths: Map<number, Array<number>>): Array<number> {
         return Array.from(widths.keys()).filter((codePoint) => !otherWidths.has(codePoint));
     }
 
