@@ -43,7 +43,8 @@ The runtime sequences live in the files of their subsystems:
   when a storage gets an interface of its own
 - [`config.md`](./config.md) — `ConfigContainer`, its sources, watching the file, change
   subscriptions
-- [`testing.md`](./testing.md) — `mocha`, linters, coverage, gates, mutation testing
+- [`testing.md`](./testing.md) — `mocha`, linters, coverage, gates, the conversion check,
+  mutation testing
 - [`invariants.md`](./invariants.md) — the rules the compiler does not tie together: a
   violation compiles and breaks behaviour silently
 
@@ -170,6 +171,9 @@ test/                       mocha specs; a spec path repeats the source path, th
   load/                     the outbox and inbox load tests: the fills, the churn of one chat and
                             the measurements of make load-*
                             (outbox-load-test.md, inbox-load-test.md)
+  conversion/               the conversion check of make test-fonts: the fixtures over every pair,
+                            the facts of the font before and after, the expected differences
+                            (testing.md)
 migrations/                 migrations, common/ holds the shared shorthands and the stub (storage.md)
 scripts/                    host scripts of the make targets; claude-worktree-guard is a hook (testing.md)
   review/                   the Python actions of the review skills and the width check of make check,

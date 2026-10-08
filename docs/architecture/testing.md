@@ -1,7 +1,8 @@
 # Tests and checks
 
-- `mocha` runs through `.mocharc.json` with `tsx/cjs`. The same `tsx` loads `src/app.ts` in
-  `npm run dev`. It resolves the `paths` aliases itself, so no separate path resolver is needed.
+- `mocha` runs through `.mocharc.json` with `tsx/cjs`, all but the conversion check, which goes
+  past it ("The conversion check"). The same `tsx` loads `src/app.ts` in `npm run dev`. It
+  resolves the `paths` aliases itself, so no separate path resolver is needed.
 - `tsx` takes its tsconfig from `TSX_TSCONFIG_PATH=./tsconfig.check.json`, set in the npm scripts
   and in the recipe of the `mutation` target. Without it `test/` would be compiled with the esbuild
   defaults: standard decorators instead of `experimentalDecorators`, `useDefineForClassFields:
@@ -22,7 +23,8 @@
   the non-obvious exceptions. Why `skipLibCheck` is on is at the flag itself. The exceptions to
   `no-console` are in [`logging.md`](./logging.md).
 - The gate before a PR is `make check`; its tests run with the coverage threshold ("Coverage",
-  "Threshold"). Nothing enforces the gate: `pre-commit` is a convenience of host development (the
+  "Threshold"), and the conversion check runs after them ("The conversion check"). Nothing
+  enforces the gate: `pre-commit` is a convenience of host development (the
   root [`README.md`](../../README.md), "The pre-commit hook"), and CI is not set up yet (issue
   [#116](https://github.com/yuldashevsardor/telegram-bot/issues/116)).
 - The actions of the review skills (`scripts/review/`) are Python run on the host, not in the
@@ -152,6 +154,53 @@ preset has one other key, `cache: false`.
   itself: the resolvers and the commands it calls have their specs;
 - files without executable code (`skipEmpty`): types and interfaces only, empty error classes.
   There is no list, nyc decides for itself. In `coverage/lcov.info` they stay with `LF:0`.
+
+## The conversion check
+
+The specs that run the real engine check that a result is a valid file of its format
+(`font-forge-convertor.spec.ts`), not that it is the same font. `make test-fonts` checks the latter
+(`test/conversion/conversion.check.ts`). Every pair of the pair table converts its fixture from
+`test/fixtures/fonts` through `ConvertorFactory` with the real `FontForge` and `EotPacker`, the
+route the bot takes; the pairs from EOT run on the compressed fixture as well. Then the same facts
+are read from the source and the result and compared. The facts are the fields of `FontFacts`
+(`test/conversion/font-facts-reader.types.ts`); the encoded code points are the keys of its advance
+widths.
+
+- fontforge reads the facts through `fontforge -c` (`FontFactsReader`): the image has fontforge with
+  its embedded Python and no separate `python3`. An EOT is unpacked with `EotPacker` first, since
+  fontforge cannot open one.
+- Glyph names are not compared: fontforge renames some of them on reading (the TrueType fixture has
+  `.notdef` at glyph 3). U+0000 is left out of the code points; why is at `readScript` in the
+  reader.
+- A difference fails the check unless the pair lists it in `test/conversion/expected-differences.ts`
+  with its reason and the value it gives the fact. A listed difference that no longer happens, or
+  comes out with another value, fails it too, so the list stays what was measured.
+
+The facts are read by the same engine and codec that convert, so a reading defect of either does
+not show on the source side:
+
+- The SVG fixture declares ascent 1536 and descent -512, and fontforge reads it as 1638 and 410 (the
+  reason of the pairs into SVG in the list). The pairs from SVG write the same 1638 and 410 into the
+  result, and the check sees no difference.
+- `eot → ttf` converts with `EotPacker.unpack()`, and the reader unpacks its source with the same
+  call, so the pair compares the font with itself. Of an EOT result only the enclosed font is
+  read: the fields of the envelope header `EotPacker` writes are checked by `eot-packer.spec.ts`,
+  not here.
+
+The check runs apart from the main set: the `test:fonts` npm script starts mocha with
+`--no-config` over `test/conversion/**/*.check.ts`.
+
+- Under the `spec` glob of `.mocharc.json` Stryker would take it, and Stryker runs the whole set
+  for every mutant ("Mutation testing").
+- Under `nyc` it would cover lines the specs do not hold and hide them under the threshold.
+- The root hook would demand the database of a check that needs none. The one-off container still
+  needs the network of the database, as every one-off target does (the root `README.md`,
+  "Commands").
+
+`make check` runs it after the tests with coverage (the `check` npm script); `make test`,
+`make coverage` and `make mutation` do not. On 2026-10-09 its 35 conversions, the 30 pairs and the
+5 from the compressed EOT, took 5 s in mocha, and `make test-fonts` took 6–10 s with the start of
+the container.
 
 ## Mutation testing
 

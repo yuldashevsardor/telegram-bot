@@ -2,18 +2,9 @@ import { expect } from "chai";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory";
-import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
-import { EotPayloadDecoder } from "app/font-convertor/eot-payload-decoder/eot-payload-decoder";
 import { Extension } from "app/font-convertor/font-convertor.types";
-import { FontForge } from "app/font-convertor/font-forge/font-forge";
-import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
-import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
-import { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
-import { WoffFontValidator } from "app/font-convertor/validator/woff/woff-font-validator";
-import { Woff2FontValidator } from "app/font-convertor/validator/woff2/woff2-font-validator";
-import { EotFontValidator } from "app/font-convertor/validator/eot/eot-font-validator";
 import { InvalidPath } from "app/shared/fs/file-helper.errors";
+import { realConvertorFactory, realFontValidatorResolver } from "test/font-convertor/convertor-factory.helper";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
@@ -22,16 +13,11 @@ const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 // that the pair is reachable. Each pair calls the check itself, so a rejection is pinned for each.
 // The branches of the check itself run in convertor.spec.ts. The EOT pairs run on stubs in
 // eot-convertor.spec.ts; only two of their routes run here, with the real engine and codec, below:
-// eot → svg and the compressed eot → woff.
+// eot → svg and the compressed eot → woff. Every EOT pair runs end to end in the conversion check of
+// make test-fonts (test/conversion/conversion.check.ts).
 describe("Convertors of the engine pairs", function () {
-    const resolver = new FontValidatorResolver(
-        new SvgFontValidator(),
-        new WoffFontValidator(new SfntFontValidator()),
-        new Woff2FontValidator(new SfntFontValidator()),
-        new SfntFontValidator(),
-        new EotFontValidator(new SfntFontValidator(), new EotPayloadDecoder()),
-    );
-    const factory = new ConvertorFactory(new FontForge("fontforge"), resolver, new EotPacker(new EotPayloadDecoder()));
+    const resolver = realFontValidatorResolver();
+    const factory = realConvertorFactory(resolver);
     const engineExtensions = factory.getSupportedExtensions().filter((extension) => extension !== Extension.EOT);
     const nonSvgExtensions = factory.getSupportedExtensions().filter((extension) => extension !== Extension.SVG);
     let workDir: string;

@@ -3,7 +3,10 @@
 The same Roboto-Black in six formats, EOT twice: with a raw and with a compressed font. They are
 the input for manual conversion runs, for `/font_generator` and for the specs. The specs need real
 fonts: the validators need real headers, not invented ones, and the pairs convert real fonts. Which
-specs take the fixtures — `grep -rl fixtures test --include='*.spec.ts'`.
+specs take the fixtures — `grep -rl fixtures test --include='*.spec.ts'`. The conversion check of
+`make test-fonts` (`test/conversion/conversion.check.ts`) takes them too: it converts the fixture
+of every pair and compares the facts of the font before and after
+(`docs/architecture/testing.md`, "The conversion check").
 
 The directory lives in `test/`, not in `tmp/` as it used to. Files from `tmp/` never reached the
 container at all: `tmp` is listed in `.dockerignore`, and on top of that the `app-tmp` volume
@@ -27,7 +30,8 @@ the headers. So a replacement is checked by the signs of its format below, not b
 `make test` run. `font-forge-convertor.spec.ts` converts every fixture except EOT with the real
 fontforge into every other format except EOT, the EOT fixture into SVG, and sources made from the
 SVG fixture into every other format, EOT included. So a replacement the engine cannot open fails
-the spec even when its validator accepts it.
+the spec even when its validator accepts it. A replacement whose facts convert differently fails
+`make test-fonts`: its list of expected differences was measured on the fixtures that lie here.
 
 `test-font.eot` cannot be made with this command. fontforge does not know the `.eot` extension
 and silently writes PostScript Type 1 instead of EOT. That is exactly how two fixtures of the

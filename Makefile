@@ -95,6 +95,12 @@ coverage: ## Tests with coverage, red below the threshold; the table in the term
 	@mkdir -p coverage
 	$(DC_APP_RUN) npm run test:coverage
 
+# The conversion check goes past .mocharc.json (--no-config in the npm script): from there Stryker and
+# nyc would take it into their runs, and the database hook would bring pgsql into a check that needs
+# no database (docs/architecture/testing.md, "The conversion check"). check runs it as well.
+test-fonts: ## Convert the fixtures over every pair with the real engine and compare the font content
+	$(DC_APP_RUN) npm run test:fonts
+
 # The file set and the flags are written down once, in the npm scripts of package.json; the targets
 # below only run them in the container. The checks without fixing are for review and CI. The edits
 # on commit are still made by lint-staged; lint-fix and format are a one-off pass over the whole code.
@@ -157,10 +163,11 @@ mutation: ## Mutation testing, report and run record in ./reports: make mutation
 		node --require tsx/cjs test/mutation-run.ts
 
 # A quick pass before a PR in one output: the width of the added lines of prose and host scripts,
-# then types, eslint, prettier, the tests with the coverage threshold. The width is checked on the
-# host (scripts/review/line_width.py): it needs git, and .git is not mounted into the container. A
-# green check does not yet mean a green review: review runs the container checks gate by gate and
-# adds others, rebuild, build and mutation among them (docs/agents/review-gates.md).
+# then types, eslint, prettier, the tests with the coverage threshold and the conversion check of
+# test-fonts. The width is checked on the host (scripts/review/line_width.py): it needs git, and .git
+# is not mounted into the container. A green check does not yet mean a green review: review runs the
+# container checks gate by gate and adds others, rebuild, build and mutation among them
+# (docs/agents/review-gates.md).
 check: ## Every check in a row, in one command
 	python3 scripts/review/line_width.py
 	@mkdir -p coverage
@@ -346,7 +353,7 @@ review-tree-remove: ## Remove a temporary review tree <main worktree>-review-<PR
 	python3 scripts/review/tree_remove.py '$(path)'
 
 .PHONY: up db-up app-up app-down db-down logs restart db-reset \
-	migrate migrate-create build typecheck test test-watch coverage \
+	migrate migrate-create build typecheck test test-watch coverage test-fonts \
 	lint lint-fix format-check format mutation check rebuild shell psql \
 	outbox-retry outbox-skip inbox-retry inbox-skip \
 	worktree-init worktree-cleanup token-acquire token-renew token-release token-status token-add \
