@@ -179,9 +179,10 @@ export class Application {
 
     // The runners of the inbox and the outbox have deadlines of their own, the polling source the one
     // stopInboxPollingSource() gives it, and the whole stop has the overall one, greater than their
-    // sum (checked when the config is assembled). The steps without a deadline, the stops of the
-    // maintenance and the closing of the pool, live on what is left of it when those three use theirs
-    // up.
+    // sum (checked when the config is assembled). The steps without a deadline of their own, the
+    // stops of the maintenance and the wait for the handlers left running, live on what is left of
+    // it when those three use theirs up. So does the closing of the pool: its own five seconds
+    // (Database.close()) are outside that check.
     private async shutdown(from: State): Promise<void> {
         // A failure of the setup leaves from here as well (docs/architecture/application.md, "Stop",
         // step 3). Swallowed, it would leave the exit code to a race between exit(0) and exit(1).
