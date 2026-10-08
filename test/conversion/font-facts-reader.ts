@@ -18,17 +18,19 @@ export class FontFactsReader {
     // glyph 0, which an unmapped code point gets anyway. Reading an SVG, it gives U+0000 to glyph 0,
     // the <missing-glyph>, and to the `.null` glyph when the font has one, although neither has a
     // `unicode` attribute. An alternate encoding of a glyph (altuni) counts unless it goes with a
-    // variation selector. A code point that several glyphs share, as the `lang` variants of one
-    // character in an SVG font do, keeps the width of each of them, so a change of any one shows.
-    // The widths are sorted, since the glyph order differs between formats; two variants that swap
-    // their widths therefore pass unseen.
+    // variation selector, and once: fontforge lists it once for every Unicode cmap subtable that
+    // holds it, platform 0 and platform 3 of one font, which would read as two glyphs. A code point
+    // that several glyphs share, as the `lang` variants of one character in an SVG font do, keeps
+    // the width of each of them, so a change of any one shows. The widths are sorted, since the
+    // glyph order differs between formats; two variants that swap their widths therefore pass
+    // unseen.
     private readonly readScript = [
         "import fontforge, json, sys",
         "font = fontforge.open(sys.argv[1])",
         "glyphs = list(font.glyphs())",
         "widths = {}",
         "for glyph in glyphs:",
-        "    codePoints = [glyph.unicode] + [alt[0] for alt in (glyph.altuni or ()) if alt[1] == -1]",
+        "    codePoints = {glyph.unicode} | {alt[0] for alt in (glyph.altuni or ()) if alt[1] == -1}",
         "    for codePoint in codePoints:",
         "        if codePoint > 0:",
         "            widths.setdefault(codePoint, []).append(glyph.width)",

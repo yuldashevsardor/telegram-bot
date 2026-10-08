@@ -207,7 +207,7 @@ The check runs apart from the main set: the `test:fonts` npm script starts mocha
 
 `make check` runs it after the tests with coverage (the `check` npm script); `make test`,
 `make coverage` and `make mutation` do not. On 2026-10-09 its 85 conversions, each of the 17 font
-fixtures into the 5 other formats, took 15–16 s in mocha, and `make test-fonts` took 16–17 s with
+fixtures into the 5 other formats, took 15–17 s in mocha, and `make test-fonts` took 16–18 s with
 the start of the container.
 
 ## Mutation testing

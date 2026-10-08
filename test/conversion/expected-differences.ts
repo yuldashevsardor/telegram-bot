@@ -43,6 +43,30 @@ const NOTO_NASKH_ARABIC_BASE_LETTERS = [
     0x06c9, 0x06cb, 0x06cc, 0x06d0, 0x06d2, 0x06d3,
 ];
 
+// The code points at which a glyph comes back twice from SVG. fontforge lists an alternate code point of
+// a glyph, one beside its main one, once for every Unicode cmap subtable that holds it, platform 0 and
+// platform 3, and writes a <glyph> for each listing into an SVG font. In Bungee Spice the main code
+// points U+0162 and U+0163 come back twice as well: their glyphs have the alternates U+021A and U+021B.
+const SOURCE_SANS_3_DOUBLED_CODE_POINTS = [0x00a0, 0x00ad, 0x03bc, 0x03d5, 0x2010, 0x2011, 0x207c, 0x2126, 0x2206];
+const NOTO_NASKH_ARABIC_DOUBLED_CODE_POINTS = [0x00a0, 0x06f1, 0x06f3, 0x06f8, 0x06f9, 0x202f];
+// U+FF41 to U+FF5A are the fullwidth a to z.
+const BUNGEE_SPICE_DOUBLED_CODE_POINTS = [
+    0x00a0,
+    0x0162,
+    0x0163,
+    0x021a,
+    0x021b,
+    0x03bc,
+    0x2002,
+    0x2010,
+    0x2126,
+    0x2206,
+    0x2215,
+    0x2219,
+    0xf6c3,
+    ...Array.from({ length: 26 }, (_, index) => 0xff41 + index),
+];
+
 // The code points of Noto Naskh Arabic that have no <glyph> of their own in the SVG fontforge writes.
 const NOTO_NASKH_ARABIC_UNWRITTEN = [0x06d5, 0xfba2, 0xfba3, 0xfbe8, 0xfbe9, 0xfef0, 0xfef3, 0xfef4];
 
@@ -58,17 +82,35 @@ class FontFactsChanges {
         return { ...facts, advanceWidths: advanceWidths };
     }
 
-    public withCodePoints(facts: FontFacts, widthsByCodePoint: Map<number, number>): FontFacts {
+    public withCodePoints(facts: FontFacts, widthsByCodePoint: Map<number, Array<number>>): FontFacts {
         return { ...facts, advanceWidths: new Map([...facts.advanceWidths, ...widthsByCodePoint]) };
     }
 
     public withZeroWidthsAs(facts: FontFacts, width: number): FontFacts {
         const advanceWidths = new Map(facts.advanceWidths);
 
-        for (const [codePoint, advanceWidth] of advanceWidths) {
-            if (advanceWidth === 0) {
-                advanceWidths.set(codePoint, width);
-            }
+        for (const [codePoint, widths] of advanceWidths) {
+            const changedWidths = widths.map((advanceWidth) => (advanceWidth === 0 ? width : advanceWidth));
+
+            advanceWidths.set(
+                codePoint,
+                changedWidths.sort((left, right) => left - right),
+            );
+        }
+
+        return { ...facts, advanceWidths: advanceWidths };
+    }
+
+    public withEachGlyphTwice(facts: FontFacts, codePoints: Array<number>): FontFacts {
+        const advanceWidths = new Map(facts.advanceWidths);
+
+        for (const codePoint of codePoints) {
+            const widths = advanceWidths.get(codePoint) ?? [];
+
+            advanceWidths.set(
+                codePoint,
+                [...widths, ...widths].sort((left, right) => left - right),
+            );
         }
 
         return { ...facts, advanceWidths: advanceWidths };
@@ -148,7 +190,7 @@ export const expectedDifferences: Array<ExpectedDifference> = [
     {
         fixtures: FONT_AWESOME_TRUETYPE,
         toExtensions: [Extension.SVG],
-        resultFacts: (sourceFacts) => changes.withCodePoints(sourceFacts, new Map([[0x000d, 597]])),
+        resultFacts: (sourceFacts) => changes.withCodePoints(sourceFacts, new Map([[0x000d, [597]]])),
         reason:
             "U+000D more: the font has a nonmarkingreturn glyph without a code point, and fontforge reading an SVG font " +
             "gives a glyph without unicode the code point of its name (issue #913).",
@@ -159,15 +201,16 @@ export const expectedDifferences: Array<ExpectedDifference> = [
         resultFacts: (sourceFacts: FontFacts): FontFacts => {
             const withoutEmptyGlyphs = changes.withoutCodePoints(sourceFacts, [0x034f, 0x200b, 0xfeff]);
             const withZeroWidths = changes.withZeroWidthsAs(withoutEmptyGlyphs, SVG_OMITTED_WIDTH);
-            const withNamedGlyphs = changes.withCodePoints(withZeroWidths, new Map([[0xfb05, 594]]));
+            const withNamedGlyphs = changes.withCodePoints(withZeroWidths, new Map([[0xfb05, [594]]]));
+            const withGlyphsTwice = changes.withEachGlyphTwice(withNamedGlyphs, SOURCE_SANS_3_DOUBLED_CODE_POINTS);
 
-            return { ...withNamedGlyphs, glyphCount: sourceFacts.glyphCount + 15 };
+            return { ...withGlyphsTwice, glyphCount: sourceFacts.glyphCount + 15 };
         },
         reason:
-            "15 glyphs more: fontforge writes a glyph with several code points as a <glyph> per code point, 18 elements " +
-            "more than the font has glyphs, and reads each back as a glyph of its own. Defects of reading SVG (issue " +
-            "#913): the 3 empty zero-width glyphs, U+034F, U+200B and U+FEFF, are dropped; the other zero widths come " +
-            "back as 1000; the f_t ligature, which has no code point, gets U+FB05 from its name.",
+            "15 glyphs more: fontforge writes a glyph once more for each listing of its alternate code point, 18 " +
+            "elements more than the font has glyphs, and reads each back as a glyph of its own. Defects of reading SVG " +
+            "(issue #913): the 3 empty zero-width glyphs, U+034F, U+200B and U+FEFF, are dropped; the other zero " +
+            "widths come back as 1000; the f_t ligature, which has no code point, gets U+FB05 from its name.",
     },
     {
         fixtures: [NOTO_NASKH_ARABIC],
@@ -181,31 +224,34 @@ export const expectedDifferences: Array<ExpectedDifference> = [
                 ...NOTO_NASKH_ARABIC_UNWRITTEN,
             ]);
             const withZeroWidths = changes.withZeroWidthsAs(withoutLostCodePoints, SVG_OMITTED_WIDTH);
-            const withOtherAlefMaksura = changes.withCodePoints(withZeroWidths, new Map([[0x0649, 292]]));
+            const withGlyphsTwice = changes.withEachGlyphTwice(withZeroWidths, NOTO_NASKH_ARABIC_DOUBLED_CODE_POINTS);
+            const withOtherAlefMaksuraForms = changes.withCodePoints(withGlyphsTwice, new Map([[0x0649, [275, 292]]]));
 
-            return { ...withOtherAlefMaksura, glyphCount: sourceFacts.glyphCount + 9 };
+            return { ...withOtherAlefMaksuraForms, glyphCount: sourceFacts.glyphCount + 9 };
         },
         reason:
-            "9 glyphs more: fontforge writes 14 <glyph> elements more than the font has glyphs, a glyph with several " +
-            "code points once per code point, and on reading drops 5 empty ones. Defects (issue #913): 74 base " +
-            "letters, U+0621 to U+06D3, are written with arabic-form and read back only as their presentation forms; " +
-            "U+0649 comes back on the glyph of another of its forms, width 292 instead of 618; U+06D5 and 7 " +
-            "presentation forms from U+FBA2 to U+FEF4 have no <glyph> of their own in the written SVG; the empty " +
-            "glyphs of U+061C, U+200B and U+FEFF are dropped; the other zero widths come back as 1000.",
+            "9 glyphs more: fontforge writes 7 glyphs once more for each listing of their alternate code point, 14 " +
+            "elements more than the font has glyphs, and on reading drops 5 empty ones, three copies of .null among " +
+            "them. Defects (issue #913): 74 base letters, U+0621 to U+06D3, are written with arabic-form and read " +
+            "back only as their presentation forms; U+06D5 and 7 presentation forms from U+FBA2 to U+FEF4 have no " +
+            "<glyph> of their own, as their glyphs are written under the base letter with arabic-form, so U+0649 " +
+            "comes back with the glyphs of U+FBE8 and U+FBE9, widths 275 and 292 instead of 618; the empty glyphs of " +
+            "U+061C, U+200B and U+FEFF are dropped; the other zero widths come back as 1000.",
     },
     {
         fixtures: [BUNGEE_SPICE],
         toExtensions: [Extension.SVG],
         resultFacts: (sourceFacts: FontFacts): FontFacts => {
             const withoutLostCodePoints = changes.withoutCodePoints(sourceFacts, [0x2001, 0x2003, 0x2007, 0xe189, 0xe202]);
+            const withGlyphsTwice = changes.withEachGlyphTwice(withoutLostCodePoints, BUNGEE_SPICE_DOUBLED_CODE_POINTS);
 
-            return { ...withoutLostCodePoints, glyphCount: sourceFacts.glyphCount + 32 };
+            return { ...withGlyphsTwice, glyphCount: sourceFacts.glyphCount + 32 };
         },
         reason:
-            "32 glyphs more: fontforge writes 76 <glyph> elements more than the font has glyphs, a glyph with several " +
-            "code points once per code point, and on reading drops 44 empty ones. Defects (issue #913): the spaces " +
-            "U+2001, U+2003, U+2007 and U+E189, empty glyphs whose width equals the 1000 of <font>, are written " +
-            "without horiz-adv-x and dropped on reading; the glyph I_I.salt_v of U+E202 is written under " +
+            "32 glyphs more: fontforge writes a glyph once more for each listing of its alternate code point, 76 " +
+            "elements more than the font has glyphs, and on reading drops 44 empty ones. Defects (issue #913): the " +
+            "spaces U+2001, U+2003, U+2007 and U+E189, empty glyphs whose width equals the 1000 of <font>, are " +
+            "written without horiz-adv-x and dropped on reading; the glyph I_I.salt_v of U+E202 is written under " +
             'unicode="&#xe201;&#xe201;", the code points of its name as a ligature, so U+E202 is not written at all.',
     },
     {
@@ -216,17 +262,17 @@ export const expectedDifferences: Array<ExpectedDifference> = [
             const withNamedGlyphs = changes.withCodePoints(
                 withZeroWidths,
                 new Map([
-                    [0x013f, 673],
-                    [0x0140, 363],
-                    [0x0237, 254],
-                    [0x0302, SVG_OMITTED_WIDTH],
-                    [0x0307, SVG_OMITTED_WIDTH],
-                    [0x030a, SVG_OMITTED_WIDTH],
-                    [0x0327, SVG_OMITTED_WIDTH],
-                    [0x2074, 450],
-                    [0xfb00, 684],
-                    [0xfb01, 633],
-                    [0xfb02, 688],
+                    [0x013f, [673]],
+                    [0x0140, [363]],
+                    [0x0237, [254]],
+                    [0x0302, [SVG_OMITTED_WIDTH]],
+                    [0x0307, [SVG_OMITTED_WIDTH]],
+                    [0x030a, [SVG_OMITTED_WIDTH]],
+                    [0x0327, [SVG_OMITTED_WIDTH]],
+                    [0x2074, [450]],
+                    [0xfb00, [684]],
+                    [0xfb01, [633]],
+                    [0xfb02, [688]],
                 ]),
             );
 
