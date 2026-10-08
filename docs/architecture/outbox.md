@@ -639,7 +639,8 @@ the bot `Api`, whose calls go through the transformer, and the one of the sender
 `FakeBotApiFactory` of the same file, a subclass of `TelegramApiFactory`. The server takes the
 token and the method from the path grammY builds, `/bot<token>/<method>`, and the fields of the call
 from the JSON body or from the parts of the `multipart/form-data` grammY sends for a call with a
-file, the file, its name and content, in the field that refers to it. It records each call with the
+file, the file, its name and content, in the field that refers to it. The content is the body
+decoded as UTF-8, so a binary file arrives altered (`BotApiFile`). It records each call with the
 time it arrived. Each node calls with a token of its own, so a call tells which node made it. The
 spec gives the server a script that answers a call by its fields and its place among the calls: the
 `Message` of the call by default, an answer with `ok: false` and its code as the HTTP status, or no

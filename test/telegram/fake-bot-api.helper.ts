@@ -3,7 +3,7 @@ import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { constants as httpStatus } from "node:http2";
 import type { AddressInfo } from "node:net";
 import { Api } from "grammy";
-import type { ApiResponse } from "grammy/types";
+import type { ApiError, ApiResponse } from "grammy/types";
 import { TelegramApiFactory } from "app/telegram/telegram-api-factory";
 
 // grammY sends a file as a part of multipart/form-data named by an id, and the field of the file as
@@ -62,7 +62,17 @@ function readPayload(contentType: string, body: string): Record<string, unknown>
     return payload;
 }
 
-// A file of a call as grammY uploaded it.
+// Telegram's answer to a method it does not know.
+export const UNKNOWN_METHOD_ANSWER: ApiError = {
+    ok: false,
+    error_code: httpStatus.HTTP_STATUS_NOT_FOUND,
+    description: "Not Found: method not found",
+};
+
+// A file of a call as grammY uploaded it. The body of the call is decoded as UTF-8 before it is
+// split into parts, so content holds a text file as it was sent, while a binary one, such as a
+// font, arrives with its invalid bytes replaced by U+FFFD: a spec that compares its bytes has to
+// keep the body as a Buffer first.
 export type BotApiFile = { filename: string; content: string };
 
 // A call as the fake Bot API received it.
@@ -87,11 +97,7 @@ export type BotApiAnswerScript = (call: BotApiCall, callIndex: number) => ApiRes
 // does. Until a spec gives a script, it answers every call as Telegram answers an unknown method.
 export class FakeBotApi {
     public readonly calls: BotApiCall[] = [];
-    private answer: BotApiAnswerScript = () => ({
-        ok: false,
-        error_code: httpStatus.HTTP_STATUS_NOT_FOUND,
-        description: "Not Found: method not found",
-    });
+    private answer: BotApiAnswerScript = () => UNKNOWN_METHOD_ANSWER;
     // A failure of the server itself, a bug of the spec. grammY takes the reset socket for a failed
     // call, which the outbox retries, so the failure surfaces only through throwIfFailed().
     private readonly failures: unknown[] = [];
@@ -121,6 +127,9 @@ export class FakeBotApi {
         this.answer = script;
     }
 
+    // A call takes its place before its body is read, with an empty payload until then, so a call
+    // whose body is still being read is left out: a check that no call came to a chat sees only the
+    // calls read by the time it runs.
     public callsTo(chatId: number): BotApiCall[] {
         return this.calls.filter((call) => Number(call.payload["chat_id"]) === chatId);
     }

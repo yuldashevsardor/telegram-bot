@@ -17,3 +17,11 @@ export async function waitUntil(condition: () => boolean | Promise<boolean>, fai
         await sleep(5);
     }
 }
+
+// The error the promise rejects with; a promise that resolves fails the test.
+export function caught(promise: Promise<unknown>): Promise<unknown> {
+    return promise.then(
+        () => expect.fail("the promise was expected to reject"),
+        (error: unknown) => error,
+    );
+}
