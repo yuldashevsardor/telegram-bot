@@ -87,16 +87,16 @@ are parsed, and an error from a `catch` turns into silence.
 There are two exceptions:
 
 - `ConsoleLogger`: for it `console.*` is the implementation of the port.
-- The `fail()` fallback in `app.ts`, for when the record cannot go through the logger. That is
-  before `ApplicationContext` is assembled ([`application.md`](./application.md)), and when the
-  write of the logger itself throws.
+- The `fail()` fallback in `app.ts` and its copy in `cli.ts`, for when the record cannot go through
+  the logger. That is before `ApplicationContext` is assembled
+  ([`application.md`](./application.md)), and when the write of the logger itself throws.
 
 The rule is held by `no-console: "error"` in `.eslintrc.js`:
 
 - The adapter is exempted through `overrides`, together with its spec. The spec captures the
   records by replacing `console`.
 - The fallback is exempted by a line-level `eslint-disable-next-line`, not for the whole file. So a
-  third `console.*` in `app.ts` is caught by the linter.
+  third `console.*` in `app.ts` or `cli.ts` is caught by the linter.
 
 ## Errors in the payload
 

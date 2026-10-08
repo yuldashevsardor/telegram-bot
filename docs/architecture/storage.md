@@ -13,8 +13,9 @@ enumerable, `query` and `parameters` among them. They end up in the `payload` of
 `sql.listen()` of postgres.js opens a connection of its own, outside the pool, so
 `DATABASE_CONNECTION_LIMIT` does not count it: a node that listens holds up to one connection more
 than the limit, however many channels it listens on. The outbox waiter listens this way
-([`outbox.md`](./outbox.md), "Waiting for the result"), and so does the outbox message source (the
-same file, "The message source"). postgres.js opens the connection again by itself when it is
+([`outbox.md`](./outbox.md), "Waiting for the result"), and so do the outbox message source (the
+same file, "The message source") and the inbox update source ([`inbox.md`](./inbox.md), "Ready
+notifications"). postgres.js opens the connection again by itself when it is
 lost, and `Database.close()` ends it together with the pool (`end()` in postgres.js
 `src/index.js`); `outbox-finished-message-reader.spec.ts` checks both.
 
