@@ -80,9 +80,6 @@ export class FileHelper {
         return pathWithDay;
     }
 
-    /**
-     * The whole file.
-     */
     public static async read(path: string): Promise<Uint8Array> {
         try {
             const content = await fs.readFile(path);
