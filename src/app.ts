@@ -41,7 +41,6 @@ async function gracefulStop(): Promise<void> {
     process.exit(0);
 }
 
-// Enable graceful stop
 process.once("SIGINT", () => void gracefulStop());
 process.once("SIGTERM", () => void gracefulStop());
 

@@ -341,7 +341,7 @@ describe("ApplicationContext", function () {
             .with.property("message", 'Config value "CONFIG_FILE_WATCH_INTERVAL" must be an integer');
     });
 
-    // A huge interval is turned by a Node timer into 1 ms, so "once a day" would become a poll on
+    // A huge interval is turned by a Node timer into 1 ms, so "once a month" would become a poll on
     // every turn of the loop; a negative one becomes the same thing.
     it("fails the start on an interval a timer cannot hold", async function () {
         setEnv({ NODE_ENV: "development", CONFIG_FILE_WATCH_INTERVAL: "2147483648" });

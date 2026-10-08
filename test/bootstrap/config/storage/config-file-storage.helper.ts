@@ -1,11 +1,10 @@
 import { expect } from "chai";
 import fs from "fs/promises";
 
-// Editing a file that ConfigFileStorage is watching. Every edit is a single step, otherwise a poll
-// manages to land inside it. fs.writeFile with the default flag first truncates the file (O_TRUNC)
-// and only then writes the contents. A poll that landed between the truncation and the write sees
-// two changes instead of one. The edit would give a spurious signal, and on it a spurious rebuild of
-// the values from an empty file. Writes made before watching starts need no helpers.
+// Editing a file that ConfigFileStorage is watching. Every edit is a single step: a poll that lands
+// between the truncation and the write of fs.writeFile gives a spurious signal and a rebuild from an
+// empty file (docs/architecture/config.md, "Watching the file"). Writes made before watching starts
+// need no helpers.
 
 // A write in place. The r+ flag does not truncate, hence the two checks before the write.
 // - The contents are not shorter than the previous ones. The write does not remove the rest of the

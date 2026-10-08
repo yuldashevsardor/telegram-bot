@@ -686,5 +686,6 @@ outbox gives the handler, and the conversion of a real font.
 
 ## Load test
 
-How the store holds up on 100 M updates, measured, and what the measurements propose:
+How the store holds up on 100 M updates and on 250 M skewed ones, measured, and what the
+measurements propose:
 [`inbox-load-test.md`](./inbox-load-test.md).

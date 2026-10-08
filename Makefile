@@ -250,12 +250,12 @@ endef
 load-measure: ## Measure the outbox store on the load-test database; the times, then the plans: make load-measure [plans=off]
 	$(call LOAD_MEASURE,test/load/outbox-load-test.ts)
 
-load-inbox-fill-done: ## Fill the load-test database with done inbox updates, once: make load-inbox-fill-done [rows=100000000]
-	$(LOAD_PSQL) -v rows=$(or $(rows),100000000) -v groups=100000 < test/load/inbox-fill-done.sql
+load-inbox-fill-done: ## Fill the load-test database with the inbox history, once: make load-inbox-fill-done [rows=250000000] [groups=1000000]
+	$(LOAD_PSQL) -v rows=$(or $(rows),250000000) -v groups=$(or $(groups),1000000) < test/load/inbox-fill-done.sql
 
-load-inbox-fill-pending: ## Replace the pending inbox layout of the load test: make load-inbox-fill-pending groups=3 per_group=300000
-	@[ -n "$(groups)" ] && [ -n "$(per_group)" ] || { printf 'give it the layout: make load-inbox-fill-pending groups=3 per_group=300000\n' >&2; exit 1; }
-	$(LOAD_PSQL) -v groups=$(groups) -v per_group=$(per_group) < test/load/inbox-fill-pending.sql
+load-inbox-fill-pending: ## Replace the pending inbox layout of the load test: make load-inbox-fill-pending updates=5000 [hot_updates=300000]
+	@[ -n "$(updates)" ] || { printf 'give it the layout: make load-inbox-fill-pending updates=5000 [hot_updates=300000]\n' >&2; exit 1; }
+	$(LOAD_PSQL) -v updates=$(updates) -v hot_updates=$(or $(hot_updates),0) < test/load/inbox-fill-pending.sql
 
 load-inbox-measure: ## Measure the inbox store on the load-test database; the times, then the plans: make load-inbox-measure [plans=off]
 	$(call LOAD_MEASURE,test/load/inbox-load-test.ts)

@@ -2,7 +2,7 @@
 
 ## DI
 
-`Container` (`container/container.ts`) extends `InversifyContainer`, and its `setup()` is
+`Container` (`bootstrap/container/container.ts`) extends `InversifyContainer`, and its `setup()` is
 idempotent. It binds first, in `setupBootstrap()`, the config, the logger and the
 `RequestContext`, taken ready from `ApplicationContext` (below). After that it binds by owner:
 `setupFontConvertor()`, `setupTelegram()`, `setupPlatform()`. Everything is a singleton.
@@ -167,9 +167,9 @@ There is nothing to restart it with: the container does not survive a second `se
 1. `app.ts` imports `reflect-metadata` before any class with inversify decorators.
 2. `application.setup()`:
    - `ApplicationContext.create()` builds the configuration ([`config.md`](./config.md)).
-     `ConfigEnvStorage.load()` calls `dotenv.config()`, once and explicitly. The values of the
-     watched file lie under the environment: a variable set there non-blank wins. Then the whole
-     configuration is parsed and validated.
+     `ConfigEnvStorage.load()` calls `dotenv.config()` explicitly, here and again on every rebuild.
+     The values of the watched file lie under the environment: a variable set there non-blank wins.
+     Then the whole configuration is parsed and validated.
    - `init()` of the config container also switches on watching the file. An edit rebuilds the
      values, and the subscribers of its path get the new one (the application has none yet,
      [invariant](./invariants.md)).

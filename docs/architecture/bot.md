@@ -22,7 +22,7 @@ not import the container.
    requested, and the polling source drops one before it reaches the inbox
    ([`inbox.md`](./inbox.md), "Updates without a session key").
    The filter logs a `warning` on top of the common `debug` of the base `Filter`. The level is
-   higher because below the filter there will be no dump of the update ([`user.md`](./user.md)).
+   higher because below the filter there will be no dump of the update (step 4).
    The line has no `requestId`, since `RequestContextMiddleware` stands lower
    ([`logging.md`](./logging.md)), so a dropped update cannot be found by `requestId`.
 2. `IsPrivateChatFilter`: everything below works in private chats only. It stands second. It
@@ -46,9 +46,9 @@ not import the container.
      ([`logging.md`](./logging.md)).
    - `ResponseTimeMiddleware` logs an `info` with the time around `next()`. It has no
      `try/catch`, so a failed update gets no timing line.
-   - `RequestLogMiddleware` increments `requestCount` and dumps the whole `ctx.update` at
-     `debug` ([`user.md`](./user.md)). The increment touches the session on every update, so
-     step 3 always writes the row back.
+   - `RequestLogMiddleware` increments `requestCount`, which nothing reads, and dumps the whole
+     `ctx.update` at `debug`. The increment touches the session on every update, so step 3 always
+     writes the row back.
    - `FillUserToContextMiddleware` catches no errors. Below it `ctx.getUser()` is filled in
      ([`user.md`](./user.md)).
 5. Fluent ([`i18n.md`](./i18n.md)). Below it `ctx.t` and `ctx.getFluent()` are filled in.
@@ -188,11 +188,10 @@ for three hardcoded chat IDs, the chats in turn. It is visible in the command me
 pushes them straight into `OutboxStore.pushBatch()`, past the transformer, so that they get
 `OutboxPriority.Bulk`, and it waits for none of them to be sent. The priority orders the chats, not
 the messages of a chat: the three chats yield to the chats with calls of the bot, while a reply in
-one of them waits for the bulk messages pushed into it before. The
-batches are of 1000: one batch is one transaction with its messages in one `jsonb` parameter. The
-command has no `try/catch`: a batch that fails rejects it, the inbox picks the outcome of the
-update by the error ([`inbox.md`](./inbox.md), "Failures"), and the batches pushed before it stay
-queued; a retry of the update pushes them all again. The rows outlive the process: for a
-chat the bot cannot reach every message fails without blocking the chat, and nothing deletes a
-`failed` row ([`outbox.md`](./outbox.md), "Cleanup"), so each run leaves its share of the 10 000
-rows behind.
+one of them waits for the bulk messages pushed into it before. The batches are of 1000: one batch
+is one transaction with its messages in one `jsonb` parameter. The command has no `try/catch`: a
+batch that fails rejects it, the inbox picks the outcome of the update by the error
+([`inbox.md`](./inbox.md), "Failures"), and the batches pushed before it stay queued; a retry of
+the update pushes them all again. The rows outlive the process: for a chat the bot cannot reach
+every message fails without blocking the chat, and nothing deletes a `failed` row
+([`outbox.md`](./outbox.md), "Cleanup"), so each run leaves its share of the 10 000 rows behind.

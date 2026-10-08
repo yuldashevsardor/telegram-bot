@@ -204,8 +204,8 @@ and the old value. `onChange()` returns an unsubscribe function. How changes are
 What a rebuild changes in a running application is up to the subscribers. A value taken by
 `configValue(...)` as the default of a constructor parameter stays as it was for that object
 ([invariant](./invariants.md)). `init()` switches watching on together with the assembly of the
-values. The container's `unwatch()` switches it off, and `Application.terminate()` calls it before
-the overall shutdown deadline and outside it.
+values, and the container's `unwatch()` switches it off; when the application calls it is in
+[`application.md`](./application.md), "Stop".
 
 ## Environment variables
 
