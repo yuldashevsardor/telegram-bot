@@ -30,8 +30,9 @@ The runtime sequences live in the files of their subsystems:
   the completions, the ready notifications, the update source, the update processor, the runner
   with its stop and the maintenance timers, the error classes of a failed handler, the outcomes,
   the lease recovery, the release on stop, unblocking a group, the cleanup and the polling source
-- [`inbox-load-test.md`](./inbox-load-test.md) — the inbox store measured on 100 M updates: how to
-  run the test, the data, the threshold, the times and the plans, the verdict
+- [`inbox-load-test.md`](./inbox-load-test.md) — the inbox store measured on 100 M updates and on
+  250 M skewed ones: how to run the test, the data, the threshold, the times and the plans, the
+  verdict
 - [`font-convertor.md`](./font-convertor.md) — format pairs, the EOT codec, signatures, the SVG,
   WOFF, WOFF2, EOT and sfnt validators, running the engine
 - [`user.md`](./user.md) — the entity, the repository, filling the context

@@ -1,42 +1,72 @@
 # Inbox load test
 
-The claim, the completion, the lease recovery and the cleanup of the inbox store
-([`inbox.md`](./inbox.md)) measured on a large table
-([#824](https://github.com/yuldashevsardor/telegram-bot/issues/824)), as the outbox store was
-([`outbox-load-test.md`](./outbox-load-test.md)).
+The inbox store ([`inbox.md`](./inbox.md)) measured on a large table, as the outbox store was
+([`outbox-load-test.md`](./outbox-load-test.md)), twice: the claim, the completion, the lease
+recovery and the cleanup on 100 M updates of groups of equal size
+([#824](https://github.com/yuldashevsardor/telegram-bot/issues/824), "Data" to "Verdict"), and
+every query of the store on 250 M updates skewed as production traffic is
+([#871](https://github.com/yuldashevsardor/telegram-bot/issues/871), "The skewed run").
 
 ## How to run it
 
 The test shares the database, `load-up`, `load-psql` and `load-down` with the outbox load test, and
 the way the times and the plans are taken: see "How to run it" there. Its own targets, in this
-order: `load-inbox-fill-done` once, then per layout `load-inbox-fill-pending` and
-`load-inbox-measure [plans=off]`. The head index (see "Results") is a migration, so `load-up` makes
-it and the fills insert under it: the done updates are not in the partial index, so the fill does
-not pay the 1 minute 39 seconds its build over the filled table took. Without the index a claim
-takes some 5 minutes, so a measurement without it is to be cut short after a call or two, as the one
-in "Results" was: stop `make` and the application container of the run, which `docker ps` names
-after the worktree. The statement it left runs on in the database until it ends or reaches the
-statement timeout, holding the group rows it locked, so the next fill waits for it, and `make`
-prints no plans: they are in `docker compose -f docker-compose.load.yml logs pgsql-load`. The files
-they run are in
-`test/load/`. A fill stays valid for 6 days, as the outbox one does. The cleanup of a measurement
-deletes the 5 000 done updates past the retention, so a later run finds only the call that deletes
-nothing; the runs of "The cleanup" put them back before each run with the `INSERT` of
-`inbox-fill-done.sql` over `n` from 1 to 5 000. The index of the cleanup (see "The cleanup") is a
-migration too, and unlike the head index it holds every done update: a fill made under it fills it
-as well, which no run has timed.
+order: `load-inbox-fill-done [rows=250000000] [groups=1000000]` once, then per layout
+`load-inbox-fill-pending updates=<n> [hot_updates=<n>]` and `load-inbox-measure [plans=off]`. The
+files they run are in `test/load/`, and what they make is in "The skewed run". The run of #824 had
+fills of another form, groups of equal size and layouts of `groups` × `per_group`: they are the
+files of `test/load/` at
+[`8f3879f1`](https://github.com/yuldashevsardor/telegram-bot/tree/8f3879f1/test/load).
 
-The measurement calls the real `InboxStore` with the settings of `.env`: 15 `claim(1)`, what the
-worker asks for (`CLAIM_LIMIT` of `InboxUpdateSource`), and 15 `claim(30)`, a batch the size of the
-largest outbox one, since nothing in the inbox claims a batch; each is followed by `markAsDone()` of
-what it gave out. Then `findExpiredLeases()` twice: with no lease expired, as the call every
-`INBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL` finds as a rule, and with the leases of a batch claimed
-and left to expire, as after a node died. That batch is claimed by a store with a lease of 1 s
-rather than the 10 minutes of `INBOX_LEASE_DURATION`: the recovery reads a lease the same way
-whatever its length. Last, `deleteFinishedUpdates()` down to the call that deletes nothing, and
-`deleteIdleGroups()`.
+The fill of 250 M updates takes 1 hour 26 minutes and 203 GB of the disk, the layouts up to 28
+minutes each (see "The skewed run"). No target keeps the Mac awake, and an idle one falls asleep in
+the middle: the runs of #871 went under `caffeinate -i` started by hand. `load-down` gives the disk
+back to the host within minutes.
+
+A layout deletes every update from the `update_id` of the layouts on, so it replaces what the
+previous layout and its measurement left, and every group. It does not put back the history the
+cleanup deleted: the cleanup of a measurement deletes the updates past their retention, so a later
+run on the same fill finds only the call that deletes nothing. The runs of "The cleanup" (#824) put
+them back before each run with the `INSERT` of the fill of the time over `n` from 1 to 5 000.
+
+The head index (see "Results") is a migration, so `load-up` makes it and the fills insert under
+it: the history is not in the partial index, so the fill does not pay the 1 minute 39 seconds its
+build over the filled table of #824 took. Without the index a claim takes some 5 minutes, so a
+measurement without it is to be cut short after a call or two, as the one in "Results" was: stop
+`make` and the application container of the run, which `docker ps` names after the worktree. The
+statement it left runs on in the database until it ends or reaches the statement timeout, holding
+the group rows it locked, so the next fill waits for it, and `make` prints no plans: they are in
+`docker compose -f docker-compose.load.yml logs pgsql-load`. A fill stays valid for 6 days, as the
+outbox one does. The index of the cleanup (see "The cleanup") is a migration too, and unlike the
+head index it holds every done and skipped update: the fill of #871 filled it as well.
+
+The measurement calls the real `InboxStore` with the settings of `.env`, in this order:
+
+- `listenReady()`, which takes a connection of its own and reads no table.
+- 15 `claim(1)`, what the worker asks for (`CLAIM_LIMIT` of `InboxUpdateSource`), and 15
+  `claim(30)`, a batch the size of the largest outbox one, since nothing in the inbox claims a
+  batch; each is followed by `markAsDone()` of what it gave out.
+- `findExpiredLeases()` twice: with no lease expired, as the call every
+  `INBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL` finds as a rule, and with the leases of a batch
+  claimed and left to expire, as after a node died. That batch is claimed by a store with a lease
+  of 1 s rather than the 10 minutes of `INBOX_LEASE_DURATION`: the recovery reads a lease the same
+  way whatever its length.
+- 15 claims of one update, each followed by `extendLease()` and `retry()` with no delay, then 15
+  more, each followed by `markAsFailed()`. These claims are not timed.
+- 15 `push()` of one update and 15 `pushBatch()` of 100, `POLL_LIMIT` of `InboxPollingSource`,
+  each update to a group drawn at random from the 1 M of the fill, so most groups get their row
+  inserted.
+- `deleteFinishedUpdates()` down to the call that deletes nothing, `deleteIdleGroups()` and 15
+  `countBlockedGroups()`.
+- Last, as the slowest: four claims of one update, each followed by `markAsFailedAndBlockGroup()`
+  and an unblock of the same group, `retryBlockedGroup()` and `skipBlockedGroup()` by turns. A
+  group is unblocked at once so the next claim has a group to take in the layout of the hot group.
+
+The run of #824 had the claims, the recovery and the cleanup without `countBlockedGroups()`.
 
 ## Data
+
+The run of #824.
 
 - 100 M `done` updates, 78 GB with the primary key, over the groups 1 to 100 000, each a private
   chat whose user and chat are the same id, each update a font sent as a document. Their
@@ -60,12 +90,12 @@ another, so the time of a claim bounds how many updates one worker loop can star
 
 ## Results
 
-The times are those of the client, in ms, from runs with `plans=off`, except the column without an
-index; "first" is the first call of the run, the cold cache. The last column is the claim that
-limits the groups before it looks up their heads (see "The claim of 100 k groups"); the calls it
-did not change were not measured again. The lease recovery of an expired batch has two rows: the
-lookup that read every active update of a group, and the one that stops at the `processing` update
-(see "The lease recovery").
+The run of #824. The times are those of the client, in ms, from runs with `plans=off`, except the
+column without an index; "first" is the first call of the run, the cold cache. The last column is
+the claim that limits the groups before it looks up their heads (see "The claim of 100 k groups");
+the calls it did not change were not measured again. The lease recovery of an expired batch has two
+rows: the lookup that read every active update of a group, and the one that stops at the
+`processing` update (see "The lease recovery").
 
 | call | no index, 3 groups | head index, 3 groups | head index, 100 k groups | head and ready-groups index, 100 k groups |
 |---|---|---|---|---|
@@ -306,6 +336,8 @@ retention and the vacuum that reads the index whole, was not measured for the in
 
 ## Verdict
 
+Of the run of #824; the skewed run has its own (see "The skewed run").
+
 Without an index nothing is within the threshold: a claim takes 5 minutes and a completion up to
 74 s. With the candidate index the completion is within it in both layouts, median 0.6 – 0.7 ms
 and 8 ms at most, and so is the claim of a few groups, 0.4 – 1.8 ms after the first, cold one of
@@ -324,3 +356,191 @@ is in four issues:
   [#845](https://github.com/yuldashevsardor/telegram-bot/issues/845);
 - the lease recovery, [#846](https://github.com/yuldashevsardor/telegram-bot/issues/846);
 - the cleanup, [#847](https://github.com/yuldashevsardor/telegram-bot/issues/847).
+
+## The skewed run
+
+Every public method of `InboxStore` that runs SQL, on a table of 203 GB laid out as production
+traffic lays it out ([#871](https://github.com/yuldashevsardor/telegram-bot/issues/871)).
+
+### Data
+
+- The history: 249 988 314 updates over the groups 1 to 1 000 000, a private chat each, each
+  update a font sent as a document, made by `inbox-fill-done.sql`. The table takes 193 GB, its
+  primary key 5.2 GB and the index of the cleanup 5.2 GB, 203 GB in all, some 0.87 KB an update.
+  The fill took 1 hour 26 minutes, its vacuum included.
+- The updates of a group are drawn by the shape of #871, scaled by 0.924 so that they come to
+  250 M:
+
+  | share of the groups | groups | updates a group | updates | share of the updates |
+  |---|---|---|---|---|
+  | 60% | 599 930 | 1 – 46 | 14.1 M | 5.7% |
+  | 30% | 299 967 | 47 – 462 | 76.4 M | 30.5% |
+  | 9% | 90 075 | 463 – 1 848 | 104.0 M | 41.6% |
+  | 1% | 10 028 | 1 849 – 9 239 | 55.5 M | 22.2% |
+
+- The groups are interleaved: the updates of a group are spread over the whole history by
+  `update_id`, and the table lies in `update_id` order, which is also that of `finished_at`. How,
+  without a sort of the 250 M rows: the comment of `inbox-fill-done.sql`.
+- One update in 200 is `failed` and one in 200 `skipped`. The oldest 12 499 finished past their
+  retention, `skipped` ones past `INBOX_SKIPPED_RETENTION`, the rest within the day before the
+  fill.
+- Three pending layouts of `inbox-fill-pending.sql`. A pending update goes to the group of a
+  history update drawn at random, so the heavy groups get the most. In every layout every
+  thousandth group, 1 000 in all, is `blocked` by a failed update newer than its history.
+
+  | layout | `make load-inbox-fill-pending` | pending updates | groups | fill |
+  |---|---|---|---|---|
+  | normal | `updates=5000` | 5 000 | 5 882 | 5 – 21 s |
+  | backlog | `updates=1000000` | 1 000 000 | 330 205 | 14 – 28 min |
+  | hot group | `updates=0 hot_updates=300000` | 300 000, all in group 1 | 1 001 | 6 – 15 min |
+
+  The time of a layout is mostly the delete of the previous one and the vacuum after it.
+- Each layout was filled before its run with `plans=off` and again before its run with the plans,
+  so both runs saw the same layout. The full batches of the cleanup are of the first run, normal
+  with `plans=off`: no later run had updates past the retention.
+- The database and the machine of #824: the owner's laptop, Apple M4 Pro, the Docker Desktop VM
+  of 11 CPUs and 16 GB, the defaults of `.env.dist` and of the `postgres:18-alpine` image,
+  `shared_buffers` of 128 MB among them. No outbox fill beside it; the shared database of the
+  worktrees ran on the same machine.
+
+### Results
+
+The times of the client, in ms, from the runs with `plans=off`: "first" is the first call of the
+run, the cold cache, and the range and the median are of the calls after it. The times of #824 to
+compare with are in "Results" and "The cleanup": the claim of 3 groups and of 100 k groups with
+both indexes, the completion, the recovery and the cleanup with its index.
+
+| call | normal | backlog | hot group |
+|---|---|---|---|
+| `listenReady()` | 15 | 15 | 20 |
+| `claim(1)` | first 19, then 0.7 – 1.2, median 1.0 | first 28, then 0.9 – 11.5, median 1.2 | first 33, then 0.5 – 1.0, median 0.6 |
+| `claim(30)` | first 21, then 2.3 – 7.3, median 2.6 | 6.8 – 11.9, median 7.3 | 0.4 – 0.9, median 0.5, for 1 update |
+| `markAsDone()` | median 0.6, p95 1.4, max 6.7 | median 0.6, p95 1.0, max 3.4 | median 0.8, p95 1.1, max 3.7 |
+| `findExpiredLeases()`, no lease expired | 0.8 | 9.9 | 1.1 |
+| `findExpiredLeases()`, a batch expired | 2.3, 30 leases | 23, 30 leases | 4.1, 1 lease |
+| `extendLease()` | median 0.2, max 0.9 | median 0.2, max 0.8 | median 0.3, max 2.5 |
+| `retry()` | median 0.8, max 2.2 | median 0.7, max 1.2 | median 1.0, max 3.1 |
+| `markAsFailed()` | median 0.8, max 1.5 | median 0.5, max 0.7 | median 0.7, max 1.0 |
+| `markAsFailedAndBlockGroup()` | 2.0 – 2.6 | 1.9 – 4.3 | 1.8 – 2.2 |
+| `push()` | median 1.2, max 3.9 | median 0.7, max 2.6 | median 0.7, max 2.9 |
+| `pushBatch()` of 100 | median 7.8, max 15.7 | median 6.4, max 10.9 | median 3.6, max 4.9 |
+| `deleteFinishedUpdates()`, a full batch | 3.2 – 8.4, median 4.8, 12 437 updates | — | — |
+| `deleteFinishedUpdates()`, nothing to delete | 0.9 | 0.6 | 0.7 |
+| `deleteIdleGroups()` | 1.6, 495 groups | 9.5, 234 groups | 0.4, none |
+| `countBlockedGroups()` | median 0.3, max 0.6 | median 6.6, max 8.3 | median 0.2, max 0.6 |
+| `retryBlockedGroup()` | 160 460, 170 355 | 135 996, 134 747 | 148 077, 147 590 |
+| `skipBlockedGroup()` | 171 775, 175 240 | 148 086, 139 848 | 164 447, 147 948 |
+
+The plans add to the time, as in #824: the unblocking took 151 – 281 s with them, the slowest in the
+hot group layout, and `pushBatch()` in the backlog a median of 18 ms.
+
+### The plans
+
+What each call runs, from the runs with the plans, and which of its statements read a whole table
+instead of an index:
+
+| call | its statements | what they read |
+|---|---|---|
+| `claim()` | one | `telegram_inbox_ready_groups_idx` for the groups, `telegram_inbox_active_group_idx` for their heads, the primary keys for the writes |
+| `markAsDone()`, `markAsFailed()` | the lock of the group, the write of the update, the lookup of an active update left, the state of the group | the primary keys; the head index for the update left |
+| `extendLease()` | one | the primary keys |
+| `retry()` | the lock, the update, the state and the delay of the group, `pg_notify` | the primary keys |
+| `markAsFailedAndBlockGroup()` | the lock, the update, the state | the primary keys |
+| `findExpiredLeases()` | one | a seq scan of `telegram_inbox_groups`, then the head index per expired group |
+| `push()`, `pushBatch()` | the upsert of the groups, the insert of the updates with the state of their groups | the primary keys as arbiters; the state of the groups by the primary key, or a seq scan of the groups table in the layouts with few groups |
+| `deleteFinishedUpdates()` | one | `telegram_inbox_finished_at_idx`, as in #824 |
+| `deleteIdleGroups()`, `countBlockedGroups()` | one | a seq scan of `telegram_inbox_groups` |
+| `retryBlockedGroup()`, `skipBlockedGroup()` | the lock of the group, the lookup of its failed update, the write of the update, the state | the primary keys; a parallel seq scan of `telegram_inbox` for the failed update |
+
+`listenReady()` runs `LISTEN`, which `auto_explain` does not log.
+
+#### The claim in the backlog
+
+The groups and the heads come from the indexes in a few buffers, as in #824. The time of a
+`claim(30)` goes on the head rows it updates: the primary key finds each in about 5 buffers, and
+some 64 of the 150 come from outside shared buffers, 0.27 ms a row (under `Memoize`, which finds
+nothing to reuse: each head is another row). The 1 M pending rows take some 0.8 GB against the
+128 MB of shared buffers. A `claim(30)`:
+
+```
+Sort  (actual time=9.542..9.546 rows=30.00 loops=1)
+  Buffers: shared hit=628 read=68 dirtied=90
+  CTE ready_groups
+    ->  Limit  (actual time=0.009..0.131 rows=30.00 loops=1)
+          ->  LockRows  (actual time=0.009..0.128 rows=30.00 loops=1)
+                ->  Index Scan using telegram_inbox_ready_groups_idx on telegram_inbox_groups
+                      (actual time=0.007..0.075 rows=30.00 loops=1)
+                      Buffers: shared hit=4 read=1
+  CTE claimed
+    ->  Update on telegram_inbox  (actual time=0.862..9.489 rows=30.00 loops=1)
+          ->  Nested Loop  (actual time=0.814..8.249 rows=30.00 loops=1)
+                ->  Nested Loop  (actual time=0.025..0.269 rows=30.00 loops=1)
+                      ->  Subquery Scan on head  (actual time=0.004..0.004 rows=1.00 loops=30)
+                            ->  Limit  (actual time=0.003..0.003 rows=1.00 loops=30)
+                                  ->  Index Only Scan using telegram_inbox_active_group_idx on telegram_inbox telegram_inbox_1
+                                        (actual time=0.003..0.003 rows=1.00 loops=30)
+                                        Buffers: shared hit=120
+                ->  Memoize  (actual time=0.266..0.266 rows=1.00 loops=30)
+                      Buffers: shared hit=86 read=64
+```
+
+#### The groups table
+
+`findExpiredLeases()`, `deleteIdleGroups()` and `countBlockedGroups()` filter on columns no index
+of `telegram_inbox_groups` has, so they read the table whole, and their time follows its size: 120
+pages for the 5 882 groups of the normal layout, about 6 200 pages for the 330 205 of the backlog,
+6 – 23 ms there. `countBlockedGroups()` there:
+
+```
+Finalize Aggregate  (actual time=5.721..6.899 rows=1.00 loops=1)
+  Buffers: shared hit=5482 read=713
+  ->  Gather  (actual time=5.672..6.896 rows=3.00 loops=1)
+        Workers Launched: 2
+        ->  Partial Aggregate  (actual time=4.167..4.168 rows=1.00 loops=3)
+              ->  Parallel Seq Scan on telegram_inbox_groups  (actual time=0.391..4.152 rows=333.33 loops=3)
+                    Filter: (state = 'blocked'::text)
+                    Rows Removed by Filter: 109999
+```
+
+#### The unblocking
+
+`InboxStore.lockBlockedGroup()` looks up the failed update of the group by `user_id`, `chat_id`
+and `status = 'failed'`, which no index holds: the head index has the active statuses alone, the
+index of the cleanup `done` and `skipped`. So it reads the whole table, 25 M pages, in every
+layout:
+
+```
+Limit  (actual time=169744.144..169769.340 rows=1.00 loops=1)
+  Buffers: shared hit=8890 read=25229882
+  ->  Sort  (actual time=169679.106..169704.301 rows=1.00 loops=1)
+        Sort Key: finished_at DESC, update_id DESC
+        ->  Gather  (actual time=169678.386..169704.231 rows=2.00 loops=1)
+              Workers Launched: 2
+              ->  Parallel Seq Scan on telegram_inbox  (actual time=154759.534..169669.145 rows=0.67 loops=3)
+                    Filter: ((user_id = '101611'::bigint) AND (chat_id = '101611'::bigint) AND (status = 'failed'::text))
+                    Rows Removed by Filter: 83327797
+```
+
+The scan runs in the transaction that holds the row of the group `FOR UPDATE`. By the code, not
+measured: `pushBatch()` locks the group rows of its batch, so a push with an update of that group
+waits until the unblock ends, and the polling source takes no updates in while its push waits.
+
+### Verdict of the skewed run
+
+The claim of the worker and every completion stay within the threshold in every layout: `claim(1)`
+a median of 0.6 – 1.2 ms after the first, cold call of 19 – 33 ms, as in #824, and the completions
+a median of 0.2 – 2.2 ms and 7 ms at most. The skew and the size changed nothing in how they read:
+by the indexes, as on 100 M updates. Two calls are past what #871 set:
+
+- The claim in the backlog is at the threshold: `claim(30)` 6.8 – 11.9 ms, two of 15 calls over
+  10 ms, and one warm `claim(1)` of 14 at 11.5 ms, from the head rows read past the 128 MB of shared
+  buffers (see "The claim in the backlog"). Measuring it again with shared buffers that hold the
+  active rows is [#893](https://github.com/yuldashevsardor/telegram-bot/issues/893).
+- The unblocking takes 2 – 3 minutes a call, a scan of the whole table under the lock of the
+  group (see "The unblocking"). An index of the failed updates by group is
+  [#892](https://github.com/yuldashevsardor/telegram-bot/issues/892).
+
+The calls on timers have no threshold. The cleanup of the updates is no slower than in #824: a
+full batch 3.2 – 8.4 ms, the call that finds nothing 0.6 – 0.9 ms. The calls that read the groups
+table grow with it, 6 – 23 ms for 330 205 groups. The push, which the polling source waits for,
+took a median of 3.6 – 7.8 ms for a batch of 100 and 16 ms at most.
