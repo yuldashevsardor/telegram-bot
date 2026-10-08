@@ -2,11 +2,9 @@ import "reflect-metadata";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createServer } from "node:http";
-import type { IncomingMessage, Server, ServerResponse } from "node:http";
-import type { AddressInfo } from "node:net";
 import { expect } from "chai";
 import { Api, GrammyError } from "grammy";
+import type { ApiError, ApiResponse } from "grammy/types";
 import type { TelegramLimits } from "app/bootstrap/config/config-values";
 import { Database } from "app/platform/database/database";
 import { RequestContext } from "app/platform/request-context/request-context";
@@ -14,7 +12,6 @@ import { FileHelper } from "app/shared/fs/file-helper";
 import { MS_PER_SECOND } from "app/shared/time";
 import { sleep } from "app/shared/utils";
 import { isGroupChat } from "app/telegram/telegram-chat";
-import { TelegramApiFactory } from "app/telegram/telegram-api-factory";
 import { PathFile } from "app/telegram/path-file/path-file";
 import { RetryDelay } from "app/telegram/retry-delay/retry-delay";
 import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
@@ -37,6 +34,8 @@ import { OutboxChatState, OutboxStatus } from "app/telegram/outbox/store/outbox-
 import { OutboxTransformer } from "app/telegram/outbox/transformer/outbox-transformer";
 import { testDatabaseSettings } from "test/database.helper";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
+import type { BotApiCall } from "test/telegram/fake-bot-api.helper";
+import { FakeBotApi, FakeBotApiFactory } from "test/telegram/fake-bot-api.helper";
 import { waitUntil } from "test/shared/utils.helper";
 
 const SPEC_TIMEOUT_MS = 30_000;
@@ -72,106 +71,12 @@ const RETRY_AFTER_SECONDS = 1;
 // The longest a call waits for its answer in the spec of the order: long enough for the calls of
 // several chats to be in flight at once.
 const MAX_CALL_MS = 5;
-// Well under any lease and above the stop timeout with the pull of the other node: a message
-// released on stop is sent again within it.
+// Well under the lease of the test that stops a node and above the stop timeout with the pull of
+// the other node: a message released on stop is sent again within it.
 const RELEASED_RESEND_MS = 1_000;
 
-// A call as the fake Bot API received it.
-type BotApiCall = {
-    // The node that made the call: each calls with a token of its own.
-    token: string;
-    method: string;
-    chatId: number;
-    text: string | undefined;
-    // The content of the file sendDocument uploaded.
-    document: string | undefined;
-    receivedAtMs: number;
-};
-
-// The HTTP status and the body the fake Bot API answers a call with.
-type BotApiAnswer = { status: number; body: object };
-
-// What the fake Bot API answers a call with: callIndex is its place among the calls received, from 0.
-type BotApiAnswerScript = (call: BotApiCall, callIndex: number) => BotApiAnswer | Promise<BotApiAnswer>;
-
 // The answer of a call that never ends while the spec runs, as the call of a node that died.
-const NEVER_ANSWERED = new Promise<BotApiAnswer>(() => undefined);
-
-// A local HTTP server that takes the Bot API calls grammY sends to the apiRoot it is given:
-// `<apiRoot>/bot<token>/<method>`, a JSON body, or multipart/form-data for a call with a file.
-class FakeBotApi {
-    public readonly calls: BotApiCall[] = [];
-    // The first call of each token, by the token.
-    private readonly firstCalls = new Map<string, PromiseWithResolvers<void>>();
-    private answer: BotApiAnswerScript = (call, callIndex) => sentMessage(call, callIndex);
-    private readonly server: Server = createServer((request, response) => void this.handle(request, response));
-
-    // Resolves with the apiRoot of the server.
-    public async start(): Promise<string> {
-        await new Promise<void>((resolve) => this.server.listen(0, "127.0.0.1", resolve));
-        const { port } = this.server.address() as AddressInfo;
-
-        return `http://127.0.0.1:${port}`;
-    }
-
-    // The calls never answered are cut off with their connections.
-    public async close(): Promise<void> {
-        this.server.closeAllConnections();
-        await new Promise<void>((resolve) => this.server.close(() => resolve()));
-    }
-
-    // Every call is answered with the Message it sends until a spec gives a script of its own.
-    public answerWith(script: BotApiAnswerScript): void {
-        this.answer = script;
-    }
-
-    // Resolves once a call made with the token has arrived.
-    public firstCallOf(token: string): Promise<void> {
-        return this.firstCallResolvers(token).promise;
-    }
-
-    public callsOf(chatId: number): BotApiCall[] {
-        return this.calls.filter((call) => call.chatId === chatId);
-    }
-
-    private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
-        const receivedAtMs = Date.now();
-        const [, token = "", method = ""] = /^\/bot([^/]+)\/([^/]+)$/.exec(request.url ?? "") ?? [];
-        const fields = readFields(request.headers["content-type"] ?? "", await readBody(request));
-        const call: BotApiCall = {
-            token: token,
-            method: method,
-            chatId: Number(fields["chat_id"]),
-            text: typeof fields["text"] === "string" ? fields["text"] : undefined,
-            document: readDocument(fields),
-            receivedAtMs: receivedAtMs,
-        };
-        const callIndex = this.calls.push(call) - 1;
-        this.firstCallResolvers(token).resolve();
-        const answer = await this.answer(call, callIndex);
-
-        response.writeHead(answer.status, { "content-type": "application/json" });
-        response.end(JSON.stringify(answer.body));
-    }
-
-    private firstCallResolvers(token: string): PromiseWithResolvers<void> {
-        const resolvers = this.firstCalls.get(token) ?? Promise.withResolvers<void>();
-        this.firstCalls.set(token, resolvers);
-
-        return resolvers;
-    }
-}
-
-// Points the Api of the sender at the fake Bot API instead of Telegram.
-class FakeBotApiFactory extends TelegramApiFactory {
-    public constructor(private readonly token: string, private readonly apiRoot: string) {
-        super(token);
-    }
-
-    public override create(timeoutSeconds: number): Api {
-        return new Api(this.token, { apiRoot: this.apiRoot, timeoutSeconds: timeoutSeconds });
-    }
-}
+const NEVER_ANSWERED = new Promise<ApiResponse<unknown>>(() => undefined);
 
 // A reader whose listening never starts, as on a node whose LISTEN connection is down: the waits
 // settle by the poll alone.
@@ -254,19 +159,27 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
                 paused_until = NULL
         `;
         fakeBotApi = new FakeBotApi();
+        fakeBotApi.answerWith(sentMessage);
         apiRoot = await fakeBotApi.start();
         nodes = [];
         workDir = await fs.mkdtemp(path.join(os.tmpdir(), "outbox-transformer-"));
     });
 
+    // The server and the directory go whatever the stop of the nodes ends with: a server left open
+    // would hold mocha, which has no --exit.
     afterEach(async function () {
-        await Promise.all(nodes.map((node) => node.runner.stop()));
-        await Promise.all(nodes.map((node) => node.maintenance.stop()));
-        for (const node of nodes) {
-            node.waiter.stop();
+        try {
+            await Promise.all(nodes.map((node) => node.runner.stop()));
+            await Promise.all(nodes.map((node) => node.maintenance.stop()));
+        } finally {
+            for (const node of nodes) {
+                node.waiter.stop();
+            }
+            await fakeBotApi.close();
+            await fs.rm(workDir, { recursive: true, force: true });
         }
-        await fakeBotApi.close();
-        await fs.rm(workDir, { recursive: true, force: true });
+
+        fakeBotApi.throwIfFailed();
     });
 
     after(async function () {
@@ -317,9 +230,9 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
     // The answer to a call of one node waits until the other node has made a call too. With one
     // slot a node pulls nothing while its call waits, so the other node is the one to pull next,
     // and the calls of both nodes reach the fake Bot API whichever wins the first pull.
-    async function answerOnceBothNodesCalled(call: BotApiCall, callIndex: number): Promise<BotApiAnswer> {
+    async function answerOnceBothNodesCalled(call: BotApiCall, callIndex: number): Promise<ApiResponse<unknown>> {
         const otherToken = call.token === FIRST_NODE_TOKEN ? SECOND_NODE_TOKEN : FIRST_NODE_TOKEN;
-        await fakeBotApi.firstCallOf(otherToken);
+        await waitUntil(() => fakeBotApi.calls.some((otherCall) => otherCall.token === otherToken), "both nodes were expected to call");
 
         return sentMessage(call, callIndex);
     }
@@ -373,7 +286,7 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
 
             expect(sent).to.deep.include({ message_id: 1, text: "hello" });
             expect(sent.chat.id).to.equal(PRIVATE_CHAT_IDS[0]);
-            expect(fakeBotApi.calls.map((call) => [call.token, call.method, call.chatId])).to.deep.equal([
+            expect(fakeBotApi.calls.map((call) => [call.token, call.method, call.payload["chat_id"]])).to.deep.equal([
                 [FIRST_NODE_TOKEN, "sendMessage", PRIVATE_CHAT_IDS[0]],
             ]);
             expect([...node.logger.criticals, ...node.logger.errors, ...node.logger.warnings]).to.deep.equal([]);
@@ -409,7 +322,7 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
             const sent = await node.api.sendDocument(PRIVATE_CHAT_IDS[0]!, new PathFile(fontPath));
 
             expect(sent.document).to.deep.include({ file_name: "font.ttf" });
-            expect(fakeBotApi.calls.map((call) => [call.method, call.document])).to.deep.equal([["sendDocument", "font bytes"]]);
+            expect(fakeBotApi.calls.map((call) => [call.method, call.payload["document"]])).to.deep.equal([["sendDocument", "font bytes"]]);
             // The removal follows the completion, and the notification of the completion may settle
             // the call first.
             await waitUntil(async () => !(await FileHelper.isExist(fontPath)), "the file of the sent message was expected to be removed");
@@ -422,6 +335,9 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
             node.runner.start();
 
             await caught(node.api.sendDocument(PRIVATE_CHAT_IDS[0]!, new PathFile(fontPath)));
+            // The rejection may come before the processor is done with the message: after the stop
+            // nothing is left to remove the file.
+            await node.runner.stop();
 
             expect(await FileHelper.isExist(fontPath)).to.equal(true);
         });
@@ -454,7 +370,7 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
             `;
 
             expect(
-                fakeBotApi.callsOf(chatId).map((call) => call.text),
+                fakeBotApi.callsTo(chatId).map((call) => call.payload["text"]),
                 `the calls of chat ${chatId}`,
             ).to.deep.equal(pushed.map((row) => row.text));
         }
@@ -493,12 +409,12 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
                 [privateChatId, GROUP_CHAT_ID].flatMap((chatId) => ["0", "1", "2"].map((text) => node.api.sendMessage(chatId, text))),
             );
 
-            expect(gapsMs(fakeBotApi.callsOf(privateChatId))).to.have.lengthOf(2);
-            for (const gapMs of gapsMs(fakeBotApi.callsOf(privateChatId))) {
+            expect(gapsMs(fakeBotApi.callsTo(privateChatId))).to.have.lengthOf(2);
+            for (const gapMs of gapsMs(fakeBotApi.callsTo(privateChatId))) {
                 expect(gapMs, "a gap between the calls of the private chat").to.be.at.least(limits.private.interval - ARRIVAL_JITTER_MS);
             }
-            expect(gapsMs(fakeBotApi.callsOf(GROUP_CHAT_ID))).to.have.lengthOf(2);
-            for (const gapMs of gapsMs(fakeBotApi.callsOf(GROUP_CHAT_ID))) {
+            expect(gapsMs(fakeBotApi.callsTo(GROUP_CHAT_ID))).to.have.lengthOf(2);
+            for (const gapMs of gapsMs(fakeBotApi.callsTo(GROUP_CHAT_ID))) {
                 expect(gapMs, "a gap between the calls of the group").to.be.at.least(limits.group.interval - ARRIVAL_JITTER_MS);
             }
         });
@@ -542,7 +458,7 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
             const sent = await node.api.sendMessage(chatId, "hello");
 
             expect(sent).to.deep.include({ message_id: 2, text: "hello" });
-            expect(fakeBotApi.callsOf(chatId).map((call) => call.text)).to.deep.equal(["hello", "hello"]);
+            expect(fakeBotApi.callsTo(chatId).map((call) => call.payload["text"])).to.deep.equal(["hello", "hello"]);
             expect(await chatMessages(chatId)).to.deep.equal([{ status: OutboxStatus.Done, errors: ["GrammyError", null] }]);
         });
 
@@ -550,7 +466,7 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
             const node = createNode(firstDatabase, FIRST_NODE);
             const chatId = PRIVATE_CHAT_IDS[0]!;
             fakeBotApi.answerWith((call, callIndex) =>
-                call.text === "refused" ? failure(403, "Forbidden: bot was blocked by the user") : sentMessage(call, callIndex),
+                call.payload["text"] === "refused" ? failure(403, "Forbidden: bot was blocked by the user") : sentMessage(call, callIndex),
             );
             node.runner.start();
 
@@ -559,7 +475,7 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
 
             expect(refused).to.be.instanceOf(GrammyError);
             expect(sent).to.deep.include({ text: "next" });
-            expect(fakeBotApi.callsOf(chatId).map((call) => call.text)).to.deep.equal(["refused", "next"]);
+            expect(fakeBotApi.callsTo(chatId).map((call) => call.payload["text"])).to.deep.equal(["refused", "next"]);
             expect(await chatMessages(chatId)).to.deep.equal([
                 { status: OutboxStatus.Failed, errors: ["GrammyError"] },
                 { status: OutboxStatus.Done, errors: [null] },
@@ -570,7 +486,9 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
             const node = createNode(firstDatabase, FIRST_NODE);
             const [blockedChatId, otherChatId] = PRIVATE_CHAT_IDS as [number, number];
             fakeBotApi.answerWith((call, callIndex) =>
-                call.chatId === blockedChatId ? failure(400, "Bad Request: message text is empty") : sentMessage(call, callIndex),
+                Number(call.payload["chat_id"]) === blockedChatId
+                    ? failure(400, "Bad Request: message text is empty")
+                    : sentMessage(call, callIndex),
             );
             node.runner.start();
 
@@ -585,7 +503,7 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
 
             expect(failed).to.be.instanceOf(GrammyError);
             expect(failed).to.deep.include({ error_code: 400 });
-            expect(fakeBotApi.callsOf(blockedChatId)).to.have.lengthOf(1);
+            expect(fakeBotApi.callsTo(blockedChatId)).to.have.lengthOf(1);
             expect(await chatState(blockedChatId)).to.equal(OutboxChatState.Blocked);
             expect(await chatMessages(blockedChatId)).to.deep.equal([
                 { status: OutboxStatus.Failed, errors: ["GrammyError"] },
@@ -607,6 +525,9 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
             firstNode.runner.start();
 
             const sending = firstNode.api.sendMessage(chatId, "hello");
+            // A wait below that fails leaves the call to the stop of the waiter, whose rejection would
+            // go unhandled.
+            sending.catch(() => undefined);
             await waitUntil(() => fakeBotApi.calls.length === 1, "the first node was expected to call the Bot API");
             secondNode.runner.start();
             secondNode.maintenance.start();
@@ -627,6 +548,9 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
             firstNode.runner.start();
 
             const sending = firstNode.api.sendMessage(chatId, "hello");
+            // A wait below that fails leaves the call to the stop of the waiter, whose rejection would
+            // go unhandled.
+            sending.catch(() => undefined);
             await waitUntil(() => fakeBotApi.calls.length === 1, "the first node was expected to call the Bot API");
             secondNode.runner.start();
             // Aborts the unanswered call at the stop deadline and releases its message.
@@ -643,73 +567,30 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
 });
 
 // The answer of Telegram to a sent message: the Message, with the text or the document of the call.
-function sentMessage(call: BotApiCall, callIndex: number): BotApiAnswer {
-    const chat = isGroupChat(call.chatId)
-        ? { id: call.chatId, type: "group", title: "group" }
-        : { id: call.chatId, type: "private", first_name: "user" };
+function sentMessage(call: BotApiCall, callIndex: number): ApiResponse<unknown> {
+    const chatId = Number(call.payload["chat_id"]);
+    const chat = isGroupChat(chatId) ? { id: chatId, type: "group", title: "group" } : { id: chatId, type: "private", first_name: "user" };
     const message: Record<string, unknown> = { message_id: callIndex + 1, date: 0, chat: chat };
 
-    if (call.text !== undefined) {
-        message["text"] = call.text;
+    if (call.payload["text"] !== undefined) {
+        message["text"] = call.payload["text"];
     }
 
-    if (call.document !== undefined) {
+    if (call.payload["document"] !== undefined) {
         message["document"] = { file_id: "file-id", file_unique_id: "file-unique-id", file_name: "font.ttf" };
     }
 
-    return { status: 200, body: { ok: true, result: message } };
+    return { ok: true, result: message };
 }
 
-// An answer of Telegram with ok: false; the Bot API repeats error_code as the HTTP status.
-function failure(errorCode: number, description: string, parameters: object = {}): BotApiAnswer {
-    return { status: errorCode, body: { ok: false, error_code: errorCode, description: description, parameters: parameters } };
-}
-
-async function readBody(request: IncomingMessage): Promise<string> {
-    const chunks: Buffer[] = [];
-
-    for await (const chunk of request) {
-        chunks.push(chunk as Buffer);
+// An answer of Telegram with ok: false. Telegram leaves parameters out when it has none, and grammY
+// fills in {}, which OutboxTransformer relies on.
+function failure(errorCode: number, description: string, parameters?: ApiError["parameters"]): ApiError {
+    if (parameters === undefined) {
+        return { ok: false, error_code: errorCode, description: description };
     }
 
-    return Buffer.concat(chunks).toString();
-}
-
-// The fields of a call: a JSON body, or the parts of multipart/form-data, which grammY sends for a
-// call with a file. It writes each field as a part named by the field, and the file as a part named
-// by an id the field of the file refers to as attach://<id> (payloadToMultipartItr() in its
-// core/payload.js).
-function readFields(contentType: string, body: string): Record<string, unknown> {
-    const boundary = /boundary=(.+)$/.exec(contentType)?.[1];
-
-    if (boundary === undefined) {
-        return JSON.parse(body) as Record<string, unknown>;
-    }
-
-    const fields: Record<string, unknown> = {};
-
-    for (const part of body.split(`--${boundary}`)) {
-        const headersEnd = part.indexOf("\r\n\r\n");
-        const name = /name="([^"]+)"/.exec(part.slice(0, headersEnd))?.[1];
-
-        if (headersEnd === -1 || name === undefined) {
-            continue;
-        }
-
-        fields[name] = part.slice(headersEnd + "\r\n\r\n".length).replace(/\r\n$/, "");
-    }
-
-    return fields;
-}
-
-function readDocument(fields: Record<string, unknown>): string | undefined {
-    const document = fields["document"];
-
-    if (typeof document !== "string" || !document.startsWith("attach://")) {
-        return undefined;
-    }
-
-    return String(fields[document.slice("attach://".length)]);
+    return { ok: false, error_code: errorCode, description: description, parameters: parameters };
 }
 
 // The gaps between the arrivals of the calls, in their order.

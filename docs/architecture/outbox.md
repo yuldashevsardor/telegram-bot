@@ -633,17 +633,20 @@ The other specs of the outbox stop short of that: `outbox-runner.database.spec.t
 across two nodes with a sender that never leaves the process, and the specs of the classes run them
 on fakes. What it checks is in the names of its tests.
 
-The fake Bot API is `FakeBotApi` of the spec, a `node:http` server on a free port of `127.0.0.1`.
-Both grammY Apis of a node are pointed at it by the `apiRoot` option: the bot `Api`, whose calls
-go through the transformer, and the one of the sender, made by `FakeBotApiFactory`, a subclass of
-`TelegramApiFactory`. The server takes the token and the method from the path grammY builds,
-`/bot<token>/<method>`, and the fields of the call from the JSON body or from the parts of the
-`multipart/form-data` grammY sends for a call with a file, and records each call with the time it
-arrived. Each node calls with a token of its own, so a call tells which node made it. A test gives
-the server a script that answers a call by its fields and its place among the calls: the `Message`
-of the call by default, an answer with `ok: false` and its code as the HTTP status, or no answer at
-all. A node whose call is never answered, while its API timeout outlives the lease, is how the spec
-stands in for a node that died mid-send.
+The fake Bot API is `FakeBotApi` of `test/telegram/fake-bot-api.helper.ts`, a `node:http` server on
+a free port of `127.0.0.1`. Both grammY Apis of a node are pointed at it by the `apiRoot` option:
+the bot `Api`, whose calls go through the transformer, and the one of the sender, made by
+`FakeBotApiFactory` of the same file, a subclass of `TelegramApiFactory`. The server takes the
+token and the method from the path grammY builds, `/bot<token>/<method>`, and the fields of the call
+from the JSON body or from the parts of the `multipart/form-data` grammY sends for a call with a
+file, the content of the file in the field that refers to it. It records each call with the time it
+arrived. Each node calls with a token of its own, so a call tells which node made it. The spec
+gives the server a script that answers a call by its fields and its place among the calls: the
+`Message` of the call by default, an answer with `ok: false` and its code as the HTTP status, or no
+answer at all. A node whose call is never answered, while its API timeout outlives the lease, is how
+the spec stands in for a node that died mid-send. A failure of the server itself is a bug of the
+spec: grammY takes the reset connection for a failed call, so the spec fails on it after each test
+(`throwIfFailed()`).
 
 The nodes are put together by hand, each with a database client of its own, and a test may give
 the waiter of a node a reader of its own. One whose listening never starts leaves the waits to the
