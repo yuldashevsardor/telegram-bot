@@ -1,12 +1,15 @@
 # Font fixtures
 
-The same Roboto-Black in six formats, EOT twice: with a raw and with a compressed font. They are
-the input for manual conversion runs, for `/font_generator` and for the specs. The specs need real
-fonts: the validators need real headers, not invented ones, and the pairs convert real fonts. Which
-specs take the fixtures — `grep -rl fixtures test --include='*.spec.ts'`. The conversion check of
-`make test-fonts` (`test/conversion/conversion.check.ts`) takes them too: it converts the fixture
-of every pair and compares the facts of the font before and after
-(`docs/architecture/testing.md`, "The conversion check").
+At the root, the same Roboto-Black in six formats, EOT twice: with a raw and with a compressed
+font. They are the input for manual conversion runs, for `/font_generator` and for the specs. The
+specs need real fonts: the validators need real headers, not invented ones, and the pairs convert
+real fonts. Which specs take the fixtures — `grep -rl fixtures test --include='*.spec.ts'`.
+
+In the directories, a font each, the corpus of real fonts ("The corpus" below). No spec takes it.
+
+The conversion check of `make test-fonts` (`test/conversion/conversion.check.ts`) takes every font
+of both: it converts each into every format the pair table takes it to and compares the facts of
+the font before and after (`docs/architecture/testing.md`, "The conversion check").
 
 The directory lives in `test/`, not in `tmp/` as it used to. Files from `tmp/` never reached the
 container at all: `tmp` is listed in `.dockerignore`, and on top of that the `app-tmp` volume
@@ -76,3 +79,45 @@ Every format is checked by its validator: the sign of each file is that its vali
 | `test-font.eot` | `EotFontValidator` accepts it, see `docs/architecture/font-convertor.md`, "The EOT validator" |
 | `test-font-compressed.eot` | `EotFontValidator` accepts it, flags `0x00000004` at offset 12 |
 | `test-font.svg` | `SvgFontValidator` accepts it, see `docs/architecture/font-convertor.md`, "The SVG validator" |
+
+## The corpus
+
+Roboto was written by fontforge in every format, so on it the engine mostly reads its own output,
+and its OTF is a TrueType font regenerated with CFF outlines. The corpus adds fonts written by other
+tools or by a fontforge eleven years older than the image's, and fonts of other kinds. Each lies in
+a directory of its own with its licence: all are under the SIL Open Font License 1.1, which requires
+the licence to go with the font. The files are not downloaded during the run: the check must not
+depend on the network.
+
+| file | where from | version | SHA-256 | case |
+|---|---|---|---|---|
+| `font-awesome/fontawesome-webfont.ttf` | [FortAwesome/Font-Awesome](https://github.com/FortAwesome/Font-Awesome/tree/v4.7.0/fonts), tag `v4.7.0` | 4.7.0 | `aa58f33f239a0fb02f5c7a6c45c043d7a9ac9a093335806694ecd6d4edc0d6a8` | icons in the Private Use Area, units-per-em 1792; written by FontForge 20120731 (`FFTM`) |
+| `font-awesome/fontawesome-webfont.woff` | the same | 4.7.0 | `ba0c59deb5450f5cb41b3f93609ee2d0d995415877ddfa223e8a8a7533474f07` | a WOFF written by FontForge 20120731, not by the engine of the image |
+| `font-awesome/fontawesome-webfont.woff2` | the same | 4.7.0 | `2adefcbc041e7d18fcf2d417879dc5a09997aa64d675b7a3c4b6ce33da13f3fe` | a WOFF2 made outside the repository |
+| `font-awesome/fontawesome-webfont.eot` | the same | 4.7.0 | `7bfcab6db99d5cfbf1705ca0536ddc78585432cc5fa41bbd7ad0f009033b2979` | an EOT made outside the repository, version `0x00020001` |
+| `font-awesome/fontawesome-webfont.svg` | the same | 4.7.0 | `ad6157926c1622ba4e1d03d478f1541368524bfc46f51e42fe0d945f7ef323e4` | an SVG font written by FontForge 20120731 (its `<metadata>`), not by the engine of the image |
+| `font-awesome/FontAwesome.otf` | the same | 001.001 | `444dd4366615ffc4a16d012b2fa90137065d3ccb410fa6fd5e4ddd7b5e4ffcd5` | CFF outlines written without fontforge (no `FFTM`), without `.null` and `nonmarkingreturn` |
+| `source-sans-3/SourceSans3-Regular.otf` | [adobe-fonts/source-sans](https://github.com/adobe-fonts/source-sans/releases/tag/3.052R), release `3.052R`, `OTF/` of `OTF-source-sans-3.052R.zip` | 3.48 | `08df266400933d3178d081a45f94a08814c3e55b4b7dd2e0ff69cb1329f13ab6` | a font designed with CFF outlines; combining marks of zero width |
+| `noto-naskh-arabic/NotoNaskhArabic-Regular.ttf` | [notofonts/arabic](https://github.com/notofonts/arabic/releases/tag/NotoNaskhArabic-v2.021), release `NotoNaskhArabic-v2.021`, `NotoNaskhArabic/unhinted/ttf/` of the zip | 2.021 | `c34fdbd98af4dbc45ca192a23d2eeb77032add83086f5fe32957d23b3f36b221` | a complex script with `GSUB` and `GPOS`, Arabic forms |
+| `bungee-spice/BungeeSpice-Regular.ttf` | [google/fonts](https://github.com/google/fonts/tree/2eb0b48d5f760f62e286216f0859a8c540dbc1bd/ofl/bungeespice), commit `2eb0b48d` | 2.000 | `ccf8e3f7eb1ac87ed217097332856f9007484362a00ae3b42a03c6ef851158d0` | a colour font: `COLR`, `CPAL` and `SVG ` |
+| `pacifico/Pacifico-latin.woff2` | Google Fonts, `https://fonts.gstatic.com/s/pacifico/v23/FwZY7-Qmy14u9lezJ-6H6MmBp0u-.woff2` | 3.001 | `1a47a54e53bbfd3cfb4673636eac5edc98a7ecbf36c41340f48086a4f4796b18` | a WOFF2 of Google's encoder, a subset that keeps glyphs it does not encode |
+
+Font Awesome 4.7 ships no licence file: its `README.md` names the SIL OFL 1.1 for the font, and
+`font-awesome/OFL.txt` is the licence text with the copyright of the font's `name` table. The
+others carry the licence file of their source: `OFL.txt` of the directory in google/fonts, of the
+Noto zip, and `LICENSE.md` of the Source Sans repository at the tag, kept as `LICENSE.txt`: the
+width check of `make check` takes every `*.md` as prose. Pacifico's licence comes from
+`ofl/pacifico/OFL.txt` of google/fonts at the same commit as Bungee Spice.
+
+The Pacifico file is the `latin` subset of what the CSS API serves to a current Chrome:
+`https://fonts.googleapis.com/css2?family=Pacifico` lists one WOFF2 per subset, and only for a
+browser it knows to read WOFF2. Noto Naskh Arabic is the unhinted build: hinting is not among the
+facts of the check, and the file is 159 KB against 247 KB of the hinted one.
+
+There is no variable font: the bot fails on Inter, the candidate of the corpus, since fontforge's
+warnings on it overflow the output cap of `ProcessHelper.run` (issue
+[#912](https://github.com/yuldashevsardor/telegram-bot/issues/912)).
+
+What fontforge does to the colour font the check does not see: `COLR`, `CPAL` and `SVG ` are not
+among its facts. fontforge ignores the three tables on reading, and the result keeps the
+one-colour outlines of the base glyphs.

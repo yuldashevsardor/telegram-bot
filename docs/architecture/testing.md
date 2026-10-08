@@ -159,10 +159,11 @@ preset has one other key, `cache: false`.
 
 The specs that run the real engine check that a result is a valid file of its format
 (`font-forge-convertor.spec.ts`), not that it is the same font. `make test-fonts` checks the latter
-(`test/conversion/conversion.check.ts`). Every pair of the pair table converts its fixture from
-`test/fixtures/fonts` through `ConvertorFactory` with the real `FontForge` and `EotPacker`, the
-route the bot takes; the pairs from EOT run on the compressed fixture as well. Then the same facts
-are read from the source and the result and compared. The facts are the fields of `FontFacts`
+(`test/conversion/conversion.check.ts`). Every font of `test/fixtures/fonts`, the Roboto fixtures at
+its root and the corpus of real fonts in a directory per font (its `README.md`), is converted into
+every format the pair table takes it to, through `ConvertorFactory` with the real `FontForge` and
+`EotPacker`, the route the bot takes. Then the same facts are read from the source and the result
+and compared. The facts are the fields of `FontFacts`
 (`test/conversion/font-facts-reader.types.ts`); the encoded code points are the keys of its advance
 widths.
 
@@ -172,9 +173,11 @@ widths.
 - Glyph names are not compared: fontforge renames some of them on reading (the TrueType fixture has
   `.notdef` at glyph 3). U+0000 is left out of the code points; why is at `readScript` in the
   reader.
-- A difference fails the check unless the pair lists it in `test/conversion/expected-differences.ts`
-  with its reason and the value it gives the fact. A listed difference that no longer happens, or
-  comes out with another value, fails it too, so the list stays what was measured.
+- A difference fails the check unless `test/conversion/expected-differences.ts` lists it for the
+  source fixture and the target format, with its reason and the value it gives the fact. A listed
+  difference that no longer happens, or comes out with another value, fails it too, so the list
+  stays what was measured. A difference that is a defect names its issue there and states the
+  defect itself.
 
 The facts are read by the same engine and codec that convert, so a reading defect of either does
 not show on the source side:
@@ -187,6 +190,10 @@ not show on the source side:
   read: the fields of the envelope header `EotPacker` writes are checked by `eot-packer.spec.ts`,
   not here.
 
+On the result side it is the other way round: a reading defect shows as a loss. fontforge misreads
+the SVG font it writes itself (issue #913), so most of the differences the list gives the pairs into
+SVG are not in the written file; their reasons say which are.
+
 The check runs apart from the main set: the `test:fonts` npm script starts mocha with
 `--no-config` over `test/conversion/**/*.check.ts`.
 
@@ -198,9 +205,9 @@ The check runs apart from the main set: the `test:fonts` npm script starts mocha
   "Commands").
 
 `make check` runs it after the tests with coverage (the `check` npm script); `make test`,
-`make coverage` and `make mutation` do not. On 2026-10-09 its 35 conversions, the 30 pairs and the
-5 from the compressed EOT, took 5 s in mocha, and `make test-fonts` took 6–10 s with the start of
-the container.
+`make coverage` and `make mutation` do not. On 2026-10-09 its 85 conversions, each of the 17 font
+fixtures into the 5 other formats, took 15–16 s in mocha, and `make test-fonts` took 16–17 s with
+the start of the container.
 
 ## Mutation testing
 
