@@ -1,5 +1,6 @@
 import "reflect-metadata";
 import fs from "node:fs/promises";
+import { constants as httpStatus } from "node:http2";
 import os from "node:os";
 import path from "node:path";
 import { expect } from "chai";
@@ -34,7 +35,7 @@ import { OutboxChatState, OutboxStatus } from "app/telegram/outbox/store/outbox-
 import { OutboxTransformer } from "app/telegram/outbox/transformer/outbox-transformer";
 import { testDatabaseSettings } from "test/database.helper";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
-import type { BotApiCall } from "test/telegram/fake-bot-api.helper";
+import type { BotApiCall, BotApiFile } from "test/telegram/fake-bot-api.helper";
 import { FakeBotApi, FakeBotApiFactory } from "test/telegram/fake-bot-api.helper";
 import { waitUntil } from "test/shared/utils.helper";
 
@@ -303,13 +304,16 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
 
         it("rejects the call with the answer of Telegram to a message that failed", async function () {
             const node = createNode(firstDatabase, FIRST_NODE);
-            fakeBotApi.answerWith(() => failure(403, "Forbidden: bot was blocked by the user"));
+            fakeBotApi.answerWith(() => failure(httpStatus.HTTP_STATUS_FORBIDDEN, "Forbidden: bot was blocked by the user"));
             node.runner.start();
 
             const error = await caught(node.api.sendMessage(PRIVATE_CHAT_IDS[0]!, "hello"));
 
             expect(error).to.be.instanceOf(GrammyError);
-            expect(error).to.deep.include({ error_code: 403, description: "Forbidden: bot was blocked by the user" });
+            expect(error).to.deep.include({
+                error_code: httpStatus.HTTP_STATUS_FORBIDDEN,
+                description: "Forbidden: bot was blocked by the user",
+            });
         });
     });
 
@@ -322,7 +326,9 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
             const sent = await node.api.sendDocument(PRIVATE_CHAT_IDS[0]!, new PathFile(fontPath));
 
             expect(sent.document).to.deep.include({ file_name: "font.ttf" });
-            expect(fakeBotApi.calls.map((call) => [call.method, call.payload["document"]])).to.deep.equal([["sendDocument", "font bytes"]]);
+            expect(fakeBotApi.calls.map((call) => [call.method, call.payload["document"]])).to.deep.equal([
+                ["sendDocument", { filename: "font.ttf", content: "font bytes" }],
+            ]);
             // The removal follows the completion, and the notification of the completion may settle
             // the call first.
             await waitUntil(async () => !(await FileHelper.isExist(fontPath)), "the file of the sent message was expected to be removed");
@@ -331,7 +337,7 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
         it("is kept when its message fails", async function () {
             const node = createNode(firstDatabase, FIRST_NODE);
             const fontPath = await writeFile("font.ttf", "font bytes");
-            fakeBotApi.answerWith(() => failure(403, "Forbidden: bot was blocked by the user"));
+            fakeBotApi.answerWith(() => failure(httpStatus.HTTP_STATUS_FORBIDDEN, "Forbidden: bot was blocked by the user"));
             node.runner.start();
 
             await caught(node.api.sendDocument(PRIVATE_CHAT_IDS[0]!, new PathFile(fontPath)));
@@ -429,7 +435,9 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
         const secondNode = createNode(secondDatabase, { ...SECOND_NODE, limits: limits, concurrency: 1 });
         fakeBotApi.answerWith((call, callIndex) => {
             if (callIndex === 0) {
-                return failure(429, `Too Many Requests: retry after ${RETRY_AFTER_SECONDS}`, { retry_after: RETRY_AFTER_SECONDS });
+                return failure(httpStatus.HTTP_STATUS_TOO_MANY_REQUESTS, `Too Many Requests: retry after ${RETRY_AFTER_SECONDS}`, {
+                    retry_after: RETRY_AFTER_SECONDS,
+                });
             }
 
             return answerOnceBothNodesCalled(call, callIndex);
@@ -452,7 +460,9 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
         it("is retried after a transient failure and resolves with the later answer", async function () {
             const node = createNode(firstDatabase, FIRST_NODE);
             const chatId = PRIVATE_CHAT_IDS[0]!;
-            fakeBotApi.answerWith((call, callIndex) => (callIndex === 0 ? failure(502, "Bad Gateway") : sentMessage(call, callIndex)));
+            fakeBotApi.answerWith((call, callIndex) =>
+                callIndex === 0 ? failure(httpStatus.HTTP_STATUS_BAD_GATEWAY, "Bad Gateway") : sentMessage(call, callIndex),
+            );
             node.runner.start();
 
             const sent = await node.api.sendMessage(chatId, "hello");
@@ -466,7 +476,9 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
             const node = createNode(firstDatabase, FIRST_NODE);
             const chatId = PRIVATE_CHAT_IDS[0]!;
             fakeBotApi.answerWith((call, callIndex) =>
-                call.payload["text"] === "refused" ? failure(403, "Forbidden: bot was blocked by the user") : sentMessage(call, callIndex),
+                call.payload["text"] === "refused"
+                    ? failure(httpStatus.HTTP_STATUS_FORBIDDEN, "Forbidden: bot was blocked by the user")
+                    : sentMessage(call, callIndex),
             );
             node.runner.start();
 
@@ -487,7 +499,7 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
             const [blockedChatId, otherChatId] = PRIVATE_CHAT_IDS as [number, number];
             fakeBotApi.answerWith((call, callIndex) =>
                 Number(call.payload["chat_id"]) === blockedChatId
-                    ? failure(400, "Bad Request: message text is empty")
+                    ? failure(httpStatus.HTTP_STATUS_BAD_REQUEST, "Bad Request: message text is empty")
                     : sentMessage(call, callIndex),
             );
             node.runner.start();
@@ -502,7 +514,7 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
             await node.api.sendMessage(otherChatId, "other");
 
             expect(failed).to.be.instanceOf(GrammyError);
-            expect(failed).to.deep.include({ error_code: 400 });
+            expect(failed).to.deep.include({ error_code: httpStatus.HTTP_STATUS_BAD_REQUEST });
             expect(fakeBotApi.callsTo(blockedChatId)).to.have.lengthOf(1);
             expect(await chatState(blockedChatId)).to.equal(OutboxChatState.Blocked);
             expect(await chatMessages(blockedChatId)).to.deep.equal([
@@ -576,8 +588,10 @@ function sentMessage(call: BotApiCall, callIndex: number): ApiResponse<unknown> 
         message["text"] = call.payload["text"];
     }
 
-    if (call.payload["document"] !== undefined) {
-        message["document"] = { file_id: "file-id", file_unique_id: "file-unique-id", file_name: "font.ttf" };
+    const document = call.payload["document"] as BotApiFile | undefined;
+
+    if (document !== undefined) {
+        message["document"] = { file_id: "file-id", file_unique_id: "file-unique-id", file_name: document.filename };
     }
 
     return { ok: true, result: message };

@@ -22,7 +22,7 @@ async function readBody(request: IncomingMessage): Promise<string> {
 }
 
 // grammY writes each field of multipart/form-data as a part named by the field, the file as a part
-// named by its id, and the field of the file as attach://<id>.
+// named by its id with the file name in its headers, and the field of the file as attach://<id>.
 function readPayload(contentType: string, body: string): Record<string, unknown> {
     const boundary = /boundary=(.+)$/.exec(contentType)?.[1];
 
@@ -30,44 +30,47 @@ function readPayload(contentType: string, body: string): Record<string, unknown>
         return JSON.parse(body) as Record<string, unknown>;
     }
 
-    const parts = new Map<string, string>();
+    const fields = new Map<string, string>();
+    const files = new Map<string, BotApiFile>();
 
     for (const part of body.split(`--${boundary}`)) {
         const headersEnd = part.indexOf(HEADERS_END);
-        const name = /name="([^"]+)"/.exec(part.slice(0, headersEnd))?.[1];
+        const headers = part.slice(0, headersEnd);
+        const name = /name="([^"]+)"/.exec(headers)?.[1];
 
         if (headersEnd === -1 || name === undefined) {
             continue;
         }
 
-        parts.set(name, part.slice(headersEnd + HEADERS_END.length).replace(/\r\n$/, ""));
+        const value = part.slice(headersEnd + HEADERS_END.length).replace(/\r\n$/, "");
+        const filename = /filename=([^\r\n;]+)/.exec(headers)?.[1];
+
+        if (filename === undefined) {
+            fields.set(name, value);
+        } else {
+            files.set(name, { filename: filename, content: value });
+        }
     }
 
-    // The parts of the files go into the fields that refer to them, not into fields of their own.
-    const fileIds = new Set([...parts.values()].filter((value) => value.startsWith(ATTACH_PREFIX)).map(attachedFileId));
+    // A file goes into the field that refers to it, not into a field of its own.
     const payload: Record<string, unknown> = {};
 
-    for (const [name, value] of parts) {
-        if (fileIds.has(name)) {
-            continue;
-        }
-
-        payload[name] = value.startsWith(ATTACH_PREFIX) ? parts.get(attachedFileId(value)) : value;
+    for (const [name, value] of fields) {
+        payload[name] = value.startsWith(ATTACH_PREFIX) ? files.get(value.slice(ATTACH_PREFIX.length)) : value;
     }
 
     return payload;
 }
 
-function attachedFileId(fieldValue: string): string {
-    return fieldValue.slice(ATTACH_PREFIX.length);
-}
+// A file of a call as grammY uploaded it.
+export type BotApiFile = { filename: string; content: string };
 
 // A call as the fake Bot API received it.
 export type BotApiCall = {
     // Tells apart the Apis that call: each may call with a token of its own.
     token: string;
     method: string;
-    // The fields of the call; the field of a file holds the content of the file, read as text.
+    // The fields of the call; the field of a file holds the file, its content read as text.
     payload: Record<string, unknown>;
     receivedAtMs: number;
 };
@@ -139,7 +142,9 @@ export class FakeBotApi {
     }
 }
 
-// The Api of the outbox and of the polling source of the inbox, pointed at the fake Bot API.
+// The Api of the outbox and of the polling source of the inbox, pointed at the fake Bot API. It
+// repeats TelegramApiFactory.create() with the apiRoot added: an option the production factory
+// gets has to be added here too, or the specs run an Api without it.
 export class FakeBotApiFactory extends TelegramApiFactory {
     public constructor(private readonly token: string, private readonly apiRoot: string) {
         super(token);
