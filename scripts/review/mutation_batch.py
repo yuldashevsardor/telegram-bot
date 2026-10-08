@@ -52,12 +52,16 @@ and takes no lock:
    batch to the full run: stdout stays empty, and stderr names the PR and the file.
 4. Otherwise keeps each `.ts` in `src/` or `test/` the PR added, renamed or changed in more than
    comments, by the rules of docs/agents/review-gates.md, "Comments-only diffs" (`Scanner` and
-   `is_comments_only` below). A file the scanner cannot read counts as code.
-5. Takes each kept file under its name at `HEAD`, renames after the PR followed, and drops the ones
-   no longer there. A kept spec or spec helper in `test/` stands for the files of `src/` it imports
-   through `app/*`: the files its own imports name, not those of the helpers it imports.
-6. Prints the files on one line for `MUTATE`, and on stderr where each one comes from. No file is a
-   stop: there is nothing to run.
+   `is_comments_only` below), and each spec or spec helper it deleted. A file the scanner cannot
+   read counts as code.
+5. A kept file of `test/` stands for the files of `src/` it imports through `app/*`, itself and
+   through the helpers it imports through `test/*`, read at the merge commit, or at its parent for
+   a deleted one. A spec that a changed helper serves is not followed.
+6. Takes each file of `src/` under its name at `HEAD`, following the renames of `main` commit by
+   commit along the first parents, and drops the ones no longer there.
+7. Prints the files on one line for `MUTATE`, and on stderr where each one comes from. When no file
+   is left the batch takes the full run too, so it still has a record to close on; when no PR of the
+   batch is merged into `HEAD` yet, the action stops.
 
 `close <batch> <issues>` (make mutation-full-close) closes a batch after its run, under the same
 lock as `record`:
@@ -69,7 +73,9 @@ lock as `record`:
    gone together with the worktree of the run.
 2. Reads the record of the batch run, reports/mutation/batch-record.md
    (docs/architecture/testing.md, "The run record"), and stops unless `make mutation batch=<N>` ran
-   it for this batch on a clean tree and it left a report with a score.
+   it for this batch on a clean tree and it left a report with a score. A score of NaN closes a run
+   over files: its files had no mutant (types alone, or excluded by stryker.config.mjs); over the
+   whole of `src/` it stops.
 3. Reads the record of the last run, reports/mutation/record.md. When it is of a run over files of
    no batch, it is the check of the fixed survivors: it has to be green, on a clean tree, on a
    descendant of the head of the batch run. Which files each round of fixes runs over is step 2 of
@@ -172,6 +178,7 @@ class RunRecord(NamedTuple):
     scope: str
     batch: str
     exit: str
+    score: str
     text: str
 
 
@@ -431,17 +438,21 @@ def parse_run_record(path: str, text: str) -> RunRecord:
         raise Stop(
             "the run of {} broke off before its report: the record has no score".format(path)
         )
-    # A score of NaN is a run without a single valid mutant, a broken `mutate` glob say: it tested
-    # nothing, and exits with 0 all the same (docs/architecture/testing.md, "Threshold").
-    if marker.group("score") == "NaN":
-        raise Stop("the run of {} counted no mutant: score=NaN".format(path))
     return RunRecord(
         marker.group("head"),
         marker.group("scope"),
         marker.group("batch"),
         marker.group("exit"),
+        marker.group("score"),
         text,
     )
+
+
+def stop_on_no_mutant(path: str, record: RunRecord) -> None:
+    # A score of NaN is a run without a single valid mutant, a broken `mutate` glob say: it tested
+    # nothing, and exits with 0 all the same (docs/architecture/testing.md, "Threshold").
+    if record.score == "NaN":
+        raise Stop("the run of {} counted no mutant: score=NaN".format(path))
 
 
 def read_batch_run(path: str, batch_issue: int) -> RunRecord:
@@ -459,6 +470,10 @@ def read_batch_run(path: str, batch_issue: int) -> RunRecord:
                 path, batch_run.batch, batch_issue
             )
         )
+    # The files of a batch come from the PRs and exist on the head, so a run over them without a
+    # mutant found nothing to mutate in them: types alone, or files stryker.config.mjs excludes.
+    if batch_run.scope == "full":
+        stop_on_no_mutant(path, batch_run)
     return batch_run
 
 
@@ -471,6 +486,7 @@ def read_fix_run(path: str, batch_run: RunRecord, run: Run) -> Optional[RunRecor
     fix_run = parse_run_record(path, text)
     if fix_run.scope == "full" or fix_run.batch != NO_BATCH:
         return None
+    stop_on_no_mutant(path, fix_run)
     if fix_run.exit != "0":
         raise Stop(
             "the run over files of {} is red (exit={}): its survivors are not fixed".format(
@@ -708,7 +724,9 @@ REGEX_AFTER_WORDS = frozenset(
 # The opening of a tool directive past the comment marks (docs/agents/review-gates.md,
 # "Comments-only diffs"); `///` is told by the line comment itself.
 DIRECTIVE = re.compile(r"(@|stryker|eslint|istanbul|prettier)", re.IGNORECASE)
-IMPORT_FROM_APP = re.compile(r"""\b(?:from|import)\s*\(?\s*["']app/(?P<module>[^"']+)["']""")
+IMPORT_FROM_ALIAS = re.compile(
+    r"""\b(?:from|import)\s*\(?\s*["'](?P<alias>app|test)/(?P<module>[^"']+)["']"""
+)
 MAKE_REFERENCE = re.compile(r"\$[({](?P<name>[A-Za-z_][A-Za-z0-9_]*)[)}]")
 LOCK_INPUT = re.compile(r"(^|/)node_modules/(typescript|@stryker-mutator/[^/]+)$")
 
@@ -1115,11 +1133,19 @@ def merge_parent(pr: int, commit: str, run: Run) -> str:
     return parents[0]
 
 
-def changed_code(pr: int, commit: str, run: Run, report: Report) -> Tuple[List[str], List[str]]:
-    """The `.ts` of `src/` and `test/` the PR changed in code, as paths of its merge commit, and the
-    tools of the run it changed."""
+class Kept(NamedTuple):
+    """A `.ts` the PR changed in code, as a path of the commit that holds the text to read: the
+    merge commit, or its parent for a deleted spec."""
+
+    path: str
+    commit: str
+
+
+def changed_code(pr: int, commit: str, run: Run, report: Report) -> Tuple[List[Kept], List[str]]:
+    """The `.ts` of `src/` and `test/` the PR changed in code, and the tools of the run it
+    changed."""
     parent = merge_parent(pr, commit, run)
-    files = []
+    kept = []
     tools = []
     for changed in changed_files(parent, commit, run):
         tool_changed = is_tool_changed(changed, parent, commit, run)
@@ -1127,41 +1153,96 @@ def changed_code(pr: int, commit: str, run: Run, report: Report) -> Tuple[List[s
             if tool_changed:
                 tools.append(changed.new_path)
             continue
-        if not is_source(changed.new_path) or changed.status == "D":
+        if not is_source(changed.new_path):
+            continue
+        if changed.status == "D":
+            # A deleted source has nothing left to mutate; a deleted spec leaves the sources it
+            # tested with fewer tests.
+            if changed.old_path.startswith("test/"):
+                kept.append(Kept(changed.old_path, parent))
             continue
         if changed.status == "M":
             old_text = file_at(parent, changed.old_path, run)
             if is_comments_only(old_text, file_at(commit, changed.new_path, run)):
                 report("PR #{}: comments only: {}".format(pr, changed.new_path))
                 continue
-        files.append(changed.new_path)
-    return files, tools
+        kept.append(Kept(changed.new_path, commit))
+    return kept, tools
 
 
-def renames_since(commit: str, head: str, run: Run) -> Dict[str, str]:
-    return {
-        changed.old_path: changed.new_path
-        for changed in changed_files(commit, head, run)
-        if changed.status == "R"
-    }
+class MainLine:
+    """The trees of commits and the renames `main` made after a commit, read once each."""
+
+    def __init__(self, head: str, run: Run) -> None:
+        self.head = head
+        self.run = run
+        self.trees: Dict[str, Set[str]] = {}
+        self.step_renames: Dict[str, Dict[str, str]] = {}
+
+    def tree(self, commit: str) -> Set[str]:
+        if commit not in self.trees:
+            listing = git_text(["ls-tree", "-r", "-z", "--name-only", commit], self.run)
+            self.trees[commit] = set(listing.split("\0")) - {""}
+        return self.trees[commit]
+
+    def path_on_head(self, path: str, commit: str) -> Optional[str]:
+        """The name the file of the commit has at the head, None when the head has no such file.
+        The renames go commit by commit along the first parents: one end-to-end diff would take a
+        file renamed and then rewritten for a deleted one and a new one."""
+        steps = git_text(
+            [
+                "rev-list",
+                "--first-parent",
+                "--reverse",
+                "--parents",
+                "{}..{}".format(commit, self.head),
+            ],
+            self.run,
+        ).splitlines()
+        for line in steps:
+            step, parent = line.split()[:2]
+            if step not in self.step_renames:
+                self.step_renames[step] = {
+                    changed.old_path: changed.new_path
+                    for changed in changed_files(parent, step, self.run)
+                    if changed.status == "R"
+                }
+            path = self.step_renames[step].get(path, path)
+        return path if path in self.tree(self.head) else None
 
 
-def imported_sources(path: str, head: str, on_head: Set[str], run: Run) -> List[str]:
-    """The files of `src/` a spec or a spec helper imports through `app/*`."""
-    text = file_at(head, path, run)
-    try:
-        code = "\n".join(Scanner(text).scan().code)
-    except Unclear:
-        # A commented-out import adds a file to the run, it does not take one away.
-        code = text
-    sources = []
-    for match in IMPORT_FROM_APP.finditer(code):
-        for candidate in ("src/{}.ts", "src/{}/index.ts"):
-            source = candidate.format(match.group("module"))
-            if source in on_head:
-                sources.append(source)
-                break
-    return sorted(set(sources))
+def imported_sources(test_file: Kept, main_line: MainLine, run: Run) -> List[str]:
+    """The files of `src/` a spec or a spec helper imports through `app/*`, its own imports and
+    those of the helpers it imports through `test/*`, as paths of its commit."""
+    tree = main_line.tree(test_file.commit)
+    sources = set()
+    seen = set()
+    pending = [test_file.path]
+    while pending:
+        path = pending.pop()
+        if path in seen:
+            continue
+        seen.add(path)
+        text = file_at(test_file.commit, path, run)
+        try:
+            code = "\n".join(Scanner(text).scan().code)
+        except Unclear:
+            # A commented-out import adds a file to the run, it does not take one away.
+            code = text
+        for match in IMPORT_FROM_ALIAS.finditer(code):
+            base = "src" if match.group("alias") == "app" else "test"
+            candidates = [
+                "{}/{}.ts".format(base, match.group("module")),
+                "{}/{}/index.ts".format(base, match.group("module")),
+            ]
+            found = next((candidate for candidate in candidates if candidate in tree), None)
+            if found is None:
+                continue
+            if base == "src":
+                sources.add(found)
+            else:
+                pending.append(found)
+    return sorted(sources)
 
 
 def batch_files(batch_issue: int, run: Run, report: Report) -> BatchFiles:
@@ -1174,7 +1255,9 @@ def batch_files(batch_issue: int, run: Run, report: Report) -> BatchFiles:
         report("skipped: PR #{}, closed without a merge".format(found.pr))
     for carry in ordered.carried:
         report("left to the carry-over: PR #{}, {}".format(carry.record.pr, carry.why))
-    on_head = set(git_text(["ls-tree", "-r", "-z", "--name-only", head], run).split("\0"))
+    if not ordered.covered:
+        raise Stop("no PR of the batch is merged into the head: nothing to run yet")
+    main_line = MainLine(head, run)
     files: Set[str] = set()
     reasons = []
     seen_prs = set()
@@ -1183,20 +1266,34 @@ def batch_files(batch_issue: int, run: Run, report: Report) -> BatchFiles:
             continue
         seen_prs.add(found.pr)
         _, commit = pr_state(found.pr, run)
-        changed, tools = changed_code(found.pr, commit, run, report)
-        reasons.extend("PR #{} changed {}".format(found.pr, tool) for tool in tools)
-        renames = renames_since(commit, head, run)
-        for path in changed:
-            current = renames.get(path, path)
-            if current not in on_head:
-                report("PR #{}: no longer on main: {}".format(found.pr, path))
-            elif current.startswith("src/"):
-                files.add(current)
-                report("PR #{}: {}".format(found.pr, current))
+        kept, tools = changed_code(found.pr, commit, run, report)
+        gone: Set[str] = set()
+        reasons.extend(
+            "PR #{} changed {}, a tool of the run, in more than comments".format(found.pr, tool)
+            for tool in tools
+        )
+        for kept_file in kept:
+            if kept_file.path.startswith("test/"):
+                sources = imported_sources(kept_file, main_line, run)
             else:
-                sources = imported_sources(current, head, on_head, run)
-                files.update(sources)
-                report("PR #{}: {} -> {}".format(found.pr, current, " ".join(sources) or "none"))
+                sources = [kept_file.path]
+            on_head = []
+            for source in sources:
+                current = main_line.path_on_head(source, kept_file.commit)
+                if current is None and source not in gone:
+                    gone.add(source)
+                    report("PR #{}: no longer on main: {}".format(found.pr, source))
+                elif current is not None:
+                    on_head.append(current)
+            files.update(on_head)
+            if kept_file.path.startswith("test/"):
+                report(
+                    "PR #{}: {} -> {}".format(found.pr, kept_file.path, " ".join(on_head) or "none")
+                )
+            else:
+                report("PR #{}: {}".format(found.pr, " ".join(on_head) or "none"))
+    if not files and not reasons:
+        reasons.append("no PR of the batch left a file of src/ to mutate on the head")
     return BatchFiles(sorted(files), reasons)
 
 
@@ -1210,18 +1307,12 @@ def print_batch_files(batch_issue: int, run: Run = subprocess.run) -> int:
         print("Stopped: {}".format(stop), file=sys.stderr)
         return 1
     if found.full_run_reasons:
+        # An empty stdout is the whole of src/ for make mutation batch=<N>.
         for why in found.full_run_reasons:
-            report("full run: {}, a tool of the run, in more than comments".format(why))
+            report("full run: {}".format(why))
         return 0
-    if not found.files:
-        print(
-            "Stopped: no PR of the batch merged into the head changed code: nothing to mutate",
-            file=sys.stderr,
-        )
-        return 1
     print(" ".join(found.files))
     return 0
-
 
 USAGE = (
     "usage: make mutation-full-record issue=<N> pr=<N>\n"

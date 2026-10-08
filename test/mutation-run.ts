@@ -79,6 +79,19 @@ const isFullRun = area === "";
 const batch = process.env["MUTATION_BATCH"] ?? "";
 const isBatchRun = batch !== "";
 
+// The whole of src/ without files is either a plain make mutation or a batch that took the full run.
+function filesText(): string {
+    if (!isFullRun) {
+        return `\`${area}\``;
+    }
+
+    if (isBatchRun) {
+        return `the whole \`src/\`: the batch took the full run, \`make mutation-batch-files batch=${batch}\` says why`;
+    }
+
+    return "not passed, the whole `src/`";
+}
+
 function record(run: Run): string {
     const head = process.env["MUTATION_HEAD"] ?? "";
     // A number of paths or anything else: the recipe of the target writes unknown here when git did
@@ -121,7 +134,7 @@ function record(run: Run): string {
         "",
         `- head: ${head === "" ? "unknown, git on the host did not answer" : `\`${head}\``}`,
         `- tree: ${tree[clean]}`,
-        `- files: ${isFullRun ? "not passed, the whole `src/`" : `\`${area}\``}`,
+        `- files: ${filesText()}`,
         `- batch: ${isBatchRun ? `#${batch}` : "none"}`,
         `- started: ${run.startedAt.toISOString().replace(/\.\d+Z$/, "Z")} · duration: ${duration(run)} · exit code: ${run.exitCode}`,
     ];

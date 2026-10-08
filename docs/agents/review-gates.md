@@ -4,8 +4,9 @@ The table that turns the changed files into a list of checks. The `/review-pr` c
 (step 4) applies it to the PR diff and passes the gates that are on to the review skill.
 
 The author applies it too: whether the change turned on `mutation-full`, and the issue goes into a
-batch of the full mutation run (`/solve-issue`, step 2). That is why the table is a document of its
-own and not part of the routing: two parties apply it, and with one copy nothing can drift apart.
+batch of the deferred mutation run (`/solve-issue`, step 2). That is why the table is a document of
+its own and not part of the routing: two parties apply it, and with one copy nothing can drift
+apart.
 The author picks neither a skill nor the run's gates by it: that is still done by `/review-pr`
 alone.
 
@@ -67,13 +68,13 @@ every dependency update cost more.
 
 The `Makefile` is not written into the `mutation-full` row by name. `make up`, `make logs` and
 the other targets do not touch the run, and by file name any change to them would take a place in
-a batch of the full run for nothing. Read the file's diff instead, as with `package.json`: the
-recipe of the `mutation` target or a variable it expands (`DC_APP_RUN`, `FILES`) touched —
-`mutation-full` too. The recipe is the launch:
+a batch for nothing. Read the file's diff instead, as with `package.json`: the recipe of the
+`mutation` target or a variable it expands (`DC_APP_RUN`, `FILES`) touched — `mutation-full` too.
+The recipe is the launch:
 
 - it sets `TSX_TSCONFIG_PATH=./tsconfig.check.json`, by which the type checker decides which
   mutant gets `CompileError`;
-- it sets `MUTATE` from `files`;
+- it sets `MUTATE` from `files`, or from `mutation_batch.py files <N>` for `batch=<N>`;
 - it holds the wrapper command itself, `node --require tsx/cjs test/mutation-run.ts`.
 
 Changing any of them changes the outcome of every mutant: the same argument that puts the
@@ -108,7 +109,7 @@ comments-only diffs were not measured.
 A comments-only diff of these files leaves the gate off. A comment is neither an option the runner
 reads nor an input of the type checker. None of these files is mutated either: `mutate` in
 `stryker.config.mjs` admits only globs that hit a `.ts` under `src/`, and checks that. So a
-comment changes the outcome of no mutant, while the gate takes a place in a batch of the full run.
+comment changes the outcome of no mutant, while the gate takes a place in a batch.
 
 ### `.ts`
 
@@ -138,8 +139,8 @@ The gates that run the code stay on by name. `build`, `typecheck`, `lint`, `form
 `test` take seconds, and a directive the reading missed still changes their outcome.
 
 `mutation-full` runs code too, in the batch run, yet goes off: its price is not seconds but a place
-in a batch of the full run. The status of a mutant changes only through a directive, and a diff
-that touches one or the line it covers is not comments only (above). Two kinds act on the run: the
+in a batch. The status of a mutant changes only through a directive, and a diff that touches one or
+the line it covers is not comments only (above). Two kinds act on the run: the
 mark that silences a survivor (`docs/architecture/testing.md`, "Working through survivors"), which
 acts only in a mutated file, and the `@ts-` comments of a source or a spec, by which the type
 checker decides who gets `CompileError` ("The type checker" there).
@@ -188,9 +189,9 @@ too: by them the type checker decides which mutant gets `CompileError` and which
 (`docs/architecture/testing.md`, "The type checker"). The gate runs no mutants in the PR: neither
 the author nor the reviewer runs `make mutation`. The issue the PR closes is recorded in a batch
 instead, and once per batch `make mutation batch=<N>` runs on fresh `main` over the files its PRs
-changed in code, a spec standing for the files of `src/` it imports. A PR of the batch that changed
-a tool of the run, as the `mutation-full` row of the table names them, sends the batch to the whole
-of `src/`. The author records the issue after the PR is created
+changed in code, a spec standing for the files of `src/` it and its helpers import. A PR of the
+batch that changed a tool of the run, as the `mutation-full` row of the table names them, sends the
+batch to the whole of `src/`. The author records the issue after the PR is created
 (`make mutation-full-record issue=<M> pr=<N>`), and the review checks the record
 (`make mutation-full-check pr=<N>`): an issue not recorded together with this PR is red. How a
 batch is kept and how its files are chosen is in the docstring of

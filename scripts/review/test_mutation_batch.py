@@ -767,7 +767,7 @@ class CloseTest(unittest.TestCase):
             (run_record(clean="no"), "ties the run to no commit: clean=no"),
             (run_record(head="unknown", clean="unknown"), "clean=unknown, head=unknown"),
             (run_record(score="none", exit_code=1), "broke off before its report"),
-            (run_record(score="NaN"), "counted no mutant: score=NaN"),
+            (run_record(scope="full", score="NaN"), "counted no mutant: score=NaN"),
             (run_record(exit_code=1, score="99.50"), "the run is red (exit=1)"),
             ("## `make mutation` run record\n", "does not open with the marker of a run record"),
         ):
@@ -781,7 +781,26 @@ class CloseTest(unittest.TestCase):
             self.assertEqual(github.lock_held_on_write, [], told)
             self.assertEqual(github.called("fetch"), [], told)
 
-    def test_no_full_run_record_stops(self):
+    def test_a_batch_run_over_files_without_a_mutant_closes(self):
+        self.write_batch_run(run_record(score="NaN"))
+        github = self.four_prs()
+
+        code, _, err = self.close(github)
+
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(github.issues[630]["state"], "closed")
+
+    def test_a_run_over_files_without_a_mutant_checks_no_fix(self):
+        github = self.four_prs()
+        github.ancestors.add(HEAD)
+        self.red_run_fixed(run_record(head=FIX_HEAD, batch="none", score="NaN"))
+
+        code, _, err = self.close(github)
+
+        self.assertEqual(code, 1)
+        self.assertIn("counted no mutant: score=NaN", err)
+
+    def test_no_batch_run_record_stops(self):
         os.remove(self.batch_record_file)
 
         code, _, err = self.close(self.four_prs())
@@ -1017,6 +1036,7 @@ BASE_TREE = {
     "src/dir/index.ts": "export const d = 1;\n",
     "test/a.spec.ts": 'import { a } from "app/a";\n',
     "test/helper.ts": "export const h = 1;\n",
+    "test/c.spec.ts": 'import { c } from "app/c";\n',
     "stryker.config.mjs": "// note\nexport default { timeoutMS: 5000 };\n",
     "package.json": json.dumps(
         {
@@ -1105,11 +1125,22 @@ class FakeHistory(FakeGitHub):
             return self.trees[commit][path]
         if args[:2] == ["git", "ls-tree"]:
             return "\0".join(sorted(self.trees[args[-1]])) + "\0"
+        if args[:2] == ["git", "rev-list"] and "--first-parent" in args:
+            return self.first_parent_steps(*args[-1].split(".."))
         if args[:2] == ["git", "rev-list"]:
             return " ".join([args[-1]] + self.parents[args[-1]]) + "\n"
         if args[:3] == ["gh", "pr", "view"] and "files" in args:
             return "\n".join(self.pr_files[int(args[3])]) + "\n"
         return None
+
+    def first_parent_steps(self, since, head):
+        """Each commit after `since` up to the head with its parents, oldest first."""
+        steps = []
+        commit = head
+        while commit != since:
+            steps.append(" ".join([commit] + self.parents[commit]))
+            commit = self.parents[commit][0]
+        return "".join(step + "\n" for step in reversed(steps))
 
     def diff(self, old, new):
         deleted = [path for path in old if path not in new]
@@ -1176,12 +1207,24 @@ class BatchFilesTest(unittest.TestCase):
 
         self.assertEqual((code, lines), (0, ["src/x.ts src/y.ts"]))
 
+    def test_a_file_renamed_and_rewritten_after_the_pr_is_followed_step_by_step(self):
+        github = self.one_pr(
+            {"src/b.ts": "export const b = 2;\n"},
+            ("m802", {"src/b.ts": None, "src/y.ts": "export const b = 2;\n"}),
+            ("m803", {"src/y.ts": "export const y = 3;\nexport const z = 4;\n"}),
+        )
+
+        code, lines, _ = self.files(github)
+
+        self.assertEqual((code, lines), (0, ["src/y.ts"]))
+
     def test_a_file_deleted_by_the_pr_or_after_it_is_dropped(self):
         github = self.one_pr(
             {
                 "src/c.ts": None,
                 "src/a.ts": "export const a = 2;\n",
                 "src/b.ts": "export const b = 2;\n",
+                "test/helper.ts": 'import { b } from "app/b";\n',
             },
             ("m802", {"src/b.ts": None}),
         )
@@ -1189,7 +1232,7 @@ class BatchFilesTest(unittest.TestCase):
         code, lines, err = self.files(github)
 
         self.assertEqual((code, lines), (0, ["src/a.ts"]))
-        self.assertIn("PR #801: no longer on main: src/b.ts\n", err)
+        self.assertEqual(err.count("PR #801: no longer on main: src/b.ts\n"), 1)
         self.assertNotIn("src/c.ts", err)
 
     def test_a_pr_closed_unmerged_is_skipped_and_one_outside_the_head_left_to_the_carry_over(self):
@@ -1230,7 +1273,16 @@ class BatchFilesTest(unittest.TestCase):
         code, lines, err = self.files(github)
 
         self.assertEqual((code, lines), (0, ["src/a.ts src/b.ts src/dir/index.ts"]))
-        self.assertIn("PR #801: test/a.spec.ts -> src/a.ts src/dir/index.ts\n", err)
+        self.assertIn("PR #801: test/a.spec.ts -> src/a.ts src/b.ts src/dir/index.ts\n", err)
+        self.assertIn("PR #801: test/helper.ts -> src/b.ts\n", err)
+
+    def test_a_deleted_spec_runs_the_sources_it_imported(self):
+        github = self.one_pr({"test/c.spec.ts": None})
+
+        code, lines, err = self.files(github)
+
+        self.assertEqual((code, lines), (0, ["src/c.ts"]))
+        self.assertIn("PR #801: test/c.spec.ts -> src/c.ts\n", err)
 
     def test_a_tool_of_the_run_changed_in_code_takes_the_full_run(self):
         package = json.loads(BASE_TREE["package.json"])
@@ -1298,13 +1350,23 @@ class BatchFilesTest(unittest.TestCase):
                 self.assertEqual((code, lines), (1, []))
                 self.assertIn(told, err)
 
-    def test_no_code_to_mutate_stops(self):
+    def test_no_file_left_to_mutate_takes_the_full_run(self):
         github = self.one_pr({"src/a.ts": "// new note\nexport const a = 1;\n"})
 
         code, lines, err = self.files(github)
 
+        self.assertEqual((code, lines), (0, []))
+        self.assertIn(
+            "full run: no PR of the batch left a file of src/ to mutate on the head\n", err
+        )
+
+    def test_no_pr_merged_into_the_head_stops(self):
+        github = self.github(history(), [(701, 801)], {801: OPEN})
+
+        code, lines, err = self.files(github)
+
         self.assertEqual((code, lines), (1, []))
-        self.assertIn("Stopped: no PR of the batch merged into the head changed code", err)
+        self.assertIn("Stopped: no PR of the batch is merged into the head", err)
 
     def test_the_list_writes_nothing(self):
         github = self.one_pr({"src/b.ts": "export const b = 2;\n"})

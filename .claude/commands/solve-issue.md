@@ -68,11 +68,11 @@ Then the "Workflow" of `CLAUDE.md`, with no exceptions:
 
 All further commands run in the task worktree.
 
-### The batch of the full mutation run
+### The batch of the deferred mutation run
 
 Neither you nor the reviewer runs `make mutation`. The change turned on the `mutation-full` gate
-(`docs/agents/review-gates.md`) — record the issue in a batch of the deferred full run once the PR
-exists, after the push that turned the gate on:
+(`docs/agents/review-gates.md`) — record the issue in a batch of the deferred mutation run once the
+PR exists, after the push that turned the gate on:
 
 ```bash
 make mutation-full-record issue=<N> pr=<PR>
