@@ -19,15 +19,19 @@ files of `test/load/` at
 [`8f3879f1`](https://github.com/yuldashevsardor/telegram-bot/tree/8f3879f1/test/load).
 
 The fill of 250 M updates takes 1 hour 26 minutes and 203 GB of the disk, the layouts up to 28
-minutes each (see "The skewed run"). No target keeps the Mac awake, and an idle one falls asleep in
-the middle: the runs of #871 went under `caffeinate -i` started by hand. `load-down` gives the disk
-back to the host within minutes.
+minutes each (see "The skewed run"). No load target keeps the Mac awake, and an idle one falls
+asleep in the middle: the runs of #871 went under `caffeinate -i` started by hand. `load-down`
+gives the disk back to the host within minutes.
 
 A layout deletes every update from the `update_id` of the layouts on, so it replaces what the
 previous layout and its measurement left, and every group. It does not put back the history the
 cleanup deleted: the cleanup of a measurement deletes the updates past their retention, so a later
 run on the same fill finds only the call that deletes nothing. The runs of "The cleanup" (#824) put
 them back before each run with the `INSERT` of the fill of the time over `n` from 1 to 5 000.
+The layouts are of the fill of #871: one over a volume of the fill of #824 leaves the pending
+updates of the old layout below the `update_id` of the layouts, so `load-down`, `load-up` and a new
+fill come first. The 1 000 blocked groups of a layout and the groups of the pushes are among the
+1 M of the default fill: a fill of fewer `groups` leaves most of them without history.
 
 The head index (see "Results") is a migration, so `load-up` makes it and the fills insert under
 it: the history is not in the partial index, so the fill does not pay the 1 minute 39 seconds its
@@ -59,8 +63,9 @@ The measurement calls the real `InboxStore` with the settings of `.env`, in this
 - `deleteFinishedUpdates()` down to the call that deletes nothing, `deleteIdleGroups()` and 15
   `countBlockedGroups()`.
 - Last, as the slowest: four claims of one update, each followed by `markAsFailedAndBlockGroup()`
-  and an unblock of the same group, `retryBlockedGroup()` and `skipBlockedGroup()` by turns. A
-  group is unblocked at once so the next claim has a group to take in the layout of the hot group.
+  and an unblock of the same group, `retryBlockedGroup()` and `skipBlockedGroup()` by turns. The
+  unblock takes the group the run has just blocked, whose key it knows from the claim; the blocked
+  groups of the layout are there for `countBlockedGroups()`.
 
 The run of #824 had the claims, the recovery and the cleanup without `countBlockedGroups()`.
 
@@ -379,13 +384,15 @@ traffic lays it out ([#871](https://github.com/yuldashevsardor/telegram-bot/issu
   | 1% | 10 028 | 1 849 – 9 239 | 55.5 M | 22.2% |
 
 - The groups are interleaved: the updates of a group are spread over the whole history by
-  `update_id`, and the table lies in `update_id` order, which is also that of `finished_at`. How,
-  without a sort of the 250 M rows: the comment of `inbox-fill-done.sql`.
+  `update_id`, and the table lies in `update_id` order, which is also that of `finished_at` but for
+  the oldest 12 499, past their retention (below). How, without a sort of the 250 M rows: the
+  comment of `inbox-fill-done.sql`.
 - One update in 200 is `failed` and one in 200 `skipped`. The oldest 12 499 finished past their
   retention, `skipped` ones past `INBOX_SKIPPED_RETENTION`, the rest within the day before the
   fill.
 - Three pending layouts of `inbox-fill-pending.sql`. A pending update goes to the group of a
-  history update drawn at random, so the heavy groups get the most. In every layout every
+  history update drawn by a hash of its number, so the heavy groups get the most and a layout
+  filled again is the same. In every layout every
   thousandth group, 1 000 in all, is `blocked` by a failed update newer than its history.
 
   | layout | `make load-inbox-fill-pending` | pending updates | groups | fill |

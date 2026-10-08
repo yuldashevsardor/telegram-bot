@@ -46,7 +46,8 @@ const RETRY_DELAY_MS = 0;
 const UNBLOCKED_GROUP_COUNT = 4;
 // POLL_LIMIT of InboxPollingSource: the most updates one getUpdates gives, and so one push.
 const PUSH_BATCH_SIZE = 100;
-// The groups of make load-inbox-fill-done: a push goes to one of them, as a returning user's does.
+// The groups of make load-inbox-fill-done at its default: a push goes to one of them, as a returning
+// user's does. A fill of fewer groups leaves most pushes to groups with no history.
 const HISTORY_GROUP_COUNT = 1_000_000;
 
 const WORKER: InboxWorker = { host: hostname(), pid: process.pid, workerId: "load-test" };
@@ -220,8 +221,9 @@ class InboxLoadTest {
         }
     }
 
-    // A group is blocked by its claimed update and unblocked at once, so the next claim has a ready
-    // group even in the layout of the hot group, which has no other.
+    // Each unblock takes the group the run has just blocked: its key is known from the claim, and its
+    // failed update is the newest of the group, as after a failure in production. The blocked groups
+    // of the layout are left to countBlockedGroups().
     private async measureUnblocking(): Promise<void> {
         for (let groupNumber = 1; groupNumber <= UNBLOCKED_GROUP_COUNT; groupNumber++) {
             const [claimedUpdate] = await this.claimOrThrow(this.store, WORKER_CLAIM_LIMIT);
@@ -253,8 +255,9 @@ class InboxLoadTest {
     }
 
     private describe(returned: unknown): string {
+        // A count of deleted rows or of blocked groups, whichever the call returns.
         if (typeof returned === "number") {
-            return `, ${returned} rows`;
+            return `, returned ${returned}`;
         }
 
         if (typeof returned === "boolean") {

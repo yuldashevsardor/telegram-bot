@@ -7,9 +7,10 @@
 -- gets pending updates in proportion to its history, and the heavy groups get the most. The draw
 -- leaves out the oldest updates, which the cleanup of a measurement deletes.
 --
--- Every thousandth group of the 1 M, 1 000 in all, is blocked by a failed update newer than its
--- history, so the calls on blocked groups have work; the pending updates the draw gives such a group
--- wait behind it, as the pushes to a blocked group do.
+-- Every thousandth group of the 1 M of the default fill, 1 000 in all, is blocked by a failed update
+-- newer than its history, so countBlockedGroups() has groups to count and the claims blocked groups
+-- to pass by; a fill of fewer groups leaves most of them without history. The pending updates the
+-- draw gives such a group wait behind it, as the pushes to a blocked group do.
 --
 -- The status and the state are the values of InboxStatus and InboxGroupState; the measurement stops
 -- on a layout it cannot claim (inbox-load-test.ts).
