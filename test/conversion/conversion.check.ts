@@ -76,6 +76,19 @@ describe("Conversion of the fixtures", function () {
         }
     }
 
+    // Without this an entry with a pair the table does not have, a typo or a pair dropped from it,
+    // would wait in the list unnoticed: the loop above looks entries up by the pairs that run.
+    it("lists expected differences only for pairs of the pair table", function () {
+        for (const expected of expectedDifferences) {
+            for (const fromExtension of expected.fromExtensions) {
+                for (const toExtension of expected.toExtensions) {
+                    expect(fromExtension, expected.reason).not.to.equal(toExtension);
+                    expect(() => factory.get(fromExtension, toExtension), expected.reason).not.to.throw();
+                }
+            }
+        }
+    });
+
     // The compressed EOT goes the whole way as a source of its own: the codec decodes MicroType
     // Express on unpacking, and the engine converts what it decodes.
     function fixtureNamesOf(extension: Extension): Array<string> {

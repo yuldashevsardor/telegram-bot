@@ -1,7 +1,8 @@
 # Tests and checks
 
-- `mocha` runs through `.mocharc.json` with `tsx/cjs`. The same `tsx` loads `src/app.ts` in
-  `npm run dev`. It resolves the `paths` aliases itself, so no separate path resolver is needed.
+- `mocha` runs through `.mocharc.json` with `tsx/cjs`, all but the conversion check, which goes
+  past it ("The conversion check"). The same `tsx` loads `src/app.ts` in `npm run dev`. It
+  resolves the `paths` aliases itself, so no separate path resolver is needed.
 - `tsx` takes its tsconfig from `TSX_TSCONFIG_PATH=./tsconfig.check.json`, set in the npm scripts
   and in the recipe of the `mutation` target. Without it `test/` would be compiled with the esbuild
   defaults: standard decorators instead of `experimentalDecorators`, `useDefineForClassFields:

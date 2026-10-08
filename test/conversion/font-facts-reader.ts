@@ -1,6 +1,7 @@
 import path from "path";
 import type { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 import { Extension } from "app/font-convertor/font-convertor.types";
+import { RuntimeError } from "app/shared/errors";
 import { ProcessHelper } from "app/shared/process/process-helper";
 import type { FontFacts } from "test/conversion/font-facts-reader.types";
 
@@ -14,9 +15,10 @@ export class FontFactsReader {
     // The path is read from sys.argv, as in FontForge.convertScript. U+0000 is left out of the
     // encoded code points: it is the NULL control code, which no text draws, and the engine keeps it
     // in neither direction. Writing an sfnt, fontforge drops the cmap entry of U+0000 that points at
-    // glyph 0, which an unmapped code point gets anyway; reading an SVG, it gives U+0000 by name to
-    // the `.null` glyph, which has no `unicode` attribute. An alternate encoding of a glyph (altuni)
-    // counts unless it goes with a variation selector.
+    // glyph 0, which an unmapped code point gets anyway. Reading an SVG, it gives U+0000 to glyph 0,
+    // the <missing-glyph>, and to the `.null` glyph when the font has one, although neither has a
+    // `unicode` attribute. An alternate encoding of a glyph (altuni) counts unless it goes with a
+    // variation selector.
     private readonly readScript = [
         "import fontforge, json, sys",
         "font = fontforge.open(sys.argv[1])",
@@ -51,7 +53,7 @@ export class FontFactsReader {
         }
 
         const { stdout } = await ProcessHelper.run(this.fontForgePath, ["-c", this.readScript, sfntPath]);
-        const factsJson = JSON.parse(stdout) as FontFactsJson;
+        const factsJson = this.parseFacts(stdout, fontPath);
         const advanceWidths = new Map<number, number>();
 
         for (const [codePoint, width] of Object.entries(factsJson.advanceWidths)) {
@@ -59,5 +61,17 @@ export class FontFactsReader {
         }
 
         return { ...factsJson, advanceWidths: advanceWidths };
+    }
+
+    private parseFacts(stdout: string, fontPath: string): FontFactsJson {
+        try {
+            return JSON.parse(stdout) as FontFactsJson;
+        } catch (error) {
+            throw new RuntimeError("fontforge printed the facts of a font not as JSON", {
+                fontPath: fontPath,
+                stdout: stdout,
+                cause: error,
+            });
+        }
     }
 }
