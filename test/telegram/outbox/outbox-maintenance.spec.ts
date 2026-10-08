@@ -5,7 +5,7 @@ import { OutboxMaintenance } from "app/telegram/outbox/maintenance/outbox-mainte
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxBacklog } from "app/telegram/outbox/store/outbox-store.types";
 import type { OutboxMaintenanceSettings } from "app/telegram/outbox/maintenance/outbox-maintenance.types";
-import { waitUntil } from "test/shared/utils.helper";
+import { WAIT_UNTIL_DEADLINE_MS, waitUntil } from "test/shared/utils.helper";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 
 const SHORT_INTERVAL_MS = 5;
@@ -22,6 +22,9 @@ const SPACED_INTERVAL_MS = 100;
 const BACKLOG: OutboxBacklog = { pendingCount: 4, processingCount: 2, blockedChatCount: 1, pauseLeftMs: 3000 };
 // A number of blocked chats the fake store answers: any number above zero.
 const BLOCKED_CHAT_COUNT = 2;
+// The default timeout of mocha, 2 s, is shorter than the deadline of waitUntil and would fail a
+// condition that never comes true before waitUntil gives its own message.
+const SPEC_TIMEOUT_MS = 2 * WAIT_UNTIL_DEADLINE_MS;
 
 // A run that goes on until the spec ends it.
 type HeldRun = { end: () => void };
@@ -106,6 +109,8 @@ class FakeLeaseRecovery {
 }
 
 describe("OutboxMaintenance", function () {
+    this.timeout(SPEC_TIMEOUT_MS);
+
     let store: FakeStore;
     let leaseRecovery: FakeLeaseRecovery;
     let logger: RecordingLogger;
