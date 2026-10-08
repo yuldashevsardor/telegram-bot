@@ -4,7 +4,8 @@
 
 - the `User` entity: its fields are private, and its setters bump `updatedTime`;
 - the `UserRepository` interface;
-- `UserService.create()`/`edit()`, which wrap failures into `UserCreateError`/`UserEditError`;
+- `UserService.create()`/`edit()`, which wrap a failed `save()` into
+  `UserCreateError`/`UserEditError`;
 - the `PgSqlUserRepository` adapter: its `save()` is an upsert, `ON CONFLICT (id) DO UPDATE`.
 
 `User` is not a user of the service but a snapshot of a Telegram profile. That is why the module
@@ -39,6 +40,3 @@ current update, not a snapshot taken when the conversation was entered.
 already dropped the updates without a session key ([`bot.md`](./bot.md)). The `if (!ctx.from)`
 check stays as an assertion. The compiler needs it, and it throws `UpdateWithoutFrom`
 (`bot.errors.ts`) if the order in `Bot.setup()` is broken.
-
-`RequestLogMiddleware` ([`bot.md`](./bot.md)) logs the whole `ctx.update` at `debug`. It also
-increments `session.requestCount`, which nothing reads.
