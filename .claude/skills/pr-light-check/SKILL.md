@@ -89,13 +89,13 @@ docstring of `scripts/review/review_run.py`. The report:
 - `Yours to read` — the new `Stryker disable` marks (below).
 
 The `mutation-full` gate runs no mutants: neither the author nor you runs `make mutation`, and the
-whole of `src/` runs once per batch of recorded issues (`docs/agents/review-gates.md`, the paragraph
-on `mutation-full`). Its line:
+files the PRs changed run once per batch of recorded issues (`docs/agents/review-gates.md`, the
+paragraph on `mutation-full`). Its line:
 
 - `ok — recorded: …` — the issue the PR closes is recorded in a batch together with this PR.
 - `fail — not recorded: …` — red brought by this PR, and it stands in `Red` too.
 - `n-a` with any reason (the batch was not checked, the run was interrupted) — the verdict is
-  BLOCKED: nobody checked that the change reaches a full run.
+  BLOCKED: nobody checked that the change reaches a batch run.
 
 A new `Stryker disable` mark needs reading. Check its reason against "Working through survivors"
 in `docs/architecture/testing.md`: the mutant is equivalent, or the behaviour is not required and an

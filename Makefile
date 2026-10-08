@@ -148,18 +148,27 @@ format: ## Reformat with prettier: make format [files="src/app.ts"]
 # the machine, and after the wake-up the clock has moved on. Stryker's mutant timeout and the polls
 # with deadlines of their own in the specs then fire on healthy mutants, and the status lies as it
 # does under load (docs/architecture/testing.md, the paragraph on timeouts and errors).
+#
+# batch=<N> is the run of a batch of the deferred mutation run: the files come from
+# scripts/review/mutation_batch.py (make mutation-batch-files), the whole of src/ when it names none
+# because a PR of the batch changed a tool of the run. MUTATION_BATCH has the wrapper keep the record
+# apart, for make mutation-full-close. A failed list stops the target before the container: a run
+# over an empty area would mutate the whole of src/.
 # caffeinate goes to the background instead of standing as a prefix: $(DC_APP_RUN) is a compound
 # command, and a prefix would reach only its first part. `-w $$` ties the ban to the shell of the
 # recipe, so it lifts on any outcome: a red threshold, an error, Ctrl-C. The background job does not
 # change the exit code of the target: that comes from the last command of the line.
 # `caffeinate -i` does not prevent sleep from a closed lid. Linux has no caffeinate, and there the
 # check leaves the target as it is.
-mutation: ## Mutation testing, report and run record in ./reports: make mutation [files="src/shared/**"]
+mutation: ## Mutation testing, report and run record in ./reports: make mutation [files="src/shared/**" | batch=<N>]
+	@[ -z '$(FILES)' ] || [ -z '$(batch)' ] || { printf 'files and batch do not go together: a batch takes its files itself\n' >&2; exit 1; }
 	@mkdir -p reports
 	{ command -v caffeinate >/dev/null && caffeinate -i -w $$$$; } & \
+		area='$(FILES)'; \
+		$(if $(batch),area=$$(python3 scripts/review/mutation_batch.py files '$(batch)') || exit 1;) \
 		tree=$$(git status --porcelain) && dirty=$$(printf '%s' "$$tree" | awk 'END { print NR }') || dirty=unknown; \
 		$(DC_APP_RUN) env MUTATION_HEAD="$$(git rev-parse HEAD)" MUTATION_DIRTY="$$dirty" \
-		TSX_TSCONFIG_PATH=./tsconfig.check.json $(if $(FILES),MUTATE='$(FILES)') \
+		MUTATION_BATCH='$(batch)' TSX_TSCONFIG_PATH=./tsconfig.check.json MUTATE="$$area" \
 		node --require tsx/cjs test/mutation-run.ts
 
 # A quick pass before a PR in one output: the width of the added lines of prose and host scripts,
@@ -331,16 +340,21 @@ review-tree-create: ## Take the head of a PR into a temporary review tree <main 
 
 # The recipe lines are not echoed: stdout is the answer. The mode and the numbers go in a fixed
 # order, the empty ones as empty strings.
-mutation-full-record: ## Record an issue and its PR in the batch of the deferred full mutation run: make mutation-full-record issue=<N> pr=<N>
+mutation-full-record: ## Record an issue and its PR in the batch of the deferred mutation run: make mutation-full-record issue=<N> pr=<N>
 	@python3 scripts/review/mutation_batch.py record '$(issue)' '$(pr)'
 
-mutation-full-check: ## Whether the issue a PR closes is recorded together with this PR in a batch of the full mutation run: make mutation-full-check pr=<N>
+mutation-full-check: ## Whether the issue a PR closes is recorded together with this PR in a batch of the deferred mutation run: make mutation-full-check pr=<N>
 	@python3 scripts/review/mutation_batch.py check '$(pr)'
 
+# stdout is the list make mutation batch=<N> runs over, empty when the batch takes the whole of src/;
+# stderr says where each file comes from and why a PR gave none.
+mutation-batch-files: ## The files a batch run mutates, with the PR each comes from: make mutation-batch-files batch=<N>
+	@python3 scripts/review/mutation_batch.py files '$(batch)'
+
 # The issues of the survivors go in as one argument, and the action splits them. It reads the run
-# records reports/mutation/full-record.md and record.md from the directory make runs in: the root of
+# records reports/mutation/batch-record.md and record.md from the directory make runs in: the root of
 # the worktree of the run.
-mutation-full-close: ## Close a batch after its full run, carrying the PRs it did not cover over: make mutation-full-close batch=<N> [issues="<N> …"]
+mutation-full-close: ## Close a batch after its run, carrying the PRs it did not cover over: make mutation-full-close batch=<N> [issues="<N> …"]
 	@python3 scripts/review/mutation_batch.py close '$(batch)' '$(strip $(issues))'
 
 # The recipe line is not echoed: stdout is the report the skill reads. The three arguments go in a
@@ -357,7 +371,8 @@ review-tree-remove: ## Remove a temporary review tree <main worktree>-review-<PR
 	lint lint-fix format-check format mutation check rebuild shell psql \
 	outbox-retry outbox-skip inbox-retry inbox-skip \
 	worktree-init worktree-cleanup token-acquire token-renew token-release token-status token-add \
-	review-test review-tree-create mutation-full-record mutation-full-check mutation-full-close \
+	review-test review-tree-create mutation-full-record mutation-full-check mutation-batch-files \
+	mutation-full-close \
 	review-run review-tree-remove help \
 	load-up load-fill-done load-fill-pending load-churn load-measure load-psql load-down \
 	load-inbox-fill-done load-inbox-fill-pending load-inbox-measure

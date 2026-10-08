@@ -1,5 +1,5 @@
 <!-- mutation-batch-close head={head} -->
-Closed after the full run on `{head}`.
+Closed after the batch run on `{head}`.
 
 Covered, merged into the head of the run:
 {covered}
