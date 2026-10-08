@@ -160,9 +160,10 @@ The specs that run the real engine check that a result is a valid file of its fo
 (`font-forge-convertor.spec.ts`), not that it is the same font. `make test-fonts` checks the latter
 (`test/conversion/conversion.check.ts`). Every pair of the pair table converts its fixture from
 `test/fixtures/fonts` through `ConvertorFactory` with the real `FontForge` and `EotPacker`, the
-route the bot takes. Then the same facts are read from the source and the result and compared: the
-glyph count, the set of encoded code points, the family name, `unitsPerEm`, ascent and descent, the
-advance width of each encoded code point.
+route the bot takes; the pairs from EOT run on the compressed fixture as well. Then the same facts
+are read from the source and the result and compared. The facts are the fields of `FontFacts`
+(`test/conversion/font-facts-reader.types.ts`); the encoded code points are the keys of its advance
+widths.
 
 - fontforge reads the facts through `fontforge -c` (`FontFactsReader`): the image has fontforge with
   its embedded Python and no separate `python3`. An EOT is unpacked with `EotPacker` first, since
@@ -171,13 +172,19 @@ advance width of each encoded code point.
   `.notdef` at glyph 3). U+0000 is left out of the code points; why is at `readScript` in the
   reader.
 - A difference fails the check unless the pair lists it in `test/conversion/expected-differences.ts`
-  with its reason. A listed difference that no longer happens fails it too, so the list stays what
-  was measured.
+  with its reason and the value it gives the fact. A listed difference that no longer happens, or
+  comes out with another value, fails it too, so the list stays what was measured.
 
-The facts are read by the same engine that converts, so a reading defect of the engine does not
-show on the source side. The SVG fixture declares ascent 1536 and descent -512, and fontforge reads
-it as 1638 and 410 (the reason of the pairs into SVG in the list). The pairs from SVG write the same
-1638 and 410 into the result, and the check sees no difference.
+The facts are read by the same engine and codec that convert, so a reading defect of either does
+not show on the source side:
+
+- The SVG fixture declares ascent 1536 and descent -512, and fontforge reads it as 1638 and 410 (the
+  reason of the pairs into SVG in the list). The pairs from SVG write the same 1638 and 410 into the
+  result, and the check sees no difference.
+- `eot → ttf` converts with `EotPacker.unpack()`, and the reader unpacks its source with the same
+  call, so the pair compares the font with itself. Of an EOT result only the enclosed font is
+  read: the fields of the envelope header `EotPacker` writes are checked by `eot-packer.spec.ts`,
+  not here.
 
 The check runs apart from the main set: the `test:fonts` npm script starts mocha with
 `--no-config` over `test/conversion/**/*.check.ts`.
@@ -190,8 +197,9 @@ The check runs apart from the main set: the `test:fonts` npm script starts mocha
   "Commands").
 
 `make check` runs it after the tests with coverage (the `check` npm script); `make test`,
-`make coverage` and `make mutation` do not. On 2026-10-09 the 30 pairs took 5 s in mocha, and
-`make test-fonts` took 6–10 s with the start of the container.
+`make coverage` and `make mutation` do not. On 2026-10-09 its 35 conversions, the 30 pairs and the
+5 from the compressed EOT, took 5 s in mocha, and `make test-fonts` took 6–10 s with the start of
+the container.
 
 ## Mutation testing
 

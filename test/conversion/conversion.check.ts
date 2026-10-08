@@ -5,6 +5,7 @@ import path from "path";
 import { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory";
 import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 import { EotPayloadDecoder } from "app/font-convertor/eot-payload-decoder/eot-payload-decoder";
+import { Extension } from "app/font-convertor/font-convertor.types";
 import { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { EotFontValidator } from "app/font-convertor/validator/eot/eot-font-validator";
 import { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
@@ -17,11 +18,12 @@ import { FontFactsComparator } from "test/conversion/font-facts-comparator";
 import { FontFactsReader } from "test/conversion/font-facts-reader";
 
 const FONT_FORGE_PATH = "fontforge";
+const COMPRESSED_EOT_FIXTURE_NAME = "test-font-compressed.eot";
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
 // The conversion check (docs/architecture/testing.md, "The conversion check"): every pair of the pair
 // table converts its fixture with the real engine and codec, the route the bot takes, and the facts of
-// the result are compared with those of the source.
+// the result are compared with those of the source changed by the expected differences of the pair.
 describe("Conversion of the fixtures", function () {
     const eotPacker = new EotPacker(new EotPayloadDecoder());
     const factory = new ConvertorFactory(
@@ -50,20 +52,37 @@ describe("Conversion of the fixtures", function () {
 
     for (const fromExtension of extensions) {
         for (const toExtension of extensions.filter((extension) => extension !== fromExtension)) {
-            const expectedFacts = expectedDifferences
-                .filter((expected) => expected.fromExtensions.includes(fromExtension) && expected.toExtensions.includes(toExtension))
-                .flatMap((expected) => expected.facts);
+            const pairDifferences = expectedDifferences.filter(
+                (expected) => expected.fromExtensions.includes(fromExtension) && expected.toExtensions.includes(toExtension),
+            );
 
-            it(`converts ${fromExtension} to ${toExtension} changing only the expected facts`, async function () {
-                const sourcePath = path.join(fixtureDir, `test-font.${fromExtension}`);
-                const resultPath = path.join(workDir, `result.${toExtension}`);
+            for (const fixtureName of fixtureNamesOf(fromExtension)) {
+                it(`converts ${fixtureName} to ${toExtension} changing only the expected facts`, async function () {
+                    const sourcePath = path.join(fixtureDir, fixtureName);
+                    const resultPath = path.join(workDir, `result.${toExtension}`);
 
-                await factory.get(fromExtension, toExtension).convert(sourcePath, resultPath);
+                    await factory.get(fromExtension, toExtension).convert(sourcePath, resultPath);
 
-                const differences = comparator.compare(await reader.read(sourcePath, workDir), await reader.read(resultPath, workDir));
-                const differentFacts = differences.map((difference) => difference.fact);
-                expect(differentFacts, JSON.stringify(differences)).to.have.same.members(expectedFacts);
-            });
+                    let expectedFacts = await reader.read(sourcePath, workDir);
+
+                    for (const expected of pairDifferences) {
+                        expectedFacts = expected.resultFacts(expectedFacts);
+                    }
+
+                    const differences = comparator.compare(expectedFacts, await reader.read(resultPath, workDir));
+                    expect(differences, JSON.stringify(differences)).to.be.empty;
+                });
+            }
         }
+    }
+
+    // The compressed EOT goes the whole way as a source of its own: the codec decodes MicroType
+    // Express on unpacking, and the engine converts what it decodes.
+    function fixtureNamesOf(extension: Extension): Array<string> {
+        if (extension === Extension.EOT) {
+            return [`test-font.${Extension.EOT}`, COMPRESSED_EOT_FIXTURE_NAME];
+        }
+
+        return [`test-font.${extension}`];
     }
 });

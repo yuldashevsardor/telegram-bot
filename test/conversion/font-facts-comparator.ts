@@ -7,34 +7,34 @@ export type FactDifference = {
 };
 
 export class FontFactsComparator {
-    public compare(source: FontFacts, result: FontFacts): Array<FactDifference> {
+    public compare(expectedFacts: FontFacts, resultFacts: FontFacts): Array<FactDifference> {
         const differences: Array<FactDifference> = [];
         const scalarFacts = ["glyphCount", "familyName", "unitsPerEm", "ascent", "descent"] as const;
 
         for (const fact of scalarFacts) {
-            if (source[fact] !== result[fact]) {
-                differences.push({ fact: fact, details: `${source[fact]} -> ${result[fact]}` });
+            if (expectedFacts[fact] !== resultFacts[fact]) {
+                differences.push({ fact: fact, details: `expected ${expectedFacts[fact]}, got ${resultFacts[fact]}` });
             }
         }
 
-        const lostCodePoints = this.codePointsOnlyIn(source.advanceWidths, result.advanceWidths);
-        const addedCodePoints = this.codePointsOnlyIn(result.advanceWidths, source.advanceWidths);
+        const missingCodePoints = this.codePointsOnlyIn(expectedFacts.advanceWidths, resultFacts.advanceWidths);
+        const unexpectedCodePoints = this.codePointsOnlyIn(resultFacts.advanceWidths, expectedFacts.advanceWidths);
 
-        if (lostCodePoints.length > 0 || addedCodePoints.length > 0) {
+        if (missingCodePoints.length > 0 || unexpectedCodePoints.length > 0) {
             differences.push({
                 fact: "codePoints",
-                details: `lost ${this.formatCodePoints(lostCodePoints)}, added ${this.formatCodePoints(addedCodePoints)}`,
+                details: `missing ${this.formatCodePoints(missingCodePoints)}, unexpected ${this.formatCodePoints(unexpectedCodePoints)}`,
             });
         }
 
         // A code point present on one side only is already a codePoints difference.
         const changedWidths: Array<string> = [];
 
-        for (const [codePoint, sourceWidth] of source.advanceWidths) {
-            const resultWidth = result.advanceWidths.get(codePoint);
+        for (const [codePoint, expectedWidth] of expectedFacts.advanceWidths) {
+            const resultWidth = resultFacts.advanceWidths.get(codePoint);
 
-            if (resultWidth !== undefined && resultWidth !== sourceWidth) {
-                changedWidths.push(`${this.formatCodePoints([codePoint])} ${sourceWidth} -> ${resultWidth}`);
+            if (resultWidth !== undefined && resultWidth !== expectedWidth) {
+                changedWidths.push(`${this.formatCodePoints([codePoint])} expected ${expectedWidth}, got ${resultWidth}`);
             }
         }
 

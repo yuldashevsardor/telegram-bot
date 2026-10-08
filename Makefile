@@ -165,9 +165,9 @@ mutation: ## Mutation testing, report and run record in ./reports: make mutation
 # A quick pass before a PR in one output: the width of the added lines of prose and host scripts,
 # then types, eslint, prettier, the tests with the coverage threshold and the conversion check of
 # test-fonts. The width is checked on the host (scripts/review/line_width.py): it needs git, and .git
-# is not mounted into the container. A
-# green check does not yet mean a green review: review runs the container checks gate by gate and
-# adds others, rebuild, build and mutation among them (docs/agents/review-gates.md).
+# is not mounted into the container. A green check does not yet mean a green review: review runs the
+# container checks gate by gate and adds others, rebuild, build and mutation among them
+# (docs/agents/review-gates.md).
 check: ## Every check in a row, in one command
 	python3 scripts/review/line_width.py
 	@mkdir -p coverage
