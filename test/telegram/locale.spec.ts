@@ -279,6 +279,12 @@ describe("createFluentMiddleware", function () {
         expect((await runMiddleware("")).t("greeting")).to.equal(DEFAULT_LOCALE);
     });
 
+    // Pins the i18n.md claim, not a wish: a numeric region is past the localeRe of langneg, so
+    // the tag matches nothing even though "en" has a bundle.
+    it("translates into the default locale when langneg cannot parse the tag", async function () {
+        expect((await runMiddleware("en-001")).t("greeting")).to.equal(DEFAULT_LOCALE);
+    });
+
     // The shape of the properties is checked, not the values alone. The conversations plugin
     // writes into the op-log, and from there into the session, every own enumerable property
     // of the context except the intrinsic ones. So the `fluent` field (with `useFluent()` a
