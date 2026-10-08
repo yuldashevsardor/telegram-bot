@@ -5,7 +5,7 @@ import { RuntimeError } from "app/shared/errors";
 import { ProcessHelper } from "app/shared/process/process-helper";
 import type { FontFacts } from "test/conversion/font-facts-reader.types";
 
-type FontFactsJson = Omit<FontFacts, "advanceWidths"> & { advanceWidths: Record<string, number> };
+type FontFactsJson = Omit<FontFacts, "advanceWidths"> & { advanceWidths: Record<string, Array<number>> };
 
 /**
  * Reads the facts of a font through fontforge: the image has fontforge with its embedded Python and
@@ -18,7 +18,8 @@ export class FontFactsReader {
     // glyph 0, which an unmapped code point gets anyway. Reading an SVG, it gives U+0000 to glyph 0,
     // the <missing-glyph>, and to the `.null` glyph when the font has one, although neither has a
     // `unicode` attribute. An alternate encoding of a glyph (altuni) counts unless it goes with a
-    // variation selector.
+    // variation selector. A code point that several glyphs share, as the `lang` variants of one
+    // character in an SVG font do, keeps the width of each of them, so a change of any one shows.
     private readonly readScript = [
         "import fontforge, json, sys",
         "font = fontforge.open(sys.argv[1])",
@@ -28,7 +29,9 @@ export class FontFactsReader {
         "    codePoints = [glyph.unicode] + [alt[0] for alt in (glyph.altuni or ()) if alt[1] == -1]",
         "    for codePoint in codePoints:",
         "        if codePoint > 0:",
-        "            widths[codePoint] = glyph.width",
+        "            widths.setdefault(codePoint, []).append(glyph.width)",
+        "for codePointWidths in widths.values():",
+        "    codePointWidths.sort()",
         "print(json.dumps({",
         '    "glyphCount": len(glyphs),',
         '    "familyName": font.familyname,',
@@ -42,34 +45,39 @@ export class FontFactsReader {
     public constructor(private readonly eotPacker: EotPacker, private readonly fontForgePath: string) {}
 
     /**
-     * An EOT is unpacked into `workDir` first: fontforge cannot open the envelope.
+     * An EOT is unpacked into `workDir` first: fontforge cannot open the envelope. The unpacked file
+     * is named apart from `<result>.ttf`, the intermediate font of the convertors into EOT.
      */
     public async read(fontPath: string, workDir: string): Promise<FontFacts> {
         let openedFontPath = fontPath;
 
         if (path.extname(fontPath).toLowerCase() === `.${Extension.EOT}`) {
-            openedFontPath = path.join(workDir, `${path.basename(fontPath)}.${Extension.TTF}`);
+            openedFontPath = path.join(workDir, `${path.basename(fontPath)}.unpacked.${Extension.TTF}`);
             await this.eotPacker.unpack(fontPath, openedFontPath);
         }
 
-        const { stdout } = await ProcessHelper.run(this.fontForgePath, ["-c", this.readScript, openedFontPath]);
-        const factsJson = this.parseFacts(stdout, fontPath);
-        const advanceWidths = new Map<number, number>();
+        const { stdout, stderr } = await ProcessHelper.run(this.fontForgePath, ["-c", this.readScript, openedFontPath]);
+        const factsJson = this.parseFacts(stdout, stderr, fontPath);
+        const advanceWidths = new Map<number, Array<number>>();
 
-        for (const [codePoint, width] of Object.entries(factsJson.advanceWidths)) {
-            advanceWidths.set(Number(codePoint), width);
+        for (const [codePoint, widths] of Object.entries(factsJson.advanceWidths)) {
+            advanceWidths.set(Number(codePoint), widths);
         }
 
         return { ...factsJson, advanceWidths: advanceWidths };
     }
 
-    private parseFacts(stdout: string, fontPath: string): FontFactsJson {
+    // stderr goes into the error too, with what fontforge said on opening the font. A Python exception
+    // of readScript does not get here: fontforge exits with 1, and the ProcessFailed of
+    // ProcessHelper.run carries stderr in its message.
+    private parseFacts(stdout: string, stderr: string, fontPath: string): FontFactsJson {
         try {
             return JSON.parse(stdout) as FontFactsJson;
         } catch (error) {
             throw new RuntimeError("fontforge printed the facts of a font not as JSON", {
                 fontPath: fontPath,
                 stdout: stdout,
+                stderr: stderr,
                 cause: error,
             });
         }

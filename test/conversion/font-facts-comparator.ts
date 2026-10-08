@@ -41,11 +41,13 @@ export class FontFactsComparator {
         // A code point present on one side only is already a codePoints difference.
         const changedWidths: Array<string> = [];
 
-        for (const [codePoint, expectedWidth] of expectedFacts.advanceWidths) {
-            const resultWidth = resultFacts.advanceWidths.get(codePoint);
+        for (const [codePoint, expectedWidths] of expectedFacts.advanceWidths) {
+            const resultWidths = resultFacts.advanceWidths.get(codePoint);
 
-            if (resultWidth !== undefined && resultWidth !== expectedWidth) {
-                changedWidths.push(`${this.formatCodePoints([codePoint])} expected ${expectedWidth}, got ${resultWidth}`);
+            if (resultWidths !== undefined && !this.areSameWidths(expectedWidths, resultWidths)) {
+                changedWidths.push(
+                    `${this.formatCodePoints([codePoint])} expected ${expectedWidths.join("/")}, got ${resultWidths.join("/")}`,
+                );
             }
         }
 
@@ -56,7 +58,15 @@ export class FontFactsComparator {
         return differences;
     }
 
-    private codePointsOnlyIn(widths: Map<number, number>, otherWidths: Map<number, number>): Array<number> {
+    private areSameWidths(widths: Array<number>, otherWidths: Array<number>): boolean {
+        if (widths.length !== otherWidths.length) {
+            return false;
+        }
+
+        return widths.every((width, index) => width === otherWidths[index]);
+    }
+
+    private codePointsOnlyIn(widths: Map<number, Array<number>>, otherWidths: Map<number, Array<number>>): Array<number> {
         return Array.from(widths.keys()).filter((codePoint) => !otherWidths.has(codePoint));
     }
 
