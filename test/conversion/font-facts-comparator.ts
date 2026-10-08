@@ -38,17 +38,36 @@ export class FontFactsComparator {
             });
         }
 
-        // A code point present on one side only is already a codePoints difference.
+        // A code point present on one side only is already a codePoints difference. One that encodes
+        // another number of glyphs is a glyph that lost or gained its encoding, not a changed width.
+        const changedGlyphCounts: Array<string> = [];
         const changedWidths: Array<string> = [];
 
         for (const [codePoint, expectedWidths] of expectedFacts.advanceWidths) {
             const resultWidths = resultFacts.advanceWidths.get(codePoint);
 
-            if (resultWidths !== undefined && !this.areSameWidths(expectedWidths, resultWidths)) {
+            if (resultWidths === undefined) {
+                continue;
+            }
+
+            if (resultWidths.length !== expectedWidths.length) {
+                changedGlyphCounts.push(
+                    `${this.formatCodePoints([codePoint])} expected ${expectedWidths.length}, got ${resultWidths.length}`,
+                );
+                continue;
+            }
+
+            const isWidthChanged = expectedWidths.some((width, index) => width !== resultWidths[index]);
+
+            if (isWidthChanged) {
                 changedWidths.push(
                     `${this.formatCodePoints([codePoint])} expected ${expectedWidths.join("/")}, got ${resultWidths.join("/")}`,
                 );
             }
+        }
+
+        if (changedGlyphCounts.length > 0) {
+            differences.push({ fact: "glyphsPerCodePoint", details: changedGlyphCounts.join(", ") });
         }
 
         if (changedWidths.length > 0) {
@@ -56,14 +75,6 @@ export class FontFactsComparator {
         }
 
         return differences;
-    }
-
-    private areSameWidths(widths: Array<number>, otherWidths: Array<number>): boolean {
-        if (widths.length !== otherWidths.length) {
-            return false;
-        }
-
-        return widths.every((width, index) => width === otherWidths[index]);
     }
 
     private codePointsOnlyIn(widths: Map<number, Array<number>>, otherWidths: Map<number, Array<number>>): Array<number> {
