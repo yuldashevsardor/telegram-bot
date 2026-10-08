@@ -269,6 +269,9 @@ describe("createFluentMiddleware", function () {
         expect((await runMiddleware("RU-RU")).t("greeting")).to.equal("ru");
     });
 
+    // The undefined case does not pin `?? DEFAULT_LOCALE` in the middleware: Fluent would turn
+    // undefined into the string "undefined", match nothing and end on the default bundle too.
+    // The fallback is held by the type of withLocale().
     it("translates into the default locale when the language is unknown or missing", async function () {
         expect((await runMiddleware("de")).t("greeting")).to.equal(DEFAULT_LOCALE);
         expect((await runMiddleware(undefined)).t("greeting")).to.equal(DEFAULT_LOCALE);

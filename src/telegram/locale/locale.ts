@@ -73,7 +73,9 @@ export function createFluentMiddleware(fluent: Fluent): MiddlewareFn<Context> {
         ctx.getFluent = (): Fluent => fluent;
         // language_code is an IETF tag ("en-US", "pt-br") and goes to Fluent as is: its langneg
         // negotiates "en-US" to the "en" bundle, and an unknown language reaches the isDefault
-        // bundle at the tail of every lookup chain (createFluent()).
+        // bundle at the tail of every lookup chain (createFluent()). So does a supported language
+        // in a tag langneg cannot parse ("en-001", "en-US-x-foo"). DEFAULT_LOCALE is there for
+        // the type: withLocale() does not take undefined.
         ctx.t = fluent.withLocale(ctx.from?.language_code ?? DEFAULT_LOCALE);
 
         return next();
