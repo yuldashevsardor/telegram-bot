@@ -165,7 +165,8 @@ every format the pair table takes it to, through `ConvertorFactory` with the rea
 `EotPacker`, the route the bot takes. Then the same facts are read from the source and the result
 and compared. The facts are the fields of `FontFacts`
 (`test/conversion/font-facts-reader.types.ts`); the encoded code points are the keys of its advance
-widths.
+widths, and the number of glyphs encoded at a code point, `glyphsPerCodePoint`, is the length of
+its widths.
 
 - fontforge reads the facts through `fontforge -c` (`FontFactsReader`): the image has fontforge with
   its embedded Python and no separate `python3`. An EOT is unpacked with `EotPacker` first, since
