@@ -12,6 +12,10 @@ import { FontFactsReader } from "test/conversion/font-facts-reader";
 import { FONT_FORGE_PATH, realConvertorFactory, realFontValidatorResolver } from "test/font-convertor/convertor-factory.helper";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
+// The default timeout of mocha, 2 s, is too close: a case runs fontforge up to three times, the slowest
+// corpus case takes about 0.8 s on an idle machine, and parallel sessions slow one another down 3–8×
+// (docs/agents/review-gates.md).
+const CASE_TIMEOUT_MS = 20 * 1000;
 
 // A font of the fixture directory, by its path relative to it.
 type FontFixture = { name: string; extension: Extension };
@@ -21,6 +25,8 @@ type FontFixture = { name: string; extension: Extension };
 // bot takes, and the facts of the result are compared with those of the source changed by the expected
 // differences of the fixture and pair.
 describe("Conversion of the fixtures", function () {
+    this.timeout(CASE_TIMEOUT_MS);
+
     const factory = realConvertorFactory(realFontValidatorResolver());
     const reader = new FontFactsReader(new EotPacker(new EotPayloadDecoder()), FONT_FORGE_PATH);
     const comparator = new FontFactsComparator();
@@ -59,6 +65,14 @@ describe("Conversion of the fixtures", function () {
             });
         }
     }
+
+    // The fixtures are found on disk, so a format of the pair table without one, a fixture deleted or a
+    // format added to ConvertorFactory, would run none of its pairs and leave the check green.
+    it("has a fixture of every format of the pair table", function () {
+        const fixtureExtensions = new Set(fontFixtures.map((fixture) => fixture.extension));
+
+        expect(Array.from(fixtureExtensions).sort()).to.deep.equal([...extensions].sort());
+    });
 
     // Without this an entry with a fixture or a pair the check does not run, a typo, a fixture renamed
     // or a pair dropped from the table, would wait in the list unnoticed: the loop above looks entries

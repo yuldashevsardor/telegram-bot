@@ -1,4 +1,5 @@
 import { Extension } from "app/font-convertor/font-convertor.types";
+import { RuntimeError } from "app/shared/errors";
 import type { FontFacts } from "test/conversion/font-facts-reader.types";
 
 // The source fixtures, by their path under test/fixtures/fonts (test/fixtures/fonts/README.md).
@@ -82,7 +83,25 @@ class FontFactsChanges {
         return { ...facts, advanceWidths: advanceWidths };
     }
 
-    public withCodePoints(facts: FontFacts, widthsByCodePoint: Map<number, Array<number>>): FontFacts {
+    // The adding and the replacing methods refuse a code point on the wrong side, so that a mistyped
+    // entry fails the check rather than overwriting a width or adding a code point unnoticed.
+    public withAddedCodePoints(facts: FontFacts, widthsByCodePoint: Map<number, Array<number>>): FontFacts {
+        for (const codePoint of widthsByCodePoint.keys()) {
+            if (facts.advanceWidths.has(codePoint)) {
+                throw new RuntimeError("the code point to add is already in the source", { codePoint: codePoint });
+            }
+        }
+
+        return { ...facts, advanceWidths: new Map([...facts.advanceWidths, ...widthsByCodePoint]) };
+    }
+
+    public withReplacedWidths(facts: FontFacts, widthsByCodePoint: Map<number, Array<number>>): FontFacts {
+        for (const codePoint of widthsByCodePoint.keys()) {
+            if (!facts.advanceWidths.has(codePoint)) {
+                throw new RuntimeError("the code point whose widths to replace is not in the source", { codePoint: codePoint });
+            }
+        }
+
         return { ...facts, advanceWidths: new Map([...facts.advanceWidths, ...widthsByCodePoint]) };
     }
 
@@ -105,7 +124,11 @@ class FontFactsChanges {
         const advanceWidths = new Map(facts.advanceWidths);
 
         for (const codePoint of codePoints) {
-            const widths = advanceWidths.get(codePoint) ?? [];
+            const widths = advanceWidths.get(codePoint);
+
+            if (widths === undefined) {
+                throw new RuntimeError("the code point to double is not in the source", { codePoint: codePoint });
+            }
 
             advanceWidths.set(
                 codePoint,
@@ -190,7 +213,7 @@ export const expectedDifferences: Array<ExpectedDifference> = [
     {
         fixtures: FONT_AWESOME_TRUETYPE,
         toExtensions: [Extension.SVG],
-        resultFacts: (sourceFacts) => changes.withCodePoints(sourceFacts, new Map([[0x000d, [597]]])),
+        resultFacts: (sourceFacts) => changes.withAddedCodePoints(sourceFacts, new Map([[0x000d, [597]]])),
         reason:
             "U+000D more: the font has a nonmarkingreturn glyph without a code point, and fontforge reading an SVG font " +
             "gives a glyph without unicode the code point of its name (issue #913).",
@@ -201,7 +224,7 @@ export const expectedDifferences: Array<ExpectedDifference> = [
         resultFacts: (sourceFacts: FontFacts): FontFacts => {
             const withoutEmptyGlyphs = changes.withoutCodePoints(sourceFacts, [0x034f, 0x200b, 0xfeff]);
             const withZeroWidths = changes.withZeroWidthsAs(withoutEmptyGlyphs, SVG_OMITTED_WIDTH);
-            const withNamedGlyphs = changes.withCodePoints(withZeroWidths, new Map([[0xfb05, [594]]]));
+            const withNamedGlyphs = changes.withAddedCodePoints(withZeroWidths, new Map([[0xfb05, [594]]]));
             const withGlyphsTwice = changes.withEachGlyphTwice(withNamedGlyphs, SOURCE_SANS_3_DOUBLED_CODE_POINTS);
 
             return { ...withGlyphsTwice, glyphCount: sourceFacts.glyphCount + 15 };
@@ -225,18 +248,19 @@ export const expectedDifferences: Array<ExpectedDifference> = [
             ]);
             const withZeroWidths = changes.withZeroWidthsAs(withoutLostCodePoints, SVG_OMITTED_WIDTH);
             const withGlyphsTwice = changes.withEachGlyphTwice(withZeroWidths, NOTO_NASKH_ARABIC_DOUBLED_CODE_POINTS);
-            const withOtherAlefMaksuraForms = changes.withCodePoints(withGlyphsTwice, new Map([[0x0649, [275, 292]]]));
+            const withOtherAlefMaksuraForms = changes.withReplacedWidths(withGlyphsTwice, new Map([[0x0649, [275, 292]]]));
 
             return { ...withOtherAlefMaksuraForms, glyphCount: sourceFacts.glyphCount + 9 };
         },
         reason:
             "9 glyphs more: fontforge writes 7 glyphs once more for each listing of their alternate code point, 14 " +
             "elements more than the font has glyphs, and on reading drops 5 empty ones, three copies of .null among " +
-            "them. Defects (issue #913): 74 base letters, U+0621 to U+06D3, are written with arabic-form and read " +
-            "back only as their presentation forms; U+06D5 and 7 presentation forms from U+FBA2 to U+FEF4 have no " +
-            "<glyph> of their own, as their glyphs are written under the base letter with arabic-form, so U+0649 " +
-            "comes back with the glyphs of U+FBE8 and U+FBE9, widths 275 and 292 instead of 618; the empty glyphs of " +
-            "U+061C, U+200B and U+FEFF are dropped; the other zero widths come back as 1000.",
+            "them. Defects of reading SVG (issue #913): 74 base letters, U+0621 to U+06D3, are written with " +
+            "arabic-form and read back only as their presentation forms; the empty glyphs of U+061C, U+200B and " +
+            "U+FEFF are dropped; the other zero widths come back as 1000. A defect of writing SVG: U+06D5 and 7 " +
+            "presentation forms from U+FBA2 to U+FEF4 have no <glyph> of their own, as fontforge writes their glyphs " +
+            "under the base letter with arabic-form, so U+0649 comes back with the glyphs of U+FBE8 and U+FBE9, " +
+            "widths 275 and 292 instead of 618.",
     },
     {
         fixtures: [BUNGEE_SPICE],
@@ -249,17 +273,18 @@ export const expectedDifferences: Array<ExpectedDifference> = [
         },
         reason:
             "32 glyphs more: fontforge writes a glyph once more for each listing of its alternate code point, 76 " +
-            "elements more than the font has glyphs, and on reading drops 44 empty ones. Defects (issue #913): the " +
-            "spaces U+2001, U+2003, U+2007 and U+E189, empty glyphs whose width equals the 1000 of <font>, are " +
-            "written without horiz-adv-x and dropped on reading; the glyph I_I.salt_v of U+E202 is written under " +
-            'unicode="&#xe201;&#xe201;", the code points of its name as a ligature, so U+E202 is not written at all.',
+            "elements more than the font has glyphs, and on reading drops 44 empty ones. A defect of reading SVG " +
+            "(issue #913): the spaces U+2001, U+2003, U+2007 and U+E189, empty glyphs whose width equals the 1000 of " +
+            "<font>, are written without horiz-adv-x and dropped on reading. A defect of writing SVG: the glyph " +
+            'I_I.salt_v of U+E202 is written under unicode="&#xe201;&#xe201;", the code points of its name as a ' +
+            "ligature, so U+E202 is not written at all.",
     },
     {
         fixtures: [PACIFICO],
         toExtensions: [Extension.SVG],
         resultFacts: (sourceFacts: FontFacts): FontFacts => {
             const withZeroWidths = changes.withZeroWidthsAs(sourceFacts, SVG_OMITTED_WIDTH);
-            const withNamedGlyphs = changes.withCodePoints(
+            const withNamedGlyphs = changes.withAddedCodePoints(
                 withZeroWidths,
                 new Map([
                     [0x013f, [673]],
