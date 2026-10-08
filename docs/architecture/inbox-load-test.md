@@ -44,30 +44,10 @@ the group rows it locked, so the next fill waits for it, and `make` prints no pl
 outbox one does. The index of the cleanup (see "The cleanup") is a migration too, and unlike the
 head index it holds every done and skipped update: the fill of #871 filled it as well.
 
-The measurement calls the real `InboxStore` with the settings of `.env`, in this order:
-
-- `listenReady()`, which takes a connection of its own and reads no table.
-- 15 `claim(1)`, what the worker asks for (`CLAIM_LIMIT` of `InboxUpdateSource`), and 15
-  `claim(30)`, a batch the size of the largest outbox one, since nothing in the inbox claims a
-  batch; each is followed by `markAsDone()` of what it gave out.
-- `findExpiredLeases()` twice: with no lease expired, as the call every
-  `INBOX_MAINTENANCE_LEASE_RECOVERY_INTERVAL` finds as a rule, and with the leases of a batch
-  claimed and left to expire, as after a node died. That batch is claimed by a store with a lease
-  of 1 s rather than the 10 minutes of `INBOX_LEASE_DURATION`: the recovery reads a lease the same
-  way whatever its length.
-- 15 claims of one update, each followed by `extendLease()` and `retry()` with no delay, then 15
-  more, each followed by `markAsFailed()`. These claims are not timed.
-- 15 `push()` of one update and 15 `pushBatch()` of 100, `POLL_LIMIT` of `InboxPollingSource`,
-  each update to a group drawn at random from the 1 M of the fill, so most groups get their row
-  inserted.
-- `deleteFinishedUpdates()` down to the call that deletes nothing, `deleteIdleGroups()` and 15
-  `countBlockedGroups()`.
-- Last, as the slowest: four claims of one update, each followed by `markAsFailedAndBlockGroup()`
-  and an unblock of the same group, `retryBlockedGroup()` and `skipBlockedGroup()` by turns. The
-  unblock takes the group the run has just blocked, whose key it knows from the claim; the blocked
-  groups of the layout are there for `countBlockedGroups()`.
-
-The run of #824 had the claims, the recovery and the cleanup without `countBlockedGroups()`.
+The measurement calls the real `InboxStore` with the settings of `.env`. The calls, how many of each
+and in what order are in `InboxLoadTest.run()` of `test/load/inbox-load-test.ts`, each with its
+reason in a comment. The run of #824 called the claims, the lease recovery and the cleanup of it,
+without `countBlockedGroups()`.
 
 ## Data
 

@@ -8,8 +8,8 @@
 -- leaves out the oldest updates, which the cleanup of a measurement deletes.
 --
 -- Every thousandth group of the 1 M of the default fill, 1 000 in all, is blocked by a failed update
--- newer than its history, so countBlockedGroups() has groups to count and the claims blocked groups
--- to pass by; a fill of fewer groups leaves most of them without history. The pending updates the
+-- newer than its history, so countBlockedGroups() has groups to count; a fill of fewer groups leaves
+-- most of them without history. The pending updates the
 -- draw gives such a group wait behind it, as the pushes to a blocked group do.
 --
 -- The status and the state are the values of InboxStatus and InboxGroupState; the measurement stops
@@ -111,6 +111,22 @@ FROM (
                                     + abs(hashint8extended(pending_number, 4) % (:history_update_count - :history_update_count / 20000))
 ) AS inbox_update
 ORDER BY update_id;
+
+-- A drawn history update that is gone drops its pending update: on a fill past
+-- INBOX_DONE_RETENTION the cleanup of a measurement deletes updates inside the drawn range.
+SELECT count(*) <> :updates AS is_layout_short
+FROM telegram_inbox
+WHERE update_id > :layout_first_update_id + :blocked_group_count
+  AND update_id <= :layout_first_update_id + :blocked_group_count + :updates
+\gset
+
+\if :is_layout_short
+DO $$
+BEGIN
+    RAISE EXCEPTION 'the layout lost pending updates to deleted history: the fill is past INBOX_DONE_RETENTION, make load-down, load-up and a new fill';
+END
+$$;
+\endif
 
 INSERT INTO telegram_inbox (update_id, user_id, chat_id, update, status)
 SELECT update_id,

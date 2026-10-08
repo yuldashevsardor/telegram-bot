@@ -45,7 +45,11 @@ const RETRY_DELAY_MS = 0;
 // failed update reads the whole table (docs/architecture/inbox-load-test.md), minutes a call.
 const UNBLOCKED_GROUP_COUNT = 4;
 // POLL_LIMIT of InboxPollingSource: the most updates one getUpdates gives, and so one push.
-const PUSH_BATCH_SIZE = 100;
+const PUSH_BATCH_UPDATE_COUNT = 100;
+// The file sizes of the fonts in the updates, as the fills give them.
+const MIN_FILE_SIZE_BYTES = 100_000;
+const FILE_SIZE_SPREAD_BYTES = 400_000;
+const MS_PER_SECOND = 1_000;
 // The groups of make load-inbox-fill-done at its default: a push goes to one of them, as a returning
 // user's does. A fill of fewer groups leaves most pushes to groups with no history.
 const HISTORY_GROUP_COUNT = 1_000_000;
@@ -173,9 +177,9 @@ class InboxLoadTest {
         }
 
         for (let callNumber = 1; callNumber <= CALLS_PER_METHOD; callNumber++) {
-            const inputs = Array.from({ length: PUSH_BATCH_SIZE }, () => this.nextPushedUpdate());
+            const inputs = Array.from({ length: PUSH_BATCH_UPDATE_COUNT }, () => this.nextPushedUpdate());
 
-            await this.measure(`pushBatch() of ${PUSH_BATCH_SIZE}`, () => this.store.pushBatch(inputs));
+            await this.measure(`pushBatch() of ${PUSH_BATCH_UPDATE_COUNT}`, () => this.store.pushBatch(inputs));
         }
     }
 
@@ -187,7 +191,7 @@ class InboxLoadTest {
             update_id: updateId,
             message: {
                 message_id: updateId,
-                date: Math.floor(Date.now() / 1000),
+                date: Math.floor(Date.now() / MS_PER_SECOND),
                 chat: { id: groupId, type: "private", first_name: "User" },
                 from: { id: groupId, is_bot: false, first_name: "User", language_code: "ru" },
                 document: {
@@ -195,7 +199,7 @@ class InboxLoadTest {
                     mime_type: "font/ttf",
                     file_id: `BQACAgIAAxkBAAIBY2Zk${updateId}`,
                     file_unique_id: `AgAD${updateId}`,
-                    file_size: 100_000 + (updateId % 400_000),
+                    file_size: MIN_FILE_SIZE_BYTES + (updateId % FILE_SIZE_SPREAD_BYTES),
                 },
             },
         };
