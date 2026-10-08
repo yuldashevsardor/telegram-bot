@@ -86,8 +86,8 @@ describe("ConfigFileStorage", () => {
         expect(raw["SHARED"]).to.equal("base");
     });
 
-    // A blank variable of the base source is "not set", not "set to blank". Half of the variables in
-    // .env are declared blank, and were they to override the file, they could not be changed on the
+    // A blank variable of the base source is "not set", not "set to blank". .env.dist declares several
+    // variables blank, and were they to override the file, they could not be changed on the
     // fly. Spaces count as blank too. dotenv keeps quoted spaces (unquoted ones it trims itself), and
     // ConfigParser treats them as blank anyway.
     it("lets the file value through for a key the base source leaves blank", async () => {

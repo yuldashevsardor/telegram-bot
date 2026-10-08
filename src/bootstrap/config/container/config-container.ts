@@ -17,8 +17,9 @@ import { ConfigContainerIsNotInitialized } from "app/bootstrap/config/container/
 // - idle: no watching, before init() and after unwatch(). A late signal (the watcher callback could
 //   have been queued before the stop) starts nothing.
 // - watching: set by init(); only from here does a signal start reloading.
-// - again: a signal during a rebuild. The file could have changed after the snapshot was read, so
-//   one more pass follows (docs/architecture/config.md, "Change subscriptions").
+// - reloading: a rebuild is running. again marks a signal that came during it: the file could have
+//   changed after the snapshot was read, so one more pass follows (docs/architecture/config.md,
+//   "Change subscriptions").
 type State = { name: "idle" } | { name: "watching" } | { name: "reloading"; again: boolean };
 
 // Keeps the values and serves them by path; the storage and the builder decide where they come
