@@ -266,7 +266,8 @@ describe("createFluentMiddleware", function () {
 
     it("translates an IETF tag with a region into the bundle of its language", async function () {
         expect((await runMiddleware("en-US")).t("greeting")).to.equal("en");
-        expect((await runMiddleware("RU-RU")).t("greeting")).to.equal("ru");
+        // Upper case on a non-default locale: "RU-RU" would land on the default bundle anyway.
+        expect((await runMiddleware("EN-US")).t("greeting")).to.equal("en");
     });
 
     // The undefined case does not pin `?? DEFAULT_LOCALE` in the middleware: Fluent would turn
