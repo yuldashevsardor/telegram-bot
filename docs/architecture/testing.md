@@ -213,7 +213,9 @@ runs the target are in "Threshold" below.
 **Running.** `make mutation files="src/shared/**"` narrows the run to an area: globs separated by
 spaces (a comma is part of a glob, as in `src/{shared,telegram}/**`), `!` excludes. An area made
 of exclusions alone is subtracted from the whole of `src/`. Without `files` the whole of `src/` is
-mutated. Any area, and the whole of `src/` too, excludes:
+mutated. `make mutation batch=<N>` is the run of a batch (`docs/agents/review-gates.md`, the
+paragraph on `mutation-full`): it takes the area from `make mutation-batch-files batch=<N>`, and
+does not go together with `files`. Any area, and the whole of `src/` too, excludes:
 
 - `src/app.ts` and `src/cli.ts`: on import the entry point starts `Application`, or runs its
   command, and a spec does not load it (as with `exclude` in nyc);
@@ -231,7 +233,7 @@ of its non-obvious values.
 mutant in the area, and Stryker prints `Final mutation score <score> under breaking threshold 100`
 and exits with an error. Why 100 and not 99 is in a comment there.
 
-Any `make mutation` checks the threshold: working through an area and the full run of a batch
+Any `make mutation` checks the threshold: working through an area and the run of a batch
 (`docs/agents/review-gates.md`, the paragraph on `mutation-full`). Neither the author of a PR nor
 its review runs the target: the PR is recorded in a batch instead. While the area holds a survivor
 nobody has worked through, a run over it stays red. That is a sign of unfinished work, not a
@@ -244,16 +246,16 @@ mutants silenced by a mark (`Ignored`). Its score is `NaN` (`DEFAULT_SCORE` in
 
 **The run record.** The target runs Stryker through the wrapper `test/mutation-run.ts`. Once the
 run is over, whatever its outcome, the wrapper writes `reports/mutation/record.md` and exits with
-the exit code of Stryker. A full run writes the same record into `reports/mutation/full-record.md`
-too, and a run over files leaves that file alone: the run over the files of the survivors that
-checks their fixes would otherwise write over the record of a run of hours. The record is the
-summary of a run to publish in a comment. No review runs the target or reads the record (#712).
-Only `make mutation-full-close` parses it: it closes a batch on the record of its full run and of
-the run over files after it (`scripts/review/mutation_batch.py`). The first line of the record is a
-marker, invisible in a comment:
+the exit code of Stryker. The run of a batch writes the same record into
+`reports/mutation/batch-record.md` too, and any other run leaves that file alone: the run over the
+files of the survivors that checks their fixes would otherwise write over the record of a run of
+hours. The record is the summary of a run to publish in a comment. No review runs the target or
+reads the record (#712). Only `make mutation-full-close` parses it: it closes a batch on the record
+of its run and of the run over files after it (`scripts/review/mutation_batch.py`). The first line
+of the record is a marker, invisible in a comment:
 
 ```
-<!-- mutation-run head=<sha> clean=<yes|no|unknown> scope=<full|files> exit=<code> score=<score|NaN|none> -->
+<!-- mutation-run head=<sha> clean=<yes|no|unknown> scope=<full|files> batch=<N|none> exit=<code> score=<score|NaN|none> -->
 ```
 
 - `head` is the commit at the start of the run.
@@ -267,7 +269,9 @@ marker, invisible in a comment:
 - `make -n` does not show whether the substitutions yield exactly these values: it does not execute
   the counting chain. `make mutation DC_APP_RUN=echo` does, and prints the counted values without
   starting a container.
-- `scope=full` means `files` was not passed and the whole of `src/` was mutated.
+- `scope=full` means the area was empty and the whole of `src/` was mutated: `files` was not
+  passed, or the batch took the full run.
+- `batch` is the issue of the batch from `batch=<N>`, `none` for a run of no batch.
 - `exit` is the exit code of `npm run mutation`, or `128 + the signal number` if that died from a
   signal. When Stryker itself dies from a signal (OOM), npm outlives it and returns an ordinary
   non-zero code.
@@ -287,14 +291,14 @@ taken out of the count by `.gitignore` rather than by a flag of `git status`, as
 The wrapper takes the files, the mutants and the statuses from the JSON report of Stryker (the
 `json` reporter in the config), not from the terminal output. A file without a single mutant is
 absent from the report, so a file of types alone is not listed as mutated even if it was in the
-area. The wrapper deletes the old record and the old reports before the run, and before a full run
-the old `full-record.md` too: a run that breaks off will not leave any of its own, and the previous
-ones would pass themselves off as its result.
+area. The wrapper deletes the old record and the old reports before the run, and before the run of
+a batch the old `batch-record.md` too: a run that breaks off will not leave any of its own, and the
+previous ones would pass themselves off as its result.
 
 The record carries only the summary and the mutants that were not killed, because it goes into a
 GitHub comment, the closing one of a batch (`scripts/review/templates/mutation-batch-close.md`),
 and a comment holds 65,536 characters. That comment carries up to two records: the one of the
-full run and the one of the green run over files that checked its fixes. The limit stands on the
+batch run and the one of the green run over files that checked its fixes. The limit stands on the
 record as a whole: once it grows to 45,000 characters, the wrapper cuts the list of survivors off
 with a line "and N more". The rest is left to the other record and the lists of the comment
 (`RECORD_LIMIT_CHARS` in the wrapper).

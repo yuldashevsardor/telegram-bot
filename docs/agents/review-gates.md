@@ -60,9 +60,10 @@ about price, not an oversight. The dependencies' types go into the checker's com
 decide who gets `CompileError` (`docs/architecture/testing.md`, "The type checker"). Say a
 grammY update made the `from` field required: the mutant `ctx.from?.language_code` in
 `src/telegram/locale/locale.ts` would start to compile, reach the tests and survive. It would
-turn red in the next batch run, which mutates the whole of `src/` on a `main` that has the update.
-The owner (2026-09-21) chose to catch such a survivor later: a full run then cost 15+ minutes per
-review round, and paying that for every dependency update cost more.
+turn red in the first batch run that mutates that file on a `main` that has the update: one whose
+PR changed the file in code, or one that takes the whole of `src/`. The owner (2026-09-21) chose to
+catch such a survivor later: a full run then cost 15+ minutes per review round, and paying that for
+every dependency update cost more.
 
 The `Makefile` is not written into the `mutation-full` row by name. `make up`, `make logs` and
 the other targets do not touch the run, and by file name any change to them would take a place in
@@ -186,21 +187,30 @@ changes the run of every mutant, not of the diff's lines. The tsconfigs and `typ
 too: by them the type checker decides which mutant gets `CompileError` and which goes to the tests
 (`docs/architecture/testing.md`, "The type checker"). The gate runs no mutants in the PR: neither
 the author nor the reviewer runs `make mutation`. The issue the PR closes is recorded in a batch
-instead, and the whole of `src/` runs on fresh `main` once per batch. The author records it after
-the PR is created (`make mutation-full-record issue=<M> pr=<N>`), and the review checks the record
+instead, and once per batch `make mutation batch=<N>` runs on fresh `main` over the files its PRs
+changed in code, a spec standing for the files of `src/` it imports. A PR of the batch that changed
+a tool of the run, as the `mutation-full` row of the table names them, sends the batch to the whole
+of `src/`. The author records the issue after the PR is created
+(`make mutation-full-record issue=<M> pr=<N>`), and the review checks the record
 (`make mutation-full-check pr=<N>`): an issue not recorded together with this PR is red. How a
-batch is kept is in the docstring of `scripts/review/mutation_batch.py`.
+batch is kept and how its files are chosen is in the docstring of
+`scripts/review/mutation_batch.py`; "comments only" there goes by the rules above.
 
 A run of the PR's own area went until #712, and the owner (2026-09-30) dropped it for its price. It
 was paid on every review round, and parallel sessions on one machine slow each other down 3–8×: on
 2026-09-29 four area runs overlapped and took 16–32 minutes, while the same areas took 4–9 on an
 idle machine, and PR #693 ran its area 8 times, about two hours in total. A batch run is paid once,
-by one session, and it reaches what an area run missed by construction: `container.ts` and
-`tokens.ts`, which the area left to the full run, and a helper `main` changed under the area.
+by one session.
 
-The accepted cost: a weak test is found only by the batch run, possibly weeks after the PR that
-brought it, and its survivors are fixed by the session of the batch, not by the PR's author. A PR
-that breaks the run itself (a Stryker update, say) shows that only in the batch run too.
+Until #906 the batch run mutated the whole of `src/`, the files no recorded PR touched included, and
+took hours (batch 1, #701). The owner (2026-10-09) chose the files the batch changed. The accepted
+cost: `container.ts`, `tokens.ts` and a file whose spec helper changed under it are reached only
+when a recorded PR changed them in code.
+
+The accepted cost of the batch itself: a weak test is found only by the batch run, possibly weeks
+after the PR that brought it, and its survivors are fixed by the session of the batch, not by the
+PR's author. A PR that breaks the run itself (a Stryker update, say) shows that only in the batch
+run too.
 
 ## `docs` and `docs-sync`
 

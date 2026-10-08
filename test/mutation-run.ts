@@ -10,11 +10,11 @@ import { constants } from "node:os";
 const REPORT_FILE = "reports/mutation/mutation.json";
 const HTML_FILE = "reports/mutation/mutation.html";
 const RECORD_FILE = "reports/mutation/record.md";
-// The record of the last full run, kept apart: a run over the files of its survivors writes RECORD_FILE
-// over it, and make mutation-full-close takes both.
-const FULL_RECORD_FILE = "reports/mutation/full-record.md";
+// The record of the last batch run (make mutation batch=<N>), kept apart: a run over the files of its
+// survivors writes RECORD_FILE over it, and make mutation-full-close takes both.
+const BATCH_RECORD_FILE = "reports/mutation/batch-record.md";
 // The record goes into a GitHub comment, and that holds 65,536 characters. The closing comment of a
-// batch adds around the record of the full run the lists of its PRs, the signature and the record of
+// batch adds around the record of the batch run the lists of its PRs, the signature and the record of
 // the green run over files that checked the fixes: a summary, the files it was given and the files it
 // mutated, with no survivors, under 14,000 characters even over the whole of src/ given by path: in
 // batch 1 the list of 124 files took 5,837.
@@ -75,6 +75,9 @@ function inline(text: string): string {
 
 const area = process.env["MUTATE"] ?? "";
 const isFullRun = area === "";
+// The issue of the batch the run is of; empty for a run of no batch.
+const batch = process.env["MUTATION_BATCH"] ?? "";
+const isBatchRun = batch !== "";
 
 function record(run: Run): string {
     const head = process.env["MUTATION_HEAD"] ?? "";
@@ -104,13 +107,22 @@ function record(run: Run): string {
 
     const scoreText = typeof report === "string" ? "none" : score(counts);
     const scope = isFullRun ? "full" : "files";
+    const marker = [
+        `head=${head || "unknown"}`,
+        `clean=${clean}`,
+        `scope=${scope}`,
+        `batch=${isBatchRun ? batch : "none"}`,
+        `exit=${run.exitCode}`,
+        `score=${scoreText}`,
+    ];
     const lines = [
-        `<!-- mutation-run head=${head || "unknown"} clean=${clean} scope=${scope} exit=${run.exitCode} score=${scoreText} -->`,
+        `<!-- mutation-run ${marker.join(" ")} -->`,
         "## `make mutation` run record",
         "",
         `- head: ${head === "" ? "unknown, git on the host did not answer" : `\`${head}\``}`,
         `- tree: ${tree[clean]}`,
         `- files: ${isFullRun ? "not passed, the whole `src/`" : `\`${area}\``}`,
+        `- batch: ${isBatchRun ? `#${batch}` : "none"}`,
         `- started: ${run.startedAt.toISOString().replace(/\.\d+Z$/, "Z")} · duration: ${duration(run)} · exit code: ${run.exitCode}`,
     ];
 
@@ -163,9 +175,9 @@ rmSync(REPORT_FILE, { force: true });
 rmSync(HTML_FILE, { force: true });
 rmSync(RECORD_FILE, { force: true });
 
-// A run over files leaves the record of the full run alone: it is what that run checks the fixes of.
-if (isFullRun) {
-    rmSync(FULL_RECORD_FILE, { force: true });
+// A run of no batch leaves the record of the batch run alone: it is what that run checks the fixes of.
+if (isBatchRun) {
+    rmSync(BATCH_RECORD_FILE, { force: true });
 }
 
 const startedAt = new Date();
@@ -197,8 +209,8 @@ function finish(exitCode: number): void {
         mkdirSync("reports/mutation", { recursive: true });
         writeRecord(RECORD_FILE, recordText);
 
-        if (isFullRun) {
-            writeRecord(FULL_RECORD_FILE, recordText);
+        if (isBatchRun) {
+            writeRecord(BATCH_RECORD_FILE, recordText);
         }
     } catch (error) {
         process.stderr.write(`\nThe run record was not written: ${(error as Error).stack ?? String(error)}\n`);

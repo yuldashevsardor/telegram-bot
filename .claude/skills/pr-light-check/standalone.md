@@ -101,7 +101,7 @@ _🤖 Posted by Claude Code from the owner's account · [session](<session link>
   - the PR is not linked to an issue;
   - the run did not start (no Docker, no `.env`), and there is nothing to confirm it works with;
   - the batch of `mutation-full` was not checked (step 1): nobody checked that the change reaches a
-    full run;
+    batch run;
   - the `comments` gate came with a `.ts` that changes code (step 3): the bug hunt that code needed
     did not run.
 
