@@ -74,8 +74,14 @@ class FakeBotApi {
 
     private readonly heldChatIds = new Set<number>();
     private nextMessageId = 1;
+    // A failure of the server itself, a bug of the spec. The outbox takes the reset socket for a
+    // transient failure and retries the call, so the failure surfaces only through throwIfFailed().
+    private readonly failures: unknown[] = [];
     private readonly server = http.createServer((request, response) => {
-        this.answer(request, response).catch((error: unknown) => response.destroy(error as Error));
+        this.answer(request, response).catch((error: unknown) => {
+            this.failures.push(error);
+            response.destroy();
+        });
     });
 
     // The API root to give grammY: it calls <root>/bot<token>/<method>.
@@ -97,6 +103,12 @@ class FakeBotApi {
     public holdSendsUntilAllCome(chatIds: number[]): void {
         for (const chatId of chatIds) {
             this.heldChatIds.add(chatId);
+        }
+    }
+
+    public throwIfFailed(): void {
+        if (this.failures.length > 0) {
+            throw this.failures[0];
         }
     }
 
@@ -281,12 +293,24 @@ describe("Inbox end to end on the database", function () {
         cleanups.push(() => inboxRunner.stop());
     });
 
+    // Every cleanup runs even when one before it fails, and the first failure is thrown at the end:
+    // a server left open would hold mocha, which has no --exit, and a filled context would reach the
+    // later specs.
     afterEach(async function () {
         const undone = cleanups.reverse();
         cleanups = [];
+        const failures: unknown[] = [];
 
         for (const cleanup of undone) {
-            await cleanup();
+            try {
+                await cleanup();
+            } catch (error) {
+                failures.push(error);
+            }
+        }
+
+        if (failures.length > 0) {
+            throw failures[0];
         }
     });
 
@@ -360,10 +384,11 @@ describe("Inbox end to end on the database", function () {
             commandInput(3, SECOND_USER, "/start"),
         ]);
 
-        await waitUntil(
-            async () => (await groupState(FIRST_USER)) === InboxGroupState.Blocked,
-            "the group of the first user was expected to be blocked",
-        );
+        await waitUntil(async () => {
+            fakeBotApi.throwIfFailed();
+
+            return (await groupState(FIRST_USER)) === InboxGroupState.Blocked;
+        }, "the group of the first user was expected to be blocked");
         // Pushed after the block: the runner goes on handling the other groups.
         await store.push(textInput(4, SECOND_USER, "after the block"));
         await waitUntilDone([3, 4]);
@@ -406,6 +431,7 @@ describe("Inbox end to end on the database", function () {
 
     async function waitUntilDone(updateIds: number[]): Promise<void> {
         await waitUntil(async () => {
+            fakeBotApi.throwIfFailed();
             const rows = await updateRows();
 
             return updateIds.every((updateId) => rows.some((row) => Number(row.update_id) === updateId && row.status === InboxStatus.Done));
@@ -436,7 +462,7 @@ describe("Inbox end to end on the database", function () {
 });
 
 // grammY takes the API root of an Api only when it builds one, and Bot builds its own from the token
-// alone. This transformer stands for the network of that Api: the calls that pass the outbox, getMe
+// alone. This transformer stands for the network of that Api: the calls that bypass the outbox, getMe
 // and setMyCommands, go to the fake Bot API.
 function sendToFakeBotApi(apiRoot: string): Transformer<RawApi> {
     return async (_prev, method, payload) => {

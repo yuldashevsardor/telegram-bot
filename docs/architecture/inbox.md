@@ -664,8 +664,9 @@ has come, which is how the spec sees the handlers of two groups run at the same 
 the API root of an `Api` only when it builds one, and `Bot` builds its own from the token alone, so
 the spec points the two Apis at the server in two ways. The `Api` the outbox sends with comes from
 `TelegramApiFactory`, rebound to a subclass that passes `apiRoot`. The calls of the bot's own `Api`
-that pass the outbox, `getMe` of `init()` and `setMyCommands` of `setup()`, go through a transformer
-installed before `setup()`, under the outbox one, which sends them to the server with `fetch`.
+that bypass the outbox, `getMe` of `init()` and `setMyCommands` of `setup()`, go through a
+transformer installed before `setup()`, under the outbox one, which sends them to the server with
+`fetch`.
 Another transformer, installed after `setup()` and so the outermost one, records what each call of
 a handler resolves to: the spec compares the result of `ctx.reply()` with the message the server
 sent.
