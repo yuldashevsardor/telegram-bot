@@ -1,5 +1,4 @@
 import "reflect-metadata";
-import { constants as httpStatus } from "node:http2";
 import path from "path";
 import { expect } from "chai";
 import type { RawApi, StorageAdapter, Transformer } from "grammy";
@@ -24,7 +23,7 @@ import { testDatabaseName } from "test/database.helper";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 import { waitUntil } from "test/shared/utils.helper";
 import type { BotApiAnswerScript, BotApiCall } from "test/telegram/fake-bot-api.helper";
-import { FakeBotApi, FakeBotApiFactory } from "test/telegram/fake-bot-api.helper";
+import { FakeBotApi, FakeBotApiFactory, UNKNOWN_METHOD_ANSWER } from "test/telegram/fake-bot-api.helper";
 import { messageInput } from "test/telegram/inbox/inbox-store.helper";
 
 const TOKEN = "123456789:secret";
@@ -90,7 +89,7 @@ class TelegramAnswers {
             case "sendMessage":
                 return { ok: true, result: await this.sendMessage(payload) };
             default:
-                return { ok: false, error_code: httpStatus.HTTP_STATUS_NOT_FOUND, description: "Not Found: method not found" };
+                return UNKNOWN_METHOD_ANSWER;
         }
     }
 

@@ -27,11 +27,12 @@ import {
 } from "app/telegram/outbox/store/outbox-store.errors";
 import { OutboxChannel } from "app/telegram/outbox/store/outbox-store.types";
 import type { DatabaseSettings } from "app/platform/database/database.types";
-import { MS_PER_SECOND } from "app/shared/time";
+import { MS_PER_HOUR, MS_PER_SECOND } from "app/shared/time";
 import { sleep } from "app/shared/utils";
 import { listenTo, rollingBackDatabase, SPEC_ROLLBACK_MESSAGE, testDatabaseSettings, waitForLockWaiters } from "test/database.helper";
 import { waitUntil } from "test/shared/utils.helper";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
+import { HOUR_RETENTION_CLEANUP, NO_LIMIT, NO_LIMITS, resetOutbox } from "test/telegram/outbox/outbox-store.helper";
 
 const CHAT = 5_000_000_001;
 const OTHER_CHAT = -1_001_234_567_890;
@@ -43,13 +44,8 @@ const RESPONSE = { message_id: 1 };
 const WAIT_DEADLINE_MS = 5_000;
 // The default timeout of mocha, 2 s, is shorter than the deadline and would fail a hung wait first.
 const SPEC_TIMEOUT_MS = 10_000;
-// The limits of the specs that are not about the limits: a cooldown of a nanosecond, below the
-// microsecond of a timestamp, and a common limit no pull reaches.
-const NO_LIMIT: TelegramLimits["common"] = { number: 1_000_000, interval: 1 };
-const NO_LIMITS: TelegramLimits = { common: NO_LIMIT, private: NO_LIMIT, group: NO_LIMIT };
 const LEASE_DURATION_MS = 600_000;
-const HOUR_MS = 60 * 60 * MS_PER_SECOND;
-const CLEANUP: OutboxCleanupSettings = { doneRetentionMs: HOUR_MS, skippedRetentionMs: 2 * HOUR_MS, batchSize: 10 };
+const CLEANUP: OutboxCleanupSettings = { ...HOUR_RETENTION_CLEANUP, skippedRetentionMs: 2 * MS_PER_HOUR };
 const WORKER: OutboxWorker = { host: "node-1", pid: 101, workerId: "worker-1" };
 const TRANSIENT: OutboxAttemptError = { kind: TelegramBotApiFailureKind.Transient, message: "Network request failed" };
 const FLOOD: OutboxAttemptError = { kind: TelegramBotApiFailureKind.Flood, message: "Too Many Requests: retry after 5" };
@@ -96,14 +92,7 @@ describe("OutboxStore", function () {
     beforeEach(async function () {
         logger = new RecordingLogger();
         store = new OutboxStore(database, logger, NO_LIMITS, LEASE_DURATION_MS, CLEANUP);
-        await database.sql`TRUNCATE telegram_outbox, telegram_outbox_chats RESTART IDENTITY`;
-        // The common limit has saved up its full number of slots, and there is no pause. The table
-        // holds one row.
-        await database.sql`
-            UPDATE telegram_bot_limits
-            SET next_send_at = now() - interval '1 hour',
-                paused_until = NULL
-        `;
+        await resetOutbox(database);
     });
 
     after(async function () {
@@ -1082,7 +1071,7 @@ describe("OutboxStore", function () {
             const limitedStore = new OutboxStore(
                 database,
                 logger,
-                { common: NO_LIMIT, private: { number: 1, interval: HOUR_MS }, group: NO_LIMIT },
+                { common: NO_LIMIT, private: { number: 1, interval: MS_PER_HOUR }, group: NO_LIMIT },
                 LEASE_DURATION_MS,
                 CLEANUP,
             );
@@ -1648,7 +1637,7 @@ describe("OutboxStore", function () {
             const limited = new OutboxStore(
                 database,
                 logger,
-                { ...NO_LIMITS, private: { number: 1, interval: HOUR_MS } },
+                { ...NO_LIMITS, private: { number: 1, interval: MS_PER_HOUR } },
                 LEASE_DURATION_MS,
                 CLEANUP,
             );

@@ -14,6 +14,7 @@ import type { FinishedOutboxMessage, OutboxMessageInput } from "app/telegram/out
 import { OutboxPriority, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
+import { caught } from "test/shared/utils.helper";
 
 type TelegramCall = { method: string; payload: unknown; signal: unknown };
 
@@ -73,13 +74,6 @@ function done(response: object): FinishedOutboxMessage {
 
 function failed(error: FinishedOutboxMessage["error"]): FinishedOutboxMessage {
     return { id: MESSAGE_ID, status: OutboxStatus.Failed, response: null, error: error };
-}
-
-function caught(promise: Promise<unknown>): Promise<unknown> {
-    return promise.then(
-        () => expect.fail("the call was expected to reject"),
-        (error: unknown) => error,
-    );
 }
 
 describe("OutboxTransformer", function () {

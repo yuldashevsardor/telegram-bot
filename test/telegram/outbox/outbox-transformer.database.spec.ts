@@ -10,7 +10,7 @@ import type { TelegramLimits } from "app/bootstrap/config/config-values";
 import { Database } from "app/platform/database/database";
 import { RequestContext } from "app/platform/request-context/request-context";
 import { FileHelper } from "app/shared/fs/file-helper";
-import { MS_PER_SECOND } from "app/shared/time";
+import { MS_PER_HOUR, MS_PER_SECOND } from "app/shared/time";
 import { sleep } from "app/shared/utils";
 import { isGroupChat } from "app/telegram/telegram-chat";
 import { PathFile } from "app/telegram/path-file/path-file";
@@ -30,25 +30,21 @@ import { OutboxMaintenance } from "app/telegram/outbox/maintenance/outbox-mainte
 import { OutboxResultWaiter } from "app/telegram/outbox/result-waiter/outbox-result-waiter";
 import type { OutboxResultWaiterSettings } from "app/telegram/outbox/result-waiter/outbox-result-waiter.types";
 import { OutboxStore } from "app/telegram/outbox/store/outbox-store";
-import type { FinishedOutboxMessage, OutboxCleanupSettings } from "app/telegram/outbox/store/outbox-store.types";
+import type { FinishedOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxChatState, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxTransformer } from "app/telegram/outbox/transformer/outbox-transformer";
 import { testDatabaseSettings } from "test/database.helper";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 import type { BotApiCall, BotApiFile } from "test/telegram/fake-bot-api.helper";
 import { FakeBotApi, FakeBotApiFactory } from "test/telegram/fake-bot-api.helper";
-import { waitUntil } from "test/shared/utils.helper";
+import { caught, waitUntil } from "test/shared/utils.helper";
+import { HOUR_RETENTION_CLEANUP, NO_LIMIT, NO_LIMITS, resetOutbox } from "test/telegram/outbox/outbox-store.helper";
 
 const SPEC_TIMEOUT_MS = 30_000;
 const FIRST_NODE_TOKEN = "first-node-token";
 const SECOND_NODE_TOKEN = "second-node-token";
 const PRIVATE_CHAT_IDS = [5_000_000_001, 5_000_000_002, 5_000_000_003, 5_000_000_004];
 const GROUP_CHAT_ID = -1_005_000_000_001;
-const HOUR_MS = 60 * 60 * MS_PER_SECOND;
-// A cooldown of a nanosecond, below the microsecond of a timestamp, and a common limit no pull
-// reaches: the specs of the other behaviour do not wait for the limits.
-const NO_LIMIT: TelegramLimits["common"] = { number: 1_000_000, interval: 1 };
-const NO_LIMITS: TelegramLimits = { common: NO_LIMIT, private: NO_LIMIT, group: NO_LIMIT };
 const LONG_LEASE_DURATION_MS = 60_000;
 const SHORT_LEASE_DURATION_MS = 1_000;
 // Longer than the lease of SHORT_LEASE_DURATION_MS: a call left unanswered outlives the lease, as
@@ -63,7 +59,6 @@ const MAX_ATTEMPTS = 5;
 // With the random of zero the first retry waits half of the first step.
 const RETRY_DELAY = { firstDelayMs: 100, maxDelayMs: 1_000, multiplier: 2 };
 const LEASE_RECOVERY_INTERVAL_MS = 50;
-const CLEANUP: OutboxCleanupSettings = { doneRetentionMs: HOUR_MS, skippedRetentionMs: HOUR_MS, batchSize: 10 };
 // The limits space the pulls by the clock of the database, while the fake Bot API stamps a call
 // when it arrives, a send later, and the time from the pull to the arrival differs from call to
 // call. A gap between two arrivals may come short of the limit by that difference.
@@ -117,6 +112,7 @@ type NodeSettings = {
 
 const FIRST_NODE: NodeSettings = {
     token: FIRST_NODE_TOKEN,
+    // The specs of the other behaviour do not wait for the limits.
     limits: NO_LIMITS,
     leaseDurationMs: LONG_LEASE_DURATION_MS,
     concurrency: 4,
@@ -155,12 +151,7 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
     });
 
     beforeEach(async function () {
-        await firstDatabase.sql`TRUNCATE telegram_outbox, telegram_outbox_chats RESTART IDENTITY`;
-        await firstDatabase.sql`
-            UPDATE telegram_bot_limits
-            SET next_send_at = now() - interval '1 hour',
-                paused_until = NULL
-        `;
+        await resetOutbox(firstDatabase);
         fakeBotApi = new FakeBotApi();
         fakeBotApi.answerWith(sentMessage);
         apiRoot = await fakeBotApi.start();
@@ -199,7 +190,7 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
 
     function createNode(database: Database, settings: NodeSettings): OutboxNode {
         const logger = new RecordingLogger();
-        const store = new OutboxStore(database, logger, settings.limits, settings.leaseDurationMs, CLEANUP);
+        const store = new OutboxStore(database, logger, settings.limits, settings.leaseDurationMs, HOUR_RETENTION_CLEANUP);
         const leaseRetrier = new OutboxLeaseRetrier(store, new RetryDelay(RETRY_DELAY, () => 0), MAX_ATTEMPTS);
         const failureHandler = new OutboxFailureHandler(
             store,
@@ -221,9 +212,9 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
         const runner = new OutboxRunner(source, processor, logger, settings.concurrency, STOP_TIMEOUT_MS, worker);
         const maintenance = new OutboxMaintenance(store, new OutboxLeaseRecovery(store, leaseRetrier), logger, {
             leaseRecoveryIntervalMs: LEASE_RECOVERY_INTERVAL_MS,
-            cleanupIntervalMs: HOUR_MS,
-            statusLogIntervalMs: HOUR_MS,
-            blockedLogIntervalMs: HOUR_MS,
+            cleanupIntervalMs: MS_PER_HOUR,
+            statusLogIntervalMs: MS_PER_HOUR,
+            blockedLogIntervalMs: MS_PER_HOUR,
         });
         const reader = settings.reader ?? new OutboxFinishedMessageReader(database);
         const waiter = new OutboxResultWaiter(reader, logger, new RequestContext(), settings.resultWaiter);
@@ -626,11 +617,4 @@ function gapsMs(calls: BotApiCall[]): number[] {
     }
 
     return gaps;
-}
-
-function caught(promise: Promise<unknown>): Promise<unknown> {
-    return promise.then(
-        () => expect.fail("the call was expected to reject"),
-        (error: unknown) => error,
-    );
 }
