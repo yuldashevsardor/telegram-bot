@@ -93,10 +93,18 @@ export class FakeBotApi {
     // A failure of the server itself, a bug of the spec. grammY takes the reset socket for a failed
     // call, which the outbox retries, so the failure surfaces only through throwIfFailed().
     private readonly failures: unknown[] = [];
+    private isClosed = false;
     private readonly server: Server = createServer((request, response) => {
         this.handle(request, response).catch((error: unknown) => {
-            this.failures.push(error);
             response.destroy();
+
+            // A call still waiting for its script at the close fails after it, when no spec calls
+            // throwIfFailed() any more: rethrown, it reaches mocha as an unhandled rejection.
+            if (this.isClosed) {
+                throw error;
+            }
+
+            this.failures.push(error);
         });
     });
 
@@ -111,6 +119,7 @@ export class FakeBotApi {
     // grammY keeps its connections alive, and close() alone would wait for them; a call left
     // unanswered is cut off with its connection.
     public async close(): Promise<void> {
+        this.isClosed = true;
         this.server.closeAllConnections();
         await new Promise<void>((resolve) => this.server.close(() => resolve()));
     }
@@ -132,9 +141,11 @@ export class FakeBotApi {
     private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
         const receivedAtMs = Date.now();
         const [, token = "", method = ""] = /^\/bot([^/]+)\/([^/]+)$/.exec(request.url ?? "") ?? [];
-        const payload = readPayload(request.headers["content-type"] ?? "", await readBody(request));
-        const call: BotApiCall = { token: token, method: method, payload: payload, receivedAtMs: receivedAtMs };
+        const call: BotApiCall = { token: token, method: method, payload: {}, receivedAtMs: receivedAtMs };
+        // The call takes its place when it arrives, before its body is read: a large upload read
+        // alongside a small call would otherwise take a place after it.
         const callIndex = this.calls.push(call) - 1;
+        call.payload = readPayload(request.headers["content-type"] ?? "", await readBody(request));
         const answer = await this.answer(call, callIndex);
 
         response.writeHead(answer.ok ? httpStatus.HTTP_STATUS_OK : answer.error_code, { "content-type": "application/json" });

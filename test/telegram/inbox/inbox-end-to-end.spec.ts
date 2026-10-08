@@ -69,7 +69,8 @@ class TelegramAnswers {
     private readonly heldChatIds = new Set<number>();
     private nextMessageId = 1;
 
-    // A field rather than a method: the fake Bot API calls it without this.
+    // A field rather than a method: the fake Bot API calls the script as a field of its own, with
+    // itself as this.
     public readonly answer: BotApiAnswerScript = (call) => this.resultOf(call.method, call.payload);
 
     // The sendMessage of each of the chats is answered only once a sendMessage of every one of them
