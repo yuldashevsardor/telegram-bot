@@ -60,11 +60,9 @@ export class Bot {
         // comes, so one installed after an update would miss its calls.
         this.grammy.api.config.use(this.outboxTransformer.transform);
 
-        // Filters first: they need no more than ctx.from and ctx.chat. A group update does
-        // have a session key: dropped below session(), it would still leave a row
-        // (docs/architecture/invariants.md).
-        // HasSessionKey goes before IsPrivateChat: the latter drops updates without chat too,
-        // but silently, so those must meet the warning of HasSessionKey first.
+        // Filters first: they need no more than ctx.from and ctx.chat, and a group update dropped
+        // below session() would still leave a row. HasSessionKey before IsPrivateChat, which drops
+        // an update without chat silently (docs/architecture/bot.md, steps 1-2).
         await this.setupFilters([this.hasSessionKeyFilter, this.isPrivateChatFilter]);
         await this.setupSession();
         await this.setupMiddlewares();

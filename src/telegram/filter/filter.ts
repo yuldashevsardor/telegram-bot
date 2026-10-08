@@ -6,16 +6,14 @@ import { Tokens } from "app/shared/tokens";
 
 @injectable()
 export abstract class Filter {
-    // The logger lives in the base, not in the subclasses: the decision to drop is taken here,
-    // so its trace stays here too. Otherwise every new filter would drop silently until its
-    // author remembered the logger.
+    // The logger lives in the base: the drop is decided here, so a new filter cannot drop without
+    // a trace (docs/architecture/bot.md).
     public constructor(@inject<Logger>(Tokens.Bootstrap.Logger) protected readonly logger: Logger) {}
 
     protected abstract handle(ctx: Context): boolean;
 
-    // Not composer.filter(): it does not drop the update, it only puts the condition in front of
-    // what is attached to the composer it returns. Nobody here needs that composer, and the
-    // chain must break, so we call next() ourselves, or do not.
+    // Not composer.filter(): it does not drop the update, it only guards what is attached to the
+    // composer it returns (docs/architecture/bot.md).
     public setup(composer: Composer<Context>): void {
         composer.use((ctx: Context, next: NextFunction): Promise<void> => {
             if (!this.handle(ctx)) {

@@ -108,16 +108,13 @@ Not part of the domain. The service copies the family name from the font into th
 not read it as a name: it does not search, compare or select by family.
 
 **Style**:
-Not part of the domain. The service copies the weight and the slant from the font into the envelope
-as the same bytes, but it does not tell styles apart and cannot select a font by one.
+Not part of the domain. The service copies the weight and the slant from the font into the envelope,
+but it does not tell styles apart and cannot select a font by one.
 
 **Glyphs and metrics**:
-Not part of the domain. From a font the service reads the format signature; the metadata for the
-envelope; in a WOFF and a WOFF2 the rules of its container; in an EOT the rules of its envelope; in
-a TTF, an OTF and the sfnt a WOFF or an EOT carries the table directory, which tables it holds, the
-glyph count and whether most of what the required tables point to, such as each glyph's metrics and
-outline, lies inside them, down to the fields of each simple TrueType glyph and the components of
-each composite one; and in an SVG the rules of an SVG font, which reach the glyph advances and the
-syntax of the outlines too. It does not interpret the outlines, so it can neither list the glyphs
-nor compare them before and after a conversion. The domain currently neither expresses nor checks
-whether glyphs and metrics survive a conversion.
+Not part of the domain. Validation reads a font down to its structure: the rules of its container or
+envelope, the glyph count, and whether each glyph's metrics and outline lie where the tables point,
+down to the fields of a TrueType glyph and the syntax of an SVG outline. What each format's
+validator reads is in `docs/architecture/font-convertor.md`. The service does not interpret the
+outlines, so it can neither list the glyphs nor compare them before and after a conversion. The
+domain currently neither expresses nor checks whether glyphs and metrics survive a conversion.

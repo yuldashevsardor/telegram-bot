@@ -18,7 +18,8 @@ async function runCommand(): Promise<void> {
 
         await command.run(commandArgs);
     } finally {
-        // The polling of the configuration file would keep the process alive.
+        // The order of the stop of Application. process.exit(0) below ends the process anyway:
+        // only without that exit would the poll of the config file keep the process alive.
         ApplicationContext.getConfigContainer().unwatch();
         await container.close();
     }
