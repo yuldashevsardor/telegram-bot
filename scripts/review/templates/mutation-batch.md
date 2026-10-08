@@ -7,8 +7,8 @@ round, the change is recorded here: every comment that starts with the marker
 records; see the docstring of `scripts/review/mutation_batch.py`.
 
 At {threshold} recorded issues the batch is due: `make mutation batch=<this issue>` on fresh
-`main`, over the files the recorded PRs changed in code or over the whole of `src/` when one of
-them changed a tool of the run, the survivors fixed in the same task, then
+`main`, over the files the recorded PRs changed in code, or over the whole of `src/` when one of
+them changed a tool of the run or no file is left, the survivors fixed in the same task, then
 `make mutation-full-close` carries the PRs the run did not cover into the next batch and puts the
 result in the closing comment. How the batch is taken is in `.claude/commands/solve-issue.md`,
 "A batch as the issue".

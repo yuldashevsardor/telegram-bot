@@ -89,8 +89,9 @@ is the run itself:
 
 1. The worktree as above, from fresh `origin/main`. `make mutation batch=<M>` on a clean tree: it
    runs over the files `make mutation-batch-files batch=<M>` prints, or over the whole of `src/`
-   when that names a PR that changed a tool of the run. A full run takes hours. Its record is kept
-   in `reports/mutation/batch-record.md`, and that is the input of the close.
+   when that names a PR that changed a tool of the run or finds no file left. A full run takes
+   hours. Its record is kept in `reports/mutation/batch-record.md`, and that is the input of the
+   close.
 2. The run is red — fix the survivors you can in the same worktree and commit. The survivors left
    go into one issue per area, each filed on the owner's go-ahead on its text (`CLAUDE.md`,
    "Scope"), and are silenced by a mark linking to it (`docs/architecture/testing.md`, "Working

@@ -45,8 +45,9 @@ and takes no lock:
    `HEAD`, is left to the carry-over of `close`.
 2. Reads the change of each merged PR off its merge commit, against the first parent: the change
    the PR brought into `main`, renames followed. A merge commit with one parent is a squash or a
-   rebase merge, and the latter names the last commit of the PR only: the files `gh` names for the
-   PR have to be in its change, or the action stops.
+   rebase merge, and the latter names the last commit of the PR only. A file `gh` names for the PR
+   that the commit does not change (an earlier commit of a rebase, or a squash of a change `main`
+   already had) has no old text to compare with, and counts as changed in code.
 3. A changed tool of the run (`RUN_TOOLS`; `package.json`, `package-lock.json` and the `Makefile` by
    what of them the run reads, as the `mutation-full` row says) in more than comments sends the
    batch to the full run: stdout stays empty, and stderr names the PR and the file.
@@ -74,8 +75,9 @@ lock as `record`:
 2. Reads the record of the batch run, reports/mutation/batch-record.md
    (docs/architecture/testing.md, "The run record"), and stops unless `make mutation batch=<N>` ran
    it for this batch on a clean tree and it left a report with a score. A score of NaN closes a run
-   over files: its files had no mutant (types alone, or excluded by stryker.config.mjs); over the
-   whole of `src/` it stops.
+   over files: its files hold nothing a test could kill (types alone, files stryker.config.mjs
+   excludes, or mutants that are all errors or silenced by a mark); over the whole of `src/` it
+   stops.
 3. Reads the record of the last run, reports/mutation/record.md. When it is of a run over files of
    no batch, it is the check of the fixed survivors: it has to be green, on a clean tree, on a
    descendant of the head of the batch run. Which files each round of fixes runs over is step 2 of
@@ -471,7 +473,8 @@ def read_batch_run(path: str, batch_issue: int) -> RunRecord:
             )
         )
     # The files of a batch come from the PRs and exist on the head, so a run over them without a
-    # mutant found nothing to mutate in them: types alone, or files stryker.config.mjs excludes.
+    # valid mutant found nothing a test could kill in them: types alone, files stryker.config.mjs
+    # excludes, or mutants that are all CompileError, RuntimeError or Ignored.
     if batch_run.scope == "full":
         stop_on_no_mutant(path, batch_run)
     return batch_run
@@ -1105,32 +1108,27 @@ def is_source(path: str) -> bool:
     return path.endswith(".ts") and (path.startswith("src/") or path.startswith("test/"))
 
 
-def merge_parent(pr: int, commit: str, run: Run) -> str:
-    """The commit of `main` the PR was merged onto. A merge commit and a squash carry the whole
-    change of the PR against their first parent; a rebase merge names its last commit only, and
-    its change is checked against the files `gh` names."""
+def commit_parents(commit: str, run: Run) -> List[str]:
+    """The parents of a merge commit; the first is the commit of `main` the PR was merged onto, and
+    the merge commit, or the squash, carries the whole change of the PR against it."""
     parents = git_text(["rev-list", "--parents", "-n", "1", commit], run).split()[1:]
     if not parents:
-        raise Stop("the merge commit {} of PR #{} has no parent".format(commit, pr))
-    if len(parents) == 1:
-        done = run(
-            ["gh", "pr", "view", str(pr), "--json", "files", "-q", ".files[].path"],
-            capture_output=True,
-            text=True,
-        )
-        check(done, "gh pr view {} failed".format(pr))
-        changed = {
-            path
-            for changed in changed_files(parents[0], commit, run)
-            for path in (changed.old_path, changed.new_path)
-        }
-        missing = [path for path in done.stdout.split() if path not in changed]
-        if missing:
-            raise Stop(
-                "the merge commit {} of PR #{} does not carry its change of {}: a rebase "
-                "merge?".format(commit, pr, ", ".join(missing))
-            )
-    return parents[0]
+        raise Stop("the merge commit {} has no parent".format(commit))
+    return parents
+
+
+def uncarried_files(pr: int, changed: List[ChangedFile], run: Run) -> List[str]:
+    """The files `gh` names for the PR that its merge commit with one parent does not change: a
+    rebase merge names the last commit of the PR only, and a squash leaves out a change `main`
+    already had."""
+    done = run(
+        ["gh", "pr", "view", str(pr), "--json", "files", "-q", ".files[].path"],
+        capture_output=True,
+        text=True,
+    )
+    check(done, "gh pr view {} failed".format(pr))
+    carried = {path for file in changed for path in (file.old_path, file.new_path)}
+    return [path for path in done.stdout.split() if path not in carried]
 
 
 class Kept(NamedTuple):
@@ -1141,13 +1139,26 @@ class Kept(NamedTuple):
     commit: str
 
 
-def changed_code(pr: int, commit: str, run: Run, report: Report) -> Tuple[List[Kept], List[str]]:
+def changed_code(
+    pr: int, commit: str, main_line: "MainLine", run: Run, report: Report
+) -> Tuple[List[Kept], List[str]]:
     """The `.ts` of `src/` and `test/` the PR changed in code, and the tools of the run it
     changed."""
-    parent = merge_parent(pr, commit, run)
+    parents = commit_parents(commit, run)
+    parent = parents[0]
     kept = []
     tools = []
-    for changed in changed_files(parent, commit, run):
+    changed_list = changed_files(parent, commit, run)
+    uncarried = uncarried_files(pr, changed_list, run) if len(parents) == 1 else []
+    for path in uncarried:
+        report("PR #{}: its merge commit does not carry {}, counted as code".format(pr, path))
+        if path in RUN_TOOLS or path in ("package.json", "package-lock.json", "Makefile"):
+            tools.append(path)
+        elif is_source(path):
+            # The file may be gone from the commit; a spec read there needs its text.
+            if path.startswith("src/") or path in main_line.tree(commit):
+                kept.append(Kept(path, commit))
+    for changed in changed_list:
         tool_changed = is_tool_changed(changed, parent, commit, run)
         if tool_changed is not None:
             if tool_changed:
@@ -1266,7 +1277,7 @@ def batch_files(batch_issue: int, run: Run, report: Report) -> BatchFiles:
             continue
         seen_prs.add(found.pr)
         _, commit = pr_state(found.pr, run)
-        kept, tools = changed_code(found.pr, commit, run, report)
+        kept, tools = changed_code(found.pr, commit, main_line, run, report)
         gone: Set[str] = set()
         reasons.extend(
             "PR #{} changed {}, a tool of the run, in more than comments".format(found.pr, tool)

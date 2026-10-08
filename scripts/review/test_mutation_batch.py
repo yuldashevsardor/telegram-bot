@@ -1331,12 +1331,15 @@ class BatchFilesTest(unittest.TestCase):
             self.assertEqual((code, lines), (0, ["src/b.ts"]), path)
             self.assertNotIn("full run", err)
 
-    def test_a_merge_commit_without_the_change_of_the_pr_stops(self):
+    def test_a_file_the_merge_commit_does_not_carry_counts_as_code(self):
         line = history(("m801", {"src/b.ts": "export const b = 2;\n"}))
         line[1]["m801"] = ["base"]
-        for pr_files, told in (
-            (["src/b.ts"], None),
-            (["src/a.ts", "src/b.ts"], "does not carry its change of src/a.ts: a rebase merge?"),
+        for pr_files, files, full_run in (
+            (["src/b.ts"], ["src/b.ts"], False),
+            (["src/a.ts", "src/b.ts"], ["src/a.ts src/b.ts"], False),
+            (["test/c.spec.ts", "src/b.ts"], ["src/b.ts src/c.ts"], False),
+            (["test/gone.spec.ts", "src/b.ts"], ["src/b.ts"], False),
+            (["stryker.config.mjs", "src/b.ts"], [], True),
         ):
             github = self.github(
                 line, [(701, 801)], {801: merged("m801")}, pr_files={801: pr_files}
@@ -1344,11 +1347,26 @@ class BatchFilesTest(unittest.TestCase):
 
             code, lines, err = self.files(github)
 
-            if told is None:
-                self.assertEqual((code, lines), (0, ["src/b.ts"]))
-            else:
-                self.assertEqual((code, lines), (1, []))
-                self.assertIn(told, err)
+            self.assertEqual((code, lines), (0, files), pr_files)
+            self.assertEqual("full run: PR #801 changed stryker.config.mjs" in err, full_run)
+            if len(pr_files) > 1:
+                self.assertIn(
+                    "PR #801: its merge commit does not carry {}, counted as code\n".format(
+                        pr_files[0]
+                    ),
+                    err,
+                )
+
+    def test_the_tools_of_the_run_are_those_of_the_mutation_full_row(self):
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        gates = os.path.join(root, "docs", "agents", "review-gates.md")
+        with open(gates, encoding="utf-8") as file:
+            row = next(line for line in file if line.rstrip().endswith("| `mutation-full` |"))
+        named_by_name = row.split("|")[1].split(" — ")[0]
+
+        self.assertEqual(
+            set(re.findall(r"`([^`]+)`", named_by_name)), set(mutation_batch.RUN_TOOLS)
+        )
 
     def test_no_file_left_to_mutate_takes_the_full_run(self):
         github = self.one_pr({"src/a.ts": "// new note\nexport const a = 1;\n"})
