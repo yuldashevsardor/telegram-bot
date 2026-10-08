@@ -71,20 +71,22 @@ const BUNGEE_SPICE_DOUBLED_CODE_POINTS = [
 // The code points of Noto Naskh Arabic that have no <glyph> of their own in the SVG fontforge writes.
 const NOTO_NASKH_ARABIC_UNWRITTEN = [0x06d5, 0xfba2, 0xfba3, 0xfbe8, 0xfbe9, 0xfef0, 0xfef3, 0xfef4];
 
-// The changes of FontFacts the entries below share.
+// The changes of FontFacts the entries below share. Each refuses a code point on the wrong side, so that
+// a mistyped entry fails the check rather than overwriting a width, adding a code point or removing an
+// absent one unnoticed.
 class FontFactsChanges {
     public withoutCodePoints(facts: FontFacts, codePoints: Array<number>): FontFacts {
         const advanceWidths = new Map(facts.advanceWidths);
 
         for (const codePoint of codePoints) {
-            advanceWidths.delete(codePoint);
+            if (!advanceWidths.delete(codePoint)) {
+                throw new RuntimeError("the code point to remove is not in the source", { codePoint: codePoint });
+            }
         }
 
         return { ...facts, advanceWidths: advanceWidths };
     }
 
-    // The adding and the replacing methods refuse a code point on the wrong side, so that a mistyped
-    // entry fails the check rather than overwriting a width or adding a code point unnoticed.
     public withAddedCodePoints(facts: FontFacts, widthsByCodePoint: Map<number, Array<number>>): FontFacts {
         for (const codePoint of widthsByCodePoint.keys()) {
             if (facts.advanceWidths.has(codePoint)) {
@@ -154,8 +156,8 @@ export type ExpectedDifference = {
 
 // The differences a fixture is allowed on a pair, measured with fontforge 20230101. Any other difference
 // fails the check, and so does a listed one that no longer happens or comes out with another value: the
-// list follows the engine, not the other way round. A difference that is a defect names its issue and
-// states the defect itself.
+// list follows the engine, not the other way round. A difference that is a defect states the defect
+// itself, and names its issue when one is filed.
 export const expectedDifferences: Array<ExpectedDifference> = [
     {
         fixtures: NON_SVG_FIXTURES,

@@ -96,7 +96,9 @@ describe("Conversion of the fixtures", function () {
     // The Roboto fixtures at the root and the corpus of real fonts in a directory per font
     // (test/fixtures/fonts/README.md); licences and READMEs have no extension of the pair table. The
     // compressed EOT goes the whole way as a source of its own: the codec decodes MicroType Express on
-    // unpacking, and the engine converts what it decodes.
+    // unpacking, and the engine converts what it decodes. A font file is taken whether git tracks it or
+    // not, since the container has no .git: an untracked font left in the directory runs too and fails on
+    // the shared entries of the expected differences, which do not list it.
     function readFontFixtures(): Array<FontFixture> {
         const fixtures: Array<FontFixture> = [];
 

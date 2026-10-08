@@ -171,21 +171,21 @@ its widths.
 - fontforge reads the facts through `fontforge -c` (`FontFactsReader`): the image has fontforge with
   its embedded Python and no separate `python3`. An EOT is unpacked with `EotPacker` first, since
   fontforge cannot open one.
-- Glyph names are not compared: fontforge renames some of them on reading (the TrueType fixture has
-  `.notdef` at glyph 3). U+0000 is left out of the code points; why is at `readScript` in the
-  reader.
+- Glyph names are not compared: fontforge renames some of them on reading (the Roboto TrueType
+  fixture has `.notdef` at glyph 3). U+0000 is left out of the code points; why is at `readScript`
+  in the reader.
 - A difference fails the check unless `test/conversion/expected-differences.ts` lists it for the
   source fixture and the target format, with its reason and the value it gives the fact. A listed
   difference that no longer happens, or comes out with another value, fails it too, so the list
-  stays what was measured. A difference that is a defect names its issue there and states the
-  defect itself.
+  stays what was measured. A difference that is a defect states the defect itself there, and names
+  its issue when one is filed.
 
 The facts are read by the same engine and codec that convert, so a reading defect of either does
 not show on the source side:
 
-- The SVG fixture declares ascent 1536 and descent -512, and fontforge reads it as 1638 and 410 (the
-  reason of the pairs into SVG in the list). The pairs from SVG write the same 1638 and 410 into the
-  result, and the check sees no difference.
+- The Roboto SVG fixture declares ascent 1536 and descent -512, and fontforge reads it as 1638 and
+  410 (the reason of the pairs into SVG in the list). The pairs from it write the same 1638 and 410
+  into the result, and the check sees no difference.
 - `eot → ttf` converts with `EotPacker.unpack()`, and the reader unpacks its source with the same
   call, so the pair compares the font with itself. Of an EOT result only the enclosed font is
   read: the fields of the envelope header `EotPacker` writes are checked by `eot-packer.spec.ts`,
