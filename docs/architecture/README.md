@@ -29,7 +29,8 @@ The runtime sequences live in the files of their subsystems:
   the group, the group states, push without duplicates, the claim, the lease with its extension and
   the completions, the ready notifications, the update source, the update processor, the runner
   with its stop and the maintenance timers, the error classes of a failed handler, the outcomes,
-  the lease recovery, the release on stop, unblocking a group, the cleanup and the polling source
+  the lease recovery, the release on stop, unblocking a group, the cleanup, the polling source and
+  the spec of the whole chain with the bot and a fake Bot API
 - [`inbox-load-test.md`](./inbox-load-test.md) — the inbox store measured on 100 M updates: how to
   run the test, the data, the threshold, the times and the plans, the verdict
 - [`font-convertor.md`](./font-convertor.md) — format pairs, the EOT codec, signatures, the SVG,

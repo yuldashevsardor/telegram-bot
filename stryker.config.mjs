@@ -9,6 +9,7 @@ import { existsSync, globSync } from "node:fs";
 // grep -rln test/database.helper test --include='*.spec.ts'.
 const DATABASE_SPECS = [
     "test/platform/database/database.spec.ts",
+    "test/telegram/inbox/inbox-end-to-end.spec.ts",
     "test/telegram/inbox/inbox-failure-handler.spec.ts",
     "test/telegram/inbox/inbox-lease-releaser.spec.ts",
     "test/telegram/inbox/inbox-runner.database.spec.ts",

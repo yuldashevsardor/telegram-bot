@@ -25,16 +25,21 @@ once.
 | any `.sh` or `.py`; any `.ts` — not a comments-only `.ts` diff | `docs-sync` |
 | any `.ts` — not a comments-only `.ts` diff | `bug-hunt-high` |
 | `.sh` or `.py`, and either no `.ts` or only a comments-only `.ts` diff | `bug-hunt-medium` |
-| `.ts` inside `src/font-convertor/`, `src/shared/`, `src/telegram/outbox/`, `src/telegram/bot-api-failure-classifier/` — not a comments-only `.ts` diff | `smells` |
+| `.ts` inside `src/font-convertor/`, `src/shared/`, `src/telegram/outbox/`, `src/telegram/inbox/`, `src/telegram/retry-delay/`, `src/telegram/bot-api-failure-classifier/` — not a comments-only `.ts` diff | `smells` |
 | any `.ts` — a comments-only `.ts` diff | `comments` |
 | `stryker.config.mjs`, `test/stryker-mocha-hook.cjs`, `test/mutation-run.ts`, `.mocharc.json`, `tsconfig.json`, `tsconfig.check.json` — not a comments-only diff; any `.ts` in `src/` or `test/` — not a comments-only `.ts` diff | `mutation-full` |
 | any `*.md`, including `docs/**` and `.claude/**` | `docs` |
+
+With the `rebuild` gate on, the image is rebuilt **before** the other checks. Otherwise new
+code is checked against old dependencies and an old config, and a green result means nothing.
 
 `build` and `typecheck` go on together, and neither replaces the other. The targets use
 different tsconfigs, and `typecheck` covers a wider set of files: what is added to it and why
 is said in a comment in `tsconfig.check.json`. Without `typecheck`, a PR that changes only
 specs would not be type-checked at all: `mocha` loads them through `tsx`, and `tsx` does not
 check types (`docs/architecture/testing.md`).
+
+## Rows decided by the content of a file
 
 `package.json` turns on `rebuild` on any change, as in the table. The file lives in the image
 rather than being mounted, and an old image would check the old dependencies, scripts and
@@ -61,38 +66,58 @@ review round, and paying that for every dependency update cost more.
 
 The `Makefile` is not written into the `mutation-full` row by name. `make up`, `make logs` and
 the other targets do not touch the run, and by file name any change to them would take a place in
-a batch of the full run (below) for nothing. Decide by the content of the change, as with
-`package.json`, and read the file's diff: the recipe of the `mutation` target or a variable it
-expands (`DC_APP_RUN`, `FILES`) touched — `mutation-full` too. The recipe is the launch. It sets
-`TSX_TSCONFIG_PATH=./tsconfig.check.json`, by which the type checker decides which mutant gets
-`CompileError`. It sets `MUTATE` from `files`. It holds the wrapper command itself,
-`node --require tsx/cjs test/mutation-run.ts`. Changing any of them changes the outcome of
-every mutant: the same argument that puts the tsconfigs in the row.
+a batch of the full run for nothing. Read the file's diff instead, as with `package.json`: the
+recipe of the `mutation` target or a variable it expands (`DC_APP_RUN`, `FILES`) touched —
+`mutation-full` too. The recipe is the launch:
 
-A comments-only diff of the files in the `mutation-full` row leaves the gate off. Read the
-diff, as with `package.json` and the `Makefile` above. A comment is neither an option the
-runner reads nor an input of the type checker. None of these files is mutated either: `mutate`
-in `stryker.config.mjs` admits only globs that hit a `.ts` under `src/`, and checks that. So a
-comment changes the outcome of no mutant, while the gate takes a place in a batch of the full
-run. The gate still goes on for:
+- it sets `TSX_TSCONFIG_PATH=./tsconfig.check.json`, by which the type checker decides which
+  mutant gets `CompileError`;
+- it sets `MUTATE` from `files`;
+- it holds the wrapper command itself, `node --require tsx/cjs test/mutation-run.ts`.
 
-- a changed option, path, glob, argument or string literal;
-- a hunk that touches a comment and code on the same line;
-- a comment that is a tool directive: `// @ts-expect-error`, `// eslint-disable` and
-  `// Stryker disable` are inputs, not text.
+Changing any of them changes the outcome of every mutant: the same argument that puts the
+tsconfigs in the row.
+
+## Comments-only diffs
 
 Comments only is a statement about the content of the diff, not about lines that look like
-comments. `.mocharc.json` and both tsconfigs are JSONC, and `"spec": "test/**/*.spec.ts"`
-carries `**` inside a string literal, so a grep for `//` or `*` decides nothing.
+comments. Read the diff. It is not comments only when it holds:
+
+- a changed option, path, glob, argument or string literal. `//` inside a string or a template
+  literal is not a comment. `.mocharc.json` and both tsconfigs are JSONC, and
+  `"spec": "test/**/*.spec.ts"` carries `**` inside a string literal, so a grep for `//` or `*`
+  decides nothing;
+- a hunk that touches a comment and code on the same line;
+- a tool directive. Each is read by a gate, so it is an input, not text. A directive is a comment
+  any line of which opens with `///`, with `@` or with the name of a tool (Stryker, eslint,
+  istanbul, prettier) past the comment marks: TypeScript reads `@ts-ignore` on the last line of a
+  block comment too. `.ts` has more of them than the run's tools do: `// Stryker disable …`,
+  `// Stryker restore …`, `// eslint-disable…`, `// @ts-expect-error`, `// @ts-ignore`,
+  `/* istanbul ignore … */`, `// prettier-ignore`, `/// <reference … />`;
+- a comment that changes which line a directive covers: its line break moves code off that line,
+  or a comment between the directive and its code changes. A directive acts by line:
+  `// Stryker disable next-line` over a `for` header no longer reaches the `<` a comment pushed
+  onto the next line.
+
+A `.sh` is not read this way: a comment there can be a shebang or a linter directive, and its
+comments-only diffs were not measured.
+
+### The tools of the `mutation-full` row
+
+A comments-only diff of these files leaves the gate off. A comment is neither an option the runner
+reads nor an input of the type checker. None of these files is mutated either: `mutate` in
+`stryker.config.mjs` admits only globs that hit a `.ts` under `src/`, and checks that. So a
+comment changes the outcome of no mutant, while the gate takes a place in a batch of the full run.
+
+### `.ts`
 
 A comments-only `.ts` diff turns off `bug-hunt-high`, `smells`, `docs-sync` and the `.ts` part of
-`mutation-full`, and turns on `comments` instead. Read the diff, as with the tools of the
-`mutation-full` row. The `.ts` diff is every `.ts` of the PR taken together: one changed line of
-code in any `.ts`, and every row goes by name, with the full review for the whole PR. A `.ts` that
-is added, deleted, renamed, copied or changes mode is code too, whatever its hunks hold, and a
-rename has no hunks. Renaming a migration breaks the append-only rule that only the full review
-checks. Renaming `test/x.spec.ts` to `test/x.ts` drops its specs from the `.mocharc.json` glob while
-`test` stays green.
+`mutation-full`, and turns on `comments` instead. The `.ts` diff is every `.ts` of the PR taken
+together: one changed line of code in any `.ts`, and every row goes by name, with the full review
+for the whole PR. A `.ts` that is added, deleted, renamed, copied or changes mode is code too,
+whatever its hunks hold, and a rename has no hunks. Renaming a migration breaks the append-only
+rule that only the full review checks. Renaming `test/x.spec.ts` to `test/x.ts` drops its specs
+from the `.mocharc.json` glob while `test` stays green.
 
 The bug hunt and the smells look at what the code does, and a comment changes nothing it does.
 PRs #522, #523 and #524 changed comments in `.ts` and `*.md`: three rounds of the full review
@@ -108,31 +133,17 @@ corrected still stale in the `.eslintrc.js` comment and in `docs/architecture/lo
 That is the same claim in another place, and `comments` looks for it with the duplicate
 search.
 
-Comments only is read as for the tools of the `mutation-full` row: by the content of the diff, not
-by lines that look like comments. `//` inside a string or a template literal is not a comment. A
-hunk that changes a comment and code on the same line is code. A tool directive is code too, and
-`.ts` has more of them than the run's tools do: `// Stryker disable …`, `// Stryker restore …`,
-`// eslint-disable…`, `// @ts-expect-error`, `// @ts-ignore`, `/* istanbul ignore … */`,
-`// prettier-ignore`, `/// <reference … />`. A directive is a comment any line of which opens
-with `///`, with `@` or with the name of a tool (Stryker, eslint, istanbul, prettier) past the
-comment marks: TypeScript reads `@ts-ignore` on the last line of a block comment too. Each is read
-by a gate, so a diff that touches one gets the full review. So does a comment that changes which
-line a directive covers: its line break moves code off that line, or a comment between the
-directive and its code changes (the paragraph on `mutation-full` below).
-
 The gates that run the code stay on by name. `build`, `typecheck`, `lint`, `format-check` and
-`test` take seconds, and a directive the reading missed still changes their outcome. A `.sh` is
-not read this way: a comment there can be a shebang or a linter directive, and its comments-only
-diffs were not measured.
+`test` take seconds, and a directive the reading missed still changes their outcome.
 
 `mutation-full` runs code too, in the batch run, yet goes off: its price is not seconds but a place
-in a batch of the full run. And the status of a mutant changes only through a directive: the mark
-that silences a survivor (`docs/architecture/testing.md`, "Working through survivors"), which acts
-only in a mutated file, and the `@ts-` comments of a source or a spec, by which the type checker
-decides who gets `CompileError` ("The type checker" there). A directive acts by line, and a comment
-reaches a status through it when its line break moves code off the line the directive covers:
-`// Stryker disable next-line` over a `for` header no longer reaches the `<` a comment pushed onto
-the next line. Such a diff is not comments only.
+in a batch of the full run. The status of a mutant changes only through a directive, and a diff
+that touches one or the line it covers is not comments only (above). Two kinds act on the run: the
+mark that silences a survivor (`docs/architecture/testing.md`, "Working through survivors"), which
+acts only in a mutated file, and the `@ts-` comments of a source or a spec, by which the type
+checker decides who gets `CompileError` ("The type checker" there).
+
+## Bug hunt and smells
 
 `bug-hunt-*` and `smells` are kept apart on purpose, and their boundaries differ. Bugs are
 hunted wherever there is executable code. In `src/platform/`, `src/bootstrap/` and
@@ -147,12 +158,13 @@ to be rejected, at the cost of a full run.
 The sign of `smells` is "the code expresses rules rather than serving someone else's API", but
 the gate is decided by directory. `/review-pr` reads a diff only for signs a reading settles,
 such as a key of `package.json` or a comment against a line of code. Whether code expresses
-rules is a judgement, not such a sign. That is why `src/telegram/outbox/` and
-`src/telegram/bot-api-failure-classifier/` are in the list while the rest of `src/telegram/` is
-not: they hold the algorithm of the outbox and the rules of which failed call is which class, not
-a wrapper around grammY. The list is an allowlist on purpose, and that has a price: a new or moved
-module with rules drops out of the gate silently until it is written in here. The PR that creates
-or moves the module writes it in.
+rules is a judgement, not such a sign. That is why `src/telegram/outbox/`, `src/telegram/inbox/`,
+`src/telegram/retry-delay/` and `src/telegram/bot-api-failure-classifier/` are in the list while
+the rest of `src/telegram/` is not: they hold the algorithms of the outbox and the inbox, the
+retry delay and the rules of which failed call is which class, not a wrapper around grammY. The
+list is an allowlist on purpose, and that has a price: a new or moved module with rules drops out
+of the gate silently until it is written in here. The PR that creates or moves the module writes
+it in.
 
 The level is built into the gate's name: the skill calls the built-in `code-review` with it.
 `bug-hunt-high` and `bug-hunt-medium` are a pair of rows that does not accumulate: there is
@@ -167,15 +179,17 @@ comments only" is already computed by the choice of depth (`/review-pr`, step 3)
 of it would drift from this one silently: both files would still read coherently, and the
 boundary would move in only one of them.
 
-`mutation-full` is turned on by a change of code and by a change of the run's tools. Changing the
-tools changes the run of every mutant, not of the diff's lines. The tsconfigs and `typescript` are
-tools too: by them the type checker decides which mutant gets `CompileError` and which goes to the
-tests (`docs/architecture/testing.md`, "The type checker"). The gate runs no mutants in the PR:
-neither the author nor the reviewer runs `make mutation`. The issue the PR closes is recorded in a
-batch instead, and the whole of `src/` runs on fresh `main` once per batch. The author records it
-after the PR is created (`make mutation-full-record issue=<M> pr=<N>`), and the review checks the
-record (`make mutation-full-check pr=<N>`): an issue not recorded together with this PR is red. How
-a batch is kept is in the docstring of `scripts/review/mutation_batch.py`.
+## `mutation-full`
+
+The gate is turned on by a change of code and by a change of the run's tools. Changing the tools
+changes the run of every mutant, not of the diff's lines. The tsconfigs and `typescript` are tools
+too: by them the type checker decides which mutant gets `CompileError` and which goes to the tests
+(`docs/architecture/testing.md`, "The type checker"). The gate runs no mutants in the PR: neither
+the author nor the reviewer runs `make mutation`. The issue the PR closes is recorded in a batch
+instead, and the whole of `src/` runs on fresh `main` once per batch. The author records it after
+the PR is created (`make mutation-full-record issue=<M> pr=<N>`), and the review checks the record
+(`make mutation-full-check pr=<N>`): an issue not recorded together with this PR is red. How a
+batch is kept is in the docstring of `scripts/review/mutation_batch.py`.
 
 A run of the PR's own area went until #712, and the owner (2026-09-30) dropped it for its price. It
 was paid on every review round, and parallel sessions on one machine slow each other down 3–8×: on
@@ -188,8 +202,7 @@ The accepted cost: a weak test is found only by the batch run, possibly weeks af
 brought it, and its survivors are fixed by the session of the batch, not by the PR's author. A PR
 that breaks the run itself (a Stryker update, say) shows that only in the batch run too.
 
-With the `rebuild` gate on, the image is rebuilt **before** the other checks. Otherwise new
-code is checked against old dependencies and an old config, and a green result means nothing.
+## `docs` and `docs-sync`
 
 `docs` and `docs-sync` look at documentation drift from two sides, so different files turn
 them on. `docs` is for a text change: the changed lines of `*.md` are checked. `docs-sync` is
