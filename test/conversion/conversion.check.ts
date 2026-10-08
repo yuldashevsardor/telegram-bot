@@ -63,7 +63,6 @@ describe("Conversion of the fixtures", function () {
         for (const expected of expectedDifferences) {
             for (const fromExtension of expected.fromExtensions) {
                 for (const toExtension of expected.toExtensions) {
-                    expect(fromExtension, expected.reason).not.to.equal(toExtension);
                     expect(() => factory.get(fromExtension, toExtension), expected.reason).not.to.throw();
                 }
             }

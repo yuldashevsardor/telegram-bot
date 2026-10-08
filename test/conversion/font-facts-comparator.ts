@@ -1,5 +1,17 @@
 import type { FactName, FontFacts } from "test/conversion/font-facts-reader.types";
 
+type ScalarFactName = Exclude<keyof FontFacts, "advanceWidths">;
+
+// A record rather than a list: a fact added to FontFacts and left out here is a type error, not a
+// fact that is read and never compared.
+const SCALAR_FACTS: Record<ScalarFactName, true> = {
+    glyphCount: true,
+    familyName: true,
+    unitsPerEm: true,
+    ascent: true,
+    descent: true,
+};
+
 export type FactDifference = {
     fact: FactName;
     // What differs, for the message of a failed check.
@@ -9,9 +21,8 @@ export type FactDifference = {
 export class FontFactsComparator {
     public compare(expectedFacts: FontFacts, resultFacts: FontFacts): Array<FactDifference> {
         const differences: Array<FactDifference> = [];
-        const scalarFacts = ["glyphCount", "familyName", "unitsPerEm", "ascent", "descent"] as const;
 
-        for (const fact of scalarFacts) {
+        for (const fact of Object.keys(SCALAR_FACTS) as Array<ScalarFactName>) {
             if (expectedFacts[fact] !== resultFacts[fact]) {
                 differences.push({ fact: fact, details: `expected ${expectedFacts[fact]}, got ${resultFacts[fact]}` });
             }

@@ -45,14 +45,14 @@ export class FontFactsReader {
      * An EOT is unpacked into `workDir` first: fontforge cannot open the envelope.
      */
     public async read(fontPath: string, workDir: string): Promise<FontFacts> {
-        let sfntPath = fontPath;
+        let openedFontPath = fontPath;
 
         if (path.extname(fontPath).toLowerCase() === `.${Extension.EOT}`) {
-            sfntPath = path.join(workDir, `${path.basename(fontPath)}.${Extension.TTF}`);
-            await this.eotPacker.unpack(fontPath, sfntPath);
+            openedFontPath = path.join(workDir, `${path.basename(fontPath)}.${Extension.TTF}`);
+            await this.eotPacker.unpack(fontPath, openedFontPath);
         }
 
-        const { stdout } = await ProcessHelper.run(this.fontForgePath, ["-c", this.readScript, sfntPath]);
+        const { stdout } = await ProcessHelper.run(this.fontForgePath, ["-c", this.readScript, openedFontPath]);
         const factsJson = this.parseFacts(stdout, fontPath);
         const advanceWidths = new Map<number, number>();
 

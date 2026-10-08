@@ -37,7 +37,8 @@ written in here. Left out on purpose, although they look fitting in a review:
   `test` gate runs `make coverage` and loses nothing: `nyc` runs the same `mocha`, a failed spec is
   printed the same way, and the run fails at 100% coverage too; the report goes to `./coverage`,
   which is in `.gitignore`;
-- `check` runs four gates in one output, while the verdict needs a line per gate.
+- `check` runs four gates and the conversion check in one output, while the verdict needs a line
+  per gate.
 
 `lint` and `format-check` run over the whole repository, without `files=`: `main` is green as a
 whole, so anything red was brought by the PR.

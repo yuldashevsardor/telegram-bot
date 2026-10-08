@@ -8,4 +8,5 @@ export type FontFacts = {
     advanceWidths: Map<number, number>;
 };
 
-export type FactName = "glyphCount" | "codePoints" | "familyName" | "unitsPerEm" | "ascent" | "descent" | "advanceWidths";
+// The encoded code points are a fact of their own: the keys of the advance widths.
+export type FactName = keyof FontFacts | "codePoints";
