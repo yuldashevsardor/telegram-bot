@@ -219,8 +219,6 @@ describe("ConfigContainer", () => {
             .that.deep.equals({ path: "limits.common" });
     });
 
-    // typeof null is "object" too: without a separate check for null the walk would fail with a
-    // TypeError.
     it("throws InvalidConfigError when an object on the path is null", async () => {
         const cc = await container({ limits: null });
 
