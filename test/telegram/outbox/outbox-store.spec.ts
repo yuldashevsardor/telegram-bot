@@ -32,7 +32,7 @@ import { sleep } from "app/shared/utils";
 import { listenTo, rollingBackDatabase, SPEC_ROLLBACK_MESSAGE, testDatabaseSettings, waitForLockWaiters } from "test/database.helper";
 import { waitUntil } from "test/shared/utils.helper";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
-import { NO_LIMIT, NO_LIMITS, resetOutbox } from "test/telegram/outbox/outbox-store.helper";
+import { HOUR_RETENTION_CLEANUP, NO_LIMIT, NO_LIMITS, resetOutbox } from "test/telegram/outbox/outbox-store.helper";
 
 const CHAT = 5_000_000_001;
 const OTHER_CHAT = -1_001_234_567_890;
@@ -45,7 +45,7 @@ const WAIT_DEADLINE_MS = 5_000;
 // The default timeout of mocha, 2 s, is shorter than the deadline and would fail a hung wait first.
 const SPEC_TIMEOUT_MS = 10_000;
 const LEASE_DURATION_MS = 600_000;
-const CLEANUP: OutboxCleanupSettings = { doneRetentionMs: MS_PER_HOUR, skippedRetentionMs: 2 * MS_PER_HOUR, batchSize: 10 };
+const CLEANUP: OutboxCleanupSettings = { ...HOUR_RETENTION_CLEANUP, skippedRetentionMs: 2 * MS_PER_HOUR };
 const WORKER: OutboxWorker = { host: "node-1", pid: 101, workerId: "worker-1" };
 const TRANSIENT: OutboxAttemptError = { kind: TelegramBotApiFailureKind.Transient, message: "Network request failed" };
 const FLOOD: OutboxAttemptError = { kind: TelegramBotApiFailureKind.Flood, message: "Too Many Requests: retry after 5" };

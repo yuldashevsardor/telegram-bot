@@ -51,7 +51,7 @@ describe("OutboxFinishedMessageReader", function () {
 
         database = new Database(settings, false);
         observer = new Database(settings, false);
-        // The store only makes the messages here: no limit holds a pull back.
+        // The store makes, pulls and finishes the messages of the specs: no limit holds a pull back.
         store = new OutboxStore(database, silentLogger(), NO_LIMITS, LEASE_DURATION_MS, HOUR_RETENTION_CLEANUP);
         reader = new OutboxFinishedMessageReader(database);
     });
