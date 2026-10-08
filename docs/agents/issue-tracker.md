@@ -9,17 +9,19 @@ of `CLAUDE.md`.
   backticks.
 - The auto-close keyword in a PR body is `Closes #N`. GitHub recognises only its own keywords:
   `Closes`, `Fixes`, `Resolves` and their forms. Any other wording, a translation included,
-  closes nothing: the issue stays open after the merge and has to be closed by hand. A PR on an
-  issue with open sub-issues links it without a keyword, as a bare `#N`: the keyword would close
-  it on merge, against the rule on parent issues below.
+  closes nothing: the issue stays open after the merge and has to be closed by hand.
+- A PR on an issue with open sub-issues links it without a keyword, as a bare `#N`: the keyword
+  would close it on merge, against the rule on parent issues below.
 - When closing an issue by hand, leave a comment with the outcome: what was merged and what
   exactly settled the question.
 - An issue with native sub-issues is closed last, after all its sub-issues are closed, even when
   its own steps (analysis, decomposition, filing the sub-issues) are done. A closed parent drops
   the work as a whole out of the open issue list, and its remaining sub-issues are then found
-  only one by one. The comment on its last own step says that the issue stays open until its
-  sub-issues close. Whoever closes the last open sub-issue closes the parent too. The count of
-  closed sub-issues and the parent are printed by:
+  only one by one.
+- The comment on the last own step of such an issue says that it stays open until its
+  sub-issues close.
+- Whoever closes the last open sub-issue closes the parent too. The count of closed sub-issues
+  and the parent are printed by:
 
   ```bash
   gh api repos/<owner>/<repo>/issues/<n> --jq .sub_issues_summary
