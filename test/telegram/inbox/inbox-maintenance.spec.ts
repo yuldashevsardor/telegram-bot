@@ -4,7 +4,7 @@ import type { InboxFailureHandler } from "app/telegram/inbox/inbox-failure-handl
 import { InboxMaintenance } from "app/telegram/inbox/maintenance/inbox-maintenance";
 import type { InboxStore } from "app/telegram/inbox/store/inbox-store";
 import type { InboxMaintenanceSettings } from "app/telegram/inbox/maintenance/inbox-maintenance.types";
-import { waitUntil } from "test/shared/utils.helper";
+import { WAIT_UNTIL_DEADLINE_MS, waitUntil } from "test/shared/utils.helper";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 
 const SHORT_INTERVAL_MS = 5;
@@ -18,6 +18,9 @@ const SEVERAL_INTERVALS_MS = 20 * SHORT_INTERVAL_MS;
 const SPACED_INTERVAL_MS = 100;
 // A number of blocked groups the fake store answers: any number above zero.
 const BLOCKED_GROUP_COUNT = 2;
+// The default timeout of mocha, 2 s, is shorter than the deadline of waitUntil and would fail a
+// condition that never comes true before waitUntil gives its own message.
+const SPEC_TIMEOUT_MS = 2 * WAIT_UNTIL_DEADLINE_MS;
 
 // A run that goes on until the spec ends it.
 type HeldRun = { end: () => void };
@@ -90,6 +93,8 @@ class FakeFailureHandler {
 }
 
 describe("InboxMaintenance", function () {
+    this.timeout(SPEC_TIMEOUT_MS);
+
     let store: FakeStore;
     let failureHandler: FakeFailureHandler;
     let logger: RecordingLogger;

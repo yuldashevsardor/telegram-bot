@@ -1,10 +1,7 @@
 import "reflect-metadata";
-import http from "http";
 import { constants as httpStatus } from "node:http2";
-import type { AddressInfo } from "net";
 import path from "path";
 import { expect } from "chai";
-import { Api } from "grammy";
 import type { RawApi, StorageAdapter, Transformer } from "grammy";
 import type { ApiResponse, Document, Message, MessageEntity, Update, UserFromGetMe } from "@grammyjs/types";
 import { Container } from "app/bootstrap/container/container";
@@ -22,11 +19,12 @@ import { createFluent } from "app/telegram/locale/locale";
 import { DEFAULT_LOCALE } from "app/telegram/locale/locale.types";
 import type { OutboxRunner } from "app/telegram/outbox/outbox-runner";
 import type { SessionPayload } from "app/telegram/session/session.types";
-import { TelegramApiFactory } from "app/telegram/telegram-api-factory";
 import { fillApplicationContext, resetApplicationContext } from "test/bootstrap/application/application-context.helper";
 import { testDatabaseName } from "test/database.helper";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 import { waitUntil } from "test/shared/utils.helper";
+import type { BotApiAnswerScript, BotApiCall } from "test/telegram/fake-bot-api.helper";
+import { FakeBotApi, FakeBotApiFactory } from "test/telegram/fake-bot-api.helper";
 import { messageInput } from "test/telegram/inbox/inbox-store.helper";
 
 const TOKEN = "123456789:secret";
@@ -53,8 +51,6 @@ const HOLD_TIMEOUT_MS = 3_000;
 const HOLD_POLL_INTERVAL_MS = 10;
 const SPEC_TIMEOUT_MS = 30_000;
 
-type BotApiCall = { method: string; payload: Record<string, unknown> };
-
 // What a Bot API call of the bot resolved to.
 type BotApiAnswer = { method: string; result: unknown };
 
@@ -63,40 +59,19 @@ type SendEvent = { kind: "came" | "answered"; chatId: number };
 
 type UpdateRow = { update_id: string; status: InboxStatus; attempts: InboxAttempt[] };
 
-// A Bot API on a local port that answers as Telegram does: getMe with the bot, setMyCommands with
-// true, sendMessage with the message it has sent, and a method it does not know with 404, in the HTTP
-// status as in the body.
-class FakeBotApi {
-    public readonly calls: BotApiCall[] = [];
+// Answers the calls of the bot as Telegram does: getMe with the bot, setMyCommands with true,
+// sendMessage with the message it has sent, and a method it does not know with 404.
+class TelegramAnswers {
     // The messages sendMessage answered with, in the order of the answers.
     public readonly sentMessages: Message.TextMessage[] = [];
     public readonly sendEvents: SendEvent[] = [];
 
     private readonly heldChatIds = new Set<number>();
     private nextMessageId = 1;
-    // A failure of the server itself, a bug of the spec. The outbox takes the reset socket for a
-    // transient failure and retries the call, so the failure surfaces only through throwIfFailed().
-    private readonly failures: unknown[] = [];
-    private readonly server = http.createServer((request, response) => {
-        this.answer(request, response).catch((error: unknown) => {
-            this.failures.push(error);
-            response.destroy();
-        });
-    });
 
-    // The API root to give grammY: it calls <root>/bot<token>/<method>.
-    public async start(): Promise<string> {
-        await new Promise<void>((resolve) => this.server.listen(0, "127.0.0.1", resolve));
-        const { port } = this.server.address() as AddressInfo;
-
-        return `http://127.0.0.1:${port}`;
-    }
-
-    public async stop(): Promise<void> {
-        // grammY keeps its connections alive, and close() alone would wait for them.
-        this.server.closeAllConnections();
-        await new Promise<void>((resolve) => this.server.close(() => resolve()));
-    }
+    // A field rather than a method: the fake Bot API calls the script as a field of its own, with
+    // itself as this.
+    public readonly answer: BotApiAnswerScript = (call) => this.resultOf(call.method, call.payload);
 
     // The sendMessage of each of the chats is answered only once a sendMessage of every one of them
     // has come, or after HOLD_TIMEOUT_MS.
@@ -104,27 +79,6 @@ class FakeBotApi {
         for (const chatId of chatIds) {
             this.heldChatIds.add(chatId);
         }
-    }
-
-    public throwIfFailed(): void {
-        if (this.failures.length > 0) {
-            throw this.failures[0];
-        }
-    }
-
-    public sendsTo(chatId: number): BotApiCall[] {
-        return this.calls.filter((call) => call.method === "sendMessage" && call.payload["chat_id"] === chatId);
-    }
-
-    private async answer(request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
-        const method = path.basename(request.url ?? "");
-        const payload = JSON.parse(await readBody(request)) as Record<string, unknown>;
-        this.calls.push({ method: method, payload: payload });
-
-        const answer = await this.resultOf(method, payload);
-        response.statusCode = answer.ok ? httpStatus.HTTP_STATUS_OK : answer.error_code;
-        response.setHeader("content-type", "application/json");
-        response.end(JSON.stringify(answer));
     }
 
     private async resultOf(method: string, payload: Record<string, unknown>): Promise<ApiResponse<unknown>> {
@@ -173,17 +127,6 @@ class FakeBotApi {
         const cameChatIds = new Set(this.sendEvents.filter((event) => event.kind === "came").map((event) => event.chatId));
 
         return [...this.heldChatIds].every((chatId) => cameChatIds.has(chatId));
-    }
-}
-
-// The Api the outbox sends with, pointed at the fake Bot API.
-class FakeBotApiFactory extends TelegramApiFactory {
-    public constructor(private readonly apiRoot: string) {
-        super(TOKEN);
-    }
-
-    public override create(timeoutSeconds: number): Api {
-        return new Api(TOKEN, { apiRoot: this.apiRoot, timeoutSeconds: timeoutSeconds });
     }
 }
 
@@ -237,6 +180,7 @@ describe("Inbox end to end on the database", function () {
     this.timeout(SPEC_TIMEOUT_MS);
 
     let fakeBotApi: FakeBotApi;
+    let telegram: TelegramAnswers;
     let logger: RecordingLogger;
     let container: Container;
     let database: Database;
@@ -254,8 +198,10 @@ describe("Inbox end to end on the database", function () {
 
     beforeEach(async function () {
         fakeBotApi = new FakeBotApi();
+        telegram = new TelegramAnswers();
+        fakeBotApi.answerWith(telegram.answer);
         const apiRoot = await fakeBotApi.start();
-        cleanups.push(() => fakeBotApi.stop());
+        cleanups.push(() => fakeBotApi.close());
         logger = new RecordingLogger();
         // Only the variables of the database come from the environment, as in testDatabaseSettings():
         // another setting of a developer's .env, a concurrency of 1, would change what the spec checks.
@@ -272,7 +218,7 @@ describe("Inbox end to end on the database", function () {
 
         sessionStorage = new FailingSessionStorage(container.get<StorageAdapter<SessionPayload>>(Tokens.Bot.Session.Storage));
         container.rebind(Tokens.Bot.Session.Storage).toConstantValue(sessionStorage);
-        container.rebind(Tokens.Bot.ApiFactory).toConstantValue(new FakeBotApiFactory(apiRoot));
+        container.rebind(Tokens.Bot.ApiFactory).toConstantValue(new FakeBotApiFactory(TOKEN, apiRoot));
 
         const bot = container.get<Bot>(Tokens.Bot.Bot);
         // Before setup(): the transformer of the outbox goes over it.
@@ -319,13 +265,13 @@ describe("Inbox end to end on the database", function () {
 
         await waitUntilDone([1, 2]);
 
-        expect(fakeBotApi.calls).to.deep.equal([
+        expect(fakeBotApi.calls.map((call) => ({ method: call.method, payload: call.payload }))).to.deep.equal([
             { method: "getMe", payload: {} },
             { method: "sendMessage", payload: { chat_id: FIRST_USER, text: welcomeReply } },
             { method: "sendMessage", payload: { chat_id: FIRST_USER, text: notTextReply } },
         ]);
         const replies = answers.filter((answer) => answer.method === "sendMessage").map((answer) => answer.result);
-        expect(replies).to.deep.equal(fakeBotApi.sentMessages);
+        expect(replies).to.deep.equal(telegram.sentMessages);
         expect(await outboxStatuses()).to.deep.equal(["done", "done"]);
         expectNoProblemLogs();
     });
@@ -340,24 +286,19 @@ describe("Inbox end to end on the database", function () {
 
         await waitUntilDone([1, 2, 3, 4]);
 
-        expect(fakeBotApi.sendsTo(FIRST_USER).map((call) => call.payload["text"])).to.deep.equal([
-            welcomeReply,
-            "first",
-            welcomeReply,
-            "second",
-        ]);
+        expect(sendsTo(FIRST_USER).map((call) => call.payload["text"])).to.deep.equal([welcomeReply, "first", welcomeReply, "second"]);
         expectNoProblemLogs();
     });
 
     // Each handler awaits its reply, and the fake Bot API answers neither reply before both have
     // come: the handlers of the two groups run at the same time.
     it("handles the updates of different groups in parallel", async function () {
-        fakeBotApi.holdSendsUntilAllCome([FIRST_USER, SECOND_USER]);
+        telegram.holdSendsUntilAllCome([FIRST_USER, SECOND_USER]);
         await store.pushBatch([commandInput(1, FIRST_USER, "/start"), commandInput(2, SECOND_USER, "/start")]);
 
         await waitUntilDone([1, 2]);
 
-        expect(fakeBotApi.sendEvents.map((event) => event.kind)).to.deep.equal(["came", "came", "answered", "answered"]);
+        expect(telegram.sendEvents.map((event) => event.kind)).to.deep.equal(["came", "came", "answered", "answered"]);
         expectNoProblemLogs();
     });
 
@@ -372,7 +313,7 @@ describe("Inbox end to end on the database", function () {
             { kind: "transient", code: "ECONNRESET" },
             null,
         ]);
-        expect(fakeBotApi.sendsTo(FIRST_USER).map((call) => call.payload["text"])).to.deep.equal([welcomeReply]);
+        expect(sendsTo(FIRST_USER).map((call) => call.payload["text"])).to.deep.equal([welcomeReply]);
         expectNoProblemLogs();
     });
 
@@ -397,8 +338,8 @@ describe("Inbox end to end on the database", function () {
         expect(failed?.status).to.equal(InboxStatus.Failed);
         expect(failed?.attempts.map(({ error }) => error?.["kind"])).to.deep.equal(Array(MAX_ATTEMPTS).fill("transient"));
         expect(behind?.status).to.equal(InboxStatus.Pending);
-        expect(fakeBotApi.sendsTo(FIRST_USER)).to.deep.equal([]);
-        expect(fakeBotApi.sendsTo(SECOND_USER).map((call) => call.payload["text"])).to.deep.equal([welcomeReply, "after the block"]);
+        expect(sendsTo(FIRST_USER)).to.deep.equal([]);
+        expect(sendsTo(SECOND_USER).map((call) => call.payload["text"])).to.deep.equal([welcomeReply, "after the block"]);
         expect(logger.errors.map((record) => record.message)).to.deep.equal(["Inbox group is blocked by a failed update."]);
         expect([...logger.criticals, ...logger.warnings]).to.deep.equal([]);
     });
@@ -436,6 +377,10 @@ describe("Inbox end to end on the database", function () {
 
             return updateIds.every((updateId) => rows.some((row) => Number(row.update_id) === updateId && row.status === InboxStatus.Done));
         }, `updates ${updateIds.join(", ")} were expected to be done`);
+    }
+
+    function sendsTo(chatId: number): BotApiCall[] {
+        return fakeBotApi.callsTo(chatId).filter((call) => call.method === "sendMessage");
     }
 
     async function updateRows(): Promise<UpdateRow[]> {
@@ -488,16 +433,6 @@ function recordAnswers(answers: BotApiAnswer[]): Transformer<RawApi> {
 
         return response;
     };
-}
-
-async function readBody(request: http.IncomingMessage): Promise<string> {
-    const chunks: Buffer[] = [];
-
-    for await (const chunk of request) {
-        chunks.push(chunk as Buffer);
-    }
-
-    return Buffer.concat(chunks).toString("utf8");
 }
 
 function commandInput(updateId: number, userId: number, command: string): InboxUpdateInput {
