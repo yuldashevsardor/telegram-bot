@@ -63,16 +63,16 @@ function readPayload(contentType: string, body: string): Record<string, unknown>
 }
 
 // Telegram's answer to a method it does not know.
-export const UNKNOWN_METHOD_ANSWER: ApiError = {
+export const UNKNOWN_METHOD_ANSWER: Readonly<ApiError> = {
     ok: false,
     error_code: httpStatus.HTTP_STATUS_NOT_FOUND,
     description: "Not Found: method not found",
 };
 
-// A file of a call as grammY uploaded it. The body of the call is decoded as UTF-8 before it is
-// split into parts, so content holds a text file as it was sent, while a binary one, such as a
-// font, arrives with its invalid bytes replaced by U+FFFD: a spec that compares its bytes has to
-// keep the body as a Buffer first.
+// A file of a call as grammY uploaded it. readBody() decodes the body of the call as UTF-8 before
+// readPayload() splits it into parts, so content holds a file of valid UTF-8 as it was sent, while
+// the invalid bytes of any other, such as a font, are replaced by U+FFFD. A spec that compares the
+// bytes of such a file needs these two to split the body as a Buffer first.
 export type BotApiFile = { filename: string; content: string };
 
 // A call as the fake Bot API received it.

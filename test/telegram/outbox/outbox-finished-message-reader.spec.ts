@@ -19,7 +19,7 @@ import { OutboxChannel, OutboxStatus } from "app/telegram/outbox/store/outbox-st
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import { testDatabaseSettings } from "test/database.helper";
 import { WAIT_UNTIL_DEADLINE_MS, waitUntil } from "test/shared/utils.helper";
-import { NO_CLEANUP, NO_LIMITS, resetOutbox } from "test/telegram/outbox/outbox-store.helper";
+import { HOUR_RETENTION_CLEANUP, NO_LIMITS, resetOutbox } from "test/telegram/outbox/outbox-store.helper";
 
 const CHAT = 5_000_000_001;
 const RESPONSE = { message_id: 1 };
@@ -51,7 +51,8 @@ describe("OutboxFinishedMessageReader", function () {
 
         database = new Database(settings, false);
         observer = new Database(settings, false);
-        store = new OutboxStore(database, silentLogger(), NO_LIMITS, LEASE_DURATION_MS, NO_CLEANUP);
+        // The store only makes the messages here: no limit holds a pull back.
+        store = new OutboxStore(database, silentLogger(), NO_LIMITS, LEASE_DURATION_MS, HOUR_RETENTION_CLEANUP);
         reader = new OutboxFinishedMessageReader(database);
     });
 

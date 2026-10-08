@@ -14,7 +14,7 @@ import { OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
 import { testDatabaseSettings } from "test/database.helper";
 import type { Logger } from "app/platform/logger/logger";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
-import { NO_CLEANUP, NO_LIMITS, resetOutbox } from "test/telegram/outbox/outbox-store.helper";
+import { HOUR_RETENTION_CLEANUP, NO_LIMITS, resetOutbox } from "test/telegram/outbox/outbox-store.helper";
 
 const CHATS = [5_000_000_001, 5_000_000_002, 5_000_000_003, 5_000_000_004, 5_000_000_005];
 const MESSAGES_PER_CHAT = 20;
@@ -124,7 +124,8 @@ function createNode(
     failureHandler: RecordingFailureHandler,
     logger: Logger,
 ): { store: OutboxStore; runner: OutboxRunner } {
-    const store = new OutboxStore(database, logger, NO_LIMITS, LEASE_DURATION_MS, NO_CLEANUP);
+    // The spec is about the order, not the limits.
+    const store = new OutboxStore(database, logger, NO_LIMITS, LEASE_DURATION_MS, HOUR_RETENTION_CLEANUP);
     // The shortest sleep cap: a pull that finds nothing ready waits 100 ms, not up to a second.
     const source = new OutboxMessageSource(store, logger, () => 0);
     const processor = new OutboxMessageProcessor(

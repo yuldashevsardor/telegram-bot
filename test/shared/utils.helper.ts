@@ -1,3 +1,4 @@
+import { inspect } from "node:util";
 import { expect } from "chai";
 import { sleep } from "app/shared/utils";
 
@@ -18,10 +19,10 @@ export async function waitUntil(condition: () => boolean | Promise<boolean>, fai
     }
 }
 
-// The error the promise rejects with; a promise that resolves fails the test.
+// The error the promise rejects with; a promise that resolves fails the test with its value.
 export function caught(promise: Promise<unknown>): Promise<unknown> {
     return promise.then(
-        () => expect.fail("the promise was expected to reject"),
+        (value: unknown) => expect.fail(`the promise was expected to reject, it resolved with ${inspect(value)}`),
         (error: unknown) => error,
     );
 }

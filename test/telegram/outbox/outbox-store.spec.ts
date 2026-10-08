@@ -27,7 +27,7 @@ import {
 } from "app/telegram/outbox/store/outbox-store.errors";
 import { OutboxChannel } from "app/telegram/outbox/store/outbox-store.types";
 import type { DatabaseSettings } from "app/platform/database/database.types";
-import { MS_PER_SECOND } from "app/shared/time";
+import { MS_PER_HOUR, MS_PER_SECOND } from "app/shared/time";
 import { sleep } from "app/shared/utils";
 import { listenTo, rollingBackDatabase, SPEC_ROLLBACK_MESSAGE, testDatabaseSettings, waitForLockWaiters } from "test/database.helper";
 import { waitUntil } from "test/shared/utils.helper";
@@ -45,8 +45,7 @@ const WAIT_DEADLINE_MS = 5_000;
 // The default timeout of mocha, 2 s, is shorter than the deadline and would fail a hung wait first.
 const SPEC_TIMEOUT_MS = 10_000;
 const LEASE_DURATION_MS = 600_000;
-const HOUR_MS = 60 * 60 * MS_PER_SECOND;
-const CLEANUP: OutboxCleanupSettings = { doneRetentionMs: HOUR_MS, skippedRetentionMs: 2 * HOUR_MS, batchSize: 10 };
+const CLEANUP: OutboxCleanupSettings = { doneRetentionMs: MS_PER_HOUR, skippedRetentionMs: 2 * MS_PER_HOUR, batchSize: 10 };
 const WORKER: OutboxWorker = { host: "node-1", pid: 101, workerId: "worker-1" };
 const TRANSIENT: OutboxAttemptError = { kind: TelegramBotApiFailureKind.Transient, message: "Network request failed" };
 const FLOOD: OutboxAttemptError = { kind: TelegramBotApiFailureKind.Flood, message: "Too Many Requests: retry after 5" };
@@ -1072,7 +1071,7 @@ describe("OutboxStore", function () {
             const limitedStore = new OutboxStore(
                 database,
                 logger,
-                { common: NO_LIMIT, private: { number: 1, interval: HOUR_MS }, group: NO_LIMIT },
+                { common: NO_LIMIT, private: { number: 1, interval: MS_PER_HOUR }, group: NO_LIMIT },
                 LEASE_DURATION_MS,
                 CLEANUP,
             );
@@ -1638,7 +1637,7 @@ describe("OutboxStore", function () {
             const limited = new OutboxStore(
                 database,
                 logger,
-                { ...NO_LIMITS, private: { number: 1, interval: HOUR_MS } },
+                { ...NO_LIMITS, private: { number: 1, interval: MS_PER_HOUR } },
                 LEASE_DURATION_MS,
                 CLEANUP,
             );

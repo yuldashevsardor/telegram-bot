@@ -10,7 +10,7 @@ import type { TelegramLimits } from "app/bootstrap/config/config-values";
 import { Database } from "app/platform/database/database";
 import { RequestContext } from "app/platform/request-context/request-context";
 import { FileHelper } from "app/shared/fs/file-helper";
-import { MS_PER_SECOND } from "app/shared/time";
+import { MS_PER_HOUR, MS_PER_SECOND } from "app/shared/time";
 import { sleep } from "app/shared/utils";
 import { isGroupChat } from "app/telegram/telegram-chat";
 import { PathFile } from "app/telegram/path-file/path-file";
@@ -38,14 +38,13 @@ import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 import type { BotApiCall, BotApiFile } from "test/telegram/fake-bot-api.helper";
 import { FakeBotApi, FakeBotApiFactory } from "test/telegram/fake-bot-api.helper";
 import { caught, waitUntil } from "test/shared/utils.helper";
-import { NO_CLEANUP, NO_LIMIT, NO_LIMITS, resetOutbox } from "test/telegram/outbox/outbox-store.helper";
+import { HOUR_RETENTION_CLEANUP, NO_LIMIT, NO_LIMITS, resetOutbox } from "test/telegram/outbox/outbox-store.helper";
 
 const SPEC_TIMEOUT_MS = 30_000;
 const FIRST_NODE_TOKEN = "first-node-token";
 const SECOND_NODE_TOKEN = "second-node-token";
 const PRIVATE_CHAT_IDS = [5_000_000_001, 5_000_000_002, 5_000_000_003, 5_000_000_004];
 const GROUP_CHAT_ID = -1_005_000_000_001;
-const HOUR_MS = 60 * 60 * MS_PER_SECOND;
 const LONG_LEASE_DURATION_MS = 60_000;
 const SHORT_LEASE_DURATION_MS = 1_000;
 // Longer than the lease of SHORT_LEASE_DURATION_MS: a call left unanswered outlives the lease, as
@@ -113,6 +112,7 @@ type NodeSettings = {
 
 const FIRST_NODE: NodeSettings = {
     token: FIRST_NODE_TOKEN,
+    // The specs of the other behaviour do not wait for the limits.
     limits: NO_LIMITS,
     leaseDurationMs: LONG_LEASE_DURATION_MS,
     concurrency: 4,
@@ -190,7 +190,7 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
 
     function createNode(database: Database, settings: NodeSettings): OutboxNode {
         const logger = new RecordingLogger();
-        const store = new OutboxStore(database, logger, settings.limits, settings.leaseDurationMs, NO_CLEANUP);
+        const store = new OutboxStore(database, logger, settings.limits, settings.leaseDurationMs, HOUR_RETENTION_CLEANUP);
         const leaseRetrier = new OutboxLeaseRetrier(store, new RetryDelay(RETRY_DELAY, () => 0), MAX_ATTEMPTS);
         const failureHandler = new OutboxFailureHandler(
             store,
@@ -212,9 +212,9 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
         const runner = new OutboxRunner(source, processor, logger, settings.concurrency, STOP_TIMEOUT_MS, worker);
         const maintenance = new OutboxMaintenance(store, new OutboxLeaseRecovery(store, leaseRetrier), logger, {
             leaseRecoveryIntervalMs: LEASE_RECOVERY_INTERVAL_MS,
-            cleanupIntervalMs: HOUR_MS,
-            statusLogIntervalMs: HOUR_MS,
-            blockedLogIntervalMs: HOUR_MS,
+            cleanupIntervalMs: MS_PER_HOUR,
+            statusLogIntervalMs: MS_PER_HOUR,
+            blockedLogIntervalMs: MS_PER_HOUR,
         });
         const reader = settings.reader ?? new OutboxFinishedMessageReader(database);
         const waiter = new OutboxResultWaiter(reader, logger, new RequestContext(), settings.resultWaiter);

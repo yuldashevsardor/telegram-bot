@@ -1,21 +1,21 @@
 import type { TelegramLimits } from "app/bootstrap/config/config-values";
 import type { Database } from "app/platform/database/database";
-import { MS_PER_SECOND } from "app/shared/time";
+import { MS_PER_HOUR } from "app/shared/time";
 import type { OutboxCleanupSettings } from "app/telegram/outbox/store/outbox-store.types";
 
-// Older than any message of a spec gets.
-const HOUR_RETENTION_MS = 60 * 60 * MS_PER_SECOND;
+const CLEANUP_BATCH_SIZE = 10;
 
 // The limits of the specs that are not about the limits: a cooldown of a nanosecond, below the
 // microsecond of a timestamp, and a common limit no pull reaches.
 export const NO_LIMIT: TelegramLimits["common"] = { number: 1_000_000, interval: 1 };
 export const NO_LIMITS: TelegramLimits = { common: NO_LIMIT, private: NO_LIMIT, group: NO_LIMIT };
 
-// The cleanup of the specs that are not about the cleanup: it removes no message of theirs.
-export const NO_CLEANUP: OutboxCleanupSettings = {
-    doneRetentionMs: HOUR_RETENTION_MS,
-    skippedRetentionMs: HOUR_RETENTION_MS,
-    batchSize: 10,
+// The cleanup of the specs that are not about the cleanup: an hour of retention, longer than any
+// of their messages lives, so a cleanup that runs removes none of them.
+export const HOUR_RETENTION_CLEANUP: OutboxCleanupSettings = {
+    doneRetentionMs: MS_PER_HOUR,
+    skippedRetentionMs: MS_PER_HOUR,
+    batchSize: CLEANUP_BATCH_SIZE,
 };
 
 // Empties the outbox before a test. The common limit has saved up its full number of slots, and
