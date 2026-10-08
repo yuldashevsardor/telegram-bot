@@ -142,7 +142,9 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
     let secondDatabase: Database;
     let fakeBotApi: FakeBotApi;
     let apiRoot: string;
-    let nodes: OutboxNode[];
+    // What afterEach undoes, in the reverse order: only what this beforeEach and the test got to
+    // start, so a failed one neither leaves the server open nor stops the nodes of the previous test.
+    let cleanups: (() => Promise<void> | void)[] = [];
     let workDir: string;
 
     before(async function () {
@@ -162,25 +164,31 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
         fakeBotApi = new FakeBotApi();
         fakeBotApi.answerWith(sentMessage);
         apiRoot = await fakeBotApi.start();
-        nodes = [];
+        cleanups.push(() => fakeBotApi.throwIfFailed());
+        cleanups.push(() => fakeBotApi.close());
         workDir = await fs.mkdtemp(path.join(os.tmpdir(), "outbox-transformer-"));
+        cleanups.push(() => fs.rm(workDir, { recursive: true, force: true }));
     });
 
-    // The server and the directory go whatever the stop of the nodes ends with: a server left open
-    // would hold mocha, which has no --exit.
+    // Every cleanup runs even when one before it fails, and the first failure is thrown at the end:
+    // a server left open would hold mocha, which has no --exit. The nodes stop before the server
+    // closes, and the failures of the server are read once it has closed.
     afterEach(async function () {
-        try {
-            await Promise.all(nodes.map((node) => node.runner.stop()));
-            await Promise.all(nodes.map((node) => node.maintenance.stop()));
-        } finally {
-            for (const node of nodes) {
-                node.waiter.stop();
+        const undone = cleanups.reverse();
+        cleanups = [];
+        const failures: unknown[] = [];
+
+        for (const cleanup of undone) {
+            try {
+                await cleanup();
+            } catch (error) {
+                failures.push(error);
             }
-            await fakeBotApi.close();
-            await fs.rm(workDir, { recursive: true, force: true });
         }
 
-        fakeBotApi.throwIfFailed();
+        if (failures.length > 0) {
+            throw failures[0];
+        }
     });
 
     after(async function () {
@@ -223,7 +231,9 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
         api.config.use(new OutboxTransformer(store, waiter).transform);
 
         const node = { api: api, runner: runner, maintenance: maintenance, waiter: waiter, logger: logger };
-        nodes.push(node);
+        cleanups.push(() => waiter.stop());
+        cleanups.push(() => maintenance.stop());
+        cleanups.push(() => runner.stop());
 
         return node;
     }

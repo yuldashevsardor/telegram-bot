@@ -70,7 +70,9 @@ export type BotApiCall = {
     // Tells apart the Apis that call: each may call with a token of its own.
     token: string;
     method: string;
-    // The fields of the call; the field of a file holds the file, its content read as text.
+    // The fields of the call; the field of a file holds the file, its content read as text. A JSON
+    // body keeps the types of its values, while every field of multipart/form-data is a string: the
+    // chat_id of sendDocument is "5000000001" where that of sendMessage is 5000000001.
     payload: Record<string, unknown>;
     receivedAtMs: number;
 };
@@ -93,18 +95,10 @@ export class FakeBotApi {
     // A failure of the server itself, a bug of the spec. grammY takes the reset socket for a failed
     // call, which the outbox retries, so the failure surfaces only through throwIfFailed().
     private readonly failures: unknown[] = [];
-    private isClosed = false;
     private readonly server: Server = createServer((request, response) => {
         this.handle(request, response).catch((error: unknown) => {
-            response.destroy();
-
-            // A call still waiting for its script at the close fails after it, when no spec calls
-            // throwIfFailed() any more: rethrown, it reaches mocha as an unhandled rejection.
-            if (this.isClosed) {
-                throw error;
-            }
-
             this.failures.push(error);
+            response.destroy();
         });
     });
 
@@ -119,7 +113,6 @@ export class FakeBotApi {
     // grammY keeps its connections alive, and close() alone would wait for them; a call left
     // unanswered is cut off with its connection.
     public async close(): Promise<void> {
-        this.isClosed = true;
         this.server.closeAllConnections();
         await new Promise<void>((resolve) => this.server.close(() => resolve()));
     }

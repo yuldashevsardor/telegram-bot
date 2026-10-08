@@ -164,7 +164,10 @@ src/
 test/                       mocha specs; a spec path repeats the source path, though not in full —
                             the rule is below;
                             the shared code of the specs is *.helper.ts next to the spec of its
-                            source, and for the root hook — next to the hook;
+                            source, and for the root hook — next to the hook; a helper that
+                            stands for no source of its own and serves the specs of several
+                            directories lies in their nearest common directory
+                            (database.helper.ts, telegram/fake-bot-api.helper.ts);
                             the root holds the mocha hooks and the wrappers of make coverage and
                             make mutation (testing.md)
   load/                     the outbox and inbox load tests: the fills, the churn of one chat and
