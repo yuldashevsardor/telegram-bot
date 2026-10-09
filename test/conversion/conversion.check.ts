@@ -6,6 +6,8 @@ import path from "path";
 import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 import { EotPayloadDecoder } from "app/font-convertor/eot-payload-decoder/eot-payload-decoder";
 import type { Extension } from "app/font-convertor/font-convertor.types";
+import { SvgFontPreparer } from "app/font-convertor/svg-font-preparer/svg-font-preparer";
+import { SvgTextCodec } from "app/font-convertor/validator/svg/svg-text-codec";
 import { expectedDifferences } from "test/conversion/expected-differences";
 import { FontFactsComparator } from "test/conversion/font-facts-comparator";
 import { FontFactsReader } from "test/conversion/font-facts-reader";
@@ -28,7 +30,7 @@ describe("Conversion of the fixtures", function () {
     this.timeout(CASE_TIMEOUT_MS);
 
     const factory = realConvertorFactory(realFontValidatorResolver());
-    const reader = new FontFactsReader(new EotPacker(new EotPayloadDecoder()), FONT_FORGE_PATH);
+    const reader = new FontFactsReader(new EotPacker(new EotPayloadDecoder()), new SvgFontPreparer(new SvgTextCodec()), FONT_FORGE_PATH);
     const comparator = new FontFactsComparator();
     const extensions = factory.getSupportedExtensions();
     const fontFixtures = readFontFixtures();

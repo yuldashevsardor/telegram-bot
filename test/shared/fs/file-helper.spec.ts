@@ -262,6 +262,96 @@ describe("FileHelper.read, write and remove", function () {
     }
 });
 
+describe("FileHelper.copyTimes", function () {
+    let basePath: string;
+    let sourcePath: string;
+    let targetPath: string;
+
+    beforeEach(async function () {
+        basePath = await fs.mkdtemp(path.join(os.tmpdir(), "file-helper-"));
+        sourcePath = path.join(basePath, "source.bin");
+        targetPath = path.join(basePath, "target.bin");
+        await FileHelper.write(sourcePath, Uint8Array.from([1]));
+        await FileHelper.write(targetPath, Uint8Array.from([2]));
+    });
+
+    afterEach(async function () {
+        await fs.rm(basePath, { recursive: true, force: true });
+    });
+
+    it("gives the target the whole seconds of the source times", async function () {
+        // 0.9999 of a second past: a time rounded to the millisecond would land in the next second.
+        await fs.utimes(sourcePath, 1_500_000_000.9999, 1_600_000_000.9999);
+
+        await FileHelper.copyTimes(sourcePath, targetPath);
+
+        const targetStats = await fs.stat(targetPath, { bigint: true });
+        expect(targetStats.atimeNs).to.equal(1_500_000_000_000_000_000n);
+        expect(targetStats.mtimeNs).to.equal(1_600_000_000_000_000_000n);
+    });
+
+    it("wraps a source that cannot be read and a target that cannot be written", async function () {
+        const missingPath = path.join(basePath, "missing.bin");
+
+        expect(await rejectionOf(() => FileHelper.copyTimes(missingPath, targetPath))).to.be.instanceOf(ReadFailed);
+        expect(await rejectionOf(() => FileHelper.copyTimes(sourcePath, missingPath))).to.be.instanceOf(WriteFailed);
+    });
+});
+
+describe("FileHelper.removeAfter", function () {
+    let basePath: string;
+    let filePath: string;
+
+    beforeEach(async function () {
+        basePath = await fs.mkdtemp(path.join(os.tmpdir(), "file-helper-"));
+        filePath = path.join(basePath, "left-on-the-way.bin");
+    });
+
+    afterEach(async function () {
+        await fs.rm(basePath, { recursive: true, force: true });
+    });
+
+    it("removes the file after the work succeeds", async function () {
+        await FileHelper.removeAfter(filePath, () => FileHelper.write(filePath, Uint8Array.from([1])));
+
+        expect(await FileHelper.isExist(filePath)).to.be.false;
+    });
+
+    it("removes the file after the work fails, and throws the failure of the work", async function () {
+        const failure = new Error("work failed");
+
+        const error = await rejectionOf(() =>
+            FileHelper.removeAfter(filePath, async () => {
+                await FileHelper.write(filePath, Uint8Array.from([1]));
+                throw failure;
+            }),
+        );
+
+        expect(error).to.equal(failure);
+        expect(await FileHelper.isExist(filePath)).to.be.false;
+    });
+
+    // A directory in place of the file fails the removal: FileHelper.remove() does not recurse.
+    it("throws the removal failure when the work succeeds", async function () {
+        await fs.mkdir(filePath);
+
+        expect(await rejectionOf(() => FileHelper.removeAfter(filePath, async () => {}))).to.be.instanceOf(RemoveFailed);
+    });
+
+    it("keeps the failure of the work when the removal fails after it", async function () {
+        const failure = new Error("work failed");
+        await fs.mkdir(filePath);
+
+        expect(
+            await rejectionOf(() =>
+                FileHelper.removeAfter(filePath, async () => {
+                    throw failure;
+                }),
+            ),
+        ).to.equal(failure);
+    });
+});
+
 describe("ReadFailed, WriteFailed and RemoveFailed", function () {
     const cases = [
         {

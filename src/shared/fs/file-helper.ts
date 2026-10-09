@@ -1,8 +1,11 @@
 import fs from "fs/promises";
 import fsSync from "fs";
+import type { BigIntStats } from "fs";
 import path from "path";
 import dayjs from "dayjs";
 import { InvalidExtensions, InvalidPath, PermissionDenied, ReadFailed, RemoveFailed, WriteFailed } from "app/shared/fs/file-helper.errors";
+
+const NANOSECONDS_PER_SECOND = 1_000_000_000n;
 
 export class FileHelper {
     // F_OK and not R_OK: with R_OK an existing unreadable path would pass for a missing one. A check
@@ -99,6 +102,31 @@ export class FileHelper {
     }
 
     /**
+     * Gives `targetPath` the access and modification times of `sourcePath` in whole seconds. The part
+     * of a second is dropped on purpose: a `Date` of the stat rounds to the millisecond, and a double
+     * of nanoseconds loses digits, so either could move the time into the next second.
+     */
+    public static async copyTimes(sourcePath: string, targetPath: string): Promise<void> {
+        let sourceStats: BigIntStats;
+
+        try {
+            sourceStats = await fs.stat(sourcePath, { bigint: true });
+        } catch (error) {
+            throw ReadFailed.byPath(sourcePath, error);
+        }
+
+        try {
+            await fs.utimes(
+                targetPath,
+                Number(sourceStats.atimeNs / NANOSECONDS_PER_SECOND),
+                Number(sourceStats.mtimeNs / NANOSECONDS_PER_SECOND),
+            );
+        } catch (error) {
+            throw WriteFailed.byPath(targetPath, error);
+        }
+    }
+
+    /**
      * Removes the file; a missing path does not count as an error.
      */
     public static async remove(path: string): Promise<void> {
@@ -106,6 +134,32 @@ export class FileHelper {
             await fs.rm(path, { force: true });
         } catch (error) {
             throw RemoveFailed.byPath(path, error);
+        }
+    }
+
+    /**
+     * Runs `work` and removes the file at `path` after a success and after a failure alike, for a
+     * file `work` leaves on the way. The removal is not in `finally`: there its own error would
+     * displace the error of `work`, and the real reason for the failure would not survive even in
+     * `cause`. So a removal error surfaces only if `work` did not fail.
+     */
+    public static async removeAfter(path: string, work: () => Promise<void>): Promise<void> {
+        let failure: unknown;
+
+        try {
+            await work();
+        } catch (error) {
+            failure = error;
+        }
+
+        try {
+            await FileHelper.remove(path);
+        } catch (error) {
+            failure ??= error;
+        }
+
+        if (failure !== undefined) {
+            throw failure;
         }
     }
 

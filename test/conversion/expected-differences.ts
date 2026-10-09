@@ -31,10 +31,6 @@ const NON_SVG_FIXTURES = [
 // and 410, at 1792: 1433 and 359.
 const SVG_FALLBACK_ASCENT_SHARE = 0.8;
 
-// The width fontforge reads for a glyph of an SVG font that leaves horiz-adv-x out where <font> says 0
-// (issue #913). Measured on fonts with units-per-em 1000.
-const SVG_OMITTED_WIDTH = 1000;
-
 // The base Arabic letters of Noto Naskh Arabic that come back from SVG only as their presentation forms.
 const NOTO_NASKH_ARABIC_BASE_LETTERS = [
     0x0621, 0x0622, 0x0623, 0x0624, 0x0625, 0x0626, 0x0627, 0x0628, 0x0629, 0x062a, 0x062b, 0x062c, 0x062d, 0x062e, 0x062f, 0x0630, 0x0631,
@@ -49,7 +45,7 @@ const NOTO_NASKH_ARABIC_BASE_LETTERS = [
 // platform 3, and writes a <glyph> for each listing into an SVG font. In Bungee Spice the main code
 // points U+0162 and U+0163 come back twice as well: their glyphs have the alternates U+021A and U+021B.
 const SOURCE_SANS_3_DOUBLED_CODE_POINTS = [0x00a0, 0x00ad, 0x03bc, 0x03d5, 0x2010, 0x2011, 0x207c, 0x2126, 0x2206];
-const NOTO_NASKH_ARABIC_DOUBLED_CODE_POINTS = [0x00a0, 0x06f1, 0x06f3, 0x06f8, 0x06f9, 0x202f];
+const NOTO_NASKH_ARABIC_DOUBLED_CODE_POINTS = [0x00a0, 0x06f1, 0x06f3, 0x06f8, 0x06f9, 0x202f, 0xfeff];
 // U+FF41 to U+FF5A are the fullwidth a to z.
 const BUNGEE_SPICE_DOUBLED_CODE_POINTS = [
     0x00a0,
@@ -59,6 +55,7 @@ const BUNGEE_SPICE_DOUBLED_CODE_POINTS = [
     0x021b,
     0x03bc,
     0x2002,
+    0x2003,
     0x2010,
     0x2126,
     0x2206,
@@ -105,21 +102,6 @@ class FontFactsChanges {
         }
 
         return { ...facts, advanceWidths: new Map([...facts.advanceWidths, ...widthsByCodePoint]) };
-    }
-
-    public withZeroWidthsAs(facts: FontFacts, width: number): FontFacts {
-        const advanceWidths = new Map(facts.advanceWidths);
-
-        for (const [codePoint, widths] of advanceWidths) {
-            const changedWidths = widths.map((advanceWidth) => (advanceWidth === 0 ? width : advanceWidth));
-
-            advanceWidths.set(
-                codePoint,
-                changedWidths.sort((left, right) => left - right),
-            );
-        }
-
-        return { ...facts, advanceWidths: advanceWidths };
     }
 
     public withEachGlyphTwice(facts: FontFacts, codePoints: Array<number>): FontFacts {
@@ -224,42 +206,34 @@ export const expectedDifferences: Array<ExpectedDifference> = [
         fixtures: [SOURCE_SANS_3],
         toExtensions: [Extension.SVG],
         resultFacts: (sourceFacts: FontFacts): FontFacts => {
-            const withoutEmptyGlyphs = changes.withoutCodePoints(sourceFacts, [0x034f, 0x200b, 0xfeff]);
-            const withZeroWidths = changes.withZeroWidthsAs(withoutEmptyGlyphs, SVG_OMITTED_WIDTH);
-            const withNamedGlyphs = changes.withAddedCodePoints(withZeroWidths, new Map([[0xfb05, [594]]]));
+            const withNamedGlyphs = changes.withAddedCodePoints(sourceFacts, new Map([[0xfb05, [594]]]));
             const withGlyphsTwice = changes.withEachGlyphTwice(withNamedGlyphs, SOURCE_SANS_3_DOUBLED_CODE_POINTS);
 
-            return { ...withGlyphsTwice, glyphCount: sourceFacts.glyphCount + 15 };
+            return { ...withGlyphsTwice, glyphCount: sourceFacts.glyphCount + 18 };
         },
         reason:
-            "15 glyphs more: fontforge writes a glyph once more for each listing of its alternate code point, 18 " +
-            "elements more than the font has glyphs, and reads each back as a glyph of its own. Defects of reading SVG " +
-            "(issue #913): the 3 empty zero-width glyphs, U+034F, U+200B and U+FEFF, are dropped; the other zero " +
-            "widths come back as 1000; the f_t ligature, which has no code point, gets U+FB05 from its name.",
+            "18 glyphs more: fontforge writes a glyph once more for each listing of its alternate code point, 18 " +
+            "elements more than the font has glyphs, and reads each back as a glyph of its own. A defect of reading " +
+            "SVG (issue #913): the f_t ligature, which has no code point, gets U+FB05 from its name.",
     },
     {
         fixtures: [NOTO_NASKH_ARABIC],
         toExtensions: [Extension.SVG],
         resultFacts: (sourceFacts: FontFacts): FontFacts => {
             const withoutLostCodePoints = changes.withoutCodePoints(sourceFacts, [
-                0x061c,
-                0x200b,
-                0xfeff,
                 ...NOTO_NASKH_ARABIC_BASE_LETTERS,
                 ...NOTO_NASKH_ARABIC_UNWRITTEN,
             ]);
-            const withZeroWidths = changes.withZeroWidthsAs(withoutLostCodePoints, SVG_OMITTED_WIDTH);
-            const withGlyphsTwice = changes.withEachGlyphTwice(withZeroWidths, NOTO_NASKH_ARABIC_DOUBLED_CODE_POINTS);
+            const withGlyphsTwice = changes.withEachGlyphTwice(withoutLostCodePoints, NOTO_NASKH_ARABIC_DOUBLED_CODE_POINTS);
             const withOtherAlefMaksuraForms = changes.withReplacedWidths(withGlyphsTwice, new Map([[0x0649, [275, 292]]]));
 
-            return { ...withOtherAlefMaksuraForms, glyphCount: sourceFacts.glyphCount + 9 };
+            return { ...withOtherAlefMaksuraForms, glyphCount: sourceFacts.glyphCount + 14 };
         },
         reason:
-            "9 glyphs more: fontforge writes 7 glyphs once more for each listing of their alternate code point, 14 " +
-            "elements more than the font has glyphs, and on reading drops 5 empty ones, three copies of .null among " +
-            "them. Defects of reading SVG (issue #913): 74 base letters, U+0621 to U+06D3, are written with " +
-            "arabic-form and read back only as their presentation forms; the empty glyphs of U+061C, U+200B and " +
-            "U+FEFF are dropped; the other zero widths come back as 1000. A defect of writing SVG: U+06D5 and 7 " +
+            "14 glyphs more: fontforge writes 7 glyphs once more for each listing of their alternate code point, 14 " +
+            "elements more than the font has glyphs, and reads each back as a glyph of its own. A defect of reading " +
+            "SVG (issue #913): 74 base letters, U+0621 to U+06D3, are written with arabic-form and read back only as " +
+            "their presentation forms. A defect of writing SVG: U+06D5 and 7 " +
             "presentation forms from U+FBA2 to U+FEF4 have no <glyph> of their own, as fontforge writes their glyphs " +
             "under the base letter with arabic-form, so U+0649 comes back with the glyphs of U+FBE8 and U+FBE9, " +
             "widths 275 and 292 instead of 618.",
@@ -268,16 +242,15 @@ export const expectedDifferences: Array<ExpectedDifference> = [
         fixtures: [BUNGEE_SPICE],
         toExtensions: [Extension.SVG],
         resultFacts: (sourceFacts: FontFacts): FontFacts => {
-            const withoutLostCodePoints = changes.withoutCodePoints(sourceFacts, [0x2001, 0x2003, 0x2007, 0xe189, 0xe202]);
+            const withoutLostCodePoints = changes.withoutCodePoints(sourceFacts, [0xe202]);
             const withGlyphsTwice = changes.withEachGlyphTwice(withoutLostCodePoints, BUNGEE_SPICE_DOUBLED_CODE_POINTS);
 
-            return { ...withGlyphsTwice, glyphCount: sourceFacts.glyphCount + 32 };
+            return { ...withGlyphsTwice, glyphCount: sourceFacts.glyphCount + 76 };
         },
         reason:
-            "32 glyphs more: fontforge writes a glyph once more for each listing of its alternate code point, 76 " +
-            "elements more than the font has glyphs, and on reading drops 44 empty ones. A defect of reading SVG " +
-            "(issue #913): the spaces U+2001, U+2003, U+2007 and U+E189, empty glyphs whose width equals the 1000 of " +
-            "<font>, are written without horiz-adv-x and dropped on reading. A defect of writing SVG: the glyph " +
+            "76 glyphs more: fontforge writes a glyph once more for each listing of its alternate code point, 76 " +
+            "elements more than the font has glyphs, and reads each back as a glyph of its own. A defect of writing " +
+            "SVG: the glyph " +
             'I_I.salt_v of U+E202 is written under unicode="&#xe201;&#xe201;", the code points of its name as a ' +
             "ligature, so U+E202 is not written at all.",
     },
@@ -285,30 +258,25 @@ export const expectedDifferences: Array<ExpectedDifference> = [
         fixtures: [PACIFICO],
         toExtensions: [Extension.SVG],
         resultFacts: (sourceFacts: FontFacts): FontFacts => {
-            const withZeroWidths = changes.withZeroWidthsAs(sourceFacts, SVG_OMITTED_WIDTH);
-            const withNamedGlyphs = changes.withAddedCodePoints(
-                withZeroWidths,
+            return changes.withAddedCodePoints(
+                sourceFacts,
                 new Map([
                     [0x013f, [673]],
                     [0x0140, [363]],
                     [0x0237, [254]],
-                    [0x0302, [SVG_OMITTED_WIDTH]],
-                    [0x0307, [SVG_OMITTED_WIDTH]],
-                    [0x030a, [SVG_OMITTED_WIDTH]],
-                    [0x0327, [SVG_OMITTED_WIDTH]],
+                    [0x0302, [0]],
+                    [0x0307, [0]],
+                    [0x030a, [0]],
+                    [0x0327, [0]],
                     [0x2074, [450]],
                     [0xfb00, [684]],
                     [0xfb01, [633]],
                     [0xfb02, [688]],
                 ]),
             );
-
-            return { ...withNamedGlyphs, glyphCount: sourceFacts.glyphCount - 1 };
         },
         reason:
-            "Defects of reading SVG (issue #913). The subset of Google Fonts keeps glyphs it does not encode, and " +
-            "fontforge gives each of them the code point of its name (Ldot U+013F, fi U+FB01 and the rest listed); " +
-            "the zero-width ones among them and the zero widths of the font come back as 1000. The empty NULL glyph " +
-            "is dropped, one glyph less, which takes back the one the <missing-glyph> adds.",
+            "A defect of reading SVG (issue #913). The subset of Google Fonts keeps glyphs it does not encode, and " +
+            "fontforge gives each of them the code point of its name (Ldot U+013F, fi U+FB01 and the rest listed).",
     },
 ];

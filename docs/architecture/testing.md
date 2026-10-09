@@ -170,7 +170,8 @@ its widths.
 
 - fontforge reads the facts through `fontforge -c` (`FontFactsReader`): the image has fontforge with
   its embedded Python and no separate `python3`. An EOT is unpacked with `EotPacker` first, since
-  fontforge cannot open one.
+  fontforge cannot open one, and an SVG is prepared with `SvgFontPreparer` first, as
+  `FontForge.convert()` prepares an SVG source (`font-convertor.md`, "Reading SVG").
 - Glyph names are not compared: fontforge renames some of them on reading (the Roboto TrueType
   fixture has `.notdef` at glyph 3). U+0000 is left out of the code points; why is at `readScript`
   in the reader.
@@ -192,8 +193,9 @@ not show on the source side:
   not here.
 
 On the result side it is the other way round: a reading defect shows as a loss. fontforge misreads
-the SVG font it writes itself (issue #913), so most of the differences the list gives the pairs into
-SVG are not in the written file; their reasons say which are.
+the SVG font it writes itself, and the preparation works around only a part of it, so some of the
+differences the list gives the pairs into SVG are not in the written file; their reasons say which
+are.
 
 The check runs apart from the main set: the `test:fonts` npm script starts mocha with
 `--no-config` over `test/conversion/**/*.check.ts`.

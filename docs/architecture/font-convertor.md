@@ -10,7 +10,8 @@ FontConvertor.convert({ originPath, extension })
     convertor/<from>/<from>-to-<to>.ts
   → Convertor.validate(): the source exists and is readable, its extension matches, the validator
     of its format accepts it (FontValidatorResolver); the result path does not exist
-  → FontForge.convert(): fontforge -c '<script>' SRC DIST through ProcessHelper.run
+  → FontForge.convert(): fontforge -c '<script>' SRC DIST through ProcessHelper.run; an SVG
+    source is handed over as a prepared copy (SvgFontPreparer, "Reading SVG")
 ```
 
 ## EOT
@@ -33,7 +34,7 @@ directory, so the derived name is unique too. The intermediate file is removed a
 after a failure alike, but not in `finally`. There `RemoveFailed` would displace the original error,
 and the real reason for the failure would not survive even in `cause`. So precedence is the opposite
 of `finally`'s: a removal error surfaces only if nothing failed before it
-(`TwoStepEotConvertor.throughIntermediate()`).
+(`FileHelper.removeAfter()`).
 
 The `Convertor` classes of the EOT pairs inherit from two parents. They are kept apart so that no
 pair class gets what it does not need:
@@ -41,9 +42,9 @@ pair class gets what it does not need:
 - `EotConvertor` is the constructor for the pairs the codec alone is enough for (`ttf ↔ eot`).
   `TtfToEot` and `EotToTtf` declare both extensions and keep `convert()` to themselves: in
   `EotConvertor` there is nowhere for the body to move up to.
-- `TwoStepEotConvertor` is the constructor, the intermediate path and the removal for the other
-  eight pairs. Their bodies live in `ToEotConvertor` and `FromEotConvertor`. The eight classes
-  are empty except for declaring the missing extension.
+- `TwoStepEotConvertor` is the constructor and the intermediate path for the other eight pairs.
+  Their bodies live in `ToEotConvertor` and `FromEotConvertor`. The eight classes are empty except
+  for declaring the missing extension.
 
 `EotPacker` (`eot-packer/`) is one of the six places on the conversion path where the domain parses
 the content of a font; the others are the SVG, WOFF, WOFF2, EOT and sfnt validators below. Two of
@@ -104,6 +105,33 @@ The engine is launched only through `ProcessHelper.run(file, args)`, a wrapper o
 name comes from the user. The same technique removes the second level of interpretation, Python's:
 the script reads the paths passed as arguments from `sys.argv`, they are not substituted into the
 script text.
+
+## Reading SVG
+
+fontforge 20230101 misreads an SVG font that leaves the advance of a glyph to `<font>`, as SVG 1.1
+allows: a `glyph` or `missing-glyph` without `horiz-adv-x` takes the `horiz-adv-x` of `<font>`
+(§20.4, §20.5). fontforge takes a non-zero advance of `<font>` and reads `0` as none, giving such a
+glyph the em, and it drops a glyph that has neither `horiz-adv-x` nor `d`. An empty glyph with
+`horiz-adv-x="0"` is kept. fontforge writes such fonts itself: it leaves out every advance equal to
+the one it puts on `<font>`, 0 in Source Sans 3 and 1000 in Bungee Spice. Measured for
+[#913](https://github.com/yuldashevsardor/telegram-bot/issues/913): read back, the combining marks
+of Source Sans 3 were 1000 wide instead of 0, and its U+200B and U+FEFF were gone.
+
+So the engine never reads an SVG source itself. `FontForge.convert()` has `SvgFontPreparer`
+(`svg-font-preparer/`) write a copy next to the result, `<result>.svg` (`<result>.ttf.svg` on the
+way to EOT), with the advance of `<font>` written on every `glyph` and `missing-glyph` that leaves
+it out, hands the engine the copy and removes it as the intermediate sfnt of EOT is removed. Nothing
+else of the file changes but a UTF-8 BOM, which XML does not need: the attribute goes before the end
+of the start tag, the copy is written in the encoding of the source (`SvgTextCodec`, which
+`SvgFontValidator` reads the file with too), and it takes the modification time of the source,
+since fontforge stamps the font it writes with the time of the file it reads.
+The preparer leans on the rules of the validator, which the source has passed: one `font` with
+`horiz-adv-x`, the font nodes in the SVG namespace and without prefixed attributes. So it matches
+the elements by their local names, without the namespace bindings the validator makes.
+
+Two more defects of reading SVG are not worked around: `arabic-form="isolated"` moves a glyph from
+its letter to the presentation form (U+0627 to U+FE8D), and a glyph without `unicode` gets the code
+point its name spells (`Ldot` U+013F, `uni0041` U+0041 beside the glyph of `A`).
 
 ## Signatures
 

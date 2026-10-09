@@ -1,5 +1,6 @@
 import path from "path";
 import type { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
+import type { SvgFontPreparer } from "app/font-convertor/svg-font-preparer/svg-font-preparer";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { RuntimeError } from "app/shared/errors";
 import { ProcessHelper } from "app/shared/process/process-helper";
@@ -46,18 +47,30 @@ export class FontFactsReader {
         "}))",
     ].join("\n");
 
-    public constructor(private readonly eotPacker: EotPacker, private readonly fontForgePath: string) {}
+    public constructor(
+        private readonly eotPacker: EotPacker,
+        private readonly svgFontPreparer: SvgFontPreparer,
+        private readonly fontForgePath: string,
+    ) {}
 
     /**
-     * An EOT is unpacked into `workDir` first: fontforge cannot open the envelope. The unpacked file
-     * is named apart from `<result>.ttf`, the intermediate font of the convertors into EOT.
+     * An EOT is unpacked into `workDir` first: fontforge cannot open the envelope. An SVG is prepared
+     * there first, as FontForge.convert() prepares an SVG source: read raw, it would lose what the
+     * preparation keeps. The files are named apart from `<result>.ttf` and `<result>.<ext>.svg`, the
+     * intermediate files of the convertors.
      */
     public async read(fontPath: string, workDir: string): Promise<FontFacts> {
+        const extension = path.extname(fontPath).toLowerCase();
         let openedFontPath = fontPath;
 
-        if (path.extname(fontPath).toLowerCase() === `.${Extension.EOT}`) {
+        if (extension === `.${Extension.EOT}`) {
             openedFontPath = path.join(workDir, `${path.basename(fontPath)}.unpacked.${Extension.TTF}`);
             await this.eotPacker.unpack(fontPath, openedFontPath);
+        }
+
+        if (extension === `.${Extension.SVG}`) {
+            openedFontPath = path.join(workDir, `${path.basename(fontPath)}.prepared.${Extension.SVG}`);
+            await this.svgFontPreparer.prepare(fontPath, openedFontPath);
         }
 
         // ProcessHelper.run leaves the maxBuffer of execFile at its default, 1 MiB of stdout: some 60 000

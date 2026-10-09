@@ -5,13 +5,14 @@ import path from "path";
 import zlib from "zlib";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
+import { SvgTextCodec } from "app/font-convertor/validator/svg/svg-text-codec";
 import type { InvalidSvgFont } from "app/font-convertor/validator/svg/svg-font-validator.errors";
 import { BrokenFont, NoFont, NotSvg, NotXml } from "app/font-convertor/validator/svg/svg-font-validator.errors";
 import { FontRule } from "app/font-convertor/validator/svg/svg-font-validator.types";
 import { ReadFailed } from "app/shared/fs/file-helper.errors";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
-const validator = new SvgFontValidator();
+const validator = new SvgFontValidator(new SvgTextCodec());
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 const SVG_ROOT = `{${SVG_NAMESPACE}}svg`;

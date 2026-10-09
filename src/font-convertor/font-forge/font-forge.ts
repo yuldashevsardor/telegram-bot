@@ -1,9 +1,11 @@
 import { FileHelper } from "app/shared/fs/file-helper";
 import { ProcessHelper } from "app/shared/process/process-helper";
-import { injectable } from "inversify";
+import { inject, injectable } from "inversify";
 import { ExecuteError, ExtensionNotSupport } from "app/font-convertor/font-forge/font-forge.errors";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { configValue } from "app/shared/config-value";
+import type { SvgFontPreparer } from "app/font-convertor/svg-font-preparer/svg-font-preparer";
+import { Tokens } from "app/shared/tokens";
 
 @injectable()
 export class FontForge {
@@ -18,7 +20,10 @@ export class FontForge {
     // a string.
     private readonly convertScript = "import fontforge, sys; font = fontforge.open(sys.argv[1]); font.generate(sys.argv[2])";
 
-    public constructor(private readonly fontForgePath: string = configValue("fontForgePath")) {}
+    public constructor(
+        @inject<SvgFontPreparer>(Tokens.Font.Engine.SvgFontPreparer) private readonly svgFontPreparer: SvgFontPreparer,
+        private readonly fontForgePath: string = configValue("fontForgePath"),
+    ) {}
 
     public async convert(srcPath: string, distPath: string): Promise<void> {
         const srcExtension = (await FileHelper.getFileExtension(srcPath)).toLowerCase();
@@ -32,6 +37,24 @@ export class FontForge {
             throw ExtensionNotSupport.byExtension(distExtension);
         }
 
+        if (srcExtension !== Extension.SVG) {
+            await this.run(srcPath, distPath);
+
+            return;
+        }
+
+        // The engine misreads an SVG font that leaves the advance of a glyph to <font>, so it reads a
+        // prepared copy (SvgFontPreparer). The result name is unique in its directory, so a name
+        // derived from it is unique too.
+        const preparedPath = `${distPath}.${Extension.SVG}`;
+
+        await FileHelper.removeAfter(preparedPath, async () => {
+            await this.svgFontPreparer.prepare(srcPath, preparedPath);
+            await this.run(preparedPath, distPath);
+        });
+    }
+
+    private async run(srcPath: string, distPath: string): Promise<void> {
         try {
             await ProcessHelper.run(this.fontForgePath, ["-c", this.convertScript, srcPath, distPath]);
         } catch (error) {

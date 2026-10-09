@@ -36,12 +36,16 @@ export const Tokens = {
             Woff2: Symbol.for("FontValidatorWoff2"),
             Eot: Symbol.for("FontValidatorEot"),
         },
+        Svg: {
+            TextCodec: Symbol.for("FontSvgTextCodec"),
+        },
         Envelope: {
             Packer: Symbol.for("FontEnvelopePacker"),
             PayloadDecoder: Symbol.for("FontEnvelopePayloadDecoder"),
         },
         Engine: {
             FontForge: Symbol.for("FontEngineFontForge"),
+            SvgFontPreparer: Symbol.for("FontEngineSvgFontPreparer"),
         },
     },
     Bot: {
