@@ -204,7 +204,7 @@ export class SvgFontPreparer {
         }
 
         for (const glyph of glyphs) {
-            const presentationFormCodePoint = this.alefMaksuraPresentationForm(glyph);
+            const presentationFormCodePoint = this.alefMaksuraPresentationFormCodePoint(glyph);
 
             if (presentationFormCodePoint === undefined) {
                 continue;
@@ -240,7 +240,7 @@ export class SvgFontPreparer {
             }
 
             const hasKnownForm = form !== undefined && SvgFontPreparer.ARABIC_FORMS.includes(form);
-            const isAlefMaksuraFormLeftInPlace = this.alefMaksuraPresentationForm(glyph) !== undefined;
+            const isAlefMaksuraFormLeftInPlace = this.alefMaksuraPresentationFormCodePoint(glyph) !== undefined;
 
             if (!hasKnownForm || isAlefMaksuraFormLeftInPlace) {
                 readUnderLetter.add(unicodeValue);
@@ -250,7 +250,7 @@ export class SvgFontPreparer {
         return readUnderLetter;
     }
 
-    private alefMaksuraPresentationForm(glyph: FontGlyph): number | undefined {
+    private alefMaksuraPresentationFormCodePoint(glyph: FontGlyph): number | undefined {
         const form = glyph.attributes["arabic-form"];
 
         if (glyph.attributes["unicode"] !== SvgFontPreparer.ALEF_MAKSURA || form === undefined) {
