@@ -2,6 +2,7 @@ import { expect } from "chai";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
+import { SaxesParser } from "saxes";
 import { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory";
 import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 import { EotPayloadDecoder } from "app/font-convertor/eot-payload-decoder/eot-payload-decoder";
@@ -15,9 +16,11 @@ import { WoffFontValidator } from "app/font-convertor/validator/woff/woff-font-v
 import { Woff2FontValidator } from "app/font-convertor/validator/woff2/woff2-font-validator";
 import { EotFontValidator } from "app/font-convertor/validator/eot/eot-font-validator";
 import { FileHelper } from "app/shared/fs/file-helper";
+import { ProcessHelper } from "app/shared/process/process-helper";
 import { ProcessFailed } from "app/shared/process/process-helper.errors";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
+const bungeeSpicePath = path.join(fixtureDir, "bungee-spice", "BungeeSpice-Regular.ttf");
 
 describe("FontForge.convert", function () {
     const fontForge = new FontForge("fontforge");
@@ -72,11 +75,25 @@ describe("FontForge.convert", function () {
     it("writes into svg a glyph with a ligature under its own code point as well", async function () {
         const distPath = path.join(workDir, "result.svg");
 
-        await fontForge.convert(path.join(fixtureDir, "bungee-spice", "BungeeSpice-Regular.ttf"), distPath);
+        await fontForge.convert(bungeeSpicePath, distPath);
 
-        const svgFont = await fs.readFile(distPath, "utf8");
-        expect(svgFont).to.include('<glyph glyph-name="I_I.salt_v" unicode="&#xe201;&#xe201;" vert-adv-y="854"');
-        expect(svgFont).to.include('<glyph glyph-name="I_I.salt_v.uE202" unicode="&#xe202;" vert-adv-y="854"');
+        const glyphs = await glyphsByName(distPath);
+        expect(glyphs.get("I_I.salt_v")).to.include({ unicode: "\u{E201}\u{E201}" });
+        expect(glyphs.get("I_I.salt_v.uE202")).to.include({ unicode: "\u{E202}", "vert-adv-y": "854" });
+    });
+
+    it("writes into svg a copy whose name is taken without touching the glyph that has it", async function () {
+        const srcPath = path.join(workDir, "taken-name.ttf");
+        const distPath = path.join(workDir, "result.svg");
+        const renameScript =
+            'import fontforge, sys; font = fontforge.open(sys.argv[1]); font["A"].glyphname = "I_I.salt_v.uE202"; font.generate(sys.argv[2])';
+        await ProcessHelper.run("fontforge", ["-c", renameScript, bungeeSpicePath, srcPath]);
+
+        await fontForge.convert(srcPath, distPath);
+
+        const glyphs = await glyphsByName(distPath);
+        expect(glyphs.get("I_I.salt_v.uE202")).to.include({ unicode: "A" });
+        expect([...glyphs.values()].map((glyph) => glyph["unicode"])).to.include("\u{E202}");
     });
 
     // The glyph uni06D5 has U+06D5 and the presentation form U+FEE9, which fontforge writes as U+0647 with
@@ -86,17 +103,17 @@ describe("FontForge.convert", function () {
 
         await fontForge.convert(path.join(fixtureDir, "noto-naskh-arabic", "NotoNaskhArabic-Regular.ttf"), distPath);
 
-        const svgFont = await fs.readFile(distPath, "utf8");
-        expect(svgFont).to.include('<glyph glyph-name="uni06D5" unicode="&#x647;" horiz-adv-x="408" arabic-form="isolated"');
-        expect(svgFont).to.include('<glyph glyph-name="uni06D5.u06D5" unicode="&#x6d5;" horiz-adv-x="408"');
-        expect(svgFont).not.to.include('glyph-name="uniFBE8.');
+        const glyphs = await glyphsByName(distPath);
+        expect(glyphs.get("uni06D5")).to.include({ unicode: "\u0647", "arabic-form": "isolated" });
+        expect(glyphs.get("uni06D5.u06D5")).to.include({ unicode: "\u06D5", "horiz-adv-x": "408" });
+        expect([...glyphs.keys()].filter((glyphName) => glyphName.startsWith("uniFBE8."))).to.be.empty;
     });
 
     // The CFF of an OTF keeps the glyph names as text, so a copy would show by its name.
     it("adds no glyph copies to a font of another format", async function () {
         const distPath = path.join(workDir, "result.otf");
 
-        await fontForge.convert(path.join(fixtureDir, "bungee-spice", "BungeeSpice-Regular.ttf"), distPath);
+        await fontForge.convert(bungeeSpicePath, distPath);
 
         const otfFont = await fs.readFile(distPath);
         expect(otfFont.includes("I_I.salt_v")).to.be.true;
@@ -134,6 +151,22 @@ describe("FontForge.convert", function () {
         expect(error).to.be.instanceOf(ExecuteError);
         expect((error as ExecuteError).cause).to.be.instanceOf(ProcessFailed);
     });
+
+    // The attributes of each <glyph> element by its name, read by an XML parser: the specs check the
+    // element under a code point, not the order or the escaping fontforge writes it with.
+    async function glyphsByName(svgPath: string): Promise<Map<string, Record<string, string>>> {
+        const glyphs = new Map<string, Record<string, string>>();
+        const parser = new SaxesParser();
+        parser.on("opentag", (tag) => {
+            const glyphName = tag.attributes["glyph-name"];
+            if (tag.name === "glyph" && glyphName !== undefined) {
+                glyphs.set(glyphName, tag.attributes);
+            }
+        });
+        parser.write(await fs.readFile(svgPath, "utf8")).close();
+
+        return glyphs;
+    }
 
     function fixture(extension: Extension): string {
         return path.join(fixtureDir, `test-font.${extension}`);
