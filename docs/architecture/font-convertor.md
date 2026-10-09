@@ -160,7 +160,9 @@ writes a glyph into one `<glyph>` element and leaves its other code points out (
 
 Before writing, the script adds a copy of such a glyph, a reference to it named
 `<glyph name>.u<code point>`, for each code point left out, and fontforge writes the copy under that
-code point ([#917](https://github.com/yuldashevsardor/telegram-bot/issues/917)). The original keeps
+code point ([#917](https://github.com/yuldashevsardor/telegram-bot/issues/917)). A name another
+glyph already has gets `_` appended until it is free: fontforge's `createChar` returns the glyph
+that has the name, and the copy would overwrite it and its code point. The original keeps
 its element: the ligature and the Arabic form stay. A copy has no kerning pairs of its own. The
 script repeats the rules of fontforge: which lookups count as `liga` and which code points are
 presentation forms (the decomposition tags `<initial>`, `<medial>`, `<final>` and `<isolated>` of
@@ -172,6 +174,15 @@ its table gives for the base letter in that position (`Unicode/ArabicForms.c`). 
 table has no initial or medial form but the letter itself, so U+FBE8 and U+FBE9 come back as U+0649:
 that loss belongs to reading SVG
 ([#924](https://github.com/yuldashevsardor/telegram-bot/issues/924)).
+
+A ligature glyph whose code point is a presentation form of two letters, such as a lam-alef U+FEFB
+that a `liga` or `rlig` lookup makes of U+0644 and U+0627, does get a copy. fontforge writes the
+ligature as `unicode="&#x644;&#x627;"` with `arabic-form="isolated"`, and the copy as
+`unicode="&#xfefb;"`: it replaces a form with its base letter only when the decomposition is one
+letter (`svg_scdump`). Reading the ligature element back, fontforge finds U+FEFB only by the glyph
+name `uniFEFB` (`SVGParseGlyphArgs`), so under another name the copy is the only element that
+carries the code point. Measured on `NotoNaskhArabic-Regular.ttf` with a `liga` ligature added to
+`uniFEFB`: no font among the fixtures has such a glyph.
 
 ## Signatures
 
