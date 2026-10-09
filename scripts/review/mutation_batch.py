@@ -1115,9 +1115,9 @@ def is_source(path: str) -> bool:
 
 
 def commit_parents(commit: str, run: Run) -> List[str]:
-    """The parents of a commit. For a merge commit the first is the commit of `main` the PR was
-    merged onto, and the merge commit, or the squash, carries the whole change of the PR against
-    it."""
+    """The parents of a commit. For the merge commit or the squash that landed a PR, the first is
+    the commit of `main` the PR landed on, and the landing commit carries the whole change of the
+    PR against it."""
     parents = git_text(["rev-list", "--parents", "-n", "1", commit], run).split()[1:]
     if not parents:
         raise Stop("the commit {} has no parent".format(commit))
@@ -1147,7 +1147,7 @@ def uncarried_files(pr: int, changed: List[ChangedFile], run: Run) -> List[str]:
 
 class Kept(NamedTuple):
     """A `.ts` the PR changed in code, as a path of the commit that holds the text to read: the
-    merge commit, or its parent for a deleted spec."""
+    merge commit, or for a deleted spec the first parent of the commit that deleted it."""
 
     path: str
     commit: str
