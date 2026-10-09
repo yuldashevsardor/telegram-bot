@@ -2,6 +2,7 @@ import { FileHelper } from "app/shared/fs/file-helper";
 import { ProcessHelper } from "app/shared/process/process-helper";
 import { inject, injectable } from "inversify";
 import { ExecuteError, ExtensionNotSupport } from "app/font-convertor/font-forge/font-forge.errors";
+import type { ConvertOptions } from "app/font-convertor/font-forge/font-forge.types";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { configValue } from "app/shared/config-value";
 import type { SvgFontPreparer } from "app/font-convertor/svg-preparer/svg-font-preparer";
@@ -93,16 +94,17 @@ export class FontForge {
     ) {}
 
     /**
-     * `sourcePath` is the font the conversion was given, which an error of the engine names. It is
-     * `srcPath` unless the engine reads a file made from the source, the unpacked sfnt of an EOT,
+     * `options.sourcePath` is the font the conversion was given, which an error of the engine names.
+     * It is `inputPath` unless `inputPath` is a file made from the source, the unpacked sfnt of an EOT,
      * which is removed by the time the error is logged.
      */
-    public async convert(srcPath: string, distPath: string, sourcePath: string = srcPath): Promise<void> {
-        const srcExtension = (await FileHelper.getFileExtension(srcPath)).toLowerCase();
+    public async convert(inputPath: string, distPath: string, options: ConvertOptions = {}): Promise<void> {
+        const sourcePath = options.sourcePath ?? inputPath;
+        const inputExtension = (await FileHelper.getFileExtension(inputPath)).toLowerCase();
         const distExtension = await FileHelper.getFileExtension(distPath);
 
-        if (!this.supportedExtensions.includes(srcExtension as Extension)) {
-            throw ExtensionNotSupport.byExtension(srcExtension);
+        if (!this.supportedExtensions.includes(inputExtension as Extension)) {
+            throw ExtensionNotSupport.byExtension(inputExtension);
         }
 
         if (!this.supportedExtensions.includes(distExtension as Extension)) {
@@ -111,8 +113,8 @@ export class FontForge {
 
         const script = distExtension === Extension.SVG ? this.convertToSvgScript : this.convertScript;
 
-        if (srcExtension !== Extension.SVG) {
-            await this.run(script, [srcPath, distPath], sourcePath);
+        if (inputExtension !== Extension.SVG) {
+            await this.run(script, [inputPath, distPath], sourcePath);
 
             return;
         }
@@ -126,7 +128,7 @@ export class FontForge {
 
         await FileHelper.removeAfter(preparedPath, () =>
             FileHelper.removeAfter(unencodedGlyphsPath, async () => {
-                const unencodedGlyphIndexes = await this.svgFontPreparer.prepare(srcPath, preparedPath);
+                const unencodedGlyphIndexes = await this.svgFontPreparer.prepare(inputPath, preparedPath);
 
                 await FileHelper.write(unencodedGlyphsPath, new TextEncoder().encode(unencodedGlyphIndexes.join("\n")));
                 await this.run(script, [preparedPath, distPath, unencodedGlyphsPath], sourcePath);
@@ -136,8 +138,8 @@ export class FontForge {
 
     /**
      * `scriptArgs` are what the script reads from sys.argv, `sourcePath` the font the conversion was
-     * given, which the error names: the engine reads another file for an SVG source and on the routes
-     * from EOT.
+     * given, which the error names. The engine reads another file for an SVG source, its prepared
+     * copy, and on a route from EOT, its unpacked sfnt.
      */
     private async run(script: string, scriptArgs: Array<string>, sourcePath: string): Promise<void> {
         try {

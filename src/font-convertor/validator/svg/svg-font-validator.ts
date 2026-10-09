@@ -6,7 +6,6 @@ import { isOutlineWithinRange, MAX_FONT_UNITS } from "app/font-convertor/validat
 import { readPathData } from "app/font-convertor/validator/svg/path-data";
 import { BrokenFont, NoFont, NotSvg, NotXml } from "app/font-convertor/validator/svg/svg-font-validator.errors";
 import type {
-    Encoding,
     KernElement,
     NumberRange,
     NumericElement,
@@ -16,7 +15,7 @@ import type {
 } from "app/font-convertor/validator/svg/svg-font-validator.types";
 import { FontRule } from "app/font-convertor/validator/svg/svg-font-validator.types";
 import type { FontValidator } from "app/font-convertor/validator/font-validator";
-import type { SvgTextCodec } from "app/font-convertor/validator/svg/svg-text-codec";
+import type { Encoding, SvgTextCodec } from "app/font-convertor/validator/svg/svg-text-codec";
 import { Tokens } from "app/shared/tokens";
 
 /**

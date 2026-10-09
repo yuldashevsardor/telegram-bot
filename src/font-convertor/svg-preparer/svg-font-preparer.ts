@@ -2,8 +2,7 @@ import { inject, injectable } from "inversify";
 import { SaxesParser } from "saxes";
 import type { SaxesTagPlain } from "saxes";
 import { UnpreparableSvgFont } from "app/font-convertor/svg-preparer/svg-font-preparer.errors";
-import type { Encoding } from "app/font-convertor/validator/svg/svg-font-validator.types";
-import type { SvgTextCodec } from "app/font-convertor/validator/svg/svg-text-codec";
+import type { Encoding, SvgTextCodec } from "app/font-convertor/validator/svg/svg-text-codec";
 import { FileHelper } from "app/shared/fs/file-helper";
 import { Tokens } from "app/shared/tokens";
 

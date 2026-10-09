@@ -269,12 +269,16 @@ endef
 load-measure: ## Measure the outbox store on the load-test database; the times, then the plans: make load-measure [plans=off]
 	$(call LOAD_MEASURE,test/load/outbox-load-test.ts)
 
+# One update in this many of the inbox history finished past its retention. The history fill dates
+# them so, and the pending fill draws its groups past them: the cleanup of a measurement deletes them.
+LOAD_INBOX_EXPIRED_ONE_IN := 20000
+
 load-inbox-fill-done: ## Fill the load-test database with the inbox history, once: make load-inbox-fill-done [rows=250000000] [groups=1000000]
-	$(LOAD_PSQL) -v rows=$(or $(rows),250000000) -v groups=$(or $(groups),1000000) < test/load/inbox-fill-done.sql
+	$(LOAD_PSQL) -v rows=$(or $(rows),250000000) -v groups=$(or $(groups),1000000) -v expired_one_in=$(LOAD_INBOX_EXPIRED_ONE_IN) < test/load/inbox-fill-done.sql
 
 load-inbox-fill-pending: ## Replace the pending inbox layout of the load test: make load-inbox-fill-pending updates=5000 [hot_updates=300000]
 	@[ -n "$(updates)" ] || { printf 'give it the layout: make load-inbox-fill-pending updates=5000 [hot_updates=300000]\n' >&2; exit 1; }
-	$(LOAD_PSQL) -v updates=$(updates) -v hot_updates=$(or $(hot_updates),0) < test/load/inbox-fill-pending.sql
+	$(LOAD_PSQL) -v updates=$(updates) -v hot_updates=$(or $(hot_updates),0) -v expired_one_in=$(LOAD_INBOX_EXPIRED_ONE_IN) < test/load/inbox-fill-pending.sql
 
 load-inbox-measure: ## Measure the inbox store on the load-test database; the times, then the plans: make load-inbox-measure [plans=off]
 	$(call LOAD_MEASURE,test/load/inbox-load-test.ts)
@@ -346,7 +350,7 @@ review-tree-create: ## Take the head of a PR into a temporary review tree <main 
 mutation-full-record: ## Record an issue and its PR in the batch of the deferred mutation run: make mutation-full-record issue=<N> pr=<N>
 	@python3 scripts/review/mutation_batch.py record '$(issue)' '$(pr)'
 
-mutation-full-check: ## Whether the issue a PR closes is recorded together with this PR in a batch of the deferred mutation run: make mutation-full-check pr=<N>
+mutation-full-check: ## Whether a PR is recorded in a batch of the deferred mutation run, with the issue it closes or, closing none, by its number: make mutation-full-check pr=<N>
 	@python3 scripts/review/mutation_batch.py check '$(pr)'
 
 # stdout is the list make mutation batch=<N> runs over, empty when the batch takes the whole of src/;

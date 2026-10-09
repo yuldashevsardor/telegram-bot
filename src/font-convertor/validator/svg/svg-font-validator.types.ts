@@ -1,10 +1,4 @@
 /**
- * The encodings a file is read in: UTF-8, or UTF-16 of either byte order with a BOM. The values are
- * `TextDecoder` labels.
- */
-export type Encoding = "utf-8" | "utf-16le" | "utf-16be";
-
-/**
  * A rule a font, or the document around it, breaks. The text names the rule and where it comes
  * from: a section of SVG 1.1 Second Edition, or ours, where fontforge asks more than the
  * specification.

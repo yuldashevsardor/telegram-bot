@@ -228,7 +228,7 @@ describe("FontForge.convert", function () {
         const eotPath = path.join(workDir, "font.eot");
         await fs.writeFile(srcPath, Uint8Array.from([1, 2, 3, 4]));
 
-        const error = await rejectionOf(() => fontForge.convert(srcPath, path.join(workDir, "result.otf"), eotPath));
+        const error = await rejectionOf(() => fontForge.convert(srcPath, path.join(workDir, "result.otf"), { sourcePath: eotPath }));
 
         expect((error as ExecuteError).payload).to.deep.equal({ path: eotPath });
     });

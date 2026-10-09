@@ -16,7 +16,7 @@ export abstract class FromEotConvertor extends TwoStepEotConvertor {
 
         await FileHelper.removeAfter(sfntPath, async () => {
             await this.eotPacker.unpack(originPath, sfntPath);
-            await this.fontForge.convert(sfntPath, newPath, originPath);
+            await this.fontForge.convert(sfntPath, newPath, { sourcePath: originPath });
         });
     }
 }
