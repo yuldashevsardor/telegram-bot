@@ -168,6 +168,41 @@ describe("FontForge.convert", function () {
         expect(JSON.parse(stdout)).to.deep.equal([0, 0]);
     });
 
+    // fontforge reads a glyph with arabic-form under the presentation form its table gives, a terminal
+    // form and the initial and medial forms of U+0649 under the letter itself (issue #924). It reads a
+    // prepared copy instead.
+    it("reads an SVG glyph with an arabic form under the letter SVG 1.1 gives it", async function () {
+        const srcPath = path.join(workDir, "font.svg");
+        const distPath = path.join(workDir, "result.ttf");
+        await fs.writeFile(
+            srcPath,
+            '<svg xmlns="http://www.w3.org/2000/svg"><font horiz-adv-x="0"><font-face units-per-em="1000" ascent="800" descent="-200"/>' +
+                '<glyph unicode="&#x627;" arabic-form="isolated" horiz-adv-x="100"/><glyph unicode="&#x627;" arabic-form="terminal" horiz-adv-x="110"/>' +
+                '<glyph unicode="&#x628;" arabic-form="isolated" horiz-adv-x="200"/><glyph unicode="&#x628;" horiz-adv-x="210"/>' +
+                '<glyph unicode="&#x649;" arabic-form="initial" horiz-adv-x="300"/><glyph unicode="&#x649;" arabic-form="medial" horiz-adv-x="310"/>' +
+                '<glyph unicode="&#x649;" horiz-adv-x="320"/></font></svg>',
+        );
+
+        await fontForge.convert(srcPath, distPath);
+
+        // The result is a TTF, which fontforge reads right: the width of each encoded glyph by its code point.
+        const widthsScript = [
+            "import fontforge, json, sys",
+            "widths = {glyph.unicode: glyph.width for glyph in fontforge.open(sys.argv[1]).glyphs() if glyph.unicode != -1}",
+            "print(json.dumps(sorted(widths.items())))",
+        ].join("\n");
+        const { stdout } = await ProcessHelper.run("fontforge", ["-c", widthsScript, distPath]);
+        expect(JSON.parse(stdout)).to.deep.equal([
+            [0x0627, 100],
+            [0x0628, 210],
+            [0x0649, 320],
+            [0xfbe8, 300],
+            [0xfbe9, 310],
+            [0xfe8e, 110],
+            [0xfe8f, 200],
+        ]);
+    });
+
     // fontforge gives such a glyph the code point of its ligature or the one its name spells, and
     // <missing-glyph> U+0000 (issue #925).
     it("keeps unencoded the SVG glyphs that SVG 1.1 maps to no code point", async function () {
