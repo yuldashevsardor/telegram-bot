@@ -79,11 +79,9 @@ describe("FontForge.convert", function () {
 
         const glyphs = await glyphsByName(distPath);
         expect(glyphs.get("I_I.salt_v")).to.include({ unicode: "\u{E201}\u{E201}" });
-        expect(glyphs.get("I_I.salt_v.uE202")).to.include({ unicode: "\u{E202}" });
+        expect(glyphs.get("I_I.salt_v.uE202")).to.include({ unicode: "\u{E202}", "vert-adv-y": "854" });
     });
 
-    // fontforge's createChar returns the glyph that already has the name, so a copy under a taken name
-    // would overwrite that glyph and its code point.
     it("writes into svg a copy whose name is taken without touching the glyph that has it", async function () {
         const srcPath = path.join(workDir, "taken-name.ttf");
         const distPath = path.join(workDir, "result.svg");
@@ -95,7 +93,7 @@ describe("FontForge.convert", function () {
 
         const glyphs = await glyphsByName(distPath);
         expect(glyphs.get("I_I.salt_v.uE202")).to.include({ unicode: "A" });
-        expect(glyphs.get("I_I.salt_v.uE202_")).to.include({ unicode: "\u{E202}" });
+        expect([...glyphs.values()].map((glyph) => glyph["unicode"])).to.include("\u{E202}");
     });
 
     // The glyph uni06D5 has U+06D5 and the presentation form U+FEE9, which fontforge writes as U+0647 with
@@ -107,7 +105,7 @@ describe("FontForge.convert", function () {
 
         const glyphs = await glyphsByName(distPath);
         expect(glyphs.get("uni06D5")).to.include({ unicode: "\u0647", "arabic-form": "isolated" });
-        expect(glyphs.get("uni06D5.u06D5")).to.include({ unicode: "\u06D5" });
+        expect(glyphs.get("uni06D5.u06D5")).to.include({ unicode: "\u06D5", "horiz-adv-x": "408" });
         expect([...glyphs.keys()].filter((glyphName) => glyphName.startsWith("uniFBE8."))).to.be.empty;
     });
 

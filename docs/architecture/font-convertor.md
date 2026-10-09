@@ -144,13 +144,13 @@ that loss belongs to reading SVG
 ([#913](https://github.com/yuldashevsardor/telegram-bot/issues/913)).
 
 A ligature glyph whose code point is a presentation form of two letters, such as a lam-alef U+FEFB
-that `rlig` makes of U+0644 and U+0627, does get a copy. fontforge writes the ligature as
-`unicode="&#x644;&#x627;"` with `arabic-form="isolated"`, and the copy as `unicode="&#xfefb;"`: it
-replaces a form with its base letter only when the decomposition is one letter (`svg_scdump`).
-Reading the ligature element back, fontforge finds U+FEFB only by the glyph name `uniFEFB`
-(`SVGParseGlyphArgs`), so under another name the copy is the only element that carries the code
-point. Measured on `NotoNaskhArabic-Regular.ttf` with a `liga` ligature added to `uniFEFB`: no font
-among the fixtures has such a glyph.
+that a `liga` or `rlig` lookup makes of U+0644 and U+0627, does get a copy. fontforge writes the
+ligature as `unicode="&#x644;&#x627;"` with `arabic-form="isolated"`, and the copy as
+`unicode="&#xfefb;"`: it replaces a form with its base letter only when the decomposition is one
+letter (`svg_scdump`). Reading the ligature element back, fontforge finds U+FEFB only by the glyph
+name `uniFEFB` (`SVGParseGlyphArgs`), so under another name the copy is the only element that
+carries the code point. Measured on `NotoNaskhArabic-Regular.ttf` with a `liga` ligature added to
+`uniFEFB`: no font among the fixtures has such a glyph.
 
 ## Signatures
 
