@@ -1,7 +1,8 @@
 # telegram-bot
 
 A Telegram bot that converts font files between formats (`ttf`, `otf`, `woff`, `woff2`,
-`eot`, `svg`). FontForge does the converting; users and sessions live in PostgreSQL.
+`eot`, `svg`). FontForge does the converting, and the bot itself packs and unpacks the EOT
+envelope; users and sessions live in PostgreSQL.
 
 How the code is laid out and what happens at runtime —
 [`docs/architecture/`](docs/architecture/README.md), the terms — [`CONTEXT.md`](CONTEXT.md).
