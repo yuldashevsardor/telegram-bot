@@ -69,8 +69,9 @@ nothing to do with it.
 ### Red
 
 Red in `make -n` and `sh -n` is unambiguous by itself. So is red in `make mutation-full-check`: no
-batch of the deferred mutation run records the issue the PR closes together with this PR, and the
-author records it with `make mutation-full-record issue=<M> pr=<N>`.
+batch of the deferred mutation run records the issue the PR closes together with this PR, or the
+PR at all when it closes no issue, and the author records it with
+`make mutation-full-record issue=<M> pr=<N>`.
 
 Red in `build`, `typecheck`, `test`, `lint`, `format-check` or `python`, and you doubt
 this PR brought it — compare with the base:

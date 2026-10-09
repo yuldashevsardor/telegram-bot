@@ -460,13 +460,36 @@ class CheckTest(unittest.TestCase):
             lines, ["recorded: issue #657 — {}/issues/630#issuecomment-1".format(REPO)]
         )
 
-    def test_a_pr_that_closes_no_issue_is_not_recorded(self):
-        github = FakeGitHub([batch(630, 1, records=[(655, 660)])])
+    def test_a_recorded_pr_that_closes_no_issue_is_found_by_its_number(self):
+        github = FakeGitHub([batch(630, 1, records=[(640, 641), (655, 660)])])
 
         code, lines, _ = self.check(github)
 
         self.assertEqual(code, 0)
-        self.assertEqual(lines, ["not recorded: PR #660 closes no issue"])
+        self.assertEqual(
+            lines,
+            [
+                "recorded: issue #655 by the PR number alone, PR #660 closes no issue"
+                " — {}/issues/630#issuecomment-2".format(REPO)
+            ],
+        )
+
+    def test_an_unrecorded_pr_that_closes_no_issue_is_not_recorded(self):
+        github = FakeGitHub([batch(630, 1, records=[(655, 656)])])
+
+        code, lines, _ = self.check(github)
+
+        self.assertEqual(code, 0)
+        self.assertEqual(lines, ["not recorded: no batch records PR #660, which closes no issue"])
+
+    def test_a_pr_that_closes_an_issue_is_not_found_by_its_number_alone(self):
+        github = FakeGitHub([batch(630, 1, records=[(640, 660)])], closes=[655])
+
+        _, lines, _ = self.check(github)
+
+        self.assertEqual(
+            lines, ["not recorded: no batch records PR #660 with #655, the issues it closes"]
+        )
 
     def test_a_record_of_another_account_does_not_count(self):
         github = FakeGitHub([batch(630, 1)], closes=[655])

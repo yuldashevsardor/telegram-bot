@@ -15,7 +15,8 @@ code under review. It runs, in this order:
 3. The `python` gate, `make review-test` in the tree of the PR: the gate checks the PR's specs.
 4. The `mutation-full` gate. It runs no mutants: `make mutation-full-check pr=<N>`
    (mutation_batch.py) says whether the issue the PR closes is recorded together with this PR in a
-   batch of the deferred mutation run, and not recorded is red. The check asks GitHub and not the
+   batch of the deferred mutation run, or the PR alone when it closes no issue, and not recorded is
+   red. The check asks GitHub and not the
    code: it needs no tree, and neither a tree that was not created nor a failed `rebuild` takes it
    away.
    The new `Stryker disable` marks of the PR diff go to the reviewer to read: whether the reason on
