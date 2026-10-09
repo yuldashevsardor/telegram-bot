@@ -48,10 +48,8 @@ head index it holds every done and skipped update: the fill of #871 filled it as
 the failed updates (see "The unblocking") is a migration too: the fill puts its failed updates, one
 in 200, into it, and a layout its 1 000 that block their groups. A volume filled before the
 migration builds the index at its next `load-up`, 32 minutes over the fill of #871, printing
-nothing new meanwhile. The migration runs as the role of `.env`, which the `load-up` before gave the
-statement timeout of 10 minutes, so the timeout cancels the build and the migration is not applied:
-on such a volume `ALTER ROLE <the DATABASE_USER_NAME of .env> RESET statement_timeout;` in `make
-load-psql` comes first, and `load-up` sets the timeout again after the migrations.
+nothing new meanwhile. The statement timeout of 10 minutes does not cancel the build: `load-up`
+resets it before the migrations and sets it again after them.
 
 The measurement calls the real `InboxStore` with the settings of `.env`. The calls, how many of each
 and in what order are in `InboxLoadTest.run()` of `test/load/inbox-load-test.ts`, each with its
