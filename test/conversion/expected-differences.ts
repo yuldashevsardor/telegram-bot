@@ -74,36 +74,13 @@ const BUNGEE_SPICE_DOUBLED_CODE_POINTS = [
     ...Array.from({ length: 26 }, (_, index) => 0xff41 + index),
 ];
 
-// The changes of FontFacts the entries below share. Each that takes code points refuses one on the wrong
-// side, so that a mistyped entry fails the check rather than overwriting a width, adding a code point or
-// removing an absent one unnoticed.
+// The changes of FontFacts the entries below share. Each refuses a code point on the wrong side, so that a
+// mistyped entry fails the check rather than overwriting a width or doubling an absent one unnoticed.
 class FontFactsChanges {
-    public withoutCodePoints(facts: FontFacts, codePoints: Array<number>): FontFacts {
-        const advanceWidths = new Map(facts.advanceWidths);
-
-        for (const codePoint of codePoints) {
-            if (!advanceWidths.delete(codePoint)) {
-                throw new RuntimeError("the code point to remove is not in the source", { codePoint: codePoint });
-            }
-        }
-
-        return { ...facts, advanceWidths: advanceWidths };
-    }
-
     public withAddedCodePoints(facts: FontFacts, widthsByCodePoint: Map<number, Array<number>>): FontFacts {
         for (const codePoint of widthsByCodePoint.keys()) {
             if (facts.advanceWidths.has(codePoint)) {
                 throw new RuntimeError("the code point to add is already in the source", { codePoint: codePoint });
-            }
-        }
-
-        return { ...facts, advanceWidths: new Map([...facts.advanceWidths, ...widthsByCodePoint]) };
-    }
-
-    public withReplacedWidths(facts: FontFacts, widthsByCodePoint: Map<number, Array<number>>): FontFacts {
-        for (const codePoint of widthsByCodePoint.keys()) {
-            if (!facts.advanceWidths.has(codePoint)) {
-                throw new RuntimeError("the code point whose widths to replace is not in the source", { codePoint: codePoint });
             }
         }
 
@@ -238,20 +215,16 @@ export const expectedDifferences: Array<ExpectedDifference> = [
         fixtureRelativePaths: [NOTO_NASKH_ARABIC],
         toExtensions: [Extension.SVG],
         resultFacts: (sourceFacts: FontFacts): FontFacts => {
-            const withoutLostCodePoints = changes.withoutCodePoints(sourceFacts, [0xfbe8, 0xfbe9]);
-            const withGlyphsTwice = changes.withEachGlyphTwice(withoutLostCodePoints, NOTO_NASKH_ARABIC_DOUBLED_CODE_POINTS);
-            const withOtherAlefMaksuraForms = changes.withReplacedWidths(withGlyphsTwice, new Map([[0x0649, [275, 292, 618]]]));
+            const withGlyphsTwice = changes.withEachGlyphTwice(sourceFacts, NOTO_NASKH_ARABIC_DOUBLED_CODE_POINTS);
 
-            return { ...withOtherAlefMaksuraForms, glyphCount: sourceFacts.glyphCount + 95 };
+            return { ...withGlyphsTwice, glyphCount: sourceFacts.glyphCount + 95 };
         },
         reason:
             "95 glyphs more: fontforge writes 7 glyphs once more for each listing of their alternate code point, 14 " +
             "elements more than the font has glyphs. It writes a glyph with an Arabic presentation form among its code " +
             "points under that form alone, and the bot adds a copy of the glyph for each of its other code points " +
             "(issue #917): 81 elements more, for the 74 base letters from U+0621 to U+06D3, U+0649, U+06D5 and 5 " +
-            "presentation forms from U+FBA2 to U+FEF4. A defect of reading SVG (issue #924): U+FBE8 and U+FBE9, " +
-            "written as SVG 1.1 has them, U+0649 with arabic-form initial and medial, come back as U+0649, which so " +
-            "has 3 glyphs, widths 275, 292 and 618.",
+            "presentation forms from U+FBA2 to U+FEF4.",
     },
     {
         fixtureRelativePaths: [BUNGEE_SPICE],
