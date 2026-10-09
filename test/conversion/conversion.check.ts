@@ -79,7 +79,7 @@ describe("Conversion of the fixtures", function () {
 
         expect(runRelativePaths).to.deep.equal(
             [...sourceFixtureRelativePaths].sort(),
-            "a font added, deleted or renamed in test/fixtures/fonts goes into sourceFixtureRelativePaths of expected-differences.ts",
+            "sourceFixtureRelativePaths of expected-differences.ts names exactly the fonts of test/fixtures/fonts",
         );
     });
 
