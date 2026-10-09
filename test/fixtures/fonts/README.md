@@ -20,10 +20,11 @@ The base format is `test-font.ttf`, and the rest is made from it. `test-font.ttf
 byte for byte, as fontforge made them in 2022. Only `test-font.woff2` and `test-font.eot` were
 made anew: these two turned out not to be in their own format.
 
-WOFF2 is made in the application image with the command below, which does what the regular
-conversion script `FontForge.convertScript` does for a source that is not SVG: the part of that
-script that takes code points off runs only for an SVG source, given the list of its unencoded
-glyphs as a third argument. So are OTF, WOFF and SVG, should a replacement be needed. The bot
+WOFF2 is made in the application image with the command below, and so are OTF, WOFF and SVG,
+should a replacement be needed. The command does what the regular conversion script
+`FontForge.convertScript` does for a source that is not SVG: the part of that script that takes
+code points off runs only for an SVG source, given the list of its unencoded glyphs as a third
+argument. The bot
 writes SVG with `FontForge.convertToSvgScript`, which copies some glyphs first; measured with
 fontforge 20230101, it writes the same 1296 glyphs from `test-font.ttf` as the command below, since
 the font has no glyph it copies:

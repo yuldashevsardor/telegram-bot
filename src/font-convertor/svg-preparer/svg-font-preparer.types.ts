@@ -9,7 +9,8 @@ export type TextSpan = {
 
 /**
  * A `glyph` or `missing-glyph` child of `font`, as the preparer reads it before it decides on its
- * edits: whether the font has a form-less glyph of a letter is known only once the whole file is read.
+ * edits: whether fontforge reads a glyph of the copy under a letter is known only once the whole file
+ * is read.
  */
 export type FontGlyph = {
     name: string;
@@ -26,14 +27,6 @@ export type FontScan = {
     // `undefined` only in a file SvgFontValidator rejects.
     fontAdvance: string | undefined;
     fontGlyphs: Array<FontGlyph>;
-};
-
-/** The `unicode` values of the glyphs of a font, by how fontforge reads them. */
-export type FontUnicodeValues = {
-    // Of every glyph; the preparer adds each presentation form it writes.
-    taken: Set<string>;
-    // Of every glyph fontforge reads under its `unicode` as it is written, with a form or not.
-    formless: Set<string>;
 };
 
 /** The text that replaces a span of the source in the prepared copy; an empty span inserts it. */
