@@ -34,8 +34,8 @@ import { Tokens } from "app/shared/tokens";
 @injectable()
 export class SvgFontPreparer {
     private static readonly GLYPH_NAMES: ReadonlyArray<string> = ["glyph", "missing-glyph"];
-    // The values of `arabic-form` fontforge reads a form from in the copy, where `terminal` is written
-    // as `final`; it reads a glyph with any other value under the letter, as one without the attribute.
+    // The values of `arabic-form` fontforge knows, `terminal` once the copy writes it as `final`; it
+    // reads a glyph with any other value under the letter, as one without the attribute.
     private static readonly ARABIC_FORMS: ReadonlyArray<string> = ["initial", "medial", "terminal", "final", "isolated"];
     private static readonly ALEF_MAKSURA = "\u0649";
     // The two forms the table of fontforge maps to the letter itself.
@@ -86,7 +86,7 @@ export class SvgFontPreparer {
 
         // fontforge reads <missing-glyph> as .notdef, whatever its unicode and form say.
         const glyphs = fontGlyphs.filter((fontGlyph) => fontGlyph.name === "glyph");
-        const presentationFormCodePoints = this.presentationFormCodePoints(glyphs);
+        const presentationFormCodePoints = this.presentationFormCodePointsOf(glyphs);
         const readUnderLetter = this.unicodeValuesReadUnderLetter(glyphs, presentationFormCodePoints);
         const edits: Array<TextEdit> = [];
 
@@ -183,7 +183,7 @@ export class SvgFontPreparer {
     // The code point each initial or medial glyph of U+0649 goes under in the copy. A glyph already
     // under the presentation form keeps it alone, one this copy writes there included, and this one
     // stays under the letter, as fontforge reads it.
-    private presentationFormCodePoints(glyphs: ReadonlyArray<FontGlyph>): Map<FontGlyph, number> {
+    private presentationFormCodePointsOf(glyphs: ReadonlyArray<FontGlyph>): Map<FontGlyph, number> {
         const takenUnicodeValues = new Set<string>();
         const presentationFormCodePoints = new Map<FontGlyph, number>();
 
@@ -215,8 +215,8 @@ export class SvgFontPreparer {
         return presentationFormCodePoints;
     }
 
-    // The `unicode` values fontforge reads some glyph of the copy under as they are written, with a form
-    // or not.
+    // The `unicode` values of the glyphs of the source fontforge reads under the value as it is written,
+    // with a form or not: the edits of the copy move none of these glyphs.
     private unicodeValuesReadUnderLetter(
         glyphs: ReadonlyArray<FontGlyph>,
         presentationFormCodePoints: ReadonlyMap<FontGlyph, number>,

@@ -142,6 +142,15 @@ describe("SvgFontPreparer.prepare", function () {
         );
     });
 
+    it("takes the isolated form off U+0649 when its initial form goes under U+FBE8", async function () {
+        const glyphs =
+            '<glyph unicode="&#x649;" arabic-form="isolated" horiz-adv-x="1"/><glyph unicode="&#x649;" arabic-form="initial" horiz-adv-x="1"/>';
+
+        expect(await prepared(fontDocument("0", glyphs))).to.equal(
+            fontDocument("0", '<glyph unicode="&#x649;" horiz-adv-x="1"/><glyph  unicode="&#xFBE8;" horiz-adv-x="1"/>'),
+        );
+    });
+
     it("keeps the initial form of U+0649 when a glyph already has U+FBE8", async function () {
         const source = fontDocument(
             "0",
