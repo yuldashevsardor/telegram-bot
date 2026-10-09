@@ -129,37 +129,45 @@ fontforge also misreads a glyph with `arabic-form`. SVG 1.1 has it as a form of 
 code point its table gives for that letter and form (`SVGParseGlyphArgs` of `svg.c`,
 `Unicode/ArabicForms.c`): `<glyph unicode="&#x627;" arabic-form="isolated">` becomes U+FE8D, and a
 font whose letters have only glyphs with `arabic-form` comes out with none of the letters a text is
-typed with. The table finds a form by its Unicode name, "<letter> INITIAL FORM" and so on
-(`makeutype.py`). The initial and medial forms of U+0649, U+FBE8 and U+FBE9, are named after the
-languages that use them, so the table gives U+0649 itself for them; by the Unicode 14 data of the
-image no other form is missing from it.
+typed with. fontforge knows the forms `initial`, `medial`, `final` and `isolated`, while SVG 1.1
+spells the end form `terminal`; a glyph with a value it does not know it reads under the letter, as
+one without the attribute. The table finds a form by its Unicode name, "<letter> INITIAL FORM" and
+so on (`makeutype.py`). The initial and medial forms of U+0649, U+FBE8 and U+FBE9, are named after
+the languages that use them, so the table gives U+0649 itself for them; by the Unicode 14 data of
+the image no other form is missing from it.
 
 So the engine never reads an SVG source itself. `FontForge.convert()` has `SvgFontPreparer`
 (`svg-preparer/`) write a copy next to the result, `<result>.svg` (`<result>.ttf.svg` on the
 way to EOT), hands the engine the copy and removes it as the intermediate sfnt of EOT is removed.
-The copy differs from the source in three edits:
+The copy differs from the source in four edits:
 
 - the advance of `<font>` is written on every `glyph` and `missing-glyph` that leaves it out;
+- `arabic-form="terminal"` is written as `"final"`;
 - `arabic-form="isolated"` is taken off a glyph of one code point when no `glyph` with the same
-  `unicode` goes without `arabic-form`, and fontforge reads the glyph under the letter;
+  `unicode` goes without a form, and fontforge reads the glyph under the letter. A glyph whose
+  `arabic-form` is none of the four SVG 1.1 values, nor `final`, counts as one without a form;
 - a glyph of U+0649 with `arabic-form="initial"` or `"medial"` is written as
-  `unicode="&#xFBE8;"` or `"&#xFBE9;"` without `arabic-form`.
+  `unicode="&#xFBE8;"` or `"&#xFBE9;"` without `arabic-form`, unless a glyph already has that
+  code point.
 
 The isolated glyph goes under its letter alone, and its presentation form is left without a glyph:
 fontforge reads one element as one glyph of one code point, so keeping both would take a second
 element, and a text is typed with the letters, while Unicode keeps the presentation forms for
 compatibility. A font converted into SVG and back that has the isolated presentation form but no
 glyph of its letter comes back with the letter in place of the form. A letter that has a glyph
-without `arabic-form` keeps it, and its isolated glyph stays under the presentation form, as
-fontforge reads it: this is how a font written into SVG comes back ("Writing SVG"). The initial,
-medial and final forms stay under their presentation forms too: under the letter they would take
-its place.
+without a form keeps it, and its isolated glyph stays where fontforge reads it: under the
+presentation form, or under the letter too when the table of fontforge has no isolated form of it.
+This is how a font written into SVG comes back ("Writing SVG"). The initial, medial and final forms
+stay where fontforge reads them too: under the letter they would take its place. A glyph without
+`unicode` that fontforge reads under the letter by its name
+([#925](https://github.com/yuldashevsardor/telegram-bot/issues/925)) does not count as a glyph of
+the letter: the copy takes the isolated form off, and the presentation form is left without a glyph.
 
 Nothing else of the file changes but a UTF-8 BOM, which XML does not need: the advance goes before
-the end of the start tag, a removed or rewritten attribute takes the whitespace before it along, the
-copy is written in the encoding of the source (`SvgTextCodec`, which `SvgFontValidator` reads the
-file with too), and it takes the modification time of the source, since fontforge stamps the font
-it writes with the time of the file it reads.
+the end of the start tag, a removed or rewritten attribute takes the whitespace before it along but
+for the character that ends the tag name, the copy is written in the encoding of the source
+(`SvgTextCodec`, which `SvgFontValidator` reads the file with too), and it takes the modification
+time of the source, since fontforge stamps the font it writes with the time of the file it reads.
 The preparer leans on the rules of the validator, which the source has passed: one `font` with
 `horiz-adv-x`, the font nodes in the SVG namespace and without prefixed attributes. So it matches
 the elements by their local names, without the namespace bindings the validator makes. A failure

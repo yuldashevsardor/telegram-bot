@@ -14,8 +14,8 @@ export type TextSpan = {
 export type FontGlyph = {
     name: string;
     attributes: Record<string, string>;
-    // The text of each attribute together with the whitespace before it, so that cutting it out
-    // leaves a well-formed tag.
+    // The text of each attribute from the end of the one before it, so that cutting it out leaves a
+    // well-formed tag. The first one starts after the whitespace character that ends the tag name.
     attributeSpans: Map<string, TextSpan>;
     // Where the start tag ends, before its `>` or `/>`.
     startTagEndIndex: number;

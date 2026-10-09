@@ -103,6 +103,23 @@ describe("SvgFontPreparer.prepare", function () {
         expect(await prepared(fontDocument("0", glyphs))).to.equal(fontDocument("0", glyphs.replace(' arabic-form="isolated"', "")));
     });
 
+    it("writes the terminal form of SVG 1.1 as the final form fontforge knows", async function () {
+        const glyphs =
+            '<glyph unicode="&#x627;" arabic-form="isolated" horiz-adv-x="1"/><glyph unicode="&#x627;" arabic-form="terminal" horiz-adv-x="1"/>';
+
+        expect(await prepared(fontDocument("0", glyphs))).to.equal(
+            fontDocument("0", '<glyph unicode="&#x627;" horiz-adv-x="1"/><glyph unicode="&#x627;" arabic-form="final" horiz-adv-x="1"/>'),
+        );
+    });
+
+    it("keeps the isolated form of a letter whose other glyph has a form fontforge does not know", async function () {
+        // fontforge reads such a glyph under the letter, as one without a form.
+        const glyphs =
+            '<glyph unicode="&#x628;" arabic-form="isolated" horiz-adv-x="1"/><glyph unicode="&#x628;" arabic-form="Isolated" horiz-adv-x="1"/>';
+
+        expect(await prepared(fontDocument("0", glyphs))).to.equal(fontDocument("0", glyphs));
+    });
+
     it("keeps the isolated form of a ligature", async function () {
         const source = fontDocument("0", '<glyph unicode="&#x644;&#x627;" arabic-form="isolated" horiz-adv-x="1"/>');
 
@@ -123,6 +140,15 @@ describe("SvgFontPreparer.prepare", function () {
                     '<glyph unicode="&#x649;" arabic-form="final" horiz-adv-x="1"/>',
             ),
         );
+    });
+
+    it("keeps the initial form of U+0649 when a glyph already has U+FBE8", async function () {
+        const source = fontDocument(
+            "0",
+            '<glyph unicode="&#xFBE8;" horiz-adv-x="1"/><glyph unicode="&#x649;" arabic-form="initial" horiz-adv-x="1"/>',
+        );
+
+        expect(await prepared(source)).to.equal(source);
     });
 
     it("cuts the form out together with the whitespace before it, wherever the tag breaks", async function () {

@@ -168,16 +168,16 @@ describe("FontForge.convert", function () {
         expect(JSON.parse(stdout)).to.deep.equal([0, 0]);
     });
 
-    // fontforge reads a glyph with arabic-form under the presentation form its table gives, and for the
-    // initial and medial forms of U+0649 under the letter itself (issue #924). It reads a prepared copy
-    // instead.
+    // fontforge reads a glyph with arabic-form under the presentation form its table gives, a terminal
+    // form and the initial and medial forms of U+0649 under the letter itself (issue #924). It reads a
+    // prepared copy instead.
     it("reads an SVG glyph with an arabic form under the letter SVG 1.1 gives it", async function () {
         const srcPath = path.join(workDir, "font.svg");
         const distPath = path.join(workDir, "result.ttf");
         await fs.writeFile(
             srcPath,
             '<svg xmlns="http://www.w3.org/2000/svg"><font horiz-adv-x="0"><font-face units-per-em="1000" ascent="800" descent="-200"/>' +
-                '<glyph unicode="&#x627;" arabic-form="isolated" horiz-adv-x="100"/><glyph unicode="&#x627;" arabic-form="final" horiz-adv-x="110"/>' +
+                '<glyph unicode="&#x627;" arabic-form="isolated" horiz-adv-x="100"/><glyph unicode="&#x627;" arabic-form="terminal" horiz-adv-x="110"/>' +
                 '<glyph unicode="&#x628;" arabic-form="isolated" horiz-adv-x="200"/><glyph unicode="&#x628;" horiz-adv-x="210"/>' +
                 '<glyph unicode="&#x649;" arabic-form="initial" horiz-adv-x="300"/><glyph unicode="&#x649;" arabic-form="medial" horiz-adv-x="310"/>' +
                 '<glyph unicode="&#x649;" horiz-adv-x="320"/></font></svg>',
