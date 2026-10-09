@@ -9,6 +9,8 @@ import { ProcessFailed } from "app/shared/process/process-helper.errors";
 const OUTPUT_PAST_EXEC_FILE_CAP_BYTES = 2 * 1024 * 1024;
 // A node with tsx started in a quarter of a second; parallel sessions slow it down past the 2 s of mocha.
 const CHILD_NODE_TIMEOUT_MS = 20 * 1000;
+// Long enough for the reads of stderr to catch up with what the child wrote before the pause.
+const READ_PAUSE_SECONDS = 0.2;
 // Low enough for the child node to take every descriptor at once.
 const CHILD_DESCRIPTOR_LIMIT = 128;
 
@@ -67,6 +69,14 @@ describe("ProcessHelper.run", function () {
         expect(result.stderr).to.equal("Bad device table");
     });
 
+    it("returns the whole stderr of exactly STDERR_TAIL_BYTES, even when it starts on a continuation byte", async function () {
+        const script = `printf '\\200' >&2; head -c ${STDERR_TAIL_BYTES - 1} /dev/zero | tr '\\0' w >&2`;
+
+        const result = await ProcessHelper.run("/bin/sh", ["-c", script]);
+
+        expect(result.stderr).to.equal(`\uFFFD${"w".repeat(STDERR_TAIL_BYTES - 1)}`);
+    });
+
     it("keeps only the end of stderr and succeeds when the process prints more than 1 MiB to it", async function () {
         const script = `head -c ${OUTPUT_PAST_EXEC_FILE_CAP_BYTES} /dev/zero | tr '\\0' w >&2; printf end >&2`;
 
@@ -89,6 +99,21 @@ describe("ProcessHelper.run", function () {
         // Eight continuation bytes, of no character, and the cut lands on the fifth: three are skipped,
         // the fourth stays and reads as U+FFFD.
         const script = `printf '\\200\\200\\200\\200\\200\\200\\200\\200' >&2; head -c ${STDERR_TAIL_BYTES - 4} /dev/zero | tr '\\0' w >&2`;
+
+        const result = await ProcessHelper.run("/bin/sh", ["-c", script]);
+
+        expect(result.stderr).to.equal(`\uFFFD${"w".repeat(STDERR_TAIL_BYTES - 4)}`);
+    });
+
+    it("cuts the stderr tail the same way whatever reads the output arrived in", async function () {
+        // The stderr of the spec above with a pause after its first STDERR_TAIL_BYTES + 1 bytes: a read
+        // ends there, and a cut on it would land inside the eight continuation bytes and skip from the
+        // second one. Under a heavy load the reads may not catch up, and the spec checks no more than
+        // the one above.
+        const continuationByteCount = 8;
+        const continuationBytes = "\\200".repeat(continuationByteCount);
+        const fillerBeforePauseBytes = STDERR_TAIL_BYTES + 1 - continuationByteCount;
+        const script = `printf '${continuationBytes}' >&2; head -c ${fillerBeforePauseBytes} /dev/zero | tr '\\0' w >&2; sleep ${READ_PAUSE_SECONDS}; printf www >&2`;
 
         const result = await ProcessHelper.run("/bin/sh", ["-c", script]);
 
