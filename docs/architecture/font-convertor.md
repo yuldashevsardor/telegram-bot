@@ -130,8 +130,10 @@ The preparer leans on the rules of the validator, which the source has passed: o
 the elements by their local names, without the namespace bindings the validator makes.
 
 Two more defects of reading SVG are not worked around: `arabic-form="isolated"` moves a glyph from
-its letter to the presentation form (U+0627 to U+FE8D), and a glyph without `unicode` gets the code
-point its name spells (`Ldot` U+013F, `uni0041` U+0041 beside the glyph of `A`).
+its letter to the presentation form (U+0627 to U+FE8D,
+[#924](https://github.com/yuldashevsardor/telegram-bot/issues/924)), and a glyph without `unicode`
+gets the code point its name spells (`Ldot` U+013F, `uni0041` U+0041 beside the glyph of `A`,
+[#925](https://github.com/yuldashevsardor/telegram-bot/issues/925)).
 
 ## Signatures
 
