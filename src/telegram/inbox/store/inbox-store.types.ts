@@ -26,7 +26,7 @@ export enum InboxGroupState {
 
 // The notification channels of the inbox.
 export enum InboxChannel {
-    // A push or a completion that leaves its group ready: an idle worker can claim.
+    // A write that leaves a group ready: an idle worker can claim.
     Ready = "telegram_inbox_ready",
 }
 

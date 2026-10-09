@@ -450,8 +450,8 @@ function documentInput(updateId: number, userId: number): InboxUpdateInput {
     return messageInputWith(updateId, userId, { document: document });
 }
 
-// A message of the user in their private chat, with its group, as messageInput() of the store spec
-// makes it, but with content a text alone does not give.
+// A message of the user in their private chat, with its group, as messageInput() of
+// inbox-store.helper.ts makes it, but with content a text alone does not give.
 function messageInputWith(
     updateId: number,
     userId: number,

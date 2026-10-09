@@ -4,17 +4,14 @@ The inbox makes incoming updates rows in PostgreSQL, so that any node handles th
 updates of one group are handled one at a time, in order, across nodes (the plan is epic
 [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)). It is the counterpart of the
 outbox ([`outbox.md`](./outbox.md)) and follows its model without the limits and the pause. The
-directory holds the tables with `InboxStore` (`store/inbox-store.ts`), which pushes updates,
-claims them, extends a lease, completes a claimed update, notifies of the groups that become
-`ready`, finds the expired leases, cleans up the tables, counts the blocked groups and unblocks a
-group by hand;
-`InboxFailureHandler` (`inbox-failure-handler.ts`), which picks the outcome of a failed handler by
-its error class (`failure-classifier/`) and recovers the expired leases; `InboxLeaseReleaser`
-(`inbox-lease-releaser.ts`), which hands the update of a stopping node back; the worker that
-handles the updates through the bot: `InboxRunner` with its update source and update processor,
-and the timers of `InboxMaintenance`; and `InboxPollingSource` (`inbox-polling-source.ts`), which
-fills the inbox from Telegram. `Application` starts and stops the worker and the polling source
-([`application.md`](./application.md), "Start", "Stop").
+directory holds the tables with `InboxStore` (`store/inbox-store.ts`), whose public methods are
+every read and write of them; `InboxFailureHandler` (`inbox-failure-handler.ts`), which picks the
+outcome of a failed handler by its error class (`failure-classifier/`) and recovers the expired
+leases; `InboxLeaseReleaser` (`inbox-lease-releaser.ts`), which hands the update of a stopping node
+back; the worker that handles the updates through the bot: `InboxRunner` with its update source and
+update processor, and the timers of `InboxMaintenance`; and `InboxPollingSource`
+(`inbox-polling-source.ts`), which fills the inbox from Telegram. `Application` starts and stops
+the worker and the polling source ([`application.md`](./application.md), "Start", "Stop").
 
 ## Tables
 
@@ -42,8 +39,8 @@ it reads as many groups as it claims. `1791676800000_telegram-inbox-finished-ind
 `telegram_inbox_finished_at_idx` on `finished_at` of the `done` and `skipped` updates, the ones the
 cleanup deletes (see "Cleanup"): without it the call that finds nothing to delete reads the whole
 table. As the index of the outbox cleanup ([`outbox.md`](./outbox.md), "Tables"), it holds an entry
-for every `done` and `skipped` update the cleanup has not deleted yet, and every completion but a
-failure adds one. `1791849600000_telegram-inbox-failed-group-index.ts` adds
+for every `done` and `skipped` update the cleanup has not deleted yet: `markAsDone()` and
+`skipBlockedGroup()` add one each. `1791849600000_telegram-inbox-failed-group-index.ts` adds
 `telegram_inbox_failed_group_idx` on `(user_id, chat_id, finished_at DESC, update_id DESC)` of the
 `failed` updates: the unblock of a group reads the failed update that blocked it as the first entry
 of the group (see "Unblocking a group"). A failed update is never deleted, and only the unblock
@@ -195,10 +192,10 @@ reply once per attempt, up to `INBOX_MAX_ATTEMPTS` (see "Outcomes").
 
 ## Completions
 
-A claimed update is completed by one of the public methods of the store that take an `InboxLease`:
-the update `claim()` gave out, or an expired lease read by `findExpiredLeases()` (see "Lease
-recovery"). What each does to the update and the group is read off its body. Each is a transaction
-through the private `complete()`:
+A claimed update is completed by one of the public methods of the store that go through the private
+`complete()`. Each takes an `InboxLease`: the update `claim()` gave out, or an expired lease read by
+`findExpiredLeases()` (see "Lease recovery"). What each does to the update and the group is read off
+its body. `complete()` is a transaction:
 
 1. lock the group row of the update; a missing update throws `InboxUpdateNotLeased`. A group row
    that is missing while its update is stored changes nothing and is logged as a warning:
@@ -634,10 +631,10 @@ holds it, so the stop of the application waits for it no longer than `INBOX_POLL
 ## The store in code
 
 The store has no interface of its own: no consumer dictates one yet ([`storage.md`](./storage.md)).
-It is SQL besides one rule that needs no database, the refusal of a push (see "The polling
-source"), so it is in `DATABASE_ONLY_SOURCES` of `stryker.config.mjs` and its spec is in
-`DATABASE_SPECS` ([`testing.md`](./testing.md), "Mutation testing"). No mutant tests that rule:
-only the database specs of the store pin it.
+It is SQL besides two rules that need no database, the refusal of a push (see "The polling
+source") and the check of the claim limit (see "Claim"), so it is in `DATABASE_ONLY_SOURCES` of
+`stryker.config.mjs` and its spec is in `DATABASE_SPECS` ([`testing.md`](./testing.md), "Mutation
+testing"). No mutant tests those rules: only the database specs of the store pin them.
 
 `InboxFailureHandler` and `InboxLeaseReleaser` are there too: their specs run them over the real
 store, so that each outcome is pinned by the rows it leaves rather than by the calls a fake store
