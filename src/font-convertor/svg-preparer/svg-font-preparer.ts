@@ -3,8 +3,7 @@ import { SaxesParser } from "saxes";
 import type { SaxesTagPlain } from "saxes";
 import { UnpreparableSvgFont } from "app/font-convertor/svg-preparer/svg-font-preparer.errors";
 import type { FontGlyph, FontScan, TextEdit, TextSpan } from "app/font-convertor/svg-preparer/svg-font-preparer.types";
-import type { Encoding } from "app/font-convertor/validator/svg/svg-font-validator.types";
-import type { SvgTextCodec } from "app/font-convertor/validator/svg/svg-text-codec";
+import type { Encoding, SvgTextCodec } from "app/font-convertor/validator/svg/svg-text-codec";
 import { FileHelper } from "app/shared/fs/file-helper";
 import { Tokens } from "app/shared/tokens";
 
@@ -47,7 +46,9 @@ export class SvgFontPreparer {
         const encoding = this.textCodec.encodingOf(sourceBytes);
         const sourceText = this.decode(sourcePath, sourceBytes, encoding);
 
-        await FileHelper.write(preparedPath, this.textCodec.encode(this.preparedText(sourcePath, sourceText), encoding));
+        const preparedText = this.prepareText(sourcePath, sourceText);
+
+        await FileHelper.write(preparedPath, this.textCodec.encode(preparedText, encoding));
         // fontforge stamps the font it writes with the modification time of the file it reads, so the
         // result keeps the time of the source.
         await FileHelper.copyTimes(sourcePath, preparedPath);
@@ -61,7 +62,7 @@ export class SvgFontPreparer {
         }
     }
 
-    private preparedText(sourcePath: string, sourceText: string): string {
+    private prepareText(sourcePath: string, sourceText: string): string {
         const { fontAdvance, fontGlyphs } = this.scan(sourcePath, sourceText);
 
         // SvgFontValidator requires `horiz-adv-x` of `font`.

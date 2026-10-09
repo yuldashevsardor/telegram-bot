@@ -7,6 +7,7 @@ import type { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 import { EotPayloadDecoder } from "app/font-convertor/eot-payload-decoder/eot-payload-decoder";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import type { FontForge } from "app/font-convertor/font-forge/font-forge";
+import type { ConvertOptions } from "app/font-convertor/font-forge/font-forge.types";
 import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
 import { SvgTextCodec } from "app/font-convertor/validator/svg/svg-text-codec";
 import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
@@ -29,7 +30,7 @@ describe("Convertors of the eot pairs", function () {
     let factory: ConvertorFactory;
     let failOn: StepName | undefined;
     let unremovableOn: StepName | undefined;
-    // The sourcePath argument of every call of the engine.
+    // `options.sourcePath` of every call of the engine.
     let engineSourcePaths: Array<string | undefined>;
 
     beforeEach(async function () {
@@ -197,8 +198,8 @@ describe("Convertors of the eot pairs", function () {
 
     function fontForge(): FontForge {
         return {
-            convert: (fromPath: string, toPath: string, sourcePath?: string) => {
-                engineSourcePaths.push(sourcePath);
+            convert: (fromPath: string, toPath: string, options?: ConvertOptions) => {
+                engineSourcePaths.push(options?.sourcePath);
 
                 return step("fontForge", fromPath, toPath);
             },

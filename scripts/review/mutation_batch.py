@@ -35,7 +35,10 @@ batch is open at a time. No label marks it: docs/agents/issue-tracker.md forbids
 closes (`closingIssuesReferences`, the `Closes #N` of its body) and answers whether one of them is
 recorded together with this PR in a batch, open or closed. A record of the issue with another PR
 does not count: `close` sorts PRs, and a PR without a record of its own would be in none of its
-lists.
+lists. A PR that closes no issue, a stage of an issue with open sub-issues that links its parent as
+a bare `#N` (docs/agents/issue-tracker.md), is found by its number alone, under whatever issue it
+was recorded with, and the answer says so. The issues such a PR links without a keyword are not
+read: a bare `#N` in its body may as well name a neighbouring issue or PR.
 
 `files <batch>` (make mutation-batch-files, and make mutation batch=<N> through it) writes nothing
 and takes no lock:
@@ -399,21 +402,38 @@ def closed_issues(pr: int, run: Run) -> List[int]:
         raise Stop("gh pr view {} gave no closing issues — {}".format(pr, failure))
 
 
+def records_of(pr: int, run: Run) -> List[Record]:
+    """The records of the PR in every batch, open or closed, in the order of the listing."""
+    login = viewer(run)
+    records = []
+    for batch in list_batches(login, run):
+        for found in list_records(batch, login, run):
+            if found.pr == pr:
+                records.append(found)
+    return records
+
+
 def check_record(pr: int, run: Run = subprocess.run) -> int:
     try:
         issues = closed_issues(pr, run)
-        if not issues:
-            print("not recorded: PR #{} closes no issue".format(pr))
-            return 0
-        login = viewer(run)
-        for batch in list_batches(login, run):
-            for found in list_records(batch, login, run):
-                if found.issue in issues and found.pr == pr:
-                    print("recorded: issue #{} — {}".format(found.issue, found.url))
-                    return 0
+        records = records_of(pr, run)
     except Stop as stop:
         print("Stopped: {}".format(stop), file=sys.stderr)
         return 1
+    if not issues and records:
+        print(
+            "recorded: issue #{} by the PR number alone, PR #{} closes no issue — {}".format(
+                records[0].issue, pr, records[0].url
+            )
+        )
+        return 0
+    if not issues:
+        print("not recorded: no batch records PR #{}, which closes no issue".format(pr))
+        return 0
+    for found in records:
+        if found.issue in issues:
+            print("recorded: issue #{} — {}".format(found.issue, found.url))
+            return 0
     named = ", ".join("#{}".format(issue) for issue in issues)
     print("not recorded: no batch records PR #{} with {}, the issues it closes".format(pr, named))
     return 0
