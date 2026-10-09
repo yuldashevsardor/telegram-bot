@@ -39,7 +39,7 @@ describe("SvgFontPreparer.prepare", function () {
         );
     });
 
-    it("writes it on an empty glyph and on <missing-glyph>", async function () {
+    it("writes the advance of <font> on an empty glyph and on <missing-glyph>", async function () {
         expect(await prepared(document("1000", '<missing-glyph/><glyph unicode="&#x2003;"></glyph>'))).to.equal(
             document("1000", '<missing-glyph horiz-adv-x="1000"/><glyph unicode="&#x2003;" horiz-adv-x="1000"></glyph>'),
         );

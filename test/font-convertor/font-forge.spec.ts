@@ -161,7 +161,11 @@ describe("FontForge.convert", function () {
         const brokenPath = path.join(workDir, "broken.svg");
         await fs.writeFile(brokenPath, '<svg xmlns="http://www.w3.org/2000/svg"><font horiz-adv-x="0"><font-face/><glyph/></font></svg>');
 
-        expect(await rejectionOf(() => fontForge.convert(brokenPath, path.join(workDir, "broken.otf")))).to.be.instanceOf(ExecuteError);
+        const error = await rejectionOf(() => fontForge.convert(brokenPath, path.join(workDir, "broken.otf")));
+
+        expect(error).to.be.instanceOf(ExecuteError);
+        // The engine read the copy, gone by now: the error names the source the conversion was given.
+        expect((error as ExecuteError).payload).to.deep.equal({ sourcePath: brokenPath });
         expect((await fs.readdir(workDir)).sort()).to.deep.equal(["broken.svg", "font.svg", "result.ttf"]);
     });
 
@@ -173,6 +177,7 @@ describe("FontForge.convert", function () {
 
         expect(error).to.be.instanceOf(ExecuteError);
         expect((error as ExecuteError).cause).to.be.instanceOf(ProcessFailed);
+        expect((error as ExecuteError).payload).to.deep.equal({ sourcePath: srcPath });
     });
 
     function fixture(extension: Extension): string {

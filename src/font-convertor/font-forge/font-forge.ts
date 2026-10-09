@@ -89,7 +89,7 @@ export class FontForge {
         const script = distExtension === Extension.SVG ? this.convertToSvgScript : this.convertScript;
 
         if (srcExtension !== Extension.SVG) {
-            await this.run(script, srcPath, distPath);
+            await this.run(script, srcPath, distPath, srcPath);
 
             return;
         }
@@ -101,15 +101,15 @@ export class FontForge {
 
         await FileHelper.removeAfter(preparedPath, async () => {
             await this.svgFontPreparer.prepare(srcPath, preparedPath);
-            await this.run(script, preparedPath, distPath);
+            await this.run(script, preparedPath, distPath, srcPath);
         });
     }
 
-    private async run(script: string, srcPath: string, distPath: string): Promise<void> {
+    private async run(script: string, readPath: string, distPath: string, sourcePath: string): Promise<void> {
         try {
-            await ProcessHelper.run(this.fontForgePath, ["-c", script, srcPath, distPath]);
+            await ProcessHelper.run(this.fontForgePath, ["-c", script, readPath, distPath]);
         } catch (error) {
-            throw ExecuteError.byError(error);
+            throw ExecuteError.bySource(sourcePath, error);
         }
     }
 }

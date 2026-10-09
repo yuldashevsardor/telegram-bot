@@ -134,7 +134,9 @@ of the start tag, the copy is written in the encoding of the source (`SvgTextCod
 since fontforge stamps the font it writes with the time of the file it reads.
 The preparer leans on the rules of the validator, which the source has passed: one `font` with
 `horiz-adv-x`, the font nodes in the SVG namespace and without prefixed attributes. So it matches
-the elements by their local names, without the namespace bindings the validator makes.
+the elements by their local names, without the namespace bindings the validator makes. A failure
+of the engine names the source in `sourcePath` of its `ExecuteError`: the copy the process read is
+gone by the time the error is logged.
 
 Two more defects of reading SVG are not worked around: `arabic-form="isolated"` moves a glyph from
 its letter to the presentation form (U+0627 to U+FE8D,
@@ -169,7 +171,7 @@ letter with `arabic-form`, and gets no copy. fontforge reads such an element bac
 its table gives for the base letter in that position (`Unicode/ArabicForms.c`). For U+0649 the
 table has no initial or medial form but the letter itself, so U+FBE8 and U+FBE9 come back as U+0649:
 that loss belongs to reading SVG
-([#913](https://github.com/yuldashevsardor/telegram-bot/issues/913)).
+([#924](https://github.com/yuldashevsardor/telegram-bot/issues/924)).
 
 ## Signatures
 

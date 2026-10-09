@@ -247,7 +247,7 @@ export const expectedDifferences: Array<ExpectedDifference> = [
             "elements more than the font has glyphs. It writes a glyph with an Arabic presentation form among its code " +
             "points under that form alone, and the bot adds a copy of the glyph for each of its other code points " +
             "(issue #917): 81 elements more, for the 74 base letters from U+0621 to U+06D3, U+0649, U+06D5 and 5 " +
-            "presentation forms from U+FBA2 to U+FEF4. A defect of reading SVG (issue #913): U+FBE8 and U+FBE9, " +
+            "presentation forms from U+FBA2 to U+FEF4. A defect of reading SVG (issue #924): U+FBE8 and U+FBE9, " +
             "written as SVG 1.1 has them, U+0649 with arabic-form initial and medial, come back as U+0649, which so " +
             "has 3 glyphs, widths 275, 292 and 618.",
     },
