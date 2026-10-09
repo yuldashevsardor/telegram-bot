@@ -86,6 +86,9 @@ class InboxLoadTest {
         }
     }
 
+    // The unblocking comes last: on a volume whose index of the failed updates is missing its calls
+    // take minutes (docs/architecture/inbox-load-test.md, "The unblocking"), and one cancelled by the
+    // statement timeout ends the run without the calls after it.
     public async run(): Promise<void> {
         await this.measure("listenReady()", () => this.store.listenReady(() => {}));
         await this.measureClaims(WORKER_CLAIM_LIMIT);
