@@ -161,7 +161,7 @@ class Report:
         print("Logs: {}".format(logs))
 
 
-def clean(text: str, test: bool) -> List[str]:
+def clean(text: str, gate: str) -> List[str]:
     lines = []
     for line in ANSI.sub("", text).splitlines():
         line = line.rstrip()
@@ -169,8 +169,9 @@ def clean(text: str, test: bool) -> List[str]:
             continue
         if BUILD_STEP.match(line) and not MEANINGFUL.search(line):
             continue
-        # The coverage table of nyc: a row per file, its columns split by `|`.
-        if test and line.count("|") >= 3:
+        # The coverage table of nyc, which only `make coverage` of the `test` gate prints: a row per
+        # file, its columns split by `|`.
+        if gate == "test" and line.count("|") >= 3:
             continue
         if not line and (not lines or not lines[-1]):
             continue
@@ -180,11 +181,11 @@ def clean(text: str, test: bool) -> List[str]:
     return lines
 
 
-def excerpt(text: str, test: bool, log: str) -> Tuple[str, List[str]]:
+def excerpt(text: str, gate: str, log: str) -> Tuple[str, List[str]]:
     """The first meaningful line of a red log and the lines that explain it."""
-    lines = clean(text, test)
+    lines = clean(text, gate)
     start = next((i for i, line in enumerate(lines) if FAILING.match(line)), None)
-    if test and start is not None:
+    if gate in MOCHA and start is not None:
         part = lines[start:]
         first = lines[start].strip()
         cut = len(part) > EXCERPT
@@ -300,13 +301,13 @@ class ReviewRun:
                     state += " ({})".format(", ".join(counts))
             self.report.checks[gate] = state
             if done.returncode != 0:
-                self.red("make " + target, text, gate in MOCHA, log)
+                self.red("make " + target, text, gate, log)
                 if gate == "rebuild":
                     stopped = "rebuild failed"
 
-    def red(self, command: str, text: str, test: bool, log: str) -> None:
+    def red(self, command: str, text: str, gate: str, log: str) -> None:
         path = os.path.join(self.logs, log)
-        first, lines = excerpt(text, test, path)
+        first, lines = excerpt(text, gate, path)
         self.report.red.append("- {} — {}".format(command, first or "no output"))
         self.report.red.extend("    " + line if line else "" for line in lines)
 
@@ -314,7 +315,7 @@ class ReviewRun:
         done = self.make(["review-test"], self.tree or "", "review-test.log")
         self.report.checks["python"] = "ok" if done.returncode == 0 else "fail"
         if done.returncode != 0:
-            self.red("make review-test", done.stdout or "", False, "review-test.log")
+            self.red("make review-test", done.stdout or "", "python", "review-test.log")
 
     def marks(self) -> None:
         done = self.run(

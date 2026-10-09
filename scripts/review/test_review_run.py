@@ -53,7 +53,8 @@ CONVERSION = (
     " Container telegram-bot-review-7-app-run-5b1f0c2d9e7a Created \n"
     "\n"
     "> telegram-bot@1.0.0 test:fonts\n"
-    "> mocha --no-config --require tsx/cjs 'test/conversion/**/*.check.ts'\n"
+    "> TSX_TSCONFIG_PATH=./tsconfig.check.json mocha --no-config --require tsx/cjs"
+    " 'test/conversion/**/*.check.ts'\n"
     "\n"
 )
 GREEN_CONVERSION = CONVERSION + "  90 passing (25s)\n"
@@ -249,14 +250,15 @@ class ReviewRunTest(unittest.TestCase):
     def test_a_failed_rebuild_stops_the_other_container_gates(self):
         run = self.fake(rebuild=(1, RED_BUILD, ""))
 
-        code, out = self.review_run("rebuild build typecheck test python", run)
+        code, out = self.review_run("rebuild build typecheck test test-fonts python", run)
 
         self.assertEqual(
             run.names(), ["review-tree-create", "rebuild", "review-test", "review-tree-remove"]
         )
         self.assertIn(
-            "rebuild: fail · build: n-a · typecheck: n-a · test: n-a · python: ok\n"
-            "Not run: build, typecheck, test — rebuild failed\n",
+            "rebuild: fail · build: n-a · typecheck: n-a · test: n-a · test-fonts: n-a"
+            " · python: ok\n"
+            "Not run: build, typecheck, test, test-fonts — rebuild failed\n",
             out,
         )
         self.assertIn(
@@ -642,7 +644,7 @@ class ExcerptTest(unittest.TestCase):
         first, lines = review_run.excerpt(
             COMPOSE
             + "src/app.ts\n  1:1  error  'x' is unused\n\nnpm notice\nmake: *** [lint] Error 1\n",
-            False,
+            "lint",
             "lint.log",
         )
 
@@ -652,16 +654,30 @@ class ExcerptTest(unittest.TestCase):
     def test_without_an_error_word_the_last_line_is_the_first_meaningful(self):
         first, lines = review_run.excerpt(
             "[warn] src/app.ts\n[warn] Code style issues found in the above file.\n",
-            False,
+            "format-check",
             "format-check.log",
         )
 
         self.assertEqual(first, "[warn] Code style issues found in the above file.")
 
     def test_keeps_a_pipe_outside_the_specs(self):
-        first, lines = review_run.excerpt("[error] > 1 | a | b | c\n", False, "format-check.log")
+        first, lines = review_run.excerpt(
+            "[error] > 1 | a | b | c\n", "format-check", "format-check.log"
+        )
 
         self.assertEqual(lines, ["[error] > 1 | a | b | c"])
+
+    def test_keeps_a_pipe_in_the_conversion_check_which_prints_no_coverage_table(self):
+        first, lines = review_run.excerpt(
+            "  1 failing\n\n  1) conversion\n     AssertionError: expected 'a | b | c | d'\n",
+            "test-fonts",
+            "test-fonts.log",
+        )
+
+        self.assertEqual(
+            lines,
+            ["  1 failing", "", "  1) conversion", "     AssertionError: expected 'a | b | c | d'"],
+        )
 
 
 class NewMarksTest(unittest.TestCase):
