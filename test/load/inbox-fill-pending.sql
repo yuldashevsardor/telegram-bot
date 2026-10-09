@@ -5,12 +5,13 @@
 --
 -- A pending update goes to the group of a history update drawn by a hash of its number, so a group
 -- gets pending updates in proportion to its history, and the heavy groups get the most. The draw
--- leaves out the oldest updates, which the cleanup of a measurement deletes.
+-- leaves out the oldest updates, one in :expired_one_in as inbox-fill-done.sql dates them, which the
+-- cleanup of a measurement deletes.
 --
 -- Every thousandth group of the 1 M of the default fill, 1 000 in all, is blocked by a failed update
 -- newer than its history, so countBlockedGroups() has groups to count; a fill of fewer groups leaves
--- most of them without history. The pending updates the
--- draw gives such a group wait behind it, as the pushes to a blocked group do.
+-- most of them without history. The pending updates the draw gives such a group wait behind it, as
+-- the pushes to a blocked group do.
 --
 -- The status and the state are the values of InboxStatus and InboxGroupState; the measurement stops
 -- on a layout it cannot claim (inbox-load-test.ts).
@@ -35,6 +36,31 @@ SELECT max(update_id) AS history_update_count
 FROM telegram_inbox
 WHERE update_id < :layout_first_update_id
 \gset
+
+-- The groups of the pending updates, drawn ahead of the layout so that the check below sees them.
+CREATE TEMPORARY TABLE inbox_pending_draw AS
+SELECT pending_number,
+       history_update.user_id AS group_id
+FROM generate_series(1, :updates::bigint) AS pending_number
+JOIN telegram_inbox AS history_update
+  ON history_update.update_id = :history_update_count / :expired_one_in + 1
+                                + abs(hashint8extended(pending_number, 4) % (:history_update_count - :history_update_count / :expired_one_in));
+
+-- A drawn history update that is gone drops its pending update: on a fill past
+-- INBOX_DONE_RETENTION the cleanup of a measurement deletes updates inside the drawn range. The
+-- check comes before the previous layout is deleted: the delete, the inserts and the vacuum after
+-- them take most of the time of a layout.
+SELECT count(*) <> :updates AS is_layout_short
+FROM inbox_pending_draw
+\gset
+
+\if :is_layout_short
+DO $$
+BEGIN
+    RAISE EXCEPTION 'the layout lost pending updates to deleted history: the fill is past INBOX_DONE_RETENTION, make load-down, load-up and a new fill';
+END
+$$;
+\endif
 
 BEGIN;
 
@@ -104,29 +130,10 @@ SELECT update_id,
 FROM (
     SELECT :layout_first_update_id + :blocked_group_count + pending_number AS update_id,
            pending_number,
-           history_update.user_id AS group_id
-    FROM generate_series(1, :updates::bigint) AS pending_number
-    JOIN telegram_inbox AS history_update
-      ON history_update.update_id = :history_update_count / 20000 + 1
-                                    + abs(hashint8extended(pending_number, 4) % (:history_update_count - :history_update_count / 20000))
+           group_id
+    FROM inbox_pending_draw
 ) AS inbox_update
 ORDER BY update_id;
-
--- A drawn history update that is gone drops its pending update: on a fill past
--- INBOX_DONE_RETENTION the cleanup of a measurement deletes updates inside the drawn range.
-SELECT count(*) <> :updates AS is_layout_short
-FROM telegram_inbox
-WHERE update_id > :layout_first_update_id + :blocked_group_count
-  AND update_id <= :layout_first_update_id + :blocked_group_count + :updates
-\gset
-
-\if :is_layout_short
-DO $$
-BEGIN
-    RAISE EXCEPTION 'the layout lost pending updates to deleted history: the fill is past INBOX_DONE_RETENTION, make load-down, load-up and a new fill';
-END
-$$;
-\endif
 
 INSERT INTO telegram_inbox (update_id, user_id, chat_id, update, status)
 SELECT update_id,
