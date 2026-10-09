@@ -179,7 +179,7 @@ export class SvgFontPreparer {
 
     // fontforge reads <missing-glyph> as .notdef, whatever its unicode and form say.
     private isReadAsNotdef(fontGlyph: FontGlyph): boolean {
-        return fontGlyph.name !== "glyph";
+        return fontGlyph.name === "missing-glyph";
     }
 
     // fontforge counts the characters of `unicode` as code points, so a character outside the BMP,
