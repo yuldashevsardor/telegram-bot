@@ -17,7 +17,8 @@ import { Tokens } from "app/shared/tokens";
  * - a glyph with `arabic-form` is a form of the letter its `unicode` names (§20.5), while fontforge
  *   reads it under the presentation form its table gives, and does not know the form `terminal`. So
  *   the copy writes `terminal` as `final`, takes `arabic-form="isolated"` off a letter that has no
- *   glyph without a form, and writes the initial and medial forms of U+0649 under U+FBE8 and U+FBE9.
+ *   other glyph fontforge reads under it, and writes the initial and medial forms of U+0649 under
+ *   U+FBE8 and U+FBE9.
  *   Why each, in `docs/architecture/font-convertor.md`, "Reading SVG".
  *
  * Nothing else of the file changes, its times included, but a UTF-8 BOM, which XML does not need.
@@ -33,8 +34,8 @@ import { Tokens } from "app/shared/tokens";
 @injectable()
 export class SvgFontPreparer {
     private static readonly GLYPH_NAMES: ReadonlyArray<string> = ["glyph", "missing-glyph"];
-    // The values of `arabic-form` that move a glyph off its letter in the copy; fontforge reads a
-    // glyph with any other value under the letter, as one without the attribute.
+    // The values of `arabic-form` fontforge reads a form from in the copy, where `terminal` is written
+    // as `final`; it reads a glyph with any other value under the letter, as one without the attribute.
     private static readonly ARABIC_FORMS: ReadonlyArray<string> = ["initial", "medial", "terminal", "final", "isolated"];
     private static readonly ALEF_MAKSURA = "\u0649";
     // The two forms the table of fontforge maps to the letter itself.
@@ -85,12 +86,12 @@ export class SvgFontPreparer {
 
         // fontforge reads <missing-glyph> as .notdef, whatever its unicode and form say.
         const glyphs = fontGlyphs.filter((fontGlyph) => fontGlyph.name === "glyph");
-        const presentationForms = this.presentationForms(glyphs);
-        const readUnderLetter = this.unicodeValuesReadUnderLetter(glyphs, presentationForms);
+        const presentationFormCodePoints = this.presentationFormCodePoints(glyphs);
+        const readUnderLetter = this.unicodeValuesReadUnderLetter(glyphs, presentationFormCodePoints);
         const edits: Array<TextEdit> = [];
 
         for (const glyph of glyphs) {
-            edits.push(...this.arabicFormEdits(glyph, presentationForms, readUnderLetter));
+            edits.push(...this.arabicFormEdits(glyph, presentationFormCodePoints, readUnderLetter));
         }
 
         for (const fontGlyph of fontGlyphs) {
@@ -182,9 +183,9 @@ export class SvgFontPreparer {
     // The code point each initial or medial glyph of U+0649 goes under in the copy. A glyph already
     // under the presentation form keeps it alone, one this copy writes there included, and this one
     // stays under the letter, as fontforge reads it.
-    private presentationForms(glyphs: ReadonlyArray<FontGlyph>): Map<FontGlyph, number> {
+    private presentationFormCodePoints(glyphs: ReadonlyArray<FontGlyph>): Map<FontGlyph, number> {
         const takenUnicodeValues = new Set<string>();
-        const presentationForms = new Map<FontGlyph, number>();
+        const presentationFormCodePoints = new Map<FontGlyph, number>();
 
         for (const glyph of glyphs) {
             const unicodeValue = glyph.attributes["unicode"];
@@ -208,30 +209,32 @@ export class SvgFontPreparer {
             }
 
             takenUnicodeValues.add(presentationForm);
-            presentationForms.set(glyph, presentationFormCodePoint);
+            presentationFormCodePoints.set(glyph, presentationFormCodePoint);
         }
 
-        return presentationForms;
+        return presentationFormCodePoints;
     }
 
     // The `unicode` values fontforge reads some glyph of the copy under as they are written, with a form
     // or not.
-    private unicodeValuesReadUnderLetter(glyphs: ReadonlyArray<FontGlyph>, presentationForms: ReadonlyMap<FontGlyph, number>): Set<string> {
+    private unicodeValuesReadUnderLetter(
+        glyphs: ReadonlyArray<FontGlyph>,
+        presentationFormCodePoints: ReadonlyMap<FontGlyph, number>,
+    ): Set<string> {
         const readUnderLetter = new Set<string>();
 
         for (const glyph of glyphs) {
             const unicodeValue = glyph.attributes["unicode"];
             const form = glyph.attributes["arabic-form"];
 
-            if (unicodeValue === undefined || presentationForms.has(glyph)) {
+            if (unicodeValue === undefined || presentationFormCodePoints.has(glyph)) {
                 continue;
             }
 
-            const hasMovingForm = form !== undefined && SvgFontPreparer.ARABIC_FORMS.includes(form);
-            // The table of fontforge maps them to the letter itself.
+            const hasKnownForm = form !== undefined && SvgFontPreparer.ARABIC_FORMS.includes(form);
             const isAlefMaksuraFormLeftInPlace = this.alefMaksuraPresentationForm(glyph) !== undefined;
 
-            if (!hasMovingForm || isAlefMaksuraFormLeftInPlace) {
+            if (!hasKnownForm || isAlefMaksuraFormLeftInPlace) {
                 readUnderLetter.add(unicodeValue);
             }
         }
@@ -251,7 +254,7 @@ export class SvgFontPreparer {
 
     private arabicFormEdits(
         glyph: FontGlyph,
-        presentationForms: ReadonlyMap<FontGlyph, number>,
+        presentationFormCodePoints: ReadonlyMap<FontGlyph, number>,
         readUnderLetter: ReadonlySet<string>,
     ): Array<TextEdit> {
         const unicodeValue = glyph.attributes["unicode"];
@@ -263,7 +266,7 @@ export class SvgFontPreparer {
             return [];
         }
 
-        const presentationFormCodePoint = presentationForms.get(glyph);
+        const presentationFormCodePoint = presentationFormCodePoints.get(glyph);
 
         if (presentationFormCodePoint !== undefined) {
             return [

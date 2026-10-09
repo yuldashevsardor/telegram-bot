@@ -162,13 +162,14 @@ describe("SvgFontPreparer.prepare", function () {
 
     it("keeps the isolated form of U+0649 when its initial form stays under the letter, wherever that glyph stands", async function () {
         // fontforge reads the initial form left in place under U+0649, and the isolated one under U+FEEF.
-        const source = fontDocument(
-            "0",
-            '<glyph unicode="&#x649;" arabic-form="isolated" horiz-adv-x="1"/><glyph unicode="&#xFBE8;" horiz-adv-x="1"/>' +
-                '<glyph unicode="&#x649;" arabic-form="initial" horiz-adv-x="1"/>',
-        );
+        const isolatedForm = '<glyph unicode="&#x649;" arabic-form="isolated" horiz-adv-x="1"/>';
+        const presentationForm = '<glyph unicode="&#xFBE8;" horiz-adv-x="1"/>';
+        const initialForm = '<glyph unicode="&#x649;" arabic-form="initial" horiz-adv-x="1"/>';
+        const isolatedFormFirst = fontDocument("0", isolatedForm + presentationForm + initialForm);
+        const isolatedFormLast = fontDocument("0", presentationForm + initialForm + isolatedForm);
 
-        expect(await prepared(source)).to.equal(source);
+        expect(await prepared(isolatedFormFirst)).to.equal(isolatedFormFirst);
+        expect(await prepared(isolatedFormLast)).to.equal(isolatedFormLast);
     });
 
     it("writes the initial form of U+0649 under U+FBE8 past a <missing-glyph> with the same form", async function () {
@@ -178,6 +179,13 @@ describe("SvgFontPreparer.prepare", function () {
         expect(await prepared(fontDocument("0", glyphs))).to.equal(
             fontDocument("0", `${missingGlyph}<glyph  unicode="&#xFBE8;" horiz-adv-x="1"/>`),
         );
+    });
+
+    it("leaves the terminal form of <missing-glyph> as it is", async function () {
+        // fontforge reads <missing-glyph> as .notdef, whatever its form says.
+        const source = fontDocument("0", '<missing-glyph unicode="&#x627;" arabic-form="terminal" horiz-adv-x="1"/>');
+
+        expect(await prepared(source)).to.equal(source);
     });
 
     it("cuts the form out together with the whitespace before it, wherever the tag breaks", async function () {

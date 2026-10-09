@@ -145,11 +145,11 @@ reads `missing-glyph` as .notdef, whatever its `unicode` and `arabic-form` say.
 
 - the advance of `<font>` is written on every `glyph` and `missing-glyph` that leaves it out;
 - `arabic-form="terminal"` is written as `"final"`;
-- `arabic-form="isolated"` is taken off a glyph of one code point when the copy has no other
-  `glyph` with the same `unicode` that fontforge reads under the letter, and fontforge reads the
-  glyph under the letter. fontforge reads under the letter a glyph without a form, one whose
-  `arabic-form` is none of the four SVG 1.1 values, nor `final`, and an initial or medial glyph of
-  U+0649 the next edit leaves in place;
+- `arabic-form="isolated"` is taken off a glyph of one code point unless another `glyph` of the
+  source with the same `unicode` is one fontforge reads under the letter: one without a form, one
+  whose `arabic-form` is none of the four SVG 1.1 values, nor `final`, or an initial or medial
+  glyph of U+0649 the next edit leaves in place. Without the attribute fontforge reads the glyph
+  under the letter;
 - a glyph of U+0649 with `arabic-form="initial"` or `"medial"` is written as
   `unicode="&#xFBE8;"` or `"&#xFBE9;"` without `arabic-form`, unless a glyph already has that
   code point, one the copy writes there for a glyph earlier in the file included.
