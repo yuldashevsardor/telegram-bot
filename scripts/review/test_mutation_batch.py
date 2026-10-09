@@ -1130,14 +1130,19 @@ class FakeHistory(FakeGitHub):
         if args[:2] == ["git", "rev-list"]:
             return " ".join([args[-1]] + self.parents[args[-1]]) + "\n"
         if args[:2] == ["git", "log"]:
-            return self.deleted_by(args[-3], args[-1])
+            return self.deleted_by(args)
         if args[:2] == ["gh", "api"] and "/pulls/" in args[3]:
             pr = int(args[3].split("/pulls/")[1].split("/")[0])
             return "\n".join(self.pr_files[pr]) + "\n"
         return None
 
-    def deleted_by(self, commit, path):
-        """The last commit up to this one along the first parents that deleted the file."""
+    def deleted_by(self, args):
+        """The last commit up to the one named along the first parents that deleted the file. Real
+        `git log` walks the first parents only with `--first-parent`, and the fake no other way."""
+        if "--first-parent" not in args:
+            raise AssertionError("git log without --first-parent walks every parent")
+        separator = args.index("--")
+        commit, path = args[separator - 1], args[separator + 1]
         while self.parents.get(commit):
             parent = self.parents[commit][0]
             if path in self.trees[parent] and path not in self.trees[commit]:
@@ -1418,15 +1423,20 @@ class BatchFilesTest(unittest.TestCase):
     def test_the_tools_read_by_content_are_those_the_gates_read_by_content(self):
         with open(self.gates_path(), encoding="utf-8") as file:
             text = file.read()
-        # A list belongs to the paragraph that leads into it.
-        paragraphs = re.split(r"\n\n(?!- )", text)
+        # A list belongs to the paragraph that leads into it; a paragraph is read unwrapped.
+        paragraphs = [" ".join(paragraph.split()) for paragraph in re.split(r"\n\n(?!- )", text)]
         named = {
             re.search(r"`([^`]+)`", paragraph).group(1)
             for paragraph in paragraphs
             if "`mutation-full` too" in paragraph
         }
 
-        self.assertEqual(named, set(mutation_batch.RUN_TOOLS_BY_CONTENT))
+        self.assertEqual(
+            named,
+            set(mutation_batch.RUN_TOOLS_BY_CONTENT),
+            "each paragraph of review-gates.md that says `mutation-full` too names its file as its"
+            " first backticked word",
+        )
 
     def gates_path(self):
         root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

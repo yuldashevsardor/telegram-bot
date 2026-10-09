@@ -48,8 +48,9 @@ and takes no lock:
    rebase merge, and the latter names the last commit of the PR only. A file the REST listing of
    the PR's files names that the commit does not change (an earlier commit of a rebase, or a squash
    of a change `main` already had) has no old text to compare with, and counts as changed in code.
-   A spec gone from the commit is read at the parent of the commit that deleted it. The listing
-   stops at 3000 files: a PR past that leaves the rest of the files of a rebase merge unseen.
+   A spec gone from the commit is read at the first parent of the commit that deleted it, found
+   along the first parents. The listing stops at 3000 files: a PR past that leaves the rest of the
+   files of a rebase merge unseen.
 3. A changed tool of the run (`RUN_TOOLS`, and `RUN_TOOLS_BY_CONTENT` by what of them the run reads,
    as docs/agents/review-gates.md says) in more than comments sends the batch to the full run:
    stdout stays empty, and stderr names the PR and the file.
@@ -1114,11 +1115,12 @@ def is_source(path: str) -> bool:
 
 
 def commit_parents(commit: str, run: Run) -> List[str]:
-    """The parents of a merge commit; the first is the commit of `main` the PR was merged onto, and
-    the merge commit, or the squash, carries the whole change of the PR against it."""
+    """The parents of a commit. For the merge commit or the squash that landed a PR, the first is
+    the commit of `main` the PR landed on, and the landing commit carries the whole change of the
+    PR against it."""
     parents = git_text(["rev-list", "--parents", "-n", "1", commit], run).split()[1:]
     if not parents:
-        raise Stop("the merge commit {} has no parent".format(commit))
+        raise Stop("the commit {} has no parent".format(commit))
     return parents
 
 
@@ -1145,7 +1147,7 @@ def uncarried_files(pr: int, changed: List[ChangedFile], run: Run) -> List[str]:
 
 class Kept(NamedTuple):
     """A `.ts` the PR changed in code, as a path of the commit that holds the text to read: the
-    merge commit, or its parent for a deleted spec."""
+    merge commit, or for a deleted spec the first parent of the commit that deleted it."""
 
     path: str
     commit: str
@@ -1153,11 +1155,14 @@ class Kept(NamedTuple):
 
 def uncarried_source(pr: int, path: str, commit: str, main_line: "MainLine", run: Run) -> Kept:
     """A `.ts` of the PR its merge commit does not carry, read at the merge commit; a spec an
-    earlier commit of a rebase merge deleted, at the parent of that commit."""
+    earlier commit of a rebase merge deleted, at the first parent of that commit."""
     if path.startswith("src/") or path in main_line.tree(commit):
         return Kept(path, commit)
+    # Along the first parents only: without `--first-parent` `git log` shows no diff for a merge
+    # commit, and a spec deleted in the resolution of a merge would not be found.
     deleting = git_text(
-        ["log", "-n", "1", "--diff-filter=D", "--format=%H", commit, "--", path], run
+        ["log", "-n", "1", "--first-parent", "--diff-filter=D", "--format=%H", commit, "--", path],
+        run,
     ).strip()
     if not deleting:
         raise Stop(
