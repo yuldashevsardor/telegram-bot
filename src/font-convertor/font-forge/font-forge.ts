@@ -17,14 +17,10 @@ export class FontForge {
     // fontforge -c, sys.argv is ["-c", ...the arguments after the script], and a path in it stays
     // a string. The same holds for convertToSvgScript.
     private readonly convertScript = "import fontforge, sys; font = fontforge.open(sys.argv[1]); font.generate(sys.argv[2])";
-    // Writing an SVG font, fontforge puts a glyph into one <glyph> element and leaves the other code
-    // points of the glyph out (svg_sfdump of its svg.c). A glyph with a ligature of a liga or rlig
-    // lookup whose components all have code points goes under the components alone, so an icon of an
-    // icon font loses its code point to its name. A glyph with an Arabic presentation form among its
-    // code points goes under the first such form alone. The script gives each code point left out a
-    // copy of the glyph, a reference to it, which fontforge writes under that code point
-    // (issue https://github.com/yuldashevsardor/telegram-bot/issues/917). isArabicForm repeats
-    // isarabinitial and its siblings of fontforge, which are the decomposition tags of Unicode.
+    // fontforge writes a glyph into one SVG element and leaves some of its code points out. The script
+    // gives each code point left out a copy of the glyph, which fontforge writes under that code point.
+    // Which code points fontforge leaves out and which of its rules the script repeats:
+    // docs/architecture/font-convertor.md, "Writing SVG".
     private readonly convertToSvgScript = [
         "import fontforge, sys, unicodedata",
         "font = fontforge.open(sys.argv[1])",
@@ -43,10 +39,19 @@ export class FontForge {
         "        if isLigaOrRlig and len(components) > 1 and hasEncodedComponents:",
         "            return True",
         "    return False",
-        "copies = []",
+        // createChar returns the glyph that already has the name, and the copy would overwrite it.
+        "def freeCopyName(glyph, codePoint):",
+        '    copyName = "%s.u%04X" % (glyph.glyphname, codePoint)',
+        "    while copyName in font:",
+        '        copyName += "_"',
+        "    return copyName",
+        // The copies are made after the walk over font.glyphs(): the walk then does not depend on how
+        // the iterator of fontforge treats glyphs added to the font under it.
+        "pendingCopies = []",
         "for glyph in font.glyphs():",
+        "    altCodePoints = [alt[0] for alt in (glyph.altuni or ()) if alt[1] == -1]",
         "    codePoints = []",
-        "    for codePoint in [glyph.unicode] + [alt[0] for alt in (glyph.altuni or ()) if alt[1] == -1]:",
+        "    for codePoint in [glyph.unicode] + altCodePoints:",
         "        if codePoint != -1 and codePoint not in codePoints:",
         "            codePoints.append(codePoint)",
         "    arabicForms = [codePoint for codePoint in codePoints if isArabicForm(codePoint)]",
@@ -57,9 +62,9 @@ export class FontForge {
         "    else:",
         "        leftOutCodePoints = []",
         "    for codePoint in leftOutCodePoints:",
-        "        copies.append((glyph, codePoint))",
-        "for glyph, codePoint in copies:",
-        '    copy = font.createChar(-1, "%s.u%04X" % (glyph.glyphname, codePoint))',
+        "        pendingCopies.append((glyph, codePoint))",
+        "for glyph, codePoint in pendingCopies:",
+        "    copy = font.createChar(-1, freeCopyName(glyph, codePoint))",
         "    copy.addReference(glyph.glyphname)",
         "    copy.width = glyph.width",
         "    copy.vwidth = glyph.vwidth",
