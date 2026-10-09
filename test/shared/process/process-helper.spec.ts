@@ -9,6 +9,8 @@ import { ProcessFailed } from "app/shared/process/process-helper.errors";
 const OUTPUT_PAST_EXEC_FILE_CAP_BYTES = 2 * 1024 * 1024;
 // A node with tsx started in a quarter of a second; parallel sessions slow it down past the 2 s of mocha.
 const CHILD_NODE_TIMEOUT_MS = 20 * 1000;
+// Long enough for the reads of stderr to catch up with what the child wrote before the pause.
+const READ_PAUSE_SECONDS = 0.2;
 // Low enough for the child node to take every descriptor at once.
 const CHILD_DESCRIPTOR_LIMIT = 128;
 
@@ -87,12 +89,21 @@ describe("ProcessHelper.run", function () {
 
     it("moves the start of the stderr tail past three continuation bytes at most", async function () {
         // Eight continuation bytes, of no character, and the cut lands on the fifth: three are skipped,
-        // the fourth stays and reads as U+FFFD. The last four bytes go in one write shorter than PIPE_BUF,
-        // which reaches the pipe whole: every read before it ends at STDERR_TAIL_BYTES at most, so the
-        // tail is cut once. A read ending one to three bytes past it would cut inside the eight bytes
-        // first and skip from another start.
-        const fillerBytes = STDERR_TAIL_BYTES - 8;
-        const script = `printf '\\200\\200\\200\\200\\200\\200\\200\\200' >&2; head -c ${fillerBytes} /dev/zero | tr '\\0' w >&2; printf wwww >&2`;
+        // the fourth stays and reads as U+FFFD.
+        const script = `printf '\\200\\200\\200\\200\\200\\200\\200\\200' >&2; head -c ${STDERR_TAIL_BYTES - 4} /dev/zero | tr '\\0' w >&2`;
+
+        const result = await ProcessHelper.run("/bin/sh", ["-c", script]);
+
+        expect(result.stderr).to.equal(`\uFFFD${"w".repeat(STDERR_TAIL_BYTES - 4)}`);
+    });
+
+    it("cuts the stderr tail the same way whatever reads the output arrived in", async function () {
+        // The stderr of the spec above with a pause after its first STDERR_TAIL_BYTES + 1 bytes: a read
+        // ends there, and a cut on it would land inside the eight continuation bytes and skip from the
+        // second one. Under a heavy load the reads may not catch up, and the spec checks no more than
+        // the one above.
+        const fillerBeforePauseBytes = STDERR_TAIL_BYTES - 7;
+        const script = `printf '\\200\\200\\200\\200\\200\\200\\200\\200' >&2; head -c ${fillerBeforePauseBytes} /dev/zero | tr '\\0' w >&2; sleep ${READ_PAUSE_SECONDS}; printf www >&2`;
 
         const result = await ProcessHelper.run("/bin/sh", ["-c", script]);
 
