@@ -1,5 +1,6 @@
 import { RuntimeError } from "app/shared/errors";
-import type { Encoding, Violation } from "app/font-convertor/validator/svg/svg-font-validator.types";
+import type { Violation } from "app/font-convertor/validator/svg/svg-font-validator.types";
+import type { Encoding } from "app/font-convertor/validator/svg/svg-text-codec";
 
 // Text from the file may be of any length, while the error carries it into the log. A quote from
 // it is cut on its own to the first limit: a name in Clark notation keeps that much of its

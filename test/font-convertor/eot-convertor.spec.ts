@@ -29,7 +29,7 @@ describe("Convertors of the eot pairs", function () {
     let factory: ConvertorFactory;
     let failOn: StepName | undefined;
     let unremovableOn: StepName | undefined;
-    // The sourcePath argument of every call of the engine.
+    // `options.sourcePath` of every call of the engine.
     let engineSourcePaths: Array<string | undefined>;
 
     beforeEach(async function () {
@@ -197,8 +197,8 @@ describe("Convertors of the eot pairs", function () {
 
     function fontForge(): FontForge {
         return {
-            convert: (fromPath: string, toPath: string, sourcePath?: string) => {
-                engineSourcePaths.push(sourcePath);
+            convert: (fromPath: string, toPath: string, options?: { sourcePath?: string }) => {
+                engineSourcePaths.push(options?.sourcePath);
 
                 return step("fontForge", fromPath, toPath);
             },

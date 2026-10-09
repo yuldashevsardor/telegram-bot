@@ -80,11 +80,12 @@ export class FontForge {
     ) {}
 
     /**
-     * `sourcePath` is the font the conversion was given, which an error of the engine names. It is
-     * `srcPath` unless the engine reads a file made from the source, the unpacked sfnt of an EOT,
+     * `options.sourcePath` is the font the conversion was given, which an error of the engine names.
+     * It is `srcPath` unless `srcPath` is a file made from the source, the unpacked sfnt of an EOT,
      * which is removed by the time the error is logged.
      */
-    public async convert(srcPath: string, distPath: string, sourcePath: string = srcPath): Promise<void> {
+    public async convert(srcPath: string, distPath: string, options: { sourcePath?: string } = {}): Promise<void> {
+        const sourcePath = options.sourcePath ?? srcPath;
         const srcExtension = (await FileHelper.getFileExtension(srcPath)).toLowerCase();
         const distExtension = await FileHelper.getFileExtension(distPath);
 
@@ -117,7 +118,8 @@ export class FontForge {
 
     /**
      * `readPath` is the file the engine reads, `sourcePath` the font the conversion was given, which
-     * the error names: for an SVG source they differ.
+     * the error names. They differ for an SVG source, whose prepared copy the engine reads, and on a
+     * route from EOT, whose unpacked sfnt it reads.
      */
     private async run(script: string, distPath: string, paths: { readPath: string; sourcePath: string }): Promise<void> {
         try {
