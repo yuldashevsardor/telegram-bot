@@ -85,7 +85,8 @@ export class InboxPollingSource {
         }
 
         // Lower than any update_id: Telegram answers it from the first update it has not been told of,
-        // so a restart gets no duplicate (docs/architecture/inbox.md, "The polling source").
+        // so a restart gets the last batch again, and the push leaves out its stored updates
+        // (docs/architecture/inbox.md, "The polling source").
         let offset = 0;
 
         while (!this.isStopped()) {
