@@ -15,8 +15,57 @@ export class FontForge {
     // The paths are read from sys.argv, not substituted into the script text: substituted, a
     // path would become Python code, a second level of interpretation after the shell. Under
     // fontforge -c, sys.argv is ["-c", ...the arguments after the script], and a path in it stays
-    // a string.
+    // a string. The same holds for convertToSvgScript.
     private readonly convertScript = "import fontforge, sys; font = fontforge.open(sys.argv[1]); font.generate(sys.argv[2])";
+    // Writing an SVG font, fontforge puts a glyph into one <glyph> element and leaves the other code
+    // points of the glyph out (svg_sfdump of its svg.c). A glyph with a ligature of a liga or rlig
+    // lookup whose components all have code points goes under the components alone, so an icon of an
+    // icon font loses its code point to its name. A glyph with an Arabic presentation form among its
+    // code points goes under the first such form alone. The script gives each code point left out a
+    // copy of the glyph, a reference to it, which fontforge writes under that code point
+    // (issue https://github.com/yuldashevsardor/telegram-bot/issues/917). isArabicForm repeats
+    // isarabinitial and its siblings of fontforge, which are the decomposition tags of Unicode.
+    private readonly convertToSvgScript = [
+        "import fontforge, sys, unicodedata",
+        "font = fontforge.open(sys.argv[1])",
+        "def isArabicForm(codePoint):",
+        '    tag = unicodedata.decomposition(chr(codePoint)).split(" ")[0]',
+        '    return tag in ("<initial>", "<medial>", "<final>", "<isolated>")',
+        "def isWrittenAsLigature(glyph):",
+        '    for posSub in glyph.getPosSub("*"):',
+        '        if posSub[1] != "Ligature":',
+        "            continue",
+        "        lookup = font.getLookupOfSubtable(posSub[0])",
+        "        features = [feature[0] for feature in font.getLookupInfo(lookup)[2]]",
+        "        components = posSub[2:]",
+        '        isLigaOrRlig = "liga" in features or "rlig" in features',
+        "        hasEncodedComponents = all(name in font and font[name].unicode != -1 for name in components)",
+        "        if isLigaOrRlig and len(components) > 1 and hasEncodedComponents:",
+        "            return True",
+        "    return False",
+        "copies = []",
+        "for glyph in font.glyphs():",
+        "    codePoints = []",
+        "    for codePoint in [glyph.unicode] + [alt[0] for alt in (glyph.altuni or ()) if alt[1] == -1]:",
+        "        if codePoint != -1 and codePoint not in codePoints:",
+        "            codePoints.append(codePoint)",
+        "    arabicForms = [codePoint for codePoint in codePoints if isArabicForm(codePoint)]",
+        "    if isWrittenAsLigature(glyph):",
+        "        leftOutCodePoints = codePoints",
+        "    elif arabicForms:",
+        "        leftOutCodePoints = [codePoint for codePoint in codePoints if codePoint != arabicForms[0]]",
+        "    else:",
+        "        leftOutCodePoints = []",
+        "    for codePoint in leftOutCodePoints:",
+        "        copies.append((glyph, codePoint))",
+        "for glyph, codePoint in copies:",
+        '    copy = font.createChar(-1, "%s.u%04X" % (glyph.glyphname, codePoint))',
+        "    copy.addReference(glyph.glyphname)",
+        "    copy.width = glyph.width",
+        "    copy.vwidth = glyph.vwidth",
+        "    copy.unicode = codePoint",
+        "font.generate(sys.argv[2])",
+    ].join("\n");
 
     public constructor(private readonly fontForgePath: string = configValue("fontForgePath")) {}
 
@@ -32,8 +81,10 @@ export class FontForge {
             throw ExtensionNotSupport.byExtension(distExtension);
         }
 
+        const script = distExtension === Extension.SVG ? this.convertToSvgScript : this.convertScript;
+
         try {
-            await ProcessHelper.run(this.fontForgePath, ["-c", this.convertScript, srcPath, distPath]);
+            await ProcessHelper.run(this.fontForgePath, ["-c", script, srcPath, distPath]);
         } catch (error) {
             throw ExecuteError.byError(error);
         }

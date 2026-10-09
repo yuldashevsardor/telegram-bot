@@ -67,6 +67,42 @@ describe("FontForge.convert", function () {
         });
     }
 
+    // Without the copy fontforge writes I_I.salt_v under the code points of its ligature alone, and U+E202
+    // is not in the font at all.
+    it("writes into svg a glyph with a ligature under its own code point as well", async function () {
+        const distPath = path.join(workDir, "result.svg");
+
+        await fontForge.convert(path.join(fixtureDir, "bungee-spice", "BungeeSpice-Regular.ttf"), distPath);
+
+        const svgFont = await fs.readFile(distPath, "utf8");
+        expect(svgFont).to.include('<glyph glyph-name="I_I.salt_v" unicode="&#xe201;&#xe201;" vert-adv-y="854"');
+        expect(svgFont).to.include('<glyph glyph-name="I_I.salt_v.uE202" unicode="&#xe202;" vert-adv-y="854"');
+    });
+
+    // The glyph uni06D5 has U+06D5 and the presentation form U+FEE9, which fontforge writes as U+0647 with
+    // arabic-form. uniFBE8 has the presentation form alone, so it needs no copy.
+    it("writes into svg each code point of a glyph with an arabic presentation form", async function () {
+        const distPath = path.join(workDir, "result.svg");
+
+        await fontForge.convert(path.join(fixtureDir, "noto-naskh-arabic", "NotoNaskhArabic-Regular.ttf"), distPath);
+
+        const svgFont = await fs.readFile(distPath, "utf8");
+        expect(svgFont).to.include('<glyph glyph-name="uni06D5" unicode="&#x647;" horiz-adv-x="408" arabic-form="isolated"');
+        expect(svgFont).to.include('<glyph glyph-name="uni06D5.u06D5" unicode="&#x6d5;" horiz-adv-x="408"');
+        expect(svgFont).not.to.include('glyph-name="uniFBE8.');
+    });
+
+    // The CFF of an OTF keeps the glyph names as text, so a copy would show by its name.
+    it("adds no glyph copies to a font of another format", async function () {
+        const distPath = path.join(workDir, "result.otf");
+
+        await fontForge.convert(path.join(fixtureDir, "bungee-spice", "BungeeSpice-Regular.ttf"), distPath);
+
+        const otfFont = await fs.readFile(distPath);
+        expect(otfFont.includes("I_I.salt_v")).to.be.true;
+        expect(otfFont.includes("I_I.salt_v.uE202")).to.be.false;
+    });
+
     it("does not give eot to the engine to read", async function () {
         const error = await rejectionOf(() => fontForge.convert(fixture(Extension.EOT), path.join(workDir, "result.ttf")));
 
