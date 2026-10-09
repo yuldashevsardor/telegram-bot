@@ -66,7 +66,6 @@ export class ProcessHelper {
     }
 
     private static keepTail(stderrWindow: Buffer): Buffer {
-        // Stryker disable next-line EqualityOperator: `<` differs only on output of exactly STDERR_TAIL_BYTES that starts on a continuation byte, which UTF-8 output never does; there the tail still starts within three bytes of the cut, the bound required of it
         if (stderrWindow.length <= STDERR_TAIL_BYTES) {
             return stderrWindow;
         }

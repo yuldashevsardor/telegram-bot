@@ -69,6 +69,14 @@ describe("ProcessHelper.run", function () {
         expect(result.stderr).to.equal("Bad device table");
     });
 
+    it("returns the whole stderr of exactly STDERR_TAIL_BYTES, even when it starts on a continuation byte", async function () {
+        const script = `printf '\\200' >&2; head -c ${STDERR_TAIL_BYTES - 1} /dev/zero | tr '\\0' w >&2`;
+
+        const result = await ProcessHelper.run("/bin/sh", ["-c", script]);
+
+        expect(result.stderr).to.equal(`\uFFFD${"w".repeat(STDERR_TAIL_BYTES - 1)}`);
+    });
+
     it("keeps only the end of stderr and succeeds when the process prints more than 1 MiB to it", async function () {
         const script = `head -c ${OUTPUT_PAST_EXEC_FILE_CAP_BYTES} /dev/zero | tr '\\0' w >&2; printf end >&2`;
 
@@ -102,8 +110,10 @@ describe("ProcessHelper.run", function () {
         // ends there, and a cut on it would land inside the eight continuation bytes and skip from the
         // second one. Under a heavy load the reads may not catch up, and the spec checks no more than
         // the one above.
-        const fillerBeforePauseBytes = STDERR_TAIL_BYTES - 7;
-        const script = `printf '\\200\\200\\200\\200\\200\\200\\200\\200' >&2; head -c ${fillerBeforePauseBytes} /dev/zero | tr '\\0' w >&2; sleep ${READ_PAUSE_SECONDS}; printf www >&2`;
+        const continuationByteCount = 8;
+        const continuationBytes = "\\200".repeat(continuationByteCount);
+        const fillerBeforePauseBytes = STDERR_TAIL_BYTES + 1 - continuationByteCount;
+        const script = `printf '${continuationBytes}' >&2; head -c ${fillerBeforePauseBytes} /dev/zero | tr '\\0' w >&2; sleep ${READ_PAUSE_SECONDS}; printf www >&2`;
 
         const result = await ProcessHelper.run("/bin/sh", ["-c", script]);
 
