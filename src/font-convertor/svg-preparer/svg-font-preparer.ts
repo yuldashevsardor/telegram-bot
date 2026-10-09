@@ -23,28 +23,28 @@ import { Tokens } from "app/shared/tokens";
 export class SvgFontPreparer {
     private static readonly GLYPH_NAMES: ReadonlyArray<string> = ["glyph", "missing-glyph"];
 
-    public constructor(@inject<SvgTextCodec>(Tokens.Font.Svg.TextCodec) private readonly textCodec: SvgTextCodec) {}
+    public constructor(@inject<SvgTextCodec>(Tokens.Font.Validator.SvgTextCodec) private readonly textCodec: SvgTextCodec) {}
 
     public async prepare(sourcePath: string, preparedPath: string): Promise<void> {
-        const bytes = await FileHelper.read(sourcePath);
-        const encoding = this.textCodec.encodingOf(bytes);
-        const text = this.decode(sourcePath, bytes, encoding);
+        const sourceBytes = await FileHelper.read(sourcePath);
+        const encoding = this.textCodec.encodingOf(sourceBytes);
+        const sourceText = this.decode(sourcePath, sourceBytes, encoding);
 
-        await FileHelper.write(preparedPath, this.textCodec.encode(this.withGlyphAdvances(sourcePath, text), encoding));
+        await FileHelper.write(preparedPath, this.textCodec.encode(this.withGlyphAdvances(sourcePath, sourceText), encoding));
         // fontforge stamps the font it writes with the modification time of the file it reads, so the
         // result keeps the time of the source.
         await FileHelper.copyTimes(sourcePath, preparedPath);
     }
 
-    private decode(sourcePath: string, bytes: Uint8Array, encoding: Encoding): string {
+    private decode(sourcePath: string, sourceBytes: Uint8Array, encoding: Encoding): string {
         try {
-            return this.textCodec.decode(bytes, encoding);
+            return this.textCodec.decode(sourceBytes, encoding);
         } catch (error) {
             throw UnpreparableSvgFont.byEncoding(sourcePath, error as Error);
         }
     }
 
-    private withGlyphAdvances(sourcePath: string, text: string): string {
+    private withGlyphAdvances(sourcePath: string, sourceText: string): string {
         // Without namespaces saxes does not need the prefixes the SVG 1.1 DTD fixes, which
         // SvgFontValidator binds itself.
         const parser = new SaxesParser<{ xmlns: false; forceXMLVersion: true; defaultXMLVersion: "1.0" }>({
@@ -78,11 +78,11 @@ export class SvgFontPreparer {
         });
         parser.on("closetag", () => openNames.pop());
 
-        parser.write(text).close();
+        parser.write(sourceText).close();
 
         // SvgFontValidator requires `horiz-adv-x` of `font`.
         if (fontAdvance === undefined) {
-            return text;
+            return sourceText;
         }
 
         const advanceAttribute = ` horiz-adv-x="${fontAdvance}"`;
@@ -90,11 +90,11 @@ export class SvgFontPreparer {
         let copiedUpTo = 0;
 
         for (const insertionIndex of insertionIndexes) {
-            preparedText += text.slice(copiedUpTo, insertionIndex) + advanceAttribute;
+            preparedText += sourceText.slice(copiedUpTo, insertionIndex) + advanceAttribute;
             copiedUpTo = insertionIndex;
         }
 
-        return preparedText + text.slice(copiedUpTo);
+        return preparedText + sourceText.slice(copiedUpTo);
     }
 
     private isGlyphWithoutAdvance(name: string, tag: SaxesTagPlain): boolean {

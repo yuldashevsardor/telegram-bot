@@ -111,7 +111,7 @@ export class Container extends InversifyContainer {
         this.bind<ConvertorFactory>(Tokens.Font.Convertor.Factory).to(ConvertorFactory).inSingletonScope();
         this.bind<FontForge>(Tokens.Font.Engine.FontForge).to(FontForge).inSingletonScope();
         this.bind<SvgFontPreparer>(Tokens.Font.Engine.SvgFontPreparer).to(SvgFontPreparer).inSingletonScope();
-        this.bind<SvgTextCodec>(Tokens.Font.Svg.TextCodec).to(SvgTextCodec).inSingletonScope();
+        this.bind<SvgTextCodec>(Tokens.Font.Validator.SvgTextCodec).to(SvgTextCodec).inSingletonScope();
         this.bind<SvgFontValidator>(Tokens.Font.Validator.Svg).to(SvgFontValidator).inSingletonScope();
         this.bind<SfntFontValidator>(Tokens.Font.Validator.Sfnt).to(SfntFontValidator).inSingletonScope();
         this.bind<WoffFontValidator>(Tokens.Font.Validator.Woff).to(WoffFontValidator).inSingletonScope();

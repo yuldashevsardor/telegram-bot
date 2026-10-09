@@ -96,7 +96,7 @@ export class SvgFontValidator implements FontValidator {
     // `k="32768"` fits; the range is kept symmetric.
     private static readonly SYMMETRIC_16_BIT_RANGE: NumberRange = { min: -MAX_FONT_UNITS, max: MAX_FONT_UNITS };
 
-    public constructor(@inject<SvgTextCodec>(Tokens.Font.Svg.TextCodec) private readonly textCodec: SvgTextCodec) {}
+    public constructor(@inject<SvgTextCodec>(Tokens.Font.Validator.SvgTextCodec) private readonly textCodec: SvgTextCodec) {}
 
     /**
      * Throws when the file is not a valid SVG font. The answers go in this order, each a subclass

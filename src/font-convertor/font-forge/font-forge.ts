@@ -79,7 +79,12 @@ export class FontForge {
         private readonly fontForgePath: string = configValue("fontForgePath"),
     ) {}
 
-    public async convert(srcPath: string, distPath: string): Promise<void> {
+    /**
+     * `sourcePath` is the font the conversion was given, which an error of the engine names. It is
+     * `srcPath` unless the engine reads a file made from the source, the unpacked sfnt of an EOT,
+     * which is removed by the time the error is logged.
+     */
+    public async convert(srcPath: string, distPath: string, sourcePath: string = srcPath): Promise<void> {
         const srcExtension = (await FileHelper.getFileExtension(srcPath)).toLowerCase();
         const distExtension = await FileHelper.getFileExtension(distPath);
 
@@ -94,7 +99,7 @@ export class FontForge {
         const script = distExtension === Extension.SVG ? this.convertToSvgScript : this.convertScript;
 
         if (srcExtension !== Extension.SVG) {
-            await this.run(script, distPath, { readPath: srcPath, sourcePath: srcPath });
+            await this.run(script, distPath, { readPath: srcPath, sourcePath: sourcePath });
 
             return;
         }
@@ -106,7 +111,7 @@ export class FontForge {
 
         await FileHelper.removeAfter(preparedPath, async () => {
             await this.svgFontPreparer.prepare(srcPath, preparedPath);
-            await this.run(script, distPath, { readPath: preparedPath, sourcePath: srcPath });
+            await this.run(script, distPath, { readPath: preparedPath, sourcePath: sourcePath });
         });
     }
 

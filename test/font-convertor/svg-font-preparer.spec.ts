@@ -12,7 +12,7 @@ const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 const FONT_FACE = '<font-face units-per-em="1000"/>';
 
 // A document around the content of a font whose advance is `fontAdvance`.
-function document(fontAdvance: string, glyphs: string): string {
+function fontDocument(fontAdvance: string, glyphs: string): string {
     return `<svg xmlns="${SVG_NAMESPACE}"><font horiz-adv-x="${fontAdvance}">${FONT_FACE}${glyphs}</font></svg>`;
 }
 
@@ -34,27 +34,27 @@ describe("SvgFontPreparer.prepare", function () {
     });
 
     it("writes the advance of <font> on a glyph that leaves it out", async function () {
-        expect(await prepared(document("0", '<glyph unicode="&#x300;" d="M0 0h10v10z"/>'))).to.equal(
-            document("0", '<glyph unicode="&#x300;" d="M0 0h10v10z" horiz-adv-x="0"/>'),
+        expect(await prepared(fontDocument("0", '<glyph unicode="&#x300;" d="M0 0h10v10z"/>'))).to.equal(
+            fontDocument("0", '<glyph unicode="&#x300;" d="M0 0h10v10z" horiz-adv-x="0"/>'),
         );
     });
 
     it("writes the advance of <font> on an empty glyph and on <missing-glyph>", async function () {
-        expect(await prepared(document("1000", '<missing-glyph/><glyph unicode="&#x2003;"></glyph>'))).to.equal(
-            document("1000", '<missing-glyph horiz-adv-x="1000"/><glyph unicode="&#x2003;" horiz-adv-x="1000"></glyph>'),
+        expect(await prepared(fontDocument("1000", '<missing-glyph/><glyph unicode="&#x2003;"></glyph>'))).to.equal(
+            fontDocument("1000", '<missing-glyph horiz-adv-x="1000"/><glyph unicode="&#x2003;" horiz-adv-x="1000"></glyph>'),
         );
     });
 
     it("keeps the advance of a glyph that has one", async function () {
-        const source = document("0", '<glyph unicode="a" horiz-adv-x="500"/>');
+        const source = fontDocument("0", '<glyph unicode="a" horiz-adv-x="500"/>');
 
         expect(await prepared(source)).to.equal(source);
     });
 
     it("copies the advance of <font> as it is written", async function () {
         // fontforge truncates a fraction of an advance as it reads it, wherever it is written.
-        expect(await prepared(document("512.5", '<glyph unicode="a"/>'))).to.equal(
-            document("512.5", '<glyph unicode="a" horiz-adv-x="512.5"/>'),
+        expect(await prepared(fontDocument("512.5", '<glyph unicode="a"/>'))).to.equal(
+            fontDocument("512.5", '<glyph unicode="a" horiz-adv-x="512.5"/>'),
         );
     });
 
@@ -63,8 +63,8 @@ describe("SvgFontPreparer.prepare", function () {
         // the indexes of a string do.
         const glyphs = '<glyph unicode="\u{1F600}"\r\n   />\n<glyph\tunicode="b" >\n</glyph>';
 
-        expect(await prepared(document("0", glyphs))).to.equal(
-            document("0", '<glyph unicode="\u{1F600}"\r\n    horiz-adv-x="0"/>\n<glyph\tunicode="b"  horiz-adv-x="0">\n</glyph>'),
+        expect(await prepared(fontDocument("0", glyphs))).to.equal(
+            fontDocument("0", '<glyph unicode="\u{1F600}"\r\n    horiz-adv-x="0"/>\n<glyph\tunicode="b"  horiz-adv-x="0">\n</glyph>'),
         );
     });
 
@@ -82,7 +82,7 @@ describe("SvgFontPreparer.prepare", function () {
     });
 
     it("keeps the rest of the file byte for byte", async function () {
-        const source = `<?xml version="1.0"?>\n<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "svg11.dtd">\n<!-- <glyph/> -->${document(
+        const source = `<?xml version="1.0"?>\n<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "svg11.dtd">\n<!-- <glyph/> -->${fontDocument(
             "0",
             '<glyph unicode="&amp;"/><![CDATA[<glyph/>]]>',
         )}`;
@@ -91,8 +91,8 @@ describe("SvgFontPreparer.prepare", function () {
     });
 
     it("writes the copy in the encoding of the source", async function () {
-        const source = document("0", "<glyph/>");
-        const expected = document("0", '<glyph horiz-adv-x="0"/>');
+        const source = fontDocument("0", "<glyph/>");
+        const expected = fontDocument("0", '<glyph horiz-adv-x="0"/>');
 
         for (const encoding of ["utf-16le", "utf-16be"] as const) {
             await fs.rm(preparedPath, { force: true });
@@ -105,7 +105,7 @@ describe("SvgFontPreparer.prepare", function () {
 
     it("gives the copy the modification time of the source", async function () {
         // fontforge stamps the font it writes with the modification time of the file it reads.
-        await fs.writeFile(sourcePath, document("0", "<glyph/>"));
+        await fs.writeFile(sourcePath, fontDocument("0", "<glyph/>"));
         await fs.utimes(sourcePath, 1_500_000_000, 1_600_000_000);
 
         await preparer.prepare(sourcePath, preparedPath);
@@ -114,7 +114,7 @@ describe("SvgFontPreparer.prepare", function () {
     });
 
     it("leaves the source as it is", async function () {
-        const source = document("0", "<glyph/>");
+        const source = fontDocument("0", "<glyph/>");
 
         await prepared(source);
 

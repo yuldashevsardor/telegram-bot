@@ -29,12 +29,15 @@ describe("Convertors of the eot pairs", function () {
     let factory: ConvertorFactory;
     let failOn: StepName | undefined;
     let unremovableOn: StepName | undefined;
+    // The sourcePath argument of every call of the engine.
+    let engineSourcePaths: Array<string | undefined>;
 
     beforeEach(async function () {
         workDir = await fs.mkdtemp(path.join(os.tmpdir(), "eot-convertor-"));
         steps = [];
         failOn = undefined;
         unremovableOn = undefined;
+        engineSourcePaths = [];
         factory = new ConvertorFactory(
             fontForge(),
             new FontValidatorResolver(
@@ -56,6 +59,14 @@ describe("Convertors of the eot pairs", function () {
         const result = await convert(Extension.WOFF, Extension.EOT);
 
         expect(steps).to.deep.equal([`fontForge ${source(Extension.WOFF)} -> ${result}.ttf`, `pack ${result}.ttf -> ${result}`]);
+    });
+
+    // The engine reads the unpacked sfnt, removed by the time its error is logged.
+    it("names the eot source to the engine on the way from eot, and nothing on the way to it", async function () {
+        await convert(Extension.EOT, Extension.WOFF);
+        await convert(Extension.WOFF, Extension.EOT);
+
+        expect(engineSourcePaths).to.deep.equal([source(Extension.EOT), undefined]);
     });
 
     it("goes through the packer and then the engine on the way from eot", async function () {
@@ -185,7 +196,13 @@ describe("Convertors of the eot pairs", function () {
     }
 
     function fontForge(): FontForge {
-        return { convert: (fromPath: string, toPath: string) => step("fontForge", fromPath, toPath) } as FontForge;
+        return {
+            convert: (fromPath: string, toPath: string, sourcePath?: string) => {
+                engineSourcePaths.push(sourcePath);
+
+                return step("fontForge", fromPath, toPath);
+            },
+        } as FontForge;
     }
 
     function eotPacker(): EotPacker {

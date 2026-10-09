@@ -197,6 +197,16 @@ describe("FontForge.convert", function () {
         expect((error as ExecuteError).payload).to.deep.equal({ path: srcPath });
     });
 
+    it("names the source it is given in place of the file it reads", async function () {
+        const srcPath = path.join(workDir, "garbage.ttf");
+        const eotPath = path.join(workDir, "font.eot");
+        await fs.writeFile(srcPath, Uint8Array.from([1, 2, 3, 4]));
+
+        const error = await rejectionOf(() => fontForge.convert(srcPath, path.join(workDir, "result.otf"), eotPath));
+
+        expect((error as ExecuteError).payload).to.deep.equal({ path: eotPath });
+    });
+
     // The attributes of each <glyph> element by its name, read by an XML parser: the specs check the
     // element under a code point, not the order or the escaping fontforge writes it with.
     async function glyphsByName(svgPath: string): Promise<Map<string, Record<string, string>>> {
