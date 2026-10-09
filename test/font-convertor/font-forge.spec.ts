@@ -17,14 +17,13 @@ import { WoffFontValidator } from "app/font-convertor/validator/woff/woff-font-v
 import { Woff2FontValidator } from "app/font-convertor/validator/woff2/woff2-font-validator";
 import { EotFontValidator } from "app/font-convertor/validator/eot/eot-font-validator";
 import { FileHelper } from "app/shared/fs/file-helper";
+import { ProcessHelper } from "app/shared/process/process-helper";
 import { ProcessFailed } from "app/shared/process/process-helper.errors";
-import { FontFactsReader } from "test/conversion/font-facts-reader";
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 
 describe("FontForge.convert", function () {
-    const svgFontPreparer = new SvgFontPreparer(new SvgTextCodec());
-    const fontForge = new FontForge(svgFontPreparer, "fontforge");
+    const fontForge = new FontForge(new SvgFontPreparer(new SvgTextCodec()), "fontforge");
     const engineExtensions = new ConvertorFactory(
         fontForge,
         new FontValidatorResolver(
@@ -143,12 +142,14 @@ describe("FontForge.convert", function () {
 
         await fontForge.convert(srcPath, distPath);
 
-        const facts = await new FontFactsReader(new EotPacker(new EotPayloadDecoder()), svgFontPreparer, "fontforge").read(
-            distPath,
-            workDir,
-        );
-        expect(facts.advanceWidths.get(0x0300)).to.deep.equal([0]);
-        expect(facts.advanceWidths.get(0x200b)).to.deep.equal([0]);
+        // The result is a TTF, which fontforge reads right; a code point without a glyph prints null.
+        const widthsScript = [
+            "import fontforge, json, sys",
+            "widths = {glyph.unicode: glyph.width for glyph in fontforge.open(sys.argv[1]).glyphs()}",
+            "print(json.dumps([widths.get(0x0300), widths.get(0x200b)]))",
+        ].join("\n");
+        const { stdout } = await ProcessHelper.run("fontforge", ["-c", widthsScript, distPath]);
+        expect(JSON.parse(stdout)).to.deep.equal([0, 0]);
     });
 
     it("removes the prepared copy of an SVG source after a success and after a failure", async function () {
@@ -165,7 +166,7 @@ describe("FontForge.convert", function () {
 
         expect(error).to.be.instanceOf(ExecuteError);
         // The engine read the copy, gone by now: the error names the source the conversion was given.
-        expect((error as ExecuteError).payload).to.deep.equal({ sourcePath: brokenPath });
+        expect((error as ExecuteError).payload).to.deep.equal({ path: brokenPath });
         expect((await fs.readdir(workDir)).sort()).to.deep.equal(["broken.svg", "font.svg", "result.ttf"]);
     });
 
@@ -177,7 +178,7 @@ describe("FontForge.convert", function () {
 
         expect(error).to.be.instanceOf(ExecuteError);
         expect((error as ExecuteError).cause).to.be.instanceOf(ProcessFailed);
-        expect((error as ExecuteError).payload).to.deep.equal({ sourcePath: srcPath });
+        expect((error as ExecuteError).payload).to.deep.equal({ path: srcPath });
     });
 
     function fixture(extension: Extension): string {

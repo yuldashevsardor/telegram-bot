@@ -135,7 +135,7 @@ since fontforge stamps the font it writes with the time of the file it reads.
 The preparer leans on the rules of the validator, which the source has passed: one `font` with
 `horiz-adv-x`, the font nodes in the SVG namespace and without prefixed attributes. So it matches
 the elements by their local names, without the namespace bindings the validator makes. A failure
-of the engine names the source in `sourcePath` of its `ExecuteError`: the copy the process read is
+of the engine names the source in `path` of its `ExecuteError`: the copy the process read is
 gone by the time the error is logged.
 
 Two more defects of reading SVG are not worked around: `arabic-form="isolated"` moves a glyph from

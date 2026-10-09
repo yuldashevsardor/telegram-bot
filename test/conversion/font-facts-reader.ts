@@ -56,8 +56,9 @@ export class FontFactsReader {
     /**
      * An EOT is unpacked into `workDir` first: fontforge cannot open the envelope. An SVG is prepared
      * there first, as FontForge.convert() prepares an SVG source: read raw, it would lose what the
-     * preparation keeps. The files are named apart from `<result>.ttf` and `<result>.<ext>.svg`, the
-     * intermediate files of the convertors.
+     * preparation keeps. The files are named apart from the intermediate files of the convertors:
+     * `<result>.ttf` on the way to and from EOT, and the prepared copy `<result>.svg`, or
+     * `<result>.ttf.svg` on the way to EOT.
      */
     public async read(fontPath: string, workDir: string): Promise<FontFacts> {
         const extension = path.extname(fontPath).toLowerCase();
