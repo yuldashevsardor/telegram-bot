@@ -37,8 +37,7 @@ const SVG_FALLBACK_ASCENT_SHARE = 0.8;
 
 // The code points at which a glyph comes back twice from SVG. fontforge lists an alternate code point of
 // a glyph, one beside its main one, once for every Unicode cmap subtable that holds it, platform 0 and
-// platform 3, and writes a <glyph> for each listing into an SVG font. In Bungee Spice the main code
-// points U+0162 and U+0163 come back twice as well: their glyphs have the alternates U+021A and U+021B.
+// platform 3, and writes a <glyph> for each listing into an SVG font.
 const SOURCE_SANS_3_DOUBLED_CODE_POINTS = [0x00a0, 0x00ad, 0x03bc, 0x03d5, 0x2010, 0x2011, 0x207c, 0x2126, 0x2206];
 const NOTO_NASKH_ARABIC_DOUBLED_CODE_POINTS = [0x00a0, 0x06f1, 0x06f3, 0x06f8, 0x06f9, 0x202f, 0xfeff];
 // U+2780 to U+2788 are the dingbat circled digits one to nine.
@@ -58,8 +57,6 @@ const INTER_DOUBLED_CODE_POINTS = [
 // U+FF41 to U+FF5A are the fullwidth a to z.
 const BUNGEE_SPICE_DOUBLED_CODE_POINTS = [
     0x00a0,
-    0x0162,
-    0x0163,
     0x021a,
     0x021b,
     0x03bc,
@@ -75,8 +72,8 @@ const BUNGEE_SPICE_DOUBLED_CODE_POINTS = [
 ];
 
 // The changes of FontFacts the entries below share. Each that takes code points refuses one on the wrong
-// side, so that a mistyped entry fails the check rather than overwriting a width, adding a code point or
-// removing an absent one unnoticed.
+// side, so that a mistyped entry fails the check rather than adding a code point or removing an absent
+// one unnoticed.
 class FontFactsChanges {
     public withoutCodePoints(facts: FontFacts, codePoints: Array<number>): FontFacts {
         const advanceWidths = new Map(facts.advanceWidths);
@@ -88,16 +85,6 @@ class FontFactsChanges {
         }
 
         return { ...facts, advanceWidths: advanceWidths };
-    }
-
-    public withAddedCodePoints(facts: FontFacts, widthsByCodePoint: Map<number, Array<number>>): FontFacts {
-        for (const codePoint of widthsByCodePoint.keys()) {
-            if (facts.advanceWidths.has(codePoint)) {
-                throw new RuntimeError("the code point to add is already in the source", { codePoint: codePoint });
-            }
-        }
-
-        return { ...facts, advanceWidths: new Map([...facts.advanceWidths, ...widthsByCodePoint]) };
     }
 
     public withReplacedWidths(facts: FontFacts, widthsByCodePoint: Map<number, Array<number>>): FontFacts {
@@ -210,29 +197,26 @@ export const expectedDifferences: Array<ExpectedDifference> = [
             "eot gains nothing either: EotPacker wraps the source without fontforge.",
     },
     {
-        fixtureRelativePaths: FONT_AWESOME_TRUETYPE,
+        fixtureRelativePaths: ROBOTO_NON_SVG,
         toExtensions: [Extension.SVG],
-        resultFacts: (sourceFacts) => changes.withAddedCodePoints(sourceFacts, new Map([[0x000d, [597]]])),
+        resultFacts: (sourceFacts) => changes.withoutCodePoints(sourceFacts, [0x0002]),
         reason:
-            "U+000D more: the font has a nonmarkingreturn glyph without a code point, and fontforge reading an SVG font " +
-            "gives a glyph without unicode the code point of its name (issue #925).",
+            "U+0002 less: XML 1.0 has no U+0002, not even as a character reference, so fontforge writes the glyph " +
+            "uni0002 without unicode, and SVG 1.1 maps such a glyph to no code point.",
     },
     {
         fixtureRelativePaths: [SOURCE_SANS_3],
         toExtensions: [Extension.SVG],
         resultFacts: (sourceFacts: FontFacts): FontFacts => {
-            const withNamedGlyphs = changes.withAddedCodePoints(sourceFacts, new Map([[0xfb05, [594]]]));
-            const withGlyphsTwice = changes.withEachGlyphTwice(withNamedGlyphs, SOURCE_SANS_3_DOUBLED_CODE_POINTS);
-            const withLigatureTwice = changes.withEachGlyphTwice(withGlyphsTwice, [0xfb00]);
+            const withGlyphsTwice = changes.withEachGlyphTwice(sourceFacts, SOURCE_SANS_3_DOUBLED_CODE_POINTS);
 
-            return { ...withLigatureTwice, glyphCount: sourceFacts.glyphCount + 19 };
+            return { ...withGlyphsTwice, glyphCount: sourceFacts.glyphCount + 19 };
         },
         reason:
             "19 glyphs more: fontforge writes a glyph once more for each listing of its alternate code point, 18 " +
             "elements more than the font has glyphs, and reads each back as a glyph of its own. It writes the f_f " +
             'ligature of U+FB00 under unicode="ff" alone, and the bot adds a copy of it under U+FB00 (issue #917), ' +
-            "one element more. A defect of reading SVG (issue #925): a ligature gets the code point of its name, f_f " +
-            "U+FB00 a second time and f_t, which has no code point, U+FB05.",
+            "one element more.",
     },
     {
         fixtureRelativePaths: [NOTO_NASKH_ARABIC],
@@ -278,31 +262,6 @@ export const expectedDifferences: Array<ExpectedDifference> = [
         reason:
             "38 glyphs more: fontforge writes a glyph once more for each listing of its alternate code point, 38 " +
             "elements more than the font has glyphs, and reads each back as a glyph of its own.",
-    },
-    {
-        fixtureRelativePaths: [PACIFICO],
-        toExtensions: [Extension.SVG],
-        resultFacts: (sourceFacts: FontFacts): FontFacts => {
-            return changes.withAddedCodePoints(
-                sourceFacts,
-                new Map([
-                    [0x013f, [673]],
-                    [0x0140, [363]],
-                    [0x0237, [254]],
-                    [0x0302, [0]],
-                    [0x0307, [0]],
-                    [0x030a, [0]],
-                    [0x0327, [0]],
-                    [0x2074, [450]],
-                    [0xfb00, [684]],
-                    [0xfb01, [633]],
-                    [0xfb02, [688]],
-                ]),
-            );
-        },
-        reason:
-            "A defect of reading SVG (issue #925). The subset of Google Fonts keeps glyphs it does not encode, and " +
-            "fontforge gives each of them the code point of its name (Ldot U+013F, fi U+FB01 and the rest listed).",
     },
 ];
 

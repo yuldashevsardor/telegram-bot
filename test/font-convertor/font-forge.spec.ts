@@ -168,7 +168,32 @@ describe("FontForge.convert", function () {
         expect(JSON.parse(stdout)).to.deep.equal([0, 0]);
     });
 
-    it("removes the prepared copy of an SVG source after a success and after a failure", async function () {
+    // fontforge gives such a glyph the code point of its ligature or the one its name spells, and
+    // <missing-glyph> U+0000 (issue #925).
+    it("keeps unencoded the SVG glyphs that SVG 1.1 maps to no code point", async function () {
+        const srcPath = path.join(workDir, "font.svg");
+        const distPath = path.join(workDir, "result.ttf");
+        await fs.writeFile(
+            srcPath,
+            '<svg xmlns="http://www.w3.org/2000/svg"><font horiz-adv-x="500"><font-face units-per-em="1000" ascent="800" descent="-200"/>' +
+                '<missing-glyph/><glyph unicode="A" d="M0 0h400v700h-400z"/><glyph glyph-name="uni0041"/><glyph glyph-name="Ldot"/>' +
+                '<glyph unicode="fi" glyph-name="f_i"/><glyph unicode="ft"/><glyph glyph-name=".null"/></font></svg>',
+        );
+
+        await fontForge.convert(srcPath, distPath);
+
+        // The result is a TTF, which fontforge reads by its cmap.
+        const encodingScript = [
+            "import fontforge, json, sys",
+            "glyphs = list(fontforge.open(sys.argv[1]).glyphs())",
+            "print(json.dumps([len(glyphs), sorted(glyph.unicode for glyph in glyphs if glyph.unicode != -1)]))",
+        ].join("\n");
+        const { stdout } = await ProcessHelper.run("fontforge", ["-c", encodingScript, distPath]);
+        // The seven glyphs of the source and nonmarkingreturn, which fontforge adds writing TrueType.
+        expect(JSON.parse(stdout)).to.deep.equal([8, [0x41]]);
+    });
+
+    it("removes the prepared copy of an SVG source and its list of unencoded glyphs after a success and after a failure", async function () {
         const srcPath = path.join(workDir, "font.svg");
         await fs.copyFile(fixture(Extension.SVG), srcPath);
 

@@ -1,3 +1,4 @@
+import fs from "fs/promises";
 import path from "path";
 import type { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 import type { SvgFontPreparer } from "app/font-convertor/svg-preparer/svg-font-preparer";
@@ -16,9 +17,9 @@ export class FontFactsReader {
     // The path is read from sys.argv, as in FontForge.convertScript. U+0000 is left out of the
     // encoded code points: it is the NULL control code, which no text draws, and the engine keeps it
     // in neither direction. Writing an sfnt, fontforge drops the cmap entry of U+0000 that points at
-    // glyph 0, which an unmapped code point gets anyway. Reading an SVG, it gives U+0000 to glyph 0,
-    // the <missing-glyph>, and to the `.null` glyph when the font has one, although neither has a
-    // `unicode` attribute. An alternate encoding of a glyph (altuni) counts unless it goes with a
+    // glyph 0, which an unmapped code point gets anyway. An SVG is read as FontForge.convert() reads
+    // it: sys.argv[2] is the file of the glyphs SvgFontPreparer found unencoded, and their code points
+    // are taken off. An alternate encoding of a glyph (altuni) counts unless it goes with a
     // variation selector, and once: fontforge lists it once for every Unicode cmap subtable that
     // holds it, platform 0 and platform 3 of one font, which would read as two glyphs. A code point
     // that several glyphs share, as the `lang` variants of one character in an SVG font do, keeps
@@ -26,9 +27,15 @@ export class FontFactsReader {
     // glyph order differs between formats; two variants that swap their widths therefore pass
     // unseen.
     private readonly readScript = [
-        "import fontforge, json, sys",
+        "import fontforge, io, json, sys",
         "font = fontforge.open(sys.argv[1])",
         "glyphs = list(font.glyphs())",
+        "if len(sys.argv) > 2:",
+        "    with io.open(sys.argv[2]) as unencodedGlyphsFile:",
+        "        unencodedGlyphIds = {int(line) for line in unencodedGlyphsFile}",
+        "    for glyph in glyphs:",
+        "        if glyph.originalgid in unencodedGlyphIds:",
+        "            glyph.unicode = -1",
         "widths = {}",
         "for glyph in glyphs:",
         "    codePoints = {glyph.unicode} | {alt[0] for alt in (glyph.altuni or ()) if alt[1] == -1}",
@@ -57,12 +64,14 @@ export class FontFactsReader {
      * An EOT is unpacked into `workDir` first: fontforge cannot open the envelope. An SVG is prepared
      * there first, as FontForge.convert() prepares an SVG source: read raw, it would lose what the
      * preparation keeps. The files are named apart from the intermediate files of the convertors:
-     * `<result>.ttf` on the way to and from EOT, and the prepared copy `<result>.svg`, or
-     * `<result>.ttf.svg` on the way to EOT.
+     * `<result>.ttf` on the way to and from EOT, and the prepared copy `<result>.svg` with its list of
+     * unencoded glyphs `<result>.unencoded`, or `<result>.ttf.svg` and `<result>.ttf.unencoded` on the
+     * way to EOT.
      */
     public async read(fontPath: string, workDir: string): Promise<FontFacts> {
         const extension = path.extname(fontPath).toLowerCase();
         let openedFontPath = fontPath;
+        const scriptArgs: Array<string> = [];
 
         if (extension === `.${Extension.EOT}`) {
             openedFontPath = path.join(workDir, `${path.basename(fontPath)}.unpacked.${Extension.TTF}`);
@@ -71,10 +80,13 @@ export class FontFactsReader {
 
         if (extension === `.${Extension.SVG}`) {
             openedFontPath = path.join(workDir, `${path.basename(fontPath)}.prepared.${Extension.SVG}`);
-            await this.svgFontPreparer.prepare(fontPath, openedFontPath);
+            const unencodedGlyphsPath = path.join(workDir, `${path.basename(fontPath)}.prepared.unencoded`);
+            const unencodedGlyphIndexes = await this.svgFontPreparer.prepare(fontPath, openedFontPath);
+            await fs.writeFile(unencodedGlyphsPath, unencodedGlyphIndexes.join("\n"));
+            scriptArgs.push(unencodedGlyphsPath);
         }
 
-        const { stdout, stderr } = await ProcessHelper.run(this.fontForgePath, ["-c", this.readScript, openedFontPath]);
+        const { stdout, stderr } = await ProcessHelper.run(this.fontForgePath, ["-c", this.readScript, openedFontPath, ...scriptArgs]);
         const factsJson = this.parseFacts(stdout, stderr, fontPath);
         const advanceWidths = new Map<number, Array<number>>();
 
