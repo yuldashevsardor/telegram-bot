@@ -5,7 +5,9 @@ The inbox store ([`inbox.md`](./inbox.md)) measured on a large table, as the out
 recovery and the cleanup on 100 M updates of groups of equal size
 ([#824](https://github.com/yuldashevsardor/telegram-bot/issues/824), "Data" to "Verdict"), and
 every query of the store on 250 M updates skewed as production traffic is
-([#871](https://github.com/yuldashevsardor/telegram-bot/issues/871), "The skewed run").
+([#871](https://github.com/yuldashevsardor/telegram-bot/issues/871), "The skewed run"). The
+unblocking of a group was measured once more on the fill of #871, with the index of the failed
+updates ([#892](https://github.com/yuldashevsardor/telegram-bot/issues/892), "The unblocking").
 
 ## How to run it
 
@@ -42,7 +44,9 @@ statement it left runs on in the database until it ends or reaches the statement
 the group rows it locked, so the next fill waits for it, and `make` prints no plans: they are in
 `docker compose -f docker-compose.load.yml logs pgsql-load`. A fill stays valid for 6 days, as the
 outbox one does. The index of the cleanup (see "The cleanup") is a migration too, and unlike the
-head index it holds every done and skipped update: the fill of #871 filled it as well.
+head index it holds every done and skipped update: the fill of #871 filled it as well. The index of
+the failed updates (see "The unblocking") is a migration too, and the fill puts its failed updates,
+one in 200, into it.
 
 The measurement calls the real `InboxStore` with the settings of `.env`. The calls, how many of each
 and in what order are in `InboxLoadTest.run()` of `test/load/inbox-load-test.ts`, each with its
@@ -415,8 +419,8 @@ both indexes, the completion, the recovery and the cleanup with its index.
 | `deleteFinishedUpdates()`, nothing to delete | 0.9 | 0.6 | 0.7 |
 | `deleteIdleGroups()` | 1.6, 495 groups | 9.5, 234 groups | 0.4, none |
 | `countBlockedGroups()` | median 0.3, max 0.6 | median 6.6, max 8.3 | median 0.2, max 0.6 |
-| `retryBlockedGroup()` | 160 460, 170 355 | 135 996, 134 747 | 148 077, 147 590 |
-| `skipBlockedGroup()` | 171 775, 175 240 | 148 086, 139 848 | 164 447, 147 948 |
+| `retryBlockedGroup()`, no index of the failed updates | 160 460, 170 355 | 135 996, 134 747 | 148 077, 147 590 |
+| `skipBlockedGroup()`, no index of the failed updates | 171 775, 175 240 | 148 086, 139 848 | 164 447, 147 948 |
 
 The plans add to the time, as in #824: the unblocking took 151 – 281 s with them, the slowest in the
 hot group layout, and `pushBatch()` in the backlog a median of 18 ms.
@@ -437,7 +441,7 @@ instead of an index:
 | `push()`, `pushBatch()` | the upsert of the groups, the insert of the updates with the state of their groups | the primary keys as arbiters; the state of the groups by the primary key, or a seq scan of the groups table in the layouts with few groups |
 | `deleteFinishedUpdates()` | one | `telegram_inbox_finished_at_idx`, as in #824 |
 | `deleteIdleGroups()`, `countBlockedGroups()` | one | a seq scan of `telegram_inbox_groups` |
-| `retryBlockedGroup()`, `skipBlockedGroup()` | the lock of the group, the lookup of its failed update, the write of the update, the state | the primary keys; a parallel seq scan of `telegram_inbox` for the failed update |
+| `retryBlockedGroup()`, `skipBlockedGroup()` | the lock of the group, the lookup of its failed update, the write of the update, the state | the primary keys; `telegram_inbox_failed_group_idx` for the failed update, a parallel seq scan of `telegram_inbox` before it (see "The unblocking") |
 
 `listenReady()` runs `LISTEN`, which `auto_explain` does not log.
 
@@ -492,9 +496,9 @@ Finalize Aggregate  (actual time=5.721..6.899 rows=1.00 loops=1)
 #### The unblocking
 
 `InboxStore.lockBlockedGroup()` looks up the failed update of the group by `user_id`, `chat_id`
-and `status = 'failed'`, which no index holds: the head index has the active statuses alone, the
-index of the cleanup `done` and `skipped`. So it reads the whole table, 25 M pages, in every
-layout:
+and `status = 'failed'`. In the runs of #871 no index held it: the head index has the active
+statuses alone, the index of the cleanup `done` and `skipped`. So it read the whole table, 25 M
+pages, in every layout:
 
 ```
 Limit  (actual time=169744.144..169769.340 rows=1.00 loops=1)
@@ -508,9 +512,39 @@ Limit  (actual time=169744.144..169769.340 rows=1.00 loops=1)
                     Rows Removed by Filter: 83327797
 ```
 
-The scan runs in the transaction that holds the row of the group `FOR UPDATE`. By the code, not
+The scan ran in the transaction that holds the row of the group `FOR UPDATE`. By the code, not
 measured: `pushBatch()` locks the group rows of its batch, so a push with an update of that group
 waits until the unblock ends, and the polling source takes no updates in while its push waits.
+
+`1791849600000_telegram-inbox-failed-group-index.ts` adds `telegram_inbox_failed_group_idx`,
+`telegram_inbox (user_id, chat_id, finished_at DESC, update_id DESC) WHERE status = 'failed'`
+([#892](https://github.com/yuldashevsardor/telegram-bot/issues/892)). Its migration over the
+filled table took 32 minutes, the start of the application container included, and the index
+holds the 1 252 425 failed updates of the fill in 59 MB. The run of #892 was the normal layout,
+filled again before each of its two runs, with 15 calls of each unblock; the database had
+`shared_buffers` of 1 GB, set for
+[#893](https://github.com/yuldashevsardor/telegram-bot/issues/893), where the runs of #871 had
+128 MB. The times of the client, in ms:
+
+| call | `plans=off` | with the plans |
+|---|---|---|
+| `retryBlockedGroup()` | 0.6 – 1.5, median 0.8 | 0.7 – 1.2, median 0.7 |
+| `skipBlockedGroup()` | 0.7 – 1.9, median 0.8 | 0.7 – 0.9, median 0.8 |
+
+The lookup is the first entry of the group in the index, in the order the statement asks for, so
+no sort is left; each of the 30 lookups read 5 buffers in 0.005 – 0.009 ms:
+
+```
+Limit  (actual time=0.005..0.005 rows=1.00 loops=1)
+  Buffers: shared hit=5
+  ->  Index Only Scan using telegram_inbox_failed_group_idx on telegram_inbox
+        (actual time=0.005..0.005 rows=1.00 loops=1)
+        Index Cond: ((user_id = '102003'::bigint) AND (chat_id = '102003'::bigint))
+        Heap Fetches: 1
+```
+
+The plan is a custom one, with `failed` as the value of the status, as the plan of the cleanup is
+(see "The cleanup"): a generic plan without it could not use the partial index.
 
 ### Verdict of the skewed run
 
@@ -523,9 +557,10 @@ by the indexes, as on 100 M updates. Two calls are past what #871 set:
   10 ms, and one warm `claim(1)` of 14 at 11.5 ms, from the head rows read past the 128 MB of shared
   buffers (see "The claim in the backlog"). Measuring it again with shared buffers that hold the
   active rows is [#893](https://github.com/yuldashevsardor/telegram-bot/issues/893).
-- The unblocking takes 2 – 3 minutes a call, a scan of the whole table under the lock of the
-  group (see "The unblocking"). An index of the failed updates by group is
-  [#892](https://github.com/yuldashevsardor/telegram-bot/issues/892).
+- The unblocking took 2 – 3 minutes a call, a scan of the whole table under the lock of the
+  group. The index of the failed updates by group of
+  [#892](https://github.com/yuldashevsardor/telegram-bot/issues/892) brought it to a median of
+  0.8 ms (see "The unblocking").
 
 The calls on timers have no threshold. The cleanup of the updates is no slower than in #824: a
 full batch 3.2 – 8.4 ms, the call that finds nothing 0.6 – 0.9 ms. The calls that read the groups
