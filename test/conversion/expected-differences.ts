@@ -17,6 +17,8 @@ const NOTO_NASKH_ARABIC = "noto-naskh-arabic/NotoNaskhArabic-Regular.ttf";
 const BUNGEE_SPICE = "bungee-spice/BungeeSpice-Regular.ttf";
 const PACIFICO = "pacifico/Pacifico-latin.woff2";
 const INTER = "inter/Inter[opsz,wght].ttf";
+// Named by no entry: its conversions change no fact.
+const FONT_AWESOME_SVG = "font-awesome/fontawesome-webfont.svg";
 const NON_SVG_FIXTURES = [
     ...ROBOTO_NON_SVG,
     FONT_AWESOME_OTF,
@@ -72,9 +74,9 @@ const BUNGEE_SPICE_DOUBLED_CODE_POINTS = [
     ...Array.from({ length: 26 }, (_, index) => 0xff41 + index),
 ];
 
-// The changes of FontFacts the entries below share. Each refuses a code point on the wrong side, so that
-// a mistyped entry fails the check rather than overwriting a width, adding a code point or removing an
-// absent one unnoticed.
+// The changes of FontFacts the entries below share. Each that takes code points refuses one on the wrong
+// side, so that a mistyped entry fails the check rather than overwriting a width, adding a code point or
+// removing an absent one unnoticed.
 class FontFactsChanges {
     public withoutCodePoints(facts: FontFacts, codePoints: Array<number>): FontFacts {
         const advanceWidths = new Map(facts.advanceWidths);
@@ -132,7 +134,7 @@ const changes = new FontFactsChanges();
 
 export type ExpectedDifference = {
     // The source fixtures the difference is measured on, by their path under test/fixtures/fonts.
-    fixtures: Array<string>;
+    fixtureRelativePaths: Array<string>;
     toExtensions: Array<Extension>;
     // The facts of the result built from those of the source: what is not changed here has to come
     // out equal to the source.
@@ -146,7 +148,7 @@ export type ExpectedDifference = {
 // itself, and names its issue when one is filed.
 export const expectedDifferences: Array<ExpectedDifference> = [
     {
-        fixtures: NON_SVG_FIXTURES,
+        fixtureRelativePaths: NON_SVG_FIXTURES,
         toExtensions: [Extension.SVG],
         resultFacts: (sourceFacts) => ({ ...sourceFacts, glyphCount: sourceFacts.glyphCount + 1 }),
         reason:
@@ -154,7 +156,7 @@ export const expectedDifferences: Array<ExpectedDifference> = [
             "apart from the glyphs and as an ordinary <glyph>, and reads both back.",
     },
     {
-        fixtures: NON_SVG_FIXTURES,
+        fixtureRelativePaths: NON_SVG_FIXTURES,
         toExtensions: [Extension.SVG],
         resultFacts: (sourceFacts: FontFacts): FontFacts => {
             const fallbackAscent = Math.floor(sourceFacts.unitsPerEm * SVG_FALLBACK_ASCENT_SHARE);
@@ -167,7 +169,7 @@ export const expectedDifferences: Array<ExpectedDifference> = [
             "so the written values do not come back.",
     },
     {
-        fixtures: [ROBOTO_SVG],
+        fixtureRelativePaths: [ROBOTO_SVG],
         toExtensions: [Extension.TTF, Extension.EOT, Extension.WOFF2],
         resultFacts: (sourceFacts) => ({ ...sourceFacts, glyphCount: sourceFacts.glyphCount + 1 }),
         reason:
@@ -175,7 +177,7 @@ export const expectedDifferences: Array<ExpectedDifference> = [
             "does not have. The pairs that come out with CFF outlines, svg to otf and to woff, gain nothing.",
     },
     {
-        fixtures: [FONT_AWESOME_OTF, SOURCE_SANS_3],
+        fixtureRelativePaths: [FONT_AWESOME_OTF, SOURCE_SANS_3],
         toExtensions: [Extension.TTF, Extension.EOT, Extension.WOFF2],
         resultFacts: (sourceFacts) => ({ ...sourceFacts, glyphCount: sourceFacts.glyphCount + 2 }),
         reason:
@@ -183,7 +185,7 @@ export const expectedDifferences: Array<ExpectedDifference> = [
             "which these CFF fonts do not have. The pair into woff keeps the CFF outlines and gains nothing.",
     },
     {
-        fixtures: [BUNGEE_SPICE],
+        fixtureRelativePaths: [BUNGEE_SPICE],
         toExtensions: [Extension.WOFF, Extension.WOFF2],
         resultFacts: (sourceFacts) => ({ ...sourceFacts, glyphCount: sourceFacts.glyphCount + 2 }),
         reason:
@@ -191,7 +193,7 @@ export const expectedDifferences: Array<ExpectedDifference> = [
             "which the font does not have. ttf to eot gains nothing: EotPacker wraps the source without fontforge.",
     },
     {
-        fixtures: [PACIFICO],
+        fixtureRelativePaths: [PACIFICO],
         toExtensions: [Extension.TTF, Extension.EOT, Extension.WOFF],
         resultFacts: (sourceFacts) => ({ ...sourceFacts, glyphCount: sourceFacts.glyphCount + 1 }),
         reason:
@@ -199,7 +201,7 @@ export const expectedDifferences: Array<ExpectedDifference> = [
             "glyph under the name NULL. The pair into otf comes out with CFF outlines and gains nothing.",
     },
     {
-        fixtures: [INTER],
+        fixtureRelativePaths: [INTER],
         toExtensions: [Extension.WOFF, Extension.WOFF2],
         resultFacts: (sourceFacts) => ({ ...sourceFacts, glyphCount: sourceFacts.glyphCount + 1 }),
         reason:
@@ -208,7 +210,7 @@ export const expectedDifferences: Array<ExpectedDifference> = [
             "eot gains nothing either: EotPacker wraps the source without fontforge.",
     },
     {
-        fixtures: FONT_AWESOME_TRUETYPE,
+        fixtureRelativePaths: FONT_AWESOME_TRUETYPE,
         toExtensions: [Extension.SVG],
         resultFacts: (sourceFacts) => changes.withAddedCodePoints(sourceFacts, new Map([[0x000d, [597]]])),
         reason:
@@ -216,7 +218,7 @@ export const expectedDifferences: Array<ExpectedDifference> = [
             "gives a glyph without unicode the code point of its name (issue #925).",
     },
     {
-        fixtures: [SOURCE_SANS_3],
+        fixtureRelativePaths: [SOURCE_SANS_3],
         toExtensions: [Extension.SVG],
         resultFacts: (sourceFacts: FontFacts): FontFacts => {
             const withNamedGlyphs = changes.withAddedCodePoints(sourceFacts, new Map([[0xfb05, [594]]]));
@@ -233,7 +235,7 @@ export const expectedDifferences: Array<ExpectedDifference> = [
             "U+FB00 a second time and f_t, which has no code point, U+FB05.",
     },
     {
-        fixtures: [NOTO_NASKH_ARABIC],
+        fixtureRelativePaths: [NOTO_NASKH_ARABIC],
         toExtensions: [Extension.SVG],
         resultFacts: (sourceFacts: FontFacts): FontFacts => {
             const withoutLostCodePoints = changes.withoutCodePoints(sourceFacts, [0xfbe8, 0xfbe9]);
@@ -252,7 +254,7 @@ export const expectedDifferences: Array<ExpectedDifference> = [
             "has 3 glyphs, widths 275, 292 and 618.",
     },
     {
-        fixtures: [BUNGEE_SPICE],
+        fixtureRelativePaths: [BUNGEE_SPICE],
         toExtensions: [Extension.SVG],
         resultFacts: (sourceFacts: FontFacts): FontFacts => {
             const withGlyphsTwice = changes.withEachGlyphTwice(sourceFacts, BUNGEE_SPICE_DOUBLED_CODE_POINTS);
@@ -266,7 +268,7 @@ export const expectedDifferences: Array<ExpectedDifference> = [
             "U+E202 (issue #917), one element more.",
     },
     {
-        fixtures: [INTER],
+        fixtureRelativePaths: [INTER],
         toExtensions: [Extension.SVG],
         resultFacts: (sourceFacts: FontFacts): FontFacts => {
             const withGlyphsTwice = changes.withEachGlyphTwice(sourceFacts, INTER_DOUBLED_CODE_POINTS);
@@ -278,7 +280,7 @@ export const expectedDifferences: Array<ExpectedDifference> = [
             "elements more than the font has glyphs, and reads each back as a glyph of its own.",
     },
     {
-        fixtures: [PACIFICO],
+        fixtureRelativePaths: [PACIFICO],
         toExtensions: [Extension.SVG],
         resultFacts: (sourceFacts: FontFacts): FontFacts => {
             return changes.withAddedCodePoints(
@@ -303,3 +305,7 @@ export const expectedDifferences: Array<ExpectedDifference> = [
             "fontforge gives each of them the code point of its name (Ldot U+013F, fi U+FB01 and the rest listed).",
     },
 ];
+
+// Every source fixture, so that the check fails on one deleted or renamed: an entry names its fixtures by
+// path, and a fixture no entry names would otherwise drop out of the run unnoticed.
+export const sourceFixtureRelativePaths = [...NON_SVG_FIXTURES, ROBOTO_SVG, FONT_AWESOME_SVG];

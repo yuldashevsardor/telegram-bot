@@ -15,6 +15,11 @@ const UTF8_MAX_CONTINUATION_BYTES = 3;
 export const STDERR_TAIL_BYTES = 64 * 1024;
 
 export class ProcessHelper {
+    // What is kept of stderr while it is read: its last STDERR_TAIL_BYTES and one byte more, by which
+    // keepTail tells on close whether the output was cut. The tail is aligned to a character once, on
+    // close: aligned on every chunk, it would skip from wherever a read happened to end.
+    private static readonly STDERR_WINDOW_BYTES = STDERR_TAIL_BYTES + 1;
+
     // spawn and not exec: the arguments go to the process as an array, past /bin/sh. Quotes,
     // $(...), ; and spaces inside them stay data, so there is nothing to escape — whereas with exec
     // every substituted value would have to be escaped. spawn and not execFile: execFile keeps the
@@ -42,41 +47,40 @@ export class ProcessHelper {
         return new Promise((resolve, reject) => {
             const child: ChildProcess = spawn(file, args);
             const stdoutChunks: Array<Buffer> = [];
-            let stderrTail: Buffer = Buffer.alloc(0);
+            let stderrWindow: Buffer = Buffer.alloc(0);
 
             child.on("error", reject);
             child.stdout?.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
             child.stderr?.on("data", (chunk: Buffer) => {
-                stderrTail = ProcessHelper.keepTail(Buffer.concat([stderrTail, chunk]));
+                stderrWindow = Buffer.concat([stderrWindow, chunk]).subarray(-ProcessHelper.STDERR_WINDOW_BYTES);
             });
             child.on("close", (exitCode: number | null, signal: NodeJS.Signals | null) => {
                 resolve({
                     exitCode: exitCode,
                     signal: signal,
                     stdout: Buffer.concat(stdoutChunks).toString(),
-                    stderr: stderrTail.toString(),
+                    stderr: ProcessHelper.keepTail(stderrWindow).toString(),
                 });
             });
         });
     }
 
-    private static keepTail(stderrSoFar: Buffer): Buffer {
-        // Stryker disable next-line EqualityOperator: `<` is equivalent: at exactly STDERR_TAIL_BYTES the cut starts at byte 0 and keeps the whole output, as stderr does not start inside a character
-        if (stderrSoFar.length <= STDERR_TAIL_BYTES) {
-            return stderrSoFar;
+    private static keepTail(stderrWindow: Buffer): Buffer {
+        if (stderrWindow.length <= STDERR_TAIL_BYTES) {
+            return stderrWindow;
         }
 
-        const cutStart = stderrSoFar.length - STDERR_TAIL_BYTES;
+        const cutStart = stderrWindow.length - STDERR_TAIL_BYTES;
         let tailStart = cutStart;
 
         // A cut inside a multi-byte character would start the tail with U+FFFD: the start moves past the
         // rest of that character. Output that is not UTF-8 could run on with continuation bytes and
         // empty the tail, so no further than one character goes.
-        while (tailStart - cutStart < UTF8_MAX_CONTINUATION_BYTES && ProcessHelper.isUtf8Continuation(stderrSoFar.readUInt8(tailStart))) {
+        while (tailStart - cutStart < UTF8_MAX_CONTINUATION_BYTES && ProcessHelper.isUtf8Continuation(stderrWindow.readUInt8(tailStart))) {
             tailStart++;
         }
 
-        return stderrSoFar.subarray(tailStart);
+        return stderrWindow.subarray(tailStart);
     }
 
     private static isUtf8Continuation(byte: number): boolean {
