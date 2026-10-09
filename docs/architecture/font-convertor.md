@@ -140,16 +140,19 @@ the image no other form is missing from it.
 So the engine never reads an SVG source itself. `FontForge.convert()` has `SvgFontPreparer`
 (`svg-preparer/`) write a copy next to the result, `<result>.svg` (`<result>.ttf.svg` on the
 way to EOT), hands the engine the copy and removes it as the intermediate sfnt of EOT is removed.
-The copy differs from the source in four edits:
+The copy differs from the source in four edits, and the last three touch `glyph` alone: fontforge
+reads `missing-glyph` as .notdef, whatever its `unicode` and `arabic-form` say.
 
 - the advance of `<font>` is written on every `glyph` and `missing-glyph` that leaves it out;
 - `arabic-form="terminal"` is written as `"final"`;
-- `arabic-form="isolated"` is taken off a glyph of one code point when no `glyph` with the same
-  `unicode` goes without a form, and fontforge reads the glyph under the letter. A glyph whose
-  `arabic-form` is none of the four SVG 1.1 values, nor `final`, counts as one without a form;
+- `arabic-form="isolated"` is taken off a glyph of one code point unless another `glyph` of the
+  source with the same `unicode` is one fontforge reads under the letter: one without a form, one
+  whose `arabic-form` is none of the four SVG 1.1 values, nor `final`, or an initial or medial
+  glyph of U+0649 the next edit leaves in place. Without the attribute fontforge reads the glyph
+  under the letter;
 - a glyph of U+0649 with `arabic-form="initial"` or `"medial"` is written as
   `unicode="&#xFBE8;"` or `"&#xFBE9;"` without `arabic-form`, unless a glyph already has that
-  code point, one the copy has written there before included.
+  code point, one the copy writes there for a glyph earlier in the file included.
 
 The isolated glyph goes under its letter alone, and its presentation form is left without a glyph:
 fontforge reads one element as one glyph of one code point, so keeping both would take a second
