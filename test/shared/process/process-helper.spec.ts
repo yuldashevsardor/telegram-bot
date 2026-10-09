@@ -12,12 +12,15 @@ const CHILD_NODE_TIMEOUT_MS = 20 * 1000;
 // Low enough for the child node to take every descriptor at once.
 const CHILD_DESCRIPTOR_LIMIT = 128;
 
-// Run by a child node: takes every free descriptor but two, so that spawn fails on its pipes with
+// The source the child node loads, by a path that does not depend on the working directory.
+const PROCESS_HELPER_SOURCE_PATH = path.resolve(__dirname, "../../../src/shared/process/process-helper.ts");
+
+// Run by a child node with the path of process-helper.ts: takes every free descriptor but two, so that spawn fails on its pipes with
 // EMFILE while a lazy file read of tsx still gets one, and prints how ProcessHelper.run ended. An
 // error event without a listener would end the child with a non-zero code instead.
 const RUN_WITHOUT_DESCRIPTORS = `
 const fs = require("fs");
-const { ProcessHelper } = require("./src/shared/process/process-helper.ts");
+const { ProcessHelper } = require(process.argv[1]);
 const openedDescriptors = [];
 try {
     for (;;) openedDescriptors.push(fs.openSync("/dev/null", "r"));
@@ -82,6 +85,16 @@ describe("ProcessHelper.run", function () {
         expect(result.stderr).to.equal("w".repeat(STDERR_TAIL_BYTES - 1));
     });
 
+    it("moves the start of the stderr tail past three continuation bytes at most", async function () {
+        // Eight continuation bytes, of no character, and the cut lands on the fifth: three are skipped,
+        // the fourth stays and reads as U+FFFD.
+        const script = `printf '\\200\\200\\200\\200\\200\\200\\200\\200' >&2; head -c ${STDERR_TAIL_BYTES - 4} /dev/zero | tr '\\0' w >&2`;
+
+        const result = await ProcessHelper.run("/bin/sh", ["-c", script]);
+
+        expect(result.stderr).to.equal(`\uFFFD${"w".repeat(STDERR_TAIL_BYTES - 4)}`);
+    });
+
     it("returns the whole stdout when the process prints more than 1 MiB to it", async function () {
         const script = `head -c ${OUTPUT_PAST_EXEC_FILE_CAP_BYTES} /dev/zero | tr '\\0' o`;
 
@@ -130,9 +143,15 @@ describe("ProcessHelper.run", function () {
 
     it("throws ProcessFailed and keeps the process alive when no descriptor is left for the pipes", async function () {
         this.timeout(CHILD_NODE_TIMEOUT_MS);
-        const script = `ulimit -n ${CHILD_DESCRIPTOR_LIMIT} && exec "$0" --require tsx/cjs -e "$1"`;
+        const script = `ulimit -n ${CHILD_DESCRIPTOR_LIMIT} && exec "$0" --require tsx/cjs -e "$1" "$2"`;
 
-        const result = await ProcessHelper.run("/bin/sh", ["-c", script, process.execPath, RUN_WITHOUT_DESCRIPTORS]);
+        const result = await ProcessHelper.run("/bin/sh", [
+            "-c",
+            script,
+            process.execPath,
+            RUN_WITHOUT_DESCRIPTORS,
+            PROCESS_HELPER_SOURCE_PATH,
+        ]);
 
         expect(result.stdout).to.equal("ProcessFailed EMFILE\n");
     });

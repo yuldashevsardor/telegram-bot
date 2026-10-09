@@ -4,9 +4,8 @@ export type ProcessResult = {
     stderr: string;
 };
 
-export type ProcessExit = {
+export type ProcessExit = ProcessResult & {
     // null when a signal ended the process.
     exitCode: number | null;
     signal: NodeJS.Signals | null;
-    stderr: string;
 };

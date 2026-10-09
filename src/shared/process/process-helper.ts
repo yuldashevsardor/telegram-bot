@@ -6,6 +6,8 @@ import type { ProcessExit, ProcessResult } from "app/shared/process/process-help
 // The bits that mark a continuation byte of a multi-byte UTF-8 character: 10xxxxxx.
 const UTF8_CONTINUATION_MASK = 0b1100_0000;
 const UTF8_CONTINUATION_BITS = 0b1000_0000;
+// A UTF-8 character is at most four bytes, a lead byte and three continuation bytes.
+const UTF8_MAX_CONTINUATION_BYTES = 3;
 
 // How much of the end of stderr is kept. fontforge prints a warning for every glyph it does not like, so
 // the volume follows the font, not a fault (docs/architecture/font-convertor.md, "Running the engine").
@@ -18,7 +20,7 @@ export class ProcessHelper {
     // every substituted value would have to be escaped. spawn and not execFile: execFile keeps the
     // whole output and rejects once it passes maxBuffer, while stderr here keeps only its end.
     public static async run(file: string, args: string[] = []): Promise<ProcessResult> {
-        let exit: ProcessExit & ProcessResult;
+        let exit: ProcessExit;
 
         try {
             exit = await ProcessHelper.waitForExit(file, args);
@@ -30,16 +32,13 @@ export class ProcessHelper {
             throw ProcessFailed.byExit(file, args, exit);
         }
 
-        return {
-            stdout: exit.stdout,
-            stderr: exit.stderr,
-        };
+        return exit;
     }
 
     // Rejects when the process did not start. spawn throws on an invalid argument, and on EMFILE it
     // returns a child without streams and emits error on the next tick, where an error without a
     // listener would end the whole bot: hence the listener comes first and the streams are checked.
-    private static waitForExit(file: string, args: string[]): Promise<ProcessExit & ProcessResult> {
+    private static waitForExit(file: string, args: string[]): Promise<ProcessExit> {
         return new Promise((resolve, reject) => {
             const child: ChildProcess = spawn(file, args);
             const stdoutChunks: Array<Buffer> = [];
@@ -67,18 +66,20 @@ export class ProcessHelper {
             return stderrSoFar;
         }
 
-        let tailStart = stderrSoFar.length - STDERR_TAIL_BYTES;
+        const cutStart = stderrSoFar.length - STDERR_TAIL_BYTES;
+        let tailStart = cutStart;
 
         // A cut inside a multi-byte character would start the tail with U+FFFD: the start moves past the
-        // rest of that character.
-        while (ProcessHelper.isUtf8Continuation(stderrSoFar[tailStart])) {
+        // rest of that character. Output that is not UTF-8 could run on with continuation bytes and
+        // empty the tail, so no further than one character goes.
+        while (tailStart - cutStart < UTF8_MAX_CONTINUATION_BYTES && ProcessHelper.isUtf8Continuation(stderrSoFar.readUInt8(tailStart))) {
             tailStart++;
         }
 
         return stderrSoFar.subarray(tailStart);
     }
 
-    private static isUtf8Continuation(byte: number | undefined): boolean {
-        return byte !== undefined && (byte & UTF8_CONTINUATION_MASK) === UTF8_CONTINUATION_BITS;
+    private static isUtf8Continuation(byte: number): boolean {
+        return (byte & UTF8_CONTINUATION_MASK) === UTF8_CONTINUATION_BITS;
     }
 }
