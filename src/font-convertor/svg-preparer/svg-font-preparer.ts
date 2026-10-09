@@ -181,8 +181,8 @@ export class SvgFontPreparer {
         return presentationForms;
     }
 
-    // The `unicode` values fontforge reads a glyph of the copy under as they are written, with a form or
-    // not.
+    // The `unicode` values fontforge reads some glyph of the copy under as they are written, with a form
+    // or not.
     private unicodeValuesReadUnderLetter(glyphs: ReadonlyArray<FontGlyph>, presentationForms: ReadonlyMap<FontGlyph, number>): Set<string> {
         const readUnderLetter = new Set<string>();
 
