@@ -83,7 +83,7 @@ Changing any of them changes the outcome of every mutant: the same argument that
 tsconfigs in the row.
 
 The `Makefile` turns on `test-fonts` the same way: the recipe of the `test-fonts` target or the
-`DC_APP_RUN` it expands touched.
+`DC_APP_RUN` and `DC_APP` it expands touched.
 
 ## Comments-only diffs
 
@@ -231,9 +231,11 @@ gate a PR that breaks a conversion would pass the review green whenever its auth
 `make check`.
 
 The row is the domain of the convertor, the files of the check itself and the fixtures it
-converts. `Dockerfile` is in it because it decides which fontforge the image carries, and a new
-engine version is exactly what the check is for. `package-lock.json` is there for the same reason:
-the convertor runs part of a conversion through npm dependencies (`saxes` parses an SVG source,
+converts. `Dockerfile` is in it because it decides the Debian release fontforge comes from, and a
+new engine version is exactly what the check is for. It installs `fontforge-nox` without a version,
+so a point update of the package within the release reaches the image through a rebuild alone, and
+no diff turns the gate on for it. `package-lock.json` is in the row for the same reason: the
+convertor runs part of a conversion through npm dependencies (`saxes` parses an SVG source,
 `mtx-decompressor` decompresses a compressed EOT), and a new version of one changes a conversion
 the way a new fontforge does. The file goes by name rather than by content: telling a dependency
 of the convertor from the others would take a reading, and the gate costs less than one.
