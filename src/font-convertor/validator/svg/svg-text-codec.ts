@@ -1,5 +1,10 @@
 import { injectable } from "inversify";
-import type { Encoding } from "app/font-convertor/validator/svg/svg-font-validator.types";
+
+/**
+ * The encodings a file is read in: UTF-8, or UTF-16 of either byte order with a BOM. The values are
+ * `TextDecoder` labels.
+ */
+export type Encoding = "utf-8" | "utf-16le" | "utf-16be";
 
 /**
  * Reads the text of an SVG file and writes it back in the encoding it was read in. Two classes read
@@ -19,7 +24,7 @@ export class SvgTextCodec {
     public encodingOf(bytes: Uint8Array): Encoding {
         // A half-matching head is rejected under either decoder. UTF-8 never holds 0xFE or 0xFF, and
         // read as UTF-16 such a head does not open with `<`, whitespace or a BOM.
-        // Stryker disable next-line LogicalOperator,ConditionalExpression: `||` and `true` for either comparison are equivalent: they change only the text of the NotXml that rejects a head with one byte of a BOM
+        // Stryker disable next-line LogicalOperator,ConditionalExpression: `||` and `true` for either comparison are equivalent: on a head with one byte of a BOM they pick UTF-16, and the head may fail to parse rather than to decode. That changes only the text of the NotXml of the validator, and the reason of the UnpreparableSvgFont of SvgFontPreparer, which reads only a file the validator has passed
         const mark = SvgTextCodec.BYTE_ORDER_MARKS.find(([first, second]) => bytes[0] === first && bytes[1] === second);
 
         return mark?.[2] ?? "utf-8";

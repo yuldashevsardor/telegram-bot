@@ -2,8 +2,7 @@ import { inject, injectable } from "inversify";
 import { SaxesParser } from "saxes";
 import type { SaxesTagPlain } from "saxes";
 import { UnpreparableSvgFont } from "app/font-convertor/svg-preparer/svg-font-preparer.errors";
-import type { Encoding } from "app/font-convertor/validator/svg/svg-font-validator.types";
-import type { SvgTextCodec } from "app/font-convertor/validator/svg/svg-text-codec";
+import type { Encoding, SvgTextCodec } from "app/font-convertor/validator/svg/svg-text-codec";
 import { FileHelper } from "app/shared/fs/file-helper";
 import { Tokens } from "app/shared/tokens";
 
@@ -30,7 +29,9 @@ export class SvgFontPreparer {
         const encoding = this.textCodec.encodingOf(sourceBytes);
         const sourceText = this.decode(sourcePath, sourceBytes, encoding);
 
-        await FileHelper.write(preparedPath, this.textCodec.encode(this.withGlyphAdvances(sourcePath, sourceText), encoding));
+        const preparedText = this.withGlyphAdvances(sourcePath, sourceText);
+
+        await FileHelper.write(preparedPath, this.textCodec.encode(preparedText, encoding));
         // fontforge stamps the font it writes with the modification time of the file it reads, so the
         // result keeps the time of the source.
         await FileHelper.copyTimes(sourcePath, preparedPath);
