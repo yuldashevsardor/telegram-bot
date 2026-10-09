@@ -45,12 +45,14 @@ and takes no lock:
    `HEAD`, is left to the carry-over of `close`.
 2. Reads the change of each merged PR off its merge commit, against the first parent: the change
    the PR brought into `main`, renames followed. A merge commit with one parent is a squash or a
-   rebase merge, and the latter names the last commit of the PR only. A file `gh` names for the PR
-   that the commit does not change (an earlier commit of a rebase, or a squash of a change `main`
-   already had) has no old text to compare with, and counts as changed in code.
-3. A changed tool of the run (`RUN_TOOLS`; `package.json`, `package-lock.json` and the `Makefile` by
-   what of them the run reads, as the `mutation-full` row says) in more than comments sends the
-   batch to the full run: stdout stays empty, and stderr names the PR and the file.
+   rebase merge, and the latter names the last commit of the PR only. A file the REST listing of
+   the PR's files names that the commit does not change (an earlier commit of a rebase, or a squash
+   of a change `main` already had) has no old text to compare with, and counts as changed in code.
+   A spec gone from the commit is read at the parent of the commit that deleted it. The listing
+   stops at 3000 files: a PR past that leaves the rest of the files of a rebase merge unseen.
+3. A changed tool of the run (`RUN_TOOLS`, and `RUN_TOOLS_BY_CONTENT` by what of them the run reads,
+   as docs/agents/review-gates.md says) in more than comments sends the batch to the full run:
+   stdout stays empty, and stderr names the PR and the file.
 4. Otherwise keeps each `.ts` in `src/` or `test/` the PR added, renamed or changed in more than
    comments, by the rules of docs/agents/review-gates.md, "Comments-only diffs" (`Scanner` and
    `is_comments_only` below), and each spec or spec helper it deleted. A file the scanner cannot
@@ -94,7 +96,9 @@ lock as `record`:
    last run is not read for it.
 5. Sorts each recorded PR by `gh pr view`: merged, with its merge commit an ancestor of the head of
    the batch run — covered; merged later, or not merged — carried over; closed without a merge —
-   dropped.
+   dropped. A PR recorded after `files` listed the batch counts as covered too, though the run did
+   not mutate its files: it takes a PR merged without a record, which `mutation-full-check` in
+   review stops.
 6. Records the carried ones into the other open batch, created if there is none, from
    templates/mutation-batch-carry.md. An issue already recorded there with the same PR is not
    recorded twice.
@@ -710,8 +714,6 @@ def close_batch(
 # The files of a batch run (`files <batch>`).
 #
 # The tools of the run: the `mutation-full` row of docs/agents/review-gates.md, the files it names.
-# `package.json`, `package-lock.json` and the `Makefile` are in that row by their content, and are
-# read below on their own.
 RUN_TOOLS = (
     "stryker.config.mjs",
     "test/stryker-mocha-hook.cjs",
@@ -720,6 +722,9 @@ RUN_TOOLS = (
     "tsconfig.json",
     "tsconfig.check.json",
 )
+# The tools of the run by what of them the run reads (`tool_inputs`): the paragraphs of
+# docs/agents/review-gates.md under its table that turn `mutation-full` on by the content of a diff.
+RUN_TOOLS_BY_CONTENT = ("package.json", "package-lock.json", "Makefile")
 # The words after which a `/` opens a regular expression and not a division.
 REGEX_AFTER_WORDS = frozenset(
     "return typeof case do else in of new delete void throw instanceof yield await".split()
@@ -1090,7 +1095,7 @@ def is_tool_changed(changed: ChangedFile, parent: str, commit: str, run: Run) ->
             return True
         old_text = file_at(parent, changed.old_path, run)
         return not is_comments_only(old_text, file_at(commit, changed.new_path, run))
-    for path in ("package.json", "package-lock.json", "Makefile"):
+    for path in RUN_TOOLS_BY_CONTENT:
         if path not in paths:
             continue
         if changed.status != "M":
@@ -1118,15 +1123,22 @@ def commit_parents(commit: str, run: Run) -> List[str]:
 
 
 def uncarried_files(pr: int, changed: List[ChangedFile], run: Run) -> List[str]:
-    """The files `gh` names for the PR that its merge commit with one parent does not change: a
-    rebase merge names the last commit of the PR only, and a squash leaves out a change `main`
-    already had."""
+    """The files of the PR that its merge commit with one parent does not change: a rebase merge
+    names the last commit of the PR only, and a squash leaves out a change `main` already had."""
+    # Not `gh pr view --json files`: it stops at the first 100 files.
     done = run(
-        ["gh", "pr", "view", str(pr), "--json", "files", "-q", ".files[].path"],
+        [
+            "gh",
+            "api",
+            "--paginate",
+            "repos/{owner}/{repo}/pulls/" + str(pr) + "/files?per_page=100",
+            "-q",
+            ".[].filename",
+        ],
         capture_output=True,
         text=True,
     )
-    check(done, "gh pr view {} failed".format(pr))
+    check(done, "gh api of the files of PR #{} failed".format(pr))
     carried = {path for file in changed for path in (file.old_path, file.new_path)}
     return [path for path in done.stdout.split() if path not in carried]
 
@@ -1137,6 +1149,23 @@ class Kept(NamedTuple):
 
     path: str
     commit: str
+
+
+def uncarried_source(pr: int, path: str, commit: str, main_line: "MainLine", run: Run) -> Kept:
+    """A `.ts` of the PR its merge commit does not carry, read at the merge commit; a spec an
+    earlier commit of a rebase merge deleted, at the parent of that commit."""
+    if path.startswith("src/") or path in main_line.tree(commit):
+        return Kept(path, commit)
+    deleting = git_text(
+        ["log", "-n", "1", "--diff-filter=D", "--format=%H", commit, "--", path], run
+    ).strip()
+    if not deleting:
+        raise Stop(
+            "PR #{}: {} is neither in its merge commit {} nor deleted before it".format(
+                pr, path, commit
+            )
+        )
+    return Kept(path, commit_parents(deleting, run)[0])
 
 
 def changed_code(
@@ -1152,12 +1181,10 @@ def changed_code(
     uncarried = uncarried_files(pr, changed_list, run) if len(parents) == 1 else []
     for path in uncarried:
         report("PR #{}: its merge commit does not carry {}, counted as code".format(pr, path))
-        if path in RUN_TOOLS or path in ("package.json", "package-lock.json", "Makefile"):
+        if path in RUN_TOOLS or path in RUN_TOOLS_BY_CONTENT:
             tools.append(path)
         elif is_source(path):
-            # The file may be gone from the commit; a spec read there needs its text.
-            if path.startswith("src/") or path in main_line.tree(commit):
-                kept.append(Kept(path, commit))
+            kept.append(uncarried_source(pr, path, commit, main_line, run))
     for changed in changed_list:
         tool_changed = is_tool_changed(changed, parent, commit, run)
         if tool_changed is not None:
