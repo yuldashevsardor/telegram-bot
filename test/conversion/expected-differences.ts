@@ -16,6 +16,7 @@ const SOURCE_SANS_3 = "source-sans-3/SourceSans3-Regular.otf";
 const NOTO_NASKH_ARABIC = "noto-naskh-arabic/NotoNaskhArabic-Regular.ttf";
 const BUNGEE_SPICE = "bungee-spice/BungeeSpice-Regular.ttf";
 const PACIFICO = "pacifico/Pacifico-latin.woff2";
+const INTER = "inter/Inter[opsz,wght].ttf";
 const NON_SVG_FIXTURES = [
     ...ROBOTO_NON_SVG,
     FONT_AWESOME_OTF,
@@ -24,6 +25,7 @@ const NON_SVG_FIXTURES = [
     NOTO_NASKH_ARABIC,
     BUNGEE_SPICE,
     PACIFICO,
+    INTER,
 ];
 
 // The share of the em fontforge gives the ascent of an SVG font whose ascent and descent it does not
@@ -37,6 +39,20 @@ const SVG_FALLBACK_ASCENT_SHARE = 0.8;
 // points U+0162 and U+0163 come back twice as well: their glyphs have the alternates U+021A and U+021B.
 const SOURCE_SANS_3_DOUBLED_CODE_POINTS = [0x00a0, 0x00ad, 0x03bc, 0x03d5, 0x2010, 0x2011, 0x207c, 0x2126, 0x2206];
 const NOTO_NASKH_ARABIC_DOUBLED_CODE_POINTS = [0x00a0, 0x06f1, 0x06f3, 0x06f8, 0x06f9, 0x202f, 0xfeff];
+// U+2780 to U+2788 are the dingbat circled digits one to nine.
+const INTER_DOUBLED_CODE_POINTS = [
+    0x03b9,
+    0x2019,
+    0x201d,
+    0x2126,
+    0x2206,
+    0x25ba,
+    0x25bb,
+    0x25c4,
+    0x25c5,
+    ...Array.from({ length: 9 }, (_, index) => 0x2780 + index),
+    0xee01,
+];
 // U+FF41 to U+FF5A are the fullwidth a to z.
 const BUNGEE_SPICE_DOUBLED_CODE_POINTS = [
     0x00a0,
@@ -183,6 +199,15 @@ export const expectedDifferences: Array<ExpectedDifference> = [
             "glyph under the name NULL. The pair into otf comes out with CFF outlines and gains nothing.",
     },
     {
+        fixtures: [INTER],
+        toExtensions: [Extension.WOFF, Extension.WOFF2],
+        resultFacts: (sourceFacts) => ({ ...sourceFacts, glyphCount: sourceFacts.glyphCount + 1 }),
+        reason:
+            "One glyph more: writing TrueType outlines, fontforge adds the empty nonmarkingreturn glyph, which the font " +
+            "does not have; its .null it has. The pair into otf comes out with CFF outlines and gains nothing, ttf to " +
+            "eot gains nothing either: EotPacker wraps the source without fontforge.",
+    },
+    {
         fixtures: FONT_AWESOME_TRUETYPE,
         toExtensions: [Extension.SVG],
         resultFacts: (sourceFacts) => changes.withAddedCodePoints(sourceFacts, new Map([[0x000d, [597]]])),
@@ -239,6 +264,18 @@ export const expectedDifferences: Array<ExpectedDifference> = [
             "elements more than the font has glyphs. It writes the glyph I_I.salt_v of U+E202 under " +
             'unicode="&#xe201;&#xe201;" alone, the code points of its ligature, and the bot adds a copy of it under ' +
             "U+E202 (issue #917), one element more.",
+    },
+    {
+        fixtures: [INTER],
+        toExtensions: [Extension.SVG],
+        resultFacts: (sourceFacts: FontFacts): FontFacts => {
+            const withGlyphsTwice = changes.withEachGlyphTwice(sourceFacts, INTER_DOUBLED_CODE_POINTS);
+
+            return { ...withGlyphsTwice, glyphCount: sourceFacts.glyphCount + 38 };
+        },
+        reason:
+            "38 glyphs more: fontforge writes a glyph once more for each listing of its alternate code point, 38 " +
+            "elements more than the font has glyphs, and reads each back as a glyph of its own.",
     },
     {
         fixtures: [PACIFICO],

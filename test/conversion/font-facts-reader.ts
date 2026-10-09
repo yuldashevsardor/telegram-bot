@@ -73,8 +73,6 @@ export class FontFactsReader {
             await this.svgFontPreparer.prepare(fontPath, openedFontPath);
         }
 
-        // ProcessHelper.run leaves the maxBuffer of execFile at its default, 1 MiB of stdout: some 60 000
-        // code points of `"<code point>": [<width>], `. A font with more fails with ProcessFailed.
         const { stdout, stderr } = await ProcessHelper.run(this.fontForgePath, ["-c", this.readScript, openedFontPath]);
         const factsJson = this.parseFacts(stdout, stderr, fontPath);
         const advanceWidths = new Map<number, Array<number>>();

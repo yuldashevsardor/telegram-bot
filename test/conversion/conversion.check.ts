@@ -15,8 +15,8 @@ import { FONT_FORGE_PATH, realConvertorFactory, realFontValidatorResolver } from
 
 const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 // The default timeout of mocha, 2 s, is too close: a case runs fontforge up to three times, the slowest
-// corpus case takes about 0.8 s on an idle machine, and parallel sessions slow one another down 3–8×
-// (docs/agents/review-gates.md).
+// corpus case, Inter into woff2, took about 1.5 s under a load average of 25, and parallel sessions slow
+// one another down 3–8× (docs/agents/review-gates.md).
 const CASE_TIMEOUT_MS = 20 * 1000;
 
 // A font of the fixture directory, by its path relative to it.
