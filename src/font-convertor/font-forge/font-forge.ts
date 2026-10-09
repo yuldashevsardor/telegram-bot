@@ -18,15 +18,28 @@ export class FontForge {
     // The paths are read from sys.argv, not substituted into the script text: substituted, a
     // path would become Python code, a second level of interpretation after the shell. Under
     // fontforge -c, sys.argv is ["-c", ...the arguments after the script], and a path in it stays
-    // a string. The same holds for convertToSvgScript.
-    private readonly convertScript = "import fontforge, sys; font = fontforge.open(sys.argv[1]); font.generate(sys.argv[2])";
+    // a string. sys.argv[1] is the font to read, sys.argv[2] the font to write, and for an SVG source
+    // sys.argv[3] is the file of its unencoded glyph indexes from SvgFontPreparer, one a line, whose
+    // code points the script takes off (docs/architecture/font-convertor.md, "Reading SVG"). The file
+    // is opened with io.open: under fontforge -c the bare open is fontforge.open, which reads a font.
+    private readonly openFontAndUnencodeGlyphsScript = [
+        "import fontforge, io, sys",
+        "font = fontforge.open(sys.argv[1])",
+        "if len(sys.argv) > 3:",
+        "    with io.open(sys.argv[3]) as unencodedGlyphsFile:",
+        "        unencodedGlyphIndexes = {int(line) for line in unencodedGlyphsFile}",
+        "    for glyph in font.glyphs():",
+        "        if glyph.originalgid in unencodedGlyphIndexes:",
+        "            glyph.unicode = -1",
+    ];
+    private readonly convertScript = [...this.openFontAndUnencodeGlyphsScript, "font.generate(sys.argv[2])"].join("\n");
     // fontforge writes a glyph into one SVG element and leaves some of its code points out. The script
     // gives each code point left out a copy of the glyph, which fontforge writes under that code point.
     // Which code points fontforge leaves out and which of its rules the script repeats:
     // docs/architecture/font-convertor.md, "Writing SVG".
     private readonly convertToSvgScript = [
-        "import fontforge, sys, unicodedata",
-        "font = fontforge.open(sys.argv[1])",
+        ...this.openFontAndUnencodeGlyphsScript,
+        "import unicodedata",
         "def isArabicForm(codePoint):",
         '    tag = unicodedata.decomposition(chr(codePoint)).split(" ")[0]',
         '    return tag in ("<initial>", "<medial>", "<final>", "<isolated>")',
@@ -101,32 +114,38 @@ export class FontForge {
         const script = distExtension === Extension.SVG ? this.convertToSvgScript : this.convertScript;
 
         if (inputExtension !== Extension.SVG) {
-            await this.run(script, distPath, { readPath: inputPath, sourcePath: sourcePath });
+            await this.run(script, [inputPath, distPath], sourcePath);
 
             return;
         }
 
-        // The engine misreads an SVG font that leaves the advance of a glyph to <font>, so it reads a
-        // prepared copy (SvgFontPreparer). The result name is unique in its directory, so a name
-        // derived from it is unique too.
+        // The engine misreads an SVG font that leaves the advance of a glyph to <font> and encodes
+        // glyphs SVG 1.1 leaves unencoded, so it reads a prepared copy and the list of those glyphs
+        // (SvgFontPreparer; why a file: docs/architecture/font-convertor.md, "Reading SVG"). The result
+        // name is unique in its directory, so names derived from it are unique too.
         const preparedPath = `${distPath}.${Extension.SVG}`;
+        const unencodedGlyphsPath = `${distPath}.unencoded`;
 
-        await FileHelper.removeAfter(preparedPath, async () => {
-            await this.svgFontPreparer.prepare(inputPath, preparedPath);
-            await this.run(script, distPath, { readPath: preparedPath, sourcePath: sourcePath });
-        });
+        await FileHelper.removeAfter(preparedPath, () =>
+            FileHelper.removeAfter(unencodedGlyphsPath, async () => {
+                const unencodedGlyphIndexes = await this.svgFontPreparer.prepare(inputPath, preparedPath);
+
+                await FileHelper.write(unencodedGlyphsPath, new TextEncoder().encode(unencodedGlyphIndexes.join("\n")));
+                await this.run(script, [preparedPath, distPath, unencodedGlyphsPath], sourcePath);
+            }),
+        );
     }
 
     /**
-     * `readPath` is the file the engine reads, `sourcePath` the font the conversion was given, which
-     * the error names. They differ for an SVG source, whose prepared copy the engine reads, and on a
-     * route from EOT, whose unpacked sfnt it reads.
+     * `scriptArgs` are what the script reads from sys.argv, `sourcePath` the font the conversion was
+     * given, which the error names. The engine reads another file for an SVG source, its prepared
+     * copy, and on a route from EOT, its unpacked sfnt.
      */
-    private async run(script: string, distPath: string, paths: { readPath: string; sourcePath: string }): Promise<void> {
+    private async run(script: string, scriptArgs: Array<string>, sourcePath: string): Promise<void> {
         try {
-            await ProcessHelper.run(this.fontForgePath, ["-c", script, paths.readPath, distPath]);
+            await ProcessHelper.run(this.fontForgePath, ["-c", script, ...scriptArgs]);
         } catch (error) {
-            throw ExecuteError.bySource(paths.sourcePath, error);
+            throw ExecuteError.bySource(sourcePath, error);
         }
     }
 }

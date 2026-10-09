@@ -22,6 +22,10 @@ import { Tokens } from "app/shared/tokens";
  *
  * Nothing else of the file changes, its times included, but a UTF-8 BOM, which XML does not need.
  *
+ * fontforge also encodes glyphs SVG 1.1 maps to no code point, and the text of the file cannot say
+ * "no code point" to it. So the preparer answers with the indexes of those glyphs, and the engine
+ * script takes their code points off ("Reading SVG" again).
+ *
  * The source has passed `SvgFontValidator`, and the preparer leans on its rules: the document is
  * XML, it holds one `font` with `horiz-adv-x`, the font nodes are SVG elements, and their attributes
  * are unprefixed. So the elements are matched by their local names, past the namespaces.
@@ -41,17 +45,26 @@ export class SvgFontPreparer {
 
     public constructor(@inject<SvgTextCodec>(Tokens.Font.Validator.SvgTextCodec) private readonly textCodec: SvgTextCodec) {}
 
-    public async prepare(sourcePath: string, preparedPath: string): Promise<void> {
+    /**
+     * Answers the indexes of the glyph elements SVG 1.1 maps to no code point, counting the `glyph`
+     * and `missing-glyph` children of `<font>` in document order: every `missing-glyph`, and a `glyph`
+     * whose `unicode` is not one character, which with several characters is a ligature of them
+     * (§20.4, §20.5).
+     */
+    public async prepare(sourcePath: string, preparedPath: string): Promise<Array<number>> {
         const sourceBytes = await FileHelper.read(sourcePath);
         const encoding = this.textCodec.encodingOf(sourceBytes);
         const sourceText = this.decode(sourcePath, sourceBytes, encoding);
+        const scan = this.scan(sourcePath, sourceText);
 
-        const preparedText = this.prepareText(sourcePath, sourceText);
+        const preparedText = this.prepareText(sourceText, scan);
 
         await FileHelper.write(preparedPath, this.textCodec.encode(preparedText, encoding));
         // fontforge stamps the font it writes with the modification time of the file it reads, so the
         // result keeps the time of the source.
         await FileHelper.copyTimes(sourcePath, preparedPath);
+
+        return this.unencodedGlyphIndexes(scan.fontGlyphs);
     }
 
     private decode(sourcePath: string, sourceBytes: Uint8Array, encoding: Encoding): string {
@@ -62,8 +75,8 @@ export class SvgFontPreparer {
         }
     }
 
-    private prepareText(sourcePath: string, sourceText: string): string {
-        const { fontAdvance, fontGlyphs } = this.scan(sourcePath, sourceText);
+    private prepareText(sourceText: string, scan: FontScan): string {
+        const { fontAdvance, fontGlyphs } = scan;
 
         // SvgFontValidator requires `horiz-adv-x` of `font`.
         if (fontAdvance === undefined) {
@@ -139,6 +152,26 @@ export class SvgFontPreparer {
         parser.write(sourceText).close();
 
         return scan;
+    }
+
+    private unencodedGlyphIndexes(fontGlyphs: ReadonlyArray<FontGlyph>): Array<number> {
+        const unencodedGlyphIndexes: Array<number> = [];
+
+        for (const [glyphIndex, fontGlyph] of fontGlyphs.entries()) {
+            if (this.isUnencoded(fontGlyph)) {
+                unencodedGlyphIndexes.push(glyphIndex);
+            }
+        }
+
+        return unencodedGlyphIndexes;
+    }
+
+    // fontforge counts the characters of `unicode` as code points, so a character outside the BMP,
+    // two UTF-16 units, is one. It reads <missing-glyph> as .notdef, whatever its unicode says.
+    private isUnencoded(fontGlyph: FontGlyph): boolean {
+        const unicodeValue = fontGlyph.attributes["unicode"];
+
+        return fontGlyph.name !== "glyph" || unicodeValue === undefined || [...unicodeValue].length !== 1;
     }
 
     // fontforge reads <missing-glyph> as .notdef, whatever its unicode says.

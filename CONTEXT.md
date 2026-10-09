@@ -85,8 +85,9 @@ validating the whole file, then hands the file to the engine and does not look i
 the first exception: a source of any format is read whole, but only to check that it is a font of
 its format. The second is the envelope: to assemble it or to take it apart, the domain reads the
 metadata of the enclosed font. Even there it only copies the metadata and does not parse outlines.
-The third is an SVG source: the engine misreads some glyph advances SVG allows, so the domain hands
-it a copy with those advances written out. The source itself stays as it is.
+The third is an SVG source: the engine misreads some glyph advances SVG allows and encodes glyphs
+SVG leaves unencoded, so the domain hands it a copy with those advances written out and the list of
+those glyphs. The source itself stays as it is.
 _Avoid_: typeface. That is a typography term for the design; here the subject is the file.
 
 **Source font**:
