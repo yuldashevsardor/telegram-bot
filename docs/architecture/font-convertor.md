@@ -105,6 +105,35 @@ name comes from the user. The same technique removes the second level of interpr
 the script reads the paths passed as arguments from `sys.argv`, they are not substituted into the
 script text.
 
+## Writing SVG
+
+A pair into SVG runs `FontForge.convertToSvgScript` instead of `convertScript`. fontforge 20230101
+writes a glyph into one `<glyph>` element and leaves its other code points out (`svg_sfdump` of its
+`svg.c`):
+
+- a glyph with a ligature of a `liga` or `rlig` lookup, whose components all have code points,
+  goes under the components alone. An icon font with ligatures loses every code point this way:
+  from Material Icons fontforge writes none of the 2229 glyphs under its code point, only under its
+  name (`unicode="warning"`);
+- a glyph with an Arabic presentation form among its code points goes under the first such form
+  alone, as the base letter with `arabic-form`. Its other code points, the base letter of the
+  isolated form among them, are left out.
+
+Before writing, the script adds a copy of such a glyph, a reference to it named
+`<glyph name>.u<code point>`, for each code point left out, and fontforge writes the copy under that
+code point ([#917](https://github.com/yuldashevsardor/telegram-bot/issues/917)). The original keeps
+its element: the ligature and the Arabic form stay. A copy has no kerning pairs of its own. The
+script repeats the rules of fontforge: which lookups count as `liga` and which code points are
+presentation forms (the decomposition tags `<initial>`, `<medial>`, `<final>` and `<isolated>` of
+Unicode). A new fontforge that changes them shows in `make test-fonts` on the fixtures only.
+
+A presentation form that is the only code point of its glyph is written as SVG 1.1 has it, the base
+letter with `arabic-form`, and gets no copy. fontforge reads such an element back under the form
+its table gives for the base letter in that position (`Unicode/ArabicForms.c`). For U+0649 the
+table has no initial or medial form but the letter itself, so U+FBE8 and U+FBE9 come back as U+0649:
+that loss belongs to reading SVG
+([#913](https://github.com/yuldashevsardor/telegram-bot/issues/913)).
+
 ## Signatures
 
 The source format is checked twice: by the extension of the name and by the content. The content is
