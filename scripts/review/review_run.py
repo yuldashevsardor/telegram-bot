@@ -59,7 +59,8 @@ The report prints the "Checks" lines in the shape of the verdict, then `Not run`
 `Not cleaned up`, then "Red" with an excerpt of every red log, then what is the reviewer's to read.
 An excerpt is the tail of the log without the progress of Compose and of the image build, the echo
 of make and npm and the coverage table: they fill the end of a log and explain nothing. For the
-specs it starts at `N failing`. The whole logs lie in the directory the last line names.
+specs and the conversion check it starts at `N failing`. The whole logs lie in the directory the
+last line names.
 """
 
 import os
@@ -84,12 +85,15 @@ CONTAINER = [
     ("build", "build"),
     ("typecheck", "typecheck"),
     ("test", "coverage"),
+    ("test-fonts", "test-fonts"),
     ("lint", "lint"),
     ("format-check", "format-check"),
 ]
 READING = ("docs", "docs-sync", "comments", "bug-hunt-high", "bug-hunt-medium", "smells")
 BY_SKILL = ("make-targets", "scripts")
 KNOWN = [gate for gate, _ in CONTAINER] + ["python", "mutation-full"]
+# The gates whose target runs mocha: their report gives the counts and the excerpt from `N failing`.
+MOCHA = ("test", "test-fonts")
 
 BY_SKILL_REASON = "by fallback.md"
 
@@ -283,7 +287,7 @@ class ReviewRun:
                 state = "done" if done.returncode == 0 else "fail"
             else:
                 state = "ok" if done.returncode == 0 else "fail"
-            if gate == "test":
+            if gate in MOCHA:
                 plain = ANSI.sub("", text)
                 counts = [
                     "{} {}".format(found[-1], word)
@@ -297,7 +301,7 @@ class ReviewRun:
                     state += " ({})".format(", ".join(counts))
             self.report.checks[gate] = state
             if done.returncode != 0:
-                self.red("make " + target, text, gate == "test", log)
+                self.red("make " + target, text, gate in MOCHA, log)
                 if gate == "rebuild":
                     stopped = "rebuild failed"
 

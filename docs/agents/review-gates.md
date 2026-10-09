@@ -20,6 +20,7 @@ once.
 | `package.json`, `package-lock.json`, `Dockerfile`, `.eslintrc.js`, `.prettierrc.js`, `.mocharc.json` | `rebuild` |
 | any `.ts`, `tsconfig.json`, `tsconfig.check.json`, an eslint or prettier config | `build`, `typecheck`, `lint`, `format-check` |
 | any `.ts`, `test/**`, `.mocharc.json` | `test` |
+| `src/font-convertor/**`, `test/conversion/**`, `test/font-convertor/convertor-factory.helper.ts`, `test/fixtures/fonts/**`, `Dockerfile` | `test-fonts` |
 | `Makefile` | `make-targets` |
 | `scripts/*.sh`, `.husky/*` | `scripts` |
 | `scripts/**/*.py` | `python` |
@@ -50,6 +51,7 @@ the file's diff:
 - the `scripts` block touched — `make-targets` too;
 - the `nyc` key touched — `test` too: the config and the coverage threshold the gate checks
   live there;
+- the `test:fonts` script touched — `test-fonts` too: it is the launch of the conversion check;
 - the `mutation` script, the `@stryker-mutator/*` dependencies or `typescript` touched —
   `mutation-full` too.
 
@@ -79,6 +81,9 @@ The recipe is the launch:
 
 Changing any of them changes the outcome of every mutant: the same argument that puts the
 tsconfigs in the row.
+
+The `Makefile` turns on `test-fonts` the same way: the recipe of the `test-fonts` target or the
+`DC_APP_RUN` it expands touched.
 
 ## Comments-only diffs
 
@@ -213,6 +218,20 @@ The accepted cost of the batch itself: a weak test is found only by the batch ru
 after the PR that brought it, and its survivors are fixed by the session of the batch, not by the
 PR's author. A PR that breaks the run itself (a Stryker update, say) shows that only in the batch
 run too.
+
+## `test-fonts`
+
+The gate runs `make test-fonts`, the conversion check (`docs/architecture/testing.md`, "The
+conversion check"). `make check` runs it too, but the review does not run `make check`: without the
+gate a PR that breaks a conversion would pass the review green whenever its author skipped
+`make check`.
+
+The rows are the domain of the convertor, the files of the check itself and the fixtures it
+converts. `Dockerfile` is among them because it decides which fontforge the image carries, and a
+new engine version is exactly what the check is for. Code the check imports from outside these
+paths, `src/shared/process/` that starts the engine among it, does not turn the gate on: the
+`test` gate still runs the real engine through it in `font-forge-convertor.spec.ts`, and the check
+costs about half a minute per round (the timing is in `testing.md`).
 
 ## `docs` and `docs-sync`
 

@@ -46,6 +46,29 @@ RED_SPECS = COMPOSE + (
     "npm error path /app\n"
     "make: *** [coverage] Error 1\n"
 )
+CONVERSION = (
+    "{ [ -e .runtime.env ] || touch .runtime.env; } && docker compose -f docker-compose.app.yml "
+    "run --rm app npm run test:fonts\n"
+    " Container telegram-bot-review-7-app-run-5b1f0c2d9e7a Creating \n"
+    " Container telegram-bot-review-7-app-run-5b1f0c2d9e7a Created \n"
+    "\n"
+    "> telegram-bot@1.0.0 test:fonts\n"
+    "> mocha --no-config --require tsx/cjs 'test/conversion/**/*.check.ts'\n"
+    "\n"
+)
+GREEN_CONVERSION = CONVERSION + "  90 passing (25s)\n"
+RED_CONVERSION = CONVERSION + (
+    "  89 passing (25s)\n"
+    "  1 failing\n"
+    "\n"
+    "  1) conversion\n"
+    "       keeps the facts of inter/Inter[opsz,wght].ttf in woff:\n"
+    "     AssertionError: unitsPerEm: expected 1000 to equal 2048\n"
+    "\n"
+    "npm error Lifecycle script `test:fonts` failed with error:\n"
+    "npm error code 1\n"
+    "make: *** [test-fonts] Error 1\n"
+)
 RED_BUILD = (
     "{ [ -e .runtime.env ] || touch .runtime.env; } && docker compose -f docker-compose.app.yml "
     "build app\n"
@@ -82,6 +105,7 @@ class FakeRun:
             "mutation-full-check": (0, RECORDED, ""),
             "gh-diff": (0, "", ""),
             "coverage": (0, GREEN_SPECS, ""),
+            "test-fonts": (0, GREEN_CONVERSION, ""),
         }
         self.answers.update(answers)
         self.calls = []
@@ -197,7 +221,9 @@ class ReviewRunTest(unittest.TestCase):
     def test_rebuild_goes_first_whatever_the_order_of_the_gates(self):
         run = self.fake()
 
-        code, out = self.review_run("format-check lint python test typecheck build rebuild", run)
+        code, out = self.review_run(
+            "format-check lint python test-fonts test typecheck build rebuild", run
+        )
 
         self.assertEqual(
             run.names(),
@@ -207,6 +233,7 @@ class ReviewRunTest(unittest.TestCase):
                 "build",
                 "typecheck",
                 "coverage",
+                "test-fonts",
                 "lint",
                 "format-check",
                 "review-test",
@@ -214,8 +241,8 @@ class ReviewRunTest(unittest.TestCase):
             ],
         )
         self.assertIn(
-            "rebuild: done · build: ok · typecheck: ok · test: ok (712 passing) · lint: ok"
-            " · format-check: ok · python: ok\n",
+            "rebuild: done · build: ok · typecheck: ok · test: ok (712 passing)"
+            " · test-fonts: ok (90 passing) · lint: ok · format-check: ok · python: ok\n",
             out,
         )
 
@@ -264,6 +291,42 @@ class ReviewRunTest(unittest.TestCase):
         self.assertEqual(run.names()[-1], "review-tree-remove")
         with open(os.path.join(self.logs, "coverage.log")) as log:
             self.assertEqual(log.read(), RED_SPECS)
+
+    def test_the_conversion_check_runs_in_the_tree_of_the_pr(self):
+        run = self.fake()
+
+        code, out = self.review_run("test-fonts", run)
+
+        self.assertEqual(code, 0)
+        self.assertEqual(self.cwd_of(run, "test-fonts"), [self.review])
+        self.assertEqual(
+            out,
+            "Head: {}\n"
+            "Checks\n"
+            "rebuild: not needed · test-fonts: ok (90 passing)\n"
+            "Logs: {}\n".format(HEAD, self.logs),
+        )
+
+    def test_a_red_conversion_check_makes_the_gate_red_with_the_tail_from_n_failing(self):
+        run = self.fake(**{"test-fonts": (1, RED_CONVERSION, "")})
+
+        code, out = self.review_run("test-fonts", run)
+
+        self.assertEqual(code, 0)
+        self.assertIn("test-fonts: fail (89 passing, 1 failing)\n", out)
+        self.assertIn(
+            "Red\n"
+            "- make test-fonts — 1 failing\n"
+            "      1 failing\n"
+            "\n"
+            "      1) conversion\n"
+            "           keeps the facts of inter/Inter[opsz,wght].ttf in woff:\n"
+            "         AssertionError: unitsPerEm: expected 1000 to equal 2048\n"
+            "Logs: ",
+            out,
+        )
+        with open(os.path.join(self.logs, "test-fonts.log")) as log:
+            self.assertEqual(log.read(), RED_CONVERSION)
 
     def test_a_long_red_log_is_cut_and_names_the_whole_one(self):
         lines = "".join("src/app.ts:{}:1 error something\n".format(n) for n in range(100))

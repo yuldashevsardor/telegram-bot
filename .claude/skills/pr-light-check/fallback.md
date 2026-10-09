@@ -74,8 +74,8 @@ PR at all when it closes no issue, and the author records it with
 `make mutation-full-record issue=<M> pr=<N>`: `<M>` is the issue the PR closes, or for a stage PR
 that closes none, the parent it links as a bare `#N`.
 
-Red in `build`, `typecheck`, `test`, `lint`, `format-check` or `python`, and you doubt
-this PR brought it — compare with the base:
+Red in `build`, `typecheck`, `test`, `test-fonts`, `lint`, `format-check` or `python`, and you
+doubt this PR brought it — compare with the base:
 
 1. Create a worktree on `origin/main` at `<main>-review-<N>-base` next to the main worktree.
 2. Copy `.env` into it and move into it.

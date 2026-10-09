@@ -1,7 +1,7 @@
 ---
 name: pr-light-check
 description: Light Pull Request review — a mechanical run of the repository checks by the gates passed in, documentation drift in the changed lines and issue compliance, with a verdict and a PR comment. Run by the /review-pr command, and by the pr-deep-review skill as its mechanical part. Not for ordinary work on code and not for checking uncommitted edits.
-allowed-tools: Bash(gh:*), Bash(git:*), Bash(make rebuild), Bash(make build), Bash(make typecheck), Bash(make coverage), Bash(make lint), Bash(make format-check), Bash(make review-run:*), Bash(make help), Bash(make token-status), Bash(make -n:*), Bash(sh -n:*), Bash(docker run:*), Bash(make review-test), Bash(make review-tree-create:*), Bash(make review-tree-remove:*), Bash(scripts/bot-token.sh), Bash(cd:*), Bash(ls:*), Bash(cp:*), Bash(grep:*), Bash(awk:*), Read, Grep, Glob, Write
+allowed-tools: Bash(gh:*), Bash(git:*), Bash(make rebuild), Bash(make build), Bash(make typecheck), Bash(make coverage), Bash(make test-fonts), Bash(make lint), Bash(make format-check), Bash(make review-run:*), Bash(make help), Bash(make token-status), Bash(make -n:*), Bash(sh -n:*), Bash(docker run:*), Bash(make review-test), Bash(make review-tree-create:*), Bash(make review-tree-remove:*), Bash(scripts/bot-token.sh), Bash(cd:*), Bash(ls:*), Bash(cp:*), Bash(grep:*), Bash(awk:*), Read, Grep, Glob, Write
 ---
 
 You run the repository checks over the code of a Pull Request and decide whether it can be
@@ -55,11 +55,11 @@ two, the repository would hold two copies of the checklist, and the first edit w
 
 ## Step 1. The run
 
-A run gate is any of `rebuild`, `build`, `typecheck`, `test`, `lint`, `format-check`, `python`,
-`mutation-full`, `make-targets` and `scripts`. None of them — skip steps 1–2 whole: no checkout,
-no database, no containers. Building a project in which not a single line of executable code
-changed costs minutes and cannot yield a single finding. Step 3 needs no checkout either: it
-reads the diff through `gh`.
+A run gate is any of `rebuild`, `build`, `typecheck`, `test`, `test-fonts`, `lint`,
+`format-check`, `python`, `mutation-full`, `make-targets` and `scripts`. None of them — skip steps
+1–2 whole: no checkout, no database, no containers. Building a project in which not a single line
+of executable code changed costs minutes and cannot yield a single finding. Step 3 needs no
+checkout either: it reads the diff through `gh`.
 
 At least one run gate — call the target from the tree you were started in, with every gate as it
 came and the flags:
