@@ -28,6 +28,14 @@ export type FontScan = {
     fontGlyphs: Array<FontGlyph>;
 };
 
+/** The `unicode` values of the glyphs of a font, by how fontforge reads them. */
+export type FontUnicodeValues = {
+    // Of every glyph; the preparer adds each presentation form it writes.
+    taken: Set<string>;
+    // Of every glyph fontforge reads under its `unicode` as it is written, with a form or not.
+    formless: Set<string>;
+};
+
 /** The text that replaces a span of the source in the prepared copy; an empty span inserts it. */
 export type TextEdit = TextSpan & {
     text: string;

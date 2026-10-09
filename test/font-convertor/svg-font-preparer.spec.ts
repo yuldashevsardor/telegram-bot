@@ -151,6 +151,15 @@ describe("SvgFontPreparer.prepare", function () {
         expect(await prepared(source)).to.equal(source);
     });
 
+    it("writes only the first initial form of U+0649 under U+FBE8", async function () {
+        const secondInitialForm = '<glyph unicode="&#x649;" arabic-form="initial" horiz-adv-x="2"/>';
+        const glyphs = `<glyph unicode="&#x649;" arabic-form="initial" horiz-adv-x="1"/>${secondInitialForm}`;
+
+        expect(await prepared(fontDocument("0", glyphs))).to.equal(
+            fontDocument("0", `<glyph  unicode="&#xFBE8;" horiz-adv-x="1"/>${secondInitialForm}`),
+        );
+    });
+
     it("cuts the form out together with the whitespace before it, wherever the tag breaks", async function () {
         const glyphs =
             '<glyph arabic-form = \'isolated\'\r\n unicode="&#x627;"/><glyph\tunicode="&#x62A;"\n\tarabic-form="isolated" d="M0 0h1">\n</glyph>';

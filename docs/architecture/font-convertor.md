@@ -148,7 +148,7 @@ The copy differs from the source in four edits:
   `arabic-form` is none of the four SVG 1.1 values, nor `final`, counts as one without a form;
 - a glyph of U+0649 with `arabic-form="initial"` or `"medial"` is written as
   `unicode="&#xFBE8;"` or `"&#xFBE9;"` without `arabic-form`, unless a glyph already has that
-  code point.
+  code point, one the copy has written there before included.
 
 The isolated glyph goes under its letter alone, and its presentation form is left without a glyph:
 fontforge reads one element as one glyph of one code point, so keeping both would take a second
