@@ -92,7 +92,8 @@ The `mutation-full` gate runs no mutants: neither the author nor you runs `make 
 files the PRs changed run once per batch of recorded issues (`docs/agents/review-gates.md`, the
 paragraph on `mutation-full`). Its line:
 
-- `ok — recorded: …` — the issue the PR closes is recorded in a batch together with this PR.
+- `ok — recorded: …` — the issue the PR closes is recorded in a batch together with this PR, or,
+  when the PR closes no issue, the PR is recorded with whatever issue.
 - `fail — not recorded: …` — red brought by this PR, and it stands in `Red` too.
 - `n-a` with any reason (the batch was not checked, the run was interrupted) — the verdict is
   BLOCKED: nobody checked that the change reaches a batch run.

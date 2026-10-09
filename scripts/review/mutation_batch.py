@@ -402,29 +402,38 @@ def closed_issues(pr: int, run: Run) -> List[int]:
         raise Stop("gh pr view {} gave no closing issues — {}".format(pr, failure))
 
 
+def records_of(pr: int, run: Run) -> List[Record]:
+    """The records of the PR in every batch, open or closed, in the order of the listing."""
+    login = viewer(run)
+    records = []
+    for batch in list_batches(login, run):
+        for found in list_records(batch, login, run):
+            if found.pr == pr:
+                records.append(found)
+    return records
+
+
 def check_record(pr: int, run: Run = subprocess.run) -> int:
     try:
         issues = closed_issues(pr, run)
-        login = viewer(run)
-        for batch in list_batches(login, run):
-            for found in list_records(batch, login, run):
-                if found.pr != pr:
-                    continue
-                if not issues:
-                    print(
-                        "recorded: issue #{} by the PR number alone, PR #{} closes no issue"
-                        " — {}".format(found.issue, pr, found.url)
-                    )
-                    return 0
-                if found.issue in issues:
-                    print("recorded: issue #{} — {}".format(found.issue, found.url))
-                    return 0
+        records = records_of(pr, run)
     except Stop as stop:
         print("Stopped: {}".format(stop), file=sys.stderr)
         return 1
+    if not issues and records:
+        print(
+            "recorded: issue #{} by the PR number alone, PR #{} closes no issue — {}".format(
+                records[0].issue, pr, records[0].url
+            )
+        )
+        return 0
     if not issues:
         print("not recorded: no batch records PR #{}, which closes no issue".format(pr))
         return 0
+    for found in records:
+        if found.issue in issues:
+            print("recorded: issue #{} — {}".format(found.issue, found.url))
+            return 0
     named = ", ".join("#{}".format(issue) for issue in issues)
     print("not recorded: no batch records PR #{} with {}, the issues it closes".format(pr, named))
     return 0
