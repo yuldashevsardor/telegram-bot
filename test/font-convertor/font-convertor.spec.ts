@@ -10,6 +10,7 @@ import { ConvertorNotFound, FontConvertorError } from "app/font-convertor/font-c
 import { Extension } from "app/font-convertor/font-convertor.types";
 import type { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
+import { SvgTextCodec } from "app/font-convertor/validator/svg/svg-text-codec";
 import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
 import { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
 import { WoffFontValidator } from "app/font-convertor/validator/woff/woff-font-validator";
@@ -44,7 +45,7 @@ describe("FontConvertor", function () {
         factory = new ConvertorFactory(
             fontForge,
             new FontValidatorResolver(
-                new SvgFontValidator(),
+                new SvgFontValidator(new SvgTextCodec()),
                 new WoffFontValidator(new SfntFontValidator()),
                 new Woff2FontValidator(new SfntFontValidator()),
                 new SfntFontValidator(),

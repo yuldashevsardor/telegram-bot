@@ -1,4 +1,5 @@
 import { Extension } from "app/font-convertor/font-convertor.types";
+import { FileHelper } from "app/shared/fs/file-helper";
 import { TwoStepEotConvertor } from "app/font-convertor/convertor/two-step-eot-convertor";
 
 /**
@@ -13,9 +14,9 @@ export abstract class FromEotConvertor extends TwoStepEotConvertor {
 
         const sfntPath = this.intermediatePath(newPath);
 
-        await this.throughIntermediate(sfntPath, async () => {
+        await FileHelper.removeAfter(sfntPath, async () => {
             await this.eotPacker.unpack(originPath, sfntPath);
-            await this.fontForge.convert(sfntPath, newPath);
+            await this.fontForge.convert(sfntPath, newPath, originPath);
         });
     }
 }

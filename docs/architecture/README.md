@@ -245,8 +245,8 @@ own only when it has files of its own or a role of its own among the siblings:
 
 - `command/start/`, `command/bulk-messages/`, `command/font-generator/` and `conversation/start/`
   keep the command or the conversation together with their `locale/` bundles;
-- `validator/svg/` keeps `SvgFontValidator` together with its companions, its path data parser and
-  the range check of the points of an outline,
+- `validator/svg/` keeps `SvgFontValidator` together with its companions, its path data parser,
+  the range check of the points of an outline and the text codec it shares with `SvgFontPreparer`,
   `validator/woff2/` keeps `Woff2FontValidator` together with its companions and its glyf
   reconstructor, `validator/woff/`, `validator/eot/` and `validator/sfnt/` keep
   `WoffFontValidator`, `EotFontValidator` and `SfntFontValidator` with their companions.

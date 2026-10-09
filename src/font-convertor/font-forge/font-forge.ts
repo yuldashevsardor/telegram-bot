@@ -1,9 +1,11 @@
 import { FileHelper } from "app/shared/fs/file-helper";
 import { ProcessHelper } from "app/shared/process/process-helper";
-import { injectable } from "inversify";
+import { inject, injectable } from "inversify";
 import { ExecuteError, ExtensionNotSupport } from "app/font-convertor/font-forge/font-forge.errors";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { configValue } from "app/shared/config-value";
+import type { SvgFontPreparer } from "app/font-convertor/svg-preparer/svg-font-preparer";
+import { Tokens } from "app/shared/tokens";
 
 @injectable()
 export class FontForge {
@@ -72,9 +74,17 @@ export class FontForge {
         "font.generate(sys.argv[2])",
     ].join("\n");
 
-    public constructor(private readonly fontForgePath: string = configValue("fontForgePath")) {}
+    public constructor(
+        @inject<SvgFontPreparer>(Tokens.Font.Engine.SvgFontPreparer) private readonly svgFontPreparer: SvgFontPreparer,
+        private readonly fontForgePath: string = configValue("fontForgePath"),
+    ) {}
 
-    public async convert(srcPath: string, distPath: string): Promise<void> {
+    /**
+     * `sourcePath` is the font the conversion was given, which an error of the engine names. It is
+     * `srcPath` unless the engine reads a file made from the source, the unpacked sfnt of an EOT,
+     * which is removed by the time the error is logged.
+     */
+    public async convert(srcPath: string, distPath: string, sourcePath: string = srcPath): Promise<void> {
         const srcExtension = (await FileHelper.getFileExtension(srcPath)).toLowerCase();
         const distExtension = await FileHelper.getFileExtension(distPath);
 
@@ -88,10 +98,32 @@ export class FontForge {
 
         const script = distExtension === Extension.SVG ? this.convertToSvgScript : this.convertScript;
 
+        if (srcExtension !== Extension.SVG) {
+            await this.run(script, distPath, { readPath: srcPath, sourcePath: sourcePath });
+
+            return;
+        }
+
+        // The engine misreads an SVG font that leaves the advance of a glyph to <font>, so it reads a
+        // prepared copy (SvgFontPreparer). The result name is unique in its directory, so a name
+        // derived from it is unique too.
+        const preparedPath = `${distPath}.${Extension.SVG}`;
+
+        await FileHelper.removeAfter(preparedPath, async () => {
+            await this.svgFontPreparer.prepare(srcPath, preparedPath);
+            await this.run(script, distPath, { readPath: preparedPath, sourcePath: sourcePath });
+        });
+    }
+
+    /**
+     * `readPath` is the file the engine reads, `sourcePath` the font the conversion was given, which
+     * the error names: for an SVG source they differ.
+     */
+    private async run(script: string, distPath: string, paths: { readPath: string; sourcePath: string }): Promise<void> {
         try {
-            await ProcessHelper.run(this.fontForgePath, ["-c", script, srcPath, distPath]);
+            await ProcessHelper.run(this.fontForgePath, ["-c", script, paths.readPath, distPath]);
         } catch (error) {
-            throw ExecuteError.byError(error);
+            throw ExecuteError.bySource(paths.sourcePath, error);
         }
     }
 }

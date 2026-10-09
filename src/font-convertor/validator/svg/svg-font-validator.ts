@@ -1,4 +1,4 @@
-import { injectable } from "inversify";
+import { inject, injectable } from "inversify";
 import { SaxesParser } from "saxes";
 import type { SaxesTagNS, XMLDecl } from "saxes";
 import { FileHelper } from "app/shared/fs/file-helper";
@@ -16,6 +16,8 @@ import type {
 } from "app/font-convertor/validator/svg/svg-font-validator.types";
 import { FontRule } from "app/font-convertor/validator/svg/svg-font-validator.types";
 import type { FontValidator } from "app/font-convertor/validator/font-validator";
+import type { SvgTextCodec } from "app/font-convertor/validator/svg/svg-text-codec";
+import { Tokens } from "app/shared/tokens";
 
 /**
  * Checks an SVG font against W3C SVG 1.1 Second Edition, chapter 20 "Fonts". SVG 2 removed SVG
@@ -33,12 +35,6 @@ export class SvgFontValidator implements FontValidator {
     // processing instruction by its target (`_FindSVGFontNodes` and `SVGParseFont` of its `svg.c`).
     private static readonly FONT_NODE_NAMES: ReadonlyArray<string> = ["font", "font-face", "glyph", "missing-glyph", "hkern", "vkern"];
 
-    // XML 1.0 §4.3.3 requires the BOM for UTF-16. Without one the file is read as UTF-8, and the
-    // zero bytes of UTF-16 make it "not XML".
-    private static readonly BYTE_ORDER_MARKS: Array<[number, number, Encoding]> = [
-        [0xff, 0xfe, "utf-16le"],
-        [0xfe, 0xff, "utf-16be"],
-    ];
     // The names an encoding declaration may give to the encoding the file is read in; any other
     // name makes the file "not XML".
     private static readonly DECLARED_ENCODINGS: Record<Encoding, Array<string>> = {
@@ -100,6 +96,8 @@ export class SvgFontValidator implements FontValidator {
     // `k="32768"` fits; the range is kept symmetric.
     private static readonly SYMMETRIC_16_BIT_RANGE: NumberRange = { min: -MAX_FONT_UNITS, max: MAX_FONT_UNITS };
 
+    public constructor(@inject<SvgTextCodec>(Tokens.Font.Validator.SvgTextCodec) private readonly textCodec: SvgTextCodec) {}
+
     /**
      * Throws when the file is not a valid SVG font. The answers go in this order, each a subclass
      * of `InvalidSvgFont`: `NotXml`, `NotSvg`, `NoFont`, `BrokenFont`. A file that cannot be read
@@ -107,7 +105,7 @@ export class SvgFontValidator implements FontValidator {
      */
     public async validate(fontPath: string): Promise<void> {
         const bytes = await FileHelper.read(fontPath);
-        const encoding = this.encodingOf(bytes);
+        const encoding = this.textCodec.encodingOf(bytes);
         const scan = this.scan(fontPath, this.decode(fontPath, bytes, encoding), encoding);
 
         if (scan.root !== SvgFontValidator.SVG_ROOT) {
@@ -123,20 +121,9 @@ export class SvgFontValidator implements FontValidator {
         }
     }
 
-    private encodingOf(bytes: Uint8Array): Encoding {
-        // A half-matching head is rejected under either decoder. UTF-8 never holds 0xFE or 0xFF, and
-        // read as UTF-16 such a head does not open with `<`, whitespace or a BOM.
-        // Stryker disable next-line LogicalOperator,ConditionalExpression: `||` and `true` for either comparison are equivalent: they change only the text of the NotXml that rejects a head with one byte of a BOM
-        const mark = SvgFontValidator.BYTE_ORDER_MARKS.find(([first, second]) => bytes[0] === first && bytes[1] === second);
-
-        return mark?.[2] ?? "utf-8";
-    }
-
     private decode(fontPath: string, bytes: Uint8Array, encoding: Encoding): string {
-        // `fatal`: bytes that are not in the encoding are a fatal error in XML (§4.3.3). The decoder
-        // drops the BOM of its own encoding.
         try {
-            return new TextDecoder(encoding, { fatal: true }).decode(bytes);
+            return this.textCodec.decode(bytes, encoding);
         } catch (error) {
             throw NotXml.byEncoding(fontPath, encoding, error as Error);
         }

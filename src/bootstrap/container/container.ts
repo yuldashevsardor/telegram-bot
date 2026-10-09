@@ -6,6 +6,8 @@ import type { CC } from "app/bootstrap/config/container/config-container.types";
 import type { RequestContext } from "app/platform/request-context/request-context";
 import { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
+import { SvgTextCodec } from "app/font-convertor/validator/svg/svg-text-codec";
+import { SvgFontPreparer } from "app/font-convertor/svg-preparer/svg-font-preparer";
 import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
 import { WoffFontValidator } from "app/font-convertor/validator/woff/woff-font-validator";
 import { Woff2FontValidator } from "app/font-convertor/validator/woff2/woff2-font-validator";
@@ -108,6 +110,8 @@ export class Container extends InversifyContainer {
     private async setupFontConvertor(): Promise<void> {
         this.bind<ConvertorFactory>(Tokens.Font.Convertor.Factory).to(ConvertorFactory).inSingletonScope();
         this.bind<FontForge>(Tokens.Font.Engine.FontForge).to(FontForge).inSingletonScope();
+        this.bind<SvgFontPreparer>(Tokens.Font.Engine.SvgFontPreparer).to(SvgFontPreparer).inSingletonScope();
+        this.bind<SvgTextCodec>(Tokens.Font.Validator.SvgTextCodec).to(SvgTextCodec).inSingletonScope();
         this.bind<SvgFontValidator>(Tokens.Font.Validator.Svg).to(SvgFontValidator).inSingletonScope();
         this.bind<SfntFontValidator>(Tokens.Font.Validator.Sfnt).to(SfntFontValidator).inSingletonScope();
         this.bind<WoffFontValidator>(Tokens.Font.Validator.Woff).to(WoffFontValidator).inSingletonScope();
