@@ -19,15 +19,14 @@ export class FontFactsReader {
     // in neither direction. Writing an sfnt, fontforge drops the cmap entry of U+0000 that points at
     // glyph 0, which an unmapped code point gets anyway. An SVG is read as FontForge.convert() reads
     // it: sys.argv[2] is the file of its unencoded glyph indexes, and their code points are taken off
-    // as FontForge.openFontScript does. The check so measures the round trip through the same fix, and
-    // whether the fix finds the right glyphs is checked apart from it in font-forge.spec.ts. An
-    // alternate encoding of a glyph (altuni) counts unless it goes with a
+    // as FontForge.openFontAndUnencodeGlyphsScript does. The check so measures the round trip through
+    // the same fix, and whether the fix finds the right glyphs is checked apart from it in
+    // font-forge.spec.ts. An alternate encoding of a glyph (altuni) counts unless it goes with a
     // variation selector, and once: fontforge lists it once for every Unicode cmap subtable that
     // holds it, platform 0 and platform 3 of one font, which would read as two glyphs. A code point
-    // that several glyphs share, as the `lang` variants of one character in an SVG font do, keeps
-    // the width of each of them, so a change of any one shows. The widths are sorted, since the
-    // glyph order differs between formats; two variants that swap their widths therefore pass
-    // unseen.
+    // that several glyphs share, as the `lang` variants of one character in an SVG font do, keeps the
+    // width of each of them, so a change of any one shows. The widths are sorted, since the glyph
+    // order differs between formats; two variants that swap their widths therefore pass unseen.
     private readonly readScript = [
         "import fontforge, io, json, sys",
         "font = fontforge.open(sys.argv[1])",

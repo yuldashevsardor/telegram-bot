@@ -22,7 +22,7 @@ export class FontForge {
     // sys.argv[3] is the file of its unencoded glyph indexes from SvgFontPreparer, one a line, whose
     // code points the script takes off (docs/architecture/font-convertor.md, "Reading SVG"). The file
     // is opened with io.open: under fontforge -c the bare open is fontforge.open, which reads a font.
-    private readonly openFontScript = [
+    private readonly openFontAndUnencodeGlyphsScript = [
         "import fontforge, io, sys",
         "font = fontforge.open(sys.argv[1])",
         "if len(sys.argv) > 3:",
@@ -32,13 +32,13 @@ export class FontForge {
         "        if glyph.originalgid in unencodedGlyphIndexes:",
         "            glyph.unicode = -1",
     ];
-    private readonly convertScript = [...this.openFontScript, "font.generate(sys.argv[2])"].join("\n");
+    private readonly convertScript = [...this.openFontAndUnencodeGlyphsScript, "font.generate(sys.argv[2])"].join("\n");
     // fontforge writes a glyph into one SVG element and leaves some of its code points out. The script
     // gives each code point left out a copy of the glyph, which fontforge writes under that code point.
     // Which code points fontforge leaves out and which of its rules the script repeats:
     // docs/architecture/font-convertor.md, "Writing SVG".
     private readonly convertToSvgScript = [
-        ...this.openFontScript,
+        ...this.openFontAndUnencodeGlyphsScript,
         "import unicodedata",
         "def isArabicForm(codePoint):",
         '    tag = unicodedata.decomposition(chr(codePoint)).split(" ")[0]',

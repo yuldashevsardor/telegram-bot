@@ -42,8 +42,7 @@ export class SvgFontPreparer {
      * Answers the indexes of the glyph elements SVG 1.1 maps to no code point, counting the `glyph`
      * and `missing-glyph` children of `<font>` in document order: every `missing-glyph`, and a `glyph`
      * whose `unicode` is not one character, which with several characters is a ligature of them
-     * (§20.4, §20.5). fontforge numbers the glyph elements in the same order, as `originalgid`, and
-     * counts the ones it drops too, so an index finds the glyph whatever name fontforge gives it.
+     * (§20.4, §20.5).
      */
     public async prepare(sourcePath: string, preparedPath: string): Promise<Array<number>> {
         const sourceBytes = await FileHelper.read(sourcePath);
@@ -78,7 +77,7 @@ export class SvgFontPreparer {
         });
         const openNames: Array<string> = [];
         const glyphScan: GlyphScan = { fontAdvance: undefined, advanceInsertionIndexes: [], unencodedGlyphIndexes: [] };
-        let glyphCount = 0;
+        let glyphElementIndex = 0;
 
         parser.on("error", () => {
             throw UnpreparableSvgFont.byParser(sourcePath);
@@ -103,10 +102,10 @@ export class SvgFontPreparer {
             }
 
             if (this.isUnencoded(name, tag)) {
-                glyphScan.unencodedGlyphIndexes.push(glyphCount);
+                glyphScan.unencodedGlyphIndexes.push(glyphElementIndex);
             }
 
-            glyphCount++;
+            glyphElementIndex++;
         });
         parser.on("closetag", () => openNames.pop());
 
