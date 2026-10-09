@@ -81,6 +81,97 @@ describe("SvgFontPreparer.prepare", function () {
         expect(await prepared(source)).to.equal(source.replace("<s:glyph/>", '<s:glyph horiz-adv-x="0"/>'));
     });
 
+    it("takes the isolated form off a glyph whose letter has no glyph without a form", async function () {
+        const glyphs = '<glyph unicode="&#x627;" arabic-form="isolated"/><glyph unicode="&#x627;" arabic-form="final"/>';
+
+        expect(await prepared(fontDocument("0", glyphs))).to.equal(
+            fontDocument("0", '<glyph unicode="&#x627;" horiz-adv-x="0"/><glyph unicode="&#x627;" arabic-form="final" horiz-adv-x="0"/>'),
+        );
+    });
+
+    it("keeps the isolated form of a letter that has a glyph without a form, wherever that glyph stands", async function () {
+        const glyphs = '<glyph unicode="&#x628;" arabic-form="isolated" horiz-adv-x="1"/><glyph unicode="&#x628;" horiz-adv-x="1"/>';
+
+        expect(await prepared(fontDocument("0", glyphs))).to.equal(fontDocument("0", glyphs));
+    });
+
+    it("takes the isolated form off when only <missing-glyph> names the letter", async function () {
+        // fontforge reads <missing-glyph> as .notdef, whatever its unicode says.
+        const glyphs =
+            '<missing-glyph unicode="&#x627;" horiz-adv-x="1"/><glyph unicode="&#x627;" arabic-form="isolated" horiz-adv-x="1"/>';
+
+        expect(await prepared(fontDocument("0", glyphs))).to.equal(fontDocument("0", glyphs.replace(' arabic-form="isolated"', "")));
+    });
+
+    it("writes the terminal form of SVG 1.1 as the final form fontforge knows", async function () {
+        const glyphs =
+            '<glyph unicode="&#x627;" arabic-form="isolated" horiz-adv-x="1"/><glyph unicode="&#x627;" arabic-form="terminal" horiz-adv-x="1"/>';
+
+        expect(await prepared(fontDocument("0", glyphs))).to.equal(
+            fontDocument("0", '<glyph unicode="&#x627;" horiz-adv-x="1"/><glyph unicode="&#x627;" arabic-form="final" horiz-adv-x="1"/>'),
+        );
+    });
+
+    it("keeps the isolated form of a letter whose other glyph has a form fontforge does not know", async function () {
+        // fontforge reads such a glyph under the letter, as one without a form.
+        const glyphs =
+            '<glyph unicode="&#x628;" arabic-form="isolated" horiz-adv-x="1"/><glyph unicode="&#x628;" arabic-form="Isolated" horiz-adv-x="1"/>';
+
+        expect(await prepared(fontDocument("0", glyphs))).to.equal(fontDocument("0", glyphs));
+    });
+
+    it("keeps the isolated form of a ligature", async function () {
+        const source = fontDocument("0", '<glyph unicode="&#x644;&#x627;" arabic-form="isolated" horiz-adv-x="1"/>');
+
+        expect(await prepared(source)).to.equal(source);
+    });
+
+    it("writes the initial and medial forms of U+0649 under their presentation forms", async function () {
+        // The span of the first attribute starts after the whitespace character that ends the name, so
+        // a unicode written in place of it stands after two spaces.
+        const glyphs =
+            '<glyph unicode="&#x649;" arabic-form="initial" horiz-adv-x="1"/><glyph arabic-form="medial" unicode="&#x649;" horiz-adv-x="1"/>' +
+            '<glyph unicode="&#x649;" arabic-form="final" horiz-adv-x="1"/>';
+
+        expect(await prepared(fontDocument("0", glyphs))).to.equal(
+            fontDocument(
+                "0",
+                '<glyph  unicode="&#xFBE8;" horiz-adv-x="1"/><glyph  unicode="&#xFBE9;" horiz-adv-x="1"/>' +
+                    '<glyph unicode="&#x649;" arabic-form="final" horiz-adv-x="1"/>',
+            ),
+        );
+    });
+
+    it("keeps the initial form of U+0649 when a glyph already has U+FBE8", async function () {
+        const source = fontDocument(
+            "0",
+            '<glyph unicode="&#xFBE8;" horiz-adv-x="1"/><glyph unicode="&#x649;" arabic-form="initial" horiz-adv-x="1"/>',
+        );
+
+        expect(await prepared(source)).to.equal(source);
+    });
+
+    it("writes only the first initial form of U+0649 under U+FBE8", async function () {
+        const secondInitialForm = '<glyph unicode="&#x649;" arabic-form="initial" horiz-adv-x="2"/>';
+        const glyphs = `<glyph unicode="&#x649;" arabic-form="initial" horiz-adv-x="1"/>${secondInitialForm}`;
+
+        expect(await prepared(fontDocument("0", glyphs))).to.equal(
+            fontDocument("0", `<glyph  unicode="&#xFBE8;" horiz-adv-x="1"/>${secondInitialForm}`),
+        );
+    });
+
+    it("cuts the form out together with the whitespace before it, wherever the tag breaks", async function () {
+        const glyphs =
+            '<glyph arabic-form = \'isolated\'\r\n unicode="&#x627;"/><glyph\tunicode="&#x62A;"\n\tarabic-form="isolated" d="M0 0h1">\n</glyph>';
+
+        expect(await prepared(fontDocument("0", glyphs))).to.equal(
+            fontDocument(
+                "0",
+                '<glyph \r\n unicode="&#x627;" horiz-adv-x="0"/><glyph\tunicode="&#x62A;" d="M0 0h1" horiz-adv-x="0">\n</glyph>',
+            ),
+        );
+    });
+
     it("keeps the rest of the file byte for byte", async function () {
         const source = `<?xml version="1.0"?>\n<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "svg11.dtd">\n<!-- <glyph/> -->${fontDocument(
             "0",

@@ -124,24 +124,58 @@ the one it puts on `<font>`, 0 in Source Sans 3 and 1000 in Bungee Spice. Measur
 [#913](https://github.com/yuldashevsardor/telegram-bot/issues/913): read back, the combining marks
 of Source Sans 3 were 1000 wide instead of 0, and its U+200B and U+FEFF were gone.
 
+fontforge also misreads a glyph with `arabic-form`. SVG 1.1 has it as a form of the letter its
+`unicode` names (§20.5). fontforge reads a glyph of one code point from U+0600 to U+06FF under the
+code point its table gives for that letter and form (`SVGParseGlyphArgs` of `svg.c`,
+`Unicode/ArabicForms.c`): `<glyph unicode="&#x627;" arabic-form="isolated">` becomes U+FE8D, and a
+font whose letters have only glyphs with `arabic-form` comes out with none of the letters a text is
+typed with. fontforge knows the forms `initial`, `medial`, `final` and `isolated`, while SVG 1.1
+spells the end form `terminal`; a glyph with a value it does not know it reads under the letter, as
+one without the attribute. The table finds a form by its Unicode name, "<letter> INITIAL FORM" and
+so on (`makeutype.py`). The initial and medial forms of U+0649, U+FBE8 and U+FBE9, are named after
+the languages that use them, so the table gives U+0649 itself for them; by the Unicode 14 data of
+the image no other form is missing from it.
+
 So the engine never reads an SVG source itself. `FontForge.convert()` has `SvgFontPreparer`
 (`svg-preparer/`) write a copy next to the result, `<result>.svg` (`<result>.ttf.svg` on the
-way to EOT), with the advance of `<font>` written on every `glyph` and `missing-glyph` that leaves
-it out, hands the engine the copy and removes it as the intermediate sfnt of EOT is removed. Nothing
-else of the file changes but a UTF-8 BOM, which XML does not need: the attribute goes before the end
-of the start tag, the copy is written in the encoding of the source (`SvgTextCodec`, which
-`SvgFontValidator` reads the file with too), and it takes the modification time of the source,
-since fontforge stamps the font it writes with the time of the file it reads.
+way to EOT), hands the engine the copy and removes it as the intermediate sfnt of EOT is removed.
+The copy differs from the source in four edits:
+
+- the advance of `<font>` is written on every `glyph` and `missing-glyph` that leaves it out;
+- `arabic-form="terminal"` is written as `"final"`;
+- `arabic-form="isolated"` is taken off a glyph of one code point when no `glyph` with the same
+  `unicode` goes without a form, and fontforge reads the glyph under the letter. A glyph whose
+  `arabic-form` is none of the four SVG 1.1 values, nor `final`, counts as one without a form;
+- a glyph of U+0649 with `arabic-form="initial"` or `"medial"` is written as
+  `unicode="&#xFBE8;"` or `"&#xFBE9;"` without `arabic-form`, unless a glyph already has that
+  code point, one the copy has written there before included.
+
+The isolated glyph goes under its letter alone, and its presentation form is left without a glyph:
+fontforge reads one element as one glyph of one code point, so keeping both would take a second
+element, and a text is typed with the letters, while Unicode keeps the presentation forms for
+compatibility. A font converted into SVG and back that has the isolated presentation form but no
+glyph of its letter comes back with the letter in place of the form. A letter that has a glyph
+without a form keeps it, and its isolated glyph stays where fontforge reads it: under the
+presentation form, or under the letter too when the table of fontforge has no isolated form of it.
+This is how a font written into SVG comes back ("Writing SVG"). The initial, medial and final forms
+stay where fontforge reads them too: under the letter they would take its place. A glyph without
+`unicode` that fontforge reads under the letter by its name
+([#925](https://github.com/yuldashevsardor/telegram-bot/issues/925)) does not count as a glyph of
+the letter: the copy takes the isolated form off, and the presentation form is left without a glyph.
+
+Nothing else of the file changes but a UTF-8 BOM, which XML does not need: the advance goes before
+the end of the start tag, a removed or rewritten attribute takes the whitespace before it along but
+for the character that ends the tag name, the copy is written in the encoding of the source
+(`SvgTextCodec`, which `SvgFontValidator` reads the file with too), and it takes the modification
+time of the source, since fontforge stamps the font it writes with the time of the file it reads.
 The preparer leans on the rules of the validator, which the source has passed: one `font` with
 `horiz-adv-x`, the font nodes in the SVG namespace and without prefixed attributes. So it matches
 the elements by their local names, without the namespace bindings the validator makes. A failure
 of the engine names the source in `path` of its `ExecuteError`: the copy the process read is
 gone by the time the error is logged.
 
-Two more defects of reading SVG are not worked around: `arabic-form="isolated"` moves a glyph from
-its letter to the presentation form (U+0627 to U+FE8D,
-[#924](https://github.com/yuldashevsardor/telegram-bot/issues/924)), and a glyph without `unicode`
-gets the code point its name spells (`Ldot` U+013F, `uni0041` U+0041 beside the glyph of `A`,
+One more defect of reading SVG is not worked around: a glyph without `unicode` gets the code point
+its name spells (`Ldot` U+013F, `uni0041` U+0041 beside the glyph of `A`,
 [#925](https://github.com/yuldashevsardor/telegram-bot/issues/925)).
 
 ## Writing SVG
@@ -170,10 +204,9 @@ Unicode). A new fontforge that changes them shows in `make test-fonts` on the fi
 
 A presentation form that is the only code point of its glyph is written as SVG 1.1 has it, the base
 letter with `arabic-form`, and gets no copy. fontforge reads such an element back under the form
-its table gives for the base letter in that position (`Unicode/ArabicForms.c`). For U+0649 the
-table has no initial or medial form but the letter itself, so U+FBE8 and U+FBE9 come back as U+0649:
-that loss belongs to reading SVG
-([#924](https://github.com/yuldashevsardor/telegram-bot/issues/924)).
+its table gives for the base letter in that position, but where the prepared copy changes it
+("Reading SVG"): U+FBE8 and U+FBE9, which its table lacks, come back under their own code points,
+and an isolated form whose letter has no glyph comes back under the letter.
 
 A ligature glyph whose code point is a presentation form of two letters, such as a lam-alef U+FEFB
 that a `liga` or `rlig` lookup makes of U+0644 and U+0627, does get a copy. fontforge writes the
