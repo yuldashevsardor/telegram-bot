@@ -18,17 +18,17 @@ export class FontForge {
     // path would become Python code, a second level of interpretation after the shell. Under
     // fontforge -c, sys.argv is ["-c", ...the arguments after the script], and a path in it stays
     // a string. sys.argv[1] is the font to read, sys.argv[2] the font to write, and for an SVG source
-    // sys.argv[3] is the file of the glyphs SvgFontPreparer found unencoded, an index a line. fontforge
-    // gives those glyphs code points SVG 1.1 does not, and the script takes them off. The file is opened
-    // with io.open: under fontforge -c the bare open is fontforge.open, which reads a font.
+    // sys.argv[3] is the file of its unencoded glyph indexes from SvgFontPreparer, one a line, whose
+    // code points the script takes off (docs/architecture/font-convertor.md, "Reading SVG"). The file
+    // is opened with io.open: under fontforge -c the bare open is fontforge.open, which reads a font.
     private readonly openFontScript = [
         "import fontforge, io, sys",
         "font = fontforge.open(sys.argv[1])",
         "if len(sys.argv) > 3:",
         "    with io.open(sys.argv[3]) as unencodedGlyphsFile:",
-        "        unencodedGlyphIds = {int(line) for line in unencodedGlyphsFile}",
+        "        unencodedGlyphIndexes = {int(line) for line in unencodedGlyphsFile}",
         "    for glyph in font.glyphs():",
-        "        if glyph.originalgid in unencodedGlyphIds:",
+        "        if glyph.originalgid in unencodedGlyphIndexes:",
         "            glyph.unicode = -1",
     ];
     private readonly convertScript = [...this.openFontScript, "font.generate(sys.argv[2])"].join("\n");
@@ -119,9 +119,8 @@ export class FontForge {
 
         // The engine misreads an SVG font that leaves the advance of a glyph to <font> and encodes
         // glyphs SVG 1.1 leaves unencoded, so it reads a prepared copy and the list of those glyphs
-        // (SvgFontPreparer). The list goes in a file, not as arguments: the message of ProcessFailed
-        // quotes the arguments, and a font has as many unencoded glyphs as it likes. The result name is
-        // unique in its directory, so names derived from it are unique too.
+        // (SvgFontPreparer; why a file: docs/architecture/font-convertor.md, "Reading SVG"). The result
+        // name is unique in its directory, so names derived from it are unique too.
         const preparedPath = `${distPath}.${Extension.SVG}`;
         const unencodedGlyphsPath = `${distPath}.unencoded`;
 

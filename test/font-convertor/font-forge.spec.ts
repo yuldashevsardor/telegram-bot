@@ -176,21 +176,22 @@ describe("FontForge.convert", function () {
         await fs.writeFile(
             srcPath,
             '<svg xmlns="http://www.w3.org/2000/svg"><font horiz-adv-x="500"><font-face units-per-em="1000" ascent="800" descent="-200"/>' +
-                '<missing-glyph/><glyph unicode="A" d="M0 0h400v700h-400z"/><glyph glyph-name="uni0041"/><glyph glyph-name="Ldot"/>' +
-                '<glyph unicode="fi" glyph-name="f_i"/><glyph unicode="ft"/><glyph glyph-name=".null"/></font></svg>',
+                '<glyph glyph-name="uni0041"/><glyph unicode="A" glyph-name="A" d="M0 0h400v700h-400z"/><glyph glyph-name="Ldot"/>' +
+                '<glyph unicode="fi" glyph-name="f_i"/><glyph unicode="ft"/><missing-glyph/><glyph glyph-name=".null"/></font></svg>',
         );
 
         await fontForge.convert(srcPath, distPath);
 
-        // The result is a TTF, which fontforge reads by its cmap.
+        // The result is a TTF, which fontforge reads by its cmap, and its post table keeps the names:
+        // uni0041 and A both spell U+0041, so the name tells which of them has it.
         const encodingScript = [
             "import fontforge, json, sys",
             "glyphs = list(fontforge.open(sys.argv[1]).glyphs())",
-            "print(json.dumps([len(glyphs), sorted(glyph.unicode for glyph in glyphs if glyph.unicode != -1)]))",
+            "print(json.dumps([len(glyphs), [[glyph.glyphname, glyph.unicode] for glyph in glyphs if glyph.unicode != -1]]))",
         ].join("\n");
         const { stdout } = await ProcessHelper.run("fontforge", ["-c", encodingScript, distPath]);
         // The seven glyphs of the source and nonmarkingreturn, which fontforge adds writing TrueType.
-        expect(JSON.parse(stdout)).to.deep.equal([8, [0x41]]);
+        expect(JSON.parse(stdout)).to.deep.equal([8, [["A", 0x41]]]);
     });
 
     it("removes the prepared copy of an SVG source and its list of unencoded glyphs after a success and after a failure", async function () {
