@@ -3,9 +3,8 @@ import fsSync from "fs";
 import type { BigIntStats } from "fs";
 import path from "path";
 import dayjs from "dayjs";
+import { NS_PER_SECOND } from "app/shared/time";
 import { InvalidExtensions, InvalidPath, PermissionDenied, ReadFailed, RemoveFailed, WriteFailed } from "app/shared/fs/file-helper.errors";
-
-const NANOSECONDS_PER_SECOND = 1_000_000_000n;
 
 export class FileHelper {
     // F_OK and not R_OK: with R_OK an existing unreadable path would pass for a missing one. A check
@@ -116,11 +115,7 @@ export class FileHelper {
         }
 
         try {
-            await fs.utimes(
-                targetPath,
-                Number(sourceStats.atimeNs / NANOSECONDS_PER_SECOND),
-                Number(sourceStats.mtimeNs / NANOSECONDS_PER_SECOND),
-            );
+            await fs.utimes(targetPath, Number(sourceStats.atimeNs / NS_PER_SECOND), Number(sourceStats.mtimeNs / NS_PER_SECOND));
         } catch (error) {
             throw WriteFailed.byPath(targetPath, error);
         }
@@ -138,12 +133,12 @@ export class FileHelper {
     }
 
     /**
-     * Runs `work` and removes the file at `path` after a success and after a failure alike, for a
-     * file `work` leaves on the way. The removal is not in `finally`: there its own error would
+     * Runs `work` and removes the file at `leftoverPath` after a success and after a failure alike,
+     * for a file `work` leaves on the way. The removal is not in `finally`: there its own error would
      * displace the error of `work`, and the real reason for the failure would not survive even in
      * `cause`. So a removal error surfaces only if `work` did not fail.
      */
-    public static async removeAfter(path: string, work: () => Promise<void>): Promise<void> {
+    public static async removeAfter(leftoverPath: string, work: () => Promise<void>): Promise<void> {
         let failure: unknown;
 
         try {
@@ -153,7 +148,7 @@ export class FileHelper {
         }
 
         try {
-            await FileHelper.remove(path);
+            await FileHelper.remove(leftoverPath);
         } catch (error) {
             failure ??= error;
         }

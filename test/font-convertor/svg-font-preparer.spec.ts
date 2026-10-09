@@ -3,8 +3,8 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import { Extension } from "app/font-convertor/font-convertor.types";
-import { SvgFontPreparer } from "app/font-convertor/svg-font-preparer/svg-font-preparer";
-import { UnpreparableSvgFont } from "app/font-convertor/svg-font-preparer/svg-font-preparer.errors";
+import { SvgFontPreparer } from "app/font-convertor/svg-preparer/svg-font-preparer";
+import { UnpreparableSvgFont } from "app/font-convertor/svg-preparer/svg-font-preparer.errors";
 import { SvgTextCodec } from "app/font-convertor/validator/svg/svg-text-codec";
 import { ReadFailed } from "app/shared/fs/file-helper.errors";
 

@@ -6,7 +6,7 @@ import path from "path";
 import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 import { EotPayloadDecoder } from "app/font-convertor/eot-payload-decoder/eot-payload-decoder";
 import type { Extension } from "app/font-convertor/font-convertor.types";
-import { SvgFontPreparer } from "app/font-convertor/svg-font-preparer/svg-font-preparer";
+import { SvgFontPreparer } from "app/font-convertor/svg-preparer/svg-font-preparer";
 import { SvgTextCodec } from "app/font-convertor/validator/svg/svg-text-codec";
 import { expectedDifferences } from "test/conversion/expected-differences";
 import { FontFactsComparator } from "test/conversion/font-facts-comparator";

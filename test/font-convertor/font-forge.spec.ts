@@ -10,7 +10,7 @@ import { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { ExecuteError, ExtensionNotSupport } from "app/font-convertor/font-forge/font-forge.errors";
 import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
 import { SvgTextCodec } from "app/font-convertor/validator/svg/svg-text-codec";
-import { SvgFontPreparer } from "app/font-convertor/svg-font-preparer/svg-font-preparer";
+import { SvgFontPreparer } from "app/font-convertor/svg-preparer/svg-font-preparer";
 import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
 import { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
 import { WoffFontValidator } from "app/font-convertor/validator/woff/woff-font-validator";

@@ -1,6 +1,6 @@
 import path from "path";
 import type { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
-import type { SvgFontPreparer } from "app/font-convertor/svg-font-preparer/svg-font-preparer";
+import type { SvgFontPreparer } from "app/font-convertor/svg-preparer/svg-font-preparer";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { RuntimeError } from "app/shared/errors";
 import { ProcessHelper } from "app/shared/process/process-helper";

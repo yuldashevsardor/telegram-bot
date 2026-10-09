@@ -31,7 +31,6 @@ const NON_SVG_FIXTURES = [
 // and 410, at 1792: 1433 and 359.
 const SVG_FALLBACK_ASCENT_SHARE = 0.8;
 
-
 // The code points at which a glyph comes back twice from SVG. fontforge lists an alternate code point of
 // a glyph, one beside its main one, once for every Unicode cmap subtable that holds it, platform 0 and
 // platform 3, and writes a <glyph> for each listing into an SVG font. In Bungee Spice the main code
@@ -189,7 +188,7 @@ export const expectedDifferences: Array<ExpectedDifference> = [
         resultFacts: (sourceFacts) => changes.withAddedCodePoints(sourceFacts, new Map([[0x000d, [597]]])),
         reason:
             "U+000D more: the font has a nonmarkingreturn glyph without a code point, and fontforge reading an SVG font " +
-            "gives a glyph without unicode the code point of its name (issue #913).",
+            "gives a glyph without unicode the code point of its name (issue #925).",
     },
     {
         fixtures: [SOURCE_SANS_3],
@@ -205,7 +204,7 @@ export const expectedDifferences: Array<ExpectedDifference> = [
             "19 glyphs more: fontforge writes a glyph once more for each listing of its alternate code point, 18 " +
             "elements more than the font has glyphs, and reads each back as a glyph of its own. It writes the f_f " +
             'ligature of U+FB00 under unicode="ff" alone, and the bot adds a copy of it under U+FB00 (issue #917), ' +
-            "one element more. A defect of reading SVG (issue #913): a ligature gets the code point of its name, f_f " +
+            "one element more. A defect of reading SVG (issue #925): a ligature gets the code point of its name, f_f " +
             "U+FB00 a second time and f_t, which has no code point, U+FB05.",
     },
     {
@@ -263,7 +262,7 @@ export const expectedDifferences: Array<ExpectedDifference> = [
             );
         },
         reason:
-            "A defect of reading SVG (issue #913). The subset of Google Fonts keeps glyphs it does not encode, and " +
+            "A defect of reading SVG (issue #925). The subset of Google Fonts keeps glyphs it does not encode, and " +
             "fontforge gives each of them the code point of its name (Ldot U+013F, fi U+FB01 and the rest listed).",
     },
 ];

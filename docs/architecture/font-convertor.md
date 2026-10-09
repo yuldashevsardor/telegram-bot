@@ -46,14 +46,14 @@ pair class gets what it does not need:
   Their bodies live in `ToEotConvertor` and `FromEotConvertor`. The eight classes are empty except
   for declaring the missing extension.
 
-`EotPacker` (`eot-packer/`) is one of the six places on the conversion path where the domain parses
-the content of a font; the others are the SVG, WOFF, WOFF2, EOT and sfnt validators below. Two of
-them, the codec and the EOT validator, also hand a compressed `FontData` to `mtx-decompressor`
-through `EotPayloadDecoder` (below), which parses it. The EOT header duplicates the metadata of the
-enclosed font. `SfntReader` takes it from the `OS/2`, `head` and `name` tables. The envelope holds
-four names, in UTF-16LE. The slant is taken from `OS/2.fsSelection`, not from `head.macStyle`,
-which duplicates it. `ttf2eot` does the same. Besides, in `macStyle` the slant is bit 1, and bit 1
-of `fsSelection` means something else.
+`EotPacker` (`eot-packer/`) is one of the seven places on the conversion path where the domain
+parses the content of a font; the others are the SVG, WOFF, WOFF2, EOT and sfnt validators below
+and `SvgFontPreparer` ("Reading SVG"). Two of them, the codec and the EOT validator, also hand a
+compressed `FontData` to `mtx-decompressor` through `EotPayloadDecoder` (below), which parses it.
+The EOT header duplicates the metadata of the enclosed font. `SfntReader` takes it from the `OS/2`,
+`head` and `name` tables. The envelope holds four names, in UTF-16LE. The slant is taken from
+`OS/2.fsSelection`, not from `head.macStyle`, which duplicates it. `ttf2eot` does the same. Besides,
+in `macStyle` the slant is bit 1, and bit 1 of `fsSelection` means something else.
 
 Names are read from the Windows platform, failing that from Unicode, then from Macintosh. On
 Macintosh only `encodingId 0` is read: only that one is single-byte MacRoman, the other records hold
@@ -118,7 +118,7 @@ the one it puts on `<font>`, 0 in Source Sans 3 and 1000 in Bungee Spice. Measur
 of Source Sans 3 were 1000 wide instead of 0, and its U+200B and U+FEFF were gone.
 
 So the engine never reads an SVG source itself. `FontForge.convert()` has `SvgFontPreparer`
-(`svg-font-preparer/`) write a copy next to the result, `<result>.svg` (`<result>.ttf.svg` on the
+(`svg-preparer/`) write a copy next to the result, `<result>.svg` (`<result>.ttf.svg` on the
 way to EOT), with the advance of `<font>` written on every `glyph` and `missing-glyph` that leaves
 it out, hands the engine the copy and removes it as the intermediate sfnt of EOT is removed. Nothing
 else of the file changes but a UTF-8 BOM, which XML does not need: the attribute goes before the end

@@ -4,7 +4,7 @@ import { inject, injectable } from "inversify";
 import { ExecuteError, ExtensionNotSupport } from "app/font-convertor/font-forge/font-forge.errors";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { configValue } from "app/shared/config-value";
-import type { SvgFontPreparer } from "app/font-convertor/svg-font-preparer/svg-font-preparer";
+import type { SvgFontPreparer } from "app/font-convertor/svg-preparer/svg-font-preparer";
 import { Tokens } from "app/shared/tokens";
 
 @injectable()

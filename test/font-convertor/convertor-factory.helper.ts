@@ -7,7 +7,7 @@ import { FontValidatorResolver } from "app/font-convertor/validator/font-validat
 import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
 import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
 import { SvgTextCodec } from "app/font-convertor/validator/svg/svg-text-codec";
-import { SvgFontPreparer } from "app/font-convertor/svg-font-preparer/svg-font-preparer";
+import { SvgFontPreparer } from "app/font-convertor/svg-preparer/svg-font-preparer";
 import { WoffFontValidator } from "app/font-convertor/validator/woff/woff-font-validator";
 import { Woff2FontValidator } from "app/font-convertor/validator/woff2/woff2-font-validator";
 

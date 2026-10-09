@@ -14,7 +14,7 @@ export class SvgTextCodec {
         [0xff, 0xfe, "utf-16le"],
         [0xfe, 0xff, "utf-16be"],
     ];
-    private static readonly BYTE_ORDER_MARK = "﻿";
+    private static readonly BYTE_ORDER_MARK = "\uFEFF";
 
     public encodingOf(bytes: Uint8Array): Encoding {
         // A half-matching head is rejected under either decoder. UTF-8 never holds 0xFE or 0xFF, and
