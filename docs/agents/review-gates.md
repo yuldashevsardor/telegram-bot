@@ -193,9 +193,10 @@ changed in code, a spec standing for the files of `src/` it and its helpers impo
 batch that changed a tool of the run, as the `mutation-full` row of the table names them, sends the
 batch to the whole of `src/`. The author records the issue after the PR is created
 (`make mutation-full-record issue=<M> pr=<N>`), and the review checks the record
-(`make mutation-full-check pr=<N>`): an issue not recorded together with this PR is red. How a
-batch is kept and how its files are chosen is in the docstring of
-`scripts/review/mutation_batch.py`; "comments only" there goes by the rules above.
+(`make mutation-full-check pr=<N>`): an issue not recorded together with this PR is red, and so is
+a PR that closes no issue and has no record of its own. How a batch is kept and how its files are
+chosen is in the docstring of `scripts/review/mutation_batch.py`; "comments only" there goes by the
+rules above.
 
 A run of the PR's own area went until #712, and the owner (2026-09-30) dropped it for its price. It
 was paid on every review round, and parallel sessions on one machine slow each other down 3–8×: on
