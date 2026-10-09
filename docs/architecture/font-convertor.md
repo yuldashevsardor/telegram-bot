@@ -159,13 +159,14 @@ fontforge reads one element as one glyph of one code point, so keeping both woul
 element, and a text is typed with the letters, while Unicode keeps the presentation forms for
 compatibility. A font converted into SVG and back that has the isolated presentation form but no
 glyph of its letter comes back with the letter in place of the form. A letter that has a glyph
-without a form keeps it, and its isolated glyph stays where fontforge reads it: under the
-presentation form, or under the letter too when the table of fontforge has no isolated form of it.
-This is how a font written into SVG comes back ("Writing SVG"). The initial, medial and final forms
-stay where fontforge reads them too: under the letter they would take its place. A glyph without
-`unicode` does not count as a glyph of the letter, even when its name spells the letter: SVG 1.1
-maps it to no code point, and the bot keeps it unencoded (below). The copy takes the isolated form
-off, and the presentation form is left without a glyph.
+fontforge reads under it, any of those the `isolated` edit above names, keeps that glyph, and its
+isolated glyph stays where fontforge reads it: under the presentation form, or under the letter too
+when the table of fontforge has no isolated form of it. A font written into SVG has such a glyph,
+one without a form, for every letter it has a glyph of, and comes back this way ("Writing SVG").
+The initial, medial and final forms stay where fontforge reads them too: under the letter they
+would take its place. A glyph without `unicode` does not count as a glyph of the letter, even when
+its name spells the letter: SVG 1.1 maps it to no code point, and the bot keeps it unencoded
+(below). The copy takes the isolated form off, and the presentation form is left without a glyph.
 
 Nothing else of the file changes but a UTF-8 BOM, which XML does not need: the advance goes before
 the end of the start tag, a removed or rewritten attribute takes the whitespace before it along but
