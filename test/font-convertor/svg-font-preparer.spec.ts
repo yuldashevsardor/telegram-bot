@@ -201,6 +201,22 @@ describe("SvgFontPreparer.prepare", function () {
         expect(await prepared(source)).to.equal(source.replace('<glyph unicode="&amp;"/>', '<glyph unicode="&amp;" horiz-adv-x="0"/>'));
     });
 
+    it("answers the indexes of the glyph elements SVG 1.1 maps to no code point", async function () {
+        // A character outside the BMP is one code point, though two UTF-16 units. A `missing-glyph` is
+        // unencoded whatever it says, and the elements other than glyph and missing-glyph do not count.
+        const glyphs =
+            '<glyph unicode="a" horiz-adv-x="1"/><missing-glyph unicode="b"/><glyph glyph-name="Ldot"/><hkern g1="a" g2="b" k="1"/>' +
+            '<glyph unicode="\u{1F600}"/><glyph unicode="fi"/><glyph unicode=""/><glyph unicode="&#x41;"/>';
+
+        expect(await unencodedGlyphIndexesOf(fontDocument("0", glyphs))).to.deep.equal([1, 2, 4, 5]);
+    });
+
+    it("counts only the glyph elements that are children of <font>", async function () {
+        const source = `<svg xmlns="${SVG_NAMESPACE}"><glyph/><font horiz-adv-x="0">${FONT_FACE}<g><glyph/></g><s:glyph xmlns:s="${SVG_NAMESPACE}"/><glyph unicode="a"/></font></svg>`;
+
+        expect(await unencodedGlyphIndexesOf(source)).to.deep.equal([0]);
+    });
+
     it("writes the copy in the encoding of the source", async function () {
         const source = fontDocument("0", "<glyph/>");
         const expected = fontDocument("0", '<glyph horiz-adv-x="0"/>');
@@ -260,6 +276,12 @@ describe("SvgFontPreparer.prepare", function () {
         await preparer.prepare(sourcePath, preparedPath);
 
         return fs.readFile(preparedPath, "utf8");
+    }
+
+    async function unencodedGlyphIndexesOf(source: string): Promise<Array<number>> {
+        await fs.writeFile(sourcePath, source);
+
+        return preparer.prepare(sourcePath, preparedPath);
     }
 
     function rejectionOf(call: () => Promise<unknown>): Promise<unknown> {

@@ -11,7 +11,8 @@ FontConvertor.convert({ originPath, extension })
   → Convertor.validate(): the source exists and is readable, its extension matches, the validator
     of its format accepts it (FontValidatorResolver); the result path does not exist
   → FontForge.convert(): fontforge -c '<script>' SRC DIST through ProcessHelper.run; an SVG
-    source is handed over as a prepared copy (SvgFontPreparer, "Reading SVG")
+    source is handed over as a prepared copy, SRC, and the list of its unencoded glyphs, a third
+    argument (SvgFontPreparer, "Reading SVG")
 ```
 
 ## EOT
@@ -162,9 +163,9 @@ without a form keeps it, and its isolated glyph stays where fontforge reads it: 
 presentation form, or under the letter too when the table of fontforge has no isolated form of it.
 This is how a font written into SVG comes back ("Writing SVG"). The initial, medial and final forms
 stay where fontforge reads them too: under the letter they would take its place. A glyph without
-`unicode` that fontforge reads under the letter by its name
-([#925](https://github.com/yuldashevsardor/telegram-bot/issues/925)) does not count as a glyph of
-the letter: the copy takes the isolated form off, and the presentation form is left without a glyph.
+`unicode` does not count as a glyph of the letter, even when its name spells the letter: SVG 1.1
+maps it to no code point, and the bot keeps it unencoded (below). The copy takes the isolated form
+off, and the presentation form is left without a glyph.
 
 Nothing else of the file changes but a UTF-8 BOM, which XML does not need: the advance goes before
 the end of the start tag, a removed or rewritten attribute takes the whitespace before it along but
@@ -177,9 +178,24 @@ the elements by their local names, without the namespace bindings the validator 
 of the engine names the source in `path` of its `ExecuteError`: the copy the process read is
 gone by the time the error is logged.
 
-One more defect of reading SVG is not worked around: a glyph without `unicode` gets the code point
-its name spells (`Ldot` U+013F, `uni0041` U+0041 beside the glyph of `A`,
-[#925](https://github.com/yuldashevsardor/telegram-bot/issues/925)).
+fontforge also encodes the glyph elements SVG 1.1 maps to no code point: every `missing-glyph`, and
+a `glyph` whose `unicode` is not one character, absent, empty or a ligature of several (§20.4,
+§20.5). It gives a `missing-glyph` U+0000, a ligature the code point it finds for its characters
+(`unicode="fi"` U+FB01, whatever the glyph is called), and any other such `glyph` the code point
+its `glyph-name` spells (`Ldot` U+013F, `uni0041` U+0041 beside the glyph of `A`,
+`nonmarkingreturn` U+000D). Measured for
+[#925](https://github.com/yuldashevsardor/telegram-bot/issues/925): Font Awesome, Source Sans 3 and
+Pacifico converted to SVG and read back gained such code points. The text of the file cannot say
+"no code point" to fontforge, so `SvgFontPreparer.prepare()` answers with the indexes of those
+glyphs, counting the `glyph` and `missing-glyph` children of `<font>` in document order, and
+`FontForge.convert()` writes them into a second file next to the result, `<result>.unencoded`,
+removed with the copy. The script takes the code point off each glyph whose `originalgid` is in the
+list: fontforge numbers the glyph elements in the same order and counts the ones it drops too, so
+an index finds the glyph under any name fontforge gives it, `glyph4` for a glyph without
+`glyph-name` or `uni0066_uni0074` for an unnamed `unicode="ft"`. The list goes in a file and not as
+arguments of the process: `ProcessFailed` quotes the arguments in its message, and a font has as
+many unencoded glyphs as it likes. A glyph fontforge writes without `unicode` because XML 1.0 has
+no such character, `uni0002` of U+0002, so stays unencoded on the way back, as SVG 1.1 reads it.
 
 ## Writing SVG
 
@@ -215,10 +231,11 @@ A ligature glyph whose code point is a presentation form of two letters, such as
 that a `liga` or `rlig` lookup makes of U+0644 and U+0627, does get a copy. fontforge writes the
 ligature as `unicode="&#x644;&#x627;"` with `arabic-form="isolated"`, and the copy as
 `unicode="&#xfefb;"`: it replaces a form with its base letter only when the decomposition is one
-letter (`svg_scdump`). Reading the ligature element back, fontforge finds U+FEFB only by the glyph
-name `uniFEFB` (`SVGParseGlyphArgs`), so under another name the copy is the only element that
-carries the code point. Measured on `NotoNaskhArabic-Regular.ttf` with a `liga` ligature added to
-`uniFEFB`: no font among the fixtures has such a glyph.
+letter (`svg_scdump`). Reading the ligature element back, fontforge gives it U+FEFB only by the
+glyph name `uniFEFB` (`SVGParseGlyphArgs`), and the bot takes that code point off ("Reading SVG"),
+so the copy is the only element that carries the code point. Measured on
+`NotoNaskhArabic-Regular.ttf` with a `liga` ligature added to `uniFEFB`: no font among the fixtures
+has such a glyph.
 
 ## Signatures
 

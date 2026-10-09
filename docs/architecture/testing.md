@@ -194,6 +194,9 @@ not show on the source side:
   call, so the pair compares the font with itself. Of an EOT result only the enclosed font is
   read: the fields of the envelope header `EotPacker` writes are checked by `eot-packer.spec.ts`,
   not here.
+- An SVG is read with the code points of its unencoded glyphs taken off, as the bot reads an SVG
+  source (`font-convertor.md`, "Reading SVG"), so a wrong glyph index would show on both sides
+  alike. That the indexes find the right glyphs is checked by `font-forge.spec.ts`, not here.
 
 On the result side it is the other way round: a reading defect shows as a loss. fontforge misreads
 the SVG font it writes itself, and the preparation works around only a part of it, so some of the
