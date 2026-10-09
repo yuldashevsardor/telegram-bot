@@ -55,16 +55,16 @@ export class SvgFontPreparer {
         const sourceBytes = await FileHelper.read(sourcePath);
         const encoding = this.textCodec.encodingOf(sourceBytes);
         const sourceText = this.decode(sourcePath, sourceBytes, encoding);
-        const scan = this.scan(sourcePath, sourceText);
+        const fontScan = this.scan(sourcePath, sourceText);
 
-        const preparedText = this.prepareText(sourceText, scan);
+        const preparedText = this.prepareText(sourceText, fontScan);
 
         await FileHelper.write(preparedPath, this.textCodec.encode(preparedText, encoding));
         // fontforge stamps the font it writes with the modification time of the file it reads, so the
         // result keeps the time of the source.
         await FileHelper.copyTimes(sourcePath, preparedPath);
 
-        return this.unencodedGlyphIndexes(scan.fontGlyphs);
+        return this.unencodedGlyphIndexes(fontScan.fontGlyphs);
     }
 
     private decode(sourcePath: string, sourceBytes: Uint8Array, encoding: Encoding): string {
@@ -75,8 +75,8 @@ export class SvgFontPreparer {
         }
     }
 
-    private prepareText(sourceText: string, scan: FontScan): string {
-        const { fontAdvance, fontGlyphs } = scan;
+    private prepareText(sourceText: string, fontScan: FontScan): string {
+        const { fontAdvance, fontGlyphs } = fontScan;
 
         // SvgFontValidator requires `horiz-adv-x` of `font`.
         if (fontAdvance === undefined) {
@@ -107,7 +107,7 @@ export class SvgFontPreparer {
             defaultXMLVersion: "1.0",
         });
         const openNames: Array<string> = [];
-        const scan: FontScan = { fontAdvance: undefined, fontGlyphs: [] };
+        const fontScan: FontScan = { fontAdvance: undefined, fontGlyphs: [] };
         // saxes counts its position in UTF-16 units, as the indexes of a string go.
         let attributeSpans = new Map<string, TextSpan>();
         let attributesEndIndex = 0;
@@ -134,11 +134,11 @@ export class SvgFontPreparer {
             openNames.push(name);
 
             if (name === "font") {
-                scan.fontAdvance = tag.attributes["horiz-adv-x"];
+                fontScan.fontAdvance = tag.attributes["horiz-adv-x"];
             }
 
             if (parentName === "font" && SvgFontPreparer.GLYPH_NAMES.includes(name)) {
-                scan.fontGlyphs.push({
+                fontScan.fontGlyphs.push({
                     name: name,
                     attributes: tag.attributes,
                     attributeSpans: attributeSpans,
@@ -151,7 +151,7 @@ export class SvgFontPreparer {
 
         parser.write(sourceText).close();
 
-        return scan;
+        return fontScan;
     }
 
     private unencodedGlyphIndexes(fontGlyphs: ReadonlyArray<FontGlyph>): Array<number> {
@@ -166,23 +166,35 @@ export class SvgFontPreparer {
         return unencodedGlyphIndexes;
     }
 
-    // fontforge counts the characters of `unicode` as code points, so a character outside the BMP,
-    // two UTF-16 units, is one. It reads <missing-glyph> as .notdef, whatever its unicode says.
     private isUnencoded(fontGlyph: FontGlyph): boolean {
-        const unicodeValue = fontGlyph.attributes["unicode"];
+        const unicodeValue = this.readUnicode(fontGlyph);
 
-        return fontGlyph.name !== "glyph" || unicodeValue === undefined || [...unicodeValue].length !== 1;
+        return unicodeValue === undefined || !this.isSingleCodePoint(unicodeValue);
     }
 
     // fontforge reads <missing-glyph> as .notdef, whatever its unicode says.
+    private readUnicode(fontGlyph: FontGlyph): string | undefined {
+        if (fontGlyph.name !== "glyph") {
+            return undefined;
+        }
+
+        return fontGlyph.attributes["unicode"];
+    }
+
+    // fontforge counts the characters of `unicode` as code points, so a character outside the BMP,
+    // two UTF-16 units, is one.
+    private isSingleCodePoint(unicodeValue: string): boolean {
+        return [...unicodeValue].length === 1;
+    }
+
     private unicodeValues(fontGlyphs: ReadonlyArray<FontGlyph>): FontUnicodeValues {
         const unicodeValues: FontUnicodeValues = { taken: new Set(), formless: new Set() };
 
         for (const fontGlyph of fontGlyphs) {
-            const unicodeValue = fontGlyph.attributes["unicode"];
+            const unicodeValue = this.readUnicode(fontGlyph);
             const form = fontGlyph.attributes["arabic-form"];
 
-            if (fontGlyph.name !== "glyph" || unicodeValue === undefined) {
+            if (unicodeValue === undefined) {
                 continue;
             }
 
@@ -231,9 +243,7 @@ export class SvgFontPreparer {
         }
 
         // fontforge reads the form of one code point only: a ligature keeps its attribute.
-        const isSingleCodePoint = [...unicodeValue].length === 1;
-
-        if (form === "isolated" && isSingleCodePoint && !unicodeValues.formless.has(unicodeValue)) {
+        if (form === "isolated" && this.isSingleCodePoint(unicodeValue) && !unicodeValues.formless.has(unicodeValue)) {
             return [{ ...formSpan, text: "" }];
         }
 

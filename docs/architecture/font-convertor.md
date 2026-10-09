@@ -185,14 +185,15 @@ its `glyph-name` spells (`Ldot` U+013F, `uni0041` U+0041 beside the glyph of `A`
 Pacifico converted to SVG and read back gained such code points. The text of the file cannot say
 "no code point" to fontforge, so `SvgFontPreparer.prepare()` answers with the indexes of those
 glyphs, counting the `glyph` and `missing-glyph` children of `<font>` in document order, and
-`FontForge.convert()` writes them into a second file next to the result, `<result>.unencoded`,
-removed with the copy. The script takes the code point off each glyph whose `originalgid` is in the
-list: fontforge numbers the glyph elements in the same order and counts the ones it drops too, so
-an index finds the glyph under any name fontforge gives it, `glyph4` for a glyph without
-`glyph-name` or `uni0066_uni0074` for an unnamed `unicode="ft"`. The list goes in a file and not as
-arguments of the process: `ProcessFailed` quotes the arguments in its message, and a font has as
-many unencoded glyphs as it likes. A glyph fontforge writes without `unicode` because XML 1.0 has
-no such character, `uni0002` of U+0002, so stays unencoded on the way back, as SVG 1.1 reads it.
+`FontForge.convert()` writes them into a second file next to the result, `<result>.unencoded`
+(`<result>.ttf.unencoded` on the way to EOT), removed with the copy. The script takes the code
+point off each glyph whose `originalgid` is in the list: fontforge numbers the glyph elements in the
+same order and counts the ones it drops too, so an index finds the glyph under any name fontforge
+gives it, `glyph4` for a glyph without `glyph-name` or `uni0066_uni0074` for an unnamed
+`unicode="ft"`. The list goes in a file and not as arguments of the process: `ProcessFailed` quotes
+the arguments in its message, and a font has as many unencoded glyphs as it likes. A glyph fontforge
+writes without `unicode` because XML 1.0 has no such character, `uni0002` of U+0002, so stays
+unencoded on the way back, as SVG 1.1 reads it.
 
 ## Writing SVG
 
