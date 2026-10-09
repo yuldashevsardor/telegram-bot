@@ -6,7 +6,7 @@ import path from "path";
 import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 import { EotPayloadDecoder } from "app/font-convertor/eot-payload-decoder/eot-payload-decoder";
 import type { Extension } from "app/font-convertor/font-convertor.types";
-import { expectedDifferences } from "test/conversion/expected-differences";
+import { expectedDifferences, fixtureRelativePaths } from "test/conversion/expected-differences";
 import { FontFactsComparator } from "test/conversion/font-facts-comparator";
 import { FontFactsReader } from "test/conversion/font-facts-reader";
 import { FONT_FORGE_PATH, realConvertorFactory, realFontValidatorResolver } from "test/font-convertor/convertor-factory.helper";
@@ -18,7 +18,7 @@ const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 const CASE_TIMEOUT_MS = 20 * 1000;
 
 // A font of the fixture directory, by its path relative to it.
-type FontFixture = { name: string; extension: Extension };
+type FontFixture = { relativePath: string; extension: Extension };
 
 // The conversion check (docs/architecture/testing.md, "The conversion check"): every font fixture is
 // converted into every format the pair table takes it to, with the real engine and codec, the route the
@@ -45,11 +45,11 @@ describe("Conversion of the fixtures", function () {
     for (const fixture of fontFixtures) {
         for (const toExtension of extensions.filter((extension) => extension !== fixture.extension)) {
             const pairDifferences = expectedDifferences.filter(
-                (expected) => expected.fixtures.includes(fixture.name) && expected.toExtensions.includes(toExtension),
+                (expected) => expected.fixtureRelativePaths.includes(fixture.relativePath) && expected.toExtensions.includes(toExtension),
             );
 
-            it(`converts ${fixture.name} to ${toExtension} changing only the expected facts`, async function () {
-                const sourcePath = path.join(fixtureDir, fixture.name);
+            it(`converts ${fixture.relativePath} to ${toExtension} changing only the expected facts`, async function () {
+                const sourcePath = path.join(fixtureDir, fixture.relativePath);
                 const resultPath = path.join(workDir, `result.${toExtension}`);
 
                 await factory.get(fixture.extension, toExtension).convert(sourcePath, resultPath);
@@ -74,16 +74,22 @@ describe("Conversion of the fixtures", function () {
         expect(Array.from(fixtureExtensions).sort()).to.deep.equal([...extensions].sort());
     });
 
+    it("runs exactly the fixtures the list names", function () {
+        const runRelativePaths = fontFixtures.map((fixture) => fixture.relativePath);
+
+        expect(runRelativePaths).to.deep.equal([...fixtureRelativePaths].sort());
+    });
+
     // Without this an entry with a fixture or a pair the check does not run, a typo, a fixture renamed
     // or a pair dropped from the table, would wait in the list unnoticed: the loop above looks entries
     // up by the fixtures and the pairs that run.
     it("lists expected differences only for fixtures and pairs that run", function () {
         for (const expected of expectedDifferences) {
-            for (const fixtureName of expected.fixtures) {
-                const fixture = fontFixtures.find((fontFixture) => fontFixture.name === fixtureName);
+            for (const fixtureRelativePath of expected.fixtureRelativePaths) {
+                const fixture = fontFixtures.find((fontFixture) => fontFixture.relativePath === fixtureRelativePath);
 
                 if (fixture === undefined) {
-                    expect.fail(`${fixtureName} is not a fixture: ${expected.reason}`);
+                    expect.fail(`${fixtureRelativePath} is not a fixture: ${expected.reason}`);
                 }
 
                 for (const toExtension of expected.toExtensions) {
@@ -97,16 +103,16 @@ describe("Conversion of the fixtures", function () {
     // (test/fixtures/fonts/README.md); licences and READMEs have no extension of the pair table. The
     // compressed EOT goes the whole way as a source of its own: the codec decodes MicroType Express on
     // unpacking, and the engine converts what it decodes. A font file is taken whether git tracks it or
-    // not, since the container has no .git: an untracked font left in the directory runs too and fails on
-    // the shared entries of the expected differences, which do not list it.
+    // not, since the container has no .git: an untracked font left in the directory runs too and fails the
+    // check against fixtureRelativePaths, which does not list it.
     function readFontFixtures(): Array<FontFixture> {
         const fixtures: Array<FontFixture> = [];
 
-        for (const name of readdirSync(fixtureDir, { recursive: true, encoding: "utf8" }).sort()) {
-            const extension = extensions.find((supported) => path.extname(name).toLowerCase() === `.${supported}`);
+        for (const relativePath of readdirSync(fixtureDir, { recursive: true, encoding: "utf8" }).sort()) {
+            const extension = extensions.find((supported) => path.extname(relativePath).toLowerCase() === `.${supported}`);
 
             if (extension !== undefined) {
-                fixtures.push({ name: name, extension: extension });
+                fixtures.push({ relativePath: relativePath, extension: extension });
             }
         }
 
