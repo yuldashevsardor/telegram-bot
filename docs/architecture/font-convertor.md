@@ -99,11 +99,18 @@ by a signal on 593 of 600 damaged inputs. A decoder of our own is about 2950 lin
 ## Running the engine
 
 The engine is launched only through `ProcessHelper.run(file, args)`, a wrapper over
-`child_process.execFile` ([invariant](./invariants.md)). The arguments go as an array, past
+`child_process.spawn` ([invariant](./invariants.md)). The arguments go as an array, past
 `/bin/sh`. Building the command as a string and calling `exec` is not allowed here, because the file
 name comes from the user. The same technique removes the second level of interpretation, Python's:
 the script reads the paths passed as arguments from `sys.argv`, they are not substituted into the
 script text.
+
+Of stderr the wrapper keeps only the end, `STDERR_TAIL_BYTES`, and stdout whole. fontforge prints a
+warning for every glyph it does not like, and the volume follows the font: on the variable Inter of
+the corpus it prints 2.4 MB and exits with 0. `execFile` keeps the whole output and rejects past its
+`maxBuffer`, 1 MiB by default, so under it the bot failed such a font in every format, throwing away
+the written result ([#912](https://github.com/yuldashevsardor/telegram-bot/issues/912)). The tail
+is what goes into the message of `ProcessFailed`, so the error stays bounded too.
 
 ## Writing SVG
 
