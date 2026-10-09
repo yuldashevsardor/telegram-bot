@@ -21,7 +21,8 @@
         // Left on out of necessity: without skipping the check of .d.ts files tsc fails on the
         // declarations of dependencies that import untyped modules (TS7016): the build on
         // node-fetch inside grammy, the typecheck by tsconfig.check.json on pg inside
-        // node-pg-migrate as well.
+        // node-pg-migrate as well. Both fail on the declarations of saxes too, which do not
+        // type-check by themselves (TS2344, TS2430).
         "skipLibCheck": true,
         "strict": true,
         "noImplicitOverride": true,
