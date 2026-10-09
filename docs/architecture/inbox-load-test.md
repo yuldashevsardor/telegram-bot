@@ -453,8 +453,7 @@ instead of an index:
 The groups and the heads come from the indexes in a few buffers, as in #824. The time of a
 `claim(30)` goes on the head rows it updates: the primary key finds each in about 5 buffers, and
 some 64 of the 150 come from outside shared buffers, 0.27 ms a row (under `Memoize`, which finds
-nothing to reuse: each head is another row). The 1 M pending rows take some 0.8 GB against the
-128 MB of shared buffers. A `claim(30)`:
+nothing to reuse: each head is another row), against the 128 MB of shared buffers. A `claim(30)`:
 
 ```
 Sort  (actual time=9.542..9.546 rows=30.00 loops=1)
@@ -477,6 +476,62 @@ Sort  (actual time=9.542..9.546 rows=30.00 loops=1)
                 ->  Memoize  (actual time=0.266..0.266 rows=1.00 loops=30)
                       Buffers: shared hit=86 read=64
 ```
+
+#### The claim with 1 GB of shared buffers
+
+The backlog layout measured again with `shared_buffers` of 1 GB, to tell the cache from the query
+([#893](https://github.com/yuldashevsardor/telegram-bot/issues/893)): a new fill of the same files,
+1 hour 37 minutes with its vacuum, then the layout filled before the run with `plans=off` and again
+before the run with the plans, 14 and 30 minutes. The setting was `-c shared_buffers=1GB` added by
+hand to the `command` of `docker-compose.load.yml`; the run of #892 (see "The unblocking") went on
+the same database. The times of the client, in ms, "first" being the first call of the run:
+
+| call | 128 MB, #871 | 1 GB, `plans=off` | 1 GB, with the plans |
+|---|---|---|---|
+| `claim(1)` | first 28, then 0.9 – 11.5, median 1.2 | first 25, then 1.0 – 3.1, median 1.3 | first 29, then 1.3 – 3.9, median 1.8 |
+| `claim(30)` | 6.8 – 11.9, median 7.3 | first 22, then 13.0 – 103.7, median 15.9 | first 21, then 10.5 – 55.7, median 14.7 |
+| `markAsDone()` | median 0.6, p95 1.0, max 3.4 | median 0.7, p95 1.8, max 14.2 | median 0.8, p95 2.6, max 28.3 |
+
+The larger cache changed nothing in what the claim reads. Every `claim(30)` read 54 – 63 of its
+150 buffers from outside shared buffers, as with 128 MB, and every `claim(1)` 2 or 3 of the 5 of
+its head: pages of the primary key and the heap page. Each read took some 0.4 ms against 0.27 in
+#871: the same plan on a slower disk that night. The completions over 10 ms, 6 and 3 of 465,
+were not looked into. A `claim(30)` with 1 GB:
+
+```
+Sort  (actual time=13.582..13.584 rows=30.00 loops=1)
+  Buffers: shared hit=609 read=61 dirtied=76
+  CTE claimed
+    ->  Update on telegram_inbox  (actual time=5.123..13.546 rows=30.00 loops=1)
+          ->  Nested Loop  (actual time=5.089..12.956 rows=30.00 loops=1)
+                ->  Nested Loop  (actual time=0.033..0.589 rows=30.00 loops=1)
+                      ->  Subquery Scan on head  (actual time=0.018..0.018 rows=1.00 loops=30)
+                            ->  Index Only Scan using telegram_inbox_active_group_idx on telegram_inbox telegram_inbox_1
+                                  Buffers: shared hit=119 read=1
+                ->  Memoize  (actual time=0.412..0.412 rows=1.00 loops=30)
+                      Hits: 0  Misses: 30  Evictions: 0  Overflows: 0  Memory Usage: 4kB
+                      Buffers: shared hit=92 read=58
+                      ->  Index Scan using telegram_inbox_pkey on telegram_inbox
+                            Index Cond: (update_id = head.update_id)
+```
+
+The cache does not hold the pending rows because they do not lie together. Right after a fill of the
+layout, before any claim, `pg_buffercache` (`CREATE EXTENSION pg_buffercache` in
+`make load-psql`) showed the 1 GB full, 903 MB of it pages of
+`telegram_inbox` and 137 buffers of its primary key, and 24 of 200 pending updates drawn over the
+layout on a cached page. Of 20 windows of 1 000 consecutive pending updates over the layout, the
+first lay on 79 pages, in the space the deleted layouts and the cleanup left at the start of the
+table, and each of the other 19 on 1 000 pages, about every 13th page of the history: the inserts of
+the layout take the space left at the end of the full history pages. So the 1 M pending updates lie
+on some 950 000 pages, 7.8 GB, where packed they would take some 0.8 GB, and a claim reads its heads
+from among them at random. Whether production lays them out so was not measured.
+
+So it is the cache, but a cache that held the active rows of this backlog would take some 8 GB, and
+1 GB gives the claim nothing. The setting is not proposed for production and is not kept in
+`docker-compose.load.yml`. The claim needs no follow-up either: it reads by the indexes, a few
+buffers a head, and the claim of the worker stayed within the threshold with the heads read from
+the disk, `claim(1)` 3.9 ms at most. `claim(30)` is past it, but no caller claims a batch:
+`InboxUpdateSource` claims `CLAIM_LIMIT`, one update.
 
 #### The groups table
 
@@ -558,8 +613,10 @@ by the indexes, as on 100 M updates. Two calls were past what #871 set:
 
 - The claim in the backlog is at the threshold: `claim(30)` 6.8 – 11.9 ms, two of 15 calls over
   10 ms, and one warm `claim(1)` of 14 at 11.5 ms, from the head rows read past the 128 MB of shared
-  buffers (see "The claim in the backlog"). Measuring it again with shared buffers that hold the
-  active rows is [#893](https://github.com/yuldashevsardor/telegram-bot/issues/893).
+  buffers (see "The claim in the backlog"). With 1 GB of them it read as much from the disk:
+  the 1 M pending updates lie on some 950 000 pages, 7.8 GB. Neither the setting nor the claim is
+  changed, since the claim of the worker, `claim(1)`, stays within the threshold (see "The claim
+  with 1 GB of shared buffers").
 - The unblocking took 2 – 3 minutes a call, a scan of the whole table under the lock of the
   group. The index of the failed updates by group of
   [#892](https://github.com/yuldashevsardor/telegram-bot/issues/892) brought it to a median of
