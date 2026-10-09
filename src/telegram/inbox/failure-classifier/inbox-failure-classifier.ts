@@ -89,10 +89,8 @@ export class InboxFailureClassifier {
         return chain;
     }
 
-    // A flood and a revoked token are transient here. Through the outbox neither reaches a handler:
-    // the outbox waits a 429 out and pauses on a 401 itself. One that reaches it came from a call
-    // that bypassed the outbox, and the update can be handled once the pause or the token outage is
-    // over, if it is over before the attempts run out: the inbox does not wait retry_after out
+    // A flood and a revoked token are transient here: one that reaches a handler came from a call
+    // that bypassed the outbox, and the update can be handled once it is over
     // (docs/architecture/inbox.md, "Error classes").
     private byBotApiFailure(kind: TelegramBotApiFailureKind): InboxFailureKind {
         switch (kind) {

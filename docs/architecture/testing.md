@@ -263,13 +263,13 @@ mutants silenced by a mark (`Ignored`). Its score is `NaN` (`DEFAULT_SCORE` in
 
 **The run record.** The target runs Stryker through the wrapper `test/mutation-run.ts`. Once the
 run is over, whatever its outcome, the wrapper writes `reports/mutation/record.md` and exits with
-the exit code of Stryker. The run of a batch writes the same record into
+the exit code of `npm run mutation` (`exit` below). The run of a batch writes the same record into
 `reports/mutation/batch-record.md` too, and any other run leaves that file alone: the run over the
 files of the survivors that checks their fixes would otherwise write over the record of a run of
-hours. The record is the summary of a run to publish in a comment. No review runs the target or
-reads the record (#712). Only `make mutation-full-close` parses it: it closes a batch on the record
-of its run and of the run over files after it (`scripts/review/mutation_batch.py`). The first line
-of the record is a marker, invisible in a comment:
+hours. The record is the summary of a run to publish in a comment. No review reads it (#712). Only
+`make mutation-full-close` parses it: it closes a batch on the record of its run and of the run
+over files after it (`scripts/review/mutation_batch.py`). The first line of the record is a
+marker, invisible in a comment:
 
 ```
 <!-- mutation-run head=<sha> clean=<yes|no|unknown> scope=<full|files> batch=<N|none> exit=<code> score=<score|NaN|none> -->
@@ -333,8 +333,10 @@ support: `mutode` and `grunt-mutation-testing` have not been updated in npm sinc
 (`npm view <package> time`). The `command` runner knows nothing about the tests
 (`CommandTestRunner` in `@stryker-mutator/core`). Stryker would see only the exit code of
 `npm test`, without the killing test and the reason, and the specs would go through `.mocharc.json`
-together with the database hook. The `mocha` runner takes the specs and the `require` from the
-`mochaOptions` of the config and names, for every mutant, the test that killed it.
+together with the database hook. The `mocha` runner reads `.mocharc.json` as well, but the
+`mochaOptions` of the config override it (`MochaOptionsLoader.load()` in
+`@stryker-mutator/mocha-runner`): the specs come from `.mocharc.json`, the `require` and the
+`ignore` from the config. It names, for every mutant, the test that killed it.
 
 Runner 10.0.0 does not find the internals of mocha 12, renamed to `.cjs`. So the `mutation` npm
 script wires `test/stryker-mocha-hook.cjs` in through `NODE_OPTIONS`; the mechanics and the
@@ -418,7 +420,8 @@ prefix `Checker process` there. The failures themselves are caught by
 `ChildProcessProxy.handleUnexpectedExit()`, which prints about any child process, the runner
 included: `Child process [pid …] exited unexpectedly with exit code null (SIGKILL)` and
 `Child process [pid …] ran out of memory` (the latter when the output of the process contains
-`JavaScript heap out of memory`). So a line without the prefix says nothing about the checker.
+`JavaScript heap out of memory` or `FatalProcessOutOfMemory`). So a line without the prefix says
+nothing about the checker.
 
 They have to be told apart because only the checker breaks off the run. A runner that failed on a
 mutant Stryker restarts, giving the mutant `RuntimeError` ("Timeouts and errors"). A failure of the
@@ -445,10 +448,11 @@ test does not fit into the deadline, and the status lies:
   survivor hides under `Killed`. Such specs are printed by
   `grep -rln 'this.timeout(' test --include='*.spec.ts'`.
 - The same goes for polling with a deadline of its own (`Date.now() > deadline`), whatever it is
-  called and whatever it fails with when the deadline passes. The specs with it are printed by
-  `git grep -ln 'Date.now() > deadline' test`. The reason of such a `Killed` is the ordinary message
-  of the spec. With `all` coverage the whole set goes against every mutant, so under load such
-  polling "kills" a mutant from any file, not only from its own.
+  called and whatever it fails with when the deadline passes. The files with it are printed by
+  `git grep -ln 'Date.now() > deadline' test`; a shared helper among them polls for every spec that
+  calls it. The reason of such a `Killed` is the ordinary message of the spec. With `all` coverage
+  the whole set goes against every mutant, so under load such polling "kills" a mutant from any
+  file, not only from its own.
 
 The status drifts the other way too. In the measurement of the map in
 [#334](https://github.com/yuldashevsardor/telegram-bot/issues/334) the workers shared the cores with
