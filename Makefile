@@ -1,11 +1,10 @@
 # The single entry point for the frequent commands. The targets are shorter than the plain calls
 # and cannot point at the wrong compose file. What happens inside — README.md.
 #
-# The database is one instance per machine: docker-compose.db.yml fixes the project name
-# telegram-bot-db, so the database targets of every worktree reach the same container.
-# The application's project name is unset on purpose: Compose takes it from the directory name,
-# and every worktree gets an application of its own. Do not add -p for the application here: it
-# would glue every worktree into one project.
+# Do not add -p for the application: Compose takes its project name from the directory name
+# (docker-compose.app.yml), and -p would glue every worktree into one project. The database project
+# name is fixed in docker-compose.db.yml, so the database targets of every worktree reach one
+# container.
 
 DC_DB := docker compose -f docker-compose.db.yml
 # .runtime.env is created before any compose call: it is bind-mounted by name
@@ -102,8 +101,9 @@ test-fonts: ## Convert the fixtures over every pair with the real engine and com
 	$(DC_APP_RUN) npm run test:fonts
 
 # The file set and the flags are written down once, in the npm scripts of package.json; the targets
-# below only run them in the container. The checks without fixing are for review and CI. The edits
-# on commit are still made by lint-staged; lint-fix and format are a one-off pass over the whole code.
+# below only run them in the container. The checks without fixing are for check and review. The
+# edits on commit are still made by lint-staged; lint-fix and format are a one-off pass over the
+# whole code.
 #
 # files="…" goes past the npm script, through npx: `npm run lint -- src/app.ts` would append the file
 # to the script's arguments instead of replacing them, and the whole code would be checked anyway.
@@ -132,10 +132,9 @@ format: ## Reformat with prettier: make format [files="src/app.ts"]
 
 # The run is long, so it is not part of check.
 #
-# The area goes into the container as the variable MUTATE, not as the flag --mutate: the flag would
-# replace the whole mutate list of stryker.config.mjs together with its exclusions. The quotes make
-# Stryker expand the glob, not the shell of the host. reports/ is created beforehand for the same
-# reason as coverage/.
+# The area goes into the container as the variable MUTATE (why not the flag --mutate — at MUTATE in
+# stryker.config.mjs). The quotes make Stryker expand the glob, not the shell of the host. reports/
+# is created beforehand for the same reason as coverage/.
 #
 # The wrapper test/mutation-run.ts runs Stryker, writes the run record and exits with Stryker's
 # code. The host counts the head and the number of changed paths for the record: .git is not mounted
@@ -147,12 +146,12 @@ format: ## Reformat with prettier: make format [files="src/app.ts"]
 # The run goes under caffeinate. It takes minutes, and an idle Mac falls asleep: the run stops with
 # the machine, and after the wake-up the clock has moved on. Stryker's mutant timeout and the polls
 # with deadlines of their own in the specs then fire on healthy mutants, and the status lies as it
-# does under load (docs/architecture/testing.md, the paragraph on timeouts and errors).
+# does under load (docs/architecture/testing.md, "Timeouts and errors").
 #
 # batch=<N> is the run of a batch of the deferred mutation run: the files come from
 # scripts/review/mutation_batch.py (make mutation-batch-files), the whole of src/ when it names none
-# because a PR of the batch changed a tool of the run. MUTATION_BATCH has the wrapper keep the record
-# apart, for make mutation-full-close. A failed list stops the target before the container: a run
+# (when that happens — its docstring, `files`). MUTATION_BATCH has the wrapper keep the record apart,
+# for make mutation-full-close. A failed list stops the target before the container: a run
 # over an empty area would mutate the whole of src/.
 # caffeinate goes to the background instead of standing as a prefix: $(DC_APP_RUN) is a compound
 # command, and a prefix would reach only its first part. `-w $$` ties the ban to the shell of the
@@ -171,11 +170,9 @@ mutation: ## Mutation testing, report and run record in ./reports: make mutation
 		MUTATION_BATCH='$(batch)' TSX_TSCONFIG_PATH=./tsconfig.check.json MUTATE="$$area" \
 		node --require tsx/cjs test/mutation-run.ts
 
-# A quick pass before a PR in one output: the width of the added lines of prose and host scripts,
-# then types, eslint, prettier, the tests with the coverage threshold and the conversion check of
-# test-fonts. The width is checked on the host (scripts/review/line_width.py): it needs git, and .git
-# is not mounted into the container. A green check does not yet mean a green review: review runs the
-# container checks gate by gate and adds others, rebuild, build and mutation among them
+# The width is checked on the host (scripts/review/line_width.py): it needs git, and .git is not
+# mounted into the container. A green check does not yet mean a green review: review runs the
+# container checks gate by gate and adds others, rebuild and build among them
 # (docs/agents/review-gates.md).
 check: ## Every check in a row, in one command
 	python3 scripts/review/line_width.py
@@ -200,7 +197,8 @@ psql: ## psql in the database container
 
 # A chat or a group is blocked when a failed message or update stops it (docs/architecture/outbox.md,
 # "Unblocking a chat"). The ids go to the command as they are: it refuses what is not a whole number.
-# The ids are in single quotes so that a negative chat id of a group is not taken for an option.
+# The single quotes only keep the shell from splitting or expanding an id. A negative id of a group
+# reaches the command without them too: npm passes on everything after --.
 outbox-retry: ## Put the failed message of a blocked outbox chat back to pending: make outbox-retry chat=<id>
 	@[ -n "$(chat)" ] || { printf 'give it the chat: make outbox-retry chat=<id>\n' >&2; exit 1; }
 	$(DC_APP_RUN) npm run cli -- outbox retry '$(chat)'
@@ -335,9 +333,8 @@ help: ## Show this list
 
 ## Review tooling
 
-# The actions of the review skills are Python on the host (docs/architecture/testing.md): they drive
-# docker and git from outside the containers, and their specs replace both, so they take seconds.
-# The width check of check lies with them, and its specs run git in a temporary repository.
+# The actions of the review skills are Python on the host (docs/architecture/testing.md). Their specs
+# replace docker and git, so they take seconds; the specs of the width check run a real git.
 review-test: ## Run the specs of the review actions (Python on the host, no Docker)
 	cd scripts/review && python3 -m unittest discover -p 'test_*.py'
 
