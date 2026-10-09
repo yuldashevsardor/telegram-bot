@@ -101,7 +101,7 @@ depend on the network.
 | `noto-naskh-arabic/NotoNaskhArabic-Regular.ttf` | [notofonts/arabic](https://github.com/notofonts/arabic/releases/tag/NotoNaskhArabic-v2.021), release `NotoNaskhArabic-v2.021`, `NotoNaskhArabic/unhinted/ttf/` of the zip | 2.021 | `c34fdbd98af4dbc45ca192a23d2eeb77032add83086f5fe32957d23b3f36b221` | a complex script with `GSUB` and `GPOS`, Arabic forms |
 | `bungee-spice/BungeeSpice-Regular.ttf` | [google/fonts](https://github.com/google/fonts/tree/2eb0b48d5f760f62e286216f0859a8c540dbc1bd/ofl/bungeespice), commit `2eb0b48d` | 2.000 | `ccf8e3f7eb1ac87ed217097332856f9007484362a00ae3b42a03c6ef851158d0` | a colour font: `COLR`, `CPAL` and `SVG ` |
 | `pacifico/Pacifico-latin.woff2` | Google Fonts, `https://fonts.gstatic.com/s/pacifico/v23/FwZY7-Qmy14u9lezJ-6H6MmBp0u-.woff2` | 3.001 | `1a47a54e53bbfd3cfb4673636eac5edc98a7ecbf36c41340f48086a4f4796b18` | a WOFF2 of Google's encoder, a subset that keeps glyphs it does not encode |
-| `inter/Inter[opsz,wght].ttf` | [google/fonts](https://github.com/google/fonts/tree/2eb0b48d5f760f62e286216f0859a8c540dbc1bd/ofl/inter), commit `2eb0b48d` | 4.001 | `29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031` | a variable font, axes `opsz` and `wght`; fontforge prints 2.4 MB of warnings on it |
+| `inter/Inter[opsz,wght].ttf` | [google/fonts](https://github.com/google/fonts/tree/2eb0b48d5f760f62e286216f0859a8c540dbc1bd/ofl/inter), commit `2eb0b48d` | 4.001 | `29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031` | a variable font, axes `opsz` and `wght` |
 
 Font Awesome 4.7 ships no licence file: its `README.md` names the SIL OFL 1.1 for the font, and
 `font-awesome/OFL.txt` is the licence text with the copyright of the font's `name` table. The
@@ -118,9 +118,8 @@ facts of the check, and the file is 159 KB against 247 KB of the hinted one.
 What fontforge does to the variable font the check does not see either. It keeps the default
 instance, Inter Regular (`wght` 400, `opsz` 14), and drops `fvar`, `gvar`, `avar`, `HVAR`, `MVAR`
 and `STAT`: the axes are not among the facts, and the default outlines are the font's own. The
-check does see that fontforge converts it at all: on the way fontforge prints 2.4 MB of warnings,
-past the output cap a run of the engine once had (issue
-[#912](https://github.com/yuldashevsardor/telegram-bot/issues/912)).
+check does see that the bot converts it at all, past the volume of warnings fontforge prints on it
+(`docs/architecture/font-convertor.md`, "Running the engine").
 
 What fontforge does to the colour font the check does not see: `COLR`, `CPAL` and `SVG ` are not
 among its facts. fontforge ignores the three tables on reading, and the result keeps the
