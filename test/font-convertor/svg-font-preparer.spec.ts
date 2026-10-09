@@ -160,6 +160,26 @@ describe("SvgFontPreparer.prepare", function () {
         );
     });
 
+    it("keeps the isolated form of U+0649 when its initial form stays under the letter, wherever that glyph stands", async function () {
+        // fontforge reads the initial form left in place under U+0649, and the isolated one under U+FEEF.
+        const source = fontDocument(
+            "0",
+            '<glyph unicode="&#x649;" arabic-form="isolated" horiz-adv-x="1"/><glyph unicode="&#xFBE8;" horiz-adv-x="1"/>' +
+                '<glyph unicode="&#x649;" arabic-form="initial" horiz-adv-x="1"/>',
+        );
+
+        expect(await prepared(source)).to.equal(source);
+    });
+
+    it("writes the initial form of U+0649 under U+FBE8 past a <missing-glyph> with the same form", async function () {
+        const missingGlyph = '<missing-glyph unicode="&#x649;" arabic-form="initial" horiz-adv-x="1"/>';
+        const glyphs = `${missingGlyph}<glyph unicode="&#x649;" arabic-form="initial" horiz-adv-x="1"/>`;
+
+        expect(await prepared(fontDocument("0", glyphs))).to.equal(
+            fontDocument("0", `${missingGlyph}<glyph  unicode="&#xFBE8;" horiz-adv-x="1"/>`),
+        );
+    });
+
     it("cuts the form out together with the whitespace before it, wherever the tag breaks", async function () {
         const glyphs =
             '<glyph arabic-form = \'isolated\'\r\n unicode="&#x627;"/><glyph\tunicode="&#x62A;"\n\tarabic-form="isolated" d="M0 0h1">\n</glyph>';
