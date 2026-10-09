@@ -26,7 +26,7 @@ the group row, not on the update.
 
 The indexes are picked by the plans of the load test
 ([`inbox-load-test.md`](./inbox-load-test.md)), not ahead of the queries. Besides the primary keys
-there are three. `1791417600000_telegram-inbox-head-index.ts` adds
+there are four. `1791417600000_telegram-inbox-head-index.ts` adds
 `telegram_inbox_active_group_idx` on `(user_id, chat_id, update_id)` of the active updates: the head
 of a group for the claim and for `releaseGroup()` is its first entry, and the lease recovery reads
 the entries of a group up to its first `processing` one (see "Lease recovery"). Its
@@ -43,7 +43,12 @@ it reads as many groups as it claims. `1791676800000_telegram-inbox-finished-ind
 cleanup deletes (see "Cleanup"): without it the call that finds nothing to delete reads the whole
 table. As the index of the outbox cleanup ([`outbox.md`](./outbox.md), "Tables"), it holds an entry
 for every `done` and `skipped` update the cleanup has not deleted yet, and every completion but a
-failure adds one.
+failure adds one. `1791849600000_telegram-inbox-failed-group-index.ts` adds
+`telegram_inbox_failed_group_idx` on `(user_id, chat_id, finished_at DESC, update_id DESC)` of the
+`failed` updates: the unblock of a group reads the failed update that blocked it as the first entry
+of the group (see "Unblocking a group"). A failed update is never deleted, and only the unblock
+takes one out of `failed`: the index holds every failure of `markAsFailed()` and every failure that
+blocks a group, so it grows with the failures that do not block.
 
 The database does not check the values of `status` and `state`: the store writes them only
 through the `InboxStatus` and `InboxGroupState` enums (`store/inbox-store.types.ts`). Of these,
@@ -379,10 +384,13 @@ the timers and waits for the runs in progress, so the database can be closed aft
 user=<id> chat=<id>` is `skipBlockedGroup()`. They do for a blocked group what the targets of the
 outbox do for a blocked chat ([`outbox.md`](./outbox.md), "Unblocking a chat"): the failed update
 that blocked the group, the one that failed last, goes back to `pending` and is the head again, or
-becomes `skipped` with `finished_at` set. A retried update is not the head when an update pushed
-with a smaller `update_id` is before it (see "Push"). Afterwards the group is `idle` when no active
-update is left, not `ready`, which no claim would serve. A group that is not blocked throws
-`InboxGroupNotBlocked`. A group left `ready` is notified (see "Ready notifications").
+becomes `skipped` with `finished_at` set. The failed update is the first entry of the group in
+`telegram_inbox_failed_group_idx` (see "Tables"); without it the lookup read the whole table under
+the lock of the group row, minutes a call (`inbox-load-test.md`, "The unblocking"). A retried
+update is not the head when an update pushed with a smaller `update_id` is before it (see "Push").
+Afterwards the group is `idle` when no active update is left, not `ready`, which no claim would
+serve. A group that is not blocked throws `InboxGroupNotBlocked`. A group left `ready` is notified
+(see "Ready notifications").
 `test/telegram/inbox/inbox-store.spec.ts` lines up a push and a skip in both orders.
 
 ## Failures

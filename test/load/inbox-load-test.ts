@@ -41,9 +41,8 @@ const LEASE_EXPIRY_MARGIN_MS = 1_000;
 // The retried group is ready again at once: in the layout of the hot group it is the only one to
 // claim next.
 const RETRY_DELAY_MS = 0;
-// The groups blocked and then unblocked, half retried and half skipped. Few: the lookup of the
-// failed update reads the whole table (docs/architecture/inbox-load-test.md), minutes a call.
-const UNBLOCKED_GROUP_COUNT = 4;
+// The groups blocked and then unblocked, half retried and half skipped: CALLS_PER_METHOD of each.
+const UNBLOCKED_GROUP_COUNT = 2 * CALLS_PER_METHOD;
 // POLL_LIMIT of InboxPollingSource: the most updates one getUpdates gives, and so one push.
 const PUSH_BATCH_UPDATE_COUNT = 100;
 // The file sizes of the fonts in the updates, as the fills give them.
@@ -87,8 +86,9 @@ class InboxLoadTest {
         }
     }
 
-    // The unblocking comes last: its calls are the slowest, and one cancelled by the statement timeout
-    // ends the run without the calls after it.
+    // The unblocking comes last: on a volume whose index of the failed updates is missing its calls
+    // take minutes (docs/architecture/inbox-load-test.md, "The unblocking"), and one cancelled by the
+    // statement timeout ends the run without the calls after it.
     public async run(): Promise<void> {
         await this.measure("listenReady()", () => this.store.listenReady(() => {}));
         await this.measureClaims(WORKER_CLAIM_LIMIT);
