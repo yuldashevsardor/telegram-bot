@@ -1092,8 +1092,8 @@ def history(*steps):
 
 class FakeHistory(FakeGitHub):
     """FakeGitHub with a `main` of commits, each a tree of files: answers git diff, show, ls-tree,
-    rev-list and rev-parse HEAD from them, and gh with the files of a PR. The commits behind the
-    head are its ancestors."""
+    log, rev-list and rev-parse HEAD from them, and gh with the files of a PR. The commits behind
+    the head are its ancestors."""
 
     def __init__(self, issues, line, prs, pr_files=None, **failures):
         trees, parents, head = line
@@ -1129,9 +1129,21 @@ class FakeHistory(FakeGitHub):
             return self.first_parent_steps(*args[-1].split(".."))
         if args[:2] == ["git", "rev-list"]:
             return " ".join([args[-1]] + self.parents[args[-1]]) + "\n"
-        if args[:3] == ["gh", "pr", "view"] and "files" in args:
-            return "\n".join(self.pr_files[int(args[3])]) + "\n"
+        if args[:2] == ["git", "log"]:
+            return self.deleted_by(args[-3], args[-1])
+        if args[:2] == ["gh", "api"] and "/pulls/" in args[3]:
+            pr = int(args[3].split("/pulls/")[1].split("/")[0])
+            return "\n".join(self.pr_files[pr]) + "\n"
         return None
+
+    def deleted_by(self, commit, path):
+        """The last commit up to this one along the first parents that deleted the file."""
+        while self.parents.get(commit):
+            parent = self.parents[commit][0]
+            if path in self.trees[parent] and path not in self.trees[commit]:
+                return commit + "\n"
+            commit = parent
+        return ""
 
     def first_parent_steps(self, since, head):
         """Each commit after `since` up to the head with its parents, oldest first."""
@@ -1338,7 +1350,6 @@ class BatchFilesTest(unittest.TestCase):
             (["src/b.ts"], ["src/b.ts"], False),
             (["src/a.ts", "src/b.ts"], ["src/a.ts src/b.ts"], False),
             (["test/c.spec.ts", "src/b.ts"], ["src/b.ts src/c.ts"], False),
-            (["test/gone.spec.ts", "src/b.ts"], ["src/b.ts"], False),
             (["stryker.config.mjs", "src/b.ts"], [], True),
         ):
             github = self.github(
@@ -1357,16 +1368,69 @@ class BatchFilesTest(unittest.TestCase):
                     err,
                 )
 
+    def test_a_spec_an_earlier_commit_of_a_rebase_merge_deleted_runs_the_sources_it_imported(self):
+        # m800 and m801 are the commits of PR #801 a rebase merge put on `main` one after another.
+        line = history(
+            ("m800", {"test/c.spec.ts": None}), ("m801", {"src/b.ts": "export const b = 2;\n"})
+        )
+        line[1]["m800"] = ["base"]
+        line[1]["m801"] = ["m800"]
+        github = self.github(
+            line,
+            [(701, 801)],
+            {801: merged("m801")},
+            pr_files={801: ["test/c.spec.ts", "src/b.ts"]},
+        )
+
+        code, lines, err = self.files(github)
+
+        self.assertEqual((code, lines), (0, ["src/b.ts src/c.ts"]))
+        self.assertIn("PR #801: test/c.spec.ts -> src/c.ts\n", err)
+
+    def test_a_spec_the_pr_names_on_no_commit_of_main_stops(self):
+        line = history(("m801", {"src/b.ts": "export const b = 2;\n"}))
+        line[1]["m801"] = ["base"]
+        github = self.github(
+            line,
+            [(701, 801)],
+            {801: merged("m801")},
+            pr_files={801: ["test/gone.spec.ts", "src/b.ts"]},
+        )
+
+        code, lines, err = self.files(github)
+
+        self.assertEqual((code, lines), (1, []))
+        self.assertIn(
+            "Stopped: PR #801: test/gone.spec.ts is neither in its merge commit m801 nor deleted"
+            " before it",
+            err,
+        )
+
     def test_the_tools_of_the_run_are_those_of_the_mutation_full_row(self):
-        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        gates = os.path.join(root, "docs", "agents", "review-gates.md")
-        with open(gates, encoding="utf-8") as file:
+        with open(self.gates_path(), encoding="utf-8") as file:
             row = next(line for line in file if line.rstrip().endswith("| `mutation-full` |"))
         named_by_name = row.split("|")[1].split(" — ")[0]
 
         self.assertEqual(
             set(re.findall(r"`([^`]+)`", named_by_name)), set(mutation_batch.RUN_TOOLS)
         )
+
+    def test_the_tools_read_by_content_are_those_the_gates_read_by_content(self):
+        with open(self.gates_path(), encoding="utf-8") as file:
+            text = file.read()
+        # A list belongs to the paragraph that leads into it.
+        paragraphs = re.split(r"\n\n(?!- )", text)
+        named = {
+            re.search(r"`([^`]+)`", paragraph).group(1)
+            for paragraph in paragraphs
+            if "`mutation-full` too" in paragraph
+        }
+
+        self.assertEqual(named, set(mutation_batch.RUN_TOOLS_BY_CONTENT))
+
+    def gates_path(self):
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        return os.path.join(root, "docs", "agents", "review-gates.md")
 
     def test_no_file_left_to_mutate_takes_the_full_run(self):
         github = self.one_pr({"src/a.ts": "// new note\nexport const a = 1;\n"})
