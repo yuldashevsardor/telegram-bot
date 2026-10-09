@@ -6,7 +6,7 @@ import path from "path";
 import { EotPacker } from "app/font-convertor/eot-packer/eot-packer";
 import { EotPayloadDecoder } from "app/font-convertor/eot-payload-decoder/eot-payload-decoder";
 import type { Extension } from "app/font-convertor/font-convertor.types";
-import { expectedDifferences, fixtureRelativePaths } from "test/conversion/expected-differences";
+import { expectedDifferences, sourceFixtureRelativePaths } from "test/conversion/expected-differences";
 import { FontFactsComparator } from "test/conversion/font-facts-comparator";
 import { FontFactsReader } from "test/conversion/font-facts-reader";
 import { FONT_FORGE_PATH, realConvertorFactory, realFontValidatorResolver } from "test/font-convertor/convertor-factory.helper";
@@ -77,7 +77,10 @@ describe("Conversion of the fixtures", function () {
     it("runs exactly the fixtures the list names", function () {
         const runRelativePaths = fontFixtures.map((fixture) => fixture.relativePath);
 
-        expect(runRelativePaths).to.deep.equal([...fixtureRelativePaths].sort());
+        expect(runRelativePaths).to.deep.equal(
+            [...sourceFixtureRelativePaths].sort(),
+            "a font added, deleted or renamed in test/fixtures/fonts goes into sourceFixtureRelativePaths of expected-differences.ts",
+        );
     });
 
     // Without this an entry with a fixture or a pair the check does not run, a typo, a fixture renamed
@@ -104,7 +107,7 @@ describe("Conversion of the fixtures", function () {
     // compressed EOT goes the whole way as a source of its own: the codec decodes MicroType Express on
     // unpacking, and the engine converts what it decodes. A font file is taken whether git tracks it or
     // not, since the container has no .git: an untracked font left in the directory runs too and fails the
-    // check against fixtureRelativePaths, which does not list it.
+    // check against sourceFixtureRelativePaths, which does not list it.
     function readFontFixtures(): Array<FontFixture> {
         const fixtures: Array<FontFixture> = [];
 

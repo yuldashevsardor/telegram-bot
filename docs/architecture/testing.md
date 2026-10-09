@@ -179,9 +179,9 @@ its widths.
   difference that no longer happens, or comes out with another value, fails it too, so the list
   stays what was measured. A difference that is a defect states the defect itself there, and names
   its issue when one is filed.
-- The fixtures are found on disk, and `fixtureRelativePaths` in the same file names every one of
-  them: a fixture deleted, renamed or added without it fails the check, including one no expected
-  difference names.
+- The fixtures are found on disk, and `sourceFixtureRelativePaths` in the same file names every
+  one of them: a fixture deleted, renamed or added without it fails the check, including one no
+  expected difference names.
 
 The facts are read by the same engine and codec that convert, so a reading defect of either does
 not show on the source side:

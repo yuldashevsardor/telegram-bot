@@ -344,4 +344,4 @@ export const expectedDifferences: Array<ExpectedDifference> = [
 
 // Every source fixture, so that the check fails on one deleted or renamed: an entry names its fixtures by
 // path, and a fixture no entry names would otherwise drop out of the run unnoticed.
-export const fixtureRelativePaths = [...NON_SVG_FIXTURES, ROBOTO_SVG, FONT_AWESOME_SVG];
+export const sourceFixtureRelativePaths = [...NON_SVG_FIXTURES, ROBOTO_SVG, FONT_AWESOME_SVG];
