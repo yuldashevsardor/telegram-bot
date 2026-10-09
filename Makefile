@@ -225,6 +225,8 @@ inbox-skip: ## Skip the failed update of a blocked inbox group: make inbox-skip 
 # through psql as the superuser, the measurement through the store as the user of .env. That role
 # gets a statement timeout in load-up, so a pull or a claim that scans for hours is cancelled, and
 # the auto_explain logging in the measurement, so the plans are of the measurement alone. The
+# migrations run as that role too, so load-up resets the timeout before them and sets it after: an
+# index a migration builds over a filled volume takes longer than the timeout. The
 # targets of the outbox are load-*, those of the inbox load-inbox-*; the database, load-up,
 # load-psql and load-down are shared.
 DC_LOAD := docker compose -f docker-compose.load.yml
@@ -234,6 +236,7 @@ LOAD_STATEMENT_TIMEOUT := 10min
 
 load-up: ## Bring up the load-test database and apply the migrations
 	$(DC_LOAD) up -d --wait
+	printf '%s\n' 'ALTER ROLE :"app_user" RESET statement_timeout;' | $(LOAD_PSQL)
 	$(DC_APP_RUN) sh -c 'DATABASE_URL="postgres://$$DATABASE_USER_NAME:$$DATABASE_USER_PASSWORD@pgsql-load:5432/$$DATABASE_NAME" npm run migrate -- up'
 	printf '%s\n' "ALTER ROLE :\"app_user\" SET statement_timeout = '$(LOAD_STATEMENT_TIMEOUT)';" | $(LOAD_PSQL)
 

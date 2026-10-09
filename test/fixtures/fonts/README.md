@@ -21,7 +21,10 @@ byte for byte, as fontforge made them in 2022. Only `test-font.woff2` and `test-
 made anew: these two turned out not to be in their own format.
 
 WOFF2 is made in the application image with the regular conversion script
-(`FontForge.convertScript`). So are OTF, WOFF and SVG, should a replacement be needed:
+(`FontForge.convertScript`). So are OTF, WOFF and SVG, should a replacement be needed. The bot
+writes SVG with `FontForge.convertToSvgScript`, which copies some glyphs first; measured with
+fontforge 20230101, it writes the same 1296 glyphs from `test-font.ttf` as the command below, since
+the font has no glyph it copies:
 
 ```sh
 fontforge -c 'import fontforge, sys; font = fontforge.open(sys.argv[1]); font.generate(sys.argv[2])' \
