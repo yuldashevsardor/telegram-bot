@@ -1,7 +1,8 @@
 # Tests and checks
 
-- `mocha` runs through `.mocharc.json` with `tsx/cjs`. The same `tsx` loads `src/app.ts` in
-  `npm run dev`. It resolves the `paths` aliases itself, so no separate path resolver is needed.
+- `mocha` runs through `.mocharc.json` with `tsx/cjs`, all but the conversion check, which goes
+  past it ("The conversion check"). The same `tsx` loads `src/app.ts` in `npm run dev`. It
+  resolves the `paths` aliases itself, so no separate path resolver is needed.
 - `tsx` takes its tsconfig from `TSX_TSCONFIG_PATH=./tsconfig.check.json`, set in the npm scripts
   and in the recipe of the `mutation` target. Without it `test/` would be compiled with the esbuild
   defaults: standard decorators instead of `experimentalDecorators`, `useDefineForClassFields:
@@ -22,7 +23,8 @@
   the non-obvious exceptions. Why `skipLibCheck` is on is at the flag itself. The exceptions to
   `no-console` are in [`logging.md`](./logging.md).
 - The gate before a PR is `make check`; its tests run with the coverage threshold ("Coverage",
-  "Threshold"). Nothing enforces the gate: `pre-commit` is a convenience of host development (the
+  "Threshold"), and the conversion check runs after them ("The conversion check"). Nothing
+  enforces the gate: `pre-commit` is a convenience of host development (the
   root [`README.md`](../../README.md), "The pre-commit hook"), and CI is not set up yet (issue
   [#116](https://github.com/yuldashevsardor/telegram-bot/issues/116)).
 - The actions of the review skills (`scripts/review/`) are Python run on the host, not in the
@@ -153,6 +155,61 @@ preset has one other key, `cache: false`.
 - files without executable code (`skipEmpty`): types and interfaces only, empty error classes.
   There is no list, nyc decides for itself. In `coverage/lcov.info` they stay with `LF:0`.
 
+## The conversion check
+
+The specs that run the real engine check that a result is a valid file of its format
+(`font-forge-convertor.spec.ts`), not that it is the same font. `make test-fonts` checks the latter
+(`test/conversion/conversion.check.ts`). Every font of `test/fixtures/fonts`, the Roboto fixtures at
+its root and the corpus of real fonts in a directory per font (its `README.md`), is converted into
+every format the pair table takes it to, through `ConvertorFactory` with the real `FontForge` and
+`EotPacker`, the route the bot takes. Then the same facts are read from the source and the result
+and compared. The facts are the fields of `FontFacts`
+(`test/conversion/font-facts-reader.types.ts`); the encoded code points are the keys of its advance
+widths, and the number of glyphs encoded at a code point, `glyphsPerCodePoint`, is the length of
+its widths.
+
+- fontforge reads the facts through `fontforge -c` (`FontFactsReader`): the image has fontforge with
+  its embedded Python and no separate `python3`. An EOT is unpacked with `EotPacker` first, since
+  fontforge cannot open one.
+- Glyph names are not compared: fontforge renames some of them on reading (the Roboto TrueType
+  fixture has `.notdef` at glyph 3). U+0000 is left out of the code points; why is at `readScript`
+  in the reader.
+- A difference fails the check unless `test/conversion/expected-differences.ts` lists it for the
+  source fixture and the target format, with its reason and the value it gives the fact. A listed
+  difference that no longer happens, or comes out with another value, fails it too, so the list
+  stays what was measured. A difference that is a defect states the defect itself there, and names
+  its issue when one is filed.
+
+The facts are read by the same engine and codec that convert, so a reading defect of either does
+not show on the source side:
+
+- The Roboto SVG fixture declares ascent 1536 and descent -512, and fontforge reads it as 1638 and
+  410 (the reason of the pairs into SVG in the list). The pairs from it write the same 1638 and 410
+  into the result, and the check sees no difference.
+- `eot → ttf` converts with `EotPacker.unpack()`, and the reader unpacks its source with the same
+  call, so the pair compares the font with itself. Of an EOT result only the enclosed font is
+  read: the fields of the envelope header `EotPacker` writes are checked by `eot-packer.spec.ts`,
+  not here.
+
+On the result side it is the other way round: a reading defect shows as a loss. fontforge misreads
+the SVG font it writes itself (issue #913), so most of the differences the list gives the pairs into
+SVG are not in the written file; their reasons say which are.
+
+The check runs apart from the main set: the `test:fonts` npm script starts mocha with
+`--no-config` over `test/conversion/**/*.check.ts`.
+
+- Under the `spec` glob of `.mocharc.json` Stryker would take it, and Stryker runs the whole set
+  for every mutant ("Mutation testing").
+- Under `nyc` it would cover lines the specs do not hold and hide them under the threshold.
+- The root hook would demand the database of a check that needs none. The one-off container still
+  needs the network of the database, as every one-off target does (the root `README.md`,
+  "Commands").
+
+`make check` runs it after the tests with coverage (the `check` npm script); `make test`,
+`make coverage` and `make mutation` do not. On 2026-10-09 its 85 conversions, each of the 17 font
+fixtures into the 5 other formats, took 15–17 s in mocha, and `make test-fonts` took 16–18 s with
+the start of the container.
+
 ## Mutation testing
 
 `make mutation` runs StrykerJS. It puts one mutation at a time into the source (an operator, a
@@ -164,7 +221,9 @@ runs the target are in "Threshold" below.
 **Running.** `make mutation files="src/shared/**"` narrows the run to an area: globs separated by
 spaces (a comma is part of a glob, as in `src/{shared,telegram}/**`), `!` excludes. An area made
 of exclusions alone is subtracted from the whole of `src/`. Without `files` the whole of `src/` is
-mutated. Any area, and the whole of `src/` too, excludes:
+mutated. `make mutation batch=<N>` is the run of a batch (`docs/agents/review-gates.md`, the
+paragraph on `mutation-full`): it takes the area from `make mutation-batch-files batch=<N>`, and
+does not go together with `files`. Any area, and the whole of `src/` too, excludes:
 
 - `src/app.ts` and `src/cli.ts`: on import the entry point starts `Application`, or runs its
   command, and a spec does not load it (as with `exclude` in nyc);
@@ -182,7 +241,7 @@ of its non-obvious values.
 mutant in the area, and Stryker prints `Final mutation score <score> under breaking threshold 100`
 and exits with an error. Why 100 and not 99 is in a comment there.
 
-Any `make mutation` checks the threshold: working through an area and the full run of a batch
+Any `make mutation` checks the threshold: working through an area and the run of a batch
 (`docs/agents/review-gates.md`, the paragraph on `mutation-full`). Neither the author of a PR nor
 its review runs the target: the PR is recorded in a batch instead. While the area holds a survivor
 nobody has worked through, a run over it stays red. That is a sign of unfinished work, not a
@@ -195,16 +254,16 @@ mutants silenced by a mark (`Ignored`). Its score is `NaN` (`DEFAULT_SCORE` in
 
 **The run record.** The target runs Stryker through the wrapper `test/mutation-run.ts`. Once the
 run is over, whatever its outcome, the wrapper writes `reports/mutation/record.md` and exits with
-the exit code of Stryker. A full run writes the same record into `reports/mutation/full-record.md`
-too, and a run over files leaves that file alone: the run over the files of the survivors that
-checks their fixes would otherwise write over the record of a run of hours. The record is the
-summary of a run to publish in a comment. No review runs the target or reads the record (#712).
-Only `make mutation-full-close` parses it: it closes a batch on the record of its full run and of
-the run over files after it (`scripts/review/mutation_batch.py`). The first line of the record is a
-marker, invisible in a comment:
+the exit code of Stryker. The run of a batch writes the same record into
+`reports/mutation/batch-record.md` too, and any other run leaves that file alone: the run over the
+files of the survivors that checks their fixes would otherwise write over the record of a run of
+hours. The record is the summary of a run to publish in a comment. No review runs the target or
+reads the record (#712). Only `make mutation-full-close` parses it: it closes a batch on the record
+of its run and of the run over files after it (`scripts/review/mutation_batch.py`). The first line
+of the record is a marker, invisible in a comment:
 
 ```
-<!-- mutation-run head=<sha> clean=<yes|no|unknown> scope=<full|files> exit=<code> score=<score|NaN|none> -->
+<!-- mutation-run head=<sha> clean=<yes|no|unknown> scope=<full|files> batch=<N|none> exit=<code> score=<score|NaN|none> -->
 ```
 
 - `head` is the commit at the start of the run.
@@ -218,7 +277,9 @@ marker, invisible in a comment:
 - `make -n` does not show whether the substitutions yield exactly these values: it does not execute
   the counting chain. `make mutation DC_APP_RUN=echo` does, and prints the counted values without
   starting a container.
-- `scope=full` means `files` was not passed and the whole of `src/` was mutated.
+- `scope=full` means the area was empty and the whole of `src/` was mutated: `files` was not
+  passed, or the batch took the full run.
+- `batch` is the issue of the batch from `batch=<N>`, `none` for a run of no batch.
 - `exit` is the exit code of `npm run mutation`, or `128 + the signal number` if that died from a
   signal. When Stryker itself dies from a signal (OOM), npm outlives it and returns an ordinary
   non-zero code.
@@ -238,14 +299,14 @@ taken out of the count by `.gitignore` rather than by a flag of `git status`, as
 The wrapper takes the files, the mutants and the statuses from the JSON report of Stryker (the
 `json` reporter in the config), not from the terminal output. A file without a single mutant is
 absent from the report, so a file of types alone is not listed as mutated even if it was in the
-area. The wrapper deletes the old record and the old reports before the run, and before a full run
-the old `full-record.md` too: a run that breaks off will not leave any of its own, and the previous
-ones would pass themselves off as its result.
+area. The wrapper deletes the old record and the old reports before the run, and before the run of
+a batch the old `batch-record.md` too: a run that breaks off will not leave any of its own, and the
+previous ones would pass themselves off as its result.
 
 The record carries only the summary and the mutants that were not killed, because it goes into a
 GitHub comment, the closing one of a batch (`scripts/review/templates/mutation-batch-close.md`),
 and a comment holds 65,536 characters. That comment carries up to two records: the one of the
-full run and the one of the green run over files that checked its fixes. The limit stands on the
+batch run and the one of the green run over files that checked its fixes. The limit stands on the
 record as a whole: once it grows to 45,000 characters, the wrapper cuts the list of survivors off
 with a line "and N more". The rest is left to the other record and the lists of the comment
 (`RECORD_LIMIT_CHARS` in the wrapper).

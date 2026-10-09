@@ -5,7 +5,7 @@ import path from "path";
 import { FileHelper } from "app/shared/fs/file-helper";
 import type { Fluent } from "@moebius/fluent";
 import type { Context } from "app/telegram/bot/bot.types";
-import { createFluent, createFluentMiddleware, localeFromFilePath, resolveLocale } from "app/telegram/locale/locale";
+import { createFluent, createFluentMiddleware, localeFromFilePath } from "app/telegram/locale/locale";
 import type { Locale } from "app/telegram/locale/locale.types";
 import { DEFAULT_LOCALE, LOCALES } from "app/telegram/locale/locale.types";
 import { MissingLocaleBundle, UnknownLocale } from "app/telegram/locale/locale.errors";
@@ -130,23 +130,6 @@ describe("localeFromFilePath", function () {
             .to.throw(UnknownLocale, /^Unknown locale "" in translation file name\.$/)
             .with.property("payload")
             .that.deep.equals({ path: filePath, locale: "" });
-    });
-});
-
-describe("resolveLocale", function () {
-    it("keeps a supported language", function () {
-        expect(resolveLocale("en")).to.equal("en");
-    });
-
-    it("drops the region of an IETF tag", function () {
-        expect(resolveLocale("en-US")).to.equal("en");
-        expect(resolveLocale("RU-RU")).to.equal("ru");
-    });
-
-    it("falls back to the default locale", function () {
-        expect(resolveLocale("de")).to.equal(DEFAULT_LOCALE);
-        expect(resolveLocale(undefined)).to.equal(DEFAULT_LOCALE);
-        expect(resolveLocale("")).to.equal(DEFAULT_LOCALE);
     });
 });
 
@@ -281,6 +264,27 @@ describe("createFluentMiddleware", function () {
         expect(ctx.t("greeting")).to.equal("en");
     });
 
+    it("translates an IETF tag with a region into the bundle of its language", async function () {
+        expect((await runMiddleware("en-US")).t("greeting")).to.equal("en");
+        // Upper case on a non-default locale: "RU-RU" would land on the default bundle anyway.
+        expect((await runMiddleware("EN-US")).t("greeting")).to.equal("en");
+    });
+
+    // The undefined case does not pin `?? DEFAULT_LOCALE` in the middleware: Fluent would turn
+    // undefined into the string "undefined", match nothing and end on the default bundle too.
+    // The fallback is held by the type of withLocale().
+    it("translates into the default locale when the language is unknown or missing", async function () {
+        expect((await runMiddleware("de")).t("greeting")).to.equal(DEFAULT_LOCALE);
+        expect((await runMiddleware(undefined)).t("greeting")).to.equal(DEFAULT_LOCALE);
+        expect((await runMiddleware("")).t("greeting")).to.equal(DEFAULT_LOCALE);
+    });
+
+    // Pins the i18n.md claim, not a wish: a numeric region is past the localeRe of langneg, so
+    // the tag matches nothing even though "en" has a bundle.
+    it("translates into the default locale when langneg cannot parse the tag", async function () {
+        expect((await runMiddleware("en-001")).t("greeting")).to.equal(DEFAULT_LOCALE);
+    });
+
     // The shape of the properties is checked, not the values alone. The conversations plugin
     // writes into the op-log, and from there into the session, every own enumerable property
     // of the context except the intrinsic ones. So the `fluent` field (with `useFluent()` a
@@ -297,7 +301,7 @@ describe("createFluentMiddleware", function () {
         expect(ctx.getFluent()).to.equal(fluent);
     });
 
-    async function runMiddleware(languageCode: string): Promise<Context> {
+    async function runMiddleware(languageCode: string | undefined): Promise<Context> {
         const ctx = { from: { language_code: languageCode } } as unknown as Context;
 
         await createFluentMiddleware(fluent)(ctx, () => Promise.resolve());

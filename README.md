@@ -130,8 +130,9 @@ The full list is `make`. What is worth knowing beyond the target descriptions:
   The exceptions: `rebuild` builds the image and needs no database; `shell` and `psql` step
   into a running container.
 - `make check` — the width of the added lines of prose and host scripts, types, eslint,
-  prettier and the tests with the coverage threshold in one command. What the width check
-  takes and exempts is in the docstring of `scripts/review/line_width.py`.
+  prettier, the tests with the coverage threshold and the conversion check of `make test-fonts`
+  in one command. What the width check takes and exempts is in the docstring of
+  `scripts/review/line_width.py`.
 - `files=` of `format-check` and `format` takes `.ts` only: `.prettierrc.js` hard-codes
   `parser: "typescript"`.
 - After an edit to `package.json`, `package-lock.json`, `.mocharc.json` or a linter config,

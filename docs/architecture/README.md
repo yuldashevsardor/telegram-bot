@@ -22,7 +22,7 @@ The runtime sequences live in the files of their subsystems:
   chat states, push, pull, the limits and the pause, the chat lock, the lease and the completions,
   the runner with its stop and the maintenance timers, the status line, sending one message and
   removing its files, the failure classes, the outcomes, unblocking a chat, the retry delay,
-  waiting for the result and the payload codec
+  waiting for the result, the payload codec and the end-to-end spec on a fake Bot API
 - [`outbox-load-test.md`](./outbox-load-test.md) — the outbox store measured on 100 M messages:
   how to run the test, the data, the threshold, the times and the plans, the verdict
 - [`inbox.md`](./inbox.md) — the inbox of incoming updates in PostgreSQL: the tables,
@@ -43,7 +43,8 @@ The runtime sequences live in the files of their subsystems:
   when a storage gets an interface of its own
 - [`config.md`](./config.md) — `ConfigContainer`, its sources, watching the file, change
   subscriptions
-- [`testing.md`](./testing.md) — `mocha`, linters, coverage, gates, mutation testing
+- [`testing.md`](./testing.md) — `mocha`, linters, coverage, gates, the conversion check,
+  mutation testing
 - [`invariants.md`](./invariants.md) — the rules the compiler does not tie together: a
   violation compiles and breaks behaviour silently
 
@@ -164,12 +165,18 @@ src/
 test/                       mocha specs; a spec path repeats the source path, though not in full —
                             the rule is below;
                             the shared code of the specs is *.helper.ts next to the spec of its
-                            source, and for the root hook — next to the hook;
+                            source, and for the root hook — next to the hook; a helper that
+                            stands for no source of its own and serves the specs of several
+                            directories lies in their nearest common directory
+                            (database.helper.ts, telegram/fake-bot-api.helper.ts);
                             the root holds the mocha hooks and the wrappers of make coverage and
                             make mutation (testing.md)
   load/                     the outbox and inbox load tests: the fills, the churn of one chat and
                             the measurements of make load-*
                             (outbox-load-test.md, inbox-load-test.md)
+  conversion/               the conversion check of make test-fonts: the fixtures over every pair,
+                            the facts of the font before and after, the expected differences
+                            (testing.md)
 migrations/                 migrations, common/ holds the shared shorthands and the stub (storage.md)
 scripts/                    host scripts of the make targets; claude-worktree-guard is a hook (testing.md)
   review/                   the Python actions of the review skills and the width check of make check,

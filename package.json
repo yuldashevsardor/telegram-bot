@@ -46,7 +46,8 @@
         "test": "TSX_TSCONFIG_PATH=./tsconfig.check.json mocha",
         "test:watch": "TSX_TSCONFIG_PATH=./tsconfig.check.json mocha --watch",
         "test:coverage": "TSX_TSCONFIG_PATH=./tsconfig.check.json nyc mocha --require tsx/cjs --require ./test/coverage-hook.ts",
-        "check": "npm run typecheck && npm run lint && npm run format:check && npm run test:coverage",
+        "test:fonts": "TSX_TSCONFIG_PATH=./tsconfig.check.json mocha --no-config --require tsx/cjs 'test/conversion/**/*.check.ts'",
+        "check": "npm run typecheck && npm run lint && npm run format:check && npm run test:coverage && npm run test:fonts",
         "mutation": "TSX_TSCONFIG_PATH=./tsconfig.check.json NODE_OPTIONS=--require=./test/stryker-mocha-hook.cjs stryker run",
         "migrate": "node-pg-migrate -f ./migrate.json",
         "cli": "TSX_TSCONFIG_PATH=./tsconfig.check.json node --require tsx/cjs src/cli.ts"

@@ -1,6 +1,5 @@
 import "reflect-metadata";
 import { expect } from "chai";
-import type { TelegramLimits } from "app/bootstrap/config/config-values";
 import { Database } from "app/platform/database/database";
 import type { DatabaseSettings } from "app/platform/database/database.types";
 import type { Logger } from "app/platform/logger/logger";
@@ -12,7 +11,6 @@ import type { OutboxResultWaiterSettings } from "app/telegram/outbox/result-wait
 import { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type {
     FinishedOutboxMessage,
-    OutboxCleanupSettings,
     OutboxMessageInput,
     OutboxWorker,
     PulledOutboxMessage,
@@ -21,15 +19,13 @@ import { OutboxChannel, OutboxStatus } from "app/telegram/outbox/store/outbox-st
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import { testDatabaseSettings } from "test/database.helper";
 import { WAIT_UNTIL_DEADLINE_MS, waitUntil } from "test/shared/utils.helper";
+import { HOUR_RETENTION_CLEANUP, NO_LIMITS, resetOutbox } from "test/telegram/outbox/outbox-store.helper";
 
 const CHAT = 5_000_000_001;
 const RESPONSE = { message_id: 1 };
 // The default timeout of mocha, 2 s, is shorter than the deadline of a wait and would fail a hung
 // wait first.
 const SPEC_TIMEOUT_MS = 10_000;
-// The store only makes the messages here: no limit holds a pull back.
-const NO_LIMIT: TelegramLimits["common"] = { number: 1_000_000, interval: 1 };
-const NO_LIMITS: TelegramLimits = { common: NO_LIMIT, private: NO_LIMIT, group: NO_LIMIT };
 // The poll of the waiter specs that rely on it: many polls within a test.
 const FAST_POLL_MS = 20;
 // The timeout of the waiter spec that times out: over long before WAIT_UNTIL_DEADLINE_MS.
@@ -37,8 +33,6 @@ const SHORT_WAIT_TIMEOUT_MS = 50;
 const WORKER: OutboxWorker = { host: "node-1", pid: 101, workerId: "worker-1" };
 // Longer than any test here: no lease expires under it.
 const LEASE_DURATION_MS = 600_000;
-// The specs here call no cleanup.
-const CLEANUP: OutboxCleanupSettings = { doneRetentionMs: 1, skippedRetentionMs: 1, batchSize: 1 };
 // The statement postgres.js sends to listen on the finished channel, as pg_stat_activity shows it.
 const LISTEN_FINISHED_QUERY = `listen "${OutboxChannel.Finished}"`;
 
@@ -57,17 +51,13 @@ describe("OutboxFinishedMessageReader", function () {
 
         database = new Database(settings, false);
         observer = new Database(settings, false);
-        store = new OutboxStore(database, silentLogger(), NO_LIMITS, LEASE_DURATION_MS, CLEANUP);
+        // The store makes, pulls and finishes the messages of the specs: no limit holds a pull back.
+        store = new OutboxStore(database, silentLogger(), NO_LIMITS, LEASE_DURATION_MS, HOUR_RETENTION_CLEANUP);
         reader = new OutboxFinishedMessageReader(database);
     });
 
     beforeEach(async function () {
-        await database.sql`TRUNCATE telegram_outbox, telegram_outbox_chats RESTART IDENTITY`;
-        await database.sql`
-            UPDATE telegram_bot_limits
-            SET next_send_at = now() - interval '1 hour',
-                paused_until = NULL
-        `;
+        await resetOutbox(database);
     });
 
     after(async function () {

@@ -17,6 +17,7 @@ import type { InboxPollingSource } from "app/telegram/inbox/inbox-polling-source
 import type { InboxRunner } from "app/telegram/inbox/inbox-runner";
 import type { InboxMaintenance } from "app/telegram/inbox/maintenance/inbox-maintenance";
 import { fillApplicationContext, resetApplicationContext } from "test/bootstrap/application/application-context.helper";
+import { caught } from "test/shared/utils.helper";
 
 type Log = {
     level: keyof Logger;
@@ -223,13 +224,6 @@ describe("Application", function () {
         logs.length = 0;
 
         return application;
-    }
-
-    function caught(promise: Promise<unknown>): Promise<unknown> {
-        return promise.then(
-            () => expect.fail("the promise was expected to reject"),
-            (error: unknown) => error,
-        );
     }
 
     describe("setup()", function () {

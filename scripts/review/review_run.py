@@ -15,8 +15,9 @@ code under review. It runs, in this order:
 3. The `python` gate, `make review-test` in the tree of the PR: the gate checks the PR's specs.
 4. The `mutation-full` gate. It runs no mutants: `make mutation-full-check pr=<N>`
    (mutation_batch.py) says whether the issue the PR closes is recorded together with this PR in a
-   batch of the deferred full run, and not recorded is red. The check asks GitHub and not the code:
-   it needs no tree, and neither a tree that was not created nor a failed `rebuild` takes it away.
+   batch of the deferred mutation run, and not recorded is red. The check asks GitHub and not the
+   code: it needs no tree, and neither a tree that was not created nor a failed `rebuild` takes it
+   away.
    The new `Stryker disable` marks of the PR diff go to the reviewer to read: whether the reason on
    a mark holds is prose ("Working through survivors" in docs/architecture/testing.md), not a rule.
 5. `make review-tree-remove` whatever the outcome: a red gate, a stop and an interrupt included.
@@ -37,7 +38,8 @@ written in here. Left out on purpose, although they look fitting in a review:
   `test` gate runs `make coverage` and loses nothing: `nyc` runs the same `mocha`, a failed spec is
   printed the same way, and the run fails at 100% coverage too; the report goes to `./coverage`,
   which is in `.gitignore`;
-- `check` runs four gates in one output, while the verdict needs a line per gate.
+- `check` runs four gates and the conversion check in one output, while the verdict needs a line
+  per gate.
 
 `lint` and `format-check` run over the whole repository, without `files=`: `main` is green as a
 whole, so anything red was brought by the PR.

@@ -11,16 +11,6 @@ export function isLocale(value: string): value is Locale {
     return (LOCALES as readonly string[]).includes(value);
 }
 
-// Telegram sends language_code as an IETF tag ("ru", "en-US", "pt-br"), while the bundles are
-// keyed by language, so the region is dropped. An unknown language goes to the default locale.
-// Fluent would come to the same text by itself: it negotiates "en-US" to "en", and the isDefault
-// bundle of createFluent() ends every lookup chain.
-export function resolveLocale(languageCode: string | undefined): Locale {
-    const language = languageCode?.split("-")[0]?.toLowerCase();
-
-    return language !== undefined && isLocale(language) ? language : DEFAULT_LOCALE;
-}
-
 // The naming convention is `<something>.locale.<lang>.ftl`. This locale alone decides which
 // bundle the file lands in.
 export function localeFromFilePath(filePath: string): Locale {
@@ -81,7 +71,12 @@ export async function createFluent(localeDir: string): Promise<Fluent> {
 export function createFluentMiddleware(fluent: Fluent): MiddlewareFn<Context> {
     return (ctx, next) => {
         ctx.getFluent = (): Fluent => fluent;
-        ctx.t = fluent.withLocale(resolveLocale(ctx.from?.language_code));
+        // language_code is an IETF tag ("en-US", "pt-br") and goes to Fluent as is: its langneg
+        // negotiates "en-US" to the "en" bundle, and an unknown language reaches the isDefault
+        // bundle at the tail of every lookup chain (createFluent()). So does a supported language
+        // in a tag langneg cannot parse ("en-001", "en-US-x-foo"). DEFAULT_LOCALE is there for
+        // the type: withLocale() does not take undefined.
+        ctx.t = fluent.withLocale(ctx.from?.language_code ?? DEFAULT_LOCALE);
 
         return next();
     };
