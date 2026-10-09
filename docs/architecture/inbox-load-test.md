@@ -45,8 +45,10 @@ the group rows it locked, so the next fill waits for it, and `make` prints no pl
 `docker compose -f docker-compose.load.yml logs pgsql-load`. A fill stays valid for 6 days, as the
 outbox one does. The index of the cleanup (see "The cleanup") is a migration too, and unlike the
 head index it holds every done and skipped update: the fill of #871 filled it as well. The index of
-the failed updates (see "The unblocking") is a migration too, and the fill puts its failed updates,
-one in 200, into it.
+the failed updates (see "The unblocking") is a migration too: the fill puts its failed updates, one
+in 200, into it, and a layout its 1 000 that block their groups. A volume filled before the
+migration builds the index at its next `load-up`, which prints nothing new while the build runs,
+32 minutes over the fill of #871: that is not a stuck run.
 
 The measurement calls the real `InboxStore` with the settings of `.env`. The calls, how many of each
 and in what order are in `InboxLoadTest.run()` of `test/load/inbox-load-test.ts`, each with its
@@ -551,7 +553,7 @@ The plan is a custom one, with `failed` as the value of the status, as the plan 
 The claim of the worker and every completion stay within the threshold in every layout: `claim(1)`
 a median of 0.6 – 1.2 ms after the first, cold call of 19 – 33 ms, as in #824, and the completions
 a median of 0.2 – 2.2 ms and 7 ms at most. The skew and the size changed nothing in how they read:
-by the indexes, as on 100 M updates. Two calls are past what #871 set:
+by the indexes, as on 100 M updates. Two calls were past what #871 set:
 
 - The claim in the backlog is at the threshold: `claim(30)` 6.8 – 11.9 ms, two of 15 calls over
   10 ms, and one warm `claim(1)` of 14 at 11.5 ms, from the head rows read past the 128 MB of shared

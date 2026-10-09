@@ -6,9 +6,10 @@ import { commonShorthands } from "./common/utils";
 // the whole table under the lock of the group row, 135 – 175 s a call on 250 M rows
 // (docs/architecture/inbox-load-test.md, "The unblocking"). Partial: the head index holds the active
 // updates alone and the index of the cleanup the done and the skipped ones, and the lookup needs
-// the failed ones only. A failed update is never deleted, so the index only grows, with the share of
-// the updates that fail. A plain build holds back the writes to the table while it runs, for a time
-// that grows with the table.
+// the failed ones only. A failed update is never deleted, and only the unblock takes one out of
+// failed, so the index grows with the failures that do not block their group. A plain build holds
+// back the writes to the table while it runs, for a time that grows with the table: 32 minutes on
+// the 250 M rows of the load test.
 
 const inbox = "telegram_inbox";
 const failedGroupIndex = "telegram_inbox_failed_group_idx";

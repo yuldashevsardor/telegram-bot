@@ -46,8 +46,9 @@ for every `done` and `skipped` update the cleanup has not deleted yet, and every
 failure adds one. `1791849600000_telegram-inbox-failed-group-index.ts` adds
 `telegram_inbox_failed_group_idx` on `(user_id, chat_id, finished_at DESC, update_id DESC)` of the
 `failed` updates: the unblock of a group reads the failed update that blocked it as the first entry
-of the group (see "Unblocking a group"). A failed update is never deleted, so the index holds every
-failure there has been.
+of the group (see "Unblocking a group"). A failed update is never deleted, and only the unblock
+takes one out of `failed`: the index holds every failure of `markAsFailed()` and every failure that
+blocks a group, so it grows with the failures that do not block.
 
 The database does not check the values of `status` and `state`: the store writes them only
 through the `InboxStatus` and `InboxGroupState` enums (`store/inbox-store.types.ts`). Of these,
