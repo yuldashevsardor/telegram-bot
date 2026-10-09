@@ -87,8 +87,12 @@ describe("ProcessHelper.run", function () {
 
     it("moves the start of the stderr tail past three continuation bytes at most", async function () {
         // Eight continuation bytes, of no character, and the cut lands on the fifth: three are skipped,
-        // the fourth stays and reads as U+FFFD.
-        const script = `printf '\\200\\200\\200\\200\\200\\200\\200\\200' >&2; head -c ${STDERR_TAIL_BYTES - 4} /dev/zero | tr '\\0' w >&2`;
+        // the fourth stays and reads as U+FFFD. The last four bytes go in one write shorter than PIPE_BUF,
+        // which reaches the pipe whole: every read before it ends at STDERR_TAIL_BYTES at most, so the
+        // tail is cut once. A read ending one to three bytes past it would cut inside the eight bytes
+        // first and skip from another start.
+        const fillerBytes = STDERR_TAIL_BYTES - 8;
+        const script = `printf '\\200\\200\\200\\200\\200\\200\\200\\200' >&2; head -c ${fillerBytes} /dev/zero | tr '\\0' w >&2; printf wwww >&2`;
 
         const result = await ProcessHelper.run("/bin/sh", ["-c", script]);
 

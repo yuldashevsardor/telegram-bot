@@ -61,7 +61,7 @@ export class ProcessHelper {
     }
 
     private static keepTail(stderrSoFar: Buffer): Buffer {
-        // Stryker disable next-line EqualityOperator: `<` is equivalent: at exactly STDERR_TAIL_BYTES the cut starts at byte 0 and keeps the whole output, as stderr does not start inside a character
+        // Stryker disable next-line EqualityOperator: `<` differs only on output that is not UTF-8: at exactly STDERR_TAIL_BYTES the cut starts at byte 0, the start of the output or of a kept tail, which in UTF-8 is never a continuation byte; on other output it skips at most three more bytes
         if (stderrSoFar.length <= STDERR_TAIL_BYTES) {
             return stderrSoFar;
         }
