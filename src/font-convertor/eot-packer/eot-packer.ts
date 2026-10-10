@@ -8,10 +8,9 @@ import type { SfntMetadata } from "app/font-convertor/eot-packer/sfnt-reader/sfn
 import { Tokens } from "app/shared/tokens";
 
 // EOT is not an outline format of its own but an envelope: a header with metadata, then the sfnt
-// bytes, untouched or encoded (eot-payload-decoder.ts). That is why EOT bypasses the engine: the
-// engine does not read this envelope, and on writing it silently slips in PostScript Type 1
-// (issue https://github.com/yuldashevsardor/telegram-bot/issues/158). The header layout and the
-// versions read are in eot-header.ts.
+// bytes, untouched or encoded (eot-payload-decoder.ts). Why it bypasses the engine:
+// docs/architecture/font-convertor.md, "EOT". The header layout and the versions read are in
+// eot-header.ts.
 
 // 0x00020001 is written: the version every EOT reader understands, and the one ttf2eot writes.
 const VERSION_WRITTEN = EotHeader.VERSION_2_1;
