@@ -40,7 +40,7 @@ const ULONG_SIZE_BYTES = 4;
 
 /**
  * The header of an EOT envelope: the fixed part, the name blocks of every version, the tail of
- * version 0x00020002 and where the font lies. The codec takes the font out through it, so the
+ * version 0x00020002 and where the font lies. The codec and `EotFontValidator` both read it, so the
  * domain has one implementation of the parse rather than a copy per reader.
  *
  * The parse rejects only what leaves it nothing to read: a file shorter than a field it reads, an

@@ -8,24 +8,11 @@ import { FileHelper } from "app/shared/fs/file-helper";
 import { Tokens } from "app/shared/tokens";
 
 /**
- * Writes a copy of an SVG font that the engine reads as SVG 1.1 does. fontforge 20230101 misreads
- * two things SVG 1.1 allows, and the copy works around both:
- *
- * - a glyph that leaves `horiz-adv-x` out takes the advance of `<font>` (§20.4), while fontforge
- *   gives it the em when `<font>` says 0, and drops it when it has no `d` either. So the copy writes
- *   the advance of `<font>` on every `glyph` and `missing-glyph` that leaves it out;
- * - a glyph with `arabic-form` is a form of the letter its `unicode` names (§20.5), while fontforge
- *   reads it under the presentation form its table gives, and does not know the form `terminal`. So
- *   the copy writes `terminal` as `final`, takes `arabic-form="isolated"` off a letter that has no
- *   other glyph fontforge reads under it, and writes the initial and medial forms of U+0649 under
- *   U+FBE8 and U+FBE9.
- *   Why each, in `docs/architecture/font-convertor.md`, "Reading SVG".
- *
- * Nothing else of the file changes, its times included, but a UTF-8 BOM, which XML does not need.
- *
- * fontforge also encodes glyphs SVG 1.1 maps to no code point, and the text of the file cannot say
- * "no code point" to it. So the preparer answers with the indexes of those glyphs, and the engine
- * script takes their code points off ("Reading SVG" again).
+ * Writes a copy of an SVG font that the engine reads as SVG 1.1 does, and answers the indexes of the
+ * glyphs SVG 1.1 maps to no code point, whose code points the engine script takes off. fontforge
+ * 20230101 misreads the advance a glyph leaves to `<font>` and a glyph with `arabic-form`. The edits
+ * of the copy, why each, and what else of the file stays as it is: `docs/architecture/font-convertor.md`,
+ * "Reading SVG".
  *
  * The source has passed `SvgFontValidator`, and the preparer leans on its rules: the document is
  * XML, it holds one `font` with `horiz-adv-x`, the font nodes are SVG elements, and their attributes

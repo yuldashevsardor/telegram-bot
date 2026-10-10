@@ -32,10 +32,8 @@ eot → {otf,woff,woff2,svg}   EotPacker.unpack(SRC, DIST.ttf) → FontForge.con
 
 The intermediate sfnt lies next to the result as `<result>.ttf`. The result name is unique in its
 directory, so the derived name is unique too. The intermediate file is removed after a success and
-after a failure alike, but not in `finally`. There `RemoveFailed` would displace the original error,
-and the real reason for the failure would not survive even in `cause`. So precedence is the opposite
-of `finally`'s: a removal error surfaces only if nothing failed before it
-(`FileHelper.removeAfter()`).
+after a failure alike by `FileHelper.removeAfter()`, whose comment says why not in `finally`: a
+removal error surfaces only if nothing failed before it.
 
 The `Convertor` classes of the EOT pairs inherit from two parents. They are kept apart so that no
 pair class gets what it does not need:
@@ -70,12 +68,12 @@ serves the intermediate sfnt the engine writes, while a missing record or an emp
 bounds is packed from a source too.
 
 `eot-packer.ts` writes version `0x00020001`. The header is read through `EotHeader`
-(`font-convertor/eot-header/`), which lays out the fixed part, the names and the tail of every
-version, and where the font lies. It rejects only what leaves it nothing to read, an empty
-`FontDataSize` included, and exposes the rest: the codec itself checks the magic number, `EOTSize`
-and that the names end before the font. `EotHeader` lies outside `eot-packer/` because the codec is
-not its only reader: `EotFontValidator` below reads it too, and a second parse of the same header
-would be a second copy of one format rule.
+(`font-convertor/eot-header/`), which lays out the fixed part, the names of every version, the tail
+of version `0x00020002` and where the font lies. It rejects only what leaves it nothing to read, an
+empty `FontDataSize` included, and exposes the rest: the codec itself checks the magic number,
+`EOTSize` and that the names end before the font. `EotHeader` lies outside `eot-packer/` because the
+codec is not its only reader: `EotFontValidator` below reads it too, and a second parse of the same
+header would be a second copy of one format rule.
 
 `FontData` is not always the raw sfnt. Under `TTEMBED_TTCOMPRESSED` it is compressed by W3C Member
 Submission "MicroType Express (MTX) Font Format" (2008), under `TTEMBED_XORENCRYPTDATA` each byte is
@@ -805,46 +803,49 @@ not count as supported.
 
 - Temporary files are not deleted (issue
   [#37](https://github.com/yuldashevsardor/telegram-bot/issues/37)).
-- An SVG source is read, decoded and parsed whole, synchronously, on the event loop of the bot, and
-  the domain sets no limit on its size. A WOFF source is read whole too: its tables are inflated by
-  the asynchronous `zlib.inflate`, off the event loop, but their checksums are summed and the sfnt
-  is rebuilt from them on it. The 32 MiB cap bounds the inflated tables, not the file, and the
-  rebuilt sfnt is a second copy of them of the same size. A TTF or OTF source is read whole as well,
-  and its table directory, every `loca` offset, every glyph of `glyf` and the references between
-  composite glyphs are walked on the event loop, as they are for the sfnt a WOFF or an EOT carries.
-  An EOT source is read whole too, and its header is walked on the event loop. A compressed or
-  encrypted `FontData` is decoded on it as well, synchronously and twice, by the validator and by
-  the codec. The decoding has no output cap of ours and no timeout: on 600 damaged inputs it never
-  hung under a 20 s limit, but nothing guarantees that
-  ([#741](https://github.com/yuldashevsardor/telegram-bot/issues/741)). `mtx-decompressor` 1.8.0
-  caps only its input to the rebuild: each of the three compressed streams may declare at most
-  16 MiB and grow its buffer to at most 64 MiB (`MAX_OUT_LEN`, `MAX_OUT` in its `dist/index.js`).
-  The sfnt it rebuilds from them has no cap: `glyf` grows as the streams describe it, and only the
-  decoded `hdmx` table is held to 64 MiB (`MAX_OUTPUT_BYTES`). How much memory a small crafted file
-  takes was never run: building the crafted input was blocked by a safety control of the agent's own
-  tooling ([#789](https://github.com/yuldashevsardor/telegram-bot/issues/789)). Only a ceiling from
-  the library's own caps is recorded, not a measurement: each of the three streams may legitimately
-  return up to `MAX_OUT` (64 MiB) before `unpackMtx()` moves to the next one, so the three together
-  can reach about 192 MiB; `dumpContainer()` then builds one sfnt buffer sized to the sum of those
-  bytes, up to roughly the same 192 MiB again while the streams are still held, a peak on the order
-  of 384 MiB from a `FontData` whose three declared output lengths sit in a handful of header bits,
-  decoupled from the size of the compressed input itself. `populateGlyfAndLoca()` is outside this
-  arithmetic: its per-glyph allocation is driven by `maxp`'s fields, not by the caps above. A WOFF2
-  source is
-  read whole as well: its compressed data is decompressed by the asynchronous
-  `zlib.brotliDecompress`, off the event loop, but its table directory is walked on it, and its
-  transformed `glyf` is decoded and rebuilt there, a second copy beside the decompressed tables. The
-  30 MiB caps bound the decompressed tables and the rebuilt sfnt, not the file. The sfnt walk was
-  measured: `validateBytes()` takes 34 ms on `Arial Unicode.ttf`, 22 MB and 50377 glyphs, against
-  29 ms in the same run with the components of composite glyphs left unread; the engine converts
-  the file in 2.5 s ([#684](https://github.com/yuldashevsardor/telegram-bot/issues/684),
-  [#767](https://github.com/yuldashevsardor/telegram-bot/issues/767)). So was the WOFF2
-  reconstruction: `GlyfReconstructor` takes 190–405 ms, the first run the slowest, on
-  `IBMPlexSansKR-Light.woff2`, 439 040 bytes and 12 240 glyphs, among the slowest of the 5742
-  TrueType real fonts. The caps allow far more: a transformed `glyf` of 31 071 818 bytes, 65 535
-  simple glyphs of 235 points each, takes 1.5–1.9 s over three runs. Brotli packs it into 99 bytes,
-  so a file of about 310 KB passes the ratio cap with it
-  ([#736](https://github.com/yuldashevsardor/telegram-bot/issues/736)).
+- The sources are read whole, and the domain sets no limit on the size of the file. What runs on the
+  event loop of the bot:
+  - SVG: the source is decoded and parsed whole, synchronously.
+  - WOFF: the tables are inflated by the asynchronous `zlib.inflate`, off the event loop, but their
+    checksums are summed and the sfnt is rebuilt from them on it. The 32 MiB cap bounds the inflated
+    tables, not the file, and the rebuilt sfnt is a second copy of them of the same size.
+  - TTF and OTF: the table directory, every `loca` offset, every glyph of `glyf` and the references
+    between composite glyphs are walked on the event loop, as they are for the sfnt a WOFF or an EOT
+    carries. The walk was measured: `validateBytes()` takes 34 ms on `Arial Unicode.ttf`, 22 MB and
+    50377 glyphs, against 29 ms in the same run with the components of composite glyphs left
+    unread; the engine converts the file in 2.5 s
+    ([#684](https://github.com/yuldashevsardor/telegram-bot/issues/684),
+    [#767](https://github.com/yuldashevsardor/telegram-bot/issues/767)).
+  - EOT: the header is walked on the event loop. A compressed or encrypted `FontData` is decoded on
+    it as well, synchronously and twice, by the validator and by the codec. The decoding has no
+    output cap of ours and no timeout: on 600 damaged inputs it never hung under a 20 s limit, but
+    nothing guarantees that ([#741](https://github.com/yuldashevsardor/telegram-bot/issues/741)).
+    `mtx-decompressor` 1.8.0 caps only its input to the rebuild: each of the three compressed
+    streams may declare at most 16 MiB and grow its buffer to at most 64 MiB (`MAX_OUT_LEN`,
+    `MAX_OUT` in its `dist/index.js`). The sfnt it rebuilds from them has no cap: `glyf` grows as
+    the streams describe it, and only the decoded `hdmx` table is held to 64 MiB
+    (`MAX_OUTPUT_BYTES`).
+  - EOT, memory: how much a small crafted file takes was never run, because building the crafted
+    input was blocked by a safety control of the agent's own tooling
+    ([#789](https://github.com/yuldashevsardor/telegram-bot/issues/789)). Only a ceiling from the
+    library's own caps is recorded, not a measurement. Each of the three streams may legitimately
+    return up to `MAX_OUT` (64 MiB) before `unpackMtx()` moves to the next one, so the three
+    together can reach about 192 MiB. `dumpContainer()` then builds one sfnt buffer sized to the sum
+    of those bytes, up to roughly the same 192 MiB again while the streams are still held. That is a
+    peak on the order of 384 MiB from a `FontData` whose three declared output lengths sit in a
+    handful of header bits, decoupled from the size of the compressed input itself.
+    `populateGlyfAndLoca()` is outside this arithmetic: its per-glyph allocation is driven by
+    `maxp`'s fields, not by the caps above.
+  - WOFF2: the compressed data is decompressed by the asynchronous `zlib.brotliDecompress`, off the
+    event loop, but the table directory is walked on it, and the transformed `glyf` is decoded and
+    rebuilt there, a second copy beside the decompressed tables. The 30 MiB cap bounds the
+    decompressed tables and the rebuilt sfnt, not the file. The reconstruction was measured:
+    `GlyfReconstructor` takes 190–405 ms, the first run the slowest, on
+    `IBMPlexSansKR-Light.woff2`, 439 040 bytes and 12 240 glyphs, among the slowest of the 5742
+    TrueType real fonts. The cap allows far more: a transformed `glyf` of 31 071 818 bytes, 65 535
+    simple glyphs of 235 points each, takes 1.5–1.9 s over three runs. Brotli packs it into 99
+    bytes, so a file of about 310 KB passes the ratio cap with it
+    ([#736](https://github.com/yuldashevsardor/telegram-bot/issues/736)).
 - `/font_generator` converts the fixed `test/fixtures/fonts/test-font.woff` into
   EOT/OTF/TTF/WOFF2. It answers with the **path** to the file as text; the file itself is not
   sent. A caught conversion error is written at `error` level through `Logger`

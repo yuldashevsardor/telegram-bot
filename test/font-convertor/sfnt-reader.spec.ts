@@ -155,11 +155,7 @@ describe("SfntReader.readMetadata", function () {
     const middleOfNameRecords = 6 + 8 * NAME_RECORD_SIZE + 6;
 
     // A damaged or missing name table leaves the envelope names empty and does not reject the
-    // font. The names are informational: rejecting the whole font over them costs more than an
-    // empty string. Such fonts are real: subsetters cut name records, and
-    // `pyftsubset --drop-tables+=name` drops the whole table. A source without the table is rejected
-    // earlier, by SfntFontValidator, so a missing table reaches the codec in the intermediate sfnt
-    // of the engine.
+    // font; why, in the comment of SfntReader.readNames().
     const namelessCases: Array<[string, (bytes: Uint8Array) => Uint8Array]> = [
         ["carries no name records", (bytes): Uint8Array => patch(bytes, (view, copy) => view.setUint16(tableOffset(copy, "name") + 2, 0))],
         [

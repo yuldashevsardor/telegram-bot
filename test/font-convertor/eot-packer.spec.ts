@@ -57,11 +57,8 @@ describe("EotPacker", function () {
         it("wraps the font into the envelope ttf2eot produces for it", async function () {
             // The EOT fixture was made from the TTF fixture by the third-party ttf2eot. So a
             // byte-for-byte match with it checks conformance to the format, not to ourselves.
-            //
-            // We differ from ttf2eot in exactly one field, fsType. ttf2eot always writes zero
-            // there, declaring any font free to install. By the specification the field repeats
-            // OS/2.fsType, and we take it from there. So the real value is put into the reference
-            // before the comparison.
+            // We differ from ttf2eot in fsType alone (docs/architecture/font-convertor.md, "Known"),
+            // so the real value is put into the reference before the comparison.
             const expected = Uint8Array.from(eot);
             new DataView(expected.buffer).setUint16(EOT_FS_TYPE_OFFSET, fontFsType(ttf), true);
 
