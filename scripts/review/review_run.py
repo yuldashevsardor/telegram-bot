@@ -13,18 +13,17 @@ code under review. It runs, in this order:
    `rebuild` stops the other container gates: on the old image they would give a green that checked
    nothing, or `Missing script` on a script the PR adds.
 3. The `python` gate, `make review-test` in the tree of the PR: the gate checks the PR's specs.
-4. The `mutation-full` gate. It runs no mutants: `make mutation-full-check pr=<N>`
-   (mutation_batch.py) says whether the issue the PR closes is recorded together with this PR in a
-   batch of the deferred mutation run, or the PR alone when it closes no issue, and not recorded is
-   red. The check asks GitHub and not the code: it needs no tree, and neither a tree that was not
-   created nor a failed `rebuild` takes it away.
+4. The `mutation-full` gate. It runs no mutants: `make mutation-full-check pr=<N>` says whether
+   the PR is recorded in a batch of the deferred mutation run (`check` in the docstring of
+   mutation_batch.py), and not recorded is red. The check asks GitHub and not the code: it needs no
+   tree, and neither a tree that was not created nor a failed `rebuild` takes it away.
    The new `Stryker disable` marks of the PR diff go to the reviewer to read: whether the reason on
    a mark holds is prose ("Working through survivors" in docs/architecture/testing.md), not a rule.
 5. `make review-tree-remove` whatever the outcome: a red gate, a stop and an interrupt included.
    SIGTERM and SIGHUP are turned into an interrupt, and run_in_group kills the command it waits for
-   together with everything it started; the container of a gate `down --remove-orphans` takes
-   down (tree_remove.py). SIGKILL cannot be
-   caught: the tree it leaves the next run removes (tree_create.py).
+   together with everything it started; the container of a gate `down --remove-orphans` takes down
+   (tree_remove.py). SIGKILL cannot be caught: the tree it leaves the next run removes
+   (tree_create.py).
 
 Only the targets named above run. A gate the action does not know gives a `Not run` line and runs
 nothing: the list is an allowlist, and a new `Makefile` target counts as dangerous until it is
@@ -45,7 +44,8 @@ whole, so anything red was brought by the PR.
 
 The gates of the reviewer's own reading run no command and are passed over. `make-targets`,
 `scripts` and the comparison of a red gate with `origin/main` are prose in fallback.md of the skill
-for now: each gives a `Not run` line that names that file.
+for now. The two gates give a `Not run` line that names that file; the comparison has no line of
+its own, and the `Red` section is what sends the reviewer there.
 
 The gates come as one argument separated by commas, whitespace or both, and all three forms run
 the same gates: the list reaches the action from `/review-pr` through two skills, each passes it on

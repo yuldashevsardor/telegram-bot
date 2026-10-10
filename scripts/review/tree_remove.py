@@ -25,8 +25,9 @@ worktree of this repository right next to the main one, named `<main>-review-*` 
 main worktree's directory (`telegram-bot-review-556`). The prefix is not written down: renaming
 the directory of the main worktree would leave a literal behind, while the trees next to it
 follow its name. A task worktree lies there too, and nothing forbids naming a task `review-…`,
-so the name alone does not tell them apart; the `tmp/pgsql` symlink does: `scripts/worktree-init.sh` sets it in every
-task worktree, while a review tree gets only a copied `.env` and must never have it.
+so the name alone does not tell them apart; the `tmp/pgsql` symlink does:
+`scripts/worktree-init.sh` sets it in every task worktree, while a review tree gets only a copied
+`.env` and must never have it.
 """
 
 import os
