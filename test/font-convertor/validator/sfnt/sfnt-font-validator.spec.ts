@@ -91,10 +91,10 @@ const TRANSFORM_SIZES_BYTES = new Map([
 const NUM_INSTR_SIZE_BYTES = 2;
 // Two bytes of instructions for a composite glyph, PUSHB[0] and its byte; no rule reads their values.
 const COMPOSITE_INSTRUCTIONS = [0xb0, 0x00];
-// Composite glyphs 1 to 27, each of two components pointing at the next one, reach glyph 27 through
-// 2^26 chains of components. A walk that followed a glyph again on every chain takes about 18 s there
-// in the application image, past the 2 s mocha timeout; one that follows each composite glyph once
-// takes 53 steps.
+// Composite glyphs 1 to 26, each of two components pointing at the next one, reach glyph 27, a
+// composite glyph of one component, through 2^26 chains of components. A walk that followed a glyph
+// again on every chain takes about 18 s there in the application image, past the 2 s mocha timeout;
+// one that follows each composite glyph once takes 53 steps from glyph 1, one per component.
 const CHAIN_OF_DOUBLED_COMPONENTS_LENGTH = 27;
 // A component compositeGlyph builds, ARGS_ARE_XY_VALUES and MORE_COMPONENTS added to its flags.
 type Component = { glyphIndex: number; flags: number };

@@ -23,22 +23,26 @@ import type { FontValidator } from "app/font-convertor/validator/font-validator"
 import { FileHelper } from "app/shared/fs/file-helper";
 
 /**
- * Checks a TTF or OTF font, or the sfnt a WOFF or an EOT carries, against the Microsoft OpenType
- * specification 1.9.1, and against Apple's TrueType Reference Manual for what it governs: the table
- * directory, the tables a font must have, the fields of `head`, `maxp`, `hhea`, `hmtx` and `loca`
- * that give the glyph count, where the metrics of each glyph lie and, with TrueType outlines, where
- * its outline lies, the header of every glyph in `glyf` and whether the fields of each simple glyph
- * and the components of each composite glyph lie inside it, the components pointing at glyphs of
- * the font without a cycle, and the version of `cmap`, `name`, `OS/2` and `post` with whether their
- * content lies inside the table: the headers and records of `cmap` and `name`, each `cmap` subtable
- * with its format and a length that covers the part of its format of a set size, each non-empty
- * `name` string, the fields of the `OS/2` version, and the 32-byte header of `post` with the
- * glyph-name index of versions 2.0 and 2.5, held against the glyph count of `maxp`, and with 2.0 the
- * glyph names the index points at. What a subtable, a string or a glyph name holds is not read, nor
- * are the values of a glyph's coordinates, arguments and transform and its instructions. TTF and
- * OTF take the same checks: the sfnt version names the outline type, not the extension, and the
- * rules that depend on the outline type go by the outline tables present, not by the version, which
- * the specification only says "should" match them.
+ * Checks a TTF or OTF font, or the sfnt a WOFF, a WOFF2 or an EOT carries, against the Microsoft
+ * OpenType specification 1.9.1, and against Apple's TrueType Reference Manual for what it governs.
+ * It checks:
+ * - the table directory and the tables a font must have;
+ * - the fields of `head`, `maxp`, `hhea`, `hmtx` and `loca` that give the glyph count, where the
+ *   metrics of each glyph lie and, with TrueType outlines, where its outline lies;
+ * - the header of every glyph in `glyf`, whether the fields of each simple glyph and the components
+ *   of each composite glyph lie inside it, and whether the components point at glyphs of the font
+ *   without a cycle;
+ * - the version of `cmap`, `name`, `OS/2` and `post`, and whether their content lies inside the
+ *   table: the headers and records of `cmap` and `name`, each `cmap` subtable with its format and a
+ *   length that covers the part of its format of a set size, each non-empty `name` string, the
+ *   fields of the `OS/2` version, and the 32-byte header of `post`. With versions 2.0 and 2.5 of
+ *   `post` also the glyph-name index, held against the glyph count of `maxp`, and with 2.0 the
+ *   glyph names the index points at.
+ *
+ * What a subtable, a string or a glyph name holds is not read, nor are the values of a glyph's
+ * coordinates, arguments and transform and its instructions. TTF and OTF take the same checks: a
+ * rule that depends on the outline type goes by the outline tables present, not by the version
+ * (docs/architecture/font-convertor.md, "The sfnt validator").
  *
  * Deliberately not checked:
  * - The table checksums and `head.checkSumAdjustment`. fontforge does not read them: its output
@@ -218,9 +222,9 @@ export class SfntFontValidator implements FontValidator {
     }
 
     /**
-     * Throws when `bytes` are not a valid sfnt font. It takes bytes for the sfnt a WOFF or an EOT
-     * carries, which `WoffFontValidator` rebuilds in memory and `EotFontValidator` takes from
-     * FontData, and `fontPath` is the file every answer names.
+     * Throws when `bytes` are not a valid sfnt font. It takes bytes for the sfnt a WOFF, a WOFF2 or
+     * an EOT carries, which `WoffFontValidator` and `Woff2FontValidator` rebuild in memory and
+     * `EotFontValidator` takes from FontData, and `fontPath` is the file every answer names.
      * The answers are subclasses of `InvalidSfntFont`: `NotSfnt` for bytes shorter than the header
      * or of an unknown version, `BrokenSfnt` for the first broken rule, checked in this order: the
      * header, the table records one by one in directory order, the tables the font has, then the
