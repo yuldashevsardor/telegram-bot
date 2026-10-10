@@ -6,8 +6,10 @@ you. The steps are numbered as in `SKILL.md`.
 ## Step 2. The checks the run leaves to you
 
 The target does not run `make-targets`, `scripts` and the comparison of a red gate with the base
-yet: its `Not run` lines name them. Each needs a tree of the PR head. Create it
-from the tree you were started in:
+yet. The two gates get a `Not run` line; the comparison has no line of its own, and the `Red`
+section of the report sends you here. The two gates need a tree of the PR head, the comparison a
+tree of `origin/main` ("Red" below). Create the tree of the PR head from the tree you were started
+in:
 
 ```bash
 make review-tree-create pr=<N>
@@ -21,8 +23,8 @@ The target prints `Tree: <path>` and `Head: <sha>`. What it runs and why is in t
 - The stop `.env was not copied` names a tree this run did create: the cleanup removes it like any
   other.
 - The path is `<main>-review-<N>` next to the main worktree, where `<main>` is the name of its
-  directory. The cleanup refuses a tree named or placed otherwise, so that a wrong argument cannot
-  remove the main worktree or a task worktree.
+  directory. The cleanup refuses a tree named or placed otherwise: why is in the docstring of
+  `scripts/review/tree_remove.py`.
 
 The commands below run from the temporary tree, so the `cd` is required: `allowed-tools` lists the
 targets by exact match (`Bash(make coverage)`), and `make -C <path> coverage` does not fall under
@@ -68,11 +70,8 @@ nothing to do with it.
 
 ### Red
 
-Red in `make -n` and `sh -n` is unambiguous by itself. So is red in `make mutation-full-check`: no
-batch of the deferred mutation run records the issue the PR closes together with this PR, or the
-PR at all when it closes no issue, and the author records it with
-`make mutation-full-record issue=<M> pr=<N>`: `<M>` is the issue the PR closes, or for a stage PR
-that closes none, the parent it links as a bare `#N`.
+Red in `make -n`, `sh -n` and `make mutation-full-check` is unambiguous by itself. What the red of
+`make mutation-full-check` means is in step 1 of `SKILL.md`.
 
 Red in `build`, `typecheck`, `test`, `test-fonts`, `lint`, `format-check` or `python`, and you
 doubt this PR brought it — compare with the base:
