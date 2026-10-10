@@ -842,7 +842,7 @@ not count as supported.
     decompressed tables and the rebuilt sfnt, not the file. The reconstruction was measured:
     `GlyfReconstructor` takes 190–405 ms, the first run the slowest, on
     `IBMPlexSansKR-Light.woff2`, 439 040 bytes and 12 240 glyphs, among the slowest of the 5742
-    TrueType real fonts. The cap allows far more: a transformed `glyf` of 31 071 818 bytes, 65 535
+    TrueType real fonts. The caps allow far more: a transformed `glyf` of 31 071 818 bytes, 65 535
     simple glyphs of 235 points each, takes 1.5–1.9 s over three runs. Brotli packs it into 99
     bytes, so a file of about 310 KB passes the ratio cap with it
     ([#736](https://github.com/yuldashevsardor/telegram-bot/issues/736)).
