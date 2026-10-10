@@ -2,7 +2,7 @@
 // of the real InboxStore that runs SQL against the database of docker-compose.load.yml and prints how
 // long each call took. The plans of their statements land in the log of that database through
 // auto_explain; make load-inbox-measure prints both.
-import { randomInt } from "node:crypto";
+import { createHash } from "node:crypto";
 import { hostname } from "node:os";
 import { performance } from "node:perf_hooks";
 import type { Update } from "@grammyjs/types";
@@ -52,6 +52,9 @@ const MS_PER_SECOND = 1_000;
 // The groups of make load-inbox-fill-done at its default: a push goes to one of them, as a returning
 // user's does. A fill of fewer groups leaves most pushes to groups with no history.
 const HISTORY_GROUP_COUNT = 1_000_000;
+// The bytes of a hash read as the number a group is drawn by: the most readUIntBE() reads, far past
+// HISTORY_GROUP_COUNT, so the remainder leaves no group noticeably more likely.
+const HASH_DRAW_BYTE_COUNT = 6;
 
 const WORKER: InboxWorker = { host: hostname(), pid: process.pid, workerId: "load-test" };
 
@@ -164,8 +167,11 @@ class InboxLoadTest {
     }
 
     // The polling source pushes what one getUpdates gave: one update or a full batch. Each update goes
-    // to a group of the history drawn at random, so most of the groups have no row in the groups table
-    // and the push inserts it, as for a user who comes back after the cleanup removed their idle group.
+    // to a group of the history drawn by a hash of its update_id, so most of the groups have no row in
+    // the groups table and the push inserts it, as for a user who comes back after the cleanup removed
+    // their idle group. The first push takes the update_id after the last of the layout, so a run over
+    // a layout filled again pushes to the same groups as the run before it: the run with plans=off and
+    // the one with the plans compare.
     private async measurePushes(): Promise<void> {
         const [lastStored] = await this.sql<{ update_id: string }[]>`SELECT max(update_id) AS update_id FROM telegram_inbox`;
         this.nextPushedUpdateId = Number(lastStored!.update_id) + 1;
@@ -186,7 +192,7 @@ class InboxLoadTest {
     // A font sent as a document, as the updates of the fills are.
     private nextPushedUpdate(): InboxUpdateInput {
         const updateId = this.nextPushedUpdateId++;
-        const groupId = randomInt(1, HISTORY_GROUP_COUNT + 1);
+        const groupId = this.drawPushedGroupId(updateId);
         const update: Update = {
             update_id: updateId,
             message: {
@@ -205,6 +211,12 @@ class InboxLoadTest {
         };
 
         return { userId: groupId, chatId: groupId, update: update };
+    }
+
+    private drawPushedGroupId(updateId: number): number {
+        const updateIdHash = createHash("sha256").update(String(updateId)).digest();
+
+        return (updateIdHash.readUIntBE(0, HASH_DRAW_BYTE_COUNT) % HISTORY_GROUP_COUNT) + 1;
     }
 
     // A full batch is followed by another call, as InboxMaintenance does, down to the call that

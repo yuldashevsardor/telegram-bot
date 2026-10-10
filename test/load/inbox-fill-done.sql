@@ -17,12 +17,13 @@
 -- are reached by numbers spread over the whole history, not one after another. The order needs no
 -- sort of the N rows: the inserts go in update_id order, so the table lies in it as well.
 --
--- One update in 200 failed and one in 200 was skipped. The oldest N / 20 000 updates, 12 500 of
--- 250 M, finished past their retention, the rest within the day before the fill, as in
--- outbox-fill-done.sql and for the same reasons: the cleanup has a few full batches to delete and
--- then the call that finds nothing, and the fill stays valid for 6 days. The windows are for the
--- retentions of .env.dist: done and failed 8 days back against INBOX_DONE_RETENTION of 7, skipped 31
--- against INBOX_SKIPPED_RETENTION of 30. A failed update is never deleted, whatever its age.
+-- One update in 200 failed and one in 200 was skipped. The oldest N / :expired_one_in updates,
+-- 12 500 of 250 M at the 20 000 of the Makefile, finished past their retention, the rest within the
+-- day before the fill, as in outbox-fill-done.sql and for the same reasons: the cleanup has a few
+-- full batches to delete and then the call that finds nothing, and the fill stays valid for 6 days.
+-- The windows are for the retentions of .env.dist: done and failed 8 days back against
+-- INBOX_DONE_RETENTION of 7, skipped 31 against INBOX_SKIPPED_RETENTION of 30. A failed update is
+-- never deleted, whatever its age.
 --
 -- The statuses are the values of InboxStatus. Nothing checks them: with another value the cleanup of
 -- the measurement finds nothing to delete, the full batches included.
@@ -123,7 +124,7 @@ FROM (
            inbox_group.group_id,
            inbox_update_status.status,
            CASE
-               WHEN n > :update_count / 20000 THEN now() - interval '1 day' + n * (interval '1 day' / :update_count)
+               WHEN n > :update_count / :expired_one_in THEN now() - interval '1 day' + n * (interval '1 day' / :update_count)
                WHEN inbox_update_status.status = 'skipped' THEN now() - interval '31 days'
                ELSE now() - interval '8 days'
            END AS finished_at

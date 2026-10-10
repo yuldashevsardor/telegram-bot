@@ -35,6 +35,7 @@ export const Tokens = {
             Woff: Symbol.for("FontValidatorWoff"),
             Woff2: Symbol.for("FontValidatorWoff2"),
             Eot: Symbol.for("FontValidatorEot"),
+            SvgTextCodec: Symbol.for("FontValidatorSvgTextCodec"),
         },
         Envelope: {
             Packer: Symbol.for("FontEnvelopePacker"),
@@ -42,6 +43,7 @@ export const Tokens = {
         },
         Engine: {
             FontForge: Symbol.for("FontEngineFontForge"),
+            SvgFontPreparer: Symbol.for("FontEngineSvgFontPreparer"),
         },
     },
     Bot: {

@@ -23,11 +23,8 @@ export class FontValidatorResolver {
         @inject<SfntFontValidator>(Tokens.Font.Validator.Sfnt) sfntFontValidator: SfntFontValidator,
         @inject<EotFontValidator>(Tokens.Font.Validator.Eot) eotFontValidator: EotFontValidator,
     ) {
-        // SVG has no signature: its first bytes say at most "this is markup", not "this is a font",
-        // so its validator reads the whole document. TTF and OTF share the sfnt container, and one
-        // validator checks it under both extensions together with its version, the signature. WOFF,
-        // WOFF2 and EOT have one too, but the validator of each checks it together with the rest of
-        // the file.
+        // TTF and OTF share the sfnt container and one validator. Why, and why no format is checked
+        // by its signature alone: docs/architecture/font-convertor.md, "Signatures".
         this.validatorsByExtension = {
             [Extension.TTF]: sfntFontValidator,
             [Extension.OTF]: sfntFontValidator,

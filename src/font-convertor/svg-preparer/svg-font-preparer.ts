@@ -1,0 +1,302 @@
+import { inject, injectable } from "inversify";
+import { SaxesParser } from "saxes";
+import type { SaxesTagPlain } from "saxes";
+import { UnpreparableSvgFont } from "app/font-convertor/svg-preparer/svg-font-preparer.errors";
+import type { FontGlyph, FontScan, TextEdit, TextSpan } from "app/font-convertor/svg-preparer/svg-font-preparer.types";
+import type { Encoding, SvgTextCodec } from "app/font-convertor/validator/svg/svg-text-codec";
+import { FileHelper } from "app/shared/fs/file-helper";
+import { Tokens } from "app/shared/tokens";
+
+/**
+ * Writes a copy of an SVG font that the engine reads as SVG 1.1 does, and answers the indexes of the
+ * glyphs SVG 1.1 maps to no code point, whose code points the engine script takes off. fontforge
+ * 20230101 misreads the advance a glyph leaves to `<font>` and a glyph with `arabic-form`. The edits
+ * of the copy, why each, and what else of the file stays as it is: `docs/architecture/font-convertor.md`,
+ * "Reading SVG".
+ *
+ * The source has passed `SvgFontValidator`, and the preparer leans on its rules: the document is
+ * XML, it holds one `font` with `horiz-adv-x`, the font nodes are SVG elements, and their attributes
+ * are unprefixed. So the elements are matched by their local names, past the namespaces.
+ */
+@injectable()
+export class SvgFontPreparer {
+    private static readonly GLYPH_NAMES: ReadonlyArray<string> = ["glyph", "missing-glyph"];
+    // The values of `arabic-form` fontforge knows, `terminal` once the copy writes it as `final`; it
+    // reads a glyph with any other value under the letter, as one without the attribute.
+    private static readonly ARABIC_FORMS: ReadonlyArray<string> = ["initial", "medial", "terminal", "final", "isolated"];
+    private static readonly ALEF_MAKSURA = "\u0649";
+    // The two forms the table of fontforge maps to the letter itself.
+    private static readonly ALEF_MAKSURA_PRESENTATION_FORMS: ReadonlyMap<string, number> = new Map([
+        ["initial", 0xfbe8],
+        ["medial", 0xfbe9],
+    ]);
+
+    public constructor(@inject<SvgTextCodec>(Tokens.Font.Validator.SvgTextCodec) private readonly textCodec: SvgTextCodec) {}
+
+    /**
+     * Answers the indexes of the glyph elements SVG 1.1 maps to no code point, counting the `glyph`
+     * and `missing-glyph` children of `<font>` in document order: every `missing-glyph`, and a `glyph`
+     * whose `unicode` is not one character, which with several characters is a ligature of them
+     * (§20.4, §20.5).
+     */
+    public async prepare(sourcePath: string, preparedPath: string): Promise<Array<number>> {
+        const sourceBytes = await FileHelper.read(sourcePath);
+        const encoding = this.textCodec.encodingOf(sourceBytes);
+        const sourceText = this.decode(sourcePath, sourceBytes, encoding);
+        const fontScan = this.scan(sourcePath, sourceText);
+
+        const preparedText = this.prepareText(sourceText, fontScan);
+
+        await FileHelper.write(preparedPath, this.textCodec.encode(preparedText, encoding));
+        // fontforge stamps the font it writes with the modification time of the file it reads, so the
+        // result keeps the time of the source.
+        await FileHelper.copyTimes(sourcePath, preparedPath);
+
+        return this.unencodedGlyphIndexes(fontScan.fontGlyphs);
+    }
+
+    private decode(sourcePath: string, sourceBytes: Uint8Array, encoding: Encoding): string {
+        try {
+            return this.textCodec.decode(sourceBytes, encoding);
+        } catch (error) {
+            throw UnpreparableSvgFont.byEncoding(sourcePath, error as Error);
+        }
+    }
+
+    private prepareText(sourceText: string, fontScan: FontScan): string {
+        const { fontAdvance, fontGlyphs } = fontScan;
+
+        // SvgFontValidator requires `horiz-adv-x` of `font`.
+        if (fontAdvance === undefined) {
+            return sourceText;
+        }
+
+        const glyphs = fontGlyphs.filter((fontGlyph) => !this.isReadAsNotdef(fontGlyph));
+        const presentationFormCodePoints = this.presentationFormCodePointsOf(glyphs);
+        const readUnderLetter = this.unicodeValuesReadUnderLetter(glyphs, presentationFormCodePoints);
+        const edits: Array<TextEdit> = [];
+
+        for (const glyph of glyphs) {
+            edits.push(...this.arabicFormEdits(glyph, presentationFormCodePoints, readUnderLetter));
+        }
+
+        for (const fontGlyph of fontGlyphs) {
+            if (fontGlyph.attributes["horiz-adv-x"] === undefined) {
+                const endIndex = fontGlyph.startTagEndIndex;
+                edits.push({ fromIndex: endIndex, toIndex: endIndex, text: ` horiz-adv-x="${fontAdvance}"` });
+            }
+        }
+
+        return this.edited(sourceText, edits);
+    }
+
+    private scan(sourcePath: string, sourceText: string): FontScan {
+        // Without namespaces saxes does not need the prefixes the SVG 1.1 DTD fixes, which
+        // SvgFontValidator binds itself.
+        const parser = new SaxesParser<{ xmlns: false; forceXMLVersion: true; defaultXMLVersion: "1.0" }>({
+            xmlns: false,
+            forceXMLVersion: true,
+            defaultXMLVersion: "1.0",
+        });
+        const openNames: Array<string> = [];
+        const fontScan: FontScan = { fontAdvance: undefined, fontGlyphs: [] };
+        // saxes counts its position in UTF-16 units, as the indexes of a string go.
+        let attributeSpans = new Map<string, TextSpan>();
+        let attributesEndIndex = 0;
+
+        parser.on("error", () => {
+            throw UnpreparableSvgFont.byParser(sourcePath);
+        });
+        parser.on("opentagstart", () => {
+            // The event comes once the character after the name is read: whitespace, or the end of a
+            // tag without attributes.
+            attributeSpans = new Map();
+            attributesEndIndex = parser.position;
+        });
+        parser.on("attribute", (attribute) => {
+            // The event comes once the closing quote of the value is read, so an attribute reaches
+            // back to the end of the one before it.
+            attributeSpans.set(attribute.name, { fromIndex: attributesEndIndex, toIndex: parser.position });
+            attributesEndIndex = parser.position;
+        });
+        parser.on("opentag", (tag) => {
+            const name = this.localName(tag);
+            const parentName = openNames.at(-1);
+
+            openNames.push(name);
+
+            if (name === "font") {
+                fontScan.fontAdvance = tag.attributes["horiz-adv-x"];
+            }
+
+            if (parentName === "font" && SvgFontPreparer.GLYPH_NAMES.includes(name)) {
+                fontScan.fontGlyphs.push({
+                    name: name,
+                    attributes: tag.attributes,
+                    attributeSpans: attributeSpans,
+                    // The event comes once the closing `>` is read, and `/>` has no whitespace inside.
+                    startTagEndIndex: parser.position - (tag.isSelfClosing ? "/>".length : ">".length),
+                });
+            }
+        });
+        parser.on("closetag", () => openNames.pop());
+
+        parser.write(sourceText).close();
+
+        return fontScan;
+    }
+
+    private unencodedGlyphIndexes(fontGlyphs: ReadonlyArray<FontGlyph>): Array<number> {
+        const unencodedGlyphIndexes: Array<number> = [];
+
+        for (const [glyphIndex, fontGlyph] of fontGlyphs.entries()) {
+            if (this.isUnencoded(fontGlyph)) {
+                unencodedGlyphIndexes.push(glyphIndex);
+            }
+        }
+
+        return unencodedGlyphIndexes;
+    }
+
+    private isUnencoded(fontGlyph: FontGlyph): boolean {
+        const unicodeValue = fontGlyph.attributes["unicode"];
+
+        return this.isReadAsNotdef(fontGlyph) || unicodeValue === undefined || !this.isSingleCodePoint(unicodeValue);
+    }
+
+    // fontforge reads <missing-glyph> as .notdef, whatever its unicode and form say.
+    private isReadAsNotdef(fontGlyph: FontGlyph): boolean {
+        return fontGlyph.name === "missing-glyph";
+    }
+
+    // fontforge counts the characters of `unicode` as code points, so a character outside the BMP,
+    // two UTF-16 units, is one.
+    private isSingleCodePoint(unicodeValue: string): boolean {
+        return [...unicodeValue].length === 1;
+    }
+
+    // The code point each initial or medial glyph of U+0649 goes under in the copy. A glyph already
+    // under the presentation form keeps it alone, one this copy writes there included, and this one
+    // stays under the letter, as fontforge reads it.
+    private presentationFormCodePointsOf(glyphs: ReadonlyArray<FontGlyph>): Map<FontGlyph, number> {
+        const takenUnicodeValues = new Set<string>();
+        const presentationFormCodePoints = new Map<FontGlyph, number>();
+
+        for (const glyph of glyphs) {
+            const unicodeValue = glyph.attributes["unicode"];
+
+            if (unicodeValue !== undefined) {
+                takenUnicodeValues.add(unicodeValue);
+            }
+        }
+
+        for (const glyph of glyphs) {
+            const presentationFormCodePoint = this.alefMaksuraPresentationFormCodePoint(glyph);
+
+            if (presentationFormCodePoint === undefined) {
+                continue;
+            }
+
+            const presentationForm = String.fromCodePoint(presentationFormCodePoint);
+
+            if (takenUnicodeValues.has(presentationForm)) {
+                continue;
+            }
+
+            takenUnicodeValues.add(presentationForm);
+            presentationFormCodePoints.set(glyph, presentationFormCodePoint);
+        }
+
+        return presentationFormCodePoints;
+    }
+
+    // The `unicode` values of the glyphs of the source fontforge reads under the value as it is written,
+    // with a form or not: the edits of the copy move none of these glyphs.
+    private unicodeValuesReadUnderLetter(
+        glyphs: ReadonlyArray<FontGlyph>,
+        presentationFormCodePoints: ReadonlyMap<FontGlyph, number>,
+    ): Set<string> {
+        const readUnderLetter = new Set<string>();
+
+        for (const glyph of glyphs) {
+            const unicodeValue = glyph.attributes["unicode"];
+            const form = glyph.attributes["arabic-form"];
+
+            if (unicodeValue === undefined || presentationFormCodePoints.has(glyph)) {
+                continue;
+            }
+
+            const hasKnownForm = form !== undefined && SvgFontPreparer.ARABIC_FORMS.includes(form);
+            const isAlefMaksuraFormLeftInPlace = this.alefMaksuraPresentationFormCodePoint(glyph) !== undefined;
+
+            if (!hasKnownForm || isAlefMaksuraFormLeftInPlace) {
+                readUnderLetter.add(unicodeValue);
+            }
+        }
+
+        return readUnderLetter;
+    }
+
+    private alefMaksuraPresentationFormCodePoint(glyph: FontGlyph): number | undefined {
+        const form = glyph.attributes["arabic-form"];
+
+        if (glyph.attributes["unicode"] !== SvgFontPreparer.ALEF_MAKSURA || form === undefined) {
+            return undefined;
+        }
+
+        return SvgFontPreparer.ALEF_MAKSURA_PRESENTATION_FORMS.get(form);
+    }
+
+    private arabicFormEdits(
+        glyph: FontGlyph,
+        presentationFormCodePoints: ReadonlyMap<FontGlyph, number>,
+        readUnderLetter: ReadonlySet<string>,
+    ): Array<TextEdit> {
+        const unicodeValue = glyph.attributes["unicode"];
+        const form = glyph.attributes["arabic-form"];
+        const unicodeSpan = glyph.attributeSpans.get("unicode");
+        const formSpan = glyph.attributeSpans.get("arabic-form");
+
+        if (unicodeValue === undefined || form === undefined || unicodeSpan === undefined || formSpan === undefined) {
+            return [];
+        }
+
+        const presentationFormCodePoint = presentationFormCodePoints.get(glyph);
+
+        if (presentationFormCodePoint !== undefined) {
+            return [
+                { ...unicodeSpan, text: ` unicode="&#x${presentationFormCodePoint.toString(16).toUpperCase()};"` },
+                { ...formSpan, text: "" },
+            ];
+        }
+
+        if (form === "terminal") {
+            return [{ ...formSpan, text: ' arabic-form="final"' }];
+        }
+
+        // fontforge reads the form of one code point only: a ligature keeps its attribute.
+        if (form === "isolated" && this.isSingleCodePoint(unicodeValue) && !readUnderLetter.has(unicodeValue)) {
+            return [{ ...formSpan, text: "" }];
+        }
+
+        return [];
+    }
+
+    private edited(sourceText: string, edits: ReadonlyArray<TextEdit>): string {
+        // The edits do not overlap: each is an attribute of a start tag or the end of one.
+        const editsInTextOrder = [...edits].sort((left, right) => left.fromIndex - right.fromIndex);
+        let editedText = "";
+        let copiedUpTo = 0;
+
+        for (const edit of editsInTextOrder) {
+            editedText += sourceText.slice(copiedUpTo, edit.fromIndex) + edit.text;
+            copiedUpTo = edit.toIndex;
+        }
+
+        return editedText + sourceText.slice(copiedUpTo);
+    }
+
+    private localName(tag: SaxesTagPlain): string {
+        return tag.name.slice(tag.name.indexOf(":") + 1);
+    }
+}

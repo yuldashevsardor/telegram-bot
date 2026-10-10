@@ -1320,8 +1320,8 @@ describe("InboxStore", function () {
                 expect(await drain(store)).to.deep.equal(behindIds);
             });
 
-            // A ready group with no head would be claimed by nothing, and a loop of the handler would
-            // spin on it.
+            // A ready group with no head would take a place among the groups of a claim and give out
+            // nothing (docs/architecture/inbox.md, "Claim").
             it("leaves a group idle when the skipped update was its only active one", async function () {
                 const { failedId } = await blockGroup(10);
 

@@ -5,7 +5,9 @@ font. They are the input for manual conversion runs, for `/font_generator` and f
 specs need real fonts: the validators need real headers, not invented ones, and the pairs convert
 real fonts. Which specs take the fixtures — `grep -rl fixtures test --include='*.spec.ts'`.
 
-In the directories, a font each, the corpus of real fonts ("The corpus" below). No spec takes it.
+In the directories, a font each, the corpus of real fonts ("The corpus" below). Of the specs only
+`font-forge.spec.ts` takes some of its fonts, for the ligatures and Arabic forms Roboto does not
+have.
 
 The conversion check of `make test-fonts` (`test/conversion/conversion.check.ts`) takes every font
 of both: it converts each into every format the pair table takes it to and compares the facts of
@@ -20,11 +22,13 @@ The base format is `test-font.ttf`, and the rest is made from it. `test-font.ttf
 byte for byte, as fontforge made them in 2022. Only `test-font.woff2` and `test-font.eot` were
 made anew: these two turned out not to be in their own format.
 
-WOFF2 is made in the application image with the regular conversion script
-(`FontForge.convertScript`). So are OTF, WOFF and SVG, should a replacement be needed. The bot
-writes SVG with `FontForge.convertToSvgScript`, which copies some glyphs first; measured with
-fontforge 20230101, it writes the same 1296 glyphs from `test-font.ttf` as the command below, since
-the font has no glyph it copies:
+WOFF2 is made in the application image with the command below, and so are OTF, WOFF and SVG, should
+a replacement be needed. The command does what the regular conversion script
+`FontForge.convertScript` does for a source that is not SVG: the part of that script that takes code
+points off runs only for an SVG source, given the list of its unencoded glyphs as a third argument.
+The bot writes SVG with `FontForge.convertToSvgScript`, which copies some glyphs first; measured
+with fontforge 20230101, it writes the same 1296 glyphs from `test-font.ttf` as the command below,
+since the font has no glyph it copies:
 
 ```sh
 fontforge -c 'import fontforge, sys; font = fontforge.open(sys.argv[1]); font.generate(sys.argv[2])' \
@@ -34,10 +38,11 @@ fontforge -c 'import fontforge, sys; font = fontforge.open(sys.argv[1]); font.ge
 A re-run will not give the bytes that lie here: fontforge writes its version and build date into
 the headers. So a replacement is checked by the signs of its format below, not by a hash, and by a
 `make test` run. `font-forge-convertor.spec.ts` converts every fixture except EOT with the real
-fontforge into every other format except EOT, the EOT fixture into SVG, and sources made from the
-SVG fixture into every other format, EOT included. So a replacement the engine cannot open fails
-the spec even when its validator accepts it. A replacement whose facts convert differently fails
-`make test-fonts`: its list of expected differences was measured on the fixtures that lie here.
+fontforge into every other format except EOT, the EOT fixture into SVG, the compressed EOT fixture
+into WOFF, and sources made from the SVG fixture into every other format, EOT included. So a
+replacement the engine cannot open fails the spec even when its validator accepts it. A replacement
+whose facts convert differently fails `make test-fonts`: its list of expected differences was
+measured on the fixtures that lie here.
 
 `test-font.eot` cannot be made with this command. fontforge does not know the `.eot` extension
 and silently writes PostScript Type 1 instead of EOT. That is exactly how two fixtures of the

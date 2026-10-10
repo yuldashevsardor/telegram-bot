@@ -52,11 +52,8 @@ export class InboxRunner {
     }
 
     // Stops taking updates and waits for the updates in flight up to stopTimeoutMs from the call, then
-    // aborts the rest. The stop waits for an update outside its handler: one that has not reached it
-    // is released by the processor, one past it is having its outcome written, and both writes need
-    // the database, which is closed after the stop. A handler cannot be cut short: the abort ends the
-    // extension of its lease, and it is left to run on. It writes its outcome if it settles while the
-    // database is open; otherwise the recovery takes its update back after the lease.
+    // aborts the rest: it waits for those outside their handlers and leaves those in them running
+    // (docs/architecture/inbox.md, "The runner").
     public async stop(): Promise<void> {
         this.stopDeadlineAtMs = Date.now() + this.stopTimeoutMs;
         this.isStopping = true;

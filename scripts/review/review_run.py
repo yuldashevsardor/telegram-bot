@@ -13,18 +13,17 @@ code under review. It runs, in this order:
    `rebuild` stops the other container gates: on the old image they would give a green that checked
    nothing, or `Missing script` on a script the PR adds.
 3. The `python` gate, `make review-test` in the tree of the PR: the gate checks the PR's specs.
-4. The `mutation-full` gate. It runs no mutants: `make mutation-full-check pr=<N>`
-   (mutation_batch.py) says whether the issue the PR closes is recorded together with this PR in a
-   batch of the deferred mutation run, and not recorded is red. The check asks GitHub and not the
-   code: it needs no tree, and neither a tree that was not created nor a failed `rebuild` takes it
-   away.
+4. The `mutation-full` gate. It runs no mutants: `make mutation-full-check pr=<N>` says whether
+   the PR is recorded in a batch of the deferred mutation run (`check` in the docstring of
+   mutation_batch.py), and not recorded is red. The check asks GitHub and not the code: it needs no
+   tree, and neither a tree that was not created nor a failed `rebuild` takes it away.
    The new `Stryker disable` marks of the PR diff go to the reviewer to read: whether the reason on
    a mark holds is prose ("Working through survivors" in docs/architecture/testing.md), not a rule.
 5. `make review-tree-remove` whatever the outcome: a red gate, a stop and an interrupt included.
    SIGTERM and SIGHUP are turned into an interrupt, and run_in_group kills the command it waits for
-   together with everything it started; the container of a gate `down --remove-orphans` takes
-   down (tree_remove.py). SIGKILL cannot be
-   caught: the tree it leaves the next run removes (tree_create.py).
+   together with everything it started; the container of a gate `down --remove-orphans` takes down
+   (tree_remove.py). SIGKILL cannot be caught: the tree it leaves the next run removes
+   (tree_create.py).
 
 Only the targets named above run. A gate the action does not know gives a `Not run` line and runs
 nothing: the list is an allowlist, and a new `Makefile` target counts as dangerous until it is
@@ -38,15 +37,15 @@ written in here. Left out on purpose, although they look fitting in a review:
   `test` gate runs `make coverage` and loses nothing: `nyc` runs the same `mocha`, a failed spec is
   printed the same way, and the run fails at 100% coverage too; the report goes to `./coverage`,
   which is in `.gitignore`;
-- `check` runs four gates and the conversion check in one output, while the verdict needs a line
-  per gate.
+- `check` runs five gates in one output, while the verdict needs a line per gate.
 
 `lint` and `format-check` run over the whole repository, without `files=`: `main` is green as a
 whole, so anything red was brought by the PR.
 
 The gates of the reviewer's own reading run no command and are passed over. `make-targets`,
 `scripts` and the comparison of a red gate with `origin/main` are prose in fallback.md of the skill
-for now: each gives a `Not run` line that names that file.
+for now. The two gates give a `Not run` line that names that file; the comparison has no line of
+its own, and the `Red` section is what sends the reviewer there.
 
 The gates come as one argument separated by commas, whitespace or both, and all three forms run
 the same gates: the list reaches the action from `/review-pr` through two skills, each passes it on
@@ -59,7 +58,8 @@ The report prints the "Checks" lines in the shape of the verdict, then `Not run`
 `Not cleaned up`, then "Red" with an excerpt of every red log, then what is the reviewer's to read.
 An excerpt is the tail of the log without the progress of Compose and of the image build, the echo
 of make and npm and the coverage table: they fill the end of a log and explain nothing. For the
-specs it starts at `N failing`. The whole logs lie in the directory the last line names.
+specs and the conversion check it starts at `N failing`. The whole logs lie in the directory the
+last line names.
 """
 
 import os
@@ -84,12 +84,15 @@ CONTAINER = [
     ("build", "build"),
     ("typecheck", "typecheck"),
     ("test", "coverage"),
+    ("test-fonts", "test-fonts"),
     ("lint", "lint"),
     ("format-check", "format-check"),
 ]
 READING = ("docs", "docs-sync", "comments", "bug-hunt-high", "bug-hunt-medium", "smells")
 BY_SKILL = ("make-targets", "scripts")
 KNOWN = [gate for gate, _ in CONTAINER] + ["python", "mutation-full"]
+# The gates whose target runs mocha: their report gives the counts and the excerpt from `N failing`.
+MOCHA = ("test", "test-fonts")
 
 BY_SKILL_REASON = "by fallback.md"
 
@@ -158,7 +161,7 @@ class Report:
         print("Logs: {}".format(logs))
 
 
-def clean(text: str, test: bool) -> List[str]:
+def clean(text: str, gate: str) -> List[str]:
     lines = []
     for line in ANSI.sub("", text).splitlines():
         line = line.rstrip()
@@ -166,8 +169,9 @@ def clean(text: str, test: bool) -> List[str]:
             continue
         if BUILD_STEP.match(line) and not MEANINGFUL.search(line):
             continue
-        # The coverage table of nyc: a row per file, its columns split by `|`.
-        if test and line.count("|") >= 3:
+        # The coverage table of nyc, which only `make coverage` of the `test` gate prints: a row per
+        # file, its columns split by `|`.
+        if gate == "test" and line.count("|") >= 3:
             continue
         if not line and (not lines or not lines[-1]):
             continue
@@ -177,11 +181,11 @@ def clean(text: str, test: bool) -> List[str]:
     return lines
 
 
-def excerpt(text: str, test: bool, log: str) -> Tuple[str, List[str]]:
+def excerpt(text: str, gate: str, log: str) -> Tuple[str, List[str]]:
     """The first meaningful line of a red log and the lines that explain it."""
-    lines = clean(text, test)
+    lines = clean(text, gate)
     start = next((i for i, line in enumerate(lines) if FAILING.match(line)), None)
-    if test and start is not None:
+    if gate in MOCHA and start is not None:
         part = lines[start:]
         first = lines[start].strip()
         cut = len(part) > EXCERPT
@@ -283,7 +287,7 @@ class ReviewRun:
                 state = "done" if done.returncode == 0 else "fail"
             else:
                 state = "ok" if done.returncode == 0 else "fail"
-            if gate == "test":
+            if gate in MOCHA:
                 plain = ANSI.sub("", text)
                 counts = [
                     "{} {}".format(found[-1], word)
@@ -297,13 +301,13 @@ class ReviewRun:
                     state += " ({})".format(", ".join(counts))
             self.report.checks[gate] = state
             if done.returncode != 0:
-                self.red("make " + target, text, gate == "test", log)
+                self.red("make " + target, text, gate, log)
                 if gate == "rebuild":
                     stopped = "rebuild failed"
 
-    def red(self, command: str, text: str, test: bool, log: str) -> None:
+    def red(self, command: str, text: str, gate: str, log: str) -> None:
         path = os.path.join(self.logs, log)
-        first, lines = excerpt(text, test, path)
+        first, lines = excerpt(text, gate, path)
         self.report.red.append("- {} — {}".format(command, first or "no output"))
         self.report.red.extend("    " + line if line else "" for line in lines)
 
@@ -311,7 +315,7 @@ class ReviewRun:
         done = self.make(["review-test"], self.tree or "", "review-test.log")
         self.report.checks["python"] = "ok" if done.returncode == 0 else "fail"
         if done.returncode != 0:
-            self.red("make review-test", done.stdout or "", False, "review-test.log")
+            self.red("make review-test", done.stdout or "", "python", "review-test.log")
 
     def marks(self) -> None:
         done = self.run(
@@ -386,8 +390,8 @@ class ReviewRun:
                 self.report.skip(gate, why)
         if self.on("mutation-full") and self.report.mutation_full is None:
             self.report.mutation_full = "mutation-full: n-a — {}".format(why)
-        # Only a creation this run began and the interrupt cut short can have left a tree it does not
-        # know of: whatever lies at the path otherwise is somebody else's, and the next
+        # Only a creation this run began and the interrupt cut short can have left a tree it does
+        # not know of: whatever lies at the path otherwise is somebody else's, and the next
         # review-tree-create removes a leftover.
         if self.tree is None and self.creating:
             try:

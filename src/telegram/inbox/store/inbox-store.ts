@@ -89,22 +89,15 @@ export class InboxStore {
         }
     }
 
-    // onReady is called on the commit of every push or completion that leaves a group ready on any
-    // node, and every time the listening starts: the first time and after a reconnect, since a
-    // commit made while the connection was down is heard by no one. Resolves once the listening
-    // starts. LISTEN takes a connection of its own, outside the pool, until Database.close()
-    // (docs/architecture/storage.md).
+    // onReady is called on every ready notification of any node and every time the listening starts
+    // (docs/architecture/inbox.md, "Ready notifications"). Resolves once the listening starts.
     public async listenReady(onReady: () => void): Promise<void> {
         await this.sql.listen(InboxChannel.Ready, () => onReady(), onReady);
     }
 
     // One statement, so it is atomic without a transaction: up to limit ready groups, the head of
-    // each, the groups that waited longest first (docs/architecture/inbox.md, "Claim"). The groups
-    // are limited before their heads are looked up: a ready group always has a pending head, so the
-    // order needs nothing from the head. A group locked by another claimer is skipped, not waited for. A claimed group moves behind the groups
-    // that wait, so they are served in turn. The claimed groups are leased to the caller for
-    // leaseDurationMs under the token of this claim. Each claimed update carries the start of its
-    // attempt and the worker, which its completion writes.
+    // each, the groups that waited longest first, leased under the token of this claim
+    // (docs/architecture/inbox.md, "Claim").
     public async claim(limit: number, worker: InboxWorker): Promise<ClaimedInboxUpdate[]> {
         if (!Number.isSafeInteger(limit) || limit < 1) {
             throw InvalidClaimLimit.of(limit);
@@ -219,18 +212,13 @@ export class InboxStore {
         }));
     }
 
-    // Moves the end of a claimed group's lease to now() plus the lease duration, so a handler that
-    // runs longer than one lease keeps its group. Only a lease that has not passed, under the group's
-    // own token: the recovery tells its lease by the token, so a lease extended after it passed would
-    // let the recovery and the handler both complete the update (docs/architecture/inbox.md, "The
-    // lease"). Returns whether the lease was extended; false means the update is no longer the
-    // caller's to complete, or will not be once the recovery reaches it.
+    // Extends only a lease that has not passed, under the group's own token
+    // (docs/architecture/inbox.md, "The lease"). Returns whether the lease was extended; false means
+    // the update is no longer the caller's to complete, or will not be once the recovery reaches it.
     public async extendLease(lease: InboxLease): Promise<boolean> {
-        // now() is fixed at the start of the statement. The update may wait for the group row a push, a
-        // fenced completion or a refused unblock holds; they only lock the row, so PostgreSQL does not
-        // check it again after the wait: a lease that passes during the wait is still extended
-        // (docs/architecture/inbox.md, "The lease"). An applied completion writes the row, and the
-        // check of the token refuses the extension then.
+        // now() is fixed at the start of the statement, and PostgreSQL does not check a row again after
+        // a wait for a holder that only locked it: a lease that passes during the wait is still
+        // extended (docs/architecture/inbox.md, "The lease").
         const extendedRows = await this.sql`
             UPDATE telegram_inbox_groups
             SET locked_until = now() + ${this.leaseDurationMs}::double precision * interval '1 millisecond',
@@ -253,11 +241,9 @@ export class InboxStore {
     }
 
     // The update goes back to pending, and its group waits delayMs: next_attempt_at of the group holds
-    // it, so the updates behind the update are not claimed before it. The update stays the head, unless
-    // an update pushed with a smaller update_id is before it (docs/architecture/inbox.md, "Push"). The
-    // group is ready again, so the ready channel is notified on commit, as a push does: a worker with
-    // nothing to claim learns of the group from nothing else. A retry with a delay notifies too, before
-    // the group can be claimed, and the end of the delay notifies no one. A fenced retry notifies no one.
+    // it, so the updates behind the update are not claimed before it (docs/architecture/inbox.md,
+    // "Completions"). Every applied retry notifies the ready channel, one with a delay too (same file,
+    // "Ready notifications").
     public async retry(lease: InboxLease, attemptError: InboxAttemptError, delayMs: number): Promise<void> {
         await this.complete(lease, attemptError, async (sql, group) => {
             await this.writeProcessingUpdateOrThrow(
@@ -390,9 +376,7 @@ export class InboxStore {
     }
 
     // One batch of the idle groups; the number deleted. A caller that gets a full batch calls again.
-    // A group another transaction holds is skipped: a push or a completion is changing it. The lock
-    // rechecks the state on the newest version of the row, so a group that a push has made ready
-    // meanwhile is left alone too. A push that waits for a group the removal holds inserts it again
+    // A group a push or a completion holds, or one a push has made ready meanwhile, is left alone
     // (docs/architecture/inbox.md, "Cleanup").
     public async deleteIdleGroups(): Promise<number> {
         const deletedRows = await this.sql`
@@ -510,12 +494,8 @@ export class InboxStore {
     }
 
     // Every completion: the lock of the group, then the fence, then the writes
-    // (docs/architecture/inbox.md, "Completions"). A missing update throws InboxUpdateNotLeased. A lock
-    // token that is not the group's changes nothing and is logged with the error the completion
-    // carried: the lease has passed to another claim, or the group was released by an earlier
-    // completion. A group row that is missing while its update is there changes nothing either and is
-    // logged apart: deleteIdleGroups() removed the group once it went idle, so no lease is left.
-    // Returns the group of an applied completion, null for a fenced one.
+    // (docs/architecture/inbox.md, "Completions"). Returns the group of an applied completion, null
+    // for a fenced one.
     private async complete(
         lease: InboxLease,
         attemptError: InboxAttemptError | null,
@@ -654,11 +634,9 @@ export class InboxStore {
         return sql`attempts || jsonb_build_array(${sql.json(attempt)}::jsonb || jsonb_build_object('finished_at', now()))`;
     }
 
-    // Wakes the workers that sleep with nothing to claim. Through sql of the transaction that made a
-    // group ready, so PostgreSQL delivers it on commit, a worker that wakes up on it sees the group,
-    // and a transaction that rolls back notifies no one. Not sql.notify() of postgres.js: it runs on
-    // the pool whatever sql it is called on (OutboxStore.notifyFinished()). No group in it: the worker
-    // takes what it claims, not what was pushed.
+    // Wakes the workers that sleep with nothing to claim, on the commit of the transaction that made a
+    // group ready (docs/architecture/inbox.md, "Ready notifications"). Not sql.notify() of
+    // postgres.js: it runs on the pool whatever sql it is called on (OutboxStore.notifyFinished()).
     private async notifyReady(sql: TransactionSql): Promise<void> {
         await sql`SELECT pg_notify(${InboxChannel.Ready}, '')`;
     }

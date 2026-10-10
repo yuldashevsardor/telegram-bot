@@ -33,12 +33,9 @@ services:
             - ./tsconfig.json:/app/tsconfig.json
             - ./tsconfig.check.json:/app/tsconfig.check.json
             - ./migrate.json:/app/migrate.json
-            # The hot configuration file: the application polls it and rebuilds the configuration
-            # on an edit (docs/architecture/config.md). The bind mount of a single file holds on
-            # to the inode: an edit in place arrives, a save through a temporary file with a
-            # rename (vim by default) does not. The make targets create the file before compose
-            # runs: Docker would create a missing path as a directory owned by root, and the
-            # application would fail reading the configuration.
+            # The hot configuration file. A save through a rename (vim by default) does not reach
+            # the container, and the file must exist before compose runs: both are in
+            # docs/architecture/config.md, "Watching the file".
             - ./.runtime.env:/app/.runtime.env
             # Otherwise an edit of the Stryker config would silently miss make mutation until
             # make rebuild, as happens with .mocharc.json.

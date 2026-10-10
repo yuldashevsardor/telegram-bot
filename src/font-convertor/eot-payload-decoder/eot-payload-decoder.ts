@@ -4,11 +4,9 @@ import { EotHeader } from "app/font-convertor/eot-header/eot-header";
 import { InvalidEotPayload } from "app/font-convertor/eot-payload-decoder/eot-payload-decoder.errors";
 
 /**
- * Turns FontData into the sfnt it encodes. Under TTEMBED_TTCOMPRESSED FontData is compressed by W3C
- * Member Submission "MicroType Express (MTX) Font Format" (2008), under TTEMBED_XORENCRYPTDATA each
- * byte is XOR 0x50 (EOT, §4.4), and both may be set at once. The decoding is `decompressMtx()` of
- * `mtx-decompressor`, a port of libeot. It sees only FontData: the envelope is parsed by
- * `EotHeader`. The decoding is synchronous and runs on the event loop.
+ * Turns FontData into the sfnt it encodes under the flags of its header. The two encodings and
+ * why `mtx-decompressor` decodes them: docs/architecture/font-convertor.md, "EOT". The decoding is
+ * synchronous and runs on the event loop.
  */
 @injectable()
 export class EotPayloadDecoder {

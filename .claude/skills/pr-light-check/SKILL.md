@@ -1,7 +1,7 @@
 ---
 name: pr-light-check
 description: Light Pull Request review — a mechanical run of the repository checks by the gates passed in, documentation drift in the changed lines and issue compliance, with a verdict and a PR comment. Run by the /review-pr command, and by the pr-deep-review skill as its mechanical part. Not for ordinary work on code and not for checking uncommitted edits.
-allowed-tools: Bash(gh:*), Bash(git:*), Bash(make rebuild), Bash(make build), Bash(make typecheck), Bash(make coverage), Bash(make lint), Bash(make format-check), Bash(make review-run:*), Bash(make help), Bash(make token-status), Bash(make -n:*), Bash(sh -n:*), Bash(docker run:*), Bash(make review-test), Bash(make review-tree-create:*), Bash(make review-tree-remove:*), Bash(scripts/bot-token.sh), Bash(cd:*), Bash(ls:*), Bash(cp:*), Bash(grep:*), Bash(awk:*), Read, Grep, Glob, Write
+allowed-tools: Bash(gh:*), Bash(git:*), Bash(make rebuild), Bash(make build), Bash(make typecheck), Bash(make coverage), Bash(make test-fonts), Bash(make lint), Bash(make format-check), Bash(make review-run:*), Bash(make help), Bash(make token-status), Bash(make -n:*), Bash(sh -n:*), Bash(docker run:*), Bash(make review-test), Bash(make review-tree-create:*), Bash(make review-tree-remove:*), Bash(scripts/bot-token.sh), Bash(cd:*), Bash(ls:*), Bash(cp:*), Bash(grep:*), Bash(awk:*), Read, Grep, Glob, Write
 ---
 
 You run the repository checks over the code of a Pull Request and decide whether it can be
@@ -55,11 +55,10 @@ two, the repository would hold two copies of the checklist, and the first edit w
 
 ## Step 1. The run
 
-A run gate is any of `rebuild`, `build`, `typecheck`, `test`, `lint`, `format-check`, `python`,
-`mutation-full`, `make-targets` and `scripts`. None of them — skip steps 1–2 whole: no checkout,
-no database, no containers. Building a project in which not a single line of executable code
-changed costs minutes and cannot yield a single finding. Step 3 needs no checkout either: it
-reads the diff through `gh`.
+A run gate is any gate of `KNOWN` or `BY_SKILL` in `scripts/review/review_run.py`. None of them —
+skip steps 1–2 whole: no checkout, no database, no containers. Building a project in which not a
+single line of executable code changed costs minutes and cannot yield a single finding. Step 3
+needs no checkout either: it reads the diff through `gh`.
 
 At least one run gate — call the target from the tree you were started in, with every gate as it
 came and the flags:
@@ -69,9 +68,7 @@ make review-run pr=<N> gates="<the gates>" [flags="--no-post"]
 ```
 
 The target takes minutes, longer than the limit of one command. Run it in the background, do step 3
-while it goes and read the report on completion. It takes the head of the PR into a temporary tree,
-runs the gates it knows there, checks under `mutation-full` that the PR's issue is recorded in a
-batch, and removes the tree whatever the outcome. What it runs, in which order and why is in the
+while it goes and read the report on completion. What it runs, in which order and why is in the
 docstring of `scripts/review/review_run.py`. The report:
 
 - `Head:` — the commit the gates ran on.
@@ -92,16 +89,18 @@ The `mutation-full` gate runs no mutants: neither the author nor you runs `make 
 files the PRs changed run once per batch of recorded issues (`docs/agents/review-gates.md`, the
 paragraph on `mutation-full`). Its line:
 
-- `ok — recorded: …` — the issue the PR closes is recorded in a batch together with this PR.
-- `fail — not recorded: …` — red brought by this PR, and it stands in `Red` too.
+- `ok — recorded: …` — the issue the PR closes is recorded in a batch together with this PR, or,
+  when the PR closes no issue, the PR is recorded with whatever issue.
+- `fail — not recorded: …` — red brought by this PR, and it stands in `Red` too. The author records
+  it with `make mutation-full-record issue=<M> pr=<N>`: `<M>` is the issue the PR closes, or for a
+  stage PR that closes none, the parent it links as a bare `#N`.
 - `n-a` with any reason (the batch was not checked, the run was interrupted) — the verdict is
   BLOCKED: nobody checked that the change reaches a batch run.
 
 A new `Stryker disable` mark needs reading. Check its reason against "Working through survivors"
-in `docs/architecture/testing.md`: the mutant is equivalent, or the behaviour is not required and an
-issue is filed for it, and then the mark links to it. The reason does not hold — red brought by
-this PR: put the mark into `Red`. The mark hides a survivor from the batch run too, and at a
-threshold of 100 silencing a survivor with a mark is cheaper than writing a test.
+in `docs/architecture/testing.md`. The reason does not hold — red brought by this PR: put the mark
+into `Red`. The mark hides a survivor from the batch run too, and at a threshold of 100 silencing
+a survivor with a mark is cheaper than writing a test.
 
 ## Step 2. The checks the run leaves to you
 
@@ -242,9 +241,9 @@ opened at the head. A comment read only against the context of its own hunk is n
 finding here counts as a documentation finding in step 5 (`standalone.md`): a comment is
 documentation too.
 
-A `.ts` that changes code means the table was applied wrong and the PR needed the full review. Code
-here is a line of code, a comment and code on the same line, a tool directive, or one of the file
-headers above.
+A `.ts` that changes code means the table was applied wrong and the PR needed the full review. What
+counts as code is in `docs/agents/review-gates.md`, "Comments-only diffs", the file headers above
+included.
 
 - Put the line into the report.
 - In the standalone mode the verdict is BLOCKED (step 5, `standalone.md`).

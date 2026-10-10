@@ -6,6 +6,8 @@ import { EotFontValidator } from "app/font-convertor/validator/eot/eot-font-vali
 import { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
 import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
 import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
+import { SvgTextCodec } from "app/font-convertor/validator/svg/svg-text-codec";
+import { SvgFontPreparer } from "app/font-convertor/svg-preparer/svg-font-preparer";
 import { WoffFontValidator } from "app/font-convertor/validator/woff/woff-font-validator";
 import { Woff2FontValidator } from "app/font-convertor/validator/woff2/woff2-font-validator";
 
@@ -14,7 +16,7 @@ export const FONT_FORGE_PATH = "fontforge";
 
 export function realFontValidatorResolver(): FontValidatorResolver {
     return new FontValidatorResolver(
-        new SvgFontValidator(),
+        new SvgFontValidator(new SvgTextCodec()),
         new WoffFontValidator(new SfntFontValidator()),
         new Woff2FontValidator(new SfntFontValidator()),
         new SfntFontValidator(),
@@ -27,5 +29,9 @@ export function realFontValidatorResolver(): FontValidatorResolver {
  * a spec that checks the results by the same validators.
  */
 export function realConvertorFactory(resolver: FontValidatorResolver): ConvertorFactory {
-    return new ConvertorFactory(new FontForge(FONT_FORGE_PATH), resolver, new EotPacker(new EotPayloadDecoder()));
+    return new ConvertorFactory(
+        new FontForge(new SvgFontPreparer(new SvgTextCodec()), FONT_FORGE_PATH),
+        resolver,
+        new EotPacker(new EotPayloadDecoder()),
+    );
 }

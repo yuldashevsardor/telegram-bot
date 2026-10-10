@@ -115,7 +115,7 @@ export default {
     // "detected".
     timeoutMS: 5000,
     // The threshold is here rather than in the review skill, so any make mutation checks it: the
-    // review gate and the author's run over an area alike, the way any test:coverage checks the nyc
+    // run of a batch and a run over an area alike, the way any test:coverage checks the nyc
     // threshold in package.json. 100, not 99: the score is a percentage of the mutants of the area.
     // 99 over the whole of src/ lets a couple of dozen survivors through, and over an area of twenty
     // mutants none. 100 means "not a single survivor" over an area of any size.
@@ -123,7 +123,7 @@ export default {
     // json is the source of the run record: the make mutation wrapper (test/mutation-run.ts)
     // takes the mutated files, the statuses and the mutants from it, not from the clear-text output.
     reporters: ["clear-text", "progress", "html", "json"],
-    // Otherwise clear-text prints all five hundred-odd tests of the run under the table.
+    // Otherwise clear-text prints every test of the run, more than a thousand, under the table.
     clearTextReporter: { reportTests: false },
     // The sandbox copies the whole project; the volumes with temporary files and reports are of
     // no use to it.

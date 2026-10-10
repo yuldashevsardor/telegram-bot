@@ -1,12 +1,14 @@
 import { RuntimeError } from "app/shared/errors";
-import type { Encoding, Violation } from "app/font-convertor/validator/svg/svg-font-validator.types";
+import type { Violation } from "app/font-convertor/validator/svg/svg-font-validator.types";
+import type { Encoding } from "app/font-convertor/validator/svg/svg-text-codec";
 
 // Text from the file may be of any length, while the error carries it into the log. A quote from
 // it is cut on its own to the first limit: a name in Clark notation keeps that much of its
 // namespace and as much of its local name, a prefixed attribute name that much of its prefix and
-// as much of its local name. The messages of `NotSvg` and `BrokenFont` escape what they keep as in a
-// JSON string, which at most doubles it: of what the parser lets through as XML 1.0, it escapes
-// only tab, LF, CR, `"` and `\`, each as two units. A parser message is cut to the second limit:
+// as much of its local name. The messages of `NotSvg` and `BrokenFont` escape the element, the root
+// and the value they keep as in a JSON string, which at most doubles it: of what the parser lets
+// through as XML 1.0, it escapes only tab, LF, CR, `"` and `\`, each as two units. An attribute
+// name is not escaped: a name holds none of them. A parser message is cut to the second limit:
 // saxes quotes names from the file in it, and `checkEncoding` the declared encoding.
 const MAX_QUOTED_LENGTH = 64;
 const MAX_PARSER_MESSAGE_LENGTH = 200;
@@ -18,8 +20,9 @@ const MAX_PARSER_MESSAGE_LENGTH = 200;
 export class InvalidSvgFont extends RuntimeError {
     /**
      * Keeps the first `maxLength` UTF-16 units of `text` and returns them with the mark of the cut:
-     * `…` when anything was cut, or an empty string. A surrogate pair cut in half becomes U+FFFD: a
-     * lone surrogate is not valid UTF-8 on the way out.
+     * `…` when anything was cut, or an empty string. The mark makes a cut piece one unit longer than
+     * an uncut one can be: that, not the text, tells it from a piece that ends with `…` itself. A
+     * surrogate pair cut in half becomes U+FFFD: a lone surrogate is not valid UTF-8 on the way out.
      */
     protected static clip(text: string, maxLength: number): [kept: string, mark: string] {
         return text.length > maxLength ? [text.slice(0, maxLength).toWellFormed(), "…"] : [text, ""];
@@ -102,7 +105,8 @@ export class NotXml extends InvalidSvgFont {
 export class NotSvg extends InvalidSvgFont {
     /**
      * `root` is in Clark notation, `{namespace}local`. An NCName holds no `}`, so the local name
-     * follows the last one.
+     * follows the last one. `rootLength`, the length of the whole root before the cut, does not say
+     * which of its two pieces was cut.
      */
     public static byRoot(fontPath: string, root: string, expected: string): NotSvg {
         const end = root.lastIndexOf("}");
@@ -124,10 +128,9 @@ export class NoFont extends InvalidSvgFont {
 
 export class BrokenFont extends InvalidSvgFont {
     /**
-     * A cut value ends with `…`. In the payload that makes it one unit longer than an uncut value
-     * can be, and `valueLength`, the length before the cut, says the same: either tells it apart
-     * from a value that ends with `…` itself. In the message the value is escaped by
-     * `JSON.stringify`, which can make it longer, so there the mark stands outside the quotes.
+     * A cut value is told apart in the payload by its length and by `valueLength`, the length
+     * before the cut. In the message the value is escaped by `JSON.stringify`, which can make it
+     * longer, so there the mark stands outside the quotes.
      *
      * Of the element, the local name or the target of a glyph's child and the namespace of one
      * outside the SVG namespace come from the file; of the attribute name, the prefix and the local

@@ -10,6 +10,8 @@ import { Extension } from "app/font-convertor/font-convertor.types";
 import { FontForge } from "app/font-convertor/font-forge/font-forge";
 import { ExecuteError, ExtensionNotSupport } from "app/font-convertor/font-forge/font-forge.errors";
 import { SvgFontValidator } from "app/font-convertor/validator/svg/svg-font-validator";
+import { SvgTextCodec } from "app/font-convertor/validator/svg/svg-text-codec";
+import { SvgFontPreparer } from "app/font-convertor/svg-preparer/svg-font-preparer";
 import { SfntFontValidator } from "app/font-convertor/validator/sfnt/sfnt-font-validator";
 import { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
 import { WoffFontValidator } from "app/font-convertor/validator/woff/woff-font-validator";
@@ -23,11 +25,11 @@ const fixtureDir = path.join(process.cwd(), "test", "fixtures", "fonts");
 const bungeeSpicePath = path.join(fixtureDir, "bungee-spice", "BungeeSpice-Regular.ttf");
 
 describe("FontForge.convert", function () {
-    const fontForge = new FontForge("fontforge");
+    const fontForge = new FontForge(new SvgFontPreparer(new SvgTextCodec()), "fontforge");
     const engineExtensions = new ConvertorFactory(
         fontForge,
         new FontValidatorResolver(
-            new SvgFontValidator(),
+            new SvgFontValidator(new SvgTextCodec()),
             new WoffFontValidator(new SfntFontValidator()),
             new Woff2FontValidator(new SfntFontValidator()),
             new SfntFontValidator(),
@@ -142,6 +144,109 @@ describe("FontForge.convert", function () {
         expect(await FileHelper.isExist(distPath)).to.be.false;
     });
 
+    // fontforge gives a glyph that leaves horiz-adv-x out the em when <font> says 0, and drops it when
+    // it has no outline either (issue #913). It reads a prepared copy instead.
+    it("reads an SVG glyph that leaves its advance to <font> as SVG 1.1 does", async function () {
+        const srcPath = path.join(workDir, "font.svg");
+        const distPath = path.join(workDir, "result.ttf");
+        await fs.writeFile(
+            srcPath,
+            '<svg xmlns="http://www.w3.org/2000/svg"><font horiz-adv-x="0"><font-face units-per-em="1000" ascent="800" descent="-200"/>' +
+                '<glyph unicode="a" horiz-adv-x="500" d="M0 0h400v700h-400z"/><glyph unicode="&#x300;" d="M0 600h100v100h-100z"/>' +
+                '<glyph unicode="&#x200B;"/></font></svg>',
+        );
+
+        await fontForge.convert(srcPath, distPath);
+
+        // The result is a TTF, which fontforge reads right; a code point without a glyph prints null.
+        const widthsScript = [
+            "import fontforge, json, sys",
+            "widths = {glyph.unicode: glyph.width for glyph in fontforge.open(sys.argv[1]).glyphs()}",
+            "print(json.dumps([widths.get(0x0300), widths.get(0x200b)]))",
+        ].join("\n");
+        const { stdout } = await ProcessHelper.run("fontforge", ["-c", widthsScript, distPath]);
+        expect(JSON.parse(stdout)).to.deep.equal([0, 0]);
+    });
+
+    // fontforge reads a glyph with arabic-form under the presentation form its table gives, a terminal
+    // form and the initial and medial forms of U+0649 under the letter itself (issue #924). It reads a
+    // prepared copy instead.
+    it("reads an SVG glyph with an arabic form under the letter SVG 1.1 gives it", async function () {
+        const srcPath = path.join(workDir, "font.svg");
+        const distPath = path.join(workDir, "result.ttf");
+        await fs.writeFile(
+            srcPath,
+            '<svg xmlns="http://www.w3.org/2000/svg"><font horiz-adv-x="0"><font-face units-per-em="1000" ascent="800" descent="-200"/>' +
+                '<glyph unicode="&#x627;" arabic-form="isolated" horiz-adv-x="100"/><glyph unicode="&#x627;" arabic-form="terminal" horiz-adv-x="110"/>' +
+                '<glyph unicode="&#x628;" arabic-form="isolated" horiz-adv-x="200"/><glyph unicode="&#x628;" horiz-adv-x="210"/>' +
+                '<glyph unicode="&#x649;" arabic-form="initial" horiz-adv-x="300"/><glyph unicode="&#x649;" arabic-form="medial" horiz-adv-x="310"/>' +
+                '<glyph unicode="&#x649;" horiz-adv-x="320"/></font></svg>',
+        );
+
+        await fontForge.convert(srcPath, distPath);
+
+        // The result is a TTF, which fontforge reads right: the width of each encoded glyph by its code point.
+        const widthsScript = [
+            "import fontforge, json, sys",
+            "widths = {glyph.unicode: glyph.width for glyph in fontforge.open(sys.argv[1]).glyphs() if glyph.unicode != -1}",
+            "print(json.dumps(sorted(widths.items())))",
+        ].join("\n");
+        const { stdout } = await ProcessHelper.run("fontforge", ["-c", widthsScript, distPath]);
+        expect(JSON.parse(stdout)).to.deep.equal([
+            [0x0627, 100],
+            [0x0628, 210],
+            [0x0649, 320],
+            [0xfbe8, 300],
+            [0xfbe9, 310],
+            [0xfe8e, 110],
+            [0xfe8f, 200],
+        ]);
+    });
+
+    // fontforge gives such a glyph the code point of its ligature or the one its name spells, and
+    // <missing-glyph> U+0000 (issue #925).
+    it("keeps unencoded the SVG glyphs that SVG 1.1 maps to no code point", async function () {
+        const srcPath = path.join(workDir, "font.svg");
+        const distPath = path.join(workDir, "result.ttf");
+        await fs.writeFile(
+            srcPath,
+            '<svg xmlns="http://www.w3.org/2000/svg"><font horiz-adv-x="500"><font-face units-per-em="1000" ascent="800" descent="-200"/>' +
+                '<glyph glyph-name="uni0041"/><glyph unicode="A" glyph-name="A" d="M0 0h400v700h-400z"/><glyph glyph-name="Ldot"/>' +
+                '<glyph unicode="fi" glyph-name="f_i"/><glyph unicode="ft"/><missing-glyph/><glyph glyph-name=".null"/></font></svg>',
+        );
+
+        await fontForge.convert(srcPath, distPath);
+
+        // The result is a TTF, which fontforge reads by its cmap, and its post table keeps the names:
+        // uni0041 and A both spell U+0041, so the name tells which of them has it.
+        const encodingScript = [
+            "import fontforge, json, sys",
+            "glyphs = list(fontforge.open(sys.argv[1]).glyphs())",
+            "print(json.dumps([len(glyphs), [[glyph.glyphname, glyph.unicode] for glyph in glyphs if glyph.unicode != -1]]))",
+        ].join("\n");
+        const { stdout } = await ProcessHelper.run("fontforge", ["-c", encodingScript, distPath]);
+        // The seven glyphs of the source and nonmarkingreturn, which fontforge adds writing TrueType.
+        expect(JSON.parse(stdout)).to.deep.equal([8, [["A", 0x41]]]);
+    });
+
+    it("removes the prepared copy of an SVG source and its list of unencoded glyphs after a success and after a failure", async function () {
+        const srcPath = path.join(workDir, "font.svg");
+        await fs.copyFile(fixture(Extension.SVG), srcPath);
+
+        await fontForge.convert(srcPath, path.join(workDir, "result.ttf"));
+
+        // fontforge does not open a font without units-per-em: the copy is prepared, the engine fails.
+        const brokenPath = path.join(workDir, "broken.svg");
+        await fs.writeFile(brokenPath, '<svg xmlns="http://www.w3.org/2000/svg"><font horiz-adv-x="0"><font-face/><glyph/></font></svg>');
+
+        const error = await rejectionOf(() => fontForge.convert(brokenPath, path.join(workDir, "broken.otf")));
+
+        expect(error).to.be.instanceOf(ExecuteError);
+        // The engine read the copy, gone by now: the error names the source the conversion was given.
+        expect((error as ExecuteError).payload).to.deep.equal({ path: brokenPath });
+        expect((await fs.readdir(workDir)).sort()).to.deep.equal(["broken.svg", "font.svg", "result.ttf"]);
+    });
+
     it("wraps a failure of the engine", async function () {
         const srcPath = path.join(workDir, "garbage.ttf");
         await fs.writeFile(srcPath, Uint8Array.from([1, 2, 3, 4]));
@@ -150,6 +255,17 @@ describe("FontForge.convert", function () {
 
         expect(error).to.be.instanceOf(ExecuteError);
         expect((error as ExecuteError).cause).to.be.instanceOf(ProcessFailed);
+        expect((error as ExecuteError).payload).to.deep.equal({ path: srcPath });
+    });
+
+    it("names the source it is given in place of the file it reads", async function () {
+        const srcPath = path.join(workDir, "garbage.ttf");
+        const eotPath = path.join(workDir, "font.eot");
+        await fs.writeFile(srcPath, Uint8Array.from([1, 2, 3, 4]));
+
+        const error = await rejectionOf(() => fontForge.convert(srcPath, path.join(workDir, "result.otf"), { sourcePath: eotPath }));
+
+        expect((error as ExecuteError).payload).to.deep.equal({ path: eotPath });
     });
 
     // The attributes of each <glyph> element by its name, read by an XML parser: the specs check the

@@ -20,6 +20,7 @@ once.
 | `package.json`, `package-lock.json`, `Dockerfile`, `.eslintrc.js`, `.prettierrc.js`, `.mocharc.json` | `rebuild` |
 | any `.ts`, `tsconfig.json`, `tsconfig.check.json`, an eslint or prettier config | `build`, `typecheck`, `lint`, `format-check` |
 | any `.ts`, `test/**`, `.mocharc.json` | `test` |
+| `.ts` inside `src/font-convertor/`, `test/conversion/`, `test/font-convertor/convertor-factory.helper.ts` — not a comments-only `.ts` diff; `test/fixtures/fonts/**`, `Dockerfile`, `package-lock.json` | `test-fonts` |
 | `Makefile` | `make-targets` |
 | `scripts/*.sh`, `.husky/*` | `scripts` |
 | `scripts/**/*.py` | `python` |
@@ -50,6 +51,7 @@ the file's diff:
 - the `scripts` block touched — `make-targets` too;
 - the `nyc` key touched — `test` too: the config and the coverage threshold the gate checks
   live there;
+- the `test:fonts` script touched — `test-fonts` too: it is the launch of the conversion check;
 - the `mutation` script, the `@stryker-mutator/*` dependencies or `typescript` touched —
   `mutation-full` too.
 
@@ -79,6 +81,9 @@ The recipe is the launch:
 
 Changing any of them changes the outcome of every mutant: the same argument that puts the
 tsconfigs in the row.
+
+The `Makefile` turns on `test-fonts` the same way: the recipe of the `test-fonts` target or the
+`DC_APP_RUN` and `DC_APP` it expands touched.
 
 ## Comments-only diffs
 
@@ -113,13 +118,13 @@ comment changes the outcome of no mutant, while the gate takes a place in a batc
 
 ### `.ts`
 
-A comments-only `.ts` diff turns off `bug-hunt-high`, `smells`, `docs-sync` and the `.ts` part of
-`mutation-full`, and turns on `comments` instead. The `.ts` diff is every `.ts` of the PR taken
-together: one changed line of code in any `.ts`, and every row goes by name, with the full review
-for the whole PR. A `.ts` that is added, deleted, renamed, copied or changes mode is code too,
-whatever its hunks hold, and a rename has no hunks. Renaming a migration breaks the append-only
-rule that only the full review checks. Renaming `test/x.spec.ts` to `test/x.ts` drops its specs
-from the `.mocharc.json` glob while `test` stays green.
+A comments-only `.ts` diff turns off `bug-hunt-high`, `smells`, `docs-sync`, the `.ts` part of
+`mutation-full` and of `test-fonts`, and turns on `comments` instead. The `.ts` diff is every
+`.ts` of the PR taken together: one changed line of code in any `.ts`, and every row goes by name,
+with the full review for the whole PR. A `.ts` that is added, deleted, renamed, copied or changes
+mode is code too, whatever its hunks hold, and a rename has no hunks. Renaming a migration breaks
+the append-only rule that only the full review checks. Renaming `test/x.spec.ts` to `test/x.ts`
+drops its specs from the `.mocharc.json` glob while `test` stays green.
 
 The bug hunt and the smells look at what the code does, and a comment changes nothing it does.
 PRs #522, #523 and #524 changed comments in `.ts` and `*.md`: three rounds of the full review
@@ -137,6 +142,10 @@ search.
 
 The gates that run the code stay on by name. `build`, `typecheck`, `lint`, `format-check` and
 `test` take seconds, and a directive the reading missed still changes their outcome.
+
+`test-fonts` runs code too, yet goes off: it takes about half a minute, and no directive acts on
+it. `tsx` loads the check without checking types, and the directives of eslint, prettier, Stryker
+and istanbul belong to other runs.
 
 `mutation-full` runs code too, in the batch run, yet goes off: its price is not seconds but a place
 in a batch. The status of a mutant changes only through a directive, and a diff that touches one or
@@ -193,9 +202,10 @@ changed in code, a spec standing for the files of `src/` it and its helpers impo
 batch that changed a tool of the run, as the `mutation-full` row of the table names them, sends the
 batch to the whole of `src/`. The author records the issue after the PR is created
 (`make mutation-full-record issue=<M> pr=<N>`), and the review checks the record
-(`make mutation-full-check pr=<N>`): an issue not recorded together with this PR is red. How a
-batch is kept and how its files are chosen is in the docstring of
-`scripts/review/mutation_batch.py`; "comments only" there goes by the rules above.
+(`make mutation-full-check pr=<N>`): an issue not recorded together with this PR is red, and so is
+a PR that closes no issue and has no record of its own. How a batch is kept and how its files are
+chosen is in the docstring of `scripts/review/mutation_batch.py`; "comments only" there goes by the
+rules above.
 
 A run of the PR's own area went until #712, and the owner (2026-09-30) dropped it for its price. It
 was paid on every review round, and parallel sessions on one machine slow each other down 3–8×: on
@@ -212,6 +222,28 @@ The accepted cost of the batch itself: a weak test is found only by the batch ru
 after the PR that brought it, and its survivors are fixed by the session of the batch, not by the
 PR's author. A PR that breaks the run itself (a Stryker update, say) shows that only in the batch
 run too.
+
+## `test-fonts`
+
+The gate runs `make test-fonts`, the conversion check (`docs/architecture/testing.md`, "The
+conversion check"). `make check` runs it too, but the review does not run `make check`: without the
+gate a PR that breaks a conversion would pass the review green whenever its author skipped
+`make check`.
+
+The row is the domain of the convertor, the files of the check itself and the fixtures it
+converts. `Dockerfile` is in it because it decides the Debian release fontforge comes from, and a
+new engine version is exactly what the check is for. It installs `fontforge-nox` without a version,
+so a point update of the package within the release reaches the image through a rebuild alone, and
+no diff turns the gate on for it. `package-lock.json` is in the row for the same reason: the
+convertor runs part of a conversion through npm dependencies (`saxes` parses an SVG source,
+`mtx-decompressor` decompresses a compressed EOT), and a new version of one changes a conversion
+the way a new fontforge does. The file goes by name rather than by content: telling a dependency
+of the convertor from the others would take a reading, and the gate costs less than one.
+
+Code the check imports from outside these paths, `src/shared/process/` that starts the engine among
+it, does not turn the gate on: the `test` gate still runs the real engine through it in
+`font-forge-convertor.spec.ts`, and the check costs about half a minute per round (the timing is in
+`testing.md`).
 
 ## `docs` and `docs-sync`
 

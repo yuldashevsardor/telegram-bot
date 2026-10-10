@@ -41,10 +41,8 @@ type ConvertorMatrix = Partial<Record<Extension, Partial<Record<Extension, () =>
 
 @injectable()
 export class ConvertorFactory {
-    // The only record of what the domain can do: get() picks the convertor from it, and
-    // getSupportedExtensions() derives the supported formats from it. A format declared in
-    // Extension but absent here does not count as supported. An entry builds its pair itself, so
-    // that a pair is handed only the dependencies it uses.
+    // The only record of what the domain can do (docs/architecture/font-convertor.md, "The pair
+    // table"). An entry builds its pair itself, so that a pair is handed only the dependencies it uses.
     private readonly convertors: ConvertorMatrix = {
         [Extension.WOFF]: {
             [Extension.EOT]: () => new WoffToEot(this.fontForge, this.fontValidatorResolver, this.eotPacker),

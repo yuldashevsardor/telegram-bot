@@ -19,11 +19,8 @@ const RELEASE_DELAY_MS = 0;
 export class InboxLeaseReleaser {
     public constructor(@inject<InboxStore>(Tokens.Bot.Inbox.Store) private readonly store: InboxStore) {}
 
-    // An update whose handler the stopping node did not finish, or whose handler a stopped outbox wait
-    // rejected, goes back to pending, and its group is ready for the next claim on any node. The
-    // attempt counts as a transient failure's, although the limit of attempts is not checked: the
-    // stop says nothing about the update, so it blocks no group. The handler must have settled
-    // before: one still running could reply after the next update of the group is handled.
+    // The handler must have settled before: one still running could reply after the next update of
+    // the group is handled (docs/architecture/inbox.md, "Release on stop").
     public async releaseOnStop(lease: InboxLease): Promise<void> {
         await this.store.retry(lease, NODE_STOPPED, RELEASE_DELAY_MS);
     }
