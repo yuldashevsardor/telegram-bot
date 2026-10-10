@@ -192,10 +192,10 @@ export class OutboxStore {
                   AND (paused_until IS NULL OR paused_until <= pulled_at)
             ),
             heads AS (
-                SELECT chats.chat_id, head.id
+                SELECT chats.chat_id, head.id, head.status
                 FROM telegram_outbox_chats AS chats
                 CROSS JOIN LATERAL (
-                    SELECT id
+                    SELECT id, status
                     FROM telegram_outbox
                     WHERE chat_id = chats.chat_id
                       AND status IN ${this.sql(ACTIVE_STATUSES)}
@@ -203,6 +203,7 @@ export class OutboxStore {
                     LIMIT 1
                 ) AS head
                 WHERE chats.state = ${OutboxChatState.Ready}
+                  AND head.status = ${OutboxStatus.Pending}
                   -- By the time of the pull, as the budget: a chat that came due while the pull
                   -- waited for the bot row is taken. Without the row pulled_at is NULL, and so is
                   -- the budget.
@@ -216,12 +217,15 @@ export class OutboxStore {
             ),
             pulled AS (
                 -- The head comes from the snapshot of the statement (docs/architecture/outbox.md, "Pull").
+                -- Its status is matched against the snapshot's, not against pending: the planner
+                -- would read status = pending as a reason to scan every active message through the
+                -- head index, which the statistics of a long history estimate at a few rows.
                 UPDATE telegram_outbox
                 SET status = ${OutboxStatus.Processing},
                     updated_at = pull_time.pulled_at
                 FROM heads, pull_time
                 WHERE telegram_outbox.id = heads.id
-                  AND telegram_outbox.status = ${OutboxStatus.Pending}
+                  AND telegram_outbox.status = heads.status
                 RETURNING telegram_outbox.id, telegram_outbox.chat_id, method, payload, priority,
                           pull_time.pulled_at AS started_at,
                           jsonb_array_length(attempts) AS earlier_attempts

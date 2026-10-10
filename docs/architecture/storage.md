@@ -8,6 +8,14 @@ constructor, and the connection is opened lazily. That is why `Application.setup
 the driver itself prints nothing. With `true` it only makes the fields of a failed query's error
 enumerable, `query` and `parameters` among them. They end up in the `payload` of the log.
 
+Every connection of the pool opens with `jit = off`, a startup parameter (`connection` in the
+options of postgres). PostgreSQL compiles a statement whose plan costs more than `jit_above_cost`,
+100 000 by default, and the cost is an estimate: the outbox pull, which locks 30 chats at most, was
+estimated at 109 608 ready chats to lock in a backlog, past the threshold, and compiling it took
+longer than running it ([`outbox-load-test.md`](./outbox-load-test.md), "The pull").
+`test/platform/database/database.spec.ts` checks the setting. The migrations connect through
+`node-pg-migrate`, not the pool, and keep the default.
+
 ## LISTEN
 
 `sql.listen()` of postgres.js opens a connection of its own, outside the pool, so
