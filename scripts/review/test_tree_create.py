@@ -12,7 +12,8 @@ HEAD = "0123456789abcdef0123456789abcdef01234567"
 
 
 class FakeRun:
-    """Stands for subprocess.run: records the calls and answers make, gh, git and docker by the script."""
+    """Stands for subprocess.run: records the calls and answers make, gh, git and docker by the
+    script."""
 
     def __init__(self, worktrees, **answers):
         self.worktrees = worktrees

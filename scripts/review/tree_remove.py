@@ -25,8 +25,9 @@ worktree of this repository right next to the main one, named `<main>-review-*` 
 main worktree's directory (`telegram-bot-review-556`). The prefix is not written down: renaming
 the directory of the main worktree would leave a literal behind, while the trees next to it
 follow its name. A task worktree lies there too, and nothing forbids naming a task `review-…`,
-so the name alone does not tell them apart; the `tmp/pgsql` symlink does: `scripts/worktree-init.sh` sets it in every
-task worktree, while a review tree gets only a copied `.env` and must never have it.
+so the name alone does not tell them apart; the `tmp/pgsql` symlink does:
+`scripts/worktree-init.sh` sets it in every task worktree, while a review tree gets only a copied
+`.env` and must never have it.
 """
 
 import os
@@ -59,7 +60,8 @@ class NotAReviewTree(Exception):
 
 
 def main_and_worktrees(run: Run) -> List[str]:
-    """The paths of the repository's worktrees, the main one first, as `git worktree list` gives them."""
+    """The paths of the repository's worktrees, the main one first, as `git worktree list` gives
+    them."""
     listed = run(
         ["git", "worktree", "list", "--porcelain"], capture_output=True, text=True
     )

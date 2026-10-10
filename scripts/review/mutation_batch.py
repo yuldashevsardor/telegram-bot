@@ -477,7 +477,8 @@ def parse_run_record(path: str, text: str) -> RunRecord:
 
 def stop_on_no_mutant(path: str, record: RunRecord) -> None:
     # A score of NaN is a run without a single valid mutant, a broken `mutate` glob say: it tested
-    # nothing, and exits with 0 all the same (docs/architecture/testing.md, "Threshold").
+    # nothing, and exits with 0 all the same (docs/architecture/testing.md, "Mutation testing",
+    # "Threshold").
     if record.score == "NaN":
         raise Stop("the run of {} counted no mutant: score=NaN".format(path))
 
