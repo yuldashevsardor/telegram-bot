@@ -4,6 +4,14 @@ description: Light Pull Request review — a mechanical run of the repository ch
 allowed-tools: Bash(gh:*), Bash(git:*), Bash(make rebuild), Bash(make build), Bash(make typecheck), Bash(make coverage), Bash(make test-fonts), Bash(make lint), Bash(make format-check), Bash(make review-run:*), Bash(make help), Bash(make token-status), Bash(make -n:*), Bash(sh -n:*), Bash(docker run:*), Bash(make review-test), Bash(make review-tree-create:*), Bash(make review-tree-remove:*), Bash(scripts/bot-token.sh), Bash(cd:*), Bash(ls:*), Bash(cp:*), Bash(grep:*), Bash(awk:*), Read, Grep, Glob, Write
 ---
 
+<!-- In the source of this file a dollar sign before a digit carries a backslash, and a new one
+must too. Before the model reads a skill, Claude Code replaces a dollar sign followed by a digit
+with the invocation argument of that index, 0-based, inside fenced blocks as well
+(https://code.claude.com/docs/en/skills, "Pass arguments to skills"). An awk field reference is
+the same token: unescaped, the first one turns into the PR number. The backslash is dropped on
+the way, so the commands reach the model as they are written in awk. Checked by invoking the
+skill on Claude Code 2.1.296 (#962). -->
+
 You run the repository checks over the code of a Pull Request and decide whether it can be
 merged.
 
@@ -140,7 +148,7 @@ The `*.md` hunks with the file name on every line — both the added lines and t
 them come from here:
 
 ```bash
-gh pr diff <N> | awk '/^diff --git /{md=0} /^\+\+\+ /{f=substr($0,7); md=(f ~ /\.md$/); next} md && /^[-+ ]/{print f"|"$0}'
+gh pr diff <N> | awk '/^diff --git /{md=0} /^\+\+\+ /{f=substr(\$0,7); md=(f ~ /\.md$/); next} md && /^[-+ ]/{print f"|"\$0}'
 ```
 
 - The reset on `diff --git` is required: the `--- a/<next file>` header comes before `+++`, and
@@ -185,7 +193,7 @@ enumeration in the text from a list. Read yourself, but only the added lines, wh
 the whole output:
 
 ```bash
-… | awk -F'|' '$2 ~ /^\+/'
+… | awk -F'|' '\$2 ~ /^\+/'
 ```
 
 - **A derivable list** is a finding by the rule's criterion. Name in it the command or the file the
@@ -218,10 +226,10 @@ Read the code at the PR head from git objects, not from the tree you were starte
 another branch.
 
 ```bash
-gh pr diff <N> | awk '/^diff --git /{f=$NF; sub(/^b\//,"",f); ts=(f ~ /\.ts$/ || $3 ~ /\.ts$/); h=1; next} /^@@/{h=0} ts && (!h || /^(new|deleted) file mode|^(old|new) mode|^(rename|copy) (from|to) /){print f"|"$0}'
+gh pr diff <N> | awk '/^diff --git /{f=$NF; sub(/^b\//,"",f); ts=(f ~ /\.ts$/ || \$3 ~ /\.ts$/); h=1; next} /^@@/{h=0} ts && (!h || /^(new|deleted) file mode|^(old|new) mode|^(rename|copy) (from|to) /){print f"|"\$0}'
 gh pr view <N> --json headRefOid -q .headRefOid
 git fetch -q origin pull/<N>/head
-git show <sha>:<file> | awk 'NR>=<from> && NR<=<to> {print NR": "$0}'
+git show <sha>:<file> | awk 'NR>=<from> && NR<=<to> {print NR": "\$0}'
 git grep -n -w '<identifier>' <sha>
 ```
 
