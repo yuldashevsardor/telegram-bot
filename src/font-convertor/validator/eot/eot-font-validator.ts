@@ -13,14 +13,11 @@ import { Tokens } from "app/shared/tokens";
 
 /**
  * Checks the EOT envelope against W3C Member Submission "Embedded OpenType (EOT) File Format"
- * (5 March 2008): the fixed part of the header, the blocks of its version and that the font follows
- * them to the end of the file. The header is read through `EotHeader`, the parse the codec reads
- * too. The submission makes the enclosed font part of the format: FontData is "a TrueType or
- * OpenType font" (§3). So it is checked by `SfntFontValidator`, whose answer passes through as is.
- * A compressed or encrypted FontData is decoded for that by `EotPayloadDecoder`, the decoder the
- * codec unpacks it with, so its font is checked before the pair starts, as the font of every other
- * format is. The codec decodes it a second time; the price is in docs/architecture/font-convertor.md,
- * "The EOT validator".
+ * (5 March 2008), then the enclosed font with `SfntFontValidator`, whose answer passes through as
+ * is. The header is read through `EotHeader`, the parse the codec reads too. A compressed or
+ * encrypted FontData is decoded by `EotPayloadDecoder`, the decoder the codec unpacks it with. Why
+ * the enclosed font is checked here, and the price of decoding it twice:
+ * docs/architecture/font-convertor.md, "The EOT validator".
  *
  * Deliberately not checked, as the submission gives a reader no rule for them:
  * - The fields that copy the enclosed font: FontPANOSE, Italic, Weight, fsType, UnicodeRange1..4,
@@ -128,10 +125,10 @@ export class EotFontValidator implements FontValidator {
     }
 
     /**
-     * The blocks of the header's version. The parse rejects a file that ends inside a field it
-     * reads: the Padding or the size of a block, or, in version 0x00020002, EUDCFlags and
-     * EUDCFontSize. That file breaks the rule on the blocks inside the file, and the parse's answer
-     * stays as the cause.
+     * The blocks of the header's version. The parse rejects a file too short for a field it reads:
+     * the Padding or the size of a block, or, in version 0x00020002, EUDCFlags and EUDCFontSize.
+     * That file breaks the rule on the blocks inside the file, and the parse's answer stays as the
+     * cause.
      */
     private readLayout(fontPath: string, header: EotHeader, fileSizeBytes: number): HeaderLayout {
         try {

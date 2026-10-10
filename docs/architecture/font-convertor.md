@@ -293,7 +293,7 @@ unknown version with the codec's `InvalidSfnt`, while the validator names the ru
 
 `SvgFontValidator` (`validator/svg/`, a singleton in the container) reads the whole file and checks
 it against W3C SVG 1.1 Second Edition, chapter 20 "Fonts". SVG 2 removed SVG fonts, so 1.1 is the
-reference. `FontValidatorResolver` gives it out for an SVG source, and its answer leaves the pair
+reference. `FontValidatorResolver` gives it out for an SVG source. Its answer leaves the pair
 unchanged: `FontConvertor` wraps it in `FontConvertorError` as the cause, like any failure of the
 pair. A rejected source never reaches the engine. The engine's SVG output is not checked: the
 validator sees only the source.
@@ -317,168 +317,180 @@ was rejected.
   itself (`resolvePrefix`).
 - **No font, broken font.** Only the fonts are checked against the specification, not the rest of
   the document; the rules that look at the whole document are ours, below. The font nodes inside
-  `font` count only as its direct children in the SVG namespace, and only unprefixed attributes
-  are attributes of these elements. The rules are `FontRule` in
-  `svg-font-validator.types.ts`; the text of each names its section, or says "ours" where fontforge
-  asks more than the specification. Three of ours look at the whole document. It holds one `font`:
-  a second font is the case of the `ttcf` collection above, fontforge 20230101 silently converts the
-  first and drops the rest ([#664](https://github.com/yuldashevsardor/telegram-bot/issues/664)).
-  The names of the font nodes, `FONT_NODE_NAMES` of `SvgFontValidator`, appear in it only on
-  elements of the SVG namespace. fontforge finds these nodes by the local name alone
-  (`_FindSVGFontNodes` and `SVGParseFont` of its `svg.c`), so it reads an element of any namespace
-  and a processing instruction by its target as one of them, past the rules above. And its DOCTYPE
-  has no internal subset: libxml2 gives fontforge the attribute defaults the subset declares, while
-  saxes does not read it, so `<!ATTLIST glyph d CDATA "garbage">` would hand every glyph an outline
-  the validator never sees. Two more of ours hold for the font nodes the rules check. fontforge
-  reads their attributes by the local name too (libxml2 `xmlGetProp`), the first one in any
-  namespace, so a font node has no prefixed attribute at all, whatever its name: a namespace
-  declaration is no attribute. And a `glyph` or `missing-glyph` has no child elements: without `d`
-  fontforge draws the glyph from its children as any SVG (`SVGParseGlyphBody` hands the glyph to
-  `SVGParseSVG`: `g`, `use`, the shapes and `image` by the local name), past every rule here, and
-  next to `d` it drops them, while SVG 1.1 draws both. The rule takes `title` and `desc` too, and
-  it rejects what fontforge itself exports with children (`svg_scpathdump`): a stroked font, whose
-  glyph is a `g` around a `path`, and a multilayer one, whose glyph is nested `g`, `path` and
-  `image` without `d`. The owner took that price for the narrowest rule. A processing instruction
-  in a glyph counts as a child too: libxml2 names it by its target, so `<?path?>` reaches the same
-  dispatch. Measured, fontforge draws such a glyph empty, as one without children, since the
-  instruction has no attributes to read; the rule does not lean on that. None of the six icon fonts
-  checked for #766 (Font Awesome 4.7 and 5, Glyphicons, Ionicons, Material Design Icons, Weather
-  Icons; about 5,000 glyphs) has a child element in a glyph, a prefixed attribute on a font node or
-  an internal subset. Measured on 20230101
-  ([#756](https://github.com/yuldashevsardor/telegram-bot/issues/756),
-  [#766](https://github.com/yuldashevsardor/telegram-bot/issues/766)): an `x:glyph` with
-  `d="garbage"` in a valid font, an `x:d="garbage"` before a valid `d`, or a default `d="garbage"`
-  from the internal subset sends fontforge into a loop that prints
-  `Unknown type 'g' found in path specification` without end; an `x:font-face` without
-  `units-per-em` or a `<?font?>` before the font fails its open; a `<path d="garbage"/>` in a glyph
-  without `d`, or a `use` that refers to its own parent, kills it with a segmentation fault; and an
-  `x:unicode="b"` before `unicode="a"`, or a default `unicode` from the subset, maps the glyph to
-  `b` without a word. The node rule holds in the prologue too, though fontforge reads only below
-  the root: no real font holds such a node. It holds for every name alike: a `<?hkern?>` is
-  rejected, though fontforge, finding no `k` on an instruction, skips it. A foreign element is
-  quoted in Clark notation, `{urn:x}glyph`, so that it does not read as an SVG one, an instruction
-  as `?font?`, the DOCTYPE as `!DOCTYPE`, and a prefixed attribute by its qualified name.
-  The outline, `d` of `glyph` and `missing-glyph`, is read by `readPathData()` (`path-data.ts`)
-  against the path data grammar of §8.3.9, which §20.4 gives it. Numbers there are read greedily,
-  as §8.3.9 requires ("must consume as much of a given BNF production as possible"), and `1.` is a
-  number, unlike in the other attributes. Past the grammar `isOutlineWithinRange()`
-  (`outline-range.ts`) follows the current point through the commands and checks the points of the
-  outline, described below with the other ranges.
-  The kerning pairs, `hkern` and `vkern` children of `font`, are checked against §20.7: each has
-  `k`, a `<number>`, and names both glyphs, by `u1` or `g1` and by `u2` or `g2`; a `g1` or `g2`
-  of commas and XML whitespace alone names none. fontforge
-  (`SVGParseKern`) skips a pair without `k` or without a glyph, and reads the number at the head of
-  `k`, so `12garbage` kerns by 12. One rule is ours: `u1` and `u2` hold one character each.
-  fontforge reads them as a string of characters, not as the comma-separated list of §20.7, so the
-  list `a,b` kerns the comma too, the range `U+0061-0062` kerns nothing, and the
-  ligature `ab` kerns `a` and `b`. The names in `g1` and `g2` are not checked: fontforge splits
-  them at commas and whitespace, as the list of §20.7 is split. A name no glyph has, and a `u1` or
-  `u2` character no glyph has, fontforge drops without a word.
-  Measured on 20230101 for [#776](https://github.com/yuldashevsardor/telegram-bot/issues/776), with
-  24 real SVG fonts with kerning found on GitHub: 20,882 `hkern` and no `vkern`. Every pair has an
-  integer `k` and both glyphs, `u1` and `u2` are always one character, and `g1` and `g2` hold
-  lists in 2,241 pairs. A grammar check of `u1` by §20.7, where the comma separates, would stumble
-  on `u1=","`, which 13 of the 24 fonts hold. None of the fonts breaks a kerning rule; two break
-  older ones, a Batik sample with a `g` in a glyph and a libmsvg sample with `xml:id` on its font.
-  The numbers fontforge carries into the font have a range each, ours, by where fontforge keeps them
-  (`strtod` in its `svg.c`, then a field of the font): past it fontforge writes another value
-  without a word. A range holds the number as written, and `1e999`, out of a double, is past every
-  range. `horiz-adv-x` and `vert-adv-y` of `font`, `glyph` and `missing-glyph` are 0 to 32767:
-  fontforge keeps an advance in a signed 16-bit field, narrower than the unsigned one of `hmtx`, so
-  `32768` makes 0 in a TTF and `70000` makes 4464. `k` is -32767 to 32767: fontforge keeps it
-  negated in the same kind of field, so `40000` kerns by 25536 and `-32768` wraps over to the
-  opposite sign; `32768` would fit, and the range is kept symmetric. A fraction in range is
-  truncated, as in the other fields: `k="12.6"` kerns by 12. `units-per-em` is 16 to 16384,
-  the range of `unitsPerEm` in the OpenType `head` table; fontforge writes 15 or 16385 as it is.
-  The sfnt validator holds the same bound as a rule of its own (`head.unitsPerEm` in
-  [The sfnt validator](#the-sfnt-validator), with the Apple floor of 64 it leaves out): a change of
-  one is weighed against the other.
-  `ascent` and `descent` of `font-face`, numbers by §20.8.3, are -32767 to 32767: fontforge takes
+  `font` count only as its direct children in the SVG namespace. Only unprefixed attributes are
+  attributes of these elements. The rules are `FontRule` in `svg-font-validator.types.ts`; the text
+  of each names its section, or says "ours" where fontforge asks more than the specification.
+
+**Ours, on the whole document.** Three rules:
+
+- The document holds one `font`. A second font is the case of the `ttcf` collection above:
+  fontforge 20230101 silently converts the first and drops the rest
+  ([#664](https://github.com/yuldashevsardor/telegram-bot/issues/664)).
+- The names of the font nodes, `FONT_NODE_NAMES` of `SvgFontValidator`, appear only on elements of
+  the SVG namespace. fontforge finds these nodes by the local name alone (`_FindSVGFontNodes` and
+  `SVGParseFont` of its `svg.c`). So it reads an element of any namespace, and a processing
+  instruction by its target, as one of them, past the rules above. The rule holds in the prologue
+  too, though fontforge reads only below the root: no real font holds such a node. It holds for
+  every name alike: a `<?hkern?>` is rejected, though fontforge, finding no `k` on an instruction,
+  skips it.
+- The DOCTYPE has no internal subset. libxml2 gives fontforge the attribute defaults the subset
+  declares, while saxes does not read it, so `<!ATTLIST glyph d CDATA "garbage">` would hand every
+  glyph an outline the validator never sees.
+
+**Ours, on the font nodes the rules check.** Two rules:
+
+- A font node has no prefixed attribute, whatever its name. fontforge reads the attributes of these
+  nodes by the local name too (libxml2 `xmlGetProp`), the first one in any namespace. A namespace
+  declaration is no attribute.
+- A `glyph` or `missing-glyph` has no child elements. Without `d` fontforge draws the glyph from its
+  children as any SVG (`SVGParseGlyphBody` hands the glyph to `SVGParseSVG`: `g`, `use`, the shapes
+  and `image` by the local name), past every rule here. Next to `d` it drops them, while SVG 1.1
+  draws both. The rule takes `title` and `desc` too. It also rejects what fontforge itself exports
+  with children (`svg_scpathdump`): a stroked font, whose glyph is a `g` around a `path`, and a
+  multilayer one, whose glyph is nested `g`, `path` and `image` without `d`. The owner took that
+  price for the narrowest rule. A processing instruction in a glyph counts as a child too: libxml2
+  names it by its target, so `<?path?>` reaches the same dispatch. Measured, fontforge draws such a
+  glyph empty, as one without children, since the instruction has no attributes to read; the rule
+  does not lean on that.
+
+None of the six icon fonts checked for #766 (Font Awesome 4.7 and 5, Glyphicons, Ionicons,
+Material Design Icons, Weather Icons; about 5,000 glyphs) has a child element in a glyph, a prefixed
+attribute on a font node or an internal subset. What these five rules keep out, measured on 20230101
+([#756](https://github.com/yuldashevsardor/telegram-bot/issues/756),
+[#766](https://github.com/yuldashevsardor/telegram-bot/issues/766)):
+
+- An `x:glyph` with `d="garbage"` in a valid font, an `x:d="garbage"` before a valid `d`, or a
+  default `d="garbage"` from the internal subset sends fontforge into a loop that prints
+  `Unknown type 'g' found in path specification` without end.
+- An `x:font-face` without `units-per-em` or a `<?font?>` before the font fails its open.
+- A `<path d="garbage"/>` in a glyph without `d`, or a `use` that refers to its own parent, kills it
+  with a segmentation fault.
+- An `x:unicode="b"` before `unicode="a"`, or a default `unicode` from the subset, maps the glyph to
+  `b` without a word.
+
+A foreign element is quoted in Clark notation, `{urn:x}glyph`, so that it does not read as an SVG
+one, an instruction as `?font?`, the DOCTYPE as `!DOCTYPE`, and a prefixed attribute by its
+qualified name.
+
+**The outline.** `d` of `glyph` and `missing-glyph` is read by `readPathData()` (`path-data.ts`)
+against the path data grammar of §8.3.9, which §20.4 gives it. Numbers there are read greedily, as
+§8.3.9 requires ("must consume as much of a given BNF production as possible"), and `1.` is a
+number, unlike in the other attributes. Past the grammar `isOutlineWithinRange()`
+(`outline-range.ts`) follows the current point through the commands and checks the points of the
+outline, described below with the other ranges.
+
+**Kerning.** The kerning pairs, `hkern` and `vkern` children of `font`, are checked against §20.7:
+each has `k`, a `<number>`, and names both glyphs, by `u1` or `g1` and by `u2` or `g2`. A `g1` or
+`g2` of commas and XML whitespace alone names none. fontforge (`SVGParseKern`) skips a pair without
+`k` or without a glyph, and reads the number at the head of `k`, so `12garbage` kerns by 12.
+
+One rule is ours: `u1` and `u2` hold one character each. fontforge reads them as a string of
+characters, not as the comma-separated list of §20.7: the list `a,b` kerns the comma too, the range
+`U+0061-0062` kerns nothing, and the ligature `ab` kerns `a` and `b`. The names in `g1` and `g2` are
+not checked: fontforge splits them at commas and whitespace, as the list of §20.7 is split. A name
+no glyph has, and a `u1` or `u2` character no glyph has, fontforge drops without a word.
+
+Measured on 20230101 for [#776](https://github.com/yuldashevsardor/telegram-bot/issues/776), with
+24 real SVG fonts with kerning found on GitHub: 20,882 `hkern` and no `vkern`. Every pair has an
+integer `k` and both glyphs, `u1` and `u2` are always one character, and `g1` and `g2` hold lists in
+2,241 pairs. A grammar check of `u1` by §20.7, where the comma separates, would stumble on
+`u1=","`, which 13 of the 24 fonts hold. None of the fonts breaks a kerning rule. Two break older
+ones: a Batik sample with a `g` in a glyph and a libmsvg sample with `xml:id` on its font.
+
+**Ranges.** The numbers fontforge carries into the font have a range each, ours, by where fontforge
+keeps them (`strtod` in its `svg.c`, then a field of the font): past it fontforge writes another
+value without a word. A range holds the number as written, and `1e999`, out of a double, is past
+every range. A fraction in range is let through: fontforge truncates it (rounds `units-per-em`), and
+real fonts hold fractional advances. One just past a bound is rejected, though fontforge would bring
+`32767.6` back to 32767: no real font comes near a bound.
+
+- `horiz-adv-x` and `vert-adv-y` of `font`, `glyph` and `missing-glyph` are 0 to 32767. fontforge
+  keeps an advance in a signed 16-bit field, narrower than the unsigned one of `hmtx`, so `32768`
+  makes 0 in a TTF and `70000` makes 4464.
+- `k` is -32767 to 32767. fontforge keeps it negated in the same kind of field, so `40000` kerns by
+  25536 and `-32768` wraps over to the opposite sign. `32768` would fit, and the range is kept
+  symmetric. A fraction is truncated as in the other fields: `k="12.6"` kerns by 12.
+- `units-per-em` is 16 to 16384, the range of `unitsPerEm` in the OpenType `head` table; fontforge
+  writes 15 or 16385 as it is. The sfnt validator holds the same bound as a rule of its own
+  (`head.unitsPerEm` in [The sfnt validator](#the-sfnt-validator), with the Apple floor of 64 it
+  leaves out): a change of one is weighed against the other.
+- `ascent` and `descent` of `font-face`, numbers by §20.8.3, are -32767 to 32767. fontforge takes
   them when they add up to `units-per-em` and writes them into signed 16-bit fields, so
-  `ascent="40000" descent="-39000"` gives an ascender of -25536; they are checked whether or not
-  they add up. A fraction is let through: fontforge truncates it (rounds `units-per-em`), and real
-  fonts hold fractional advances. One just past a bound is rejected, though fontforge would bring
-  `32767.6` back to 32767: no real font comes near a bound. The origins, `horiz-origin-x`,
-  `horiz-origin-y`, `vert-origin-x` and `vert-origin-y`, have no range: fontforge does not read
-  them. The other numbers of `font-face`, such as `underline-position` or `slope`, are not checked
-  at all. The numbers of `d` have no range of their own: the font stores points, not these numbers,
-  and a relative command adds to the current point. What is bounded is the points
-  (`isOutlineWithinRange()`; measured on 20230101 for
-  [#798](https://github.com/yuldashevsardor/telegram-bot/issues/798) with about 1,400 random
-  outlines, run through `fontforge.open()` and `generate()` to all four targets, the box of each
-  glyph read back):
-  - A TrueType outline (TTF, WOFF2) stores each point as a signed 16-bit shift from the point
-    before it, from the origin for the first point and from the last point of the contour before
-    for the first point of the next contour. A shift of `32768` wraps: `M0 0l32768 0l0 700z`
-    comes back from -32768 to 0. A CFF outline (OTF, WOFF) shifts the same way, but draws the
-    closing line of a contour and shifts the next moveto from the start of the contour before, so a
-    closing line or a moveto past the range breaks it. The validator does not know which target the
-    font goes to, so a shift past the range in either is rejected.
-  - The box of a glyph, in the `glyf` header and in `hmtx`, is signed 16-bit as well. fontforge
-    reads points past it back right, so a readback does not show it; the file does. For
-    `M30000 0l30000 0l0 700l-30000 0z`, which reaches 60000 through shifts in range, the header
-    says an `xMax` of -5536. So each point must lie in -32767 to 32767 too, however it was reached.
-  - The points checked are the end points, the control points of curves (a curve lies in the hull
-    of its control points), the end point of an arc and the control points a smooth command
-    reflects. Two cases are rejected though fontforge would store them: a control point past the
-    range of a curve whose points are within it, and the controls of two quadratic curves in a row
-    more than 32767 apart. The second is there because a TrueType outline drops the on-curve point
-    between two off-curve ones when it is their midpoint:
-    `M2933 -287q27724 21719 2967 3562t-4115 424Z` comes back 64,000 wide.
-  - An arc is checked by its end point and by its radii, each at most 32767, unless one radius is
-    zero: such an arc is a straight line (§F.6.2), so only its end point counts. The points
-    fontforge builds on it are not followed. A flat arc of the radius 50000 is rejected though
-    fontforge stores it, and `M0 0a30000 30000 0 1 1 700 0z`, a radius in range, is let through
-    though the header of its TTF says a `yMin` of 5538 for a glyph that reaches -59997. Radii from
-    about 46000 broke the readback of OTF and WOFF.
-  - Of about 1,400 outlines, none let through came back wrong in the readback. 300 cubic and 200
-    quadratic ones, built to be let through, had control shifts up to 32000.
-  - A moveto with nothing drawn after it is checked, though fontforge drops it. One result is not
-    explained: `M32767 0l10 0l0 700z` comes back whole from an OTF and empty from a WOFF.
+  `ascent="40000" descent="-39000"` gives an ascender of -25536. They are checked whether or not
+  they add up.
+- The origins, `horiz-origin-x`, `horiz-origin-y`, `vert-origin-x` and `vert-origin-y`, have no
+  range: fontforge does not read them. The other numbers of `font-face`, such as
+  `underline-position` or `slope`, are not checked at all.
+- The numbers of `d` have no range of their own: the font stores points, not these numbers, and a
+  relative command adds to the current point. The points are bounded instead, below.
 
-  Within the ranges of the attributes the targets agree: TTF, OTF, WOFF and WOFF2 were measured, and
-  EOT is built from the TTF. Measured on 20230101 for
-  [#792](https://github.com/yuldashevsardor/telegram-bot/issues/792), with 132 distinct real SVG
-  fonts gathered for the earlier issues: none holds a number past its range, the widest advance is
-  3169, `k` stays within ±1024, and `units-per-em` runs from 96 to 2048. fontforge takes `ascent`
-  and `descent` in 22 of them, and 17 glyph advances in 5 are fractional.
-  The outline rule was run on 163 other real SVG fonts found on GitHub with `gh search code`
-  (8,180 outlines of `glyph` and `missing-glyph`): all are path data, none is rejected.
+**The points of an outline.** `isOutlineWithinRange()` bounds them. Measured on 20230101 for
+[#798](https://github.com/yuldashevsardor/telegram-bot/issues/798) with about 1,400 random outlines,
+run through `fontforge.open()` and `generate()` to all four targets, the box of each glyph read
+back:
 
-XML is parsed with `saxes` (XML 1.0 fifth edition and Namespaces in XML, non-validating). It was
-chosen by measurement, with expat as the reference: of 38 malformed documents it accepted none,
-while `@xmldom/xmldom` 0.9.12 accepted 6 even with every level it reports escalated (`&#0;`, a bare
-`&`, `]]>` in text, a control character, NUL, rebinding the `xml` prefix). Both reject a document
-that uses an entity declared in its own DOCTYPE; none of the 26 distinct real SVG fonts checked
-for [#610](https://github.com/yuldashevsardor/telegram-bot/issues/610) does. The price:
-the repository of `saxes` is archived and the last release is 6.0.0 of 2021, so a bug found in it
-will not be fixed upstream. It loads no external files and expands no entities beyond the
-predefined ones.
+- A TrueType outline (TTF, WOFF2) stores each point as a signed 16-bit shift from the point before
+  it: from the origin for the first point, and from the last point of the contour before for the
+  first point of the next contour. A shift of `32768` wraps: `M0 0l32768 0l0 700z` comes back from
+  -32768 to 0. A CFF outline (OTF, WOFF) shifts the same way, but draws the closing line of a
+  contour and shifts the next moveto from the start of the contour before, so a closing line or a
+  moveto past the range breaks it. The validator does not know which target the font goes to, so a
+  shift past the range in either is rejected.
+- The box of a glyph, in the `glyf` header and in `hmtx`, is signed 16-bit as well. fontforge reads
+  points past it back right, so a readback does not show it; the file does. For
+  `M30000 0l30000 0l0 700l-30000 0z`, which reaches 60000 through shifts in range, the header says
+  an `xMax` of -5536. So each point must lie in -32767 to 32767 too, however it was reached.
+- The points checked are the end points, the control points of curves (a curve lies in the hull of
+  its control points), the end point of an arc and the control points a smooth command reflects.
+  Two cases are rejected though fontforge would store them: a control point past the range of a
+  curve whose points are within it, and the controls of two quadratic curves in a row more than
+  32767 apart. The second is there because a TrueType outline drops the on-curve point between two
+  off-curve ones when it is their midpoint: `M2933 -287q27724 21719 2967 3562t-4115 424Z` comes
+  back 64,000 wide.
+- An arc is checked by its end point and by its radii, each at most 32767, unless one radius is
+  zero: such an arc is a straight line (§F.6.2), so only its end point counts. The points fontforge
+  builds on it are not followed. A flat arc of the radius 50000 is rejected though fontforge stores
+  it, and `M0 0a30000 30000 0 1 1 700 0z`, a radius in range, is let through though the header of
+  its TTF says a `yMin` of 5538 for a glyph that reaches -59997. Radii from about 46000 broke the
+  readback of OTF and WOFF.
+- Of about 1,400 outlines, none let through came back wrong in the readback. 300 cubic and 200
+  quadratic ones, built to be let through, had control shifts up to 32000.
+- A moveto with nothing drawn after it is checked, though fontforge drops it. One result is not
+  explained: `M32767 0l10 0l0 700z` comes back whole from an OTF and empty from a WOFF.
+
+Within the ranges of the attributes the targets agree: TTF, OTF, WOFF and WOFF2 were measured, and
+EOT is built from the TTF. Measured on 20230101 for
+[#792](https://github.com/yuldashevsardor/telegram-bot/issues/792), with 132 distinct real SVG fonts
+gathered for the earlier issues: none holds a number past its range, the widest advance is 3169,
+`k` stays within ±1024, and `units-per-em` runs from 96 to 2048. fontforge takes `ascent` and
+`descent` in 22 of them, and 17 glyph advances in 5 are fractional. The outline rule was run on 163
+other real SVG fonts found on GitHub with `gh search code` (8,180 outlines of `glyph` and
+`missing-glyph`): all are path data, none is rejected.
+
+**The parser.** XML is parsed with `saxes` (XML 1.0 fifth edition and Namespaces in XML,
+non-validating). It was chosen by measurement, with expat as the reference: of 38 malformed
+documents it accepted none, while `@xmldom/xmldom` 0.9.12 accepted 6 even with every level it
+reports escalated (`&#0;`, a bare `&`, `]]>` in text, a control character, NUL, rebinding the `xml`
+prefix). Both reject a document that uses an entity declared in its own DOCTYPE; none of the 26
+distinct real SVG fonts checked for
+[#610](https://github.com/yuldashevsardor/telegram-bot/issues/610) does. The price: the repository
+of `saxes` is archived and the last release is 6.0.0 of 2021, so a bug found in it will not be fixed
+upstream. It loads no external files and expands no entities beyond the predefined ones.
 
 `saxes` is created with `forceXMLVersion`: by the fifth edition of XML 1.0 a document declaring
-another 1.x version is read as 1.0. Without an error handler it throws a bare `Error`; the handler
+another 1.x version is read as 1.0. Without an error handler it throws a bare `Error`. The handler
 turns it into `NotXml`, and the encoding check reports through the same `parser.fail()`. The
 `NotXml` keeps only the message, cut, not the saxes error as its cause: that message quotes names
 from the file, and a cause reaches the log uncut.
 
-Text from the file reaches the log through the answers, so each piece of it is cut
-(`svg-font-validator.errors.ts`): the saxes message to `MAX_PARSER_MESSAGE_LENGTH` UTF-16 units, the
-namespace and the local name of a `NotSvg` root and of a `BrokenFont` element, the target of a
-`BrokenFont` instruction inside its `?…?`, the prefix and the local name of a `BrokenFont`
-attribute, and its value, each to `MAX_QUOTED_LENGTH`. A cut piece ends with `…`, which makes it
-one unit longer than an uncut piece can be: that, not the text, tells it from a piece that ends
-with `…` itself.
-This holds for every piece quoted from the file in the payload and in the `NotXml` message; `path`
-is not text from the file and is not cut. The `NotSvg` and `BrokenFont` messages escape what they
-quote with `JSON.stringify`, which can make it longer. The `BrokenFont` value is escaped inside its
-quotes, and its `…` stands outside them, where the escaped value cannot reach. The quoted element or
-root is escaped without the quotes, so that an XML line end in a namespace does not split the
-message, and a `}` in a namespace stays, since the local name follows the last one; there the length
-tells nothing, and the payload, which keeps the quote unescaped, tells a cut piece. The payload also
-keeps the length before the cut:
-`valueLength` of the value, which, like the length of `value`, tells a cut value, and `rootLength`
-of the whole root, which does not say which of its two pieces was cut. The element and the
-attribute name keep none.
+**Cutting the quotes.** Text from the file reaches the log through the answers, so each piece of it
+is cut (`svg-font-validator.errors.ts`): the saxes message to `MAX_PARSER_MESSAGE_LENGTH` UTF-16
+units; the namespace and the local name of a `NotSvg` root and of a `BrokenFont` element, the target
+of a `BrokenFont` instruction inside its `?…?`, the prefix and the local name of a `BrokenFont`
+attribute, and its value, each to `MAX_QUOTED_LENGTH`. A cut piece ends with `…`. `path` is not text
+from the file and is not cut. How a message escapes a quote, and how a cut piece is told from one
+that ends with `…` itself (by its length, `valueLength` and `rootLength`), is in the comments of
+that file.
 
 ## The WOFF validator
 
@@ -620,7 +632,7 @@ About the envelope it answers with a subclass of `InvalidEotFont` (`eot-font-val
 `validate()`. A file that cannot be read fails with `ReadFailed` of `FileHelper`, not with an answer
 about the font. Every answer names the source in `path` of its payload. Nothing in the answers is
 cut: the only things from the file they quote are numbers. Two answers keep another error as the
-cause. A file that ends inside a field the parse reads (the Padding or the size of a block, or
+cause. A file too short for a field the parse reads (the Padding or the size of a block, or
 `EUDCFlags` and `EUDCFontSize` of version `0x00020002`) keeps the `InvalidEot` of `EotHeader`. A
 `FontData` that does not decode keeps the `InvalidEotPayload` of the decoder (below).
 
