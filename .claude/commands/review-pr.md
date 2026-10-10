@@ -48,8 +48,8 @@ comments-only `.ts` diff. The light check still reads such comments: the table t
 `comments`, which checks them against the code.
 
 The boundary is drawn by price, not by importance. Issue compliance is not a sign of depth but a
-condition of any verdict, so **both** skills check it. A green run on a PR that touches only the
-`Makefile` means only that nothing failed, not that what was asked for is done.
+condition of any verdict, so **both** skills check it. Why a green run does not stand in for it is
+in `.claude/skills/pr-light-check/standalone.md`, step 4.
 
 ## Step 4. Gates
 

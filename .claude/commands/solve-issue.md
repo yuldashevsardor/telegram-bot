@@ -79,8 +79,8 @@ make mutation-full-record issue=<N> pr=<PR>
 ```
 
 A repeat call records nothing twice. Without the record the review gives red: it checks the batch,
-not a run. A weak test the PR brings shows only in the batch run, and its survivors are fixed by
-the session of the batch, not by you.
+not a run. The survivors of a weak test the PR brings are fixed by the session of the batch, not by
+you (`docs/agents/review-gates.md`, "`mutation-full`", the accepted cost of the batch).
 
 ### A batch as the issue
 
@@ -278,9 +278,8 @@ than joining them.
 
 - **Fix the nits** → fix every nit and every question a change resolves. Send the fixes out as
   step 6 says: the commit, the push, the batch record if needed, `R` + 1, step 3. At `R` = 3 this
-  is a fourth round: open it, do not refuse. The limit guards against ping-pong between author and
-  reviewer, not against the owner, and this answer is a decision of the same kind as an owner
-  comment.
+  is a fourth round: open it, do not refuse. The limit of step 6 does not hold against the owner:
+  this answer is a decision of the same kind as an owner comment.
 - **Left comments** → step 5, fixes, step 3.
 - **Merge** and **Merge, nits into an issue** → step 5 once more: the owner may have written in the
   PR while thinking. There are new comments — name them and ask again. None:
@@ -313,23 +312,18 @@ than joining them.
 
 ## Step 8. Cleanup
 
-After the merge, run `make worktree-cleanup` in the task worktree. It removes the worktree and
-fast-forwards `main` in the main worktree. Return to the main worktree afterwards and do not
-switch the branch in it: a neighbouring session may be working there.
+After the merge, run `make worktree-cleanup` in the task worktree. Return to the main worktree
+afterwards and do not switch the branch in it: a neighbouring session may be working there.
 
-Read the output:
+What the target does and what each of its outcomes means is in `README.md`, "Working in several
+worktrees". Read the output:
 
-- `main` was not fast-forwarded — name that in the report, with the hint from the output.
-  Switching the branch in the main worktree is not allowed. While `main` lags behind, the next
-  session reads the pre-merge code there.
-- A non-zero exit code with a message about the branch is not a failed cleanup. The message says
-  the local branch could not be deleted, the one on `origin` could not be deleted, or `origin`
-  could not be asked whether it is there. The worktree is already removed, so there is nowhere to
-  repeat the target from. The branch named in the message and the hint from the output go into
-  the report.
-- A message about the worktree itself is a failure: the cleanup stopped on removing it. The hint
-  says whether to repeat the target from the task worktree or to finish the cleanup with the
-  commands it names.
+- `main` was not fast-forwarded — name that in the report, with the hint from the output. While
+  `main` lags behind, the next session reads the pre-merge code there.
+- A non-zero exit code with a message about a branch is not a failed cleanup. The branch named in
+  the message and the hint from the output go into the report.
+- A message about the worktree itself is a failure. Follow the hint: it says whether to repeat the
+  target from the task worktree or to finish the cleanup by hand.
 
 Check `gh issue view <N> --json state`. The issue did not close — close it by hand as
 `docs/agents/issue-tracker.md` says. Its rule on parent issues decides both whether an issue with
