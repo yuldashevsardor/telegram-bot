@@ -529,11 +529,7 @@ ours, not the standard's, and the text of each says why: the flavor is one of `S
 "Signatures"), and `totalSfntSize` is at most 32 MiB, checked before any table is inflated. The
 measurement behind the cap is at `MAX_SFNT_SIZE_BYTES`.
 
-What is deliberately not checked, with the reasons, is in the class comment of `WoffFontValidator`:
-`head.checkSumAdjustment` of the rebuilt sfnt, which 28 % of real fonts fail while fontforge
-converts them; the content of the metadata block, which §7 tells a user agent to ignore when
-invalid; and the flavor against the outline tables, since the sfnt validator does not tie the
-version to the outlines.
+What is deliberately not checked, with the reasons, is in the class comment of `WoffFontValidator`.
 
 ## The WOFF2 validator
 
@@ -555,13 +551,14 @@ place, fontforge crashed on 67 and converted 4 with exit 0; one of the 4, `hmtx`
 version 2, damages 1292 of 1296 advance widths. Of 5796 real WOFF2 fonts from 28 npm packages the
 validator accepts every one ([#616](https://github.com/yuldashevsardor/telegram-bot/issues/616)).
 
-It answers with a subclass of `InvalidWoff2Font` (`woff2-font-validator.errors.ts`): `NotWoff2` for
-a file shorter than the 48-byte header or without the `wOF2` signature, `BrokenWoff2` for the first
-broken rule. The order in which the rules are checked is in the comment of `validate()`. A file that
-cannot be read fails with `ReadFailed` of `FileHelper`, not with an answer about the font. Every
-answer names the source in `path` of its payload. Nothing in them is cut: the only text from the
-file they quote is a table tag, four bytes long. A Brotli failure keeps the zlib error as the cause,
-since its message comes from Node's Brotli decoder, not from the file.
+About the container it answers with a subclass of `InvalidWoff2Font`
+(`woff2-font-validator.errors.ts`): `NotWoff2` for a file shorter than the 48-byte header or without
+the `wOF2` signature, `BrokenWoff2` for the first broken rule. The order in which the rules are
+checked is in the comment of `validate()`. A file that cannot be read fails with `ReadFailed` of
+`FileHelper`, not with an answer about the font. Every answer names the source in `path` of its
+payload. Nothing in them is cut: the only text from the file they quote is a table tag, four bytes
+long. A Brotli failure keeps the zlib error as the cause, since its message comes from Node's Brotli
+decoder, not from the file.
 
 `GlyfReconstructor` (`validator/woff2/glyf-reconstructor.ts`) reads a transformed `glyf` glyph
 record by glyph record, rebuilds `glyf` and `loca` from it and a transformed `hmtx` from the `xMin`
@@ -596,19 +593,18 @@ the enum text lacks is the measurements:
   31 546 bytes on the fixture.
 
 What is deliberately not checked, with the reasons, is in the class comment of
-`Woff2FontValidator`: `reserved`, `totalSfntSize` and `origLength` of a transformed `glyf`, on which
-the standard forbids a reader to reject a file (§3.2, §5.1); the content of the metadata block,
-which a reader ignores (§6, WOFF 1.0 §7), so only its bounds are checked; the flavor against the
-outline tables; and a known tag written out after flag 63, which the standard lets a decoder accept.
+`Woff2FontValidator`.
 
-The standard checks the packaging only, so once the container passes, the sfnt it carries is
-rebuilt in memory and handed to `SfntFontValidator.validateBytes()`, whose answer passes through as
-the WOFF2 validator's: the flavor is the version, the directory is in ascending tag order (§2), each
-table lies on a 4-byte boundary, and the records carry no checksums, which the sfnt validator does
-not check. The table rules, CFF2 among them, are the sfnt validator's. It is the same hand-over as
-in the WOFF validator. Without it fontforge converted 24 of 25 variants of the fixture with the
-enclosed sfnt broken in one place with exit 0, 18 of them into an output that differs from the
-fixture's, such as lost glyphs or encodings
+The standard checks the packaging only. So once the container passes, the sfnt it carries is
+rebuilt in memory and handed to `SfntFontValidator.validateBytes()`, the same hand-over as in the
+WOFF validator. The rebuild (`Woff2FontValidator.sfnt()`) takes the flavor as the version, puts the
+directory in ascending tag order (§2) and each table on a 4-byte boundary, and leaves the checksums
+of the records 0, since the sfnt validator does not check them. The sfnt validator's answer, a
+subclass of `InvalidSfntFont` naming the WOFF2 file in `path`, passes through as the WOFF2
+validator's own. The table rules, CFF2 among them, are the sfnt validator's. Without the hand-over
+fontforge converted 24 of 25 variants of the fixture with the enclosed sfnt broken in one place
+with exit 0, 18 of them into an output that differs from the fixture's, such as lost glyphs or
+encodings
 ([#737](https://github.com/yuldashevsardor/telegram-bot/issues/737)).
 
 ## The EOT validator
