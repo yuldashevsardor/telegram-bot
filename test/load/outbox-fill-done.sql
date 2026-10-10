@@ -70,17 +70,22 @@ scaled_chat AS (
 )
 SELECT chat_id,
        message_count,
-       sum(message_count) OVER (ORDER BY chat_id) - message_count AS first_position
+       (sum(message_count) OVER (ORDER BY chat_id) - message_count)::bigint AS first_position
 FROM scaled_chat;
 
 CREATE UNIQUE INDEX ON outbox_fill_chat (first_position);
 ANALYZE outbox_fill_chat;
 
-SELECT sum(message_count) AS message_count FROM outbox_fill_chat
+SELECT sum(message_count)::bigint AS message_count FROM outbox_fill_chat
+\gset
+
+\set golden_ratio_fraction 0.6180339887
+
+SELECT round(:message_count * :golden_ratio_fraction)::bigint AS multiplier_from
 \gset
 
 SELECT min(candidate) AS multiplier
-FROM generate_series(round(:message_count * 0.6180339887)::bigint, round(:message_count * 0.6180339887)::bigint + 1000) AS candidate
+FROM generate_series(:multiplier_from, :multiplier_from + 1000) AS candidate
 WHERE gcd(candidate, :message_count::bigint) = 1
 \gset
 
@@ -134,7 +139,7 @@ FROM (
            outbox_chat.chat_id,
            outbox_message_status.status,
            CASE
-               WHEN n > :message_count / 20000 THEN now() - interval '1 day' + n * (interval '1 day' / :message_count)
+               WHEN n > :message_count / 20000 THEN now() - interval '1 day' + interval '1 day' * n / :message_count
                WHEN outbox_message_status.status = 'skipped' THEN now() - interval '31 days'
                ELSE now() - interval '8 days'
            END AS finished_at

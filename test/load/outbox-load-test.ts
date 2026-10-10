@@ -28,9 +28,10 @@ import type {
 
 // PULL_LIMIT of OutboxMessageSource: what the runner asks for.
 const RUNNER_PULL_LIMIT = 1;
-// Every measured pull is followed by the completion of what it gave out, and every other method is
-// called as many times. A few are enough to tell the first, cold one from the rest and to see the
-// spread.
+// Every measured pull is followed by the completion of what it gave out, and retry(), markAsFailed(),
+// find(), push(), pushBatch(), pause(), readBacklog() and countBlockedChats() are called as many
+// times; the other calls are made once, or as their comments say. A few are enough to tell the first,
+// cold one from the rest and to see the spread.
 const CALLS_PER_METHOD = 15;
 // The idle time before a batch, in common intervals: a batch of the whole budget moves the next slot
 // of the bot one interval ahead, and a full budget is saved up over one more.
@@ -64,8 +65,14 @@ const PUSHED_METHOD = "sendMessage";
 const WORKER: OutboxWorker = { host: hostname(), pid: process.pid, workerId: "load-test" };
 const RESPONSE = { message_id: 1, date: 0, chat: { id: 1, type: "private" }, text: "load test" };
 
-// A call that fails in a way that lets the chat go on, retried or failed, and one that blocks it, as
-// OutboxErrorSerializer writes a GrammyError.
+// The errors OutboxFailureHandler gives each completion, as OutboxErrorSerializer writes a
+// GrammyError: a transient one is retried, an undeliverable one fails the message and lets the chat
+// go on, an unexpected one blocks the chat.
+const TRANSIENT_ERROR: OutboxAttemptError = {
+    kind: TelegramBotApiFailureKind.Transient,
+    name: "GrammyError",
+    message: "Call to 'sendMessage' failed! (502: Bad Gateway)",
+};
 const UNDELIVERABLE_ERROR: OutboxAttemptError = {
     kind: TelegramBotApiFailureKind.Undeliverable,
     name: "GrammyError",
@@ -195,7 +202,7 @@ class OutboxLoadTest {
         for (let callNumber = 1; callNumber <= CALLS_PER_METHOD; callNumber++) {
             const message = await this.pullOne("retry()");
 
-            await this.measure("retry()", () => this.store.retry(message, UNDELIVERABLE_ERROR, RETRY_DELAY_MS));
+            await this.measure("retry()", () => this.store.retry(message, TRANSIENT_ERROR, RETRY_DELAY_MS));
         }
 
         for (let callNumber = 1; callNumber <= CALLS_PER_METHOD; callNumber++) {

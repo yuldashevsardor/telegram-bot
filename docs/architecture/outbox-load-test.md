@@ -491,12 +491,13 @@ The times of #632 to compare with are in "Results" and "The cleanup".
 
 The full batches of the cleanup are of the first run of the normal layout, with the connections of
 the `.env` of the owner: no later run had messages past the retention. The rest of the 13 999
-messages past it are the failed ones, which the cleanup keeps. During the run of the backlog a
-review session of another worktree ran its checks in the same Docker VM, the load average of the
-host up to 63: the completions, `push()` and `find()` of that column took 2 to 6 times their times
-in the first run of the layout, `retry()` a median of 1.0 ms there and `push()` 0.8. The pulls that
-block a chat, right after an unblock, took 40 – 119 ms in the normal and the backlog layouts; each
-follows a scan of the whole table (see "The unblocking"), and their plans were not looked into.
+messages past it are the failed ones, which the cleanup keeps. `listenReady()` takes a connection of
+its own, outside the pool, so its time is mostly the setup of that connection. During the run of the
+backlog a review session of another worktree ran its checks in the same Docker VM, the load average
+of the host up to 63: the completions, `push()` and `find()` of that column took 2 to 6 times their
+times in the first run of the layout, `retry()` a median of 1.0 ms there and `push()` 0.8. The pulls
+that block a chat, right after an unblock, took 40 – 119 ms in the normal and the backlog layouts;
+each follows a scan of the whole table (see "The unblocking"), and their plans were not looked into.
 
 ### The plans
 
@@ -652,9 +653,11 @@ it:
 The calls on timers have no threshold. The cleanup is no slower than in #632: a full batch
 4.0 – 13.7 ms, the call that finds nothing 1.3 – 2.1 ms. The lease recovery took 1.7 – 63 ms. The
 status line reads every active message, 1.2 s a call in the backlog, every 10 s (see "The status
-line"). The push of the transformer took a median of 1.0 – 5.0 ms, the batch of the bulk command
-15 – 23 ms for 1 000 messages. Autovacuum read the whole indexes of the table in every run, brought
-by some 1 700 inserts (see "Autovacuum in every run").
+line"). The push of the transformer took a median of 1.0 – 5.0 ms, and a batch of 1 000 messages,
+the size of the batches of the bulk command, 15 – 23 ms; the measured batch goes to 1 000 chats with
+some 70 characters a message, where the command sends 1 000 characters to 3 chats. Autovacuum read
+the whole indexes of the table in every run, brought by some 1 700 inserts (see "Autovacuum in every
+run").
 
 The proposals: the pull [#957](https://github.com/yuldashevsardor/telegram-bot/issues/957), the
 unblocking [#953](https://github.com/yuldashevsardor/telegram-bot/issues/953), the status line
