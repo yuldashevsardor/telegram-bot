@@ -307,7 +307,7 @@ The output of both skills is input for your verdict, not the verdict.
 - <criterion> — done / not done / not covered (file.ts:42)
 
 ### Checks
-rebuild: done/not needed · build: ok/fail/n-a · typecheck: ok/fail/n-a · test: ok/fail/n-a · lint: ok/fail/n-a · format-check: ok/fail/n-a · python: ok/fail/n-a
+rebuild: done/not needed · build: ok/fail/n-a · typecheck: ok/fail/n-a · test: ok/fail/n-a · test-fonts: ok/fail/n-a · lint: ok/fail/n-a · format-check: ok/fail/n-a · python: ok/fail/n-a
 mutation-full: ok/fail/n-a — recorded: issue #<M> — <link> | not recorded: <why> (n-a — reason)
 make -n <target>: ok/fail — <what the expansion showed>
 sh -n <script>: ok/fail (+ dash: ok/fail/n-a)

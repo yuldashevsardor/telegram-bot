@@ -38,8 +38,7 @@ written in here. Left out on purpose, although they look fitting in a review:
   `test` gate runs `make coverage` and loses nothing: `nyc` runs the same `mocha`, a failed spec is
   printed the same way, and the run fails at 100% coverage too; the report goes to `./coverage`,
   which is in `.gitignore`;
-- `check` runs four gates and the conversion check in one output, while the verdict needs a line
-  per gate.
+- `check` runs five gates in one output, while the verdict needs a line per gate.
 
 `lint` and `format-check` run over the whole repository, without `files=`: `main` is green as a
 whole, so anything red was brought by the PR.
@@ -59,7 +58,8 @@ The report prints the "Checks" lines in the shape of the verdict, then `Not run`
 `Not cleaned up`, then "Red" with an excerpt of every red log, then what is the reviewer's to read.
 An excerpt is the tail of the log without the progress of Compose and of the image build, the echo
 of make and npm and the coverage table: they fill the end of a log and explain nothing. For the
-specs it starts at `N failing`. The whole logs lie in the directory the last line names.
+specs and the conversion check it starts at `N failing`. The whole logs lie in the directory the
+last line names.
 """
 
 import os
@@ -84,12 +84,15 @@ CONTAINER = [
     ("build", "build"),
     ("typecheck", "typecheck"),
     ("test", "coverage"),
+    ("test-fonts", "test-fonts"),
     ("lint", "lint"),
     ("format-check", "format-check"),
 ]
 READING = ("docs", "docs-sync", "comments", "bug-hunt-high", "bug-hunt-medium", "smells")
 BY_SKILL = ("make-targets", "scripts")
 KNOWN = [gate for gate, _ in CONTAINER] + ["python", "mutation-full"]
+# The gates whose target runs mocha: their report gives the counts and the excerpt from `N failing`.
+MOCHA = ("test", "test-fonts")
 
 BY_SKILL_REASON = "by fallback.md"
 
@@ -158,7 +161,7 @@ class Report:
         print("Logs: {}".format(logs))
 
 
-def clean(text: str, test: bool) -> List[str]:
+def clean(text: str, gate: str) -> List[str]:
     lines = []
     for line in ANSI.sub("", text).splitlines():
         line = line.rstrip()
@@ -166,8 +169,9 @@ def clean(text: str, test: bool) -> List[str]:
             continue
         if BUILD_STEP.match(line) and not MEANINGFUL.search(line):
             continue
-        # The coverage table of nyc: a row per file, its columns split by `|`.
-        if test and line.count("|") >= 3:
+        # The coverage table of nyc, which only `make coverage` of the `test` gate prints: a row per
+        # file, its columns split by `|`.
+        if gate == "test" and line.count("|") >= 3:
             continue
         if not line and (not lines or not lines[-1]):
             continue
@@ -177,11 +181,11 @@ def clean(text: str, test: bool) -> List[str]:
     return lines
 
 
-def excerpt(text: str, test: bool, log: str) -> Tuple[str, List[str]]:
+def excerpt(text: str, gate: str, log: str) -> Tuple[str, List[str]]:
     """The first meaningful line of a red log and the lines that explain it."""
-    lines = clean(text, test)
+    lines = clean(text, gate)
     start = next((i for i, line in enumerate(lines) if FAILING.match(line)), None)
-    if test and start is not None:
+    if gate in MOCHA and start is not None:
         part = lines[start:]
         first = lines[start].strip()
         cut = len(part) > EXCERPT
@@ -283,7 +287,7 @@ class ReviewRun:
                 state = "done" if done.returncode == 0 else "fail"
             else:
                 state = "ok" if done.returncode == 0 else "fail"
-            if gate == "test":
+            if gate in MOCHA:
                 plain = ANSI.sub("", text)
                 counts = [
                     "{} {}".format(found[-1], word)
@@ -297,13 +301,13 @@ class ReviewRun:
                     state += " ({})".format(", ".join(counts))
             self.report.checks[gate] = state
             if done.returncode != 0:
-                self.red("make " + target, text, gate == "test", log)
+                self.red("make " + target, text, gate, log)
                 if gate == "rebuild":
                     stopped = "rebuild failed"
 
-    def red(self, command: str, text: str, test: bool, log: str) -> None:
+    def red(self, command: str, text: str, gate: str, log: str) -> None:
         path = os.path.join(self.logs, log)
-        first, lines = excerpt(text, test, path)
+        first, lines = excerpt(text, gate, path)
         self.report.red.append("- {} — {}".format(command, first or "no output"))
         self.report.red.extend("    " + line if line else "" for line in lines)
 
@@ -311,7 +315,7 @@ class ReviewRun:
         done = self.make(["review-test"], self.tree or "", "review-test.log")
         self.report.checks["python"] = "ok" if done.returncode == 0 else "fail"
         if done.returncode != 0:
-            self.red("make review-test", done.stdout or "", False, "review-test.log")
+            self.red("make review-test", done.stdout or "", "python", "review-test.log")
 
     def marks(self) -> None:
         done = self.run(
