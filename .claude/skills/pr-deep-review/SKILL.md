@@ -89,8 +89,8 @@ and on the issue you get a second, weaker opinion you would have to reconcile wi
 
 `pr-light-check` runs the PR code in a temporary detached tree of the PR head, not in your tree:
 `make review-run` creates it and removes it when the gates are done. So do not rely on the PR
-branch being the `HEAD` of your tree: the commands of steps 4–6 read the PR head by its commit or
-the PR branch by name, not `HEAD`.
+branch being the `HEAD` of your tree: the commands of steps 4–6 read the PR by its head commit, its
+number or its branch name, not `HEAD`.
 
 Along with the run, `pr-light-check` returns the findings on the changed `*.md` lines. When the
 `.ts` of the diff changes only comments, it returns the findings on those comments too (its step 3,
