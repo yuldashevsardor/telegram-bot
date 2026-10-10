@@ -280,6 +280,8 @@ from the gate's name**.
   hunt and smells".
 - The level is not tied to the `smells` gate: infrastructure TypeScript goes at `high` exactly like
   domain code.
+- Pass the PR number `<N>` as its target, next to the level: without a target the skill reviews the
+  diff of your tree, which may stand on another branch (step 3).
 - Add `--comment` if that flag is in the arguments: the findings then land as inline comments in the
   PR.
 
