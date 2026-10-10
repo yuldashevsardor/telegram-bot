@@ -21,9 +21,8 @@ import { Tokens } from "app/shared/tokens";
 /**
  * Checks an SVG font against W3C SVG 1.1 Second Edition, chapter 20 "Fonts". SVG 2 removed SVG
  * fonts, so 1.1 is the reference. Only the fonts are checked against it, not the rest of the
- * document. Three rules of ours look at the whole document: it holds one `font`, the names of the
- * font elements appear in it only on elements of the SVG namespace, and its DOCTYPE has no internal
- * subset.
+ * document. The rules of ours, three of them on the whole document, and why fontforge needs each:
+ * docs/architecture/font-convertor.md, "The SVG validator".
  */
 @injectable()
 export class SvgFontValidator implements FontValidator {
@@ -342,9 +341,8 @@ export class SvgFontValidator implements FontValidator {
     }
 
     /**
-     * Checks a kerning pair (§20.7). The names in `g1` and `g2` are not checked: fontforge splits
-     * them at commas and whitespace, as §20.7 does. A name no glyph has, and a `u1` or `u2`
-     * character no glyph has, fontforge drops without a word.
+     * Checks a kerning pair (§20.7). What is left unchecked, the names in `g1` and `g2` among it:
+     * docs/architecture/font-convertor.md, "The SVG validator", the paragraphs on kerning.
      */
     private checkKern(scan: Scan, element: OpenElement, tag: SaxesTagNS, name: KernElement): void {
         this.checkPrefixes(scan, element, tag, name);
@@ -365,11 +363,9 @@ export class SvgFontValidator implements FontValidator {
 
     /**
      * Checks one side of a kerning pair: it is named, and by a single character when by `u1` or
-     * `u2`. A `g1` or `g2` of commas and whitespace alone leaves the side unnamed; an empty `u1`
-     * breaks the one-character rule instead. fontforge takes each character of `u1` for a glyph of
-     * its own, so the list `a,b` of §20.7 kerns the comma too, a range `U+0061-0062` kerns nothing,
-     * and the ligature `ab` kerns `a` and `b`. A character is a code point: `[...characters]` does
-     * not split a surrogate pair.
+     * `u2`, since fontforge takes each character of `u1` for a glyph of its own. A `g1` or `g2` of
+     * commas and whitespace alone leaves the side unnamed; an empty `u1` breaks the one-character
+     * rule instead. A character is a code point: `[...characters]` does not split a surrogate pair.
      */
     private checkKernedGlyph(
         scan: Scan,
