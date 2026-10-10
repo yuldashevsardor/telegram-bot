@@ -60,7 +60,8 @@ class NotAReviewTree(Exception):
 
 
 def main_and_worktrees(run: Run) -> List[str]:
-    """The paths of the repository's worktrees, the main one first, as `git worktree list` gives them."""
+    """The paths of the repository's worktrees, the main one first, as `git worktree list` gives
+    them."""
     listed = run(
         ["git", "worktree", "list", "--porcelain"], capture_output=True, text=True
     )

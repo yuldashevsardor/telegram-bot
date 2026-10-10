@@ -390,8 +390,8 @@ class ReviewRun:
                 self.report.skip(gate, why)
         if self.on("mutation-full") and self.report.mutation_full is None:
             self.report.mutation_full = "mutation-full: n-a — {}".format(why)
-        # Only a creation this run began and the interrupt cut short can have left a tree it does not
-        # know of: whatever lies at the path otherwise is somebody else's, and the next
+        # Only a creation this run began and the interrupt cut short can have left a tree it does
+        # not know of: whatever lies at the path otherwise is somebody else's, and the next
         # review-tree-create removes a leftover.
         if self.tree is None and self.creating:
             try:
