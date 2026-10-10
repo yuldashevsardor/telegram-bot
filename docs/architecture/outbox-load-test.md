@@ -14,16 +14,16 @@ of the indexes of [#643](https://github.com/yuldashevsardor/telegram-bot/issues/
 The test runs against a Postgres of its own, `docker-compose.load.yml`, so that the fill does not
 slow down the shared database of every worktree. The targets are `load-*` of the `Makefile`, in this
 order, with the shared database up (`make db-up`), whose network the application containers and the
-load-test database join: `load-up`, `load-fill-done [rows=280000000] [chats=1000000]` once, then
-per layout `load-fill-pending messages=<n> [hot_messages=<n>]` and `load-measure [plans=off]`;
-`load-churn` sends the messages of one chat (see "Vacuum of the head index"), `load-down` removes
-the database with its data. `load-up` applies the migrations, the indexes and
-the vacuum settings of the outbox among them; on a volume of the earlier runs, where the index was
-made by hand under the same name, the migration fails, and `load-down` gives a fresh one, without
-the fill of the inbox load test either ([`inbox-load-test.md`](./inbox-load-test.md)). The files
-they run are in `test/load/`, and what they make is in "The skewed run". The run of #632 had fills
-of another form, 100 000 chats of equal size and layouts of `chats` × `per_chat`: they are the files
-of `test/load/` at
+load-test database join: `load-up`, `load-fill-done [rows=280000000] [chats=1000000]` once, then per
+layout `load-fill-pending messages=<n> [hot_messages=<n>]` and `load-measure [plans=off]`;
+`load-churn` sends the messages of one chat (see "Vacuum of the head index"), chat 1 of the hot chat
+layout of "The skewed run" among the layouts of the new fill, `load-down` removes the database with
+its data. `load-up` applies the migrations, the indexes and the vacuum settings of the outbox among
+them; on a volume of the earlier runs, where the index was made by hand under the same name, the
+migration fails, and `load-down` gives a fresh one, without the fill of the inbox load test either
+([`inbox-load-test.md`](./inbox-load-test.md)). The files they run are in `test/load/`, and what
+they make is in "The skewed run". The run of #632 had fills of another form, 100 000 chats of equal
+size and layouts of `chats` × `per_chat`: they are the files of `test/load/` at
 [`8bd64949`](https://github.com/yuldashevsardor/telegram-bot/tree/8bd64949/test/load). A layout over
 a volume of that fill leaves the pending messages of the old layout below the ids of the layouts, so
 `load-down`, `load-up` and a new fill come first. A fill stays valid for 6 days: then its done
@@ -507,7 +507,8 @@ What each call reads, from the runs with the plans:
 |---|---|
 | `pull()` | `telegram_outbox_chats_ready_pull_idx` for the chats, the head index for their heads, as in #632; in the normal layout every active message for the heads to update (see "The pull") |
 | `markAsDone()`, `retry()`, `markAsFailed()`, `markAsFailedAndBlockChat()` | the primary keys; the head index for the message left and the head priority |
-| `findExpiredLeases()`, `deleteIdleChats()`, `countBlockedChats()` | a seq scan of `telegram_outbox_chats`, then the head index per expired chat |
+| `findExpiredLeases()` | a seq scan of `telegram_outbox_chats`, then the head index per expired chat |
+| `deleteIdleChats()`, `countBlockedChats()` | a seq scan of `telegram_outbox_chats` alone |
 | `find()` | the primary key, some 7 buffers a message |
 | `push()`, `pushBatch()` | the primary keys as arbiters, the head index for the head priority |
 | `pause()` | the bot row |

@@ -54,7 +54,8 @@ const PAUSE_DURATION_MS = 0;
 // BATCH_MESSAGE_COUNT of BulkMessagesCommand, the one caller of pushBatch().
 const PUSH_BATCH_MESSAGE_COUNT = 1_000;
 // The chats of make load-fill-done at its default: a push goes to one of them, as a reply to a
-// returning user does. A fill of fewer chats leaves most pushes to chats with no history.
+// returning user does. A fill of fewer chats leaves most pushes to chats with no history, as it
+// leaves most of the blocked chats of outbox-fill-pending.sql.
 const HISTORY_CHAT_COUNT = 1_000_000;
 // The step between the chats of two pushes in a row: coprime to HISTORY_CHAT_COUNT and near it times
 // the golden ratio, so the pushes of a run go to as many chats, spread over them, and every run
