@@ -245,7 +245,7 @@ load-fill-pending: ## Replace the pending outbox layout of the load test: make l
 	@[ -n "$(messages)" ] || { printf 'give it the layout: make load-fill-pending messages=5000 [hot_messages=300000]\n' >&2; exit 1; }
 	$(LOAD_PSQL) -v messages=$(messages) -v hot_messages=$(or $(hot_messages),0) < test/load/outbox-fill-pending.sql
 
-load-churn: ## Send messages of one chat of the layout and print the head lookup of the chat: make load-churn chat=1 messages=45000
+load-churn: ## Send messages of one chat of the layout and print the head lookup of the chat: make load-churn chat=1 messages=45000, over the hot chat layout
 	@[ -n "$(chat)" ] && [ -n "$(messages)" ] || { printf 'give it the chat and the count: make load-churn chat=1 messages=45000\n' >&2; exit 1; }
 	$(LOAD_PSQL) -v chat=$(chat) -v messages=$(messages) < test/load/outbox-churn.sql
 

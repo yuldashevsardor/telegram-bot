@@ -31,11 +31,12 @@
 -- measurement finds nothing to delete, the full batches included.
 
 -- A second fill would add another :rows rows after the first, its expired ones in the middle of the
--- table.
+-- table. Emptied, the table keeps its identity where the last layout moved it, past the ids of the
+-- layouts (outbox-fill-pending.sql), so RESTART IDENTITY starts the history at 1 again.
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM telegram_outbox) THEN
-        RAISE EXCEPTION 'telegram_outbox is filled already: TRUNCATE telegram_outbox, telegram_outbox_chats in make load-psql empties it';
+        RAISE EXCEPTION 'telegram_outbox is filled already: TRUNCATE telegram_outbox, telegram_outbox_chats RESTART IDENTITY in make load-psql empties it';
     END IF;
 END
 $$;
