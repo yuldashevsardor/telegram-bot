@@ -89,8 +89,8 @@ and on the issue you get a second, weaker opinion you would have to reconcile wi
 
 `pr-light-check` runs the PR code in a temporary detached tree of the PR head, not in your tree:
 `make review-run` creates it and removes it when the gates are done. So do not rely on the PR
-branch being the `HEAD` of your tree: the commands of step 5 compare against the PR branch by name,
-not against `HEAD`.
+branch being the `HEAD` of your tree: the commands of steps 4–6 read the PR head by its commit or
+the PR branch by name, not `HEAD`.
 
 Along with the run, `pr-light-check` returns the findings on the changed `*.md` lines. When the
 `.ts` of the diff changes only comments, it returns the findings on those comments too (its step 3,
@@ -112,8 +112,15 @@ changed"**.
 
 ```bash
 gh pr diff <N> --name-only | grep -E '\.spec\.ts$'          # tests in the diff itself
-git ls-files 'test/**/*.spec.ts'                            # what exists in the repository
+gh pr view <N> --json headRefOid -q .headRefOid             # the full <sha> of the PR head
+git fetch -q origin pull/<N>/head
+git ls-tree -r --full-tree --name-only <sha> | grep -E '^test/.*\.spec\.ts$'   # what exists at the head
 ```
+
+The list is read from the head commit, not with `git ls-files`: that reads the index of your tree,
+which may stand on another branch, so a spec the PR adds is missing from it and one the PR deletes
+is still there. `--full-tree` plays the role of `:(top)` in step 5: without it `ls-tree` lists only
+the directory the command runs in.
 
 Match them yourself: does any existing spec relate to the changed modules. A green run of tests none
 of which touches the changed files proves nothing.
@@ -288,7 +295,12 @@ turn it on; do not copy it here, for the same reason as the level.
 
 When calling it, set two things explicitly:
 
-- **the fixed point** — `origin/main` (the skill compares against the merge-base, three dots);
+- **the fixed point and the diff command** — `origin/main`, and in place of the skill's own
+  `git diff origin/main...HEAD` the diff command `git diff origin/main...<sha>` with the commit list
+  `git log --oneline origin/main..<sha>`, where `<sha>` is the head of step 4. The skill diffs
+  against `HEAD`, and your tree may stand on another branch (step 3): from the main worktree the
+  Standards axis gets an empty diff, from a tree on another branch it silently reviews that branch.
+  Tell it to read the code around the diff at the head too, `git show <sha>:<file>`;
 - **the Standards axis only.** The Spec axis must not run: step 2 already checked issue conformance,
   and more strictly, and a second, weaker opinion on the same question is one you would have to
   reconcile with it. Tell the skill no spec is provided and the Spec agent is not needed.
