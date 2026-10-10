@@ -113,8 +113,8 @@ fi
 # rm -rf on a computed path: make sure it is a directory with the expected name, not
 # wherever a broken symlink led.
 # A running container may use another cluster directory: its bind was frozen by the worktree
-# db-up ran from. But down recreates the container with this path, so the next start is
-# from it.
+# db-up ran from. down removes that container, and the next db-up binds tmp/pgsql anew, which is
+# this directory in the main worktree and in every worktree make worktree-init prepared.
 [ "$(basename "$data")" = "pgsql" ] || die "tmp/pgsql leads to an unexpected place: $data"
 
 check_containers verbose
