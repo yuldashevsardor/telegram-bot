@@ -44,7 +44,7 @@ const MAX_EMPTY_PULLS_IN_A_ROW = 20;
 // the only one to pull next.
 const RETRY_DELAY_MS = 0;
 // The chats blocked and then unblocked, half retried and half skipped. Few: the lookup of the failed
-// message reads the whole table (docs/architecture/outbox-load-test.md, "The skewed run"), minutes a
+// message reads the whole table (docs/architecture/outbox-load-test.md, "The unblocking"), minutes a
 // call.
 const UNBLOCKED_CHAT_COUNT = 4;
 // The pause of a 429 that asks for no wait: the statement is the same for any duration, and a longer
