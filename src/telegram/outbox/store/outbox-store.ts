@@ -554,8 +554,9 @@ export class OutboxStore {
         return deletedRows.length;
     }
 
-    // What waits in the outbox, for the status line of the maintenance. With no index on status yet
-    // the count reads the whole of telegram_outbox, done messages included (#643).
+    // What waits in the outbox, for the status line of the maintenance. The count reads every active
+    // message through the head index, and the row of each for its status: 1.2 s for a backlog of 1 M
+    // (docs/architecture/outbox-load-test.md, "The skewed run").
     public async readBacklog(): Promise<OutboxBacklog> {
         const [row] = await this.sql<OutboxBacklogRow[]>`
             SELECT messages.pending_count,

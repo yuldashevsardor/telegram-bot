@@ -238,14 +238,14 @@ load-up: ## Bring up the load-test database and apply the migrations
 	$(DC_APP_RUN) sh -c 'DATABASE_URL="postgres://$$DATABASE_USER_NAME:$$DATABASE_USER_PASSWORD@pgsql-load:5432/$$DATABASE_NAME" npm run migrate -- up'
 	printf '%s\n' "ALTER ROLE :\"app_user\" SET statement_timeout = '$(LOAD_STATEMENT_TIMEOUT)';" | $(LOAD_PSQL)
 
-load-fill-done: ## Fill the load-test database with done messages, once: make load-fill-done [rows=100000000]
-	$(LOAD_PSQL) -v rows=$(or $(rows),100000000) -v chats=100000 < test/load/outbox-fill-done.sql
+load-fill-done: ## Fill the load-test database with the outbox history, once: make load-fill-done [rows=280000000] [chats=1000000]
+	$(LOAD_PSQL) -v rows=$(or $(rows),280000000) -v chats=$(or $(chats),1000000) < test/load/outbox-fill-done.sql
 
-load-fill-pending: ## Replace the pending layout of the load test: make load-fill-pending chats=3 per_chat=300000
-	@[ -n "$(chats)" ] && [ -n "$(per_chat)" ] || { printf 'give it the layout: make load-fill-pending chats=3 per_chat=300000\n' >&2; exit 1; }
-	$(LOAD_PSQL) -v chats=$(chats) -v per_chat=$(per_chat) < test/load/outbox-fill-pending.sql
+load-fill-pending: ## Replace the pending outbox layout of the load test: make load-fill-pending messages=5000 [hot_messages=300000]
+	@[ -n "$(messages)" ] || { printf 'give it the layout: make load-fill-pending messages=5000 [hot_messages=300000]\n' >&2; exit 1; }
+	$(LOAD_PSQL) -v messages=$(messages) -v hot_messages=$(or $(hot_messages),0) < test/load/outbox-fill-pending.sql
 
-load-churn: ## Send messages of one chat of the layout and print the head lookup of the chat: make load-churn chat=1 messages=45000
+load-churn: ## Send messages of one chat of the layout and print the head lookup of the chat: make load-churn chat=1 messages=45000, over the hot chat layout
 	@[ -n "$(chat)" ] && [ -n "$(messages)" ] || { printf 'give it the chat and the count: make load-churn chat=1 messages=45000\n' >&2; exit 1; }
 	$(LOAD_PSQL) -v chat=$(chat) -v messages=$(messages) < test/load/outbox-churn.sql
 

@@ -404,9 +404,10 @@ node, apart from the runner. It takes its four intervals as one `outbox.maintena
 - the status line, every `OUTBOX_MAINTENANCE_STATUS_LOG_INTERVAL`: an `info` "Outbox status." with
   what `OutboxStore.readBacklog()` counts, the `pending` and the `processing` messages, the
   `blocked` chats and the milliseconds left of the pause, 0 without one. The counts come from the
-  tables, so every node writes the state of the whole outbox, not of its own sends. With no index on
-  `status` yet the count reads the whole of `telegram_outbox`, `done` messages included
-  ([#643](https://github.com/yuldashevsardor/telegram-bot/issues/643));
+  tables, so every node writes the state of the whole outbox, not of its own sends. The count reads
+  every active message through the head index, and the row of each for its status: 1.2 s for a
+  backlog of 1 M ([`outbox-load-test.md`](./outbox-load-test.md), "The skewed run";
+  [#954](https://github.com/yuldashevsardor/telegram-bot/issues/954));
 - the line of the blocked chats, every `OUTBOX_MAINTENANCE_BLOCKED_LOG_INTERVAL`: an `error` with
   the number `OutboxStore.countBlockedChats()` counts in `telegram_outbox_chats`, written only while
   it is above 0. A blocked chat waits for a person (see "Unblocking a chat"), and production
@@ -620,7 +621,8 @@ as `PgSqlUserRepository` does ([`storage.md`](./storage.md), "`User.id`").
 
 ## Load test
 
-How the store holds up on 100 M messages, measured, and what the measurements propose:
+How the store holds up on 100 M messages and on 280 M skewed as production traffic is, measured,
+and what the measurements propose:
 [`outbox-load-test.md`](./outbox-load-test.md).
 
 ## The end-to-end spec
