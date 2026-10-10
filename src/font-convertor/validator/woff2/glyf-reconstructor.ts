@@ -24,8 +24,8 @@ type Point = {
 };
 
 /**
- * A transformed hmtx that rule `Woff2Rule.TransformedHmtx` holds for, with its flags read: whether lsb[] and
- * leftSideBearing[] are in the table.
+ * A transformed hmtx that rule `Woff2Rule.TransformedHmtx` holds for, with its flags read: whether
+ * lsb[] and leftSideBearing[] are in the table.
  */
 type RebuildableHmtx = {
     bytes: Uint8Array;
@@ -72,7 +72,7 @@ export type ReconstructedTables = {
  * - the xMin a dropped lsb is rebuilt from is that of the glyph's bounding box, for a composite
  *   glyph as for a simple one, and 0 for an empty glyph. The decoder reads nContour as a UInt16,
  *   so its `n_contours > 0` holds for −1 too; `woff2_decompress` writes 10, the xMin of the
- *   composite of the spec, for its lsb.
+ *   composite that `composite()` of the spec helper builds, for its lsb.
  *
  * A contour of 0 points passes, as in the decoder: it ends where the contour before it does, or
  * at −1, written as 0xFFFF, when it is the first. §5.1 sets no bound on it but the 65 536 points
@@ -289,7 +289,8 @@ export class GlyfReconstructor {
 
     /**
      * Where substream `index` starts in the transformed glyf: after the header and the substreams
-     * before it, which the sizes in the header give. The number of substreams gives the end of the last one.
+     * before it, which the sizes in the header give. The number of substreams gives the end of the
+     * last one.
      */
     private static substreamStartBytes(view: DataView, index: number): number {
         let startBytes = GlyfReconstructor.HEADER_SIZE_BYTES;
@@ -321,7 +322,8 @@ export class GlyfReconstructor {
      * Reads the glyph records one by one, each taking what it needs from the substreams, and lays
      * them out into glyf with their offsets in loca; then rebuilds `transformedHmtx`, if given, from
      * the xMin of the glyphs. Throws `BrokenWoff2` on a transformed hmtx that hhea and the glyph count
-     * do not fit, checked first, or on the first glyph record that cannot be decoded.
+     * do not fit, checked first, on the first glyph record that cannot be decoded, or on a glyf that
+     * the short loca of indexFormat 0 cannot address.
      *
      * Called once per object: it goes on from the place each substream has reached, so a second call
      * would read the records of the glyphs from where the first left off.
@@ -779,9 +781,10 @@ export class GlyfReconstructor {
     }
 
     /**
-     * The transformed hmtx with what its rebuilding needs, once rule `Woff2Rule.TransformedHmtx` holds: hhea
-     * holds numberOfHMetrics, which is 1 to numGlyphs, and the table holds the arrays its flags keep
-     * (§5.4). Its flags byte is checked by `Woff2FontValidator` before, by rule `HmtxTransform`.
+     * The transformed hmtx with what its rebuilding needs, once rule `Woff2Rule.TransformedHmtx`
+     * holds: hhea holds numberOfHMetrics, which is 1 to numGlyphs, and the table holds the arrays its
+     * flags keep (§5.4). Its flags byte is checked by `Woff2FontValidator` before, by rule
+     * `HmtxTransform`.
      */
     private rebuildableHmtx({ bytes, hhea }: TransformedHmtxWithHhea): RebuildableHmtx {
         if (hhea === undefined) {

@@ -82,8 +82,9 @@ export class WoffFontValidator implements FontValidator {
     private static readonly CHECKSUM_ADJUSTMENT_OFFSET = 8;
     private static readonly CHECKSUM_ADJUSTMENT_END = 12;
     private static readonly CHECKSUM_WORD_SIZE_BYTES = 4;
-    // Checked on the header field before any table is inflated. That is enough: rule 6 ties the
-    // field to the sum of origLength, and a table never inflates past its origLength.
+    // Checked on the header field before any table is inflated. That is enough: rule
+    // `TotalSfntSize` ties the field to the sum of origLength, and a table never inflates past its
+    // origLength.
     // A 589 168-byte WOFF with a 512 MiB table of zeros took the process to 1090 MB RSS on
     // inflating; fontforge ignores such a table.
     private static readonly MAX_SFNT_SIZE_BYTES = 32 * 1024 * 1024;
@@ -496,7 +497,8 @@ export class WoffFontValidator implements FontValidator {
      * The sfnt the tables were packed from, as §5 and §6 rebuild it: the flavor as the version, the
      * directory in tag order, which the WOFF directory already is, each record with origChecksum
      * and origLength, and the tables in the order of their WOFF offsets, each padded to 4 bytes
-     * with zeros. totalSfntSize is its size: rule 6 has confirmed it against the directory.
+     * with zeros. totalSfntSize is its size: rule `TotalSfntSize` has confirmed it against the
+     * directory.
      */
     private sfnt({ header }: Woff, tables: ReadonlyArray<InflatedTable>): Uint8Array {
         const rebuiltSfnt = new Uint8Array(header.totalSfntSize);
@@ -592,8 +594,8 @@ export class WoffFontValidator implements FontValidator {
 
     /**
      * The tables, then the metadata and the private block. An absent block is among them too: by
-     * the time the layout is checked, rule 7 has made its offset and length 0, and an empty block
-     * lies inside the file, on a 4-byte boundary, and is skipped by the walk.
+     * the time the layout is checked, `checkBlockAbsence()` has made its offset and length 0, and an
+     * empty block lies inside the file, on a 4-byte boundary, and is skipped by the walk.
      */
     private blocks({ header, entries }: Woff): Array<Block> {
         const tables: Array<Block> = entries.map((entry) => ({

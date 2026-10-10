@@ -29,7 +29,8 @@ import {
 // The reconstructor reads no file: the path only goes into its answers.
 const FONT_PATH = "font.woff2";
 
-// What woff2_decompress 1.0.2, the decoder fontforge links, rebuilds the fixture's glyf and loca into.
+// What woff2_decompress 1.0.2 rebuilds the fixture's glyf and loca into: the command-line tool of
+// libwoff2dec, the decoder fontforge links.
 const REFERENCE_GLYF_SHA256 = "08063e8e5e14f0865a6624086968d028ae849397385195f97a96995b438a04e9";
 const REFERENCE_LOCA_SHA256 = "7d0892d2bbbea67a1ae635c09936ee37d9b317ce2dce043049a3feb5624e0b81";
 const REFERENCE_GLYF_SIZE_BYTES = 133392;
@@ -86,8 +87,8 @@ const ONE_GLYPH_BBOX_BITMAP_CLEAR = new Uint8Array(4);
 const EXPLICIT_BOUNDING_BOX = Uint8Array.from([0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04]);
 // The most glyphs a bboxBitmap of one 32-bit word holds.
 const ONE_WORD_BITMAP_GLYPH_COUNT = 32;
-// §5.2 flag 124 is the first of the four-byte triplets; its bit 0 and bit 1 of its kind are clear: a
-// negative dx and dy. The bytes 0x01 0x02 and 0x03 0x04 are 258 and 772.
+// §5.2 flag 124 is the first of the four-byte triplets; bits 0 and 1 of it are clear: a negative dx
+// and dy. The bytes 0x01 0x02 and 0x03 0x04 are 258 and 772.
 const FIRST_FOUR_BYTE_TRIPLET_FLAG = 124;
 // numberOfContours and the 8 bytes of the bounding box.
 const BOUNDING_BOX_END_BYTES = 10;

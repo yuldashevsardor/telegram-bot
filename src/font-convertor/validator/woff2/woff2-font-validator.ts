@@ -910,7 +910,7 @@ export class Woff2FontValidator implements FontValidator {
     /**
      * The length of the record is the origLength of the directory, except for glyf and loca: the
      * decoder replaces theirs with the rebuilt length, and for hmtx it does not, so a transformed
-     * hmtx is cut to origLength or padded with zeros to it (`ReconstructFont()` in `woff2_decompress`
+     * hmtx is cut to origLength or padded with zeros to it (`ReconstructFont()` in `woff2_dec.cc`
      * 1.0.2). A plain table is as long as its origLength.
      */
     private sfntTable(table: DecompressedTable, reconstructed: ReconstructedTables): SfntTable {
@@ -929,9 +929,8 @@ export class Woff2FontValidator implements FontValidator {
     }
 
     /**
-     * The decoder takes the length of every table of the sfnt from origLength, and for a transformed
-     * hmtx does not replace it with the rebuilt length, as it does for glyf and loca. It refuses the
-     * file when a table, padded, ends past the sfnt it has written (`ReconstructFont()` in
+     * The decoder keeps origLength as the length of a transformed hmtx (`sfntTable()`), and refuses
+     * the file when a table, padded, ends past the sfnt it has written (`ReconstructFont()` in
      * `woff2_dec.cc` 1.0.2). A shorter origLength passes it: that is the sfnt validator's to catch.
      */
     private checkHmtxOrigLength(fontPath: string, hmtxEntry: TableEntry, rebuiltHmtx: Uint8Array): void {
