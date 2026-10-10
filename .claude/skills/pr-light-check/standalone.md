@@ -131,7 +131,8 @@ gh pr comment <N> --body-file <temporary path>
 ```
 
 - **A new comment on every run, not an edit of the last one.** The history must stay visible whole:
-  the `head=<sha>` line shows which commit was green.
+  the PR author sees what changed between runs, and the `head=<sha>` line shows which commit was
+  green.
 - Do not use `--edit-last`: it edits the current user's last comment whatever skill wrote it, and
   would overwrite the `pr-deep-review` verdict.
 - Publish exactly the text you printed into the session, with the signature and the marker at the

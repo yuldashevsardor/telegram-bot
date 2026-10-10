@@ -120,7 +120,10 @@ of which touches the changed files proves nothing.
 
 - No coverage — the verdict must hold either a note on how the behaviour was checked by hand, or the
   finding "neither a test nor a manual check".
-- The diff holds no TypeScript (only scripts and configs) — say so; a spec is not required here.
+- A `.py` of `scripts/review/` has its spec next to it, `test_<module>.py`
+  (`docs/architecture/testing.md`): match those the same way.
+- The diff holds only shell scripts and configs — say so: a shell script has no specs
+  (`testing.md`), and a spec is not required here.
 
 ## Step 5. Invariants and environment
 
@@ -160,9 +163,8 @@ On the migrations check:
 - The one exception is the `migrate-create` stub (`template-file-name` in `migrate.json`). No
   database has ever executed it (`docs/architecture/storage.md`), and its `M` is not a finding.
 
-Without a command, separately: if the diff touches `CLAUDE.md`, `docs/**`, `README.md` or adds a new
-document, the lines it writes must be English; code identifiers stay as they are. Russian outside
-the changed lines is not a finding: it is a leftover the translation of #385 missed.
+Without a command, separately: the language of the lines the diff writes, as `pr-light-check`
+checks it (`standalone.md` next to its `SKILL.md`, the last paragraph of step 4).
 
 ### Documentation the diff left behind (the `docs-sync` gate)
 
@@ -220,15 +222,15 @@ git show origin/main:<changed file> | grep -oE '^def +[A-Za-z][A-Za-z0-9_]*'
 ```
 
 The docs name these modules mostly by path, as the place where a rule is held (`holds the rule`,
-`the docstring of`). A function name is found less often, and `main` or `check` fall under the noise
-rule below.
+`the docstring of`). A function name is found less often, and `check` falls under the noise rule
+below.
 
-A symbol found in more than three files is not drift but an everyday word: `Bot`, `Runner` and
-`Application` appear in the docs of half the subsystems. Skip such a symbol and raise no question
+A symbol found in more than three files is not drift but an everyday word: `Bot` and `Application`
+appear in the docs of half the subsystems. Skip such a symbol and raise no question
 on it; in the report line this state is `noise`.
 
 Found in a doc the diff does not touch — **a question to the author, not a finding**:
-"`font-convertor.md:68` describes `FontSignatureMatcher`, the PR changes it — is it stale?".
+"`font-convertor.md:70` describes `EotHeader`, the PR changes it — is it stale?".
 
 - The symbol may have stayed accurate, and you are not obliged to read the author's subsystem for
   them.
@@ -244,13 +246,15 @@ gh pr list --state open --json number,headRefName,files \
   -q '.[] | "#\(.number) \(.headRefName): \(.files[].path)"'
 ```
 
-Files overlap → do not reason about a conflict, check it with a trial merge in a temporary worktree:
+Files overlap → do not reason about a conflict, check it with a trial merge. `git merge-tree`
+merges two commits without a worktree, so the hard rule on writes to disk holds:
 
 ```bash
-git merge --no-commit --no-ff origin/<other branch>
-git diff --name-only --diff-filter=U
-git merge --abort
+git merge-tree --write-tree --name-only --no-messages origin/<PR branch> origin/<other branch>
 ```
+
+Exit code 1 is a conflict: the lines after the first one, the tree, name the conflicted files. Exit
+code 0 is a clean merge.
 
 A conflict → a **merge condition** finding (see step 7): the PR code may be right by itself, but
 someone has to reconcile the two branches before merging. Be concrete: which file, which two PRs,
@@ -265,8 +269,8 @@ named `code-review`: name them in full, or you call the wrong one.
 called for. Run the built-in `code-review` skill, the one without a plugin prefix, **at the level
 from the gate's name**.
 
-- Do not derive the level from the diff yourself: `/review-pr` computed the sign, and a second copy
-  of it here would drift from it silently.
+- Do not derive the level from the diff yourself: why is in `docs/agents/review-gates.md`, "Bug
+  hunt and smells".
 - The level is not tied to the `smells` gate: infrastructure TypeScript goes at `high` exactly like
   domain code.
 - Add `--comment` if that flag is in the arguments: the findings then land as inline comments in the
@@ -334,12 +338,8 @@ _🤖 Posted by Claude Code from the owner's account · [session](<session link>
 <!-- pr-deep-review run=<K> head=<sha> -->
 ```
 
-- The signature is required: the verdict goes out from the owner's account and without it reads as
-  written by the owner (see "Agent signature on GitHub" in `CLAUDE.md`). No session link — leave
-  `_🤖 Posted by Claude Code from the owner's account._`
-- The marker is the last line, exactly in this form and unindented: the next run counts its number
-  by it, and without it the numbering breaks. The signature goes before it: the marker is not
-  visible in the feed and does not work as a signature.
+The signature and the marker follow the rules under the template of `pr-light-check`
+(`standalone.md`, step 5, "Text"): the signature is required, the marker is the last line.
 
 Verdict rules:
 
@@ -367,19 +367,4 @@ Why is said in the verdict rules of `pr-light-check` (`standalone.md`).
 
 ## Step 8. Posting the verdict in the PR
 
-By default the verdict goes out as a PR comment. `--no-post` in the arguments — skip this step and
-just print the text in the session.
-
-Write the text to a temporary file **outside the repository**, otherwise it ends up in the diff.
-Post it from the file, so that shell escaping does not mangle the text:
-
-```bash
-gh pr comment <N> --body-file <temporary path>
-```
-
-- **A new comment on every run, not an edit of the past one.** The review history must be visible
-  whole: the PR author has to see what changed between runs.
-- Do not use `--edit-last`: it edits the current user's last comment whichever skill wrote it.
-- Post exactly the text you printed in the session, with the signature and the marker at the end.
-- `gh pr comment` failed (no rights, PR closed) — print the verdict in the session and say that
-  posting failed and why. Do not stay silent and do not work around it.
+Post the verdict as step 6 of `pr-light-check` (`standalone.md`) says, `--no-post` included.
