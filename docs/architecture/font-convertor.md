@@ -265,10 +265,10 @@ pair to pair. A collection named `.ttf` or `.otf` is therefore rejected on input
 every pair, before the chosen pair does any work.
 
 This does not make the version check of the codec redundant. The sfnt validator sees only the
-sources: a TTF or OTF file and the sfnt a WOFF or an EOT carries. One more file passes through the
-codec that the validator never saw: the intermediate sfnt from the engine on packing. The codec
-checks less than the validator: the header size, the version and the bounds of the tables it
-reads, not the rules below. But the two share one set of versions with two more checks,
+sources: a TTF or OTF file and the sfnt a WOFF, a WOFF2 or an EOT carries. One more file passes
+through the codec that the validator never saw: the intermediate sfnt from the engine on packing.
+The codec checks less than the validator: the header size, the version and the bounds of the
+tables it reads, not the rules below. But the two share one set of versions with two more checks,
 `SFNT_VERSIONS` in `font-convertor/sfnt-version.ts`: `WoffFontValidator` (`validator/woff/`) checks
 the flavor of a WOFF against it, and `Woff2FontValidator` (`validator/woff2/`) the flavor of a
 WOFF2. The flavor is the version of the sfnt the container carries. The set must not become several
@@ -864,10 +864,10 @@ not count as supported.
     checksums are summed and the sfnt is rebuilt from them on it. The 32 MiB cap bounds the inflated
     tables, not the file, and the rebuilt sfnt is a second copy of them of the same size.
   - TTF and OTF: the table directory, every `loca` offset, every glyph of `glyf` and the references
-    between composite glyphs are walked on the event loop, as they are for the sfnt a WOFF or an EOT
-    carries. The walk was measured: `validateBytes()` takes 34 ms on `Arial Unicode.ttf`, 22 MB and
-    50377 glyphs, against 29 ms in the same run with the components of composite glyphs left
-    unread; the engine converts the file in 2.5 s
+    between composite glyphs are walked on the event loop, as they are for the sfnt a WOFF, a WOFF2
+    or an EOT carries. The walk was measured: `validateBytes()` takes 34 ms on
+    `Arial Unicode.ttf`, 22 MB and 50377 glyphs, against 29 ms in the same run with the components
+    of composite glyphs left unread; the engine converts the file in 2.5 s
     ([#684](https://github.com/yuldashevsardor/telegram-bot/issues/684),
     [#767](https://github.com/yuldashevsardor/telegram-bot/issues/767)).
   - EOT: the header is walked on the event loop. A compressed or encrypted `FontData` is decoded on
