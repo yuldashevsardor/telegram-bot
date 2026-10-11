@@ -156,7 +156,7 @@ describe("OutboxFailureHandler", function () {
 
         expect(logger.warnings).to.deep.equal([
             {
-                message: "The Bot API answers 429: the outbox is paused.",
+                message: "The Bot API answers 429: pausing the outbox.",
                 payload: {
                     messageId: message.id,
                     chatId: message.chatId,
@@ -174,7 +174,7 @@ describe("OutboxFailureHandler", function () {
         const thrown = await handling.catch((error: unknown) => error);
 
         expect(thrown).to.equal(RefusingPauseStore.refusal);
-        expect(logger.warnings.map((warning) => warning.message)).to.deep.equal(["The Bot API answers 429: the outbox is paused."]);
+        expect(logger.warnings.map((warning) => warning.message)).to.deep.equal(["The Bot API answers 429: pausing the outbox."]);
     });
 
     it("logs no flood warning for a 401", async function () {

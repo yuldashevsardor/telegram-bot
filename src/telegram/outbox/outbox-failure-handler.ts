@@ -67,7 +67,7 @@ export class OutboxFailureHandler {
     // The warning goes before the pause, so a retry_after that pause() refuses is logged too. Why a
     // 429 is logged at all is in docs/architecture/outbox.md, "Outcomes".
     private async pauseForFlood(message: PulledOutboxMessage, retryAfterSeconds: number, attemptError: OutboxAttemptError): Promise<void> {
-        this.logger.warning("The Bot API answers 429: the outbox is paused.", {
+        this.logger.warning("The Bot API answers 429: pausing the outbox.", {
             messageId: message.id,
             chatId: message.chatId,
             retryAfterSeconds: retryAfterSeconds,
