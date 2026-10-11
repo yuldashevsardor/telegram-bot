@@ -64,9 +64,12 @@ const PUSHED_METHOD = "sendMessage";
 const WORKER: OutboxWorker = { host: hostname(), pid: process.pid, workerId: "load-test" };
 const RESPONSE = { message_id: 1, date: 0, chat: { id: 1, type: "private" }, text: "load test" };
 
-// The errors OutboxFailureHandler gives each completion, as OutboxErrorSerializer writes a
-// GrammyError: a transient one is retried, an undeliverable one fails the message and lets the chat
-// go on, an unexpected one blocks the chat.
+// The errors OutboxFailureHandler gives each completion: a transient one is retried, an
+// undeliverable one fails the message and lets the chat go on, an unexpected one blocks the chat.
+// They are a reduced shape of a GrammyError: OutboxErrorSerializer writes its stack and the fields of
+// the answer (error_code, description, method) as well, so the attempts these completions append are
+// smaller than in production, those measured in "The skewed run" of
+// docs/architecture/outbox-load-test.md included.
 const TRANSIENT_ERROR: OutboxAttemptError = {
     kind: TelegramBotApiFailureKind.Transient,
     name: "GrammyError",
@@ -84,7 +87,7 @@ const UNEXPECTED_ERROR: OutboxAttemptError = {
 };
 
 class OutboxLoadTest {
-    // The number of the next push, the draw of its chat.
+    // The number of the last push, the draw of its chat: nextPushedMessage() counts it up first.
     private pushNumber = 0;
 
     // The largest batch is the number of the common limit, the most one pull can give out, and its

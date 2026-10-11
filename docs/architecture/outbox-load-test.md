@@ -442,9 +442,12 @@ out ([#872](https://github.com/yuldashevsardor/telegram-bot/issues/872)), as the
   | 9% | 90 075 | 518 – 2 070 | 116.5 M | 41.6% |
   | 1% | 10 028 | 2 071 – 10 348 | 62.1 M | 22.2% |
 
-- The chats are interleaved: the messages of a chat are spread over the whole history by `id`, and
-  the table lies in `id` order, which is also that of `finished_at` but for the oldest 13 999, past
-  their retention (below). How, without a sort of the 280 M rows: the comment of
+- The chats are interleaved: two neighbouring messages of a chat lie 1 790 497 apart by `id`, some
+  1/156 of the history. The inverse of the multiplier 173 039 639 modulo 279 984 018 sets it:
+  278 193 521, that is −1 790 497. A chat of 156 messages or more spans the whole history, a smaller
+  one a share of it as large as its count is of 156: a chat of 52, the largest of the smallest 60%,
+  a third. The table lies in `id` order, which is also that of `finished_at` but for the oldest
+  13 999, past their retention (below). How, without a sort of the 280 M rows: the comment of
   `outbox-fill-done.sql`.
 - One message in 200 is `failed` and one in 200 `skipped`. The oldest 13 999 finished past their
   retention, `skipped` ones past `OUTBOX_SKIPPED_RETENTION`, the rest within the day before the
