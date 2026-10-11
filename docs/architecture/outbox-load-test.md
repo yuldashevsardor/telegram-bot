@@ -9,9 +9,11 @@ of the indexes of [#643](https://github.com/yuldashevsardor/telegram-bot/issues/
 280 M messages skewed as production traffic is
 ([#872](https://github.com/yuldashevsardor/telegram-bot/issues/872), "The skewed run"). The
 unblocking of a chat was measured once more on the fill of #872, with the index of the failed
-messages ([#953](https://github.com/yuldashevsardor/telegram-bot/issues/953), "The unblocking"), and
+messages ([#953](https://github.com/yuldashevsardor/telegram-bot/issues/953), "The unblocking"),
 the status line with the status in the head index
-([#954](https://github.com/yuldashevsardor/telegram-bot/issues/954), "The status line").
+([#954](https://github.com/yuldashevsardor/telegram-bot/issues/954), "The status line"), and
+autovacuum without the threshold of the inserts
+([#958](https://github.com/yuldashevsardor/telegram-bot/issues/958), "Autovacuum in every run").
 
 ## How to run it
 
@@ -807,9 +809,9 @@ needs (see "The cleanup", the prepared statement).
 
 #### Autovacuum in every run
 
-Every run had one autovacuum of `telegram_outbox`, though it found 124 to 14 981 dead rows, under
-the threshold of 100 000 of "Vacuum of the head index". Each removed them and read both full
-indexes, 1.55 M pages, 12 GB, in 73 – 87 s:
+Every run of #872 had one autovacuum of `telegram_outbox`, though it found 124 to 14 981 dead
+rows, under the threshold of 100 000 of "Vacuum of the head index". Each removed them and read both
+full indexes, 1.55 M pages, 12 GB, in 73 – 87 s:
 
 ```
 automatic vacuum of table "docker_db.public.telegram_outbox": index scans: 1
@@ -826,8 +828,38 @@ times the rows times the share of the pages not frozen, and the fill was frozen:
 25 458 794 of its 25 459 094 pages in `relallfrozen`. So the threshold came to some 1 700 inserted
 messages, which a layout and the pushes of a run pass. The whole indexes are read for
 `vacuum_index_cleanup = ON` (see "Vacuum of the head index"), which keeps a vacuum from skipping
-them however few dead rows there are. The proposal is
-[#958](https://github.com/yuldashevsardor/telegram-bot/issues/958).
+them however few dead rows there are.
+
+`1791849600003_telegram-outbox-insert-vacuum-off.ts`
+([#958](https://github.com/yuldashevsardor/telegram-bot/issues/958)) sets
+`autovacuum_vacuum_insert_threshold = -1` for the table, so autovacuum comes for its dead rows
+alone. Measured on the same fill, on the code of `08bd27c5` with the migration: a run of the normal
+layout and a run of the hot chat layout, `plans=off`, each after a fill of its layout, inserted
+15 015 messages each and left 1 140 and 212 dead rows, and `pg_stat_user_tables` showed no
+autovacuum of the table during either run or in the 4 minutes after it. Then
+`make load-churn chat=1 messages=51000` over the hot chat layout left 102 212 dead rows, past the
+threshold of 100 000, and autovacuum came on them and cleaned the head index:
+
+```
+automatic vacuum of table "docker_db.public.telegram_outbox": index scans: 1
+	index scan needed: 30339 pages from table (0.12% of total) had 102212 dead item identifiers removed
+	index "telegram_outbox_active_chat_id_idx": pages: 2967 in total, 454 newly deleted, 645 currently deleted, 191 reusable
+	buffer usage: 134420 hits, 1656301 reads, 25484 dirtied
+	system usage: CPU: user: 9.80 s, system: 1.80 s, elapsed: 88.15 s
+```
+
+The head lookup of chat 1 read 462 buffers right after the churn and 7 after the vacuum. So the
+indexes are read whole once every 100 000 dead rows, every 18 to 28 minutes at the common limit (see
+"Vacuum of the head index"), and not every 1 700 inserts.
+
+What the inserts no longer bring is the visibility map of the pages they fill. A push of a large
+backlog leaves its messages on pages no vacuum has marked all-visible until the dead rows of their
+sending bring one, and the status line reads their rows meanwhile: 484 – 498 ms in the database for
+a backlog of 1 M against 50 after a vacuum (see "The status line"), every 10 s on every node. For
+how long depends on the pace of the sending: 18 to 28 minutes at the common limit, 4.6 hours for one
+chat at the private limit (see "Vacuum of the head index"), and while nothing is sent, a paused bot
+or a backlog behind blocked chats, only the deletes of the cleanup bring the vacuum. Not measured
+with the setting.
 
 ### Verdict of the skewed run
 
@@ -856,7 +888,8 @@ before one (see "The status line"). The push of the transformer took a median of
 a batch of 1 000 messages, the size of the batches of the bulk command, 15 – 23 ms; the measured
 batch goes to 1 000 chats with some 70 characters a message, where the command sends 1 000
 characters to 3 chats. Autovacuum read the whole indexes of the table in every run, brought by some
-1 700 inserts (see "Autovacuum in every run").
+1 700 inserts; with the threshold of the inserts off since #958 it came in no run, and came on the
+100 000 dead rows of a churn (see "Autovacuum in every run").
 
 The proposals of the run: the pull
 [#957](https://github.com/yuldashevsardor/telegram-bot/issues/957), the unblocking

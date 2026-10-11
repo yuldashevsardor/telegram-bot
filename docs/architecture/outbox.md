@@ -50,6 +50,10 @@ index (see "Maintenance"); the dead entries a head lookup walks stayed as many. 
 on the status would have competed with the primary key for the completions: the planner, which sees
 next to none of the active messages in the statistics of the history, looked their message up
 through it ([`outbox-load-test.md`](./outbox-load-test.md), "The status line").
+`1791849600003_telegram-outbox-insert-vacuum-off.ts` turns off the autovacuum that the inserts
+bring, so it comes for the dead rows alone: on a frozen done history some 1 700 inserts brought one,
+and each read every index whole ([`outbox-load-test.md`](./outbox-load-test.md), "Autovacuum in
+every run").
 `1791320758530_telegram-outbox-finished-index.ts` adds `telegram_outbox_finished_at_idx`, on
 `finished_at` of the `done` and `skipped` messages, the ones the cleanup deletes (see "Cleanup"):
 without it the call that finds nothing to delete reads the whole table. It is the opposite of the
@@ -439,7 +443,8 @@ node, apart from the runner. It takes its four intervals as one `outbox.maintena
   tables, so every node writes the state of the whole outbox, not of its own sends. The count reads
   the head index alone, and the row of a message only on a page the visibility map does not mark
   all-visible yet, which a vacuum does; the times of both are in
-  [`outbox-load-test.md`](./outbox-load-test.md), "The status line";
+  [`outbox-load-test.md`](./outbox-load-test.md), "The status line", and how long a pushed backlog
+  waits for that vacuum in "Autovacuum in every run";
 - the line of the blocked chats, every `OUTBOX_MAINTENANCE_BLOCKED_LOG_INTERVAL`: an `error` with
   the number `OutboxStore.countBlockedChats()` counts in `telegram_outbox_chats`, written only while
   it is above 0. A blocked chat waits for a person (see "Unblocking a chat"), and production
