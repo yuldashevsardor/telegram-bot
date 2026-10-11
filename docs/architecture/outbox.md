@@ -35,10 +35,15 @@ with that of `status`, by `1790682156623_telegram-outbox-retry-comments.ts`; tho
 and `lock_token` are replaced by `1790716587328_telegram-outbox-attempt-worker-comment.ts`.
 
 The indexes are picked by the plans of the load test (see "Load test"), not ahead of the queries.
-Besides the primary keys there are four of `telegram_outbox` and two of `telegram_outbox_chats`.
+Besides the primary keys there are three of `telegram_outbox` and two of `telegram_outbox_chats`.
 `1791153270752_telegram-outbox-head-index.ts` adds `telegram_outbox_active_chat_id_idx`, on
 `(chat_id, id)` of the active messages: the head of a chat for the pull, for `releaseChat()` and
-for the lease recovery is its first entry.
+for the lease recovery is its first entry. `1791849600002_telegram-outbox-head-index-status.ts`
+rebuilds it with `status` in its entries (`INCLUDE`), so the status line counts the `pending` and
+the `processing` messages from the index (see "Maintenance"). An index of its own on the status
+would have competed with the primary key for the completions: the planner, which sees next to none
+of the active messages in the statistics of the history, looked their message up through it
+([`outbox-load-test.md`](./outbox-load-test.md), "The status line").
 Its `status` is in the predicate, so no update of a message is HOT, and a `fillfactor` would buy
 nothing; every message leaves two dead entries in it, which the head lookup walks until a vacuum
 cleans them. So the same migration caps the dead rows that bring autovacuum to `telegram_outbox`,
@@ -55,13 +60,6 @@ table reads it whole ([`outbox-load-test.md`](./outbox-load-test.md), "The clean
 failed message that blocked it as the first entry of the chat (see "Unblocking a chat"). A failed
 message is never deleted, and only the unblock takes one out of `failed`, so the index grows with
 the failures that do not block their chat, those of `markAsFailed()`.
-`1791849600002_telegram-outbox-active-status-index.ts` adds `telegram_outbox_active_status_idx`, on
-`status` of the active messages, with the predicate of the head index: the status line counts the
-`pending` and the `processing` messages, each apart, from its entries (see "Maintenance"), where
-through the head index it read the row of each. Its key takes two values, so the entries of one
-value lie in the order of the rows in the table, and the count reads a page that is not yet
-all-visible once, not once a message ([`outbox-load-test.md`](./outbox-load-test.md), "The status
-line").
 `1791763200000_telegram-outbox-chat-head-priority.ts` adds the two of the `ready` chats, for the
 pull (see "Pull"): `telegram_outbox_chats_ready_pull_idx`, on `(head_priority, next_attempt_at,
 chat_id)`, the order of the pull, and `telegram_outbox_chats_ready_next_attempt_at_idx`, on
@@ -438,9 +436,9 @@ node, apart from the runner. It takes its four intervals as one `outbox.maintena
   what `OutboxStore.readBacklog()` counts, the `pending` and the `processing` messages, the
   `blocked` chats and the milliseconds left of the pause, 0 without one. The counts come from the
   tables, so every node writes the state of the whole outbox, not of its own sends. The count reads
-  `telegram_outbox_active_status_idx` alone, and the rows only of the pages the visibility map does
-  not mark all-visible yet: a median of 24 ms for a backlog of 1 M
-  ([`outbox-load-test.md`](./outbox-load-test.md), "The status line");
+  the head index alone, and the row of a message only on a page the visibility map does not mark
+  all-visible yet, which a vacuum does; the times of both are in
+  [`outbox-load-test.md`](./outbox-load-test.md), "The status line";
 - the line of the blocked chats, every `OUTBOX_MAINTENANCE_BLOCKED_LOG_INTERVAL`: an `error` with
   the number `OutboxStore.countBlockedChats()` counts in `telegram_outbox_chats`, written only while
   it is above 0. A blocked chat waits for a person (see "Unblocking a chat"), and production

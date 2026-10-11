@@ -10,7 +10,7 @@ of the indexes of [#643](https://github.com/yuldashevsardor/telegram-bot/issues/
 ([#872](https://github.com/yuldashevsardor/telegram-bot/issues/872), "The skewed run"). The
 unblocking of a chat was measured once more on the fill of #872, with the index of the failed
 messages ([#953](https://github.com/yuldashevsardor/telegram-bot/issues/953), "The unblocking"), and
-the status line with the index of the active statuses
+the status line with the status in the head index
 ([#954](https://github.com/yuldashevsardor/telegram-bot/issues/954), "The status line").
 
 ## How to run it
@@ -519,7 +519,7 @@ What each call reads, from the runs with the plans:
 | `find()` | the primary key, some 7 buffers a message |
 | `push()`, `pushBatch()` | the primary keys as arbiters, the head index for the head priority |
 | `pause()` | the bot row |
-| `readBacklog()` | `telegram_outbox_active_status_idx`, and the rows written since the last vacuum; before #954 every active message, the head index and the row of each (see "The status line") |
+| `readBacklog()` | the head index alone, and the rows written since the last vacuum; before #954 the head index and the row of every active message (see "The status line") |
 | `deleteFinishedMessages()` | `telegram_outbox_finished_at_idx`, as in #632 |
 | `retryBlockedChat()`, `skipBlockedChat()` | `telegram_outbox_failed_chat_idx` for the failed message, a parallel seq scan of `telegram_outbox` before it (see "The unblocking") |
 
@@ -651,8 +651,8 @@ after a first, each pull of one message followed by a batch; the medians on the 
 #### The status line
 
 In the runs of #872 `readBacklog()` counted the pending and the processing messages through the
-head index, whose entries do not hold the status, so it read the row of each active message. In the
-backlog, 1 M of them, 400 000 pages from the disk:
+head index, whose entries did not hold the status, so it read the row of each active message. In
+the backlog, 1 M of them, 400 000 pages from the disk:
 
 ```
 ->  Aggregate  (actual time=1472.818..1472.819 rows=1.00 loops=1)
@@ -664,53 +664,79 @@ backlog, 1 M of them, 400 000 pages from the disk:
 The statement took 1.6 s there and 6.5 ms for the 19 505 active messages of the normal layout. Every
 node calls it every `OUTBOX_MAINTENANCE_STATUS_LOG_INTERVAL`, 10 s (`OutboxMaintenance`).
 
-`1791849600002_telegram-outbox-active-status-index.ts` adds `telegram_outbox_active_status_idx`,
-`telegram_outbox (status) WHERE status IN ('pending', 'processing')`
-([#954](https://github.com/yuldashevsardor/telegram-bot/issues/954)), and the count reads it by an
-index-only scan. The migration over the filled table took 4.5 min, the start of the application
-container included, and the index holds the 1 M messages of the backlog in 6.8 MB: two values of the
-key, deduplicated. An index-only scan still reads the row of an entry whose page the visibility map
-does not mark all-visible, and a vacuum is what marks it; a push, a pull and a completion clear the
-mark of the page they write. The fill of a layout ends with a vacuum, so its messages lie on marked
-pages, and what the run writes after it does not. The two alternatives of #954 were measured in
-`psql` on the backlog layout, twice: after the fill, and after a fill without its vacuum, with
-autovacuum of the two tables off. The times of the database of the second call, in ms, with the
-buffers read and, for an index-only scan, the rows of the table read:
+An index-only scan reads the row of an entry whose page the visibility map does not mark
+all-visible, and a vacuum is what marks it; a push, a pull and a completion clear the mark of the
+page they write. The fill of a layout ends with a vacuum, so its messages lie on marked pages, and
+what the run writes after it does not. The options of
+[#954](https://github.com/yuldashevsardor/telegram-bot/issues/954) were measured in `psql` on the
+backlog layout, after the fill and after a fill without its vacuum, with autovacuum of the two
+tables off. The times of the database, in ms, of a call after the first, with the buffers and the
+rows of the table read:
 
 | statement | after the vacuum | without it |
 |---|---|---|
-| both counts, through the head index | 1 129, 1 004 794 buffers | 3 544, 2 016 142 buffers |
-| the total alone, through the head index | 40, 131 934 buffers, 0 rows | 965, 2 050 386 buffers, 1 595 304 rows |
-| both counts, through the index of the statuses | 35, 1 633 buffers, 0 rows | 97, 27 484 buffers, 1 000 486 rows |
+| both counts, the head index without the status | 1 129, 1 004 794 buffers | 3 544, 2 016 142 buffers |
+| the total alone, the head index without the status | 40, 131 934 buffers, 0 rows | 965, 2 050 386 buffers, 1 595 304 rows |
+| both counts, an index of its own, `(status)` of the active messages | 35, 1 633 buffers, 0 rows | 97, 27 484 buffers, 1 000 486 rows |
+| both counts, the head index with the status | 50, 133 290 buffers, 0 rows | 484 – 498, 1 000 000 rows |
 
-The head index lies in the order of the chats, so a row it has to read is on another page each
-time. In the index of the statuses the entries of one value lie in the order of the rows in the
-table, so the count reads a page once for all its messages: 26 743 pages for the 1 M of the backlog.
-The rows read by the total exceed the backlog: the entries of the layout the fill deleted were
-still in the head index, and the first scan through the index of the statuses read them too, 2 M
-rows in 2 261 ms, and marked them dead for the scans after it.
+The rows read by the head index without the status exceed the backlog: the entries of the layout
+the fill had deleted were still in it. The first count after the fill without the vacuum read them
+too, 6.1 s with the status in the head index, and marked them dead for the counts after it. The
+buffers of the last row without the vacuum were not taken.
 
-The times of the client, in ms, from runs with `plans=off`, each after a fill of its layout, on the
-code of this change and the connections of `.env.dist` (see "The pull"); "first" is the first call
-of the run:
+The index of the statuses was the fastest, and it was dropped. Its key takes two values, so the
+entries of one value lie in the order of the rows in the table, and a count that reads rows reads a
+page once for all its messages. But the planner reached for it in other statements too. The
+statistics of the 280 M rows see next to none of the active messages, so it valued a scan of the
+entries of one status as cheap as the primary key: in the run of the backlog with the plans, 20 of
+the completions, `WHERE id = $4 AND status = $5`, looked their message up through it:
+
+```
+->  Index Scan using telegram_outbox_active_status_idx on telegram_outbox
+      (cost=0.42..8.65 rows=1 width=118)
+      Index Cond: (status = 'processing'::text)
+      Filter: (id = '1000000282268'::bigint)
+```
+
+With one `processing` message that took 0.1 ms; with the status `pending` of 1 M messages it would
+read them all. The head lookup of the chat row came close as well: 9.39 through it against 8.39
+through the head index, in the normal layout. `1791849600002_telegram-outbox-head-index-status.ts`
+puts the status into the head index instead, `telegram_outbox (chat_id, id) INCLUDE (status) WHERE
+status IN ('pending', 'processing')`, so the active messages keep one index. Its migration over the
+filled table took 4 min 7 s, the start of the application container included. In the run of the
+backlog with the plans the 20 completions looked their messages up by `telegram_outbox_pkey`, and
+no statement but the count changed its index.
+
+The times of the client, in ms, from runs with `plans=off`, each after a fill of its layout, with
+the connections of `.env.dist` (see "The pull"); "first" is the first call of the run:
 
 | layout | `readBacklog()` |
 |---|---|
-| normal | first 2.5, then 1.9 – 2.5, median 2.05 |
-| backlog | first 80.3, then 22.8 – 27.6, median 24.1 |
-| hot chat | first 12.3, then 6.9 – 8.0, median 7.35 |
+| normal | first 5.1, then 3.0 – 4.2, median 3.2 |
+| backlog | first 61.7, then 39.6 – 46.4, median 41.4 |
+| hot chat | first 74.6, then 13.0 – 17.2, median 14.95 |
 
-All 15 plans of the run of the backlog with the plans read the index of the statuses, custom plans
-with the values of the statuses, which the partial index needs (see "The cleanup", the prepared
-statement). Each read the rows of the 36 000 active messages the run had written before it, some
-950 pages, 38 – 49 ms on the client with the plans:
+An earlier run of the normal layout, the first after the fill of the backlog without its vacuum,
+took 10.7 – 13.0 ms. The run calls the status line after its pushes, pulls and completions, so each
+count reads the rows they wrote: in the run of the backlog with the plans 36 000 of them, 72 – 77 ms
+on the client with the plans,
 
 ```
-->  Parallel Index Only Scan using telegram_outbox_active_status_idx on telegram_outbox
-      (actual time=0.053..41.811 rows=338168.33 loops=3)
-      Heap Fetches: 36011
-      Buffers: shared hit=701 read=1892 dirtied=78 written=1554
+->  Parallel Index Only Scan using telegram_outbox_active_chat_id_idx on telegram_outbox
+      (actual time=0.089..343.565 rows=338168.33 loops=3)
+      Heap Fetches: 35963
+      Buffers: shared hit=349345 read=7399 dirtied=2 written=5606
 ```
+
+and in the normal layout nearly every one of its 19 505 active messages, 4.3 – 6.1 ms with the
+plans. The other calls of these runs, against the medians of "Results" and of "The pull after
+#957", taken on other days: `pull(1)` 2.65 – 3.5 ms in the two runs of the normal layout against
+1.6, 3.15 in the backlog against 1.75, 7.6 for the hot chat against 6.3; `pull(30)` 8.4 – 13.0,
+12.3 and 7.0 against 9.55, 14.95 and 6.35; `markAsDone()` 1.1, 1.1 and 3.7 against 0.9, 0.9 and 2.4;
+`pushBatch()` 14.3 – 15.7, 28.1 and 15.7 against 19, 23 and 15. No run of the code before #954 was
+made on the same day, so the pull of one message, 1 – 2 ms slower in the normal and the backlog
+layouts, is not told apart from the day.
 
 #### The unblocking
 
@@ -806,14 +832,15 @@ it before #957, and the unblocking took minutes before #953:
 
 The calls on timers have no threshold. The cleanup is no slower than in #632: a full batch
 4.0 – 13.7 ms, the call that finds nothing 1.3 – 2.1 ms. The lease recovery took 1.7 – 63 ms. The
-status line read every active message, 1.2 s a call in the backlog, every 10 s; the index of the
-active statuses of #954 brought it to a median of 24 ms (see "The status line"). The push of the
+status line read every active message, 1.2 s a call in the backlog, every 10 s; the status in the
+head index of #954 brought it to a median of 41.4 ms (see "The status line"). The push of the
 transformer took a median of 1.0 – 5.0 ms, and a batch of 1 000 messages, the size of the batches of
 the bulk command, 15 – 23 ms; the measured batch goes to 1 000 chats with some 70 characters a
 message, where the command sends 1 000 characters to 3 chats. Autovacuum read the whole indexes of
 the table in every run, brought by some 1 700 inserts (see "Autovacuum in every run").
 
-The proposal left is autovacuum [#958](https://github.com/yuldashevsardor/telegram-bot/issues/958);
-those of the pull, [#957](https://github.com/yuldashevsardor/telegram-bot/issues/957), of the
-unblocking, [#953](https://github.com/yuldashevsardor/telegram-bot/issues/953), and of the status
-line, [#954](https://github.com/yuldashevsardor/telegram-bot/issues/954), are done.
+The proposals of the run: the pull
+[#957](https://github.com/yuldashevsardor/telegram-bot/issues/957), the unblocking
+[#953](https://github.com/yuldashevsardor/telegram-bot/issues/953), the status line
+[#954](https://github.com/yuldashevsardor/telegram-bot/issues/954) and autovacuum
+[#958](https://github.com/yuldashevsardor/telegram-bot/issues/958).
