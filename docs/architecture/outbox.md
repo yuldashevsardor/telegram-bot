@@ -44,6 +44,12 @@ nothing; every message leaves two dead entries in it, which the head lookup walk
 cleans them. So the same migration caps the dead rows that bring autovacuum to `telegram_outbox`,
 whatever the size of the done history, and makes the vacuum always clean the indexes; the values and
 their measurement are in [`outbox-load-test.md`](./outbox-load-test.md), "Vacuum of the head index".
+`1791849600002_telegram-outbox-head-index-status.ts` rebuilds the head index with `status` in its
+entries (`INCLUDE`), so the status line counts the `pending` and the `processing` messages from the
+index (see "Maintenance"); the dead entries a head lookup walks stayed as many. An index of its own
+on the status would have competed with the primary key for the completions: the planner, which sees
+next to none of the active messages in the statistics of the history, looked their message up
+through it ([`outbox-load-test.md`](./outbox-load-test.md), "The status line").
 `1791320758530_telegram-outbox-finished-index.ts` adds `telegram_outbox_finished_at_idx`, on
 `finished_at` of the `done` and `skipped` messages, the ones the cleanup deletes (see "Cleanup"):
 without it the call that finds nothing to delete reads the whole table. It is the opposite of the
@@ -431,9 +437,9 @@ node, apart from the runner. It takes its four intervals as one `outbox.maintena
   what `OutboxStore.readBacklog()` counts, the `pending` and the `processing` messages, the
   `blocked` chats and the milliseconds left of the pause, 0 without one. The counts come from the
   tables, so every node writes the state of the whole outbox, not of its own sends. The count reads
-  every active message through the head index, and the row of each for its status: 1.2 s for a
-  backlog of 1 M ([`outbox-load-test.md`](./outbox-load-test.md), "The skewed run";
-  [#954](https://github.com/yuldashevsardor/telegram-bot/issues/954));
+  the head index alone, and the row of a message only on a page the visibility map does not mark
+  all-visible yet, which a vacuum does; the times of both are in
+  [`outbox-load-test.md`](./outbox-load-test.md), "The status line";
 - the line of the blocked chats, every `OUTBOX_MAINTENANCE_BLOCKED_LOG_INTERVAL`: an `error` with
   the number `OutboxStore.countBlockedChats()` counts in `telegram_outbox_chats`, written only while
   it is above 0. A blocked chat waits for a person (see "Unblocking a chat"), and production
