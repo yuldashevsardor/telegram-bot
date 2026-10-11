@@ -509,7 +509,7 @@ What each call reads, from the runs with the plans:
 
 | call | what its statements read |
 |---|---|
-| `pull()` | `telegram_outbox_chats_ready_pull_idx` for the chats, the head index for their heads, as in #632; in the normal layout every active message for the heads to update (see "The pull") |
+| `pull()` | `telegram_outbox_chats_ready_pull_idx` for the chats, the head index for their heads, as in #632; in the normal layout every active message for the heads to update, until #957 (see "The pull") |
 | `markAsDone()`, `retry()`, `markAsFailed()`, `markAsFailedAndBlockChat()` | the primary keys; the head index for the message left and the head priority |
 | `findExpiredLeases()` | a seq scan of `telegram_outbox_chats`, then the head index per expired chat |
 | `deleteIdleChats()`, `countBlockedChats()` | a seq scan of `telegram_outbox_chats` alone |
@@ -539,10 +539,11 @@ medians:
 | backlog | 0.4 – 4.1 | 22.2 – 31.2, median 24.1 | 25.5 – 72.3, median 34.8 | 18.9 – 24.0 | 25.9, 42.0 |
 | backlog, `jit = off` | 0.4 – 6.7 | 0.3 – 0.5, median 0.3 | 1.4 – 8.1, median 2.2 | 0.1 – 0.3 | 1.9, 7.2 |
 
-In the backlog the pull is compiled each time. The planner does not know the budget, which is
-computed in the statement, and estimates the heads of 109 608 ready chats to lock; the plan costs
-107 291, past `jit_above_cost`, so PostgreSQL compiles it with JIT on every run, a pull the limits
-hold back included, which took 14.1 ms in the database and read 14 buffers:
+Before #957 (see "The pull after #957") the pull of the backlog was compiled each time. The planner
+does not know the budget, which is computed in the statement, and estimated the heads of 109 608
+ready chats to lock; the plan cost 107 291, past `jit_above_cost`, so PostgreSQL compiled it with
+JIT on every run, a pull the limits hold back included, which took 14.1 ms in the database and read
+14 buffers:
 
 ```
 JIT:
@@ -551,10 +552,10 @@ JIT:
   Timing: Generation 1.670 ms (Deform 0.574 ms), Inlining 0.000 ms, Optimization 0.413 ms, Emission 13.511 ms, Total 15.594 ms
 ```
 
-In the normal layout the plan costs 787 and is not compiled, but the update of the heads reads every
-active message of the table through the head index with its row, where the backlog looks each head
-up by the primary key. The planner expects 2 active messages: the statistics of a table of 280 M
-rows hold next to none of its 5 000. With hash joins off it reads them all the same, by another
+In the normal layout the plan cost 787 and was not compiled, but the update of the heads read every
+active message of the table through the head index with its row, where the backlog looked each head
+up by the primary key. The planner expected 2 active messages: the statistics of a table of 280 M
+rows hold next to none of its 5 000. With hash joins off it read them all the same, by another
 join, a pull the limits hold back included. In #632 the layouts held 1 M pending messages
 of 101 M, which the statistics saw. A `pull(30)`:
 
@@ -574,7 +575,75 @@ The first runs of the layouts went with the connections of the `.env` of the own
 connection every 10 s, and on each the pull was parsed, bound and run cold again, 33 – 72 ms in the
 database. The table of "Results" and the runs above are with the connections of `.env.dist`.
 
-The proposal is [#957](https://github.com/yuldashevsardor/telegram-bot/issues/957).
+#### The pull after #957
+
+[#957](https://github.com/yuldashevsardor/telegram-bot/issues/957) changed three things. The
+connections of the application open with `jit = off` ([`storage.md`](./storage.md)). The update of
+the heads matches the status of a head against the one the statement read, not against `pending`,
+so the planner looks each head up by the primary key. The chats of the pull are bounded by `limit`
+as well as by the budget, which the planner cannot see ([`outbox.md`](./outbox.md), "Pull"). The
+second alone was not enough: `status = 'pending'` had kept the estimate of the pulled messages to a
+few, and without it the planner expected 10 689 in the backlog, and the update of the chats read and
+hashed all 329 968 chat rows, 49 ms for one message.
+
+Measured on the same fill a day later, on the code of `b8b84f30`. Each of the normal and the backlog
+layouts had a run with `plans=off` and the statements logged, then a fill and a run with the plans;
+the hot chat layout had a run with `plans=off` alone. The client times are of the runs with the
+statements logged, and the times of the database are of every pull of the run but its first: the
+pulls of one message for `retry()` and `markAsFailed()` among `pull(1)`, the batch left to expire
+among `pull(30)`. In ms:
+
+| layout | `pull(1)`, client | `pull(30)`, client | execute of `pull(1)` | execute of `pull(30)` | held back | bind |
+|---|---|---|---|---|---|---|
+| normal | first 17.4, then 1.2 – 3.0, median 1.6 | first 10.8, then 7.2 – 12.7, median 9.55 | 0.2 – 1.0, median 0.5 | 2.4 – 3.4, median 2.8 | 0.1 – 0.4 | 0.4 – 3.5 |
+| backlog | first 27.4, then 1.3 – 3.3, median 1.75 | first 17.1, then 10.1 – 21.3, median 14.95 | 0.3 – 1.2, median 0.6 | 3.1 – 11.1, median 5.2 | 0.1 – 0.4 | 0.4 – 3.9 |
+| hot chat | first 20.9, then 1.9 – 8.0, median 6.3 | first 6.9, then 4.0 – 9.5, median 6.35, for 1 message | — | — | — | — |
+
+No plan of the runs with the plans has JIT, and each of their 108 pulls a layout looks its heads up
+by `telegram_outbox_pkey`. A `pull(30)` of the backlog, 5.4 ms in the database:
+
+```
+->  Limit  (cost=0.91..161.25 rows=30 width=21) (actual time=0.221..1.822 rows=30.00 loops=1)
+      ->  Subquery Scan on budget_heads  (cost=0.91..58619.63 rows=10968 width=21) (actual time=0.219..1.813 rows=30.00 loops=1)
+            ->  Limit  (cost=0.91..58509.95 rows=10968 width=76) (actual time=0.218..1.803 rows=30.00 loops=1)
+                  ->  LockRows  (cost=0.85..585096.55 rows=109681 width=76) (actual time=0.195..1.773 rows=30.00 loops=1)
+                        ->  Index Scan using telegram_outbox_chats_ready_pull_idx on telegram_outbox_chats chats
+                        ->  Index Scan using telegram_outbox_active_chat_id_idx on telegram_outbox
+                              Buffers: shared hit=93 read=27
+->  Update on telegram_outbox telegram_outbox_1  (cost=0.57..258.99 rows=29 width=142) (actual time=0.486..4.623 rows=30.00 loops=1)
+      ->  Index Scan using telegram_outbox_pkey on telegram_outbox telegram_outbox_1
+            (cost=0.57..8.59 rows=1 width=19) (actual time=0.047..0.047 rows=1.00 loops=30)
+            Index Cond: (id = heads.id)
+            Buffers: shared hit=120 read=30
+->  Update on telegram_outbox_chats telegram_outbox_chats_1  (actual time=0.304..0.304 rows=0.00 loops=1)
+      ->  Index Scan using telegram_outbox_chats_pkey on telegram_outbox_chats telegram_outbox_chats_1
+            (actual time=0.002..0.002 rows=1.00 loops=30)
+```
+
+The inner `Limit` still expects 10 968 heads, a tenth of the ready chats; the outer one gives the
+updates 30. The heads of the backlog lie all over the table, and the lookup of a head now reads its
+row, for the status, where it read the index alone: 27 pages from the disk, which the update then
+finds in the cache. In the normal layout the update of the chats reads its 5 882 chat rows by a seq
+scan, 150 pages and 1 ms, where the backlog looks them up by key: the choice of the planner at that
+size.
+
+The batch of the backlog stays over the threshold on the client, a median of 14.95 ms, of it 5.2 in
+the execute and up to 3.9 in the bind. The rest is the wait of the client after the 2 s of idle
+before each batch, as in "The pull of 100 k chats with the head priority". A pull holds the bot row
+for its execute alone, which is what the threshold is for (see "Threshold"), so the pull is taken
+as within it in every layout.
+
+The hot chat layout took longer than in "Results", a median of 6.3 ms against 2.2 for `pull(1)`, and
+the execute of the batch of the backlog longer than with `jit = off` above, 5.2 ms against 2.2.
+Neither comes from the change. A one-off script, not kept, pulled in turns with the store before
+the change (`9d7e1bf8`) and after it (`b8b84f30`), through one pool with `jit = off`, 19 times each
+after a first, each pull of one message followed by a batch; the medians on the client, in ms:
+
+| layout | `pull(1)`, before | `pull(1)`, after | `pull(30)`, before | `pull(30)`, after |
+|---|---|---|---|---|
+| normal | 16.17 | 7.07 | 18.01 | 9.00 |
+| backlog | 7.65 | 7.52 | 11.76 | 11.47 |
+| hot chat | 6.36 | 5.90 | 6.45, for 1 message | 6.43, for 1 message |
 
 #### The status line
 
@@ -670,15 +739,16 @@ them however few dead rows there are. The proposal is
 
 Every completion stays within the threshold at its median in every layout, 0.9 – 5.9 ms. At its
 maximum it is over it only in the run of the backlog that shared the VM with the checks of another
-session, 20.6 ms at most, where the first run of the layout gave 8.6. The pull does not stay within
-it:
+session, 20.6 ms at most, where the first run of the layout gave 8.6. The pull did not stay within
+it before #957, and the unblocking does not:
 
-- The pull of the backlog is over it, `pull(1)` a median of 26.2 ms and `pull(30)` 52.1, compiled
-  by JIT on every run, a pull the limits hold back included. With JIT off for the role the same
-  layout gave a median of 1.9 and 7.2 ms (see "The pull").
-- The pull of the normal layout is within it at the median, 6.3 and 8.1 ms, but its update of the
-  heads reads every active message of the table, which the statistics of the long history do not
-  see, so its time grows with them (see "The pull").
+- The pull of the backlog was over it, `pull(1)` a median of 26.2 ms and `pull(30)` 52.1, compiled
+  by JIT on every run, a pull the limits hold back included. The pull of the normal layout was
+  within it at the median, 6.3 and 8.1 ms, but its update of the heads read every active message
+  of the table, which the statistics of the long history do not see. Since #957 the pull holds the
+  bot row for a median of 0.5 – 0.6 ms for one message and 2.8 – 5.2 ms for a batch in both
+  layouts, without JIT and with the heads looked up by the primary key, though the batch of the
+  backlog takes a median of 14.95 ms on the client (see "The pull after #957").
 - The unblocking took 2.3 – 3.8 minutes a call in all the runs, a scan of the whole table under the
   lock of the chat. The index of the failed messages by chat of
   [#953](https://github.com/yuldashevsardor/telegram-bot/issues/953) brought it to a median of
@@ -693,7 +763,7 @@ some 70 characters a message, where the command sends 1 000 characters to 3 chat
 the whole indexes of the table in every run, brought by some 1 700 inserts (see "Autovacuum in every
 run").
 
-The proposals: the pull [#957](https://github.com/yuldashevsardor/telegram-bot/issues/957), the
-unblocking [#953](https://github.com/yuldashevsardor/telegram-bot/issues/953), the status line
-[#954](https://github.com/yuldashevsardor/telegram-bot/issues/954) and autovacuum
-[#958](https://github.com/yuldashevsardor/telegram-bot/issues/958).
+The proposals: the unblocking [#953](https://github.com/yuldashevsardor/telegram-bot/issues/953),
+the status line [#954](https://github.com/yuldashevsardor/telegram-bot/issues/954) and autovacuum
+[#958](https://github.com/yuldashevsardor/telegram-bot/issues/958); that of the pull,
+[#957](https://github.com/yuldashevsardor/telegram-bot/issues/957), is done.
