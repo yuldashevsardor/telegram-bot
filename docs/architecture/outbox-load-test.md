@@ -25,8 +25,9 @@ them; on a volume of the earlier runs, where the index was made by hand under th
 migration fails, and `load-down` gives a fresh one, without the fill of the inbox load test either
 ([`inbox-load-test.md`](./inbox-load-test.md)). The index of the failed messages (see "The
 unblocking") is a migration too: a volume filled before it builds the index at its next `load-up`.
-The files they run are in `test/load/`, and what they make is in "The skewed run". The run of #632 had fills of another form, 100 000 chats of equal
-size and layouts of `chats` × `per_chat`: they are the files of `test/load/` at
+The files they run are in `test/load/`, and what they make is in "The skewed run". The run of #632
+had fills of another form, 100 000 chats of equal size and layouts of `chats` × `per_chat`: they are
+the files of `test/load/` at
 [`8bd64949`](https://github.com/yuldashevsardor/telegram-bot/tree/8bd64949/test/load). A layout over
 a volume of that fill leaves the pending messages of the old layout below the ids of the layouts, so
 `load-down`, `load-up` and a new fill come first. A fill stays valid for 6 days: then its done
@@ -500,7 +501,8 @@ backlog a review session of another worktree ran its checks in the same Docker V
 of the host up to 63: the completions, `push()` and `find()` of that column took 2 to 6 times their
 times in the first run of the layout, `retry()` a median of 1.0 ms there and `push()` 0.8. The pulls
 that block a chat, right after an unblock, took 40 – 119 ms in the normal and the backlog layouts;
-each followed a scan of the whole table (see "The unblocking"), and their plans were not looked into.
+each followed a scan of the whole table (see "The unblocking"), and their plans were not looked
+into.
 
 ### The plans
 
