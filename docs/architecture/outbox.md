@@ -443,7 +443,8 @@ node, apart from the runner. It takes its four intervals as one `outbox.maintena
   tables, so every node writes the state of the whole outbox, not of its own sends. The count reads
   the head index alone, and the row of a message only on a page the visibility map does not mark
   all-visible yet, which a vacuum does; the times of both are in
-  [`outbox-load-test.md`](./outbox-load-test.md), "The status line";
+  [`outbox-load-test.md`](./outbox-load-test.md), "The status line", and how long a pushed backlog
+  waits for that vacuum in "Autovacuum in every run";
 - the line of the blocked chats, every `OUTBOX_MAINTENANCE_BLOCKED_LOG_INTERVAL`: an `error` with
   the number `OutboxStore.countBlockedChats()` counts in `telegram_outbox_chats`, written only while
   it is above 0. A blocked chat waits for a person (see "Unblocking a chat"), and production

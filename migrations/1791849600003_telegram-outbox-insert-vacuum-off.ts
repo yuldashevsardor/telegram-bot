@@ -1,7 +1,8 @@
 import type { ColumnDefinitions, MigrationBuilder } from "node-pg-migrate";
 import { commonShorthands } from "./common/utils";
 
-// Autovacuum comes to telegram_outbox for its dead rows alone, not for its inserts. PostgreSQL also
+// Autovacuum comes to the heap of telegram_outbox for its dead rows alone, not for its inserts; its
+// TOAST table keeps the vacuum of the inserts, which reads the TOAST index alone. PostgreSQL also
 // brings a vacuum after autovacuum_vacuum_insert_threshold inserts plus
 // autovacuum_vacuum_insert_scale_factor times the rows on the pages not frozen yet, and the done
 // history gets frozen: on 280 M rows the threshold came to some 1 700 inserts, a minute at the
