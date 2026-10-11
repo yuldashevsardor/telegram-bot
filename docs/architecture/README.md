@@ -119,7 +119,8 @@ Bot commands:
 - `/start` — a conversation with a greeting;
 - `/font_generator` — a debugging conversion of a fixed file
   ([`font-convertor.md`](./font-convertor.md));
-- `/bulk_messages` — a load tool, not a feature.
+- `/bulk_messages` — a load tool, not a feature; it runs only from its recipient chats
+  ([`bot.md`](./bot.md), "Commands").
 
 `/font_generator` and `/bulk_messages` are test commands: they are needed in development only and
 are removed before going to production. The only requirement on such a command is not to reach
@@ -128,7 +129,7 @@ command, not a defect, and need no fixing:
 
 - the tie to the developer's environment: the input font from a test fixture and hardcoded chat
   IDs;
-- the absence of a permission check.
+- the absence of a permission check in `/font_generator`.
 
 The relaxation does not cover the tests. As long as the command exists, its spec holds the
 behaviour as it is, that tie included ([`testing.md`](./testing.md), "Mutation testing"). Nor does

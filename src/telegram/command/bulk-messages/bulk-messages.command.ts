@@ -30,7 +30,15 @@ export class BulkMessagesCommand extends Command {
 
     // Straight into the outbox, so that the chats yield to the chats with calls of the bot, and
     // waiting for none of the messages (docs/architecture/bot.md, "Commands").
-    protected async handle(_ctx: Context): Promise<void> {
+    protected async handle(ctx: Context): Promise<void> {
+        // The command is in the menu of everyone, and only the owner's accounts are meant to load
+        // the outbox with it.
+        const senderChatId = ctx.chat?.id;
+
+        if (senderChatId === undefined || !CHAT_IDS.includes(senderChatId)) {
+            return;
+        }
+
         for (let firstIndex = 0; firstIndex < MESSAGE_COUNT; firstIndex += BATCH_MESSAGE_COUNT) {
             await this.store.pushBatch(this.buildBatch(firstIndex));
         }
