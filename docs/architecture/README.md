@@ -27,6 +27,8 @@ directories it covers are in the directory map below.
 - [`inbox.md`](./inbox.md) — the inbox of incoming updates in PostgreSQL
 - [`inbox-load-test.md`](./inbox-load-test.md) — the inbox store measured on 100 M updates and on
   250 M skewed ones
+- [`real-bot-load-test.md`](./real-bot-load-test.md) — `/bulk_messages` through the real Telegram:
+  its private chat limit, the pause, a reply behind bulk messages
 - [`font-convertor.md`](./font-convertor.md) — font conversion, the domain
 - [`user.md`](./user.md) — `User`, the snapshot of a Telegram profile
 - [`logging.md`](./logging.md) — the `Logger` port, its adapters and request correlation
