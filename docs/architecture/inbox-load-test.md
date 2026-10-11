@@ -25,36 +25,45 @@ minutes each (see "The skewed run"). No load target keeps the Mac awake, and an 
 asleep in the middle: the runs of #871 went under `caffeinate -i` started by hand. `load-down`
 gives the disk back to the host within minutes.
 
-A layout deletes every update from the `update_id` of the layouts on, so it replaces what the
-previous layout and its measurement left, and every group. It does not put back the history the
-cleanup deleted: the cleanup of a measurement deletes the updates past their retention, so a later
-run on the same fill finds only the call that deletes nothing. The runs of "The cleanup" (#824) put
-them back before each run with the `INSERT` of the fill of the time over `n` from 1 to 5 000.
-The layouts are of the fill of #871: one over a volume of the fill of #824 leaves the pending
-updates of the old layout below the `update_id` of the layouts, so `load-down`, `load-up` and a new
-fill come first. The 1 000 blocked groups of a layout and the groups of the pushes are among the
-1 M of the default fill: a fill of fewer `groups` leaves most of them without history.
+The layouts:
 
-The head index (see "Results") is a migration, so `load-up` makes it and the fills insert under
-it: the history is not in the partial index, so the fill does not pay the 1 minute 39 seconds its
-build over the filled table of #824 took. Without the index a claim takes some 5 minutes, so a
-measurement without it is to be cut short after a call or two, as the one in "Results" was: stop
-`make` and the application container of the run, which `docker ps` names after the worktree. The
-statement it left runs on in the database until it ends or reaches the statement timeout, holding
-the group rows it locked, so the next fill waits for it, and `make` prints no plans: they are in
-`docker compose -f docker-compose.load.yml logs pgsql-load`. A fill stays valid for 6 days, as the
-outbox one does. The index of the cleanup (see "The cleanup") is a migration too, and unlike the
-head index it holds every done and skipped update: the fill of #871 filled it as well. The index of
-the failed updates (see "The unblocking") is a migration too: the fill puts its failed updates, one
-in 200, into it, and a layout its 1 000 that block their groups. A volume filled before the
-migration builds the index at its next `load-up`, 32 minutes over the fill of #871, printing
-nothing new meanwhile. The statement timeout of 10 minutes does not cancel the build: `load-up`
-resets it before the migrations and sets it again after them.
+- A layout deletes every update from the `update_id` of the layouts on, so it replaces what the
+  previous layout and its measurement left, and every group.
+- It does not put back the history the cleanup deleted: the cleanup of a measurement deletes the
+  updates past their retention, so a later run on the same fill finds only the call that deletes
+  nothing. The runs of "The cleanup" (#824) put them back before each run with the `INSERT` of the
+  fill of the time over `n` from 1 to 5 000.
+- The layouts are of the fill of #871: one over a volume of the fill of #824 leaves the pending
+  updates of the old layout below the `update_id` of the layouts, so `load-down`, `load-up` and a
+  new fill come first.
+- The 1 000 blocked groups of a layout and the groups of the pushes are among the 1 M of the
+  default fill: a fill of fewer `groups` leaves most of them without history.
+- A fill stays valid for 6 days, as the outbox one does.
 
-The measurement calls the real `InboxStore` with the settings of `.env`. The calls, how many of each
-and in what order are in `InboxLoadTest.run()` of `test/load/inbox-load-test.ts`, each with its
-reason in a comment. The run of #824 called the claims, the lease recovery and the cleanup of it,
-without `countBlockedGroups()`.
+The indexes are migrations, so `load-up` makes them and the fills insert under them:
+
+- The head index (see "Results") does not hold the history, so the fill does not pay the 1 minute
+  39 seconds its build over the filled table of #824 took.
+- The index of the cleanup (see "The cleanup") holds every done and skipped update: the fill of
+  #871 filled it as well.
+- The index of the failed updates (see "The unblocking") gets the failed updates of the fill, one in
+  200, and the 1 000 of a layout that block their groups. A volume filled before its migration
+  builds it at its next `load-up`, 32 minutes over the fill of #871, printing nothing new
+  meanwhile. The statement timeout of 10 minutes does not cancel the build: `load-up` resets it
+  before the migrations and sets it again after them.
+
+Without the head index a claim takes some 5 minutes, so a measurement without it is to be cut short
+after a call or two, as the one in "Results" was: stop `make` and the application container of the
+run, which `docker ps` names after the worktree. The statement it left runs on in the database
+until it ends or reaches the statement timeout, holding the group rows it locked, so the next fill
+waits for it. `make` then prints no plans: they are in
+`docker compose -f docker-compose.load.yml logs pgsql-load`.
+
+The measurement calls the real `InboxStore` with the settings of `.env`, but for the batch left to
+expire: its lease is 1 s (`ABANDONED_LEASE_DURATION_MS`). The calls, how many of each and in what
+order are in `InboxLoadTest.run()` of `test/load/inbox-load-test.ts`, each with its reason in a
+comment. The run of #824 called the claims, the lease recovery and the cleanup of it, without
+`countBlockedGroups()`.
 
 ## Data
 
@@ -226,9 +235,9 @@ Sort  (actual time=1.276..1.279 rows=30.00 loops=1)
                                   (actual time=0.014..0.014 rows=1.00 loops=30)
 ```
 
-A `ready` group without an active update would take a place among the `limit` groups and claim
-nothing, where the inner join dropped it and went on to the next group. No writer makes one
-(`inbox.md`, "Group states"), and the claim does not guard against it.
+The inner join dropped a `ready` group without an active update and went on to the next group; now
+such a group takes a place among the `limit` groups and claims nothing. No writer makes one, and
+the claim does not guard against it ([`inbox.md`](./inbox.md), "Claim", step 1).
 
 ### The lease recovery
 

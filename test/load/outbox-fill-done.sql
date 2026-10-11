@@ -13,12 +13,10 @@
 --
 -- The chats are interleaved in time as the groups of inbox-fill-done.sql are: message n goes to the
 -- chat that holds position a * n mod N among the N positions, each chat a run of positions as long
--- as its messages. With a coprime to N every position is taken once, and with a near N times the
--- golden ratio the numbers in a row go to positions spread over all N, not one chat after another.
--- How far apart the messages of a chat lie is set by the inverse of a, not by a: two neighbouring
--- positions are reached by numbers a⁻¹ mod N apart (docs/architecture/outbox-load-test.md, "Data" of
--- "The skewed run", gives it for the fill there). The order needs no sort of the N rows: the inserts
--- go in id order, so the table lies in it as well.
+-- as its messages. Why a is coprime to N and near N times the golden ratio, and why its inverse sets
+-- how far apart the messages of a chat lie: the comment there. That distance in the fill of the
+-- skewed run: docs/architecture/outbox-load-test.md, "Data" of "The skewed run". The order needs no
+-- sort of the N rows: the inserts go in id order, so the table lies in it as well.
 --
 -- One message in 200 failed and one in 200 was skipped. The oldest N / 20 000 messages, 14 000 of
 -- 280 M, finished past their retention, the rest within the day before the fill: the cleanup has a
