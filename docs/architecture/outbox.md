@@ -7,7 +7,8 @@ into it through `OutboxTransformer` (`transformer/outbox-transformer.ts`), which
 gives the caller its outcome; which calls it lets past is in [`bot.md`](./bot.md), "The outbox
 transformer". `Application` starts its runner and its maintenance
 ([`application.md`](./application.md)). It holds the tables with `OutboxStore`
-(`store/outbox-store.ts`), whose public methods are every read and write of them,
+(`store/outbox-store.ts`), whose public methods are every write of them and every read but
+the waiter's `OutboxFinishedMessageReader.find()`,
 `OutboxRunner` (`outbox-runner.ts`), which sends the messages of a node over its slots,
 `OutboxMaintenance` (`maintenance/outbox-maintenance.ts`), which runs the recovery of the expired
 leases, the cleanup, the status line and the line of the blocked chats on timers,
