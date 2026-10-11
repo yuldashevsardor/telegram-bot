@@ -7,7 +7,9 @@ of the indexes of [#643](https://github.com/yuldashevsardor/telegram-bot/issues/
 [#837](https://github.com/yuldashevsardor/telegram-bot/issues/837) and
 [#838](https://github.com/yuldashevsardor/telegram-bot/issues/838), and every query of the store on
 280 M messages skewed as production traffic is
-([#872](https://github.com/yuldashevsardor/telegram-bot/issues/872), "The skewed run").
+([#872](https://github.com/yuldashevsardor/telegram-bot/issues/872), "The skewed run"). The
+unblocking of a chat was measured once more on the fill of #872, with the index of the failed
+messages ([#953](https://github.com/yuldashevsardor/telegram-bot/issues/953), "The unblocking").
 
 ## How to run it
 
@@ -21,9 +23,11 @@ layout of "The skewed run" among the layouts of the new fill, `load-down` remove
 its data. `load-up` applies the migrations, the indexes and the vacuum settings of the outbox among
 them; on a volume of the earlier runs, where the index was made by hand under the same name, the
 migration fails, and `load-down` gives a fresh one, without the fill of the inbox load test either
-([`inbox-load-test.md`](./inbox-load-test.md)). The files they run are in `test/load/`, and what
-they make is in "The skewed run". The run of #632 had fills of another form, 100 000 chats of equal
-size and layouts of `chats` × `per_chat`: they are the files of `test/load/` at
+([`inbox-load-test.md`](./inbox-load-test.md)). The index of the failed messages (see "The
+unblocking") is a migration too: a volume filled before it builds the index at its next `load-up`.
+The files they run are in `test/load/`, and what they make is in "The skewed run". The run of #632
+had fills of another form, 100 000 chats of equal size and layouts of `chats` × `per_chat`: they are
+the files of `test/load/` at
 [`8bd64949`](https://github.com/yuldashevsardor/telegram-bot/tree/8bd64949/test/load). A layout over
 a volume of that fill leaves the pending messages of the old layout below the ids of the layouts, so
 `load-down`, `load-up` and a new fill come first. A fill stays valid for 6 days: then its done
@@ -486,8 +490,8 @@ The times of #632 to compare with are in "Results" and "The cleanup".
 | `deleteFinishedMessages()`, a full batch | 4.0 – 13.7, median 4.9, 13 929 messages | — | — |
 | `deleteFinishedMessages()`, nothing to delete | 1.3 | 2.1 | 1.4 |
 | `deleteIdleChats()` | 2.0, 495 chats | 11, 261 chats | 0.8, none |
-| `retryBlockedChat()` | 206 136, 207 283 | 209 217, 223 284 | 208 378, 188 248 |
-| `skipBlockedChat()` | 226 542, 223 816 | 224 049, 223 047 | 189 341, 201 688 |
+| `retryBlockedChat()`, no index of the failed messages | 206 136, 207 283 | 209 217, 223 284 | 208 378, 188 248 |
+| `skipBlockedChat()`, no index of the failed messages | 226 542, 223 816 | 224 049, 223 047 | 189 341, 201 688 |
 
 The full batches of the cleanup are of the first run of the normal layout, with the connections of
 the `.env` of the owner: no later run had messages past the retention. The rest of the 13 999
@@ -497,7 +501,8 @@ backlog a review session of another worktree ran its checks in the same Docker V
 of the host up to 63: the completions, `push()` and `find()` of that column took 2 to 6 times their
 times in the first run of the layout, `retry()` a median of 1.0 ms there and `push()` 0.8. The pulls
 that block a chat, right after an unblock, took 40 – 119 ms in the normal and the backlog layouts;
-each follows a scan of the whole table (see "The unblocking"), and their plans were not looked into.
+each followed a scan of the whole table (see "The unblocking"), and their plans were not looked
+into.
 
 ### The plans
 
@@ -514,7 +519,7 @@ What each call reads, from the runs with the plans:
 | `pause()` | the bot row |
 | `readBacklog()` | every active message: the head index and the row of each (see "The status line") |
 | `deleteFinishedMessages()` | `telegram_outbox_finished_at_idx`, as in #632 |
-| `retryBlockedChat()`, `skipBlockedChat()` | a parallel seq scan of `telegram_outbox` for the failed message (see "The unblocking") |
+| `retryBlockedChat()`, `skipBlockedChat()` | `telegram_outbox_failed_chat_idx` for the failed message, a parallel seq scan of `telegram_outbox` before it (see "The unblocking") |
 
 `listenReady()` runs `LISTEN`, which `auto_explain` does not log.
 
@@ -661,10 +666,10 @@ proposal is [#954](https://github.com/yuldashevsardor/telegram-bot/issues/954).
 #### The unblocking
 
 `OutboxStore.lockBlockedChat()` looks up the failed message of the chat by `chat_id` and `status =
-'failed'`, which no index holds: the head index has the active statuses alone, the index of the
-cleanup `done` and `skipped`. So it reads the whole table, 25 M pages, in every layout, as the inbox
-did before its index of the failed updates ([`inbox-load-test.md`](./inbox-load-test.md), "The
-unblocking"):
+'failed'`. In the runs of #872 no index held it: the head index has the active statuses alone, the
+index of the cleanup `done` and `skipped`. So it read the whole table, 25 M pages, in every layout,
+as the inbox did before its index of the failed updates
+([`inbox-load-test.md`](./inbox-load-test.md), "The unblocking"):
 
 ```
 Limit  (actual time=131397.259..131409.493 rows=1.00 loops=1)
@@ -677,8 +682,35 @@ Limit  (actual time=131397.259..131409.493 rows=1.00 loops=1)
                     Rows Removed by Filter: 93662033
 ```
 
-The scan runs in the transaction that holds the row of the chat `FOR UPDATE`. The proposal is
-[#953](https://github.com/yuldashevsardor/telegram-bot/issues/953).
+The scan ran in the transaction that holds the row of the chat `FOR UPDATE`.
+
+`1791849600001_telegram-outbox-failed-chat-index.ts` adds `telegram_outbox_failed_chat_idx`,
+`telegram_outbox (chat_id, finished_at DESC, id DESC) WHERE status = 'failed'`
+([#953](https://github.com/yuldashevsardor/telegram-bot/issues/953)). Its migration over the
+filled table took 263 s, the start of the application container included, and the index holds the
+1 402 451 failed messages of the fill in 54 MB. The run of #953 was the normal layout, filled again
+before each of its two runs, with 15 calls of each unblock, on the database of #872 and with the
+`DATABASE_CONNECTION_MAX_LIFETIME` of `.env.dist` (see "The pull"). The times of the client, in ms:
+
+| call | `plans=off` | with the plans |
+|---|---|---|
+| `retryBlockedChat()` | 0.8 – 1.5, median 1.1 | 0.9 – 2.2, median 1.1 |
+| `skipBlockedChat()` | 1.0 – 1.6, median 1.2 | 1.0 – 2.0, median 1.3 |
+
+The lookup is the first entry of the chat in the index, in the order the statement asks for, so no
+sort is left; each of the 30 lookups read 5 buffers in 0.007 – 0.017 ms:
+
+```
+Limit  (actual time=0.012..0.012 rows=1.00 loops=1)
+  Buffers: shared hit=5
+  ->  Index Only Scan using telegram_outbox_failed_chat_idx on telegram_outbox
+        (actual time=0.012..0.012 rows=1.00 loops=1)
+        Index Cond: (chat_id = '122354'::bigint)
+        Heap Fetches: 1
+```
+
+All 30 plans were custom ones, with `failed` as the value of the status, which the partial index
+needs (see "The cleanup", the prepared statement).
 
 #### Autovacuum in every run
 
@@ -709,7 +741,7 @@ them however few dead rows there are. The proposal is
 Every completion stays within the threshold at its median in every layout, 0.9 – 5.9 ms. At its
 maximum it is over it only in the run of the backlog that shared the VM with the checks of another
 session, 20.6 ms at most, where the first run of the layout gave 8.6. The pull did not stay within
-it before #957, and the unblocking does not:
+it before #957, and the unblocking took minutes before #953:
 
 - The pull of the backlog was over it, `pull(1)` a median of 26.2 ms and `pull(30)` 52.1, compiled
   by JIT on every run, a pull the limits hold back included. The pull of the normal layout was
@@ -718,8 +750,10 @@ it before #957, and the unblocking does not:
   bot row for a median of 0.5 – 0.6 ms for one message and 2.8 – 5.2 ms for a batch in both
   layouts, without JIT and with the heads looked up by the primary key, though the batch of the
   backlog takes a median of 14.95 ms on the client (see "The pull after #957").
-- The unblocking took 2.3 – 3.8 minutes a call in all the runs, a scan of the whole table under the
-  lock of the chat (see "The unblocking").
+- The unblocking took 3.1 – 3.8 minutes a call in the runs of "Results", a scan of the whole table
+  under the lock of the chat. The index of the failed messages by chat of
+  [#953](https://github.com/yuldashevsardor/telegram-bot/issues/953) brought it to a median of
+  1.1 – 1.2 ms (see "The unblocking").
 
 The calls on timers have no threshold. The cleanup is no slower than in #632: a full batch
 4.0 – 13.7 ms, the call that finds nothing 1.3 – 2.1 ms. The lease recovery took 1.7 – 63 ms. The
@@ -730,7 +764,7 @@ some 70 characters a message, where the command sends 1 000 characters to 3 chat
 the whole indexes of the table in every run, brought by some 1 700 inserts (see "Autovacuum in every
 run").
 
-The proposals: the unblocking [#953](https://github.com/yuldashevsardor/telegram-bot/issues/953),
-the status line [#954](https://github.com/yuldashevsardor/telegram-bot/issues/954) and autovacuum
-[#958](https://github.com/yuldashevsardor/telegram-bot/issues/958); that of the pull,
-[#957](https://github.com/yuldashevsardor/telegram-bot/issues/957), is done.
+The proposals: the status line [#954](https://github.com/yuldashevsardor/telegram-bot/issues/954)
+and autovacuum [#958](https://github.com/yuldashevsardor/telegram-bot/issues/958); those of the
+pull, [#957](https://github.com/yuldashevsardor/telegram-bot/issues/957), and of the unblocking,
+[#953](https://github.com/yuldashevsardor/telegram-bot/issues/953), are done.

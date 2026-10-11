@@ -44,10 +44,8 @@ const MAX_EMPTY_PULLS_IN_A_ROW = 20;
 // The retried chat is ready again once its chat limit lets it: in the layout of the hot chat it is
 // the only one to pull next.
 const RETRY_DELAY_MS = 0;
-// The chats blocked and then unblocked, half retried and half skipped. Few: the lookup of the failed
-// message reads the whole table (docs/architecture/outbox-load-test.md, "The unblocking"), minutes a
-// call.
-const UNBLOCKED_CHAT_COUNT = 4;
+// The chats blocked and then unblocked, half retried and half skipped: CALLS_PER_METHOD of each.
+const UNBLOCKED_CHAT_COUNT = 2 * CALLS_PER_METHOD;
 // The pause of a 429 that asks for no wait: the statement is the same for any duration, and a longer
 // one would hold back the pulls of the unblocking after it.
 const PAUSE_DURATION_MS = 0;
@@ -114,8 +112,9 @@ class OutboxLoadTest {
         }
     }
 
-    // The unblocking comes last: its calls are the slowest, and one cancelled by the statement timeout
-    // ends the run without the calls after it.
+    // The unblocking comes last: on a volume whose index of the failed messages is missing its calls
+    // take minutes (docs/architecture/outbox-load-test.md, "The unblocking"), and one cancelled by the
+    // statement timeout ends the run without the calls after it.
     public async run(): Promise<void> {
         await this.measure("listenReady()", () => this.store.listenReady(() => {}));
         await this.measurePulls(RUNNER_PULL_LIMIT, 0);

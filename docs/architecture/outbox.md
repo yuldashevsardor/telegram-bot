@@ -35,7 +35,7 @@ with that of `status`, by `1790682156623_telegram-outbox-retry-comments.ts`; tho
 and `lock_token` are replaced by `1790716587328_telegram-outbox-attempt-worker-comment.ts`.
 
 The indexes are picked by the plans of the load test (see "Load test"), not ahead of the queries.
-Besides the primary keys there are two of `telegram_outbox` and two of `telegram_outbox_chats`.
+Besides the primary keys there are three of `telegram_outbox` and two of `telegram_outbox_chats`.
 `1791153270752_telegram-outbox-head-index.ts` adds `telegram_outbox_active_chat_id_idx`, on
 `(chat_id, id)` of the active messages: the head of a chat for the pull, for `releaseChat()` and
 for the lease recovery is its first entry.
@@ -50,6 +50,11 @@ without it the call that finds nothing to delete reads the whole table. It is th
 head index: it holds an entry for every `done` and `skipped` message the cleanup has not deleted
 yet, as large as the primary key; every completion but a failure adds one, and every vacuum of the
 table reads it whole ([`outbox-load-test.md`](./outbox-load-test.md), "The cleanup").
+`1791849600001_telegram-outbox-failed-chat-index.ts` adds `telegram_outbox_failed_chat_idx`, on
+`(chat_id, finished_at DESC, id DESC)` of the `failed` messages: the unblock of a chat reads the
+failed message that blocked it as the first entry of the chat (see "Unblocking a chat"). A failed
+message is never deleted, and only the unblock takes one out of `failed`, so the index grows with
+the failures that do not block their chat, those of `markAsFailed()`.
 `1791763200000_telegram-outbox-chat-head-priority.ts` adds the two of the `ready` chats, for the
 pull (see "Pull"): `telegram_outbox_chats_ready_pull_idx`, on `(head_priority, next_attempt_at,
 chat_id)`, the order of the pull, and `telegram_outbox_chats_ready_next_attempt_at_idx`, on
@@ -522,8 +527,11 @@ A chat that a failed message blocked (see "Tables") waits for a person. Two targ
 
 The message taken is the one of the chat that failed last, by `finished_at`: a blocked chat is not
 pulled, so that is the message that blocked it, and a message that failed earlier without blocking
-the chat stays as it is. Files of the message are not removed by either: only `done` removes them
-(see "Sending"), so skipping a message with a `PathFile` leaves the file on the disk.
+the chat stays as it is. It is the first entry of the chat in `telegram_outbox_failed_chat_idx`
+(see "Tables"); without it the lookup read the whole table under the lock of the chat row, minutes a
+call ([`outbox-load-test.md`](./outbox-load-test.md), "The unblocking"). Files of the message are
+not removed by either: only `done` removes them (see "Sending"), so skipping a message with a
+`PathFile` leaves the file on the disk.
 
 A chat that is not `blocked`, a missing one, and a blocked one with no failed message, which only
 a hand-edited row can be, throw `OutboxChatNotBlocked` and change nothing. Both calls lock the chat
