@@ -26,6 +26,10 @@ export class Database {
             max: settings.connection.max,
             idle_timeout: settings.connection.idleTimeout,
             max_lifetime: settings.connection.maxLifetime,
+            // The planner's estimate of a statement can pass jit_above_cost while the statement
+            // reads a few rows, and the compilation then takes longer than the run
+            // (docs/architecture/storage.md).
+            connection: { jit: "off" },
         });
     }
 

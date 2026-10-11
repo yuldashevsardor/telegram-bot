@@ -54,6 +54,19 @@ describe("Database", function () {
         }
     });
 
+    // The server's default is on; storage.md says why the connections of the application turn it off.
+    it("opens its connections with JIT off", async function () {
+        const database = new Database(settings(), false);
+
+        try {
+            const [row] = await database.sql<{ jit: string }[]>`SHOW jit`;
+
+            expect(row?.jit).to.equal("off");
+        } finally {
+            await database.close();
+        }
+    });
+
     it("rejects queries after close()", async function () {
         const database = new Database(settings(), false);
 

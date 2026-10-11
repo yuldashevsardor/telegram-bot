@@ -160,15 +160,15 @@ no pull reaches them. The spec has the removal take the chat while a push waits 
    the pull (see "Limits"); a pause, a spent common limit or nothing to pull means a budget of zero.
    A pull with nothing to take does not lock the row, so it does not hold back a pull that has;
 2. up to the budget of `ready` chats whose `next_attempt_at` has passed by the time of the pull,
-   with the head of each (`CROSS JOIN LATERAL`), by the priority of the head, its copy
-   `head_priority` on the chat row (see "Tables"), then by `next_attempt_at`, then by `chat_id`,
-   `FOR UPDATE OF chats SKIP LOCKED`: a chat another puller holds is skipped, not waited for. The
-   order is that of the pull index, so the pull reads the `ready` chats from it in order and stops
-   at its batch. Past the due chats it walks only the `ready` chats not due yet of every priority
-   more urgent than the last one it takes: the index leads on `head_priority`, not on
+   with the head of each (`CROSS JOIN LATERAL`) if it is `pending`, by the priority of the head,
+   its copy `head_priority` on the chat row (see "Tables"), then by `next_attempt_at`, then by
+   `chat_id`, `FOR UPDATE OF chats SKIP LOCKED`: a chat another puller holds is skipped, not waited
+   for. The order is that of the pull index, so the pull reads the `ready` chats from it in order
+   and stops at its batch. Past the due chats it walks only the `ready` chats not due yet of every
+   priority more urgent than the last one it takes: the index leads on `head_priority`, not on
    `next_attempt_at`;
-3. the head goes to `processing`, but only if it is still `pending`; its `attempts` stay as they
-   are, the completion writes the attempt (see "Completions");
+3. the head goes to `processing`, but only if it is still `pending`, looked up by the primary key;
+   its `attempts` stay as they are, the completion writes the attempt (see "Completions");
 4. the chats whose head was pulled go to `processing`, `next_attempt_at` moves to the time of the
    pull plus the chat limit, and the chat is leased to the pull (see "The lease");
 5. `next_send_at` of the bot moves by the messages pulled;
@@ -194,6 +194,27 @@ between the start of this statement and its lock of the chat. That gap holds the
 row as well, and the time of the pull comes after the wait: a wait longer than the chat limit is
 enough for a chat pulled and completed during it, and the slot it takes is one the budget of the
 waited pull counted.
+
+The check of step 3 compares the status of the head with the one step 2 read, not with `pending`,
+though step 2 takes `pending` heads alone. Written as `status = 'pending'`, the check lets the
+planner read every active message through the head index and join the heads to them, and it does
+whenever the statistics see few active messages: a table of a long `done` history and a few
+thousand active ones holds next to none of them in the sample, and the pull reads all of them
+([`outbox-load-test.md`](./outbox-load-test.md), "The pull"). Against a
+column of the heads the check is a condition of the join, which the head index cannot serve, so
+each head is looked up by the primary key. The filter of step 2 turns no head away while the head
+of a `ready` chat is `pending`; without it the check would rest on that rule alone, and a
+`processing` head of a `ready` chat would be sent a second time.
+
+Step 2 limits its chats twice: by the budget, inside, and by `limit` outside. The budget is at most
+`limit`, so the outer `LIMIT` takes no chat off; it is there for the planner. The budget is computed
+in the statement, and for a `LIMIT` it cannot compute while planning the planner takes a tenth of
+the rows: in a backlog thousands of heads, for which steps 3 and 4 read and hash every chat row
+([`outbox-load-test.md`](./outbox-load-test.md), "The pull after #957"). `limit` is a parameter,
+whose value the planner sees in a custom plan of the prepared statement, the one PostgreSQL keeps
+while a generic plan costs more; it then expects `limit` heads at most, and the steps look each one
+up by its key. In the load test every plan of the pull, 108 pulls a layout, had the value of `limit`
+in its estimate. A generic plan would take a tenth of the ready chats again.
 
 The lock of step 1 makes the pulls of all the nodes take turns: two pulls that read the same
 `next_send_at` would both spend it. A pull that finds the row locked waits for the other pull, which
