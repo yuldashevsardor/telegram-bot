@@ -684,7 +684,7 @@ Limit  (actual time=131397.259..131409.493 rows=1.00 loops=1)
 
 The scan ran in the transaction that holds the row of the chat `FOR UPDATE`.
 
-`1791936000000_telegram-outbox-failed-chat-index.ts` adds `telegram_outbox_failed_chat_idx`,
+`1791849600001_telegram-outbox-failed-chat-index.ts` adds `telegram_outbox_failed_chat_idx`,
 `telegram_outbox (chat_id, finished_at DESC, id DESC) WHERE status = 'failed'`
 ([#953](https://github.com/yuldashevsardor/telegram-bot/issues/953)). Its migration over the
 filled table took 263 s, the start of the application container included, and the index holds the
@@ -750,8 +750,8 @@ it before #957, and the unblocking took minutes before #953:
   bot row for a median of 0.5 – 0.6 ms for one message and 2.8 – 5.2 ms for a batch in both
   layouts, without JIT and with the heads looked up by the primary key, though the batch of the
   backlog takes a median of 14.95 ms on the client (see "The pull after #957").
-- The unblocking took 2.3 – 3.8 minutes a call in all the runs, a scan of the whole table under the
-  lock of the chat. The index of the failed messages by chat of
+- The unblocking took 3.1 – 3.8 minutes a call in the runs of "Results", a scan of the whole table
+  under the lock of the chat. The index of the failed messages by chat of
   [#953](https://github.com/yuldashevsardor/telegram-bot/issues/953) brought it to a median of
   1.1 – 1.2 ms (see "The unblocking").
 

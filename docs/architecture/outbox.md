@@ -50,7 +50,7 @@ without it the call that finds nothing to delete reads the whole table. It is th
 head index: it holds an entry for every `done` and `skipped` message the cleanup has not deleted
 yet, as large as the primary key; every completion but a failure adds one, and every vacuum of the
 table reads it whole ([`outbox-load-test.md`](./outbox-load-test.md), "The cleanup").
-`1791936000000_telegram-outbox-failed-chat-index.ts` adds `telegram_outbox_failed_chat_idx`, on
+`1791849600001_telegram-outbox-failed-chat-index.ts` adds `telegram_outbox_failed_chat_idx`, on
 `(chat_id, finished_at DESC, id DESC)` of the `failed` messages: the unblock of a chat reads the
 failed message that blocked it as the first entry of the chat (see "Unblocking a chat"). A failed
 message is never deleted, and only the unblock takes one out of `failed`, so the index grows with
