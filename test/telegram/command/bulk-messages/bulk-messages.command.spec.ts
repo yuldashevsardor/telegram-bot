@@ -17,7 +17,7 @@ const CHATS = [2815426, 5067823410, 858262157];
 
 const ME = { id: 1, is_bot: true, first_name: "Bot", username: "test_bot" } as UserFromGetMe;
 
-const OUTSIDE_CHAT_ID = 1;
+const OUTSIDE_CHAT_ID = 7_000_001;
 
 function commandUpdate(text: string, chatId: number): Update {
     return {
