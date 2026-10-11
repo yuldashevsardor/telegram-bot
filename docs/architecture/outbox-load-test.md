@@ -740,7 +740,7 @@ them however few dead rows there are. The proposal is
 Every completion stays within the threshold at its median in every layout, 0.9 – 5.9 ms. At its
 maximum it is over it only in the run of the backlog that shared the VM with the checks of another
 session, 20.6 ms at most, where the first run of the layout gave 8.6. The pull did not stay within
-it before #957, and the unblocking does not:
+it before #957, and the unblocking took minutes before #953:
 
 - The pull of the backlog was over it, `pull(1)` a median of 26.2 ms and `pull(30)` 52.1, compiled
   by JIT on every run, a pull the limits hold back included. The pull of the normal layout was
@@ -763,7 +763,7 @@ some 70 characters a message, where the command sends 1 000 characters to 3 chat
 the whole indexes of the table in every run, brought by some 1 700 inserts (see "Autovacuum in every
 run").
 
-The proposals: the unblocking [#953](https://github.com/yuldashevsardor/telegram-bot/issues/953),
-the status line [#954](https://github.com/yuldashevsardor/telegram-bot/issues/954) and autovacuum
-[#958](https://github.com/yuldashevsardor/telegram-bot/issues/958); that of the pull,
-[#957](https://github.com/yuldashevsardor/telegram-bot/issues/957), is done.
+The proposals: the status line [#954](https://github.com/yuldashevsardor/telegram-bot/issues/954)
+and autovacuum [#958](https://github.com/yuldashevsardor/telegram-bot/issues/958); those of the
+pull, [#957](https://github.com/yuldashevsardor/telegram-bot/issues/957), and of the unblocking,
+[#953](https://github.com/yuldashevsardor/telegram-bot/issues/953), are done.
