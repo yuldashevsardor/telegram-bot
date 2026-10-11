@@ -5,7 +5,8 @@ import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxPullResult, OutboxWorker, PulledOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 
-// The pull of the source over the real store is checked in outbox-store.spec.ts.
+// OutboxStore.pull() is pinned in outbox-store.spec.ts; the source runs over the real store in
+// outbox-runner.database.spec.ts and outbox-transformer.database.spec.ts.
 
 const CHAT = 5_000_000_001;
 const WORKER: OutboxWorker = { host: "node-1", pid: 101, workerId: "worker-1" };

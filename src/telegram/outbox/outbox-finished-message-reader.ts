@@ -34,9 +34,8 @@ export class OutboxFinishedMessageReader {
 
     // onFinished gets the id of every message that reaches a final status on any node. onListen is
     // called every time the listening starts: the first time and after a reconnect, since a
-    // notification sent while the connection was down is lost. Resolves once the listening starts.
-    // LISTEN takes a connection of its own, outside the pool, until Database.close()
-    // (docs/architecture/storage.md).
+    // notification sent while the connection was down is lost. Resolves once the listening starts
+    // (docs/architecture/storage.md, "LISTEN").
     public async listen(onFinished: (messageId: number) => void, onListen: () => void): Promise<void> {
         await this.sql.listen(OutboxChannel.Finished, (payload) => onFinished(Number(payload)), onListen);
     }
