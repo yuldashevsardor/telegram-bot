@@ -809,11 +809,15 @@ of `applyOutcome()` and `OutboxLeaseRetrier.retryOrBlock()`. The error goes into
 serializer leaves out and why is in the comment of `serialize()`.
 
 A `Flood` failure, a 429, pauses the outbox for its `retry_after` and returns the message to
-`pending`. The handler logs it as a `warning` with the message id, the chat id and
-`retryAfterSeconds`, before the pause, so a `retry_after` that `pause()` refuses is logged too. A
-pause shorter than `OUTBOX_MAINTENANCE_STATUS_LOG_INTERVAL` can fall between two status lines (see
-"Maintenance") and leave no other trace, and a 429 says the limits of the configuration do not
-match Telegram's.
+`pending`. The handler logs it as a `warning` with the message id, the chat id, `retryAfterSeconds`
+and the error in `cause`; why the warning goes before the pause is in the comment of
+`pauseForFlood()`. `retryAfterSeconds` is the pause, `DEFAULT_RETRY_AFTER_SECONDS` when Telegram
+sent no `retry_after` it can take, and `cause.parameters` shows what Telegram sent. A pause shorter
+than `OUTBOX_MAINTENANCE_STATUS_LOG_INTERVAL` can fall between two status lines (see "Maintenance")
+and leave no other line in the log: the attempt in the message row is its only other trace. A 429
+also says the limits of the configuration do not match Telegram's. Every send a 429 answers writes
+a warning of its own, on any node, so during one flood the warnings count the calls answered 429,
+not the floods.
 
 An `Unauthorized` failure pauses the outbox as a flood does, for `UNAUTHORIZED_PAUSE_SECONDS`, and
 returns the message to `pending`: sending resumes by itself once the pause is over and no node with

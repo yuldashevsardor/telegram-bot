@@ -71,6 +71,7 @@ export class OutboxFailureHandler {
             messageId: message.id,
             chatId: message.chatId,
             retryAfterSeconds: retryAfterSeconds,
+            cause: attemptError,
         });
 
         await this.pauseAndRetry(message, retryAfterSeconds, attemptError);
