@@ -53,9 +53,8 @@ table reads it whole ([`outbox-load-test.md`](./outbox-load-test.md), "The clean
 `1791936000000_telegram-outbox-failed-chat-index.ts` adds `telegram_outbox_failed_chat_idx`, on
 `(chat_id, finished_at DESC, id DESC)` of the `failed` messages: the unblock of a chat reads the
 failed message that blocked it as the first entry of the chat (see "Unblocking a chat"). A failed
-message is never deleted, and only the unblock takes one out of `failed`: the index holds every
-failure of `markAsFailed()` and every failure that blocks a chat, so it grows with the failures that
-do not block.
+message is never deleted, and only the unblock takes one out of `failed`, so the index grows with
+the failures that do not block their chat, those of `markAsFailed()`.
 `1791763200000_telegram-outbox-chat-head-priority.ts` adds the two of the `ready` chats, for the
 pull (see "Pull"): `telegram_outbox_chats_ready_pull_idx`, on `(head_priority, next_attempt_at,
 chat_id)`, the order of the pull, and `telegram_outbox_chats_ready_next_attempt_at_idx`, on
