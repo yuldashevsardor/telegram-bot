@@ -183,15 +183,16 @@ inside `run()`.
 and the files stay on disk. The conversions go one after another, with an answer after each. The
 first error cuts off the rest, and the user does not see it.
 
-`/bulk_messages` ([overview](./README.md)) pushes 10 000 `sendMessage` calls of a random text
-for three hardcoded chat IDs, the chats in turn. It is visible in the command menu to everyone. It
-pushes them straight into `OutboxStore.pushBatch()`, past the transformer, so that they get
-`OutboxPriority.Bulk`, and it waits for none of them to be sent. The priority orders the chats, not
-the messages of a chat: the three chats yield to the chats with calls of the bot, while a reply in
-one of them waits for the bulk messages pushed into it before. The batches are of 1000: one batch
-is one transaction with its messages in one `jsonb` parameter. The command has no `try/catch`: a
-batch that fails rejects it, the inbox picks the outcome of the update by the error
-([`inbox.md`](./inbox.md), "Failures"), and the batches pushed before it stay queued; a retry of
-the update pushes them all again. The rows outlive the process: for a chat the bot cannot reach
-every message fails without blocking the chat, and nothing deletes a `failed` row
+`/bulk_messages` ([overview](./README.md)) pushes 10 000 `sendMessage` calls of a random text for
+three hardcoded chat IDs, the chats in turn. It is visible in the command menu to everyone, but runs
+only when sent from one of the three chats: from any other chat `BulkMessagesCommand.handle` returns
+without pushing or answering. It pushes the calls straight into `OutboxStore.pushBatch()`, past the
+transformer, so that they get `OutboxPriority.Bulk`, and it waits for none of them to be sent. The
+priority orders the chats, not the messages of a chat: the three chats yield to the chats with calls
+of the bot, while a reply in one of them waits for the bulk messages pushed into it before. The
+batches are of 1000: one batch is one transaction with its messages in one `jsonb` parameter. The
+command has no `try/catch`: a batch that fails rejects it, the inbox picks the outcome of the update
+by the error ([`inbox.md`](./inbox.md), "Failures"), and the batches pushed before it stay queued; a
+retry of the update pushes them all again. The rows outlive the process: for a chat the bot cannot
+reach every message fails without blocking the chat, and nothing deletes a `failed` row
 ([`outbox.md`](./outbox.md), "Cleanup"), so each run leaves its share of the 10 000 rows behind.

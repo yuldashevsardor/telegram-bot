@@ -105,13 +105,14 @@ and puts the error itself into `cause`. If a payload is needed as well, the erro
 
 The bot commands are in [`bot.md`](./bot.md), "Commands". Two of them are test commands:
 `/font_generator`, a debugging conversion of a fixed file, and `/bulk_messages`, a load tool, not a
-feature. They are needed in development only and are removed before going to production. The only
-requirement on such a command is not to reach production. Production standards do not apply to
-them. These count as a property of a test command, not a defect, and need no fixing:
+feature, which runs only from its recipient chats. They are needed in development only and are
+removed before going to production. The only requirement on such a command is not to reach
+production. Production standards do not apply to them. These count as a property of a test
+command, not a defect, and need no fixing:
 
 - the tie to the developer's environment: the input font from a test fixture and hardcoded chat
   IDs;
-- the absence of a permission check.
+- the absence of a permission check in `/font_generator`.
 
 The relaxation does not cover the tests. As long as the command exists, its spec holds the
 behaviour as it is, that tie included ([`testing.md`](./testing.md), "Mutation testing"). Nor does
