@@ -128,7 +128,8 @@ command, not a defect, and need no fixing:
 
 - the tie to the developer's environment: the input font from a test fixture and hardcoded chat
   IDs;
-- the absence of a permission check.
+- the absence of a permission check in `/font_generator`; `/bulk_messages` runs only from its
+  recipient chats ([`bot.md`](./bot.md), "Commands").
 
 The relaxation does not cover the tests. As long as the command exists, its spec holds the
 behaviour as it is, that tie included ([`testing.md`](./testing.md), "Mutation testing"). Nor does

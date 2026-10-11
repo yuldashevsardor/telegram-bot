@@ -17,14 +17,16 @@ const CHATS = [2815426, 5067823410, 858262157];
 
 const ME = { id: 1, is_bot: true, first_name: "Bot", username: "test_bot" } as UserFromGetMe;
 
-function commandUpdate(text: string): Update {
+const OUTSIDE_CHAT_ID = 1;
+
+function commandUpdate(text: string, chatId: number): Update {
     return {
         update_id: 1,
         message: {
             message_id: 1,
             date: 0,
-            chat: { id: 1, type: "private", first_name: "User" },
-            from: { id: 1, is_bot: false, first_name: "User" },
+            chat: { id: chatId, type: "private", first_name: "User" },
+            from: { id: chatId, is_bot: false, first_name: "User" },
             text: text,
             entities: [{ type: "bot_command", offset: 0, length: text.length }],
         },
@@ -49,12 +51,14 @@ class RecordingStore {
 
 type Run = { store: RecordingStore; logger: RecordingLogger; caught: unknown };
 
+type RunOptions = { chatId: number; failure?: Error };
+
 // The update goes through setup(), as in Bot: the command has to answer to its own name.
-async function run(failure?: Error): Promise<Run> {
+async function run(options: RunOptions): Promise<Run> {
     const store = new RecordingStore();
-    store.failure = failure;
+    store.failure = options.failure;
     const logger = new RecordingLogger();
-    const ctx = new GrammyContext(commandUpdate("/bulk_messages"), new Api("test-token"), ME) as Context;
+    const ctx = new GrammyContext(commandUpdate("/bulk_messages", options.chatId), new Api("test-token"), ME) as Context;
     const composer = new Composer<Context>();
     new BulkMessagesCommand(store as unknown as OutboxStore, logger).setup(composer);
 
@@ -72,7 +76,7 @@ describe("BulkMessagesCommand", function () {
         let result: Run;
 
         before(async function () {
-            result = await run();
+            result = await run({ chatId: CHATS[1] as number });
         });
 
         it("pushes 10 000 messages in batches of 1000", function () {
@@ -110,9 +114,17 @@ describe("BulkMessagesCommand", function () {
     it("rejects without logging when the outbox refuses a batch", async function () {
         const error = new RuntimeError("database is down");
 
-        const { store, logger, caught } = await run(error);
+        const { store, logger, caught } = await run({ chatId: CHATS[0] as number, failure: error });
 
         expect(caught).to.equal(error);
+        expect(store.batches).to.have.lengthOf(0);
+        expect(logger.infos).to.have.lengthOf(0);
+    });
+
+    it("pushes nothing when sent from a chat outside its recipients", async function () {
+        const { store, logger, caught } = await run({ chatId: OUTSIDE_CHAT_ID });
+
+        expect(caught).to.equal(undefined);
         expect(store.batches).to.have.lengthOf(0);
         expect(logger.infos).to.have.lengthOf(0);
     });

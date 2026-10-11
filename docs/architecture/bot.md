@@ -184,7 +184,9 @@ and the files stay on disk. The conversions go one after another, with an answer
 first error cuts off the rest, and the user does not see it.
 
 `/bulk_messages` ([overview](./README.md)) pushes 10 000 `sendMessage` calls of a random text
-for three hardcoded chat IDs, the chats in turn. It is visible in the command menu to everyone. It
+for three hardcoded chat IDs, the chats in turn. It is visible in the command menu to everyone, but
+runs only when sent from one of those three chats: from any other chat `BulkMessagesCommand.handle`
+returns without pushing or answering. It
 pushes them straight into `OutboxStore.pushBatch()`, past the transformer, so that they get
 `OutboxPriority.Bulk`, and it waits for none of them to be sent. The priority orders the chats, not
 the messages of a chat: the three chats yield to the chats with calls of the bot, while a reply in
