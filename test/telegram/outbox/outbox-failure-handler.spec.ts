@@ -139,6 +139,25 @@ describe("OutboxFailureHandler", function () {
         ]);
     });
 
+    it("logs a flood as a warning with its message, its chat and retry_after", async function () {
+        const message = pulledAfter(0);
+
+        await handler.handle(message, telegramError(429, "Too Many Requests: retry after 7", { retry_after: 7 }));
+
+        expect(logger.warnings).to.deep.equal([
+            {
+                message: "The Bot API answers 429: the outbox is paused.",
+                payload: { messageId: message.id, chatId: message.chatId, retryAfterSeconds: 7 },
+            },
+        ]);
+    });
+
+    it("logs no flood warning for a 401", async function () {
+        await handler.handle(pulledAfter(0), telegramError(401, "Unauthorized"));
+
+        expect(logger.warnings).to.deep.equal([]);
+    });
+
     it("logs no error of its own for a flood or an unexpected failure", async function () {
         await handler.handle(pulledAfter(0), telegramError(400, "Bad Request: message text is empty"));
         await handler.handle(pulledAfter(0), telegramError(429, "Too Many Requests", { retry_after: 1 }));

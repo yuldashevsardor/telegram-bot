@@ -47,7 +47,7 @@ export class OutboxFailureHandler {
             case TelegramBotApiFailureKind.Transient:
                 return this.leaseRetrier.retryOrBlock(message, attemptError);
             case TelegramBotApiFailureKind.Flood:
-                return this.pauseAndRetry(message, failure.retryAfterSeconds, attemptError);
+                return this.pauseForFlood(message, failure.retryAfterSeconds, attemptError);
             case TelegramBotApiFailureKind.Undeliverable:
                 return this.store.markAsFailed(message, attemptError);
             case TelegramBotApiFailureKind.Unauthorized:
@@ -62,6 +62,18 @@ export class OutboxFailureHandler {
     private async pauseAndRetry(message: PulledOutboxMessage, pauseSeconds: number, attemptError: OutboxAttemptError): Promise<void> {
         await this.store.pause(pauseSeconds * MS_PER_SECOND);
         await this.store.retry(message, attemptError, PAUSED_RETRY_DELAY_MS);
+    }
+
+    // The warning goes before the pause, so a retry_after that pause() refuses is logged too. Why a
+    // 429 is logged at all is in docs/architecture/outbox.md, "Outcomes".
+    private async pauseForFlood(message: PulledOutboxMessage, retryAfterSeconds: number, attemptError: OutboxAttemptError): Promise<void> {
+        this.logger.warning("The Bot API answers 429: the outbox is paused.", {
+            messageId: message.id,
+            chatId: message.chatId,
+            retryAfterSeconds: retryAfterSeconds,
+        });
+
+        await this.pauseAndRetry(message, retryAfterSeconds, attemptError);
     }
 
     // Nothing else shows a revoked token: no chat is blocked, the sending only stops.

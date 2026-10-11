@@ -808,6 +808,13 @@ of `applyOutcome()` and `OutboxLeaseRetrier.retryOrBlock()`. The error goes into
 `OutboxErrorSerializer` (`outbox-error-serializer.ts`) writes it, with its class in `kind`; what the
 serializer leaves out and why is in the comment of `serialize()`.
 
+A `Flood` failure, a 429, pauses the outbox for its `retry_after` and returns the message to
+`pending`. The handler logs it as a `warning` with the message id, the chat id and
+`retryAfterSeconds`, before the pause, so a `retry_after` that `pause()` refuses is logged too. A
+pause shorter than `OUTBOX_MAINTENANCE_STATUS_LOG_INTERVAL` can fall between two status lines (see
+"Maintenance") and leave no other trace, and a 429 says the limits of the configuration do not
+match Telegram's.
+
 An `Unauthorized` failure pauses the outbox as a flood does, for `UNAUTHORIZED_PAUSE_SECONDS`, and
 returns the message to `pending`: sending resumes by itself once the pause is over and no node with
 the old token is left. During a rolling restart a node still on the old token that wins a pull
