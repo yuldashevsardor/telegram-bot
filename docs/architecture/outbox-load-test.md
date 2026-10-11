@@ -1,41 +1,53 @@
 # Outbox load test
 
-The outbox store ([`outbox.md`](./outbox.md)) measured on a large table twice: the pull, the
-completion, the lease recovery and the cleanup on 100 M done messages of chats of equal size
-([#632](https://github.com/yuldashevsardor/telegram-bot/issues/632), "Data" to "Verdict"), the input
-of the indexes of [#643](https://github.com/yuldashevsardor/telegram-bot/issues/643),
-[#837](https://github.com/yuldashevsardor/telegram-bot/issues/837) and
-[#838](https://github.com/yuldashevsardor/telegram-bot/issues/838), and every query of the store on
-280 M messages skewed as production traffic is
-([#872](https://github.com/yuldashevsardor/telegram-bot/issues/872), "The skewed run"). The
-unblocking of a chat was measured once more on the fill of #872, with the index of the failed
-messages ([#953](https://github.com/yuldashevsardor/telegram-bot/issues/953), "The unblocking"),
-the status line with the status in the head index
-([#954](https://github.com/yuldashevsardor/telegram-bot/issues/954), "The status line"), and
-autovacuum without the threshold of the inserts
-([#958](https://github.com/yuldashevsardor/telegram-bot/issues/958), "Autovacuum in every run").
+The outbox store ([`outbox.md`](./outbox.md)) measured on a large table:
+
+- the pull, the completion, the lease recovery and the cleanup on 100 M done messages of chats of
+  equal size ([#632](https://github.com/yuldashevsardor/telegram-bot/issues/632), "Data" to
+  "Verdict"), the input of the indexes of
+  [#643](https://github.com/yuldashevsardor/telegram-bot/issues/643),
+  [#837](https://github.com/yuldashevsardor/telegram-bot/issues/837) and
+  [#838](https://github.com/yuldashevsardor/telegram-bot/issues/838);
+- every query of the store on 280 M messages skewed as production traffic is
+  ([#872](https://github.com/yuldashevsardor/telegram-bot/issues/872), "The skewed run");
+- on the fill of #872 once more: the unblocking of a chat with the index of the failed messages
+  ([#953](https://github.com/yuldashevsardor/telegram-bot/issues/953), "The unblocking"), the
+  status line with the status in the head index
+  ([#954](https://github.com/yuldashevsardor/telegram-bot/issues/954), "The status line"), and
+  autovacuum without the threshold of the inserts
+  ([#958](https://github.com/yuldashevsardor/telegram-bot/issues/958), "Autovacuum in every run").
 
 ## How to run it
 
 The test runs against a Postgres of its own, `docker-compose.load.yml`, so that the fill does not
-slow down the shared database of every worktree. The targets are `load-*` of the `Makefile`, in this
-order, with the shared database up (`make db-up`), whose network the application containers and the
-load-test database join: `load-up`, `load-fill-done [rows=280000000] [chats=1000000]` once, then per
-layout `load-fill-pending messages=<n> [hot_messages=<n>]` and `load-measure [plans=off]`;
-`load-churn` sends the messages of one chat (see "Vacuum of the head index"), chat 1 of the hot chat
-layout of "The skewed run" among the layouts of the new fill, `load-down` removes the database with
-its data. `load-up` applies the migrations, the indexes and the vacuum settings of the outbox among
-them; on a volume of the earlier runs, where the index was made by hand under the same name, the
-migration fails, and `load-down` gives a fresh one, without the fill of the inbox load test either
-([`inbox-load-test.md`](./inbox-load-test.md)). The index of the failed messages (see "The
-unblocking") is a migration too: a volume filled before it builds the index at its next `load-up`.
-The files they run are in `test/load/`, and what they make is in "The skewed run". The run of #632
-had fills of another form, 100 000 chats of equal size and layouts of `chats` × `per_chat`: they are
-the files of `test/load/` at
-[`8bd64949`](https://github.com/yuldashevsardor/telegram-bot/tree/8bd64949/test/load). A layout over
-a volume of that fill leaves the pending messages of the old layout below the ids of the layouts, so
-`load-down`, `load-up` and a new fill come first. A fill stays valid for 6 days: then its done
-messages pass the retention, and the cleanup of a measurement deletes them by the thousand.
+slow down the shared database of every worktree. The application containers and the load-test
+database join the network of the shared database, so that one is up first (`make db-up`). The
+targets are `load-*` of the `Makefile`, in this order:
+
+1. `load-up` applies the migrations, the indexes and the vacuum settings of the outbox among them;
+2. `load-fill-done [rows=280000000] [chats=1000000]`, once;
+3. per layout, `load-fill-pending messages=<n> [hot_messages=<n>]`, then
+   `load-measure [plans=off]`;
+4. `load-down` removes the database with its data, the fill of the inbox load test
+   ([`inbox-load-test.md`](./inbox-load-test.md)) included.
+
+`load-churn` sends the messages of one chat (see "Vacuum of the head index"); among the layouts of
+the fill of "The skewed run" it ran over chat 1 of the hot chat layout. The files the targets run
+are in `test/load/`, and what they make is in "The skewed run".
+
+An older volume:
+
+- A volume of the earlier runs has the head index made by hand under the name of its migration, so
+  the migration fails on `load-up`: `load-down` gives a fresh volume.
+- A volume filled before the index of the failed messages (see "The unblocking") builds that index
+  at its next `load-up`: it is a migration too.
+- The run of #632 had fills of another form, 100 000 chats of equal size and layouts of `chats` ×
+  `per_chat`: they are the files of `test/load/` at
+  [`8bd64949`](https://github.com/yuldashevsardor/telegram-bot/tree/8bd64949/test/load). A layout
+  over a volume of that fill leaves the pending messages of the old layout below the ids of the
+  layouts, so `load-down`, `load-up` and a new fill come first.
+- A fill stays valid for 6 days: then its done messages pass the retention, and the cleanup of a
+  measurement deletes them by the thousand.
 
 The measurement calls the real `OutboxStore` with the settings of `.env` and prints how long each
 call took on the client. The plans are those of the store's own statements: `auto_explain` logs them
@@ -91,12 +103,14 @@ Without an index only two pulls and their completions were measured, of an earli
 plans on: each pull took minutes, and the rest of the run would have taken hours. The index is
 `telegram_outbox (chat_id, id) WHERE status IN ('pending', 'processing')`, made then by hand over
 the filled table, where it took 2 minutes to build; it is now the migration
-`1791153270752_telegram-outbox-head-index.ts`. The plans add to the time: `pull(1)` of 100 k chats
-took a median of 161 ms with them and 144 ms without. The cleanup rows are with the index of the
-cleanup as well (see "The cleanup"), measured later, on the same fill; without it the call that
-deletes nothing took 81 462 and 118 604 ms. The last column is of the head priority on the chat row
-and its two indexes, `1791763200000_telegram-outbox-chat-head-priority.ts`, with every index before
-it, measured later still, on the same fill (see "The pull of 100 k chats with the head priority").
+`1791153270752_telegram-outbox-head-index.ts`, rebuilt with the status in its entries by
+`1791849600002_telegram-outbox-head-index-status.ts` (see "The status line"). The plans add to the
+time: `pull(1)` of 100 k chats took a median of 161 ms with them and 144 ms without. The cleanup
+rows are with the index of the cleanup as well (see "The cleanup"), measured later, on the same
+fill; without it the call that deletes nothing took 81 462 and 118 604 ms. The last column is of the
+head priority on the chat row and its two indexes,
+`1791763200000_telegram-outbox-chat-head-priority.ts`, with every index before it, measured later
+still, on the same fill (see "The pull of 100 k chats with the head priority").
 
 ### Why the index is partial
 
@@ -284,15 +298,15 @@ once it has 20 M dead rows. What the migration sets against both is in the next 
 
 ### Vacuum of the head index
 
-The migration sets two options of `telegram_outbox`: `vacuum_index_cleanup = ON`, so a vacuum never
-skips the indexes, and `autovacuum_vacuum_max_threshold = 100000`, so autovacuum comes after at most
-100 000 dead rows, whatever the size of the done history; a table under half a million rows keeps
-the default fifth of its rows, which comes sooner. The dead entries a head lookup walks are those of
-its own chat, so the worst case is one chat that sends all of them: `make load-churn chat=1
-messages=45000` over the 3 chats layout, each message pulled and completed in transactions of its
-own, as the store does, leaves 90 000 dead rows, all of chat 1, just under the threshold. Its head
-lookup then read 180 buffers in 0.36 ms, warm, against 11 after 1 000 messages: some 500 dead
-entries a page.
+The migration of the head index sets two options of `telegram_outbox`: `vacuum_index_cleanup = ON`,
+so a vacuum never skips the indexes, and `autovacuum_vacuum_max_threshold = 100000`, so autovacuum
+comes after at most 100 000 dead rows, whatever the size of the done history; a table under half a
+million rows keeps the default fifth of its rows, which comes sooner. The dead entries a head lookup
+walks are those of its own chat, so the worst case is one chat that sends all of them:
+`make load-churn chat=1 messages=45000` over the 3 chats layout, each message pulled and completed
+in transactions of its own, as the store does, leaves 90 000 dead rows, all of chat 1, just under
+the threshold. Its head lookup then read 180 buffers in 0.36 ms, warm, against 11 after 1 000
+messages: some 500 dead entries a page.
 
 6 000 more messages took the table past the threshold, and autovacuum came within 20 seconds:
 

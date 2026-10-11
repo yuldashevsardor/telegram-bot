@@ -29,9 +29,10 @@ const WORKER_CLAIM_LIMIT = 1;
 // A batch: nothing in the inbox sets one yet, so it is the largest batch of the outbox load test,
 // for comparison.
 const BATCH_CLAIM_LIMIT = 30;
-// Every measured claim is followed by the completion of what it gave out, and every other method
-// is called as many times. A few are enough to tell the first, cold one from the rest and to see the
-// spread.
+// Every measured claim is followed by the completion of what it gave out, and extendLease(), retry(),
+// markAsFailed(), push(), pushBatch() and countBlockedGroups() are called as many times; the other
+// calls are made once, or as their comments say. A few are enough to tell the first, cold one from
+// the rest and to see the spread.
 const CALLS_PER_METHOD = 15;
 // The lease of the batch left to expire. INBOX_LEASE_DURATION of .env.dist is 10 minutes, which the
 // run would wait out for nothing: the recovery reads the leases the same way however long they were.
@@ -220,7 +221,8 @@ class InboxLoadTest {
     }
 
     // A full batch is followed by another call, as InboxMaintenance does, down to the call that
-    // deletes nothing. The count of the blocked groups is the other call of the maintenance.
+    // deletes nothing. The count of the blocked groups is the call of the maintenance besides the
+    // cleanup and the lease recovery.
     private async measureCleanup(): Promise<void> {
         for (;;) {
             const deletedCount = await this.measure("deleteFinishedUpdates()", () => this.store.deleteFinishedUpdates());
