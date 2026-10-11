@@ -664,6 +664,8 @@ as `PgSqlUserRepository` does ([`storage.md`](./storage.md), "`User.id`").
 How the store holds up on 100 M messages and on 280 M skewed as production traffic is, measured,
 and what the measurements propose:
 [`outbox-load-test.md`](./outbox-load-test.md).
+How the outbox meets the limits of the real Telegram, in one run of `/bulk_messages`:
+[`real-bot-load-test.md`](./real-bot-load-test.md).
 
 ## The end-to-end spec
 
