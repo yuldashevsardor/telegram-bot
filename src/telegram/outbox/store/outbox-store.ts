@@ -123,22 +123,17 @@ export class OutboxStore {
         });
     }
 
-    // onReady is called on the commit of every push on any node, and every time the listening
-    // starts: the first time and after a reconnect, since a push committed while the connection was
-    // down is heard by no one. Resolves once the listening starts. LISTEN takes a connection of its
-    // own, outside the pool, until Database.close() (docs/architecture/storage.md).
+    // onReady is called on the commit of every write on any node that leaves a chat ready (a push, a
+    // completion, an unblock), and every time the listening starts: the first time and after a
+    // reconnect, since a write committed while the connection was down is heard by no one. Resolves
+    // once the listening starts (docs/architecture/storage.md, "LISTEN").
     public async listenReady(onReady: () => void): Promise<void> {
         await this.sql.listen(OutboxChannel.Ready, () => onReady(), onReady);
     }
 
     // One statement, so it is atomic without a transaction: up to limit ready chats by the priority
     // of their head, and the head of each, within the common limit, the chat limit and the pause
-    // (docs/architecture/outbox.md, "Pull"). A chat locked by another puller is skipped, not waited
-    // for; the bot row is waited for: one puller at a time spends the common limit. A pulled chat
-    // moves behind the chats of the same priority, so they are served in turn. The messages come
-    // back by priority, so a caller that sends them in order sends the urgent first. The pulled
-    // chats are leased to the caller for leaseDurationMs under the token of this pull. Each pulled
-    // message carries the start of its attempt and the worker, which its completion writes.
+    // (docs/architecture/outbox.md, "Pull").
     public async pull(limit: number, worker: OutboxWorker): Promise<OutboxPullResult> {
         if (!Number.isSafeInteger(limit) || limit < 1) {
             throw InvalidPullLimit.of(limit);
@@ -320,10 +315,8 @@ export class OutboxStore {
         };
     }
 
-    // Stops the pull on every node until now() + durationMs by the database clock. A pause is never
-    // shortened: a 429 that asks for less than the pause left changes nothing. The common limit
-    // starts over from the end of the pause, so the pull does not resume with a burst of saved slots.
-    // An infinite duration would stop the outbox for good, and greatest() would keep it.
+    // Stops the pull on every node until now() + durationMs by the database clock, never shortening
+    // a pause (docs/architecture/outbox.md, "Limits", the pause).
     public async pause(durationMs: number): Promise<void> {
         // NaN passes both comparisons, so it needs isNaN(); an infinity fails one of them.
         if (Number.isNaN(durationMs) || durationMs < 0 || durationMs > MAX_PAUSE_MS) {
@@ -405,9 +398,9 @@ export class OutboxStore {
 
     // The message goes back to pending, and its chat waits delayMs or its chat limit, whichever is
     // later: the message stays the head, so it holds its chat. The chat is ready again, so the ready
-    // channel is notified on commit as a push does: a node that sleeps on a null nextPullInMs, or
-    // one whose node pulls no more, learns of the chat from nothing else. A fenced retry notifies no
-    // one.
+    // channel is notified on commit as a push does: a node that sleeps on a null nextPullInMs, and
+    // every other node when the node of the message stops, learn of the chat from nothing else. A
+    // fenced retry notifies no one.
     public async retry(lease: OutboxLease, attemptError: OutboxAttemptError, delayMs: number): Promise<void> {
         await this.complete(lease, attemptError, async (sql, chatId) => {
             await this.updateProcessingMessage(
@@ -617,12 +610,8 @@ export class OutboxStore {
     }
 
     // Every completion: the lock of the chat, then the fence, then the writes (docs/architecture/outbox.md,
-    // "The chat lock"). A missing message throws OutboxMessageNotLeased. A lock token that is not
-    // the chat's changes nothing and is logged with the error the completion carried: the lease has
-    // passed to another pull, or the chat was released by an earlier completion. A chat row that is
-    // missing while its message is there changes nothing either and is logged apart:
-    // deleteIdleChats() removed the chat once it went idle, so no lease is left. Returns the chat of
-    // an applied completion, null for a fenced one.
+    // "The chat lock", "Completions"). Returns the chat of an applied completion, null for a fenced
+    // one.
     private async complete(
         lease: OutboxLease,
         attemptError: OutboxAttemptError | null,
@@ -730,10 +719,8 @@ export class OutboxStore {
 
     // Every transaction that moves a message into done, failed or skipped calls it: a caller waiting on
     // another node learns of the outcome only from the poll otherwise (docs/architecture/invariants.md).
-    // The notification goes through sql of that transaction, so PostgreSQL delivers it on commit and
-    // the waiter that reads the row on it sees the outcome. Not sql.notify() of postgres.js: it runs
-    // on the pool whatever sql it is called on (notify() in its src/index.js), so inside a transaction
-    // it would notify before the commit, and even for a transaction that rolls back.
+    // Through sql of that transaction, so it is delivered on commit, not through sql.notify(), which
+    // runs on the pool (docs/architecture/outbox.md, "Waiting for the result").
     private async notifyFinished(sql: TransactionSql, messageId: number): Promise<void> {
         await sql`SELECT pg_notify(${OutboxChannel.Finished}, ${String(messageId)})`;
     }
