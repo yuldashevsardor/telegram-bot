@@ -38,17 +38,18 @@ The indexes are picked by the plans of the load test (see "Load test"), not ahea
 Besides the primary keys there are three of `telegram_outbox` and two of `telegram_outbox_chats`.
 `1791153270752_telegram-outbox-head-index.ts` adds `telegram_outbox_active_chat_id_idx`, on
 `(chat_id, id)` of the active messages: the head of a chat for the pull, for `releaseChat()` and
-for the lease recovery is its first entry. `1791849600002_telegram-outbox-head-index-status.ts`
-rebuilds it with `status` in its entries (`INCLUDE`), so the status line counts the `pending` and
-the `processing` messages from the index (see "Maintenance"). An index of its own on the status
-would have competed with the primary key for the completions: the planner, which sees next to none
-of the active messages in the statistics of the history, looked their message up through it
-([`outbox-load-test.md`](./outbox-load-test.md), "The status line").
+for the lease recovery is its first entry.
 Its `status` is in the predicate, so no update of a message is HOT, and a `fillfactor` would buy
 nothing; every message leaves two dead entries in it, which the head lookup walks until a vacuum
 cleans them. So the same migration caps the dead rows that bring autovacuum to `telegram_outbox`,
 whatever the size of the done history, and makes the vacuum always clean the indexes; the values and
 their measurement are in [`outbox-load-test.md`](./outbox-load-test.md), "Vacuum of the head index".
+`1791849600002_telegram-outbox-head-index-status.ts` rebuilds the head index with `status` in its
+entries (`INCLUDE`), so the status line counts the `pending` and the `processing` messages from the
+index (see "Maintenance"); the dead entries a head lookup walks stayed as many. An index of its own
+on the status would have competed with the primary key for the completions: the planner, which sees
+next to none of the active messages in the statistics of the history, looked their message up
+through it ([`outbox-load-test.md`](./outbox-load-test.md), "The status line").
 `1791320758530_telegram-outbox-finished-index.ts` adds `telegram_outbox_finished_at_idx`, on
 `finished_at` of the `done` and `skipped` messages, the ones the cleanup deletes (see "Cleanup"):
 without it the call that finds nothing to delete reads the whole table. It is the opposite of the
