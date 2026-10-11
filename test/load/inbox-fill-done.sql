@@ -13,9 +13,12 @@
 --
 -- The groups are interleaved in time: update n goes to the group that holds position a * n mod N
 -- among the N positions, each group a run of positions as long as its updates. With a coprime to N
--- every position is taken once, and with a near N times the golden ratio the positions of a group
--- are reached by numbers spread over the whole history, not one after another. The order needs no
--- sort of the N rows: the inserts go in update_id order, so the table lies in it as well.
+-- every position is taken once, and with a near N times the golden ratio the numbers in a row go to
+-- positions spread over all N, not one group after another. How far apart the updates of a group lie
+-- is set by the inverse of a, not by a: two neighbouring positions are reached by numbers a⁻¹ mod N
+-- apart (docs/architecture/inbox-load-test.md, "Data" of "The skewed run", gives it for the fill
+-- there). The order needs no sort of the N rows: the inserts go in update_id order, so the table
+-- lies in it as well.
 --
 -- One update in 200 failed and one in 200 was skipped. The oldest N / :expired_one_in updates,
 -- 12 500 of 250 M at the 20 000 of the Makefile, finished past their retention, the rest within the

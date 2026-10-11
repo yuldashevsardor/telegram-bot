@@ -3,8 +3,9 @@
 -- completion and the cleanup have to find their way past. Run by make load-fill-done, once: the
 -- pending layouts are swapped over it.
 --
--- Each message is a reply of the bot in a private chat. Its id comes from the identity in the order
--- of the numbers of the fill, so the history comes first by id, as the sent history does.
+-- Each message is a reply of the bot in a private chat. Its id is its number in the fill, so the
+-- history comes first by id, as the sent history does, whatever the identity of an emptied table was
+-- left at: the layouts set it past their own ids (outbox-fill-pending.sql).
 --
 -- The messages of a chat are drawn by the shape of #872, that of the inbox load test of #871, and
 -- scaled so that their sum comes to about :rows. The draws are hashes of the chat id and of the
@@ -13,9 +14,11 @@
 -- The chats are interleaved in time as the groups of inbox-fill-done.sql are: message n goes to the
 -- chat that holds position a * n mod N among the N positions, each chat a run of positions as long
 -- as its messages. With a coprime to N every position is taken once, and with a near N times the
--- golden ratio the positions of a chat are reached by numbers spread over the whole history, not one
--- after another. The order needs no sort of the N rows: the inserts go in id order, so the table
--- lies in it as well.
+-- golden ratio the numbers in a row go to positions spread over all N, not one chat after another.
+-- How far apart the messages of a chat lie is set by the inverse of a, not by a: two neighbouring
+-- positions are reached by numbers a⁻¹ mod N apart (docs/architecture/outbox-load-test.md, "Data" of
+-- "The skewed run", gives it for the fill there). The order needs no sort of the N rows: the inserts
+-- go in id order, so the table lies in it as well.
 --
 -- One message in 200 failed and one in 200 was skipped. The oldest N / 20 000 messages, 14 000 of
 -- 280 M, finished past their retention, the rest within the day before the fill: the cleanup has a
@@ -30,13 +33,11 @@
 -- replies of the bot are pushed with. Nothing checks them: with another status the cleanup of the
 -- measurement finds nothing to delete, the full batches included.
 
--- A second fill would add another :rows rows after the first, its expired ones in the middle of the
--- table. Emptied, the table keeps its identity where the last layout moved it, past the ids of the
--- layouts (outbox-fill-pending.sql), so RESTART IDENTITY starts the history at 1 again.
+-- A second fill would fail on the ids of the first, after the chats are drawn.
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM telegram_outbox) THEN
-        RAISE EXCEPTION 'telegram_outbox is filled already: TRUNCATE telegram_outbox, telegram_outbox_chats RESTART IDENTITY in make load-psql empties it';
+        RAISE EXCEPTION 'telegram_outbox is filled already: TRUNCATE telegram_outbox, telegram_outbox_chats in make load-psql empties it';
     END IF;
 END
 $$;
@@ -94,8 +95,10 @@ WHERE gcd(candidate, :message_count::bigint) = 1
 -- went to a chat that blocked the bot, which fails a message without blocking the chat, and a skipped
 -- one failed in a way that blocks it, so it was skipped by hand. A done message has the response of
 -- the call.
-INSERT INTO telegram_outbox (chat_id, method, payload, priority, status, attempts, response, created_at, updated_at, finished_at)
-SELECT chat_id,
+INSERT INTO telegram_outbox (id, chat_id, method, payload, priority, status, attempts, response, created_at, updated_at, finished_at)
+OVERRIDING SYSTEM VALUE
+SELECT n,
+       chat_id,
        'sendMessage',
        jsonb_build_object('chat_id', chat_id, 'text', 'Font ' || n || ' is converted: woff2 and ttf are attached below.'),
        100,

@@ -370,10 +370,13 @@ traffic lays it out ([#871](https://github.com/yuldashevsardor/telegram-bot/issu
   | 9% | 90 075 | 463 – 1 848 | 104.0 M | 41.6% |
   | 1% | 10 028 | 1 849 – 9 239 | 55.5 M | 22.2% |
 
-- The groups are interleaved: the updates of a group are spread over the whole history by
-  `update_id`, and the table lies in `update_id` order, which is also that of `finished_at` but for
-  the oldest 12 499, past their retention (below). How, without a sort of the 250 M rows: the
-  comment of `inbox-fill-done.sql`.
+- The groups are interleaved: two neighbouring updates of a group lie 187 912 415 apart by
+  `update_id`, counted round the history, some 3/4 of it: the inverse of the multiplier
+  154 501 277 modulo 249 988 314. So four updates of a group in a row lie about a quarter of the
+  history from each other, and the fifth lies 1 684 718 after the first.
+  The table lies in `update_id` order, which is also that of `finished_at` but for the oldest
+  12 499, past their retention (below). How, without a sort of the 250 M rows: the comment of
+  `inbox-fill-done.sql`.
 - One update in 200 is `failed` and one in 200 `skipped`. The oldest 12 499 finished past their
   retention, `skipped` ones past `INBOX_SKIPPED_RETENTION`, the rest within the day before the
   fill.
