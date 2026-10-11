@@ -1,5 +1,6 @@
 import { expect } from "chai";
 import { HttpError } from "grammy";
+import { RuntimeError } from "app/shared/errors";
 import { MS_PER_SECOND } from "app/shared/time";
 import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
@@ -44,6 +45,15 @@ class RecordingStore {
 
     public async pause(durationMs: number): Promise<void> {
         this.calls.push({ method: "pause", durationMs });
+    }
+}
+
+// A store whose pause() refuses the duration, as it does a retry_after it cannot take.
+class RefusingPauseStore extends RecordingStore {
+    public static readonly refusal = new RuntimeError("The pause is refused.");
+
+    public override async pause(): Promise<void> {
+        throw RefusingPauseStore.refusal;
     }
 }
 
@@ -137,6 +147,40 @@ describe("OutboxFailureHandler", function () {
                 },
             },
         ]);
+    });
+
+    it("logs a flood as a warning with its message, its chat and retry_after", async function () {
+        const message = pulledAfter(0);
+
+        await handler.handle(message, telegramError(429, "Too Many Requests: retry after 7", { retry_after: 7 }));
+
+        expect(logger.warnings).to.deep.equal([
+            {
+                message: "The Bot API answers 429: pausing the outbox.",
+                payload: {
+                    messageId: message.id,
+                    chatId: message.chatId,
+                    retryAfterSeconds: 7,
+                    cause: attemptError(TelegramBotApiFailureKind.Flood),
+                },
+            },
+        ]);
+    });
+
+    it("logs a flood before the pause, so a pause that is refused is logged too", async function () {
+        store = new RefusingPauseStore();
+
+        const handling = handlerAllowing(MAX_ATTEMPTS).handle(pulledAfter(0), telegramError(429, "Too Many Requests", { retry_after: 7 }));
+        const thrown = await handling.catch((error: unknown) => error);
+
+        expect(thrown).to.equal(RefusingPauseStore.refusal);
+        expect(logger.warnings.map((warning) => warning.message)).to.deep.equal(["The Bot API answers 429: pausing the outbox."]);
+    });
+
+    it("logs no flood warning for a 401", async function () {
+        await handler.handle(pulledAfter(0), telegramError(401, "Unauthorized"));
+
+        expect(logger.warnings).to.deep.equal([]);
     });
 
     it("logs no error of its own for a flood or an unexpected failure", async function () {
