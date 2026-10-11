@@ -855,8 +855,11 @@ indexes are read whole once every 100 000 dead rows, every 18 to 28 minutes at t
 What the inserts no longer bring is the visibility map of the pages they fill. A push of a large
 backlog leaves its messages on pages no vacuum has marked all-visible until the dead rows of their
 sending bring one, and the status line reads their rows meanwhile: 484 – 498 ms in the database for
-a backlog of 1 M against 50 after a vacuum (see "The status line"), every 10 s on every node, for up
-to the 18 to 28 minutes. Not measured with the setting.
+a backlog of 1 M against 50 after a vacuum (see "The status line"), every 10 s on every node. For
+how long depends on the pace of the sending: 18 to 28 minutes at the common limit, 4.6 hours for one
+chat at the private limit (see "Vacuum of the head index"), and while nothing is sent, a paused bot
+or a backlog behind blocked chats, only the deletes of the cleanup bring the vacuum. Not measured
+with the setting.
 
 ### Verdict of the skewed run
 

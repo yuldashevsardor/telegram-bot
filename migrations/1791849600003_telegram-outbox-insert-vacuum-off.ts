@@ -5,8 +5,8 @@ import { commonShorthands } from "./common/utils";
 // brings a vacuum after autovacuum_vacuum_insert_threshold inserts plus
 // autovacuum_vacuum_insert_scale_factor times the rows on the pages not frozen yet, and the done
 // history gets frozen: on 280 M rows the threshold came to some 1 700 inserts, a minute at the
-// common limit of 30 messages a second. Each such vacuum read every index whole, 12 GB in 60 to
-// 87 s, for a few hundred dead rows: vacuum_index_cleanup = ON of
+// common limit of 30 messages a second. Each such vacuum read every index whole, 12 GB in 73 to
+// 87 s, for 124 to 14 981 dead rows: vacuum_index_cleanup = ON of
 // 1791153270752_telegram-outbox-head-index.ts keeps a vacuum from skipping the indexes
 // (docs/architecture/outbox-load-test.md, "Autovacuum in every run").
 //
