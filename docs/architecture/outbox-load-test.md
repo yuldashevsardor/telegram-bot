@@ -519,7 +519,7 @@ What each call reads, from the runs with the plans:
 | `find()` | the primary key, some 7 buffers a message |
 | `push()`, `pushBatch()` | the primary keys as arbiters, the head index for the head priority |
 | `pause()` | the bot row |
-| `readBacklog()` | the head index alone, and the rows written since the last vacuum; before #954 the head index and the row of every active message (see "The status line") |
+| `readBacklog()` | the head index alone, and the rows on the pages not marked all-visible since the last vacuum; before #954 the head index and the row of every active message (see "The status line") |
 | `deleteFinishedMessages()` | `telegram_outbox_finished_at_idx`, as in #632 |
 | `retryBlockedChat()`, `skipBlockedChat()` | `telegram_outbox_failed_chat_idx` for the failed message, a parallel seq scan of `telegram_outbox` before it (see "The unblocking") |
 
@@ -719,14 +719,15 @@ the connections of `.env.dist` (see "The pull"); "first" is the first call of th
 
 An earlier run of the normal layout, the first after the fill of the backlog without its vacuum,
 took 10.7 – 13.0 ms. The run calls the status line after its pushes, pulls and completions, so each
-count reads the rows they wrote: in the run of the backlog with the plans 36 000 of them, 72 – 77 ms
-on the client with the plans,
+count reads the rows on the pages they wrote: in the run of the backlog with the plans some 36 000,
+the first three calls 379.6, 201.7 and 135.1 ms on the client with the plans, the rest 70.9 – 77.0;
+the scan of the fifth:
 
 ```
 ->  Parallel Index Only Scan using telegram_outbox_active_chat_id_idx on telegram_outbox
-      (actual time=0.089..343.565 rows=338168.33 loops=3)
-      Heap Fetches: 35963
-      Buffers: shared hit=349345 read=7399 dirtied=2 written=5606
+      (actual time=0.016..45.110 rows=338168.33 loops=3)
+      Heap Fetches: 35426
+      Buffers: shared hit=356197 read=1 written=1
 ```
 
 and in the normal layout nearly every one of its 19 505 active messages, 4.3 – 6.1 ms with the
