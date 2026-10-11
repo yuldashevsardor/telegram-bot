@@ -26,9 +26,10 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   `HasSessionKeyFilter` lower, and an update without a session key throws in the pipeline instead
   of meeting the filter's `warning`. Through the inbox none comes: the polling source drops it
   before the push ([`inbox.md`](./inbox.md), "Updates without a session key").
-- **A filter below `session()` drops the update after the write to the database.** `session()`
-  reads the row on the way in and writes it on the way out, whether `ctx.session` was touched or
-  not.
+- **A filter below `session()` does not spare the update the database.** `session()` reads the row
+  on the way in. On the way out it writes a session the chain touched, and a new one even untouched,
+  so the update of a new user dropped there leaves a `sessions` row ([`bot.md`](./bot.md), steps
+  2-3).
 - **Pipeline handlers keep no update state in fields.** `Command`, `Filter`, `Middleware` and
   `ConversationHandler` live as one instance per process. Updates of different users run
   concurrently: the inbox serializes only the same `from.id` + `chat.id`. A field written before
@@ -71,8 +72,9 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
 
   This is the price of injecting the configuration: inversify cannot tell a forgotten `@inject` in
   the tail from a deliberate `configValue` in a default ([`application.md`](./application.md)).
-  Loggers are outside the rule. `ApplicationContext` builds them with `new`, and they enter the
-  container ready-made (`toConstantValue`): inversify does not construct them.
+  What `ApplicationContext` builds with `new`, the logger, the `RequestContext` and the
+  `ConfigContainer`, is outside the rule: it enters the container ready-made (`toConstantValue`),
+  and inversify does not construct it.
 - **Do not switch `emitDecoratorMetadata` back on.** Injecting the configuration rests on it being
   off: a parameter with a default value stays outside the class dependencies only because inversify
   does not see it. With the flag on, such a parameter becomes a target, and the resolve fails with
@@ -89,7 +91,8 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   `InboxRunner` and `OutboxRunner` stay on what they copied in their constructors. This is
   unreachable while the deadlines are set non-blank in the environment: the environment is
   stronger than the watched file.
-- **A value taken by `configValue(...)` in a constructor is not changed by a rebuild.** The
+- **A value copied at construction is not changed by a rebuild**: one taken by `configValue(...)`
+  in a constructor, or the threshold `ApplicationContext.createLogger()` sets on the logger. The
   configuration is rebuilt on an edit of the watched file ([`config.md`](./config.md)). But an
   object that copied the value into a field keeps working on the old one. A value becomes "hot"
   only with an `onChange()` subscription and code that applies the new value. So after an edit
@@ -107,7 +110,8 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   event loop. In production `process.exit(0)` (`app.ts`) cuts it off. A test run is not cut off:
   mocha has no `--exit` (`.mocharc.json`), and it will wait for its timeout. The watching is
   removed:
-  - in the application — by `Application.terminate()`;
+  - in the application — by `Application.terminate()`, and in `cli.ts` before its
+    `process.exit(0)`;
   - in the specs — by `resetApplicationContext()`
     (`test/bootstrap/application/application-context.helper.ts`) and by the `afterEach` of the
     `ConfigFileStorage` spec.
@@ -128,11 +132,11 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
 ## The outbox
 
 - **An outbox transaction that changes a chat state from what it reads — the chat state, the active
-  messages left — locks the chat row first and reads in a later statement**, as `OutboxStore.push()`
-  and the completions do; every completion goes through the private `complete()`, and the unblocks
-  lock the chat in `lockBlockedChat()`. The locking
-  statement itself may read the columns of the row it locks: it gets their newest committed version,
-  which is how `complete()` reads the lock token. Why, and what breaks otherwise, is in
+  messages left — locks the chat row first and reads in a later statement**, as
+  `OutboxStore.pushBatch()`, which `push()` calls, and the completions do; every completion goes
+  through the private `complete()`, and the unblocks lock the chat in `lockBlockedChat()`. The
+  locking statement itself may read the columns of the row it locks: it gets their newest committed
+  version, which is how `complete()` reads the lock token. Why, and what breaks otherwise, is in
   [`outbox.md`](./outbox.md), "The chat lock". `pull()` is the exception with a check of its own
   (same file, "Pull"). The spec lines up only `push()` against `markAsDone()` and
   `skipBlockedChat()`: a new path that changes a chat state outside `complete()` is checked by
@@ -150,10 +154,10 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   one statement. Otherwise the wait of a pull for the row can close a lock cycle; how is in
   [`outbox.md`](./outbox.md), "Pull". Nothing checks the order.
 - **A statement that makes sure a chat row exists also locks it**, as the `ON CONFLICT DO UPDATE`
-  of `OutboxStore.push()` does. The cleanup deletes an `idle` chat at any moment, so a row found
-  by one statement and locked by the next may be gone in between, and messages inserted without
-  their chat row are never pulled ([`outbox.md`](./outbox.md), "The chat lock"). The spec lines up
-  only `push()` against the removal.
+  of `OutboxStore.pushBatch()` does. The cleanup deletes an `idle` chat at any moment, so a row
+  found by one statement and locked by the next may be gone in between, and messages inserted
+  without their chat row are never pulled ([`outbox.md`](./outbox.md), "The chat lock"). The spec
+  lines up only `push()` against the removal.
 - **The lease of a pulled chat must outlast the send of its message.** Nothing extends a lease:
   `OutboxRunner` pulls one message per free slot and starts it at once, so the lease covers one
   call ([`outbox.md`](./outbox.md), "The runner"). Every chat of a pull is leased from the
@@ -232,11 +236,11 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
 - **`InboxStore.pushBatch()` and every completion lock the group row before they read what their
   change depends on**, as the push and the completions of the outbox lock the chat row (above);
   every completion goes through the private `complete()`, and the unblocks lock the group in
-  `lockBlockedGroup()`. Read before the lock, a completion leaves
-  a group `idle` with an update pushed meanwhile, an update never claimed. `claim()` is the
-  exception with a check of its own ([`inbox.md`](./inbox.md), "Claim"). The spec pins a push and
-  `markAsDone()`, and a push and `skipBlockedGroup()`, in both orders (same file, "Push"); a new
-  write path is checked by nothing.
+  `lockBlockedGroup()`. Read before the lock, a completion leaves a group `idle` with an update
+  pushed meanwhile, an update never claimed. `claim()` is the exception with a check of its own
+  ([`inbox.md`](./inbox.md), "Claim"). `test/telegram/inbox/inbox-store.spec.ts` pins a push and
+  `markAsDone()`, and a push and `skipBlockedGroup()`, in both orders; a new write path is checked
+  by nothing.
 - **The lease of a claimed group must outlast the handling of its update, unless the lease is
   extended.** A lease that ends while the handler still runs lets the recovery of expired leases
   (`InboxFailureHandler.recoverExpiredLeases()`) give the update back to `pending`: another node
@@ -245,20 +249,21 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   the update and blocks the group instead: a slow handler that did reply leaves its update `failed`
   and its group blocked until it is unblocked by hand. The late completion of the first node is
   fenced off and changes nothing. Nothing bounds how long a handler runs, and nothing checks
-  `INBOX_LEASE_DURATION` against it. `InboxStore.extendLease()` extends only a lease that has not
-  passed: the recovery tells its lease by the token, not by `locked_until`
-  ([`inbox.md`](./inbox.md), "Lease recovery"). A write that moves `locked_until` without that
-  check, or an extension sent as the lease passes, lets the recovery take back an update whose
-  handler still runs ([`inbox.md`](./inbox.md), "The lease"). `InboxUpdateProcessor` extends every
-  third of the lease, timed from the end of the previous extension, and stops at the first refusal
+  `INBOX_LEASE_DURATION` against it. `InboxUpdateProcessor` extends every third of the lease, timed
+  from the end of the previous extension, and stops at the first refusal
   ([`inbox.md`](./inbox.md), "The update processor"); a slow extension query eats into that margin,
   and nothing bounds it.
+- **An inbox lease is extended only while it has not passed**, as `InboxStore.extendLease()` does:
+  the recovery tells its lease by the token, not by `locked_until` ([`inbox.md`](./inbox.md),
+  "Lease recovery"). A write that moves `locked_until` without that check, or an extension sent as
+  the lease passes, lets the recovery take back an update whose handler still runs
+  ([`inbox.md`](./inbox.md), "The lease").
 - **An update is released on stop only once its handler has settled.**
   `InboxLeaseReleaser.releaseOnStop()` makes the group `ready` at once, so a handler of the stopping
   node still running can reply after another node has handled the next update of the group: the
   order inside the group breaks. `InboxUpdateProcessor` releases only an update whose handler has
-  not started or has thrown; a new caller of the release is checked by nothing
-  ([`inbox.md`](./inbox.md), "Release on stop").
+  not started, or has thrown on a wait the outbox stopped (`OutboxResultWaiterStopped`); a new
+  caller of the release is checked by nothing ([`inbox.md`](./inbox.md), "Release on stop").
 - **`InboxUpdateSource` serves one generator: the runner of a node takes every update from one
   `stream(worker)`, so `InboxRunner.start()` is called once**, for the reason the outbox source
   gives (above): one sleep in progress, and a `LISTEN` per generator

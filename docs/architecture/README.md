@@ -7,45 +7,33 @@ issue. There is deliberately no summary list of problems here: the tracker is th
 The runtime sequences live in the files of their subsystems:
 
 - start and stop — [`application.md`](./application.md);
-- an incoming update and the commands — [`bot.md`](./bot.md);
+- an incoming update — [`inbox.md`](./inbox.md) from Telegram to the handler, then the pipeline of
+  [`bot.md`](./bot.md);
+- the commands — [`bot.md`](./bot.md);
 - an outgoing call — [`bot.md`](./bot.md), "The outbox transformer", and
   [`outbox.md`](./outbox.md);
 - loading the locales — [`i18n.md`](./i18n.md).
 
 ## Contents
 
-- [`application.md`](./application.md) — the inversify container, `ApplicationContext`, start
-  and stop of the process
-- [`bot.md`](./bot.md) — the update pipeline, filters, middleware, the outbox transformer on
-  `bot.api`, commands
-- [`outbox.md`](./outbox.md) — the outbox of outgoing Bot API calls in PostgreSQL: the tables, the
-  chat states, push, pull, the limits and the pause, the chat lock, the lease and the completions,
-  the runner with its stop and the maintenance timers, the status line, sending one message and
-  removing its files, the failure classes, the outcomes, unblocking a chat, the retry delay,
-  waiting for the result, the payload codec and the end-to-end spec on a fake Bot API
+One line per file on what it is about. The sections of a file are its headings, and the
+directories it covers are in the directory map below.
+
+- [`application.md`](./application.md) — DI and the lifecycle of the process
+- [`bot.md`](./bot.md) — the update pipeline of the bot and its commands
+- [`outbox.md`](./outbox.md) — the outbox of outgoing Bot API calls in PostgreSQL
 - [`outbox-load-test.md`](./outbox-load-test.md) — the outbox store measured on 100 M messages and
-  on 280 M skewed ones: how to run the test, the data, the threshold, the times and the plans, the
-  verdict
-- [`inbox.md`](./inbox.md) — the inbox of incoming updates in PostgreSQL: the tables,
-  the group, the group states, push without duplicates, the claim, the lease with its extension and
-  the completions, the ready notifications, the update source, the update processor, the runner
-  with its stop and the maintenance timers, the error classes of a failed handler, the outcomes,
-  the lease recovery, the release on stop, unblocking a group, the cleanup, the polling source and
-  the spec of the whole chain with the bot and a fake Bot API
+  on 280 M skewed ones
+- [`inbox.md`](./inbox.md) — the inbox of incoming updates in PostgreSQL
 - [`inbox-load-test.md`](./inbox-load-test.md) — the inbox store measured on 100 M updates and on
-  250 M skewed ones: how to run the test, the data, the threshold, the times and the plans, the
-  verdict
-- [`font-convertor.md`](./font-convertor.md) — format pairs, the EOT codec, signatures, the SVG,
-  WOFF, WOFF2, EOT and sfnt validators, running the engine
-- [`user.md`](./user.md) — the entity, the repository, filling the context
-- [`logging.md`](./logging.md) — the port and the adapters, thresholds, request correlation
-- [`i18n.md`](./i18n.md) — locales, Fluent bundles, command descriptions
-- [`storage.md`](./storage.md) — `Database`, the LISTEN connection, migrations, the migration stub,
-  when a storage gets an interface of its own
-- [`config.md`](./config.md) — `ConfigContainer`, its sources, watching the file, change
-  subscriptions
-- [`testing.md`](./testing.md) — `mocha`, linters, coverage, gates, the conversion check,
-  mutation testing
+  250 M skewed ones
+- [`font-convertor.md`](./font-convertor.md) — font conversion, the domain
+- [`user.md`](./user.md) — `User`, the snapshot of a Telegram profile
+- [`logging.md`](./logging.md) — the `Logger` port, its adapters and request correlation
+- [`i18n.md`](./i18n.md) — locales and Fluent bundles
+- [`storage.md`](./storage.md) — PostgreSQL: `Database`, migrations, sessions
+- [`config.md`](./config.md) — the configuration and its sources
+- [`testing.md`](./testing.md) — tests and checks
 - [`invariants.md`](./invariants.md) — the rules the compiler does not tie together: a
   violation compiles and breaks behaviour silently
 
@@ -76,8 +64,10 @@ Stack:
   outgoing calls and the inbox of incoming updates beside it, with the command line
   that unblocks them.
 
-Around them stand three directories named by role:
+Around them stand four directories named by role:
 
+- `cli/` — what `npm run cli` runs: the contract of a command and the resolvers; the commands lie
+  with their queue;
 - `platform/` — adapters to the outside world that import no module;
 - `bootstrap/` — the composition root. It knows every side at once, and that is its job;
 - `shared/` — what everyone takes: the base error, cross-cutting types, the DI token dictionary,
@@ -104,26 +94,19 @@ instead of next to the throwing code:
   `PgSqlUserRepository.getById()`. "There is no such user" is the vocabulary of `User`, not the
   business of the adapter.
 
-The constructor is `new RuntimeError(message, payloadOrCause)`. An `Error` as the second argument
-goes to the standard `cause`, an object to `payload`. An `Error` in the `cause` field of such an
-object moves to the standard `cause` and does not stay in `payload`. Otherwise the log serializer
-would expand the same error twice, by `payload.cause` and by `cause`.
+The constructor is `new RuntimeError(message, payloadOrCause)`. How it sorts an `Error` and a
+payload, and why an `Error` in `payload.cause` moves to the standard `cause`, is in its comments
+(`shared/errors.ts`).
 
 The details are collected by static factories in place (`ExtensionNotSupport.byExtension()`). A
 foreign error without details of its own is wrapped by `byError()`: it takes the error's message
 and puts the error itself into `cause`. If a payload is needed as well, the error goes as the
 `cause` field inside it (`UserService.create()`).
 
-Bot commands:
-
-- `/start` — a conversation with a greeting;
-- `/font_generator` — a debugging conversion of a fixed file
-  ([`font-convertor.md`](./font-convertor.md));
-- `/bulk_messages` — a load tool, not a feature; it runs only from its recipient chats
-  ([`bot.md`](./bot.md), "Commands").
-
-`/font_generator` and `/bulk_messages` are test commands: they are needed in development only and
-are removed before going to production. The only requirement on such a command is not to reach
+The bot commands are in [`bot.md`](./bot.md), "Commands". Two of them are test commands:
+`/font_generator`, a debugging conversion of a fixed file, and `/bulk_messages`, a load tool, not a
+feature, which runs only from its recipient chats. They are needed in development only and are
+removed before going to production. The only requirement on such a command is not to reach
 production. Production standards do not apply to them. These count as a property of a test
 command, not a defect, and need no fixing:
 
@@ -144,7 +127,7 @@ src/
   cli.ts                    entry point of `npm run cli`: the container without the bot, one command by the arguments (outbox.md)
   cli/                      what `npm run cli` runs: the CliCommand contract, the first-level resolver, the arguments helper, the base of the queue resolvers (telegram/); the commands lie with their queue (outbox.md)
   font-convertor/           font conversion (font-convertor.md)
-  telegram/                 grammY: commands, conversations, middleware, filters, session, locales (bot.md, i18n.md); what the outbox and the inbox share: the retry delay (retry-delay/), the Api factory, the jsonb string rule (outbox.md, inbox.md)
+  telegram/                 grammY: commands, conversations, middleware, filters, session, locales (bot.md, i18n.md); what the outbox and the inbox share: the retry delay (retry-delay/), the error classes of a failed Bot API call (bot-api-failure-classifier/), the Api factory, the jsonb string rule (outbox.md, inbox.md); the file a queued call sends, PathFile (path-file/, outbox.md)
     user/                   the entity, the repository interface, the service, the PostgreSQL adapter (user.md)
     inbox/                  the inbox of incoming updates in PostgreSQL: the store (push, claim, lease extension, completions, ready notifications, cleanup), the runner with its update source and the processor of one update over the bot, the timers of the lease recovery, the cleanup and the line of the blocked groups (maintenance/), the error classes and the outcomes of a failed handler, the release on stop, the polling source, the unblock of a group (command/) (inbox.md)
     outbox/                 the outbox of Bot API calls in PostgreSQL: the transformer that pushes the calls of the bot (transformer/), the store (push, pull, completions), the runner with its message source, the timers of the lease recovery, the cleanup, the status line and the line of the blocked chats (maintenance/), the lease recovery, retrier and release on stop (lease/), the processor of one message with the sender of its call, the outcomes of a failure, the result waiter with its reader, the payload codec, the commands that unblock a chat (command/) (outbox.md)
@@ -171,8 +154,8 @@ test/                       mocha specs; a spec path repeats the source path, th
                             stands for no source of its own and serves the specs of several
                             directories lies in their nearest common directory
                             (database.helper.ts, telegram/fake-bot-api.helper.ts);
-                            the root holds the mocha hooks and the wrappers of make coverage and
-                            make mutation (testing.md)
+                            the root holds the hooks of mocha, of make coverage and of Stryker,
+                            and the wrapper of make mutation (testing.md)
   load/                     the outbox and inbox load tests: the fills, the churn of one chat and
                             the measurements of make load-*
                             (outbox-load-test.md, inbox-load-test.md)
@@ -193,7 +176,7 @@ finds them by the `test_*.py` pattern and imports them as modules too.
 
 A subsystem is a directory named in the map above. `convertor/`, `eot-packer/`, `font-forge/` and
 the other directories inside subsystems are not in the map. A role directory is a subsystem whose
-name is a role rather than the name of a file inside: `platform/`, `shared/fs/`.
+name is a role rather than the name of a file inside: `platform/`, `cli/`, `shared/fs/`.
 
 A directory inside a subsystem is created on at least one of four grounds, otherwise it is not
 created (`shared/` has a rule of its own, below):
@@ -210,7 +193,7 @@ boundary:
 - "Gathers" declares the boundary of a contract: from `telegram/command/` both the base class and
   every sibling are taken outwards.
 - A directory with companions keeps them at the main file whether they are visible outside or not.
-  From `telegram/bot/` both `bot` and `bot.types` are imported, from `font-forge/` only
+  From `telegram/bot/` `bot`, `bot.types` and `bot.errors` are imported, from `font-forge/` only
   `font-forge`.
 - A directory around a sibling separates from the other siblings the one that has files or a role
   of its own.
@@ -228,7 +211,9 @@ the import path can be guessed from the class name.
 
 - `convertor/<from>/` — by `convertor-factory.ts`;
 - `validator/` — by `font-validator-resolver.ts`;
-- `command/`, `conversation/`, `filter/` and `middleware/` — by `container.ts`;
+- `command/`, `conversation/`, `filter/` and `middleware/` — by `Bot` (`telegram/bot/bot.ts`);
+- `outbox/command/` and `inbox/command/` — by `OutboxCommandResolver` and `InboxCommandResolver`,
+  which lie with their commands;
 - the `.ftl` bundles in the `locale/` directories at commands and conversations — by the walk in
   `createFluent()` (`telegram/locale/locale.ts`).
 
@@ -238,9 +223,10 @@ holds `locale.ts` itself with its companions and not a single `.ftl`.
 
 The base class of the contract lies with the siblings (`command/command.ts`,
 `conversation/conversation-handler.ts`, `filter/filter.ts`, `middleware/middleware.ts`,
-`validator/font-validator.ts`) or in the parent (`convertor/convertor.ts`). A siblings directory is
-named after their contract (`command/` at `command.ts`) or after a feature the siblings share
-(`convertor/eot/` — the source format).
+`validator/font-validator.ts`), in the parent (`convertor/convertor.ts`) or, as the `CliCommand`
+interface of the commands of the queues, in the module that runs them (`cli/cli-command.ts`). A
+siblings directory is named after their contract (`command/` at `command.ts`) or after a feature
+the siblings share (`convertor/eot/` — the source format).
 
 **Stands around one sibling** — a sibling leaves the siblings directory for a directory of its
 own only when it has files of its own or a role of its own among the siblings:
@@ -291,9 +277,9 @@ main file's directory is an extra one. So the command catches:
 - a word absent from the main file's name;
 - an extra level.
 
-The output leaves out the role directories (any directory in `shared/`: their names are their own)
-and `font-forge/`. The tree meets the rule in full, and the output is empty. The command does not
-check hiding directories without companions.
+The output leaves out the role directories (`cli/` and any directory in `shared/`: their names are
+their own) and `font-forge/`. The tree meets the rule in full, and the output is empty. The command
+does not check hiding directories without companions.
 
 ```bash
 find src -name '*.types.ts' -o -name '*.errors.ts' | while read -r f; do m="${f%.*.ts}"; \
@@ -302,17 +288,22 @@ find src -name '*.types.ts' -o -name '*.errors.ts' | while read -r f; do m="${f%
     want="$(echo "$words" | while read -r w; do echo "$up" | grep -q " $w " || echo "$w"; done \
     | paste -s -d - -)"; [ "$(basename "$x")" = "${want:-$(echo "$words" | tail -1)}" ] \
     && echo 1 || echo 0; done | tr -d '\n')"; [ "$fit" = 10 ] || echo "$m.ts"; done \
-    | grep -vE '^src/(shared/[^/]+|font-convertor/font-forge)/' | sort -u
+    | grep -vE '^src/(cli|shared/[^/]+|font-convertor/font-forge)/' | sort -u
 ```
 
 Otherwise files lie flat: the parts of a subsystem are grouped by the file name prefix. A file
 without companions does not get a directory (`font-convertor/sfnt-version.ts`).
 
-One directory lacks the grounds: `telegram/session/`. It holds three files of different roles
-(`pgsql-storage.ts`, `session.helper.ts`, `session.types.ts`). None of them hides the others, and
-there are no siblings of one contract among them. The directory name matches the prefix of
-`session.helper.ts` and `session.types.ts`, but the directory keeps no main file with companions:
-there is no `session.ts` in it, and `session.types.ts` stands without its main file.
+Two directories lack the grounds. In each, none of the files hides the others, and there are no
+siblings of one contract among them:
+
+- `telegram/session/` holds three files of different roles (`pgsql-storage.ts`,
+  `session.helper.ts`, `session.types.ts`). The directory name matches the prefix of
+  `session.helper.ts` and `session.types.ts`, but the directory keeps no main file with
+  companions: there is no `session.ts` in it, and `session.types.ts` stands without its main file.
+- `telegram/outbox/lease/` holds the three classes of the lease (`outbox-lease-recovery.ts`,
+  `outbox-lease-retrier.ts`, `outbox-lease-releaser.ts`). The directory name is their common
+  prefix with `outbox` struck out, and none of them is a main file with companions.
 
 In `shared/` one deliberate divergence from the rule remains, the directory name: it is named by
 role (`fs/`, `process/`, `string/`), not after the main file. A single-file utility lies flat in
