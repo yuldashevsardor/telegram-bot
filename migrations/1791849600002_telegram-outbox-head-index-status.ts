@@ -18,6 +18,13 @@ import { commonShorthands } from "./common/utils";
 // minutes on 280 M rows. A build beside the old index would let the reads go on, but the drop after
 // it would then upgrade the lock of the build, and a completion that read the table during the build
 // and waits for it with its update would deadlock with the migration.
+//
+// The drop takes its lock first only within this migration. node-pg-migrate runs the pending
+// migrations in one transaction, so a batch with an earlier migration that built an index on
+// telegram_outbox (1791849600001_telegram-outbox-failed-chat-index.ts) holds the lock of that build
+// to the commit, and the drop upgrades it all the same. On a large table such a batch is run with the
+// nodes stopped: otherwise PostgreSQL finds the deadlock with a completion and aborts one of them,
+// the completion to the lease recovery or the migration to its next start.
 
 const outbox = "telegram_outbox";
 const headIndex = "telegram_outbox_active_chat_id_idx";

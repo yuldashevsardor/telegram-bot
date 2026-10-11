@@ -851,11 +851,12 @@ it before #957, and the unblocking took minutes before #953:
 The calls on timers have no threshold. The cleanup is no slower than in #632: a full batch
 4.0 – 13.7 ms, the call that finds nothing 1.3 – 2.1 ms. The lease recovery took 1.7 – 63 ms. The
 status line read every active message, 1.2 s a call in the backlog, every 10 s; the status in the
-head index of #954 brought it to a median of 41.4 ms (see "The status line"). The push of the
-transformer took a median of 1.0 – 5.0 ms, and a batch of 1 000 messages, the size of the batches of
-the bulk command, 15 – 23 ms; the measured batch goes to 1 000 chats with some 70 characters a
-message, where the command sends 1 000 characters to 3 chats. Autovacuum read the whole indexes of
-the table in every run, brought by some 1 700 inserts (see "Autovacuum in every run").
+head index of #954 brought it to a median of 41.4 ms after a vacuum, 484 – 498 ms in the database
+before one (see "The status line"). The push of the transformer took a median of 1.0 – 5.0 ms, and
+a batch of 1 000 messages, the size of the batches of the bulk command, 15 – 23 ms; the measured
+batch goes to 1 000 chats with some 70 characters a message, where the command sends 1 000
+characters to 3 chats. Autovacuum read the whole indexes of the table in every run, brought by some
+1 700 inserts (see "Autovacuum in every run").
 
 The proposals of the run: the pull
 [#957](https://github.com/yuldashevsardor/telegram-bot/issues/957), the unblocking
