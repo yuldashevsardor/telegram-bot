@@ -207,6 +207,14 @@ each head is looked up by the primary key. The filter of step 2 turns no head aw
 of a `ready` chat is `pending`; without it the check would rest on that rule alone, and a
 `processing` head of a `ready` chat would be sent a second time.
 
+Step 2 limits its chats twice: by the budget, inside, and by `limit` outside. The budget is at most
+`limit`, so the outer `LIMIT` takes no chat off; it is there for the planner. The budget is computed
+in the statement, and for a `LIMIT` it cannot compute while planning the planner takes a tenth of
+the rows: in a backlog of 330 000 ready chats some 11 000 heads, of which steps 3 and 4 then read
+every chat row and hash them, 49 ms for one message. `limit` is a parameter the planner sees, so
+it expects 30 heads at most, and the steps look each one up by its key
+([`outbox-load-test.md`](./outbox-load-test.md), "The pull").
+
 The lock of step 1 makes the pulls of all the nodes take turns: two pulls that read the same
 `next_send_at` would both spend it. A pull that finds the row locked waits for the other pull, which
 holds it for one statement, and both the budget and the bot's time in the answer come from the row

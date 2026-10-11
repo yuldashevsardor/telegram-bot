@@ -192,28 +192,36 @@ export class OutboxStore {
                   AND (paused_until IS NULL OR paused_until <= pulled_at)
             ),
             heads AS (
-                SELECT chats.chat_id, head.id, head.status
-                FROM telegram_outbox_chats AS chats
-                CROSS JOIN LATERAL (
-                    SELECT id, status
-                    FROM telegram_outbox
-                    WHERE chat_id = chats.chat_id
-                      AND status IN ${this.sql(ACTIVE_STATUSES)}
-                    ORDER BY id
-                    LIMIT 1
-                ) AS head
-                WHERE chats.state = ${OutboxChatState.Ready}
-                  AND head.status = ${OutboxStatus.Pending}
-                  -- By the time of the pull, as the budget: a chat that came due while the pull
-                  -- waited for the bot row is taken. Without the row pulled_at is NULL, and so is
-                  -- the budget.
-                  AND chats.next_attempt_at <= (SELECT pulled_at FROM pull_time)
-                -- The copy of the head's priority, not head.priority: in the order of the pull index,
-                -- the pull looks up the heads of its batch alone, not of every ready chat.
-                ORDER BY chats.head_priority, chats.next_attempt_at, chats.chat_id
-                -- No budget: a pause, a spent limit or nothing to pull. NULL would lift the limit.
-                LIMIT coalesce((SELECT budget FROM budget), 0)
-                FOR UPDATE OF chats SKIP LOCKED
+                -- The planner does not know the budget, which this statement computes, and takes a
+                -- tenth of the ready chats for it: a batch of thousands in a backlog, which turns the
+                -- updates below into scans of every chat. The budget is at most limit, so the outer
+                -- LIMIT takes nothing off and only gives the planner a batch of limit at most.
+                SELECT chat_id, id, status
+                FROM (
+                    SELECT chats.chat_id, head.id, head.status
+                    FROM telegram_outbox_chats AS chats
+                    CROSS JOIN LATERAL (
+                        SELECT id, status
+                        FROM telegram_outbox
+                        WHERE chat_id = chats.chat_id
+                          AND status IN ${this.sql(ACTIVE_STATUSES)}
+                        ORDER BY id
+                        LIMIT 1
+                    ) AS head
+                    WHERE chats.state = ${OutboxChatState.Ready}
+                      AND head.status = ${OutboxStatus.Pending}
+                      -- By the time of the pull, as the budget: a chat that came due while the pull
+                      -- waited for the bot row is taken. Without the row pulled_at is NULL, and so is
+                      -- the budget.
+                      AND chats.next_attempt_at <= (SELECT pulled_at FROM pull_time)
+                    -- The copy of the head's priority, not head.priority: in the order of the pull index,
+                    -- the pull looks up the heads of its batch alone, not of every ready chat.
+                    ORDER BY chats.head_priority, chats.next_attempt_at, chats.chat_id
+                    -- No budget: a pause, a spent limit or nothing to pull. NULL would lift the limit.
+                    LIMIT coalesce((SELECT budget FROM budget), 0)
+                    FOR UPDATE OF chats SKIP LOCKED
+                ) AS budget_heads
+                LIMIT ${limit}
             ),
             pulled AS (
                 -- The head comes from the snapshot of the statement (docs/architecture/outbox.md, "Pull").
