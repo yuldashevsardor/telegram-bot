@@ -44,6 +44,10 @@ nothing; every message leaves two dead entries in it, which the head lookup walk
 cleans them. So the same migration caps the dead rows that bring autovacuum to `telegram_outbox`,
 whatever the size of the done history, and makes the vacuum always clean the indexes; the values and
 their measurement are in [`outbox-load-test.md`](./outbox-load-test.md), "Vacuum of the head index".
+`1791849600003_telegram-outbox-insert-vacuum-off.ts` turns off the autovacuum that the inserts
+bring, so it comes for the dead rows alone: on a frozen done history some 1 700 inserts brought one,
+and each read every index whole ([`outbox-load-test.md`](./outbox-load-test.md), "Autovacuum in
+every run").
 `1791849600002_telegram-outbox-head-index-status.ts` rebuilds the head index with `status` in its
 entries (`INCLUDE`), so the status line counts the `pending` and the `processing` messages from the
 index (see "Maintenance"); the dead entries a head lookup walks stayed as many. An index of its own
