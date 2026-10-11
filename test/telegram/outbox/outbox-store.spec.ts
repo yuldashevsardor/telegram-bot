@@ -206,6 +206,19 @@ describe("OutboxStore", function () {
         expect((await store.pull(10, WORKER)).messages.map(({ id }) => id)).to.deep.equal([a, b]);
     });
 
+    // A ready chat has a pending head; the chat here is made ready by hand while its head is still
+    // processing. The update of the pull checks the head against the status the statement read
+    // (docs/architecture/outbox.md, "Pull"), so the pull must not read a processing head at all.
+    it("does not pull a processing head again when its chat is ready", async function () {
+        await store.push(message(CHAT, "head"));
+        const pulled = await pullOne();
+        await database.sql`UPDATE telegram_outbox_chats SET state = ${OutboxChatState.Ready}, next_attempt_at = now() WHERE chat_id = ${CHAT}`;
+
+        expect((await store.pull(1, WORKER)).messages).to.deep.equal([]);
+        const [row] = await database.sql<{ status: string }[]>`SELECT status FROM telegram_outbox WHERE id = ${pulled.id}`;
+        expect(row?.status).to.equal(OutboxStatus.Processing);
+    });
+
     it("pulls no more chats than the limit", async function () {
         await store.pushBatch([message(CHAT, "a"), message(OTHER_CHAT, "b")]);
 

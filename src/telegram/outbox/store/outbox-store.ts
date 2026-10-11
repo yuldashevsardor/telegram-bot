@@ -209,6 +209,8 @@ export class OutboxStore {
                         LIMIT 1
                     ) AS head
                     WHERE chats.state = ${OutboxChatState.Ready}
+                      -- The head of a ready chat is pending; pulled checks the head against the
+                      -- status read here, so this is what keeps a processing head from going out twice.
                       AND head.status = ${OutboxStatus.Pending}
                       -- By the time of the pull, as the budget: a chat that came due while the pull
                       -- waited for the bot row is taken. Without the row pulled_at is NULL, and so is

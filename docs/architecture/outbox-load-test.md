@@ -581,7 +581,7 @@ second alone was not enough: `status = 'pending'` had kept the estimate of the p
 few, and without it the planner expected 10 689 in the backlog, and the update of the chats read and
 hashed all 329 968 chat rows, 49 ms for one message.
 
-Measured on the same fill a day later, on the code of the branch. Each of the normal and the backlog
+Measured on the same fill a day later, on the code of `b8b84f30`. Each of the normal and the backlog
 layouts had a run with `plans=off` and the statements logged, then a fill and a run with the plans;
 the hot chat layout had a run with `plans=off` alone. The client times are of the runs with the
 statements logged, and the times of the database are of every pull of the run but its first: the
@@ -630,11 +630,11 @@ as within it in every layout.
 
 The hot chat layout took longer than in "Results", a median of 6.3 ms against 2.2 for `pull(1)`, and
 the execute of the batch of the backlog longer than with `jit = off` above, 5.2 ms against 2.2.
-Neither comes from the change. A one-off script, not kept, pulled in turns with the store of `main`
-and with that of the branch, through one pool with `jit = off`, 19 times each after a first, each
-pull of one message followed by a batch; the medians on the client, in ms:
+Neither comes from the change. A one-off script, not kept, pulled in turns with the store before
+the change (`9d7e1bf8`) and after it (`b8b84f30`), through one pool with `jit = off`, 19 times each
+after a first, each pull of one message followed by a batch; the medians on the client, in ms:
 
-| layout | `pull(1)`, `main` | `pull(1)`, branch | `pull(30)`, `main` | `pull(30)`, branch |
+| layout | `pull(1)`, before | `pull(1)`, after | `pull(30)`, before | `pull(30)`, after |
 |---|---|---|---|---|
 | normal | 16.17 | 7.07 | 18.01 | 9.00 |
 | backlog | 7.65 | 7.52 | 11.76 | 11.47 |
