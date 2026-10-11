@@ -115,7 +115,7 @@ describe("OutboxFinishedMessageReader", function () {
         const skipped = await store.push(message(CHAT, "skipped"));
         const pending = await store.push(message(CHAT, "pending"));
         const notAsked = await store.push(message(CHAT, "not asked"));
-        // Nothing but markAsDone writes a final status yet, and it takes a pulled head.
+        // A completion takes a pulled head, one per chat at a time, so the statuses are set by hand.
         await setStatus(done, OutboxStatus.Done, RESPONSE);
         await setStatus(failed, OutboxStatus.Failed, null);
         await setStatus(skipped, OutboxStatus.Skipped, null);

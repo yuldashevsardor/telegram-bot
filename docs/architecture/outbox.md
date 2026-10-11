@@ -7,8 +7,8 @@ into it through `OutboxTransformer` (`transformer/outbox-transformer.ts`), which
 gives the caller its outcome; which calls it lets past is in [`bot.md`](./bot.md), "The outbox
 transformer". `Application` starts its runner and its maintenance
 ([`application.md`](./application.md)). It holds the tables with `OutboxStore`
-(`store/outbox-store.ts`), which pushes, pulls within the limits, pauses, completes a pulled
-message, finds the expired leases, cleans up, counts what waits and unblocks a chat by hand,
+(`store/outbox-store.ts`), whose public methods are every write of them and every read but
+the waiter's `OutboxFinishedMessageReader.find()`,
 `OutboxRunner` (`outbox-runner.ts`), which sends the messages of a node over its slots,
 `OutboxMaintenance` (`maintenance/outbox-maintenance.ts`), which runs the recovery of the expired
 leases, the cleanup, the status line and the line of the blocked chats on timers,
@@ -29,10 +29,9 @@ the payload codec and the retry delay. The error classes of a failed call lie ou
 One migration, `1790546834232_telegram-outbox-tables.ts`, creates the three tables with every
 column but `telegram_outbox_chats.head_priority`, which
 `1791763200000_telegram-outbox-chat-head-priority.ts` adds with its `comment` (see the head below).
-The columns and what they mean are in the `createTable` calls and `comment`s; the comment of
-`next_attempt_at` is replaced by `1790666223510_telegram-outbox-chat-limit-comment.ts` and then,
-with that of `status`, by `1790682156623_telegram-outbox-retry-comments.ts`; those of `attempts`
-and `lock_token` are replaced by `1790716587328_telegram-outbox-attempt-worker-comment.ts`.
+The columns and what they mean are in the `createTable` calls and `comment`s; the later
+migrations that replace a comment are listed by
+`git grep -l alterColumn -- 'migrations/*telegram-outbox*'`.
 
 The indexes are picked by the plans of the load test (see "Load test"), not ahead of the queries.
 Besides the primary keys there are three of `telegram_outbox` and two of `telegram_outbox_chats`.
@@ -58,8 +57,8 @@ every run").
 `finished_at` of the `done` and `skipped` messages, the ones the cleanup deletes (see "Cleanup"):
 without it the call that finds nothing to delete reads the whole table. It is the opposite of the
 head index: it holds an entry for every `done` and `skipped` message the cleanup has not deleted
-yet, as large as the primary key; every completion but a failure adds one, and every vacuum of the
-table reads it whole ([`outbox-load-test.md`](./outbox-load-test.md), "The cleanup").
+yet, as large as the primary key; every `done` message and every skip adds one, and every vacuum
+of the table reads it whole ([`outbox-load-test.md`](./outbox-load-test.md), "The cleanup").
 `1791849600001_telegram-outbox-failed-chat-index.ts` adds `telegram_outbox_failed_chat_idx`, on
 `(chat_id, finished_at DESC, id DESC)` of the `failed` messages: the unblock of a chat reads the
 failed message that blocked it as the first entry of the chat (see "Unblocking a chat"). A failed
@@ -80,16 +79,17 @@ The database does not check the values of `status` and `state`: the store writes
 through the `OutboxStatus` and `OutboxChatState` enums (`store/outbox-store.types.ts`). Of these,
 only the unblock of a chat sets `skipped` (see "Unblocking a chat").
 `telegram_bot_limits` holds one row, `id = 1`, inserted by the migration; nothing but the code
-keeps it single. Without the row `pull()` and `pause()` throw `BotLimitsRowMissing`: the pull
-would otherwise answer as if no chat were ready, and the pause would change nothing.
+keeps it single. Without the row `pull()`, `pause()` and `readBacklog()` throw
+`BotLimitsRowMissing`: the pull would otherwise answer as if no chat were ready, the pause would
+change nothing, and the status line would report no pause.
 
 The **head** of a chat is its first message by `id` among the active statuses (`pending`,
 `processing`). The priority of a chat is the priority of its head. The chat row keeps a copy of it,
 `head_priority`, added by the migration of the pull indexes, NULL for a chat without an active
 message: the pull orders the `ready` chats by it, so it reads them in the order of its index and
 looks up the heads of its batch alone. Read from the heads, the order cost a lookup of the head of
-every `ready` chat and a sort of them all before the first was taken: 228 ms a batch of 100 000
-ready chats ([`outbox-load-test.md`](./outbox-load-test.md)).
+every `ready` chat and a sort of them all before the first was taken: 228 ms a batch of 30 among
+100 000 ready chats ([`outbox-load-test.md`](./outbox-load-test.md)).
 
 The copy is right only while every write that moves the head reads it again
 ([invariant](./invariants.md)). The head moves when a message stops being active or becomes active
@@ -850,8 +850,7 @@ chat by itself, but the floods before a transient failure bring its block nearer
 retry delay, which grows with the same number: after five floods the first transient failure waits
 16 to 32 s instead of 0.5 to 1 s, at the `.env.dist` defaults of `OUTBOX_RETRY_FIRST_DELAY`,
 `OUTBOX_RETRY_MAX_DELAY` and `OUTBOX_RETRY_DELAY_MULTIPLIER`. The count covers the whole history of
-the message: a message that blocked its chat and was put back to `pending` by hand blocks the chat
-again on its next transient failure, with no retry.
+the message, the attempts before an unblock by hand included (see "Unblocking a chat").
 
 A `retry_after` that `pause()` refuses (see "Limits") throws out of `handle()` before the retry,
 and the message stays `processing` until its lease is recovered.

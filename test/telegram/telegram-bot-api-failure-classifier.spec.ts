@@ -185,8 +185,9 @@ describe("TelegramBotApiFailureClassifier", function () {
         });
     });
 
-    // Telegram answers a 404 to a token of a wrong format too, but such a token fails getMe when the
-    // bot starts: a 404 while it runs is an unknown method, a bug of the call.
+    // Telegram answers a 404 to a token of a wrong format too, but such a token fails the
+    // setMyCommands of Bot.setup() at the start: a 404 while the bot runs is an unknown method, a
+    // bug of the call.
     it("takes a 404 for unexpected, not for unauthorized", function () {
         expect(classifier.classify(telegramError(404, "Not Found"))).to.deep.equal({
             kind: TelegramBotApiFailureKind.Unexpected,
