@@ -192,10 +192,7 @@ export class OutboxStore {
                   AND (paused_until IS NULL OR paused_until <= pulled_at)
             ),
             heads AS (
-                -- The planner does not know the budget, which this statement computes, and takes a
-                -- tenth of the ready chats for it: a batch of thousands in a backlog, which turns the
-                -- updates below into scans of every chat. The budget is at most limit, so the outer
-                -- LIMIT takes nothing off and only gives the planner a batch of limit at most.
+                -- The outer LIMIT, which takes nothing off, is for the planner (docs/architecture/outbox.md, "Pull").
                 SELECT chat_id, id, status
                 FROM (
                     SELECT chats.chat_id, head.id, head.status
@@ -209,8 +206,7 @@ export class OutboxStore {
                         LIMIT 1
                     ) AS head
                     WHERE chats.state = ${OutboxChatState.Ready}
-                      -- The head of a ready chat is pending; pulled checks the head against the
-                      -- status read here, so this is what keeps a processing head from going out twice.
+                      -- Keeps a processing head from going out twice (docs/architecture/outbox.md, "Pull").
                       AND head.status = ${OutboxStatus.Pending}
                       -- By the time of the pull, as the budget: a chat that came due while the pull
                       -- waited for the bot row is taken. Without the row pulled_at is NULL, and so is
@@ -226,10 +222,8 @@ export class OutboxStore {
                 LIMIT ${limit}
             ),
             pulled AS (
-                -- The head comes from the snapshot of the statement (docs/architecture/outbox.md, "Pull").
-                -- Its status is matched against the snapshot's, not against pending: the planner
-                -- would read status = pending as a reason to scan every active message through the
-                -- head index, which the statistics of a long history estimate at a few rows.
+                -- The head comes from the snapshot of the statement, and its status is matched against
+                -- the snapshot's, not against pending (docs/architecture/outbox.md, "Pull").
                 UPDATE telegram_outbox
                 SET status = ${OutboxStatus.Processing},
                     updated_at = pull_time.pulled_at

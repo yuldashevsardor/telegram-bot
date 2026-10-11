@@ -213,8 +213,8 @@ the rows: in a backlog thousands of heads, for which steps 3 and 4 read and hash
 ([`outbox-load-test.md`](./outbox-load-test.md), "The pull after #957"). `limit` is a parameter,
 whose value the planner sees in a custom plan of the prepared statement, the one PostgreSQL keeps
 while a generic plan costs more; it then expects `limit` heads at most, and the steps look each one
-up by its key. In the load test every plan of the pull, 108 a layout, had the value of `limit` in
-its estimate. A generic plan would take a tenth of the ready chats again.
+up by its key. In the load test every plan of the pull, 108 pulls a layout, had the value of `limit`
+in its estimate. A generic plan would take a tenth of the ready chats again.
 
 The lock of step 1 makes the pulls of all the nodes take turns: two pulls that read the same
 `next_send_at` would both spend it. A pull that finds the row locked waits for the other pull, which

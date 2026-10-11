@@ -535,10 +535,11 @@ medians:
 | backlog | 0.4 – 4.1 | 22.2 – 31.2, median 24.1 | 25.5 – 72.3, median 34.8 | 18.9 – 24.0 | 25.9, 42.0 |
 | backlog, `jit = off` | 0.4 – 6.7 | 0.3 – 0.5, median 0.3 | 1.4 – 8.1, median 2.2 | 0.1 – 0.3 | 1.9, 7.2 |
 
-In the backlog the pull is compiled each time. The planner does not know the budget, which is
-computed in the statement, and estimates the heads of 109 608 ready chats to lock; the plan costs
-107 291, past `jit_above_cost`, so PostgreSQL compiles it with JIT on every run, a pull the limits
-hold back included, which took 14.1 ms in the database and read 14 buffers:
+Before #957 (see "The pull after #957") the pull of the backlog was compiled each time. The planner
+does not know the budget, which is computed in the statement, and estimated the heads of 109 608
+ready chats to lock; the plan cost 107 291, past `jit_above_cost`, so PostgreSQL compiled it with
+JIT on every run, a pull the limits hold back included, which took 14.1 ms in the database and read
+14 buffers:
 
 ```
 JIT:
@@ -547,10 +548,10 @@ JIT:
   Timing: Generation 1.670 ms (Deform 0.574 ms), Inlining 0.000 ms, Optimization 0.413 ms, Emission 13.511 ms, Total 15.594 ms
 ```
 
-In the normal layout the plan costs 787 and is not compiled, but the update of the heads reads every
-active message of the table through the head index with its row, where the backlog looks each head
-up by the primary key. The planner expects 2 active messages: the statistics of a table of 280 M
-rows hold next to none of its 5 000. With hash joins off it reads them all the same, by another
+In the normal layout the plan cost 787 and was not compiled, but the update of the heads read every
+active message of the table through the head index with its row, where the backlog looked each head
+up by the primary key. The planner expected 2 active messages: the statistics of a table of 280 M
+rows hold next to none of its 5 000. With hash joins off it read them all the same, by another
 join, a pull the limits hold back included. In #632 the layouts held 1 M pending messages
 of 101 M, which the statistics saw. A `pull(30)`:
 
