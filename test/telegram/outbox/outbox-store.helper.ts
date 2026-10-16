@@ -6,9 +6,11 @@ import type { OutboxCleanupSettings } from "app/telegram/outbox/store/outbox-sto
 const CLEANUP_BATCH_SIZE = 10;
 
 // The limits of the specs that are not about the limits: a cooldown of a nanosecond, below the
-// microsecond of a timestamp, and a common limit no pull reaches.
+// microsecond of a timestamp, and a common limit no pull reaches. The private window has no length,
+// so every pull and every cleanup finds it passed: a window of NO_LIMIT, a millisecond, would keep
+// an idle chat from a cleanup that comes right after its pull.
 export const NO_LIMIT: TelegramLimits["common"] = { number: 1_000_000, interval: 1 };
-export const NO_LIMITS: TelegramLimits = { common: NO_LIMIT, private: NO_LIMIT, group: NO_LIMIT };
+export const NO_LIMITS: TelegramLimits = { common: NO_LIMIT, private: { number: NO_LIMIT.number, interval: 0 }, group: NO_LIMIT };
 
 // The cleanup of the specs that are not about the cleanup: an hour of retention, longer than any
 // of their messages lives, so a cleanup that runs removes none of them.

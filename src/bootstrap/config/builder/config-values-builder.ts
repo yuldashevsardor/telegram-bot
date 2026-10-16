@@ -13,8 +13,11 @@ import { MAX_TIMER_DELAY_MS, MS_PER_DAY, MS_PER_SECOND } from "app/shared/time";
 
 // Checks that tie several variables together live here; parsing a single variable lives in ConfigParser.
 export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
-    // The outbox spaces the messages by interval / number: a zero in number makes the cooldown
-    // infinite, while a zero in interval makes it nil and the limit stops limiting.
+    // The outbox spaces the messages of the common and the group limit by interval / number: a zero in
+    // number makes the cooldown infinite, while a zero in interval makes it nil and the limit stops
+    // limiting. The private limit is a window of interval that takes number messages: a zero in
+    // number gives one message a window, while a zero in interval lets every pull open a new window,
+    // and the limit stops limiting as well.
     private static readonly LIMIT_RANGE: IntegerRange = { min: 1 };
 
     // The numbers of the cleanup SQL. A retention becomes an interval, and 1e16 ms is past the range
@@ -61,8 +64,8 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
                     interval: parser.getInteger("LIMIT_COMMON_INTERVAL", 1000, ConfigValuesBuilder.LIMIT_RANGE),
                 },
                 private: {
-                    number: parser.getInteger("LIMIT_PRIVATE_NUMBER", 3, ConfigValuesBuilder.LIMIT_RANGE),
-                    interval: parser.getInteger("LIMIT_PRIVATE_INTERVAL", 1000, ConfigValuesBuilder.LIMIT_RANGE),
+                    number: parser.getInteger("LIMIT_PRIVATE_NUMBER", 99, ConfigValuesBuilder.LIMIT_RANGE),
+                    interval: parser.getInteger("LIMIT_PRIVATE_INTERVAL", 305 * MS_PER_SECOND, ConfigValuesBuilder.LIMIT_RANGE),
                 },
                 group: {
                     number: parser.getInteger("LIMIT_GROUP_NUMBER", 20, ConfigValuesBuilder.LIMIT_RANGE),

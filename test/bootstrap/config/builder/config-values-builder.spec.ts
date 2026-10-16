@@ -37,7 +37,7 @@ describe("ConfigValuesBuilder", () => {
         expect(result.fontForgePath).to.equal("fontforge");
         expect(result.limits).to.deep.equal({
             common: { number: 30, interval: 1000 },
-            private: { number: 3, interval: 1000 },
+            private: { number: 99, interval: 305000 },
             group: { number: 20, interval: 60000 },
         });
         expect(result.retryDelay).to.deep.equal({ firstDelayMs: 1000, maxDelayMs: 60000, multiplier: 2 });

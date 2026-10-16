@@ -144,6 +144,7 @@ export class OutboxStore {
         const lockToken = randomUUID();
         const commonLimit = this.limits.common;
         const commonCooldownMs = this.cooldownMs(commonLimit);
+        const privateLimit = this.limits.private;
 
         const pullRows = await this.sql<OutboxPullResultRow[]>`
             WITH bot AS (
@@ -188,9 +189,11 @@ export class OutboxStore {
             ),
             heads AS (
                 -- The outer LIMIT, which takes nothing off, is for the planner (docs/architecture/outbox.md, "Pull").
-                SELECT chat_id, id, status
+                SELECT chat_id, id, status, window_started_at, window_sent_count
                 FROM (
-                    SELECT chats.chat_id, head.id, head.status
+                    -- The window as the lock found it, not as the snapshot has it: a chat pulled and
+                    -- retried after the snapshot passes the lock with its head (docs/architecture/outbox.md, "Pull").
+                    SELECT chats.chat_id, head.id, head.status, chats.window_started_at, chats.window_sent_count
                     FROM telegram_outbox_chats AS chats
                     CROSS JOIN LATERAL (
                         SELECT id, status
@@ -229,18 +232,44 @@ export class OutboxStore {
                           pull_time.pulled_at AS started_at,
                           jsonb_array_length(attempts) AS earlier_attempts
             ),
+            -- The window of each private chat pulled, a negative chat id being a group, as isGroupChat()
+            -- has it. A CTE of its own: next_attempt_at depends on the new count, and every SET of one
+            -- UPDATE sees the old row.
+            windows AS (
+                SELECT heads.chat_id,
+                       CASE WHEN window_state.has_passed THEN pull_time.pulled_at ELSE heads.window_started_at END AS window_started_at,
+                       CASE WHEN window_state.has_passed THEN 1 ELSE heads.window_sent_count + 1 END AS window_sent_count
+                FROM heads
+                JOIN pulled ON pulled.chat_id = heads.chat_id
+                CROSS JOIN pull_time
+                CROSS JOIN LATERAL (
+                    SELECT heads.window_started_at IS NULL
+                           OR heads.window_started_at + ${privateLimit.interval}::double precision * interval '1 millisecond'
+                              <= pull_time.pulled_at AS has_passed
+                ) AS window_state
+                WHERE heads.chat_id >= 0
+            ),
             moved AS (
-                -- A negative chat id is a group, as isGroupChat() has it.
+                -- A group waits its cooldown. A private chat is pulled again at once until its window
+                -- holds number messages, then at the end of the window. The config does not bound
+                -- number from above, so it is not cast to integer.
                 UPDATE telegram_outbox_chats
                 SET state = ${OutboxChatState.Processing},
-                    next_attempt_at = pull_time.pulled_at + CASE
-                        WHEN telegram_outbox_chats.chat_id < 0 THEN ${this.cooldownMs(this.limits.group)}::double precision
-                        ELSE ${this.cooldownMs(this.limits.private)}::double precision
-                    END * interval '1 millisecond',
+                    window_started_at = windows.window_started_at,
+                    window_sent_count = windows.window_sent_count,
+                    next_attempt_at = CASE
+                        WHEN telegram_outbox_chats.chat_id < 0
+                            THEN pull_time.pulled_at + ${this.cooldownMs(this.limits.group)}::double precision * interval '1 millisecond'
+                        WHEN windows.window_sent_count >= ${privateLimit.number}::double precision
+                            THEN windows.window_started_at + ${privateLimit.interval}::double precision * interval '1 millisecond'
+                        ELSE pull_time.pulled_at
+                    END,
                     locked_until = pull_time.pulled_at + ${this.leaseDurationMs}::double precision * interval '1 millisecond',
                     lock_token = ${lockToken},
                     updated_at = pull_time.pulled_at
-                FROM pulled, pull_time
+                FROM pulled
+                CROSS JOIN pull_time
+                LEFT JOIN windows ON windows.chat_id = pulled.chat_id
                 WHERE telegram_outbox_chats.chat_id = pulled.chat_id
             ),
             spent AS (
@@ -378,8 +407,8 @@ export class OutboxStore {
         }));
     }
 
-    // The time a limit leaves between two messages. LIMIT_*_NUMBER is at least 1, so the cooldown is
-    // finite.
+    // The time the common or the group limit leaves between two messages. LIMIT_*_NUMBER is at least
+    // 1, so the cooldown is finite.
     private cooldownMs(limit: Limit): number {
         return limit.interval / limit.number;
     }
@@ -534,10 +563,12 @@ export class OutboxStore {
 
     // One batch of the idle chats whose chat limit has passed; the number deleted. A caller that gets
     // a full batch calls again. A push recreates the row of its chat, idle, with next_attempt_at of
-    // now(): a chat whose limit has not passed keeps its row, so an idle spell does not shorten the
-    // limit. A chat another transaction holds is skipped: a push or a completion is changing it. The
-    // lock rechecks the state on the newest version of the row, so a chat that a push or a completion
-    // has changed meanwhile is left alone too.
+    // now() and no window: a chat whose limit has not passed keeps its row, so an idle spell does not
+    // shorten the limit. The limit of a private chat is its window as well: its next_attempt_at passes
+    // right after a pull that leaves the window short of full. A chat another transaction holds is
+    // skipped: a push or a completion is changing it. The lock rechecks the state on the newest
+    // version of the row, so a chat that a push or a completion has changed meanwhile is left alone
+    // too.
     public async deleteIdleChats(): Promise<number> {
         const deletedRows = await this.sql`
             DELETE FROM telegram_outbox_chats
@@ -546,6 +577,8 @@ export class OutboxStore {
                 FROM telegram_outbox_chats
                 WHERE state = ${OutboxChatState.Idle}
                   AND next_attempt_at <= now()
+                  AND (window_started_at IS NULL
+                       OR window_started_at + ${this.limits.private.interval}::double precision * interval '1 millisecond' <= now())
                 LIMIT ${this.cleanupSettings.batchSize}
                 FOR UPDATE SKIP LOCKED
             )

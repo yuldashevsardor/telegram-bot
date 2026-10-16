@@ -28,7 +28,9 @@ the payload codec and the retry delay. The error classes of a failed call lie ou
 
 One migration, `1790546834232_telegram-outbox-tables.ts`, creates the three tables with every
 column but `telegram_outbox_chats.head_priority`, which
-`1791763200000_telegram-outbox-chat-head-priority.ts` adds with its `comment` (see the head below).
+`1791763200000_telegram-outbox-chat-head-priority.ts` adds with its `comment` (see the head below),
+and the window of a private chat, `window_started_at` and `window_sent_count`, which
+`1791936000000_telegram-outbox-private-chat-window.ts` adds, NULL for a group (see "Limits").
 The columns and what they mean are in the `createTable` calls and `comment`s; the later
 migrations that replace a comment are listed by
 `git grep -l alterColumn -- 'migrations/*telegram-outbox*'`.
@@ -120,8 +122,8 @@ even of a `ready` chat, and a copy not set again is stale like the one above.
 | `processing` | `pull` |
 | `blocked` | `markAsFailedAndBlockChat`; `push` leaves it as it is |
 
-An `idle` chat whose `next_attempt_at` has passed loses its row to `deleteIdleChats()` (see
-"Cleanup"); the next `push` inserts it again as a new chat.
+An `idle` chat whose `next_attempt_at` and, for a private chat, window have passed loses its row to
+`deleteIdleChats()` (see "Cleanup"); the next `push` inserts it again as a new chat.
 
 ## The chat lock
 
@@ -184,8 +186,11 @@ no pull reaches them. The spec has the removal take the chat while a push waits 
    `next_attempt_at`;
 3. the head goes to `processing`, but only if it is still `pending`, looked up by the primary key;
    its `attempts` stay as they are, the completion writes the attempt (see "Completions");
-4. the chats whose head was pulled go to `processing`, `next_attempt_at` moves to the time of the
-   pull plus the chat limit, and the chat is leased to the pull (see "The lease");
+4. the chats whose head was pulled go to `processing`, the window of a private chat counts the pull,
+   `next_attempt_at` moves by the chat limit (see "Limits"), and the chat is leased to the pull (see
+   "The lease"). The window is read off the chat row as the lock of step 2 found it, not off the
+   snapshot: a chat pulled and retried after the snapshot passes the lock, its head `pending` again
+   passes the check of step 3, and the window of the snapshot would miss the pull between;
 5. `next_send_at` of the bot moves by the messages pulled;
 6. the answer: the pulled messages, by priority, then by `id`, so a caller that sends them in
    order sends the urgent first, each with the `lockToken` of the pull, `startedAt` (the time of the
@@ -193,9 +198,10 @@ no pull reaches them. The spec has the removal take the chat while a push waits 
    `nextPullInMs`, when the next pull can give out a message.
 
 Step 4 is what serves the chats of one priority in turn: a chat just served goes behind the chats
-that waited. The chats of one kind — private or group — in one pull get the same
-`next_attempt_at`, so `chat_id` decides their next turn. Only one head per chat is taken, and a
-`processing` chat is not `ready`, so a chat never has two messages in `processing`.
+that waited. The groups in one pull get the same `next_attempt_at`, and so do the private chats
+whose window the pull leaves short of full, so `chat_id` decides their next turn. Only one head per
+chat is taken, and a `processing` chat is not `ready`, so a chat never has two messages in
+`processing`.
 
 Step 2 reads the head from the snapshot of the statement, taken before the lock. A chat completed
 and made `ready` again after the snapshot still passes the lock (the lock rereads the newest row
@@ -204,11 +210,11 @@ turns that head away: the chat is left `ready` for the next pull instead of send
 The chat takes a slot of `limit` and gives nothing, and it keeps its `next_attempt_at`, but only for
 this pull: the head of a `ready` chat is `pending` (a `failed` message is not a head), so the next
 pull, with a fresh snapshot, takes it. The window is narrow as well: another pull must have taken
-the chat at least a chat limit before the time of this one, and its completion must have committed
-between the start of this statement and its lock of the chat. That gap holds the wait for the bot
-row as well, and the time of the pull comes after the wait: a wait longer than the chat limit is
-enough for a chat pulled and completed during it, and the slot it takes is one the budget of the
-waited pull counted.
+the chat at least a chat limit before the time of this one, any time before it for a private chat
+inside its window, and its completion must have committed between the start of this statement and
+its lock of the chat. That gap holds the wait for the bot row as well, and the time of the pull
+comes after the wait: a wait longer than the chat limit is enough for a chat pulled and completed
+during it, and the slot it takes is one the budget of the waited pull counted.
 
 The check of step 3 compares the status of the head with the one step 2 read, not with `pending`,
 though step 2 takes `pending` heads alone. Written as `status = 'pending'`, the check lets the
@@ -270,15 +276,33 @@ nothing.
 
 ## Limits
 
-The limits are `limits.*` of the configuration (`TelegramLimits`). A limit of `number` messages per
-`interval` ms spaces the messages by its cooldown, `interval / number`.
+The limits are `limits.*` of the configuration (`TelegramLimits`). The common and the group limit
+of `number` messages per `interval` ms space the messages by their cooldown, `interval / number`;
+the private limit is a window of `interval` that takes `number` messages.
 
-- **The chat limit.** A pull moves `next_attempt_at` of a chat to the time of the pull (see "Pull")
-  plus the cooldown of the group limit for a negative `chat_id` and of the private one otherwise
-  (the rule of `isGroupChat()`, written in the SQL). A chat is not pulled before that. A chat that
-  goes `idle` and gets a new message keeps the time, so an idle spell does not shorten it. The
-  cooldown counts from the pull, not from the send: a head that waits after the pull spends the
-  cooldown of its chat, so the caller sends right after the pull.
+- **The chat limit.** A pull moves `next_attempt_at` of a chat (see "Pull", step 4) by the limit of
+  its kind: the group limit for a negative `chat_id`, the private one otherwise (the rule of
+  `isGroupChat()`, written in the SQL). A chat is not pulled before that time.
+  - A group waits the cooldown from the time of the pull.
+  - A private chat counts its pulls in a window. A pull that finds no window, or one whose
+    `window_started_at` plus `interval` has passed by the time of the pull, opens a new one at that
+    time with a count of 1; any other pull adds 1 to the count. While the count is below `number`,
+    `next_attempt_at` is the time of the pull, so the chat takes its messages one after another;
+    once it reaches `number`, it is the end of the window, and the first pull after it opens the
+    next one. Telegram counts some 100 messages of a private chat in a window of 5 minutes, opened
+    by the first message and reset whole, not a rate
+    ([`real-bot-load-test.md`](./real-bot-load-test.md), "The private chat limit of Telegram"): a
+    cooldown under the count spaces every message of a chat, a reply of several messages included,
+    where the window sends it at once. The defaults keep a margin, 99 per 305 s: the window of the
+    outbox opens at the pull and that of Telegram when the message reaches it, so the outbox closes
+    its window earlier by the pull, the database and the network, and 99, not 100, leaves one
+    message for what the outbox does not count. The window rests on that of Telegram being fixed,
+    measured on one bot on one day; were it sliding, the burst after a window would get a 429, which
+    still pauses the outbox. A retry counts too: its next pull is a pull of the window.
+
+  A chat that goes `idle` and gets a new message keeps its time and its window, so an idle spell
+  does not shorten them. The limit counts from the pull, not from the send: a head that waits after
+  the pull spends the limit of its chat, so the caller sends right after the pull.
 - **The common limit.** The slots of the bot come due one per cooldown from `next_send_at`, up to
   `number` of them for a bot that has sent nothing for a while. The budget of a pull is the slots
   due at the time of the pull, capped by `limit`. The pull moves `next_send_at` to that time plus
@@ -637,12 +661,16 @@ that gets a full batch calls again; `OutboxMaintenance` calls again until a batc
   The batch is locked `FOR UPDATE SKIP LOCKED`: the lock rechecks the status on the newest version
   of the row, so a message a person has moved back to `pending` meanwhile is kept, and two nodes
   cleaning at once take different rows.
-- `deleteIdleChats()` deletes the `idle` chats whose `next_attempt_at` has passed. It locks them
+- `deleteIdleChats()` deletes the `idle` chats whose `next_attempt_at` has passed, and, for a
+  private chat, whose window has passed as well: a pull that leaves a window short of full sets
+  `next_attempt_at` to its own time, so without the window the cleanup would remove the count with
+  the row. It locks them
   `FOR UPDATE SKIP LOCKED`: a chat a push or a completion holds is left to them, and the lock
   rechecks the state on the newest version of the row, so a chat a push has made `ready` meanwhile
   is left alone too. A push that waits for a chat the removal holds inserts the chat again (see
   "The chat lock"). A chat whose limit has not passed keeps its row: a push recreates the chat with
-  `next_attempt_at` of `now()`, so a removed row would let the next message out before the limit.
+  `next_attempt_at` of `now()` and no window, so a removed row would let the next message out before
+  the limit.
   The messages of a removed chat stay; a late completion of one of them is fenced (see
   "Completions"). A removed chat may still hold a `failed` message that did not block it: putting
   it back by hand needs the chat row again (see "Tables").

@@ -44,9 +44,10 @@ Telegram speaks of one message a second in a chat.
 
 ## The limits of the outbox against it
 
-The chat limit is a cooldown, `interval / number` from one pull of a chat to the next
-([`outbox.md`](./outbox.md), "Limits"), and the outbox kept it to within 1%. The gap between two
-sends to one chat, from the `started_at` of their attempts:
+The chat limit of the run was a cooldown, `interval / number` from one pull of a chat to the next,
+and the outbox kept it to within 1%; the private limit of the outbox is now a window
+([`outbox.md`](./outbox.md), "Limits"). The gap between two sends to one chat, from the `started_at`
+of their attempts:
 
 | phase | cooldown, ms | median, ms | 5th percentile, ms | minimum, ms |
 |---|---|---|---|---|
@@ -54,10 +55,10 @@ sends to one chat, from the `started_at` of their attempts:
 | B | 1 000 | 1 008 | 1 004 | 1 002 |
 | C | 3 100 | 3 110 | 3 104 | 3 101 |
 
-A cooldown cannot express the window of Telegram. The defaults of `.env.dist`, 3 a second, get a
-429 at the 101st message of a chat. A cooldown below the count of Telegram, 3 s and over, gets
-none, but it spaces every message of a chat by 3 s, a reply of several messages included, where
-Telegram would take 100 at once.
+A cooldown cannot express the window of Telegram. The defaults of `.env.dist` of the run, 3 a
+second, get a 429 at the 101st message of a chat. A cooldown below the count of Telegram, 3 s and
+over, gets none, but it spaces every message of a chat by 3 s, a reply of several messages included,
+where Telegram would take 100 at once.
 
 The common limit was not reached: three chats give at most 9 messages a second against its 30.
 
@@ -122,9 +123,9 @@ Not measured: the time of each statement of the store, which nothing logs, with
 ## Verdict
 
 The outbox keeps its limits to within 1% and loses nothing over a node that stops for 15 minutes,
-at a load the process and the database barely notice. What does not hold is the model of the
-limits against Telegram: a private chat takes some 100 messages in 5 minutes, which the default of
-3 a second exceeds within 34 s, and which a cooldown can meet only by spacing every message by
-3 s. Each 429 then pauses the whole bot for up to 4.5 minutes, and a reply that waits longer than
-60 s, behind that pause or behind the bulk messages of its own chat, blocks the inbox group of its
+at a load the process and the database barely notice. What does not hold is the model of the limits
+against Telegram: a private chat takes some 100 messages in 5 minutes, which the default of the run,
+3 a second, exceeds within 34 s, and which a cooldown can meet only by spacing every message by 3 s.
+Each 429 then pauses the whole bot for up to 4.5 minutes, and a reply that waits longer than 60 s,
+behind that pause or behind the bulk messages of its own chat, blocks the inbox group of its
 user until a person unblocks it.
