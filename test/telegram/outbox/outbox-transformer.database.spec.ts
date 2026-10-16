@@ -440,6 +440,8 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
         it("holds back its private chat for the retry_after while the other chats go on sending", async function () {
             const node = createNode(firstDatabase, FIRST_NODE);
             const [floodedChatId, otherChatId] = PRIVATE_CHAT_IDS as [number, number];
+            // Whether the outbox was paused at each call of the other chat made during the wait.
+            const pausedAtOtherCalls: boolean[] = [];
             fakeBotApi.answerWith(async (call, callIndex) => {
                 const chatId = Number(call.payload["chat_id"]);
 
@@ -454,6 +456,7 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
                         async () => ((await chatMessages(floodedChatId))[0]?.errors.length ?? 0) > 0,
                         "the 429 was expected to be written",
                     );
+                    pausedAtOtherCalls.push(await isPaused());
                 }
 
                 return sentMessage(call, callIndex);
@@ -476,6 +479,7 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
             for (const otherCall of fakeBotApi.callsTo(otherChatId)) {
                 expect(otherCall.receivedAtMs, "a call of the other chat").to.be.below(resentCall!.receivedAtMs);
             }
+            expect(pausedAtOtherCalls).to.deep.equal([false, false, false]);
         });
 
         it("of a group pauses the sending of every node for the retry_after", async function () {

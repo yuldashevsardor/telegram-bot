@@ -49,6 +49,11 @@ const BOT_LIMITS_ID = 1;
 // overflows the interval.
 const MAX_DELAY_MS = Number.MAX_SAFE_INTEGER;
 
+// NaN passes both comparisons, so it needs isNaN(); an infinity fails one of them.
+function isDelayInRange(delayMs: number): boolean {
+    return !Number.isNaN(delayMs) && delayMs >= 0 && delayMs <= MAX_DELAY_MS;
+}
+
 // The rows and the chat states of the outbox: the model is in docs/architecture/outbox.md.
 @injectable()
 export class OutboxStore {
@@ -319,8 +324,7 @@ export class OutboxStore {
     // Stops the pull on every node until now() + durationMs by the database clock, never shortening
     // a pause (docs/architecture/outbox.md, "Limits", the pause).
     public async pause(durationMs: number): Promise<void> {
-        // NaN passes both comparisons, so it needs isNaN(); an infinity fails one of them.
-        if (Number.isNaN(durationMs) || durationMs < 0 || durationMs > MAX_DELAY_MS) {
+        if (!isDelayInRange(durationMs)) {
             throw InvalidPauseDuration.of(durationMs);
         }
 
@@ -403,9 +407,9 @@ export class OutboxStore {
     // every other node when the node of the message stops, learn of the chat from nothing else. A
     // fenced retry notifies no one.
     public async retry(lease: OutboxLease, attemptError: OutboxAttemptError, delayMs: number): Promise<void> {
-        // As in pause(): an infinite delay would hold the chat for ever, and the retry_after of a 429
-        // comes here as Telegram sent it.
-        if (Number.isNaN(delayMs) || delayMs < 0 || delayMs > MAX_DELAY_MS) {
+        // The contract of the store for any caller, as in pause(): an infinite delay would hold the
+        // chat for ever, and one above MAX_DELAY_MS overflows the interval.
+        if (!isDelayInRange(delayMs)) {
             throw InvalidRetryDelay.of(delayMs);
         }
 

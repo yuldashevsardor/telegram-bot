@@ -402,9 +402,9 @@ the pid and a `randomUUID()` made with the loop.
    await` ask the generator for the next message: a loop with every slot busy asks the generator for
    nothing, so it pulls nothing either.
 2. The loop writes no outcome: the processor does (see "Sending"). A `process()` that throws, a
-   completion whose database went away or a `retry_after` that `pause()` refuses (see "Outcomes"),
-   is logged at `error` and frees its slot; its message stays `processing` until the recovery of its
-   lease.
+   completion whose database went away or a `retry_after` that `pause()` or `retry()` refuses (see
+   "Outcomes"), is logged at `error` and frees its slot; its message stays `processing` until the
+   recovery of its lease.
 
 `stop()`:
 
@@ -513,9 +513,11 @@ of the attempt; the recovery of its lease appends one (see "Lease recovery").
 
 A retried message stays the head of its chat, so its chat waits with it: the messages behind it
 are not pulled before it, while the other chats are. `retry()` throws `InvalidRetryDelay` on the
-delays that `pause()` refuses (see "Limits"), for the same reasons: it takes the `retry_after` of a
-429 of a private chat as Telegram sent it (see "Outcomes"), and an infinite delay would hold the
-chat for ever.
+delays that `pause()` refuses (see "Limits"), for the same reasons: an infinite delay would hold
+the chat for ever, and one above `Number.MAX_SAFE_INTEGER` ms overflows the interval. It is the
+contract of the store for any caller. The handler passes it the `retry_after` of a 429 of a private
+chat (see "Outcomes"), which the classifier has already made finite and positive, so a 429 reaches
+the refusal only with a `retry_after` above some 9e12 s.
 
 Every update of the store sets `updated_at` itself, to `now()`, and the pull to the time of the
 pull; there is no trigger.
@@ -834,14 +836,13 @@ the nodes, in the database, for a case no run has shown yet.
 The handler logs every 429 as a `warning`, "holding back the chat" or "pausing the outbox"; its
 fields are in `holdBackChatForFlood()` and `pauseForFlood()`, and why it goes before the pause in
 the latter. `retryAfterSeconds` there is the wait the 429 asks for, not the one `retry()` or
-`pause()` keeps (see "Limits"), `DEFAULT_RETRY_AFTER_SECONDS` when Telegram sent no `retry_after` it
-can take, and `cause.parameters` shows what Telegram sent. The status line reports the pause of the
-outbox alone (see "Maintenance"): a held-back chat is not in it at all, and a pause shorter than
-`OUTBOX_MAINTENANCE_STATUS_LOG_INTERVAL` can fall between two status lines, so the warning and the
-attempt in the message row are their only traces. A 429 also says the limits of the configuration
-do not match Telegram's. Every send a 429 answers writes a
-warning of its own, on any node, so during one flood the warnings count the calls answered 429, not
-the floods.
+`pause()` keeps (see "Completions" and "Limits"), `DEFAULT_RETRY_AFTER_SECONDS` when Telegram sent
+no `retry_after` it can take, and `cause.parameters` shows what Telegram sent. The status line
+reports the pause of the outbox alone (see "Maintenance"): a held-back chat is not in it at all, and
+a pause shorter than `OUTBOX_MAINTENANCE_STATUS_LOG_INTERVAL` can fall between two status lines, so
+the warning and the attempt in the message row are their only traces. A 429 also says the limits of
+the configuration do not match Telegram's. Every send a 429 answers writes a warning of its own, on
+any node, so during one flood the warnings count the calls answered 429, not the floods.
 
 An `Unauthorized` failure pauses the outbox as a 429 of a group does, for
 `UNAUTHORIZED_PAUSE_SECONDS`, and returns the message to `pending`: sending resumes by itself once
