@@ -5,6 +5,7 @@ import { Tokens } from "app/shared/tokens";
 import type { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import { InboxFailureKind } from "app/telegram/inbox/failure-classifier/inbox-failure-classifier.types";
+import { OutboxResultTimeout } from "app/telegram/outbox/result-waiter/outbox-result-waiter.errors";
 
 // The codes of an error that says the database or the way to it went away, not that the query was
 // wrong. postgres.js gives the first three to a query its own connection lost (Errors.connection()
@@ -64,6 +65,10 @@ export class InboxFailureClassifier {
     private classifyLink(error: unknown): InboxFailureKind {
         if (error instanceof GrammyError || error instanceof HttpError) {
             return this.byBotApiFailure(this.botApiClassifier.classify(error).kind);
+        }
+
+        if (error instanceof OutboxResultTimeout) {
+            return InboxFailureKind.ReplyTimeout;
         }
 
         if (this.isTransientDatabaseOrNetworkFailure(error)) {
