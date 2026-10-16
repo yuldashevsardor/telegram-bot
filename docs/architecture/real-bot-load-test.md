@@ -74,15 +74,16 @@ the run. A reply to any other chat would have waited as long.
 At 20:55:12, during the second pause, the third chat sent `/start`. Its reply, message 10005, went
 into the outbox behind some 3 100 bulk messages of the same chat: the priority of a message orders
 the chats, not the messages of a chat ([`bot.md`](./bot.md), "Commands"). At 20:56:12 the wait of
-the handler ended with `OutboxResultTimeout` after `OUTBOX_RESULT_TIMEOUT`, 60 s, an `Unexpected`
-failure that blocks the group ([`inbox.md`](./inbox.md), "Error classes"), and the `/bulk_messages`
-the chat sent next waited behind the blocked group until the end of the run. At 22:20 the reply
+the handler ended with `OutboxResultTimeout` after `OUTBOX_RESULT_TIMEOUT`, 60 s, then an
+`Unexpected` failure that blocked the group, and the `/bulk_messages` the chat sent next waited
+behind the blocked group until the end of the run. At 22:20 the reply
 was still `pending`, with 2 094 bulk messages of the chat before it: at a message every 3.1 s,
 some 1.8 hours.
 
-Either cause alone was enough: a pause longer than `OUTBOX_RESULT_TIMEOUT` blocks the group of
-every update whose reply waits for it, in any chat, and so does a queue of bulk messages longer
-than 60 s of the chat limit in the chat of the reply.
+Either cause alone was enough: a pause longer than `OUTBOX_RESULT_TIMEOUT` blocked the group of
+every update whose reply waited for it, in any chat, and so did a queue of bulk messages longer
+than 60 s of the chat limit in the chat of the reply. The timeout is now a `ReplyTimeout` failure,
+which fails the update and leaves its group unblocked ([`inbox.md`](./inbox.md), "Error classes").
 
 ## Sleep of the laptop
 

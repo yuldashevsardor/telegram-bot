@@ -139,11 +139,24 @@ describe("InboxFailureHandler", function () {
         });
     });
 
-    describe("an unexpected failure", function () {
-        it("fails the update and blocks its group on a timeout waiting for the outbox", async function () {
+    describe("a reply timeout", function () {
+        it("fails the update and goes on to the next update of its group", async function () {
             await store.pushBatch([input(10), input(11)]);
 
             await handler.handle(await claimOne(), OutboxResultTimeout.of(1, 60_000));
+
+            expect(await statuses()).to.deep.equal([InboxStatus.Failed, InboxStatus.Pending]);
+            expect((await claimOne()).updateId).to.equal(11);
+            expect((await attempts(10)).map(({ error }) => error?.["kind"])).to.deep.equal([InboxFailureKind.ReplyTimeout]);
+            expect(logger.errors).to.deep.equal([]);
+        });
+    });
+
+    describe("an unexpected failure", function () {
+        it("fails the update and blocks its group on a bug", async function () {
+            await store.pushBatch([input(10), input(11)]);
+
+            await handler.handle(await claimOne(), new TypeError("Cannot read properties of undefined"));
 
             expect(await statuses()).to.deep.equal([InboxStatus.Failed, InboxStatus.Pending]);
             expect(await groupState(USER)).to.equal(InboxGroupState.Blocked);
@@ -239,7 +252,7 @@ describe("InboxFailureHandler", function () {
 
             await handler.recoverExpiredLeases();
             await store.markAsDone(claimed);
-            await handler.handle(claimed, OutboxResultTimeout.of(1, 60_000));
+            await handler.handle(claimed, new TypeError("Cannot read properties of undefined"));
 
             expect(await statuses()).to.deep.equal([InboxStatus.Pending]);
             expect(await groupState(USER)).to.equal(InboxGroupState.Ready);
