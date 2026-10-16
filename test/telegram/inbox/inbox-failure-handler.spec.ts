@@ -34,6 +34,8 @@ const CHAT = 5_000_000_001;
 const TOKEN = "123456789:secret";
 const MAX_ATTEMPTS = 3;
 const FIRST_DELAY_MS = 60_000;
+// The OUTBOX_RESULT_TIMEOUT a reply timeout reports: the handler reads only the class of the error.
+const RESULT_TIMEOUT_MS = 30_000;
 const MULTIPLIER = 2;
 // random() of 0 takes the lower end of the step: half of it.
 const RETRY_DELAY = new RetryDelay({ firstDelayMs: FIRST_DELAY_MS, maxDelayMs: 600_000, multiplier: MULTIPLIER }, () => 0);
@@ -133,7 +135,7 @@ describe("InboxFailureHandler", function () {
 
             await handler.handle(await claimOne(), telegramError(403, "Forbidden: bot was blocked by the user"));
 
-            await expectFailedWithoutBlocking(InboxFailureKind.Undeliverable);
+            await expectFailedAndNextClaimed(10, 11, InboxFailureKind.Undeliverable);
         });
     });
 
@@ -141,21 +143,41 @@ describe("InboxFailureHandler", function () {
         it("fails the update and goes on to the next update of its group", async function () {
             await store.pushBatch([input(10), input(11)]);
 
-            await handler.handle(await claimOne(), OutboxResultTimeout.of(1, 60_000));
+            await handler.handle(await claimOne(), OutboxResultTimeout.of(1, RESULT_TIMEOUT_MS));
 
-            await expectFailedWithoutBlocking(InboxFailureKind.ReplyTimeout);
+            await expectFailedAndNextClaimed(10, 11, InboxFailureKind.ReplyTimeout);
         });
 
         // The way it reaches the handler: Bot.handleUpdate() wraps the error of a handler that wrapped
         // the timeout into its own.
         it("fails the update without blocking when the timeout comes wrapped into a BotError", async function () {
             await store.pushBatch([input(10), input(11)]);
-            const context = { api: { token: TOKEN }, update: input(10).update } as unknown as Context;
-            const handlerError = new RuntimeError("The reply was not sent", OutboxResultTimeout.of(1, 60_000));
+            const handlerError = new RuntimeError("The reply was not sent", OutboxResultTimeout.of(1, RESULT_TIMEOUT_MS));
 
-            await handler.handle(await claimOne(), new BotError(handlerError, context));
+            await handler.handle(await claimOne(), new BotError(handlerError, botErrorContext()));
 
-            await expectFailedWithoutBlocking(InboxFailureKind.ReplyTimeout);
+            await expectFailedAndNextClaimed(10, 11, InboxFailureKind.ReplyTimeout);
+        });
+
+        // The limit of attempts is checked on a transient failure only (docs/architecture/inbox.md, "Outcomes").
+        it("fails the update without blocking on the last attempt too", async function () {
+            await store.pushBatch([input(10), input(11)]);
+
+            for (let attempt = 1; attempt < MAX_ATTEMPTS; attempt++) {
+                await handler.handle(await claimOne(), lostConnection());
+                await dueNow(USER);
+            }
+
+            await handler.handle(await claimOne(), OutboxResultTimeout.of(1, RESULT_TIMEOUT_MS));
+
+            expect(await statuses()).to.deep.equal([InboxStatus.Failed, InboxStatus.Pending]);
+            expect(await groupState(USER)).to.equal(InboxGroupState.Ready);
+            expect((await attempts(10)).map(({ error }) => error?.["kind"])).to.deep.equal([
+                InboxFailureKind.Transient,
+                InboxFailureKind.Transient,
+                InboxFailureKind.ReplyTimeout,
+            ]);
+            expect(logger.errors).to.deep.equal([]);
         });
     });
 
@@ -186,9 +208,11 @@ describe("InboxFailureHandler", function () {
         // included.
         it("is classified and written as the handler's own error, without the context", async function () {
             await store.pushBatch([input(10), input(11)]);
-            const context = { api: { token: TOKEN }, update: input(10).update } as unknown as Context;
 
-            await handler.handle(await claimOne(), new BotError(telegramError(403, "Forbidden: bot was blocked by the user"), context));
+            await handler.handle(
+                await claimOne(),
+                new BotError(telegramError(403, "Forbidden: bot was blocked by the user"), botErrorContext()),
+            );
 
             const [attempt] = await attempts(10);
 
@@ -272,13 +296,19 @@ describe("InboxFailureHandler", function () {
         });
     });
 
-    // The outcome of a failure that does not block, after updates 10 and 11 of one group were pushed
-    // and 10 was claimed and failed: 11 is claimed next, and nothing is logged at error.
-    async function expectFailedWithoutBlocking(kind: InboxFailureKind): Promise<void> {
+    // The outcome of a failure that does not block, for the two updates of one group the spec pushed:
+    // the failed one keeps its one attempt, and the claim this makes gives out the next one. Nothing is
+    // logged at error.
+    async function expectFailedAndNextClaimed(failedUpdateId: number, nextUpdateId: number, kind: InboxFailureKind): Promise<void> {
         expect(await statuses()).to.deep.equal([InboxStatus.Failed, InboxStatus.Pending]);
-        expect((await claimOne()).updateId).to.equal(11);
-        expect((await attempts(10)).map(({ error }) => error?.["kind"])).to.deep.equal([kind]);
+        expect((await claimOne()).updateId).to.equal(nextUpdateId);
+        expect((await attempts(failedUpdateId)).map(({ error }) => error?.["kind"])).to.deep.equal([kind]);
         expect(logger.errors).to.deep.equal([]);
+    }
+
+    // The context Bot.handleUpdate() puts into a BotError, with the Api and its token.
+    function botErrorContext(): Context {
+        return { api: { token: TOKEN }, update: input(10).update } as unknown as Context;
     }
 
     // The only update a claim gives out.
