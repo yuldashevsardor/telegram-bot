@@ -24,6 +24,14 @@ export class InvalidPauseDuration extends RuntimeError {
     }
 }
 
+export class InvalidRetryDelay extends RuntimeError {
+    public static of(delayMs: number): InvalidRetryDelay {
+        return new InvalidRetryDelay(`An outbox retry delay of ${delayMs} ms is not a duration from 0 to Number.MAX_SAFE_INTEGER ms.`, {
+            delayMs: delayMs,
+        });
+    }
+}
+
 export class OutboxChatNotBlocked extends RuntimeError {
     public static byChatId(chatId: number): OutboxChatNotBlocked {
         return new OutboxChatNotBlocked(

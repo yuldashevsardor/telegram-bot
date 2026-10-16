@@ -512,7 +512,10 @@ written into `attempts` before the completion, so a node that dies while it send
 of the attempt; the recovery of its lease appends one (see "Lease recovery").
 
 A retried message stays the head of its chat, so its chat waits with it: the messages behind it
-are not pulled before it, while the other chats are.
+are not pulled before it, while the other chats are. `retry()` throws `InvalidRetryDelay` on the
+delays that `pause()` refuses (see "Limits"), for the same reasons: it takes the `retry_after` of a
+429 of a private chat as Telegram sent it (see "Outcomes"), and an infinite delay would hold the
+chat for ever.
 
 Every update of the store sets `updated_at` itself, to `now()`, and the pull to the time of the
 pull; there is no trigger.
@@ -810,23 +813,43 @@ of `applyOutcome()` and `OutboxLeaseRetrier.retryOrBlock()`. The error goes into
 `OutboxErrorSerializer` (`outbox-error-serializer.ts`) writes it, with its class in `kind`; what the
 serializer leaves out and why is in the comment of `serialize()`.
 
-A `Flood` failure, a 429, pauses the outbox for its `retry_after` and returns the message to
-`pending`. The handler logs it as a `warning`; its fields, and why it goes before the pause, are in
-`pauseForFlood()`. `retryAfterSeconds` there is the pause the 429 asks for, not the one `pause()`
-keeps (see "Limits"), `DEFAULT_RETRY_AFTER_SECONDS` when Telegram sent no `retry_after` it can take,
-and `cause.parameters` shows what Telegram sent. A pause shorter than
-`OUTBOX_MAINTENANCE_STATUS_LOG_INTERVAL` can fall between two status lines (see "Maintenance") and
-leave no other line in the log: the attempt in the message row is its only other trace. A 429 also
-says the limits of the configuration do not match Telegram's. Every send a 429 answers writes a
+A `Flood` failure, a 429, returns the message to `pending` and holds the sending back for its
+`retry_after`. A 429 does not say whether Telegram counts the chat or the whole bot, so the chat
+decides how much is held back. A 429 of a private chat (the rule of `isGroupChat()`) holds back that
+chat alone: `retry()` moves `next_attempt_at` of the chat to `now()` plus the `retry_after`, never
+earlier than it is, and the other chats go on sending. Against the real Telegram a private chat took
+some 100 messages in a window of 5 minutes, and the `retry_after` of its 429 was the rest of that
+window, while the pause of the whole outbox stopped every chat for it
+([`real-bot-load-test.md`](./real-bot-load-test.md), "The private chat limit of Telegram"). A 429 of
+a group pauses the outbox for its `retry_after` (see "Limits", the pause): the limit of a group has
+not been measured against Telegram.
+
+The 429s of several private chats at once, the sign of the common limit of Telegram rather than of
+a chat, are not told apart: each of those chats holds back itself, and the chats that have not got
+a 429 go on sending. The common limit of the configuration keeps the bot under Telegram's, so such
+429s mean the configuration does not match Telegram, and they cost a call answered 429 per chat that
+keeps sending, not a stop of the bot. Telling them apart would take a count of the 429s shared by
+the nodes, in the database, for a case no run has shown yet.
+
+The handler logs every 429 as a `warning`, "holding back the chat" or "pausing the outbox"; its
+fields are in `holdBackChatForFlood()` and `pauseForFlood()`, and why it goes before the pause in
+the latter. `retryAfterSeconds` there is the wait the 429 asks for, not the one `retry()` or
+`pause()` keeps (see "Limits"), `DEFAULT_RETRY_AFTER_SECONDS` when Telegram sent no `retry_after` it
+can take, and `cause.parameters` shows what Telegram sent. The status line reports the pause of the
+outbox alone (see "Maintenance"): a held-back chat is not in it at all, and a pause shorter than
+`OUTBOX_MAINTENANCE_STATUS_LOG_INTERVAL` can fall between two status lines, so the warning and the
+attempt in the message row are their only traces. A 429 also says the limits of the configuration
+do not match Telegram's. Every send a 429 answers writes a
 warning of its own, on any node, so during one flood the warnings count the calls answered 429, not
 the floods.
 
-An `Unauthorized` failure pauses the outbox as a flood does, for `UNAUTHORIZED_PAUSE_SECONDS`, and
-returns the message to `pending`: sending resumes by itself once the pause is over and no node with
-the old token is left. During a rolling restart a node still on the old token that wins a pull
-after a pause gets a 401 and pauses the outbox for every node, the restarted ones included, so
-sending stops and starts until the last node is restarted. Why the pause is that long is in the
-comment of the constant. No chat is blocked, so the handler logs the 401 as an error itself.
+An `Unauthorized` failure pauses the outbox as a 429 of a group does, for
+`UNAUTHORIZED_PAUSE_SECONDS`, and returns the message to `pending`: sending resumes by itself once
+the pause is over and no node with the old token is left. During a rolling restart a node still on
+the old token that wins a pull after a pause gets a 401 and pauses the outbox for every node, the
+restarted ones included, so sending stops and starts until the last node is restarted. Why the pause
+is that long is in the comment of the constant. No chat is blocked, so the handler logs the 401 as
+an error itself.
 
 Its attempt counts as a flood's does, but a token outage is not bounded as a `retry_after` is. The
 counts of probes below rest on two premises: the caller sleeps on `nextPullInMs`, and the set of
@@ -865,8 +888,8 @@ retry delay, which grows with the same number: after five floods the first trans
 `OUTBOX_RETRY_MAX_DELAY` and `OUTBOX_RETRY_DELAY_MULTIPLIER`. The count covers the whole history of
 the message, the attempts before an unblock by hand included (see "Unblocking a chat").
 
-A `retry_after` that `pause()` refuses (see "Limits") throws out of `handle()` before the retry,
-and the message stays `processing` until its lease is recovered.
+A `retry_after` that `pause()` or `retry()` refuses (see "Limits" and "Completions") throws out
+of `handle()` with no completion, and the message stays `processing` until its lease is recovered.
 
 ### Lease recovery
 

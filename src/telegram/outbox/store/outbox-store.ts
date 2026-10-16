@@ -28,6 +28,7 @@ import { OutboxChannel, OutboxChatState, OutboxStatus } from "app/telegram/outbo
 import {
     BotLimitsRowMissing,
     InvalidPauseDuration,
+    InvalidRetryDelay,
     InvalidPullLimit,
     OutboxChatNotBlocked,
     OutboxMessageNotLeased,
@@ -44,9 +45,9 @@ const ACTIVE_STATUSES = [OutboxStatus.Pending, OutboxStatus.Processing];
 // The single row of telegram_bot_limits.
 const BOT_LIMITS_ID = 1;
 
-// The longest pause PostgreSQL can still add to now(), some 285 000 years: 1e17 ms overflows the
-// interval.
-const MAX_PAUSE_MS = Number.MAX_SAFE_INTEGER;
+// The longest pause or retry delay PostgreSQL can still add to now(), some 285 000 years: 1e17 ms
+// overflows the interval.
+const MAX_DELAY_MS = Number.MAX_SAFE_INTEGER;
 
 // The rows and the chat states of the outbox: the model is in docs/architecture/outbox.md.
 @injectable()
@@ -319,7 +320,7 @@ export class OutboxStore {
     // a pause (docs/architecture/outbox.md, "Limits", the pause).
     public async pause(durationMs: number): Promise<void> {
         // NaN passes both comparisons, so it needs isNaN(); an infinity fails one of them.
-        if (Number.isNaN(durationMs) || durationMs < 0 || durationMs > MAX_PAUSE_MS) {
+        if (Number.isNaN(durationMs) || durationMs < 0 || durationMs > MAX_DELAY_MS) {
             throw InvalidPauseDuration.of(durationMs);
         }
 
@@ -402,6 +403,12 @@ export class OutboxStore {
     // every other node when the node of the message stops, learn of the chat from nothing else. A
     // fenced retry notifies no one.
     public async retry(lease: OutboxLease, attemptError: OutboxAttemptError, delayMs: number): Promise<void> {
+        // As in pause(): an infinite delay would hold the chat for ever, and the retry_after of a 429
+        // comes here as Telegram sent it.
+        if (Number.isNaN(delayMs) || delayMs < 0 || delayMs > MAX_DELAY_MS) {
+            throw InvalidRetryDelay.of(delayMs);
+        }
+
         await this.complete(lease, attemptError, async (sql, chatId) => {
             await this.updateProcessingMessage(
                 lease,
