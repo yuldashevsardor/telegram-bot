@@ -58,6 +58,7 @@ export class InboxFailureHandler {
             case InboxFailureKind.Transient:
                 return this.retryOrBlock(update, attemptError);
             case InboxFailureKind.Undeliverable:
+            case InboxFailureKind.ReplyTimeout:
                 return this.store.markAsFailed(update, attemptError);
             case InboxFailureKind.Unexpected:
                 return this.store.markAsFailedAndBlockGroup(update, attemptError);

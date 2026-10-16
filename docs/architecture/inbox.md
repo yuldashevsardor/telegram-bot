@@ -405,8 +405,8 @@ the handler's own error out of it, `BotError.error`, for both the class and the 
 `InboxFailureClassifier.classify(error)` (`failure-classifier/inbox-failure-classifier.ts`) sorts
 the error into the `InboxFailureKind` values, the classes of the epic
 ([#618](https://github.com/yuldashevsardor/telegram-bot/issues/618), "Error classes") without the
-flood. Which error falls into which class, and why, is read off the method, its constants and
-their comments. In short:
+flood and with `ReplyTimeout`, which the epic took for `Unexpected`. Which error falls into which
+class, and why, is read off the method, its constants and their comments. In short:
 
 - A `GrammyError` or an `HttpError` is classified by `TelegramBotApiFailureClassifier`
   ([`outbox.md`](./outbox.md), "Error classes"), and its class is mapped: `Undeliverable` stays
@@ -429,22 +429,34 @@ their comments. In short:
   connection a caller wrapped into its own error is `Transient`. `UserService` wraps a failed save
   of the user, made on every update, into `UserCreateError` or `UserEditError`; read only at the
   top, a restart of PostgreSQL during that save would block the group.
-- Anything else is `Unexpected`, a bug or a timeout waiting for the outbox included
-  (`OutboxResultTimeout`): a reply that took too long may still go out, and the epic blocks the
-  group on it. So is a wait the outbox stopped (`OutboxResultWaiterStopped`), although it says only
-  that the node is shutting down: `InboxUpdateProcessor` keeps such a handler away from `handle()`
-  and releases its update (see "The update processor"), or an ordinary restart would block the group
-  of every update in flight.
+- A timeout waiting for the outbox (`OutboxResultTimeout`), wrapped or not, is `ReplyTimeout`. The
+  reply stays in the outbox and may still go out, and a retry would queue it a second time. A wait
+  longer than `OUTBOX_RESULT_TIMEOUT` is ordinary against the real Telegram: a 429 holds the reply
+  back for minutes, and a chat with queued bulk messages holds it behind them
+  ([`real-bot-load-test.md`](./real-bot-load-test.md), "A reply behind the bulk messages"). The
+  session of the update is not saved: grammY's `session()` writes it only once the rest of the
+  pipeline returns (`convenience/session.js` of grammY), so the next update of the group runs on
+  the session as it was before. Unlike after an `Undeliverable` failure, the reply may still reach
+  the user: a reply that asks for an answer can come when the conversation step that waits for the
+  answer was never saved, and the answer is then not taken as one. A call to a chat a failed
+  message has blocked in the outbox ends the same way ([`bot.md`](./bot.md), "The outbox
+  transformer"): until the chat is unblocked, every later update of that user holds a worker for
+  `OUTBOX_RESULT_TIMEOUT` and queues one more reply behind the blocked head, where an `Unexpected`
+  failure would have blocked the group once.
+- Anything else is `Unexpected`, a bug included. So is a wait the outbox stopped
+  (`OutboxResultWaiterStopped`), although it says only that the node is shutting down:
+  `InboxUpdateProcessor` keeps such a handler away from `handle()` and releases its update (see
+  "The update processor"), or an ordinary restart would block the group of every update in flight.
 
 ### Outcomes
 
-Which completion each class gets is read off `applyOutcome()` and `retryOrBlock()` of the handler:
-a `Transient` failure is retried, or fails and blocks the group on the last attempt; an
-`Undeliverable` one fails without blocking; an `Unexpected` one fails and blocks. A blocked group is
-logged at `error` by the store, with the group, the update and the error; a fenced completion logs
-no error. Nothing else is logged: a `Transient` failure that is retried and an `Undeliverable` one
-leave their error in the `attempts` of the update and in no log line, so during an outage of
-PostgreSQL the retries show only in the inbox tables.
+Which completion each class gets is read off `applyOutcome()` and `retryOrBlock()` of the handler.
+Only an `Unexpected` failure and a `Transient` one on its last attempt block the group: after an
+`Undeliverable` or a `ReplyTimeout` failure the next update of the group is handled. A blocked group
+is logged at `error` by the store, with the group, the update and the error; a fenced completion
+logs no error. Nothing else is logged: a failure that does not block leaves its error in the
+`attempts` of the update and in no log line, so during an outage of PostgreSQL the retries show
+only in the inbox tables.
 
 Every attempt counts towards `INBOX_MAX_ATTEMPTS`, whatever it ended with: the attempt being handled
 is `earlierAttempts + 1`, checked on a transient failure only. The count covers the whole history of
@@ -682,7 +694,7 @@ the code `ECONNRESET`, which `InboxFailureClassifier` takes for a lost database 
 transient failure. Through the outbox no answer of the Bot API gives a handler a transient failure
 whose retry can pass. A 5xx reaches the handler only once the outbox has failed the message on its
 last attempt, and that blocks the outbox chat; the retried update replies into the blocked chat, and
-its wait ends with `OutboxResultTimeout`, an `Unexpected` failure that blocks the group whatever
+its wait ends with `OutboxResultTimeout`, a `ReplyTimeout` failure that fails the update whatever
 attempts are left (see "Error classes").
 
 Not covered here: the webhook, the polling source (`inbox-polling-source.spec.ts`), two nodes and
