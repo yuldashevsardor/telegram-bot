@@ -6,8 +6,11 @@ import { UserEditError } from "app/telegram/user/service/user-service.errors";
 import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
 import { InboxFailureClassifier } from "app/telegram/inbox/failure-classifier/inbox-failure-classifier";
 import { InboxFailureKind } from "app/telegram/inbox/failure-classifier/inbox-failure-classifier.types";
-import { OutboxResultTimeout } from "app/telegram/outbox/result-waiter/outbox-result-waiter.errors";
+import { OutboxResultTimeout, OutboxResultWaiterStopped } from "app/telegram/outbox/result-waiter/outbox-result-waiter.errors";
 import { telegramError } from "test/telegram/telegram-bot-api-failure-classifier.helper";
+
+// The OUTBOX_RESULT_TIMEOUT a reply timeout reports: the classifier reads only the class of the error.
+const RESULT_TIMEOUT_MS = 30_000;
 
 describe("InboxFailureClassifier", function () {
     const classifier = new InboxFailureClassifier(new TelegramBotApiFailureClassifier());
@@ -125,11 +128,24 @@ describe("InboxFailureClassifier", function () {
         });
     });
 
-    describe("anything else", function () {
-        it("takes a timeout waiting for the outbox for unexpected", function () {
-            expect(classifier.classify(OutboxResultTimeout.of(1, 60_000))).to.equal(InboxFailureKind.Unexpected);
+    describe("a wait for the outbox", function () {
+        it("takes a timeout waiting for the outbox for a reply timeout", function () {
+            expect(classifier.classify(OutboxResultTimeout.of(1, RESULT_TIMEOUT_MS))).to.equal(InboxFailureKind.ReplyTimeout);
         });
 
+        it("takes a wrapped timeout waiting for the outbox for a reply timeout", function () {
+            const wrappedTimeout = new RuntimeError("The reply was not sent", OutboxResultTimeout.of(1, RESULT_TIMEOUT_MS));
+
+            expect(classifier.classify(wrappedTimeout)).to.equal(InboxFailureKind.ReplyTimeout);
+        });
+
+        // InboxUpdateProcessor keeps such a wait away from the classifier and releases its update.
+        it("takes a wait the outbox stopped for unexpected", function () {
+            expect(classifier.classify(OutboxResultWaiterStopped.of(1))).to.equal(InboxFailureKind.Unexpected);
+        });
+    });
+
+    describe("anything else", function () {
         it("takes a bug and a value that is not an Error for unexpected", function () {
             for (const error of [new TypeError("Cannot read properties of undefined"), "failed", null, undefined, { code: 1 }]) {
                 expect(classifier.classify(error), String(error)).to.equal(InboxFailureKind.Unexpected);
