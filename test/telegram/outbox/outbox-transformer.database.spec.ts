@@ -256,6 +256,15 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
         return row?.state;
     }
 
+    async function isPaused(): Promise<boolean> {
+        const [row] = await firstDatabase.sql<{ is_paused: boolean }[]>`
+            SELECT coalesce(paused_until > now(), false) AS is_paused
+            FROM telegram_bot_limits
+        `;
+
+        return row?.is_paused ?? false;
+    }
+
     // The status of every message of the chat and the name of the error of each of its attempts,
     // in the order of the messages.
     async function chatMessages(chatId: number): Promise<{ status: string; errors: (string | null)[] }[]> {
@@ -427,34 +436,89 @@ describe("OutboxTransformer on the database with a fake Bot API", function () {
         });
     });
 
-    it("pauses the sending of every node for the retry_after of a 429", async function () {
-        // A cooldown far longer than a 429 takes to come back and pause the outbox, even on a machine
-        // slowed by other runs: no node pulls another message between the call that got the 429 and
-        // the pause.
-        const limits = { ...NO_LIMITS, common: { number: 2, interval: 1_000 } };
-        const firstNode = createNode(firstDatabase, { ...FIRST_NODE, limits: limits, concurrency: 1 });
-        const secondNode = createNode(secondDatabase, { ...SECOND_NODE, limits: limits, concurrency: 1 });
-        fakeBotApi.answerWith((call, callIndex) => {
-            if (callIndex === 0) {
-                return failure(httpStatus.HTTP_STATUS_TOO_MANY_REQUESTS, `Too Many Requests: retry after ${RETRY_AFTER_SECONDS}`, {
-                    retry_after: RETRY_AFTER_SECONDS,
-                });
+    describe("a 429", function () {
+        it("holds back its private chat for the retry_after while the other chats go on sending", async function () {
+            const node = createNode(firstDatabase, FIRST_NODE);
+            const [floodedChatId, otherChatId] = PRIVATE_CHAT_IDS as [number, number];
+            // Whether the outbox was paused at each call of the other chat made during the wait.
+            const pausedAtOtherCalls: boolean[] = [];
+            fakeBotApi.answerWith(async (call, callIndex) => {
+                const chatId = Number(call.payload["chat_id"]);
+
+                if (chatId === floodedChatId && fakeBotApi.callsTo(floodedChatId).length === 1) {
+                    return floodedAnswer();
+                }
+
+                // The other chat is answered only once the 429 is written, so its later calls are
+                // made while the flooded chat waits.
+                if (chatId === otherChatId) {
+                    await waitUntil(
+                        async () => ((await chatMessages(floodedChatId))[0]?.errors.length ?? 0) > 0,
+                        "the 429 was expected to be written",
+                    );
+                    pausedAtOtherCalls.push(await isPaused());
+                }
+
+                return sentMessage(call, callIndex);
+            });
+            node.runner.start();
+
+            const calls = [floodedChatId, otherChatId, otherChatId, otherChatId].map((chatId, index) => ({
+                chatId: chatId,
+                text: `${index}`,
+            }));
+            const sent = await Promise.all(calls.map((call) => node.api.sendMessage(call.chatId, call.text)));
+
+            // The message that got the 429 is sent again after its retry_after, and its caller gets that answer.
+            expect(sent.map((message) => [message.chat.id, message.text])).to.deep.equal(calls.map((call) => [call.chatId, call.text]));
+            const [floodedCall, resentCall] = fakeBotApi.callsTo(floodedChatId);
+            expect(fakeBotApi.callsTo(floodedChatId)).to.have.lengthOf(2);
+            expect(resentCall!.receivedAtMs - floodedCall!.receivedAtMs).to.be.at.least(
+                RETRY_AFTER_SECONDS * MS_PER_SECOND - ARRIVAL_JITTER_MS,
+            );
+            for (const otherCall of fakeBotApi.callsTo(otherChatId)) {
+                expect(otherCall.receivedAtMs, "a call of the other chat").to.be.below(resentCall!.receivedAtMs);
             }
-
-            return answerOnceBothNodesCalled(call, callIndex);
+            expect(pausedAtOtherCalls).to.deep.equal([false, false, false]);
         });
-        firstNode.runner.start();
-        secondNode.runner.start();
 
-        const calls = PRIVATE_CHAT_IDS.slice(0, 2).flatMap((chatId) => ["0", "1"].map((text) => ({ chatId: chatId, text: text })));
-        const sent = await Promise.all(calls.map((call) => firstNode.api.sendMessage(call.chatId, call.text)));
+        it("of a group pauses the sending of every node for the retry_after", async function () {
+            const firstNode = createNode(firstDatabase, { ...FIRST_NODE, concurrency: 1 });
+            const secondNode = createNode(secondDatabase, { ...SECOND_NODE, concurrency: 1 });
+            const privateChatId = PRIVATE_CHAT_IDS[0]!;
+            fakeBotApi.answerWith(async (call, callIndex) => {
+                const chatId = Number(call.payload["chat_id"]);
 
-        // The message that got the 429 is sent again after the pause, and its caller gets that answer.
-        expect(sent.map((message) => [message.chat.id, message.text])).to.deep.equal(calls.map((call) => [call.chatId, call.text]));
-        const [floodedCall, nextCall] = fakeBotApi.calls;
-        expect(fakeBotApi.calls).to.have.lengthOf(calls.length + 1);
-        expect(new Set(fakeBotApi.calls.map((call) => call.token))).to.deep.equal(new Set([FIRST_NODE_TOKEN, SECOND_NODE_TOKEN]));
-        expect(nextCall!.receivedAtMs - floodedCall!.receivedAtMs).to.be.at.least(RETRY_AFTER_SECONDS * MS_PER_SECOND - ARRIVAL_JITTER_MS);
+                // The 429 waits for the first call of the private chat, and that call waits for the
+                // pause: each holds the one slot of its node, so the two come from different nodes,
+                // and the next call of the private chat is pulled during the pause.
+                if (chatId === GROUP_CHAT_ID && fakeBotApi.callsTo(GROUP_CHAT_ID).length === 1) {
+                    await waitUntil(() => fakeBotApi.callsTo(privateChatId).length > 0, "the private chat was expected to be called");
+
+                    return floodedAnswer();
+                }
+
+                if (chatId === privateChatId && fakeBotApi.callsTo(privateChatId).length === 1) {
+                    await waitUntil(() => isPaused(), "the outbox was expected to be paused");
+                }
+
+                return sentMessage(call, callIndex);
+            });
+            firstNode.runner.start();
+            secondNode.runner.start();
+
+            const calls = [GROUP_CHAT_ID, privateChatId, privateChatId].map((chatId, index) => ({ chatId: chatId, text: `${index}` }));
+            const sent = await Promise.all(calls.map((call) => firstNode.api.sendMessage(call.chatId, call.text)));
+
+            expect(sent.map((message) => [message.chat.id, message.text])).to.deep.equal(calls.map((call) => [call.chatId, call.text]));
+            const [floodedCall] = fakeBotApi.callsTo(GROUP_CHAT_ID);
+            const [, nextPrivateCall] = fakeBotApi.callsTo(privateChatId);
+            expect(fakeBotApi.callsTo(GROUP_CHAT_ID)).to.have.lengthOf(2);
+            expect(new Set(fakeBotApi.calls.map((call) => call.token))).to.deep.equal(new Set([FIRST_NODE_TOKEN, SECOND_NODE_TOKEN]));
+            expect(nextPrivateCall!.receivedAtMs - floodedCall!.receivedAtMs).to.be.at.least(
+                RETRY_AFTER_SECONDS * MS_PER_SECOND - ARRIVAL_JITTER_MS,
+            );
+        });
     });
 
     describe("a failed call", function () {
@@ -596,6 +660,13 @@ function sentMessage(call: BotApiCall, callIndex: number): ApiResponse<unknown> 
     }
 
     return { ok: true, result: message };
+}
+
+// A 429 of Telegram that asks to wait RETRY_AFTER_SECONDS.
+function floodedAnswer(): ApiError {
+    return failure(httpStatus.HTTP_STATUS_TOO_MANY_REQUESTS, `Too Many Requests: retry after ${RETRY_AFTER_SECONDS}`, {
+        retry_after: RETRY_AFTER_SECONDS,
+    });
 }
 
 // An answer of Telegram with ok: false. Telegram leaves parameters out when it has none, and grammY

@@ -28,6 +28,7 @@ import { OutboxChannel, OutboxChatState, OutboxStatus } from "app/telegram/outbo
 import {
     BotLimitsRowMissing,
     InvalidPauseDuration,
+    InvalidRetryDelay,
     InvalidPullLimit,
     OutboxChatNotBlocked,
     OutboxMessageNotLeased,
@@ -44,9 +45,9 @@ const ACTIVE_STATUSES = [OutboxStatus.Pending, OutboxStatus.Processing];
 // The single row of telegram_bot_limits.
 const BOT_LIMITS_ID = 1;
 
-// The longest pause PostgreSQL can still add to now(), some 285 000 years: 1e17 ms overflows the
-// interval.
-const MAX_PAUSE_MS = Number.MAX_SAFE_INTEGER;
+// The longest pause or retry delay PostgreSQL can still add to now(), some 285 000 years: 1e17 ms
+// overflows the interval.
+const MAX_DELAY_MS = Number.MAX_SAFE_INTEGER;
 
 // The rows and the chat states of the outbox: the model is in docs/architecture/outbox.md.
 @injectable()
@@ -346,8 +347,7 @@ export class OutboxStore {
     // Stops the pull on every node until now() + durationMs by the database clock, never shortening
     // a pause (docs/architecture/outbox.md, "Limits", the pause).
     public async pause(durationMs: number): Promise<void> {
-        // NaN passes both comparisons, so it needs isNaN(); an infinity fails one of them.
-        if (Number.isNaN(durationMs) || durationMs < 0 || durationMs > MAX_PAUSE_MS) {
+        if (!this.isDelayInRange(durationMs)) {
             throw InvalidPauseDuration.of(durationMs);
         }
 
@@ -413,6 +413,11 @@ export class OutboxStore {
         return this.sql`${windowStartedAt} + ${this.limits.private.interval}::double precision * interval '1 millisecond'`;
     }
 
+    // NaN fails both comparisons, and an infinity the second one.
+    private isDelayInRange(delayMs: number): boolean {
+        return delayMs >= 0 && delayMs <= MAX_DELAY_MS;
+    }
+
     // The time the common or the group limit leaves between two messages. LIMIT_*_NUMBER is at least
     // 1, so the cooldown is finite.
     private cooldownMs(limit: Limit): number {
@@ -437,6 +442,12 @@ export class OutboxStore {
     // every other node when the node of the message stops, learn of the chat from nothing else. A
     // fenced retry notifies no one.
     public async retry(lease: OutboxLease, attemptError: OutboxAttemptError, delayMs: number): Promise<void> {
+        // The contract of the store for any caller, as in pause(): an infinite delay would hold the
+        // chat for ever, and one above MAX_DELAY_MS overflows the interval.
+        if (!this.isDelayInRange(delayMs)) {
+            throw InvalidRetryDelay.of(delayMs);
+        }
+
         await this.complete(lease, attemptError, async (sql, chatId) => {
             await this.updateProcessingMessage(
                 lease,

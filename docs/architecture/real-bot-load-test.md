@@ -1,7 +1,8 @@
 # Real bot load test
 
 The outbox and the inbox run against the real Telegram: one run of `/bulk_messages` on a development
-bot, on 2026-10-11, watched by its logs. The load tests of the stores
+bot, on 2026-10-11, watched by its logs, and a shorter rerun of its 429s on 2026-10-16 (see "The
+rerun of a 429"). The load tests of the stores
 ([`outbox-load-test.md`](./outbox-load-test.md), [`inbox-load-test.md`](./inbox-load-test.md))
 measure the SQL on large tables, and the end-to-end specs replace Telegram with a fake server
 ([`outbox.md`](./outbox.md), "The end-to-end spec"); this run measures what neither does: the limits
@@ -64,11 +65,39 @@ The common limit was not reached: three chats give at most 9 messages a second a
 
 ## The pause after a 429
 
-`OutboxFailureHandler` pauses the outbox for the `retry_after` of a 429 with `OutboxStore.pause()`,
-on the one row of `telegram_bot_limits` that every pull of every node reads
+At `81e1aa96` `OutboxFailureHandler` paused the outbox for the `retry_after` of every 429 with
+`OutboxStore.pause()`, on the one row of `telegram_bot_limits` that every pull of every node reads
 ([`outbox.md`](./outbox.md), "Limits", the pause). A 429 of one private chat stopped the sending to
 all three: 267 s four times in phase A and 200 s in phase B, some 21 of the first 25 minutes of
-the run. A reply to any other chat would have waited as long.
+the run. A reply to any other chat would have waited as long. A 429 of a private chat now holds
+back that chat alone ([`outbox.md`](./outbox.md), "Outcomes"), which the rerun below shows.
+
+## The rerun of a 429
+
+On 2026-10-16 `/bulk_messages` ran again with the handler that holds back the chat of a 429 of a
+private chat alone: one node, the `.env.dist` defaults of the time, `LIMIT_PRIVATE_NUMBER=3` among
+them, the bot token of the worktree's slot. The owner has three accounts, all of them in `CHAT_IDS`
+of `bulk-messages.command.ts`, so for the run the list held two of them, a change not committed, and
+the third sent `/start` while the two waited. The run was stopped after the second 429 of each chat,
+and its messages left `pending` were deleted. The numbers are read from the `attempts` of the rows.
+
+| chat | sent, then 429 | `retry_after` | resumed | sent, then 429 | `retry_after` |
+|---|---|---|---|---|---|
+| 2815426 | 100 from 22:48:05, 429 at 22:48:39 | 268 s | 22:53:07 | 100, 429 at 22:53:45 | 264 s |
+| 5067823410 | 100 from 22:48:05, 429 at 22:48:39 | 267 s | 22:53:06 | 99, 429 at 22:55:17 | 170 s |
+
+- The reply to `/start` of the third chat was pushed at 22:48:58, while both bulk chats waited until
+  22:53:06 – 22:53:07, and was sent 0.14 s later; so was the next message of that chat, at
+  22:49:08. `paused_until` of `telegram_bot_limits` stayed where the run of 2026-10-11 had left it.
+- At 22:53:28 a neighbouring worktree recreated the container of the shared database. The call of
+  chat 5067823410 in flight then could not be completed, its lease of `OUTBOX_LEASE_DURATION`,
+  90 s, was recovered with a transient attempt, and the chat sent again from 22:55:05. Until its 429
+  at 22:55:17 it sent 35 messages while chat 2815426 waited out the 429 of 22:53:45: of two bulk
+  chats one waited and the other sent.
+- Each `retry_after` ran out some 300 s after its chat had started counting: from its first message,
+  and after a 429 from the end of the previous one. The count held as well: the 429 came on the
+  101st call of a chat. After its resume chat 5067823410 sent 99 and lost one call to the restart,
+  so its 429 was the 101st only if that call had reached Telegram, which the outbox cannot tell.
 
 ## A reply behind the bulk messages
 
@@ -126,6 +155,7 @@ The outbox keeps its limits to within 1% and loses nothing over a node that stop
 at a load the process and the database barely notice. What does not hold is the model of the limits
 against Telegram: a private chat takes some 100 messages in 5 minutes, which the default of the run,
 3 a second, exceeds within 34 s, and which a cooldown can meet only by spacing every message by 3 s.
-Each 429 then pauses the whole bot for up to 4.5 minutes, and a reply that waited longer than 60 s,
-behind that pause or behind the bulk messages of its own chat, blocked the inbox group of its user
-until a person unblocked it, which it no longer does (see "A reply behind the bulk messages").
+Each 429 then paused the whole bot for up to 4.5 minutes; a 429 of a private chat now holds back
+that chat alone (see "The rerun of a 429"). A reply that waited longer than 60 s, behind such a wait
+or behind the bulk messages of its own chat, blocked the inbox group of its user until a person
+unblocked it, which it no longer does (see "A reply behind the bulk messages").

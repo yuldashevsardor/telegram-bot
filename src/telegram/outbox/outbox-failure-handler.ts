@@ -9,9 +9,10 @@ import type { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-ser
 import type { OutboxLeaseRetrier } from "app/telegram/outbox/lease/outbox-lease-retrier";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxAttemptError, PulledOutboxMessage } from "app/telegram/outbox/store/outbox-store.types";
+import { isGroupChat } from "app/telegram/telegram-chat";
 
-// A retry after a pause, a flood's or a 401's, adds no delay of its own: the pause already stops
-// the pull.
+// A retry after a pause, a group flood's or a 401's, adds no delay of its own: the pause already
+// stops the pull.
 const PAUSED_RETRY_DELAY_MS = 0;
 
 // How long every node waits after a 401 before the next message tries the token again. A revoked
@@ -47,7 +48,9 @@ export class OutboxFailureHandler {
             case TelegramBotApiFailureKind.Transient:
                 return this.leaseRetrier.retryOrBlock(message, attemptError);
             case TelegramBotApiFailureKind.Flood:
-                return this.pauseForFlood(message, failure.retryAfterSeconds, attemptError);
+                return isGroupChat(message.chatId)
+                    ? this.pauseForFlood(message, failure.retryAfterSeconds, attemptError)
+                    : this.holdBackChatForFlood(message, failure.retryAfterSeconds, attemptError);
             case TelegramBotApiFailureKind.Undeliverable:
                 return this.store.markAsFailed(message, attemptError);
             case TelegramBotApiFailureKind.Unauthorized:
@@ -75,6 +78,24 @@ export class OutboxFailureHandler {
         });
 
         await this.pauseAndRetry(message, retryAfterSeconds, attemptError);
+    }
+
+    // A 429 of a private chat holds back that chat alone: Telegram counts the messages of a private
+    // chat in a window of its own, and the other chats go on sending (docs/architecture/outbox.md,
+    // "Outcomes").
+    private async holdBackChatForFlood(
+        message: PulledOutboxMessage,
+        retryAfterSeconds: number,
+        attemptError: OutboxAttemptError,
+    ): Promise<void> {
+        this.logger.warning("The Bot API answers 429: holding back the chat.", {
+            messageId: message.id,
+            chatId: message.chatId,
+            retryAfterSeconds: retryAfterSeconds,
+            cause: attemptError,
+        });
+
+        await this.store.retry(message, attemptError, retryAfterSeconds * MS_PER_SECOND);
     }
 
     // Nothing else shows a revoked token: no chat is blocked, the sending only stops.
