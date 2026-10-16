@@ -2138,8 +2138,8 @@ describe("OutboxStore", function () {
     }
 
     // The only message a pull gives out.
-    async function pullOne(from: OutboxStore = store): Promise<PulledOutboxMessage> {
-        const { messages } = await from.pull(10, WORKER);
+    async function pullOne(pullingStore: OutboxStore = store): Promise<PulledOutboxMessage> {
+        const { messages } = await pullingStore.pull(10, WORKER);
 
         expect(messages).to.have.lengthOf(1);
 
