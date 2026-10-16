@@ -296,9 +296,13 @@ the private limit is a window of `interval` that takes `number` messages.
     where the window sends it at once. The defaults keep a margin, 99 per 305 s: the window of the
     outbox opens at the pull and that of Telegram when the message reaches it, so the outbox closes
     its window earlier by the pull, the database and the network, and 99, not 100, leaves one
-    message for what the outbox does not count. The window rests on that of Telegram being fixed,
-    measured on one bot on one day; were it sliding, the burst after a window would get a 429, which
-    still pauses the outbox. A retry counts too: its next pull is a pull of the window.
+    message for what the outbox does not count. The 5 s cover a full window alone: a window short of
+    full is held by nothing at its end, so the messages pulled in its last seconds reach Telegram in
+    its next window, which the next window of the outbox does not count, and a burst there can bring
+    a 429. Its pause is the accepted price: the case needs a burst in the last seconds of a window
+    that is not full. The window rests on that of Telegram being fixed, measured on one bot on one
+    day; were it sliding, the burst after a window would get a 429, which still pauses the outbox. A
+    retry counts too: its next pull is a pull of the window.
 
   A chat that goes `idle` and gets a new message keeps its time and its window, so an idle spell
   does not shorten them. The limit counts from the pull, not from the send: a head that waits after

@@ -67,6 +67,7 @@ const LONG_RETRY_DELAY_MS = 60_000;
 const NOTHING_PULLED: OutboxPullResult = { messages: [], nextPullInMs: null };
 
 type ChatRow = { state: string };
+type ChatWindow = { sentCount: number; startedAtLastPull: boolean; dueAfterStartMs: number };
 describe("OutboxStore", function () {
     this.timeout(SPEC_TIMEOUT_MS);
 
@@ -309,9 +310,9 @@ describe("OutboxStore", function () {
 
     // The chats of one pull get the same next_attempt_at: with NO_LIMITS a private chat, whose window
     // is far from full, is due at the time of the pull, and the cooldown of a group is a nanosecond,
-    // which rounds to it. Without the
-    // chat_id key their next turn follows the order PostgreSQL meets the tied rows in, which tends to
-    // be the order of completion: the spec completes them in both orders, and one of them fails then.
+    // which rounds to it. Without the chat_id key their next turn follows the order PostgreSQL meets
+    // the tied rows in, which tends to be the order of completion: the spec completes them in both
+    // orders, and one of them fails then.
     for (const completedFirst of [CHAT, OTHER_CHAT]) {
         it(`takes the chats served in one pull by chat_id in the next turn, chat ${completedFirst} completed first`, async function () {
             await store.pushBatch([message(CHAT, "a1"), message(CHAT, "a2")]);
@@ -822,21 +823,16 @@ describe("OutboxStore", function () {
         });
 
         // updated_at is the time of the last pull of the chat.
-        async function windowOf(chatId: number): Promise<{ sentCount: number; startedAtLastPull: boolean; dueAfterStartMs: number }> {
-            const [row] = await database.sql<{ window_sent_count: number; started_at_last_pull: boolean; due_after_start_ms: number }[]>`
-                SELECT window_sent_count,
-                       window_started_at = updated_at AS started_at_last_pull,
-                       extract(epoch FROM next_attempt_at - window_started_at)::double precision * ${MS_PER_SECOND} AS due_after_start_ms
+        async function windowOf(chatId: number): Promise<ChatWindow> {
+            const [row] = await database.sql<ChatWindow[]>`
+                SELECT window_sent_count AS "sentCount",
+                       window_started_at = updated_at AS "startedAtLastPull",
+                       extract(epoch FROM next_attempt_at - window_started_at)::double precision * ${MS_PER_SECOND} AS "dueAfterStartMs"
                 FROM telegram_outbox_chats
                 WHERE chat_id = ${chatId}
             `;
-            const window = row as { window_sent_count: number; started_at_last_pull: boolean; due_after_start_ms: number };
 
-            return {
-                sentCount: window.window_sent_count,
-                startedAtLastPull: window.started_at_last_pull,
-                dueAfterStartMs: window.due_after_start_ms,
-            };
+            return row as ChatWindow;
         }
 
         // Both columns are the time of the last pull that took messages.

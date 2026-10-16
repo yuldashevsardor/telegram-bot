@@ -144,7 +144,6 @@ export class OutboxStore {
         const lockToken = randomUUID();
         const commonLimit = this.limits.common;
         const commonCooldownMs = this.cooldownMs(commonLimit);
-        const privateLimit = this.limits.private;
 
         const pullRows = await this.sql<OutboxPullResultRow[]>`
             WITH bot AS (
@@ -244,15 +243,15 @@ export class OutboxStore {
                 CROSS JOIN pull_time
                 CROSS JOIN LATERAL (
                     SELECT heads.window_started_at IS NULL
-                           OR heads.window_started_at + ${privateLimit.interval}::double precision * interval '1 millisecond'
-                              <= pull_time.pulled_at AS has_passed
+                           OR ${this.privateWindowEnd(this.sql`heads.window_started_at`)} <= pull_time.pulled_at AS has_passed
                 ) AS window_state
                 WHERE heads.chat_id >= 0
             ),
             moved AS (
                 -- A group waits its cooldown. A private chat is pulled again at once until its window
                 -- holds number messages, then at the end of the window. The config does not bound
-                -- number from above, so it is not cast to integer.
+                -- number from above, so it is not cast to integer; the count it is compared with is an
+                -- integer all the same, since no window gets 2^31 pulls.
                 UPDATE telegram_outbox_chats
                 SET state = ${OutboxChatState.Processing},
                     window_started_at = windows.window_started_at,
@@ -260,8 +259,8 @@ export class OutboxStore {
                     next_attempt_at = CASE
                         WHEN telegram_outbox_chats.chat_id < 0
                             THEN pull_time.pulled_at + ${this.cooldownMs(this.limits.group)}::double precision * interval '1 millisecond'
-                        WHEN windows.window_sent_count >= ${privateLimit.number}::double precision
-                            THEN windows.window_started_at + ${privateLimit.interval}::double precision * interval '1 millisecond'
+                        WHEN windows.window_sent_count >= ${this.limits.private.number}::double precision
+                            THEN ${this.privateWindowEnd(this.sql`windows.window_started_at`)}
                         ELSE pull_time.pulled_at
                     END,
                     locked_until = pull_time.pulled_at + ${this.leaseDurationMs}::double precision * interval '1 millisecond',
@@ -405,6 +404,13 @@ export class OutboxStore {
             worker: null,
             earlierAttempts: row.earlier_attempts,
         }));
+    }
+
+    // The end of the window of a private chat that opened at windowStartedAt, a column. The pull and
+    // the cleanup share it: a cleanup that saw a window passed before the pull does would remove a
+    // count the pull still holds.
+    private privateWindowEnd(windowStartedAt: PendingQuery<Row[]>): PendingQuery<Row[]> {
+        return this.sql`${windowStartedAt} + ${this.limits.private.interval}::double precision * interval '1 millisecond'`;
     }
 
     // The time the common or the group limit leaves between two messages. LIMIT_*_NUMBER is at least
@@ -577,8 +583,7 @@ export class OutboxStore {
                 FROM telegram_outbox_chats
                 WHERE state = ${OutboxChatState.Idle}
                   AND next_attempt_at <= now()
-                  AND (window_started_at IS NULL
-                       OR window_started_at + ${this.limits.private.interval}::double precision * interval '1 millisecond' <= now())
+                  AND (window_started_at IS NULL OR ${this.privateWindowEnd(this.sql`window_started_at`)} <= now())
                 LIMIT ${this.cleanupSettings.batchSize}
                 FOR UPDATE SKIP LOCKED
             )
