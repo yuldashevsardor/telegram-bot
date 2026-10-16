@@ -49,11 +49,6 @@ const BOT_LIMITS_ID = 1;
 // overflows the interval.
 const MAX_DELAY_MS = Number.MAX_SAFE_INTEGER;
 
-// NaN passes both comparisons, so it needs isNaN(); an infinity fails one of them.
-function isDelayInRange(delayMs: number): boolean {
-    return !Number.isNaN(delayMs) && delayMs >= 0 && delayMs <= MAX_DELAY_MS;
-}
-
 // The rows and the chat states of the outbox: the model is in docs/architecture/outbox.md.
 @injectable()
 export class OutboxStore {
@@ -324,7 +319,7 @@ export class OutboxStore {
     // Stops the pull on every node until now() + durationMs by the database clock, never shortening
     // a pause (docs/architecture/outbox.md, "Limits", the pause).
     public async pause(durationMs: number): Promise<void> {
-        if (!isDelayInRange(durationMs)) {
+        if (!this.isDelayInRange(durationMs)) {
             throw InvalidPauseDuration.of(durationMs);
         }
 
@@ -383,6 +378,11 @@ export class OutboxStore {
         }));
     }
 
+    // NaN passes both comparisons, so it needs isNaN(); an infinity fails one of them.
+    private isDelayInRange(delayMs: number): boolean {
+        return !Number.isNaN(delayMs) && delayMs >= 0 && delayMs <= MAX_DELAY_MS;
+    }
+
     // The time a limit leaves between two messages. LIMIT_*_NUMBER is at least 1, so the cooldown is
     // finite.
     private cooldownMs(limit: Limit): number {
@@ -409,7 +409,7 @@ export class OutboxStore {
     public async retry(lease: OutboxLease, attemptError: OutboxAttemptError, delayMs: number): Promise<void> {
         // The contract of the store for any caller, as in pause(): an infinite delay would hold the
         // chat for ever, and one above MAX_DELAY_MS overflows the interval.
-        if (!isDelayInRange(delayMs)) {
+        if (!this.isDelayInRange(delayMs)) {
             throw InvalidRetryDelay.of(delayMs);
         }
 
