@@ -378,9 +378,9 @@ export class OutboxStore {
         }));
     }
 
-    // NaN passes both comparisons, so it needs isNaN(); an infinity fails one of them.
+    // NaN fails both comparisons, and an infinity the second one.
     private isDelayInRange(delayMs: number): boolean {
-        return !Number.isNaN(delayMs) && delayMs >= 0 && delayMs <= MAX_DELAY_MS;
+        return delayMs >= 0 && delayMs <= MAX_DELAY_MS;
     }
 
     // The time a limit leaves between two messages. LIMIT_*_NUMBER is at least 1, so the cooldown is

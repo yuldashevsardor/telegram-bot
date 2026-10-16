@@ -291,17 +291,17 @@ The limits are `limits.*` of the configuration (`TelegramLimits`). A limit of `n
   limit of 30 per 1000 ms the answer is 34 ms, and a caller that pulls 3 ms after it sends a message
   every 37 ms: about 10% under the limit. What the message source adds to that is in "The message
   source".
-- **The pause.** `pause(durationMs)` sets `paused_until` to `now()` plus the duration, never
-  earlier than it is (`greatest`): a 429 that asks for less than the pause left changes nothing.
+- **The pause.** `pause(durationMs)` sets `paused_until` to `now()` plus the duration, never earlier
+  than it is (`greatest`): a 429 of a group that asks for less than the pause left changes nothing.
   The pause stops the pull on every node, since every pull reads the same row. It moves
   `next_send_at` to its end as well, so the slots come due from there one by one: the first pull
-  after a 429 gets one message, not a burst of `number`. A duration that is negative, `NaN` or
-  above `Number.MAX_SAFE_INTEGER` throws `InvalidPauseDuration`: an infinite pause would never end,
-  and `greatest` would keep it, while `1e17` ms overflows the interval PostgreSQL adds to `now()`.
-  The pause counts from `now()` of its statement, before its wait for the bot row behind the pulls
-  queued on it, so it ends early by that wait: milliseconds against a `retry_after` of seconds.
-  The pulls queued ahead of it take the row first, and each may spend a slot of the common limit
-  before the pause lands; the common limit still spaces them.
+  after a 429 of a group gets one message, not a burst of `number`. A duration that is negative,
+  `NaN` or above `Number.MAX_SAFE_INTEGER` throws `InvalidPauseDuration`: an infinite pause would
+  never end, and `greatest` would keep it, while `1e17` ms overflows the interval PostgreSQL adds to
+  `now()`. The pause counts from `now()` of its statement, before its wait for the bot row behind
+  the pulls queued on it, so it ends early by that wait: milliseconds against a `retry_after` of
+  seconds. The pulls queued ahead of it take the row first, and each may spend a slot of the common
+  limit before the pause lands; the common limit still spaces them.
 
 `nextPullInMs` is the later of the nearest `next_attempt_at` among the `ready` chats not pulled by
 this pull and the bot's own time — `next_send_at` after the pull, or `paused_until` if later —
