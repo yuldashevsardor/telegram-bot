@@ -236,12 +236,12 @@ describe("ConfigValuesBuilder", () => {
     // The message names every bound of a variable, so a single value below the minimum is enough to
     // check its whole range. That the bounds themselves pass is checked by config-parser.spec.ts.
     const bounds: Array<{ name: string; below: string; range: string }> = [
-        { name: "LIMIT_COMMON_NUMBER", below: "0", range: "at least 1" },
-        { name: "LIMIT_COMMON_INTERVAL", below: "0", range: "at least 1" },
-        { name: "LIMIT_PRIVATE_NUMBER", below: "0", range: "at least 1" },
-        { name: "LIMIT_PRIVATE_INTERVAL", below: "0", range: "at least 1" },
-        { name: "LIMIT_GROUP_NUMBER", below: "0", range: "at least 1" },
-        { name: "LIMIT_GROUP_INTERVAL", below: "0", range: "at least 1" },
+        { name: "LIMIT_COMMON_NUMBER", below: "0", range: "between 1 and 9007199254740991" },
+        { name: "LIMIT_COMMON_INTERVAL", below: "0", range: "between 1 and 9007199254740991" },
+        { name: "LIMIT_PRIVATE_NUMBER", below: "0", range: "between 1 and 9007199254740991" },
+        { name: "LIMIT_PRIVATE_INTERVAL", below: "0", range: "between 1 and 9007199254740991" },
+        { name: "LIMIT_GROUP_NUMBER", below: "0", range: "between 1 and 9007199254740991" },
+        { name: "LIMIT_GROUP_INTERVAL", below: "0", range: "between 1 and 9007199254740991" },
         { name: "OUTBOX_RETRY_FIRST_DELAY", below: "0", range: "between 1 and 2147483647" },
         { name: "OUTBOX_RETRY_MAX_DELAY", below: "0", range: "between 1 and 2147483647" },
         { name: "OUTBOX_RETRY_DELAY_MULTIPLIER", below: "0", range: "at least 1" },

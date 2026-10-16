@@ -548,6 +548,35 @@ describe("OutboxStore", function () {
             expect(early.nextPullInMs).to.be.within(1, PRIVATE_WINDOW_MS);
         });
 
+        // The update stands in for a pull and a retry of the chat that commit while this pull waits
+        // for the bot row: in the snapshot of the pull, taken before them, the chat has no window, and
+        // a window read from it would open anew at a count of 1.
+        it("counts a pull in the window the chat has once it is locked, not in the window of the snapshot", async function () {
+            const limited = new OutboxStore(database, logger, CHAT_LIMITS, LEASE_DURATION_MS, CLEANUP);
+            await limited.pushBatch([message(OTHER_CHAT, "held"), message(CHAT, "counted")]);
+
+            let waiting: Promise<OutboxPullResult> = Promise.resolve(NOTHING_PULLED);
+
+            await other.sql.begin(async (sql) => {
+                const held = (await storeOn(sql, CHAT_LIMITS).pull(1, WORKER)).messages;
+
+                expect(held.map(({ chatId }) => chatId)).to.deep.equal([OTHER_CHAT]);
+
+                waiting = limited.pull(10, WORKER);
+                await waitForLockWaiters(observer, 1);
+
+                await database.sql`
+                    UPDATE telegram_outbox_chats
+                    SET window_started_at = now(),
+                        window_sent_count = 1
+                    WHERE chat_id = ${CHAT}
+                `;
+            });
+
+            expect((await waiting).messages.map(({ chatId }) => chatId)).to.deep.equal([CHAT]);
+            expect((await windowOf(CHAT)).sentCount).to.equal(2);
+        });
+
         it("gives a group no message before its cooldown has passed", async function () {
             const limited = new OutboxStore(database, logger, CHAT_LIMITS, LEASE_DURATION_MS, CLEANUP);
             const [, second] = await limited.pushBatch([message(OTHER_CHAT, "first"), message(OTHER_CHAT, "second")]);

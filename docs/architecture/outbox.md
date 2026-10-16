@@ -293,21 +293,19 @@ the private limit is a window of `interval` that takes `number` messages.
     by the first message and reset whole, not a rate
     ([`real-bot-load-test.md`](./real-bot-load-test.md), "The private chat limit of Telegram"): a
     cooldown under the count spaces every message of a chat, a reply of several messages included,
-    where the window sends it at once. The defaults keep a margin, 99 per 305 s: the window of the
-    outbox opens at the pull and that of Telegram when the message reaches it, so the outbox closes
-    its window earlier by the pull, the database and the network, and 99, not 100, leaves one
-    message for what the outbox does not count. The 5 s cover a full window alone: a window short of
-    full is held by nothing at its end, so the messages pulled in its last seconds reach Telegram in
-    its next window, which the next window of the outbox does not count, and a burst there can bring
-    a 429. So can a full window when its first message reached Telegram late: a lease that passed or
-    a retry delay before that message got through opens the window of Telegram that much later than
-    the pull did, and the next window of the outbox starts while that of Telegram is still open. The
-    accepted price of both is the 429, which holds back its chat for its `retry_after` (see
-    "Outcomes"); each needs a late message and a burst after it. The window rests on that of
-    Telegram being fixed, measured on one bot on one day; were it sliding, the burst after a window
-    would get a 429, which still holds back its chat. A retry counts too: its next pull is a pull of
-    the window, and so does every call to a private chat that goes through the outbox, a chat action
-    included, though Telegram may count messages alone.
+    where the window sends it at once. The defaults, 99 per 305 s, keep a margin under that count;
+    why each is what it is, is in `.env.dist`. The 5 s past the 5 minutes cover a full window alone:
+    a window short of full is held by nothing at its end, so the messages pulled in its last seconds
+    reach Telegram in its next window, which the next window of the outbox does not count, and a
+    burst there can bring a 429. So can a full window when its first message reached Telegram late:
+    a lease that passed or a retry delay before that message got through opens the window of
+    Telegram that much later than the pull did, and the next window of the outbox starts while that
+    of Telegram is still open. The accepted price of both is the 429, which holds back its chat for
+    its `retry_after` (see "Outcomes"); each needs a late message and a burst after it. The window
+    rests on that of Telegram being fixed, measured on one bot on one day; were it sliding, the
+    burst after a window would get a 429, which still holds back its chat. A retry counts too: its
+    next pull is a pull of the window, and so does every call to a private chat that goes through
+    the outbox, a chat action included, though Telegram may count messages alone.
 
     A full window holds every message of its chat until it ends, a reply included: a reply behind a
     window filled by bulk messages waits up to `interval`, past `OUTBOX_RESULT_TIMEOUT`, so its

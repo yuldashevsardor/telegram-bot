@@ -145,6 +145,7 @@ export class OutboxStore {
         const lockToken = randomUUID();
         const commonLimit = this.limits.common;
         const commonCooldownMs = this.cooldownMs(commonLimit);
+        const hasWindowPassed = this.hasPrivateWindowPassed(this.sql`heads.window_started_at`, this.sql`pull_time.pulled_at`);
 
         const pullRows = await this.sql<OutboxPullResultRow[]>`
             WITH bot AS (
@@ -237,15 +238,17 @@ export class OutboxStore {
             -- UPDATE sees the old row.
             windows AS (
                 SELECT heads.chat_id,
-                       CASE WHEN window_state.has_passed THEN pull_time.pulled_at ELSE heads.window_started_at END AS window_started_at,
-                       CASE WHEN window_state.has_passed THEN 1 ELSE heads.window_sent_count + 1 END AS window_sent_count
+                       CASE
+                           WHEN ${hasWindowPassed} THEN pull_time.pulled_at
+                           ELSE heads.window_started_at
+                       END AS window_started_at,
+                       CASE
+                           WHEN ${hasWindowPassed} THEN 1
+                           ELSE heads.window_sent_count + 1
+                       END AS window_sent_count
                 FROM heads
                 JOIN pulled ON pulled.chat_id = heads.chat_id
                 CROSS JOIN pull_time
-                CROSS JOIN LATERAL (
-                    SELECT heads.window_started_at IS NULL
-                           OR ${this.privateWindowEnd(this.sql`heads.window_started_at`)} <= pull_time.pulled_at AS has_passed
-                ) AS window_state
                 WHERE heads.chat_id >= 0
             ),
             moved AS (
@@ -406,11 +409,16 @@ export class OutboxStore {
         }));
     }
 
-    // The end of the window of a private chat that opened at windowStartedAt, a column. The pull and
-    // the cleanup share it: a cleanup that saw a window passed before the pull does would remove a
-    // count the pull still holds.
+    // The end of the window of a private chat that opened at windowStartedAt, a column.
     private privateWindowEnd(windowStartedAt: PendingQuery<Row[]>): PendingQuery<Row[]> {
         return this.sql`${windowStartedAt} + ${this.limits.private.interval}::double precision * interval '1 millisecond'`;
+    }
+
+    // Whether a private chat whose window opened at windowStartedAt has none open at time: none was
+    // opened, or it has ended. The pull and the cleanup share it: a cleanup that saw a window passed
+    // before the pull does would remove a count the pull still holds.
+    private hasPrivateWindowPassed(windowStartedAt: PendingQuery<Row[]>, time: PendingQuery<Row[]>): PendingQuery<Row[]> {
+        return this.sql`(${windowStartedAt} IS NULL OR ${this.privateWindowEnd(windowStartedAt)} <= ${time})`;
     }
 
     // NaN fails both comparisons, and an infinity the second one.
@@ -594,7 +602,7 @@ export class OutboxStore {
                 FROM telegram_outbox_chats
                 WHERE state = ${OutboxChatState.Idle}
                   AND next_attempt_at <= now()
-                  AND (window_started_at IS NULL OR ${this.privateWindowEnd(this.sql`window_started_at`)} <= now())
+                  AND ${this.hasPrivateWindowPassed(this.sql`window_started_at`, this.sql`now()`)}
                 LIMIT ${this.cleanupSettings.batchSize}
                 FOR UPDATE SKIP LOCKED
             )
