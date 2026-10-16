@@ -171,7 +171,7 @@ describe("InboxFailureHandler", function () {
             await handler.handle(await claimOne(), OutboxResultTimeout.of(1, RESULT_TIMEOUT_MS));
 
             expect(await statuses()).to.deep.equal([InboxStatus.Failed, InboxStatus.Pending]);
-            expect(await groupState(USER)).to.equal(InboxGroupState.Ready);
+            expect((await claimOne()).updateId).to.equal(11);
             expect((await attempts(10)).map(({ error }) => error?.["kind"])).to.deep.equal([
                 InboxFailureKind.Transient,
                 InboxFailureKind.Transient,

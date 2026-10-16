@@ -431,12 +431,14 @@ class, and why, is read off the method, its constants and their comments. In sho
   top, a restart of PostgreSQL during that save would block the group.
 - A timeout waiting for the outbox (`OutboxResultTimeout`), wrapped or not, is `ReplyTimeout`. The
   reply stays in the outbox and may still go out, and a retry would queue it a second time. A wait
-  longer than `OUTBOX_RESULT_TIMEOUT` is ordinary against the real Telegram: a 429 pauses the whole
-  outbox for minutes, and a chat with queued bulk messages holds the reply behind them
+  longer than `OUTBOX_RESULT_TIMEOUT` is ordinary against the real Telegram: a 429 holds the reply
+  back for minutes, and a chat with queued bulk messages holds it behind them
   ([`real-bot-load-test.md`](./real-bot-load-test.md), "A reply behind the bulk messages"). The
   session of the update is not saved: grammY's `session()` writes it only once the rest of the
   pipeline returns (`convenience/session.js` of grammY), so the next update of the group runs on
-  the session as it was before, as after an `Undeliverable` failure. A call to a chat a failed
+  the session as it was before. Unlike after an `Undeliverable` failure, the reply may still reach
+  the user: a reply that asks for an answer can come when the conversation step that waits for the
+  answer was never saved, and the answer is then not taken as one. A call to a chat a failed
   message has blocked in the outbox ends the same way ([`bot.md`](./bot.md), "The outbox
   transformer"): until the chat is unblocked, every later update of that user holds a worker for
   `OUTBOX_RESULT_TIMEOUT` and queues one more reply behind the blocked head, where an `Unexpected`

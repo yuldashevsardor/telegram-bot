@@ -9,6 +9,9 @@ import { InboxFailureKind } from "app/telegram/inbox/failure-classifier/inbox-fa
 import { OutboxResultTimeout, OutboxResultWaiterStopped } from "app/telegram/outbox/result-waiter/outbox-result-waiter.errors";
 import { telegramError } from "test/telegram/telegram-bot-api-failure-classifier.helper";
 
+// The OUTBOX_RESULT_TIMEOUT a reply timeout reports: the classifier reads only the class of the error.
+const RESULT_TIMEOUT_MS = 30_000;
+
 describe("InboxFailureClassifier", function () {
     const classifier = new InboxFailureClassifier(new TelegramBotApiFailureClassifier());
 
@@ -127,11 +130,11 @@ describe("InboxFailureClassifier", function () {
 
     describe("a wait for the outbox", function () {
         it("takes a timeout waiting for the outbox for a reply timeout", function () {
-            expect(classifier.classify(OutboxResultTimeout.of(1, 60_000))).to.equal(InboxFailureKind.ReplyTimeout);
+            expect(classifier.classify(OutboxResultTimeout.of(1, RESULT_TIMEOUT_MS))).to.equal(InboxFailureKind.ReplyTimeout);
         });
 
         it("takes a wrapped timeout waiting for the outbox for a reply timeout", function () {
-            const wrappedTimeout = new RuntimeError("The reply was not sent", OutboxResultTimeout.of(1, 60_000));
+            const wrappedTimeout = new RuntimeError("The reply was not sent", OutboxResultTimeout.of(1, RESULT_TIMEOUT_MS));
 
             expect(classifier.classify(wrappedTimeout)).to.equal(InboxFailureKind.ReplyTimeout);
         });

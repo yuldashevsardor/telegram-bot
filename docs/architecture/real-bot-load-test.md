@@ -127,5 +127,4 @@ limits against Telegram: a private chat takes some 100 messages in 5 minutes, wh
 3 a second exceeds within 34 s, and which a cooldown can meet only by spacing every message by
 3 s. Each 429 then pauses the whole bot for up to 4.5 minutes, and a reply that waited longer than
 60 s, behind that pause or behind the bulk messages of its own chat, blocked the inbox group of its
-user until a person unblocked it; such a timeout now fails the update alone
-([`inbox.md`](./inbox.md), "Error classes").
+user until a person unblocked it, which it no longer does (see "A reply behind the bulk messages").
