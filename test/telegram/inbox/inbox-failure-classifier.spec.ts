@@ -131,9 +131,9 @@ describe("InboxFailureClassifier", function () {
         });
 
         it("takes a wrapped timeout waiting for the outbox for a reply timeout", function () {
-            const wrapped = new RuntimeError("The reply was not sent", OutboxResultTimeout.of(1, 60_000));
+            const wrappedTimeout = new RuntimeError("The reply was not sent", OutboxResultTimeout.of(1, 60_000));
 
-            expect(classifier.classify(wrapped)).to.equal(InboxFailureKind.ReplyTimeout);
+            expect(classifier.classify(wrappedTimeout)).to.equal(InboxFailureKind.ReplyTimeout);
         });
 
         // InboxUpdateProcessor keeps such a wait away from the classifier and releases its update.

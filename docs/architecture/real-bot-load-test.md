@@ -76,9 +76,8 @@ into the outbox behind some 3 100 bulk messages of the same chat: the priority o
 the chats, not the messages of a chat ([`bot.md`](./bot.md), "Commands"). At 20:56:12 the wait of
 the handler ended with `OutboxResultTimeout` after `OUTBOX_RESULT_TIMEOUT`, 60 s, then an
 `Unexpected` failure that blocked the group, and the `/bulk_messages` the chat sent next waited
-behind the blocked group until the end of the run. At 22:20 the reply
-was still `pending`, with 2 094 bulk messages of the chat before it: at a message every 3.1 s,
-some 1.8 hours.
+behind the blocked group until the end of the run. At 22:20 the reply was still `pending`, with
+2 094 bulk messages of the chat before it: at a message every 3.1 s, some 1.8 hours.
 
 Either cause alone was enough: a pause longer than `OUTBOX_RESULT_TIMEOUT` blocked the group of
 every update whose reply waited for it, in any chat, and so did a queue of bulk messages longer
@@ -126,6 +125,7 @@ The outbox keeps its limits to within 1% and loses nothing over a node that stop
 at a load the process and the database barely notice. What does not hold is the model of the
 limits against Telegram: a private chat takes some 100 messages in 5 minutes, which the default of
 3 a second exceeds within 34 s, and which a cooldown can meet only by spacing every message by
-3 s. Each 429 then pauses the whole bot for up to 4.5 minutes, and a reply that waits longer than
-60 s, behind that pause or behind the bulk messages of its own chat, blocks the inbox group of its
-user until a person unblocks it.
+3 s. Each 429 then pauses the whole bot for up to 4.5 minutes, and a reply that waited longer than
+60 s, behind that pause or behind the bulk messages of its own chat, blocked the inbox group of its
+user until a person unblocked it; such a timeout now fails the update alone
+([`inbox.md`](./inbox.md), "Error classes").

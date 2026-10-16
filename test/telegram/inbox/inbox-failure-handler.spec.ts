@@ -3,6 +3,7 @@ import { expect } from "chai";
 import { BotError, HttpError } from "grammy";
 import type { Context } from "grammy";
 import { Database } from "app/platform/database/database";
+import { RuntimeError } from "app/shared/errors";
 import { MS_PER_DAY, MS_PER_SECOND } from "app/shared/time";
 import { sleep } from "app/shared/utils";
 import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
@@ -149,6 +150,20 @@ describe("InboxFailureHandler", function () {
             expect((await claimOne()).updateId).to.equal(11);
             expect((await attempts(10)).map(({ error }) => error?.["kind"])).to.deep.equal([InboxFailureKind.ReplyTimeout]);
             expect(logger.errors).to.deep.equal([]);
+        });
+
+        // The way it reaches the handler: Bot.handleUpdate() wraps the error of a handler that wrapped
+        // the timeout into its own.
+        it("fails the update without blocking when the timeout comes wrapped into a BotError", async function () {
+            await store.pushBatch([input(10), input(11)]);
+            const context = { api: { token: TOKEN }, update: input(10).update } as unknown as Context;
+            const handlerError = new RuntimeError("The reply was not sent", OutboxResultTimeout.of(1, 60_000));
+
+            await handler.handle(await claimOne(), new BotError(handlerError, context));
+
+            expect(await statuses()).to.deep.equal([InboxStatus.Failed, InboxStatus.Pending]);
+            expect((await claimOne()).updateId).to.equal(11);
+            expect((await attempts(10)).map(({ error }) => error?.["kind"])).to.deep.equal([InboxFailureKind.ReplyTimeout]);
         });
     });
 

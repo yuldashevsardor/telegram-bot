@@ -433,9 +433,14 @@ class, and why, is read off the method, its constants and their comments. In sho
   reply stays in the outbox and may still go out, and a retry would queue it a second time. A wait
   longer than `OUTBOX_RESULT_TIMEOUT` is ordinary against the real Telegram: a 429 pauses the whole
   outbox for minutes, and a chat with queued bulk messages holds the reply behind them
-  ([`real-bot-load-test.md`](./real-bot-load-test.md), "A reply behind the bulk messages"). A call
-  to a chat a failed message has blocked in the outbox ends the same way
-  ([`bot.md`](./bot.md), "The outbox transformer").
+  ([`real-bot-load-test.md`](./real-bot-load-test.md), "A reply behind the bulk messages"). The
+  session of the update is not saved: grammY's `session()` writes it only once the rest of the
+  pipeline returns (`convenience/session.js` of grammY), so the next update of the group runs on
+  the session as it was before, as after an `Undeliverable` failure. A call to a chat a failed
+  message has blocked in the outbox ends the same way ([`bot.md`](./bot.md), "The outbox
+  transformer"): until the chat is unblocked, every later update of that user holds a worker for
+  `OUTBOX_RESULT_TIMEOUT` and queues one more reply behind the blocked head, where an `Unexpected`
+  failure would have blocked the group once.
 - Anything else is `Unexpected`, a bug included. So is a wait the outbox stopped
   (`OutboxResultWaiterStopped`), although it says only that the node is shutting down:
   `InboxUpdateProcessor` keeps such a handler away from `handle()` and releases its update (see
