@@ -67,7 +67,7 @@ const LONG_RETRY_DELAY_MS = 60_000;
 const NOTHING_PULLED: OutboxPullResult = { messages: [], nextPullInMs: null };
 
 type ChatRow = { state: string };
-type ChatWindow = { sentCount: number; startedAtLastPull: boolean; dueAfterStartMs: number };
+type ChatWindow = { sentCount: number; startedAt: string; dueAfterStartMs: number };
 describe("OutboxStore", function () {
     this.timeout(SPEC_TIMEOUT_MS);
 
@@ -453,9 +453,11 @@ describe("OutboxStore", function () {
     });
 
     describe("limits", function () {
-        // A private chat takes three messages in a window of 2 s, a group a message every 30 s.
+        // A private chat takes three messages in a window of 10 s, a group a message every 30 s. The
+        // window is far longer than the pulls and completions a spec makes inside it take, even on a
+        // slow host, and shorter than the cooldown of the group.
         const PRIVATE_WINDOW_NUMBER = 3;
-        const PRIVATE_WINDOW_MS = 2_000;
+        const PRIVATE_WINDOW_MS = 10_000;
         const GROUP_COOLDOWN_MS = 30_000;
         const CHAT_LIMITS: TelegramLimits = {
             common: NO_LIMIT,
@@ -485,11 +487,13 @@ describe("OutboxStore", function () {
         it("takes the number of messages of a private chat one after another, then holds the chat until its window ends", async function () {
             const limited = new OutboxStore(database, logger, CHAT_LIMITS, LEASE_DURATION_MS, CLEANUP);
             const ids = await limited.pushBatch(Array.from({ length: PRIVATE_WINDOW_NUMBER + 1 }, (_, index) => message(CHAT, `${index}`)));
+            const pulledMessages: PulledOutboxMessage[] = [];
 
             for (const id of ids.slice(0, PRIVATE_WINDOW_NUMBER)) {
                 const pulled = await pullOne(limited);
 
                 expect(pulled.id).to.equal(id);
+                pulledMessages.push(pulled);
                 await limited.markAsDone(pulled, RESPONSE);
             }
 
@@ -499,7 +503,7 @@ describe("OutboxStore", function () {
             expect(early.nextPullInMs).to.be.within(1, PRIVATE_WINDOW_MS);
             expect(await windowOf(CHAT)).to.deep.equal({
                 sentCount: PRIVATE_WINDOW_NUMBER,
-                startedAtLastPull: false,
+                startedAt: pulledMessages[0]?.startedAt,
                 dueAfterStartMs: PRIVATE_WINDOW_MS,
             });
         });
@@ -519,7 +523,7 @@ describe("OutboxStore", function () {
             const opening = await pullOne(limited);
 
             expect(opening.id).to.equal(ids[PRIVATE_WINDOW_NUMBER]);
-            expect(await windowOf(CHAT)).to.deep.equal({ sentCount: 1, startedAtLastPull: true, dueAfterStartMs: 0 });
+            expect(await windowOf(CHAT)).to.deep.equal({ sentCount: 1, startedAt: opening.startedAt, dueAfterStartMs: 0 });
 
             await limited.markAsDone(opening, RESPONSE);
 
@@ -822,11 +826,11 @@ describe("OutboxStore", function () {
             expect((await limited.pull(10, WORKER)).nextPullInMs).to.be.within(PAUSE_MS - ELAPSED_TOLERANCE_MS, PAUSE_MS);
         });
 
-        // updated_at is the time of the last pull of the chat.
+        // startedAt in the form of startedAt of a pulled message, as jsonb writes a timestamp.
         async function windowOf(chatId: number): Promise<ChatWindow> {
             const [row] = await database.sql<ChatWindow[]>`
                 SELECT window_sent_count AS "sentCount",
-                       window_started_at = updated_at AS "startedAtLastPull",
+                       to_jsonb(window_started_at) #>> '{}' AS "startedAt",
                        extract(epoch FROM next_attempt_at - window_started_at)::double precision * ${MS_PER_SECOND} AS "dueAfterStartMs"
                 FROM telegram_outbox_chats
                 WHERE chat_id = ${chatId}

@@ -299,10 +299,13 @@ the private limit is a window of `interval` that takes `number` messages.
     message for what the outbox does not count. The 5 s cover a full window alone: a window short of
     full is held by nothing at its end, so the messages pulled in its last seconds reach Telegram in
     its next window, which the next window of the outbox does not count, and a burst there can bring
-    a 429. Its pause is the accepted price: the case needs a burst in the last seconds of a window
-    that is not full. The window rests on that of Telegram being fixed, measured on one bot on one
-    day; were it sliding, the burst after a window would get a 429, which still pauses the outbox. A
-    retry counts too: its next pull is a pull of the window.
+    a 429. So can a full window when its first message reached Telegram late: a lease that passed or
+    a retry delay before that message got through opens the window of Telegram that much later than
+    the pull did, and the next window of the outbox starts while that of Telegram is still open. The
+    pause of the 429 is the accepted price of both: each needs a late message and a burst after it.
+    The window rests on that of Telegram being fixed, measured on one bot on one day; were it
+    sliding, the burst after a window would get a 429, which still pauses the outbox. A retry counts
+    too: its next pull is a pull of the window.
 
   A chat that goes `idle` and gets a new message keeps its time and its window, so an idle spell
   does not shorten them. The limit counts from the pull, not from the send: a head that waits after

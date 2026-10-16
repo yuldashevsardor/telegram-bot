@@ -63,6 +63,8 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
                     number: parser.getInteger("LIMIT_COMMON_NUMBER", 30, ConfigValuesBuilder.LIMIT_RANGE),
                     interval: parser.getInteger("LIMIT_COMMON_INTERVAL", 1000, ConfigValuesBuilder.LIMIT_RANGE),
                 },
+                // A window, not a cooldown: just under the 100 messages in 5 minutes Telegram takes of a
+                // private chat; the margins are explained in .env.dist.
                 private: {
                     number: parser.getInteger("LIMIT_PRIVATE_NUMBER", 99, ConfigValuesBuilder.LIMIT_RANGE),
                     interval: parser.getInteger("LIMIT_PRIVATE_INTERVAL", 305 * MS_PER_SECOND, ConfigValuesBuilder.LIMIT_RANGE),
