@@ -448,14 +448,13 @@ class, and why, is read off the method, its constants and their comments. In sho
 
 ### Outcomes
 
-Which completion each class gets is read off `applyOutcome()` and `retryOrBlock()` of the handler:
-a `Transient` failure is retried, or fails and blocks the group on the last attempt; an
-`Undeliverable` one and a `ReplyTimeout` one fail without blocking, so the next update of the group
-is handled; an `Unexpected` one fails and blocks. A blocked group is logged at `error` by the store,
-with the group, the update and the error; a fenced completion logs no error. Nothing else is
-logged: a `Transient` failure that is retried, an `Undeliverable` one and a `ReplyTimeout` one leave
-their error in the `attempts` of the update and in no log line, so during an outage of PostgreSQL
-the retries show only in the inbox tables.
+Which completion each class gets is read off `applyOutcome()` and `retryOrBlock()` of the handler.
+Only an `Unexpected` failure and a `Transient` one on its last attempt block the group: after an
+`Undeliverable` or a `ReplyTimeout` failure the next update of the group is handled. A blocked group
+is logged at `error` by the store, with the group, the update and the error; a fenced completion
+logs no error. Nothing else is logged: a failure that does not block leaves its error in the
+`attempts` of the update and in no log line, so during an outage of PostgreSQL the retries show
+only in the inbox tables.
 
 Every attempt counts towards `INBOX_MAX_ATTEMPTS`, whatever it ended with: the attempt being handled
 is `earlierAttempts + 1`, checked on a transient failure only. The count covers the whole history of

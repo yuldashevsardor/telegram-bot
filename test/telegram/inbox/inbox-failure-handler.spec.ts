@@ -133,10 +133,7 @@ describe("InboxFailureHandler", function () {
 
             await handler.handle(await claimOne(), telegramError(403, "Forbidden: bot was blocked by the user"));
 
-            expect(await statuses()).to.deep.equal([InboxStatus.Failed, InboxStatus.Pending]);
-            expect((await claimOne()).updateId).to.equal(11);
-            expect((await attempts(10)).map(({ error }) => error?.["kind"])).to.deep.equal([InboxFailureKind.Undeliverable]);
-            expect(logger.errors).to.deep.equal([]);
+            await expectFailedWithoutBlocking(InboxFailureKind.Undeliverable);
         });
     });
 
@@ -146,10 +143,7 @@ describe("InboxFailureHandler", function () {
 
             await handler.handle(await claimOne(), OutboxResultTimeout.of(1, 60_000));
 
-            expect(await statuses()).to.deep.equal([InboxStatus.Failed, InboxStatus.Pending]);
-            expect((await claimOne()).updateId).to.equal(11);
-            expect((await attempts(10)).map(({ error }) => error?.["kind"])).to.deep.equal([InboxFailureKind.ReplyTimeout]);
-            expect(logger.errors).to.deep.equal([]);
+            await expectFailedWithoutBlocking(InboxFailureKind.ReplyTimeout);
         });
 
         // The way it reaches the handler: Bot.handleUpdate() wraps the error of a handler that wrapped
@@ -161,9 +155,7 @@ describe("InboxFailureHandler", function () {
 
             await handler.handle(await claimOne(), new BotError(handlerError, context));
 
-            expect(await statuses()).to.deep.equal([InboxStatus.Failed, InboxStatus.Pending]);
-            expect((await claimOne()).updateId).to.equal(11);
-            expect((await attempts(10)).map(({ error }) => error?.["kind"])).to.deep.equal([InboxFailureKind.ReplyTimeout]);
+            await expectFailedWithoutBlocking(InboxFailureKind.ReplyTimeout);
         });
     });
 
@@ -279,6 +271,15 @@ describe("InboxFailureHandler", function () {
             expect(logger.errors).to.deep.equal([]);
         });
     });
+
+    // The outcome of a failure that does not block, after updates 10 and 11 of one group were pushed
+    // and 10 was claimed and failed: 11 is claimed next, and nothing is logged at error.
+    async function expectFailedWithoutBlocking(kind: InboxFailureKind): Promise<void> {
+        expect(await statuses()).to.deep.equal([InboxStatus.Failed, InboxStatus.Pending]);
+        expect((await claimOne()).updateId).to.equal(11);
+        expect((await attempts(10)).map(({ error }) => error?.["kind"])).to.deep.equal([kind]);
+        expect(logger.errors).to.deep.equal([]);
+    }
 
     // The only update a claim gives out.
     async function claimOne(): Promise<ClaimedInboxUpdate> {
