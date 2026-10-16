@@ -22,6 +22,7 @@ import {
     BotLimitsRowMissing,
     InvalidPauseDuration,
     InvalidPullLimit,
+    InvalidRetryDelay,
     OutboxChatNotBlocked,
     OutboxMessageNotLeased,
 } from "app/telegram/outbox/store/outbox-store.errors";
@@ -1153,6 +1154,23 @@ describe("OutboxStore", function () {
 
             expect((await store.pull(10, WORKER)).messages.map(({ id }) => id)).to.deep.equal([head]);
         });
+
+        // 1e17 ms is finite, but overflows the interval PostgreSQL adds to now().
+        for (const delayMs of [-1, Number.NaN, Number.POSITIVE_INFINITY, 1e17]) {
+            it(`refuses a retry delay of ${delayMs} ms and leaves the message processing`, async function () {
+                await store.push(message(CHAT, "text"));
+                const pulled = await pullOne();
+
+                const error = await store.retry(pulled, FLOOD, delayMs).then(
+                    () => expect.fail("retry() was expected to reject"),
+                    (reason: unknown) => reason,
+                );
+
+                expect(error).to.be.instanceOf(InvalidRetryDelay);
+                expect((error as InvalidRetryDelay).payload).to.deep.equal({ delayMs });
+                expect(await statuses()).to.deep.equal([OutboxStatus.Processing]);
+            });
+        }
 
         it("fails an undeliverable message and goes on to the next message of its chat", async function () {
             const [, behind] = await store.pushBatch([message(CHAT, "undeliverable"), message(CHAT, "behind")]);

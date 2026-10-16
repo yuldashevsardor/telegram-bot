@@ -20,6 +20,8 @@ const MULTIPLIER = 2;
 const RETRY_DELAY = new RetryDelay({ firstDelayMs: FIRST_DELAY_MS, maxDelayMs: 60_000, multiplier: MULTIPLIER }, () => 0);
 // What the serializer of these specs turns any error into; its own spec pins what the real one does.
 const SERIALIZED: OutboxJsonObject = { name: "Error", message: "serialized", kind: "overwritten" };
+const PRIVATE_CHAT_ID = 5_000_000_001;
+const GROUP_CHAT_ID = -1_005_000_000_001;
 
 type StoreCall =
     | { method: "retry"; lease: OutboxLease; error: OutboxAttemptError; delayMs: number }
@@ -54,6 +56,15 @@ class RefusingPauseStore extends RecordingStore {
 
     public override async pause(): Promise<void> {
         throw RefusingPauseStore.refusal;
+    }
+}
+
+// A store whose retry() refuses the delay, as it does a retry_after it cannot take.
+class RefusingRetryStore extends RecordingStore {
+    public static readonly refusal = new RuntimeError("The retry is refused.");
+
+    public override async retry(): Promise<void> {
+        throw RefusingRetryStore.refusal;
     }
 }
 
@@ -110,8 +121,18 @@ describe("OutboxFailureHandler", function () {
         expect(store.calls.map((call) => call.method)).to.deep.equal(["markAsFailedAndBlockChat"]);
     });
 
-    it("pauses the outbox for a flood before the message goes back to pending, even on the last attempt", async function () {
-        const message = pulledAfter(MAX_ATTEMPTS - 1);
+    it("holds back a private chat for the retry_after of a flood without pausing the outbox, even on the last attempt", async function () {
+        const message = { ...pulledAfter(MAX_ATTEMPTS - 1), chatId: PRIVATE_CHAT_ID };
+
+        await handler.handle(message, telegramError(429, "Too Many Requests: retry after 7", { retry_after: 7 }));
+
+        expect(store.calls).to.deep.equal([
+            { method: "retry", lease: message, error: attemptError(TelegramBotApiFailureKind.Flood), delayMs: 7_000 },
+        ]);
+    });
+
+    it("pauses the outbox for a flood of a group before the message goes back to pending, even on the last attempt", async function () {
+        const message = { ...pulledAfter(MAX_ATTEMPTS - 1), chatId: GROUP_CHAT_ID };
 
         await handler.handle(message, telegramError(429, "Too Many Requests: retry after 7", { retry_after: 7 }));
 
@@ -149,8 +170,26 @@ describe("OutboxFailureHandler", function () {
         ]);
     });
 
-    it("logs a flood as a warning with its message, its chat and retry_after", async function () {
-        const message = pulledAfter(0);
+    it("logs a flood of a private chat as a warning with its message, its chat and retry_after", async function () {
+        const message = { ...pulledAfter(0), chatId: PRIVATE_CHAT_ID };
+
+        await handler.handle(message, telegramError(429, "Too Many Requests: retry after 7", { retry_after: 7 }));
+
+        expect(logger.warnings).to.deep.equal([
+            {
+                message: "The Bot API answers 429: holding back the chat.",
+                payload: {
+                    messageId: message.id,
+                    chatId: message.chatId,
+                    retryAfterSeconds: 7,
+                    cause: attemptError(TelegramBotApiFailureKind.Flood),
+                },
+            },
+        ]);
+    });
+
+    it("logs a flood of a group as a warning with its message, its chat and retry_after", async function () {
+        const message = { ...pulledAfter(0), chatId: GROUP_CHAT_ID };
 
         await handler.handle(message, telegramError(429, "Too Many Requests: retry after 7", { retry_after: 7 }));
 
@@ -167,14 +206,26 @@ describe("OutboxFailureHandler", function () {
         ]);
     });
 
-    it("logs a flood before the pause, so a pause that is refused is logged too", async function () {
+    it("logs a flood of a group before the pause, so a pause that is refused is logged too", async function () {
         store = new RefusingPauseStore();
+        const message = { ...pulledAfter(0), chatId: GROUP_CHAT_ID };
 
-        const handling = handlerAllowing(MAX_ATTEMPTS).handle(pulledAfter(0), telegramError(429, "Too Many Requests", { retry_after: 7 }));
+        const handling = handlerAllowing(MAX_ATTEMPTS).handle(message, telegramError(429, "Too Many Requests", { retry_after: 7 }));
         const thrown = await handling.catch((error: unknown) => error);
 
         expect(thrown).to.equal(RefusingPauseStore.refusal);
         expect(logger.warnings.map((warning) => warning.message)).to.deep.equal(["The Bot API answers 429: pausing the outbox."]);
+    });
+
+    it("logs a flood of a private chat before the retry, so a retry that is refused is logged too", async function () {
+        store = new RefusingRetryStore();
+        const message = { ...pulledAfter(0), chatId: PRIVATE_CHAT_ID };
+
+        const handling = handlerAllowing(MAX_ATTEMPTS).handle(message, telegramError(429, "Too Many Requests", { retry_after: 7 }));
+        const thrown = await handling.catch((error: unknown) => error);
+
+        expect(thrown).to.equal(RefusingRetryStore.refusal);
+        expect(logger.warnings.map((warning) => warning.message)).to.deep.equal(["The Bot API answers 429: holding back the chat."]);
     });
 
     it("logs no flood warning for a 401", async function () {
@@ -227,7 +278,7 @@ function pulledAfter(earlierAttempts: number): PulledOutboxMessage {
         lockToken: "5b0c2f4e-8a4f-4d0e-9f1a-2d6c3b7e9a10",
         startedAt: "2026-09-29T10:01:00.000000+00:00",
         worker: { host: "node-1", pid: 101, workerId: "worker-1" },
-        chatId: 5_000_000_001,
+        chatId: PRIVATE_CHAT_ID,
         method: "sendMessage",
         payload: { text: "text" },
         priority: 0,
