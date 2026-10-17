@@ -45,9 +45,10 @@ Telegram speaks of one message a second in a chat.
 
 ## The limits of the outbox against it
 
-The chat limit is a cooldown, `interval / number` from one pull of a chat to the next
-([`outbox.md`](./outbox.md), "Limits"), and the outbox kept it to within 1%. The gap between two
-sends to one chat, from the `started_at` of their attempts:
+The chat limit of the run was a cooldown, `interval / number` from one pull of a chat to the next,
+and the outbox kept it to within 1%; the private limit of the outbox is now a window
+([`outbox.md`](./outbox.md), "Limits"). The gap between two sends to one chat, from the `started_at`
+of their attempts:
 
 | phase | cooldown, ms | median, ms | 5th percentile, ms | minimum, ms |
 |---|---|---|---|---|
@@ -55,10 +56,10 @@ sends to one chat, from the `started_at` of their attempts:
 | B | 1 000 | 1 008 | 1 004 | 1 002 |
 | C | 3 100 | 3 110 | 3 104 | 3 101 |
 
-A cooldown cannot express the window of Telegram. The defaults of `.env.dist`, 3 a second, get a
-429 at the 101st message of a chat. A cooldown below the count of Telegram, 3 s and over, gets
-none, but it spaces every message of a chat by 3 s, a reply of several messages included, where
-Telegram would take 100 at once.
+A cooldown cannot express the window of Telegram. The defaults of `.env.dist` of the run, 3 a
+second, get a 429 at the 101st message of a chat. A cooldown below the count of Telegram, 3 s and
+over, gets none, but it spaces every message of a chat by 3 s, a reply of several messages included,
+where Telegram would take 100 at once.
 
 The common limit was not reached: three chats give at most 9 messages a second against its 30.
 
@@ -74,9 +75,9 @@ back that chat alone ([`outbox.md`](./outbox.md), "Outcomes"), which the rerun b
 ## The rerun of a 429
 
 On 2026-10-16 `/bulk_messages` ran again with the handler that holds back the chat of a 429 of a
-private chat alone: one node, the `.env.dist` defaults, `LIMIT_PRIVATE_NUMBER=3` among them, the
-bot token of the worktree's slot. The owner has three accounts, all of them in `CHAT_IDS` of
-`bulk-messages.command.ts`, so for the run the list held two of them, a change not committed, and
+private chat alone: one node, the `.env.dist` defaults of the time, `LIMIT_PRIVATE_NUMBER=3` among
+them, the bot token of the worktree's slot. The owner has three accounts, all of them in `CHAT_IDS`
+of `bulk-messages.command.ts`, so for the run the list held two of them, a change not committed, and
 the third sent `/start` while the two waited. The run was stopped after the second 429 of each chat,
 and its messages left `pending` were deleted. The numbers are read from the `attempts` of the rows.
 
@@ -151,10 +152,10 @@ Not measured: the time of each statement of the store, which nothing logs, with
 ## Verdict
 
 The outbox keeps its limits to within 1% and loses nothing over a node that stops for 15 minutes,
-at a load the process and the database barely notice. What does not hold is the model of the
-limits against Telegram: a private chat takes some 100 messages in 5 minutes, which the default of
-3 a second exceeds within 34 s, and which a cooldown can meet only by spacing every message by
-3 s. Each 429 then paused the whole bot for up to 4.5 minutes; a 429 of a private chat now holds
-back that chat alone (see "The rerun of a 429"). A reply that waited longer than 60 s, behind such
-a wait or behind the bulk messages of its own chat, blocked the inbox group of its user until a
-person unblocked it, which it no longer does (see "A reply behind the bulk messages").
+at a load the process and the database barely notice. What does not hold is the model of the limits
+against Telegram: a private chat takes some 100 messages in 5 minutes, which the default of the run,
+3 a second, exceeds within 34 s, and which a cooldown can meet only by spacing every message by 3 s.
+Each 429 then paused the whole bot for up to 4.5 minutes; a 429 of a private chat now holds back
+that chat alone (see "The rerun of a 429"). A reply that waited longer than 60 s, behind such a wait
+or behind the bulk messages of its own chat, blocked the inbox group of its user until a person
+unblocked it, which it no longer does (see "A reply behind the bulk messages").

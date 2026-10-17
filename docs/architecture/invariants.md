@@ -120,14 +120,17 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   directory. The start then fails with `ConfigFileUnreadable`, and the directory has to be removed
   with sudo. The file is created by `DC_APP` in the `Makefile` and by `scripts/worktree-init.sh`.
   Running `docker compose` by hand, past `make`, has no such safeguard.
-- **`LIMIT_*_NUMBER > 0`** (the config checks it). The outbox pull spaces the messages by
-  `interval / number`, and a zero gives an infinite cooldown:
-  - for a private or group limit, `next_attempt_at` of a pulled chat becomes `infinity`, which
-    PostgreSQL accepts, and the chat is never pulled again;
+- **`LIMIT_*_NUMBER > 0`** (the config checks it). The outbox pull spaces the messages of the
+  common and the group limit by `interval / number`, and a zero gives an infinite cooldown:
+  - for a group limit, `next_attempt_at` of a pulled chat becomes `infinity`, which PostgreSQL
+    accepts, and the chat is never pulled again;
   - for the common limit, the budget is zero: nothing is pulled, `next_send_at` stays in the past,
     and `nextPullInMs` is 0 while a chat is ready: the message source does not spin on it, but
     pulls again after every sleep of up to 1 s and on every push, for good
     ([`outbox.md`](./outbox.md), "Limits", "The message source").
+
+  The private limit is a window: a zero there gives a private chat one message a window, not a
+  chat never pulled again.
 
 ## The outbox
 

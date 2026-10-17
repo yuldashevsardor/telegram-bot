@@ -37,7 +37,7 @@ describe("ConfigValuesBuilder", () => {
         expect(result.fontForgePath).to.equal("fontforge");
         expect(result.limits).to.deep.equal({
             common: { number: 30, interval: 1000 },
-            private: { number: 3, interval: 1000 },
+            private: { number: 99, interval: 305000 },
             group: { number: 20, interval: 60000 },
         });
         expect(result.retryDelay).to.deep.equal({ firstDelayMs: 1000, maxDelayMs: 60000, multiplier: 2 });
@@ -236,12 +236,12 @@ describe("ConfigValuesBuilder", () => {
     // The message names every bound of a variable, so a single value below the minimum is enough to
     // check its whole range. That the bounds themselves pass is checked by config-parser.spec.ts.
     const bounds: Array<{ name: string; below: string; range: string }> = [
-        { name: "LIMIT_COMMON_NUMBER", below: "0", range: "at least 1" },
-        { name: "LIMIT_COMMON_INTERVAL", below: "0", range: "at least 1" },
-        { name: "LIMIT_PRIVATE_NUMBER", below: "0", range: "at least 1" },
-        { name: "LIMIT_PRIVATE_INTERVAL", below: "0", range: "at least 1" },
-        { name: "LIMIT_GROUP_NUMBER", below: "0", range: "at least 1" },
-        { name: "LIMIT_GROUP_INTERVAL", below: "0", range: "at least 1" },
+        { name: "LIMIT_COMMON_NUMBER", below: "0", range: "between 1 and 9007199254740991" },
+        { name: "LIMIT_COMMON_INTERVAL", below: "0", range: "between 1 and 9007199254740991" },
+        { name: "LIMIT_PRIVATE_NUMBER", below: "0", range: "between 1 and 9007199254740991" },
+        { name: "LIMIT_PRIVATE_INTERVAL", below: "0", range: "between 1 and 9007199254740991" },
+        { name: "LIMIT_GROUP_NUMBER", below: "0", range: "between 1 and 9007199254740991" },
+        { name: "LIMIT_GROUP_INTERVAL", below: "0", range: "between 1 and 9007199254740991" },
         { name: "OUTBOX_RETRY_FIRST_DELAY", below: "0", range: "between 1 and 2147483647" },
         { name: "OUTBOX_RETRY_MAX_DELAY", below: "0", range: "between 1 and 2147483647" },
         { name: "OUTBOX_RETRY_DELAY_MULTIPLIER", below: "0", range: "at least 1" },

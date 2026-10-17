@@ -13,9 +13,13 @@ import { MAX_TIMER_DELAY_MS, MS_PER_DAY, MS_PER_SECOND } from "app/shared/time";
 
 // Checks that tie several variables together live here; parsing a single variable lives in ConfigParser.
 export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
-    // The outbox spaces the messages by interval / number: a zero in number makes the cooldown
-    // infinite, while a zero in interval makes it nil and the limit stops limiting.
-    private static readonly LIMIT_RANGE: IntegerRange = { min: 1 };
+    // The outbox spaces the messages of the common and the group limit by interval / number: a zero in
+    // number makes the cooldown infinite, while a zero in interval makes it nil and the limit stops
+    // limiting. The private limit is a window of interval that takes number messages: a zero in
+    // number gives one message a window, while a zero in interval lets every pull open a new window,
+    // and the limit stops limiting as well. The outbox adds an interval to a timestamp, and above
+    // Number.MAX_SAFE_INTEGER ms, some 285 000 years, the sum leaves the range of a timestamp.
+    private static readonly LIMIT_RANGE: IntegerRange = { min: 1, max: Number.MAX_SAFE_INTEGER };
 
     // The numbers of the cleanup SQL. A retention becomes an interval, and 1e16 ms is past the range
     // of its interval. The outbox takes a retention off now(), and one that reaches past 4713 BC
@@ -60,9 +64,11 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
                     number: parser.getInteger("LIMIT_COMMON_NUMBER", 30, ConfigValuesBuilder.LIMIT_RANGE),
                     interval: parser.getInteger("LIMIT_COMMON_INTERVAL", 1000, ConfigValuesBuilder.LIMIT_RANGE),
                 },
+                // A window, not a cooldown: just under the 100 messages in 5 minutes Telegram takes of a
+                // private chat; the margins are explained in .env.dist.
                 private: {
-                    number: parser.getInteger("LIMIT_PRIVATE_NUMBER", 3, ConfigValuesBuilder.LIMIT_RANGE),
-                    interval: parser.getInteger("LIMIT_PRIVATE_INTERVAL", 1000, ConfigValuesBuilder.LIMIT_RANGE),
+                    number: parser.getInteger("LIMIT_PRIVATE_NUMBER", 99, ConfigValuesBuilder.LIMIT_RANGE),
+                    interval: parser.getInteger("LIMIT_PRIVATE_INTERVAL", 305 * MS_PER_SECOND, ConfigValuesBuilder.LIMIT_RANGE),
                 },
                 group: {
                     number: parser.getInteger("LIMIT_GROUP_NUMBER", 20, ConfigValuesBuilder.LIMIT_RANGE),

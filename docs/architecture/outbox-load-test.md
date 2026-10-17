@@ -325,10 +325,10 @@ After it the head lookup read 7 buffers. The run took 12 s, nearly all of it rea
 key, 2.2 GB of 100 M rows: an index vacuum reads every index whole, however few dead rows it
 removes. At the common limit of 30 messages a second the messages leave 60 dead rows a second, and
 the cleanup, once the retention has passed, deletes 30 more, so autovacuum comes every 18 to 28
-minutes, 12 s of reading each time. One chat alone, at the private limit of 3 a second, takes 4.6
-hours to reach the threshold, with the 180 buffers above at the end. The run above was made with
-`autovacuum_vacuum_scale_factor = 0` and `autovacuum_vacuum_threshold = 100000`, the same trigger at
-this size; repeated with the option of the migration, it gave the same 180 buffers before
+minutes, 12 s of reading each time. One chat alone, at the private limit of the time, 3 a second,
+takes 4.6 hours to reach the threshold, with the 180 buffers above at the end. The run above was
+made with `autovacuum_vacuum_scale_factor = 0` and `autovacuum_vacuum_threshold = 100000`, the same
+trigger at this size; repeated with the option of the migration, it gave the same 180 buffers before
 autovacuum, a run of 12.8 s and 7 buffers after.
 
 The same churn with `vacuum_index_cleanup` back at its default, `auto`, shows why the option is
@@ -874,9 +874,9 @@ backlog leaves its messages on pages no vacuum has marked all-visible until the 
 sending bring one, and the status line reads their rows meanwhile: 484 – 498 ms in the database for
 a backlog of 1 M against 50 after a vacuum (see "The status line"), every 10 s on every node. For
 how long depends on the pace of the sending: 18 to 28 minutes at the common limit, 4.6 hours for one
-chat at the private limit (see "Vacuum of the head index"), and while nothing is sent, a paused bot
-or a backlog behind blocked chats, only the deletes of the cleanup bring the vacuum. Not measured
-with the setting.
+chat at 3 messages a second (see "Vacuum of the head index"), and while nothing is sent, a paused
+bot or a backlog behind blocked chats, only the deletes of the cleanup bring the vacuum. Not
+measured with the setting.
 
 ### Verdict of the skewed run
 
