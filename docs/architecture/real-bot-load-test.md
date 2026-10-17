@@ -102,8 +102,9 @@ and its messages left `pending` were deleted. The numbers are read from the `att
 ## A reply behind the bulk messages
 
 At 20:55:12, during the second pause, the third chat sent `/start`. Its reply, message 10005, went
-into the outbox behind some 3 100 bulk messages of the same chat: the priority of a message orders
-the chats, not the messages of a chat ([`bot.md`](./bot.md), "Commands"). At 20:56:12 the wait of
+into the outbox behind some 3 100 bulk messages of the same chat: the priority of a message ordered
+the chats then, not the messages of a chat. A reply now goes before the bulk messages of its own
+chat ([`outbox.md`](./outbox.md), "Tables", the head). At 20:56:12 the wait of
 the handler ended with `OutboxResultTimeout` after `OUTBOX_RESULT_TIMEOUT`, 60 s, then an
 `Unexpected` failure that blocked the group, and the `/bulk_messages` the chat sent next waited
 behind the blocked group until the end of the run. At 22:20 the reply was still `pending`, with

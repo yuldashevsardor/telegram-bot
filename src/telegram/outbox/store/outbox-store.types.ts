@@ -32,7 +32,7 @@ export enum OutboxChatState {
     Idle = "idle",
     // The head is pending and can be pulled.
     Ready = "ready",
-    // The head is pulled.
+    // A message is pulled: the head when it was pulled, behind a more urgent message pushed since.
     Processing = "processing",
     // A failed message stopped the chat until it is unblocked by hand.
     Blocked = "blocked",
@@ -43,17 +43,17 @@ export type OutboxJson = postgres.JSONValue;
 
 export type OutboxPayload = { readonly [key: string]: OutboxJson };
 
-// The priorities the callers push with: the head of a chat with calls of the bot API goes before the
-// head of a chat with bulk messages. Inside a chat the order is by id, so a reply pushed behind a
-// bulk batch of its own chat waits for the batch.
+// The priorities the callers push with: a call of the bot API goes before the bulk messages, of its
+// own chat and of the other chats. Inside a chat the order is by priority, then by id, so a reply
+// pushed behind a bulk batch of its own chat goes before the batch.
 export enum OutboxPriority {
     Call = 100,
     Bulk = 200,
 }
 
-// A Bot API call to push. A lower priority goes first, across chats only. The store orders by any
-// integer, so priority is a number rather than OutboxPriority: the enum names the values the callers
-// use, not all the store takes.
+// A Bot API call to push. A lower priority goes first, inside a chat and across chats. The store
+// orders by any integer, so priority is a number rather than OutboxPriority: the enum names the
+// values the callers use, not all the store takes.
 export type OutboxMessageInput = {
     chatId: number;
     method: string;

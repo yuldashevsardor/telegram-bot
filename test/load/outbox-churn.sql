@@ -1,7 +1,7 @@
 -- The dead entries of the head index (docs/architecture/outbox-load-test.md, "Vacuum of the head
--- index"): sends the :messages oldest active messages of chat :chat as a pull and a completion would,
--- then prints the dead rows of the table and the plan of the head lookup of the chat. Run by make
--- load-churn over a layout of make load-fill-pending.
+-- index"): sends the first :messages active messages of chat :chat by priority, then by id, as a
+-- pull and a completion would, then prints the dead rows of the table and the plan of the head
+-- lookup of the chat. Run by make load-churn over a layout of make load-fill-pending.
 --
 -- Each message is pulled and completed in a transaction of its own, as the store does: the version
 -- each leaves is dead to every snapshot once it commits, which is what lets an insert into a full
@@ -26,7 +26,7 @@ BEGIN
         FROM telegram_outbox
         WHERE chat_id = churn_chat_id
           AND status IN ('pending', 'processing')
-        ORDER BY id
+        ORDER BY priority, id
         LIMIT 1;
 
         IF head_id IS NULL THEN
@@ -52,5 +52,5 @@ SELECT id
 FROM telegram_outbox
 WHERE chat_id = :chat
   AND status IN ('pending', 'processing')
-ORDER BY id
+ORDER BY priority, id
 LIMIT 1;

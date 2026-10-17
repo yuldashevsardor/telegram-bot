@@ -37,9 +37,9 @@ import {
 // The OID of bigint: the chat ids go to the database as a bigint[] parameter.
 const BIGINT = 20;
 
-// The statuses a chat head can be in: its first message by id among them. A failed message is not
-// among them: the chat it blocks is held by its state, and one that does not block lets the next
-// message through.
+// The statuses a chat head can be in: its first message by priority, then by id, among them. A
+// failed message is not among them: the chat it blocks is held by its state, and one that does not
+// block lets the next message through.
 const ACTIVE_STATUSES = [OutboxStatus.Pending, OutboxStatus.Processing];
 
 // The single row of telegram_bot_limits.
@@ -72,8 +72,8 @@ export class OutboxStore {
     }
 
     // The rows and their chats commit together. The ids come back in the order of the input, which
-    // is the order of the messages inside a chat. They are taken only once the chats are locked
-    // (docs/architecture/outbox.md, "The chat lock").
+    // is the order of the messages of one priority inside a chat. They are taken only once the chats
+    // are locked (docs/architecture/outbox.md, "The chat lock").
     public async pushBatch(messages: OutboxMessageInput[]): Promise<number[]> {
         const chatIds = [...new Set(messages.map((message) => message.chatId))];
 
@@ -107,15 +107,24 @@ export class OutboxStore {
                 RETURNING id
             `;
 
-            // An idle chat gets its first message. A ready or processing chat already has an older
-            // head, and a blocked one stays blocked.
+            // An idle chat gets its first message and becomes ready. In a ready chat a message more
+            // urgent than its head becomes the head, so the copy is read again
+            // (docs/architecture/outbox.md, "Tables"), and written only where it changes: every update
+            // of a ready chat leaves a dead entry in the pull index. A processing chat reads its head
+            // with its completion, and a blocked one stays blocked until its unblock. The head of a
+            // ready chat is looked up twice, for the WHERE and for the SET, one entry of the head
+            // index each: a join for one lookup would read the head by a query of its own, beside
+            // headPrioritySubquery().
             await sql`
                 UPDATE telegram_outbox_chats
                 SET state = ${OutboxChatState.Ready},
                     head_priority = ${this.headPrioritySubquery(sql)},
                     updated_at = now()
                 WHERE chat_id = ANY(${sql.array(chatIds, BIGINT)}::bigint[])
-                  AND state = ${OutboxChatState.Idle}
+                  AND (
+                      state = ${OutboxChatState.Idle}
+                      OR (state = ${OutboxChatState.Ready} AND head_priority IS DISTINCT FROM ${this.headPrioritySubquery(sql)})
+                  )
             `;
 
             await this.notifyReady(sql);
@@ -201,7 +210,7 @@ export class OutboxStore {
                         FROM telegram_outbox
                         WHERE chat_id = chats.chat_id
                           AND status IN ${this.sql(ACTIVE_STATUSES)}
-                        ORDER BY id
+                        ORDER BY priority, id
                         LIMIT 1
                     ) AS head
                     WHERE chats.state = ${OutboxChatState.Ready}
@@ -376,28 +385,29 @@ export class OutboxStore {
     // lease change nothing (docs/architecture/outbox.md, "Lease recovery").
     public async findExpiredLeases(): Promise<ExpiredOutboxLease[]> {
         const rows = await this.sql<ExpiredOutboxLeaseRow[]>`
-            SELECT head.id,
+            SELECT leased.id,
                    chats.lock_token,
                    -- As jsonb writes a timestamp, the form of started_at the pull gives out: the
                    -- attempts of a message keep one form.
                    to_jsonb(chats.locked_until - ${this.leaseDurationMs}::double precision * interval '1 millisecond')
                        #>> '{}' AS started_at,
-                   jsonb_array_length(head.attempts) AS earlier_attempts
+                   jsonb_array_length(leased.attempts) AS earlier_attempts
             FROM telegram_outbox_chats AS chats
-            -- The processing message of a chat is its head, so the lookup stops at the first active
-            -- message of the chat: filtered by the status alone, it read every active message of the
-            -- chat behind the head (docs/architecture/outbox-load-test.md, "The lease recovery").
+            -- The processing message was the head when it was pulled, but a more urgent message pushed
+            -- since sorts before it, so the lookup walks the head index of the chat to the first
+            -- processing entry: only the more urgent messages pushed during the lease lie before it.
+            -- Without the LIMIT to stop at it, the lookup read every active message of the chat
+            -- (docs/architecture/outbox-load-test.md, "The lease recovery").
             CROSS JOIN LATERAL (
-                SELECT id, status, attempts
+                SELECT id, attempts
                 FROM telegram_outbox
                 WHERE chat_id = chats.chat_id
-                  AND status IN ${this.sql(ACTIVE_STATUSES)}
-                ORDER BY id
+                  AND status = ${OutboxStatus.Processing}
+                ORDER BY priority, id
                 LIMIT 1
-            ) AS head
+            ) AS leased
             -- Only a pulled chat is leased: a completion clears the lease.
             WHERE chats.locked_until <= now()
-              AND head.status = ${OutboxStatus.Processing}
             ORDER BY chats.locked_until, chats.chat_id
         `;
 
@@ -446,10 +456,10 @@ export class OutboxStore {
     }
 
     // The message goes back to pending, and its chat waits delayMs or its chat limit, whichever is
-    // later: the message stays the head, so it holds its chat. The chat is ready again, so the ready
-    // channel is notified on commit as a push does: a node that sleeps on a null nextPullInMs, and
-    // every other node when the node of the message stops, learn of the chat from nothing else. A
-    // fenced retry notifies no one.
+    // later: the message is the head again unless a more urgent one was pushed meanwhile, and the
+    // head holds its chat. The chat is ready again, so the ready channel is notified on commit as a
+    // push does: a node that sleeps on a null nextPullInMs, and every other node when the node of the
+    // message stops, learn of the chat from nothing else. A fenced retry notifies no one.
     public async retry(lease: OutboxLease, attemptError: OutboxAttemptError, delayMs: number): Promise<void> {
         // The contract of the store for any caller, as in pause(): an infinite delay would hold the
         // chat for ever, and MAX_DELAY_MS keeps the interval below its overflow.
@@ -514,8 +524,8 @@ export class OutboxStore {
     }
 
     // Unblocks a chat by hand: the failed message that blocked it goes back to pending, and its id
-    // makes it the head again. Returns that message. A chat that is not blocked throws
-    // OutboxChatNotBlocked and changes nothing.
+    // puts it before the messages of its priority. Returns that message. A chat that is not blocked
+    // throws OutboxChatNotBlocked and changes nothing.
     public async retryBlockedChat(chatId: number): Promise<number> {
         return this.sql.begin(async (sql) => {
             const blocked = await this.lockBlockedChat(sql, chatId);
@@ -851,7 +861,7 @@ export class OutboxStore {
         `;
     }
 
-    // The copy of the head's priority on the chat row, for the SET of an UPDATE of
+    // The copy of the head's priority on the chat row, for the SET or the WHERE of an UPDATE of
     // telegram_outbox_chats without an alias: the subquery names the chat by that table. The pull
     // orders the ready chats by it from an index instead of looking up the head of each
     // (docs/architecture/outbox.md, "Tables"). NULL for a chat with no active message.
@@ -861,7 +871,7 @@ export class OutboxStore {
             FROM telegram_outbox
             WHERE chat_id = telegram_outbox_chats.chat_id
               AND status IN ${sql(ACTIVE_STATUSES)}
-            ORDER BY id
+            ORDER BY priority, id
             LIMIT 1
         )`;
     }

@@ -187,8 +187,8 @@ export class InboxStore {
                    jsonb_array_length(inbox_update.attempts) AS earlier_attempts
             FROM telegram_inbox_groups AS inbox_group
             -- The first processing update of the group by update_id, so the lookup stops at it rather
-            -- than reading every active update of the group behind it. Why not the head alone, as the
-            -- outbox takes it: docs/architecture/inbox.md, "Lease recovery".
+            -- than reading every active update of the group behind it. Why not the head alone:
+            -- docs/architecture/inbox.md, "Lease recovery".
             CROSS JOIN LATERAL (
                 SELECT update_id, updated_at, attempts
                 FROM telegram_inbox
