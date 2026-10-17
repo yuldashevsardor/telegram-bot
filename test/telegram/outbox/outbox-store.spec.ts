@@ -279,7 +279,9 @@ describe("OutboxStore", function () {
 
     // The message behind is pushed into the blocked chat, which keeps its copy NULL until the
     // unblock. The failed message is the head again in the first case and the message behind is in
-    // the second: a copy left NULL fails the first, a head read by id the second.
+    // the second: a copy left NULL fails the first, a head read by id the second. In the third both
+    // are less urgent than the other chat, so a copy set to a priority more urgent than the head
+    // fails it.
     for (const { failedPriority, behindPriority, pulledFirst } of [
         { failedPriority: 100, behindPriority: 300, pulledFirst: CHAT },
         { failedPriority: 300, behindPriority: 100, pulledFirst: CHAT },

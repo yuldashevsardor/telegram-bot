@@ -36,7 +36,7 @@ export async function up(pgm: MigrationBuilder): Promise<void> {
         where: activeStatusesPredicate,
     });
     // Only the copies that change are written, as pushBatch() writes them: most chats keep theirs.
-    const headPriority = `(
+    const headPrioritySubquery = `(
         SELECT priority
         FROM ${outbox}
         WHERE chat_id = ${chats}.chat_id
@@ -46,8 +46,8 @@ export async function up(pgm: MigrationBuilder): Promise<void> {
     )`;
     pgm.sql(`
         UPDATE ${chats}
-        SET head_priority = ${headPriority}
-        WHERE head_priority IS DISTINCT FROM ${headPriority}
+        SET head_priority = ${headPrioritySubquery}
+        WHERE head_priority IS DISTINCT FROM ${headPrioritySubquery}
     `);
     pgm.alterColumn(outbox, "id", {
         comment: "The order of the messages of one priority inside a chat",
@@ -57,6 +57,9 @@ export async function up(pgm: MigrationBuilder): Promise<void> {
     });
 }
 
+// Applied with the nodes stopped as up() is, and with no message processing: the lease recovery of
+// the code before reads the processing message as the head by id, and a message pulled ahead of
+// older ones of its chat would keep its chat processing, its lease never recovered.
 export async function down(pgm: MigrationBuilder): Promise<void> {
     pgm.dropIndex(outbox, [], { name: headIndex });
     pgm.createIndex(outbox, ["chat_id", "id"], {
@@ -64,7 +67,7 @@ export async function down(pgm: MigrationBuilder): Promise<void> {
         include: "status",
         where: activeStatusesPredicate,
     });
-    const headPriority = `(
+    const headPrioritySubquery = `(
         SELECT priority
         FROM ${outbox}
         WHERE chat_id = ${chats}.chat_id
@@ -74,8 +77,8 @@ export async function down(pgm: MigrationBuilder): Promise<void> {
     )`;
     pgm.sql(`
         UPDATE ${chats}
-        SET head_priority = ${headPriority}
-        WHERE head_priority IS DISTINCT FROM ${headPriority}
+        SET head_priority = ${headPrioritySubquery}
+        WHERE head_priority IS DISTINCT FROM ${headPrioritySubquery}
     `);
     pgm.alterColumn(outbox, "id", {
         comment: "The order of the messages inside a chat",

@@ -111,7 +111,10 @@ export class OutboxStore {
             // urgent than its head becomes the head, so the copy is read again
             // (docs/architecture/outbox.md, "Tables"), and written only where it changes: every update
             // of a ready chat leaves a dead entry in the pull index. A processing chat reads its head
-            // with its completion, and a blocked one stays blocked until its unblock.
+            // with its completion, and a blocked one stays blocked until its unblock. The head of a
+            // ready chat is looked up twice, for the WHERE and for the SET, one entry of the head
+            // index each: a join for one lookup would read the head by a query of its own, beside
+            // headPrioritySubquery().
             await sql`
                 UPDATE telegram_outbox_chats
                 SET state = ${OutboxChatState.Ready},
