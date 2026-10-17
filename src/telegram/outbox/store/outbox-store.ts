@@ -45,8 +45,8 @@ const ACTIVE_STATUSES = [OutboxStatus.Pending, OutboxStatus.Processing];
 // The single row of telegram_bot_limits.
 const BOT_LIMITS_ID = 1;
 
-// The longest pause or retry delay PostgreSQL can still add to now(), some 285 000 years: 1e17 ms
-// overflows the interval.
+// The ceiling of a pause or a retry delay, some 285 000 years: it stays below the overflow of the
+// interval PostgreSQL adds to now(), at 2^63 µs, while 1e17 ms overflows it.
 const MAX_DELAY_MS = Number.MAX_SAFE_INTEGER;
 
 // The rows and the chat states of the outbox: the model is in docs/architecture/outbox.md.
@@ -452,7 +452,7 @@ export class OutboxStore {
     // fenced retry notifies no one.
     public async retry(lease: OutboxLease, attemptError: OutboxAttemptError, delayMs: number): Promise<void> {
         // The contract of the store for any caller, as in pause(): an infinite delay would hold the
-        // chat for ever, and one above MAX_DELAY_MS overflows the interval.
+        // chat for ever, and MAX_DELAY_MS keeps the interval below its overflow.
         if (!this.isDelayInRange(delayMs)) {
             throw InvalidRetryDelay.of(delayMs);
         }

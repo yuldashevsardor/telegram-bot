@@ -305,15 +305,16 @@ the private limit is a window of `interval` that takes `number` messages.
     leaves the window of the outbox as it is, so while a backlog to the chat lasts it can recur over
     a run of windows: the chat resumes inside the same window of the outbox, fills it into the next
     window of Telegram, and the next window of the outbox starts while that of Telegram is open
-    again. Each 429 of the run comes two pulls later in its window than the last: the call of the
-    429 takes a slot of the outbox window and none of Telegram's, and the window of Telegram takes
-    one message more than that of the outbox. So the run ends by itself after at most some
-    `number / 2` windows, about 4 hours at the defaults, backlog or not. A window of the run
-    delivers `number - 1` messages: the call that got the 429 is a pull of it. The window rests on
-    that of Telegram being fixed, measured on one bot on one day; were it sliding, the burst after a
-    window would get a 429, which still holds back its chat. A retry counts too: its next pull is a
-    pull of the window, and so does every call to a private chat that goes through the outbox, a
-    chat action included, though Telegram may count messages alone.
+    again. Each 429 of the run comes `101 - number` pulls later in its window than the last: the
+    call of the 429 takes a slot of the outbox window and none of Telegram's, and the window of
+    Telegram takes `100 - number` messages more than that of the outbox. So the run lasts at most
+    some `number / (101 - number)` windows, even while the backlog lasts: some 50 at the defaults,
+    about 4 hours, while at a `number` of 101 or more it never ends. A window of the run delivers
+    `number - 1` messages: the call that got the 429 is a pull of it. The window rests on that of
+    Telegram being fixed, measured on one bot on one day; were it sliding, the burst after a window
+    would get a 429, which still holds back its chat. A retry counts too: its next pull is a pull of
+    the window, and so does every call to a private chat that goes through the outbox, a chat action
+    included, though Telegram may count messages alone.
 
     A full window holds every message of its chat until it ends, a reply included: a reply behind a
     window filled by bulk messages waits up to `interval`, past `OUTBOX_RESULT_TIMEOUT`, so its
