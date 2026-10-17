@@ -15,7 +15,9 @@ The outbox store ([`outbox.md`](./outbox.md)) measured on a large table:
   status line with the status in the head index
   ([#954](https://github.com/yuldashevsardor/telegram-bot/issues/954), "The status line"), and
   autovacuum without the threshold of the inserts
-  ([#958](https://github.com/yuldashevsardor/telegram-bot/issues/958), "Autovacuum in every run").
+  ([#958](https://github.com/yuldashevsardor/telegram-bot/issues/958), "Autovacuum in every run");
+- the head by priority, then by `id`, against the head by `id` on a fill of 100 M messages
+  ([#987](https://github.com/yuldashevsardor/telegram-bot/issues/987), "The head by priority").
 
 ## How to run it
 
@@ -26,7 +28,8 @@ targets are `load-*` of the `Makefile`, in this order:
 
 1. `load-up` applies the migrations, the indexes and the vacuum settings of the outbox among them;
 2. `load-fill-done [rows=280000000] [chats=1000000]`, once;
-3. per layout, `load-fill-pending messages=<n> [hot_messages=<n>]`, then
+3. per layout, `load-fill-pending messages=<n> [hot_messages=<n>] [hot_priority=<n>]
+   [hot_replies=<n>]`, then
    `load-measure [plans=off]`;
 4. `load-down` removes the database with its data, the fill of the inbox load test
    ([`inbox-load-test.md`](./inbox-load-test.md)) included.
@@ -229,9 +232,11 @@ reads the `idle` ones by the same seq scan of the chats; why it took less is not
 
 ### The lease recovery
 
-`findExpiredLeases()` finds the `processing` message of each expired chat as the head of the chat,
-the first entry of the chat in the head index: a chat holds one `processing` message at a time, and
-it is the head ([`outbox.md`](./outbox.md), "Lease recovery"). So it reads one live entry a chat,
+In this run `findExpiredLeases()` found the `processing` message of each expired chat as the head
+of the chat, the first entry of the chat in the head index: a chat held one `processing` message at
+a time, and it was the head. Since the head by priority it walks to the first `processing` entry
+instead ([`outbox.md`](./outbox.md), "Lease recovery"; see "The head by priority"). So it read one
+live entry a chat,
 however many active messages the chat holds, and the dead ones before it until a vacuum cleans them
 (see "Dead entries of the index"):
 
@@ -913,3 +918,76 @@ The proposals of the run: the pull
 [#953](https://github.com/yuldashevsardor/telegram-bot/issues/953), the status line
 [#954](https://github.com/yuldashevsardor/telegram-bot/issues/954) and autovacuum
 [#958](https://github.com/yuldashevsardor/telegram-bot/issues/958).
+
+## The head by priority
+
+The head of a chat became its first active message by priority, then by `id`
+([#987](https://github.com/yuldashevsardor/telegram-bot/issues/987)), and the head index went from
+`(chat_id, id)` to `(chat_id, priority, id)`, `1792022400000_telegram-outbox-head-by-priority.ts`.
+The run compares the two on one fill: the store and the migrations of `main` at `f0251d65` first,
+then the code of #987, its migration applied to the same volume.
+
+### Data
+
+- The history of `make load-fill-done rows=100000000 chats=1000000`: 99 994 820 messages of the
+  shape of "The skewed run" over its 1 000 000 chats, filled in 24 minutes 50 seconds. A fifth of
+  that run's history, so the times below compare with each other, not with "The skewed run".
+- The layouts of "The skewed run", normal (`messages=5000`), backlog (`messages=1000000`) and hot
+  chat (`messages=0 hot_messages=300000`), each measured once with `plans=off` on both codes.
+- With the code of #987 alone, the hot chat of bulk messages and replies,
+  `messages=0 hot_messages=300000 hot_priority=200 hot_replies=30`: the 300 000 messages of chat 1
+  of `OutboxPriority.Bulk` and 30 replies of `OutboxPriority.Call` pushed behind them, measured once
+  with `plans=off` and once with the plans.
+- The machine and the database of "The skewed run".
+
+The migration took 1 minute 32 seconds on the fill, `make load-up` whole, the table closed to the
+reads and the writes for the build (see the comment of the migration).
+
+### Results
+
+The medians of the client, in ms, past the first call of each, the old code against the new one:
+
+| call | normal | backlog | hot chat |
+|---|---|---|---|
+| `pull(1)` | 2.7 / 4.9 | 3.4 / 3.2 | 2.5 / 3.2 |
+| `pull(30)` | 14.3 / 11.4 | 17.9 / 18.6 | 7.8 / 8.4 |
+| `markAsDone()` | 1.0 / 1.0 | 1.1 / 1.0 | 2.7 / 2.7 |
+| `findExpiredLeases()` of a pull(30) left to expire | 33.2 / 32.8 | 42.8 / 48.9 | 65.5 / 30.2 |
+| `push()` | 0.8 / 1.1 | 1.1 / 1.1 | 1.1 / 1.4 |
+| `pushBatch()` of 1 000 | 186.6 / 17.1 | 23.5 / 32.5 | 16.0 / 16.8 |
+| `readBacklog()` | 6.0 / 3.5 | 41.2 / 47.0 | 15.1 / 14.9 |
+
+The two codes differ by a few ms at most but in three places, none of them the head: the slowest
+`pull(1)` of the new normal layout took 142 ms against 21 ms of the old one, while its median went
+from 2.7 to 4.9 ms; the old `pushBatch()` of the normal layout took 148 – 227 ms against 15 – 52 ms
+in every other run; and the old `findExpiredLeases()` of the hot chat took 65.5 ms against 30.2, one
+call each. One run a layout cannot tell them from noise. The pulls of the unblocking took a median
+of 16.2 ms on the old code and 22.4 on the new one in the hot chat layout, against 2.3 – 3.2 ms in
+the other layouts; the same pulls in the run with the plans took 1.2 – 2.3 ms on the client and some
+0.25 ms in the database, so the time is not of the head lookup, and why it is spent is not measured.
+
+In the layout of bulk messages and replies the first 30 messages pulled were the 30 replies, by
+`id`, and then the bulk messages. Each of the 91 head lookups of the pull in the run with the plans
+gave its head from the first entry of the chat in the index, with 0 – 2 heap fetches. Its times are
+those of the hot chat layout of the new code: `pull(1)` 1.8 ms, `pull(30)` 7.6,
+`findExpiredLeases()` 29.9.
+
+### The lease recovery and the push
+
+The lookup of `findExpiredLeases()` was probed in a transaction rolled back after it: the first bulk
+message of chat 1 put to `processing` and its chat leased with an expired lease, then 100 replies
+pushed into the chat. The lookup walked the 100 entries of the replies to the `processing` one, an
+index-only scan of 101 entries, 101 heap fetches and 8 buffers, 0.03 ms; the whole statement 1.1 ms,
+nearly all of it the seq scan of the chats. The update of `pushBatch()` that sets the copy of a
+`ready` chat, run for chat 1 with a reply as its head, wrote nothing: the copy did not change, and
+the statement took 0.05 ms with one head lookup.
+
+The head index built afresh over the 300 000 active messages of that layout took 12 MB in the form
+of `(chat_id, id)` and 14 MB in that of `(chat_id, priority, id)`; the index in use took 114 MB, the
+dead entries of the layouts before it included.
+
+### Verdict
+
+The head by priority costs the pull, the completions and the push nothing measurable on this fill;
+the index grows by a sixth. The lease recovery reads an entry more for each more urgent message
+pushed during the lease, 0.03 ms for 100 of them.
