@@ -1,7 +1,9 @@
 -- A pending layout of the outbox load test (docs/architecture/outbox-load-test.md) over the history
 -- of outbox-fill-done.sql: :messages pending messages over the chats by the skew of the history, and
--- :hot_messages more in chat 1. Run by make load-fill-pending; it replaces what the previous layout
--- and its measurement left, and puts the bot row back to a full budget.
+-- :hot_messages more in chat 1 of :hot_priority, then :hot_replies of OutboxPriority.Call behind them:
+-- with the priority of OutboxPriority.Bulk, the replies pushed behind bulk messages of their chat.
+-- Run by make load-fill-pending; it replaces what the previous layout and its measurement left, and
+-- puts the bot row back to a full budget.
 --
 -- A pending message goes to the chat of the first history message from an id drawn by a hash of its
 -- number, so a chat gets pending messages in proportion to its history, the heavy chats the most,
@@ -13,8 +15,9 @@
 -- most of them without history. The pending messages the draw gives such a chat wait behind it, as
 -- the pushes to a blocked chat do.
 --
--- The statuses, the states and the priority are the values of OutboxStatus, OutboxChatState and
--- OutboxPriority.Call; the measurement stops on a layout it cannot pull (outbox-load-test.ts).
+-- The statuses, the states and the priorities are the values of OutboxStatus, OutboxChatState and
+-- OutboxPriority, OutboxPriority.Call but for the hot messages; the measurement stops on a layout it
+-- cannot pull (outbox-load-test.ts).
 
 -- The ids of a layout start far past the history, so the next layout deletes all that this one and
 -- its measurement wrote by id alone: the messages the measurement completed, failed or skipped, and
@@ -97,13 +100,24 @@ SELECT :layout_first_id + :blocked_chat_count + :messages + hot_number,
        1,
        'sendMessage',
        jsonb_build_object('chat_id', 1, 'text', 'Font hot-' || hot_number || ' is converted: woff2 and ttf are attached below.'),
-       100,
+       :hot_priority,
        'pending'
 FROM generate_series(1, :hot_messages::bigint) AS hot_number
 ORDER BY hot_number;
 
+INSERT INTO telegram_outbox (id, chat_id, method, payload, priority, status)
+OVERRIDING SYSTEM VALUE
+SELECT :layout_first_id + :blocked_chat_count + :messages + :hot_messages + reply_number,
+       1,
+       'sendMessage',
+       jsonb_build_object('chat_id', 1, 'text', 'Font reply-' || reply_number || ' is converted: woff2 and ttf are attached below.'),
+       100,
+       'pending'
+FROM generate_series(1, :hot_replies::bigint) AS reply_number
+ORDER BY reply_number;
+
 -- The pushes of the measurement go after the layout, so the next layout deletes them too.
-SELECT setval(pg_get_serial_sequence('telegram_outbox', 'id'), :layout_first_id + :blocked_chat_count + :messages + :hot_messages);
+SELECT setval(pg_get_serial_sequence('telegram_outbox', 'id'), :layout_first_id + :blocked_chat_count + :messages + :hot_messages + :hot_replies);
 
 -- A chat with the failed message of the layout is blocked, every other chat of the layout is ready.
 -- head_priority is the copy of the priority of the head that the store keeps (outbox-store.ts), read
