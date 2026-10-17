@@ -973,7 +973,8 @@ it on a timer of every node (see "Maintenance").
    So the lookup walks the head index of the chat in its order and stops at the first `processing`
    entry: it reads the entries of the more urgent messages pushed during the lease and the one of
    the message. A search by the status without the `LIMIT` read every active message of the chat
-   ([`outbox-load-test.md`](./outbox-load-test.md), "The lease recovery").
+   ([`outbox-load-test.md`](./outbox-load-test.md), "The lease recovery"), and so does this one for
+   an expired chat with no `processing` message, which only a hand edit of the tables leaves.
 2. The recovery completes each lease as a transient failure through
    `OutboxLeaseRetrier.retryOrBlock()`: the message goes back to `pending` with the retry delay of
    its attempt, or, on the last attempt of `OUTBOX_MAX_ATTEMPTS`, fails and blocks its chat (see

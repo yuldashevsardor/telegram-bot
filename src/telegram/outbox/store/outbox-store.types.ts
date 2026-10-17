@@ -32,7 +32,7 @@ export enum OutboxChatState {
     Idle = "idle",
     // The head is pending and can be pulled.
     Ready = "ready",
-    // The head is pulled.
+    // A message is pulled: the head when it was pulled, behind a more urgent message pushed since.
     Processing = "processing",
     // A failed message stopped the chat until it is unblocked by hand.
     Blocked = "blocked",

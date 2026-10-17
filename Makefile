@@ -241,8 +241,8 @@ load-up: ## Bring up the load-test database and apply the migrations
 load-fill-done: ## Fill the load-test database with the outbox history, once: make load-fill-done [rows=280000000] [chats=1000000]
 	$(LOAD_PSQL) -v rows=$(or $(rows),280000000) -v chats=$(or $(chats),1000000) < test/load/outbox-fill-done.sql
 
-load-fill-pending: ## Replace the pending outbox layout of the load test: make load-fill-pending messages=5000 [hot_messages=300000] [hot_priority=200] [hot_replies=100]
-	@[ -n "$(messages)" ] || { printf 'give it the layout: make load-fill-pending messages=5000 [hot_messages=300000] [hot_priority=200] [hot_replies=100]\n' >&2; exit 1; }
+load-fill-pending: ## Replace the pending outbox layout of the load test: make load-fill-pending messages=5000 [hot_messages=300000] [hot_priority=<n>] [hot_replies=<n>]
+	@[ -n "$(messages)" ] || { printf 'give it the layout: make load-fill-pending messages=5000 [hot_messages=300000] [hot_priority=<n>] [hot_replies=<n>]\n' >&2; exit 1; }
 	$(LOAD_PSQL) -v messages=$(messages) -v hot_messages=$(or $(hot_messages),0) -v hot_priority=$(or $(hot_priority),100) -v hot_replies=$(or $(hot_replies),0) < test/load/outbox-fill-pending.sql
 
 load-churn: ## Send messages of one chat of the layout and print the head lookup of the chat: make load-churn chat=1 messages=45000, over the hot chat layout

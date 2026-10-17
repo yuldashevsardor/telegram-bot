@@ -151,7 +151,9 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   one can go out first. The head is read by the pull, by `OutboxStore.headPrioritySubquery()` for
   the copy below and by the lookups of `test/load/`. One ordered by `id` alone disagrees with the
   pull: a copy from it puts the chat in the wrong turn, and a load-test fill or churn from it
-  measures heads the pull does not take. Nothing checks either.
+  measures heads the pull does not take. `test/telegram/outbox/outbox-store.spec.ts` catches a head
+  by `id` in the pull and in the copy; nothing checks the lookups of `test/load/` or the priority
+  of calls that depend on each other.
 - **A write that moves the head of an outbox chat or makes the chat `ready` sets
   `head_priority` of the chat row from its head**, as `OutboxStore.setChatState()` and the two
   updates of the chats in `pushBatch()` do: of an `idle` chat it makes `ready`, and of a `ready`

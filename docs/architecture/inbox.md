@@ -479,10 +479,11 @@ passed: the node that claimed them is presumed dead. `InboxMaintenance` calls it
    `update_id`, in the head index, so the lookup stops at it: the claim makes the head
    `processing`, and the lookup reads one live entry a group, where a search by the status alone
    read every active update of the group ([`inbox-load-test.md`](./inbox-load-test.md), "The lease
-   recovery"). Not the head alone, as the outbox takes it ([`outbox.md`](./outbox.md), "Lease
-   recovery"): an update pushed with a smaller `update_id` while the group is `processing` (see
-   "Push", on `update_id` after a week without updates) is the head before the `processing` one, and
-   a lookup of the head would leave such a group `processing` for good, its lease never recovered.
+   recovery"). Not the head alone: an update pushed with a smaller `update_id` while the group is
+   `processing` (see "Push", on `update_id` after a week without updates) is the head before the
+   `processing` one, and a lookup of the head would leave such a group `processing` for good, its
+   lease never recovered. The outbox looks its lease up the same way, for a more urgent message
+   pushed during the lease ([`outbox.md`](./outbox.md), "Lease recovery").
 2. Each lease is a transient failure, completed as one: the update goes back to `pending` with the
    retry delay of its attempt, or, on the last attempt of `INBOX_MAX_ATTEMPTS`, fails and blocks its
    group. The completion appends an attempt with the error `InboxLeaseExpired` of class `transient`

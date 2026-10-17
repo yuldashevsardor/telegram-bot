@@ -12,11 +12,14 @@ import { commonShorthands } from "./common/utils";
 // strongest lock on the table at once, and a build beside the old index would deadlock with a
 // completion when the drop upgraded its lock.
 //
-// A node on the code before this migration that writes to the outbox after it reads the head by id:
-// its pull sends the first message of a chat by id, its lease recovery misses the lease of a message
-// pulled ahead of older ones of its chat, and its pushes and completions set the copy from the head
-// by id.
-// Every node that writes to the outbox is to run the new code once the migration is applied.
+// The migration is applied with every node that writes to the outbox stopped. It holds
+// telegram_outbox locked and then updates the chat rows, while a push, a completion and an unblock
+// lock their chat row first and then use telegram_outbox: one of them during the build closes a
+// lock cycle, PostgreSQL aborts the migration, and the build of 1.5 minutes on 100 M rows is rolled
+// back (docs/architecture/outbox-load-test.md, "The head by priority"). A node on the code before
+// it would be wrong after it besides: it reads the head by id, so its pull sends the first message
+// of a chat by id, its lease recovery misses the lease of a message pulled ahead of older ones of
+// its chat, and its pushes and completions set the copy from the head by id.
 
 const outbox = "telegram_outbox";
 const chats = "telegram_outbox_chats";
@@ -32,16 +35,19 @@ export async function up(pgm: MigrationBuilder): Promise<void> {
         include: "status",
         where: activeStatusesPredicate,
     });
+    // Only the copies that change are written, as pushBatch() writes them: most chats keep theirs.
+    const headPriority = `(
+        SELECT priority
+        FROM ${outbox}
+        WHERE chat_id = ${chats}.chat_id
+          AND ${activeStatusesPredicate}
+        ORDER BY priority, id
+        LIMIT 1
+    )`;
     pgm.sql(`
         UPDATE ${chats}
-        SET head_priority = (
-            SELECT priority
-            FROM ${outbox}
-            WHERE chat_id = ${chats}.chat_id
-              AND ${activeStatusesPredicate}
-            ORDER BY priority, id
-            LIMIT 1
-        )
+        SET head_priority = ${headPriority}
+        WHERE head_priority IS DISTINCT FROM ${headPriority}
     `);
     pgm.alterColumn(outbox, "id", {
         comment: "The order of the messages of one priority inside a chat",
