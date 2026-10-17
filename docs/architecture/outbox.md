@@ -301,7 +301,11 @@ the private limit is a window of `interval` that takes `number` messages.
     a lease that passed or a retry delay before that message got through opens the window of
     Telegram that much later than the pull did, and the next window of the outbox starts while that
     of Telegram is still open. The accepted price of both is the 429, which holds back its chat for
-    its `retry_after` (see "Outcomes"); each needs a late message and a burst after it. The window
+    its `retry_after` (see "Outcomes"); each needs a late message and a burst after it. The 429
+    leaves the window of the outbox as it is, so while a backlog to the chat lasts it can recur
+    every window: the chat resumes inside the same window of the outbox, fills it into the next
+    window of Telegram, and the next window of the outbox starts while that of Telegram is open
+    again, one wasted call and one 429 per window at the same throughput. The window
     rests on that of Telegram being fixed, measured on one bot on one day; were it sliding, the
     burst after a window would get a 429, which still holds back its chat. A retry counts too: its
     next pull is a pull of the window, and so does every call to a private chat that goes through
