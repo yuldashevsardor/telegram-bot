@@ -17,8 +17,9 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
     // number makes the cooldown infinite, while a zero in interval makes it nil and the limit stops
     // limiting. The private limit is a window of interval that takes number messages: a zero in
     // number gives one message a window, while a zero in interval lets every pull open a new window,
-    // and the limit stops limiting as well. The outbox adds an interval to a timestamp, and above
-    // Number.MAX_SAFE_INTEGER ms, some 285 000 years, the sum leaves the range of a timestamp.
+    // and the limit stops limiting as well. The outbox adds an interval to a timestamp, and the
+    // ceiling of Number.MAX_SAFE_INTEGER ms, some 285 000 years, stays below the overflow of either:
+    // a timestamp ends in 294276 AD, some 9.2e15 ms from now, and an interval at 2^63 µs, as many ms.
     private static readonly LIMIT_RANGE: IntegerRange = { min: 1, max: Number.MAX_SAFE_INTEGER };
 
     // The numbers of the cleanup SQL. A retention becomes an interval, and 1e16 ms is past the range

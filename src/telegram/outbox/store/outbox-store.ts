@@ -45,8 +45,8 @@ const ACTIVE_STATUSES = [OutboxStatus.Pending, OutboxStatus.Processing];
 // The single row of telegram_bot_limits.
 const BOT_LIMITS_ID = 1;
 
-// The longest pause or retry delay PostgreSQL can still add to now(), some 285 000 years: 1e17 ms
-// overflows the interval.
+// The ceiling of a pause or a retry delay, some 285 000 years: it stays below the overflow of the
+// interval PostgreSQL adds to now(), at 2^63 µs, while 1e17 ms overflows it.
 const MAX_DELAY_MS = Number.MAX_SAFE_INTEGER;
 
 // The rows and the chat states of the outbox: the model is in docs/architecture/outbox.md.
@@ -176,9 +176,9 @@ export class OutboxStore {
             ),
             budget AS (
                 -- The slots of the common limit come due one per cooldown from next_send_at, and an
-                -- idle bot saves up no more than number of them. The config bounds number only from
-                -- below, so it is not cast to integer, which overflows above 2^31 - 1. The budget is at
-                -- most limit, which fits a bigint.
+                -- idle bot saves up no more than number of them. The config bounds number from above
+                -- only by Number.MAX_SAFE_INTEGER, far past 2^31 - 1, so it is not cast to integer,
+                -- which would overflow. The budget is at most limit, which fits a bigint.
                 SELECT least(
                            ${limit}::bigint,
                            ${commonLimit.number}::double precision,
@@ -253,9 +253,10 @@ export class OutboxStore {
             ),
             moved AS (
                 -- A group waits its cooldown. A private chat is pulled again at once until its window
-                -- holds number messages, then at the end of the window. The config does not bound
-                -- number from above, so it is not cast to integer; the count it is compared with is an
-                -- integer all the same, since no window gets 2^31 pulls.
+                -- holds number messages, then at the end of the window. The config bounds number from
+                -- above only by Number.MAX_SAFE_INTEGER, far past 2^31 - 1, so it is not cast to
+                -- integer; the count it is compared with is an integer all the same, since no window
+                -- gets 2^31 pulls.
                 UPDATE telegram_outbox_chats
                 SET state = ${OutboxChatState.Processing},
                     window_started_at = windows.window_started_at,
@@ -451,7 +452,7 @@ export class OutboxStore {
     // fenced retry notifies no one.
     public async retry(lease: OutboxLease, attemptError: OutboxAttemptError, delayMs: number): Promise<void> {
         // The contract of the store for any caller, as in pause(): an infinite delay would hold the
-        // chat for ever, and one above MAX_DELAY_MS overflows the interval.
+        // chat for ever, and MAX_DELAY_MS keeps the interval below its overflow.
         if (!this.isDelayInRange(delayMs)) {
             throw InvalidRetryDelay.of(delayMs);
         }
