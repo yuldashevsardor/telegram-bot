@@ -155,9 +155,9 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   by `id` in the pull and in the copy; nothing checks the lookups of `test/load/` or the priority
   of calls that depend on each other.
 - **A write that moves the head of an outbox chat or makes the chat `ready` sets
-  `head_priority` of the chat row from its head**, as `OutboxStore.setChatState()` and the two
-  updates of the chats in `pushBatch()` do: of an `idle` chat it makes `ready`, and of a `ready`
-  one a more urgent message moves the head of. The pull orders the `ready` chats by the copy
+  `head_priority` of the chat row from its head**, as `OutboxStore.setChatState()` and the
+  update of the chats in `pushBatch()` do, the latter for an `idle` chat it makes `ready` and for a
+  `ready` one a more urgent message moves the head of. The pull orders the `ready` chats by the copy
   alone, so a stale one sends the chat in the wrong turn among the priorities, silently: a reply
   to a user waits behind bulk messages, or bulk messages overtake it
   ([`outbox.md`](./outbox.md), "Tables"). `test/telegram/outbox/outbox-store.spec.ts` pins the
@@ -292,6 +292,11 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
 
 - **Migrations are append-only.** `node-pg-migrate` tracks the applied ones by file name. Editing
   an old file makes fresh databases diverge from existing ones.
+- **A migration whose comment says it runs with the nodes stopped is applied with them stopped.**
+  The bot container runs `npm run migrate -- up` on every start (`docker-compose.app.yml`), and
+  nothing checks that the other nodes are down. `1792281600000_telegram-outbox-head-by-priority.ts`
+  is one: a node that pushes during it closes a lock cycle that aborts the migration, and a node on
+  the old code reads the head of an outbox chat by `id`. Its comment says why.
 - **The column order of `sessions`** is tied to the positional `INSERT` in `PgsqlStorage.write()`.
   A column inserted before `value` is caught by `test/telegram/session/pgsql-storage.spec.ts`: the
   specs run on a database built by the migrations, and what was written stops reading back.

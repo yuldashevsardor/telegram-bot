@@ -107,28 +107,21 @@ export class OutboxStore {
                 RETURNING id
             `;
 
-            // An idle chat gets its first message. A ready or processing chat already has a head,
-            // and a blocked one stays blocked.
+            // An idle chat gets its first message and becomes ready. In a ready chat a message more
+            // urgent than its head becomes the head, so the copy is read again
+            // (docs/architecture/outbox.md, "Tables"), and written only where it changes: every update
+            // of a ready chat leaves a dead entry in the pull index. A processing chat reads its head
+            // with its completion, and a blocked one stays blocked until its unblock.
             await sql`
                 UPDATE telegram_outbox_chats
                 SET state = ${OutboxChatState.Ready},
                     head_priority = ${this.headPrioritySubquery(sql)},
                     updated_at = now()
                 WHERE chat_id = ANY(${sql.array(chatIds, BIGINT)}::bigint[])
-                  AND state = ${OutboxChatState.Idle}
-            `;
-
-            // A message more urgent than the head of a ready chat becomes its head, so the copy is
-            // read again (docs/architecture/outbox.md, "Tables"). Only where it changes: every update
-            // of a ready chat leaves a dead entry in the pull index. A processing chat reads its head
-            // with its completion, a blocked one with its unblock.
-            await sql`
-                UPDATE telegram_outbox_chats
-                SET head_priority = ${this.headPrioritySubquery(sql)},
-                    updated_at = now()
-                WHERE chat_id = ANY(${sql.array(chatIds, BIGINT)}::bigint[])
-                  AND state = ${OutboxChatState.Ready}
-                  AND head_priority IS DISTINCT FROM ${this.headPrioritySubquery(sql)}
+                  AND (
+                      state = ${OutboxChatState.Idle}
+                      OR (state = ${OutboxChatState.Ready} AND head_priority IS DISTINCT FROM ${this.headPrioritySubquery(sql)})
+                  )
             `;
 
             await this.notifyReady(sql);
@@ -865,7 +858,7 @@ export class OutboxStore {
         `;
     }
 
-    // The copy of the head's priority on the chat row, for the SET of an UPDATE of
+    // The copy of the head's priority on the chat row, for the SET or the WHERE of an UPDATE of
     // telegram_outbox_chats without an alias: the subquery names the chat by that table. The pull
     // orders the ready chats by it from an index instead of looking up the head of each
     // (docs/architecture/outbox.md, "Tables"). NULL for a chat with no active message.

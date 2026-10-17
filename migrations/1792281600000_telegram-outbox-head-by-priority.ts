@@ -64,16 +64,18 @@ export async function down(pgm: MigrationBuilder): Promise<void> {
         include: "status",
         where: activeStatusesPredicate,
     });
+    const headPriority = `(
+        SELECT priority
+        FROM ${outbox}
+        WHERE chat_id = ${chats}.chat_id
+          AND ${activeStatusesPredicate}
+        ORDER BY id
+        LIMIT 1
+    )`;
     pgm.sql(`
         UPDATE ${chats}
-        SET head_priority = (
-            SELECT priority
-            FROM ${outbox}
-            WHERE chat_id = ${chats}.chat_id
-              AND ${activeStatusesPredicate}
-            ORDER BY id
-            LIMIT 1
-        )
+        SET head_priority = ${headPriority}
+        WHERE head_priority IS DISTINCT FROM ${headPriority}
     `);
     pgm.alterColumn(outbox, "id", {
         comment: "The order of the messages inside a chat",

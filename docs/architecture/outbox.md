@@ -170,11 +170,12 @@ no pull reaches them. The spec has the removal take the chat while a push waits 
    same order;
 2. the messages go in as one `jsonb` array and are inserted `ORDER BY` their position in it, so
    the ids grow in the order of the input;
-3. every `idle` chat of the batch becomes `ready`; a chat in any other state already has a head;
-4. every `ready` chat of the batch whose head is now a message of the batch, more urgent than the
-   head before, gets `head_priority` from its head (see "Tables"). Only a copy that changes is
-   written: every update of a `ready` chat leaves a dead entry in the pull index;
-5. `pg_notify` on `telegram_outbox_ready` with an empty payload, delivered on commit, so that an
+3. one update of the chats of the batch: every `idle` one becomes `ready`, and every `ready` one
+   whose head is now a message of the batch, more urgent than the head before, keeps its state;
+   both get `head_priority` from their head (see "Tables"). A `ready` chat is written only when
+   its copy changes: every update of a `ready` chat leaves a dead entry in the pull index. A
+   `processing` or a `blocked` chat is left as it is;
+4. `pg_notify` on `telegram_outbox_ready` with an empty payload, delivered on commit, so that an
    idle sender wakes up at once. `OutboxMessageSource` listens on it once the runner asks it
    for a message (see "The message source").
 

@@ -441,7 +441,7 @@ class, and why, is read off the method, its constants and their comments. In sho
   answer was never saved, and the answer is then not taken as one. A call to a chat a failed
   message has blocked in the outbox ends the same way ([`bot.md`](./bot.md), "The outbox
   transformer"): until the chat is unblocked, every later update of that user holds a worker for
-  `OUTBOX_RESULT_TIMEOUT` and queues one more reply behind the blocked head, where an `Unexpected`
+  `OUTBOX_RESULT_TIMEOUT` and queues one more reply in the blocked chat, where an `Unexpected`
   failure would have blocked the group once.
 - Anything else is `Unexpected`, a bug included. So is a wait the outbox stopped
   (`OutboxResultWaiterStopped`), although it says only that the node is shutting down:
