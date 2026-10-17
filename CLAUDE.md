@@ -8,6 +8,7 @@ A Telegram bot that converts fonts. The core domain is `src/font-convertor/`; Te
 Read for the task at hand, not front to back:
 
 - Naming a domain concept (an issue title, a test name, a class name) — `CONTEXT.md`.
+- Changing what the bot says or how a person moves through it — `docs/product/cjm.md`.
 - Editing code — the file of the affected subsystem in `docs/architecture/`, with its
   structure and runtime sequences. The table of contents and the directory map in
   `docs/architecture/README.md` say which file covers which code. Fix whatever your edit made
