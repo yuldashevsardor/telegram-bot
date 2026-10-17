@@ -144,16 +144,16 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   (same file, "Pull"). The spec lines up only `push()` against `markAsDone()` and
   `skipBlockedChat()`: a new path that changes a chat state outside `complete()` is checked by
   nothing.
-- **The messages of an outbox chat keep their order only within one priority, and every query
-  that reads the head of a chat orders it by priority, then by `id`.** A more urgent message goes
-  before the less urgent ones of its chat ([`outbox.md`](./outbox.md), "Tables"), so two calls
-  that depend on each other, a message and its edit, are pushed with one priority, or the later
-  one can go out first. The queries that read the head are printed by
-  `git grep -n 'ORDER BY priority, id' -- src test migrations`. One ordered by `id` alone disagrees with the pull: a copy
-  from it puts the chat in the wrong turn, and a load-test fill or churn from it measures heads the
-  pull does not take. `test/telegram/outbox/outbox-store.spec.ts` catches a head by `id` in the
-  pull and in the copy; nothing checks the lookups of `test/load/` or the priority of calls that
-  depend on each other.
+- **The messages of an outbox chat keep their order only within one priority, and every query that
+  reads the head of a chat orders it by priority, then by `id`.** A more urgent message goes before
+  the less urgent ones of its chat ([`outbox.md`](./outbox.md), "Tables"), so two calls that depend
+  on each other, a message and its edit, are pushed with one priority, or the later one can go out
+  first. The queries that read the head are printed by
+  `git grep -n 'ORDER BY priority, id' -- src test migrations`. One ordered by `id` alone disagrees
+  with the pull: a copy from it puts the chat in the wrong turn, and a load-test fill or churn from
+  it measures heads the pull does not take.
+  `test/telegram/outbox/outbox-store.spec.ts` catches a head by `id` in the pull and in the copy;
+  nothing checks the lookups of `test/load/` or the priority of calls that depend on each other.
 - **A write that moves the head of an outbox chat or makes the chat `ready` sets
   `head_priority` of the chat row from its head**, as `OutboxStore.setChatState()` and the
   update of the chats in `pushBatch()` do, the latter for an `idle` chat it makes `ready` and for a
