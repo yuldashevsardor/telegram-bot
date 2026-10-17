@@ -144,14 +144,24 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   (same file, "Pull"). The spec lines up only `push()` against `markAsDone()` and
   `skipBlockedChat()`: a new path that changes a chat state outside `complete()` is checked by
   nothing.
+- **The messages of an outbox chat keep their order only within one priority, and every query
+  that reads the head of a chat orders it by priority, then by `id`.** A more urgent message goes
+  before the less urgent ones of its chat ([`outbox.md`](./outbox.md), "Tables"), so two calls
+  that depend on each other, a message and its edit, are pushed with one priority, or the later
+  one can go out first. The head is read by the pull, by `OutboxStore.headPrioritySubquery()` for
+  the copy below and by the lookups of `test/load/`. One ordered by `id` alone disagrees with the
+  pull: a copy from it puts the chat in the wrong turn, and a load-test fill or churn from it
+  measures heads the pull does not take. Nothing checks either.
 - **A write that moves the head of an outbox chat or makes the chat `ready` sets
-  `head_priority` of the chat row from its head**, as `OutboxStore.setChatState()` and the
-  `idle` → `ready` update of `pushBatch()` do. The pull orders the `ready` chats by the copy
+  `head_priority` of the chat row from its head**, as `OutboxStore.setChatState()` and the two
+  updates of the chats in `pushBatch()` do: of an `idle` chat it makes `ready`, and of a `ready`
+  one a more urgent message moves the head of. The pull orders the `ready` chats by the copy
   alone, so a stale one sends the chat in the wrong turn among the priorities, silently: a reply
   to a user waits behind bulk messages, or bulk messages overtake it
   ([`outbox.md`](./outbox.md), "Tables"). `test/telegram/outbox/outbox-store.spec.ts` pins the
-  completion and the retry of a blocked chat, each with the new head more and less urgent than
-  another chat; a new path that moves the head outside `setChatState()` is checked by nothing.
+  push of a more urgent message into a `ready` chat, the completion and the retry of a blocked
+  chat, the latter two each with the new head more and less urgent than another chat; a new path
+  that moves the head outside these is checked by nothing.
 - **A statement that locks the bot row (`telegram_bot_limits`) takes it before any other row lock
   and holds no other row lock while it waits**, as `OutboxStore.pull()` and `pause()` do, each in
   one statement. Otherwise the wait of a pull for the row can close a lock cycle; how is in
@@ -175,7 +185,7 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   recovery").
 - **A call is released on stop only once it has settled.** `OutboxLeaseReleaser.releaseOnStop()`
   makes the chat `ready` at once, so a call of the stopping node still on its way can reach Telegram
-  after the next message of the chat, sent by another node: the order inside the chat breaks.
+  after the next message of the chat, sent by another node: the order of the chat breaks.
   `OutboxMessageProcessor` releases only from the `catch` of the call, once it has thrown; a new
   caller of the release is checked by nothing ([`outbox.md`](./outbox.md), "Release on stop").
 - **`OutboxMessageSource` serves one generator: the runner of a node takes every message from

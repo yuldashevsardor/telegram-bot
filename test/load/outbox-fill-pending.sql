@@ -117,7 +117,7 @@ SELECT layout_chat.chat_id,
            FROM telegram_outbox
            WHERE telegram_outbox.chat_id = layout_chat.chat_id
              AND status IN ('pending', 'processing')
-           ORDER BY id
+           ORDER BY priority, id
            LIMIT 1
        )
 FROM (

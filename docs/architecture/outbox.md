@@ -1,7 +1,7 @@
 # Outbox (telegram/outbox/)
 
-Outgoing Bot API calls become rows in PostgreSQL, any node sends them, the order inside a chat holds
-across nodes, and a node that dies loses nothing (the plan is epic
+Outgoing Bot API calls become rows in PostgreSQL, any node sends them, the order of the messages of
+one priority inside a chat holds across nodes, and a node that dies loses nothing (the plan is epic
 [#618](https://github.com/yuldashevsardor/telegram-bot/issues/618)). The Bot API calls to a chat go
 into it through `OutboxTransformer` (`transformer/outbox-transformer.ts`), which pushes a call and
 gives the caller its outcome; which calls it lets past is in [`bot.md`](./bot.md), "The outbox
@@ -38,8 +38,9 @@ migrations that replace a comment are listed by
 The indexes are picked by the plans of the load test (see "Load test"), not ahead of the queries.
 Besides the primary keys there are three of `telegram_outbox` and two of `telegram_outbox_chats`.
 `1791153270752_telegram-outbox-head-index.ts` adds `telegram_outbox_active_chat_id_idx`, on
-`(chat_id, id)` of the active messages: the head of a chat for the pull, for `releaseChat()` and
-for the lease recovery is its first entry.
+`(chat_id, id)` of the active messages, and `1792022400000_telegram-outbox-head-by-priority.ts`
+rebuilds it on `(chat_id, priority, id)`: the head of a chat for the pull and for `releaseChat()` is
+its first entry, and the lease recovery walks the entries of the chat to its `processing` one.
 Its `status` is in the predicate, so no update of a message is HOT, and a `fillfactor` would buy
 nothing; every message leaves two dead entries in it, which the head lookup walks until a vacuum
 cleans them. So the same migration caps the dead rows that bring autovacuum to `telegram_outbox`,
@@ -85,23 +86,30 @@ keeps it single. Without the row `pull()`, `pause()` and `readBacklog()` throw
 `BotLimitsRowMissing`: the pull would otherwise answer as if no chat were ready, the pause would
 change nothing, and the status line would report no pause.
 
-The **head** of a chat is its first message by `id` among the active statuses (`pending`,
-`processing`). The priority of a chat is the priority of its head. The chat row keeps a copy of it,
-`head_priority`, added by the migration of the pull indexes, NULL for a chat without an active
-message: the pull orders the `ready` chats by it, so it reads them in the order of its index and
-looks up the heads of its batch alone. Read from the heads, the order cost a lookup of the head of
-every `ready` chat and a sort of them all before the first was taken: 228 ms a batch of 30 among
-100 000 ready chats ([`outbox-load-test.md`](./outbox-load-test.md)).
+The **head** of a chat is its first message by priority, then by `id`, among the active statuses
+(`pending`, `processing`): a more urgent message goes before the less urgent ones of its chat, a
+reply before the bulk messages pushed into the chat earlier, and the messages of one priority go in
+the order of their push. By `id` alone, a reply waited behind thousands of bulk messages of its own
+chat ([`real-bot-load-test.md`](./real-bot-load-test.md), "A reply behind the bulk messages"). Two
+messages of one chat keep their order only within one priority, so a caller whose calls depend on
+each other pushes them with one priority. The priority of a chat is the priority of its head. The
+chat row keeps a copy of it, `head_priority`, added by the migration of the pull indexes, NULL for a
+chat without an active message: the pull orders the `ready` chats by it, so it reads them in the
+order of its index and looks up the heads of its batch alone. Read from the heads, the order cost a
+lookup of the head of every `ready` chat and a sort of them all before the first was taken: 228 ms a
+batch of 30 among 100 000 ready chats ([`outbox-load-test.md`](./outbox-load-test.md)).
 
 The copy is right only while every write that moves the head reads it again
 ([invariant](./invariants.md)). The head moves when a message stops being active or becomes active
 again, and every such write ends in `setChatState()`, which sets `head_priority` from the head in
-the same statement as the state: the completions, `retry`, the unblocks. A push makes an `idle`
-chat `ready` with the copy of its first message; in a chat with a head it puts its messages behind
-it, so the copy stays. The pull keeps the head, the message only goes to `processing`. A copy
-the store writes can be stale in one case: a push into a `blocked` chat with no active message
-gives it a head and leaves the copy NULL, and only the unblock, through `setChatState()`, reads
-it. A stale copy breaks nothing loud: the chat is pulled in the wrong turn among the priorities.
+the same statement as the state: the completions, `retry`, the unblocks. A push makes an `idle` chat
+`ready` with the copy of its head, and a push of a more urgent message into a `ready` chat moves its
+head and reads the copy again. A push into a `processing` chat leaves the copy to the completion,
+which reads it in `setChatState()`. The pull keeps the head, the message only goes to `processing`.
+A copy the store writes can be stale in one case: a push into a `blocked` chat with no active
+message gives it a head and leaves the copy NULL, and only the unblock, through `setChatState()`,
+reads it. A stale copy breaks nothing loud: the chat is pulled in the wrong turn among the
+priorities.
 
 A `failed` message is not active. The status says what happened to the message, the state of the
 chat says whether the chat waits: a failed message that blocks its chat holds it through `blocked`,
@@ -111,7 +119,8 @@ message that did not block its chat goes out again only if its chat is made `rea
 `head_priority` set from its head, and its chat row is inserted first if the cleanup has removed it:
 the chat of such a message may be `idle`, and no pull reaches a message without a `ready` chat row
 (see "Cleanup"). The message put back is older than the rest of its chat, so it becomes the head
-even of a `ready` chat, and a copy not set again is stale like the one above.
+even of a `ready` chat unless a more urgent message waits there, and a copy not set again is stale
+like the one above.
 
 ## Chat states
 
@@ -159,9 +168,11 @@ no pull reaches them. The spec has the removal take the chat while a push waits 
    same order;
 2. the messages go in as one `jsonb` array and are inserted `ORDER BY` their position in it, so
    the ids grow in the order of the input;
-3. every `idle` chat of the batch becomes `ready`; a chat in any other state already has an older
-   head;
-4. `pg_notify` on `telegram_outbox_ready` with an empty payload, delivered on commit, so that an
+3. every `idle` chat of the batch becomes `ready`; a chat in any other state already has a head;
+4. every `ready` chat of the batch whose head is now a message of the batch, more urgent than the
+   head before, gets `head_priority` from its head (see "Tables"). Only a copy that changes is
+   written: every update of a `ready` chat leaves a dead entry in the pull index;
+5. `pg_notify` on `telegram_outbox_ready` with an empty payload, delivered on commit, so that an
    idle sender wakes up at once. `OutboxMessageSource` listens on it once the runner asks it
    for a message (see "The message source").
 
@@ -548,13 +559,14 @@ error, `null` for `done`, and `finished_at` of `now()`. Both times are the datab
 written into `attempts` before the completion, so a node that dies while it sends leaves no trace
 of the attempt; the recovery of its lease appends one (see "Lease recovery").
 
-A retried message stays the head of its chat, so its chat waits with it: the messages behind it
-are not pulled before it, while the other chats are. `retry()` throws `InvalidRetryDelay` on the
-delays that `pause()` refuses (see "Limits"), for the same reasons: an infinite delay would hold
-the chat for ever, and one above `Number.MAX_SAFE_INTEGER` ms overflows the interval. It is the
-contract of the store for any caller. The handler passes it the `retry_after` of a 429 of a private
-chat (see "Outcomes"), which the classifier has already made finite and positive, so a 429 reaches
-the refusal only with a `retry_after` above some 9e12 s.
+A retried message stays the head of its chat, unless a more urgent message was pushed into the chat
+during its attempt, so its chat waits with it: the messages of its priority behind it are not pulled
+before it, while the other chats are. `retry()` throws `InvalidRetryDelay` on the delays that
+`pause()` refuses (see "Limits"), for the same reasons: an infinite delay would hold the chat for
+ever, and one above `Number.MAX_SAFE_INTEGER` ms overflows the interval. It is the contract of the
+store for any caller. The handler passes it the `retry_after` of a 429 of a private chat (see
+"Outcomes"), which the classifier has already made finite and positive, so a 429 reaches the refusal
+only with a `retry_after` above some 9e12 s.
 
 Every update of the store sets `updated_at` itself, to `now()`, and the pull to the time of the
 pull; there is no trigger.
@@ -565,7 +577,8 @@ A chat that a failed message blocked (see "Tables") waits for a person. Two targ
 `Makefile` unblock it, each for one chat, a negative id of a group included:
 
 - `make outbox-retry chat=<id>` is `OutboxStore.retryBlockedChat()`: the failed message goes back to
-  `pending` with its attempts kept, and its `id` makes it the head again; the chat is `ready` at
+  `pending` with its attempts kept, and its `id` puts it before the other messages of its priority;
+  the chat is `ready` at
   once, and the call notifies `telegram_outbox_ready`, as every completion that leaves a chat
   `ready` does (see "Completions"). The message blocks the chat
   again on its next transient failure, with no retry, since its attempts still count (see
@@ -941,10 +954,11 @@ it on a timer of every node (see "Maintenance").
 
 1. `OutboxStore.findExpiredLeases()` reads every chat whose `locked_until` is behind `now()`, with
    its `processing` message, as a lease under the chat's own `lock_token`. It reads without a lock
-   and leaves the lease as it is. The message is found as the head of the chat, the first active
-   message by `id`, and taken only while its status is `processing`: a leased chat holds one such
-   message, and it is the head (see "Pull"). The lookup reads one entry of the head index a chat,
-   while a search by the status read every active message of the chat
+   and leaves the lease as it is. A leased chat holds one `processing` message, the head the pull
+   took (see "Pull"), but a more urgent message pushed during the lease becomes the head before it.
+   So the lookup walks the head index of the chat in its order and stops at the first `processing`
+   entry: it reads the entries of the more urgent messages pushed during the lease and the one of
+   the message. A search by the status without the `LIMIT` read every active message of the chat
    ([`outbox-load-test.md`](./outbox-load-test.md), "The lease recovery").
 2. The recovery completes each lease as a transient failure through
    `OutboxLeaseRetrier.retryOrBlock()`: the message goes back to `pending` with the retry delay of

@@ -26,7 +26,7 @@ BEGIN
         FROM telegram_outbox
         WHERE chat_id = churn_chat_id
           AND status IN ('pending', 'processing')
-        ORDER BY id
+        ORDER BY priority, id
         LIMIT 1;
 
         IF head_id IS NULL THEN
@@ -52,5 +52,5 @@ SELECT id
 FROM telegram_outbox
 WHERE chat_id = :chat
   AND status IN ('pending', 'processing')
-ORDER BY id
+ORDER BY priority, id
 LIMIT 1;

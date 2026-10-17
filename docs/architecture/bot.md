@@ -141,9 +141,9 @@ outcome:
 
 The wait ends with `OutboxResultTimeout` after `OUTBOX_RESULT_TIMEOUT`, and the message stays
 queued and may still go out. That is what every call to a chat that a failed message has blocked
-ends in: the call is pushed behind the blocked head, which holds the chat until it is unblocked by
-hand ([`outbox.md`](./outbox.md), "Tables"). The signal of the caller does not reach a queued
-call: the runner sends the message with a signal of its own.
+ends in: the failed message holds the chat until it is unblocked by hand
+([`outbox.md`](./outbox.md), "Tables"). The signal of the caller does not reach a queued call: the
+runner sends the message with a signal of its own.
 
 These calls go straight to Telegram, past the outbox:
 
@@ -188,8 +188,8 @@ three hardcoded chat IDs, the chats in turn. It is visible in the command menu t
 only when sent from one of the three chats: from any other chat `BulkMessagesCommand.handle` returns
 without pushing or answering. It pushes the calls straight into `OutboxStore.pushBatch()`, past the
 transformer, so that they get `OutboxPriority.Bulk`, and it waits for none of them to be sent. The
-priority orders the chats, not the messages of a chat: the three chats yield to the chats with calls
-of the bot, while a reply in one of them waits for the bulk messages pushed into it before. The
+three chats yield to the chats with calls of the bot, and a reply in one of them goes before the
+bulk messages pushed into it before ([`outbox.md`](./outbox.md), "Tables", the head). The
 batches are of 1000: one batch is one transaction with its messages in one `jsonb` parameter. The
 command has no `try/catch`: a batch that fails rejects it, the inbox picks the outcome of the update
 by the error ([`inbox.md`](./inbox.md), "Failures"), and the batches pushed before it stay queued; a

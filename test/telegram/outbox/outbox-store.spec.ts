@@ -227,13 +227,23 @@ describe("OutboxStore", function () {
         expect((await store.pull(1, WORKER)).messages).to.have.lengthOf(1);
     });
 
-    // The priority of a chat is the priority of its head: a later, more urgent message of the same
-    // chat does not move the chat ahead.
-    it("pulls the chats by the priority of their head, not of their latest message", async function () {
-        await store.pushBatch([message(CHAT, "head", 300), message(CHAT, "urgent", 100)]);
-        const other = await store.push(message(OTHER_CHAT, "middle", 200));
+    // The reply of the load test against the real Telegram (#987): it waited behind thousands of
+    // bulk messages of its own chat.
+    it("gives out a reply pushed behind the bulk messages of its own chat before them", async function () {
+        const bulk = await store.pushBatch([message(CHAT, "bulk 1", 200), message(CHAT, "bulk 2", 200)]);
+        const reply = await store.push(message(CHAT, "reply", 100));
 
-        expect((await store.pull(1, WORKER)).messages.map(({ id }) => id)).to.deep.equal([other]);
+        expect(await drain(store)).to.deep.equal([reply, ...bulk]);
+    });
+
+    // The push of a more urgent message into a ready chat sets the copy of the head's priority
+    // again: with the copy of the bulk message the chat would go behind the other chat.
+    it("pulls a ready chat by a more urgent message pushed behind its head", async function () {
+        await store.push(message(CHAT, "bulk", 300));
+        await store.push(message(OTHER_CHAT, "middle", 200));
+        const reply = await store.push(message(CHAT, "reply", 100));
+
+        expect((await store.pull(1, WORKER)).messages.map(({ id }) => id)).to.deep.equal([reply]);
     });
 
     // The chat row keeps a copy of the priority of its head, and the pull orders by the copy. The
@@ -245,21 +255,29 @@ describe("OutboxStore", function () {
         { headPriority: 300, nextPriority: 100, pulledFirst: CHAT },
     ]) {
         it(`pulls a chat by the priority ${nextPriority} of its next message once its head of ${headPriority} is done`, async function () {
-            await store.pushBatch([message(CHAT, "head", headPriority), message(CHAT, "next", nextPriority)]);
-            await store.markAsDone(await pullOne(), RESPONSE);
+            await store.push(message(CHAT, "head", headPriority));
+            // Pushed into a processing chat, which keeps its copy until the completion.
+            const pulled = await pullOne();
+            await store.push(message(CHAT, "next", nextPriority));
+            await store.markAsDone(pulled, RESPONSE);
             await store.push(message(OTHER_CHAT, "middle", OTHER_CHAT_PRIORITY));
 
             expect((await store.pull(1, WORKER)).messages.map(({ chatId }) => chatId)).to.deep.equal([pulledFirst]);
         });
     }
 
+    // The message behind is pushed into the blocked chat, which keeps its copy NULL until the
+    // unblock. The failed message is the head again in the first case and the message behind is in
+    // the second: a copy left NULL fails the first, a head read by id the second.
     for (const { failedPriority, behindPriority, pulledFirst } of [
-        { failedPriority: 300, behindPriority: 100, pulledFirst: OTHER_CHAT },
         { failedPriority: 100, behindPriority: 300, pulledFirst: CHAT },
+        { failedPriority: 300, behindPriority: 100, pulledFirst: CHAT },
+        { failedPriority: 300, behindPriority: 400, pulledFirst: OTHER_CHAT },
     ]) {
-        it(`pulls a retried blocked chat by the priority ${failedPriority} of the failed message, its head again`, async function () {
-            await store.pushBatch([message(CHAT, "failed", failedPriority), message(CHAT, "behind", behindPriority)]);
+        it(`pulls a retried blocked chat by its most urgent message, failed of ${failedPriority} and behind of ${behindPriority}`, async function () {
+            await store.push(message(CHAT, "failed", failedPriority));
             await store.markAsFailedAndBlockChat(await pullOne(), UNEXPECTED);
+            await store.push(message(CHAT, "behind", behindPriority));
             await store.push(message(OTHER_CHAT, "middle", OTHER_CHAT_PRIORITY));
 
             await store.retryBlockedChat(CHAT);
@@ -1071,6 +1089,16 @@ describe("OutboxStore", function () {
             ]);
         });
 
+        // The reply sorts before the processing message in the head index.
+        it("finds the processing message of an expired lease behind a more urgent message pushed since", async function () {
+            await store.push(message(CHAT, "bulk", 200));
+            const pulled = await pullOne();
+            await store.push(message(CHAT, "reply", 100));
+            await sleep(SHORT_LEASE_MS * 2);
+
+            expect((await store.findExpiredLeases()).map(({ id }) => id)).to.deep.equal([pulled.id]);
+        });
+
         it("leaves alone a lease that has not passed and a chat that is not leased", async function () {
             await store.push(message(CHAT, "expired"));
             const expired = await pullOne();
@@ -1083,7 +1111,7 @@ describe("OutboxStore", function () {
             expect((await store.findExpiredLeases()).map(({ id }) => id)).to.deep.equal([expired.id]);
         });
 
-        it("gives no lease for an expired chat whose head is not processing", async function () {
+        it("gives no lease for an expired chat with no processing message", async function () {
             await store.push(message(CHAT, "text"));
             const pulled = await pullOne();
             await database.sql`UPDATE telegram_outbox SET status = ${OutboxStatus.Pending} WHERE id = ${pulled.id}`;
