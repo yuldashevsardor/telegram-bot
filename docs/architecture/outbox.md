@@ -312,11 +312,20 @@ the private limit is a window of `interval` that takes `number` messages.
     a lease that passed or a retry delay before that message got through opens the window of
     Telegram that much later than the pull did, and the next window of the outbox starts while that
     of Telegram is still open. The accepted price of both is the 429, which holds back its chat for
-    its `retry_after` (see "Outcomes"); each needs a late message and a burst after it. The window
-    rests on that of Telegram being fixed, measured on one bot on one day; were it sliding, the
-    burst after a window would get a 429, which still holds back its chat. A retry counts too: its
-    next pull is a pull of the window, and so does every call to a private chat that goes through
-    the outbox, a chat action included, though Telegram may count messages alone.
+    its `retry_after` (see "Outcomes"); each needs a late message and a burst after it. The 429
+    leaves the window of the outbox as it is, so while a backlog to the chat lasts it can recur over
+    a run of windows: the chat resumes inside the same window of the outbox, fills it into the next
+    window of Telegram, and the next window of the outbox starts while that of Telegram is open
+    again. Each 429 of the run comes `101 - number` pulls later in its window than the last: the
+    call of the 429 takes a slot of the outbox window and none of Telegram's, and the window of
+    Telegram takes `100 - number` messages more than that of the outbox. So the run lasts at most
+    some `number / (101 - number)` windows, even while the backlog lasts: some 50 at the defaults,
+    about 4 hours, while at a `number` of 101 or more it never ends. A window of the run delivers
+    `number - 1` messages: the call that got the 429 is a pull of it. The window rests on that of
+    Telegram being fixed, measured on one bot on one day; were it sliding, the burst after a window
+    would get a 429, which still holds back its chat. A retry counts too: its next pull is a pull of
+    the window, and so does every call to a private chat that goes through the outbox, a chat action
+    included, though Telegram may count messages alone.
 
     A full window holds every message of its chat until it ends, a reply included: a reply behind a
     window filled by bulk messages waits up to `interval`, past `OUTBOX_RESULT_TIMEOUT`, so its
@@ -563,10 +572,10 @@ A retried message stays the head of its chat, unless a more urgent message was p
 during its attempt, so its chat waits with it: the messages of its priority behind it are not pulled
 before it, while the other chats are. `retry()` throws `InvalidRetryDelay` on the delays that
 `pause()` refuses (see "Limits"), for the same reasons: an infinite delay would hold the chat for
-ever, and one above `Number.MAX_SAFE_INTEGER` ms overflows the interval. It is the contract of the
-store for any caller. The handler passes it the `retry_after` of a 429 of a private chat (see
-"Outcomes"), which the classifier has already made finite and positive, so a 429 reaches the refusal
-only with a `retry_after` above some 9e12 s.
+ever, and `1e17` ms overflows the interval. It is the contract of the store for any caller. The
+handler passes it the `retry_after` of a 429 of a private chat (see "Outcomes"), which the
+classifier has already made finite and positive, so a 429 reaches the refusal only with a
+`retry_after` above some 9e12 s.
 
 Every update of the store sets `updated_at` itself, to `now()`, and the pull to the time of the
 pull; there is no trigger.
@@ -578,11 +587,9 @@ A chat that a failed message blocked (see "Tables") waits for a person. Two targ
 
 - `make outbox-retry chat=<id>` is `OutboxStore.retryBlockedChat()`: the failed message goes back to
   `pending` with its attempts kept, and its `id` puts it before the other messages of its priority;
-  the chat is `ready` at
-  once, and the call notifies `telegram_outbox_ready`, as every completion that leaves a chat
-  `ready` does (see "Completions"). The message blocks the chat
-  again on its next transient failure, with no retry, since its attempts still count (see
-  "Outcomes");
+  the chat is `ready` at once, and the call notifies `telegram_outbox_ready`, as every completion
+  that leaves a chat `ready` does (see "Completions"). The message blocks the chat again on its next
+  transient failure, with no retry, since its attempts still count (see "Outcomes");
 - `make outbox-skip chat=<id>` is `OutboxStore.skipBlockedChat()`: the failed message becomes
   `skipped`, with `finished_at` set so that the cleanup counts its retention from it (see
   "Cleanup"), and the call notifies `telegram_outbox_finished` (see "Waiting for the result"). The
