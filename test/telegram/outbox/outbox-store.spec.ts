@@ -246,6 +246,17 @@ describe("OutboxStore", function () {
         expect((await store.pull(1, WORKER)).messages.map(({ id }) => id)).to.deep.equal([reply]);
     });
 
+    // Every update of a ready chat leaves a dead entry in the pull index, so a push that does not
+    // move the head writes no new version of the chat row: its updated_at stays.
+    it("leaves the row of a ready chat as it is on a push behind its head", async function () {
+        await store.push(message(CHAT, "head", 100));
+        const before = await chatUpdatedAt(CHAT);
+
+        await store.push(message(CHAT, "behind", 300));
+
+        expect(await chatUpdatedAt(CHAT)).to.equal(before);
+    });
+
     // The chat row keeps a copy of the priority of its head, and the pull orders by the copy. The
     // head that takes over is less urgent than the other chat in one case and more urgent in the
     // other: a copy left as it was fails the one, a copy lost to NULL, which sorts last, the other.
@@ -2195,6 +2206,17 @@ describe("OutboxStore", function () {
         `;
 
         return row;
+    }
+
+    // As text: a Date keeps milliseconds, and two pushes can fall into one.
+    async function chatUpdatedAt(chatId: number): Promise<string | undefined> {
+        const [row] = await database.sql<{ updated_at: string }[]>`
+            SELECT updated_at::text
+            FROM telegram_outbox_chats
+            WHERE chat_id = ${chatId}
+        `;
+
+        return row?.updated_at;
     }
 
     async function expectNotLeased(lease: OutboxLease): Promise<void> {

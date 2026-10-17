@@ -38,7 +38,7 @@ migrations that replace a comment are listed by
 The indexes are picked by the plans of the load test (see "Load test"), not ahead of the queries.
 Besides the primary keys there are three of `telegram_outbox` and two of `telegram_outbox_chats`.
 `1791153270752_telegram-outbox-head-index.ts` adds `telegram_outbox_active_chat_id_idx`, on
-`(chat_id, id)` of the active messages, and `1792022400000_telegram-outbox-head-by-priority.ts`
+`(chat_id, id)` of the active messages, and `1792281600000_telegram-outbox-head-by-priority.ts`
 rebuilds it on `(chat_id, priority, id)`: the head of a chat for the pull and for `releaseChat()` is
 its first entry, and the lease recovery walks the entries of the chat to its `processing` one.
 Its `status` is in the predicate, so no update of a message is HOT, and a `fillfactor` would buy
@@ -106,10 +106,12 @@ the same statement as the state: the completions, `retry`, the unblocks. A push 
 `ready` with the copy of its head, and a push of a more urgent message into a `ready` chat moves its
 head and reads the copy again. A push into a `processing` chat leaves the copy to the completion,
 which reads it in `setChatState()`. The pull keeps the head, the message only goes to `processing`.
-A copy the store writes can be stale in one case: a push into a `blocked` chat with no active
-message gives it a head and leaves the copy NULL, and only the unblock, through `setChatState()`,
-reads it. A stale copy breaks nothing loud: the chat is pulled in the wrong turn among the
-priorities.
+A push into a `processing` or a `blocked` chat that moves its head leaves the copy stale: a more
+urgent message, or the first active message of a `blocked` chat that had none, whose copy is NULL.
+The pull orders the `ready` chats alone, and such a chat becomes `ready` only through
+`setChatState()` of the completion or of the unblock, which reads the copy, so the store never
+leaves a stale copy on a `ready` chat. A stale copy breaks nothing loud: the chat is pulled in the
+wrong turn among the priorities.
 
 A `failed` message is not active. The status says what happened to the message, the state of the
 chat says whether the chat waits: a failed message that blocks its chat holds it through `blocked`,
@@ -226,6 +228,11 @@ inside its window, and its completion must have committed between the start of t
 its lock of the chat. That gap holds the wait for the bot row as well, and the time of the pull
 comes after the wait: a wait longer than the chat limit is enough for a chat pulled and completed
 during it, and the slot it takes is one the budget of the waited pull counted.
+
+A more urgent message committed into a `ready` chat after the snapshot misses the pull the same
+way: the lock passes the chat, and the head read with it is the one before the push, still
+`pending`, so it goes out, and the new message waits behind it for one send. Nothing is lost or
+sent twice, and the next pull takes the new message.
 
 The check of step 3 compares the status of the head with the one step 2 read, not with `pending`,
 though step 2 takes `pending` heads alone. Written as `status = 'pending'`, the check lets the

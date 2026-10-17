@@ -923,7 +923,7 @@ The proposals of the run: the pull
 
 The head of a chat became its first active message by priority, then by `id`
 ([#987](https://github.com/yuldashevsardor/telegram-bot/issues/987)), and the head index went from
-`(chat_id, id)` to `(chat_id, priority, id)`, `1792022400000_telegram-outbox-head-by-priority.ts`.
+`(chat_id, id)` to `(chat_id, priority, id)`, `1792281600000_telegram-outbox-head-by-priority.ts`.
 The run compares the two on one fill: the store and the migrations of `main` at `f0251d65` first,
 then the code of #987, its migration applied to the same volume.
 
@@ -974,13 +974,13 @@ those of the hot chat layout of the new code: `pull(1)` 1.8 ms, `pull(30)` 7.6,
 
 ### The lease recovery and the push
 
-The lookup of `findExpiredLeases()` was probed in a transaction rolled back after it: the first bulk
-message of chat 1 put to `processing` and its chat leased with an expired lease, then 100 replies
-pushed into the chat. The lookup walked the 100 entries of the replies to the `processing` one, an
-index-only scan of 101 entries, 101 heap fetches and 8 buffers, 0.03 ms; the whole statement 1.1 ms,
-nearly all of it the seq scan of the chats. The update of `pushBatch()` that sets the copy of a
-`ready` chat, run for chat 1 with a reply as its head, wrote nothing: the copy did not change, and
-the statement took 0.05 ms with one head lookup.
+The statement of `findExpiredLeases()`, as the store sends it with the lease duration of `.env`, was
+probed in a transaction rolled back after it: the first bulk message of chat 1 put to `processing`
+and its chat leased with an expired lease, then 100 replies pushed into the chat. The lookup walked
+the 100 entries of the replies to the `processing` one, an index scan of 101 entries that read 6
+buffers, 0.03 ms; the whole statement 6.4 ms, nearly all of it the seq scan of the chats. The update
+of `pushBatch()` that sets the copy of a `ready` chat, run for chat 1 with a reply as its head,
+wrote nothing: the copy did not change, and the statement took 0.05 ms with one head lookup.
 
 The head index built afresh over the 300 000 active messages of that layout took 12 MB in the form
 of `(chat_id, id)` and 14 MB in that of `(chat_id, priority, id)`; the index in use took 114 MB, the

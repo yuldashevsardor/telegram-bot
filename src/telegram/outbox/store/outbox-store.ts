@@ -389,13 +389,13 @@ export class OutboxStore {
     // lease change nothing (docs/architecture/outbox.md, "Lease recovery").
     public async findExpiredLeases(): Promise<ExpiredOutboxLease[]> {
         const rows = await this.sql<ExpiredOutboxLeaseRow[]>`
-            SELECT head.id,
+            SELECT leased.id,
                    chats.lock_token,
                    -- As jsonb writes a timestamp, the form of started_at the pull gives out: the
                    -- attempts of a message keep one form.
                    to_jsonb(chats.locked_until - ${this.leaseDurationMs}::double precision * interval '1 millisecond')
                        #>> '{}' AS started_at,
-                   jsonb_array_length(head.attempts) AS earlier_attempts
+                   jsonb_array_length(leased.attempts) AS earlier_attempts
             FROM telegram_outbox_chats AS chats
             -- The processing message was the head when it was pulled, but a more urgent message pushed
             -- since sorts before it, so the lookup walks the head index of the chat to the first
@@ -409,7 +409,7 @@ export class OutboxStore {
                   AND status = ${OutboxStatus.Processing}
                 ORDER BY priority, id
                 LIMIT 1
-            ) AS head
+            ) AS leased
             -- Only a pulled chat is leased: a completion clears the lease.
             WHERE chats.locked_until <= now()
             ORDER BY chats.locked_until, chats.chat_id

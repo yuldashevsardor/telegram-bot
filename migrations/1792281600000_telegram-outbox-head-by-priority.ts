@@ -38,7 +38,7 @@ export async function up(pgm: MigrationBuilder): Promise<void> {
             SELECT priority
             FROM ${outbox}
             WHERE chat_id = ${chats}.chat_id
-              AND status IN ('pending', 'processing')
+              AND ${activeStatusesPredicate}
             ORDER BY priority, id
             LIMIT 1
         )
@@ -64,7 +64,7 @@ export async function down(pgm: MigrationBuilder): Promise<void> {
             SELECT priority
             FROM ${outbox}
             WHERE chat_id = ${chats}.chat_id
-              AND status IN ('pending', 'processing')
+              AND ${activeStatusesPredicate}
             ORDER BY id
             LIMIT 1
         )
