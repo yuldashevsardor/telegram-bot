@@ -1,9 +1,9 @@
 import type { ColumnDefinitions, MigrationBuilder } from "node-pg-migrate";
 import { commonShorthands } from "./common/utils";
 
-// The pull counts every pull of the window, a retry and a chat action included
-// (docs/architecture/outbox.md, "Limits"): the comment of window_sent_count called them the messages
-// pulled, which reads as the messages that reached Telegram.
+// window_sent_count counts every pull of the window, a retry and a chat action included
+// (docs/architecture/outbox.md, "Limits"): its comment called them the messages pulled, which reads
+// as the messages that reached Telegram.
 
 const table = "telegram_outbox_chats";
 const column = "window_sent_count";

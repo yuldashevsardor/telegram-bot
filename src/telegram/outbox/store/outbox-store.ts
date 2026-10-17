@@ -176,9 +176,9 @@ export class OutboxStore {
             ),
             budget AS (
                 -- The slots of the common limit come due one per cooldown from next_send_at, and an
-                -- idle bot saves up no more than number of them. The config bounds number only by
-                -- Number.MAX_SAFE_INTEGER, far above 2^31 - 1, so it is not cast to integer, which
-                -- would overflow. The budget is at most limit, which fits a bigint.
+                -- idle bot saves up no more than number of them. The config bounds number from above
+                -- only by Number.MAX_SAFE_INTEGER, far past 2^31 - 1, so it is not cast to integer,
+                -- which would overflow. The budget is at most limit, which fits a bigint.
                 SELECT least(
                            ${limit}::bigint,
                            ${commonLimit.number}::double precision,
@@ -253,9 +253,10 @@ export class OutboxStore {
             ),
             moved AS (
                 -- A group waits its cooldown. A private chat is pulled again at once until its window
-                -- holds number messages, then at the end of the window. The config bounds number only
-                -- by Number.MAX_SAFE_INTEGER, far above 2^31 - 1, so it is not cast to integer; the
-                -- count it is compared with is an integer all the same, since no window gets 2^31 pulls.
+                -- holds number messages, then at the end of the window. The config bounds number from
+                -- above only by Number.MAX_SAFE_INTEGER, far past 2^31 - 1, so it is not cast to
+                -- integer; the count it is compared with is an integer all the same, since no window
+                -- gets 2^31 pulls.
                 UPDATE telegram_outbox_chats
                 SET state = ${OutboxChatState.Processing},
                     window_started_at = windows.window_started_at,
