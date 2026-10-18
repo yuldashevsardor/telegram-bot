@@ -170,7 +170,7 @@ describe("FileHelper.createDatedFilePath", function () {
         await fs.rm(basePath, { recursive: true, force: true });
     });
 
-    it("gives a free path in the directory of the date, with a lower-case random name and the extension", async function () {
+    it("gives a path in the directory of the date, with a lower-case random name and the extension", async function () {
         const filePath = await FileHelper.createDatedFilePath(basePath, "woff2");
 
         // The directories of the year, the month and the day: the date itself is pinned by

@@ -24,8 +24,9 @@ export class SupportedFormats {
         return this.toSortedText(this.convertorFactory.getSupportedExtensions());
     }
 
-    // The formats a file is taken in, for a text that asks for a file or refuses one: a text listing
-    // a format that is only a target would name the very format it refuses.
+    // The formats a file is taken in, for the hint to a message that is not a file and the refusal
+    // of an unsupported file: a refusal listing a format that is only a target would name the very
+    // format it refuses. /start, /help and the description name every format, by toText().
     public toSourceText(): string {
         return this.toSortedText(this.convertorFactory.getSourceExtensions());
     }

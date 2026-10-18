@@ -16,6 +16,11 @@ const ME = { id: 1, is_bot: true, first_name: "Bot", username: "test_bot" } as U
 // The formats in the order of the customer journey.
 const ORDERED_EXTENSIONS = [Extension.TTF, Extension.OTF, Extension.WOFF, Extension.WOFF2, Extension.EOT, Extension.SVG];
 
+// The sources of the pair matrix: every format but EOT, which is only a target here. In the matrix
+// of today every format is a source, and the list of sources would equal the list of all formats:
+// with EOT left out a spec tells which of the two a reply took.
+const SOURCE_EXTENSIONS = ORDERED_EXTENSIONS.filter((extension) => extension !== Extension.EOT);
+
 // What a handler passed to ctx.reply() besides the text: the keyboard, the message replied to.
 export type ReplyOptions = Parameters<Context["reply"]>[1];
 
@@ -23,13 +28,12 @@ export type ReplyContext = { ctx: Context; replies: string[]; replyOptions: Repl
 
 export type HandlerRun = { ctx: Context; replies: string[]; replyOptions: ReplyOptions[]; isPassedOn: boolean };
 
-// The lists SupportedFormats gives for the pair matrix of today, complete: every format converts
-// into every other. toSourceText() alone leaves EOT out: in that matrix it equals toText(), and a
-// text of its own tells which of the two a reply took.
+// The lists SupportedFormats gives for a pair matrix where every format but EOT converts into every
+// other, and EOT is only a target.
 export const supportedFormats = {
     toText: (): string => "TTF, OTF, WOFF, WOFF2, EOT, SVG",
     toSourceText: (): string => "TTF, OTF, WOFF, WOFF2, SVG",
-    toSourceList: (): Extension[] => ORDERED_EXTENSIONS,
+    toSourceList: (): Extension[] => SOURCE_EXTENSIONS,
     toTargetList: (sourceExtension: Extension): Extension[] => ORDERED_EXTENSIONS.filter((extension) => extension !== sourceExtension),
 } as SupportedFormats;
 
