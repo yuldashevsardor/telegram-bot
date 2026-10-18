@@ -1,28 +1,15 @@
 import "reflect-metadata";
 import { expect } from "chai";
-import type { Animation, Document, Message, Sticker, Voice } from "@grammyjs/types";
-import { Composer } from "grammy";
-import type { Context } from "app/telegram/bot/bot.types";
-import type { SupportedFormats } from "app/telegram/supported-formats";
+import type { Animation, Document, Message, Sticker, Story, Voice } from "@grammyjs/types";
 import { NotAFileMiddleware } from "app/telegram/middleware/not-a-file/not-a-file.middleware";
 import type { Locale } from "app/telegram/locale/locale.types";
-import { replyContext } from "test/telegram/reply-context.helper";
-
-const supportedFormats = { toText: (): string => "TTF, OTF, WOFF, WOFF2, EOT, SVG" } as SupportedFormats;
+import type { HandlerRun } from "test/telegram/reply-context.helper";
+import { runHandler, supportedFormats } from "test/telegram/reply-context.helper";
 
 const DOCUMENT: Document = { file_id: "file-id", file_unique_id: "file-unique-id", file_name: "font.ttf" };
 
-async function run(content: Partial<Message>, locale?: Locale): Promise<{ replies: string[]; isPassedOn: boolean }> {
-    const { ctx, replies } = await replyContext(content, locale);
-    const composer = new Composer<Context>();
-    new NotAFileMiddleware(supportedFormats).setup(composer);
-    let isPassedOn = false;
-
-    await composer.middleware()(ctx, async () => {
-        isPassedOn = true;
-    });
-
-    return { replies: replies, isPassedOn: isPassedOn };
+function run(content: Partial<Message>, locale?: Locale): Promise<HandlerRun> {
+    return runHandler(new NotAFileMiddleware(supportedFormats), content, locale);
 }
 
 describe("NotAFileMiddleware", function () {
@@ -33,8 +20,8 @@ describe("NotAFileMiddleware", function () {
         expect(isPassedOn).to.equal(false);
     });
 
-    it("asks for a file in reply to a photo, a sticker and a voice", async function () {
-        const contents: Partial<Message>[] = [{ photo: [] }, { sticker: {} as Sticker }, { voice: {} as Voice }];
+    it("asks for a file in reply to a photo, a sticker, a voice and a forwarded story", async function () {
+        const contents: Partial<Message>[] = [{ photo: [] }, { sticker: {} as Sticker }, { voice: {} as Voice }, { story: {} as Story }];
 
         for (const content of contents) {
             const { replies } = await run(content);

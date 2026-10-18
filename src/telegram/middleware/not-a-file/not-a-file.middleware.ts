@@ -24,10 +24,17 @@ export class NotAFileMiddleware extends Middleware {
         "audio",
         "video",
         "video_note",
+        "story",
+        "paid_media",
         "contact",
         "location",
+        "venue",
         "poll",
+        "checklist",
         "dice",
+        "game",
+        "giveaway",
+        "invoice",
     ];
 
     public constructor(@inject<SupportedFormats>(Tokens.Bot.SupportedFormats) private readonly supportedFormats: SupportedFormats) {

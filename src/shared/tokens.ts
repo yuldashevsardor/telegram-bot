@@ -105,6 +105,7 @@ export const Tokens = {
             NotAFile: Symbol.for("BotMiddlewareNotAFile"),
         },
         SupportedFormats: Symbol.for("BotSupportedFormats"),
+        HelpText: Symbol.for("BotHelpText"),
         Session: {
             Storage: Symbol.for("BotSessionStorage"),
         },

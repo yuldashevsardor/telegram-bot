@@ -36,6 +36,7 @@ import type { UserRepository } from "app/telegram/user/user-repository";
 import { PgSqlUserRepository } from "app/telegram/user/pgsql-repository/pgsql-user-repository";
 import { UserService } from "app/telegram/user/service/user-service";
 import { HelpCommand } from "app/telegram/command/help/help.command";
+import { HelpText } from "app/telegram/command/help/help-text";
 import { UnknownCommandMiddleware } from "app/telegram/middleware/unknown-command.middleware";
 import { NotAFileMiddleware } from "app/telegram/middleware/not-a-file/not-a-file.middleware";
 import { SupportedFormats } from "app/telegram/supported-formats";
@@ -199,6 +200,7 @@ export class Container extends InversifyContainer {
 
         // What the texts of the bot share
         this.bind<SupportedFormats>(Tokens.Bot.SupportedFormats).to(SupportedFormats).inSingletonScope();
+        this.bind<HelpText>(Tokens.Bot.HelpText).to(HelpText).inSingletonScope();
     }
 
     private async setupPlatform(): Promise<void> {

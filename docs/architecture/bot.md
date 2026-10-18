@@ -8,9 +8,10 @@ the plugin ([`i18n.md`](./i18n.md)).
 `Bot.setup()` first installs the outbox transformer on `bot.grammy.api` (see "The outbox
 transformer"), then assembles the pipeline strictly in the order below. An update from the inbox
 travels it top to bottom, and every step counts on what the steps above filled in. Every filter,
-middleware, conversation and command comes into the `Bot` constructor by a separate `@inject`.
-`Bot` builds the lists of steps 1-2, 4, 6, 7 and 8 out of those fields itself, so the order in the
-pipeline is the order in those lists, not the order of the bindings in `container.ts`. `Bot` does
+middleware and command comes into the `Bot` constructor by a separate `@inject`. `Bot` builds the
+lists of steps 1-2, 4, 7 and 8 out of those fields itself, so the order in the pipeline is the
+order in those lists, not the order of the bindings in `container.ts`. The list of step 6 would be
+built the same way from the conversations; it is empty, and no conversation is injected. `Bot` does
 not import the container.
 
 1. `HasSessionKeyFilter` gets the raw update. It drops updates without `from` or `chat`: they
@@ -188,8 +189,9 @@ is, not by what the bot said before.
   of `BOT_AUTHOR_CONTACT`, a variable with a default (`.env.dist`). The contact changes without an
   edit of the `.ftl`.
 - `UnknownCommandMiddleware` answers a message whose text opens with a command no command of step 7
-  took with the text of `/help`: it calls `HelpCommand.handle()`. A command elsewhere in the text
-  is not one, as for grammY's `command()`, and such a text goes on as a text.
+  took with the text of `/help`: it and `HelpCommand` build the text with `HelpText`
+  (`command/help/help-text.ts`). A command elsewhere in the text is not one, as for grammY's
+  `command()`, and such a text goes on as a text.
 - `NotAFileMiddleware` answers a message with content a person sends (`CONTENT_FIELDS`: a text, a
   photo, a GIF, a sticker and the like) with `not-a-file-middleware-hint`, a request to send the
   font as a file. A GIF gets the request even though Telegram puts it into `document` as well. A

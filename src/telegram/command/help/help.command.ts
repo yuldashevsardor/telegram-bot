@@ -1,10 +1,8 @@
 import { Command } from "app/telegram/command/command";
 import { inject, injectable } from "inversify";
 import { Tokens } from "app/shared/tokens";
-import { configValue } from "app/shared/config-value";
 import type { Context } from "app/telegram/bot/bot.types";
-import { MAX_DOWNLOAD_SIZE_MB } from "app/telegram/bot/bot.types";
-import type { SupportedFormats } from "app/telegram/supported-formats";
+import type { HelpText } from "app/telegram/command/help/help-text";
 
 @injectable()
 export class HelpCommand extends Command {
@@ -12,21 +10,11 @@ export class HelpCommand extends Command {
 
     public readonly descriptionKey: string = "help-command-description";
 
-    public constructor(
-        @inject<SupportedFormats>(Tokens.Bot.SupportedFormats) private readonly supportedFormats: SupportedFormats,
-        private readonly authorContact: string = configValue("bot.authorContact"),
-    ) {
+    public constructor(@inject<HelpText>(Tokens.Bot.HelpText) private readonly helpText: HelpText) {
         super();
     }
 
-    // Public: an unknown command gets the same answer (UnknownCommandMiddleware).
-    public async handle(ctx: Context): Promise<void> {
-        await ctx.reply(
-            ctx.t("help-command-text", {
-                formats: this.supportedFormats.toText(),
-                maxFileSizeMb: MAX_DOWNLOAD_SIZE_MB,
-                contact: this.authorContact,
-            }),
-        );
+    protected async handle(ctx: Context): Promise<void> {
+        await ctx.reply(this.helpText.build(ctx));
     }
 }

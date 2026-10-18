@@ -1,14 +1,20 @@
 import path from "path";
-import { Api, Context as GrammyContext } from "grammy";
+import { Api, Composer, Context as GrammyContext } from "grammy";
 import type { Message, Update, UserFromGetMe } from "@grammyjs/types";
 import type { Context } from "app/telegram/bot/bot.types";
 import { createFluent } from "app/telegram/locale/locale";
 import type { Locale } from "app/telegram/locale/locale.types";
 import { DEFAULT_LOCALE } from "app/telegram/locale/locale.types";
+import type { SupportedFormats } from "app/telegram/supported-formats";
 
 const ME = { id: 1, is_bot: true, first_name: "Bot", username: "test_bot" } as UserFromGetMe;
 
 export type ReplyContext = { ctx: Context; replies: string[] };
+
+export type HandlerRun = { ctx: Context; replies: string[]; isPassedOn: boolean };
+
+// The list SupportedFormats gives for the pair matrix of today.
+export const supportedFormats = { toText: (): string => "TTF, OTF, WOFF, WOFF2, EOT, SVG" } as SupportedFormats;
 
 // The context of a private message translated by the bundles of src/telegram, with the texts of
 // ctx.reply() recorded instead of sent.
@@ -35,6 +41,25 @@ export async function replyContext(content: Partial<Message>, locale: Locale = D
     }) as Context["reply"];
 
     return { ctx: ctx, replies: replies };
+}
+
+// Runs a message through a command or a middleware the way Bot attaches it, through setup(): a
+// command has to answer to its own name.
+export async function runHandler(
+    handler: { setup: (composer: Composer<Context>) => void },
+    content: Partial<Message>,
+    locale?: Locale,
+): Promise<HandlerRun> {
+    const { ctx, replies } = await replyContext(content, locale);
+    const composer = new Composer<Context>();
+    handler.setup(composer);
+    let isPassedOn = false;
+
+    await composer.middleware()(ctx, async () => {
+        isPassedOn = true;
+    });
+
+    return { ctx: ctx, replies: replies, isPassedOn: isPassedOn };
 }
 
 export function command(text: string): Partial<Message> {

@@ -213,7 +213,10 @@ the import path can be guessed from the class name.
 
 - `convertor/<from>/` — by `convertor-factory.ts`;
 - `validator/` — by `font-validator-resolver.ts`;
-- `command/`, `conversation/`, `filter/` and `middleware/` — by `Bot` (`telegram/bot/bot.ts`);
+- `command/`, `filter/` and `middleware/` — by `Bot` (`telegram/bot/bot.ts`). `conversation/`
+  is one such directory with no sibling left: it keeps only the base class,
+  `conversation-handler.ts`, for the next conversation, while the plugin stays installed with an
+  empty list ([`bot.md`](./bot.md), step 6);
 - `outbox/command/` and `inbox/command/` — by `OutboxCommandResolver` and `InboxCommandResolver`,
   which lie with their commands;
 - the `.ftl` bundles in the `locale/` directories at commands and middleware — by the walk in
@@ -346,10 +349,10 @@ conditions:
   `telegram/command/start/` (named after `start.command.ts`) and `telegram/middleware/not-a-file/`
   stand in the spec path in full.
 - A siblings directory is reflected only when it does not hide: "hides" takes precedence.
-  `command/` (named after `command.ts`), `conversation/`, `filter/` and `middleware/` give outwards
-  both the base class and the siblings, and are reflected. `convertor/` keeps the `<from>/`
-  siblings directories, but from outside only `convertor-factory.ts` is imported from it, so it is
-  not reflected.
+  `command/` (named after `command.ts`), `filter/` and `middleware/` give outwards both the base
+  class and the siblings, and are reflected; `conversation/`, with its base class alone, too.
+  `convertor/` keeps the `<from>/` siblings directories, but from outside only
+  `convertor-factory.ts` is imported from it, so it is not reflected.
 
 A siblings directory inside a non-reflected one is reflected without it: a spec of
 `convertor/eot/eot-to-ttf.ts` would go into `test/font-convertor/eot/`. The pairs have no specs
