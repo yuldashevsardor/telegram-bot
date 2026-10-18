@@ -896,11 +896,6 @@ table does not count as supported.
     simple glyphs of 235 points each, takes 1.5–1.9 s over three runs. Brotli packs it into 99
     bytes, so a file of about 310 KB passes the ratio cap with it
     ([#736](https://github.com/yuldashevsardor/telegram-bot/issues/736)).
-- `/font_generator` converts the fixed `test/fixtures/fonts/test-font.woff` into
-  EOT/OTF/TTF/WOFF2. It answers with the **path** to the file as text; the file itself is not
-  sent. A caught conversion error is written at `error` level through `Logger`
-  ([`logging.md`](./logging.md)). The command is for debugging and does not go to production
-  ([overview](./README.md)), so its input from the `test/` directory stays as it is.
 - The codec does not read the EOT envelope through. It parses the names (`EotHeader.readNames()`),
   then takes the font as the tail of the file by `FontDataSize`: it does not read the tail of
   version `0x00020002` and lets any bytes between the names and the font through, rejecting only a

@@ -868,7 +868,7 @@ and why one failure is not classified at all:
   until the process is restarted with a new one. As `Unexpected` it would block every chat the
   outbox tries, each to be unblocked by hand, so the outbox pauses instead (see "Outcomes"). A 404
   is not `Unauthorized` although Telegram answers it to a token of a wrong format as well as to an
-  unknown method: such a token fails the `setMyCommands` of `Bot.setup()` at the start
+  unknown method: such a token fails the first call of `Bot.setup()` to Telegram at the start
   ([`application.md`](./application.md), "Start"), so a 404 while the bot runs is an unknown
   method, a bug of the call, and it is `Unexpected`.
 - An `HttpError` is `Transient` although grammY throws it also after Telegram may have taken the

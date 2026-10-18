@@ -1,9 +1,9 @@
 # Font fixtures
 
 At the root, the same Roboto-Black in six formats, EOT twice: with a raw and with a compressed
-font. They are the input for manual conversion runs, for `/font_generator` and for the specs. The
-specs need real fonts: the validators need real headers, not invented ones, and the pairs convert
-real fonts. Which specs take the fixtures — `grep -rl fixtures test --include='*.spec.ts'`.
+font. They are the input for manual conversion runs and for the specs. The specs need real fonts:
+the validators need real headers, not invented ones, and the pairs convert real fonts. Which specs
+take the fixtures — `grep -rl fixtures test --include='*.spec.ts'`.
 
 In the directories, a font each, the corpus of real fonts ("The corpus" below). Of the specs only
 `font-forge.spec.ts` takes some of its fonts, for the ligatures and Arabic forms Roboto does not

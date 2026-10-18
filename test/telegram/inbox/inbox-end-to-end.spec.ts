@@ -62,7 +62,7 @@ type SendEvent = { kind: "came" | "answered"; chatId: number };
 
 type UpdateRow = { update_id: string; status: InboxStatus; attempts: InboxAttempt[] };
 
-// Answers the calls of the bot as Telegram does: getMe with the bot, setMyCommands with true,
+// Answers the calls of the bot as Telegram does: getMe with the bot, the menu and the descriptions with true,
 // sendMessage with the message it has sent, and a method it does not know with 404.
 class TelegramAnswers {
     // The messages sendMessage answered with, in the order of the answers.
@@ -89,6 +89,8 @@ class TelegramAnswers {
             case "getMe":
                 return { ok: true, result: ME };
             case "setMyCommands":
+            case "setMyDescription":
+            case "setMyShortDescription":
                 return { ok: true, result: true };
             case "sendMessage":
                 return { ok: true, result: await this.sendMessage(payload) };
@@ -416,8 +418,8 @@ describe("Inbox end to end on the database", function () {
 });
 
 // grammY takes the API root of an Api only when it builds one, and Bot builds its own from the token
-// alone. This transformer stands for the network of that Api: the calls that bypass the outbox, getMe
-// and setMyCommands, go to the fake Bot API.
+// alone. This transformer stands for the network of that Api: the calls that bypass the outbox, getMe,
+// the menu and the descriptions, go to the fake Bot API.
 function sendToFakeBotApi(apiRoot: string): Transformer<RawApi> {
     return async (_prev, method, payload) => {
         const response = await fetch(`${apiRoot}/bot${TOKEN}/${method}`, {

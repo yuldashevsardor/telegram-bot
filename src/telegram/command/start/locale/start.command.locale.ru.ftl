@@ -1,4 +1,4 @@
-start-command-description = Главное меню
+start-command-description = Начать
 
 # formats (string): Форматы шрифтов
 start-command-welcome = Пришлите файл шрифта — сконвертирую его в другой формат.

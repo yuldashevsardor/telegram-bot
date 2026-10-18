@@ -1,8 +1,9 @@
 import "reflect-metadata";
 import path from "path";
 import { expect } from "chai";
+import { GrammyError } from "grammy";
 import type { NextFunction, RawApi, StorageAdapter, Transformer } from "grammy";
-import type { Chat, Message, Update, UserFromGetMe } from "@grammyjs/types";
+import type { ApiError, Chat, Message, Update, UserFromGetMe } from "@grammyjs/types";
 import { Bot } from "app/telegram/bot/bot";
 import type { BotSettings, Context } from "app/telegram/bot/bot.types";
 import type { Logger } from "app/platform/logger/logger";
@@ -14,12 +15,15 @@ import { Middleware } from "app/telegram/middleware/middleware";
 import { HasSessionKeyFilter } from "app/telegram/filter/has-session-key.filter";
 import { IsPrivateChatFilter } from "app/telegram/filter/is-private-chat.filter";
 import { createFluent } from "app/telegram/locale/locale";
+import type { Locale } from "app/telegram/locale/locale.types";
 import { DEFAULT_LOCALE, LOCALES } from "app/telegram/locale/locale.types";
 import { OutboxTransformer } from "app/telegram/outbox/transformer/outbox-transformer";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxResultWaiter } from "app/telegram/outbox/result-waiter/outbox-result-waiter";
 import type { FinishedOutboxMessage, OutboxMessageInput } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxPriority, OutboxStatus } from "app/telegram/outbox/store/outbox-store.types";
+import { BulkMessagesCommand } from "app/telegram/command/bulk-messages/bulk-messages.command";
+import { supportedFormats } from "test/telegram/handler.helper";
 
 type LogRecord = { level: keyof Logger; message: string; payload: UnknownObject | undefined };
 
@@ -35,6 +39,8 @@ type Harness = {
     // The calls the outbox transformer pushed: none of them reaches the fake Telegram.
     pushed: OutboxMessageInput[];
     onCommand: { hook: CommandHook };
+    // What the fake Telegram answers the menu of one chat with instead of true.
+    chatMenuFailure: { chatId: number; answer: ApiError } | undefined;
 };
 
 const ME = { id: 1, is_bot: true, first_name: "Bot", username: "test_bot" } as UserFromGetMe;
@@ -42,6 +48,21 @@ const ME = { id: 1, is_bot: true, first_name: "Bot", username: "test_bot" } as U
 const SETTINGS: BotSettings = { token: "test-token", authorContact: "@author", maxDownloadSizeMb: 20 };
 
 const USER_ID = 42;
+
+const OTHER_LOCALES = LOCALES.filter((locale) => locale !== DEFAULT_LOCALE);
+
+// The chats BulkMessagesCommand is shown in.
+const BULK_CHAT_IDS = new BulkMessagesCommand({} as OutboxStore, {} as Logger).chatIds;
+
+const DESCRIPTION_METHODS = ["setMyDescription", "setMyShortDescription"];
+
+// The limits of setMyDescription and setMyShortDescription in the Bot API.
+const MAX_DESCRIPTION_LENGTH_CHARS = 512;
+const MAX_SHORT_DESCRIPTION_LENGTH_CHARS = 120;
+
+const CHAT_NOT_FOUND_ANSWER: ApiError = { ok: false, error_code: 400, description: "Bad Request: chat not found" };
+
+const UNAUTHORIZED_ANSWER: ApiError = { ok: false, error_code: 401, description: "Unauthorized" };
 
 class RecordingHasSessionKeyFilter extends HasSessionKeyFilter {
     public constructor(logger: Logger, private readonly events: string[]) {
@@ -127,6 +148,13 @@ function buildStorage(events: string[]): StorageAdapter<SessionPayload> {
     };
 }
 
+// The chat a setMyCommands names in its scope, if it names one.
+function scopeChatId(payload: unknown): number | undefined {
+    const scope = (payload as { scope?: { chat_id?: number } }).scope;
+
+    return scope?.chat_id;
+}
+
 // Telegram is stubbed by a transformer of the grammY client: grammY builds the Api of an update
 // with the same transformers as bot.grammy.api has, so not a single call reaches the network.
 function useFakeTelegram(harness: Harness): void {
@@ -135,6 +163,12 @@ function useFakeTelegram(harness: Harness): void {
 
         if (method === "getMe") {
             return { ok: true, result: ME } as never;
+        }
+
+        const failure = harness.chatMenuFailure;
+
+        if (method === "setMyCommands" && failure !== undefined && scopeChatId(payload) === failure.chatId) {
+            return failure.answer as never;
         }
 
         return { ok: true, result: true } as never;
@@ -185,14 +219,23 @@ function build(settings: BotSettings = SETTINGS): Harness {
         new RecordingMiddleware("FillUserToContextMiddleware", events),
         new RecordingCommand("start", "start-command-description", events, onCommand),
         new RecordingCommand("help", "help-command-description", events, onCommand),
-        new RecordingCommand("bulk_messages", "bulk-messages-command-description", events, onCommand),
-        new RecordingCommand("font_generator", "font-generator-command-description", events, onCommand),
+        // The real command, for its chats: no spec here sends it.
+        new BulkMessagesCommand({} as OutboxStore, logger),
         new RecordingMiddleware("UnknownCommandMiddleware", events),
         new RecordingMiddleware("NotAFileMiddleware", events),
+        supportedFormats,
         settings,
     );
 
-    const harness: Harness = { bot: bot, events: events, logs: logs, calls: [], pushed: pushed, onCommand: onCommand };
+    const harness: Harness = {
+        bot: bot,
+        events: events,
+        logs: logs,
+        calls: [],
+        pushed: pushed,
+        onCommand: onCommand,
+        chatMenuFailure: undefined,
+    };
     // Before setup(), as the network is under every transformer: the one of the outbox wraps it.
     useFakeTelegram(harness);
 
@@ -239,28 +282,110 @@ describe("Bot", function () {
     });
 
     describe("setup", function () {
-        it("publishes the command menu on the default locale, then on every other one", async function () {
+        it("publishes the menu of /start and /help for everyone and adds /bulk_messages in each of its chats, per locale", async function () {
             const { bot, calls } = build();
             await bot.setup();
             const fluent = await createFluent(path.resolve(__dirname, "../../src/telegram"));
-            const menu = (locale: string): Array<{ command: string; description: string }> => {
+            const commonMenu = (locale: string): Array<{ command: string; description: string }> => {
                 const translate = fluent.withLocale(locale);
 
                 return [
                     { command: "start", description: translate("start-command-description") },
                     { command: "help", description: translate("help-command-description") },
-                    { command: "bulk_messages", description: translate("bulk-messages-command-description") },
-                    { command: "font_generator", description: translate("font-generator-command-description") },
+                ];
+            };
+            const chatMenu = (locale: string): Array<{ command: string; description: string }> => {
+                const translate = fluent.withLocale(locale);
+
+                return [...commonMenu(locale), { command: "bulk_messages", description: translate("bulk-messages-command-description") }];
+            };
+            const published = (menu: typeof commonMenu, scope: UnknownObject): UnknownObject[] => [
+                { commands: menu(DEFAULT_LOCALE), scope: scope },
+                ...OTHER_LOCALES.map((locale) => ({ commands: menu(locale), scope: scope, language_code: locale })),
+            ];
+
+            expect(calls.filter((call) => call.method === "setMyCommands").map((call) => call.payload)).to.deep.equal([
+                ...published(commonMenu, { type: "default" }),
+                ...BULK_CHAT_IDS.flatMap((chatId) => published(chatMenu, { type: "chat", chat_id: chatId })),
+            ]);
+            expect(commonMenu("en")[0]?.description).to.not.equal(commonMenu("ru")[0]?.description);
+        });
+
+        it("leaves a chat that has not opened the bot with the common menu and warns", async function () {
+            const harness = build();
+            const [missingChatId, ...otherChatIds] = BULK_CHAT_IDS as [number, ...number[]];
+            harness.chatMenuFailure = { chatId: missingChatId, answer: CHAT_NOT_FOUND_ANSWER };
+
+            await harness.bot.setup();
+
+            expect(harness.calls.filter((call) => call.method === "setMyCommands").map((call) => scopeChatId(call.payload))).to.deep.equal([
+                ...LOCALES.map(() => undefined),
+                // The default locale is asked first, and its failure leaves the rest of the chat unasked.
+                missingChatId,
+                ...otherChatIds.flatMap((chatId) => LOCALES.map(() => chatId)),
+            ]);
+            expect(harness.logs.filter((log) => log.level === "warning")).to.deep.equal([
+                {
+                    level: "warning",
+                    message: "The chat has not opened the bot and keeps the common menu.",
+                    payload: { chatId: missingChatId },
+                },
+            ]);
+        });
+
+        it("fails the setup on any other failure of the menu of a chat", async function () {
+            const harness = build();
+            harness.chatMenuFailure = { chatId: BULK_CHAT_IDS[0] as number, answer: UNAUTHORIZED_ANSWER };
+
+            const error = await harness.bot.setup().then(
+                () => undefined,
+                (reason: unknown) => reason,
+            );
+
+            expect(error).to.be.instanceOf(GrammyError);
+            expect((error as GrammyError).description).to.equal(UNAUTHORIZED_ANSWER.description);
+        });
+
+        it("publishes the description and the short description on the default locale, then on every other one", async function () {
+            const { bot, calls } = build();
+            await bot.setup();
+            const fluent = await createFluent(path.resolve(__dirname, "../../src/telegram"));
+            const described = (locale: Locale, localeOptions: UnknownObject): ApiCall[] => {
+                const translate = fluent.withLocale(locale);
+                const formats = supportedFormats.toText();
+
+                return [
+                    {
+                        method: "setMyDescription",
+                        payload: {
+                            description: translate("bot-description", { formats: formats, contact: SETTINGS.authorContact }),
+                            ...localeOptions,
+                        },
+                    },
+                    {
+                        method: "setMyShortDescription",
+                        payload: { short_description: translate("bot-short-description", { formats: formats }), ...localeOptions },
+                    },
                 ];
             };
 
-            const otherLocales = LOCALES.filter((locale) => locale !== DEFAULT_LOCALE);
-
-            expect(calls.filter((call) => call.method === "setMyCommands").map((call) => call.payload)).to.deep.equal([
-                { commands: menu(DEFAULT_LOCALE) },
-                ...otherLocales.map((locale) => ({ commands: menu(locale), language_code: locale })),
+            expect(calls.filter((call) => DESCRIPTION_METHODS.includes(call.method))).to.deep.equal([
+                ...described(DEFAULT_LOCALE, {}),
+                ...OTHER_LOCALES.flatMap((locale) => described(locale, { language_code: locale })),
             ]);
-            expect(menu("en")[0]?.description).to.not.equal(menu("ru")[0]?.description);
+        });
+
+        it("keeps the descriptions within the lengths Telegram takes in every locale", async function () {
+            const { bot, calls } = build();
+            await bot.setup();
+
+            for (const call of calls.filter((call) => call.method === "setMyDescription")) {
+                expect(String(call.payload["description"])).to.have.lengthOf.within(1, MAX_DESCRIPTION_LENGTH_CHARS);
+            }
+
+            for (const call of calls.filter((call) => call.method === "setMyShortDescription")) {
+                expect(String(call.payload["short_description"])).to.have.lengthOf.within(1, MAX_SHORT_DESCRIPTION_LENGTH_CHARS);
+            }
         });
 
         it("builds the pipeline only once", async function () {
@@ -271,7 +396,9 @@ describe("Bot", function () {
 
             await harness.bot.grammy.handleUpdate(message("/start"));
 
-            expect(harness.calls.filter((call) => call.method === "setMyCommands")).to.have.lengthOf(LOCALES.length);
+            expect(harness.calls.filter((call) => call.method === "setMyCommands")).to.have.lengthOf(
+                (1 + BULK_CHAT_IDS.length) * LOCALES.length,
+            );
             expect(harness.events.filter((event) => event === "/start")).to.have.lengthOf(1);
         });
 
