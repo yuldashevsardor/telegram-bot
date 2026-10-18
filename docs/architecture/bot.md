@@ -237,14 +237,14 @@ thing they keep in the session is the album `NotAFileMiddleware` answered last (
 
 The list of formats in all of them and in the descriptions below comes from `SupportedFormats`
 (`telegram/supported-formats.ts`): `ConvertorFactory.getSupportedExtensions()`, in upper case, in
-the order of the customer journey. The two texts that ask for a file or refuse one,
-`not-a-file-middleware-hint` and the replies to an unsupported file, list `toSourceText()` instead,
-the formats a pair starts from (`getSourceExtensions()`): a format that is only a target would be
-named in the refusal of that very format. The formats the intake takes and the buttons offer come
-from `SupportedFormats` too, in the same order ([`cjm.md`](../product/cjm.md)). The order is a
-rank per `Extension`, so an extension added to the enum without a rank fails the compile. What the
-user is promised changes with the pair matrix ([`font-convertor.md`](./font-convertor.md), "The
-pair table").
+the order of the customer journey. The hint to a message that is not a file and the refusal of an
+unsupported file list `toSourceText()` instead, the formats a pair starts from
+(`getSourceExtensions()`): a format that is only a target would be named in the refusal of that very
+format. Which texts take it, `git grep -n toSourceText -- src`. The formats the intake takes and the
+buttons offer come from `SupportedFormats` too, in the same order ([`cjm.md`](../product/cjm.md)).
+The order is a rank per `Extension`, so an extension added to the enum without a rank fails the
+compile. What the user is promised changes with the pair matrix
+([`font-convertor.md`](./font-convertor.md), "The pair table").
 
 `Bot.setupDescriptions()` sets the description, what an empty chat with the bot shows before
 `/start`, and the short description, what its profile and a shared link show (step 0 of the

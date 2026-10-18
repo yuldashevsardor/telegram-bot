@@ -24,10 +24,11 @@ export type ReplyContext = { ctx: Context; replies: string[]; replyOptions: Repl
 export type HandlerRun = { ctx: Context; replies: string[]; replyOptions: ReplyOptions[]; isPassedOn: boolean };
 
 // The lists SupportedFormats gives for the pair matrix of today, complete: every format converts
-// into every other.
+// into every other. toSourceText() alone leaves EOT out: in that matrix it equals toText(), and a
+// text of its own tells which of the two a reply took.
 export const supportedFormats = {
     toText: (): string => "TTF, OTF, WOFF, WOFF2, EOT, SVG",
-    toSourceText: (): string => "TTF, OTF, WOFF, WOFF2, EOT, SVG",
+    toSourceText: (): string => "TTF, OTF, WOFF, WOFF2, SVG",
     toSourceList: (): Extension[] => ORDERED_EXTENSIONS,
     toTargetList: (sourceExtension: Extension): Extension[] => ORDERED_EXTENSIONS.filter((extension) => extension !== sourceExtension),
 } as SupportedFormats;

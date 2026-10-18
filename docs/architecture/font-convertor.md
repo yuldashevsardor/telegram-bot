@@ -845,12 +845,12 @@ What is deliberately not checked, with the reasons, is in the class comment of
 ## The pair table
 
 The pair table in `ConvertorFactory` is the only source of what the domain can do. The convertor is
-picked from it, and `getSupportedExtensions()` is derived from it. The bot promises that list to
-the user ([`bot.md`](./bot.md), "Commands"). Two more lists are derived from it: the formats a pair
-starts from, `getSourceExtensions()`, which the bot takes a file in and names when it asks for a
-file or refuses one, and the targets of the pairs of a source, `getTargetExtensions()`, which the
-buttons offer. A format declared in `Extension` but absent from the table does not count as
-supported.
+picked from it, and `getSupportedExtensions()` is derived from it. The bot promises that list to the
+user ([`bot.md`](./bot.md), "Commands"). Two more lists are derived from it: the formats a pair
+starts from, `getSourceExtensions()`, which the bot takes a file in and names in the hint to a
+message that is not a file and in the refusal of an unsupported file, and the targets of the pairs
+of a source, `getTargetExtensions()`, which the buttons offer. A format declared in `Extension` but
+absent from the table does not count as supported.
 
 ## Known
 

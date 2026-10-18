@@ -114,14 +114,19 @@ describe("FileHelper.createDirectoriesByDate", function () {
     });
 
     // Two documents handled at once on a fresh temporary directory.
-    it("creates the same directories for two calls at once", async function () {
-        const [first, second] = await Promise.all([
+    it("creates the directories for two calls at once", async function () {
+        const before = dayjs();
+        const createdPaths = await Promise.all([
             FileHelper.createDirectoriesByDate(basePath),
             FileHelper.createDirectoriesByDate(basePath),
         ]);
+        const after = dayjs();
 
-        expect(first).to.equal(second);
-        expect(await FileHelper.isDirectory(first)).to.be.true;
+        // The two calls may fall on either side of midnight.
+        for (const createdPath of createdPaths) {
+            expect([expectedPath(before), expectedPath(after)]).to.include(createdPath);
+            expect(await FileHelper.isDirectory(createdPath)).to.be.true;
+        }
     });
 
     it("refuses a base path that does not exist", async function () {

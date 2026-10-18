@@ -9,9 +9,9 @@ The texts are given in Russian, the default locale (`DEFAULT_LOCALE` in
 `telegram/locale/locale.types.ts`). The `en` bundle carries the same keys with a translation,
 written in the same PR as the Russian text. `{formats}` in a text is the list of supported formats
 substituted from `ConvertorFactory.getSupportedExtensions()` by `SupportedFormats`
-([`bot.md`](../architecture/bot.md), "Commands"). A text that asks for a file or refuses one (the
-rows of step 5 for a message that is not a file and for an unsupported file) lists only the formats
-a file is taken in, those a pair starts from. `{format}` is one format.
+([`bot.md`](../architecture/bot.md), "Commands"). The rows of step 5 for a message that is not a
+file and for an unsupported file list only the formats a file is taken in, those a pair starts from.
+`{format}` is one format.
 
 A format is written in upper case, in texts and on buttons alike: `TTF`, not `ttf`. Wherever the
 bot lists formats, the list and the buttons go in one order: TTF, OTF, WOFF, WOFF2, EOT, SVG.
