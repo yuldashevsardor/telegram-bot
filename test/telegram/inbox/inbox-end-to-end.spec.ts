@@ -366,7 +366,11 @@ describe("Inbox end to end on the database", function () {
 
         return {
             welcomeReply: translate("start-command-welcome", { formats: formats }),
-            helpReply: translate("help-command-text", { formats: formats, maxFileSizeMb: MAX_DOWNLOAD_SIZE_MB, contact: AUTHOR_CONTACT }),
+            helpReply: translate("help-command-text", {
+                formats: formats,
+                maxDownloadSizeMb: MAX_DOWNLOAD_SIZE_MB,
+                contact: AUTHOR_CONTACT,
+            }),
             notAFileReply: translate("not-a-file-middleware-hint", { formats: formats }),
         };
     }

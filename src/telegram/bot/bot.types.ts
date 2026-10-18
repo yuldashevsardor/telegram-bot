@@ -18,6 +18,6 @@ export type BotSettings = {
     token: string;
     // How a person reaches the author of the bot: the texts name it, and it changes without them.
     authorContact: string;
-    // The Bot API hands a bot no file larger than this (getFile), so the texts promise no more.
+    // The largest file the bot downloads (getFile): the texts promise no more.
     maxDownloadSizeMb: number;
 };

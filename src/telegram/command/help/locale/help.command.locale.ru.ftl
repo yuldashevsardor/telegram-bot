@@ -1,7 +1,7 @@
 help-command-description = Как пользоваться
 
 # formats (string): Форматы шрифтов
-# maxFileSizeMb (number): Наибольший размер файла в МБ
+# maxDownloadSizeMb (number): Наибольший размер файла в МБ
 # contact (string): Как связаться с автором
 help-command-text = Как пользоваться:
     1. Пришлите файл шрифта.
@@ -9,7 +9,7 @@ help-command-text = Как пользоваться:
     3. Получите файл.
 
     Форматы: {$formats}.
-    Размер файла — до {$maxFileSizeMb} МБ.
+    Размер файла — до {$maxDownloadSizeMb} МБ.
     Несколько файлов можно прислать сразу: отвечу на каждый.
 
     Вопросы и ошибки: {$contact}.

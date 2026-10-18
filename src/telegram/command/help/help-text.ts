@@ -16,7 +16,7 @@ export class HelpText {
     public build(ctx: Context): string {
         return ctx.t("help-command-text", {
             formats: this.supportedFormats.toText(),
-            maxFileSizeMb: this.maxDownloadSizeMb,
+            maxDownloadSizeMb: this.maxDownloadSizeMb,
             contact: this.authorContact,
         });
     }
