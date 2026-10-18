@@ -3,8 +3,7 @@
 What a person sees in the bot, step by step, and what the bot says at each step. The file
 describes the journey the bot is meant to give. A step that is not built yet differs from the code,
 and the code is the authority on what is built. Today no handler takes a file (steps 2-4 and the
-rows of step 5 about a file), the descriptions of step 0 are not set, the menu is not the one of
-step 7, and a failed update gets no answer (the last row of step 5).
+rows of step 5 about a file), and a failed update gets no answer (the last row of step 5).
 
 The texts are given in Russian, the default locale (`DEFAULT_LOCALE` in
 `telegram/locale/locale.types.ts`). The `en` bundle carries the same keys with a translation,
@@ -146,9 +145,8 @@ server (issue #37), and a promise to delete them would be false.
 | `/start` | Начать | everyone |
 | `/help` | Как пользоваться | everyone |
 
-The service commands leave the common menu. `/font_generator` converts a test fixture and replies
-with server paths: the journey above replaces it, and it goes away. `/bulk_messages` stays for the
-load runs and is shown only in the chats of its own `CHAT_IDS`, through a command scope of a chat
+The service commands are not in the common menu. `/bulk_messages` stays for the load runs and is
+shown only in the chats of its own `CHAT_IDS`, through a command scope of a chat
 (`BotCommandScopeChat`).
 
 ## Outside the journey

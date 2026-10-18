@@ -20,6 +20,8 @@ const BULK_METHOD = "sendMessage";
 export class BulkMessagesCommand extends Command {
     public readonly command: string = "bulk_messages";
     public readonly descriptionKey: string = "bulk-messages-command-description";
+    // The chats the menu shows the command in (Bot.setupCommands()).
+    public readonly chatIds: readonly number[] = CHAT_IDS;
 
     public constructor(
         @inject<OutboxStore>(Tokens.Bot.Outbox.Store) private readonly store: OutboxStore,
@@ -31,8 +33,8 @@ export class BulkMessagesCommand extends Command {
     // Straight into the outbox, so that the chats yield to the chats with calls of the bot, and
     // waiting for none of the messages (docs/architecture/bot.md, "Commands").
     protected async handle(ctx: Context): Promise<void> {
-        // The command is in the menu of everyone, and only the owner's accounts are meant to load
-        // the outbox with it.
+        // The menu hides the command from other chats, but a typed command still comes, and only the
+        // owner's accounts are meant to load the outbox with it.
         const senderChatId = ctx.chat?.id;
 
         if (senderChatId === undefined || !CHAT_IDS.includes(senderChatId)) {

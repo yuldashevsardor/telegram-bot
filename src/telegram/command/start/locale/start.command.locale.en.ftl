@@ -1,4 +1,4 @@
-start-command-description = Main menu
+start-command-description = Start
 
 # formats (string): Font formats
 start-command-welcome = Send me a font file, and I will convert it into another format.
