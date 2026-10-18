@@ -518,11 +518,17 @@ gives back the failed update with its group, read in its transaction, or `null` 
 a fenced completion failed nothing, and the completion that came first has an outcome of its own.
 So the recovery, which reads only the lease, gets the update from the completion too.
 
+The answer does not know whether the handler replied before it failed. An `Unexpected` failure
+after a reply that went out, a session write that PostgreSQL refuses once the handler has returned
+for one, and a slow handler whose lease the recovery failed on its last attempt (see "Lease
+recovery") both give the person the reply and then the answer.
+
 `FailedUpdateAnswer` (`telegram/failed-update-answer/failed-update-answer.ts`) says nothing in a
 group chat: the journey covers private chats only, and a group update can fail before
 `IsPrivateChatFilter` drops it, in `init()` of the bot or with the lease of a node that dies. In a
-private chat it translates the text in the locale of the sender, read as the pipeline reads it:
-`from` of a grammY `Context`, by the rule of [`i18n.md`](./i18n.md). It pushes a `sendMessage` into
+private chat it translates the text in the locale of the sender: the Fluent middleware of the
+pipeline fills `ctx.t` of a grammY `Context` of the update, by the rule of
+[`i18n.md`](./i18n.md). It pushes a `sendMessage` into
 the outbox with the priority of a call and does not wait for it: there is no handler to take the
 outcome. It lies at `telegram/` and not in `inbox/`, because it writes into the outbox.
 

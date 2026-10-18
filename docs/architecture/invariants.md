@@ -261,10 +261,11 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   handles it a second time, and the next update of the group may be handled while the first
   handler still runs, out of order. On the last attempt of `INBOX_MAX_ATTEMPTS` the recovery fails
   the update and blocks the group instead: a slow handler that did reply leaves its update `failed`
-  and its group blocked until it is unblocked by hand. The late completion of the first node is
-  fenced off and changes nothing. Nothing bounds how long a handler runs, and nothing checks
-  `INBOX_LEASE_DURATION` against it. `InboxUpdateProcessor` extends every third of the lease, timed
-  from the end of the previous extension, and stops at the first refusal
+  and its group blocked until it is unblocked by hand, and its sender gets the answer to a failed
+  update after the reply ([`inbox.md`](./inbox.md), "The answer to the sender"). The late
+  completion of the first node is fenced off and changes nothing. Nothing bounds how long a handler
+  runs, and nothing checks `INBOX_LEASE_DURATION` against it. `InboxUpdateProcessor` extends every
+  third of the lease, timed from the end of the previous extension, and stops at the first refusal
   ([`inbox.md`](./inbox.md), "The update processor"); a slow extension query eats into that margin,
   and nothing bounds it.
 - **An inbox lease is extended only while it has not passed**, as `InboxStore.extendLease()` does:

@@ -1,10 +1,11 @@
-import { Context } from "grammy";
+import { Context as GrammyContext } from "grammy";
 import type { Update } from "@grammyjs/types";
 import type { Fluent } from "@moebius/fluent";
 import { inject, injectable } from "inversify";
 import { Tokens } from "app/shared/tokens";
 import { configValue } from "app/shared/config-value";
-import { DEFAULT_LOCALE } from "app/telegram/locale/locale.types";
+import type { Context } from "app/telegram/bot/bot.types";
+import { createFluentMiddleware } from "app/telegram/locale/locale";
 import { isGroupChat } from "app/telegram/telegram-chat";
 import { serialize } from "app/telegram/outbox/payload-codec/payload-codec";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
@@ -31,8 +32,7 @@ export class FailedUpdateAnswer {
             return;
         }
 
-        const translate = this.fluent.withLocale(this.senderLanguageCode(update));
-        const text = translate("failed-update-answer-text", { contact: this.authorContact });
+        const text = await this.translateForSender(update);
 
         await this.store.push({
             chatId: chatId,
@@ -42,13 +42,16 @@ export class FailedUpdateAnswer {
         });
     }
 
-    // The locale the pipeline would have answered in: ctx.from of grammY, by the rule of
-    // createFluentMiddleware(). The getter reads the update alone and never touches the Api or the
-    // bot of the Context, so it gets neither; the casts hide that from the type checker, and the spec
-    // of this class holds it for a message and a button press instead.
-    private senderLanguageCode(update: Update): string {
-        const sender = new Context(update, undefined as never, undefined as never).from;
+    // In the locale the pipeline would have answered in: the Fluent middleware of the pipeline itself
+    // fills ctx.t of a Context of the update, so the rule of the locale stays in
+    // createFluentMiddleware() alone. The middleware reads ctx.from, which reads the update alone and
+    // never touches the Api or the bot of the Context, so it gets neither; the casts hide that from
+    // the type checker, and the spec of this class holds it for a message and a button press instead.
+    private async translateForSender(update: Update): Promise<string> {
+        const ctx = new GrammyContext(update, undefined as never, undefined as never) as Context;
 
-        return sender?.language_code ?? DEFAULT_LOCALE;
+        await createFluentMiddleware(this.fluent)(ctx, async () => undefined);
+
+        return ctx.t("failed-update-answer-text", { contact: this.authorContact });
     }
 }

@@ -3,6 +3,7 @@ import { inject, injectable } from "inversify";
 import { Tokens } from "app/shared/tokens";
 import { configValue } from "app/shared/config-value";
 import type { Logger } from "app/platform/logger/logger";
+import type { UnknownObject } from "app/shared/types";
 import type { InboxFailureClassifier } from "app/telegram/inbox/failure-classifier/inbox-failure-classifier";
 import { InboxFailureKind } from "app/telegram/inbox/failure-classifier/inbox-failure-classifier.types";
 import type { InboxStore } from "app/telegram/inbox/store/inbox-store";
@@ -98,12 +99,17 @@ export class InboxFailureHandler {
         try {
             await this.failedUpdateAnswer.send(failedUpdate.chatId, failedUpdate.update);
         } catch (error) {
-            this.logger.error("The answer to the sender of a failed inbox update was not sent.", {
-                userId: failedUpdate.userId,
-                chatId: failedUpdate.chatId,
-                updateId: lease.updateId,
-                cause: error,
-            });
+            this.logUnsentAnswer({ userId: failedUpdate.userId, chatId: failedUpdate.chatId, updateId: lease.updateId, cause: error });
+        }
+    }
+
+    // A log that throws, say on a payload its serializer refuses, would reach the caller after all, as
+    // InboxRunner.logError() guards its own log.
+    private logUnsentAnswer(payload: UnknownObject): void {
+        try {
+            this.logger.error("The answer to the sender of a failed inbox update was not sent.", payload);
+        } catch {
+            // There is nowhere left to report the failure of the log itself.
         }
     }
 }
