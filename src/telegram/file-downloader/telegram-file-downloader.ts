@@ -1,4 +1,5 @@
 import path from "path";
+import { constants as httpStatus } from "node:http2";
 import type { Api } from "grammy";
 import { GrammyError } from "grammy";
 import type { File } from "@grammyjs/types";
@@ -23,9 +24,11 @@ export class TelegramFileDownloader {
     private static readonly DOWNLOAD_TIMEOUT_MS = 60 * MS_PER_SECOND;
     private static readonly FILENAME_LENGTH_CHARS = 15;
 
-    // How the Bot API describes a file over the limit of getFile.
+    // How the Bot API describes the refusals of getFile that are no bug: a file over its limit, and
+    // a file it cannot give right now, "wrong file_id or the file is temporarily unavailable". A
+    // file id that comes with the message is never wrong.
     private static readonly FILE_TOO_BIG_DESCRIPTION = "file is too big";
-    private static readonly BAD_REQUEST_CODE = 400;
+    private static readonly FILE_UNAVAILABLE_DESCRIPTION = "temporarily unavailable";
 
     public constructor(private readonly tempDir: string = configValue("tempDir")) {}
 
@@ -61,19 +64,23 @@ export class TelegramFileDownloader {
         try {
             return await api.getFile(fileId);
         } catch (error) {
-            if (this.isTooBig(error)) {
+            if (this.isBadRequest(error, TelegramFileDownloader.FILE_TOO_BIG_DESCRIPTION)) {
                 throw TelegramFileTooBig.byFileId(fileId, error);
+            }
+
+            if (this.isBadRequest(error, TelegramFileDownloader.FILE_UNAVAILABLE_DESCRIPTION)) {
+                throw TelegramFileNotDownloaded.byGetFileError(fileId, error);
             }
 
             throw error;
         }
     }
 
-    private isTooBig(error: unknown): error is GrammyError {
+    private isBadRequest(error: unknown, description: string): error is GrammyError {
         return (
             error instanceof GrammyError &&
-            error.error_code === TelegramFileDownloader.BAD_REQUEST_CODE &&
-            error.description.includes(TelegramFileDownloader.FILE_TOO_BIG_DESCRIPTION)
+            error.error_code === httpStatus.HTTP_STATUS_BAD_REQUEST &&
+            error.description.includes(description)
         );
     }
 
@@ -91,6 +98,9 @@ export class TelegramFileDownloader {
         }
 
         if (!response.ok) {
+            // An unread body keeps its connection out of reuse.
+            await response.body?.cancel();
+
             throw TelegramFileNotDownloaded.byStatus(fileId, response.status);
         }
 

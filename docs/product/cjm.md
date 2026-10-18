@@ -129,7 +129,8 @@ unsupported file with «Файл» in place of the quoted name: "Файл — н
 знаю. Поддерживаю: {formats}."
 
 An SVG with no font in it, a drawing, gets the row of a file not in its format: the format is an
-SVG font.
+SVG font. So does a font collection (TTC) named `.ttf` or `.otf`: it is sound, and the advice to
+download a damaged font again would not help it.
 
 ## 6. /help
 

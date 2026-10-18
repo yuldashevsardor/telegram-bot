@@ -88,11 +88,24 @@ describe("TelegramFileDownloader", function () {
         expect(error).to.be.instanceOf(TelegramFileTooBig).with.deep.property("payload", { fileId: FILE_ID });
     });
 
-    it("lets another refusal of getFile through as it is", async function () {
+    // The inbox retries it (docs/architecture/inbox.md, "Error classes").
+    it("tells a file getFile cannot give right now for a failed download", async function () {
         fakeBotApi.answerWith(() => ({
             ok: false,
             error_code: 400,
             description: "Bad Request: wrong file_id or the file is temporarily unavailable",
+        }));
+
+        const error = await downloader.download(api, FILE_ID, Extension.TTF).catch((caught: unknown) => caught);
+
+        expect(error).to.be.instanceOf(TelegramFileNotDownloaded).with.property("cause").that.is.instanceOf(GrammyError);
+    });
+
+    it("lets another refusal of getFile through as it is", async function () {
+        fakeBotApi.answerWith(() => ({
+            ok: false,
+            error_code: 400,
+            description: "Bad Request: invalid file_id",
         }));
 
         const error = await downloader.download(api, FILE_ID, Extension.TTF).catch((caught: unknown) => caught);

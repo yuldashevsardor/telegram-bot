@@ -199,7 +199,8 @@ thing they keep in the session is the album `NotAFileMiddleware` answered last (
      of the same `Api`, into `TEMP_DIR`, with a timeout of a minute. A `getFile` that refuses the
      file for its size (a document without `file_size`, or `BOT_MAX_DOWNLOAD_SIZE` above the limit
      of the server) gives `TelegramFileTooBig`, and the person gets the text of a file over the
-     limit. A failed download gives `TelegramFileNotDownloaded`, which the inbox retries
+     limit. A `getFile` that cannot give the file right now and a failed download give
+     `TelegramFileNotDownloaded`, which the inbox retries
      ([`inbox.md`](./inbox.md), "Error classes"). The validator of the format the extension names
      (`FontValidatorResolver`, [`font-convertor.md`](./font-convertor.md), "Signatures") reads the
      file, and the file is removed whatever the outcome.
@@ -208,8 +209,9 @@ thing they keep in the session is the album `NotAFileMiddleware` answered last (
      "broken"; which errors give the first is its `NOT_IN_FORMAT`. Only the errors of the format of
      the extension count there: a `NotSfnt` of the font inside a WOFF, a WOFF2 or an EOT file says
      that a file in its format is broken inside. A font collection named `.ttf` or `.otf` is "not
-     in the format" too, though the validator answers it with `BrokenSfnt`: it is a sound TTC, and
-     the advice to download a damaged font again would not help it. Any other error is thrown on,
+     in the format" too ([`cjm.md`](../product/cjm.md), step 5), though the validator answers it
+     with `BrokenSfnt`. A WOFF or a WOFF2 file of a collection (the flavor `ttcf`) stays "broken":
+     it is in its format, and no row of step 5 fits it (the owner's decision in PR #1012). Any other error is thrown on,
      and the inbox picks the outcome of the update by it ([`inbox.md`](./inbox.md), "Failures").
 
   A font that passes gets `file-intake-middleware-question` in reply to its message with the

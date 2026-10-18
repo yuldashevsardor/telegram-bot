@@ -1,5 +1,4 @@
 import { inject, injectable } from "inversify";
-import path from "path";
 import type { NextFunction } from "grammy";
 import type { Document } from "@grammyjs/types";
 import { Tokens } from "app/shared/tokens";
@@ -49,7 +48,7 @@ export class FileIntakeMiddleware extends Middleware {
             return;
         }
 
-        const sourceExtension = this.findSupportedExtension(document);
+        const sourceExtension = await this.findSupportedExtension(document);
 
         if (sourceExtension === undefined) {
             await this.replyUnsupported(ctx, document);
@@ -100,11 +99,8 @@ export class FileIntakeMiddleware extends Middleware {
         await ctx.reply(ctx.t("file-intake-middleware-too-large", { maxDownloadSizeMb: this.maxDownloadSizeMb }));
     }
 
-    private findSupportedExtension(document: Document): Extension | undefined {
-        const nameExtension = path
-            .extname(document.file_name ?? "")
-            .slice(1)
-            .toLowerCase();
+    private async findSupportedExtension(document: Document): Promise<Extension | undefined> {
+        const nameExtension = (await FileHelper.getFileExtension(document.file_name ?? "")).toLowerCase();
 
         return this.supportedFormats.toList().find((extension) => extension === nameExtension);
     }

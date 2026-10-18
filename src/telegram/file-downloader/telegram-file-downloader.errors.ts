@@ -18,6 +18,11 @@ export class TelegramFileNotDownloaded extends RuntimeError {
         });
     }
 
+    // getFile answers so a file Telegram cannot give right now, and the same call may pass later.
+    public static byGetFileError(fileId: string, error: Error): TelegramFileNotDownloaded {
+        return new TelegramFileNotDownloaded("Telegram cannot give the file right now.", { fileId: fileId, cause: error });
+    }
+
     // A failure of fetch itself: the network, or the timeout of the download.
     public static byFetchError(fileId: string, error: unknown): TelegramFileNotDownloaded {
         return new TelegramFileNotDownloaded("The download of the file failed.", { fileId: fileId, cause: error });

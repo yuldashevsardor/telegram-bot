@@ -3,6 +3,7 @@ import { Extension } from "app/font-convertor/font-convertor.types";
 import { InvalidEotFont, NotEot } from "app/font-convertor/validator/eot/eot-font-validator.errors";
 import { BrokenSfnt, InvalidSfntFont, NotSfnt } from "app/font-convertor/validator/sfnt/sfnt-font-validator.errors";
 import { SfntRule } from "app/font-convertor/validator/sfnt/sfnt-font-validator.types";
+import type { Violation } from "app/font-convertor/validator/sfnt/sfnt-font-validator.types";
 import { InvalidSvgFont, NoFont, NotSvg, NotXml } from "app/font-convertor/validator/svg/svg-font-validator.errors";
 import { InvalidWoffFont, NotWoff } from "app/font-convertor/validator/woff/woff-font-validator.errors";
 import { InvalidWoff2Font, NotWoff2 } from "app/font-convertor/validator/woff2/woff2-font-validator.errors";
@@ -60,6 +61,13 @@ export class FontRejectionClassifier {
     private isCollection(extension: Extension, error: unknown): boolean {
         const isSfntExtension = extension === Extension.TTF || extension === Extension.OTF;
 
-        return isSfntExtension && error instanceof BrokenSfnt && error.payload?.["rule"] === SfntRule.Collection;
+        if (!isSfntExtension || !(error instanceof BrokenSfnt)) {
+            return false;
+        }
+
+        // BrokenSfnt.byRule() spreads the violation into the payload; the type ties the field to it.
+        const violation = error.payload as Partial<Violation> | undefined;
+
+        return violation?.rule === SfntRule.Collection;
     }
 }

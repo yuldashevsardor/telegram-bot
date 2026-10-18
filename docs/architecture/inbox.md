@@ -429,8 +429,9 @@ class, and why, is read off the method, its constants and their comments. In sho
   connection a caller wrapped into its own error is `Transient`. `UserService` wraps a failed save
   of the user, made on every update, into `UserCreateError` or `UserEditError`; read only at the
   top, a restart of PostgreSQL during that save would block the group.
-- A failed download of a file a person sent (`TelegramFileNotDownloaded`: a 5xx or another status
-  of the file server, the timeout of the download, a network failure) is `Transient`. The download
+- A failed download of a file a person sent (`TelegramFileNotDownloaded`: a `getFile` that cannot
+  give the file right now, a 5xx or another status of the file server, the timeout of the download,
+  a network failure) is `Transient`. The download
   goes past grammY by plain HTTP ([`bot.md`](./bot.md), "Commands"), so its failure is no
   `HttpError`, and the retry asks `getFile` for the path again.
 - A timeout waiting for the outbox (`OutboxResultTimeout`), wrapped or not, is `ReplyTimeout`. The
