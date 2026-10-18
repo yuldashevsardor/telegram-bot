@@ -89,7 +89,8 @@ is the run itself:
 
 1. The worktree as above, from fresh `origin/main`. `make mutation batch=<M>` on a clean tree: it
    runs over the files `make mutation-batch-files batch=<M>` prints, or over the whole of `src/`
-   when that names a PR that changed a tool of the run or finds no file left. A full run takes
+   when that names a PR that changed a tool of the run past the exclusion lists of
+   `stryker.config.mjs` or finds no file left. A full run takes
    hours. Its record is kept in `reports/mutation/batch-record.md`, and that is the input of the
    close.
 2. The run is red — fix the survivors you can in the same worktree and commit. The survivors left

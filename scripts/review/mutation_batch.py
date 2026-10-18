@@ -7,7 +7,8 @@ Any change of code, a `.ts` in `src/` or `test/` or a tool of the mutation run, 
 parallel sessions.
 Instead of paying either on every review round, the change is recorded in a batch, and the batch
 run goes on fresh `main` once per `BATCH_SIZE_ISSUES` recorded issues: over the files its PRs
-changed in code (`files`), or over the whole of `src/` when one of them changed a tool of the run.
+changed in code (`files`), or over the whole of `src/` when one of them changed a tool of the run
+past the exclusion lists of `stryker.config.mjs`.
 A batch is an issue titled `Full mutation run <N>`, `<N>` a plain increment from 1; at most one
 batch is open at a time. No label marks it: docs/agents/issue-tracker.md forbids new ones.
 
@@ -56,7 +57,12 @@ and takes no lock:
    files of a rebase merge unseen.
 3. A changed tool of the run (`RUN_TOOLS`, and `RUN_TOOLS_BY_CONTENT` by what of them the run reads,
    as docs/agents/review-gates.md says) in more than comments sends the batch to the full run:
-   stdout stays empty, and stderr names the PR and the file.
+   stdout stays empty, and stderr names the PR and the file. A change of `stryker.config.mjs` that
+   adds or removes the entries of its exclusion lists alone (`EXCLUSION_LISTS`) does not: it keeps
+   the `.ts` of `src/` a removed source exclusion matches at the merge commit and no entry left that
+   is read as a glob excludes, and the specs an entry new in `DATABASE_SPECS` matches before the PR,
+   as item 4 keeps a deleted one. A removed source exclusion or a new spec entry past `*`, `**` and
+   `?` is not read and sends the batch to the full run.
 4. Otherwise keeps each `.ts` in `src/` or `test/` the PR added, renamed or changed in more than
    comments, by the rules of docs/agents/review-gates.md, "Comments-only diffs" (`Scanner` and
    `is_comments_only` below), and each spec or spec helper it deleted. A file the scanner cannot
@@ -747,6 +753,32 @@ RUN_TOOLS = (
 # The tools of the run by what of them the run reads (`tool_inputs`): the paragraphs of
 # docs/agents/review-gates.md under its table that turn `mutation-full` on by the content of a diff.
 RUN_TOOLS_BY_CONTENT = ("package.json", "package-lock.json", "Makefile")
+STRYKER_CONFIG = "stryker.config.mjs"
+
+
+class ExclusionList(NamedTuple):
+    # What an entry carries in front of its path or glob: `mutate` excludes with `!`.
+    prefix: str
+    is_source_list: bool
+    # The line of code after which an entry excludes, "" for the opening line. Stryker applies the
+    # patterns of `mutate` in order, and a `!` above `...area` leaves the files of the area in.
+    entries_after: str
+
+
+# The lists of stryker.config.mjs that only leave files out of the run, by the line of code that
+# opens each (docs/agents/review-gates.md, "`mutation-full`"). A spec back in the run only adds
+# tests; a source back in it has mutants no run checked.
+EXCLUSION_LISTS = {
+    "const DATABASE_SPECS = [": ExclusionList("", is_source_list=False, entries_after=""),
+    "const DATABASE_ONLY_SOURCES = [": ExclusionList("", is_source_list=True, entries_after=""),
+    "mutate: [": ExclusionList("!", is_source_list=True, entries_after="...area,"),
+}
+# The scanner keeps a line that holds a string literal with its blanks and a backtick in front, and
+# the blank a trailing comment leaves behind.
+EXCLUSION_ENTRY = re.compile(r'`?\s*"(?P<entry>[^"\\]*)",?\s*')
+EXCLUSION_LIST_END = re.compile(r"\][,;]?")
+# A glob past `*`, `**` and `?`: braces, a class, an extglob, a line range of Stryker.
+GLOB_UNREAD = re.compile(r"[{}\[\]()!+@:\\]")
 # The words after which a `/` opens a regular expression and not a division.
 REGEX_AFTER_WORDS = frozenset(
     "return typeof case do else in of new delete void throw instanceof yield await".split()
@@ -970,13 +1002,26 @@ def directive_reach(scan: Scan, lines: List[str]) -> List[Tuple[str, ...]]:
     )
 
 
-def is_comments_only(old_text: str, new_text: str) -> bool:
-    """Whether the change of a file touches comments alone, by the rules of
-    docs/agents/review-gates.md, "Comments-only diffs"."""
+def scans_of_change(old_text: str, new_text: str) -> Optional[Tuple[Scan, Scan]]:
+    """The scans of both sides of a change, None when the scanner cannot read one or a directive
+    changed: by the rules of docs/agents/review-gates.md, "Comments-only diffs", either is code."""
     try:
         old, new = Scanner(old_text).scan(), Scanner(new_text).scan()
     except Unclear:
+        return None
+    old_lines, new_lines = old_text.split("\n"), new_text.split("\n")
+    if directive_reach(old, old_lines) != directive_reach(new, new_lines):
+        return None
+    return old, new
+
+
+def is_comments_only(old_text: str, new_text: str) -> bool:
+    """Whether the change of a file touches comments alone, by the rules of
+    docs/agents/review-gates.md, "Comments-only diffs"."""
+    scans = scans_of_change(old_text, new_text)
+    if scans is None:
         return False
+    old, new = scans
     # Code a comment opens or closes over changes this sequence while every changed line is a
     # comment, and so does a line break that moves code onto another line.
     if [code for code in old.code if code] != [code for code in new.code if code]:
@@ -990,7 +1035,7 @@ def is_comments_only(old_text: str, new_text: str) -> bool:
         # as the new one.
         if any(new.code[new_start:new_end]):
             return False
-    return directive_reach(old, old_lines) == directive_reach(new, new_lines)
+    return True
 
 
 class ChangedFile(NamedTuple):
@@ -1194,6 +1239,155 @@ def uncarried_source(pr: int, path: str, commit: str, main_line: "MainLine", run
     return Kept(path, commit_parents(deleting, run)[0])
 
 
+class Exclusion(NamedTuple):
+    path: str
+    excludes_source: bool
+
+
+def exclusions_by_line(code: List[str]) -> Optional[List[Optional[Exclusion]]]:
+    """For each line of code of stryker.config.mjs, what it excludes when it is an entry of an
+    exclusion list, None for any other line; None for the whole when a list does not end on a line
+    of its own before the next list or the end of the file. Read on, such a list would take the
+    entries of the next one for its own."""
+    exclusions: List[Optional[Exclusion]] = []
+    current: Optional[ExclusionList] = None
+    has_entries = False
+    for line in code:
+        exclusion = None
+        if current is None:
+            current = EXCLUSION_LISTS.get(line)
+            has_entries = current is not None and current.entries_after == ""
+        elif line in EXCLUSION_LISTS:
+            return None
+        elif EXCLUSION_LIST_END.fullmatch(line):
+            current = None
+        elif not has_entries:
+            has_entries = line == current.entries_after
+        else:
+            entry = EXCLUSION_ENTRY.fullmatch(line)
+            if entry is not None and entry.group("entry").startswith(current.prefix):
+                path = entry.group("entry")[len(current.prefix) :]
+                exclusion = Exclusion(path, current.is_source_list)
+        exclusions.append(exclusion)
+    if current is not None:
+        return None
+    return exclusions
+
+
+class ExclusionChange(NamedTuple):
+    # The paths and globs of sources no longer excluded, of the sources excluded after the change,
+    # and of the specs excluded anew.
+    included_sources: List[str]
+    excluded_sources: List[str]
+    excluded_specs: List[str]
+
+
+def exclusion_change(old_text: str, new_text: str) -> Optional[ExclusionChange]:
+    """What a change of stryker.config.mjs leaves out of the run and brings back into it, when the
+    entries of its exclusion lists and its comments are all the change touches; None when it
+    touches more."""
+    scans = scans_of_change(old_text, new_text)
+    if scans is None:
+        return None
+    old, new = scans
+    old_code = [code for code in old.code if code]
+    new_code = [code for code in new.code if code]
+    old_exclusions, new_exclusions = exclusions_by_line(old_code), exclusions_by_line(new_code)
+    if old_exclusions is None or new_exclusions is None:
+        return None
+    matcher = difflib.SequenceMatcher(None, old_code, new_code, autojunk=False)
+    for tag, old_start, old_end, new_start, new_end in matcher.get_opcodes():
+        if tag == "equal":
+            continue
+        if None in old_exclusions[old_start:old_end] + new_exclusions[new_start:new_end]:
+            return None
+    # By what the lists exclude, not by the changed lines: a source moved from one list to another
+    # in the same form stays excluded, and in another form `exclusion_kept` tells.
+    old_sources = {found.path for found in old_exclusions if found and found.excludes_source}
+    new_sources = {found.path for found in new_exclusions if found and found.excludes_source}
+    old_specs = {found.path for found in old_exclusions if found and not found.excludes_source}
+    new_specs = {found.path for found in new_exclusions if found and not found.excludes_source}
+    return ExclusionChange(
+        sorted(old_sources - new_sources), sorted(new_sources), sorted(new_specs - old_specs)
+    )
+
+
+def glob_pattern(glob: str) -> Optional["re.Pattern[str]"]:
+    """The paths a glob of an exclusion list matches; None for a glob past `*`, `**` and `?`."""
+    if GLOB_UNREAD.search(glob):
+        return None
+    # Stryker and mocha take a path from the root of the project with `./` in front as well.
+    if glob.startswith("./"):
+        glob = glob[2:]
+    pattern = ""
+    at = 0
+    while at < len(glob):
+        # `**` inside a segment, as in `src/**.ts`, is a plain `*`.
+        opens_segment = at == 0 or glob[at - 1] == "/"
+        if opens_segment and glob.startswith("**/", at):
+            pattern += "(?:.*/)?"
+            at += 3
+        elif opens_segment and glob[at:] == "**":
+            pattern += ".*"
+            at += 2
+        elif glob[at] == "*":
+            pattern += "[^/]*"
+            at += 1
+        elif glob[at] == "?":
+            pattern += "[^/]"
+            at += 1
+        else:
+            pattern += re.escape(glob[at])
+            at += 1
+    return re.compile(pattern)
+
+
+def exclusion_kept(
+    pr: int, parent: str, commit: str, main_line: "MainLine", run: Run, report: Report
+) -> Optional[List[Kept]]:
+    """The files a change of stryker.config.mjs in its exclusion lists alone puts into the batch:
+    the `.ts` of `src/` a removed source exclusion matches at the merge commit and no entry left
+    that is read as a glob excludes, and the specs an entry new in `DATABASE_SPECS` matches before
+    the PR, as a deleted spec stands for the sources it imported; None when the change sends the
+    batch to the full run."""
+    change = exclusion_change(
+        file_at(parent, STRYKER_CONFIG, run), file_at(commit, STRYKER_CONFIG, run)
+    )
+    if change is None:
+        return None
+    # `mochaOptions.ignore` takes globs too, so a spec entry is matched as one.
+    patterns = {}
+    for glob in change.included_sources + change.excluded_specs:
+        pattern = glob_pattern(glob)
+        if pattern is None:
+            report("PR #{}: {} changes an exclusion not read: {}".format(pr, STRYKER_CONFIG, glob))
+            return None
+        patterns[glob] = pattern
+    # A glob not read here cannot say that a file stays excluded, and the file goes into the batch.
+    excluded = [glob_pattern(glob) for glob in change.excluded_sources]
+    still_excluded = [pattern for pattern in excluded if pattern is not None]
+    report("PR #{}: {} changed in its exclusion lists alone".format(pr, STRYKER_CONFIG))
+    kept = []
+    for glob in change.included_sources:
+        report("PR #{}: no longer excluded: {}".format(pr, glob))
+        for path in sorted(main_line.tree(commit)):
+            if not (path.startswith("src/") and path.endswith(".ts")):
+                continue
+            if not patterns[glob].fullmatch(path):
+                continue
+            if any(pattern.fullmatch(path) for pattern in still_excluded):
+                report("PR #{}: still excluded: {}".format(pr, path))
+                continue
+            kept.append(Kept(path, commit))
+    # A spec new in the PR is not in the tree before it: it is a changed `.ts` of its own.
+    for glob in change.excluded_specs:
+        for path in sorted(main_line.tree(parent)):
+            if path.startswith("test/") and path.endswith(".ts") and patterns[glob].fullmatch(path):
+                report("PR #{}: excluded anew: {}".format(pr, path))
+                kept.append(Kept(path, parent))
+    return kept
+
+
 def changed_code(
     pr: int, commit: str, main_line: "MainLine", run: Run, report: Report
 ) -> Tuple[List[Kept], List[str]]:
@@ -1213,6 +1407,11 @@ def changed_code(
             kept.append(uncarried_source(pr, path, commit, main_line, run))
     for changed in changed_list:
         tool_changed = is_tool_changed(changed, parent, commit, run)
+        if tool_changed and changed.status == "M" and changed.new_path == STRYKER_CONFIG:
+            exclusion_files = exclusion_kept(pr, parent, commit, main_line, run, report)
+            if exclusion_files is not None:
+                kept.extend(exclusion_files)
+                continue
         if tool_changed is not None:
             if tool_changed:
                 tools.append(changed.new_path)
