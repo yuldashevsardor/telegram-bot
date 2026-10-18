@@ -5,11 +5,13 @@ import type { Update } from "@grammyjs/types";
 import type { Fluent } from "@moebius/fluent";
 import { FailedUpdateAnswer } from "app/telegram/failed-update-answer/failed-update-answer";
 import { createFluent } from "app/telegram/locale/locale";
+import { DEFAULT_LOCALE } from "app/telegram/locale/locale.types";
 import type { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import type { OutboxMessageInput } from "app/telegram/outbox/store/outbox-store.types";
 import { OutboxPriority } from "app/telegram/outbox/store/outbox-store.types";
 
 const CHAT = 5_000_000_001;
+const GROUP_CHAT = -1_000_000_001;
 const CONTACT = "@author";
 
 describe("FailedUpdateAnswer", function () {
@@ -18,7 +20,7 @@ describe("FailedUpdateAnswer", function () {
     let answer: FailedUpdateAnswer;
 
     before(async function () {
-        fluent = await createFluent(path.join(process.cwd(), "src", "telegram"));
+        fluent = await createFluent(path.resolve(__dirname, "../../src/telegram"));
     });
 
     beforeEach(function () {
@@ -33,7 +35,7 @@ describe("FailedUpdateAnswer", function () {
         answer = new FailedUpdateAnswer(store, fluent, CONTACT);
     });
 
-    it("pushes the answer into the outbox for the chat of the update, ahead of the bulk messages", async function () {
+    it("pushes the answer into the outbox for the chat of the update, with the priority of a call", async function () {
         await answer.send(CHAT, messageUpdate("ru"));
 
         expect(pushed).to.deep.equal([
@@ -61,8 +63,14 @@ describe("FailedUpdateAnswer", function () {
         await answer.send(CHAT, messageUpdate(undefined));
 
         expect(pushed.map(({ payload }) => payload["text"])).to.deep.equal([
-            fluent.withLocale("ru")("failed-update-answer-text", { contact: CONTACT }),
+            fluent.withLocale(DEFAULT_LOCALE)("failed-update-answer-text", { contact: CONTACT }),
         ]);
+    });
+
+    it("says nothing in a group chat, where the bot does not talk", async function () {
+        await answer.send(GROUP_CHAT, messageUpdate("ru"));
+
+        expect(pushed).to.deep.equal([]);
     });
 
     // A button press comes as a callback query, whose sender is not under message: the sender is read

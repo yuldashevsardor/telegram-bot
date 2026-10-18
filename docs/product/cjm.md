@@ -117,7 +117,8 @@ The last row goes out once, when the handling of the update has failed for good 
 group ([`inbox.md`](../architecture/inbox.md), "The answer to the sender"), not on every attempt the
 inbox retries. It needs the chat to be reachable: when the failure is that the bot cannot send to
 Telegram, the answer cannot go out either. Nor does it follow a reply that timed out in the outbox:
-that reply may still reach the person.
+that reply may still reach the person. When Telegram refused a reply of the handler and the outbox
+blocked the chat for it, the answer waits behind that reply until the chat is unblocked by hand.
 
 20 MB, the default of `{maxDownloadSizeMb}`, is the limit of the Bot API on files a bot downloads
 (`getFile`). A file over it never reaches the bot, so the check goes by the size Telegram reports in

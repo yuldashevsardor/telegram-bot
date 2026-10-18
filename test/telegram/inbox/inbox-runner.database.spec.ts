@@ -202,6 +202,7 @@ describe("InboxRunner on the database", function () {
             new OutboxErrorSerializer(TOKEN),
             // The answer to the sender of a failed update is not what this spec checks.
             { send: async (): Promise<void> => undefined } as unknown as FailedUpdateAnswer,
+            nodeLogger,
             MAX_ATTEMPTS,
         );
         const grammy = new RecordingGrammy(events, host);

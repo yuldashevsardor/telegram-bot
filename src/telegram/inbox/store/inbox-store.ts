@@ -14,6 +14,7 @@ import type {
     ClaimedInboxUpdate,
     ExpiredInboxLease,
     ExpiredInboxLeaseRow,
+    FailedInboxUpdate,
     InboxAttempt,
     InboxAttemptError,
     InboxCleanupSettings,
@@ -284,7 +285,7 @@ export class InboxStore {
     // The update fails, and its group is blocked until it is unblocked by hand: the updates behind it
     // wait, new ones are still pushed. Returns the failed update with its group, for the answer to its
     // sender, or null for a fenced completion, which failed nothing.
-    public async markAsFailedAndBlockGroup(lease: InboxLease, attemptError: InboxAttemptError): Promise<InboxUpdateInput | null> {
+    public async markAsFailedAndBlockGroup(lease: InboxLease, attemptError: InboxAttemptError): Promise<FailedInboxUpdate | null> {
         const completion = await this.complete(lease, attemptError, async (sql, lockedGroup) => {
             await this.finishUpdate(sql, lease, InboxStatus.Failed, attemptError);
             await this.setGroupState(sql, lockedGroup, InboxGroupState.Blocked);
@@ -298,10 +299,10 @@ export class InboxStore {
             return null;
         }
 
-        const failedUpdate: InboxUpdateInput = {
+        const failedUpdate: FailedInboxUpdate = {
             userId: Number(completion.group.user_id),
             chatId: Number(completion.group.chat_id),
-            update: completion.written,
+            update: completion.returnedByWrite,
         };
 
         this.logger.error("Inbox group is blocked by a failed update.", {
@@ -507,12 +508,12 @@ export class InboxStore {
 
     // Every completion: the lock of the group, then the fence, then the writes
     // (docs/architecture/inbox.md, "Completions"). Returns the group of an applied completion with
-    // what its writes gave back, null for a fenced one.
-    private async complete<Written>(
+    // what its write returned, null for a fenced one.
+    private async complete<WriteReturn>(
         lease: InboxLease,
         attemptError: InboxAttemptError | null,
-        write: (sql: TransactionSql, group: LockedInboxGroupRow) => Promise<Written>,
-    ): Promise<{ group: LockedInboxGroupRow; written: Written } | null> {
+        write: (sql: TransactionSql, group: LockedInboxGroupRow) => Promise<WriteReturn>,
+    ): Promise<{ group: LockedInboxGroupRow; returnedByWrite: WriteReturn } | null> {
         return this.sql.begin(async (sql) => {
             // The lock reads the token of the row it locks in its newest committed version.
             const [group] = await sql<LockedInboxGroupRow[]>`
@@ -551,9 +552,9 @@ export class InboxStore {
                 return null;
             }
 
-            const written = await write(sql, group);
+            const returnedByWrite = await write(sql, group);
 
-            return { group: group, written: written };
+            return { group: group, returnedByWrite: returnedByWrite };
         });
     }
 

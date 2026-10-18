@@ -85,14 +85,15 @@ describe("InboxFailureHandler", function () {
         await database?.close();
     });
 
-    function useStore(inboxStore: InboxStore): void {
+    function useStore(inboxStore: InboxStore, failedUpdateAnswer: FailedUpdateAnswer = recordingAnswer()): void {
         store = inboxStore;
         handler = new InboxFailureHandler(
             store,
             new InboxFailureClassifier(new TelegramBotApiFailureClassifier()),
             RETRY_DELAY,
             new OutboxErrorSerializer(TOKEN),
-            recordingAnswer(),
+            failedUpdateAnswer,
+            logger,
             MAX_ATTEMPTS,
         );
     }
@@ -217,6 +218,28 @@ describe("InboxFailureHandler", function () {
             expect((await attempts(10)).map(({ error }) => error?.["kind"])).to.deep.equal([InboxFailureKind.Unexpected]);
             expect(logger.errors.map(({ payload }) => payload?.["updateId"])).to.deep.equal([10]);
             expect(answers).to.deep.equal([{ chatId: CHAT, update: input(10).update }]);
+        });
+
+        // Logged by the handler: the runner would log it as an update the lease recovery takes back.
+        it("logs an answer that fails and keeps the update failed", async function () {
+            const pushError = new Error("write CONNECTION_CLOSED pgsql:5432");
+            useStore(store, {
+                send: async (): Promise<void> => {
+                    throw pushError;
+                },
+            } as unknown as FailedUpdateAnswer);
+            await store.push(input(10));
+
+            await handler.handle(await claimOne(), new TypeError("Cannot read properties of undefined"));
+
+            expect(await statuses()).to.deep.equal([InboxStatus.Failed]);
+            expect(await groupState(USER)).to.equal(InboxGroupState.Blocked);
+            expect(logger.errors.slice(1)).to.deep.equal([
+                {
+                    message: "The answer to the sender of a failed inbox update was not sent.",
+                    payload: { userId: USER, chatId: CHAT, updateId: 10, cause: pushError },
+                },
+            ]);
         });
 
         it("blocks the group on the first attempt, with no retry", async function () {

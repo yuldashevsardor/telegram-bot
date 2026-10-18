@@ -2,6 +2,7 @@ import { BotError } from "grammy";
 import { inject, injectable } from "inversify";
 import { Tokens } from "app/shared/tokens";
 import { configValue } from "app/shared/config-value";
+import type { Logger } from "app/platform/logger/logger";
 import type { InboxFailureClassifier } from "app/telegram/inbox/failure-classifier/inbox-failure-classifier";
 import { InboxFailureKind } from "app/telegram/inbox/failure-classifier/inbox-failure-classifier.types";
 import type { InboxStore } from "app/telegram/inbox/store/inbox-store";
@@ -27,6 +28,7 @@ export class InboxFailureHandler {
         @inject<RetryDelay>(Tokens.Bot.RetryDelay) private readonly retryDelay: RetryDelay,
         @inject<OutboxErrorSerializer>(Tokens.Bot.Outbox.ErrorSerializer) private readonly errorSerializer: OutboxErrorSerializer,
         @inject<FailedUpdateAnswer>(Tokens.Bot.FailedUpdateAnswer) private readonly failedUpdateAnswer: FailedUpdateAnswer,
+        @inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger,
         private readonly maxAttempts: number = configValue("inbox.maxAttempts"),
     ) {}
 
@@ -90,6 +92,18 @@ export class InboxFailureHandler {
             return;
         }
 
-        await this.failedUpdateAnswer.send(failedUpdate.chatId, failedUpdate.update);
+        // Caught here rather than left to the caller: the update is failed by now, and the runner would
+        // log it as an update the lease recovery takes back, while the recovery would leave the rest of
+        // its expired leases to the next run.
+        try {
+            await this.failedUpdateAnswer.send(failedUpdate.chatId, failedUpdate.update);
+        } catch (error) {
+            this.logger.error("The answer to the sender of a failed inbox update was not sent.", {
+                userId: failedUpdate.userId,
+                chatId: failedUpdate.chatId,
+                updateId: lease.updateId,
+                cause: error,
+            });
+        }
     }
 }

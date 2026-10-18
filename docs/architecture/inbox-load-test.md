@@ -458,7 +458,10 @@ instead of an index:
 | `deleteIdleGroups()`, `countBlockedGroups()` | one | a seq scan of `telegram_inbox_groups` |
 | `retryBlockedGroup()`, `skipBlockedGroup()` | the lock of the group, the lookup of its failed update, the write of the update, the state | the primary keys; `telegram_inbox_failed_group_idx` for the failed update, a parallel seq scan of `telegram_inbox` before it (see "The unblocking") |
 
-`listenReady()` runs `LISTEN`, which `auto_explain` does not log.
+`listenReady()` runs `LISTEN`, which `auto_explain` does not log. Since the run,
+`markAsFailedAndBlockGroup()` also reads back the update it failed, by the primary key, for the
+answer to its sender ([`inbox.md`](./inbox.md), "The answer to the sender"); that statement was not
+measured.
 
 #### The claim in the backlog
 
