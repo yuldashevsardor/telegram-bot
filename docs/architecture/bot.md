@@ -31,10 +31,10 @@ container.
    first. Both filters stand above the session: a group update does have a session key, and
    step 3 would create a `sessions` row for it before the drop ([invariant](./invariants.md)).
 3. `session()`: the key is `${from.id}:${chat.id}`, the storage `PgsqlStorage` (table
-   `sessions`), the payload `{ requestCount }`. It reads the row right away (`read`). After the
-   chain returns, it writes the row back with an upsert (`write`) if the session was read or
-   changed. A new session counts as changed from the start. An error thrown below never reaches
-   the write. Below this step `ctx.session` is filled in.
+   `sessions`), the payload `SessionPayload` (`session.types.ts`). It reads the row right away
+   (`read`). After the chain returns, it writes the row back with an upsert (`write`) if the
+   session was read or changed. A new session counts as changed from the start. An error thrown
+   below never reaches the write. Below this step `ctx.session` is filled in.
 
    A row written while the former `/start` conversation waited still holds a `conversation`
    field, the state of `@grammyjs/conversations`, which the bot no longer installs. Nothing reads
@@ -61,7 +61,7 @@ container.
    locale on every start. An update that matched no command goes on to step 7.
 7. What no command took: a second call of `Bot.setupMiddlewares()`, below the commands, with
    `UnknownCommandMiddleware` → `NotAFileMiddleware` (see "Commands"). This is the last step: a
-   document passes both, and nothing takes it further.
+   document and a message without content pass both, and nothing takes them further.
 
 One update costs the database:
 
@@ -165,8 +165,8 @@ and of the bot, and the send.
 The texts of `/start`, `/help` and step 7 are those of the customer journey
 ([`cjm.md`](../product/cjm.md), steps 1, 5 and 6). Each handler builds its text with `ctx.t()`
 ([`i18n.md`](./i18n.md)) and sends it with one `ctx.reply()` through the outbox (see "The outbox
-transformer"). None of them keeps anything in the session: the next message is routed by what it
-is, not by what the bot said before.
+transformer"). The next message is routed by what it is, not by what the bot said before: the one
+thing they keep in the session is the album `NotAFileMiddleware` answered last (below).
 
 - `/start` (`StartCommand`) replies with `start-command-welcome`, the list of formats substituted.
   A repeated `/start` gives the same text.
@@ -181,7 +181,11 @@ is, not by what the bot said before.
   photo, a GIF, a sticker and the like) with `not-a-file-middleware-hint`, a request to send the
   font as a file. A GIF gets the request even though Telegram puts it into `document` as well. A
   document gets no answer: no handler takes a file yet. A service message (a pin, access granted
-  from a mini app) has no content and gets no answer either.
+  from a mini app) has no content and gets no answer either. An album comes as one message per
+  item, each an update of its own, and only its first item gets the request: the middleware keeps
+  the `media_group_id` it answered in `session.hintedMediaGroupId` and leaves an item of the same
+  album unanswered. The inbox hands out the updates of a session one at a time, in their order
+  ([`inbox.md`](./inbox.md)), so the first item is answered before the next is read.
 
 The list of formats in all three comes from `SupportedFormats` (`telegram/supported-formats.ts`):
 `ConvertorFactory.getSupportedExtensions()`, in upper case, in the order of the customer journey

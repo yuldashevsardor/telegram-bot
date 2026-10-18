@@ -17,6 +17,8 @@ bot lists formats, the list and the buttons go in one order: TTF, OTF, WOFF, WOF
 
 `{contact}` is how to reach the author of the bot. It is a configuration value, `BOT_AUTHOR_CONTACT`
 (`.env.dist`), not a text of the `.ftl`: the contact changes without a change of the texts.
+`{maxDownloadSizeMb}` is the size limit of a file the same way, `BOT_MAX_DOWNLOAD_SIZE`, 20 MB by
+default (see "5. Errors").
 
 The journey covers private chats only: `IsPrivateChatFilter` drops updates of every other chat
 ([`bot.md`](../architecture/bot.md)).
@@ -103,7 +105,7 @@ file again.
 | A message that is not a file: text, a photo, a sticker, a voice | Пришлите шрифт файлом — {formats}. |
 | An unknown command | The `/help` text. |
 | A file with no extension or with an unsupported one | «{filename}» — не шрифт или формат, который я не знаю. Поддерживаю: {formats}. |
-| A file over 20 MB | Файл больше 20 МБ — Telegram не даёт ботам скачивать такие файлы. |
+| A file over {maxDownloadSizeMb} MB | Файл больше {maxDownloadSizeMb} МБ — Telegram не даёт ботам скачивать такие файлы. |
 | The extension names a format, and the file is not in it (`NotWoff` and its siblings) | Файл назван как {format}, но внутри не {format}. Возможно, у него не то расширение. |
 | The file is in the format but breaks its rules (`BrokenWoff` and its siblings) | Файл похож на {format}, но повреждён. Попробуйте скачать шрифт заново из источника. |
 | The conversion failed on our side | Не получилось сконвертировать в {format}. Это ошибка на нашей стороне — попробуйте другой формат. |
@@ -115,8 +117,11 @@ The last row stands in for the silence of today: a failed update gets no answer
 ([`bot.md`](../architecture/bot.md)). It needs the chat to be reachable: when the failure is that
 the bot cannot send to Telegram, the answer cannot go out either.
 
-20 MB is the limit of the Bot API on files a bot downloads (`getFile`). A file over it never
-reaches the bot, so the check goes by the size Telegram reports in the message.
+20 MB, the default of `{maxDownloadSizeMb}`, is the limit of the Bot API on files a bot downloads
+(`getFile`). A file over it never reaches the bot, so the check goes by the size Telegram reports in
+the message.
+
+An album of photos gets the first row once, not once per photo.
 
 ## 6. /help
 
@@ -126,7 +131,7 @@ reaches the bot, so the check goes by the size Telegram reports in the message.
 > 3. Получите файл.
 >
 > Форматы: {formats}.
-> Размер файла — до 20 МБ.
+> Размер файла — до {maxDownloadSizeMb} МБ.
 > Несколько файлов можно прислать сразу: отвечу на каждый.
 >
 > Вопросы и ошибки: {contact}.

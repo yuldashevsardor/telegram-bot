@@ -5,6 +5,8 @@ import type { Context } from "app/telegram/bot/bot.types";
 import { createFluent } from "app/telegram/locale/locale";
 import type { Locale } from "app/telegram/locale/locale.types";
 import { DEFAULT_LOCALE } from "app/telegram/locale/locale.types";
+import type { SessionPayload } from "app/telegram/session/session.types";
+import { initialPayload } from "app/telegram/session/session.helper";
 import type { SupportedFormats } from "app/telegram/supported-formats";
 import { HelpText } from "app/telegram/command/help/help-text";
 
@@ -21,8 +23,13 @@ export const supportedFormats = { toText: (): string => "TTF, OTF, WOFF, WOFF2, 
 export const helpText = new HelpText(supportedFormats, "@author", 20);
 
 // The context of a private message translated by the bundles of src/telegram, with the texts of
-// ctx.reply() recorded instead of sent.
-export async function replyContext(content: Partial<Message>, locale: Locale = DEFAULT_LOCALE): Promise<ReplyContext> {
+// ctx.reply() recorded instead of sent. A session passed in is shared with the runs it is passed to,
+// as session() gives the updates of one chat the same row.
+export async function replyContext(
+    content: Partial<Message>,
+    locale: Locale = DEFAULT_LOCALE,
+    session: SessionPayload = initialPayload(),
+): Promise<ReplyContext> {
     const fluent = await createFluent(path.join(process.cwd(), "src", "telegram"));
     const update = {
         update_id: 1,
@@ -37,6 +44,7 @@ export async function replyContext(content: Partial<Message>, locale: Locale = D
     const replies: string[] = [];
     const ctx = new GrammyContext(update, new Api("test-token"), ME) as Context;
 
+    ctx.session = session;
     ctx.t = fluent.withLocale(locale);
     ctx.reply = (async (text: string): Promise<Message.TextMessage> => {
         replies.push(text);
@@ -53,8 +61,9 @@ export async function runHandler(
     handler: { setup: (composer: Composer<Context>) => void },
     content: Partial<Message>,
     locale?: Locale,
+    session?: SessionPayload,
 ): Promise<HandlerRun> {
-    const { ctx, replies } = await replyContext(content, locale);
+    const { ctx, replies } = await replyContext(content, locale, session);
     const composer = new Composer<Context>();
     handler.setup(composer);
     let isPassedOn = false;
@@ -66,6 +75,6 @@ export async function runHandler(
     return { ctx: ctx, replies: replies, isPassedOn: isPassedOn };
 }
 
-export function command(text: string): Partial<Message> {
+export function commandMessage(text: string): Partial<Message> {
     return { text: text, entities: [{ type: "bot_command", offset: 0, length: text.length }] };
 }

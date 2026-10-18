@@ -2,8 +2,8 @@ import "reflect-metadata";
 import { expect } from "chai";
 import type { Message, Sticker } from "@grammyjs/types";
 import { UnknownCommandMiddleware } from "app/telegram/middleware/unknown-command.middleware";
-import type { HandlerRun } from "test/telegram/reply-context.helper";
-import { command, helpText, runHandler } from "test/telegram/reply-context.helper";
+import type { HandlerRun } from "test/telegram/handler.helper";
+import { commandMessage, helpText, runHandler } from "test/telegram/handler.helper";
 
 function run(content: Partial<Message>): Promise<HandlerRun> {
     return runHandler(new UnknownCommandMiddleware(helpText), content);
@@ -11,7 +11,7 @@ function run(content: Partial<Message>): Promise<HandlerRun> {
 
 describe("UnknownCommandMiddleware", function () {
     it("answers a command with the help", async function () {
-        const { ctx, replies, isPassedOn } = await run(command("/unknown"));
+        const { ctx, replies, isPassedOn } = await run(commandMessage("/unknown"));
 
         expect(replies).to.deep.equal([helpText.build(ctx)]);
         expect(isPassedOn).to.equal(false);

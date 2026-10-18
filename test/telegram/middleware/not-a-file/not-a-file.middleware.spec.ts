@@ -1,15 +1,18 @@
 import "reflect-metadata";
 import { expect } from "chai";
-import type { Animation, Document, Message, Sticker, Story, Voice } from "@grammyjs/types";
+import type { Animation, Document, GiveawayWinners, Message, Sticker, Story, Voice } from "@grammyjs/types";
 import { NotAFileMiddleware } from "app/telegram/middleware/not-a-file/not-a-file.middleware";
+import { DEFAULT_LOCALE } from "app/telegram/locale/locale.types";
 import type { Locale } from "app/telegram/locale/locale.types";
-import type { HandlerRun } from "test/telegram/reply-context.helper";
-import { runHandler, supportedFormats } from "test/telegram/reply-context.helper";
+import { initialPayload } from "app/telegram/session/session.helper";
+import type { SessionPayload } from "app/telegram/session/session.types";
+import type { HandlerRun } from "test/telegram/handler.helper";
+import { runHandler, supportedFormats } from "test/telegram/handler.helper";
 
 const DOCUMENT: Document = { file_id: "file-id", file_unique_id: "file-unique-id", file_name: "font.ttf" };
 
-function run(content: Partial<Message>, locale?: Locale): Promise<HandlerRun> {
-    return runHandler(new NotAFileMiddleware(supportedFormats), content, locale);
+function run(content: Partial<Message>, locale?: Locale, session?: SessionPayload): Promise<HandlerRun> {
+    return runHandler(new NotAFileMiddleware(supportedFormats), content, locale, session);
 }
 
 describe("NotAFileMiddleware", function () {
@@ -55,5 +58,33 @@ describe("NotAFileMiddleware", function () {
 
         expect(replies).to.deep.equal([]);
         expect(isPassedOn).to.equal(true);
+    });
+
+    // Telegram sends an album as one message per photo, each an update of its own.
+    it("asks once for an album, then again for the next one", async function () {
+        const session = initialPayload();
+        const answered: number[] = [];
+
+        for (const mediaGroupId of ["first", "first", "first", "second", "second"]) {
+            const { replies } = await run({ photo: [], media_group_id: mediaGroupId }, DEFAULT_LOCALE, session);
+            answered.push(replies.length);
+        }
+
+        expect(answered).to.deep.equal([1, 0, 0, 1, 0]);
+    });
+
+    it("asks for every photo sent on its own", async function () {
+        const session = initialPayload();
+
+        const first = await run({ photo: [] }, DEFAULT_LOCALE, session);
+        const second = await run({ photo: [] }, DEFAULT_LOCALE, session);
+
+        expect([first.replies.length, second.replies.length]).to.deep.equal([1, 1]);
+    });
+
+    it("asks for a giveaway winners post forwarded to the bot", async function () {
+        const { replies } = await run({ giveaway_winners: {} as GiveawayWinners });
+
+        expect(replies).to.have.lengthOf(1);
     });
 });

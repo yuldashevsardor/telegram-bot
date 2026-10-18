@@ -4,11 +4,11 @@ import { expect } from "chai";
 import { StartCommand } from "app/telegram/command/start/start.command";
 import { createFluent } from "app/telegram/locale/locale";
 import { DEFAULT_LOCALE } from "app/telegram/locale/locale.types";
-import { command, runHandler, supportedFormats } from "test/telegram/reply-context.helper";
+import { commandMessage, runHandler, supportedFormats } from "test/telegram/handler.helper";
 
 describe("StartCommand", function () {
     it("replies with the welcome of the customer journey on /start", async function () {
-        const { replies, isPassedOn } = await runHandler(new StartCommand(supportedFormats), command("/start"));
+        const { replies, isPassedOn } = await runHandler(new StartCommand(supportedFormats), commandMessage("/start"));
 
         expect(replies).to.deep.equal([
             [
@@ -21,7 +21,7 @@ describe("StartCommand", function () {
     });
 
     it("replies in the locale of the update", async function () {
-        const { replies } = await runHandler(new StartCommand(supportedFormats), command("/start"), "en");
+        const { replies } = await runHandler(new StartCommand(supportedFormats), commandMessage("/start"), "en");
 
         expect(replies).to.deep.equal([
             [

@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { expect } from "chai";
 import { HelpText } from "app/telegram/command/help/help-text";
-import { helpText, replyContext, supportedFormats } from "test/telegram/reply-context.helper";
+import { helpText, replyContext, supportedFormats } from "test/telegram/handler.helper";
 
 describe("HelpText", function () {
     it("builds the help of the customer journey", async function () {

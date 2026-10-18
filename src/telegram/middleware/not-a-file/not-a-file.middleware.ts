@@ -34,6 +34,7 @@ export class NotAFileMiddleware extends Middleware {
         "dice",
         "game",
         "giveaway",
+        "giveaway_winners",
         "invoice",
     ];
 
@@ -42,18 +43,26 @@ export class NotAFileMiddleware extends Middleware {
     }
 
     protected async handle(ctx: Context, next: NextFunction): Promise<void> {
-        if (!this.hasContent(ctx.message)) {
+        const message = ctx.message;
+
+        if (message === undefined || !this.hasContentOtherThanFile(message)) {
             return next();
+        }
+
+        // An album comes as one message per item, each an update of its own, so its first item alone
+        // gets the hint. The inbox hands out the updates of a session one at a time, in their order.
+        if (message.media_group_id !== undefined && message.media_group_id === ctx.session.hintedMediaGroupId) {
+            return;
+        }
+
+        if (message.media_group_id !== undefined) {
+            ctx.session.hintedMediaGroupId = message.media_group_id;
         }
 
         await ctx.reply(ctx.t("not-a-file-middleware-hint", { formats: this.supportedFormats.toText() }));
     }
 
-    private hasContent(message: Message | undefined): boolean {
-        if (message === undefined) {
-            return false;
-        }
-
+    private hasContentOtherThanFile(message: Message): boolean {
         return NotAFileMiddleware.CONTENT_FIELDS.some((field) => message[field] !== undefined);
     }
 }

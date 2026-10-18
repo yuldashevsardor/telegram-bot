@@ -21,7 +21,7 @@ export class SupportedFormats {
     // From the pair matrix rather than spelled out in a text: otherwise what is promised to a person
     // drifts from what the domain can actually do.
     public toText(): string {
-        const extensions = this.convertorFactory.getSupportedExtensions();
+        const extensions = [...this.convertorFactory.getSupportedExtensions()];
 
         extensions.sort((left, right) => SupportedFormats.RANK[left] - SupportedFormats.RANK[right]);
 

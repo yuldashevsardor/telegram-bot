@@ -235,7 +235,8 @@ own only when it has files of its own or a role of its own among the siblings:
 
 - `command/start/`, `command/help/`, `command/bulk-messages/`, `command/font-generator/` and
   `middleware/not-a-file/` keep the command or the middleware together with their `locale/`
-  bundles;
+  bundles; `command/help/` also keeps `HelpText`, which builds the text of its bundle for the
+  command and for `UnknownCommandMiddleware`;
 - `validator/svg/` keeps `SvgFontValidator` together with its companions, its path data parser,
   the range check of the points of an outline and the text codec it shares with `SvgFontPreparer`,
   `validator/woff2/` keeps `Woff2FontValidator` together with its companions and its glyf
