@@ -3,8 +3,7 @@
 What a person sees in the bot, step by step, and what the bot says at each step. The file
 describes the journey the bot is meant to give. A step that is not built yet differs from the code,
 and the code is the authority on what is built. Today the buttons of step 2 do nothing (steps 3-4
-and the rows of step 5 about a conversion and a source the bot can no longer get), and a failed
-update gets no answer (the last row of step 5).
+and the rows of step 5 about a conversion and a source the bot can no longer get).
 
 The texts are given in Russian, the default locale (`DEFAULT_LOCALE` in
 `telegram/locale/locale.types.ts`). The `en` bundle carries the same keys with a translation,
@@ -113,9 +112,13 @@ file again.
 | A button whose source file the bot can no longer get | Этот файл больше недоступен — пришлите его ещё раз. |
 | Any other failure: Telegram did not give the file, an error in the code | Что-то пошло не так. Попробуйте ещё раз чуть позже. Если не пройдёт — напишите автору: {contact}. |
 
-The last row stands in for the silence of today: a failed update gets no answer
-([`bot.md`](../architecture/bot.md)). It needs the chat to be reachable: when the failure is that
-the bot cannot send to Telegram, the answer cannot go out either.
+The last row goes out once, when the handling of the update has failed for good and blocked its
+group ([`inbox.md`](../architecture/inbox.md), "The answer to the sender"), not on every attempt the
+inbox retries. It needs the chat to be reachable: when the failure is that the bot cannot send to
+Telegram, the answer cannot go out either. Nor does it follow a reply that timed out in the outbox:
+that reply may still reach the person. When Telegram refused a reply of the handler and the outbox
+blocked the chat for it, the answer waits behind that reply until the chat is unblocked by hand.
+The answer can also follow a reply that did go out, when the handling failed after it.
 
 20 MB, the default of `{maxDownloadSizeMb}`, is the limit of the Bot API on files a bot downloads
 (`getFile`). A file over it never reaches the bot, so the check goes by the size Telegram reports in

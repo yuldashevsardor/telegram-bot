@@ -20,6 +20,7 @@ import { InboxStore } from "app/telegram/inbox/store/inbox-store";
 import type { InboxAttempt, InboxCleanupSettings, InboxUpdateInput, InboxWorker } from "app/telegram/inbox/store/inbox-store.types";
 import { InboxGroupState, InboxStatus } from "app/telegram/inbox/store/inbox-store.types";
 import { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
+import type { FailedUpdateAnswer } from "app/telegram/failed-update-answer/failed-update-answer";
 import { OutboxResultWaiterStopped } from "app/telegram/outbox/result-waiter/outbox-result-waiter.errors";
 import { RetryDelay } from "app/telegram/retry-delay/retry-delay";
 import { testDatabaseSettings } from "test/database.helper";
@@ -199,6 +200,9 @@ describe("InboxRunner on the database", function () {
             new InboxFailureClassifier(new TelegramBotApiFailureClassifier()),
             RETRY_DELAY,
             new OutboxErrorSerializer(TOKEN),
+            // The answer to the sender of a failed update is not what this spec checks.
+            { send: async (): Promise<void> => undefined } as unknown as FailedUpdateAnswer,
+            nodeLogger,
             MAX_ATTEMPTS,
         );
         const grammy = new RecordingGrammy(events, host);

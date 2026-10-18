@@ -14,6 +14,7 @@ import { Command } from "app/telegram/command/command";
 import { Middleware } from "app/telegram/middleware/middleware";
 import { HasSessionKeyFilter } from "app/telegram/filter/has-session-key.filter";
 import { IsPrivateChatFilter } from "app/telegram/filter/is-private-chat.filter";
+import type { Fluent } from "@moebius/fluent";
 import { createFluent } from "app/telegram/locale/locale";
 import type { Locale } from "app/telegram/locale/locale.types";
 import { DEFAULT_LOCALE, LOCALES } from "app/telegram/locale/locale.types";
@@ -63,6 +64,9 @@ const MAX_SHORT_DESCRIPTION_LENGTH_CHARS = 120;
 const CHAT_NOT_FOUND_ANSWER: ApiError = { ok: false, error_code: 400, description: "Bad Request: chat not found" };
 
 const UNAUTHORIZED_ANSWER: ApiError = { ok: false, error_code: 401, description: "Unauthorized" };
+
+// The bundles of src/telegram, read once in the before of the spec: the container binds them for Bot.
+let fluent: Fluent;
 
 class RecordingHasSessionKeyFilter extends HasSessionKeyFilter {
     public constructor(logger: Logger, private readonly events: string[]) {
@@ -211,6 +215,7 @@ function build(settings: BotSettings = SETTINGS): Harness {
         logger,
         buildStorage(events),
         buildOutboxTransformer(pushed),
+        fluent,
         new RecordingHasSessionKeyFilter(logger, events),
         new RecordingIsPrivateChatFilter(logger, events),
         new RecordingMiddleware("RequestContextMiddleware", events),
@@ -278,6 +283,10 @@ function message(text: string, options: { chat?: Chat.PrivateChat | Chat.GroupCh
 }
 
 describe("Bot", function () {
+    before(async function () {
+        fluent = await createFluent(path.resolve(__dirname, "../../src/telegram"));
+    });
+
     it("refuses an empty token", function () {
         expect(() => build({ ...SETTINGS, token: "" })).to.throw(InvalidConfigError, "Bot token cannot be empty!");
     });
@@ -286,7 +295,6 @@ describe("Bot", function () {
         it("publishes the menu of /start and /help for everyone and adds /bulk_messages in each of its chats, per locale", async function () {
             const { bot, calls } = build();
             await bot.setup();
-            const fluent = await createFluent(path.resolve(__dirname, "../../src/telegram"));
             const commonMenu = (locale: string): Array<{ command: string; description: string }> => {
                 const translate = fluent.withLocale(locale);
 
@@ -350,7 +358,6 @@ describe("Bot", function () {
         it("publishes the description and the short description on the default locale, then on every other one", async function () {
             const { bot, calls } = build();
             await bot.setup();
-            const fluent = await createFluent(path.resolve(__dirname, "../../src/telegram"));
             const described = (locale: Locale, localeOptions: UnknownObject): ApiCall[] => {
                 const translate = fluent.withLocale(locale);
                 const formats = supportedFormats.toText();
@@ -477,7 +484,6 @@ describe("Bot", function () {
 
         it("gives the commands the translation of the update locale", async function () {
             const harness = await setUp();
-            const fluent = await createFluent(path.resolve(__dirname, "../../src/telegram"));
             let translated: string | undefined = undefined;
             harness.onCommand.hook = async (ctx: Context): Promise<void> => {
                 translated = ctx.t("start-command-description");
