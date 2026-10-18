@@ -1,6 +1,8 @@
 # maxDownloadSizeMb (number): The largest file size in MB
 file-intake-middleware-too-large = The file is over {$maxDownloadSizeMb} MB: Telegram does not let bots download such files.
 
+file-intake-middleware-too-large-for-telegram = The file is too big: Telegram does not let bots download such files.
+
 # filename (string): The name of the file sent
 # formats (string): Font formats
 file-intake-middleware-unsupported = "{$filename}" is not a font, or not a format I know. I support: {$formats}.

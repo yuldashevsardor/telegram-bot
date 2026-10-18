@@ -11,6 +11,7 @@ export class TelegramFileNotDownloaded extends RuntimeError {
         return new TelegramFileNotDownloaded("Telegram gave no path to download the file.", { fileId: fileId });
     }
 
+    // A 5xx of the file server.
     public static byStatus(fileId: string, status: number): TelegramFileNotDownloaded {
         return new TelegramFileNotDownloaded(`Telegram answered the download of the file with HTTP ${status}.`, {
             fileId: fileId,
@@ -26,6 +27,18 @@ export class TelegramFileNotDownloaded extends RuntimeError {
     // A failure of fetch itself: the network, or the timeout of the download.
     public static byFetchError(fileId: string, error: unknown): TelegramFileNotDownloaded {
         return new TelegramFileNotDownloaded("The download of the file failed.", { fileId: fileId, cause: error });
+    }
+}
+
+/**
+ * The file server refused the file with a status that a retry would not change: a 4xx.
+ */
+export class TelegramFileRefused extends RuntimeError {
+    public static byStatus(fileId: string, status: number): TelegramFileRefused {
+        return new TelegramFileRefused(`Telegram refused the download of the file with HTTP ${status}.`, {
+            fileId: fileId,
+            status: status,
+        });
     }
 }
 

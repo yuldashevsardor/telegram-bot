@@ -100,8 +100,10 @@ export type BotApiAnswerScript = (call: BotApiCall, callIndex: number) => ApiRes
 export class FakeBotApi {
     public readonly calls: BotApiCall[] = [];
     private answer: BotApiAnswerScript = () => UNKNOWN_METHOD_ANSWER;
-    // The files it serves by the path getFile gives, <apiRoot>/file/bot<token>/<file_path>.
+    // The files it serves by the path getFile gives, <apiRoot>/file/bot<token>/<file_path>, and the
+    // statuses it refuses a path with.
     private readonly files = new Map<string, Uint8Array>();
+    private readonly fileRefusals = new Map<string, number>();
     // A failure of the server itself, a bug of the spec. grammY takes the reset socket for a failed
     // call, which the outbox retries, so the failure surfaces only through throwIfFailed().
     private readonly failures: unknown[] = [];
@@ -134,6 +136,10 @@ export class FakeBotApi {
     // A file at a path no file is served at gets a 404, as Telegram answers an unknown path.
     public serveFile(filePath: string, content: Uint8Array): void {
         this.files.set(filePath, content);
+    }
+
+    public refuseFile(filePath: string, status: number): void {
+        this.fileRefusals.set(filePath, status);
     }
 
     // A call takes its place before its body is read, with an empty payload until then, so a call
@@ -173,6 +179,14 @@ export class FakeBotApi {
 
     private handleFile(filePath: string, response: ServerResponse): void {
         const content = this.files.get(filePath);
+        const refusalStatus = this.fileRefusals.get(filePath);
+
+        if (refusalStatus !== undefined) {
+            response.writeHead(refusalStatus);
+            response.end();
+
+            return;
+        }
 
         if (content === undefined) {
             response.writeHead(httpStatus.HTTP_STATUS_NOT_FOUND);

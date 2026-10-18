@@ -9,7 +9,11 @@ import { FileHelper } from "app/shared/fs/file-helper";
 import { StringHelper } from "app/shared/string/string-helper";
 import { MS_PER_SECOND } from "app/shared/time";
 import type { Extension } from "app/font-convertor/font-convertor.types";
-import { TelegramFileNotDownloaded, TelegramFileTooBig } from "app/telegram/file-downloader/telegram-file-downloader.errors";
+import {
+    TelegramFileNotDownloaded,
+    TelegramFileRefused,
+    TelegramFileTooBig,
+} from "app/telegram/file-downloader/telegram-file-downloader.errors";
 
 // The Bot API has no method that gives the bytes of a file: getFile gives a path, and the file is
 // downloaded from that path past the methods, by plain HTTP.
@@ -44,17 +48,18 @@ export class TelegramFileDownloader {
             throw TelegramFileNotDownloaded.withoutPath(fileId);
         }
 
-        const content = await this.fetchContent(api, fileId, telegramFile.file_path);
+        const fileBytes = await this.fetchBytes(api, fileId, telegramFile.file_path);
         const filename = StringHelper.generateRandomString(TelegramFileDownloader.FILENAME_LENGTH_CHARS).toLowerCase() + "." + extension;
         const downloadedFilePath = path.join(await FileHelper.createDirectoriesByDate(this.tempDir), filename);
 
         try {
-            await FileHelper.write(downloadedFilePath, content);
+            await FileHelper.write(downloadedFilePath, fileBytes);
         } catch (error) {
-            // A write cut short, by a full disk say, leaves a part of the file behind.
-            await FileHelper.remove(downloadedFilePath);
-
-            throw error;
+            // A write cut short, by a full disk say, leaves a part of the file behind. removeAfter()
+            // keeps the error of the write over one of the removal.
+            await FileHelper.removeAfter(downloadedFilePath, async () => {
+                throw error;
+            });
         }
 
         return downloadedFilePath;
@@ -84,9 +89,18 @@ export class TelegramFileDownloader {
         );
     }
 
+    // A 5xx may pass on a retry, a 4xx would not. The status of a fetch response ends at 599.
+    private byStatus(fileId: string, status: number): TelegramFileNotDownloaded | TelegramFileRefused {
+        if (status >= httpStatus.HTTP_STATUS_INTERNAL_SERVER_ERROR) {
+            return TelegramFileNotDownloaded.byStatus(fileId, status);
+        }
+
+        return TelegramFileRefused.byStatus(fileId, status);
+    }
+
     // The root and the token of the Api getFile went through, so that the path and the file come
     // from the same server.
-    private async fetchContent(api: Api, fileId: string, filePath: string): Promise<Uint8Array> {
+    private async fetchBytes(api: Api, fileId: string, filePath: string): Promise<Uint8Array> {
         const apiRoot = api.options?.apiRoot ?? TelegramFileDownloader.DEFAULT_API_ROOT;
         const signal = AbortSignal.timeout(TelegramFileDownloader.DOWNLOAD_TIMEOUT_MS);
         let response: Response;
@@ -101,7 +115,7 @@ export class TelegramFileDownloader {
             // An unread body keeps its connection out of reuse.
             await response.body?.cancel();
 
-            throw TelegramFileNotDownloaded.byStatus(fileId, response.status);
+            throw this.byStatus(fileId, response.status);
         }
 
         try {

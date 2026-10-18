@@ -7,7 +7,11 @@ import type { RawApi, Transformer } from "grammy";
 import type { ApiResponse } from "@grammyjs/types";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { TelegramFileDownloader } from "app/telegram/file-downloader/telegram-file-downloader";
-import { TelegramFileNotDownloaded, TelegramFileTooBig } from "app/telegram/file-downloader/telegram-file-downloader.errors";
+import {
+    TelegramFileNotDownloaded,
+    TelegramFileRefused,
+    TelegramFileTooBig,
+} from "app/telegram/file-downloader/telegram-file-downloader.errors";
 import { FakeBotApi } from "test/telegram/fake-bot-api.helper";
 
 const TOKEN = "123:downloader";
@@ -58,13 +62,23 @@ describe("TelegramFileDownloader", function () {
         expect(error).to.be.instanceOf(TelegramFileNotDownloaded).with.deep.property("payload", { fileId: FILE_ID });
     });
 
-    it("rejects a download Telegram does not answer with the file", async function () {
+    // A retry would not change a 4xx, so the inbox does not take it for transient.
+    it("rejects a download the file server refuses", async function () {
         answerGetFile(FILE_PATH);
 
         const error = await downloader.download(api, FILE_ID, Extension.TTF).catch((caught: unknown) => caught);
 
-        expect(error).to.be.instanceOf(TelegramFileNotDownloaded).with.deep.property("payload", { fileId: FILE_ID, status: 404 });
+        expect(error).to.be.instanceOf(TelegramFileRefused).with.deep.property("payload", { fileId: FILE_ID, status: 404 });
         expect(await fs.readdir(tempDir)).to.deep.equal([]);
+    });
+
+    it("rejects a download the file server fails for a failed download", async function () {
+        answerGetFile(FILE_PATH);
+        fakeBotApi.refuseFile(FILE_PATH, 502);
+
+        const error = await downloader.download(api, FILE_ID, Extension.TTF).catch((caught: unknown) => caught);
+
+        expect(error).to.be.instanceOf(TelegramFileNotDownloaded).with.deep.property("payload", { fileId: FILE_ID, status: 502 });
     });
 
     it("rejects a download whose connection fails, with the failure as the cause", async function () {

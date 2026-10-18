@@ -769,8 +769,8 @@ from the JSON body or from the parts of the `multipart/form-data` grammY sends f
 file, the file, its name and content, in the field that refers to it; `BotApiFile` says which
 contents arrive altered. It records each call with the time it arrived. A download of a file,
 `/file/bot<token>/<file_path>`, is no call: it is not recorded and gets the file a spec serves at
-the path (`serveFile()`), or a 404. Each node calls with a
-token of its own, so a call tells which node made it. The
+the path (`serveFile()`), the status it refuses the path with (`refuseFile()`), or a 404. Each
+node calls with a token of its own, so a call tells which node made it. The
 spec gives the server a script that answers a call by its fields and its place among the calls: the
 `Message` of the call by default, an answer with `ok: false` and its code as the HTTP status, or no
 answer at all. A node whose call is never answered, while its API timeout outlives the lease, is how

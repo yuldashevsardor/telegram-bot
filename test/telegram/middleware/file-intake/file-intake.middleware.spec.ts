@@ -15,6 +15,9 @@ import type { HandlerRun } from "test/telegram/handler.helper";
 import { runHandler, supportedFormats } from "test/telegram/handler.helper";
 import { realFontValidatorResolver } from "test/font-convertor/convertor-factory.helper";
 import { ReadFailed } from "app/shared/fs/file-helper.errors";
+import type { FontValidatorResolver } from "app/font-convertor/validator/font-validator-resolver";
+import type { FontValidator } from "app/font-convertor/validator/font-validator";
+import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
 import { TelegramFileTooBig } from "app/telegram/file-downloader/telegram-file-downloader.errors";
 
 const FONTS_DIR = path.join(process.cwd(), "test", "fixtures", "fonts");
@@ -73,22 +76,30 @@ describe("FileIntakeMiddleware", function () {
         await fs.rm(tempDir, { recursive: true, force: true });
     });
 
+    function middlewareWith(
+        downloader: FakeFileDownloader,
+        logger: RecordingLogger,
+        fontValidatorResolver = realFontValidatorResolver(),
+    ): FileIntakeMiddleware {
+        return new FileIntakeMiddleware(
+            supportedFormats,
+            new FormatButtons(supportedFormats),
+            downloader as unknown as TelegramFileDownloader,
+            fontValidatorResolver,
+            new FontRejectionClassifier(),
+            logger,
+            MAX_DOWNLOAD_SIZE_MB,
+        );
+    }
+
     async function run(
         content: Partial<Message>,
         fileContent: FileContent = fixture("test-font.woff"),
         locale?: Locale,
     ): Promise<HandlerRun & { downloader: FakeFileDownloader }> {
         const downloader = new FakeFileDownloader(tempDir, fileContent);
-        const middleware = new FileIntakeMiddleware(
-            supportedFormats,
-            new FormatButtons(supportedFormats),
-            downloader as unknown as TelegramFileDownloader,
-            realFontValidatorResolver(),
-            new FontRejectionClassifier(),
-            MAX_DOWNLOAD_SIZE_MB,
-        );
 
-        return { ...(await runHandler(middleware, content, locale)), downloader: downloader };
+        return { ...(await runHandler(middlewareWith(downloader, new RecordingLogger()), content, locale)), downloader: downloader };
     }
 
     it("asks what to convert a font into, in reply to its message, with the format buttons", async function () {
@@ -138,7 +149,8 @@ describe("FileIntakeMiddleware", function () {
     it("refuses a file getFile refuses for its size", async function () {
         const { replies } = await run(document({ file_name: "MyFont.woff" }), TOO_BIG_FILE);
 
-        expect(replies).to.deep.equal(["Файл больше 20 МБ — Telegram не даёт ботам скачивать такие файлы."]);
+        // The limit of the server that refused it is unknown, so the text names no number.
+        expect(replies).to.deep.equal(["Файл слишком большой — Telegram не даёт ботам скачивать такие файлы."]);
     });
 
     // The size goes first: a file over the limit cannot be downloaded whatever its name.
@@ -197,6 +209,21 @@ describe("FileIntakeMiddleware", function () {
         const { replies } = await run(document({ file_name: "MyFont.woff" }), fixture("test-font.ttf"), "en");
 
         expect(replies).to.deep.equal(["The file is named as WOFF, but it is not WOFF inside. Perhaps its extension is wrong."]);
+    });
+
+    // A directory at the path of the file fails its removal.
+    it("asks about a font whose downloaded file it fails to remove, and logs the failure", async function () {
+        const downloadedPath = path.join(tempDir, "0.woff");
+        await fs.mkdir(path.join(downloadedPath, "inside"), { recursive: true });
+        const downloader = { download: async () => downloadedPath } as unknown as FakeFileDownloader;
+        const passingValidator: FontValidator = { validate: async (): Promise<void> => undefined };
+        const passingResolver = { get: (): FontValidator => passingValidator } as unknown as FontValidatorResolver;
+        const logger = new RecordingLogger();
+
+        const { replies } = await runHandler(middlewareWith(downloader, logger, passingResolver), document({ file_name: "MyFont.woff" }));
+
+        expect(replies).to.deep.equal(["Это WOFF. Во что сконвертировать?"]);
+        expect(logger.warnings.map((warning) => warning.message)).to.deep.equal(["The downloaded file was not removed."]);
     });
 
     // The inbox picks the outcome of the update by the error (docs/architecture/inbox.md, "Failures").

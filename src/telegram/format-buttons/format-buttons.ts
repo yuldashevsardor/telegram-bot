@@ -18,7 +18,7 @@ export class FormatButtons {
     public constructor(@inject<SupportedFormats>(Tokens.Bot.SupportedFormats) private readonly supportedFormats: SupportedFormats) {}
 
     public build(ctx: Context, sourceExtension: Extension): InlineKeyboard {
-        const targetExtensions = this.supportedFormats.toList().filter((extension) => extension !== sourceExtension);
+        const targetExtensions = this.supportedFormats.toTargetList(sourceExtension);
         const keyboard = new InlineKeyboard();
 
         for (const [index, targetExtension] of targetExtensions.entries()) {

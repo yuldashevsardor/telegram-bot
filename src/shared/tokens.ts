@@ -107,7 +107,7 @@ export const Tokens = {
         SupportedFormats: Symbol.for("BotSupportedFormats"),
         HelpText: Symbol.for("BotHelpText"),
         FormatButtons: Symbol.for("BotFormatButtons"),
-        FileDownloader: Symbol.for("BotFileDownloader"),
+        TelegramFileDownloader: Symbol.for("BotTelegramFileDownloader"),
         FontRejectionClassifier: Symbol.for("BotFontRejectionClassifier"),
         Session: {
             Storage: Symbol.for("BotSessionStorage"),

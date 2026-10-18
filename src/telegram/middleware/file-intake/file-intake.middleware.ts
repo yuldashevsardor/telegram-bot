@@ -14,6 +14,7 @@ import type { TelegramFileDownloader } from "app/telegram/file-downloader/telegr
 import { TelegramFileTooBig } from "app/telegram/file-downloader/telegram-file-downloader.errors";
 import type { FontRejectionClassifier } from "app/telegram/middleware/file-intake/font-rejection-classifier";
 import { FontRejection } from "app/telegram/middleware/file-intake/font-rejection";
+import type { Logger } from "app/platform/logger/logger";
 
 // Takes a document and asks what to convert it into (docs/product/cjm.md, step 2). The checks go
 // from the cheapest: the size and the name come with the message, the content needs a download.
@@ -24,10 +25,11 @@ export class FileIntakeMiddleware extends Middleware {
     public constructor(
         @inject<SupportedFormats>(Tokens.Bot.SupportedFormats) private readonly supportedFormats: SupportedFormats,
         @inject<FormatButtons>(Tokens.Bot.FormatButtons) private readonly formatButtons: FormatButtons,
-        @inject<TelegramFileDownloader>(Tokens.Bot.FileDownloader) private readonly fileDownloader: TelegramFileDownloader,
+        @inject<TelegramFileDownloader>(Tokens.Bot.TelegramFileDownloader) private readonly fileDownloader: TelegramFileDownloader,
         @inject<FontValidatorResolver>(Tokens.Font.Validator.Resolver) private readonly fontValidatorResolver: FontValidatorResolver,
         @inject<FontRejectionClassifier>(Tokens.Bot.FontRejectionClassifier)
         private readonly fontRejectionClassifier: FontRejectionClassifier,
+        @inject<Logger>(Tokens.Bootstrap.Logger) private readonly logger: Logger,
         private readonly maxDownloadSizeMb: number = configValue("bot.maxDownloadSizeMb"),
     ) {
         super();
@@ -43,7 +45,7 @@ export class FileIntakeMiddleware extends Middleware {
 
         // getFile refuses a file over the limit, so the size Telegram reports is all there is to go by.
         if (document.file_size !== undefined && document.file_size > this.maxDownloadSizeMb * FileIntakeMiddleware.BYTES_PER_MB) {
-            await this.replyTooLarge(ctx);
+            await ctx.reply(ctx.t("file-intake-middleware-too-large", { maxDownloadSizeMb: this.maxDownloadSizeMb }));
 
             return;
         }
@@ -59,6 +61,7 @@ export class FileIntakeMiddleware extends Middleware {
         let sourceFontPath: string;
 
         // A document without a size, or a limit set above the one of getFile, finds the size out here.
+        // The limit of the server is unknown to the bot, so the text names no number.
         try {
             sourceFontPath = await this.fileDownloader.download(ctx.api, document.file_id, sourceExtension);
         } catch (error) {
@@ -66,7 +69,7 @@ export class FileIntakeMiddleware extends Middleware {
                 throw error;
             }
 
-            await this.replyTooLarge(ctx);
+            await ctx.reply(ctx.t("file-intake-middleware-too-large-for-telegram"));
 
             return;
         }
@@ -74,14 +77,8 @@ export class FileIntakeMiddleware extends Middleware {
         const format = sourceExtension.toUpperCase();
         const rejection = await this.validate(sourceFontPath, sourceExtension);
 
-        if (rejection === FontRejection.NotInFormat) {
-            await ctx.reply(ctx.t("file-intake-middleware-not-in-format", { format: format }));
-
-            return;
-        }
-
-        if (rejection === FontRejection.Broken) {
-            await ctx.reply(ctx.t("file-intake-middleware-broken", { format: format }));
+        if (rejection !== undefined) {
+            await ctx.reply(this.rejectionText(ctx, rejection, format));
 
             return;
         }
@@ -95,14 +92,10 @@ export class FileIntakeMiddleware extends Middleware {
         });
     }
 
-    private async replyTooLarge(ctx: Context): Promise<void> {
-        await ctx.reply(ctx.t("file-intake-middleware-too-large", { maxDownloadSizeMb: this.maxDownloadSizeMb }));
-    }
-
     private async findSupportedExtension(document: Document): Promise<Extension | undefined> {
         const nameExtension = (await FileHelper.getFileExtension(document.file_name ?? "")).toLowerCase();
 
-        return this.supportedFormats.toList().find((extension) => extension === nameExtension);
+        return this.supportedFormats.toSourceList().find((extension) => extension === nameExtension);
     }
 
     // The Bot API does not promise a document a name, though the clients of Telegram always send one.
@@ -118,23 +111,41 @@ export class FileIntakeMiddleware extends Middleware {
         await ctx.reply(ctx.t("file-intake-middleware-unsupported", { filename: document.file_name, formats: formats }));
     }
 
+    private rejectionText(ctx: Context, rejection: FontRejection, format: string): string {
+        if (rejection === FontRejection.NotInFormat) {
+            return ctx.t("file-intake-middleware-not-in-format", { format: format });
+        }
+
+        return ctx.t("file-intake-middleware-broken", { format: format });
+    }
+
     // The download serves the check alone: the conversion takes the file from Telegram again, by the
     // message the question replies to.
     private async validate(sourceFontPath: string, sourceExtension: Extension): Promise<FontRejection | undefined> {
-        let rejection: FontRejection | undefined;
+        try {
+            await this.fontValidatorResolver.get(sourceExtension).validate(sourceFontPath);
 
-        await FileHelper.removeAfter(sourceFontPath, async () => {
-            try {
-                await this.fontValidatorResolver.get(sourceExtension).validate(sourceFontPath);
-            } catch (error) {
-                rejection = this.fontRejectionClassifier.classify(sourceExtension, error);
+            return undefined;
+        } catch (error) {
+            const rejection = this.fontRejectionClassifier.classify(sourceExtension, error);
 
-                if (rejection === undefined) {
-                    throw error;
-                }
+            if (rejection === undefined) {
+                throw error;
             }
-        });
 
-        return rejection;
+            return rejection;
+        } finally {
+            await this.removeSourceFont(sourceFontPath);
+        }
+    }
+
+    // A file left behind costs disk space alone, so its removal does not keep the answer from the
+    // person, nor does its error displace the one of the check.
+    private async removeSourceFont(sourceFontPath: string): Promise<void> {
+        try {
+            await FileHelper.remove(sourceFontPath);
+        } catch (error) {
+            this.logger.warning("The downloaded file was not removed.", { path: sourceFontPath, cause: error });
+        }
     }
 }

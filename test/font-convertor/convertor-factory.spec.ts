@@ -47,6 +47,24 @@ describe("ConvertorFactory.getSupportedExtensions", function () {
     });
 });
 
+describe("ConvertorFactory.getSourceExtensions", function () {
+    it("returns every format a pair starts from", function () {
+        expect(convertorFactory.getSourceExtensions()).to.have.members(Object.values(Extension));
+    });
+});
+
+describe("ConvertorFactory.getTargetExtensions", function () {
+    it("returns the targets of the pairs of a source, without the source", function () {
+        expect(convertorFactory.getTargetExtensions(Extension.WOFF)).to.have.members([
+            Extension.EOT,
+            Extension.OTF,
+            Extension.SVG,
+            Extension.TTF,
+            Extension.WOFF2,
+        ]);
+    });
+});
+
 describe("ConvertorFactory.get", function () {
     const supported = convertorFactory.getSupportedExtensions();
 

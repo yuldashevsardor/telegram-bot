@@ -207,7 +207,7 @@ export class Container extends InversifyContainer {
         this.bind<FormatButtons>(Tokens.Bot.FormatButtons).to(FormatButtons).inSingletonScope();
 
         // A file a person sends
-        this.bind<TelegramFileDownloader>(Tokens.Bot.FileDownloader).to(TelegramFileDownloader).inSingletonScope();
+        this.bind<TelegramFileDownloader>(Tokens.Bot.TelegramFileDownloader).to(TelegramFileDownloader).inSingletonScope();
         this.bind<FontRejectionClassifier>(Tokens.Bot.FontRejectionClassifier).to(FontRejectionClassifier).inSingletonScope();
     }
 

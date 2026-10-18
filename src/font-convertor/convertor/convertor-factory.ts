@@ -105,6 +105,20 @@ export class ConvertorFactory {
     }
 
     /**
+     * The formats a conversion pair starts from.
+     */
+    public getSourceExtensions(): Array<Extension> {
+        return Object.keys(this.convertors) as Array<Extension>;
+    }
+
+    /**
+     * The formats a font of `fromExtension` converts into: the targets of its pairs.
+     */
+    public getTargetExtensions(fromExtension: Extension): Array<Extension> {
+        return Object.keys(this.convertors[fromExtension] ?? {}) as Array<Extension>;
+    }
+
+    /**
      * The formats taking part in at least one conversion pair.
      */
     public getSupportedExtensions(): Array<Extension> {

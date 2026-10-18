@@ -131,6 +131,11 @@ An SVG with no font in it, a drawing, gets the row of a file not in its format: 
 SVG font. So does a font collection (TTC) named `.ttf` or `.otf`: it is sound, and the advice to
 download a damaged font again would not help it.
 
+When Telegram itself refuses to give a file for its size (the message reported no size, or a
+smaller one than the limit), the limit that refused it is unknown, and the row of a file over
+{maxDownloadSizeMb} MB goes without the number: "Файл слишком большой — Telegram не даёт ботам
+скачивать такие файлы."
+
 ## 6. /help
 
 > Как пользоваться:

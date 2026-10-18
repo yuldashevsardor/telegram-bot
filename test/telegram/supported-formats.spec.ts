@@ -15,17 +15,19 @@ describe("SupportedFormats", function () {
         expect(new SupportedFormats(convertorFactory).toText()).to.equal("TTF, OTF, WOFF, WOFF2, EOT, SVG");
     });
 
-    it("lists the formats of the pair matrix in the order of the customer journey", function () {
-        const convertorFactory = new ConvertorFactory({} as FontForge, {} as FontValidatorResolver, {} as EotPacker);
+    // A matrix with a format that is only a target and a pair left out.
+    const partialFactory = {
+        getSourceExtensions: () => [Extension.SVG, Extension.TTF],
+        getTargetExtensions: (fromExtension: Extension) =>
+            fromExtension === Extension.SVG ? [Extension.WOFF2, Extension.TTF] : [Extension.SVG],
+    } as unknown as ConvertorFactory;
 
-        expect(new SupportedFormats(convertorFactory).toList()).to.deep.equal([
-            Extension.TTF,
-            Extension.OTF,
-            Extension.WOFF,
-            Extension.WOFF2,
-            Extension.EOT,
-            Extension.SVG,
-        ]);
+    it("takes in the formats a pair starts from, in the order of the customer journey", function () {
+        expect(new SupportedFormats(partialFactory).toSourceList()).to.deep.equal([Extension.TTF, Extension.SVG]);
+    });
+
+    it("offers the targets of the pairs of the source, in the order of the customer journey", function () {
+        expect(new SupportedFormats(partialFactory).toTargetList(Extension.SVG)).to.deep.equal([Extension.TTF, Extension.WOFF2]);
     });
 
     // The list follows the matrix: a format it loses is not promised.

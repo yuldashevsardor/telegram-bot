@@ -1,6 +1,8 @@
 # maxDownloadSizeMb (number): Наибольший размер файла в МБ
 file-intake-middleware-too-large = Файл больше {$maxDownloadSizeMb} МБ — Telegram не даёт ботам скачивать такие файлы.
 
+file-intake-middleware-too-large-for-telegram = Файл слишком большой — Telegram не даёт ботам скачивать такие файлы.
+
 # filename (string): Имя присланного файла
 # formats (string): Форматы шрифтов
 file-intake-middleware-unsupported = «{$filename}» — не шрифт или формат, который я не знаю. Поддерживаю: {$formats}.

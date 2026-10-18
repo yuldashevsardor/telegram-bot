@@ -198,17 +198,21 @@ thing they keep in the session is the album `NotAFileMiddleware` answered last (
   that table.
   1. The size Telegram reports in the message, `file_size`, against `BOT_MAX_DOWNLOAD_SIZE`
      (why the reported size, `cjm.md`, step 5). A document without the size passes on.
-  2. The extension of `file_name`, in any case, against `SupportedFormats`.
+  2. The extension of `file_name`, in any case, against the formats a pair starts from
+     (`SupportedFormats.toSourceList()`).
   3. The content. `TelegramFileDownloader` (`file-downloader/`) calls `getFile`, which names no chat
      and goes past the outbox, then downloads the file by plain HTTP, with the root and the token
      of the same `Api`, into `TEMP_DIR`, with a timeout of a minute. A `getFile` that refuses the
      file for its size (a document without `file_size`, or `BOT_MAX_DOWNLOAD_SIZE` above the limit
      of the server) gives `TelegramFileTooBig`, and the person gets the text of a file over the
-     limit. A `getFile` that cannot give the file right now and a failed download give
-     `TelegramFileNotDownloaded`, which the inbox retries
-     ([`inbox.md`](./inbox.md), "Error classes"). The validator of the format the extension names
-     (`FontValidatorResolver`, [`font-convertor.md`](./font-convertor.md), "Signatures") reads the
-     file, and the file is removed whatever the outcome.
+     limit without a number ([`cjm.md`](../product/cjm.md), step 5). A `getFile` that cannot give
+     the file right now, a 5xx of the file server and a failed connection give
+     `TelegramFileNotDownloaded`, which the inbox retries ([`inbox.md`](./inbox.md), "Error
+     classes"); a 4xx of the file server gives `TelegramFileRefused`, which a retry would not
+     change. The validator of the format the extension names (`FontValidatorResolver`,
+     [`font-convertor.md`](./font-convertor.md), "Signatures") reads the file, and the file is
+     removed whatever the outcome. A failed removal is logged as a `warning` and keeps neither the
+     answer from the person nor the error of the check from the inbox.
 
      `FontRejectionClassifier` sorts the error of the validator into "not in the format" and
      "broken"; which errors give the first is its `NOT_IN_FORMAT`. Only the errors of the format of
@@ -221,7 +225,8 @@ thing they keep in the session is the album `NotAFileMiddleware` answered last (
      ([`inbox.md`](./inbox.md), "Failures").
 
   A font that passes gets `file-intake-middleware-question` in reply to its message with the
-  buttons of `FormatButtons` (`format-buttons/`), laid out as `cjm.md`, step 2, shows. The reply
+  buttons of `FormatButtons` (`format-buttons/`), laid out as `cjm.md`, step 2, shows: the targets
+  of the pairs of the source (`SupportedFormats.toTargetList()`). The reply
   sets `allow_sending_without_reply`: a document deleted during the check would otherwise fail the
   reply with a 400, which blocks the chat in the outbox. The callback data of a button names the
   target alone, `convert:<extension>` or `convert:all`: a file id does not fit the 64 bytes
@@ -232,7 +237,8 @@ thing they keep in the session is the album `NotAFileMiddleware` answered last (
 
 The list of formats in all of them and in the descriptions below comes from `SupportedFormats`
 (`telegram/supported-formats.ts`): `ConvertorFactory.getSupportedExtensions()`, in upper case, in
-the order of the customer journey ([`cjm.md`](../product/cjm.md)). The order is a rank per
+the order of the customer journey; the formats the intake takes and the buttons offer come from it
+too, in the same order ([`cjm.md`](../product/cjm.md)). The order is a rank per
 `Extension`, so an extension added to the enum without a rank fails the compile. What the user is
 promised changes with the pair matrix ([`font-convertor.md`](./font-convertor.md), "The pair
 table").

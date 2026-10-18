@@ -13,6 +13,9 @@ import { Extension } from "app/font-convertor/font-convertor.types";
 
 const ME = { id: 1, is_bot: true, first_name: "Bot", username: "test_bot" } as UserFromGetMe;
 
+// The formats in the order of the customer journey.
+const ORDERED_EXTENSIONS = [Extension.TTF, Extension.OTF, Extension.WOFF, Extension.WOFF2, Extension.EOT, Extension.SVG];
+
 // What a handler passed to ctx.reply() besides the text: the keyboard, the message replied to.
 export type ReplyOptions = Parameters<Context["reply"]>[1];
 
@@ -20,10 +23,12 @@ export type ReplyContext = { ctx: Context; replies: string[]; replyOptions: Repl
 
 export type HandlerRun = { ctx: Context; replies: string[]; replyOptions: ReplyOptions[]; isPassedOn: boolean };
 
-// The list SupportedFormats gives for the pair matrix of today.
+// The lists SupportedFormats gives for the pair matrix of today, complete: every format converts
+// into every other.
 export const supportedFormats = {
-    toList: (): Extension[] => [Extension.TTF, Extension.OTF, Extension.WOFF, Extension.WOFF2, Extension.EOT, Extension.SVG],
     toText: (): string => "TTF, OTF, WOFF, WOFF2, EOT, SVG",
+    toSourceList: (): Extension[] => ORDERED_EXTENSIONS,
+    toTargetList: (sourceExtension: Extension): Extension[] => ORDERED_EXTENSIONS.filter((extension) => extension !== sourceExtension),
 } as SupportedFormats;
 
 // The help with a contact of its own and the size limit of the cloud Bot API.
