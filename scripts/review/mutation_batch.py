@@ -59,10 +59,10 @@ and takes no lock:
    as docs/agents/review-gates.md says) in more than comments sends the batch to the full run:
    stdout stays empty, and stderr names the PR and the file. A change of `stryker.config.mjs` that
    adds or removes the entries of its exclusion lists alone (`EXCLUSION_LISTS`) does not: it keeps
-   the `.ts` of `src/` a removed source exclusion matches at the merge commit and no entry left
-   excludes, and the specs an entry new in `DATABASE_SPECS` matches before the PR, as item 4 keeps a
-   deleted one. A removed source exclusion or a new spec entry past `*`, `**` and `?` is not read
-   and sends the batch to the full run.
+   the `.ts` of `src/` a removed source exclusion matches at the merge commit and no entry left that
+   is read as a glob excludes, and the specs an entry new in `DATABASE_SPECS` matches before the PR,
+   as item 4 keeps a deleted one. A removed source exclusion or a new spec entry past `*`, `**` and
+   `?` is not read and sends the batch to the full run.
 4. Otherwise keeps each `.ts` in `src/` or `test/` the PR added, renamed or changed in more than
    comments, by the rules of docs/agents/review-gates.md, "Comments-only diffs" (`Scanner` and
    `is_comments_only` below), and each spec or spec helper it deleted. A file the scanner cannot
@@ -1002,13 +1002,26 @@ def directive_reach(scan: Scan, lines: List[str]) -> List[Tuple[str, ...]]:
     )
 
 
-def is_comments_only(old_text: str, new_text: str) -> bool:
-    """Whether the change of a file touches comments alone, by the rules of
-    docs/agents/review-gates.md, "Comments-only diffs"."""
+def scans_of_change(old_text: str, new_text: str) -> Optional[Tuple[Scan, Scan]]:
+    """The scans of both sides of a change, None when the scanner cannot read one or a directive
+    changed: by the rules of docs/agents/review-gates.md, "Comments-only diffs", either is code."""
     try:
         old, new = Scanner(old_text).scan(), Scanner(new_text).scan()
     except Unclear:
+        return None
+    old_lines, new_lines = old_text.split("\n"), new_text.split("\n")
+    if directive_reach(old, old_lines) != directive_reach(new, new_lines):
+        return None
+    return old, new
+
+
+def is_comments_only(old_text: str, new_text: str) -> bool:
+    """Whether the change of a file touches comments alone, by the rules of
+    docs/agents/review-gates.md, "Comments-only diffs"."""
+    scans = scans_of_change(old_text, new_text)
+    if scans is None:
         return False
+    old, new = scans
     # Code a comment opens or closes over changes this sequence while every changed line is a
     # comment, and so does a line break that moves code onto another line.
     if [code for code in old.code if code] != [code for code in new.code if code]:
@@ -1022,7 +1035,7 @@ def is_comments_only(old_text: str, new_text: str) -> bool:
         # as the new one.
         if any(new.code[new_start:new_end]):
             return False
-    return directive_reach(old, old_lines) == directive_reach(new, new_lines)
+    return True
 
 
 class ChangedFile(NamedTuple):
@@ -1231,9 +1244,11 @@ class Exclusion(NamedTuple):
     excludes_source: bool
 
 
-def exclusions_by_line(code: List[str]) -> List[Optional[Exclusion]]:
+def exclusions_by_line(code: List[str]) -> Optional[List[Optional[Exclusion]]]:
     """For each line of code of stryker.config.mjs, what it excludes when it is an entry of an
-    exclusion list, None for any other line."""
+    exclusion list, None for any other line; None for the whole when a list does not end on a line
+    of its own before the next list or the end of the file. Read on, such a list would take the
+    entries of the next one for its own."""
     exclusions: List[Optional[Exclusion]] = []
     current: Optional[ExclusionList] = None
     has_entries = False
@@ -1242,6 +1257,8 @@ def exclusions_by_line(code: List[str]) -> List[Optional[Exclusion]]:
         if current is None:
             current = EXCLUSION_LISTS.get(line)
             has_entries = current is not None and current.entries_after == ""
+        elif line in EXCLUSION_LISTS:
+            return None
         elif EXCLUSION_LIST_END.fullmatch(line):
             current = None
         elif not has_entries:
@@ -1252,6 +1269,8 @@ def exclusions_by_line(code: List[str]) -> List[Optional[Exclusion]]:
                 path = entry.group("entry")[len(current.prefix) :]
                 exclusion = Exclusion(path, current.is_source_list)
         exclusions.append(exclusion)
+    if current is not None:
+        return None
     return exclusions
 
 
@@ -1267,17 +1286,15 @@ def exclusion_change(old_text: str, new_text: str) -> Optional[ExclusionChange]:
     """What a change of stryker.config.mjs leaves out of the run and brings back into it, when the
     entries of its exclusion lists and its comments are all the change touches; None when it
     touches more."""
-    try:
-        old, new = Scanner(old_text).scan(), Scanner(new_text).scan()
-    except Unclear:
+    scans = scans_of_change(old_text, new_text)
+    if scans is None:
         return None
-    # A changed directive is code, as in `is_comments_only`.
-    old_lines, new_lines = old_text.split("\n"), new_text.split("\n")
-    if directive_reach(old, old_lines) != directive_reach(new, new_lines):
-        return None
+    old, new = scans
     old_code = [code for code in old.code if code]
     new_code = [code for code in new.code if code]
     old_exclusions, new_exclusions = exclusions_by_line(old_code), exclusions_by_line(new_code)
+    if old_exclusions is None or new_exclusions is None:
+        return None
     matcher = difflib.SequenceMatcher(None, old_code, new_code, autojunk=False)
     for tag, old_start, old_end, new_start, new_end in matcher.get_opcodes():
         if tag == "equal":
@@ -1305,10 +1322,12 @@ def glob_pattern(glob: str) -> Optional["re.Pattern[str]"]:
     pattern = ""
     at = 0
     while at < len(glob):
-        if glob.startswith("**/", at):
+        # `**` inside a segment, as in `src/**.ts`, is a plain `*`.
+        opens_segment = at == 0 or glob[at - 1] == "/"
+        if opens_segment and glob.startswith("**/", at):
             pattern += "(?:.*/)?"
             at += 3
-        elif glob.startswith("**", at):
+        elif opens_segment and glob[at:] == "**":
             pattern += ".*"
             at += 2
         elif glob[at] == "*":
@@ -1328,9 +1347,9 @@ def exclusion_kept(
 ) -> Optional[List[Kept]]:
     """The files a change of stryker.config.mjs in its exclusion lists alone puts into the batch:
     the `.ts` of `src/` a removed source exclusion matches at the merge commit and no entry left
-    excludes, and the specs an entry new in `DATABASE_SPECS` matches before the PR, as a deleted
-    spec stands for the sources it imported; None when the change sends the batch to the full
-    run."""
+    that is read as a glob excludes, and the specs an entry new in `DATABASE_SPECS` matches before
+    the PR, as a deleted spec stands for the sources it imported; None when the change sends the
+    batch to the full run."""
     change = exclusion_change(
         file_at(parent, STRYKER_CONFIG, run), file_at(commit, STRYKER_CONFIG, run)
     )

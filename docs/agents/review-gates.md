@@ -228,7 +228,8 @@ leaves out, not how a mutant is made or killed. An entry is read as a glob: `mut
 usually names a spec its own PR brings, which is in the batch as a changed `.ts`; a spec that was
 there before the PR leaves the run like a deleted one, and the batch runs over the files of `src/`
 it imports. A removed source exclusion returns its files to the run, and the batch runs over the
-`.ts` of `src/` it matched that no entry left excludes; a spec removed from `DATABASE_SPECS` only
+`.ts` of `src/` it matched that no entry left excludes (an entry left past `*`, `**` and `?` is not
+read, and a file only it excludes goes into the batch); a spec removed from `DATABASE_SPECS` only
 adds tests. A removed source exclusion or a new spec entry past `*`, `**` and `?` (braces, a class,
 a line range) is not read and sends the batch to the whole of `src/`, and so does a `!` above
 `...area`: Stryker applies `mutate` in order, and such an entry leaves the area in. Every other

@@ -989,6 +989,9 @@ class GlobPatternTest(unittest.TestCase):
             ("src/dir/**", ["src/dir/index.ts", "src/dir/x/y.ts"], ["src/dirt.ts"]),
             ("src/a.ts", ["src/a.ts"], ["src/a_ts", "src/b.ts"]),
             ("./src/a.ts", ["src/a.ts"], ["./src/a.ts"]),
+            # Inside a segment `**` is a plain `*`, as in picomatch.
+            ("src/**.ts", ["src/a.ts"], ["src/dir/index.ts"]),
+            ("src/a**", ["src/a.ts"], ["src/a/b.ts"]),
         ):
             pattern = mutation_batch.glob_pattern(glob)
             for path in matched:
@@ -1462,6 +1465,18 @@ class BatchFilesTest(unittest.TestCase):
                 " comments\n",
                 err,
             )
+
+    def test_a_list_that_does_not_end_on_a_line_of_its_own_is_not_read(self):
+        # Read on, DATABASE_SPECS would take the entries of DATABASE_ONLY_SOURCES for specs, and
+        # the removed source would reach no run.
+        unended = STRYKER_WITH_LISTS.replace(
+            '    "test/a.spec.ts",\n];', '    "test/a.spec.ts",\n].filter(Boolean);'
+        )
+        for old, new in (
+            (unended, unended.replace('    "src/c.ts",\n', "")),
+            ("const DATABASE_SPECS = [\n", 'const DATABASE_SPECS = [\n    "test/a.spec.ts",\n'),
+        ):
+            self.assertIsNone(mutation_batch.exclusion_change(old, new), new)
 
     def test_a_removed_source_exclusion_runs_the_files_it_excluded(self):
         for removed, files in (
