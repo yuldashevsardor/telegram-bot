@@ -149,9 +149,10 @@ will not see a new shutdown deadline or a new `child_process` call past `Process
   the less urgent ones of its chat ([`outbox.md`](./outbox.md), "Tables"), so two calls that depend
   on each other, a message and its edit, are pushed with one priority, or the later one can go out
   first. The queries that read the head are printed by
-  `git grep -n 'ORDER BY priority, id' -- src test migrations`. One ordered by `id` alone disagrees
-  with the pull: a copy from it puts the chat in the wrong turn, and a load-test fill or churn from
-  it measures heads the pull does not take.
+  `git grep -n 'ORDER BY priority, id' -- src test migrations`, with one line that reads no head:
+  the `jsonb_agg()` of `OutboxStore.pull()`, the order of the pulled batch. One ordered by `id`
+  alone disagrees with the pull: a copy from it puts the chat in the wrong turn, and a load-test
+  fill or churn from it measures heads the pull does not take.
   `test/telegram/outbox/outbox-store.spec.ts` catches a head by `id` in the pull and in the copy;
   nothing checks the lookups of `test/load/` or the priority of calls that depend on each other.
 - **A write that moves the head of an outbox chat or makes the chat `ready` sets
