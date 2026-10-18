@@ -502,8 +502,8 @@ that emptied a message is closed by a test that matches the text in full (`bot.s
 `filter.spec.ts`). This does not contradict the boundary rule above: there the message stays, and
 all that changes is which check rejected the input.
 
-The test commands `/font_generator` and `/bulk_messages` are worked through like the rest of the
-code (the overview in [`README.md`](./README.md)).
+The test command `/bulk_messages` is worked through like the rest of the code (the overview in
+[`README.md`](./README.md)).
 
 A mark is a comment on the line above the mutated one:
 `// Stryker disable next-line <mutator>: <replacement> — <why>`. The name of the mutator comes from

@@ -188,8 +188,9 @@ There is nothing to restart it with: the container does not survive a second `se
    - `container.get()` for the services of `assemble()`. All the handlers of the pipeline are
      instantiated together with `Bot`, before its constructor ([`bot.md`](./bot.md)).
    - `Bot.setup()` installs the outbox transformer and assembles the pipeline
-     ([`bot.md`](./bot.md)). Along the way it sends a `setMyCommands` over the network for every
-     locale, straight to Telegram: the call has no chat.
+     ([`bot.md`](./bot.md)). Along the way it sends the descriptions of the bot and its command
+     menus over the network for every locale, straight to Telegram: none of the calls has a
+     `chat_id` ([`bot.md`](./bot.md), "Commands").
 
    A second `setup()` does not repeat a failed one; it gets the same failure. After a failure
    `fail()` ends the process.
@@ -211,10 +212,11 @@ There is nothing to restart it with: the container does not survive a second `se
 **Errors:** any failure of the start goes into `fail()` (`bootstrap().catch(fail)`): a `critical`
 and exit code 1. `unhandledRejection` and `uncaughtException` lead there too. Only `fail()` logs:
 two `critical` on one failure would double the alert count. That is why `setup()` and `run()` throw
-a failure without logging it. There are no retries for the database or for `setMyCommands`: a
-temporary network failure at this moment is fatal. The polling source meets Telegram only after the
-start, in the background, and retries its failures itself ([`inbox.md`](./inbox.md), "The polling
-source").
+a failure without logging it. There are no retries for the database or for the calls of
+`Bot.setup()`: a temporary network failure at this moment is fatal. The one answer the start
+survives is `chat not found` to the menu of a chat ([`bot.md`](./bot.md), "Commands"). The polling
+source meets Telegram only after the start, in the background, and retries its failures itself
+([`inbox.md`](./inbox.md), "The polling source").
 
 ### Stop
 

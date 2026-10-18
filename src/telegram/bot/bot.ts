@@ -1,5 +1,5 @@
 import type { StorageAdapter } from "grammy";
-import { Bot as TelegramBot, Composer, session } from "grammy";
+import { Bot as TelegramBot, Composer, GrammyError, session } from "grammy";
 import { inject, injectable } from "inversify";
 import { Tokens } from "app/shared/tokens";
 import { configValue } from "app/shared/config-value";
@@ -12,11 +12,16 @@ import type { SessionPayload } from "app/telegram/session/session.types";
 import type { Filter } from "app/telegram/filter/filter";
 import { InvalidConfigError } from "app/shared/errors";
 import type { Fluent } from "@moebius/fluent";
-import type { BotCommand } from "grammy/types";
+import type { BotCommand, BotCommandScope } from "grammy/types";
 import { createFluentMiddleware } from "app/telegram/locale/locale";
 import type { Locale } from "app/telegram/locale/locale.types";
 import { DEFAULT_LOCALE, LOCALES } from "app/telegram/locale/locale.types";
 import type { OutboxTransformer } from "app/telegram/outbox/transformer/outbox-transformer";
+import type { BulkMessagesCommand } from "app/telegram/command/bulk-messages/bulk-messages.command";
+import type { SupportedFormats } from "app/telegram/supported-formats";
+
+// What Telegram answers a menu of a chat that has not opened the bot.
+const CHAT_NOT_FOUND_DESCRIPTION = "Bad Request: chat not found";
 
 @injectable()
 export class Bot {
@@ -38,10 +43,10 @@ export class Bot {
         @inject<Middleware>(Tokens.Bot.Middleware.FillUserToContext) private readonly fillUserToContextMiddleware: Middleware,
         @inject<Command>(Tokens.Bot.Command.Start) private readonly startCommand: Command,
         @inject<Command>(Tokens.Bot.Command.Help) private readonly helpCommand: Command,
-        @inject<Command>(Tokens.Bot.Command.BulkMessages) private readonly bulkMessagesCommand: Command,
-        @inject<Command>(Tokens.Bot.Command.FontGenerator) private readonly fontGeneratorCommand: Command,
+        @inject<BulkMessagesCommand>(Tokens.Bot.Command.BulkMessages) private readonly bulkMessagesCommand: BulkMessagesCommand,
         @inject<Middleware>(Tokens.Bot.Middleware.UnknownCommand) private readonly unknownCommandMiddleware: Middleware,
         @inject<Middleware>(Tokens.Bot.Middleware.NotAFile) private readonly notAFileMiddleware: Middleware,
+        @inject<SupportedFormats>(Tokens.Bot.SupportedFormats) private readonly supportedFormats: SupportedFormats,
         private readonly settings: BotSettings = configValue("bot"),
     ) {
         if (!this.settings.token) {
@@ -73,6 +78,7 @@ export class Bot {
         ]);
         // Above the commands: they translate with ctx.t.
         await this.setupFlavor();
+        await this.setupDescriptions();
         await this.setupCommands();
         // Below the commands, for what none of them took: an unknown command first, so that it does
         // not get the hint for a text.
@@ -126,29 +132,72 @@ export class Bot {
     private async setupCommands(): Promise<void> {
         this.logger.debug("Setup commands...");
 
-        const commands = [this.startCommand, this.helpCommand, this.bulkMessagesCommand, this.fontGeneratorCommand];
+        const commonCommands = [this.startCommand, this.helpCommand];
+        // The menu of a chat replaces the common one there rather than adding to it, so it repeats
+        // the common commands.
+        const chatCommands = [...commonCommands, this.bulkMessagesCommand];
 
         const composer = new Composer<Context>();
 
-        for (const command of commands) {
+        for (const command of chatCommands) {
             command.setup(composer);
         }
 
+        await this.publishCommands(commonCommands, { type: "default" });
+
+        for (const chatId of this.bulkMessagesCommand.chatIds) {
+            await this.publishChatCommands(chatCommands, chatId);
+        }
+
+        this.grammy.use(composer);
+
+        this.logger.debug("Commands successfully setup.");
+    }
+
+    // A chat that has not opened this bot keeps the common menu: the chats are the owner's
+    // accounts, and the bot of a development slot may not have been opened by all of them.
+    private async publishChatCommands(commands: Command[], chatId: number): Promise<void> {
+        try {
+            await this.publishCommands(commands, { type: "chat", chat_id: chatId });
+        } catch (error) {
+            if (!(error instanceof GrammyError) || error.description !== CHAT_NOT_FOUND_DESCRIPTION) {
+                throw error;
+            }
+
+            this.logger.warning("The chat has not opened the bot and keeps the common menu.", { chatId: chatId });
+        }
+    }
+
+    private async publishCommands(commands: Command[], scope: BotCommandScope): Promise<void> {
         // The set without language_code is the fallback: Telegram shows it to everyone whose
         // language matched none of those set below, so it goes in the default locale.
-        await this.grammy.api.setMyCommands(this.describeCommands(commands, DEFAULT_LOCALE));
+        await this.grammy.api.setMyCommands(this.describeCommands(commands, DEFAULT_LOCALE), { scope: scope });
 
         for (const locale of LOCALES) {
             if (locale === DEFAULT_LOCALE) {
                 continue;
             }
 
-            await this.grammy.api.setMyCommands(this.describeCommands(commands, locale), { language_code: locale });
+            await this.grammy.api.setMyCommands(this.describeCommands(commands, locale), {
+                scope: scope,
+                language_code: locale,
+            });
         }
+    }
 
-        this.grammy.use(composer);
+    // What an empty chat with the bot shows before /start, and its profile. The fallback goes
+    // without language_code, as for the commands.
+    private async setupDescriptions(): Promise<void> {
+        const formats = this.supportedFormats.toText();
 
-        this.logger.debug("Commands successfully setup.");
+        for (const locale of LOCALES) {
+            const translate = this.fluent.withLocale(locale);
+            const localeOptions = locale === DEFAULT_LOCALE ? {} : { language_code: locale };
+            const description = translate("bot-description", { formats: formats, contact: this.settings.authorContact });
+
+            await this.grammy.api.setMyDescription(description, localeOptions);
+            await this.grammy.api.setMyShortDescription(translate("bot-short-description", { formats: formats }), localeOptions);
+        }
     }
 
     private describeCommands(commands: Command[], locale: Locale): BotCommand[] {

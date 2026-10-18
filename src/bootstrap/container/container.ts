@@ -21,7 +21,6 @@ import { ConvertorFactory } from "app/font-convertor/convertor/convertor-factory
 import { FontConvertor } from "app/font-convertor/font-convertor";
 import { Bot } from "app/telegram/bot/bot";
 import { BulkMessagesCommand } from "app/telegram/command/bulk-messages/bulk-messages.command";
-import { FontGeneratorCommand } from "app/telegram/command/font-generator/font-generator.command";
 import type { Logger } from "app/platform/logger/logger";
 import { ResponseTimeMiddleware } from "app/telegram/middleware/response-time.middleware";
 import { RequestLogMiddleware } from "app/telegram/middleware/request-log.middleware";
@@ -197,7 +196,6 @@ export class Container extends InversifyContainer {
         this.bind<StartCommand>(Tokens.Bot.Command.Start).to(StartCommand).inSingletonScope();
         this.bind<HelpCommand>(Tokens.Bot.Command.Help).to(HelpCommand).inSingletonScope();
         this.bind<BulkMessagesCommand>(Tokens.Bot.Command.BulkMessages).to(BulkMessagesCommand).inSingletonScope();
-        this.bind<FontGeneratorCommand>(Tokens.Bot.Command.FontGenerator).to(FontGeneratorCommand).inSingletonScope();
 
         // Session
         this.bind<StorageAdapter<SessionPayload>>(Tokens.Bot.Session.Storage).to(PgsqlStorage).inSingletonScope();
