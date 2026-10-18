@@ -1,4 +1,3 @@
-import path from "path";
 import type { StorageAdapter } from "grammy";
 import { Bot as TelegramBot, Composer, GrammyError, session } from "grammy";
 import { inject, injectable } from "inversify";
@@ -14,7 +13,7 @@ import type { Filter } from "app/telegram/filter/filter";
 import { InvalidConfigError } from "app/shared/errors";
 import type { Fluent } from "@moebius/fluent";
 import type { BotCommand, BotCommandScope } from "grammy/types";
-import { createFluent, createFluentMiddleware } from "app/telegram/locale/locale";
+import { createFluentMiddleware } from "app/telegram/locale/locale";
 import type { Locale } from "app/telegram/locale/locale.types";
 import { DEFAULT_LOCALE, LOCALES } from "app/telegram/locale/locale.types";
 import type { OutboxTransformer } from "app/telegram/outbox/transformer/outbox-transformer";
@@ -35,6 +34,7 @@ export class Bot {
         @inject<StorageAdapter<SessionPayload>>(Tokens.Bot.Session.Storage)
         private readonly sessionStorage: StorageAdapter<SessionPayload>,
         @inject<OutboxTransformer>(Tokens.Bot.Outbox.Transformer) private readonly outboxTransformer: OutboxTransformer,
+        @inject<Fluent>(Tokens.Bot.Fluent) private readonly fluent: Fluent,
         @inject<Filter>(Tokens.Bot.Filter.HasSessionKey) private readonly hasSessionKeyFilter: Filter,
         @inject<Filter>(Tokens.Bot.Filter.IsPrivateChat) private readonly isPrivateChatFilter: Filter,
         @inject<Middleware>(Tokens.Bot.Middleware.RequestContext) private readonly requestContextMiddleware: Middleware,
@@ -76,11 +76,10 @@ export class Bot {
             this.requestLogMiddleware,
             this.fillUserToContextMiddleware,
         ]);
-        // The commands and the descriptions of the bot need Fluent too: the same instance translates
-        // them for setMyCommands and setMyDescription.
-        const fluent = await this.setupFlavor();
-        await this.setupDescriptions(fluent);
-        await this.setupCommands(fluent);
+        // Above the commands: they translate with ctx.t.
+        await this.setupFlavor();
+        await this.setupDescriptions();
+        await this.setupCommands();
         // Below the commands, for what none of them took: an unknown command first, so that it does
         // not get the hint for a text.
         await this.setupMiddlewares([this.unknownCommandMiddleware, this.notAFileMiddleware]);
@@ -112,15 +111,8 @@ export class Bot {
         this.logger.debug("Middlewares successfully setup.");
     }
 
-    private async setupFlavor(): Promise<Fluent> {
-        // From the running code (__dirname), not from rootDir: build/ has its own copies of the
-        // `.ftl`, and a path from cwd would read them from src/, which a deployment does not
-        // have. The walk starts one level above bot/ (docs/architecture/i18n.md).
-        const fluent = await createFluent(path.dirname(__dirname));
-
-        this.grammy.use(createFluentMiddleware(fluent));
-
-        return fluent;
+    private async setupFlavor(): Promise<void> {
+        this.grammy.use(createFluentMiddleware(this.fluent));
     }
 
     private async setupFilters(filters: Filter[]): Promise<void> {
@@ -137,7 +129,7 @@ export class Bot {
         this.logger.debug("Filters successfully setup.");
     }
 
-    private async setupCommands(fluent: Fluent): Promise<void> {
+    private async setupCommands(): Promise<void> {
         this.logger.debug("Setup commands...");
 
         const commonCommands = [this.startCommand, this.helpCommand];
@@ -151,10 +143,10 @@ export class Bot {
             command.setup(composer);
         }
 
-        await this.publishCommands(commonCommands, fluent, { type: "default" });
+        await this.publishCommands(commonCommands, { type: "default" });
 
         for (const chatId of this.bulkMessagesCommand.chatIds) {
-            await this.publishChatCommands(chatCommands, fluent, chatId);
+            await this.publishChatCommands(chatCommands, chatId);
         }
 
         this.grammy.use(composer);
@@ -164,9 +156,9 @@ export class Bot {
 
     // A chat that has not opened this bot keeps the common menu: the chats are the owner's
     // accounts, and the bot of a development slot may not have been opened by all of them.
-    private async publishChatCommands(commands: Command[], fluent: Fluent, chatId: number): Promise<void> {
+    private async publishChatCommands(commands: Command[], chatId: number): Promise<void> {
         try {
-            await this.publishCommands(commands, fluent, { type: "chat", chat_id: chatId });
+            await this.publishCommands(commands, { type: "chat", chat_id: chatId });
         } catch (error) {
             if (!(error instanceof GrammyError) || error.description !== CHAT_NOT_FOUND_DESCRIPTION) {
                 throw error;
@@ -176,17 +168,17 @@ export class Bot {
         }
     }
 
-    private async publishCommands(commands: Command[], fluent: Fluent, scope: BotCommandScope): Promise<void> {
+    private async publishCommands(commands: Command[], scope: BotCommandScope): Promise<void> {
         // The set without language_code is the fallback: Telegram shows it to everyone whose
         // language matched none of those set below, so it goes in the default locale.
-        await this.grammy.api.setMyCommands(this.describeCommands(commands, fluent, DEFAULT_LOCALE), { scope: scope });
+        await this.grammy.api.setMyCommands(this.describeCommands(commands, DEFAULT_LOCALE), { scope: scope });
 
         for (const locale of LOCALES) {
             if (locale === DEFAULT_LOCALE) {
                 continue;
             }
 
-            await this.grammy.api.setMyCommands(this.describeCommands(commands, fluent, locale), {
+            await this.grammy.api.setMyCommands(this.describeCommands(commands, locale), {
                 scope: scope,
                 language_code: locale,
             });
@@ -195,11 +187,11 @@ export class Bot {
 
     // What an empty chat with the bot shows before /start, and its profile. The fallback goes
     // without language_code, as for the commands.
-    private async setupDescriptions(fluent: Fluent): Promise<void> {
+    private async setupDescriptions(): Promise<void> {
         const formats = this.supportedFormats.toText();
 
         for (const locale of LOCALES) {
-            const translate = fluent.withLocale(locale);
+            const translate = this.fluent.withLocale(locale);
             const localeOptions = locale === DEFAULT_LOCALE ? {} : { language_code: locale };
             const description = translate("bot-description", { formats: formats, contact: this.settings.authorContact });
 
@@ -208,8 +200,8 @@ export class Bot {
         }
     }
 
-    private describeCommands(commands: Command[], fluent: Fluent, locale: Locale): BotCommand[] {
-        const translate = fluent.withLocale(locale);
+    private describeCommands(commands: Command[], locale: Locale): BotCommand[] {
+        const translate = this.fluent.withLocale(locale);
 
         return commands.map((command) => {
             return {

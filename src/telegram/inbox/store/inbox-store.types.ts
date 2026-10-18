@@ -44,6 +44,12 @@ export type InboxGroupKey = {
     chatId: number;
 };
 
+// An update that failed and blocked its group, as the completion read it back: what the answer to
+// its sender needs.
+export type FailedInboxUpdate = InboxGroupKey & {
+    update: Update;
+};
+
 // Who claimed an update, written into its attempt: the node and its worker loop. workerId names the
 // loop, not one of its slots.
 export type InboxWorker = {

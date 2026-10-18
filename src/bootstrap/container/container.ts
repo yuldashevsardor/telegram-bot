@@ -1,5 +1,7 @@
 import "reflect-metadata";
+import path from "path";
 import { Container as InversifyContainer } from "inversify";
+import type { Fluent } from "@moebius/fluent";
 import { Tokens } from "app/shared/tokens";
 import { ApplicationContext } from "app/bootstrap/application/context/application-context";
 import type { CC } from "app/bootstrap/config/container/config-container.types";
@@ -72,6 +74,8 @@ import { InboxRetryCommand } from "app/telegram/inbox/command/inbox-retry-comman
 import { InboxSkipCommand } from "app/telegram/inbox/command/inbox-skip-command";
 import { InboxCommandResolver } from "app/telegram/inbox/command/inbox-command-resolver";
 import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier";
+import { createFluent } from "app/telegram/locale/locale";
+import { FailedUpdateAnswer } from "app/telegram/failed-update-answer/failed-update-answer";
 
 export class Container extends InversifyContainer {
     private alreadySetup = false;
@@ -199,6 +203,12 @@ export class Container extends InversifyContainer {
         // What the texts of the bot share
         this.bind<SupportedFormats>(Tokens.Bot.SupportedFormats).to(SupportedFormats).inSingletonScope();
         this.bind<HelpText>(Tokens.Bot.HelpText).to(HelpText).inSingletonScope();
+        // Read from disk once: the pipeline translates with it, and so does the answer to a failed
+        // update outside it. From the running code (__dirname), not from rootDir: build/ has its own
+        // copies of the `.ftl`, and a path from cwd would read them from src/, which a deployment does
+        // not have (docs/architecture/i18n.md).
+        this.bind<Fluent>(Tokens.Bot.Fluent).toConstantValue(await createFluent(path.join(__dirname, "..", "..", "telegram")));
+        this.bind<FailedUpdateAnswer>(Tokens.Bot.FailedUpdateAnswer).to(FailedUpdateAnswer).inSingletonScope();
     }
 
     private async setupPlatform(): Promise<void> {

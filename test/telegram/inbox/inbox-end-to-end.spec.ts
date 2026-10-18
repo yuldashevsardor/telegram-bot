@@ -198,6 +198,7 @@ describe("Inbox end to end on the database", function () {
     let welcomeReply: string;
     let helpReply: string;
     let notAFileReply: string;
+    let failedUpdateReply: string;
     // What afterEach undoes, in the reverse order: only what this beforeEach got to start, so a failed
     // one neither leaves the new objects open nor stops those of the previous test again.
     let cleanups: (() => Promise<void> | void)[] = [];
@@ -233,7 +234,7 @@ describe("Inbox end to end on the database", function () {
         answers = [];
         bot.grammy.api.config.use(recordAnswers(answers));
         fakeBotApi.calls.length = 0;
-        ({ welcomeReply, helpReply, notAFileReply } = await expectedReplies());
+        ({ welcomeReply, helpReply, notAFileReply, failedUpdateReply } = await expectedReplies());
 
         store = container.get<InboxStore>(Tokens.Bot.Inbox.Store);
         outboxRunner = container.get<OutboxRunner>(Tokens.Bot.Outbox.Runner);
@@ -323,7 +324,7 @@ describe("Inbox end to end on the database", function () {
         expectNoProblemLogs();
     });
 
-    it("blocks the group of an update whose handler keeps failing, while the other groups go on", async function () {
+    it("blocks the group of an update whose handler keeps failing and answers its sender once, while the other groups go on", async function () {
         sessionStorage.failReads(FIRST_USER, Number.POSITIVE_INFINITY);
         await store.pushBatch([
             commandInput(1, FIRST_USER, "/start"),
@@ -339,12 +340,19 @@ describe("Inbox end to end on the database", function () {
         // Pushed after the block: the runner goes on handling the other groups.
         await store.push(textInput(4, SECOND_USER, "after the block"));
         await waitUntilDone([3, 4]);
+        // The answer goes out through the outbox, after the block, so the block alone does not mean it
+        // has been sent.
+        await waitUntil(async () => {
+            fakeBotApi.throwIfFailed();
+
+            return sendsTo(FIRST_USER).length > 0;
+        }, "the sender of the failed update was expected to be answered");
 
         const [failed, behind] = await updateRows();
         expect(failed?.status).to.equal(InboxStatus.Failed);
         expect(failed?.attempts.map(({ error }) => error?.["kind"])).to.deep.equal(Array(MAX_ATTEMPTS).fill("transient"));
         expect(behind?.status).to.equal(InboxStatus.Pending);
-        expect(sendsTo(FIRST_USER)).to.deep.equal([]);
+        expect(sendsTo(FIRST_USER).map((call) => call.payload["text"])).to.deep.equal([failedUpdateReply]);
         expect(sendsTo(SECOND_USER).map((call) => call.payload["text"])).to.deep.equal([welcomeReply, notAFileReply]);
         expect(logger.errors.map((record) => record.message)).to.deep.equal(["Inbox group is blocked by a failed update."]);
         expect([...logger.criticals, ...logger.warnings]).to.deep.equal([]);
@@ -362,7 +370,12 @@ describe("Inbox end to end on the database", function () {
 
     // The texts the handlers reply with, translated as the bot translates them for a user without a
     // language.
-    async function expectedReplies(): Promise<{ welcomeReply: string; helpReply: string; notAFileReply: string }> {
+    async function expectedReplies(): Promise<{
+        welcomeReply: string;
+        helpReply: string;
+        notAFileReply: string;
+        failedUpdateReply: string;
+    }> {
         const translate = (await createFluent(path.resolve(__dirname, "../../../src/telegram"))).withLocale(DEFAULT_LOCALE);
         const formats = container.get<SupportedFormats>(Tokens.Bot.SupportedFormats).toText();
 
@@ -374,6 +387,7 @@ describe("Inbox end to end on the database", function () {
                 contact: AUTHOR_CONTACT,
             }),
             notAFileReply: translate("not-a-file-middleware-hint", { formats: formats }),
+            failedUpdateReply: translate("failed-update-answer-text", { contact: AUTHOR_CONTACT }),
         };
     }
 

@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { expect } from "chai";
 import { BotError, HttpError } from "grammy";
 import type { Context } from "grammy";
+import type { Update } from "@grammyjs/types";
 import { Database } from "app/platform/database/database";
 import { RuntimeError } from "app/shared/errors";
 import { MS_PER_DAY, MS_PER_SECOND } from "app/shared/time";
@@ -23,6 +24,7 @@ import { InboxGroupState, InboxStatus } from "app/telegram/inbox/store/inbox-sto
 import { OutboxErrorSerializer } from "app/telegram/outbox/outbox-error-serializer";
 import { OutboxResultTimeout } from "app/telegram/outbox/result-waiter/outbox-result-waiter.errors";
 import { RetryDelay } from "app/telegram/retry-delay/retry-delay";
+import type { FailedUpdateAnswer } from "app/telegram/failed-update-answer/failed-update-answer";
 import { testDatabaseSettings } from "test/database.helper";
 import { telegramError } from "test/telegram/telegram-bot-api-failure-classifier.helper";
 import { RecordingLogger } from "test/platform/logger/recording-logger.helper";
@@ -47,6 +49,9 @@ const SHORT_LEASE_MS = 10;
 const ELAPSED_TOLERANCE_MS = 1_000;
 const WORKER: InboxWorker = { host: "node-1", pid: 101, workerId: "worker-1" };
 
+// An answer to the sender of a failed update, as the handler sends it.
+type SentAnswer = { chatId: number; update: Update };
+
 // What the attempt of an expired lease ends with. Spelled out rather than imported: the handler
 // keeps it private, and the attempts it lands in are read by people.
 const LEASE_EXPIRED: InboxAttemptError = {
@@ -62,6 +67,7 @@ describe("InboxFailureHandler", function () {
     let logger: RecordingLogger;
     let store: InboxStore;
     let handler: InboxFailureHandler;
+    let answers: SentAnswer[];
 
     before(async function () {
         database = new Database(await testDatabaseSettings(), false);
@@ -69,6 +75,7 @@ describe("InboxFailureHandler", function () {
 
     beforeEach(async function () {
         logger = new RecordingLogger();
+        answers = [];
         useStore(new InboxStore(database, logger, LEASE_DURATION_MS, CLEANUP));
         await database.sql`TRUNCATE telegram_inbox, telegram_inbox_groups`;
     });
@@ -78,13 +85,15 @@ describe("InboxFailureHandler", function () {
         await database?.close();
     });
 
-    function useStore(inboxStore: InboxStore): void {
+    function useStore(inboxStore: InboxStore, failedUpdateAnswer: FailedUpdateAnswer = recordingAnswer()): void {
         store = inboxStore;
         handler = new InboxFailureHandler(
             store,
             new InboxFailureClassifier(new TelegramBotApiFailureClassifier()),
             RETRY_DELAY,
             new OutboxErrorSerializer(TOKEN),
+            failedUpdateAnswer,
+            logger,
             MAX_ATTEMPTS,
         );
     }
@@ -100,6 +109,7 @@ describe("InboxFailureHandler", function () {
             expect(await waitMs(USER)).to.be.within(FIRST_DELAY_MS / 2 - ELAPSED_TOLERANCE_MS, FIRST_DELAY_MS / 2);
             expect(await store.claim(10, WORKER)).to.deep.equal([]);
             expect((await attempts(10)).map(({ error }) => error?.["kind"])).to.deep.equal([InboxFailureKind.Transient]);
+            expect(answers).to.deep.equal([]);
         });
 
         it("lengthens the retry delay with every counted attempt", async function () {
@@ -126,6 +136,21 @@ describe("InboxFailureHandler", function () {
             expect(await groupState(USER)).to.equal(InboxGroupState.Blocked);
             expect(await attempts(10)).to.have.lengthOf(MAX_ATTEMPTS);
             expect(logger.errors.map(({ message }) => message)).to.deep.equal(["Inbox group is blocked by a failed update."]);
+        });
+
+        it("answers the sender once, on the last attempt", async function () {
+            await store.push(input(10));
+
+            for (let attempt = 1; attempt < MAX_ATTEMPTS; attempt++) {
+                await handler.handle(await claimOne(), lostConnection());
+                await dueNow(USER);
+            }
+
+            expect(answers).to.deep.equal([]);
+
+            await handler.handle(await claimOne(), lostConnection());
+
+            expect(answers).to.deep.equal([{ chatId: CHAT, update: input(10).update }]);
         });
     });
 
@@ -178,6 +203,7 @@ describe("InboxFailureHandler", function () {
                 InboxFailureKind.ReplyTimeout,
             ]);
             expect(logger.errors).to.deep.equal([]);
+            expect(answers).to.deep.equal([]);
         });
     });
 
@@ -191,6 +217,29 @@ describe("InboxFailureHandler", function () {
             expect(await groupState(USER)).to.equal(InboxGroupState.Blocked);
             expect((await attempts(10)).map(({ error }) => error?.["kind"])).to.deep.equal([InboxFailureKind.Unexpected]);
             expect(logger.errors.map(({ payload }) => payload?.["updateId"])).to.deep.equal([10]);
+            expect(answers).to.deep.equal([{ chatId: CHAT, update: input(10).update }]);
+        });
+
+        // Logged by the handler: the runner would log it as an update the lease recovery takes back.
+        it("logs an answer that fails and keeps the update failed", async function () {
+            const pushError = new Error("write CONNECTION_CLOSED pgsql:5432");
+            useStore(store, {
+                send: async (): Promise<void> => {
+                    throw pushError;
+                },
+            } as unknown as FailedUpdateAnswer);
+            await store.push(input(10));
+
+            await handler.handle(await claimOne(), new TypeError("Cannot read properties of undefined"));
+
+            expect(await statuses()).to.deep.equal([InboxStatus.Failed]);
+            expect(await groupState(USER)).to.equal(InboxGroupState.Blocked);
+            expect(logger.errors.slice(1)).to.deep.equal([
+                {
+                    message: "The answer to the sender of a failed inbox update was not sent.",
+                    payload: { userId: USER, chatId: CHAT, updateId: 10, cause: pushError },
+                },
+            ]);
         });
 
         it("blocks the group on the first attempt, with no retry", async function () {
@@ -274,6 +323,7 @@ describe("InboxFailureHandler", function () {
 
             expect(await statuses()).to.deep.equal([InboxStatus.Failed]);
             expect(await groupState(USER)).to.equal(InboxGroupState.Blocked);
+            expect(answers).to.deep.equal([{ chatId: CHAT, update: input(10).update }]);
         });
 
         it("changes nothing on a completion of the node presumed dead after the recovery", async function () {
@@ -293,6 +343,7 @@ describe("InboxFailureHandler", function () {
                 "Inbox completion with a stale lock token changed nothing.",
             ]);
             expect(logger.errors).to.deep.equal([]);
+            expect(answers).to.deep.equal([]);
         });
     });
 
@@ -304,6 +355,17 @@ describe("InboxFailureHandler", function () {
         expect((await claimOne()).updateId).to.equal(nextUpdateId);
         expect((await attempts(failedUpdateId)).map(({ error }) => error?.["kind"])).to.deep.equal([kind]);
         expect(logger.errors).to.deep.equal([]);
+        expect(answers).to.deep.equal([]);
+    }
+
+    // Records the answers instead of pushing them into the outbox: FailedUpdateAnswer has a spec of its
+    // own.
+    function recordingAnswer(): FailedUpdateAnswer {
+        return {
+            send: async (chatId: number, update: Update): Promise<void> => {
+                answers.push({ chatId: chatId, update: update });
+            },
+        } as unknown as FailedUpdateAnswer;
     }
 
     // The context Bot.handleUpdate() puts into a BotError, with the Api and its token.
