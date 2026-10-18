@@ -980,6 +980,26 @@ class CloseTest(unittest.TestCase):
         self.assertIn("gh pr view 801 named no merge commit of a merged PR", err)
 
 
+class GlobPatternTest(unittest.TestCase):
+    def test_a_star_stays_in_one_directory_and_a_double_star_crosses_them(self):
+        for glob, matched, unmatched in (
+            ("src/*.ts", ["src/a.ts"], ["src/dir/index.ts"]),
+            ("src/?.ts", ["src/a.ts"], ["src/ab.ts", "src/dir/index.ts"]),
+            ("src/**/index.ts", ["src/index.ts", "src/dir/index.ts"], ["src/dir/index.tsx"]),
+            ("src/dir/**", ["src/dir/index.ts", "src/dir/x/y.ts"], ["src/dirt.ts"]),
+            ("src/a.ts", ["src/a.ts"], ["src/a_ts", "src/b.ts"]),
+        ):
+            pattern = mutation_batch.glob_pattern(glob)
+            for path in matched:
+                self.assertTrue(pattern.fullmatch(path), (glob, path))
+            for path in unmatched:
+                self.assertFalse(pattern.fullmatch(path), (glob, path))
+
+    def test_a_glob_past_stars_and_question_marks_is_not_read(self):
+        for glob in ("src/{a,b}.ts", "src/[ab].ts", "src/@(a|b).ts", "src/a.ts:1-5", "!src/a.ts"):
+            self.assertIsNone(mutation_batch.glob_pattern(glob), glob)
+
+
 class CommentsOnlyTest(unittest.TestCase):
     def assertCommentsOnly(self, old, new):
         self.assertTrue(mutation_batch.is_comments_only(old, new), (old, new))
@@ -1092,6 +1112,29 @@ BASE_TREE = {
         "\t$(DC_APP_RUN) env MUTATE='$(FILES)' node test/mutation-run.ts\n"
     ),
 }
+
+
+STRYKER_WITH_LISTS = (
+    "// The exclusion lists, laid out as in stryker.config.mjs.\n"
+    "const DATABASE_SPECS = [\n"
+    '    "test/a.spec.ts",\n'
+    "];\n"
+    "const DATABASE_ONLY_SOURCES = [\n"
+    '    "src/c.ts",\n'
+    "];\n"
+    "export default {\n"
+    "    mutate: [\n"
+    "        ...base,\n"
+    '        "!src/**/*.ftl",\n'
+    '        "!src/dir/**",\n'
+    '        "!src/gone.ts",\n'
+    '        "!src/{a,b}.ts",\n'
+    "        ...DATABASE_ONLY_SOURCES.map((file) => `!${file}`),\n"
+    "    ],\n"
+    '    reporters: ["clear-text"],\n'
+    "    timeoutMS: 5000,\n"
+    "};\n"
+)
 
 
 def history(*steps):
@@ -1370,6 +1413,120 @@ class BatchFilesTest(unittest.TestCase):
 
             self.assertEqual((code, lines), (0, ["src/b.ts"]), path)
             self.assertNotIn("full run", err)
+
+    def config_pr(self, config, changes=None):
+        """PR #801 turns STRYKER_WITH_LISTS, which m800 put on `main` before it, into the config,
+        together with the changes."""
+        pr_changes = dict(changes or {"src/b.ts": "export const b = 2;\n"})
+        pr_changes["stryker.config.mjs"] = config
+        line = history(("m800", {"stryker.config.mjs": STRYKER_WITH_LISTS}), ("m801", pr_changes))
+        return self.github(line, [(701, 801)], {801: merged("m801")})
+
+    def test_entries_added_to_the_exclusion_lists_keep_the_list(self):
+        for added in (
+            ('    "test/a.spec.ts",\n', '    "test/a.spec.ts",\n    "test/new.spec.ts",\n'),
+            ('    "src/c.ts",\n', '    "src/c.ts",\n    "src/b.ts",\n'),
+            ('        "!src/dir/**",\n', '        "!src/dir/**",\n        "!src/a.ts",\n'),
+        ):
+            github = self.config_pr(STRYKER_WITH_LISTS.replace(*added))
+
+            code, lines, err = self.files(github)
+
+            self.assertEqual((code, lines), (0, ["src/b.ts"]), added)
+            self.assertIn("PR #801: stryker.config.mjs changed in its exclusion lists alone\n", err)
+            self.assertNotIn("full run", err)
+
+    def test_a_change_of_the_config_past_its_exclusion_lists_takes_the_full_run(self):
+        for changed in (
+            ("timeoutMS: 5000", "timeoutMS: 6000"),
+            # A positive glob in `mutate` adds files to every run.
+            ('        "!src/dir/**",\n', '        "!src/dir/**",\n        "src/x/**",\n'),
+            ('    "src/c.ts",\n', '    "src/c.ts",\n    ...EXTRA,\n'),
+            ("    timeoutMS", "    ignoreStatic: true,\n    timeoutMS"),
+            ('["clear-text"]', '["clear-text", "json"]'),
+            ('    "src/c.ts",\n', '    "src/c.ts",\n    // Stryker disable next-line all\n'),
+            ("];\nexport", "];\nconst MORE = [\n    \"src/b.ts\",\n];\nexport"),
+        ):
+            github = self.config_pr(STRYKER_WITH_LISTS.replace(*changed))
+
+            code, lines, err = self.files(github)
+
+            self.assertEqual((code, lines), (0, []), changed)
+            self.assertIn(
+                "full run: PR #801 changed stryker.config.mjs, a tool of the run, in more than"
+                " comments\n",
+                err,
+            )
+
+    def test_a_removed_source_exclusion_runs_the_files_it_excluded(self):
+        for removed, files in (
+            ('    "src/c.ts",\n', "src/b.ts src/c.ts"),
+            ('        "!src/dir/**",\n', "src/b.ts src/dir/index.ts"),
+            ('        "!src/**/*.ftl",\n', "src/b.ts"),
+            ('        "!src/gone.ts",\n', "src/b.ts"),
+        ):
+            github = self.config_pr(STRYKER_WITH_LISTS.replace(removed, ""))
+
+            code, lines, err = self.files(github)
+
+            self.assertEqual((code, lines), (0, [files]), removed)
+            glob = removed.strip().strip('",!')
+            self.assertIn("PR #801: no longer excluded: {}\n".format(glob), err)
+
+    def test_a_source_moved_between_the_exclusion_lists_stays_excluded(self):
+        moved = STRYKER_WITH_LISTS.replace('    "src/c.ts",\n', "").replace(
+            '        "!src/dir/**",\n', '        "!src/dir/**",\n        "!src/c.ts",\n'
+        )
+        github = self.config_pr(moved)
+
+        code, lines, err = self.files(github)
+
+        self.assertEqual((code, lines), (0, ["src/b.ts"]))
+        self.assertNotIn("no longer excluded", err)
+
+    def test_a_removed_glob_past_stars_and_question_marks_takes_the_full_run(self):
+        github = self.config_pr(STRYKER_WITH_LISTS.replace('        "!src/{a,b}.ts",\n', ""))
+
+        code, lines, err = self.files(github)
+
+        self.assertEqual((code, lines), (0, []))
+        self.assertIn("PR #801: no longer excluded, a glob not read: src/{a,b}.ts\n", err)
+        self.assertIn("full run: PR #801 changed stryker.config.mjs", err)
+
+    def test_a_spec_excluded_anew_runs_the_sources_it_imports(self):
+        github = self.config_pr(
+            STRYKER_WITH_LISTS.replace(
+                '    "test/a.spec.ts",\n', '    "test/a.spec.ts",\n    "test/c.spec.ts",\n'
+            )
+        )
+
+        code, lines, err = self.files(github)
+
+        self.assertEqual((code, lines), (0, ["src/b.ts src/c.ts"]))
+        self.assertIn("PR #801: excluded anew: test/c.spec.ts\n", err)
+        self.assertIn("PR #801: test/c.spec.ts -> src/c.ts\n", err)
+
+    def test_a_new_spec_excluded_by_its_pr_is_in_the_batch_by_itself(self):
+        github = self.config_pr(
+            STRYKER_WITH_LISTS.replace(
+                '    "test/a.spec.ts",\n', '    "test/a.spec.ts",\n    "test/new.spec.ts",\n'
+            ),
+            {"test/new.spec.ts": 'import { c } from "app/c";\n'},
+        )
+
+        code, lines, err = self.files(github)
+
+        self.assertEqual((code, lines), (0, ["src/c.ts"]))
+        self.assertNotIn("excluded anew", err)
+        self.assertIn("PR #801: test/new.spec.ts -> src/c.ts\n", err)
+
+    def test_a_spec_back_in_the_run_adds_no_file(self):
+        github = self.config_pr(STRYKER_WITH_LISTS.replace('    "test/a.spec.ts",\n', ""))
+
+        code, lines, err = self.files(github)
+
+        self.assertEqual((code, lines), (0, ["src/b.ts"]))
+        self.assertNotIn("full run", err)
 
     def test_a_file_the_merge_commit_does_not_carry_counts_as_code(self):
         line = history(("m801", {"src/b.ts": "export const b = 2;\n"}))
