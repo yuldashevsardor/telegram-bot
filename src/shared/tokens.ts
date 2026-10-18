@@ -103,9 +103,13 @@ export const Tokens = {
             FillUserToContext: Symbol.for("BotMiddlewareFillUserToContext"),
             UnknownCommand: Symbol.for("BotMiddlewareUnknownCommand"),
             NotAFile: Symbol.for("BotMiddlewareNotAFile"),
+            FileIntake: Symbol.for("BotMiddlewareFileIntake"),
         },
         SupportedFormats: Symbol.for("BotSupportedFormats"),
         HelpText: Symbol.for("BotHelpText"),
+        FormatButtons: Symbol.for("BotFormatButtons"),
+        FileDownloader: Symbol.for("BotFileDownloader"),
+        FontRejectionClassifier: Symbol.for("BotFontRejectionClassifier"),
         Session: {
             Storage: Symbol.for("BotSessionStorage"),
         },

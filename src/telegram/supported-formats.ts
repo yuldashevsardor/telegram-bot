@@ -20,11 +20,17 @@ export class SupportedFormats {
 
     // From the pair matrix rather than spelled out in a text: otherwise what is promised to a person
     // drifts from what the domain can actually do.
-    public toText(): string {
+    public toList(): Extension[] {
         const extensions = [...this.convertorFactory.getSupportedExtensions()];
 
         extensions.sort((left, right) => SupportedFormats.RANK[left] - SupportedFormats.RANK[right]);
 
-        return extensions.map((extension) => extension.toUpperCase()).join(", ");
+        return extensions;
+    }
+
+    public toText(): string {
+        return this.toList()
+            .map((extension) => extension.toUpperCase())
+            .join(", ");
     }
 }

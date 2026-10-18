@@ -9,22 +9,29 @@ import type { SessionPayload } from "app/telegram/session/session.types";
 import { initialPayload } from "app/telegram/session/session.helper";
 import type { SupportedFormats } from "app/telegram/supported-formats";
 import { HelpText } from "app/telegram/command/help/help-text";
+import { Extension } from "app/font-convertor/font-convertor.types";
 
 const ME = { id: 1, is_bot: true, first_name: "Bot", username: "test_bot" } as UserFromGetMe;
 
-export type ReplyContext = { ctx: Context; replies: string[] };
+// What a handler passed to ctx.reply() besides the text: the keyboard, the message replied to.
+export type ReplyOptions = Parameters<Context["reply"]>[1];
 
-export type HandlerRun = { ctx: Context; replies: string[]; isPassedOn: boolean };
+export type ReplyContext = { ctx: Context; replies: string[]; replyOptions: ReplyOptions[] };
+
+export type HandlerRun = { ctx: Context; replies: string[]; replyOptions: ReplyOptions[]; isPassedOn: boolean };
 
 // The list SupportedFormats gives for the pair matrix of today.
-export const supportedFormats = { toText: (): string => "TTF, OTF, WOFF, WOFF2, EOT, SVG" } as SupportedFormats;
+export const supportedFormats = {
+    toList: (): Extension[] => [Extension.TTF, Extension.OTF, Extension.WOFF, Extension.WOFF2, Extension.EOT, Extension.SVG],
+    toText: (): string => "TTF, OTF, WOFF, WOFF2, EOT, SVG",
+} as SupportedFormats;
 
 // The help with a contact of its own and the size limit of the cloud Bot API.
 export const helpText = new HelpText(supportedFormats, "@author", 20);
 
 // The context of a private message translated by the bundles of src/telegram, with the texts of
-// ctx.reply() recorded instead of sent. A session passed in is shared with the runs it is passed to,
-// as session() gives the updates of one chat the same row.
+// ctx.reply() and its options recorded instead of sent. A session passed in is shared with the runs
+// it is passed to, as session() gives the updates of one chat the same row.
 export async function replyContext(
     content: Partial<Message>,
     locale: Locale = DEFAULT_LOCALE,
@@ -42,17 +49,19 @@ export async function replyContext(
         },
     } as Update;
     const replies: string[] = [];
+    const replyOptions: ReplyOptions[] = [];
     const ctx = new GrammyContext(update, new Api("test-token"), ME) as Context;
 
     ctx.session = session;
     ctx.t = fluent.withLocale(locale);
-    ctx.reply = (async (text: string): Promise<Message.TextMessage> => {
+    ctx.reply = (async (text: string, other?: ReplyOptions): Promise<Message.TextMessage> => {
         replies.push(text);
+        replyOptions.push(other);
 
         return {} as Message.TextMessage;
     }) as Context["reply"];
 
-    return { ctx: ctx, replies: replies };
+    return { ctx: ctx, replies: replies, replyOptions: replyOptions };
 }
 
 // Runs a message through a command or a middleware the way Bot attaches it, through setup(): a
@@ -63,7 +72,7 @@ export async function runHandler(
     locale?: Locale,
     session?: SessionPayload,
 ): Promise<HandlerRun> {
-    const { ctx, replies } = await replyContext(content, locale, session);
+    const { ctx, replies, replyOptions } = await replyContext(content, locale, session);
     const composer = new Composer<Context>();
     handler.setup(composer);
     let isPassedOn = false;
@@ -72,7 +81,7 @@ export async function runHandler(
         isPassedOn = true;
     });
 
-    return { ctx: ctx, replies: replies, isPassedOn: isPassedOn };
+    return { ctx: ctx, replies: replies, replyOptions: replyOptions, isPassedOn: isPassedOn };
 }
 
 export function commandMessage(text: string): Partial<Message> {

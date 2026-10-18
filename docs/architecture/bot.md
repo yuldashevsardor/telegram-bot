@@ -60,8 +60,9 @@ container.
    `api.setMyCommands()` for every locale ([`i18n.md`](./i18n.md)). That is a network call per
    locale on every start. An update that matched no command goes on to step 7.
 7. What no command took: a second call of `Bot.setupMiddlewares()`, below the commands, with
-   `UnknownCommandMiddleware` → `NotAFileMiddleware` (see "Commands"). This is the last step: a
-   document and a message without content pass both, and nothing takes them further.
+   `UnknownCommandMiddleware` → `NotAFileMiddleware` → `FileIntakeMiddleware` (see "Commands").
+   This is the last step: a message without content passes all three, and nothing takes it
+   further.
 
 One update costs the database:
 
@@ -163,7 +164,7 @@ and of the bot, and the send.
 ## Commands
 
 The texts of `/start`, `/help` and step 7 are those of the customer journey
-([`cjm.md`](../product/cjm.md), steps 1, 5 and 6). Each handler builds its text with `ctx.t()`
+([`cjm.md`](../product/cjm.md), steps 1, 2, 5 and 6). Each handler builds its text with `ctx.t()`
 ([`i18n.md`](./i18n.md)) and sends it with one `ctx.reply()` through the outbox (see "The outbox
 transformer"). The next message is routed by what it is, not by what the bot said before: the one
 thing they keep in the session is the album `NotAFileMiddleware` answered last (below).
@@ -179,15 +180,42 @@ thing they keep in the session is the album `NotAFileMiddleware` answered last (
   `command()`, and such a text goes on as a text.
 - `NotAFileMiddleware` answers a message with content a person sends (`CONTENT_FIELDS`: a text, a
   photo, a GIF, a sticker and the like) with `not-a-file-middleware-hint`, a request to send the
-  font as a file. A GIF gets the request even though Telegram puts it into `document` as well. A
-  document gets no answer: no handler takes a file yet. A service message (a pin, access granted
-  from a mini app) has no content and gets no answer either. An album comes as one message per
-  item, each an update of its own, and only its first item gets the request: the middleware keeps
-  the `media_group_id` it answered in `session.hintedMediaGroupId` and leaves an item of the same
-  album unanswered. The inbox hands out the updates of a session one at a time, in their order
-  ([`inbox.md`](./inbox.md)), so the first item is answered before the next is read.
+  font as a file. A GIF gets the request even though Telegram puts it into `document` as well, so
+  the middleware stands above `FileIntakeMiddleware`. A document goes on to it. A service message
+  (a pin, access granted from a mini app) has no content and gets no answer. An album comes as one
+  message per item, each an update of its own, and only its first item gets the request: the
+  middleware keeps the `media_group_id` it answered in `session.hintedMediaGroupId` and leaves an
+  item of the same album unanswered. The inbox hands out the updates of a session one at a time, in
+  their order ([`inbox.md`](./inbox.md)), so the first item is answered before the next is read.
+- `FileIntakeMiddleware` (`middleware/file-intake/`) takes a document and checks it in the order
+  of [`cjm.md`](../product/cjm.md), step 2, from the cheapest. A refusal is one reply with the text
+  of its row of step 5 and no buttons:
+  1. The size Telegram reports in the message, `file_size`, against `BOT_MAX_DOWNLOAD_SIZE`:
+     `getFile` refuses a larger file, so nothing else is there to go by. A document without the
+     size passes.
+  2. The extension of `file_name`, in any case, against `SupportedFormats`. A document without a
+     name gets the text of an unsupported file with «Файл» in place of the name.
+  3. The content. `TelegramFileDownloader` (`file-downloader/`) calls `getFile`, which names no chat
+     and goes past the outbox, then downloads the file by plain HTTP from the path it gives into
+     `TEMP_DIR`, with a timeout of a minute. The validator of the format the extension names
+     (`FontValidatorResolver`, [`font-convertor.md`](./font-convertor.md), "Signatures") reads it,
+     and the file is removed whatever the outcome. `FontRejectionClassifier` sorts the error of the
+     validator: the `Not*` errors of the format of the extension (`NotSfnt` for TTF and OTF,
+     `NotXml`, `NotSvg` and `NoFont` for SVG) give "not in the format", every other error of a
+     validator, `NotSfnt` of the font inside a WOFF, a WOFF2 or an EOT file included, gives
+     "broken". Any other error, a failed download among them, is thrown on, and the inbox picks the
+     outcome of the update by it ([`inbox.md`](./inbox.md), "Failures").
 
-The list of formats in all three comes from `SupportedFormats` (`telegram/supported-formats.ts`):
+  A font that passes gets `file-intake-middleware-question` in reply to its message with
+  `FormatButtons` (`format-buttons/`): the supported formats without the source in the order of
+  `SupportedFormats`, three to a row, and "Все форматы" on a row of its own. The callback data of a
+  button names the target alone, `convert:<extension>` or `convert:all`: a file id does not fit the
+  64 bytes Telegram allows, so the conversion is to find the source through the message the
+  question replies to. Nothing answers a press yet: `callback_query` is not in `ALLOWED_UPDATES`.
+  The download serves the check alone, so a document that passes the name costs a `getFile` and the
+  download of the whole file.
+
+The list of formats in all of them comes from `SupportedFormats` (`telegram/supported-formats.ts`):
 `ConvertorFactory.getSupportedExtensions()`, in upper case, in the order of the customer journey
 ([`cjm.md`](../product/cjm.md)). The order is a rank per `Extension`, so an extension added to
 the enum without a rank fails the compile. What the user is promised changes with the pair matrix

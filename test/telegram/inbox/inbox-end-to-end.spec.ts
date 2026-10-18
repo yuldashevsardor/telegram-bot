@@ -52,6 +52,8 @@ const CONFIG = {
 // order of the calls.
 const HOLD_TIMEOUT_MS = 3_000;
 const HOLD_POLL_INTERVAL_MS = 10;
+// A name the file intake refuses without downloading the file.
+const DOCUMENT_NAME = "notes.pdf";
 const SPEC_TIMEOUT_MS = 30_000;
 
 // What a Bot API call of the bot resolved to.
@@ -196,6 +198,7 @@ describe("Inbox end to end on the database", function () {
     let welcomeReply: string;
     let helpReply: string;
     let notAFileReply: string;
+    let unsupportedFileReply: string;
     // What afterEach undoes, in the reverse order: only what this beforeEach got to start, so a failed
     // one neither leaves the new objects open nor stops those of the previous test again.
     let cleanups: (() => Promise<void> | void)[] = [];
@@ -231,7 +234,7 @@ describe("Inbox end to end on the database", function () {
         answers = [];
         bot.grammy.api.config.use(recordAnswers(answers));
         fakeBotApi.calls.length = 0;
-        ({ welcomeReply, helpReply, notAFileReply } = await expectedReplies());
+        ({ welcomeReply, helpReply, notAFileReply, unsupportedFileReply } = await expectedReplies());
 
         store = container.get<InboxStore>(Tokens.Bot.Inbox.Store);
         outboxRunner = container.get<OutboxRunner>(Tokens.Bot.Outbox.Runner);
@@ -264,8 +267,8 @@ describe("Inbox end to end on the database", function () {
         }
     });
 
-    // The document is handled and left without an answer: no handler takes a file yet.
-    it("answers a command and a text with the calls the handlers make, and ctx.reply() resolves to the sent message", async function () {
+    // The name of the document is refused before any download, so the fake Bot API serves no file.
+    it("answers a command, a text and a document with the calls the handlers make, and ctx.reply() resolves to the sent message", async function () {
         await store.pushBatch([commandInput(1, FIRST_USER, "/start"), textInput(2, FIRST_USER, "font"), documentInput(3, FIRST_USER)]);
 
         await waitUntilDone([1, 2, 3]);
@@ -274,10 +277,11 @@ describe("Inbox end to end on the database", function () {
             { method: "getMe", payload: {} },
             { method: "sendMessage", payload: { chat_id: FIRST_USER, text: welcomeReply } },
             { method: "sendMessage", payload: { chat_id: FIRST_USER, text: notAFileReply } },
+            { method: "sendMessage", payload: { chat_id: FIRST_USER, text: unsupportedFileReply } },
         ]);
         const replies = answers.filter((answer) => answer.method === "sendMessage").map((answer) => answer.result);
         expect(replies).to.deep.equal(telegram.sentMessages);
-        expect(await outboxStatuses()).to.deep.equal(["done", "done"]);
+        expect(await outboxStatuses()).to.deep.equal(["done", "done", "done"]);
         expectNoProblemLogs();
     });
 
@@ -360,7 +364,12 @@ describe("Inbox end to end on the database", function () {
 
     // The texts the handlers reply with, translated as the bot translates them for a user without a
     // language.
-    async function expectedReplies(): Promise<{ welcomeReply: string; helpReply: string; notAFileReply: string }> {
+    async function expectedReplies(): Promise<{
+        welcomeReply: string;
+        helpReply: string;
+        notAFileReply: string;
+        unsupportedFileReply: string;
+    }> {
         const translate = (await createFluent(path.resolve(__dirname, "../../../src/telegram"))).withLocale(DEFAULT_LOCALE);
         const formats = container.get<SupportedFormats>(Tokens.Bot.SupportedFormats).toText();
 
@@ -372,6 +381,7 @@ describe("Inbox end to end on the database", function () {
                 contact: AUTHOR_CONTACT,
             }),
             notAFileReply: translate("not-a-file-middleware-hint", { formats: formats }),
+            unsupportedFileReply: translate("file-intake-middleware-unsupported", { filename: DOCUMENT_NAME, formats: formats }),
         };
     }
 
@@ -455,7 +465,7 @@ function textInput(updateId: number, userId: number, text: string): InboxUpdateI
 }
 
 function documentInput(updateId: number, userId: number): InboxUpdateInput {
-    const document: Document = { file_id: "file-id", file_unique_id: "file-unique-id", file_name: "font.ttf" };
+    const document: Document = { file_id: "file-id", file_unique_id: "file-unique-id", file_name: DOCUMENT_NAME };
 
     return messageInputWith(updateId, userId, { document: document });
 }
