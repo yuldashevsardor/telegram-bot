@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { expect } from "chai";
-import type { Message, Sticker, Voice } from "@grammyjs/types";
+import type { Animation, Document, Message, Sticker, Voice } from "@grammyjs/types";
 import { Composer } from "grammy";
 import type { Context } from "app/telegram/bot/bot.types";
 import type { SupportedFormats } from "app/telegram/supported-formats";
@@ -10,25 +10,27 @@ import { replyContext } from "test/telegram/reply-context.helper";
 
 const supportedFormats = { toText: (): string => "TTF, OTF, WOFF, WOFF2, EOT, SVG" } as SupportedFormats;
 
-async function run(content: Partial<Message>, locale?: Locale): Promise<{ replies: string[]; passed: boolean }> {
+const DOCUMENT: Document = { file_id: "file-id", file_unique_id: "file-unique-id", file_name: "font.ttf" };
+
+async function run(content: Partial<Message>, locale?: Locale): Promise<{ replies: string[]; isPassedOn: boolean }> {
     const { ctx, replies } = await replyContext(content, locale);
     const composer = new Composer<Context>();
     new NotAFileMiddleware(supportedFormats).setup(composer);
-    let passed = false;
+    let isPassedOn = false;
 
     await composer.middleware()(ctx, async () => {
-        passed = true;
+        isPassedOn = true;
     });
 
-    return { replies: replies, passed: passed };
+    return { replies: replies, isPassedOn: isPassedOn };
 }
 
 describe("NotAFileMiddleware", function () {
     it("asks for a file in reply to a text", async function () {
-        const { replies, passed } = await run({ text: "hello" });
+        const { replies, isPassedOn } = await run({ text: "hello" });
 
         expect(replies).to.deep.equal(["Пришлите шрифт файлом — TTF, OTF, WOFF, WOFF2, EOT, SVG."]);
-        expect(passed).to.equal(false);
+        expect(isPassedOn).to.equal(false);
     });
 
     it("asks for a file in reply to a photo, a sticker and a voice", async function () {
@@ -41,6 +43,13 @@ describe("NotAFileMiddleware", function () {
         }
     });
 
+    // Telegram puts a GIF into document as well, for backward compatibility.
+    it("asks for a file in reply to a GIF, though it carries a document", async function () {
+        const { replies } = await run({ animation: {} as Animation, document: DOCUMENT });
+
+        expect(replies).to.have.lengthOf(1);
+    });
+
     it("asks in the locale of the update", async function () {
         const { replies } = await run({ text: "hello" }, "en");
 
@@ -48,11 +57,16 @@ describe("NotAFileMiddleware", function () {
     });
 
     it("passes a document on without an answer", async function () {
-        const { replies, passed } = await run({
-            document: { file_id: "file-id", file_unique_id: "file-unique-id", file_name: "font.ttf" },
-        });
+        const { replies, isPassedOn } = await run({ document: DOCUMENT });
 
         expect(replies).to.deep.equal([]);
-        expect(passed).to.equal(true);
+        expect(isPassedOn).to.equal(true);
+    });
+
+    it("passes a service message on without an answer", async function () {
+        const { replies, isPassedOn } = await run({ write_access_allowed: {} });
+
+        expect(replies).to.deep.equal([]);
+        expect(isPassedOn).to.equal(true);
     });
 });

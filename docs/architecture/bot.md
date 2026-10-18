@@ -183,18 +183,22 @@ is, not by what the bot said before.
 
 - `/start` (`StartCommand`) replies with `start-command-welcome`, the list of formats substituted.
   A repeated `/start` gives the same text.
-- `/help` (`HelpCommand`) replies with `help-command-text`: the formats and `{contact}`, the value
+- `/help` (`HelpCommand`) replies with `help-command-text`: the formats, the size limit of a file
+  (`MAX_DOWNLOAD_SIZE_MB` in `bot.types.ts`, the limit of `getFile`) and `{contact}`, the value
   of `BOT_AUTHOR_CONTACT`, a variable with a default (`.env.dist`). The contact changes without an
   edit of the `.ftl`.
 - `UnknownCommandMiddleware` answers a message whose text opens with a command no command of step 7
   took with the text of `/help`: it calls `HelpCommand.handle()`. A command elsewhere in the text
   is not one, as for grammY's `command()`, and such a text goes on as a text.
-- `NotAFileMiddleware` answers any other message but a document with `not-a-file-middleware-hint`,
-  a request to send the font as a file. A document gets no answer: no handler takes a file yet.
+- `NotAFileMiddleware` answers a message with content a person sends (`CONTENT_FIELDS`: a text, a
+  photo, a GIF, a sticker and the like) with `not-a-file-middleware-hint`, a request to send the
+  font as a file. A GIF gets the request even though Telegram puts it into `document` as well. A
+  document gets no answer: no handler takes a file yet. A service message (a pin, access granted
+  from a mini app) has no content and gets no answer either.
 
 The list of formats in all three comes from `SupportedFormats` (`telegram/supported-formats.ts`):
 `ConvertorFactory.getSupportedExtensions()`, in upper case, in the order of the customer journey
-(TTF, OTF, WOFF, WOFF2, EOT, SVG). The order is a rank per `Extension`, so an extension added to
+([`cjm.md`](../product/cjm.md)). The order is a rank per `Extension`, so an extension added to
 the enum without a rank fails the compile. What the user is promised changes with the pair matrix
 ([`font-convertor.md`](./font-convertor.md), "The pair table").
 

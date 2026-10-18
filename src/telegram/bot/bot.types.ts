@@ -13,6 +13,9 @@ import type { Update } from "grammy/types";
 // with it: the list follows what the handlers serve (docs/architecture/invariants.md).
 export const ALLOWED_UPDATES: ReadonlyArray<Exclude<keyof Update, "update_id">> = ["message"];
 
+// The Bot API hands a bot no file larger than this (getFile), so the texts promise no more.
+export const MAX_DOWNLOAD_SIZE_MB = 20;
+
 export type Context = GrammyContext & SessionFlavor<SessionPayload> & ConversationFlavor & FluentFlavor & { getUser: () => User };
 
 export type Conversation = GrammyConversation<Context>;

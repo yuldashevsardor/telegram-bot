@@ -147,8 +147,8 @@ Not measured: the time of each statement of the store, which nothing logs, with
   wake-up, and the polling source took it again from the same offset each time
   ([`inbox.md`](./inbox.md), "The polling source").
 - **The conversation of `/start`.** The first `/bulk_messages` of the run, sent right after
-  `/start`, was taken by the conversation, which waits for the next update of the chat and echoes
-  its text ([`bot.md`](./bot.md), "Commands"); the second one pushed the messages.
+  `/start`, was taken by the conversation `/start` then entered, which waited for the next update
+  of the chat and echoed its text; the second one pushed the messages.
 
 ## Verdict
 

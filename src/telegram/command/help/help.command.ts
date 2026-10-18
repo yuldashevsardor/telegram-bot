@@ -3,6 +3,7 @@ import { inject, injectable } from "inversify";
 import { Tokens } from "app/shared/tokens";
 import { configValue } from "app/shared/config-value";
 import type { Context } from "app/telegram/bot/bot.types";
+import { MAX_DOWNLOAD_SIZE_MB } from "app/telegram/bot/bot.types";
 import type { SupportedFormats } from "app/telegram/supported-formats";
 
 @injectable()
@@ -20,6 +21,12 @@ export class HelpCommand extends Command {
 
     // Public: an unknown command gets the same answer (UnknownCommandMiddleware).
     public async handle(ctx: Context): Promise<void> {
-        await ctx.reply(ctx.t("help-command-text", { formats: this.supportedFormats.toText(), contact: this.authorContact }));
+        await ctx.reply(
+            ctx.t("help-command-text", {
+                formats: this.supportedFormats.toText(),
+                maxFileSizeMb: MAX_DOWNLOAD_SIZE_MB,
+                contact: this.authorContact,
+            }),
+        );
     }
 }

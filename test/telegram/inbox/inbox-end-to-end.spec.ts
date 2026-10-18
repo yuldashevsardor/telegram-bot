@@ -9,6 +9,7 @@ import type { Database } from "app/platform/database/database";
 import { Tokens } from "app/shared/tokens";
 import { sleep } from "app/shared/utils";
 import type { Bot } from "app/telegram/bot/bot";
+import { MAX_DOWNLOAD_SIZE_MB } from "app/telegram/bot/bot.types";
 import type { InboxRunner } from "app/telegram/inbox/inbox-runner";
 import type { InboxStore } from "app/telegram/inbox/store/inbox-store";
 import type { InboxAttempt, InboxUpdateInput } from "app/telegram/inbox/store/inbox-store.types";
@@ -364,7 +365,7 @@ describe("Inbox end to end on the database", function () {
 
         return {
             welcomeReply: translate("start-command-welcome", { formats: formats }),
-            helpReply: translate("help-command-text", { formats: formats, contact: AUTHOR_CONTACT }),
+            helpReply: translate("help-command-text", { formats: formats, maxFileSizeMb: MAX_DOWNLOAD_SIZE_MB, contact: AUTHOR_CONTACT }),
             notAFileReply: translate("not-a-file-middleware-hint", { formats: formats }),
         };
     }

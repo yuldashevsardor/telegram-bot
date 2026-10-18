@@ -2,7 +2,9 @@
 
 What a person sees in the bot, step by step, and what the bot says at each step. The file
 describes the journey the bot is meant to give. A step that is not built yet differs from the code,
-and the code is the authority on what is built: today no handler takes a file.
+and the code is the authority on what is built. Today no handler takes a file (steps 2-4 and the
+rows of step 5 about a file), the descriptions of step 0 are not set, the menu is not the one of
+step 7, and a failed update gets no answer (the last row of step 5).
 
 The texts are given in Russian, the default locale (`DEFAULT_LOCALE` in
 `telegram/locale/locale.types.ts`). The `en` bundle carries the same keys with a translation,
