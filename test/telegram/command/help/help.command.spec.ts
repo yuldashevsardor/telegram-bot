@@ -2,12 +2,9 @@ import "reflect-metadata";
 import path from "path";
 import { expect } from "chai";
 import { HelpCommand } from "app/telegram/command/help/help.command";
-import { HelpText } from "app/telegram/command/help/help-text";
 import { createFluent } from "app/telegram/locale/locale";
 import { DEFAULT_LOCALE } from "app/telegram/locale/locale.types";
-import { command, runHandler, supportedFormats } from "test/telegram/reply-context.helper";
-
-const helpText = new HelpText(supportedFormats, "@author");
+import { command, helpText, runHandler } from "test/telegram/reply-context.helper";
 
 describe("HelpCommand", function () {
     it("replies with the help on /help", async function () {

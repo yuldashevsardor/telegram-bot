@@ -1,5 +1,4 @@
 import type { Context as GrammyContext, SessionFlavor } from "grammy";
-import type { Conversation as GrammyConversation, ConversationFlavor } from "@grammyjs/conversations";
 import type { SessionPayload } from "app/telegram/session/session.types";
 import type { User } from "app/telegram/user/user";
 import type { FluentFlavor } from "app/telegram/locale/locale.types";
@@ -13,15 +12,12 @@ import type { Update } from "grammy/types";
 // with it: the list follows what the handlers serve (docs/architecture/invariants.md).
 export const ALLOWED_UPDATES: ReadonlyArray<Exclude<keyof Update, "update_id">> = ["message"];
 
-// The Bot API hands a bot no file larger than this (getFile), so the texts promise no more.
-export const MAX_DOWNLOAD_SIZE_MB = 20;
-
-export type Context = GrammyContext & SessionFlavor<SessionPayload> & ConversationFlavor & FluentFlavor & { getUser: () => User };
-
-export type Conversation = GrammyConversation<Context>;
+export type Context = GrammyContext & SessionFlavor<SessionPayload> & FluentFlavor & { getUser: () => User };
 
 export type BotSettings = {
     token: string;
     // How a person reaches the author of the bot: the texts name it, and it changes without them.
     authorContact: string;
+    // The Bot API hands a bot no file larger than this (getFile), so the texts promise no more.
+    maxDownloadSizeMb: number;
 };

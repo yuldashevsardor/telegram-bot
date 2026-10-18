@@ -10,8 +10,6 @@ import type { BotSettings, Context } from "app/telegram/bot/bot.types";
 import type { Logger } from "app/platform/logger/logger";
 import { getSessionKey, initialPayload } from "app/telegram/session/session.helper";
 import type { SessionPayload } from "app/telegram/session/session.types";
-import type { ConversationHandler } from "app/telegram/conversation/conversation-handler";
-import { conversations, createConversation } from "@grammyjs/conversations";
 import type { Filter } from "app/telegram/filter/filter";
 import { InvalidConfigError } from "app/shared/errors";
 import type { Fluent } from "@moebius/fluent";
@@ -67,13 +65,19 @@ export class Bot {
         // an update without chat silently (docs/architecture/bot.md, steps 1-2).
         await this.setupFilters([this.hasSessionKeyFilter, this.isPrivateChatFilter]);
         await this.setupSession();
-        await this.setupMiddlewares();
+        await this.setupMiddlewares([
+            this.requestContextMiddleware,
+            this.responseTimeMiddleware,
+            this.requestLogMiddleware,
+            this.fillUserToContextMiddleware,
+        ]);
         // The commands need Fluent too: the same instance translates their descriptions for
         // setMyCommands.
         const fluent = await this.setupFlavor();
-        await this.setupConversations();
         await this.setupCommands(fluent);
-        await this.setupUnmatched();
+        // Below the commands, for what none of them took: an unknown command first, so that it does
+        // not get the hint for a text.
+        await this.setupMiddlewares([this.unknownCommandMiddleware, this.notAFileMiddleware]);
 
         this.isSetup = true;
     }
@@ -88,16 +92,10 @@ export class Bot {
         );
     }
 
-    private async setupMiddlewares(): Promise<void> {
-        this.logger.debug("Setup middlewares...");
+    private async setupMiddlewares(middlewares: Middleware[]): Promise<void> {
+        this.logger.debug("Setup middlewares...", { middlewares: middlewares.map((middleware) => middleware.constructor.name) });
 
         const composer = new Composer<Context>();
-        const middlewares = [
-            this.requestContextMiddleware,
-            this.responseTimeMiddleware,
-            this.requestLogMiddleware,
-            this.fillUserToContextMiddleware,
-        ];
 
         for (const middleware of middlewares) {
             middleware.setup(composer);
@@ -133,21 +131,6 @@ export class Bot {
         this.logger.debug("Filters successfully setup.");
     }
 
-    private async setupConversations(): Promise<void> {
-        this.logger.debug("Setup conversations...");
-
-        // None is left since /start became a plain reply; the plugin stays for the next one.
-        const conversationHandlers: ConversationHandler[] = [];
-
-        this.grammy.use(conversations());
-
-        for (const handler of conversationHandlers) {
-            this.grammy.use(createConversation(handler.handle.bind(handler), handler.name));
-        }
-
-        this.logger.debug("Conversations successfully setup.");
-    }
-
     private async setupCommands(fluent: Fluent): Promise<void> {
         this.logger.debug("Setup commands...");
 
@@ -174,22 +157,6 @@ export class Bot {
         this.grammy.use(composer);
 
         this.logger.debug("Commands successfully setup.");
-    }
-
-    // What no command took: an unknown command first, so that it does not get the hint for a text.
-    private async setupUnmatched(): Promise<void> {
-        this.logger.debug("Setup unmatched...");
-
-        const composer = new Composer<Context>();
-        const middlewares = [this.unknownCommandMiddleware, this.notAFileMiddleware];
-
-        for (const middleware of middlewares) {
-            middleware.setup(composer);
-        }
-
-        this.grammy.use(composer);
-
-        this.logger.debug("Unmatched successfully setup.");
     }
 
     private describeCommands(commands: Command[], fluent: Fluent, locale: Locale): BotCommand[] {

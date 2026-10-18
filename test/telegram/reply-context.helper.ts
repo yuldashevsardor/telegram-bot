@@ -6,6 +6,7 @@ import { createFluent } from "app/telegram/locale/locale";
 import type { Locale } from "app/telegram/locale/locale.types";
 import { DEFAULT_LOCALE } from "app/telegram/locale/locale.types";
 import type { SupportedFormats } from "app/telegram/supported-formats";
+import { HelpText } from "app/telegram/command/help/help-text";
 
 const ME = { id: 1, is_bot: true, first_name: "Bot", username: "test_bot" } as UserFromGetMe;
 
@@ -15,6 +16,9 @@ export type HandlerRun = { ctx: Context; replies: string[]; isPassedOn: boolean 
 
 // The list SupportedFormats gives for the pair matrix of today.
 export const supportedFormats = { toText: (): string => "TTF, OTF, WOFF, WOFF2, EOT, SVG" } as SupportedFormats;
+
+// The help with a contact of its own and the size limit of the cloud Bot API.
+export const helpText = new HelpText(supportedFormats, "@author", 20);
 
 // The context of a private message translated by the bundles of src/telegram, with the texts of
 // ctx.reply() recorded instead of sent.

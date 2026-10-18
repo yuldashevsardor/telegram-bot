@@ -1,13 +1,13 @@
 import "reflect-metadata";
 import { expect } from "chai";
 import { HelpText } from "app/telegram/command/help/help-text";
-import { replyContext, supportedFormats } from "test/telegram/reply-context.helper";
+import { helpText, replyContext, supportedFormats } from "test/telegram/reply-context.helper";
 
 describe("HelpText", function () {
     it("builds the help of the customer journey", async function () {
         const { ctx } = await replyContext({ text: "/help" });
 
-        expect(new HelpText(supportedFormats, "@author").build(ctx)).to.equal(
+        expect(helpText.build(ctx)).to.equal(
             [
                 "Как пользоваться:",
                 "1. Пришлите файл шрифта.",
@@ -26,7 +26,7 @@ describe("HelpText", function () {
     it("builds the help in the locale of the update", async function () {
         const { ctx } = await replyContext({ text: "/help" }, "en");
 
-        expect(new HelpText(supportedFormats, "@author").build(ctx)).to.equal(
+        expect(helpText.build(ctx)).to.equal(
             [
                 "How to use:",
                 "1. Send a font file.",
@@ -40,5 +40,12 @@ describe("HelpText", function () {
                 "Questions and bugs: @author.",
             ].join("\n"),
         );
+    });
+
+    // The limit is a setting: a local Bot API server downloads larger files than the cloud one.
+    it("names the size limit it is given", async function () {
+        const { ctx } = await replyContext({ text: "/help" });
+
+        expect(new HelpText(supportedFormats, "@author", 50).build(ctx)).to.include("Размер файла — до 50 МБ.");
     });
 });

@@ -9,7 +9,6 @@ import type { Database } from "app/platform/database/database";
 import { Tokens } from "app/shared/tokens";
 import { sleep } from "app/shared/utils";
 import type { Bot } from "app/telegram/bot/bot";
-import { MAX_DOWNLOAD_SIZE_MB } from "app/telegram/bot/bot.types";
 import type { InboxRunner } from "app/telegram/inbox/inbox-runner";
 import type { InboxStore } from "app/telegram/inbox/store/inbox-store";
 import type { InboxAttempt, InboxUpdateInput } from "app/telegram/inbox/store/inbox-store.types";
@@ -36,9 +35,11 @@ const MAX_ATTEMPTS = 3;
 // What the spec sets in the config of the application; the rest is its defaults and the database of
 // the run.
 const AUTHOR_CONTACT = "@author";
+const MAX_DOWNLOAD_SIZE_MB = 30;
 const CONFIG = {
     BOT_TOKEN: TOKEN,
     BOT_AUTHOR_CONTACT: AUTHOR_CONTACT,
+    BOT_MAX_DOWNLOAD_SIZE: String(MAX_DOWNLOAD_SIZE_MB),
     INBOX_MAX_ATTEMPTS: String(MAX_ATTEMPTS),
     // The retry delay of a millisecond: a retried update is claimed again at the next claim.
     OUTBOX_RETRY_FIRST_DELAY: "1",

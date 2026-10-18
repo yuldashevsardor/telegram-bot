@@ -1,12 +1,9 @@
 import "reflect-metadata";
 import { expect } from "chai";
 import type { Message, Sticker } from "@grammyjs/types";
-import { HelpText } from "app/telegram/command/help/help-text";
 import { UnknownCommandMiddleware } from "app/telegram/middleware/unknown-command.middleware";
 import type { HandlerRun } from "test/telegram/reply-context.helper";
-import { command, runHandler, supportedFormats } from "test/telegram/reply-context.helper";
-
-const helpText = new HelpText(supportedFormats, "@author");
+import { command, helpText, runHandler } from "test/telegram/reply-context.helper";
 
 function run(content: Partial<Message>): Promise<HandlerRun> {
     return runHandler(new UnknownCommandMiddleware(helpText), content);

@@ -33,6 +33,10 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
     // retention off now(), as the outbox does, and one that reaches past 4713 BC fails its cleanup.
     private static readonly INBOX_RETENTION_RANGE: IntegerRange = { min: MS_PER_DAY, max: Number.MAX_SAFE_INTEGER };
 
+    // The largest file a bot downloads (getFile), in MB: 20 on the cloud Bot API, while a local Bot
+    // API server has no such limit, so there is no ceiling.
+    private static readonly DOWNLOAD_SIZE_RANGE: IntegerRange = { min: 1 };
+
     // The connections the outbox takes besides its slots: the pull of the runner and the five
     // tasks of OutboxMaintenance, each one query at a time.
     private static readonly OUTBOX_CONNECTIONS_BESIDES_SLOTS = 6;
@@ -127,6 +131,7 @@ export class ConfigValuesBuilder implements ConfigBuilder<ConfigValues> {
             bot: {
                 token: parser.getString("BOT_TOKEN"),
                 authorContact: parser.getString("BOT_AUTHOR_CONTACT", "@y_sardor"),
+                maxDownloadSizeMb: parser.getInteger("BOT_MAX_DOWNLOAD_SIZE", 20, ConfigValuesBuilder.DOWNLOAD_SIZE_RANGE),
             },
 
             gracefulShutdown: {

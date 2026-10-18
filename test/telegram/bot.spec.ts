@@ -39,7 +39,7 @@ type Harness = {
 
 const ME = { id: 1, is_bot: true, first_name: "Bot", username: "test_bot" } as UserFromGetMe;
 
-const SETTINGS: BotSettings = { token: "test-token", authorContact: "@author" };
+const SETTINGS: BotSettings = { token: "test-token", authorContact: "@author", maxDownloadSizeMb: 20 };
 
 const USER_ID = 42;
 
@@ -287,14 +287,20 @@ describe("Bot", function () {
                     payload: { filters: ["RecordingHasSessionKeyFilter", "RecordingIsPrivateChatFilter"] },
                 },
                 { level: "debug", message: "Filters successfully setup.", payload: undefined },
-                { level: "debug", message: "Setup middlewares...", payload: undefined },
+                {
+                    level: "debug",
+                    message: "Setup middlewares...",
+                    payload: { middlewares: Array(4).fill("RecordingMiddleware") },
+                },
                 { level: "debug", message: "Middlewares successfully setup.", payload: undefined },
-                { level: "debug", message: "Setup conversations...", payload: undefined },
-                { level: "debug", message: "Conversations successfully setup.", payload: undefined },
                 { level: "debug", message: "Setup commands...", payload: undefined },
                 { level: "debug", message: "Commands successfully setup.", payload: undefined },
-                { level: "debug", message: "Setup unmatched...", payload: undefined },
-                { level: "debug", message: "Unmatched successfully setup.", payload: undefined },
+                {
+                    level: "debug",
+                    message: "Setup middlewares...",
+                    payload: { middlewares: ["RecordingMiddleware", "RecordingMiddleware"] },
+                },
+                { level: "debug", message: "Middlewares successfully setup.", payload: undefined },
             ]);
         });
     });
@@ -354,7 +360,7 @@ describe("Bot", function () {
             expect(translated).to.equal(fluent.withLocale("en")("start-command-description"));
         });
 
-        // Step 8 below step 7: a command the bot knows never reaches it.
+        // Step 7 below step 6: a command the bot knows never reaches it.
         it("hands an update no command took to the unknown command, then to the not-a-file answer", async function () {
             const { bot, events } = await setUp();
 

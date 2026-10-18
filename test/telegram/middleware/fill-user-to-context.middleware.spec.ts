@@ -31,9 +31,9 @@ describe("FillUserToContextMiddleware", function () {
         expect(ctx.getUser()).to.equal(created);
     });
 
-    // The conversations plugin clones the enumerable context properties into the op log and into
-    // sessions, and a clone of User is an empty object. A function it does not clone but restores
-    // by binding to the live context, so the user stays reachable inside a conversation as well.
+    // A plugin that snapshots the context, as the conversations plugin did, clones the enumerable
+    // properties into sessions, and a clone of User is an empty object. A function it does not
+    // clone but restores by binding to the live context.
     it("keeps the user out of the enumerable context properties", async function () {
         const { ctx } = await run(buildUser(), true);
 
