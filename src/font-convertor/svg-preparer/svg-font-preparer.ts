@@ -67,6 +67,7 @@ export class SvgFontPreparer {
         const { fontAdvance, fontGlyphs } = fontScan;
 
         // SvgFontValidator requires `horiz-adv-x` of `font`.
+        // Stryker disable next-line ConditionalExpression,BlockStatement: `false` and `{}` are equivalent: they differ only on a font without `horiz-adv-x`, which SvgFontValidator rejects before the engine is run
         if (fontAdvance === undefined) {
             return sourceText;
         }
@@ -98,6 +99,7 @@ export class SvgFontPreparer {
             forceXMLVersion: true,
             defaultXMLVersion: "1.0",
         });
+        // Stryker disable next-line ArrayDeclaration: `["Stryker was here"]` is equivalent: the entry under the root is never "font", the only parent name the walk checks, and no close tag pops it
         const openNames: Array<string> = [];
         const fontScan: FontScan = { fontAdvance: undefined, fontGlyphs: [] };
         // saxes counts its position in UTF-16 units, as the indexes of a string go.
@@ -257,7 +259,8 @@ export class SvgFontPreparer {
         const unicodeSpan = glyph.attributeSpans.get("unicode");
         const formSpan = glyph.attributeSpans.get("arabic-form");
 
-        if (unicodeValue === undefined || form === undefined || unicodeSpan === undefined || formSpan === undefined) {
+        // A glyph without `arabic-form` has no span of it either.
+        if (unicodeValue === undefined || unicodeSpan === undefined || formSpan === undefined) {
             return [];
         }
 

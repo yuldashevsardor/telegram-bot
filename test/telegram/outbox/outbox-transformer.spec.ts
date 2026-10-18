@@ -248,6 +248,9 @@ describe("OutboxTransformer", function () {
                     method: "sendMessage",
                     attemptError: attemptError,
                 });
+                expect((error as OutboxMessageFailed).message).to.equal(
+                    `Outbox message ${MESSAGE_ID} (sendMessage) failed without an answer from Telegram.`,
+                );
             });
         }
 
@@ -259,6 +262,9 @@ describe("OutboxTransformer", function () {
 
             expect(error).to.be.instanceOf(OutboxMessageSkipped);
             expect((error as OutboxMessageSkipped).payload).to.deep.equal({ messageId: MESSAGE_ID, method: "sendMessage" });
+            expect((error as OutboxMessageSkipped).message).to.equal(
+                `Outbox message ${MESSAGE_ID} (sendMessage) was skipped and not sent.`,
+            );
         });
 
         // The message stays queued and may still go out: only the wait is over.

@@ -71,13 +71,12 @@ export class InboxLeaseExtension {
     }
 
     // extend() runs from a timer, and nothing awaits it: a log that throws would reject it unhandled,
-    // and unhandledRejection ends the process (src/app.ts). The failure of the log itself has nowhere
-    // left to go.
+    // and unhandledRejection ends the process (src/app.ts).
     private logWarning(message: string, payload: UnknownObject): void {
         try {
             this.logger.warning(message, payload);
         } catch {
-            return;
+            // The failure of the log itself has nowhere left to go.
         }
     }
 }

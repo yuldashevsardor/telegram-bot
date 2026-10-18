@@ -66,11 +66,9 @@ export class InboxRunner {
         await this.runCompletion;
 
         const handlingsSettled = Promise.all([...this.handlingsInFlight.values()].map((handling) => handling.settled));
-        const haveHandlingsSettled = await withTimeout(handlingsSettled, this.stopDeadlineAtMs - Date.now());
-
-        if (haveHandlingsSettled) {
-            return;
-        }
+        // A handling leaves handlingsInFlight before its promise settles, so after a stop in time the walk
+        // below finds nothing to abort.
+        await withTimeout(handlingsSettled, this.stopDeadlineAtMs - Date.now());
 
         const writesOutsideHandlers: Promise<void>[] = [];
         const updateIdsLeftRunning: number[] = [];
@@ -182,13 +180,12 @@ export class InboxRunner {
     }
 
     // A log that throws, say on a payload its serializer refuses, would reject a promise nobody
-    // handles, and unhandledRejection ends the process (src/app.ts). There is nowhere left to report
-    // the failure of the log itself.
+    // handles, and unhandledRejection ends the process (src/app.ts).
     private logError(message: string, payload: UnknownObject): void {
         try {
             this.logger.error(message, payload);
         } catch {
-            return;
+            // There is nowhere left to report the failure of the log itself.
         }
     }
 }

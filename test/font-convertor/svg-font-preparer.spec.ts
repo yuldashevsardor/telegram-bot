@@ -120,6 +120,22 @@ describe("SvgFontPreparer.prepare", function () {
         expect(await prepared(fontDocument("0", glyphs))).to.equal(fontDocument("0", glyphs));
     });
 
+    it("keeps the initial and medial forms of a letter other than U+0649 and takes its isolated form off", async function () {
+        // fontforge reads the initial and medial forms under their presentation forms, so no glyph of the
+        // letter is left under it but the isolated one.
+        const glyphs =
+            '<glyph unicode="&#x628;" arabic-form="initial" horiz-adv-x="1"/><glyph unicode="&#x628;" arabic-form="medial" horiz-adv-x="1"/>' +
+            '<glyph unicode="&#x628;" arabic-form="isolated" horiz-adv-x="1"/>';
+
+        expect(await prepared(fontDocument("0", glyphs))).to.equal(fontDocument("0", glyphs.replace(' arabic-form="isolated"', "")));
+    });
+
+    it("leaves the form of a glyph without unicode as it is", async function () {
+        const source = fontDocument("0", '<glyph arabic-form="isolated" horiz-adv-x="1"/>');
+
+        expect(await prepared(source)).to.equal(source);
+    });
+
     it("keeps the isolated form of a ligature", async function () {
         const source = fontDocument("0", '<glyph unicode="&#x644;&#x627;" arabic-form="isolated" horiz-adv-x="1"/>');
 
@@ -271,7 +287,7 @@ describe("SvgFontPreparer.prepare", function () {
         const error = await rejectionOf(() => preparer.prepare(sourcePath, preparedPath));
 
         expect(error).to.be.instanceOf(UnpreparableSvgFont);
-        expect((error as UnpreparableSvgFont).message).to.not.include("secret-name");
+        expect((error as UnpreparableSvgFont).message).to.equal("The SVG font cannot be prepared for the engine: it is not XML.");
         expect((error as UnpreparableSvgFont).payload).to.deep.equal({ path: sourcePath });
     });
 
@@ -282,6 +298,9 @@ describe("SvgFontPreparer.prepare", function () {
 
         expect(error).to.be.instanceOf(UnpreparableSvgFont);
         expect((error as UnpreparableSvgFont).cause).to.be.instanceOf(TypeError);
+        expect((error as UnpreparableSvgFont).message).to.equal(
+            "The SVG font cannot be prepared for the engine: its bytes are not in its encoding.",
+        );
     });
 
     it("lets the read failure of a missing source through", async function () {

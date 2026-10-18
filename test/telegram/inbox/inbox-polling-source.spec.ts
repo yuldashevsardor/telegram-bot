@@ -271,18 +271,25 @@ describe("InboxPollingSource", function () {
             expect(store.stored.map((input) => [input.userId, input.chatId])).to.deep.equal([[OTHER_USER, CHAT]]);
         });
 
-        // A channel post has a chat but no user.
+        // A channel post has a chat but no user, an inline query a user but no chat.
         it("names in the warning which half of the session key an update lacks", async function () {
             const channelPost = {
                 update_id: 10,
                 channel_post: { message_id: 1, date: 0, chat: { id: CHAT, type: "channel", title: "Channel" }, text: "text" },
             } as Update;
-            api.answers.push([channelPost]);
+            const inlineQuery = {
+                update_id: 11,
+                inline_query: { id: "1", from: { id: USER, is_bot: false, first_name: "User" }, query: "", offset: "" },
+            } as Update;
+            api.answers.push([channelPost, inlineQuery]);
 
             source.start();
             await api.waitForGetUpdates(2);
 
-            expect(logger.warnings.map((record) => record.payload)).to.deep.equal([{ updateId: 10, hasFrom: false, hasChat: true }]);
+            expect(logger.warnings.map((record) => record.payload)).to.deep.equal([
+                { updateId: 10, hasFrom: false, hasChat: true },
+                { updateId: 11, hasFrom: true, hasChat: false },
+            ]);
         });
 
         it("drops an update without a user or a chat with a warning and stores the rest", async function () {

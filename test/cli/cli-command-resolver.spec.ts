@@ -50,12 +50,21 @@ describe("CliCommandResolver", function () {
         expect(outbox.calls).to.deep.equal([]);
     });
 
-    for (const args of [[], ["queue", "retry", "1"], ["Outbox", "retry"]]) {
-        it(`refuses the queue of "${args.join(" ")}" and asks no resolver`, function () {
+    const unknownCommands: Array<[string[], string]> = [
+        [[], ""],
+        [["queue", "retry", "1"], "queue retry"],
+        [["Outbox", "retry"], "Outbox retry"],
+    ];
+
+    for (const [args, shownCommand] of unknownCommands) {
+        it(`refuses the queue of "${args.join(" ")}", names the first two arguments and asks no resolver`, function () {
             const error = catchError(() => resolver.resolve(args));
 
             expect(error).to.be.instanceOf(UnknownCommand);
             expect((error as UnknownCommand).payload).to.deep.equal({ args });
+            expect((error as UnknownCommand).message).to.equal(
+                `There is no command "${shownCommand}": the first two arguments are <outbox|inbox> <retry|skip>.`,
+            );
             expect(outbox.calls.concat(inbox.calls)).to.deep.equal([]);
         });
     }
