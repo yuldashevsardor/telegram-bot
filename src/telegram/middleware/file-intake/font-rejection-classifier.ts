@@ -1,11 +1,12 @@
 import { injectable } from "inversify";
 import { Extension } from "app/font-convertor/font-convertor.types";
 import { InvalidEotFont, NotEot } from "app/font-convertor/validator/eot/eot-font-validator.errors";
-import { InvalidSfntFont, NotSfnt } from "app/font-convertor/validator/sfnt/sfnt-font-validator.errors";
+import { BrokenSfnt, InvalidSfntFont, NotSfnt } from "app/font-convertor/validator/sfnt/sfnt-font-validator.errors";
+import { SfntRule } from "app/font-convertor/validator/sfnt/sfnt-font-validator.types";
 import { InvalidSvgFont, NoFont, NotSvg, NotXml } from "app/font-convertor/validator/svg/svg-font-validator.errors";
 import { InvalidWoffFont, NotWoff } from "app/font-convertor/validator/woff/woff-font-validator.errors";
 import { InvalidWoff2Font, NotWoff2 } from "app/font-convertor/validator/woff2/woff2-font-validator.errors";
-import { FontRejection } from "app/telegram/middleware/file-intake/font-rejection-classifier.types";
+import { FontRejection } from "app/telegram/middleware/file-intake/font-rejection";
 
 type ErrorClass = abstract new (...args: never[]) => Error;
 
@@ -43,10 +44,22 @@ export class FontRejectionClassifier {
             return FontRejection.NotInFormat;
         }
 
+        if (this.isCollection(extension, error)) {
+            return FontRejection.NotInFormat;
+        }
+
         if (FontRejectionClassifier.INVALID_FONT.some((errorClass) => error instanceof errorClass)) {
             return FontRejection.Broken;
         }
 
         return undefined;
+    }
+
+    // A collection is a sound file of another format, TTC, under the name of one font: the advice to
+    // download a damaged font again would not help it.
+    private isCollection(extension: Extension, error: unknown): boolean {
+        const isSfntExtension = extension === Extension.TTF || extension === Extension.OTF;
+
+        return isSfntExtension && error instanceof BrokenSfnt && error.payload?.["rule"] === SfntRule.Collection;
     }
 }

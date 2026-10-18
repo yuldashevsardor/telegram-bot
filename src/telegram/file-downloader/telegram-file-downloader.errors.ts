@@ -1,5 +1,9 @@
 import { RuntimeError } from "app/shared/errors";
 
+/**
+ * The download of a file failed on the way: the inbox takes it for a transient failure, and the
+ * retry of the update asks getFile for the path again.
+ */
 export class TelegramFileNotDownloaded extends RuntimeError {
     // getFile answers without a path when the file cannot be downloaded right now; the Bot API
     // promises nothing more about it.
@@ -12,5 +16,20 @@ export class TelegramFileNotDownloaded extends RuntimeError {
             fileId: fileId,
             status: status,
         });
+    }
+
+    // A failure of fetch itself: the network, or the timeout of the download.
+    public static byFetchError(fileId: string, error: unknown): TelegramFileNotDownloaded {
+        return new TelegramFileNotDownloaded("The download of the file failed.", { fileId: fileId, cause: error });
+    }
+}
+
+/**
+ * getFile refused the file for its size: the message reported none, or a larger one than the limit
+ * of the bot lets through.
+ */
+export class TelegramFileTooBig extends RuntimeError {
+    public static byFileId(fileId: string, error: Error): TelegramFileTooBig {
+        return new TelegramFileTooBig("Telegram refused to give the file: it is too big.", { fileId: fileId, cause: error });
     }
 }

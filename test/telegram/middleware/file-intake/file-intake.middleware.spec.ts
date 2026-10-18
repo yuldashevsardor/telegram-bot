@@ -15,6 +15,7 @@ import type { HandlerRun } from "test/telegram/handler.helper";
 import { runHandler, supportedFormats } from "test/telegram/handler.helper";
 import { realFontValidatorResolver } from "test/font-convertor/convertor-factory.helper";
 import { ReadFailed } from "app/shared/fs/file-helper.errors";
+import { TelegramFileTooBig } from "app/telegram/file-downloader/telegram-file-downloader.errors";
 
 const FONTS_DIR = path.join(process.cwd(), "test", "fixtures", "fonts");
 const MAX_DOWNLOAD_SIZE_MB = 20;
@@ -27,6 +28,11 @@ type FileContent = () => Promise<Uint8Array | undefined>;
 
 // A download that leaves no file at the path it gives.
 const MISSING_FILE: FileContent = async () => undefined;
+
+// getFile refuses the file for its size.
+const TOO_BIG_FILE: FileContent = async () => {
+    throw TelegramFileTooBig.byFileId("file-id", new Error("Bad Request: file is too big"));
+};
 
 // Stands for Telegram: hands out the content the spec gives as a file of the temporary directory.
 class FakeFileDownloader {
@@ -89,7 +95,7 @@ describe("FileIntakeMiddleware", function () {
         const { replies, replyOptions, isPassedOn } = await run(document({ file_name: "MyFont.woff" }));
 
         expect(replies).to.deep.equal(["Это WOFF. Во что сконвертировать?"]);
-        expect(replyOptions[0]?.reply_parameters).to.deep.equal({ message_id: MESSAGE_ID });
+        expect(replyOptions[0]?.reply_parameters).to.deep.equal({ message_id: MESSAGE_ID, allow_sending_without_reply: true });
         expect(
             (replyOptions[0]?.reply_markup as InlineKeyboard).inline_keyboard.map((row) => row.map((button) => button.text)),
         ).to.deep.equal([["TTF", "OTF", "WOFF2"], ["EOT", "SVG"], ["Все форматы"]]);
@@ -126,6 +132,13 @@ describe("FileIntakeMiddleware", function () {
         const { replies } = await run(document({ file_name: "MyFont.woff", file_size: MAX_DOWNLOAD_SIZE_BYTES }));
 
         expect(replies).to.deep.equal(["Это WOFF. Во что сконвертировать?"]);
+    });
+
+    // A document without a size, or a limit above the one of getFile.
+    it("refuses a file getFile refuses for its size", async function () {
+        const { replies } = await run(document({ file_name: "MyFont.woff" }), TOO_BIG_FILE);
+
+        expect(replies).to.deep.equal(["Файл больше 20 МБ — Telegram не даёт ботам скачивать такие файлы."]);
     });
 
     // The size goes first: a file over the limit cannot be downloaded whatever its name.

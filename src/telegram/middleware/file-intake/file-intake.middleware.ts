@@ -1,6 +1,6 @@
 import { inject, injectable } from "inversify";
 import path from "path";
-import type { Api, NextFunction } from "grammy";
+import type { NextFunction } from "grammy";
 import type { Document } from "@grammyjs/types";
 import { Tokens } from "app/shared/tokens";
 import { configValue } from "app/shared/config-value";
@@ -12,8 +12,9 @@ import type { Context } from "app/telegram/bot/bot.types";
 import type { SupportedFormats } from "app/telegram/supported-formats";
 import type { FormatButtons } from "app/telegram/format-buttons/format-buttons";
 import type { TelegramFileDownloader } from "app/telegram/file-downloader/telegram-file-downloader";
+import { TelegramFileTooBig } from "app/telegram/file-downloader/telegram-file-downloader.errors";
 import type { FontRejectionClassifier } from "app/telegram/middleware/file-intake/font-rejection-classifier";
-import { FontRejection } from "app/telegram/middleware/file-intake/font-rejection-classifier.types";
+import { FontRejection } from "app/telegram/middleware/file-intake/font-rejection";
 
 // Takes a document and asks what to convert it into (docs/product/cjm.md, step 2). The checks go
 // from the cheapest: the size and the name come with the message, the content needs a download.
@@ -43,7 +44,7 @@ export class FileIntakeMiddleware extends Middleware {
 
         // getFile refuses a file over the limit, so the size Telegram reports is all there is to go by.
         if (document.file_size !== undefined && document.file_size > this.maxDownloadSizeMb * FileIntakeMiddleware.BYTES_PER_MB) {
-            await ctx.reply(ctx.t("file-intake-middleware-too-large", { maxDownloadSizeMb: this.maxDownloadSizeMb }));
+            await this.replyTooLarge(ctx);
 
             return;
         }
@@ -56,8 +57,23 @@ export class FileIntakeMiddleware extends Middleware {
             return;
         }
 
+        let sourceFontPath: string;
+
+        // A document without a size, or a limit set above the one of getFile, finds the size out here.
+        try {
+            sourceFontPath = await this.fileDownloader.download(ctx.api, document.file_id, sourceExtension);
+        } catch (error) {
+            if (!(error instanceof TelegramFileTooBig)) {
+                throw error;
+            }
+
+            await this.replyTooLarge(ctx);
+
+            return;
+        }
+
         const format = sourceExtension.toUpperCase();
-        const rejection = await this.validate(ctx.api, document, sourceExtension);
+        const rejection = await this.validate(sourceFontPath, sourceExtension);
 
         if (rejection === FontRejection.NotInFormat) {
             await ctx.reply(ctx.t("file-intake-middleware-not-in-format", { format: format }));
@@ -72,9 +88,16 @@ export class FileIntakeMiddleware extends Middleware {
         }
 
         await ctx.reply(ctx.t("file-intake-middleware-question", { format: format }), {
-            reply_parameters: { message_id: message.message_id },
+            // A document deleted during the check would fail a reply that requires it, and the failed
+            // call would block the chat. The question then stands alone, and the conversion finds no
+            // source for it.
+            reply_parameters: { message_id: message.message_id, allow_sending_without_reply: true },
             reply_markup: this.formatButtons.build(ctx, sourceExtension),
         });
+    }
+
+    private async replyTooLarge(ctx: Context): Promise<void> {
+        await ctx.reply(ctx.t("file-intake-middleware-too-large", { maxDownloadSizeMb: this.maxDownloadSizeMb }));
     }
 
     private findSupportedExtension(document: Document): Extension | undefined {
@@ -101,8 +124,7 @@ export class FileIntakeMiddleware extends Middleware {
 
     // The download serves the check alone: the conversion takes the file from Telegram again, by the
     // message the question replies to.
-    private async validate(api: Api, document: Document, sourceExtension: Extension): Promise<FontRejection | undefined> {
-        const sourceFontPath = await this.fileDownloader.download(api, document.file_id, sourceExtension);
+    private async validate(sourceFontPath: string, sourceExtension: Extension): Promise<FontRejection | undefined> {
         let rejection: FontRejection | undefined;
 
         await FileHelper.removeAfter(sourceFontPath, async () => {

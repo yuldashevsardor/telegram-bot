@@ -189,30 +189,37 @@ thing they keep in the session is the album `NotAFileMiddleware` answered last (
   their order ([`inbox.md`](./inbox.md)), so the first item is answered before the next is read.
 - `FileIntakeMiddleware` (`middleware/file-intake/`) takes a document and checks it in the order
   of [`cjm.md`](../product/cjm.md), step 2, from the cheapest. A refusal is one reply with the text
-  of its row of step 5 and no buttons:
-  1. The size Telegram reports in the message, `file_size`, against `BOT_MAX_DOWNLOAD_SIZE`:
-     `getFile` refuses a larger file, so nothing else is there to go by. A document without the
-     size passes.
-  2. The extension of `file_name`, in any case, against `SupportedFormats`. A document without a
-     name gets the text of an unsupported file with «Файл» in place of the name.
+  of its row of step 5 and no buttons; a document without a name is answered as `cjm.md` says under
+  that table.
+  1. The size Telegram reports in the message, `file_size`, against `BOT_MAX_DOWNLOAD_SIZE`
+     (why the reported size, `cjm.md`, step 5). A document without the size passes on.
+  2. The extension of `file_name`, in any case, against `SupportedFormats`.
   3. The content. `TelegramFileDownloader` (`file-downloader/`) calls `getFile`, which names no chat
-     and goes past the outbox, then downloads the file by plain HTTP from the path it gives into
-     `TEMP_DIR`, with a timeout of a minute. The validator of the format the extension names
-     (`FontValidatorResolver`, [`font-convertor.md`](./font-convertor.md), "Signatures") reads it,
-     and the file is removed whatever the outcome. `FontRejectionClassifier` sorts the error of the
-     validator: the `Not*` errors of the format of the extension (`NotSfnt` for TTF and OTF,
-     `NotXml`, `NotSvg` and `NoFont` for SVG) give "not in the format", every other error of a
-     validator, `NotSfnt` of the font inside a WOFF, a WOFF2 or an EOT file included, gives
-     "broken". Any other error, a failed download among them, is thrown on, and the inbox picks the
-     outcome of the update by it ([`inbox.md`](./inbox.md), "Failures").
+     and goes past the outbox, then downloads the file by plain HTTP, with the root and the token
+     of the same `Api`, into `TEMP_DIR`, with a timeout of a minute. A `getFile` that refuses the
+     file for its size (a document without `file_size`, or `BOT_MAX_DOWNLOAD_SIZE` above the limit
+     of the server) gives `TelegramFileTooBig`, and the person gets the text of a file over the
+     limit. A failed download gives `TelegramFileNotDownloaded`, which the inbox retries
+     ([`inbox.md`](./inbox.md), "Error classes"). The validator of the format the extension names
+     (`FontValidatorResolver`, [`font-convertor.md`](./font-convertor.md), "Signatures") reads the
+     file, and the file is removed whatever the outcome.
 
-  A font that passes gets `file-intake-middleware-question` in reply to its message with
-  `FormatButtons` (`format-buttons/`): the supported formats without the source in the order of
-  `SupportedFormats`, three to a row, and "Все форматы" on a row of its own. The callback data of a
-  button names the target alone, `convert:<extension>` or `convert:all`: a file id does not fit the
-  64 bytes Telegram allows, so the conversion is to find the source through the message the
-  question replies to. Nothing answers a press yet: `callback_query` is not in `ALLOWED_UPDATES`.
-  The download serves the check alone, so a document that passes the name costs a `getFile` and the
+     `FontRejectionClassifier` sorts the error of the validator into "not in the format" and
+     "broken"; which errors give the first is its `NOT_IN_FORMAT`. Only the errors of the format of
+     the extension count there: a `NotSfnt` of the font inside a WOFF, a WOFF2 or an EOT file says
+     that a file in its format is broken inside. A font collection named `.ttf` or `.otf` is "not
+     in the format" too, though the validator answers it with `BrokenSfnt`: it is a sound TTC, and
+     the advice to download a damaged font again would not help it. Any other error is thrown on,
+     and the inbox picks the outcome of the update by it ([`inbox.md`](./inbox.md), "Failures").
+
+  A font that passes gets `file-intake-middleware-question` in reply to its message with the
+  buttons of `FormatButtons` (`format-buttons/`), laid out as `cjm.md`, step 2, shows. The reply
+  sets `allow_sending_without_reply`: a document deleted during the check would otherwise fail the
+  reply with a 400, which blocks the chat in the outbox. The callback data of a button names the
+  target alone, `convert:<extension>` or `convert:all`: a file id does not fit the 64 bytes
+  Telegram allows, so the conversion is to find the source through the message the question
+  replies to. Nothing answers a press yet: `callback_query` is not in `ALLOWED_UPDATES`. The
+  download serves the check alone, so a document that passes the name costs a `getFile` and the
   download of the whole file.
 
 The list of formats in all of them comes from `SupportedFormats` (`telegram/supported-formats.ts`):

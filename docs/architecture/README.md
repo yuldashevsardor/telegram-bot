@@ -238,7 +238,7 @@ own only when it has files of its own or a role of its own among the siblings:
   together with their `locale/` bundles; `command/help/` also keeps `HelpText`, which builds the
   text of its bundle for the command and for `UnknownCommandMiddleware`, and
   `middleware/file-intake/` keeps `FontRejectionClassifier`, which sorts the refusals of the
-  validators for the middleware;
+  validators for the middleware, and `FontRejection`, the classes it sorts them into;
 - `validator/svg/` keeps `SvgFontValidator` together with its companions, its path data parser,
   the range check of the points of an outline and the text codec it shares with `SvgFontPreparer`,
   `validator/woff2/` keeps `Woff2FontValidator` together with its companions and its glyf
