@@ -2,8 +2,8 @@
 
 What a person sees in the bot, step by step, and what the bot says at each step. The file
 describes the journey the bot is meant to give. A step that is not built yet differs from the code,
-and the code is the authority on what is built. Today no handler takes a file (steps 2-4 and the
-rows of step 5 about a file).
+and the code is the authority on what is built. Today the buttons of step 2 do nothing (steps 3-4
+and the rows of step 5 about a conversion and a source the bot can no longer get).
 
 The texts are given in Russian, the default locale (`DEFAULT_LOCALE` in
 `telegram/locale/locale.types.ts`). The `en` bundle carries the same keys with a translation,
@@ -125,6 +125,19 @@ The answer can also follow a reply that did go out, when the handling failed aft
 the message.
 
 An album of photos gets the first row once, not once per photo.
+
+A document the Bot API gives no name (the clients of Telegram always send one) gets the row of an
+unsupported file with «Файл» in place of the quoted name: "Файл — не шрифт или формат, который я не
+знаю. Поддерживаю: {formats}."
+
+An SVG with no font in it, a drawing, gets the row of a file not in its format: the format is an
+SVG font. So does a font collection (TTC) named `.ttf` or `.otf`: it is sound, and the advice to
+download a damaged font again would not help it.
+
+When Telegram itself refuses to give a file for its size (the message reported no size, or a
+smaller one than the limit), the limit that refused it is unknown, and the row of a file over
+{maxDownloadSizeMb} MB goes without the number: "Файл слишком большой — Telegram не даёт ботам
+скачивать такие файлы."
 
 ## 6. /help
 

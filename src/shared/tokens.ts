@@ -102,9 +102,13 @@ export const Tokens = {
             FillUserToContext: Symbol.for("BotMiddlewareFillUserToContext"),
             UnknownCommand: Symbol.for("BotMiddlewareUnknownCommand"),
             NotAFile: Symbol.for("BotMiddlewareNotAFile"),
+            FileIntake: Symbol.for("BotMiddlewareFileIntake"),
         },
         SupportedFormats: Symbol.for("BotSupportedFormats"),
         HelpText: Symbol.for("BotHelpText"),
+        FormatButtons: Symbol.for("BotFormatButtons"),
+        TelegramFileDownloader: Symbol.for("BotTelegramFileDownloader"),
+        FontRejectionClassifier: Symbol.for("BotFontRejectionClassifier"),
         Fluent: Symbol.for("BotFluent"),
         FailedUpdateAnswer: Symbol.for("BotFailedUpdateAnswer"),
         Session: {

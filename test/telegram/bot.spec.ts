@@ -228,6 +228,7 @@ function build(settings: BotSettings = SETTINGS): Harness {
         new BulkMessagesCommand({} as OutboxStore, logger),
         new RecordingMiddleware("UnknownCommandMiddleware", events),
         new RecordingMiddleware("NotAFileMiddleware", events),
+        new RecordingMiddleware("FileIntakeMiddleware", events),
         supportedFormats,
         settings,
     );
@@ -432,7 +433,7 @@ describe("Bot", function () {
                 {
                     level: "debug",
                     message: "Setup middlewares...",
-                    payload: { middlewares: ["RecordingMiddleware", "RecordingMiddleware"] },
+                    payload: { middlewares: Array(3).fill("RecordingMiddleware") },
                 },
                 { level: "debug", message: "Middlewares successfully setup.", payload: undefined },
             ]);
@@ -494,7 +495,7 @@ describe("Bot", function () {
         });
 
         // Step 7 below step 6: a command the bot knows never reaches it.
-        it("hands an update no command took to the unknown command, then to the not-a-file answer", async function () {
+        it("hands an update no command took to the unknown command, the not-a-file answer, then the file intake", async function () {
             const { bot, events } = await setUp();
 
             await bot.grammy.handleUpdate(message("/unknown"));
@@ -502,6 +503,7 @@ describe("Bot", function () {
             expect(events.slice(events.indexOf("FillUserToContextMiddleware") + 1)).to.deep.equal([
                 "UnknownCommandMiddleware",
                 "NotAFileMiddleware",
+                "FileIntakeMiddleware",
                 "session write",
             ]);
         });

@@ -95,9 +95,15 @@ export type BotApiAnswerScript = (call: BotApiCall, callIndex: number) => ApiRes
 // given, <apiRoot>/bot<token>/<method> with a JSON body, or multipart/form-data for a call with a
 // file, and answers each by the script of the spec, in the HTTP status as in the body, as Telegram
 // does. Until a spec gives a script, it answers every call as Telegram answers an unknown method.
+// A download of a file, <apiRoot>/file/bot<token>/<file_path>, is no call: it is not recorded and
+// gets the file the spec serves at the path.
 export class FakeBotApi {
     public readonly calls: BotApiCall[] = [];
     private answer: BotApiAnswerScript = () => UNKNOWN_METHOD_ANSWER;
+    // The files it serves by the path getFile gives, <apiRoot>/file/bot<token>/<file_path>, and the
+    // statuses it refuses a path with.
+    private readonly files = new Map<string, Uint8Array>();
+    private readonly fileRefusals = new Map<string, number>();
     // A failure of the server itself, a bug of the spec. grammY takes the reset socket for a failed
     // call, which the outbox retries, so the failure surfaces only through throwIfFailed().
     private readonly failures: unknown[] = [];
@@ -127,6 +133,15 @@ export class FakeBotApi {
         this.answer = script;
     }
 
+    // A file at a path no file is served at gets a 404, as Telegram answers an unknown path.
+    public serveFile(filePath: string, content: Uint8Array): void {
+        this.files.set(filePath, content);
+    }
+
+    public refuseFile(filePath: string, status: number): void {
+        this.fileRefusals.set(filePath, status);
+    }
+
     // A call takes its place before its body is read, with an empty payload until then, so a call
     // whose body is still being read is left out: a check that no call came to a chat sees only the
     // calls read by the time it runs.
@@ -141,6 +156,14 @@ export class FakeBotApi {
     }
 
     private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
+        const [, filePath] = /^\/file\/bot[^/]+\/(.+)$/.exec(request.url ?? "") ?? [];
+
+        if (filePath !== undefined) {
+            this.handleFile(filePath, response);
+
+            return;
+        }
+
         const receivedAtMs = Date.now();
         const [, token = "", method = ""] = /^\/bot([^/]+)\/([^/]+)$/.exec(request.url ?? "") ?? [];
         const call: BotApiCall = { token: token, method: method, payload: {}, receivedAtMs: receivedAtMs };
@@ -152,6 +175,28 @@ export class FakeBotApi {
 
         response.writeHead(answer.ok ? httpStatus.HTTP_STATUS_OK : answer.error_code, { "content-type": "application/json" });
         response.end(JSON.stringify(answer));
+    }
+
+    private handleFile(filePath: string, response: ServerResponse): void {
+        const content = this.files.get(filePath);
+        const refusalStatus = this.fileRefusals.get(filePath);
+
+        if (refusalStatus !== undefined) {
+            response.writeHead(refusalStatus);
+            response.end();
+
+            return;
+        }
+
+        if (content === undefined) {
+            response.writeHead(httpStatus.HTTP_STATUS_NOT_FOUND);
+            response.end();
+
+            return;
+        }
+
+        response.writeHead(httpStatus.HTTP_STATUS_OK, { "content-type": "application/octet-stream" });
+        response.end(content);
     }
 }
 

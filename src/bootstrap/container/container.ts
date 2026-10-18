@@ -41,6 +41,10 @@ import { HelpText } from "app/telegram/command/help/help-text";
 import { UnknownCommandMiddleware } from "app/telegram/middleware/unknown-command.middleware";
 import { NotAFileMiddleware } from "app/telegram/middleware/not-a-file/not-a-file.middleware";
 import { SupportedFormats } from "app/telegram/supported-formats";
+import { FileIntakeMiddleware } from "app/telegram/middleware/file-intake/file-intake.middleware";
+import { FontRejectionClassifier } from "app/telegram/middleware/file-intake/font-rejection-classifier";
+import { FormatButtons } from "app/telegram/format-buttons/format-buttons";
+import { TelegramFileDownloader } from "app/telegram/file-downloader/telegram-file-downloader";
 import { OutboxStore } from "app/telegram/outbox/store/outbox-store";
 import { RetryDelay } from "app/telegram/retry-delay/retry-delay";
 import { OutboxFinishedMessageReader } from "app/telegram/outbox/outbox-finished-message-reader";
@@ -191,6 +195,7 @@ export class Container extends InversifyContainer {
         this.bind<FillUserToContextMiddleware>(Tokens.Bot.Middleware.FillUserToContext).to(FillUserToContextMiddleware).inSingletonScope();
         this.bind<UnknownCommandMiddleware>(Tokens.Bot.Middleware.UnknownCommand).to(UnknownCommandMiddleware).inSingletonScope();
         this.bind<NotAFileMiddleware>(Tokens.Bot.Middleware.NotAFile).to(NotAFileMiddleware).inSingletonScope();
+        this.bind<FileIntakeMiddleware>(Tokens.Bot.Middleware.FileIntake).to(FileIntakeMiddleware).inSingletonScope();
 
         // Commands
         this.bind<StartCommand>(Tokens.Bot.Command.Start).to(StartCommand).inSingletonScope();
@@ -203,12 +208,17 @@ export class Container extends InversifyContainer {
         // What the texts of the bot share
         this.bind<SupportedFormats>(Tokens.Bot.SupportedFormats).to(SupportedFormats).inSingletonScope();
         this.bind<HelpText>(Tokens.Bot.HelpText).to(HelpText).inSingletonScope();
+        this.bind<FormatButtons>(Tokens.Bot.FormatButtons).to(FormatButtons).inSingletonScope();
         // Read from disk once: the pipeline translates with it, and so does the answer to a failed
         // update outside it. From the running code (__dirname), not from rootDir: build/ has its own
         // copies of the `.ftl`, and a path from cwd would read them from src/, which a deployment does
         // not have (docs/architecture/i18n.md).
         this.bind<Fluent>(Tokens.Bot.Fluent).toConstantValue(await createFluent(path.join(__dirname, "..", "..", "telegram")));
         this.bind<FailedUpdateAnswer>(Tokens.Bot.FailedUpdateAnswer).to(FailedUpdateAnswer).inSingletonScope();
+
+        // A file a person sends
+        this.bind<TelegramFileDownloader>(Tokens.Bot.TelegramFileDownloader).to(TelegramFileDownloader).inSingletonScope();
+        this.bind<FontRejectionClassifier>(Tokens.Bot.FontRejectionClassifier).to(FontRejectionClassifier).inSingletonScope();
     }
 
     private async setupPlatform(): Promise<void> {

@@ -6,6 +6,7 @@ import type { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failu
 import { TelegramBotApiFailureKind } from "app/telegram/bot-api-failure-classifier/telegram-bot-api-failure-classifier.types";
 import { InboxFailureKind } from "app/telegram/inbox/failure-classifier/inbox-failure-classifier.types";
 import { OutboxResultTimeout } from "app/telegram/outbox/result-waiter/outbox-result-waiter.errors";
+import { TelegramFileNotDownloaded } from "app/telegram/file-downloader/telegram-file-downloader.errors";
 
 // The codes of an error that says the database or the way to it went away, not that the query was
 // wrong. postgres.js gives the first three to a query its own connection lost (Errors.connection()
@@ -69,6 +70,12 @@ export class InboxFailureClassifier {
 
         if (error instanceof OutboxResultTimeout) {
             return InboxFailureKind.ReplyTimeout;
+        }
+
+        // The download of a file goes past grammY, so its failure is no HttpError, and a retry asks
+        // getFile for the path again.
+        if (error instanceof TelegramFileNotDownloaded) {
+            return InboxFailureKind.Transient;
         }
 
         if (this.isTransientDatabaseOrNetworkFailure(error)) {

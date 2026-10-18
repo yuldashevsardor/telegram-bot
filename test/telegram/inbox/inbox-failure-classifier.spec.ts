@@ -7,6 +7,7 @@ import { TelegramBotApiFailureClassifier } from "app/telegram/bot-api-failure-cl
 import { InboxFailureClassifier } from "app/telegram/inbox/failure-classifier/inbox-failure-classifier";
 import { InboxFailureKind } from "app/telegram/inbox/failure-classifier/inbox-failure-classifier.types";
 import { OutboxResultTimeout, OutboxResultWaiterStopped } from "app/telegram/outbox/result-waiter/outbox-result-waiter.errors";
+import { TelegramFileNotDownloaded } from "app/telegram/file-downloader/telegram-file-downloader.errors";
 import { telegramError } from "test/telegram/telegram-bot-api-failure-classifier.helper";
 
 // The OUTBOX_RESULT_TIMEOUT a reply timeout reports: the classifier reads only the class of the error.
@@ -125,6 +126,26 @@ describe("InboxFailureClassifier", function () {
             first.cause = second;
 
             expect(classifier.classify(first)).to.equal(InboxFailureKind.Unexpected);
+        });
+    });
+
+    describe("a download of a file", function () {
+        it("takes a failed download for transient, whatever failed it", function () {
+            const failures = [
+                TelegramFileNotDownloaded.byStatus("file-id", 502),
+                TelegramFileNotDownloaded.byFetchError("file-id", new DOMException("The operation timed out.", "TimeoutError")),
+                TelegramFileNotDownloaded.withoutPath("file-id"),
+            ];
+
+            expect(failures.map((failure) => classifier.classify(failure))).to.deep.equal(
+                Array(failures.length).fill(InboxFailureKind.Transient),
+            );
+        });
+
+        it("takes a wrapped failed download for transient", function () {
+            const wrapped = new RuntimeError("The handler failed", TelegramFileNotDownloaded.byStatus("file-id", 502));
+
+            expect(classifier.classify(wrapped)).to.equal(InboxFailureKind.Transient);
         });
     });
 
