@@ -23,6 +23,8 @@ describe("ArgumentsHelper", function () {
         ["an integer with a fraction", ["1.5"]],
         ["an integer with a sign after the digits", ["1-"]],
         ["an integer with a letter before the digits", ["a1"]],
+        ["an integer with a plus sign", ["+1"]],
+        ["an integer in exponent notation", ["1e3"]],
         ["an integer beyond the safe integers", ["9007199254740993"]],
     ];
 
@@ -73,6 +75,7 @@ describe("ArgumentsHelper", function () {
 
         expect(error).to.be.instanceOf(UnsupportedArgumentRule);
         expect((error as UnsupportedArgumentRule).payload).to.deep.equal({ rule: "text" });
+        expect((error as UnsupportedArgumentRule).message).to.equal('There is no rule to read an argument by "text".');
     });
 
     it("refuses a second argument that is not a number", function () {

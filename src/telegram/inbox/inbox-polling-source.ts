@@ -176,6 +176,7 @@ export class InboxPollingSource {
             // The stop waits for the push in flight, not for the rest of the batch: the next start gets
             // it again.
             if (this.isStopped()) {
+                // Stryker disable next-line BooleanLiteral: `true` is equivalent: after the stop the loop of run() ends either way, and the offset it would move lives only in that call
                 return false;
             }
 

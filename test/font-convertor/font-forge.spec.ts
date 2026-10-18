@@ -108,6 +108,9 @@ describe("FontForge.convert", function () {
         const glyphs = await glyphsByName(distPath);
         expect(glyphs.get("uni06D5")).to.include({ unicode: "\u0647", "arabic-form": "isolated" });
         expect(glyphs.get("uni06D5.u06D5")).to.include({ unicode: "\u06D5", "horiz-adv-x": "408" });
+        // The copy draws the glyph, not an empty outline under the same advance.
+        expect(glyphs.get("uni06D5")?.["d"]).to.be.a("string").and.not.empty;
+        expect(glyphs.get("uni06D5.u06D5")?.["d"]).to.equal(glyphs.get("uni06D5")?.["d"]);
         expect([...glyphs.keys()].filter((glyphName) => glyphName.startsWith("uniFBE8."))).to.be.empty;
     });
 
@@ -294,4 +297,16 @@ describe("FontForge.convert", function () {
             (error: unknown) => error,
         );
     }
+});
+
+describe("ExecuteError.bySource", function () {
+    it("keeps a caught value that is not an Error under cause in the payload", function () {
+        const error = ExecuteError.bySource("/x/font.ttf", "SIGKILL");
+
+        // RuntimeError lifts only an Error into the native cause, so the string stays in payload. The
+        // message is the fallback, because the caught value has none.
+        expect(error.message).to.equal("The engine failed.");
+        expect(error.cause).to.be.undefined;
+        expect(error.payload).to.deep.equal({ path: "/x/font.ttf", cause: "SIGKILL" });
+    });
 });

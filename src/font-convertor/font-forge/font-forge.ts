@@ -53,6 +53,7 @@ export class FontForge {
         "        hasEncodedComponents = all(name in font and font[name].unicode != -1 for name in components)",
         "        if isLigaOrRlig and len(components) > 1 and hasEncodedComponents:",
         "            return True",
+        // Stryker disable next-line StringLiteral: `""` is equivalent: without the line the function returns None, which the if reads as false as well
         "    return False",
         // createChar returns the glyph that already has the name, and the copy would overwrite it.
         "def freeCopyName(glyph, codePoint):",
